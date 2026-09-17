@@ -51,22 +51,6 @@ export interface AgentGroupDefinition {
 
 export const AGENT_GROUPS: AgentGroupDefinition[] = [
   {
-    id: 'intent',
-    label: 'Intent & routing',
-    description:
-      'Classifies each message (meta vs research, shallow vs deep) and writes short meta answers. High-frequency, latency-sensitive.',
-    configLlmRefs: ['intent_llm'],
-    // The intent LLM runs with reasoning disabled: config_oib_openrouter.yml
-    // `intent_llm` sets `reasoning_effort: none`. Pointing this group at a
-    // reasoning-mandatory model (incident: org override `intent ->
-    // x-ai/grok-4.5`) makes OpenRouter reject every intent call with HTTP 400
-    // "Reasoning is mandatory for this endpoint and cannot be disabled".
-    // `reasoningOff` filters those out via a denylist of known reasoning-only
-    // families (isReasoningSafeForOff); hybrid models that accept reasoning-off
-    // — nearly the whole modern catalog — stay selectable.
-    requirements: { requiredParameters: [], minContextLength: 16384, reasoningOff: true },
-  },
-  {
     id: 'clarifier',
     label: 'Clarifier',
     description:
@@ -75,10 +59,18 @@ export const AGENT_GROUPS: AgentGroupDefinition[] = [
     requirements: { requiredParameters: ['tools'], minContextLength: 32768 },
   },
   {
+    // The `id` is a PERSISTED KEY and deliberately keeps the old spelling: it
+    // is the value stored in `platform_models.agent_group` for every org that
+    // re-pointed this agent's model, and in the `X-Grid-Model-Overrides`
+    // header. Only the label moved when the agent stopped being "the shallow
+    // one" — which is exactly what the label exists for. Do not "finish" the
+    // rename here: an unknown group id is dropped silently on both sides
+    // (`sanitize_model_overrides` in `common/model_overrides.py`), so every
+    // live override would revert to the platform default with no error.
     id: 'shallow_research',
-    label: 'Shallow research',
+    label: 'Research',
     description: 'The default research agent: iterative tool-calling over knowledge and web sources.',
-    configLlmRefs: ['shallow_llm'],
+    configLlmRefs: ['research_llm'],
     requirements: { requiredParameters: ['tools'], minContextLength: 65536 },
   },
   {

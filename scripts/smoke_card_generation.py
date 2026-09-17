@@ -1,12 +1,12 @@
 """Live smoke test for Grid card generation.
 
-Reconstructs the minimal real path used by ``ChatResearcherAgent._generate_cards``
-(see src/aiq_agent/agents/chat_researcher/agent.py) without needing the full NAT
-builder/graph: build the shared card-generation system prompt from
-``aiq_agent.cards.prompt``, call the real OpenRouter chat/completions endpoint
-with the ``card_generator_llm`` model configured in
-``configs/config_oib_openrouter.yml`` (card_llm), and validate the
-response through the real ``aiq_agent.cards.models.validate_cards``.
+Reconstructs the minimal real path the job runner takes to derive cards from
+a finished report (``aiq_api.jobs.runner._generate_grid_cards`` →
+``aiq_agent.cards.generate``) without needing the full NAT builder/graph:
+build the shared card-generation system prompt from ``aiq_agent.cards.prompt``,
+call the real OpenRouter chat/completions endpoint with the ``card_llm`` model
+configured in ``configs/config_oib_openrouter.yml``, and validate the response
+through the real ``aiq_agent.cards.models.validate_cards``.
 
 Run inside the backend Docker image so it has deps + the OPENROUTER_API_KEY:
 
@@ -27,7 +27,7 @@ from aiq_agent.cards.generate import _parse_cards_text
 from aiq_agent.cards.models import validate_cards
 from aiq_agent.cards.prompt import build_card_generation_prompt
 
-# Model wired as card_generator_llm in configs/config_oib_openrouter.yml.
+# The `card_llm` model in configs/config_oib_openrouter.yml.
 MODEL_NAME = "openai/gpt-5.6-luna"
 BASE_URL = "https://openrouter.ai/api/v1"
 

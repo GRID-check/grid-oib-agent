@@ -1,10 +1,16 @@
 """Materialising a finished job run into the conversation it was given.
 
-A job whose ``output`` is ``chat`` is a scheduled prompt whose result should be
-a REAL thread — one a colleague opens from the job's run history, reads, and
-keeps typing into. The BFF creates that conversation when the job fires and
-sends its id along with the run; this module is the other half, writing the
-question and the answer into it once the run finishes.
+**A run is ONE message in the thread that commissioned it** (ADR-0062). The BFF
+mints that message when the run is submitted — empty, carrying the run ledger
+the runner grows as it works — and this module fills in the finished report.
+There is no question row: nobody typed a question, and the prompt is on the run.
+
+The older shape is still here, one `if` below, and still correct for the runs
+that have no such message: an interactive deep-research job (no ``task_runs`` row
+exists for it) and every run submitted before this design. Those get what they
+always got — the prompt as a user turn and the answer as an assistant turn, in
+the conversation the job was given. The BFF's 404 is what tells the two apart, so
+the two services can deploy in either order without losing anybody's report.
 
 Two rules shape everything here.
 
@@ -28,6 +34,7 @@ from datetime import timedelta
 from typing import Any
 
 from ..websocket_reconnect import post_internal_conversation_message
+from ..websocket_reconnect import post_internal_run_report
 
 logger = logging.getLogger(__name__)
 
@@ -112,6 +119,76 @@ def _message_id(conversation_id: str, job_id: str, role: str) -> str:
     return str(uuid.uuid5(_JOB_MESSAGE_NAMESPACE, f"grid:job:{conversation_id}:{job_id}:{role}"))
 
 
+def report_message_id(conversation_id: str | None, job_id: str) -> str | None:
+    """The id of the row :func:`write_job_turn` writes the report into.
+
+    Public because the run ledger's ``result.reportMessageId`` has to name that
+    same row, and deriving it a second time somewhere else is how two ids for
+    one message start disagreeing after a rename. None when the job was given no
+    conversation, which is also when no report message is written.
+    """
+    if not conversation_id:
+        return None
+    return _message_id(conversation_id, job_id, "assistant")
+
+
+def _answer_metadata(
+    *,
+    job_id: str,
+    cards: list[Any] | None,
+    skills_activated: list[str] | None,
+    sources: list[Any] | None,
+    transparency: dict[str, Any] | None,
+) -> dict[str, Any]:
+    """Everything a finished answer says ABOUT itself, in the backend's spelling.
+
+    One dict for both destinations — the run's own message and the fallback
+    thread turn — so the two cannot come to describe the same answer differently.
+    """
+    metadata: dict[str, Any] = {"job_id": job_id}
+    if cards:
+        metadata["cards"] = cards
+    # The persisted assistant row carries the backend job id, so the existing
+    # "view report" affordance lights up on it for free — the UI keys that off
+    # `deep_research_job_id` on the message, not off anything job-specific. Kept
+    # alongside the run id the message row itself now carries (migration 0091):
+    # the UI retires this key on its own schedule, not on this file's.
+    metadata["deep_research_job_id"] = job_id
+    if skills_activated:
+        metadata["skills_activated"] = list(skills_activated)
+    if sources:
+        metadata["sources"] = list(sources)
+    # Guarded on its own, like the writes it feeds: transparency is bookkeeping
+    # ABOUT a finished answer and must never cost the reader the answer itself.
+    # A malformed payload costs them the caveat — bad, and logged — where an
+    # unguarded merge would cost them the whole thread message (non-fatal).
+    try:
+        metadata.update(_transparency_metadata(transparency))
+    except Exception:  # noqa: BLE001 — best-effort by contract; see module docstring
+        logger.warning(
+            "Could not attach answer transparency to the thread message for job %s (non-fatal)",
+            job_id,
+            exc_info=True,
+        )
+    return metadata
+
+
+async def _write_into_run_message(*, job_id: str, text: str, metadata: dict[str, Any]) -> str | None:
+    """Try the run's own message; the id it landed in, or None when it did not.
+
+    The guard is this module's first rule applied to a second door: the helper
+    below already answers ``None`` for every ordinary refusal, so anything that
+    escapes it is a surprise — and a surprise must cost the reader nothing more
+    than the tidier shape. ``None`` sends the caller to the older path, which
+    still has a conversation to write into.
+    """
+    try:
+        return await post_internal_run_report(job_id=job_id, text=text, metadata=metadata)
+    except Exception:  # noqa: BLE001 — best-effort by contract; see module docstring
+        logger.warning("Could not write into the run message for job %s (non-fatal)", job_id, exc_info=True)
+        return None
+
+
 def _organization_id(usage_context: dict | None) -> str | None:
     return ((usage_context or {}).get("identity") or {}).get("organization_id")
 
@@ -127,8 +204,13 @@ async def write_job_turn(
     skills_activated: list[str] | None = None,
     sources: list[Any] | None = None,
     transparency: dict[str, Any] | None = None,
-) -> None:
+) -> str | None:
     """Write the job's question and its answer into the conversation.
+
+    Returns the id of the message the answer landed in — the run's own message
+    when it has one, the derived assistant row otherwise — so the run's ledger
+    names the same row (``result.reportMessageId``). None when nothing was
+    written.
 
     No conversation id (a deep-research job, or one whose conversation could
     not be created) means there is nothing to do and no HTTP call is made.
@@ -160,8 +242,26 @@ async def write_job_turn(
     to nobody who came back later. Keys are the backend's wire spelling, for the
     same reason ``sources`` is (see ``_TRANSPARENCY_METADATA_KEYS``).
     """
+    metadata = _answer_metadata(
+        job_id=job_id,
+        cards=cards,
+        skills_activated=skills_activated,
+        sources=sources,
+        transparency=transparency,
+    )
+
+    # THE RUN'S OWN MESSAGE FIRST. A run is one message in the thread that
+    # commissioned it, minted empty when the run was submitted and carrying its
+    # ledger since; the report belongs IN it, not in a second turn beside a
+    # question nobody typed. ``False`` means this run has no such message — an
+    # interactive deep-research job, or a run older than the design — and the
+    # question-and-answer pair below is what those still get.
+    landed = await _write_into_run_message(job_id=job_id, text=answer, metadata=metadata)
+    if landed is not None:
+        return landed
+
     if not conversation_id:
-        return
+        return None
 
     organization_id = _organization_id(usage_context)
     if not organization_id:
@@ -169,7 +269,7 @@ async def write_job_turn(
             "Job %s has a conversation but no organization id; skipping the conversation write",
             job_id,
         )
-        return
+        return None
 
     # ORDER IS BY TIMESTAMP, NOT BY INSERTION. The reader sorts by createdAt
     # and breaks ties on a random uuid, so two rows written in the same
@@ -178,30 +278,6 @@ async def write_job_turn(
     # answer rather than the reverse.
     now = datetime.now(UTC)
     asked_at = (now - timedelta(seconds=1)).isoformat()
-
-    metadata: dict[str, Any] = {"job_id": job_id}
-    if cards:
-        metadata["cards"] = cards
-    # The persisted assistant row carries the backend job id, so the existing
-    # "view report" affordance lights up on it for free — the UI keys that off
-    # `deep_research_job_id` on the message, not off anything job-specific.
-    metadata["deep_research_job_id"] = job_id
-    if skills_activated:
-        metadata["skills_activated"] = list(skills_activated)
-    if sources:
-        metadata["sources"] = list(sources)
-    # Guarded on its own, like the write below: transparency is bookkeeping
-    # ABOUT a finished answer and must never cost the reader the answer itself.
-    # A malformed payload costs them the caveat — bad, and logged — where an
-    # unguarded merge would cost them the whole thread message (non-fatal).
-    try:
-        metadata.update(_transparency_metadata(transparency))
-    except Exception:  # noqa: BLE001 — best-effort by contract; see module docstring
-        logger.warning(
-            "Could not attach answer transparency to the thread message for job %s (non-fatal)",
-            job_id,
-            exc_info=True,
-        )
 
     try:
         await post_internal_conversation_message(
@@ -229,6 +305,8 @@ async def write_job_turn(
             job_id,
             exc_info=True,
         )
+        return None
+    return report_message_id(conversation_id, job_id)
 
 
 async def write_job_notice(
@@ -240,12 +318,18 @@ async def write_job_notice(
 ) -> None:
     """Say in the thread that the run produced nothing.
 
-    The conversation is created when the job FIRES, before the outcome is
-    known. Without this, a failed run leaves a thread someone opens to find
-    completely empty — which reads as a broken product rather than a failed
-    run. The interactive path never needs this: there is always a human on a
-    socket watching it happen.
+    The run's message exists from the moment the run is submitted, before the
+    outcome is known. Without this it stays empty for good — which reads as a
+    broken product rather than a failed run. The interactive path never needs
+    this: there is always a human on a socket watching it happen.
+
+    Same order as the turn above: into the run's own message when it has one, so
+    the failure is stated in the place the reader has been watching, and only
+    otherwise as a message of its own.
     """
+    if await _write_into_run_message(job_id=job_id, text=notice, metadata={"job_id": job_id}) is not None:
+        return
+
     if not conversation_id:
         return
 

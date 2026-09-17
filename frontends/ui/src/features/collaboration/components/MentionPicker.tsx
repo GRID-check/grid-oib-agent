@@ -379,7 +379,6 @@ export const MentionPicker = forwardRef<MentionPickerHandle, MentionPickerProps>
 
             {candidate.isAgent ? (
               <Badge variant="secondary" className="shrink-0 gap-1">
-                <Sparkles aria-hidden />
                 {t('mentions.picker.badgeAgent')}
               </Badge>
             ) : candidate.needsInvite && !blocked ? (

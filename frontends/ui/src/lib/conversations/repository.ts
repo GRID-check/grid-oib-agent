@@ -12,8 +12,9 @@
  */
 
 import 'server-only'
-import { and, desc, eq, exists, inArray, isNull, ne, or, sql } from 'drizzle-orm'
+import { and, desc, eq, exists, inArray, isNotNull, isNull, ne, or, sql } from 'drizzle-orm'
 import { getDb } from '@/lib/db'
+import { stripJsonNullBytes } from '@/lib/text/jsonb'
 import {
   conversationReads,
   conversations,
@@ -421,6 +422,68 @@ export async function deleteConversationInOrg(conversationId: string, organizati
  * Callers must have resolved the conversation through `findConversationInOrg`
  * first — this query is scoped by conversation id only.
  */
+/**
+ * The most recent messages in a project's conversations that carry a card
+ * decision (`metadata.cardInteractions`), newest first.
+ *
+ * Read for the agent, not for a person: the decisions a project made about
+ * the agent's own proposals are folded into the memory digest so a declined
+ * profile patch is not proposed again next turn (ADR-0030's open question).
+ * Tenant-scoped through the conversation's organization, and bounded — a
+ * project's whole history of decisions is not what the next turn needs.
+ */
+export async function listRecentMessagesWithCardDecisions(
+  projectId: string,
+  organizationId: string,
+  limit: number,
+): Promise<Array<{ metadata: unknown; createdAt: Date }>> {
+  const db = getDb()
+  const rows = await db
+    .select({ metadata: messages.metadata, createdAt: messages.createdAt })
+    .from(messages)
+    .innerJoin(conversations, eq(conversations.id, messages.conversationId))
+    .where(
+      and(
+        eq(conversations.projectId, projectId),
+        eq(conversations.organizationId, organizationId),
+        isNull(conversations.deletedAt),
+        sql`${messages.metadata} ? 'cardInteractions'`,
+      ),
+    )
+    .orderBy(desc(messages.createdAt), desc(messages.id))
+    .limit(limit)
+  // Raw column values are not runtime-validated — coerce at the boundary.
+  return rows.map((row) => ({ metadata: row.metadata, createdAt: new Date(row.createdAt) }))
+}
+
+/**
+ * The stored `run_ledger` of each run message named, by message id
+ * (ADR-0062). Only the ledger column crosses, not the message: the Tasks list
+ * reads a phase and two tallies off it, and a run's report can be long.
+ *
+ * Bounded by the caller's list — the ids of one page of `task_runs` — and by
+ * `LIMIT` to the same number, so a widened caller cannot turn this into a
+ * table scan. `run_id IS NOT NULL` is the partial index's own predicate
+ * (`idx_messages_run_id`), so the lookup rides it. Tenant-scoped by the
+ * caller's context; the ids come off rows RLS already filtered.
+ *
+ * The values are UNSANITISED jsonb — `sanitizeRunLedger` at the consumer, as
+ * every other reader of this column does.
+ */
+export async function listRunLedgersByMessageIds(
+  messageIds: readonly string[],
+): Promise<Map<string, unknown>> {
+  const ids = [...new Set(messageIds)]
+  if (ids.length === 0) return new Map()
+  const db = getDb()
+  const rows = await db
+    .select({ id: messages.id, ledger: sql<unknown>`${messages.metadata} -> 'run_ledger'` })
+    .from(messages)
+    .where(and(inArray(messages.id, ids), isNotNull(messages.runId)))
+    .limit(ids.length)
+  return new Map(rows.map((row) => [row.id, row.ledger]))
+}
+
 export async function listMessagesForConversation(
   conversationId: string,
   limit = MESSAGE_LIST_LIMIT,
@@ -466,10 +529,18 @@ export async function findMessageInConversation(
 /**
  * Insert messages, skipping ids that already exist (client retries replay the
  * same client-generated id; a duplicate must not fail the whole batch).
+ *
+ * `metadata` is stripped of NUL bytes first: Postgres `jsonb` rejects U+0000
+ * outright, and agent content carries extracted document text that can hold a
+ * stray one (see `@/lib/text/jsonb`). A poisoned turn must not fail its own
+ * persist.
  */
 export async function insertMessages(values: NewMessage[]): Promise<Message[]> {
   const db = getDb()
-  return db.insert(messages).values(values).onConflictDoNothing().returning()
+  const safe = values.map((value) =>
+    value.metadata == null ? value : { ...value, metadata: stripJsonNullBytes(value.metadata) }
+  )
+  return db.insert(messages).values(safe).onConflictDoNothing().returning()
 }
 
 /**
@@ -524,7 +595,54 @@ export async function mergeMessageMetadata(
       }
     }
 
-    const [row] = await tx.update(messages).set({ metadata: merged }).where(scope).returning()
+    // Stripped of NUL bytes before the write: Postgres `jsonb` rejects U+0000
+    // outright, and the merged payload re-writes stored agent content (cards,
+    // citations from extracted document text) that no PATCH-time sanitizer
+    // ever saw (err2issue #581/#579/#576). See `@/lib/text/jsonb`.
+    const [row] = await tx
+      .update(messages)
+      .set({ metadata: stripJsonNullBytes(merged) })
+      .where(scope)
+      .returning()
+    return row ?? null
+  })
+}
+
+/**
+ * Fill in a message that already exists: its content, and a metadata merge.
+ *
+ * The one writer is a finished run filling in its own message (`lib/runs/
+ * service.ts`). Every other producer of an assistant turn INSERTS it, which is
+ * why `insertMessages` can no-op on conflict and this cannot: the run's message
+ * is minted empty at submit time, so „upsert" would silently discard the report
+ * it exists to hold.
+ *
+ * Same transaction and same row lock as `mergeMessageMetadata`, for the same
+ * reason — a ledger flush and a report write can be in flight at once, and the
+ * merge is per top-level key so neither erases the other's. Scoped to the
+ * conversation, so a caller that has not resolved that conversation org-scoped
+ * cannot patch another tenant's message by guessing an id. Returns null when the
+ * message is not in that conversation.
+ */
+export async function writeMessageContent(
+  conversationId: string,
+  messageId: string,
+  content: string,
+  metadataPatch: Record<string, unknown>,
+): Promise<Message | null> {
+  const db = getDb()
+  const scope = and(eq(messages.id, messageId), eq(messages.conversationId, conversationId))
+
+  return db.transaction(async (tx) => {
+    const [existing] = await tx.select().from(messages).where(scope).limit(1).for('update')
+    if (!existing) return null
+
+    const merged = { ...((existing.metadata ?? {}) as Record<string, unknown>), ...metadataPatch }
+    const [row] = await tx
+      .update(messages)
+      .set({ content, metadata: stripJsonNullBytes(merged) })
+      .where(scope)
+      .returning()
     return row ?? null
   })
 }

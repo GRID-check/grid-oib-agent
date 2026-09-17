@@ -14,8 +14,37 @@ meant to grow.
 ## Current card types
 
 Defined in `src/aiq_agent/cards/models.py` as a discriminated union (`GridCard`)
-— **35 model-facing types plus 2 system types**, in four families. The families
-are not decoration: each answers
+— **43 types in four families**: 34 the answering model may emit through
+`emit_card`, five it may not on any surface (`SYSTEM_CARD_TYPES` — the
+tool-owned cards and the retired `follow_ups`), and four **envelope types**
+(`ENVELOPE_CARD_TYPES`: `summary`, `verdict_header`, `key_takeaways`,
+`callout`) that stopped being cards anywhere new: a research answer is
+generated as one JSON envelope (```answer_json — see
+`src/aiq_agent/common/answer_envelope.py`) whose optional fields carry the
+summary, the verdict, the takeaways and the callout as NATIVE answer anatomy,
+validated and gated platform-side and rendered FLAT by the frontend as answer
+typography (`features/chat/components/AnswerAnatomy.tsx`): the masthead above
+the prose (the earned verdict value plus the near-universal `summary`
+standfirst, which then holds the lede emphasis alone — the first paragraph's
+automatic lede styling is suppressed), the takeaways as its closing block, the
+callout as
+an accent-ruled aside — beside the paragraph the model anchored it to with an
+own-line `[[callout]]` marker in the `answer` prose
+(`answer_envelope.CALLOUT_MARKER`; the backend keeps at most the first
+placeable marker and strips them all when the callout is gated out), or after
+the prose when unanchored. No generator — `emit_card`, the DSML salvage, or
+the post-hoc deep pass — produces these types as cards any more; the union
+members survive only so stored threads keep rendering, and the flat variants
+live on the same components (`flat` prop) so the two renderings cannot drift
+(`features/chat/lib/answer-meta-cards.ts` maps the shapes). On the generation
+side the envelope is REQUESTED from the provider too, not only taught: Piloti
+walks an enforcement ladder per call — OpenRouter structured
+outputs (`json_schema`, strict, derived from the same Pydantic models by
+`render_envelope_response_format`), then `json_object`, then a plain request —
+on the tool-free forced-synthesis call, and on tool-bound iterations only
+behind the `envelope_json_mode_with_tools` config flag, because some routed
+providers accept the parameter and silently stop emitting tool calls.
+The families are not decoration: each answers
 "where does a number on this card come from?" differently, and that answer is
 what decides whether the model may emit the card at all, on which surface, and
 what it is allowed to write into it.
@@ -25,20 +54,24 @@ answer it has just written.
 
 | `type` | Purpose | Key fields |
 |---|---|---|
-| `summary` | A short overview / key points | `title`, `content`, `key_points` |
+| `summary` **(envelope)** | A short overview / key points. Retired as a card: the envelope's `summary` field carries the answer-in-brief on basically every reply, rendered as the masthead's standfirst (≤ 320 chars, gated); the card type survives for stored threads | `title`, `content`, `key_points` |
 | `legal_basis` | An OIB/norm legal-basis citation | `law`, `article`, `section`, `summary`, `original_text` |
 | `project_profile_patch` **(interactive)** | A proposed change to the project brief | `title`, `rationale`, `patch[]` — JSON-Patch ops restricted to `/facts`, `/goals`, `/unknowns`, `/assumptions` (the before/after rows are built from the patch and the live profile, never from the model) |
 | `requirement_checklist` | Several pass/fail criteria for one question, each with verdict + own norm reference | `title`, `items[]` (`label`, `status`, `detail`, `reference`), `reference`, `note` |
 | `comparison_table` | Side-by-side comparison of a small number of options (columns) across criteria (rows) | `title`, `options[]`, `rows[]` (`label`, `values[]`, `highlight_index`), `recommendation`, `reference`, `note` |
-| `verdict_header` | The answer's single headline ruling, set at the top — the value the reader came for | `verdict`, `subject`, `reference`, `confidence`, `confidence_reason` |
+| `verdict_header` **(envelope)** | The answer's single headline ruling, set at the top — the value the reader came for. Fed by the envelope's `verdict` field (gated: a copyable ≤ 60-char VALUE) and rendered above the prose as answer anatomy, never as a card in the array | `verdict`, `subject`, `reference`, `confidence`, `confidence_reason` |
 | `condition_tree` | An answer that forks on one factor (typically the Gebäudeklasse): the question, each branch's condition and outcome, the branch this project sits on marked `active` | `title`, `question`, `branches[]` (`condition`, `outcome`, `active`, `reference`), `reference` |
 | `typed_table` | A tabular answer no purpose-built card covers. Columns are TYPED (`mass`, `norm`, `verdict`, `date`, `text`) so the renderer can align, format and colour them instead of printing five strings | `title`, `columns[]` (`label`, `type`), `rows[]`, `reference`, `note` |
 | `norm_chain` | A chain of norms with what binds and what only interprets: each link carries its `rank` (`bundesgesetz` → `leitfaden`), which is the whole point of the card | `title`, `links[]` (`label`, `rank`, `note`) |
-| `key_takeaways` | „Das Wichtigste" — the 2–5 points the reader must leave with. The generic card for an answer with no dimension and no fork in it; a row with a `detail` expands, a row without one is not a button | `title`, `items[]` (`text`, `detail`) |
-| `callout` | ONE remark that changes what the reader does — a `hinweis`, `achtung`, `frist` or `tipp`. Deliberately small; at most one per answer, because a second puts both back at the weight of the prose around them | `kind`, `text`, `title`, `detail` |
+| `key_takeaways` **(envelope)** | „Das Wichtigste" — the 2–5 points the reader must leave with; a row with a `detail` expands, a row without one is not a button. Fed by the envelope's `takeaways` field, gated on answer length (≥ 600 chars of prose) and 2–5 items, rendered after the prose. A `detail` that is blank or a verbatim restatement of its own `text` is dropped by the gate — a row that opens onto its own claim teaches the reader the chevrons are decorative | `title`, `items[]` (`text`, `detail`) |
+| `callout` **(envelope)** | ONE remark that changes what the reader does — a `hinweis`, `achtung`, `frist` or `tipp`. Fed by the envelope's `callout` field, which holds at most one by shape, rendered after the prose | `kind`, `text`, `title`, `detail` |
 | `follow_ups` **(retired)** | 2–4 next questions, each anchored to something this answer introduced. Clicking one PREFILLS the composer — the user still presses send, and nothing reaches the backend on click. **The model can no longer emit this**: it is a member of `SYSTEM_CARD_TYPES`, and the post-answer `follow_ups` STAGE produces the questions instead, rendered as a rail BELOW the answer (`aiq_agent/stages/follow_ups.py`, `docs/architecture/post-answer-stages.md` §7.10). The type, its Zod schema and `FollowUpsCard.tsx` all stay, so the cards stored on historical threads keep rendering — see *Retiring a card type* below | `title`, `items[]` (`question`, `hint`) |
 | `calculation` | The derivation behind a computed number — the Schrittmaßregel, a GFZ, a Brandlast, a U-value from its resistances. **There is no result field**: the model supplies operands, an operation from a closed set (`sum`, `product`, `quotient`, `percent_of`, `percent_ratio`) and the limit; the renderer computes, propagates the ± band, rounds and judges | `title`, `steps[]` (`label`, `operation`, `operands[]`, `unit`), `limit`, `reference`, `note` |
 | `process_map` | An ordered procedure — Einreichung → Bauverhandlung → Baubewilligung → Fertigstellungsanzeige — with the step this project stands at, and what each step requires and produces revealed on click | `title`, `steps[]` (`label`, `summary`, `actor`, `duration`, `requires[]`, `produces[]`, `reference`), `current_step`, `reference`, `note` |
+| `document_checklist` | „Welche Unterlagen brauche ich" — each entry a STATE (`required` / `conditional` with its condition, and whether the reader already holds it), not a name in a list | `title`, `items[]` (`label`, `requirement`, `condition`, `issuer`, `status`, `note`, `reference`), `reference` |
+| `deadline_timeline` | Several Fristen in sequence, each with the event that starts its clock and what happens when it runs out. Carries the Bestimmung's own wording („binnen vier Wochen"), never a calendar date | `title`, `deadlines[]` (`label`, `period`, `starts_from`, `actor`, `consequence`, `reference`) |
+| `change_impact` | „Was passiert, wenn X sich ändert" — one moving fact, its two values, and what each consequence COSTS, each marked as tightening or relaxing | `title`, `factor`, `from_value`, `to_value`, `consequences[]`, `reference`, `note` |
+| `diagram` | Any ask for a Diagramm, Schaubild, Grafik, chart or mermaid — and a relationship prose cannot hold: a Verfahren that forks and rejoins, Stellen exchanging in order, a Nachweis others depend on — drawn as mermaid. Never anything measured, and the card renders rather than files; see [The `diagram` card](#the-diagram-card-the-one-drawing-whose-renderer-cannot-check-it) | `title`, `diagram_type` (`flowchart` / `sequence` / `state` / `pie`), `source`, `caption`, `reference` |
 
 **Schematic cards** — fifteen programmatically-drawn technical diagrams (SVG kit
 in `features/grid-cards/schematics/`, Rough.js sketch stroke). The model emits
@@ -101,6 +134,8 @@ catalog omits them entirely).
 |---|---|---|
 | `document_grid` | project/Büroarchiv files the user asked to see — the same raised `FileCard` the Files grid uses | the `surface_documents` tool |
 | `memory_proposal` **(interactive)** | a finding to be written to org- or project-scoped memory, for the user to confirm | the `remember` tool |
+| `document_draft` | a document written into this conversation's working directory — title, path, `v{n}` and size, with the Files feature's „Von Piloti erstellt" byline. Its „Ins Projekt übernehmen" is drawn **inert**: filing is a later slice, and until it is wired the card reports the draft rather than offering to move it | the working directory's `write_file` / `edit_file` |
+| `file_operation_proposal` **(interactive)** | a workspace change the agent PROPOSED and did not make — a move, a rename, a new folder, an assignment. One card type for four verbs, discriminated by `operation`, carrying a capped LIST so an „organise the Einreichung" turn is one decision and not four. Accepting runs the operations in order through the routes the Files pane uses, in the reader's own session, and reports each one — a batch where the third fails says three landed and one did not (`partiallyApplied`) | the four write-side tools under `src/aiq_agent/tools/files/` (a Dokumentart proposal waits for a project-scoped doc_class route) |
 
 **(interactive)** marks a card whose answer is a commitment and is therefore
 persisted on the message; see
@@ -139,6 +174,72 @@ Three consequences worth knowing before changing it:
 - **The display yields, the arithmetic does not.** House precision is two
   decimals unless rounding to it would move the value across the limit — 0,2506
   W/(m²K) against „≤ 0,25" prints 0,251, not „0,25 — nicht erfüllt".
+
+### The `diagram` card: the one drawing whose renderer cannot check it
+
+Every other drawing in the catalog is a schematic: the model emits parameters and
+the renderer computes the geometry, so a card cannot show a diagram that
+disagrees with its own numbers. `diagram` carries mermaid source, and **mermaid
+text IS the geometry** — whatever the model writes is what is drawn, with no
+arithmetic between the claim and the picture and therefore nothing to catch a
+disagreement. That guarantee is not weakened here; it is simply unavailable, and
+no amount of care in the renderer can create it.
+
+So the boundary is drawn around the **subject** instead: a diagram that makes no
+dimensional claim has nothing on it that can be measurably wrong. A
+Verfahrensablauf, an Einreichungssequenz, a Zuständigkeits- or
+Abhängigkeitskarte. Anything measured — a section, a stair, an escape route, a
+fire compartment, a setback — belongs to the fifteen schematic cards. A mermaid
+box with „40 m" typed inside it is precisely the artefact the card system exists
+to prevent, and it is the one that gets screenshotted into an Einreichung. That
+seam is stated in three places that must agree: `cards/models.py`,
+[diagrams.md](diagrams.md) and the frontend's own
+`lib/diagrams/diagram-sources.ts`.
+
+Naming a threshold in a branch condition („Fluchtniveau > 22 m → GK 5") is not
+that artefact and is not refused: nobody reads a rounded rectangle as a section,
+and the number there is a label the answer has already grounded. No regular
+expression separates those two — the same „22 m" appears in both — which is why
+the rule is prose in the catalog rather than a validator.
+
+**What the card does check**, because it is the one invariant available: the
+`diagram_type` field is a closed set of the four grammars verified end to end
+(`flowchart`, `sequence`, `state`, `pie`) and a model validator reads the
+source's own declaration line back. That catches the failure that actually
+bites — a source declaring nothing, where mermaid has no grammar to parse the
+rest with and the whole block collapses to a grey code box mid-answer — and it
+refuses a `journey` by name, which would otherwise pass every other check and
+then be refused in the reader's browser, because mermaid emits `<foreignObject>`
+for it whatever `htmlLabels` says and the SVG allow-list refuses that element.
+
+**Why it is presentational, and where filing lives.** The card renders the
+drawing and commits nothing. It was designed with an „Im Projekt ablegen" button
+of its own, which would have made it interactive — and that button is not in v1,
+for a reason that is worth keeping rather than re-litigating. A decision stored
+on a message is a `CardDecision` plus a timestamp and **nothing else**
+(`CardInteraction`), and the thing worth remembering about a filed diagram is the
+ID of the document it became — the answer's one pointer into the Files pane.
+Storing `filed` would record that filing happened and lose where it went,
+permanently, because the card would then stop offering the button that returns
+the id. Filing is idempotent (the run id is the answer id plus a hash of the
+source), so *not* persisting leaves a reader who reloads with a live button that
+hands the link back — a recoverable loss where the other is not, and ADR-0030's
+own test is "a decision the user would be annoyed to make twice".
+
+So filing stays where it already works: on the **fence**. `MermaidDiagram`
+offers „Im Projekt ablegen" wherever a surface supplies a `DiagramFilingTarget`
+(`AgentResponse` supplies one for any answer inside a project), and the route,
+the SVG validator, the PDF conversion and migration 0065 are all reached from
+there. The day `CardInteraction` can carry a payload, the card can have the
+button and `CARD_INTERACTIVITY` flips to `'interactive'` — that entry in
+`card-decision.ts` carries this same note.
+
+**The markdown fence stays.** A ```` ```mermaid ```` fence in an answer is still
+drawn (`MarkdownRenderer` → `MermaidDiagram`) and is the fallback for everything
+the card refuses. What the card adds is the three things a fence cannot have: a
+catalog entry, which is how the model learns a card exists at all; a payload
+`validate_cards()` checks before it reaches a browser; and a filing decision that
+persists on the message instead of in component-local React state.
 
 ### The five IFC cards carry identifiers, not numbers
 
@@ -214,7 +315,7 @@ So the catalog is split the way the skills runtime already splits instructions
 | level | what it is | where |
 |---|---|---|
 | **L1 — always on** | one line per model-facing type: the `type` value and the first line of the card model's docstring, plus the interactive-card note. No shapes, no building blocks, no examples. | `render_card_index()`, rendered into the `emit_card` description |
-| **L2 — on demand** | the exact shape for the named types, the shared building blocks (`NormReference`, `DimensionCheck`, …) each defined once with field descriptions, the measurement note where a `DimensionCheck` is in play, and the worked example | `render_card_details(types)`, served by the **`describe_card`** tool |
+| **L2 — on demand** | the exact shape for the named types, the shared building blocks (`NormReference`, `DimensionCheck`, …) each defined once with field descriptions, the measurement note where a `DimensionCheck` is in play, and the worked example | `render_card_details(types)` — returned by a **failed `emit_card`** for the type that failed, by the **`describe_card`** tool where it is still bound, and by a skill declaring `grid-cards` |
 
 That took the `emit_card` description from ~5,209 to ~1,205 tokens per turn, and
 the marginal cost of a new card type from ~190 tokens on every turn to ~23. It is
@@ -225,6 +326,18 @@ and what stops the always-on half from diluting attention on a long turn.
 surfaces share. Post-hoc generation keeps taking it whole
 (`build_card_generation_prompt()`): it is a single batch call with no tool loop,
 so there is nothing there that could fetch L2 later.
+
+L2 is no longer fetched in advance on the chat path. `describe_card` was a
+charged round trip, and `emit_card`'s description had to talk the model into
+paying it on every turn, for every card — including the ones it would have
+filled in correctly. But a shape is only ever needed when the first attempt
+would have been wrong, so the RETRY carries it: a failed `emit_card` returns the
+same L2 entry for the type that failed, and `shape_hint_for` is now one line
+delegating to `render_card_details`. A card that was going to be right pays
+nothing; one that was not pays the same single round trip, knowing which field
+was wrong. `describe_card` stays registered and stays bound to
+`deep_research_agent`, whose writer composes one long report and pays the lookup
+once where a chat turn paid it per turn.
 
 `describe_card` **reports the names it did not recognise** rather than quietly
 rendering only what resolved — a silently shorter answer reads as "that card
@@ -242,16 +355,13 @@ the moment to spend context on them — and it saves the activated turn a
 
 That makes `grid-cards` do two things at once, and only the first is obvious: it
 states the author's preference AND it decides which shapes are already in context
-at the moment the model would emit. `piloti-cards` is `delivery: standard`, so
-its list is paid on every answering turn — 1,881 cl100k tokens for the six
-inlined after migration `0062` (`verdict_header`, `condition_tree`, `typed_table`,
-`key_takeaways`, `callout`, `process_map`). `typed_table` and
-`process_map` joined in `0061` for +265 and +693 respectively, because they are the two
-cards the doctrine spends its words redirecting TO and both were a round trip
-away while `condition_tree`'s shape sat already rendered. `0062` took `follow_ups`
-back out for −276 when the card was retired. The ceiling on that
-block is asserted in `test_seeded_platform_skills.py`; widening it is a priced
-decision, not a preference.
+at the moment the model would emit. The `piloti-cards` standard skill used to be
+the heaviest user of this — six shapes inlined on every answering turn — until
+migration `0071` retired it together with `piloti-voice`: the card craft moved
+into the `<cards>` section of Piloti's system prompt, and the rhetorical
+shapes it inlined became `answer_meta` trailer fields. Today the mechanism
+serves the genre skills (e.g. `oib/brandschutz` inlines its five), which pay
+for their shapes only on the turns that activate them.
 
 Taking a retired type OUT of the list is not tidiness. `preferred_cards` filters
 `grid-cards` against `model_facing_card_types()`, so a name left behind is dropped
@@ -269,15 +379,16 @@ emit one, and everything already stored keeps working.
 
 Adding a type to the set does five things at once. All three emission paths refuse
 it — `emit_card` (`cards/register.py`), post-hoc batch generation (`validate_cards`
-in `cards/models.py`) and the DSML salvage (`shallow_researcher/dsml.py`) — and
+in `cards/models.py`) and the DSML salvage (`piloti/dsml.py`) — and
 `model_facing_card_types()` drops it from every advertised surface, so `L1`
 (`render_card_index`), `L2` (`render_card_details`, hence `describe_card` AND the
 `grid-cards` shapes block) and the worked example all go together.
 
 What it deliberately does NOT do is remove the union member. `validateGridCards`
-(`shared/cards/schemas.ts`) drops anything failing the union and logs a warning per
-card, so deleting the type would cost every historical thread its chips and fill
-the console doing it. Retiring one is therefore a checklist:
+(`shared/cards/schemas.ts`) leaves an `undefined` hole for anything failing the
+union and logs a warning per card, so deleting the type would cost every
+historical thread its chips at those positions and fill the console doing it.
+Retiring one is therefore a checklist:
 
 1. add the type to `SYSTEM_CARD_TYPES`;
 2. remove its prompt weight everywhere it is written by hand — the trigger row and
@@ -294,7 +405,7 @@ the console doing it. Retiring one is therefore a checklist:
 
 The description used to say "emit a card only when it adds real value". That is
 a disclaimer, not an instruction, and fifteen diagram renderers sat behind it —
-while eight lines away in `researcher.j2` the IFC block named a trigger and gave
+while eight lines away in `piloti.j2` the IFC block named a trigger and gave
 a reason, which is exactly why the IFC cards were emitted and the schematics
 were not.
 
@@ -305,7 +416,9 @@ or turning circle → `dimension_diagram`; an escape route with segments →
 U-value, HWB or energy class → `thermal_envelope` / `energy_performance`; a fire
 compartment area → `fire_compartment`; the Richtlinie the answer rests on →
 `legal_basis`; three or more pass/fail criteria → `requirement_checklist`; two
-or more options weighed against each other → `comparison_table`. The reason
+or more options weighed against each other → `comparison_table`; a path that
+forks and REJOINS, several Stellen exchanging in order, or a Nachweis others
+depend on → `diagram`. The reason
 travels with the rule: an answer that turns on a dimension gets its card by
 default rather than on request, because a measurement written as a sentence
 makes the reader re-draw it in their head, and the card is the drawing they
@@ -318,9 +431,12 @@ framing-free module that already owns `render_card_index` / `render_card_details
 — because there are TWO surfaces that produce cards and only one of them used to
 be taught how to choose.
 
-`register.py` composes `render_card_doctrine()` with the `[[card:N]]` placement
-contract and exports the result as `_CARD_DOCTRINE`, which is what `emit_card`'s
-description carries.
+`register.py` composes `render_card_doctrine()` with the envelope redirect note
+and the `[[card:N]]` placement contract, and exports the result as
+`_CARD_DOCTRINE`, which is what `emit_card`'s description carries. The
+rhetorical triggers left the table with their card types: a model that
+recognises "this answer has a verdict" is pointed at the ```answer_json
+envelope, on every surface.
 
 `cards/prompt.py` composes `render_card_doctrine(include_ifc_triggers=False)`
 for the post-hoc path that derives cards from a finished deep-research report.
@@ -343,12 +459,16 @@ reason is the same each time: they are not true there.
   and withholding a shape are different decisions with different reasons, and
   conflating them would put the wrong reason on the wrong set.
 
-The CRAFT — which of the generic cards actually improves an ordinary answer, and
-how `verdict_header` divides the ruling with the answer's first sentence — is in
-neither. It lives in the `piloti-cards` platform skill, a database row applied on
-every answering turn and editable without a deploy. The post-hoc path cannot
-reach a skill runtime, so it carries the subset of that judgement which is a test
-over a finished text rather than an instruction about how to write one.
+The CRAFT — which card actually improves an ordinary answer, and how the
+verdict divides the ruling with the answer's first sentence — is in neither
+rendering. It lives in the `<cards>` and `<answer_meta>` sections of
+Piloti's system prompt (`piloti/prompts/piloti.j2`), where
+the retired `piloti-cards` platform skill used to carry it: a forced skill's
+body only reached the model through a `use_skill` call it could skip, and the
+prompt is unconditional. The post-hoc path cannot read a prompt meant for the
+answering agent, so it carries the subset of that judgement which is a test
+over a finished text rather than an instruction about how to write one
+(`_POST_HOC_CRAFT` in `cards/prompt.py`).
 
 A positive trigger that strong needs an **explicit negative default** beside it
 or it produces card spam, so the doctrine states that too: a one-line factual
@@ -359,37 +479,62 @@ be fabricated to fill a card out — a card with an invented limit in it is wors
 than the prose alone, because it is the part that gets screenshotted into a
 submission.
 
+### What a card costs the turn, and what it used to cost
+
+Two content cards is the doctrine's ceiling. For a long time it was also
+unreachable, for a reason that had nothing to do with the doctrine.
+
+Piloti forces synthesis at `tool_iteration_ceiling` (`max_tool_iterations`,
+seven in production — one number, with nothing reserved on top of it since no
+skill is forced on a turn), and every tool CALL used to be charged to it —
+`emit_card` and `describe_card` included. Those are the answer's OUTPUT
+channel, and they are called last, after the searching is done, so on any turn
+that actually researched, the ceiling landed on the cards rather than on the
+research. The forced-synthesis anchor then says "Do not attempt any further tool
+calls", which made the second card unreachable by construction: the model had
+already decided to draw it, and nothing in the answer, the log or the
+`research_truncated` note said what had been lost.
+
+The fix was the UNIT, not an exemption. The budget counts tool-calling ROUNDS
+now — one LLM decision that emitted tool calls, costing one whatever it asked
+for — so a round that draws a shape lookup and both cards costs exactly what
+the search before it cost, and the card channel needs no allowance of its own.
+The separate `_INTERACTION_TOOL_ALLOWANCE` and its `interaction_iterations`
+counter are gone with the per-call budget they existed to survive: a second
+currency is a second thing to keep in step, and this one now buys nothing.
+
+The rule this leaves is the one that was always meant to be in force: how many
+cards an answer carries is a judgement about the answer, decided by the doctrine
+and the prompt's card craft — never a leftover of how much searching the
+question happened to need.
+
 ### Which turns may emit a card
 
-Every turn, including one the intent classifier routed as `meta`. This used to be
-contradictory rather than decided: the shallow prompt's meta output contract said
-"no tool calls" while the `<cards>` block six lines below sat outside both
-`{% if requires_sources %}` guards and told the model to emit one. The
-mandatory-sounding half won, and a Baurecht question that classified `meta` —
-„Wie läuft das Baubewilligungsverfahren in Wien ab?", retyped in plain words
-after a research plan was refused — shipped as prose twice.
+Every turn. `emit_card` is bound on every turn like every
+other tool (ADR-0052: there is no classifier and no narrowed "meta" binding in
+front of the answering agent), so whether a turn ships a card is decided by
+what the answer has to show, never by a label given before the answer.
 
-Resolved toward allowing it, on the grounds that `_meta_tool_binding`
-(`shallow_researcher/agent.py`) has always kept `remember`, `emit_card` and
-`describe_card` bound on that turn. "No tool calls" was never a description of
-what the turn could do; it was a prompt line disagreeing with its own runtime.
-Classification decides whether the turn needs SOURCES, not whether the answer has
-anything worth showing.
+This used to be contradictory rather than decided: when the intent classifier
+still existed, Piloti's prompt's meta output contract said "no tool calls"
+while the `<cards>` block six lines below sat outside both `requires_sources`
+guards and told the model to emit one. The mandatory-sounding half won, and a
+Baurecht question that classified `meta` — „Wie läuft das
+Baubewilligungsverfahren in Wien ab?", retyped in plain words after a research
+plan was refused — shipped as prose twice. Deleting the classifier removed the
+contradiction with it.
 
-Two things bound it:
-
-- **The prompt says what a meta turn may put on a card.** A subject-matter
-  question that merely landed in this shape earns the card its content calls for;
-  small talk, a formatting or memory request, a shelf listing and an off-topic
-  decline get none. The off-topic shape still reads "No tool calls".
-- **The skill gate stays shut.** `register.py` builds a `SkillRuntime` only when
-  `requires_sources or force_skills`, so a meta turn does NOT get the
-  `piloti-cards` body. Opening it would cost ~7,400 cl100k tokens on every
-  greeting (5,239 for the body plus the inlined shapes). What the turn keeps is
-  the always-on doctrine and the L1 index, which ride in `emit_card`'s
-  description regardless — enough to NAME the right card. The shape costs one
-  `describe_card` call, which is why `describe_card` is pinned into
-  `_INTERACTION_TOOL_BASENAMES` rather than surviving by having no data source.
+What bounds it now is the prompt: **it says what a direct reply may put on a
+card.** A subject-matter question that merely landed in a short reply earns the
+card its content calls for; small talk, a formatting or memory request, a shelf
+listing and an off-topic decline get none. The always-on doctrine and the L1
+index ride in `emit_card`'s description on every turn, and so does the CRAFT
+that says how each of the generic cards is filled well — enough to name the
+right card AND to build it, with the shape arriving on the retry if a field
+comes out wrong. Skills, too, are bound on
+every turn (`use_skill`); there is no gate in front of the skill runtime any
+more, and no way to require a skill either, so a greeting that loads no skill is
+the model's judgment, pinned by the prompt.
 
 ### Every `emit_card` outcome is logged, refusals included
 
@@ -400,13 +545,15 @@ never got the card named, versus a shape the model cannot fill in), so every exi
 in `_emit` now logs: refusals at `warning` naming the card TYPE the model reached
 for, the success at `info` as before.
 
-Because the doctrine lives on the tool, the shallow researcher's `<cards>` block
-no longer restates it. It points at the `emit_card` description and keeps only
-what is true of cards but not of the tool — cards are in addition to the written
-answer, so always write the prose too; and if asked whether Grid can render
-cards, say yes and demonstrate by emitting one. Two copies of a trigger list is
-two things to keep in step, and the prompt copy is the one that would silently
-fall behind the union.
+Because the doctrine lives on the tool, Piloti's `<cards>` block
+no longer restates it — and since the craft moved there too, it no longer
+restates that either. The prompt points at the `emit_card` description and keeps
+only what the tool cannot say, because it is a fact about the ANSWER rather than
+about the tool: the `[[card:N]]` placement marker contract, and that a verdict,
+the key takeaways and the callout are `answer_json` envelope fields rather than
+cards. Two copies of a rule is two things to keep in step, and the prompt copy
+is the one that silently falls behind — which is exactly what happened while the
+craft lived there.
 
 ### System cards: never the model's to fabricate
 
@@ -465,7 +612,7 @@ the model nothing it has not already written. A group giving both is refused by
 the Pydantic validator — the renderer would have to pick, and either choice
 silently discards half the request.
 
-Emitting one is not optional politeness: the shallow researcher's `<cards>`
+Emitting one is not optional politeness: Piloti's `<cards>`
 block asks for the matching card by default on any answer that came from
 `ifc_query`, and names which card goes with which operation. That is the one
 part of the trigger doctrine that stayed in the prompt rather than moving to the
@@ -498,7 +645,7 @@ an id would have to survive validation, persistence AND the deep-research path,
 which builds its cards post-hoc from a finished report and has no emission order
 to refer back to.
 
-The contract is stated in `researcher.j2` as well as in the tool return, and
+The contract is stated in `piloti.j2` as well as in the tool return, and
 deliberately so: a marker the model only learns about from the tool result
 arrives after it has already committed to the paragraph the card belongs to, so
 placement could only ever be retrofitted. Named up front, it can be planned.
@@ -547,6 +694,18 @@ remember. **Two are not.** `project_profile_patch` and `memory_proposal` ask the
 user to authorize a write (`propose, never auto-apply` —
 `project-memory-design.md` §11.7), which makes the user's click the only place
 that outcome exists.
+
+`diagram` was briefly a third and is deliberately not one — see
+[the card's own section](#the-diagram-card-the-one-drawing-whose-renderer-cannot-check-it)
+for why the drawing ships without a filing button and what would have to change
+first. A `CONSENT_CARD_TYPES` was split out of `INTERACTIVE_CARD_TYPES` at the
+same time, to keep the model from being told a drawing "asks the user to
+authorize a real, persisted change" — true then, and it would have suppressed the
+card on exactly the answers it exists for. It left with the button: "must the
+frontend persist an answer?" and "does emitting it cost the reader a decision?"
+only ever named different sets while `diagram` sat between them, and two
+constants equal by construction are two things to keep in sync, of which one
+stops being maintained.
 
 If that click lives in component-local `useState`, it dies on reload — and
 because the card *payload* persists perfectly, the card comes back looking
@@ -642,19 +801,30 @@ without re-plumbing generation or transport.
    `cards/catalog.py`) — which question calls for it, in the same
    "trigger → card" form as the rest. A type that is only listed in the index is
    a renderer nobody is asked for, which is a renderer nobody sees; that is
-   exactly how fifteen schematic cards sat behind a disclaimer. A trigger line,
-   and only a trigger line: the paragraph explaining when the card earns its
-   place belongs in the `piloti-cards` skill. Both halves are asserted against
-   each other, and a token ceiling on the tool description fails if the doctrine
-   drifts back into carrying craft.
+   exactly how fifteen schematic cards sat behind a disclaimer. The trigger row
+   and its CRAFT go in together, as one `_CARD_TRIGGERS` entry: "which card" and
+   "how that card is filled well" are a question and its answer, and the years
+   they spent in two files are why the prompt's copy grew a second budget and a
+   second restatement test beside the doctrine's. A generic shape needs craft; a
+   schematic one usually does not, because its renderer draws to scale from the
+   fields. A token ceiling on the tool description watches the total.
 7. For a **system** card (tool-emitted, never model-emitted): add it to
    `SYSTEM_CARD_TYPES` and register the emitting tool in the agent's `tools:`
    list in the config.
+8. For an **envelope** field (native answer anatomy, never a tool call): add
+   a model, a registry entry and a gate in `common/answer_envelope.py` (the
+   taught schema renders itself from the models), an earned-when line in the
+   prompt's `<answer_envelope>` section, a sanitizer clause in
+   `lib/conversations/message-answer-meta.ts`, and a layout slot in
+   `AgentResponse`. Retire the card type into `ENVELOPE_CARD_TYPES` only when
+   one existed. The bar is high on purpose: an envelope field is paid for in
+   contract complexity on EVERY research answer, so it is for shapes almost
+   every answer could carry, not for domain cards.
 
 ## Card catalog
 
-The catalog is the thirty-seven types tabulated under
-[Current card types](#current-card-types) — fourteen structured, fifteen
+The catalog is the forty-one types tabulated under
+[Current card types](#current-card-types) — eighteen structured, fifteen
 schematic, six model-facing IFC and two system — and that is the only place in this document
 where they are listed, on purpose: a card type appearing in two tables means one
 of them is already wrong. See
@@ -703,7 +873,7 @@ endpoint, and the request-a-card link sits in the header and again at the foot.
 | piece | where |
 |---|---|
 | The page | `src/app/app/platform/cards/page.tsx` + `platform-cards.tsx` |
-| The sample cards | `features/grid-cards/preview-fixtures.ts` — authored in schema-INPUT shape, then run through `validateGridCards`, so a fixture that stops matching the union is dropped rather than rendered |
+| The sample cards | `features/grid-cards/preview-fixtures.ts` — authored in schema-INPUT shape, then run through `validateGridCards`, so a fixture that stops matching the union is holed (absent from the map) rather than rendered |
 | Coverage guard | `preview-fixtures.spec.ts` — every type in `CARD_INTERACTIVITY` needs a fixture or an entry in `PREVIEW_EXCLUDED` |
 | Not previewed | all five IFC cards + `document_grid`: they carry identifiers resolved against a loaded model or real document rows, and a fabricated preview would show a building that does not exist |
 | Preview evidence | `/dev/platform-cards` + the `platform-cards` screenshot target |
@@ -723,8 +893,10 @@ with realistic fixtures for visual review; `/dev/document-grid` previews the
 backend-free `document_grid` surfacing card. Both are captured by the screenshot
 harness (`npm run screenshots`, see `docs/ux/visual-screenshots.md`).
 For a system card emitted by a tool (`document_grid`), that tool must be added to
-the agent's `tools:` list in the config (e.g. `shallow_research_agent`) and its
-`_type` registered — see `surface_documents` in `configs/config_oib_openrouter.yml`.
+the agent's `tools:` list in the config (both `shallow_research_agent` and
+`deep_research_agent` bind it) and its `_type` registered — see `surface_documents`
+in `configs/config_oib_openrouter.yml`; `tests/aiq_agent/test_config_tool_wiring.py`
+is the gate.
 If the new card is one the MODEL may emit and its contents must be **copied
 from a tool result** rather than written from the answer, add its type to
 `MODEL_BACKED_CARD_TYPES` as well, and say in a prompt when to emit it — a
@@ -738,20 +910,37 @@ instead. Next phases: a 3D massing card
 
 - The post-hoc generation path (`cards/generate.py` / `cards/prompt.py`) is
   deliberately kept next to the `emit_card` tool: async deep-research jobs use
-  it (`jobs/runner.py::_generate_grid_cards`) because the conversation-scoped
-  `CardRegistry` behind `emit_card` does not exist inside a Dask worker.
+  it (`jobs/runner.py::_generate_grid_cards`) for the cards derived from the
+  finished report. The job runner ALSO binds a fresh `CardRegistry` around the
+  run (`_bound_card_registry`), so `emit_card` and `surface_documents` called
+  by a researcher worker during the run deliver — a deep answer can show a
+  `document_grid` card. `_merge_job_cards` puts the emitted cards FIRST, in
+  emission order, then the post-hoc ones: `[[card:N]]` resolves positionally,
+  and only the emitted cards were ever addressed by a marker. Positions hold
+  end to end because `validateGridCards` never compacts the array: a card the
+  frontend schema rejects leaves an `undefined` hole at its wire index, so a
+  marker after the hole still names the card it was written for (a marker
+  pointing AT the hole renders nothing), and a persisted `cardKey` decision
+  stays bound to its proposal across reloads.
+- Which subagent holds the tools: everything in the deep agent's `tools:` list
+  goes to the RESEARCHER workers (`factory.py::build_deep_research_tool_set`);
+  the writer holds helper and skill tools only, and the orchestrator the
+  research batch tool. So an emitted card is a researcher's, and its marker
+  never reaches the report the writer produces — the card lands after the
+  report, which is where an unaddressed card goes anyway.
 - Async deep-research answers carry cards (generated post-hoc from the final
   report in the job runner); synchronous inline deep research (no Dask) does
-  not yet.
+  not run the post-hoc pass yet, though it inherits the chat turn's registry
+  and so does deliver emitted cards.
 - **An async deep-research answer therefore carries no model card**, because
   post-hoc generation is not shown the IFC types (above) and the deep
   researcher's own prompts have no `<cards>` block at all — it holds `emit_card`
   with nothing but the tool description to go on. That description is a much
   better thing to hold since it gained the doctrine, but the doctrine names no
-  IFC trigger (that guidance stayed in the shallow prompt, above), so a deep
+  IFC trigger (that guidance stayed in Piloti's prompt, above), so a deep
   answer about the building still comes back as prose with element links.
   Closing this means giving
-  the deep researcher the same `<cards>` guidance the shallow one now has, not
+  the deep researcher the same `<cards>` guidance Piloti now has, not
   relaxing the post-hoc restriction, which would only license invented ids.
 - A silent card-generation failure is currently indistinguishable from "no cards";
   emission should surface failures.

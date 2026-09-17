@@ -19,6 +19,7 @@ the queue row, so there is deliberately no ``cancel_requested`` column here.
 
 from __future__ import annotations
 
+import logging
 from datetime import UTC
 from datetime import datetime
 from datetime import timedelta
@@ -29,11 +30,20 @@ from sqlalchemy.engine import Connection
 
 from . import payload_crypto
 
+logger = logging.getLogger(__name__)
+
 _queue_schema_initialized: set[str] = set()
 
 # Claim states.
 QUEUED = "queued"
 CLAIMED = "claimed"
+
+# Marker key on ``claim_next`` results whose stored payload could not be
+# deserialized (corrupt ``enc:`` blob, undecryptable KEK rotation, forged
+# plaintext under KEK). The row is already quarantined (deleted) when the
+# marker is returned, so the worker must record the FAILURE verdict in
+# ``job_info`` and move on — never hand the row to ``run_agent_job``.
+POISON_CLAIM_MARKER = "poison"
 
 # Transaction-level advisory lock so only ONE worker replica runs the
 # exhausted-claim reap per cycle. Without it every worker ran the scan+delete on
@@ -107,14 +117,51 @@ def enqueue(db_url: str, job_id: str, payload: dict[str, Any]) -> None:
         conn.commit()
 
 
+def _quarantine_poison(conn: Connection, job_id: str, exc: Exception) -> dict[str, Any]:
+    """Delete an undecryptable/unparsable queue row inside the open transaction.
+
+    A poison payload is deterministic: retrying it after the stale window just
+    kills the next claimant identically (attempts+1 each cycle until reap).
+    Deleting it here means the row is never committed as CLAIMED, so no worker
+    ever blocks on it and no replica ever dies on it. The caller returns the
+    marker so the worker can record the FAILURE verdict in ``job_info`` (the
+    durable record) plus a ``job.error`` event — the queue table itself holds
+    no terminal state by design.
+
+    Only the exception *type* is kept server-side in the marker detail; the
+    raw stored blob is never echoed (it may carry a forged auth token).
+    """
+    logger.error(
+        "Quarantining undecryptable queue payload for job %s (%s); row deleted, not claimed",
+        job_id,
+        type(exc).__name__,
+        exc_info=True,
+    )
+    conn.execute(text("DELETE FROM research_job_queue WHERE job_id = :job_id"), {"job_id": job_id})
+    conn.commit()
+    return {
+        "job_id": job_id,
+        POISON_CLAIM_MARKER: True,
+        "poison_error": f"{type(exc).__name__}: job payload undecryptable or unparsable",
+    }
+
+
 def claim_next(db_url: str, worker_id: str, stale_seconds: int, max_attempts: int) -> dict[str, Any] | None:
     """Atomically claim one runnable job (queued, or stale-claimed for reclaim).
 
-    Returns ``{"job_id", "payload", "attempts"}`` or None when nothing is
+    Returns ``{"job_id", "payload", "attempts"}``, a poison marker
+    ``{"job_id", "poison": True, "poison_error": ...}`` (row already
+    quarantined — record FAILURE, never execute), or None when nothing is
     runnable. On Postgres this is a single ``FOR UPDATE SKIP LOCKED`` CTE so N
     workers never double-claim. On SQLite (single-worker dev/test only) it is a
     SELECT-then-UPDATE; SQLite serializes writes but the read+write is not one
     atomic step, so it must not be relied on for real concurrency.
+
+    Poison payloads never raise: deserialization happens *before* the claim
+    commits (Postgres) or *before* the claim UPDATE (SQLite), and a failure
+    quarantines the row in the same transaction. The worker loop therefore
+    survives a corrupt ``enc:`` blob by construction, and the next claim in
+    the same tick already sees the healthy row behind it.
     """
     with _connection(db_url) as conn:
         _ensure_schema(conn, db_url)
@@ -143,7 +190,24 @@ def claim_next(db_url: str, worker_id: str, stale_seconds: int, max_attempts: in
                 .mappings()
                 .first()
             )
+            if row is None:
+                conn.commit()
+                return None
+            try:
+                payload = payload_crypto.deserialize(row["payload"])
+                if not isinstance(payload, dict):
+                    raise ValueError(f"job payload decoded to {type(payload).__name__}, not a dict")
+            except Exception as exc:
+                # Deserialize-before-commit: the UPDATE above is still
+                # uncommitted, so quarantining here never leaves a CLAIMED
+                # poison row behind for the next replica to die on.
+                return _quarantine_poison(conn, row["job_id"], exc)
             conn.commit()
+            return {
+                "job_id": row["job_id"],
+                "payload": payload,
+                "attempts": row["attempts"],
+            }
         else:
             threshold = (datetime.now(UTC) - timedelta(seconds=stale_seconds)).strftime("%Y-%m-%d %H:%M:%S")
             found = (
@@ -163,6 +227,15 @@ def claim_next(db_url: str, worker_id: str, stale_seconds: int, max_attempts: in
             )
             if found is None:
                 return None
+            try:
+                payload = payload_crypto.deserialize(found["payload"])
+                if not isinstance(payload, dict):
+                    raise ValueError(f"job payload decoded to {type(payload).__name__}, not a dict")
+            except Exception as exc:
+                # Deserialize-before-claim: never promote a poison row to
+                # CLAIMED. Quarantine it and return the marker; the worker
+                # records FAILURE and its next claim sees the healthy row.
+                return _quarantine_poison(conn, found["job_id"], exc)
             conn.execute(
                 # Only the CLAIMED status constant is interpolated; worker/job_id are bound.
                 # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text
@@ -174,14 +247,7 @@ def claim_next(db_url: str, worker_id: str, stale_seconds: int, max_attempts: in
                 {"worker": worker_id, "job_id": found["job_id"]},
             )
             conn.commit()
-            row = {"job_id": found["job_id"], "payload": found["payload"], "attempts": found["attempts"] + 1}
-        if row is None:
-            return None
-        return {
-            "job_id": row["job_id"],
-            "payload": payload_crypto.deserialize(row["payload"]),
-            "attempts": row["attempts"],
-        }
+            return {"job_id": found["job_id"], "payload": payload, "attempts": found["attempts"] + 1}
 
 
 def heartbeat(db_url: str, job_id: str, worker_id: str) -> bool:
@@ -202,6 +268,36 @@ def heartbeat(db_url: str, job_id: str, worker_id: str) -> bool:
         )
         conn.commit()
         return (result.rowcount or 0) > 0
+
+
+def claim_owner(db_url: str, job_id: str) -> str | None:
+    """The worker holding the live CLAIMED row for ``job_id``, or None.
+
+    Read-only ownership probe for the runner's still-owner publish gate
+    (deep-research hardening, item 10): a worker that lost its claim to another
+    replica must publish nothing user-visible — no terminal status steal, no
+    thread turn or notice — so the thread, the persisted report and the job
+    status stay one coherent artefact, published by the winner alone.
+
+    None is *indeterminate*, not "unowned": the row may be gone (the cancel
+    route and mark_done delete it unconditionally on their paths), may still be
+    QUEUED, or may be unreadable. Callers fall back to the job_info terminal
+    verdict in that case and fail open. Never raises.
+    """
+    try:
+        with _connection(db_url) as conn:
+            _ensure_schema(conn, db_url)
+            row = conn.execute(
+                text("SELECT claimed_by FROM research_job_queue WHERE job_id = :job_id AND status = :claimed"),
+                {"job_id": job_id, "claimed": CLAIMED},
+            ).first()
+    except Exception:
+        logger.warning("Claim-ownership read failed for job %s (treating as indeterminate)", job_id, exc_info=True)
+        return None
+    if row is None:
+        return None
+    owner = row[0]
+    return owner if isinstance(owner, str) and owner else None
 
 
 def mark_done(db_url: str, job_id: str, worker_id: str | None = None) -> None:

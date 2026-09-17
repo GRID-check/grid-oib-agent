@@ -16,7 +16,7 @@ import { describe, expect, test } from 'vitest'
 import type { TraceLaneCard } from '../trace-lanes'
 import { deriveTraceLanes } from '../trace-lanes'
 import { buildCitationModel } from './build'
-import { citedPages, isCited } from './model'
+import { citedPages, documentPages, isCited, readPages } from './model'
 import { documentTabLabel, totalHits } from './views'
 
 const lane = (overrides: Partial<TraceLaneCard>): TraceLaneCard => ({
@@ -67,7 +67,18 @@ describe('the fan-out is the model, grouped by document', () => {
     expect(oib2.tint).toBe('oib')
     expect(oib2.authority).toBe('OIB')
     expect(oib2.loci).toHaveLength(2)
-    expect(citedPages(oib2)).toEqual([1, 2])
+    // READ, not CITED. The `## Trace-Lanes` fan-out is the Herleitung's claim —
+    // "these are the passages the turn looked at" — and every locus it
+    // contributes carries `isCited: false`. `citedPages` used to return them
+    // anyway, so a document retrieved at three pages and cited at one printed
+    // all three under „Belegt durch"; the two functions are now the two claims.
+    expect(readPages(oib2)).toEqual([1, 2])
+    expect(citedPages(oib2)).toEqual([])
+    // What every SURFACE prints. Precision only exists once something is
+    // flagged; with no binding at all, the honest line is the wider one — the
+    // same widening `answerDocuments` already does for the row these pages
+    // sit in. Printing nothing here is what the Herleitung card regressed to.
+    expect(documentPages(oib2)).toEqual([1, 2])
     expect(totalHits(docs)).toBe(3)
   })
 
@@ -169,7 +180,7 @@ describe('robustness at the edges', () => {
   test('a label-only trace hit and the cited source it names are ONE document', () => {
     // The RIS case: `## Trace-Lanes` knows the norm only by its name, while the
     // answer's citation of it arrives with a real RIS URL. Two identities, one
-    // document — it used to render twice, once cited and once "read, not used".
+    // document — it used to render twice, once cited and once "retrieved, not cited".
     const docs = buildCitationModel({
       traceLanes: [
         lane({

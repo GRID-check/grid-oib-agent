@@ -2,7 +2,7 @@
 
 import * as React from 'react'
 import Link from 'next/link'
-import { Archive, Building2, Check, Globe, LayoutDashboard, LogOut, Monitor, Moon, Sun, UserRound } from 'lucide-react'
+import { Building2, Check, Globe, LayoutDashboard, LogOut, Monitor, Moon, Sun, UserRound } from 'lucide-react'
 
 import { useAuth } from '@/adapters/auth/use-auth'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
@@ -12,6 +12,9 @@ import {
   DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { useLayoutStore } from '@/features/layout/store'
@@ -45,8 +48,6 @@ export interface SidebarUserMenuProps {
   canViewOrganization?: boolean
   /** Show the platform dashboard entry (platform owner only, ADR-0016). */
   canManagePlatform?: boolean
-  /** Show the org-wide Archiv entry (any org member, when enabled — ADR-0024). */
-  canAccessArchiv?: boolean
   /**
    * Tailwind size class for the trigger avatar. Defaults to the sidebar
    * footer's 30px; the org top bar passes a 36px avatar to match the dummy.
@@ -77,7 +78,6 @@ export function SidebarUserMenu({
   canManageOrganization = false,
   canViewOrganization = false,
   canManagePlatform = false,
-  canAccessArchiv = false,
   avatarSizeClass = 'size-[30px]',
   organizationName = null,
 }: SidebarUserMenuProps) {
@@ -87,6 +87,7 @@ export function SidebarUserMenu({
   const t = useTranslations('nav')
   const tc = useTranslations('common')
   const { locale, setLocale, localeNames } = useLocale()
+  const ActiveThemeIcon = THEME_ICONS[theme]
 
   const displayName = user?.name || user?.email || t('userMenu.defaultUser')
   // Two-letter monogram from the first two words (e.g. "Anna Kaufmann" → "AK"),
@@ -105,7 +106,7 @@ export function SidebarUserMenu({
       <DropdownMenuTrigger
         className={cn(
           'flex items-center gap-2.5 text-left text-sm',
-          'transition-[color,background-color,transform] duration-200 ease-out hover:bg-accent',
+          'transition-[color,background-color,transform] duration-quick ease-out hover:bg-accent',
           'active:scale-[0.98] motion-reduce:transition-none',
           'focus-visible:ring-2 focus-visible:ring-ring/60 focus-visible:ring-offset-2 focus-visible:ring-offset-background focus-visible:outline-none',
           compact ? 'w-auto rounded-full p-0' : 'w-full rounded-lg py-1 pl-0 pr-2',
@@ -170,14 +171,6 @@ export function SidebarUserMenu({
             {t('userMenu.profile')}
           </Link>
         </DropdownMenuItem>
-        {canAccessArchiv && (
-          <DropdownMenuItem asChild className="gap-2">
-            <Link href="/app/archiv">
-              <Archive className="size-4 text-muted-foreground" aria-hidden />
-              {t('userMenu.archiv')}
-            </Link>
-          </DropdownMenuItem>
-        )}
         {(canViewOrganization || canManageOrganization) && (
           <DropdownMenuItem asChild className="gap-2">
             <Link href="/app/organization">
@@ -195,26 +188,44 @@ export function SidebarUserMenu({
           </DropdownMenuItem>
         )}
         <DropdownMenuSeparator />
-        <DropdownMenuLabel className="text-xs font-medium text-muted-foreground">{tc('theme.label')}</DropdownMenuLabel>
-        {THEME_MODES.map((mode) => {
-          const Icon = THEME_ICONS[mode]
-          return (
-            <DropdownMenuItem key={mode} onSelect={(e) => { e.preventDefault(); setTheme(mode) }} className="gap-2">
-              <Icon className="size-4 text-muted-foreground" aria-hidden />
-              <span className="flex-1">{tc(`theme.${mode}`)}</span>
-              {theme === mode && <Check className="size-4" aria-hidden />}
-            </DropdownMenuItem>
-          )
-        })}
-        <DropdownMenuSeparator />
-        <DropdownMenuLabel className="text-xs font-medium text-muted-foreground">{tc('language.label')}</DropdownMenuLabel>
-        {locales.map((code) => (
-          <DropdownMenuItem key={code} onSelect={(e) => { e.preventDefault(); setLocale(code) }} className="gap-2">
+        {/* Theme and language are second-order settings: one submenu row each
+            (two clicks) instead of eight standing rows, so the menu is short
+            enough to scan. The trigger row names the CURRENT value — the one
+            fact a reader checks more often than they change it. */}
+        <DropdownMenuSub>
+          <DropdownMenuSubTrigger aria-label={tc('theme.label')}>
+            <ActiveThemeIcon className="size-4 text-muted-foreground" aria-hidden />
+            <span className="flex-1">{tc('theme.label')}</span>
+            <span className="text-xs font-normal text-muted-foreground">{tc(`theme.${theme}`)}</span>
+          </DropdownMenuSubTrigger>
+          <DropdownMenuSubContent className="w-40">
+            {THEME_MODES.map((mode) => {
+              const Icon = THEME_ICONS[mode]
+              return (
+                <DropdownMenuItem key={mode} onSelect={(e) => { e.preventDefault(); setTheme(mode) }} className="gap-2">
+                  <Icon className="size-4 text-muted-foreground" aria-hidden />
+                  <span className="flex-1">{tc(`theme.${mode}`)}</span>
+                  {theme === mode && <Check className="size-4" aria-hidden />}
+                </DropdownMenuItem>
+              )
+            })}
+          </DropdownMenuSubContent>
+        </DropdownMenuSub>
+        <DropdownMenuSub>
+          <DropdownMenuSubTrigger aria-label={tc('language.label')}>
             <Globe className="size-4 text-muted-foreground" aria-hidden />
-            <span className="flex-1">{localeNames[code]}</span>
-            {locale === code && <Check className="size-4" aria-hidden />}
-          </DropdownMenuItem>
-        ))}
+            <span className="flex-1">{tc('language.label')}</span>
+            <span className="text-xs font-normal text-muted-foreground">{localeNames[locale]}</span>
+          </DropdownMenuSubTrigger>
+          <DropdownMenuSubContent className="w-40">
+            {locales.map((code) => (
+              <DropdownMenuItem key={code} onSelect={(e) => { e.preventDefault(); setLocale(code) }} className="gap-2">
+                <span className="flex-1">{localeNames[code]}</span>
+                {locale === code && <Check className="size-4" aria-hidden />}
+              </DropdownMenuItem>
+            ))}
+          </DropdownMenuSubContent>
+        </DropdownMenuSub>
         {authRequired && (
           <>
             <DropdownMenuSeparator />

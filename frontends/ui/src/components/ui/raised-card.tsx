@@ -56,7 +56,7 @@ export function RaisedCard({
   const card = (
     <div
       className={cn(
-        'border-border bg-muted/50 shadow-xs relative flex h-full min-w-0 flex-col overflow-hidden rounded-xl border',
+        'border-border bg-muted/50 shadow-sm relative flex h-full min-w-0 flex-col overflow-hidden rounded-lg border',
         'transition-shadow duration-quick ease-out motion-reduce:transition-none',
         interactive && 'hover:shadow-md',
         className
@@ -118,6 +118,10 @@ export function RaisedCardMedia({
 /**
  * The raised white block. Rounded at the bottom only — the top edge is flush
  * with the tray, which is what makes it read as laid in rather than floating.
+ *
+ * No shadow of its own: the tray owns elevation (including the hover lift), so
+ * a shadow here only double-darkens the body's edge against the footer.
+ * box-shadow is paint-only, so dropping it cannot move layout.
  */
 export function RaisedCardBody({
   className,
@@ -127,7 +131,7 @@ export function RaisedCardBody({
   return (
     <div
       className={cn(
-        'bg-card shadow-xs w-full overflow-hidden rounded-b-lg px-4 pb-3 pt-3.5',
+        'bg-card w-full overflow-hidden rounded-b-lg px-4 pb-3 pt-3.5',
         className
       )}
       {...rest}

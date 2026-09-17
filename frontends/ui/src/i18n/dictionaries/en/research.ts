@@ -7,20 +7,9 @@ export const research = {
   detailsHelp:
     'These details appear during active research and may not be available for completed reports.',
 
-  runsPage: {
-    title: 'Research runs',
-    subtitle: 'Deep research reports Piloti has produced for this project, newest first.',
-  },
-
-  // Labels for the per-project research-runs list rows (research-runs-list.tsx).
+  // Label for a run whose chat has no local title (headless/CLI jobs).
   runsList: {
     untitledRun: 'Deep research run',
-    sessionLabel: 'Session {id}',
-    viewThinking: 'View thinking',
-  },
-
-  dockedPanel: {
-    closePanel: 'Close panel',
   },
 
   chatArea: {
@@ -37,13 +26,9 @@ export const research = {
     },
     loggedOutTitle: 'Piloti opens after your organization is verified.',
     loggedOutBody:
-      'Sign in to unlock project-scoped OIB research, document reading, and member access controls.',
+      'Sign in to unlock the project workspace: your files, the office archive, and the building-regulation corpus.',
     signInSso: 'Sign in with SSO',
     welcomeTitle: 'How can Piloti help with your project?',
-    usePrompt: 'Use suggestion: {prompt}',
-    prompt1: 'Compare OIB 2 fire resistance duties across building classes.',
-    prompt2: 'Summarize accessibility requirements for a public retrofit.',
-    prompt3: 'Find contradictions between uploaded plans and OIB guidance.',
   },
 
   chatToolbar: {
@@ -61,7 +46,6 @@ export const research = {
     /** Trigger for the thread menu that holds every non-primary header action. */
     moreActions: 'More actions',
     renameSession: 'Rename chat',
-    researchReport: 'Research report',
   },
 
   dataSources: {
@@ -239,9 +223,9 @@ export const research = {
     subjectCleared: 'No longer asking about that file.',
     subjectClearedUndo: 'Undo',
     aiDisclosure:
-      'Piloti is an AI — answers can be wrong; verify them against the cited Richtlinie.',
+      'Piloti is an AI — answers can be wrong; verify them against the cited files.',
     placeholderDefault: 'Check data sources and ask a research question...',
-    signInToStart: 'Sign in to start researching',
+    signInToStart: 'Sign in to start working',
     researchCompletedNewSession: 'Research completed. Create a new session for further questions.',
     researchFailedFollowUp: 'Research didn’t finish. Ask a follow-up or try again.',
     typeResponse: 'Type your response to Piloti...',
@@ -273,6 +257,8 @@ export const research = {
     chatMessageInput: 'Chat message input',
     stopStreaming: 'Stop response',
     sendWhilePending: 'Files are still processing — send anyway?',
+    heldForUpload: 'Sending as soon as the file has been read.',
+    heldForUploadSendNow: 'Ask now without it',
     removeFile: 'Remove file: {name}',
     retryUpload: 'Retry upload',
     manageFiles: 'Manage files',
@@ -341,18 +327,34 @@ export const research = {
 
   sessionsPanel: {
     title: 'Chat history',
+    /** The sheet's close control (grabber pill + desktop X). */
+    close: 'Close chat history',
     /** Shown beside the title so the panel states its own size. */
     countLabel: '{count, plural, one {# chat} other {# chats}}',
     countLabelOne: '1 chat',
-    // Storage is surfaced only once it is close enough to matter, and then it
-    // says what to do about it rather than reporting a number.
-    storageQuota: 'Browser storage is {percent}% full — delete old chats to free space.',
-    storageNote:
-      'Chats are saved in this browser. Research reports may expire on the server.',
+    // Chats persist server-side (Postgres via /api/conversations) for every
+    // chat, unconditionally — this line must never claim they live in the
+    // browser, and must never advise deleting chats to free local space:
+    // deleting a chat deletes the server copy too.
+    syncedNote:
+      'Chats are saved to your workspace and available on any device. Research reports may expire on the server.',
     deleteAllDisabled: 'Delete all chats in this project (disabled)',
     deleteAll: 'Delete all chats in this project',
     cannotDeleteBusy: 'Cannot delete while operations are in progress',
     deleteAllButton: 'Delete all chats',
+    /** Stop action for a stuck deep-research run (chat row, run row). */
+    stopResearch: 'Stop research',
+    stopResearchTitle: 'Stop this stuck research run',
+    /** Bulk purge in the history footer: stops every abandoned run of the user. */
+    purgeStuckRunsButton: 'Stop stuck research',
+    purgeStuckRuns: 'Stop all stuck research runs',
+    purgeDone: '{count, plural, one {Stopped # stuck research run} other {Stopped # stuck research runs}}',
+    purgeIdle: 'No stuck research runs found',
+    /** Bulk-purge confirm (shared ConfirmDialog, warning tone): the purge is the one bulk action that cancels server work. */
+    purgeConfirmTitle: 'Stop stuck research?',
+    purgeConfirmBody:
+      'Every stuck research run will be cancelled and cannot be resumed. Your chats are kept — only the runs stop.',
+    purgeConfirmConfirm: 'Stop stuck research',
     newSessionDisabled: 'Start a new chat (disabled during active operations)',
     startNewSession: 'Start a new chat',
     cannotCreateActive: 'Cannot start a new chat while this one is still answering',
@@ -386,10 +388,20 @@ export const research = {
     sessionLabel: 'Chat: {title}',
     /** Same row, plus the state its leading icon depicts. */
     sessionLabelWithStatus: 'Chat: {title} — {status}',
-    // FB-10: Deep Research section folded into the sessions panel.
-    deepResearchHeading: 'Deep Research ({count})',
+    // FB-10: Deep Research section folded into the sessions panel. The count
+    // rides in a CountPill beside the heading, not in the string.
+    deepResearchHeading: 'Deep Research',
     deepResearchChip: 'Deep Research',
     deepResearchRunLabel: 'Open deep research run: {label} — {status}',
+    /** Scope filter over the one list — chats, runs, or both. */
+    filterAria: 'Filter history',
+    filterAll: 'All',
+    filterChats: 'Chats',
+    filterResearch: 'Deep Research',
+    /** A failed runs fetch says so — an empty section would misreport it. */
+    researchLoadFailed: 'Deep-research runs could not be loaded.',
+    noRuns: 'No deep research runs yet',
+    noRunsDescription: 'Deep research runs from this project will be listed here.',
     /** A run's state, in words — the icon alone made "failed" and "ready" look alike. */
     runStatus: {
       running: 'Running',

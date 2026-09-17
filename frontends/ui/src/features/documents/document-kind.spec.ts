@@ -70,10 +70,47 @@ describe('inferDocumentKind', () => {
     })
 
     it('defaults to a generic document', () => {
-      expect(inferDocumentKind({ filename: 'notes.txt' })).toBe('document')
       expect(inferDocumentKind({ filename: 'vertrag_2024.docx', tags: [], contentType: null })).toBe(
         'document'
       )
+      expect(inferDocumentKind({ filename: 'anhang_c', tags: [], contentType: null })).toBe('document')
+    })
+  })
+
+  /**
+   * The bug this rule exists for: `plan` matches ANYWHERE in a filename, so a
+   * `.md` called `Projektplan` drew a floor-plan card — outer walls, interior
+   * partitions and a door swing over a file that is prose. The format is the
+   * one signal that cannot be wrong about this, so it is read first.
+   */
+  describe('format beats every other signal', () => {
+    it('never draws a drawing for a format whose bytes cannot be one', () => {
+      expect(inferDocumentKind({ filename: 'Projektplan.md' })).toBe('text')
+      expect(inferDocumentKind({ filename: 'Sanierungsplanung.txt' })).toBe('text')
+      expect(inferDocumentKind({ filename: 'Zeitplan.csv' })).toBe('sheet')
+      expect(inferDocumentKind({ filename: 'Grundriss_Auszug.xlsx' })).toBe('sheet')
+    })
+
+    it('outranks an ingestion tag, exactly as the .ifc rule does', () => {
+      expect(inferDocumentKind({ filename: 'auszug.md', tags: ['Grundriss'] })).toBe('text')
+      expect(inferDocumentKind({ filename: 'raumbuch.csv', tags: ['Schnitt'] })).toBe('sheet')
+      expect(inferDocumentKind({ filename: 'Grundriss EG.ifc', tags: ['Grundriss'] })).toBe('model')
+    })
+
+    it('reads the content type too, for a name that carries no extension', () => {
+      expect(inferDocumentKind({ filename: 'Bauzeitplan', contentType: 'text/markdown' })).toBe('text')
+      expect(inferDocumentKind({ filename: 'Bauzeitplan', contentType: 'text/csv' })).toBe('sheet')
+      expect(
+        inferDocumentKind({
+          filename: 'Kostenplan',
+          contentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        })
+      ).toBe('sheet')
+    })
+
+    it('leaves the formats that really can be drawings to the heuristics', () => {
+      expect(inferDocumentKind({ filename: 'Grundriss EG.pdf' })).toBe('floorplan')
+      expect(inferDocumentKind({ filename: 'Lageplan.dwg' })).toBe('siteplan')
     })
   })
 })

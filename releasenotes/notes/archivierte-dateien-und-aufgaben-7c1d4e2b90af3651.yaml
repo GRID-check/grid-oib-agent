@@ -1,0 +1,36 @@
+---
+# One entry per user-visible change. This text is PUBLISHED, in English and in
+# German machine translation, to https://piloti.at/changelog — write it for the
+# architect using Piloti, not for the reviewer of your diff.
+features:
+  - >
+    A project's Automation section has a new Tasks tab. It lists the work handed
+    to Piloti — from a chat, from a review decision, or from a job on its
+    schedule — with what was asked for, how far it got, how it was judged, and a
+    link to the document or the chat the result ended up in.
+improvements:
+  - >
+    Archiving a file now takes it out of the file list, which is what archiving
+    was always meant to mean. A new filter shows the archived files again
+    whenever you want them back; nothing is deleted either way.
+  - >
+    When a draft is submitted for approval, you can now name who should look at
+    it. Leave it as it is and everyone who may release files in the project is
+    asked, so a draft nobody has taken on still reaches somebody.
+fixes:
+  - >
+    Uploading a corrected version of a file that is already in a project works
+    again. The upload was refused while the previous version was still the
+    published one.
+  - >
+    Whoever commissioned a report can now release it themselves. Piloti files a
+    report in the name of the person who asked for it, and that person was being
+    treated as its author and refused the approval.
+  - >
+    A document Piloti revises keeps the line that says it was written with
+    Piloti. Only the first draft carried it; every later version arrived without
+    it.
+  - >
+    Superseded and unpublished versions of a file now count towards the storage
+    a workspace uses. They were being kept and not counted, so the figure shown
+    was lower than what was actually stored.

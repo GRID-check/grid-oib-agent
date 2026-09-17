@@ -23,9 +23,12 @@ import { z } from 'zod'
 import * as generated from './generated'
 import { gridCardSchema, validateGridCards } from './schemas'
 // The canonical card JSON Schema, generated from `models.py` and the input the
-// Zod mirror is generated FROM. Reached by path because it lives above the app
-// root; `scripts/generate-card-schemas.mjs` reads the same file the same way.
-import cardJsonSchema from '../../../../../shared/cards/schemas.json'
+// Zod mirror is generated FROM. Loaded at runtime (it lives above the app
+// root, outside the Docker build context) — see the helper for why a static
+// import breaks the production image build.
+import { loadCardJsonSchema } from '@/test-utils/card-json-schema'
+
+const cardJsonSchema = loadCardJsonSchema()
 
 interface JsonSchemaDocument {
   $defs: Record<string, JsonSchemaNode>
@@ -155,13 +158,15 @@ describe('nested card fields are validated, not waved through', () => {
     expect(Object.keys(CARD_PREVIEW_FIXTURES).sort()).toEqual(previewable.sort())
   })
 
-  it('drops the malformed card and keeps the rest of the answer', () => {
+  it('holds the position of the malformed card and keeps the rest of the answer', () => {
     // The failure mode this whole line of work is about: one bad card must
-    // cost one card, not the thread.
+    // cost one card, not the thread — and not the positions after it, which
+    // `[[card:N]]` markers and persisted decisions address by index.
     const kept = validateGridCards([
       { type: 'verdict_header', subject: 'a', verdict: 'b', reference: 'banana' },
       { type: 'summary', title: 'Zusammenfassung', content: 'Alles gut.' },
     ])
-    expect(kept.map((card) => card.type)).toEqual(['summary'])
+    expect(kept).toHaveLength(2)
+    expect(kept.map((card) => card?.type)).toEqual([undefined, 'summary'])
   })
 })

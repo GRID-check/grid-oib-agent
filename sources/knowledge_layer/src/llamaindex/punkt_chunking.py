@@ -562,10 +562,10 @@ def richtlinie_key(file_name: str) -> str:
     The metadata key a filter matches on, which is NOT the human heading the breadcrumb
     carries -- one is ``"2.1"``, the other ``"OIB-Richtlinie 2.1 — Brandschutz"``.
 
-    The edition suffix is dropped, and matched generically rather than against ``mai``:
-    ``guess_display_title`` hardcodes ``ausgabe_mai_2023`` and therefore silently loses
-    the edition of every other Ausgabe, which is the bug this deliberately does not
-    repeat. A document whose stem carries no Richtlinie number keeps its stem.
+    The edition suffix is dropped, matched generically (any month, any year) — the
+    same shape ``guess_display_title`` reads it with, so the key and the title agree
+    on what an edition looks like. A document whose stem carries no Richtlinie
+    number keeps its stem.
     """
     stem = file_name
     for suffix in (".pdf", ".PDF"):

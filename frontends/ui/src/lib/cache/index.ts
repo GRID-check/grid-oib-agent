@@ -28,6 +28,44 @@ export interface CacheStore {
   deletePrefix(prefix: string): Promise<void>
 }
 
+/**
+ * What this tier actually did, since the process started.
+ *
+ * The caching audit's own words: every ranking in it "is structural", because
+ * neither cache module counted anything (`latency-and-caching-audit-2026-09.md`
+ * §4.4, option E7 — "every rule above arguing from theory"). A hit rate is the
+ * one number that says whether a TTL is worth its staleness, and whether the
+ * shared tier is reachable at all — a store that is down reads as 100 % miss
+ * plus a rising `errors`, which is exactly the fail-open path below.
+ *
+ * Module-level mutable state, which the conventions reserve for registries with
+ * a `reset_*` — `resetCacheCounters()` is that, and the specs use it. Counting
+ * is deliberately unconditional and free (three integer increments); nothing
+ * samples, so a reader never has to ask whether the number is scaled.
+ */
+export interface CacheCounters {
+  /** A stored value was found and parsed. */
+  hits: number
+  /** No stored value (or the store failed), so the loader ran. */
+  misses: number
+  /** A store operation threw. Every one of these is a fail-open degradation. */
+  errors: number
+}
+
+const counters: CacheCounters = { hits: 0, misses: 0, errors: 0 }
+
+/** A snapshot of the counters. Copied, so a reader cannot mutate the tally. */
+export function readCacheCounters(): CacheCounters {
+  return { ...counters }
+}
+
+/** Zero the counters (tests, and a profiler run that wants a window). */
+export function resetCacheCounters(): void {
+  counters.hits = 0
+  counters.misses = 0
+  counters.errors = 0
+}
+
 const MAX_LOCAL_ENTRIES = 5000
 
 interface LocalEntry {
@@ -165,18 +203,27 @@ export async function getCached<T>(
   try {
     const hit = await store.get(key)
     if (hit !== null) {
-      return JSON.parse(hit) as T
+      const parsed = JSON.parse(hit) as T
+      counters.hits += 1
+      return parsed
     }
   } catch (error) {
+    // A malformed entry lands here too, and takes the same road as an outage:
+    // one warning, one loader call. Counted as an error AND a miss, because
+    // both are true and a hit rate that ignored it would read as healthy.
+    counters.errors += 1
+    counters.misses += 1
     console.warn(`[cache] read failed for ${key}:`, error)
     return loader()
   }
 
+  counters.misses += 1
   const value = await loader()
   const ttl = value === null || value === undefined ? (options?.negativeTtlMs ?? ttlMs) : ttlMs
   try {
     await store.set(key, JSON.stringify(value ?? null), ttl)
   } catch (error) {
+    counters.errors += 1
     console.warn(`[cache] write failed for ${key}:`, error)
   }
   return value
@@ -194,6 +241,7 @@ export async function setCached<T>(key: string, value: T, ttlMs: number): Promis
   try {
     await store.set(key, JSON.stringify(value ?? null), ttlMs)
   } catch (error) {
+    counters.errors += 1
     console.warn(`[cache] direct write failed for ${key}:`, error)
   }
 }
@@ -203,6 +251,7 @@ export async function invalidateCached(key: string): Promise<void> {
   try {
     await store.delete(key)
   } catch (error) {
+    counters.errors += 1
     console.warn(`[cache] invalidate failed for ${key}:`, error)
   }
 }
@@ -212,6 +261,7 @@ export async function invalidateCachedPrefix(prefix: string): Promise<void> {
   try {
     await store.deletePrefix(prefix)
   } catch (error) {
+    counters.errors += 1
     console.warn(`[cache] prefix invalidate failed for ${prefix}:`, error)
   }
 }

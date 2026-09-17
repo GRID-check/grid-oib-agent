@@ -43,7 +43,7 @@ kubectl logs deploy/<deployment-name> --tail=100
 ## Common Failure Areas
 
 - Port conflict on backend, frontend, or PostgreSQL.
-- Missing `NVIDIA_API_KEY` or search provider key.
+- Missing `OPENROUTER_API_KEY` or search provider key.
 - Selected config file does not exist.
 - `NAT_JOB_STORE_DB_URL` or `AIQ_CHECKPOINT_DB` does not match the running PostgreSQL service.
 - Docker container was recreated and lost an external RAG network connection.

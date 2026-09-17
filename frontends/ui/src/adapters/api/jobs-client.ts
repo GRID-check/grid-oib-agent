@@ -3,13 +3,12 @@
  *
  * Typed fetch client for the project-scoped job endpoints
  * (`/api/projects/[id]/jobs…`) plus the builder's skill picker
- * (`/api/skills/attachable`). These are grid_app-owned BFF routes, so they are
+ * These are grid_app-owned BFF routes, so they are
  * always called same-origin and return the camelCase JSON envelope the BFF
  * service layer produces.
  *
- * A **job is a prompt on a timer**: `prompt` is what it is, `output` is what a
- * run produces, and a skill MAY be attached on top — exactly as typing `/name`
- * before the message would attach it. The server owns validation (cron /
+ * A **job is a prompt on a timer**, and what it produces is always the same: a
+ * researched report, filed into the project. The server owns validation (cron /
  * min-interval, prompt length, name rules) and snapshot semantics; this client
  * only transports the documented shapes and surfaces the BFF error envelope
  * (`{ error, code }`).
@@ -27,7 +26,7 @@ import type { SkillSnapshot } from './skills-client'
 
 /**
  * What a job produces — the user's choice, and the only thing that decides
- * which agent runs it (`chat` → shallow_researcher, `deep-research` →
+ * which agent runs it (`chat` → researcher, `deep-research` →
  * deep_researcher). Was `execution`, denormalised from skill metadata.
  */
 export type JobOutput = 'chat' | 'deep-research'
@@ -54,6 +53,14 @@ export interface Job {
   enabled: boolean
   scheduleCron: string | null
   scheduleTimezone: string
+  /**
+   * When a one-off task is due, ISO-8601. Null on a recurring or manual one.
+   *
+   * With `scheduleCron` this is what says WHICH of the three shapes a task is,
+   * and the two are mutually exclusive: a cron means recurring, a due date
+   * means once, neither means it only runs when somebody presses Run now.
+   */
+  dueAt: string | null
   nextRunAt: string | null
   lastRunAt: string | null
   createdBy: string
@@ -91,13 +98,16 @@ export interface RunJobResult {
 export interface CreateJobInput {
   name: string
   prompt: string
-  output: JobOutput
+  // No `output`. A standing task is always a research run that files a report;
+  // the wire stopped carrying the choice with the wizard step that asked it.
   /** Omit (or null) for a job with no skill attached. */
   skillName?: string | null
   dataSources?: string[] | null
   enabled?: boolean
   scheduleCron?: string | null
   scheduleTimezone?: string
+  /** ISO-8601 instant for a one-off task. Mutually exclusive with a cron. */
+  dueAt?: string | null
 }
 
 /**
@@ -111,16 +121,6 @@ export type UpdateJobInput = Partial<CreateJobInput>
 export interface ListJobRunsParams {
   limit?: number
   offset?: number
-}
-
-/** A skill the picker may offer for the job's chosen output kind. */
-export interface AttachableSkill {
-  name: string
-  description: string
-  /** Full body — the builder's WYSIWYG preview embeds it. */
-  body: string
-  metadata: Record<string, string>
-  origin: 'org' | 'platform-clone' | 'platform'
 }
 
 // ============================================================
@@ -289,21 +289,4 @@ export const listJobRuns = async (
   if (!response.ok) await throwJobApiError(response, 'Failed to list job runs')
   const data = (await response.json()) as { runs?: JobRun[] } | JobRun[]
   return Array.isArray(data) ? data : (data.runs ?? [])
-}
-
-/**
- * The skills a job with this output kind may attach.
- *
- * `chat` resolves against `shallow_researcher` and `deep-research` against
- * `deep_researcher`, both via `grid-agents` — so the picker can never offer a
- * skill the chosen output kind cannot run. Re-fetch when the output changes.
- */
-export const listAttachableSkills = async (output: JobOutput): Promise<AttachableSkill[]> => {
-  const response = await fetch(
-    `/api/skills/attachable?output=${encodeURIComponent(output)}`,
-    { headers: jsonHeaders },
-  )
-  if (!response.ok) await throwJobApiError(response, 'Failed to list attachable skills')
-  const data = (await response.json()) as { skills?: AttachableSkill[] } | AttachableSkill[]
-  return Array.isArray(data) ? data : (data.skills ?? [])
 }

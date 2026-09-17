@@ -19,13 +19,13 @@ general:
 
 llms:
   nemotron_super_llm:
-    _type: nim
-    model_name: nvidia/nemotron-3-super-120b-a12b
-    base_url: "https://integrate.api.nvidia.com/v1"
+    _type: openai
+    model_name: openai/gpt-5.6-luna
+    base_url: "https://openrouter.ai/api/v1"
     temperature: 0.7
     top_p: 0.7
     max_tokens: 65536
-    num_retries: 5
+    api_key: ${OPENROUTER_API_KEY}
     chat_template_kwargs:
       enable_thinking: true
 
@@ -35,21 +35,16 @@ llms:
     api_key: ${OPENAI_API_KEY}
 
   gpt_oss_llm:
-    _type: nim
+    _type: openai
     model_name: openai/gpt-oss-120b
-    base_url: "https://integrate.api.nvidia.com/v1"
+    base_url: "https://openrouter.ai/api/v1"
     temperature: 1.0
     top_p: 1.0
     max_tokens: 256000
-    api_key: ${NVIDIA_API_KEY}
+    api_key: ${OPENROUTER_API_KEY}
     max_retries: 10
 
 functions:
-  paper_search_tool:
-    _type: paper_search
-    max_results: 5
-    serper_api_key: ${SERPER_API_KEY}
-
   advanced_web_search_tool:
     _type: tavily_web_search
     max_results: 2
@@ -64,7 +59,6 @@ functions:
     writer_llm: gpt_oss_llm
     max_loops: 2
     tools:
-      - paper_search_tool
       - advanced_web_search_tool
 
 workflow:

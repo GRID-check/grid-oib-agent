@@ -42,9 +42,7 @@
 | **Upstream model providers** (via OpenRouter — dynamic) | varies | Actual inference of the org-selected model | Yes — OpenRouter forwards the full request | Implicit | none (runtime admin choice) | see statement above; `server.js:342` (`X-Grid-Model-Overrides`) |
 | **WorkOS** | `api.workos.com` + hosted AuthKit | AuthN/AuthZ (SSO, MFA, RBAC, FGA), org lifecycle, feature flags, **entire audit trail** | Personal data: accounts, memberships, sessions; audit events carry actor email, client IP, user agent, doc filenames | Prod: yes (`REQUIRE_AUTH=true`) | `WORKOS_CLIENT_ID/API_KEY/COOKIE_PASSWORD` | `lib/audit/service.ts:57-62`; `lib/documents/service.ts:196-205` |
 | **Tavily** | `api.tavily.com` | Primary web/news search | Search queries (LLM-derived from prompts); results flow back into prompts | Yes (all configs) | `TAVILY_API_KEY` | `sources/tavily_web_search/src/register.py:103-108` |
-| **NVIDIA NIM** | `integrate.api.nvidia.com/v1` | Code-default embeddings + VLM captioning; LLMs in NIM configs | Doc chunk text, page images, prompts | Optional in prod (Coolify routes via OpenRouter) | `NVIDIA_API_KEY`, `AIQ_EMBED_*`, `AIQ_VLM_*` | `sources/knowledge_layer/src/llamaindex/adapter.py:76-78,583-591` |
-| **Kimi/Moonshot** | `api.kimi.com/coding/v1` | LLM in unmaintained alt configs | Yes | Optional | `KIMI_API_KEY` | `configs/config_grid_oib.yml:32-68` |
-| **OpenAI direct** | `api.openai.com` | `config_frontier_models.yml`; summary fallback | Yes | Optional | `OPENAI_API_KEY` | `frontends/aiq_api/.../generate_summary.py:52-58` |
+| **OpenAI direct** | `api.openai.com` | summary fallback only | Yes | Optional | `OPENAI_API_KEY` | `frontends/aiq_api/.../generate_summary.py:52-58` |
 | **Serper.dev / Exa / DuckDuckGo / Polymarket** | various | Optional search plugins | Prompt-derived queries | Optional | `SERPER_API_KEY`, `EXA_API_KEY`, none, none | `sources/*/src/register.py` |
 | **Modal** | modal.com | Deep-research code sandbox (non-default config only; packages ship in prod image) | Agent-authored code + research-derived files | Optional | `MODAL_TOKEN_ID/SECRET` | `deepagents_runtime.py:244-366` |
 | **LangSmith** | `api.smith.langchain.com` | Tracing — **one env var away**: lib is installed transitively; `LANGCHAIN_TRACING_V2=true` exports **full prompts/completions** | Yes if enabled | Optional, off | `LANGCHAIN_TRACING_V2`, `LANGCHAIN_API_KEY` | `.env.example`; `uv.lock` |
@@ -82,11 +80,16 @@ Backend agents fetch no arbitrary URLs themselves (only internal BFF call in
   unaffected by the switch (it does NOT support the binary `bun.lockb`, which
   this repo does not use).
 - **CI controls:** Semgrep SAST (py+ts/js+actions) + weekly; OSV-Scanner lockfile
-  CVEs; pip-audit + `bun audit`; gitleaks full history; detect-secrets baseline;
-  Dependabot fix PRs. (GitHub dependency-review dropped: it needs GitHub Advanced
-  Security on this private repo; OSV-Scanner + Dependabot cover new-dependency CVEs
-  instead.) Gaps: Semgrep + OSV-Scanner and both dependency audits (pip-audit and
-  `bun audit`) are currently non-blocking in
+  CVEs over all eight lockfiles in the tree; gitleaks full history; detect-secrets
+  baseline; Dependabot fix PRs. (GitHub dependency-review dropped: it needs GitHub
+  Advanced Security on this private repo; OSV-Scanner + Dependabot cover
+  new-dependency CVEs instead. The separate pip-audit / `bun audit` / `npm audit`
+  job was dropped in Sep 2026: it covered three of those eight lockfiles against
+  advisory databases OSV already ingests — GHSA and PyPA — while taking longer
+  than the whole rest of the workflow (9m53s with it, 2m36s without), and two of
+  its three steps were silently reporting nothing. Rationale in
+  [`security.yml`](../../.github/workflows/security.yml).) Gaps: Semgrep and
+  OSV-Scanner are currently non-blocking in
   [`.github/workflows/security.yml`](../../.github/workflows/security.yml)
   (Phase 1 — findings surface in the job log); no clean-as-you-code
   smell gate (CodeQL + Sonar removed — code smells now via ruff/eslint + coverage

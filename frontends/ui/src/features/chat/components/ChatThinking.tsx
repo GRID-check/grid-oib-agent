@@ -4,8 +4,10 @@
  * Collapsed: status + "Herleitung · n Schritte", plus "· m Quellen" when the
  * answer actually rests on any.
  * Expanded: the connected reasoning-chain (`ReasoningChain`) — the framing node,
- * the parallel Quellen fan-out, the assessment node, and (when a live HITL
- * choice exists) the next-steps branches, plus the technical NAT-step tail.
+ * a spine of checkpoints when the turn searched more than once (each with the
+ * tools it called and the files THAT fetch returned), the findings node, and
+ * (when a live HITL choice exists) the next-steps branches, plus the technical
+ * NAT-step tail.
  * Every node binds to real streamed data or is hidden; nothing is fabricated.
  */
 
@@ -14,11 +16,12 @@
 import { type FC, useMemo, useState, useEffect, useRef } from 'react'
 import { ChevronDown, CheckCircle2, AlertTriangle, Clock } from 'lucide-react'
 import { Collapsible, CollapsibleTrigger } from '@/components/ui/collapsible'
-import { motion, AnimatePresence } from '@/components/motion'
+import { motion, AnimatePresence, motionBase, motionQuick } from '@/components/motion'
 import { SectionLabel } from '@/components/ui/section-label'
 import { Spinner } from '@/components/ui/spinner'
 import { useTranslations } from '@/i18n'
 import type { ThinkingStep, CitationSource } from '../types'
+import type { RetrievalLedger } from '@/lib/conversations/message-retrieval-ledger'
 import { deriveTraceLanes } from '../lib/trace-lanes'
 import { buildCitationModel } from '../lib/citations'
 import { deriveLiveActivity } from '../lib/live-activity'
@@ -71,12 +74,15 @@ export interface ChatThinkingProps {
   choicePrompt?: ChoicePrompt
   /** Respond to the HITL choice prompt. */
   onChoiceRespond?: (promptId: string, choice: string) => void
-  /** Routing path this turn took after intent classification (framing node). */
-  routingDecision?: 'meta' | 'shallow' | 'deep' | 'error'
-  /** Verbatim classifier "why" for the routing decision (framing node). */
-  routingReason?: string
   /** Set when this turn escalated shallow→deep — framing-node narration. */
   escalationReason?: string
+  /**
+   * The answer message's `retrievalLedger` — the backend's own account of what
+   * each retrieval round returned. Passed straight through to the spine, which
+   * builds a round's fan from it when it has that round. Absent (older turns,
+   * a turn that recorded none) and the spine matches filenames as before.
+   */
+  retrievalLedger?: RetrievalLedger
   /** Render the Herleitung expanded on first mount (e.g. the current turn). */
   defaultOpen?: boolean
   /**
@@ -103,26 +109,54 @@ export const ChatThinking: FC<ChatThinkingProps> = ({
   citations,
   choicePrompt,
   onChoiceRespond,
-  routingDecision,
-  routingReason,
   escalationReason,
+  retrievalLedger,
   defaultOpen = false,
   autoOpen,
 }) => {
   const t = useTranslations('chat')
 
-  // Controlled open state. Seeded from the turn-driven `autoOpen` (or the
-  // uncontrolled `defaultOpen` fallback), then re-driven whenever `autoOpen`
-  // flips — so a turn expands live and collapses on completion — while still
-  // honouring a manual toggle in between.
+  // Controlled open state with pinning. Seeded from the turn-driven `autoOpen`
+  // (or the uncontrolled `defaultOpen` fallback), then re-driven ONLY on the
+  // terms below — so a turn expands live and a reader's explicit toggle is
+  // never stomped by a later turn transition:
+  // - live→done (`autoOpen` true→false) auto-collapses ONLY a panel the turn
+  //   itself opened (`autoOpenedRef`) that the reader never touched
+  //   (`userToggledRef`). A hand-toggled panel stays exactly as left.
+  // - `isWaiting` / `isInterrupted` always drive OPEN (the HITL choice and the
+  //   recovery notice live inside) and then stop driving: a wait that ends
+  //   does not re-collapse, closing again is an explicit act.
   const [open, setOpen] = useState<boolean>(autoOpen ?? defaultOpen)
   const prevAutoOpen = useRef<boolean | undefined>(autoOpen)
+  const userToggledRef = useRef(false)
+  const autoOpenedRef = useRef(autoOpen ?? defaultOpen)
   useEffect(() => {
-    if (autoOpen !== undefined && autoOpen !== prevAutoOpen.current) {
-      prevAutoOpen.current = autoOpen
-      setOpen(autoOpen)
+    if (autoOpen === undefined || autoOpen === prevAutoOpen.current) return
+    const wasLive = prevAutoOpen.current
+    prevAutoOpen.current = autoOpen
+    if (autoOpen) {
+      setOpen(true)
+      autoOpenedRef.current = true
+    } else if (wasLive) {
+      if (!userToggledRef.current && autoOpenedRef.current) setOpen(false)
+      autoOpenedRef.current = false
     }
   }, [autoOpen])
+
+  const prevWaitingRef = useRef(isWaiting)
+  const prevInterruptedRef = useRef(isInterrupted)
+  useEffect(() => {
+    const waitingStarted = isWaiting && !prevWaitingRef.current
+    const interruptedStarted = isInterrupted && !prevInterruptedRef.current
+    prevWaitingRef.current = isWaiting
+    prevInterruptedRef.current = isInterrupted
+    if (waitingStarted || interruptedStarted) setOpen(true)
+  }, [isWaiting, isInterrupted])
+
+  const handleOpenChange = (next: boolean) => {
+    userToggledRef.current = true
+    setOpen(next)
+  }
 
   const sourceCards = useMemo(
     () => buildCitationModel({ traceLanes: deriveTraceLanes(steps), citations }),
@@ -168,7 +202,6 @@ export const ChatThinking: FC<ChatThinkingProps> = ({
     Boolean(answerConfidence) ||
     (citations?.length ?? 0) > 0 ||
     Boolean(choicePrompt) ||
-    Boolean(routingDecision && routingReason?.trim()) ||
     Boolean(escalationReason?.trim()) ||
     userQuestion.trim().length > 0
 
@@ -193,17 +226,38 @@ export const ChatThinking: FC<ChatThinkingProps> = ({
 
   return (
     <div className="animate-in fade-in-0 slide-in-from-bottom-1 w-full rounded-2xl bg-muted shadow-xs duration-base ease-entrance motion-reduce:animate-none">
-      <Collapsible open={open} onOpenChange={setOpen}>
+      <Collapsible open={open} onOpenChange={handleOpenChange}>
         <CollapsibleTrigger asChild>
+          {/* No aria-label on the trigger: it would OVERRIDE the visible
+              content, hiding exactly what a non-sighted reader needs — the
+              status word („Denke nach" / „Unterbrochen" / „Wartet") and the
+              live activity phrase. The accessible name is the content itself. */}
           <button
             type="button"
-            className="group relative flex min-h-12 w-full cursor-pointer items-center justify-between rounded-2xl px-4 pb-4 pt-3 text-left outline-none transition-colors duration-snap ease-out motion-reduce:transition-none focus-visible:ring-2 focus-visible:ring-ring/60"
-            aria-label={summaryLabel}
+            className="group relative flex min-h-12 w-full cursor-pointer items-center justify-between rounded-2xl px-4 py-3 text-left outline-none transition-colors duration-snap ease-out motion-reduce:transition-none focus-visible:ring-2 focus-visible:ring-ring/60"
           >
-            <span className="flex min-w-0 items-center gap-2">
+            {/* Symmetric vertical padding (NOT pb-4/pt-3): with min-h-12 the
+                flex centering then lands the row on the true middle. The old
+                extra bottom padding reserved room for the sweep bar below, but
+                that bar is absolutely positioned and needs no room — the
+                reservation only pushed every state 2px high. */}
+            {/* aria-live sits HERE, on a stable element: it used to sit on the
+                keyed motion.span inside AnimatePresence, which is unmounted and
+                remounted per step — a live region created WITH its content, which
+                most AT never announces. On a stable region, each new phrase is an
+                addition and is read out. The elapsed timer lives in the sibling
+                span, so it does not chatter once a second. */}
+            <span className="flex min-w-0 items-center gap-2" aria-live="polite">
               {isThinking ? (
                 <>
-                  <Spinner size="sm" label={t('thinking.inProgress')} />
+                  {/* Fixed icon slot, shared by every state below: the thinking
+                      spinner is 16px, the status icons 20px. Without the slot
+                      the text starts 4px further right whenever the turn lands,
+                      and the row visibly jumps at the exact moment the reader
+                      looks at it. */}
+                  <span className="flex size-5 shrink-0 items-center justify-center">
+                    <Spinner size="sm" label={t('thinking.inProgress')} />
+                  </span>
                   {/* The live activity phrase cross-fades as each new step
                       arrives, and shimmers while it holds — a quiet cue that
                       work is actively moving during a long wait. */}
@@ -214,8 +268,7 @@ export const ChatThinking: FC<ChatThinkingProps> = ({
                       initial={{ opacity: 0, y: 4 }}
                       animate={{ opacity: 1, y: 0 }}
                       exit={{ opacity: 0, y: -4 }}
-                      transition={{ duration: 0.18, ease: 'easeOut' }}
-                      aria-live="polite"
+                      transition={motionQuick}
                     >
                       {activityLabel}
                     </motion.span>
@@ -223,7 +276,7 @@ export const ChatThinking: FC<ChatThinkingProps> = ({
                 </>
               ) : isWaiting ? (
                 <>
-                  <span className="text-brand">
+                  <span className="flex size-5 shrink-0 items-center justify-center text-brand">
                     <Clock className="size-5" />
                   </span>
                   <span className="text-foreground text-sm font-semibold">
@@ -232,14 +285,16 @@ export const ChatThinking: FC<ChatThinkingProps> = ({
                 </>
               ) : isInterrupted && isRecoveryPending ? (
                 <>
-                  <Spinner size="sm" className="text-muted-foreground" aria-hidden="true" />
+                  <span className="flex size-5 shrink-0 items-center justify-center text-muted-foreground">
+                    <Spinner size="sm" aria-hidden="true" />
+                  </span>
                   <span className="text-foreground text-sm font-semibold">
                     {t('thinking.recovering')}
                   </span>
                 </>
               ) : isInterrupted ? (
                 <>
-                  <span className="text-warning">
+                  <span className="flex size-5 shrink-0 items-center justify-center text-warning">
                     <AlertTriangle className="size-5" />
                   </span>
                   <span className="text-foreground text-sm font-semibold">
@@ -248,7 +303,7 @@ export const ChatThinking: FC<ChatThinkingProps> = ({
                 </>
               ) : (
                 <>
-                  <span className="text-success">
+                  <span className="flex size-5 shrink-0 items-center justify-center text-success">
                     <CheckCircle2 className="size-5" />
                   </span>
                   <span className="text-foreground text-sm font-semibold">
@@ -284,18 +339,23 @@ export const ChatThinking: FC<ChatThinkingProps> = ({
           </button>
         </CollapsibleTrigger>
 
-        {/* Expanded content — opacity only (no height tween). The reserved
-            min-h-12 header is the chrome; the body mounts/unmounts. The basis
-            footer lives INSIDE here so the collapsed turn is just the one-line
-            summary and never bulks the thread before the answer. */}
+        {/* Expanded content — height 0↔auto plus opacity, so the panel grows
+            out of the header instead of fading in over a height cliff (the
+            reserved min-h-12 header is the chrome; the body mounts/unmounts).
+            Base duration in, one step shorter out, `overflow-hidden` so the
+            collapse clips; `initial={false}` so a panel that mounts already
+            open does not animate. A user-initiated expand, so height motion is
+            the honest instrument here. The basis footer lives INSIDE here so
+            the collapsed turn is just the one-line summary and never bulks the
+            thread before the answer. */}
         <AnimatePresence initial={false}>
           {open && (
             <motion.div
               key="herleitung-content"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              transition={{ duration: 0.18, ease: 'easeOut' }}
+              initial={{ height: 0, opacity: 0 }}
+              animate={{ height: 'auto', opacity: 1, transition: motionBase }}
+              exit={{ height: 0, opacity: 0, transition: motionQuick }}
+              className="overflow-hidden"
             >
               <div className="border-base border-t px-2 pb-3 pt-3 sm:px-4">
                 <ReasoningFlow
@@ -305,9 +365,8 @@ export const ChatThinking: FC<ChatThinkingProps> = ({
                   citations={citations}
                   choicePrompt={choicePrompt}
                   onChoiceRespond={onChoiceRespond}
-                  routingDecision={routingDecision}
-                  routingReason={routingReason}
                   escalationReason={escalationReason}
+                  retrievalLedger={retrievalLedger}
                   live={isThinking}
                 />
               </div>

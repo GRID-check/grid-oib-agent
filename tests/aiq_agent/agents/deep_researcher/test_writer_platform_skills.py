@@ -1,6 +1,6 @@
 """The platform's own skills, on the surface that writes the LONGEST answers.
 
-``grid-agents: shallow_researcher,deep_researcher`` on a ``platform_skills`` row
+``grid-agents: researcher,deep_researcher`` on a ``platform_skills`` row
 used to be honoured on one half and inert on the other: the chat researcher
 built a ``SkillRuntime`` and the deep pipeline resolved builtin skill FILES out
 of its sandbox instead, so ``piloti-voice`` — the row that carries the house
@@ -9,8 +9,8 @@ voice — never reached the writer of a five-thousand-word report.
 These tests pin both halves of the fix, and they are asserted against the REAL
 resolution path (only the BFF round trip is stubbed) because every layer between
 a row and the writer's context is somewhere the skill can quietly go missing:
-the ``grid-agents`` gate, the origin filter, the runtime's forcing of a standard
-skill, the writer's prompt, and the tool that carries the body.
+the ``grid-agents`` gate, the origin filter, the writer's prompt, and the tool
+that carries the body.
 
 The second test is the more important one. A skill is additive; a report is the
 product. If the BFF cannot be reached — an anonymous run, an unset
@@ -125,29 +125,36 @@ def _voice_row() -> dict[str, object]:
         "name": "piloti-voice",
         "description": "Vor dem Schreiben der Antwort laden: wie eine Piloti-Antwort gebaut ist.",
         "body": VOICE_BODY,
-        "metadata": {"grid-agents": "shallow_researcher,deep_researcher", "grid-hidden": "true"},
+        "metadata": {"grid-agents": "researcher,deep_researcher", "grid-hidden": "true"},
         "standard": True,
     }
 
 
-def _prepare(agent: DeepResearcherAgent, graph: MagicMock, state: DeepResearchAgentState) -> dict:
-    """Build one run's graph and return the writer subagent spec."""
+async def _prepare(agent: DeepResearcherAgent, graph: MagicMock, state: DeepResearchAgentState) -> dict:
+    """Build one run's graph the way ``run()`` does and return the writer subagent spec.
+
+    The skill runtime is resolved first, off the event loop, exactly as
+    ``run()`` resolves it before ``_prepare_run``.
+    """
+    skill_runtime = await agent._build_skill_runtime(state)
     with mock.patch(
         "aiq_agent.agents.deep_researcher.factory.create_deep_agent",
         return_value=graph,
     ) as create:
-        agent._prepare_run(state)
+        agent._prepare_run(state, skill_runtime)
     subagents = create.call_args.kwargs["subagents"]
     return next(spec for spec in subagents if spec["name"] == WRITER_AGENT)
 
 
-def test_a_standard_platform_skill_reaches_the_writer_as_a_requirement_and_a_body(llm_provider, graph):
-    """The voice is listed, required, and loadable — the three things it needs.
+@pytest.mark.asyncio
+async def test_a_platform_skill_reaches_the_writer_as_a_catalog_line_and_a_body(llm_provider, graph):
+    """The voice is listed and loadable — the two things it needs.
 
-    A catalog line alone would leave the model free to ignore it, and a tool
-    alone would leave it with nothing to call. ``delivery: 'standard'`` means the
-    platform decided for the fleet, so the writer is TOLD to load it, and what it
-    gets back is the body a platform owner edits in the dashboard.
+    A catalog line alone would leave the writer with nothing to call, and a tool
+    alone would leave it with no reason to. There is no third thing: the run
+    cannot be told to load a skill, so what the row buys is an offer the writer
+    takes up, and what it gets back is the body a platform owner edits in the
+    dashboard.
     """
     agent = DeepResearcherAgent(llm_provider=llm_provider, tools=[web_search_tool])
     state = DeepResearchAgentState(
@@ -156,15 +163,15 @@ def test_a_standard_platform_skill_reaches_the_writer_as_a_requirement_and_a_bod
     )
 
     with mock.patch.object(SkillResolver, "_fetch_org_skills", return_value=[_voice_row()]):
-        writer = _prepare(agent, graph, state)
+        writer = await _prepare(agent, graph, state)
 
     prompt = writer["system_prompt"]
     assert "## Available skills" in prompt
     assert "- `piloti-voice`:" in prompt
-    # Standard delivery is what makes it policy rather than an offer.
-    assert "## Active skills (required for this turn)" in prompt
-    assert "- `piloti-voice`" in prompt.split("## Active skills (required for this turn)")[1]
-    # The preflight has to tell the writer which of the two channels loads it.
+    # One block, and no second one telling the writer it MUST load anything:
+    # the `standard: True` on the row above is not read on this side any more.
+    assert "Active skills" not in prompt
+    # The catalog has to tell the writer what loads a body.
     assert "use_skill" in prompt
 
     use_skill = next(item for item in writer["tools"] if item.name == "use_skill")
@@ -175,7 +182,8 @@ def test_a_standard_platform_skill_reaches_the_writer_as_a_requirement_and_a_bod
     assert "use_skill" in sanitizer.valid_tool_names
 
 
-def test_the_writer_keeps_its_own_lead_rule_alongside_the_voice(llm_provider, graph):
+@pytest.mark.asyncio
+async def test_the_writer_keeps_its_own_lead_rule_alongside_the_voice(llm_provider, graph):
     """The prompt's floor and the skill's craft compose; neither replaced the other.
 
     The lead paragraph in ``writer.j2`` is the only answer-shape guidance a run
@@ -186,19 +194,48 @@ def test_the_writer_keeps_its_own_lead_rule_alongside_the_voice(llm_provider, gr
     state = DeepResearchAgentState(messages=[HumanMessage(content="q")], organization_id="org-1")
 
     with mock.patch.object(SkillResolver, "_fetch_org_skills", return_value=[_voice_row()]):
-        writer = _prepare(agent, graph, state)
+        writer = await _prepare(agent, graph, state)
 
     assert "- Open with the answer." in writer["system_prompt"]
 
 
-def test_a_chat_only_platform_skill_is_not_offered_to_the_writer(llm_provider, graph):
+@pytest.mark.asyncio
+async def test_the_writer_prompt_carries_the_diagram_contract(llm_provider, graph):
+    """The deep half of "a diagram printed as a shell listing".
+
+    Chat routes a diagram request to a drawing CARD; the deep report has no
+    card surface, so a tagged ```mermaid fence IS the drawing here — the PDF
+    converter renders it and prints a placeholder for anything else. Without
+    this block the writer had no diagram guidance at all and fell back to box
+    art, which is a monospace listing in the file the reader files.
+    """
+    agent = DeepResearcherAgent(llm_provider=llm_provider, tools=[web_search_tool])
+    state = DeepResearchAgentState(messages=[HumanMessage(content="q")], organization_id="org-1")
+
+    with mock.patch.object(SkillResolver, "_fetch_org_skills", return_value=[_voice_row()]):
+        writer = await _prepare(agent, graph, state)
+
+    prompt = writer["system_prompt"]
+    # The fence, and the declaration line without which mermaid draws nothing.
+    assert "```mermaid" in prompt
+    assert "`stateDiagram-v2`" in prompt
+    # The ban that the field transcripts are about, and the reason for it.
+    assert "Never draw with ASCII box art" in prompt
+    # Meaning survives a converter that drops styling, and a label cannot
+    # outrun the report's own grounding.
+    assert "never in colour or styling" in prompt
+    assert "No label may carry a claim the report has not grounded" in prompt
+
+
+@pytest.mark.asyncio
+async def test_a_chat_only_platform_skill_is_not_offered_to_the_writer(llm_provider, graph):
     """``grid-agents`` is one gate read the same way on both sides of it."""
     agent = DeepResearcherAgent(llm_provider=llm_provider, tools=[web_search_tool])
     state = DeepResearchAgentState(messages=[HumanMessage(content="q")], organization_id="org-1")
-    chat_only = {**_voice_row(), "name": "chat-voice", "metadata": {"grid-agents": "shallow_researcher"}}
+    chat_only = {**_voice_row(), "name": "chat-voice", "metadata": {"grid-agents": "researcher"}}
 
     with mock.patch.object(SkillResolver, "_fetch_org_skills", return_value=[chat_only]):
-        writer = _prepare(agent, graph, state)
+        writer = await _prepare(agent, graph, state)
 
     assert "chat-voice" not in writer["system_prompt"]
     assert [item.name for item in writer["tools"]] == ["think", "get_verified_sources"]
@@ -222,7 +259,7 @@ async def test_the_report_is_still_written_when_skills_cannot_be_resolved(llm_pr
     state = DeepResearchAgentState(messages=[HumanMessage(content="q")], organization_id="org-1")
 
     with mock.patch.object(SkillResolver, "_fetch_org_skills", side_effect=RuntimeError("frontend unreachable")):
-        writer = _prepare(agent, graph, state)
+        writer = await _prepare(agent, graph, state)
 
         assert "## Available skills" not in writer["system_prompt"]
         assert [item.name for item in writer["tools"]] == ["think", "get_verified_sources"]

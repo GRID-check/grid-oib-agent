@@ -1,0 +1,13 @@
+---
+improvements:
+  - >
+    Auch ein Recherchebericht kann jetzt eine Datei aus dem Projekt oder dem
+    Büroarchiv als Karte zeigen. Bisher konnte die tiefe Recherche eine
+    Unterlage zitieren, aber nicht öffnen; die Karte erschien nur im Chat.
+fixes:
+  - >
+    Der Abgleich unter Plattform → Vektorpflege vergisst jetzt auch
+    Inventareinträge, zu deren Datei nichts mehr zu lesen ist. Ein früher
+    gelöschtes Dokument konnte im Dokumentinventar des Assistenten stehen
+    bleiben und wurde dort weiter aufgelistet, obwohl die Suche es nicht mehr
+    fand. Die Tabelle des letzten Laufs zeigt die Zahl in einer eigenen Zeile.

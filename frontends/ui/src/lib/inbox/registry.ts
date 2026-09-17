@@ -104,6 +104,61 @@ export const INBOX_TYPE_DEFINITIONS: Record<InboxItemType, InboxTypeDefinition> 
     retentionDays: 60,
     gate: 'collaboration',
   },
+  /*
+    A background run ended. `per-anchor` with the backend job id as the anchor:
+    two runs of one job are two pieces of work, each with its own report, so
+    they must not fold into one counted row. Informational: the inbox cannot
+    resolve a run, and an actionable row would sit in the badge for good.
+    Operational: jobs are not a collaboration feature, and a tenant with
+    collaboration off still schedules them. A failure is kept longer — it is
+    the one the reader most needs to still find.
+  */
+  'job.completed': {
+    actionable: false,
+    grouping: 'per-anchor',
+    retentionDays: 30,
+    gate: 'operational',
+  },
+  'job.failed': {
+    actionable: false,
+    grouping: 'per-anchor',
+    retentionDays: 60,
+    gate: 'operational',
+  },
+  /*
+    A run has a question for the person who asked for it (ADR-0062, `wartet`).
+    Actionable, because the run is stopped until they answer and the badge is
+    what makes a stopped run visible; resolved by the ledger leaving `wartet`
+    (`lib/runs/service.ts`), so it never sits in the badge for good. Anchored
+    on the RUN: a second question from the same run folds into the row it
+    already has, which is the row the reader is about to open anyway.
+  */
+  'job.waiting': {
+    actionable: true,
+    grouping: 'per-anchor',
+    retentionDays: 30,
+    gate: 'operational',
+  },
+  /*
+    A version is waiting for a decision (ADR-0054). Actionable, because it IS an
+    outstanding request against the recipient and the badge is what makes it
+    visible; `per-anchor` on the VERSION, because two review rounds on one
+    document ask about two sets of bytes and collapsing them would hide the
+    second. Kept as long as a mention, for the same reason: an unanswered
+    request is the most valuable thing in this list.
+
+    `operational` rather than `collaboration`: a Ziviltechniker's Freigabe is
+    not a chat feature, and a tenant that never bought collaboration still has
+    documents to approve. Gating it would make the one review queue in the
+    product invisible for exactly the offices most likely to want it — the same
+    mistake the storage warning's entry above records.
+  */
+  'document.review_requested': {
+    actionable: true,
+    grouping: 'per-anchor',
+    retentionDays: 180,
+    gate: 'operational',
+  },
 }
 
 /** Whether a type is actionable (denormalized onto the row for a cheap count). */

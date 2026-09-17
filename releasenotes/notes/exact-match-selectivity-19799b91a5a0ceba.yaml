@@ -1,0 +1,19 @@
+---
+# One entry per user-visible change. This text is PUBLISHED, in English and in
+# German machine translation, to https://piloti.at/changelog — write it for the
+# architect using Piloti, not for the reviewer of your diff.
+#
+#   - Plain sentences. No RST directives, no code blocks, no issue numbers, no
+#     file paths, no internal component names.
+#   - Say what the reader can now do, or what stopped going wrong for them.
+#   - Two sentences is usually the right length. `task release:lint` enforces
+#     the mechanical half of this.
+#
+# Delete every section you do not need — an empty one fails the lint.
+fixes:
+  - >
+    Keyword matching now ignores words that appear in nearly every document,
+    so a search no longer spends part of its results on a term that matches
+    everything. Answers cite more of the documents that actually differ on the
+    question, and searches that used to run an extra pointless lookup return a
+    little sooner.

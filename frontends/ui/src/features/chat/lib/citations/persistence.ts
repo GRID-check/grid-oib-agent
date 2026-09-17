@@ -58,6 +58,16 @@ const wireSourceSchema = z
     number: z.number().int().positive().nullish(),
     file_name: z.string().nullish(),
     page: z.number().int().positive().nullish(),
+    /** The Punkt and the retrieval score, so a reload keeps WHERE and HOW NEARLY. */
+    punkt: z.string().nullish(),
+    score: z.number().nullish(),
+    /**
+     * The retrieved PASSAGE. Stored, because a reload that keeps the page and
+     * drops the words leaves the viewer opening at a page with nothing marked —
+     * which is exactly what a citation with no passage looks like, so the loss
+     * is invisible.
+     */
+    snippet: z.string().nullish(),
     kind: z.string().nullish(),
     /** Shelf the chunk came from (ADR-0047). Absent on messages stored before it. */
     shelf: z.string().nullish(),
@@ -81,6 +91,18 @@ export type PersistedCitations = z.infer<typeof payloadSchema>
 const MAX_CONTENT = 400
 
 /**
+ * Longest passage kept per source.
+ *
+ * Bounded separately from `content`, and larger, because they are different
+ * things: `content` is a locator a chip labels itself with, this is the
+ * quotation the viewer has to FIND in the document. Clipped much below what the
+ * serializer sends (1200) the tail anchor is lost, and the matchers anchor on
+ * both ends of a snippet — so a stingy bound here degrades a reload from "the
+ * sentence is marked" to "the page is open", silently.
+ */
+const MAX_SNIPPET = 1200
+
+/**
  * Encode a turn's citations for storage.
  *
  * Returns `undefined` for an empty list so a message with no provenance stores
@@ -95,6 +117,7 @@ export const encodeCitations = (
     v: CITATIONS_PAYLOAD_VERSION,
     sources: citations.map((citation) => ({
       content: citation.content.slice(0, MAX_CONTENT),
+      snippet: citation.snippet?.slice(0, MAX_SNIPPET),
       url: citation.url,
       title: citation.title,
       citation_key: citation.citationKey,
@@ -106,6 +129,8 @@ export const encodeCitations = (
       number: citation.number,
       file_name: citation.fileName,
       page: citation.page,
+      punkt: citation.punkt,
+      score: citation.score,
       kind: citation.kind,
       shelf: citation.shelf,
       lane: citation.lane,
@@ -128,10 +153,7 @@ export const encodeCitations = (
  * pure; the caller supplies the message's own time, which is the only honest
  * value for a citation restored from history.
  */
-export const decodeCitations = (
-  value: unknown,
-  timestamp: Date
-): CitationSource[] | undefined => {
+export const decodeCitations = (value: unknown, timestamp: Date): CitationSource[] | undefined => {
   const sources = readSources(value)
   if (!sources?.length) return undefined
 

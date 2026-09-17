@@ -6,6 +6,7 @@ import { SummaryCard } from './SummaryCard'
 import { LegalBasisCard } from './LegalBasisCard'
 import { ProjectProfilePatchCard } from './ProjectProfilePatchCard'
 import { MemoryProposalCard } from './MemoryProposalCard'
+import { FileOperationProposalCard } from './FileOperationProposalCard'
 import { RequirementChecklistCard } from './RequirementChecklistCard'
 import { ComparisonTableCard } from './ComparisonTableCard'
 import { VerdictHeaderCard } from './VerdictHeaderCard'
@@ -19,6 +20,7 @@ import { ProcessMapCard } from './ProcessMapCard'
 import { DocumentChecklistCard } from './DocumentChecklistCard'
 import { DeadlineTimelineCard } from './DeadlineTimelineCard'
 import { ChangeImpactCard } from './ChangeImpactCard'
+import { DiagramCard } from './DiagramCard'
 import { FollowUpsCard } from './FollowUpsCard'
 import { BuildingSectionCard } from '../schematics/BuildingSectionCard'
 import { StairDiagramCard } from '../schematics/StairDiagramCard'
@@ -36,6 +38,8 @@ import { EnergyPerformanceCard } from '../schematics/EnergyPerformanceCard'
 import { ElevatorRequirementCard } from '../schematics/ElevatorRequirementCard'
 import { ParkingRequirementCard } from '../schematics/ParkingRequirementCard'
 import { DocumentGridCard } from './DocumentGridCard'
+import { DocumentDraftCard } from './DocumentDraftCard'
+import { TaskCreatedCard } from './TaskCreatedCard'
 import { IfcViewerCard } from './IfcViewerCard'
 import { IfcModelPickerCard } from './IfcModelPickerCard'
 import { cardHighlightSpecs } from '@/features/bim/lib/card-highlights'
@@ -49,8 +53,13 @@ import type { SurfacedDocument } from '@/features/documents/hooks/use-surfaced-d
 import { FadeIn } from '@/components/motion'
 
 interface GridCardsProps {
-  /** Parsed grid cards to render. */
-  cards: GridCard[]
+  /**
+   * Parsed grid cards to render, in wire order. `undefined` holes are cards
+   * `validateGridCards` rejected: they hold their index so `[[card:N]]`
+   * markers and persisted `cardKey` decisions after them stay bound, and they
+   * render nothing.
+   */
+  cards: (GridCard | undefined)[]
   /** Optional project ID for patch card API calls. */
   projectId?: string | null
   /**
@@ -293,6 +302,24 @@ export const GridCardItem: FC<GridCardItemProps> = ({
           consequences={card.consequences ?? []}
           reference={card.reference}
           note={card.note}
+        />
+      </FadeIn>
+    )
+  }
+
+  // `diagram_type` is not passed: it is a CONTRACT between the model and the
+  // payload validator (`DiagramCard._source_declares_the_grammar_it_says_it_does`
+  // refuses a source whose declaration disagrees with it), and mermaid reads the
+  // grammar off the source's own first line. A renderer prop for it would be a
+  // second statement of the same fact with no way to be right when they differ.
+  if (card.type === 'diagram') {
+    return (
+      <FadeIn distance={6}>
+        <DiagramCard
+          title={card.title}
+          source={card.source}
+          caption={card.caption}
+          reference={card.reference}
         />
       </FadeIn>
     )
@@ -573,6 +600,40 @@ export const GridCardItem: FC<GridCardItemProps> = ({
     )
   }
 
+  if (card.type === 'document_draft') {
+    return (
+      <FadeIn distance={6}>
+        <DocumentDraftCard
+          title={card.title}
+          path={card.path}
+          bytes={card.bytes}
+          version={card.version}
+          documentId={card.document_id}
+          versionId={card.version_id}
+          versionState={card.version_state}
+          messageId={messageId}
+          cardKey={key}
+          decisionsMustPersist={decisionsMustPersist}
+        />
+      </FadeIn>
+    )
+  }
+
+  if (card.type === 'task_created') {
+    return (
+      <FadeIn distance={6}>
+        <TaskCreatedCard
+          taskId={card.task_id}
+          kind={card.kind}
+          title={card.title}
+          goal={card.goal}
+          dueAt={card.due_at}
+          conversationId={card.conversation_id}
+        />
+      </FadeIn>
+    )
+  }
+
   if (card.type === 'ifc_viewer') {
     return (
       <FadeIn distance={6}>
@@ -654,6 +715,22 @@ export const GridCardItem: FC<GridCardItemProps> = ({
           title={card.title}
           note={card.note ?? null}
           projectId={projectId ?? null}
+        />
+      </FadeIn>
+    )
+  }
+
+  if (card.type === 'file_operation_proposal') {
+    return (
+      <FadeIn distance={6}>
+        <FileOperationProposalCard
+          title={card.title}
+          operation={card.operation}
+          operations={card.operations}
+          note={card.note}
+          messageId={messageId}
+          cardKey={key}
+          decisionsMustPersist={decisionsMustPersist}
         />
       </FadeIn>
     )

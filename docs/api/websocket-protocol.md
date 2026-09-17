@@ -46,6 +46,7 @@ The `server.js` gateway handles WebSocket upgrade requests:
    - `x-grid-collection-scope` header — passes collection scope to backend.
    - `x-grid-organization-id` / `x-grid-user-id` — forwards user context.
    - `x-grid-project-id` / `x-grid-project-context` / `x-grid-project-memory` — project id + injected profile/memory (the latter two base64url-encoded).
+   - `x-grid-org-instructions` — the organization's standing instructions for this turn, base64url-encoded like the two above it. Preferences on form, focus and workflow; the backend bounds it at `ORG_INSTRUCTIONS_MAX_CHARS` (1500) on decode and appends a one-line marker when it had to cut, and the prompt renders it as `## Anweisungen des Büros` below the KV-cache boundary — never as a source, and never above the rules it may not override.
    - `x-grid-feature-memory-reflection` (`true`/`false`) — whether the async memory-reflection stage is enabled for the caller (per-org `memory-reflection` WorkOS flag; no env-var fallback). Fail-closed: absent → off.
    - `authorization: Bearer <accessToken>` — forwards backend access token.
 3. **Backend proxy:** Forwards the upgraded socket to `BACKEND_WS_URL + '/websocket'`.
@@ -133,29 +134,19 @@ Sent when the user submits a chat message.
 
 The `content.text` field is a JSON-encoded string containing both the query text and the list of enabled data source IDs.
 
-##### Invoking a skill (`skills`)
+##### Invoking a skill (no wire field)
 
-One further additive field inside that JSON payload names the Agent Skills
-(ADR-0046) this turn invokes:
+There is no `skills` field on this payload. A skill is a working method the
+model picks out of its L1 catalog with `use_skill`, and nothing a request says
+can require one: the array the composer used to send (lifted onto the agent
+state as `force_skills`) is **no longer read anywhere in the backend**, and a
+client that still sends it is ignored.
 
-| Field | Type | Meaning |
-|-------|------|---------|
-| `skills` | `string[]` | Skill names to force-activate for this turn. The backend lifts the array onto the agent state as `force_skills`, so the named skills' instructions are loaded whether or not the model would have chosen them. Names that match no resolved skill are dropped silently — a typo never errors a turn. |
-
-```typescript
-text: JSON.stringify({
-  query: "Prüfe die Einreichunterlagen",
-  data_sources: [],
-  skills: ["oib-vorpruefung"]   // omitted entirely when no skill is invoked
-})
-```
-
-The field is set by the composer's `/name` invocation: typing `/` at the start
-of a message opens a picker of invocable skills (`GET /api/skills/invocable`),
-and the chosen name goes on the wire here — resolved from the text being sent,
-so editing the token out removes the invocation. Selection is a *request*
-decision, exactly like `data_sources`. See
-`docs/architecture/agent-skills.md`.
+The composer's `/name` invocation writes a MENTION into the message text
+instead, which is the one channel that reaches the model. Standing instructions
+that used to travel as a forced skill are prompt text now: the platform prompt,
+and the office's own bounded block (`X-Grid-Org-Instructions`, see the header
+list above). See `docs/architecture/agent-skills.md`.
 
 ##### Ingest-only messages (`context_only`)
 
@@ -240,7 +231,9 @@ The backend maps that intent via `shelves_for_turn`
 (`src/aiq_agent/common/focus_file.py`) and subtracts other shelves at the
 knowledge-layer retrieve site. A client-supplied `include_shelves` list is
 **ignored** — the mapping owns the expansion so a client cannot ask for
-Archiv while claiming a project file. Absence of both shelf and preset
+Archiv while claiming a project file. A subject shelf never subtracts the
+building-code corpus (`base`): it narrows which *documents* a turn reads, not
+whether the law is applied. Absence of both shelf and preset
 leaves the signed scope intact (ADR-0024). See
 `docs/architecture/backend-deep-dive.md` § Collection scoping.
 
@@ -249,20 +242,47 @@ as-is. An old backend ignores the unknown keys and searches the full authorized
 scope — the pre-#429 behaviour, never a dropped frame.
 
 `focus_file_name` is not only a retrieval hint. It is lifted onto
-`ChatResearcherState` and rendered into both the routing prompt
-(`intent_classification.j2`) and the answering prompt (`researcher.j2`), because
-a turn that says "fass zusammen" carries its subject in the composer bar and
-nowhere in its text: with retrieval scoped correctly but the model told nothing,
-the answer was "which document do you mean?" over an open PDF. A bound subject
-also keeps the search tools on a turn the classifier called conversational —
-otherwise the one tool that can read that file is not offered. The grounding
-contract still follows the classified intent, not the subject.
+`ConversationState` and rendered into the answering prompt (`piloti.j2`),
+because a turn that says "fass zusammen" carries its subject in the composer bar
+and nowhere in its text: with retrieval scoped correctly but the model told
+nothing, the answer was "which document do you mean?" over an open PDF. The
+tool that can read the file is bound on every turn regardless (ADR-0052).
 
 `focus_shelf` is optional even when a subject is set: a conversation persists
 only the subject's resource id, so a thread reopened after a reload re-reads the
 filename and shelf from the document (`GET /api/documents/[id]/status` returns
 `filename` and `scope`). Until that lookup returns, the turn carries the file
 name without a shelf and retrieval keeps the signed scope.
+
+##### The subject's open version (`focus_document_id` / `focus_version_id` / `focus_version_state`)
+
+Three more fields, additive and omitted whenever there is nothing to say. They
+answer a different question from the three above: those say **which chunks to
+prefer**, and this says **which version the turn is about** — because for a
+version nobody has published there are no chunks to prefer.
+
+| Field | Type | Meaning |
+|-------|------|---------|
+| `focus_document_id` | `string` | The subject document's id. Sent whenever the composer names a subject; from the SUBJECT only, never from a file that merely happens to be visible beside the chat. |
+| `focus_version_id` | `string` | The subject's OPEN version — the one still being worked on. Omitted when the live bytes are the published ones. |
+| `focus_version_state` | `"draft"` \| `"in_review"` \| `"changes_requested"` | That version's editorial state. Any other value (including `published`) leaves the turn on the retrieval path unchanged. |
+
+Only a published version reaches the retrieval index (ADR-0054), so a draft has
+no chunks, the focus filter matches nothing, and it falls open to the whole
+corpus (`sources/knowledge_layer/src/register.py`) — the reader asks about the
+Befund Piloti filed a minute ago and gets an answer sourced from everything
+except that Befund. Told which version the subject is, the backend reads that
+version's own bytes through
+`GET /api/internal/document-versions/[versionId]/content` and writes them into
+the conversation's working directory as `/entwuerfe/<name>.md`
+(`src/aiq_agent/turn/subject_document.py`), stamped with the filing record that
+makes a later `file_draft` on that path replace this version rather than file a
+second document. The fail-open in the focus filter is unchanged; this is
+upstream of it.
+
+The client sends them from the composer subject, which recovers both from
+`GET /api/documents/[id]/status` (`openVersion: { id, state } | null`). All
+three absent is every ordinary turn, and an old backend ignores unknown keys.
 
 #### user_interaction_message
 
@@ -306,7 +326,13 @@ Delivers final or streaming response text.
   status: "in_progress" | "complete" | "error",
   timestamp: "<ISO 8601>",
   cards?: [...],
-  deep_research_job_id?: string,
+  // The run this turn commissioned instead of answering itself (ADR-0062), and
+  // the message that run narrates itself in. Present together or not at all;
+  // the terminal frame's own content is EMPTY when they are, because the run's
+  // block is the narration. They replace `deep_research_job_id`, which carried
+  // a job id the client had to hang a panel off.
+  run_id?: string,
+  run_message_id?: string,
   answer_confidence?: "low" | "medium" | "high",
   // Optional one-clause justification the model appended to its confidence
   // marker (`[CONFIDENCE:high | <reason>]`), ≤300 chars, shown verbatim in the
@@ -326,10 +352,28 @@ Delivers final or streaming response text.
     // The [N] marker this source carries in the answer prose, resolved by
     // verify_citations (the only place that binding exists). Lets the UI render
     // ONE numbered provenance block instead of the written "## Quellen" list
-    // plus an unnumbered chip row. Absent when unknown (legacy/meta turns).
+    // plus an unnumbered chip row. Absent when unknown (a direct reply, or
+    // a backend that predates the numbering).
     number?: number | null
     file_name?: string | null
     page?: number | null
+  }>,
+  // Retrieved-but-uncited document identities (no prose): document key +
+  // lane/kind + page. Renders the collapsed "Gelesen, nicht zitiert"
+  // disclosure. Same entry shape as `sources` minus every prose key
+  // (no content/snippet/score/punkt/number/binding claims).
+  read_sources?: Array<{
+    document_id?: string | null
+    citation_key?: string | null
+    file_name?: string | null
+    page?: number | null
+    collection?: string | null
+    shelf?: string | null
+    kind?: string | null
+    lane?: string | null
+    lane_label?: string | null
+    title?: string | null
+    url?: string | null
   }>,
 
   // ── Transparency extras (terminal frame only) ────────────────────────────
@@ -339,13 +383,39 @@ Delivers final or streaming response text.
   // client (`.catch(undefined)`), so one malformed extra never drops the
   // response text.
   routing_decision?: "meta" | "shallow" | "deep" | "error",
-  routing_reason?: string,
   escalation_reason?: string,
   answer_confidence_capped_reason?: "ungrounded" | "quote_unverified" | "normative_claim_uncited" | "measurement_only" | "citation_fallback",
   citations_removed?: { count: number, reasons: string[] },
   job_admission_rejected?: true,
   retry_after_seconds?: number,
-  skills_activated?: string[]
+  skills_activated?: string[],
+  retrieval_ledger?: RetrievalLedgerEntry[],
+}
+
+```typescript
+/** One announced retrieval round, as the backend recorded it. */
+interface RetrievalLedgerEntry {
+  index: number
+  key: string
+  tools: string[]
+  corpora: string[]
+  query?: string
+  /** The round's own words, verbatim — narration, never a verdict. */
+  reason?: string
+  /**
+   * One entry per PASSAGE. `repeat` is the backend's verdict on that passage;
+   * it is absent on turns stored before the backend stamped it.
+   */
+  docs: { name: string; title?: string; detail?: string; shelf?: string; repeat?: boolean }[]
+  /**
+   * The documents with at least one passage that was not a repeat. Empty
+   * means the round re-fetched everything it returned.
+   */
+  new_docs: string[]
+  /** Entries in `docs` (one file at two pages counts twice). */
+  hits: number
+  /** Distinct documents in `docs` (one file at two pages counts once). */
+  documents: number
 }
 ```
 
@@ -354,21 +424,22 @@ Delivers final or streaming response text.
 - **SystemResponseContent** (`{ text: string | null }`): Standard assistant response.
 - **GenerateResponse** (`{ output: string }`): Shallow/meta response format.
 
-The client extracts content in priority order: `output` → `text` → raw string. The `isFinal` flag is derived from `status === 'complete'`. Every structured extra is optional and fail-open when absent — `cards`, `deep_research_job_id`, `answer_confidence`, `answer_confidence_reason`, `sources`, plus the transparency extras tabled below.
+The client extracts content in priority order: `output` → `text` → raw string. The `isFinal` flag is derived from `status === 'complete'`. Every structured extra is optional and fail-open when absent — `cards`, `run_id`, `run_message_id`, `answer_confidence`, `answer_confidence_reason`, `sources`, `read_sources`, plus the transparency extras tabled below.
 
 **Transparency extras** (terminal frame; all optional, fail-open per-field):
 
 | Field | Type | Meaning |
 |-------|------|---------|
-| `routing_decision` | `"meta" \| "shallow" \| "deep" \| "error"` | Which path the turn took after intent classification. Rendered as a "Warum dieser Weg?" line in the expanded Herleitung. |
-| `routing_reason` | `string` | Human-readable "why" for the routing decision, rendered verbatim from the classifier. |
-| `escalation_reason` | `string` | Present only when a shallow→deep escalation happened this turn. Rendered as `Eskaliert zur Tiefenrecherche: <reason>` in the thinking panel and above the deep-research banner. |
+| `routing_decision` | `"meta" \| "shallow" \| "deep" \| "error"` | Which path the turn took, OBSERVED after the answer, never decided up front (ADR-0052): `meta` when the agent consulted no data source and gave no self-assessment (a direct reply), `shallow` otherwise, `deep` on a hand-off to deep research, `error` on a failed turn. Kept on the wire for the post-answer stages and transparency; there is no "Warum dieser Weg?" line any more because there is no upfront decision to attribute. |
+| `escalation_reason` | `string` | Present only when a shallow→deep escalation happened this turn: the model's own one-clause reason from its answer envelope. Rendered as `Eskaliert zur Tiefenrecherche: <reason>` in the thinking panel and above the deep-research banner. |
 | `answer_confidence_reason` | `string` (≤300 chars) | The model's own one-clause justification for its self-assessed confidence, parsed from the `[CONFIDENCE:<level> \| <reason>]` marker. Shown verbatim in the ConfidenceChip tooltip under "Assistant's reason". |
 | `answer_confidence_capped_reason` | `"ungrounded" \| "quote_unverified" \| "normative_claim_uncited" \| "measurement_only" \| "citation_fallback"` | Present only when confidence was downgraded by the deterministic overconfidence guard. `ungrounded` — no citation grounding and nothing measured. `quote_unverified` — a quoted span matched no retrieved passage. `normative_claim_uncited` — the answer WAS grounded in an IFC measurement but also asserts something normative with no verified citation, so it is held at "low" rather than riding out on the measurement's evidence. `measurement_only` — measured and purely descriptive, so a self-reported "high" was reduced to "medium" (measurement grounding never reaches "high"). `citation_fallback` — nothing the model cited survived verification and the grounding is the one source the agent attached from the cumulative session registry, which may predate this turn; it lifts the answer no further than a measurement does. Adds a sentence to the ConfidenceChip tooltip. |
 | `citations_removed` | `{ count: number, reasons: string[] }` | Present only when citation verification removed ≥1 citation. Renders a muted note under the sources row (reasons in a tooltip). |
+| `read_sources` | `Array<{ document_id?, citation_key?, file_name?, page?, collection?, shelf?, kind?, lane?, lane_label?, title?, url? }>` | Retrieved-but-uncited documents this turn: identity + placement, NO prose. Renders the collapsed "Gelesen, nicht zitiert" disclosure inside the answer details (muted document chips, capped at eight with an overflow count). Absent when everything retrieved was cited. |
 | `job_admission_rejected` | `true` | Marks the answer text as a queue-rejection notice (NOT a research answer). The client renders a warning banner (error code `research.queue_full`) and leaves the composer unlocked. |
 | `retry_after_seconds` | `number` | Only alongside `job_admission_rejected` — retry hint (seconds). |
-| `skills_activated` | `string[]` | Agent Skills whose full instructions were LOADED this turn (forced first, then those the model pulled in with `use_skill`, deduped). Absent/empty on a turn that activated none. Rendered as a quiet "Skills used" disclosure under the answer; the reconnect path persists it into assistant-message metadata. Availability is the constant, activation is the event — see `docs/architecture/agent-skills.md`. |
+| `skills_activated` | `string[]` | Agent Skills whose full instructions were LOADED this turn — the ones the model pulled in with `use_skill`, in call order, deduped. Absent/empty on a turn that activated none. Rendered as a quiet "Skills used" disclosure under the answer; the reconnect path persists it into assistant-message metadata. Availability is the constant, activation is the event — see `docs/architecture/agent-skills.md`. |
+| `retrieval_ledger` | `RetrievalLedgerEntry[]` | The backend's own account of this turn's retrieval rounds: per announced round what it was asked (query, tools), what it returned, and which documents it did work on (`new_docs`); `hits`/`documents` are tallies over `docs`. Absent when no round was announced. One `docs` entry is one PASSAGE — a document (`name`, `title`, `shelf`) at a page or Punkt (`detail`) — carrying `repeat: boolean`: true when an earlier round already returned that exact (document, `detail`) pair, or when an earlier round OPENED that document with a locator tool (`read_passage`). A search that merely ranked a document does not make the later open of it a repeat. `new_docs` is the document-level derivation of the same marks: a document is listed when at least one of its passages here is not a repeat. `repeat` is absent on turns stored before the backend stamped it, and the renderer then falls back to `new_docs`. The Herleitung spine draws each round's fan from it, one card per document: the pages or Punkte that round reached, listed under the card, „bereits abgerufen" on the passages it fetched a second time, and an „Öffnen" step kind for a round that only opened passages. Persisted into message metadata/provenance so reloads read the same account. Known exclusion: the answer-repair pass retrieves outside the tool node and announces no round, so its findings are absent by design. |
 
 #### system_intermediate_message
 
@@ -584,3 +655,55 @@ POST /chat/stream
 ```
 
 Configured via `apiConfig.chatStreamUrl` pointing to the backend URL. The SSE endpoint provides equivalent functionality for non-streaming or restricted-network scenarios.
+
+### Run event streams
+
+A run — a deep-research run, a task run — streams its own events from
+`job_events` rather than over the socket: `GET /v1/jobs/async/{jobId}/events`
+(`aiq_api.routes.jobs.stream_job_events`), replayable from `last_event_id`. That
+stream carries the `job.*` lifecycle events (`job.phase`, `job.heartbeat`,
+`job.degraded`, `job.error`, `job.cancelled`), the `artifact.update` events the
+agent callbacks emit, and one more:
+
+| Event | Payload | Meaning |
+|---|---|---|
+| `run.ledger` | `{"ledger": RunLedger}` | The run's WHOLE account of itself, as of this moment |
+
+`RunLedger` is the contract in
+[`frontends/ui/src/lib/runs/run-ledger-types.ts`](../../frontends/ui/src/lib/runs/run-ledger-types.ts)
+(`runId`, `status`, `phases[]`, `steps[]` with the intent the runner stated and
+the documents each step reached, `result` or `error`) — the same shape stored on
+the run's message as `metadata.run_ledger`, and the same one the JSON Schema
+fixture `frontends/ui/tests/fixtures/run-ledger.schema.json` pins.
+
+Two properties a client should rely on:
+
+- **It is a snapshot, not a delta.** Replace what you hold with the payload. The
+  ledger is folded in exactly one place (`aiq_api.jobs.run_ledger_fold`), and a
+  client that folded its own from the raw events would be a second account of
+  one run, differing from the stored one precisely when something went wrong.
+- **It is emitted on every flush** — debounced to about a second, and always on
+  a phase transition and at the end — so a late subscriber gets the whole
+  account with the next one, and a replay from `last_event_id` ends on the
+  newest.
+
+`job.phase` keeps its own shape (`{"phase": ..., "batch_index": ...,
+"batch_size": ..., "conclusion": ...}`); the ledger is what those events fold
+into, and the status pill still reads them directly.
+
+**How the browser consumes it.** The block in the thread
+(`frontends/ui/src/features/runs/hooks/use-run-ledger.ts`) does exactly what the
+two properties above allow and nothing more. It starts from the ledger stored on
+the run's message (`metadata.run_ledger`, read back sanitised by the message
+mapper); if that ledger is not terminal it reads
+`GET /api/projects/[id]/runs/[runId]` for `backendJobId`, opens the stream
+through the same-origin proxy (`/api/jobs/async/job/[jobId]/stream`, the SSE
+client in `frontends/ui/src/adapters/api/deep-research-client.ts`) with **no**
+`last_event_id`, so the replay runs from the first flush and the newest snapshot
+lands last, and wires only `onLedger`. Every snapshot goes through
+`sanitizeRunLedger` and **replaces** what is held, unless its `updatedAt` is older
+than what is already shown (the stored ledger can be ahead of the replay's first
+frames). On a terminal status the client disconnects; on unmount it disconnects.
+Each block holds its own subscription, keyed by run id — several live runs in one
+thread are the normal case. A refused read or a stream that never opens leaves the
+stored ledger on screen; a reload shows the same block either way.

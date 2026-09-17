@@ -1,0 +1,32 @@
+---
+features:
+  - >
+    Jobs and Skills now live together in one Automation section, as two tabs
+    instead of two separate places in the sidebar — Jobs leads, since a job is
+    the prompt this project runs on a timer, with Skills one click away.
+  - >
+    Files now open the way a folder does anywhere else: click a folder to step
+    into it, and a path at the top ("All Files › Brandschutz") shows exactly
+    where you are and lets you click back out to any level above. Folders show
+    up as cards right beside your files, at every level, not just at the top.
+improvements:
+  - >
+    The Archiv and the inbox now rise as a large panel over whatever you were
+    looking at, instead of taking over the whole screen as a separate page.
+    Open one from inside a project and the project stays visible underneath,
+    so you never lose your place — close it and you are exactly where you left
+    off.
+  - >
+    Chat history now includes this project's deep-research runs in the same
+    list as your conversations, grouped by day, with the research runs shown
+    first. The project's separate History page is gone — everything it showed
+    is in the chat history panel now.
+  - >
+    Theme and language moved into their own submenus under your account menu —
+    click Theme or Language to see the choices, instead of scrolling past all
+    of them every time. The menu is shorter, and the current choice is always
+    shown next to its name.
+  - >
+    Above your projects, the sidebar is gone — the page you land on now uses
+    the full width of your screen, with a slim header for the archive, inbox
+    and your account menu.

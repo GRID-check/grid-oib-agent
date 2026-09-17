@@ -24,7 +24,7 @@ import type {
   ShareableResourceType,
 } from '@/lib/db/schema'
 import { resolvePeople } from '@/lib/sharing/directory'
-import { findInboxTarget, type InboxTargetAccess } from './targets'
+import { findInboxTarget, type InboxTargetAccess, type RunMessageRef } from './targets'
 import {
   archiveInboxItem,
   countPendingInboxItems,
@@ -307,6 +307,11 @@ async function resolveTargets(
  * the half that also covers a missed transition, a narrowed visibility, or a lost
  * project membership, none of which touch the stored row.
  */
+/** A payload string that says something, trimmed; anything else is absent. */
+function nonEmpty(value: unknown): string | null {
+  return typeof value === 'string' && value.trim() !== '' ? value.trim() : null
+}
+
 function toItemView(
   row: InboxItem,
   targets: Map<string, InboxTargetAccess | null>,
@@ -314,6 +319,21 @@ function toItemView(
 ): InboxItemView {
   const access = row.inertAt ? null : (targets.get(targetKey(row.resourceType, row.resourceId)) ?? null)
   const payload: Record<string, unknown> = row.payload ?? {}
+  // The delegated task this row is about, when the emitter named one
+  // (`job.completed` / `job.failed` carry `taskId` beside `filedDocumentId`).
+  // Threaded into the href so the row lands on its result; absent falls back
+  // to the target's own page. Attacker-influenced like every other payload
+  // field, so anything that is not a non-empty string becomes absent.
+  const taskId = nonEmpty(payload.taskId)
+  // The run's message, when the emitter knew it (`runMessageId` beside
+  // `conversationId` and `runId`): the row then lands on the run block itself.
+  // All three or nothing — a link with a session and no message is the drawer's
+  // job, not a half-built anchor.
+  const conversationId = nonEmpty(payload.conversationId)
+  const runId = nonEmpty(payload.runId)
+  const messageId = nonEmpty(payload.runMessageId)
+  const run: RunMessageRef | null =
+    conversationId && runId && messageId ? { conversationId, runId, messageId } : null
 
   return {
     id: row.id,
@@ -329,7 +349,9 @@ function toItemView(
     actorName: row.actorUserId ? (actorNames.get(row.actorUserId) ?? null) : null,
     actorUserId: row.actorUserId,
     count: row.count,
-    href: access ? access.deepLink({ itemType: row.type, anchorId: row.anchorId }) : null,
+    href: access
+      ? access.deepLink({ itemType: row.type, anchorId: row.anchorId, taskId, run })
+      : null,
     subject: access ? coerceText(payload.subject, SUBJECT_MAX_LENGTH) : null,
     excerpt: access ? coerceText(payload.excerpt, EXCERPT_MAX_LENGTH) : null,
     createdAt: row.createdAt.toISOString(),

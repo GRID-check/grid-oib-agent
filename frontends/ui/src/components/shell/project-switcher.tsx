@@ -55,7 +55,7 @@ export function ProjectSwitcher({ projects, activeProjectId, collapsed }: Projec
       <DropdownMenuTrigger
         className={cn(
           'flex h-9 w-full items-center gap-2.5 rounded-[10px] border border-border bg-card px-3 text-left shadow-xs',
-          'transition-[color,background-color,border-color,box-shadow,transform] duration-200 ease-out',
+          'transition-[color,background-color,border-color,box-shadow,transform] duration-quick ease-out',
           'hover:bg-accent active:scale-[0.98] motion-reduce:transition-none',
           'focus-visible:ring-2 focus-visible:ring-ring/60 focus-visible:ring-offset-2 focus-visible:ring-offset-background focus-visible:outline-none',
           collapsed && 'w-10 justify-center px-0',
@@ -74,7 +74,7 @@ export function ProjectSwitcher({ projects, activeProjectId, collapsed }: Projec
             </span>
             <span
               className={cn(
-                'flex size-3.5 shrink-0 transition-transform duration-200 ease-out motion-reduce:transition-none',
+                'flex size-3.5 shrink-0 transition-transform duration-quick ease-out motion-reduce:transition-none',
                 open && 'rotate-180',
               )}
               aria-hidden
@@ -117,7 +117,7 @@ export function ProjectSwitcher({ projects, activeProjectId, collapsed }: Projec
                 }}
                 // ≥44px touch target (a11y) via padding, with the icon kept
                 // small; negative margin keeps the row from growing.
-                className="-my-2 -mr-1.5 flex size-11 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-[color,background-color,transform] duration-200 ease-out hover:bg-accent hover:text-foreground active:scale-[0.98] motion-reduce:transition-none focus-visible:ring-2 focus-visible:ring-ring/60 focus-visible:ring-offset-2 focus-visible:ring-offset-background focus-visible:outline-none"
+                className="-my-2 -mr-1.5 flex size-11 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-[color,background-color,transform] duration-quick ease-out hover:bg-accent hover:text-foreground active:scale-[0.98] motion-reduce:transition-none focus-visible:ring-2 focus-visible:ring-ring/60 focus-visible:ring-offset-2 focus-visible:ring-offset-background focus-visible:outline-none"
               >
                 <Settings className="size-3.5" aria-hidden />
               </button>

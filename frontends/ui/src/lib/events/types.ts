@@ -71,6 +71,22 @@ export type CollaborationEvent =
       ttlMs: number
     }
   | {
+      /**
+       * A version of a document changed state (ADR-0054) — filed, submitted,
+       * approved, refused, published.
+       *
+       * A HINT like every event here: it names the version and the state it
+       * landed in so a viewer can decide whether to re-read, and the receiver
+       * then asks the API. Nothing renders from this payload, because the reader
+       * may not be allowed to see the version at all — access is re-derived on
+       * the read, never on the publish.
+       */
+      kind: 'document.version.changed'
+      documentId: string
+      versionId: string
+      state: string
+    }
+  | {
       kind: 'resource.access.changed'
       resourceType: ShareableResourceType
       resourceId: string

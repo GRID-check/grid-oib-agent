@@ -42,6 +42,12 @@ const EXPECTED: Record<string, string> = {
   'knowledge/documents/route.ts POST': 'settingsManage',
   'knowledge/reingest/route.ts POST': 'settingsManage',
   'knowledge/sync/route.ts POST': 'settingsManage',
+  // The lesson register (platform failure learning). Reads take view; the
+  // sweep and every curation mutation take manage.
+  'lessons/[lessonId]/route.ts GET': 'settingsView',
+  'lessons/[lessonId]/route.ts PATCH': 'settingsManage',
+  'lessons/route.ts GET': 'settingsView',
+  'lessons/route.ts POST': 'settingsManage',
   'maintenance/reconcile-vectors/route.ts POST': 'settingsManage',
   'model-defaults/models/route.ts GET': 'settingsView',
   'model-defaults/route.ts GET': 'settingsView',
@@ -55,12 +61,24 @@ const EXPECTED: Record<string, string> = {
   'organizations/[organizationId]/storage/route.ts GET': 'organizationsView',
   'organizations/[organizationId]/storage/route.ts PUT': 'organizationsManage',
   'overview/route.ts GET': 'organizationsView',
+  // The price list (ADR-0053): platform-owned configuration.
+  'pricing/route.ts GET': 'settingsView',
+  'pricing/route.ts PUT': 'settingsManage',
   'profiler/conversations/[conversationId]/route.ts GET': 'organizationsView',
   'profiler/conversations/route.ts GET': 'organizationsView',
   'reasoning-efforts/route.ts GET': 'settingsView',
   'reasoning-efforts/route.ts PUT': 'settingsManage',
   'retrieval-settings/route.ts GET': 'settingsView',
   'retrieval-settings/route.ts PUT': 'settingsManage',
+  // Platform skill categories: the shelves the curated catalogue is filed on,
+  // so platform-owned configuration like the skills themselves, and gated the
+  // same way. Reading the shelves is `settingsView`; creating, renaming and
+  // deleting one is `settingsManage` — a Platform Support reader can see how
+  // the catalogue is organized and cannot reorganize it.
+  'skill-categories/[categoryId]/route.ts PATCH': 'settingsManage',
+  'skill-categories/[categoryId]/route.ts DELETE': 'settingsManage',
+  'skill-categories/route.ts GET': 'settingsView',
+  'skill-categories/route.ts POST': 'settingsManage',
   'skills/[skillId]/route.ts PATCH': 'settingsManage',
   'skills/[skillId]/route.ts DELETE': 'settingsManage',
   'skills/route.ts GET': 'settingsView',

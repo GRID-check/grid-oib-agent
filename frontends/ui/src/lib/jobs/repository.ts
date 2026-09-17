@@ -122,6 +122,18 @@ export async function touchJobLastRun(jobId: string, at: Date): Promise<void> {
   await db.update(jobs).set({ lastRunAt: at }).where(eq(jobs.id, jobId))
 }
 
+/**
+ * The run a backend job id belongs to. NOT tenant-filtered: the worker that
+ * reports an outcome holds the backend id and nothing else, so the caller runs
+ * this under platform access and re-enters the run's own tenant for everything
+ * after (the same shape as `loadJobForFire`).
+ */
+export async function findJobRunByBackendJobId(backendJobId: string): Promise<JobRun | null> {
+  const db = getDb()
+  const [row] = await db.select().from(jobRuns).where(eq(jobRuns.jobId, backendJobId)).limit(1)
+  return row ?? null
+}
+
 export async function insertJobRun(values: NewJobRun): Promise<JobRun> {
   const db = getDb()
   const [row] = await db.insert(jobRuns).values(values).returning()

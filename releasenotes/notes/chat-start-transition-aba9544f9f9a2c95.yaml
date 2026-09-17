@@ -1,0 +1,12 @@
+---
+improvements:
+  - >
+    Starting a chat is now one continuous movement instead of a jump. Sending
+    the first question glides the message box down to the bottom of the screen
+    while the greeting fades away above it, so it stays clear that you are still
+    typing into the same place.
+  - >
+    The empty chat screen is quieter. The badge that labelled every new chat as
+    a private workspace is gone, since every chat starts that way, and the
+    controls above the greeting no longer sit in a panel with nothing opposite
+    it.

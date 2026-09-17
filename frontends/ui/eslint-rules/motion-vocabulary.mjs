@@ -1,5 +1,6 @@
 /**
- * Three Tailwind motion utilities this design language does not have a use for.
+ * Four kinds of Tailwind motion utility this design language does not have a
+ * use for.
  *
  * Motion here is decoration with a job: it explains what changed and where it
  * came from. That makes it cheap to get wrong in ways nobody notices until a
@@ -35,6 +36,19 @@
  *                           transition (or Radix's collapsible height vars) for
  *                           an accordion, `translate` for anything sliding.
  *
+ *   `duration-200`        — and every other numeric or arbitrary duration.
+ *   and friends             The motion scale is four steps and a loop, each a
+ *                           token (`duration-snap` 120, `duration-quick` 180,
+ *                           `duration-base` 240, `duration-deliberate` 320,
+ *                           `duration-ambient` for indeterminate loops), so a
+ *                           literal number is either a token wearing its value
+ *                           on its sleeve — which stops tracking the token the
+ *                           day the scale is retuned — or a fifth step nobody
+ *                           designed. The pattern anchors on the numeric /
+ *                           bracketed value, so the tokens themselves
+ *                           (`duration-snap`, `data-[state=open]:duration-base`)
+ *                           never trip it.
+ *
  * Reported as warnings, not errors, on the same reasoning as `no-console`: the
  * rule exists to stop new instances, and the handful already in the tree
  * (vendored shadcn sidebar chrome, one progress bar) should be visible without
@@ -47,6 +61,15 @@ const LAYOUT_PROPERTIES = ['width', 'height', 'margin', 'padding', 'top', 'left'
 const LAYOUT_TRANSITION = new RegExp(
   `^transition-\\[[^\\]]*\\b(?:${LAYOUT_PROPERTIES.join('|')})\\b`,
 )
+
+/**
+ * A duration spelled as a number (`duration-200`) or an arbitrary value
+ * (`duration-[180ms]`) rather than as one of the scale's tokens. Anchored on
+ * the value so the tokens themselves — `duration-snap`, `duration-quick`,
+ * `duration-base`, `duration-deliberate`, `duration-ambient`, with or without
+ * variant prefixes — never match.
+ */
+const LITERAL_DURATION = /^duration-(?:\d+(?:\.\d+)?|\[[^\]]*\])$/
 
 /**
  * The utility itself, with any variant prefixes and `!` important marker
@@ -67,6 +90,7 @@ function classify(token) {
   if (base === 'transition-all') return 'transitionAll'
   if (base === 'ease-linear') return 'easeLinear'
   if (LAYOUT_TRANSITION.test(base)) return 'layoutTransition'
+  if (LITERAL_DURATION.test(base)) return 'literalDuration'
   return null
 }
 
@@ -92,7 +116,7 @@ export default {
     type: 'suggestion',
     docs: {
       description:
-        'Ban transition-all, ease-linear and transitions of layout properties, which are outside the GRID motion vocabulary',
+        'Ban transition-all, ease-linear, transitions of layout properties and literal durations, which are outside the GRID motion vocabulary',
     },
     schema: [],
     messages: {
@@ -102,6 +126,8 @@ export default {
         '`{{utility}}` moves at constant speed from a standstill, which reads as mechanical rather than physical. Use `ease-out` (`--ease-out`) for responses, `ease-entrance` for arrivals, `ease-exit` for dismissals, or `ease-cycle` for something that genuinely loops.',
       layoutTransition:
         '`{{utility}}` animates a LAYOUT property, so the browser re-runs layout for the subtree on every frame instead of compositing. Use transform/scale/translate for size and position, or a grid-template-rows 0fr→1fr transition for an accordion height.',
+      literalDuration:
+        '`{{utility}}` is a literal duration outside the motion scale. Use the token for the job: `duration-snap` (120ms — press, checkbox, dense-row hover), `duration-quick` (180ms — the default: colour, opacity, small transforms), `duration-base` (240ms — content entrance, popover, accordion), `duration-deliberate` (320ms — the ceiling: sheet, drawer, panel), or `duration-ambient` for indeterminate loops.',
     },
   },
 

@@ -1,21 +1,21 @@
-# Screenshot preview comments — when a PR adds a new visual target to
-# frontends/ui/visual/registry.mjs, run the screenshot harness for ONLY the new
-# ids (desktop + mobile, light + dark) and point reviewers at the PNGs from a
-# sticky PR comment. Informational only: a harness failure must never block the
-# PR.
+# Screenshot preview — when a PR changes a visual preview or the registry,
+# capture the targets that are MISSING or STALE (a PNG absent, or a `/dev` route
+# edited since its last capture), point reviewers at the PNGs from a sticky PR
+# comment, and land them on the branch with a bot commit. `visual/pending.mjs` is
+# the one definition of "needs a capture", shared with the `fe:test` registry
+# gate, so a contributor in an environment where the harness cannot run (no
+# browser, restricted sandbox) is healed by CI instead of blocked.
 #
 # The comment LINKS the artifact instead of embedding the images. This
 # repository is private and GitHub renders comment images through its anonymous
 # camo proxy, which gets a 404 for every URL into a private repo, so inline
-# previews are impossible here. An earlier revision pushed the PNGs to a
-# `screenshot-previews` branch and referenced raw.githubusercontent.com; that
-# could only ever have rendered as four broken images, so the branch, the push
-# and the write scope it needed are gone.
+# previews are impossible here.
 #
-# Capture and comment are DELIBERATELY separate jobs: capture executes
+# Capture, commit and comment are DELIBERATELY separate jobs: capture executes
 # PR-controlled code (registry import, `bun install`, the app itself) with a read-only
-# token and no persisted credential; the commenting job checks out nothing, runs
-# no PR code and is the only job holding write scope.
+# token and no persisted credential; the commit job checks out the captured SHA
+# but runs no PR code — it copies only the artifact's PNGs and manifest — and the
+# commenting job checks out nothing. The write scopes live only in those two.
 
 name: Screenshot preview
 
@@ -24,6 +24,8 @@ on:
     types: [opened, synchronize, reopened]
     paths:
       - frontends/ui/visual/registry.mjs
+      # A preview route edit makes its shot stale; the workflow is what heals it.
+      - frontends/ui/src/app/dev/**
       # Re-run when the workflow itself changes, so a fix to this plumbing is
       # exercised on the PR that makes it instead of on some later PR.
       - .github/workflows/screenshot-preview.yml
@@ -34,15 +36,15 @@ concurrency:
   cancel-in-progress: true
 
 # Least privilege per job: the jobs that execute PR-controlled code (registry
-# import, `bun install`, the harness) run read-only, and no job keeps a checkout
-# credential in the workspace — the write token is injected only into the publish
-# step, after all PR-controlled steps have finished.
+# import, `bun install`, the harness) run read-only and persist no credential;
+# only the commit job keeps one, because the push is its entire job and no
+# PR-controlled code runs in it (see its checkout step).
 permissions:
   contents: read
 
 jobs:
   detect:
-    name: Detect new screenshot targets
+    name: Detect targets needing a capture
     runs-on: ubuntu-latest
     # Fork PRs get a read-only token and cannot receive comments — skip them.
     if: github.event.pull_request.head.repo.full_name == github.repository
@@ -52,50 +54,28 @@ jobs:
       has_new: ${{ steps.diff.outputs.has_new }}
       ids: ${{ steps.diff.outputs.ids }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
-          fetch-depth: 0
           persist-credentials: false
 
-      - name: Diff registry against the PR base
+      - name: List the targets that need a capture
         id: diff
-        env:
-          BASE_REF: ${{ github.base_ref }}
+        working-directory: frontends/ui
         run: |
           set -euo pipefail
-          # No `git fetch` here: `fetch-depth: 0` above already fetched every
-          # branch, so `origin/$BASE_REF` is present — and with
-          # `persist-credentials: false` a fetch would fail for lack of a
-          # credential.
-          BASE_FILE=$(mktemp --suffix=.mjs)
-          if git cat-file -e "origin/$BASE_REF:frontends/ui/visual/registry.mjs" 2>/dev/null; then
-            git show "origin/$BASE_REF:frontends/ui/visual/registry.mjs" > "$BASE_FILE"
-          else
-            # Registry did not exist on the base — every target is new.
-            echo 'export const SCREENSHOT_TARGETS = []' > "$BASE_FILE"
-          fi
-
-          # Ids flow into a shell command, a filename glob and a comment body, so
-          # only accept the registry's own safe id shape and drop anything else.
-          IDS=$(node --input-type=module -e "
-            import { pathToFileURL } from 'node:url'
-            const base = (await import(pathToFileURL('$BASE_FILE'))).SCREENSHOT_TARGETS ?? []
-            const head = (await import(pathToFileURL('frontends/ui/visual/registry.mjs'))).SCREENSHOT_TARGETS ?? []
-            const baseIds = new Set(base.map((t) => t.id))
-            const ids = head
-              .filter((t) => !baseIds.has(t.id))
-              .map((t) => t.id)
-              .filter((id) => /^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(id))
-            process.stdout.write(ids.join(' '))
-          ")
+          # `pending.mjs` reads the registry and the manifest with Node's own
+          # modules — no install, no browser — and IGNORES an id whose shape is
+          # unsafe because ids flow into a shell command, a filename glob and a
+          # comment body below.
+          IDS=$(node visual/pending.mjs)
 
           echo "ids=$IDS" >> "$GITHUB_OUTPUT"
           if [ -n "$IDS" ]; then
             echo "has_new=true" >> "$GITHUB_OUTPUT"
-            echo "New screenshot targets: $IDS"
+            echo "Screenshot targets needing capture: $IDS"
           else
             echo "has_new=false" >> "$GITHUB_OUTPUT"
-            echo "No new screenshot targets in this PR."
+            echo "Every registered target has current screenshots."
           fi
 
   # Untrusted half: runs PR code, holds no write scope and no credential.
@@ -110,7 +90,7 @@ jobs:
       count: ${{ steps.stage.outputs.count }}
       artifact_url: ${{ steps.upload.outputs.artifact-url }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           ref: ${{ github.event.pull_request.head.sha }}
           # The steps below run PR-controlled dependency scripts and app code —
@@ -156,14 +136,14 @@ jobs:
             turbopack-dev-${{ runner.os }}-${{ hashFiles('frontends/ui/bun.lock') }}-
             turbopack-dev-${{ runner.os }}-
 
-      - name: Capture screenshots for the new targets
+      - name: Capture screenshots for the pending targets
         working-directory: frontends/ui
         env:
           IDS: ${{ needs.detect.outputs.ids }}
         # Unquoted on purpose: the ids are a validated, space-separated list.
         run: bun run screenshots -- $IDS
 
-      - name: Stage generated PNGs
+      - name: Stage generated PNGs and the manifest
         id: stage
         working-directory: frontends/ui
         env:
@@ -182,22 +162,91 @@ jobs:
               cp "$f" "$OUT/"
             done
           done
+          # The manifest travels with the PNGs: the commit job lands it verbatim,
+          # because only the capture job's checkout has the route sources the
+          # hashes were taken from.
+          cp visual/screenshots.manifest.json "$OUT/"
           echo "count=$(find "$OUT" -maxdepth 1 -name '*.png' | wc -l)" >> "$GITHUB_OUTPUT"
           ls -la "$OUT"
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         id: upload
         with:
           name: screenshot-previews
           path: preview-out
           if-no-files-found: ignore
 
+  # Trusted write half: it checks out the PR branch and copies ONLY the artifact
+  # the capture job produced — no PR code runs here, no dependency install, no
+  # harness. That separation is what keeps a write-scoped token out of reach of
+  # the PR-controlled half. The `synchronize` event the push fires runs this
+  # workflow again; by then nothing is pending, so it converges rather than loops.
+  commit:
+    name: Commit regenerated screenshots
+    needs: [detect, capture]
+    if: ${{ !cancelled() && needs.detect.outputs.has_new == 'true' && needs.capture.result == 'success' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # push the bot commit back to the PR branch
+    outputs:
+      committed: ${{ steps.commit.outputs.committed }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # The immutable SHA, never `head.ref`: the branch can move between the
+          # capture and this push, and a commit on the moved tip would carry
+          # screenshots of a tree that is no longer what the branch is.
+          ref: ${{ github.event.pull_request.head.sha }}
+          # persist-credentials stays at its default (on) HERE, unlike the
+          # capture job: the push below is this job's whole purpose and it runs
+          # no PR-controlled code, so the zizmor/artipacked warning about a
+          # persisted credential is the expected, accepted one — the write IS
+          # the job.
+          # The explicit refspec below is what keeps the mutable branch safe:
+          # the checkout is the captured SHA, so a branch that advanced makes
+          # the push a non-fast-forward and Git refuses it.
+
+      - uses: actions/download-artifact@v8
+        with:
+          name: screenshot-previews
+          path: preview-out
+
+      - name: Land the captured PNGs and manifest
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          cp preview-out/*.png frontends/ui/visual/screenshots/
+          if [ -f preview-out/screenshots.manifest.json ]; then
+            cp preview-out/screenshots.manifest.json frontends/ui/visual/screenshots.manifest.json
+          fi
+
+      - name: Commit and push
+        id: commit
+        env:
+          # Through the environment, never interpolated into the script: a git
+          # refname may contain `;`, `$()` and backticks, so `${{ ... }}` in a
+          # `run:` body is script injection even for a same-repo branch.
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add frontends/ui/visual/screenshots frontends/ui/visual/screenshots.manifest.json
+          if git diff --cached --quiet; then
+            echo "committed=false" >> "$GITHUB_OUTPUT"
+            echo "Nothing to commit — the tree already holds current screenshots."
+            exit 0
+          fi
+          git commit -m "chore(ui): regenerate screenshots for changed previews"
+          git push origin "HEAD:$HEAD_REF"
+          echo "committed=true" >> "$GITHUB_OUTPUT"
+
   # Privileged half: no checkout of PR code, no dependency install, no app code —
   # it only reports what capture produced, so the write-scoped token is never
   # reachable from anything the PR controls.
   comment:
     name: Comment with the previews
-    needs: [detect, capture]
+    needs: [detect, capture, commit]
     # Runs even when capture failed, so a broken harness is reported in the
     # comment rather than as silence.
     if: ${{ !cancelled() && needs.detect.outputs.has_new == 'true' }}
@@ -211,12 +260,14 @@ jobs:
           IDS: ${{ needs.detect.outputs.ids }}
           COUNT: ${{ needs.capture.outputs.count }}
           ARTIFACT_URL: ${{ needs.capture.outputs.artifact_url }}
+          COMMITTED: ${{ needs.commit.outputs.committed }}
         with:
           script: |
             const pr = context.payload.pull_request.number
             const ids = (process.env.IDS || '').split(' ').filter(Boolean)
             const count = Number(process.env.COUNT || 0)
             const artifactUrl = process.env.ARTIFACT_URL || ''
+            const committed = process.env.COMMITTED === 'true'
             const marker = '<!-- screenshot-preview -->'
             const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`
             const list = ids.map((id) => `\`${id}\``).join(', ')
@@ -228,12 +279,15 @@ jobs:
                   '## Screenshot previews',
                   `Captured ${count} PNG(s) for ${list} (desktop + mobile, light + dark).`,
                   '',
+                  committed
+                    ? 'Committed the regenerated PNGs and the manifest to this branch — the visual gate picks them up on the next run.'
+                    : 'The capture ran, but the commit did not land (open it from the artifact below).',
+                  '',
                   `**[Download the \`screenshot-previews\` artifact](${artifactUrl})**`,
                   '',
                   'Linked rather than inlined because this repository is private: GitHub fetches',
                   'comment images through an anonymous proxy, which 404s on every URL into a',
-                  'private repo. Commit the PNGs under `frontends/ui/visual/screenshots/` to make',
-                  'them reviewable in the diff.',
+                  'private repo.',
                 ]
               : [
                   marker,

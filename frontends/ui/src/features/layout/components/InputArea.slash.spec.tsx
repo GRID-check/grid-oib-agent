@@ -1,11 +1,20 @@
 /**
- * `/name` invocation, through the real composer.
+ * The `/name` picker, through the real composer.
  *
  * The pure half is covered directly (`features/skills/lib/slash-command.spec.ts`);
- * what this file covers is the WIRING — that picking a skill puts it on the
- * message envelope, that editing the token away takes it back off, and that a
- * message which merely begins with a slash is still an ordinary message. Those
- * are the seams where the feature would silently do nothing.
+ * what this file covers is the WIRING — that picking a skill writes the token
+ * into the message TEXT and nothing else, that editing the token away takes the
+ * reference back off, and that a message which merely begins with a slash is
+ * still an ordinary message.
+ *
+ * "And nothing else" is the assertion that matters most here, because it is the
+ * one that used to be false. The envelope carried `skills: ['name']`, the
+ * backend lifted it onto `force_skills`, and the turn HAD to apply the skill.
+ * That was removed together with the platform's `standard` delivery tier
+ * (migration 0088): a skill is a capability the model may reach for, and what
+ * an office always wants applied is a standing instruction, which lives in the
+ * platform prompt and in the organization's own instruction block instead. The
+ * name reaches the model as the text it is.
  *
  * A separate file from `InputArea.spec.tsx` on purpose: that suite is already
  * the slowest in the project (the repo's own working notes call it out), and it
@@ -116,7 +125,7 @@ describe('the composer’s / invocation', () => {
     expect(listInvocableSkills).not.toHaveBeenCalled()
   })
 
-  test('picking a skill inserts the token and puts it on the envelope at send', async () => {
+  test('picking a skill inserts the token, and the token is all that is sent', async () => {
     const user = userEvent.setup()
     render(<InputArea isAuthenticated connectionMode="sse" />)
 
@@ -131,13 +140,13 @@ describe('the composer’s / invocation', () => {
     await user.type(composer(), 'Stiegenhaus prüfen')
     await user.click(screen.getByRole('button', { name: /send message/i }))
 
-    expect(mockSendMessage).toHaveBeenCalledWith(
-      '/oib-brandschutz Stiegenhaus prüfen',
-      expect.objectContaining({ skills: ['oib-brandschutz'] }),
-    )
+    // ONE argument: the text. No `skills` field, and no options object at all —
+    // the composer's fast path is the literal single-argument call it has
+    // always been, and a picked skill no longer pushes it off that path.
+    expect(mockSendMessage).toHaveBeenCalledWith('/oib-brandschutz Stiegenhaus prüfen')
   })
 
-  test('deleting the token takes the invocation back off the message', async () => {
+  test('deleting the token takes the skill reference back off the message', async () => {
     const user = userEvent.setup()
     render(<InputArea isAuthenticated connectionMode="sse" />)
 
@@ -154,7 +163,6 @@ describe('the composer’s / invocation', () => {
     )
     await user.click(screen.getByRole('button', { name: /send message/i }))
 
-    // Back to the plain single-argument call the composer has always made.
     expect(mockSendMessage).toHaveBeenCalledWith('Was gilt für Fluchtwege?')
   })
 

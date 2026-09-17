@@ -15,7 +15,7 @@ def client() -> TestClient:
     app = FastAPI()
     router = APIRouter()
     llm_configs = {
-        "intent_llm": SimpleNamespace(
+        "chat_llm": SimpleNamespace(
             model_name="deepseek/deepseek-v4-flash",
             base_url="https://openrouter.ai/api/v1",
             reasoning_effort="none",
@@ -37,7 +37,7 @@ def test_returns_llm_defaults_without_token_in_dev(client, monkeypatch):
     response = client.get("/v1/config/llm-defaults")
     assert response.status_code == 200
     llms = response.json()["llms"]
-    assert llms["intent_llm"] == "deepseek/deepseek-v4-flash"
+    assert llms["chat_llm"] == "deepseek/deepseek-v4-flash"
     assert llms["card_llm"] == "deepseek/deepseek-v4-flash"
     assert llms["weird_llm"] is None
     # The env-configured ingestion VLM default is surfaced under a synthetic
@@ -53,7 +53,7 @@ def test_reports_the_base_url_each_llm_targets(client, monkeypatch):
     monkeypatch.delenv("GRID_INTERNAL_API_TOKEN", raising=False)
     base_urls = client.get("/v1/config/llm-defaults").json()["baseUrls"]
 
-    assert base_urls["intent_llm"] == "https://openrouter.ai/api/v1"
+    assert base_urls["chat_llm"] == "https://openrouter.ai/api/v1"
     assert base_urls["card_llm"] == "https://openrouter.ai/api/v1"
     # An LLM config without a base_url reports None rather than being omitted:
     # "unknown endpoint" must be distinguishable from "no such LLM".
@@ -85,7 +85,7 @@ def test_requires_matching_token_when_configured(client, monkeypatch):
 
     ok = client.get("/v1/config/llm-defaults", headers={"x-grid-internal-token": "secret-token"})
     assert ok.status_code == 200
-    assert ok.json()["llms"]["intent_llm"] == "deepseek/deepseek-v4-flash"
+    assert ok.json()["llms"]["chat_llm"] == "deepseek/deepseek-v4-flash"
 
 
 def test_reports_the_reasoning_effort_each_llm_ships_with(client, monkeypatch):
@@ -94,7 +94,7 @@ def test_reports_the_reasoning_effort_each_llm_ships_with(client, monkeypatch):
     monkeypatch.delenv("GRID_INTERNAL_API_TOKEN", raising=False)
     efforts = client.get("/v1/config/llm-defaults").json()["reasoningEfforts"]
 
-    assert efforts["intent_llm"] == "none"
+    assert efforts["chat_llm"] == "none"
     assert efforts["card_llm"] == "medium"
     # An LLM config without the field reports None rather than being omitted:
     # "role ships no effort" must be distinguishable from "no such LLM".

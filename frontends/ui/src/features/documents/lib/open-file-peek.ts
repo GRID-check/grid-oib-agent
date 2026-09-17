@@ -13,7 +13,7 @@ import { toast } from 'sonner'
 import { useChatStore } from '@/features/chat/store'
 import { documentDisplayName } from '@/lib/documents/display-name'
 import type { FileItem } from '../components/project-file-workspace'
-import { useFilePreviewStore } from '../stores/file-preview-store'
+import { useFilePreviewStore, type FilePreviewMode } from '../stores/file-preview-store'
 
 /** Resource id of the subject this helper last bound to a peek, or null. */
 let boundSubjectId: string | null = null
@@ -49,6 +49,17 @@ export interface OpenFilePeekOptions {
    * that subject. Pass false only when the caller already owns the subject.
    */
   bindComposerSubject?: boolean
+  /**
+   * How the document is presented. `peek` — the split pane beside the
+   * conversation — is what this helper is for and the default.
+   *
+   * `modal` exists for the one case where the pane is not available: on a
+   * narrow screen `FilePreviewHost` refuses to peek (there is no room for two
+   * panes), and a caller that opened one there would have done nothing at all.
+   * The shelf/scope mapping below is the same either way, which is the reason
+   * this is a parameter rather than a second call site with its own copy of it.
+   */
+  presentation?: FilePreviewMode
 }
 
 /** Open `file` as a chat peek. Bind/clear of composerSubject is the default. */
@@ -56,7 +67,7 @@ export function openFilePeek(options: OpenFilePeekOptions): void {
   const bind = options.bindComposerSubject !== false
   ensureCloseClearsSubject()
 
-  useFilePreviewStore.getState().open(options.file, 'peek', {
+  useFilePreviewStore.getState().open(options.file, options.presentation ?? 'peek', {
     projectId: options.source === 'projekt' ? (options.projectId ?? undefined) : undefined,
     projectName: options.projectName ?? undefined,
     scope: options.source === 'buero' ? 'archiv' : 'files',

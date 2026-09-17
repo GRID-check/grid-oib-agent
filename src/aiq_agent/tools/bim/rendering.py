@@ -1,0 +1,114 @@
+"""Rendering primitives both BIM tools share: clipped lists and the unresolved-model reply."""
+
+from __future__ import annotations
+
+from collections.abc import Callable
+from typing import Any
+
+from aiq_agent.tools.bim.failures import NO_MODEL_TEXT
+from aiq_agent.tools.bim.failures import NOT_READY_TEXT
+
+#: Plural noun → the whole singular phrase, article included. A lookup rather
+#: than a rule because German plurals and genders are not derivable, and
+#: "ein weiteres Raum" in an answer an architect reads is worse than a wrong
+#: number.
+_ONE_MORE_DE = {
+    "Geschoße": "ein weiteres Geschoß",
+    "Bauteile": "ein weiteres Bauteil",
+    "Bauteiltypen": "ein weiterer Bauteiltyp",
+    "betroffene Bauteile": "ein weiteres betroffenes Bauteil",
+    "Räume": "ein weiterer Raum",
+    "Räume ohne Türkante": "ein weiterer Raum ohne Türkante",
+    "Regeln": "eine weitere Regel",
+    "Gruppen": "eine weitere Gruppe",
+    "Merkmale": "ein weiteres Merkmal",
+    "fehlende Merkmale": "ein weiteres fehlendes Merkmal",
+    "neue Bauteile": "ein weiteres neues Bauteil",
+    "entfallene Bauteile": "ein weiteres entfallenes Bauteil",
+    "geänderte Bauteile": "ein weiteres geändertes Bauteil",
+    "Einträge": "ein weiterer Eintrag",
+    "unbestimmte Türen": "eine weitere unbestimmte Tür",
+    "ausgeschlossene Türen": "eine weitere ausgeschlossene Tür",
+}
+
+
+def clipped(items: list, shown: int, noun: str) -> str | None:
+    """A line saying what a clipped list left out, or None when nothing was.
+
+    Every list a renderer cuts must say so, or the agent presents fifty rows as
+    the whole set. Singular when exactly one was left out.
+    """
+    missing = len(items) - shown
+    if missing <= 0:
+        return None
+    if missing == 1:
+        return f"… {_ONE_MORE_DE.get(noun, f'ein weiteres {noun}')} nicht gezeigt."
+    return f"… {missing} weitere {noun} nicht gezeigt."
+
+
+def listed(
+    items: list,
+    shown: int,
+    noun: str,
+    render: Callable[[Any], str | list[str]],
+    *,
+    indent: str = "",
+) -> list[str]:
+    """The first ``shown`` items rendered, followed by the clip note when the list was cut."""
+    lines: list[str] = []
+    for item in items[:shown]:
+        rendered = render(item)
+        lines.extend([rendered] if isinstance(rendered, str) else rendered)
+    note = clipped(items, shown, noun)
+    return lines + [f"{indent}{note}"] if note else lines
+
+
+#: The reasons no argument fixes within this turn, each with the sentence that
+#: says so. ``ambiguous`` and ``no_match`` are deliberately absent: there a
+#: second call with a different ``model_name`` is the right move, and the
+#: listed alternatives are what it is made from.
+_NOTHING_TO_READ = {
+    "no_models": NO_MODEL_TEXT,
+    "extraction_failed": NO_MODEL_TEXT,
+    "not_ready": NOT_READY_TEXT,
+}
+
+
+def render_unresolved(result: dict[str, Any], fallback: str) -> str:
+    """A model that could not be selected, with the alternatives when there are any.
+
+    "Verfügbare" only when the list really is a set of alternatives: on
+    ``not_ready`` the route returns the model that could not be read, and
+    calling that available beside "(processing, 0 Bauteile)" reads as a
+    building with no elements.
+
+    A project with nothing to read gets the sentence saying so AND what to do
+    with it (:data:`~aiq_agent.tools.bim.failures.NO_MODEL_TEXT`). The route's
+    „Für dieses Projekt ist kein IFC-Modell hinterlegt" alone reads as one
+    operation's miss, and the agent spent the rest of its rounds trying the
+    others. ``not_ready`` gets its own sentence
+    (:data:`~aiq_agent.tools.bim.failures.NOT_READY_TEXT`) for the same reason
+    and a different fact: extraction finishes after this turn, so the model
+    named under „noch nicht abfragbar" answers a later question and not this
+    one.
+    """
+    text = _unresolved_message(result, fallback)
+    advice = _NOTHING_TO_READ.get(str(result.get("reason")))
+    return f"{text} {advice}" if advice else text
+
+
+def _unresolved_message(result: dict[str, Any], fallback: str) -> str:
+    """The route's own sentence, plus the model list when there is one."""
+    message = result.get("message") or fallback
+    models = result.get("models") or []
+    if not models:
+        return str(message)
+    listed_models = ", ".join(
+        f"{m.get('filename')} ({m.get('status')}, {m.get('elements', 0)} Bauteile)" for m in models[:10]
+    )
+    heading = (
+        "Verfügbare Modelle"
+        if result.get("reason") in {"no_match", "ambiguous"}
+        else "Modelle in diesem Projekt (noch nicht abfragbar)"
+    )
+    return f"{message} {heading}: {listed_models}."

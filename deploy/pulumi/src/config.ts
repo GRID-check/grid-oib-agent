@@ -740,7 +740,6 @@ export interface GridConfig {
     embedBaseUrl: string;
     vlmModel: string;
     vlmBaseUrl: string;
-    budgetEurPerUsd: string;
   };
 
   /** WorkOS AuthKit + platform-tier settings (frontend). */
@@ -757,6 +756,23 @@ export interface GridConfig {
     byokSecretBackend: string;
     byokLocalKek: pulumi.Output<string>;
     allowAgentOrgMemory: boolean;
+  };
+
+  /**
+   * PostHog product analytics (fail-open).
+   *
+   * Both values are optional: an empty host or token keeps the browser client
+   * disabled (`isPosthogEnabled() === false` in
+   * `frontends/ui/src/lib/analytics/posthog.ts`), so a stack that has not
+   * adopted analytics deploys exactly as before. The project token is a public
+   * `phc_` key by design (it ships in the client bundle), so it lives in plain
+   * config like `workosClientId`, not in ESC secrets.
+   */
+  posthog: {
+    /** e.g. `https://eu.i.posthog.com`. Empty = analytics disabled. */
+    host: string;
+    /** Public project token (`phc_…`). Empty = analytics disabled. */
+    projectToken: string;
   };
 
   /** Cross-service internal token + admin token (must match across services). */
@@ -822,6 +838,45 @@ export interface GridConfig {
      * anybody anything new.
      */
     schedule: string;
+  };
+
+  vectorReconcile: {
+    /**
+     * The orphaned-vector sweep (`POST /api/internal/maintenance/reconcile-vectors`):
+     * chunks whose document row is gone are deleted from the shared vector
+     * store, and summary rows whose chunks are gone are forgotten. Enabled by
+     * default for the reason the storage alert is: the orphans it recovers are
+     * invisible in the product — a deleted file that still answers questions,
+     * a listed file nobody can read — so nobody knows to start the manual run
+     * on Platform → Vector maintenance.
+     */
+    enabled: boolean;
+    /**
+     * 5-field cron for the sweep. Weekly, off-peak, by default: every
+     * collection is scanned each tick, and the store is written to only when
+     * a past delete left something behind, so a tighter period costs scans
+     * without recovering anything sooner than the next upload would notice.
+     */
+    schedule: string;
+  };
+
+  agentAuthoredDocuments: {
+    /**
+     * Operator kill switch for agent-authored documents: a finished
+     * deep-research report and a drawn diagram filed into a project as
+     * `documents` rows. Reaches the frontend as
+     * `GRID_AGENT_AUTHORED_DOCUMENTS_ENABLED`, which the BFF only consults
+     * while `enforceFeatureFlags` is off; with enforcement on, the per-org
+     * `agent-authored-documents` WorkOS flag decides instead.
+     *
+     * Defaults to TRUE — the feature ships on. It is a key and not a role
+     * grant because the tenant-facing lever is a PERMISSION
+     * (`project:documents:generate`), and withdrawing that fleet-wide would
+     * mean editing the catalog's own built-in project roles in WorkOS, which
+     * `provision:authz --check` then fails in CI. The two answer different
+     * questions: this one is "is filing available in this deployment at all".
+     */
+    enabled: boolean;
   };
 
   ifcModels: {
@@ -937,8 +992,10 @@ export interface GridConfig {
    * **Self-hosted OSS only.** No license key is configured anywhere in this
    * program, deliberately: everything wired here is MIT-licensed core Langfuse.
    * The consequence that matters operationally is that DATA RETENTION POLICIES
-   * are an Enterprise feature, so nothing expires on its own — see
-   * `clickhouseStorageSize` and the ADR's Consequences section.
+   * are an Enterprise feature, so trace data never expires on its own — see
+   * `clickhouseStorageSize` and the ADR's Consequences section. (The server's
+   * own diagnostic logs are the exception: `installClickHouse` TTL-bounds
+   * those at 14 days. That covers ClickHouse chatter, not product data.)
    */
   langfuse: {
     /**
@@ -962,10 +1019,13 @@ export interface GridConfig {
     /** ClickHouse server image, digest-pinned. */
     clickhouseImage: string;
     /**
-     * PVC for ClickHouse. This is the tier's one unbounded resource: with
-     * retention policies behind the Enterprise license, the trace store grows
-     * for as long as the deployment runs. Size it for the retention you intend
-     * to keep by hand, and watch it.
+     * PVC for ClickHouse. The TRACE store is still the tier's unbounded
+     * resource: retention policies are an Enterprise feature, so observations
+     * grow for as long as the deployment runs - size for the history you
+     * intend to keep by hand, and watch it. The SERVER's own system logs are
+     * the exception: `installClickHouse` gives them a 14-day TTL, so they can
+     * no longer fill the disk the way `system.trace_log` did on dev in August
+     * 2026. The 50 Gi default covers both with headroom.
      */
     clickhouseStorageSize: string;
     /** Ingestion-queue dataset cap and pod memory limit (see `LANGFUSE.queue`). */
@@ -2238,9 +2298,8 @@ export function loadConfig(): GridConfig {
       tavilyApiKey: cfg.requireSecret("tavilyApiKey"),
       embedModel: cfg.get("embedModel") ?? "openai/text-embedding-3-large",
       embedBaseUrl: cfg.get("embedBaseUrl") ?? "https://openrouter.ai/api/v1",
-      vlmModel: cfg.get("vlmModel") ?? "google/gemma-4-31b-it",
+      vlmModel: cfg.get("vlmModel") ?? "openai/gpt-5.6-luna",
       vlmBaseUrl: cfg.get("vlmBaseUrl") ?? "https://openrouter.ai/api/v1",
-      budgetEurPerUsd: cfg.get("budgetEurPerUsd") ?? "0.86",
     },
 
     auth: {
@@ -2256,6 +2315,11 @@ export function loadConfig(): GridConfig {
       byokSecretBackend: cfg.get("byokSecretBackend") ?? "",
       byokLocalKek: cfg.getSecret("byokLocalKek") ?? pulumi.output(""),
       allowAgentOrgMemory: bool(cfg, "allowAgentOrgMemory", false),
+    },
+
+    posthog: {
+      host: cfg.get("posthogHost") ?? "",
+      projectToken: cfg.get("posthogProjectToken") ?? "",
     },
 
     internal: {
@@ -2275,8 +2339,18 @@ export function loadConfig(): GridConfig {
       schedule: cfg.get("storageAlertSchedule") ?? "0 * * * *",
     },
 
+    vectorReconcile: {
+      enabled: bool(cfg, "vectorReconcileEnabled", true),
+      // Sundays 03:00 UTC.
+      schedule: cfg.get("vectorReconcileSchedule") ?? "0 3 * * 0",
+    },
+
     collaboration: {
       enabled: bool(cfg, "collaborationEnabled", false),
+    },
+
+    agentAuthoredDocuments: {
+      enabled: bool(cfg, "agentAuthoredDocumentsEnabled", true),
     },
 
     ifcModels: {
@@ -2290,7 +2364,7 @@ export function loadConfig(): GridConfig {
     observability: {
       enabled: observabilityEnabled,
       otelDomain,
-      // Digest-pinned (supply chain): 13.4.2 and 0.157.0 respectively. Bump
+      // Digest-pinned (supply chain): 13.4.2 and 0.160.0 respectively. Bump
       // deliberately via config when upgrading — the pins are scanned by the
       // trivy job in .github/workflows/security.yml, which blocks on fixable
       // HIGH/CRITICAL, so a stale pin surfaces as a failing check.
@@ -2299,7 +2373,7 @@ export function loadConfig(): GridConfig {
         "mcr.microsoft.com/dotnet/aspire-dashboard@sha256:d71f709233fdd53092a9a562ca6fb74264aec7c16c9aff03da94091f18ea2394",
       collectorImage:
         cfg.get("collectorImage") ??
-        "otel/opentelemetry-collector-contrib@sha256:f2f01157055a9b2aab9df7118e1f1c9abf345e99b23bc7a2bc791db374a7d0f6",
+        "otel/opentelemetry-collector-contrib@sha256:799dc6cf12c96192af37b5bdba804da8c10b3bc563b43cb90c3f3c58d9572ad6",
       telemetryLimits: {
         maxLogCount: num(cfg, "dashboardMaxLogCount", 50000),
         maxTraceCount: num(cfg, "dashboardMaxTraceCount", 50000),
@@ -2326,7 +2400,11 @@ export function loadConfig(): GridConfig {
       clickhouseImage:
         cfg.get("clickhouseImage") ??
         "clickhouse/clickhouse-server@sha256:aec6fb9892becb6a20eb8d57708b8cf9c777b2ad1f4eb70bbece7a70eaed9fd0",
-      clickhouseStorageSize: cfg.get("clickhouseStorageSize") ?? "20Gi",
+      // 50 Gi: fourteen days of TTL-bounded system logs plus headroom for the
+      // trace store itself, which still grows without bound (OSS has no
+      // retention policies) - see the interface comment. Raised from 20 Gi
+      // after system.trace_log alone filled that on dev in August 2026.
+      clickhouseStorageSize: cfg.get("clickhouseStorageSize") ?? "50Gi",
       // The queue holds references to events already durable in S3, not the
       // events themselves, so it stays small — but eviction is OFF (see
       // `installLangfuseQueue`), which means "small" has to mean "big enough".

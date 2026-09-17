@@ -16,7 +16,7 @@ function Item({
       data-slot="item"
       className={cn(
         // A row is `px-4 py-3` — the design language's list-row padding.
-        'flex items-center gap-3 px-4 py-3 text-left transition-colors duration-200 ease-out hover:bg-accent/40 motion-reduce:transition-none',
+        'flex items-center gap-3 px-4 py-3 text-left transition-colors duration-snap ease-out hover:bg-accent/40 motion-reduce:transition-none',
         // Keyboard focus must not be the same pixel as hover. It used to be
         // exactly that — `outline-none` plus the hover background — so a
         // keyboard reader could not tell which row they were on when the
@@ -79,11 +79,17 @@ function ItemActions({ className, ...props }: React.ComponentProps<'div'>): Reac
   )
 }
 
+/**
+ * `ol` is here because a version history is an ordered list and the list is the
+ * order: the document-lifecycle panel renders its versions newest-first, and
+ * rendering that as a `ul` would drop the ordinality from the accessibility
+ * tree while the eye still reads it off the page.
+ */
 function ItemList({
   className,
   as: Comp = 'div',
   ...props
-}: React.HTMLAttributes<HTMLElement> & { as?: 'div' | 'ul' }): React.JSX.Element {
+}: React.HTMLAttributes<HTMLElement> & { as?: 'div' | 'ul' | 'ol' }): React.JSX.Element {
   return (
     <Comp
       data-slot="item-list"

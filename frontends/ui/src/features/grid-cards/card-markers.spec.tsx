@@ -8,24 +8,32 @@
  * splicing one into a paragraph is the mistake the line-based contract exists
  * to prevent.
  */
-import { describe, test, expect } from 'vitest'
+import { describe, test, expect, vi } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import { unified } from 'unified'
 import remarkParse from 'remark-parse'
 import remarkGfm from 'remark-gfm'
 import type { Node, Parent } from 'unist'
-import { remarkCardMarkers, placedCardIndices, unplacedCardIndices } from './card-markers'
+import {
+  CALLOUT_SLOT_INDEX,
+  hasPlacedCalloutMarker,
+  placedCardIndices,
+  remarkCardMarkers,
+  unplacedCardIndices,
+} from './card-markers'
+import { cardKey, reconcileCardInteractions } from './card-decision'
+import { validateGridCards } from '@/shared/cards/schemas'
 import { MarkdownRenderer } from '@/shared/components/MarkdownRenderer'
 import {
   MARKDOWN_SLOT_TAG,
   MarkdownSlotProvider,
 } from '@/shared/components/MarkdownRenderer/slot-context'
 
-const parse = (markdown: string, count: number): Node =>
+const parse = (markdown: string, count: number, callout = false): Node =>
   unified()
     .use(remarkParse)
     .use(remarkGfm)
-    .use(remarkCardMarkers, { count })
+    .use(remarkCardMarkers, { count, callout })
     .runSync(unified().use(remarkParse).use(remarkGfm).parse(markdown))
 
 const isParent = (node: Node): node is Parent => Array.isArray((node as Parent).children)
@@ -197,5 +205,136 @@ describe('a placed card, rendered', () => {
     const { container } = renderAnswer('Die Treppe [[card:1]] ist steil, [[card:7]].', 1)
 
     expect(readable(container)).not.toContain('[[card')
+  })
+
+  test('the callout slot renders between its paragraphs like a card slot', () => {
+    const { container } = render(
+      <MarkdownSlotProvider
+        render={(index) => (index === CALLOUT_SLOT_INDEX ? <div>Achtung-Block</div> : null)}
+      >
+        <MarkdownRenderer
+          content={'Die Regel.\n\n[[callout]]\n\nDie Ausnahme.'}
+          remarkPlugins={[[remarkCardMarkers, { count: 0, callout: true }]]}
+        />
+      </MarkdownSlotProvider>
+    )
+
+    expect(readable(container)).toBe('Die Regel. Achtung-Block Die Ausnahme.')
+  })
+})
+
+describe('the [[callout]] marker', () => {
+  test('splices the callout slot where the answer anchored it', () => {
+    const tree = parse('Die Regel.\n\n[[callout]]\n\nDie Ausnahme.', 0, true)
+
+    expect(blocks(tree)).toEqual(['paragraph', 'slot', 'paragraph'])
+    expect(slots(tree)).toEqual([CALLOUT_SLOT_INDEX])
+    expect(text(tree)).toBe('Die Regel.Die Ausnahme.')
+  })
+
+  test('a marker with no callout behind it is stripped, never shown', () => {
+    const tree = parse('Die Regel.\n\n[[callout]]\n\nDie Ausnahme.', 0, false)
+
+    expect(blocks(tree)).toEqual(['paragraph', 'paragraph'])
+    expect(text(tree)).toBe('Die Regel.Die Ausnahme.')
+  })
+
+  test('a mid-sentence marker is stripped even when a callout exists', () => {
+    const tree = parse('Die Regel [[callout]] mitten im Satz.', 0, true)
+
+    expect(slots(tree)).toEqual([])
+    expect(text(tree)).toBe('Die Regel  mitten im Satz.')
+  })
+
+  test('cards and the callout place independently in one answer', () => {
+    const tree = parse('Eins.\n\n[[card:1]]\n\n[[callout]]\n\nZwei.', 1, true)
+
+    expect(blocks(tree)).toEqual(['paragraph', 'slot', 'slot', 'paragraph'])
+    expect(slots(tree)).toEqual([0, CALLOUT_SLOT_INDEX])
+  })
+
+  test('a partial [[callou tail mid-stream is hidden like a card tail', () => {
+    const tree = parse('Die Antwort läuft noch [[callou', 0, true)
+    expect(text(tree)).toBe('Die Antwort läuft noch ')
+  })
+})
+
+describe('hasPlacedCalloutMarker', () => {
+  test('sees an own-line marker and ignores a mid-sentence one', () => {
+    expect(hasPlacedCalloutMarker('Absatz.\n\n[[callout]]\n\nEnde.')).toBe(true)
+    expect(hasPlacedCalloutMarker('Ein Satz mit [[callout]] darin.')).toBe(false)
+    expect(hasPlacedCalloutMarker('Kein Marker.')).toBe(false)
+  })
+
+  test('a marker inside a code fence is content, not placement', () => {
+    expect(hasPlacedCalloutMarker('```\n[[callout]]\n```')).toBe(false)
+  })
+})
+
+describe('a rejected card in the middle keeps every marker and decision bound', () => {
+  // The ratchet for positional identity: the wire carries three cards, the
+  // middle one fails validation, and NOTHING after it may move. Markers stay
+  // bound to the cards they were written for (or draw nothing), and persisted
+  // decisions stay bound to the proposals they were made about (or are
+  // dropped) — never rebound onto the wrong card.
+  const proposal = (content: string) => ({
+    type: 'memory_proposal',
+    title: 'Merken?',
+    content,
+    kind: 'preference',
+    confidence: 'high',
+  })
+  const WIRE = [proposal('REI 90 prüfen'), { type: 'not_a_card_type' }, proposal('Fluchtniveau 9,80 m')]
+  const BODY = 'Erstens.\n\n[[card:1]]\n\nZweitens.\n\n[[card:3]]\n\nDrittens.'
+
+  const validated = () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    try {
+      return validateGridCards(WIRE)
+    } finally {
+      warn.mockRestore()
+    }
+  }
+
+  test('validation holds the wire positions with a hole', () => {
+    const cards = validated()
+
+    expect(cards).toHaveLength(3)
+    expect(cards[0]).toMatchObject({ type: 'memory_proposal', content: 'REI 90 prüfen' })
+    expect(cards[1]).toBeUndefined()
+    expect(cards[2]).toMatchObject({ type: 'memory_proposal', content: 'Fluchtniveau 9,80 m' })
+  })
+
+  test('[[card:3]] still draws the third card, never the second', () => {
+    const cards = validated()
+    const count = cards.length
+
+    // The prose claims indices 0 and 2; the hole at 1 falls to the fallback
+    // block, where it renders nothing.
+    expect([...placedCardIndices(BODY, count)]).toEqual([0, 2])
+    expect(unplacedCardIndices(BODY, count)).toEqual([1])
+    expect(slots(parse(BODY, count))).toEqual([0, 2])
+    // What the slots resolve to: the proposals the markers were written for.
+    expect(cards[0]).toMatchObject({ content: 'REI 90 prüfen' })
+    expect(cards[2]).toMatchObject({ content: 'Fluchtniveau 9,80 m' })
+    // And the hole fails closed — the surface renders nothing for it.
+    expect(cards[1]).toBeUndefined()
+  })
+
+  test('a decision on the third card survives; one on the hole is dropped', () => {
+    const cards = validated()
+    const decided = (key: string, decision: 'savedProject' | 'accepted' = 'savedProject') => ({
+      [key]: { decision, decidedAt: '2026-07-28T09:00:00.000Z' as const },
+    })
+
+    // The key the reader's Yes was stored under still names the same proposal
+    // after re-validation (the reload path): index 2 is index 2.
+    expect(cardKey({ type: 'memory_proposal' }, 2)).toBe('memory_proposal-2')
+    expect(reconcileCardInteractions(decided('memory_proposal-2'), cards, validated())).toEqual(
+      decided('memory_proposal-2'),
+    )
+    // A decision recorded against the hole matches no card and is dropped —
+    // re-asking is recoverable, attributing it to a neighbour is not.
+    expect(reconcileCardInteractions(decided('memory_proposal-1'), cards, validated())).toBeUndefined()
   })
 })

@@ -1,0 +1,53 @@
+-- 0078: what the bytes were, so the next upload can tell whether they changed.
+--
+-- ## The question this answers
+--
+-- A büro brings a project in by dragging a folder off the office server, and
+-- then does it again a fortnight later. The second drop is 500 files of which
+-- eight are new work; the other 492 are byte-identical to what is already here.
+-- Without a record of the bytes there is no way to know which is which, so the
+-- honest options were to re-upload all 500 — re-storing, re-charging the quota
+-- and re-ingesting a corpus that did not change — or to guess from the filename
+-- and the size and silently skip a corrected plan that happens to be the same
+-- length as the one it corrects.
+--
+-- A digest makes the question answerable rather than guessable: the browser
+-- hashes the handful of files whose name and size already match something here,
+-- and only a differing digest is uploaded. Everything else is left alone.
+--
+-- ## Why the column and not a table
+--
+-- It is a property of the stored object, one per row, written once with the
+-- bytes and rewritten when the bytes are replaced. A side table would be the
+-- same cardinality with a join and an opportunity to disagree.
+--
+-- ## What it is NOT
+--
+-- Not an identity, and not a uniqueness constraint. Two documents in one project
+-- may legitimately hold identical bytes — the same DIN sheet filed under two
+-- disciplines is a real filing decision, not a duplicate to be collapsed — and
+-- the pipeline downstream still identifies a document by its filename within a
+-- collection (0074). This column decides one thing only: whether an upload has
+-- anything new to say.
+--
+-- Not a security boundary either. It is computed from bytes this tier already
+-- holds in memory, and it is compared against a digest the browser computed, so
+-- it says "these are the same file", never "this file is trusted".
+--
+-- ## Existing data
+--
+-- Nullable, and null for every row written before today. Null means "unknown",
+-- which the planner treats exactly as it must: a file whose counterpart has no
+-- digest is an UPDATE, not an unchanged one. The column fills in as documents
+-- are re-uploaded; nothing back-fills it, because doing so would mean reading
+-- every stored object in the deployment to learn something only the next upload
+-- of that document needs.
+--
+-- `documents` was secured by 0031 and a column does not move a table across the
+-- tenant boundary.
+--
+-- The digest is `sha256:<64 hex>` — the algorithm is stored with the value so a
+-- second one can be introduced later without a migration that cannot tell the
+-- two apart. 71 characters; `text` rather than a padded `char` because nothing
+-- here benefits from a fixed width.
+ALTER TABLE "documents" ADD COLUMN IF NOT EXISTS "content_hash" text;

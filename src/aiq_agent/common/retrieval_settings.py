@@ -52,6 +52,10 @@ _BOUNDS: dict[str, tuple[int, int]] = {
     "ris.max_results": (1, 50),
     "ris.page_size": (10, 100),
     "ris_catalog.max_matches": (1, 20),
+    # Not a retrieval count: the platform-lessons control-group percentage.
+    # Same shape (one bounded platform-wide integer through the same pull), so
+    # it rides this catalog rather than growing a second one. 0 = measurement off.
+    "lessons.holdout_pct": (0, 50),
 }
 
 # Keys whose valid values are a discrete set rather than every int in range
@@ -133,10 +137,14 @@ def _resolve() -> dict[str, int]:
     """Cached resolution of the platform settings (shared hot path)."""
     global _cache
     now = time.monotonic()
+    from aiq_agent.common.profiler import annotate_current_span
+
     with _cache_lock:
         if _cache is not None and _cache.expires_at > now:
+            annotate_current_span(cache_retrieval_settings="hit")
             return _cache.settings
 
+    annotate_current_span(cache_retrieval_settings="miss")
     try:
         settings = _fetch_settings()
         ttl = _POSITIVE_TTL_SECONDS if settings else _NEGATIVE_TTL_SECONDS

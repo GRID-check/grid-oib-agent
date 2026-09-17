@@ -3,7 +3,7 @@ import type { en } from '../en'
 /** Shared strings used across many surfaces. */
 export const common: typeof en.common = {
   appName: 'Piloti',
-  tagline: 'KI-gestützter Recherche-Assistent',
+  tagline: 'Arbeitsbereich für Planungsbüros',
   actions: {
     save: 'Speichern',
     cancel: 'Abbrechen',
@@ -27,6 +27,13 @@ export const common: typeof en.common = {
     error: 'Etwas ist schiefgelaufen',
     empty: 'Noch nichts vorhanden',
     copyFailed: 'Kopieren nicht möglich',
+  },
+  codeBlock: {
+    copy: 'Kopieren',
+    copied: 'Kopiert',
+    copyCode: 'Code kopieren',
+    showLess: 'Weniger anzeigen',
+    showAll: 'Alle anzeigen ({count} Zeilen)',
   },
   theme: {
     label: 'Design',

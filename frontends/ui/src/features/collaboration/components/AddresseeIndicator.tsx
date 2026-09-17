@@ -11,10 +11,14 @@
  *
  * Three properties are load-bearing:
  *
- *   1. **It is always present.** If it only appeared in the unusual case, "Piloti is
- *      next" would stay an inference — the reader would have to notice an *absence*
- *      to conclude anything. The default rendering ("Geht an Piloti") is the quiet
- *      reassurance that makes the other two legible as changes.
+ *   1. **It speaks only when it has something to say.** It used to state the default
+ *      out loud ("Geht an Piloti") on the theory that a reader should never have to
+ *      infer from an absence. That reassurance was paid for on every keystroke of
+ *      every thread, and on the empty canvas it was the last piece of furniture left
+ *      under the composer. The default is now silent — the two statements below are
+ *      what remain, and silence is what makes them legible as changes. The `@` offer
+ *      stays exactly where it was: it is the only thing in the product that teaches
+ *      mentions exist, and it is not a statement.
  *   2. **It states, it does not warn.** No border, no fill, no chroma: it sits in the
  *      action row between real buttons and must never look like one of them, nor
  *      like an error. Ink and paper, one line.
@@ -27,7 +31,7 @@
  * is announced rather than only drawn.
  */
 
-import { AtSign, Sparkles, Users } from 'lucide-react'
+import { AtSign, Users } from 'lucide-react'
 
 import { AvatarStack, type AvatarStackPerson } from '@/components/ui/avatar-stack'
 import { useTranslations } from '@/i18n'
@@ -90,9 +94,15 @@ export function AddresseeIndicator({
   // are who the question is for; Piloti answering too is the addition.
   const names = [...humans.map((mention) => mention.display), ...(agentTagged ? [agentName] : [])]
 
+  // The default has nothing to say. It used to say "Geht an Piloti" — the quiet
+  // reassurance described above — and on the empty canvas that is a line of
+  // furniture under an input box that has no other furniture left. The two
+  // statements that survive are the ones a reader cannot derive from anything
+  // else on screen: somebody is tagged, or the thread is waiting on a person.
+  // Silence in the default case makes those two legible as the changes they are.
   const label =
     mode === 'agent'
-      ? t('mentions.addressee.toAgent')
+      ? null
       : mode === 'thread'
         ? t('mentions.addressee.toThread')
         : names.length === 1
@@ -113,8 +123,11 @@ export function AddresseeIndicator({
     <p
       data-testid="composer-addressee"
       data-mode={mode}
-      role="status"
-      aria-label={t('mentions.addressee.ariaLabel', { label })}
+      // Only where there IS a statement. A `status` region labelled with text
+      // that is not on screen would announce a promise the sighted reader is
+      // not being given; the mention offer below carries its own name.
+      role={label ? 'status' : undefined}
+      aria-label={label ? t('mentions.addressee.ariaLabel', { label }) : undefined}
       className={cn(
         // `flex-wrap` so the OFFER yields, never the statement. Without it the
         // affordance was `shrink-0` beside a `truncate` label, so a narrow composer
@@ -139,10 +152,10 @@ export function AddresseeIndicator({
     >
       {people.length > 0 && <AvatarStack people={people} size="sm" max={3} />}
       {mode === 'thread' && <Users className="size-3.5 shrink-0 opacity-70" aria-hidden />}
-      {(mode === 'agent' || agentTagged) && (
-        <Sparkles className="size-3.5 shrink-0 opacity-70" aria-hidden />
-      )}
-      <span className="min-w-0 truncate">{label}</span>
+      {/* No agent glyph. The spark used to lead the agent — alone, and then at
+          the end of a list of people — and the composer no longer carries it
+          anywhere: the names say who is addressed, and "Piloti" is one of them. */}
+      {label && <span className="min-w-0 truncate">{label}</span>}
 
       {/* The teaching affordance. A quiet trailing action rather than a button in
           the row above: it must not compete with Send, and it must not look like a

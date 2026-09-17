@@ -120,6 +120,48 @@ describe('parseTraceLanesBlock', () => {
     })
   })
 
+  test('keeps the retrieval round the backend stamped on a hit', () => {
+    const [lane] = parseTraceLanesBlock(
+      [
+        '## Trace-Lanes',
+        JSON.stringify({
+          lanes: [
+            {
+              key: 'baurecht_oib',
+              label: 'OIB-Richtlinie',
+              hitCount: 1,
+              sources: [{ name: 'oib-rl_2.pdf', detail: 'p.12', round: 1 }],
+            },
+          ],
+        }),
+      ].join('\n')
+    )!
+    expect(lane.sources[0]).toEqual({ name: 'oib-rl_2.pdf', detail: 'p.12', round: 1 })
+  })
+
+  test('keeps the shelf the backend stated for a hit, and drops one it does not know', () => {
+    const cards = parseTraceLanesBlock(
+      [
+        '## Trace-Lanes',
+        JSON.stringify({
+          lanes: [
+            {
+              key: 'projekt',
+              label: 'Projektwissen',
+              kind: 'projekt',
+              hitCount: 2,
+              sources: [
+                { name: 'Plan.pdf', detail: 'p.2', shelf: 'project' },
+                { name: 'Notiz.pdf', detail: 'p.1', shelf: 'attic' },
+              ],
+            },
+          ],
+        }),
+      ].join('\n')
+    )
+    expect(cards![0].sources.map((s) => s.shelf)).toEqual(['project', undefined])
+  })
+
   test('takes the coarse kind from the backend rather than re-deriving it', () => {
     // The wire's `kind` is authoritative even when it disagrees with what this
     // side would have guessed from the lane key — that is the point of shipping
@@ -184,7 +226,10 @@ Results:
 })
 
 describe('mergeTraceLaneCards', () => {
-  const oib = (sources: Array<{ name: string; title?: string; detail?: string }>, hitCount = 1) => ({
+  const oib = (
+    sources: Array<{ name: string; title?: string; detail?: string; round?: number }>,
+    hitCount = 1
+  ) => ({
     key: 'baurecht_oib',
     label: 'OIB-Richtlinie',
     hitCount,
@@ -228,6 +273,17 @@ describe('mergeTraceLaneCards', () => {
       [oib([{ name: 'a.pdf', title: 'OIB-Richtlinie 2', detail: 'p.12' }])]
     )
     expect(merged[0].sources[0].title).toBe('OIB-Richtlinie 2')
+  })
+
+  test('keeps the same page from two retrieval rounds as two hits', () => {
+    const merged = mergeTraceLaneCards(
+      [oib([{ name: 'a.pdf', detail: 'p.12', round: 0 }])],
+      [oib([{ name: 'a.pdf', detail: 'p.12', round: 1 }])]
+    )
+    expect(merged[0].sources).toEqual([
+      { name: 'a.pdf', detail: 'p.12', round: 0 },
+      { name: 'a.pdf', detail: 'p.12', round: 1 },
+    ])
   })
 
   test('never lowers a hitCount a producer claimed without listing sources', () => {
@@ -282,9 +338,9 @@ describe('deriveTraceLanes', () => {
   test('skips non-tool agent chatter without tool markers', () => {
     const cards = deriveTraceLanes([
       {
-        functionName: 'intent_classifier',
+        functionName: 'deep_research_agent',
         category: 'agents',
-        content: 'Classifying intent for https://example.com/x',
+        content: 'Planning the research for https://example.com/x',
       },
     ])
     expect(cards).toHaveLength(0)

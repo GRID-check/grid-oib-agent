@@ -1,6 +1,6 @@
 # Grid Agent Contributor Guide
 
-Grid is an OIB building-regulation assistant: a Next.js UI and BFF
+Piloti is the workspace in which a planning office runs a building project: a Next.js UI and BFF
 (`frontends/ui`), a Python agent on the NeMo Agent Toolkit (`src/aiq_agent`),
 and a custom OIB knowledge source.
 
@@ -21,6 +21,7 @@ Node must already be on the PATH. Install lines:
 
 | Question | Go to |
 |---|---|
+| Where does X live in the code | [`docs/architecture/where-is-what.md`](docs/architecture/where-is-what.md) |
 | Set up, branch, commit, get a PR merged | [`CONTRIBUTING.md`](CONTRIBUTING.md) |
 | Everything written down, by the question you arrived with | [`docs/README.md`](docs/README.md) |
 | How the system works | [`docs/architecture/system-overview.md`](docs/architecture/system-overview.md) |
@@ -33,8 +34,9 @@ to add here has no home yet: give it one under
 
 ## Where the scoped guides are
 
-Each service keeps its own `AGENTS.md` beside the code, for what holds only
-there. **Read the one for the area you are about to touch, before you touch
+Each service keeps its own `AGENTS.md` beside the code, and inside
+`src/aiq_agent/` so do the packages with invariants of their own, for what holds
+only there. **Read the one for the area you are about to touch, before you touch
 it.** They are additive: this file still applies.
 
 Harnesses find them on their own, but late. Claude reaches one only after it has
@@ -128,8 +130,10 @@ ones that will fail your PR.
 
 | When you | You must | What fails you |
 |---|---|---|
+| Write a commit, or open **or rename** a PR | Conventional Commits — `feat` `fix` `docs` `refactor` `perf` `test` `ci` `build` `chore` `revert`. The **PR title** most of all: the repo squash-merges it, so the title is the commit that lands on `develop`. [`CONTRIBUTING.md`](CONTRIBUTING.md#commits-and-pr-titles) | The **Conventional PR title** job blocks the PR. A prose title is the one that keeps slipping through, because nothing local checks it |
 | Add an environment variable | Add its row to [`docs/deployment/environment-variables.md`](docs/deployment/environment-variables.md) in the same change | Review |
 | Change what a customer can notice | `task release:note -- <slug>` | The **Release note** CI job |
+| Edit anything under `skills/` | Commit the re-locked `apm.lock.yaml` with it — `task agents:audit` rewrites it for you. The deployment is gitignored, so nothing else in your diff shows the lockfile went stale | `task lint:repo` and CI's **repo-lint** job |
 | Change behaviour a doc describes | Update the doc in the same commit | Review. Stale docs are a bug, because an agent acts on them |
 | Learn something the repo could have told you | Write it down where the next agent will already be looking, before you carry on | Nothing, once. Then everyone re-earns it. [The ratchet](docs/contributing/correction-ratchet.md#human-intervention-is-a-failure-signal) |
 
@@ -139,8 +143,12 @@ strong evidence rather than a guarantee. `task verify:fast` skips two production
 builds, `fe:build` and `web:build`.
 
 Two gates sit outside `task verify` and are still required: `task db:test:rls`
-whenever you touch the tenant boundary, and the suites under `sources/` and
-`packages/`, which no CI job runs at all.
+whenever you touch the tenant boundary, and `task pkg:test` whenever you touch
+`packages/`. Both are now CI jobs, so a PR cannot merge without them; they stay
+out of `verify` because each needs something a per-commit gate should not pay
+for — PostgreSQL server binaries, and four minutes of IfcOpenShell. (`sources/`
+and `packages/` both used to be in this sentence as covered by *nothing*;
+`sources/` is `task be:test:sources`, `packages/` is CI's `packages` job.)
 
 ## Two rules that span services
 
@@ -159,6 +167,11 @@ unread? Then it is correlated.
 [`docs/architecture/adding-a-shareable-resource-type.md`](docs/architecture/adding-a-shareable-resource-type.md)
 holds the register.
 
+**A workspace primitive is one HTTP API with a typed client** (ADR-0055). The
+UI, the agent's tools, tasks and any later integration are equal clients of it;
+no service function is reached from a second path, and no contract is written
+twice. [`docs/adr/0055-api-first-workspace-primitives.md`](docs/adr/0055-api-first-workspace-primitives.md).
+
 ## Scope
 
 Fix errors you meet, including ones that pre-date your change. "It was already
@@ -172,7 +185,8 @@ delete. Reduce complexity, never features. That pass is part of done.
 ## Reference
 
 - Code conventions, the `any` ban, coercing raw `sql<T>`, where a shared helper
-  belongs, capability doctrine:
+  belongs, capability doctrine, and **the shape of a Python function** (two
+  levels of nesting, early exits, sixty lines, pure where it can be):
   [`docs/contributing/code-conventions.md`](docs/contributing/code-conventions.md).
 - Patterns in use and what enforces each:
   [`docs/architecture/patterns-in-use.md`](docs/architecture/patterns-in-use.md).

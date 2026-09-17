@@ -201,12 +201,12 @@ class TestDocumentGridCardSchema:
         from aiq_agent.cards.models import validate_cards
 
         raw = [
-            {"type": "summary", "title": "ok"},
+            {"type": "ifc_model_picker", "title": "ok"},
             {"type": "document_grid", "title": "fake", "documents": [{"file_name": "x.pdf"}]},
             {"type": "memory_proposal", "title": "fake", "content": "x", "kind": "decision"},
         ]
         out = validate_cards(raw)
-        assert [c["type"] for c in out] == ["summary"]
+        assert [c["type"] for c in out] == ["ifc_model_picker"]
 
 
 class TestPlatformCounts:

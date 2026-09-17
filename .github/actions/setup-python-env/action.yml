@@ -5,18 +5,18 @@ inputs:
   python-version:
     description: Python version to provision.
     required: false
-    default: "3.13"
+    default: "3.14"
 
 runs:
   using: composite
   steps:
     - name: Setup Python
-      uses: actions/setup-python@v5
+      uses: actions/setup-python@v7
       with:
         python-version: ${{ inputs.python-version }}
 
     - name: Setup uv
-      uses: astral-sh/setup-uv@v4
+      uses: astral-sh/setup-uv@v10.0.1
       with:
         enable-cache: true
 
@@ -27,6 +27,14 @@ runs:
       # (run-shell-injection), even though this input is CI-controlled today.
       env:
         PYTHON_VERSION: ${{ inputs.python-version }}
+        # uv's default hard-link install leaves nltk's bundled corpora with
+        # st_nlink>=2. nltk pathsec then refuses to open them (CWE-59), which
+        # is how llama-index's SentenceSplitter dies on any path that actually
+        # splits — the retrieval harness (`task be:eval:retrieval`, now a local
+        # tool) is where it was first hit, and production splits too. Copy mode
+        # is the install that matches how those files have to be read.
+        # Symptom and the one-directory repair: docs/contributing/gotchas.md.
+        UV_LINK_MODE: copy
       run: |
         uv venv --python "$PYTHON_VERSION" .venv
         uv sync --group dev

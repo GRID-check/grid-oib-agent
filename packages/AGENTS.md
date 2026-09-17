@@ -5,27 +5,35 @@ Two implementations of the same spatial surface over IFC: `ifc-spatial`
 IfcOpenShell). The agent reaches them through
 `aiq_agent/knowledge/ifc_spatial_client.py` (ADR-0045).
 
-## No gate covers this directory
+## The gate, and why it is not in `task verify`
 
-`Taskfile.yml` names no `packages/` target and `ci.yml` has no `packages/**`
-paths filter, so a change here runs no lint, no typecheck, no tests. Both
-packages also sit outside the uv workspace; `ifc-spatial-py` carries its own
-`uv.lock`.
+Both suites run in CI, behind a `packages/**` paths filter: the `packages` job
+in [`ci.yml`](../.github/workflows/ci.yml), which `CI OK` requires. It is its
+own job because both packages sit outside their neighbouring workspace —
+`ifc-spatial` has its own `package-lock.json` (not the UI's bun workspace),
+`ifc-spatial-py` its own `uv.lock` (not the root uv workspace) — so neither
+tier's install can run them.
 
 ```bash
-npm --prefix packages/ifc-spatial install      # `task setup` skips this too
-npm --prefix packages/ifc-spatial run typecheck
-npm --prefix packages/ifc-spatial test
-(cd packages/ifc-spatial-py && uv run --all-extras pytest)   # 636 tests, ~5 min
+task pkg:install    # both toolchains; `task setup` now does this too
+task pkg:test       # both suites
+task pkg:test:ts    # ifc-spatial: 194 tests + BOTH tsconfigs, ~10s
+task pkg:test:py    # ifc-spatial-py: 636 tests, 3m55s measured 2026-09-10
 ```
+
+`task verify` does **not** run them, and the Python suite's four minutes is the
+whole reason: it is a per-commit tax on a directory most changes never touch,
+and CI already pays it on the commits that earn it. Run `task pkg:test`
+yourself when you change `packages/` — the same discipline `task db:test:rls`
+asks for at the tenant boundary. A change here is unverified until you have
+pasted that output.
 
 `--all-extras`, not `--extra dev`: `pytest` is the `dev` extra, and the suite
 also collects `test_ids_export.py`, which needs `ifctester` from the `ids`
 extra. Plain `uv run pytest` installs neither.
 
-A change here is unverified until you have pasted that output. Extending either
-package makes wiring it into `Taskfile.yml` and the CI paths filter the
-correlated substrate lift, in the same branch.
+Adding a third package means adding it to `pkg:test` in `Taskfile.yml`; the
+paths filter is already `packages/**`, so it needs nothing.
 
 ## Obligations
 

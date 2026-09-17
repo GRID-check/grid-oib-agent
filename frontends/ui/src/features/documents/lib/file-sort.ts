@@ -73,6 +73,15 @@ export function defaultDirectionFor(key: FileSortKey): SortDirection {
 /** The order a semantic result set arrives in, and the one it should keep. */
 export const RELEVANCE_SORT: FileSort = { key: 'relevance', direction: 'desc' }
 
+/**
+ * What an unsorted listing is actually sorted by: newest first.
+ *
+ * Lives here rather than in the detail view because the ORDER is no longer that
+ * view's property — the workspace holds it and both views read it, so the
+ * default has to be reachable from outside the component that used to own it.
+ */
+export const DEFAULT_FILE_SORT: FileSort = { key: 'added', direction: 'desc' }
+
 /** Toggle a sort: same column flips direction, a new column takes its default. */
 export function nextSort(current: FileSort, key: FileSortKey): FileSort {
   if (current.key !== key) return { key, direction: defaultDirectionFor(key) }

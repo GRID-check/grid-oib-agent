@@ -1,0 +1,89 @@
+import type { en } from '../en'
+
+/**
+ * Läufe — wie ein Lauf im Verlauf liest, der ihn beauftragt hat (der Laufblock).
+ *
+ * Das Ledger trägt ASCII-Schlüssel (`planen`, `laeuft`); hier stehen die Wörter
+ * dafür und der Satz, den jeder Status dem Leser schuldet. Keine Kennung
+ * erreicht den Leser, jede Phase ist ein Wort, jeder Status ein Wort und ein
+ * Satz, und eine Zahl steht nur dort, wo sie ändert, was der Leser als Nächstes
+ * tut.
+ */
+export const runs: typeof en.runs = {
+  phase: {
+    planen: 'Planen',
+    recherchieren: 'Recherchieren',
+    pruefen: 'Prüfen',
+    schreiben: 'Schreiben',
+    abgelegt: 'Abgelegt',
+  },
+  status: {
+    angelegt: 'Wird gestartet',
+    laeuft: 'Läuft',
+    wartet: 'Wartet auf Sie',
+    fertig: 'Fertig',
+    fehlgeschlagen: 'Fehlgeschlagen',
+    abgebrochen: 'Abgebrochen',
+    unterbrochen: 'Unterbrochen',
+  },
+  line: {
+    filing: 'Ergebnis kommt ins Projekt',
+    wartet: 'Antworten Sie unten im Verlauf',
+    fertigFiled: 'Bericht abgelegt in Projekt › Berichte',
+    fertigInline: 'Der Bericht liegt hier im Verlauf',
+    fehlgeschlagen: 'Fehlgeschlagen: {reason}',
+    abgebrochen: 'auf Ihren Wunsch beendet',
+    unterbrochen: 'Bericht aus dem Vorhandenen geschrieben',
+  },
+  completedBefore: 'Bis dahin: {phases}',
+  completedBeforeTallies: '{phase} ({rounds}, {docs})',
+  step: {
+    fallback: 'Recherche-Runde {n}',
+    round: 'Runde {n}',
+    repeat: 'bereits gelesen',
+    openPoints: 'Offen:',
+  },
+  phaseLine: {
+    planen: 'Rechercheplan erstellt',
+    pruefen: 'Zitate gegen die Quellen geprüft',
+    pruefenLive: 'Zitate werden gegen die Quellen geprüft',
+    schreiben: 'Bericht geschrieben',
+    schreibenLive: 'Bericht wird geschrieben',
+  },
+  tallies: {
+    rounds: '{count, plural, one {# Runde} other {# Runden}}',
+    docs: '{count, plural, one {# Dokument} other {# Dokumente}}',
+  },
+  action: {
+    answer: 'Antworten',
+    review: 'Prüfen',
+    openReport: 'Bericht öffnen',
+    openInProject: 'Im Projekt anzeigen',
+    retry: 'Erneut starten',
+    openInThread: 'Im Verlauf öffnen',
+    cancel: 'Abbrechen',
+  },
+  cancel: {
+    confirmTitle: 'Auftrag abbrechen?',
+    confirmBody:
+      'Piloti hört dort auf, wo es gerade ist. Was bis dahin recherchiert wurde, bleibt im Block stehen; der Bericht wird nicht mehr geschrieben.',
+    confirm: 'Auftrag abbrechen',
+    keep: 'Weiterlaufen lassen',
+  },
+  review: {
+    accepted: 'Angenommen von {name}',
+    acceptedAnon: 'Angenommen',
+    rejected: 'Zurückgeschickt: {reason}',
+    rejectedAnon: 'Zurückgeschickt',
+  },
+  connection: {
+    reconnecting: 'Die Live-Ansicht hat die Verbindung verloren und verbindet neu. Der Auftrag läuft weiter.',
+    lost: 'Die Live-Ansicht ist getrennt. Der Auftrag läuft weiter — zum Mitlesen neu laden.',
+  },
+  block: {
+    aria: 'Auftrag {title}: {status}',
+    toggle: 'Verlauf des Auftrags ein- oder ausblenden',
+    untitled: 'Auftrag',
+    elapsedAria: 'Laufzeit {elapsed}',
+  },
+}

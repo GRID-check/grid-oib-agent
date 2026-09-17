@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
 import type { MutableRefObject } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
@@ -16,7 +16,7 @@ import {
   Sparkles,
   Trash2,
 } from 'lucide-react'
-import { AnimatePresence, motion } from '@/components/motion'
+import { AnimatePresence, motion, springGlide } from '@/components/motion'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -858,7 +858,7 @@ export function ProjectIntakeWizard({
             <Progress value={progress} className="h-1 flex-1" />
             <span
               className={cn(
-                'shrink-0 text-xs transition-opacity duration-200 ease-out motion-reduce:transition-none',
+                'shrink-0 text-xs transition-opacity duration-quick ease-out motion-reduce:transition-none',
                 draftSaved ? 'text-success opacity-100' : 'text-muted-foreground opacity-0'
               )}
               aria-live="polite"
@@ -1322,16 +1322,15 @@ function BauwerkStage({
                 onChange={(e) => onRenameBauwerk(bw.id, e.target.value)}
                 aria-label={t('intake.bauwerk.nameAria')}
                 // A raw `<input>`, so none of the Input primitive's phone
-                // handling reaches it: `text-sm` is 14px, and iOS Safari zooms
-                // the page in whenever a field under 16px takes focus — mid-way
-                // through a nine-step wizard, on the field that renames the
-                // building everything after it refers to. `text-base` below the
-                // breakpoint is the same treatment `ui/input.tsx` and the chat
-                // composer already carry. The height comes with it: 25px was
-                // half the floor for a control whose whole affordance is a
-                // dashed underline you have to find.
+                // handling reaches it: at 14px iOS Safari zooms the page in when
+                // the field takes focus — mid-way through a nine-step wizard, on
+                // the field that renames the building everything after it refers
+                // to. `pointer-coarse:text-base` is the same treatment
+                // `ui/input.tsx` and the chat composer carry, on the same axis.
+                // The height comes with it: 25px was half the floor for a control
+                // whose whole affordance is a dashed underline you have to find.
                 enterKeyHint="done"
-                className="hover:border-border focus:border-primary min-w-0 flex-1 border-b border-dashed border-transparent bg-transparent py-0.5 text-base font-medium outline-none pointer-coarse:py-2.5 md:text-sm"
+                className="hover:border-border focus:border-primary min-w-0 flex-1 border-b border-dashed border-transparent bg-transparent py-0.5 text-sm font-medium outline-none pointer-coarse:py-2.5 pointer-coarse:text-base"
               />
             ) : (
               <span className="flex-1 truncate text-sm font-medium">{bw.name}</span>
@@ -1405,7 +1404,7 @@ function BauwerkStage({
               <button
                 type="button"
                 onClick={onAddBauwerk}
-                className="border-border text-muted-foreground hover:border-primary/60 hover:bg-primary/5 hover:text-primary inline-flex w-full items-center justify-center gap-2 rounded-lg border border-dashed py-2.5 font-mono text-xs transition-colors duration-200 ease-out motion-reduce:transition-none"
+                className="border-border text-muted-foreground hover:border-primary/60 hover:bg-primary/5 hover:text-primary inline-flex w-full items-center justify-center gap-2 rounded-lg border border-dashed py-2.5 font-mono text-xs transition-colors duration-quick ease-out motion-reduce:transition-none"
               >
                 <Plus className="size-4" aria-hidden />
                 {t('intake.bauwerk.add')}
@@ -1561,7 +1560,7 @@ function ReviewSection({
           <button
             type="button"
             onClick={onEdit}
-            className="text-muted-foreground hover:text-foreground inline-flex items-center gap-1 text-xs transition-colors duration-200 ease-out motion-reduce:transition-none"
+            className="text-muted-foreground hover:text-foreground inline-flex items-center gap-1 text-xs transition-colors duration-quick ease-out motion-reduce:transition-none"
           >
             <PencilLine className="size-3" aria-hidden />
             {editLabel}
@@ -1999,7 +1998,10 @@ function QuestionHeader({ question, domId }: { question: ProjectIntakeQuestion; 
   const whyId = `${domId}-why`
   return (
     <div className="flex flex-col gap-1">
-      <div className="flex items-baseline gap-2">
+      {/* `items-center` on touch: the rationale glyph beside the label is a full
+          44px control there, and baseline alignment would hang it off the label's
+          text baseline instead of centring it in the row it now defines. */}
+      <div className="flex items-baseline gap-2 pointer-coarse:items-center">
         <Label htmlFor={domId} className="text-sm font-medium">
           {question.label}
           {/* Mark the handful of hard-required fields so they're distinguishable
@@ -2028,13 +2030,22 @@ function QuestionHeader({ question, domId }: { question: ProjectIntakeQuestion; 
             aria-controls={whyId}
             aria-label={t('intake.why')}
             title={t('intake.why')}
-            // The negative margin is what lets this grow without moving the
-            // label it sits beside: the box is 44px and the margin gives 14px of
-            // it back on each side, so the footprint stays the glyph's own 16px.
-            // It was `size-9`/`-m-2.5` — the same trick stopped 8px short of the
-            // floor, on the only control that explains what a wizard field is
-            // asking for.
-            className="text-muted-foreground hover:text-foreground focus-visible:ring-ring/40 pointer-coarse:-m-3.5 pointer-coarse:size-11 inline-flex size-4 shrink-0 items-center justify-center self-center rounded-full outline-none transition-colors duration-200 ease-out focus-visible:ring-2 motion-reduce:transition-none"
+            // 44px of REAL layout space, not a negative-margin overhang.
+            //
+            // The overhang is the tempting version — it grows the target and
+            // moves nothing — and it is wrong here because this control has
+            // neighbours on every side it would grow into: the `<Label>` is 8px
+            // to its left and the field it annotates is 4px below. A 14px
+            // overhang therefore covers the end of the label (which focuses the
+            // field) and the top edge of the field itself, so the two taps a
+            // reader is most likely to make in this row would both open the
+            // rationale instead. A target that big by theft is worse than a
+            // small one: it is wrong on purpose rather than by omission.
+            //
+            // The cost is the honest one — the label row is 44px tall on touch.
+            // `pointer-coarse:items-center` below keeps the glyph and the label
+            // aligned once the row is taller than its baseline.
+            className="text-muted-foreground hover:text-foreground focus-visible:ring-ring/40 pointer-coarse:size-11 inline-flex size-4 shrink-0 items-center justify-center self-center rounded-full outline-none transition-colors duration-quick ease-out focus-visible:ring-2 motion-reduce:transition-none"
           >
             <HelpCircle className="size-3.5" aria-hidden />
           </button>
@@ -2127,6 +2138,9 @@ function Segmented({
   ariaLabel: string
   size?: 'sm' | 'md'
 }) {
+  // One pill per control: several Segmented share a page, so the shared-layout
+  // id is scoped to this instance or the fill would fly between questions.
+  const pillId = useId()
   return (
     <div
       role="group"
@@ -2143,19 +2157,32 @@ function Segmented({
             aria-pressed={active}
             onClick={() => onChange(opt.value)}
             className={cn(
-              'border-border inline-flex items-center justify-center transition-colors duration-200 ease-out motion-reduce:transition-none',
+              'border-border relative isolate inline-flex items-center justify-center transition-colors duration-quick ease-out motion-reduce:transition-none',
               i > 0 && 'border-l',
               // Comfortable tap targets on touch screens; denser on desktop pointers.
               size === 'sm'
                 ? 'min-h-9 px-3 text-xs font-medium md:min-h-8 md:px-2.5 md:text-[11px]'
                 : 'min-h-11 px-4 text-sm md:min-h-9 md:px-3.5',
               !active && 'bg-card text-foreground hover:bg-muted',
-              active && tone === 'default' && 'bg-primary text-primary-foreground',
-              active && tone === 'warning' && 'bg-warning text-white',
-              active && tone === 'muted' && 'bg-muted-foreground text-background'
+              active && tone === 'default' && 'text-primary-foreground',
+              active && tone === 'warning' && 'text-white',
+              active && tone === 'muted' && 'text-background'
             )}
           >
-            {opt.label}
+            {active && (
+              <motion.span
+                layoutId={pillId}
+                transition={springGlide}
+                aria-hidden="true"
+                className={cn(
+                  'absolute inset-0 -z-10',
+                  tone === 'default' && 'bg-primary',
+                  tone === 'warning' && 'bg-warning',
+                  tone === 'muted' && 'bg-muted-foreground'
+                )}
+              />
+            )}
+            <span className="relative">{opt.label}</span>
           </button>
         )
       })}
@@ -2186,7 +2213,7 @@ function ChipMultiSelect({
               onChange(active ? value.filter((v) => v !== opt.value) : [...value, opt.value])
             }
             className={cn(
-              'inline-flex min-h-11 items-center justify-center rounded-full border px-4 py-1.5 text-sm transition-colors duration-200 ease-out motion-reduce:transition-none md:min-h-9 md:px-3.5',
+              'inline-flex min-h-11 items-center justify-center rounded-full border px-4 py-1.5 text-sm transition-colors duration-quick ease-out motion-reduce:transition-none md:min-h-9 md:px-3.5',
               active
                 ? 'border-primary bg-primary text-primary-foreground'
                 : 'border-border bg-card text-foreground hover:border-primary/50 hover:bg-primary/5'
@@ -2214,7 +2241,7 @@ function UploadField({
       <span className="text-sm font-medium">{question.label}</span>
       <Link
         href={`/app/projects/${projectId}/files`}
-        className="border-border bg-muted/20 text-muted-foreground hover:border-primary/50 hover:bg-primary/5 hover:text-foreground inline-flex max-w-md items-center gap-3 rounded-lg border border-dashed px-4 py-3 text-sm transition-colors duration-200 ease-out motion-reduce:transition-none"
+        className="border-border bg-muted/20 text-muted-foreground hover:border-primary/50 hover:bg-primary/5 hover:text-foreground inline-flex max-w-md items-center gap-3 rounded-lg border border-dashed px-4 py-3 text-sm transition-colors duration-quick ease-out motion-reduce:transition-none"
       >
         <FolderOpen className="text-primary size-4 shrink-0" aria-hidden />
         <span>{t('intake.upload.hint')}</span>

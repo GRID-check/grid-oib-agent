@@ -38,11 +38,17 @@ interface ReconcileResult {
   collectionsScanned: number
   orphansFound: number
   orphansDeleted: number
+  summariesForgotten: number
   failures: { collectionName: string; error: string }[]
 }
 
-/** The wire shape: `failures` is normalised to an array on receipt. */
-type ReconcileResponse = Omit<ReconcileResult, 'failures'> & Partial<Pick<ReconcileResult, 'failures'>>
+/**
+ * The wire shape: `failures` is normalised to an array on receipt, and
+ * `summariesForgotten` to a number — a BFF older than this panel (rolling
+ * deploy) answers without it.
+ */
+type ReconcileResponse = Omit<ReconcileResult, 'failures' | 'summariesForgotten'> &
+  Partial<Pick<ReconcileResult, 'failures' | 'summariesForgotten'>>
 
 /**
  * A sweep that has not answered in this long is not going to. The confirm
@@ -85,7 +91,11 @@ export function VectorMaintenance({ initialResult = null }: VectorMaintenancePro
       // Normalise `failures` on the way in so every read site below can treat it
       // as an array; the route always sends one, but this panel is the last
       // thing that should throw while reporting a destructive run.
-      const result: ReconcileResult = { ...body, failures: body.failures ?? [] }
+      const result: ReconcileResult = {
+        ...body,
+        summariesForgotten: body.summariesForgotten ?? 0,
+        failures: body.failures ?? [],
+      }
       setLastResult(result)
 
       // The toast is the "it finished" nudge for an operator who has looked
@@ -130,6 +140,12 @@ export function VectorMaintenance({ initialResult = null }: VectorMaintenancePro
           label: t('vectorMaintenance.measureDeleted'),
           hint: t('vectorMaintenance.measureDeletedHint'),
           value: lastResult.orphansDeleted,
+        },
+        {
+          key: 'summaries',
+          label: t('vectorMaintenance.measureSummaries'),
+          hint: t('vectorMaintenance.measureSummariesHint'),
+          value: lastResult.summariesForgotten,
         },
       ]
     : []

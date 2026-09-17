@@ -18,6 +18,48 @@ import {
   type CitedDocument,
 } from './model'
 
+/**
+ * `[N]` → the reference that marker stands for.
+ *
+ * A projection rather than a scan per marker: an answer can hold a lot of
+ * markers and they all resolve on one render.
+ *
+ * ONE `[N]` CAN BE CARRIED BY TWO LOCI OF THE SAME DOCUMENT, and they are not
+ * equally good answers. The retrieval payload states the page the passage was
+ * read at; the answer's written source list states the same `[N]` and often
+ * names no page — so the document ends up with a located locus and a page-less
+ * one, both numbered. Taking whichever came last handed the marker the
+ * page-less one, and clicking a citation that knew it was page 18 opened the
+ * viewer at page 1 (#621).
+ *
+ * So a locus that names a page wins, and among two that do the first stands
+ * (loci arrive ordered by `[N]`, then by page). A document whose number is
+ * known only at the document level still resolves — to the document as a whole.
+ */
+export const referencesByNumber = (
+  docs: CitedDocument[]
+): Map<number, { document: CitedDocument; locus?: CitationLocus }> => {
+  const byNumber = new Map<number, { document: CitedDocument; locus?: CitationLocus }>()
+  for (const document of docs) {
+    for (const locus of document.loci) {
+      if (typeof locus.number !== 'number') continue
+      const held = byNumber.get(locus.number)
+      // WITHIN one document, prefer the locus that names a page. ACROSS two
+      // documents that both claim the same `[N]`, do not: the first one stands,
+      // because swapping which DOCUMENT a marker points at is a different and
+      // much larger claim than choosing between two places in one.
+      if (held && (held.document !== document || held.locus?.page != null || locus.page == null)) {
+        continue
+      }
+      byNumber.set(locus.number, { document, locus })
+    }
+    for (const number of citationNumbers(document)) {
+      if (!byNumber.has(number)) byNumber.set(number, { document })
+    }
+  }
+  return byNumber
+}
+
 /** DOM id prefix for a numbered source row under an answer. */
 export const ANSWER_SOURCE_ANCHOR_PREFIX = 'answer-source-'
 
@@ -53,7 +95,7 @@ export const answerDocuments = (docs: CitedDocument[]): CitedDocument[] => {
 /**
  * Documents the turn retrieved but the answer never cited.
  *
- * The Herleitung's honest half: "read, not used" is a real research outcome and
+ * The Herleitung's honest half: "retrieved, not cited" is a real research outcome and
  * the surface that claims to show the derivation has to be able to say it.
  * Before the model existed this set was not expressible at all — the trace and
  * the answer were separate pipelines with no shared identity to subtract.
@@ -86,7 +128,8 @@ export const bibliographyRows = (docs: CitedDocument[]): BibliographyRow[] => {
   const rows: BibliographyRow[] = []
   for (const doc of docs) {
     for (const locus of citedLoci(doc)) {
-      if (typeof locus.number === 'number') rows.push({ number: locus.number, document: doc, locus })
+      if (typeof locus.number === 'number')
+        rows.push({ number: locus.number, document: doc, locus })
     }
   }
   return rows.sort((a, b) => a.number - b.number)

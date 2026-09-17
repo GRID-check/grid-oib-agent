@@ -3,7 +3,7 @@
 **Status:** Implemented (2026-07-18). Streaming is the default delivery; there is
 no runtime flag — the backend and frontend ship together in this monorepo, so
 the change is atomic and needs no staged rollout toggle.
-**Related:** the per-turn chat path (`chat_researcher`), `websocket_reconnect.py`,
+**Related:** the per-turn chat path (`agents/piloti/conversation_register.py`), `websocket_reconnect.py`,
 the `frontends/ui` chat store.
 
 ## Why this is cross-stack, not backend-only
@@ -37,6 +37,8 @@ streaming text that gets superseded.
 rendering improvement, **not** a time-to-first-token reduction — the first delta
 is emitted only after the answer is generated, verified, and sanitized.
 
+**And the deltas carry no pace** — see [There is no typewriter](#there-is-no-typewriter).
+
 ## Wire contract
 
 Backend `_run` is an async generator yielding `ChatResponseChunk`s. Orchestration
@@ -45,7 +47,7 @@ is buffered; only delivery differs.
 - **Answer turns:** yield incremental **delta** chunks (`finish_reason=None`, no
   extras, contents concatenate to *exactly* the final text), then one
   **terminal** chunk — full content, `finish_reason="stop"`, extras
-  (`cards`/`sources`/`answer_confidence`/`deep_research_job_id`) on
+  (`cards`/`sources`/`answer_confidence`/`run_id`) on
   `model_extra`. The terminal is authoritative for persistence and for the
   single-consumer fold.
 - **Error / budget turns:** a single **terminal** chunk (short, fully known up
@@ -85,6 +87,27 @@ the terminal (`finish_reason="stop"`) content is authoritative; extras are
 copied from the terminal. Deltas are ignored when a terminal is present, so the
 folded content is never doubled.
 
+## There is no typewriter
+
+The delta sequence is a SHAPE, not a pace. `_response_to_chunks` cuts a finished
+answer into ~24-character pieces (`_iter_answer_deltas`) and yields them as fast
+as the socket takes them, so they reach `appendAgentResponseDelta` one or two
+animation frames apart: the answer paints essentially at once, and `isStreaming`
+is a state the turn passes through in a frame or two.
+
+A client-side typewriter (`use-typed-reveal.ts`) used to pace a character-level
+reveal over that window. It was removed deliberately: the text is finished and
+verified before the first delta leaves the agent, and animating it as if it
+were being written cost real render work (each reveal frame re-parsed the
+answer as markdown) to simulate a latency the system does not have. The full
+text now renders as soon as it arrives; `AgentResponse` treats `isStreaming`
+alone as "still arriving", and nothing that acts on a whole answer (the copy
+actions, the cards no `[[card:N]]` marker claimed) is offered over half of one.
+
+Pacing on the backend remains the wrong option for the same reasons it always
+was: an `asyncio.sleep` between chunks holds a worker for the length of the
+answer, and the network re-clumps whatever the sleep spaced out.
+
 ## Tests
 
 - Backend: `stream=False` (error/budget) yields one terminal chunk equal to
@@ -94,4 +117,6 @@ folded content is never doubled.
 - Handler: delta frames are IN_PROGRESS and not persisted; terminal frame is the
   finalizing, persist-eligible frame with cards/sources.
 - Frontend: deltas accumulate into one bubble; terminal replaces + attaches
-  cards; single-frame backend still renders one bubble.
+  cards; single-frame backend still renders one bubble; the whole-answer
+  affordances (copy, unclaimed cards) wait for `isStreaming` to clear
+  (`AgentResponse.spec.tsx`, "a streaming answer").

@@ -7,21 +7,9 @@ export const research: typeof en.research = {
   detailsHelp:
     'Diese Details erscheinen während einer laufenden Recherche und sind für abgeschlossene Berichte möglicherweise nicht verfügbar.',
 
-  runsPage: {
-    title: 'Recherchedurchläufe',
-    subtitle:
-      'Deep-Research-Berichte, die Piloti für dieses Projekt erstellt hat, neueste zuerst.',
-  },
-
-  // Labels for the per-project research-runs list rows (research-runs-list.tsx).
+  // Label for a run whose chat has no local title (headless/CLI jobs).
   runsList: {
     untitledRun: 'Deep-Research-Durchlauf',
-    sessionLabel: 'Sitzung {id}',
-    viewThinking: 'Denkschritte anzeigen',
-  },
-
-  dockedPanel: {
-    closePanel: 'Bereich schließen',
   },
 
   chatArea: {
@@ -38,13 +26,9 @@ export const research: typeof en.research = {
     },
     loggedOutTitle: 'Piloti wird verfügbar, sobald Ihre Organisation verifiziert ist.',
     loggedOutBody:
-      'Melden Sie sich an, um projektbezogene OIB-Recherche, das Einlesen Ihrer Dokumente und Zugriffsrechte für Mitglieder freizuschalten.',
+      'Melden Sie sich an, um den Projekt-Arbeitsbereich freizuschalten: Ihre Unterlagen, das Büroarchiv und den Vorschriftenkorpus.',
     signInSso: 'Mit SSO anmelden',
     welcomeTitle: 'Wie kann Piloti bei Ihrem Projekt helfen?',
-    usePrompt: 'Vorschlag verwenden: {prompt}',
-    prompt1: 'Vergleiche die Brandschutzpflichten nach OIB 2 über die Gebäudeklassen hinweg.',
-    prompt2: 'Fasse die Barrierefreiheitsanforderungen für eine öffentliche Sanierung zusammen.',
-    prompt3: 'Finde Widersprüche zwischen den hochgeladenen Plänen und den OIB-Richtlinien.',
   },
 
   chatToolbar: {
@@ -63,7 +47,6 @@ export const research: typeof en.research = {
     /** Trigger for the thread menu that holds every non-primary header action. */
     moreActions: 'Weitere Aktionen',
     renameSession: 'Chat umbenennen',
-    researchReport: 'Recherchebericht',
   },
 
   dataSources: {
@@ -243,9 +226,9 @@ export const research: typeof en.research = {
     subjectCleared: 'Frage bezieht sich nicht mehr auf diese Datei.',
     subjectClearedUndo: 'Rückgängig',
     aiDisclosure:
-      'Piloti ist ein KI-System — Antworten können falsch sein; prüfen Sie sie anhand der zitierten Richtlinie.',
+      'Piloti ist ein KI-System — Antworten können falsch sein; prüfen Sie sie anhand der zitierten Unterlagen.',
     placeholderDefault: 'Datenquellen prüfen und eine Recherchefrage stellen...',
-    signInToStart: 'Melden Sie sich an, um mit der Recherche zu beginnen',
+    signInToStart: 'Melden Sie sich an, um zu beginnen',
     researchCompletedNewSession:
       'Recherche abgeschlossen. Erstellen Sie für weitere Fragen eine neue Sitzung.',
     researchFailedFollowUp:
@@ -280,6 +263,8 @@ export const research: typeof en.research = {
     chatMessageInput: 'Chat-Nachrichteneingabe',
     stopStreaming: 'Antwort stoppen',
     sendWhilePending: 'Dateien werden noch verarbeitet – trotzdem senden?',
+    heldForUpload: 'Wird gesendet, sobald die Datei gelesen ist.',
+    heldForUploadSendNow: 'Jetzt ohne die Datei fragen',
     removeFile: 'Datei entfernen: {name}',
     retryUpload: 'Upload erneut versuchen',
     manageFiles: 'Dateien verwalten',
@@ -346,18 +331,35 @@ export const research: typeof en.research = {
 
   sessionsPanel: {
     title: 'Chatverlauf',
+    /** Schließen-Steuerung des Sheets (Grabber-Pille + Desktop-X). */
+    close: 'Chatverlauf schließen',
     /** Steht neben dem Titel, damit der Bereich seinen eigenen Umfang nennt. */
     countLabel: '{count, plural, one {# Chat} other {# Chats}}',
     countLabelOne: '1 Chat',
-    // Der Speicher wird erst eingeblendet, wenn er relevant wird — und sagt dann,
-    // was zu tun ist, statt nur eine Zahl zu melden.
-    storageQuota: 'Browser-Speicher zu {percent}% belegt — alte Chats löschen schafft Platz.',
-    storageNote:
-      'Chats werden in diesem Browser gespeichert. Rechercheberichte können auf dem Server ablaufen.',
+    // Chats werden serverseitig gespeichert (Postgres via /api/conversations) —
+    // diese Zeile darf nie behaupten, sie lägen im Browser, und nie raten,
+    // Chats zu löschen, um lokalen Platz zu schaffen: Löschen entfernt auch die
+    // Server-Kopie.
+    syncedNote:
+      'Chats werden in Ihrem Workspace gespeichert und sind auf allen Geräten verfügbar. Rechercheberichte können auf dem Server ablaufen.',
     deleteAllDisabled: 'Alle Chats dieses Projekts löschen (deaktiviert)',
     deleteAll: 'Alle Chats dieses Projekts löschen',
     cannotDeleteBusy: 'Löschen nicht möglich, während Vorgänge laufen',
     deleteAllButton: 'Alle Chats löschen',
+    /** Stopp-Aktion für einen blockierten Deep-Research-Durchlauf (Chatzeile, Durchlaufzeile). */
+    stopResearch: 'Recherche stoppen',
+    stopResearchTitle: 'Diesen blockierten Recherchedurchlauf stoppen',
+    /** Sammelbereinigung in der Verlaufsfußzeile: stoppt alle abgebrochenen Durchläufe. */
+    purgeStuckRunsButton: 'Blockierte Recherchen stoppen',
+    purgeStuckRuns: 'Alle blockierten Recherchedurchläufe stoppen',
+    purgeDone:
+      '{count, plural, one {# blockierter Recherchedurchlauf gestoppt} other {# blockierte Recherchedurchläufe gestoppt}}',
+    purgeIdle: 'Keine blockierten Recherchedurchläufe gefunden',
+    /** Sammelbestätigung zum Bereinigen (geteilter ConfirmDialog, Warnton): die Bereinigung ist die einzige Sammelaktion, die Serverarbeit abbricht. */
+    purgeConfirmTitle: 'Blockierte Recherchen stoppen?',
+    purgeConfirmBody:
+      'Alle blockierten Recherchedurchläufe werden abgebrochen und können nicht fortgesetzt werden. Ihre Chats bleiben erhalten — nur die Durchläufe werden gestoppt.',
+    purgeConfirmConfirm: 'Blockierte Recherchen stoppen',
     newSessionDisabled: 'Neuen Chat starten (während aktiver Vorgänge deaktiviert)',
     startNewSession: 'Neuen Chat starten',
     cannotCreateActive:
@@ -392,10 +394,20 @@ export const research: typeof en.research = {
     sessionLabel: 'Chat: {title}',
     /** Dieselbe Zeile, ergänzt um den Zustand, den ihr Symbol zeigt. */
     sessionLabelWithStatus: 'Chat: {title} — {status}',
-    // FB-10: Deep-Research-Bereich im Sitzungsbereich.
-    deepResearchHeading: 'Deep Research ({count})',
+    // FB-10: Deep-Research-Bereich im Sitzungsbereich. Die Anzahl trägt ein
+    // CountPill neben der Überschrift, nicht der Text selbst.
+    deepResearchHeading: 'Deep Research',
     deepResearchChip: 'Deep Research',
     deepResearchRunLabel: 'Deep-Research-Durchlauf öffnen: {label} — {status}',
+    /** Bereichsfilter über die eine Liste — Chats, Durchläufe oder beides. */
+    filterAria: 'Verlauf filtern',
+    filterAll: 'Alle',
+    filterChats: 'Chats',
+    filterResearch: 'Deep Research',
+    /** Ein fehlgeschlagener Abruf sagt es — ein leerer Bereich würde ihn verschweigen. */
+    researchLoadFailed: 'Deep-Research-Durchläufe konnten nicht geladen werden.',
+    noRuns: 'Noch keine Deep-Research-Durchläufe',
+    noRunsDescription: 'Deep-Research-Durchläufe aus diesem Projekt erscheinen hier.',
     /** Der Zustand eines Durchlaufs in Worten — das Symbol allein ließ „fehlgeschlagen“ und „fertig“ gleich aussehen. */
     runStatus: {
       running: 'Läuft',

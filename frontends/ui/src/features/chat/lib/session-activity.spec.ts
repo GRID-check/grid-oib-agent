@@ -12,6 +12,7 @@ import {
   hasExpiredDeepResearchReport,
   getPersistedActivityFlags,
   hasNoUserChatMessages,
+  isTerminalDeepResearchJobStatus,
 } from './session-activity'
 import type { ChatMessage } from '../types'
 
@@ -260,4 +261,20 @@ describe('getPersistedActivityFlags', () => {
     expect(flags.hasActiveDeepResearch).toBe(true)
     expect(flags.hasPendingHITL).toBe(true)
   })
+})
+
+describe('isTerminalDeepResearchJobStatus', () => {
+  it.each([['success'], ['failure'], ['interrupted']] as const)(
+    'treats %s as terminal',
+    (status) => {
+      expect(isTerminalDeepResearchJobStatus(status)).toBe(true)
+    }
+  )
+
+  it.each([['submitted'], ['running'], [null], [undefined]] as const)(
+    'does not treat %s as terminal',
+    (status) => {
+      expect(isTerminalDeepResearchJobStatus(status)).toBe(false)
+    }
+  )
 })

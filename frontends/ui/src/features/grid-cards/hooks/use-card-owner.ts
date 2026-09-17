@@ -16,7 +16,7 @@ import { findCardOwnerMessageId } from '../card-owner'
  */
 export function useCardOwnerMessageId(
   jobId: string | null | undefined,
-  cards: readonly GridCard[]
+  cards: readonly (GridCard | undefined)[]
 ): string | null {
   return useChatStore((state) => findCardOwnerMessageId(state, jobId, cards))
 }

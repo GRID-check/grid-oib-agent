@@ -1,11 +1,14 @@
 'use client'
 
+import type { SkillCategoryListItem } from '@/adapters/api/skills-client'
+
 /**
  * Dev preview for the Agent Skills tab. Renders the REAL SkillsPanel — the org's
- * skills and nothing else, since everything schedule-shaped moved to the Jobs
+ * skills and nothing else, since everything schedule-shaped lives in the Tasks
  * tab — with a fetch shim serving `/api/skills`, so every row variant is
  * reviewable without a backend: two of the platform's offers at the top (one
- * taken up, one not), then an org skill in play and one switched off.
+ * taken up, one not, one of them categorized), then an org skill in play and
+ * one switched off, one of them on the org's own category.
  *
  * The pipeline's own builtins are deliberately absent from the fixture, because
  * they are absent from the endpoint: they are machinery, they carry no
@@ -16,16 +19,36 @@
 import { I18nProvider } from '@/i18n'
 import { SkillsPanel } from '@/features/skills/components/skills-panel'
 
+const CATEGORIES: SkillCategoryListItem[] = [
+  {
+    id: 'cat-oib',
+    name: 'OIB',
+    description: null,
+    slug: 'oib',
+    sortOrder: 10,
+    scope: 'platform',
+  },
+  {
+    id: 'cat-eigene',
+    name: 'Eigene Prüfungen',
+    description: 'Büro-interne Abläufe.',
+    slug: null,
+    sortOrder: 0,
+    scope: 'org',
+  },
+]
+
 const SKILLS = [
   {
     id: 'skill-1',
     name: 'acoustic-report',
     description: 'Drafts the acoustic compliance report (OIB-Richtlinie 5).',
-    body: 'Draft a report on sound insulation per OIB-Richtlinie 5.\n\nUse the project documents as the source of truth for the building’s construction.',
+    body: 'Draft a report on sound insulation per OIB Richtlinie 5.\n\nUse the project documents as the source of truth for the building’s construction.',
     metadata: {},
     origin: 'org',
     enabled: true,
     clonedFrom: null,
+    categoryId: 'cat-eigene',
     createdAt: '2026-07-10T09:00:00Z',
     updatedAt: '2026-07-16T09:00:00Z',
   },
@@ -39,6 +62,7 @@ const SKILLS = [
     origin: 'org',
     enabled: false,
     clonedFrom: null,
+    categoryId: null,
     createdAt: '2026-07-12T10:00:00Z',
     updatedAt: '2026-07-12T10:00:00Z',
   },
@@ -53,6 +77,7 @@ const SKILLS = [
     origin: 'platform',
     enabled: true,
     clonedFrom: null,
+    categoryId: 'cat-oib',
     createdAt: null,
     updatedAt: null,
   },
@@ -66,6 +91,7 @@ const SKILLS = [
     origin: 'platform',
     enabled: false,
     clonedFrom: null,
+    categoryId: null,
     createdAt: null,
     updatedAt: null,
   },
@@ -75,11 +101,59 @@ if (typeof window !== 'undefined' && process.env.NODE_ENV === 'development') {
   const w = window as unknown as { __skillsPanelShim?: boolean }
   if (!w.__skillsPanelShim) {
     w.__skillsPanelShim = true
+    // Mutable working copies: the manager's create/rename/remove run against
+    // these, so the preview shows the interaction rather than an error toast.
+    // Annotated rather than inferred from the seed: the shim CREATES
+    // categories too, and a created one has no slug (only the seeded
+    // platform ones do). Inference from `CATEGORIES` alone narrows `slug`
+    // to `string` and rejects the very rows this shim exists to make.
+    const categories: SkillCategoryListItem[] = [...CATEGORIES]
+
+    /** The JSON body the BFF clients send — unparseable means no fields. */
+    const parseJsonBody = (body: BodyInit | null | undefined): { name?: unknown } => {
+      if (typeof body !== 'string') return {}
+      try {
+        return JSON.parse(body) as { name?: unknown }
+      } catch {
+        return {}
+      }
+    }
     const real = window.fetch.bind(window)
     window.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url
+      const method = (init?.method ?? 'GET').toUpperCase()
       if (url === '/api/skills') {
-        return Response.json({ skills: SKILLS })
+        return Response.json({ skills: SKILLS, categories })
+      }
+      if (url === '/api/skill-categories' && method === 'GET') {
+        return Response.json({ categories })
+      }
+      if (url === '/api/skill-categories' && method === 'POST') {
+        const body = parseJsonBody(init?.body)
+        const created = {
+          id: `cat-dev-${Date.now()}`,
+          name: typeof body?.name === 'string' && body.name.trim() ? body.name.trim() : 'Neue Kategorie',
+          description: null,
+          slug: null,
+          sortOrder: 0,
+          scope: 'org' as const,
+        }
+        categories.push(created)
+        return Response.json({ category: created }, { status: 201 })
+      }
+      const match = /^\/api\/skill-categories\/([^/]+)$/.exec(new URL(url, location.origin).pathname)
+      if (match && (method === 'PATCH' || method === 'DELETE')) {
+        const index = categories.findIndex((category) => category.id === match[1])
+        if (index === -1) return Response.json({ error: 'not found' }, { status: 404 })
+        if (method === 'DELETE') {
+          categories.splice(index, 1)
+          return Response.json({ deleted: true })
+        }
+        const body = parseJsonBody(init?.body)
+        if (typeof body?.name === 'string' && body.name.trim()) {
+          categories[index] = { ...categories[index], name: body.name.trim() }
+        }
+        return Response.json({ category: categories[index] })
       }
       // The activation switch. Without this the PATCH reaches the real backend,
       // fails, and the switch rolls back with an error toast — so the preview

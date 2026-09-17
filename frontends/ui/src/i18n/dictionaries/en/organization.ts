@@ -131,6 +131,30 @@ export const organization = {
     saveError: 'Could not save organization settings. Please try again.',
     loadError: 'Could not load organization settings right now. Please refresh to try again.',
   },
+  /**
+   * Organization → Instructions: the standing block every answer in the
+   * organization is written under. The hint states the boundary out loud,
+   * because the boundary is the point: standing preferences on form, focus and
+   * workflow — never a rule that overrides Piloti, never a normative value.
+   */
+  instructions: {
+    title: 'Instructions',
+    description:
+      'What Piloti should keep in mind for your organization. Sent with every request.',
+    label: 'Standing instructions',
+    placeholder:
+      'e.g. Lead with the verdict, then the reasoning. Assume Vienna when no Bundesland is named. Always append a list of deficiencies to a review.',
+    hint: 'Standing preferences on form, focus and workflow. They never override Piloti’s own rules and never supply a normative value — an OIB requirement comes from the guideline, never from this box.',
+    remaining: '{used} of {max} characters',
+    overCap: '{over} characters over. Shorten the text before saving.',
+    save: 'Save instructions',
+    saving: 'Saving…',
+    saved: 'Instructions saved',
+    clear: 'Clear',
+    cleared: 'Instructions cleared',
+    saveError: 'Could not save the instructions. Please try again.',
+    loadError: 'Could not load the instructions right now. Please refresh to try again.',
+  },
   members: {
     title: 'Members',
     description: 'Invite people, assign roles, and manage who has access.',
@@ -165,6 +189,8 @@ export const organization = {
     searchPlaceholder: 'Search appropriate models…',
     noResults: 'No appropriate models match your search.',
     contextWindow: 'Context',
+    /** The platform's reference request priced at the current price list (ADR-0053). */
+    creditsPerRequest: '≈ {credits} credits per request',
     resetToDefault: 'Use default',
     comment: 'Change note (optional)',
     commentPlaceholder: 'Why are you changing models?',
@@ -277,16 +303,22 @@ export const organization = {
   budgets: {
     title: 'Usage & budgets',
     description:
-      'LLM spend per model against your organization limits. Costs come from OpenRouter usage accounting; limits are enforced before every request.',
+      'Usage per model against your organization limits. Every request is metered as it runs; limits are enforced before every request.',
     memberTitle: 'Your usage',
     memberDescription:
-      'Your own spend against your organization limits. If a budget is exhausted, chat is paused until an admin raises the limit.',
+      'Your own usage against your organization limits. If a budget is exhausted, chat is paused until an admin raises the limit.',
     today: 'Today',
     thisMonth: 'This month',
     ofLimit: '{spent} of {limit}',
     noLimit: '{spent} (no limit)',
+    creditsValue: '{value} credits',
+    tokensValue: '{value} tokens',
+    unitCredits: 'credits',
+    unitTokens: 'tokens',
+    ownKeyNote:
+      'Your organization runs on its own provider key. Usage is counted in tokens on your own bill, and Piloti charges no credits for it.',
     overLimit: 'Budget exhausted — new requests are blocked',
-    legendTitle: 'Spend by model',
+    legendTitle: 'Usage by model',
     legendEmpty: 'No LLM usage recorded in this window yet.',
     trendTitle: 'Last 30 days',
     trendEmpty: 'No usage recorded in the last 30 days.',
@@ -294,16 +326,18 @@ export const organization = {
     tooltipRequests: '{count, plural, one {# request} other {# requests}}',
     limitsTitle: 'Organization limits',
     limitsDescription:
-      'Defaults are €10 per day and €100 per month until you set your own. EUR limits are compared against USD costs at a deployment-configured rate.',
-    dailyLimit: 'Daily limit (EUR)',
-    monthlyLimit: 'Monthly limit (EUR)',
+      'Your plan’s allowance applies until you set your own limits. Limits are in credits and are enforced before every request.',
+    limitsDescriptionTokens:
+      'There is no limit until you set one. Limits are in tokens on your own key and are enforced before every request.',
+    dailyLimit: 'Daily limit ({unit})',
+    monthlyLimit: 'Monthly limit ({unit})',
     noLimitPlaceholder: 'No limit',
     saveLimits: 'Save limits',
     limitsSaved: 'Budget limits saved',
     limitsSaveError: 'Could not save the budget limits.',
     membersTitle: 'Members — usage & limits',
     membersDescription:
-      'Spend per member with their optional individual caps. A member limit never exceeds the organization limits and is enforced in addition to them.',
+      'Usage per member with their optional individual caps. A member limit never exceeds the organization limits and is enforced in addition to them.',
     colMember: 'Member',
     limitLabel: 'Limit',
     setLimit: 'Set limit',

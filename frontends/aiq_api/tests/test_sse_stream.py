@@ -166,3 +166,65 @@ async def test_pubsub_failure_before_any_event_resumes_from_start_event_id(monke
 
     assert resume["start_event_id"] == 5
     assert len(chunks) == 1
+
+
+@pytest.mark.asyncio
+async def test_a_silent_stream_sends_a_keepalive_instead_of_going_byte_quiet(db_url, monkeypatch):
+    """A job that produces no events for a while must still keep the pipe warm.
+
+    Neither generator emitted anything while a job sat queued or a worker was
+    still building its graph, and deep research is silent for minutes at a time
+    by design. Node's undici applies a 300 s inactivity ``bodyTimeout`` to the
+    BFF's ``fetch`` of this stream, so a quiet run was torn down from the proxy
+    side at exactly the moment the reader was waiting hardest — the "deep
+    research just stops" report, with a healthy job still running behind it.
+    """
+    import aiq_api.routes.jobs as jobs_routes
+
+    # Fire on the first silent tick rather than making the test wait 20 s.
+    monkeypatch.setattr(jobs_routes, "SSE_KEEPALIVE_SECONDS", 0.0)
+
+    job_id = "sse-quiet-job"
+    running = SimpleNamespace(status="running", error=None)
+    job_store = SimpleNamespace(get_job=AsyncMock(return_value=running))
+
+    gen = jobs_routes._sse_generator_polling(job_store, job_id, db_url, 0)
+    try:
+        chunks = []
+        for _ in range(4):
+            chunks.append(await asyncio.wait_for(gen.__anext__(), timeout=5.0))
+
+        assert any(chunk == jobs_routes.SSE_KEEPALIVE_FRAME for chunk in chunks), chunks
+        # A comment frame, so `EventSource` ignores it and no client sees an event.
+        assert jobs_routes.SSE_KEEPALIVE_FRAME.startswith(":")
+    finally:
+        await gen.aclose()
+
+
+@pytest.mark.asyncio
+async def test_a_stream_carrying_real_events_sends_no_keepalives(db_url, monkeypatch):
+    """The keepalive fills genuine silence; it must not add noise to a busy stream."""
+    import aiq_api.routes.jobs as jobs_routes
+
+    monkeypatch.setattr(jobs_routes, "SSE_KEEPALIVE_SECONDS", 0.0)
+
+    job_id = "sse-busy-job"
+    store = EventStore(db_url, job_id)
+    for index in range(3):
+        store.store({"type": f"step.{index}", "data": {}})
+
+    running = SimpleNamespace(status="running", error=None)
+    job_store = SimpleNamespace(get_job=AsyncMock(return_value=running))
+
+    gen = jobs_routes._sse_generator_polling(job_store, job_id, db_url, 0)
+    try:
+        # The replay of the three stored events must come through unpolluted.
+        chunks = []
+        for _ in range(4):
+            chunks.append(await asyncio.wait_for(gen.__anext__(), timeout=5.0))
+
+        assert not any(chunk == jobs_routes.SSE_KEEPALIVE_FRAME for chunk in chunks), chunks
+        for index in range(3):
+            assert any(f"event: step.{index}" in chunk for chunk in chunks), chunks
+    finally:
+        await gen.aclose()

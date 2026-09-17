@@ -48,6 +48,7 @@
 import { type FC, useState } from 'react'
 import { User, Copy, Check } from 'lucide-react'
 import { toast } from 'sonner'
+import { AnimatePresence, motion, springSnap } from '@/components/motion'
 import { SectionLabel } from '@/components/ui/section-label'
 import { MarkdownRenderer } from '@/shared/components/MarkdownRenderer'
 import { formatTime } from '@/shared/utils/format-time'
@@ -75,7 +76,7 @@ import { MessageAuthor } from './MessageAuthor'
  */
 const COPY_BUTTON_CLASS = cn(
   'absolute right-2 top-2 rounded-md bg-muted p-1.5 text-muted-foreground',
-  'opacity-0 transition-opacity duration-quick ease-out group-hover:opacity-100',
+  'opacity-0 transition-[opacity,transform] duration-snap ease-out group-hover:opacity-100 active:scale-[0.98] motion-reduce:active:scale-100',
   'focus-visible:opacity-100 pointer-coarse:opacity-100 motion-reduce:transition-none',
   'inline-flex items-center justify-center pointer-coarse:size-11 pointer-coarse:p-0',
   'hover:bg-accent hover:text-foreground',
@@ -155,7 +156,10 @@ export const UserMessage: FC<UserMessageProps> = ({
     mentions && mentions.length > 0 ? (
       <MentionText content={content} mentions={mentions} currentUserId={currentUserId} />
     ) : (
-      <MarkdownRenderer content={content} />
+      // `compact`, because the bubble itself is set in `text-sm`: without it
+      // the markdown paragraphs came out `text-base`, so the same bubble was
+      // 14px or 16px depending on whether the message carried mentions.
+      <MarkdownRenderer content={content} compact />
     )
 
   // ── Solo thread: today's rendering, untouched ───────────────────────────────
@@ -172,7 +176,7 @@ export const UserMessage: FC<UserMessageProps> = ({
         {/* Three corners are the token radius; the 4px top-right is the
             bubble's tail-side notch — the one deliberate value, and what makes
             an input bubble identifiable at a glance. */}
-        <div className="group relative w-[400px] max-w-full rounded-lg rounded-tr-[4px] border border-input bg-card px-[14px] py-[11px] text-sm leading-[1.55] text-default shadow-xs">
+        <div className="group relative w-[400px] max-w-full rounded-lg rounded-tr-[4px] border border-input bg-card px-[14px] py-[11px] text-sm leading-[1.55] text-default shadow-xs pointer-coarse:pr-14">
           {body}
           <button
             type="button"
@@ -180,11 +184,23 @@ export const UserMessage: FC<UserMessageProps> = ({
             aria-label={copied ? t('copyMessage.copied') : t('copyMessage.copy')}
             className={COPY_BUTTON_CLASS}
           >
-            {copied ? (
-              <Check className="size-4" aria-hidden="true" />
-            ) : (
-              <Copy className="size-4" aria-hidden="true" />
-            )}
+            <AnimatePresence mode="popLayout" initial={false}>
+              <motion.span
+                key={copied ? 'check' : 'copy'}
+                initial={{ opacity: 0, scale: 0.6 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.6 }}
+                transition={springSnap}
+                className="inline-flex"
+                aria-hidden="true"
+              >
+                {copied ? (
+                  <Check className="size-4" aria-hidden="true" />
+                ) : (
+                  <Copy className="size-4" aria-hidden="true" />
+                )}
+              </motion.span>
+            </AnimatePresence>
           </button>
         </div>
 
@@ -227,6 +243,13 @@ export const UserMessage: FC<UserMessageProps> = ({
           // bubble's tail-side notch — the one deliberate value.
           'group relative w-[400px] max-w-full rounded-lg rounded-tr-[4px] border border-input bg-card',
           'px-[14px] py-[11px] text-sm leading-[1.55] text-default shadow-xs',
+          // Room for the copy control, which is 44px and ALWAYS VISIBLE on a
+          // coarse pointer (see COPY_BUTTON_CLASS). On a mouse it fades in over
+          // the text and that is fine — it is only there while the cursor is —
+          // but a permanent 44px square in the top-right corner of a bubble sits
+          // on the first line of the message and makes it unreadable and
+          // unselectable. The padding is the price of the control being present.
+          'pointer-coarse:pr-14',
           // A grouped follow-up squares off the corner that pointed at the header
           // it no longer draws, so a run reads as one block of speech. It stays
           // flush with the bubble above — the header sits over the bubble here, not
@@ -242,11 +265,23 @@ export const UserMessage: FC<UserMessageProps> = ({
           aria-label={copied ? t('copyMessage.copied') : t('copyMessage.copy')}
           className={COPY_BUTTON_CLASS}
         >
-          {copied ? (
-            <Check className="size-4" aria-hidden="true" />
-          ) : (
-            <Copy className="size-4" aria-hidden="true" />
-          )}
+          <AnimatePresence mode="popLayout" initial={false}>
+            <motion.span
+              key={copied ? 'check' : 'copy'}
+              initial={{ opacity: 0, scale: 0.6 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.6 }}
+              transition={springSnap}
+              className="inline-flex"
+              aria-hidden="true"
+            >
+              {copied ? (
+                <Check className="size-4" aria-hidden="true" />
+              ) : (
+                <Copy className="size-4" aria-hidden="true" />
+              )}
+            </motion.span>
+          </AnimatePresence>
         </button>
       </div>
 

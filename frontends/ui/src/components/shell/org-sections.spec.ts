@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest'
-import { orgRailGroups, orgSections, projectIdFromPathname } from './org-sections'
+import { projectIdFromPathname } from './org-sections'
 
 /**
  * The scope decision, in isolation from the rail that renders it. It is one
@@ -41,33 +41,5 @@ describe('projectIdFromPathname', () => {
   test('ignores paths outside the app', () => {
     expect(projectIdFromPathname('/dev/app-rail')).toBeNull()
     expect(projectIdFromPathname('')).toBeNull()
-  })
-})
-
-describe('orgSections', () => {
-  test('offers only what the reader can reach; the listing and Profil always', () => {
-    expect(orgSections({}).map((s) => s.key)).toEqual(['projects', 'profile'])
-  })
-
-  test('adds each gated destination with its own flag', () => {
-    expect(
-      orgSections({
-        canAccessArchiv: true,
-        canAccessInbox: true,
-        canViewOrganization: true,
-        canManagePlatform: true,
-      }).map((s) => s.key)
-    ).toEqual(['projects', 'archiv', 'inbox', 'organization', 'platform', 'profile'])
-  })
-})
-
-describe('orgRailGroups', () => {
-  test('buckets consecutive entries and drops groups that gate away entirely', () => {
-    expect(
-      orgRailGroups({ canAccessArchiv: true }).map((g) => [g.group, g.items.map((i) => i.key)])
-    ).toEqual([
-      ['work', ['projects', 'archiv']],
-      ['account', ['profile']],
-    ])
   })
 })

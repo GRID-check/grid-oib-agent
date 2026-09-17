@@ -275,7 +275,7 @@ Applied after an adversarial review pass:
   (no K8s API access needed) and `runAsNonRoot`.
 - Both images are **digest-pinned** in `deploy/pulumi/src/config.ts`
   (`aspire-dashboard@sha256:d71f…` = 13.4.2, `opentelemetry-collector-contrib@sha256:f2f0…`
-  = 0.157.0); upgrades are deliberate config changes, not mutable-tag surprises.
+  = 0.160.0); upgrades are deliberate config changes, not mutable-tag surprises.
 - `.github/workflows/security.yml` has an `image-scan` job (trivy,
   HIGH/CRITICAL, `--ignore-unfixed`) that extracts the pinned digests from
   the Pulumi config and blocks on fixable findings. **This makes the pins

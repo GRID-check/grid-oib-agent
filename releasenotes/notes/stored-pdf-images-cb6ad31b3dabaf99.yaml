@@ -1,0 +1,8 @@
+---
+improvements:
+  - >
+    Ein Foto oder eine eingescannte Zeichnung, die in einem hochgeladenen PDF
+    steckt, kann der Assistent jetzt einzeln und in voller Auflösung ansehen,
+    statt nur die ganze Seite darum herum zu rendern. Beim Hochladen werden
+    solche Bilder neben dem Dokument abgelegt und mit dem Dokument wieder
+    gelöscht. Je Antwort sieht sich der Assistent höchstens sechs Bilder an.

@@ -35,6 +35,7 @@ from .factory import get_document_display_title
 from .factory import get_document_display_titles
 from .factory import get_document_doc_class
 from .factory import get_document_folder_paths
+from .factory import get_document_provenance
 from .factory import get_ingestor
 from .factory import get_retriever
 from .factory import list_summary_collections
@@ -47,12 +48,12 @@ from .factory import set_active_retriever
 from .factory import set_document_display_title
 from .factory import set_document_doc_class
 from .factory import set_document_folder_path
+from .factory import set_document_provenance
 from .factory import unregister_summary
 from .factory import update_document_tags
 from .inventory import allocate_inventory
 from .inventory import allocate_inventory_detailed
 from .inventory import get_inventory_drops
-from .inventory import listing_intent_override
 from .inventory import render_inventory_block
 from .inventory import set_inventory_drops
 from .inventory import shelf_hint_from_query
@@ -100,6 +101,8 @@ __all__ = [
     "get_document_display_title",
     "get_document_display_titles",
     "set_document_folder_path",
+    "set_document_provenance",
+    "get_document_provenance",
     "get_document_folder_paths",
     "rewrite_document_folder_paths",
     "list_summary_collections",
@@ -109,7 +112,6 @@ __all__ = [
     "allocate_inventory_detailed",
     "get_inventory_drops",
     "set_inventory_drops",
-    "listing_intent_override",
     "render_inventory_block",
     "shelf_hint_from_query",
     "clear_collection_summaries",

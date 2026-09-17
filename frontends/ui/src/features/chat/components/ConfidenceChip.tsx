@@ -93,7 +93,10 @@ export const ConfidenceChip: FC<ConfidenceChipProps> = ({ confidence, cappedReas
         <span className="block">{t(`confidence.levelMeanings.${confidence}`)}</span>
         {displayReason ? (
           <span className="mt-1 block">
-            <span className="font-medium">{t('confidence.reasonLabel')}:</span> {displayReason}
+            <span className="font-medium">
+              {t(cappedReason ? 'confidence.reasonLabelBeforeCap' : 'confidence.reasonLabel')}:
+            </span>{' '}
+            {displayReason}
           </span>
         ) : null}
         <span className="mt-1 block">{t('confidence.tooltip')}</span>

@@ -23,7 +23,7 @@
 ## The three layers
 
 Resolution is **per agent group**, so the layers mix: an org that pinned only
-`deep_research` still follows the platform default for `intent`.
+`deep_research` still follows the platform default for `clarifier`.
 
 | Layer | Where it lives | Who writes it | Scope |
 |---|---|---|---|
@@ -58,12 +58,12 @@ boot**, from `instrumentation.ts`.
 It is deliberately *not* a SQL migration. A platform default replaces the model
 id and nothing else — `override_model` leaves `base_url` and `api_key` alone so
 an override can never re-point traffic at another provider — while a migration
-runs on every deployment regardless of which `BACKEND_CONFIG` it loaded. This
-repo ships configs pointing at Kimi (`config_grid_oib.yml`) and NVIDIA
-(`config_web_default_llamaindex.yml`) as well as OpenRouter; seeding an
-OpenRouter id there would send an unknown model to that provider on every
-request, and the admin UI could not repair it because its save path only accepts
-ids the OpenRouter catalog knows.
+runs on every deployment regardless of which `BACKEND_CONFIG` it loaded. The
+repo ships one config, on OpenRouter, but a deployment may hand `BACKEND_CONFIG`
+a config of its own on another provider; seeding an OpenRouter id there would
+send an unknown model to that provider on every request, and the admin UI could
+not repair it because its save path only accepts ids the OpenRouter catalog
+knows.
 
 Running in the application instead buys four things SQL cannot do:
 
@@ -124,8 +124,23 @@ on read — so a hand-edited row can never push a provider-native tier name (e.g
 DeepSeek's `max`, which OpenRouter rejects) into a request. Parity is pinned by
 `tests/fixtures/reasoning_efforts_catalog.json` from both languages.
 
-Applied at the same seam as the model, in `apply_model_override` — so every
-existing call site picks it up with no new plumbing.
+Applied at the same two seams as the model. Every user-facing agent (chat,
+the clarifier agent, deep research, the compliance check) resolves its LLMs
+through `LLMProvider`, so the effort has its own provider method,
+`with_reasoning_efforts(get_reasoning_efforts())`, chained right after
+`with_model_overrides` in each `_active_provider`/`_agent_for_request`, and in
+the detached worker (`aiq_api/jobs/runner.py`) after the captured overrides.
+Directly held LLMs (the clarifier planner, the reflection stage, the RIS
+router) get it inside `apply_model_override`. A dial that reaches only the
+second seam is the bug this paragraph used to describe as impossible: it was
+read by four minor call sites and never by a chat turn, and every test stayed
+green because none exercised the provider seam. `TestProviderWithReasoningEfforts`
+and `tests/aiq_agent/agents/piloti/test_active_provider.py` now pin it.
+
+The effort is platform-wide, so nothing is captured at submit time for the
+worker: any process that reaches the BFF resolves the same map (60 s TTL,
+fail-open to the YAML value). Grep the backend for
+`Reasoning effort active` to see the dial fire per group.
 
 The merge happens **BFF-side**, in `getEffectiveModelOverrides()`
 (`frontends/ui/src/lib/model-config/service.ts`). Every submission path already
@@ -151,15 +166,23 @@ capability requirements) mirrored by `AgentGroup` in
 
 | Group id | Covers (config LLMs) | Requirements (catalog) |
 |---|---|---|
-| `intent` | `intent_llm` | text input, ≥16k context |
 | `clarifier` | `clarifier_llm` (agent + planner) | `tools`, ≥32k |
-| `shallow_research` | `shallow_llm` | `tools`, ≥64k |
+| `shallow_research` | `research_llm` | `tools`, ≥64k |
 | `deep_research` | `deep_orchestrator_llm`, `deep_planner_llm`, `deep_researcher_llm` (+ writer) | `tools`, ≥128k |
 | `deep_research_router` | `deep_router_llm` | text input, ≥16k |
 | `memory_reflection` | `memory_reflection_llm` (= `card_llm` in the reference config) | text input, ≥32k |
 | `follow_ups` | `follow_ups_llm` | text input, ≥32k, reasoning off |
 | `ingest_vlm` | the ingestion VLM (image captioning + rendered-drawing description) | **image input** (`requiresImageInput`) — vision models only |
 | `compliance_check` | `compliance_llm` | text input, ≥32k |
+
+The id `shallow_research` is a PERSISTED KEY and is deliberately not
+renamed. The chat agent it covers is now called Piloti — the
+registry's `label` says so, which is what a label is for — but the id is the
+value stored in `platform_model_defaults.agent_group`, in
+`platform_models.agent_group` and in the `X-Grid-Model-Overrides` header.
+An unknown group id is dropped silently on both sides
+(`sanitize_model_overrides`), so changing it would revert every live
+override to the platform default with nothing logged.
 
 Requirements are enforced twice: the picker endpoint only lists passing
 models, and the save endpoint re-validates server-side (422 on mismatch).
@@ -285,13 +308,15 @@ server.js  ──  x-grid-model-overrides: base64url(JSON)  ──▶  aiq backe
                                      │
    model_overrides.py: parse + sanitize (unknown group / bad id dropped, fail-open {})
                                      │
- sync turn: each agent register's _run:
-   provider.with_model_overrides(...)  → derived LLMProvider (model_copy per group)
-   directly-held LLMs (intent invoke, clarifier planner, reflection schedule)
+ sync turn: each agent register's _run (and clarify.Clarifier.deps_for):
+   provider.with_model_overrides(...).with_reasoning_efforts(...)
+                                       → derived LLMProvider (model_copy per group)
+   directly-held LLMs (clarifier planner, reflection schedule)
    wrapped via apply_model_override(llm, group)
                                      │
  async deep research: submit_agent_job auto-captures the map → Dask runner
-   applies it to the worker's provider AND re-injects the header
+   applies it to the worker's provider AND re-injects the header;
+   the effort is resolved live in the worker (platform-wide, nothing captured)
 ```
 
 The `{group: modelId}` map read on the WS upgrade
@@ -304,6 +329,12 @@ set; a per-process fallback otherwise). For a replica other than the one that
 performed the save — or under the per-process fallback — a stale cache entry
 means a save can take up to 5 minutes to affect traffic. That applies to a
 fleet-wide default change too: it is fast, not instantaneous.
+
+The header is set once, on the WebSocket upgrade. A chat tab that is already
+open keeps the map it connected with until it reconnects, so the place to test
+a model save is a **new conversation**, not the next turn of the one you have
+open. The thinking level has no header: it is resolved per turn with a 60 s
+cache, so it shows up in the open tab within a minute.
 
 Key properties:
 
@@ -329,9 +360,12 @@ Key properties:
 - Overrides are strictly request-scoped: build-time providers/agents are
   never mutated; `with_model_overrides` returns `self` (identity check) when
   nothing applies, so the prebuilt agent path stays hot.
-- The clarifier builds its graph in `__init__`, so an active override
-  constructs a request-scoped agent — the same shape as the existing
-  per-request data-source rebuild.
+- The clarification step resolves its models, tools and limits once, at boot,
+  into a frozen `ClarifyDeps`. An active override (or a narrowed data-source
+  selection) produces its own `ClarifyDeps` for that one request
+  (`clarify.Clarifier.deps_for`); every other request is handed the boot object
+  back, so no tool schema is re-bound and no prompt is re-read. The deep agent
+  still rebuilds.
 - Async jobs — both deep research and the post-answer memory-reflection
   stage — re-apply the map inside the Dask worker rather than inheriting it:
   request contextvars don't survive into a background job, so
@@ -354,13 +388,56 @@ them up:
 
 | Path | How overrides reach the backend | Overrides applied? |
 |---|---|---|
-| Interactive WS chat | `server.js` resolves the org's **effective** overrides at WS upgrade (`GET /api/auth/websocket-scope` → `getEffectiveModelOverrides`: platform defaults with the org's own choices layered over them) and forwards `x-grid-model-overrides`. When the turn kicks off an async deep-research job, that job is submitted **in-process** by `chat_researcher/register.py`, which captures the map from the live WS request context (`get_model_overrides_from_context()`) rather than re-resolving it. | Yes |
+| Interactive WS chat | `server.js` resolves the org's **effective** overrides at WS upgrade (`GET /api/auth/websocket-scope` → `getEffectiveModelOverrides`: platform defaults with the org's own choices layered over them) and forwards `x-grid-model-overrides`. When the turn kicks off an async deep-research job, that job is submitted **in-process** by `piloti/conversation_register.py`, which captures the map from the live WS request context (`get_model_overrides_from_context()`) rather than re-resolving it. | Yes |
 | Scheduled / manual job runs (ADR-0046) | `fireJob()` (`frontends/ui/src/lib/jobs/service.ts`) resolves the org's **effective** overrides (`getEffectiveModelOverrides`) and passes them explicitly as `model_overrides` in the `POST /v1/internal/skills/submit` payload. | Yes |
-| Generic REST async-job proxy: `POST /api/jobs/async/submit` → backend `POST /v1/jobs/async/submit` | **Fixed 2026-07-16** (`0bdfb72`, `a78f5d4`). `frontends/ui/src/app/api/jobs/async/[...path]/route.ts` now resolves the caller's effective overrides (`getEffectiveModelOverrides`) and forwards them — via the shared `GridRequestContext` builder, so both the legacy `x-grid-model-overrides` header and the signed `X-Grid-Request-Context` envelope carry them. Belt-and-suspenders on the backend: `get_model_overrides_from_context()` (`common/model_overrides.py`) reads the header/envelope first; when neither is present it falls back to a **just-in-time resolution of the effective selection** — `resolve_org_model_overrides()` calls the BFF's internal `GET /api/internal/model-overrides` endpoint, which itself returns the merged platform-plus-org map (the org's own choices win per group) (`GRID_INTERNAL_API_TOKEN`-guarded), cached in-process (60 s positive / 30 s negative TTL) and fail-open to `{}` (YAML defaults) on any error — mirroring the BYOK credential-resolution pattern. | **Yes**, via header-first-then-org-resolution precedence. See also `docs/api/bff-routes.md` and `docs/api/python-endpoints.md`. |
+| Generic REST async-job proxy: `POST /api/jobs/async/submit` → backend `POST /v1/jobs/async/submit` | **Fixed 2026-07-16** (`0bdfb72`, `a78f5d4`). `frontends/ui/src/app/api/jobs/async/[...path]/route.ts` now resolves the caller's effective overrides (`getEffectiveModelOverrides`) and forwards them — via the shared `GridRequestContext` builder, so both the legacy `x-grid-model-overrides` header and the signed `X-Grid-Request-Context` envelope carry them. Belt-and-suspenders on the backend: `get_model_overrides_from_context()` (`common/model_overrides.py`) reads the header/envelope first; when neither is present it falls back to a **just-in-time resolution of the effective selection** — `resolve_org_model_overrides()` calls the BFF's internal `GET /api/internal/model-overrides` endpoint, which itself returns the merged platform-plus-org map (the org's own choices win per group) (`GRID_INTERNAL_API_TOKEN`-guarded), cached in two tiers — a 10 s in-process memo and the shared cache key `modelconfig:{org}` (ADR-0020, 60 s), which the BFF deletes on a config save or rollback, a ZDR toggle, and a platform-defaults save (`lib/model-config/backend-key.ts`), so a save reaches every backend replica within ~10 s — and fail-open to `{}` (YAML defaults) on any error, with errors negative-cached for 1 s in-process only, never written to the shared tier — mirroring the BYOK credential-resolution pattern. | **Yes**, via header-first-then-org-resolution precedence. See also `docs/api/bff-routes.md` and `docs/api/python-endpoints.md`. |
 
 The JIT fallback (`resolve_org_model_overrides` / `/api/internal/model-overrides`)
 also covers any future endpoint the BFF doesn't front, or a turn where the
 best-effort WS-upgrade header injection failed — not just this one proxy.
+
+### Propagation bound — how fast a save reaches traffic
+
+A save is fast, not instantaneous, and "fleet in seconds" holds only when the
+invalidation path is intact:
+
+- **The BFF→backend delete travels over the shared cache (Dragonfly/Redis).**
+  `REDIS_URL` must be configured on BOTH the BFF and the backend. Without it
+  each side falls back to a per-process (BFF: per-replica) memory store, the
+  delete reaches only the replica that performed the save, and every other
+  replica serves its memo until the TTLs below expire.
+- **Backend tiers** (`src/aiq_agent/common/model_overrides.py`): L1 10 s
+  in-process memo, L2 60 s shared entry, both write-invalidated by the BFF
+  delete. Errors are negative-cached for 1 s in L1 only; empty successes
+  (`{}, False` — also what a missing `GRID_INTERNAL_API_TOKEN` resolves to)
+  stay L1-only so "no configuration" can never shadow a concurrent save in L2.
+  Residual race: a fetch that started before the save can complete after the
+  delete and re-populate L2 with the pre-save record (stale up to L2 60 s);
+  a replica holding a pre-save L1 entry serves it for up to L1 10 s regardless.
+- **BFF tiers** (`OVERRIDES_CACHE_TTL_MS`, `DEFAULTS_CACHE_TTL_MS`): 5 minutes
+  each, write-invalidated on save/rollback. A no-op save (identical map, or a
+  displayName/locale-only org-settings patch) skips the cross-tier backend
+  delete but still drops the local entry.
+- **Direct-SQL or out-of-band writes bypass every delete above** and always pay
+  the full TTLs: up to 5 min on the BFF side, L1 10 s + L2 60 s on the backend.
+  Change configuration through the API/routes, never by hand.
+
+When a save appears not to apply, check the audit trail before the caches —
+every legitimate writer records one of these (in the org, or the platform org
+for the platform rows):
+
+| Event | Writer |
+|---|---|
+| `model_config.version.activated` | org save and rollback / re-activate |
+| `model_config.zdr.updated` | ZDR toggle |
+| `org.settings.updated` | org settings save (check `fields` for `zdrOnly`/`webSearchEnabled`) |
+| `platform.model_defaults.updated` | platform-owner save |
+| `platform.model_defaults.bootstrapped` | first-boot bootstrap (`system:bootstrap`) |
+
+No event + stale reads = the write never happened (or bypassed the routes —
+see the direct-SQL note above). Event present + stale reads = a missed
+invalidation: confirm `REDIS_URL` on both sides, then look for
+`[cache] invalidate failed for modelconfig:*` lines on the BFF.
 
 ## Security
 

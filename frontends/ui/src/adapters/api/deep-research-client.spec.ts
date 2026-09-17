@@ -1,5 +1,10 @@
 import { afterEach, describe, expect, test, vi } from 'vitest'
-import { createDeepResearchClient, getJobStatus, type DeepResearchCallbacks } from './deep-research-client'
+import {
+  createDeepResearchClient,
+  getJobReport,
+  getJobStatus,
+  type DeepResearchCallbacks,
+} from './deep-research-client'
 import { ApiRequestError } from './api-error'
 
 /**
@@ -128,6 +133,51 @@ describe('deep research SSE client', () => {
       expect(onError).not.toHaveBeenCalled()
     })
   })
+
+  describe('run.ledger handling', () => {
+    const ledger = {
+      runId: 'run-1',
+      status: 'laeuft',
+      phases: [{ phase: 'recherchieren', startedAt: '2026-09-16T08:00:00Z' }],
+      steps: [],
+      startedAt: '2026-09-16T08:00:00Z',
+      updatedAt: '2026-09-16T08:00:05Z',
+    }
+
+    test('hands the snapshot over unparsed, from under `data` or flat', () => {
+      const onLedger = vi.fn()
+      const { source } = connectWithFakeEventSource({ onLedger })
+
+      source.emit('run.ledger', { data: { ledger } })
+      source.emit('run.ledger', { ledger })
+
+      expect(onLedger).toHaveBeenCalledTimes(2)
+      expect(onLedger.mock.calls[0][0]).toEqual(ledger)
+      expect(onLedger.mock.calls[1][0]).toEqual(ledger)
+    })
+
+    test('ignores an event that carries no ledger', () => {
+      const onLedger = vi.fn()
+      const { source } = connectWithFakeEventSource({ onLedger })
+
+      source.emit('run.ledger', { data: {} })
+
+      expect(onLedger).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('job.phase handling', () => {
+    // Regression: the case existed and the listener did not, so the browser
+    // never subscribed to the named event and `onPhase` never fired.
+    test('reaches onPhase through a registered listener', () => {
+      const onPhase = vi.fn()
+      const { source } = connectWithFakeEventSource({ onPhase })
+
+      source.emit('job.phase', { data: { phase: 'research_started', batch_index: 1 } })
+
+      expect(onPhase).toHaveBeenCalledWith('research_started', { phase: 'research_started', batch_index: 1 })
+    })
+  })
 })
 
 describe('deep research REST client', () => {
@@ -169,5 +219,83 @@ describe('deep research REST client', () => {
 
     expect(error).toBeInstanceOf(ApiRequestError)
     expect((error as ApiRequestError).status).toBe(404)
+  })
+})
+
+/**
+ * The report body is REBUILT at this boundary rather than passed through, so a
+ * malformed `filed` cannot cross wearing a type it does not satisfy. The cost
+ * of that choice is that a key this function does not name is a key no caller
+ * ever sees — which is exactly how `filingFailed` came to be set by the BFF,
+ * asserted by its route spec, and read by nobody.
+ */
+describe('report filing, as it crosses the wire', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  const reportBody = (extra: Record<string, unknown>): void => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(
+        new Response(
+          JSON.stringify({ job_id: 'job-1', has_report: true, report: '# Bericht', ...extra }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } }
+        )
+      )
+    )
+  }
+
+  test('carries a broken filing promise through to the caller', async () => {
+    reportBody({ filingFailed: true })
+
+    const response = await getJobReport('job-1', undefined, { projectId: 'proj-1' })
+
+    expect(response.filingFailed).toBe(true)
+    expect(response.filed).toBeUndefined()
+    // Never at the answer's expense: the report the user waited minutes for is
+    // returned alongside the bad news, not instead of it.
+    expect(response.report).toBe('# Bericht')
+  })
+
+  test('reports no failure when the server claimed none', async () => {
+    // Absence still means "nothing was promised" — no project, no attempt, a
+    // run older than the feature. That state must stay silent.
+    reportBody({})
+
+    const response = await getJobReport('job-1', undefined, { projectId: 'proj-1' })
+
+    expect(response.filingFailed).toBeUndefined()
+  })
+
+  test('carries the numbered sources through the rebuild', async () => {
+    // The [N] a report cites a source by exists only in the persisted output,
+    // and this rebuild names every key the caller can see — so a key left out
+    // here is a source list the report tab never gets.
+    const source = { file_name: 'oib-rl_2_ausgabe_mai_2023.pdf', page: 7, number: 3 }
+    reportBody({ sources: [source] })
+
+    const response = await getJobReport('job-1')
+
+    expect(response.sources).toEqual([source])
+  })
+
+  test('drops a malformed or empty sources value rather than the report', async () => {
+    reportBody({ sources: 'not-a-list' })
+    expect((await getJobReport('job-1')).sources).toBeUndefined()
+
+    reportBody({ sources: [] })
+    expect((await getJobReport('job-1')).sources).toBeUndefined()
+  })
+
+  test('believes only a real boolean', async () => {
+    // A retraction is a claim about a promise the server made. A truthy string
+    // arriving in this key would have the banner take back a promise nobody
+    // said was broken.
+    reportBody({ filingFailed: 'yes' })
+
+    const response = await getJobReport('job-1', undefined, { projectId: 'proj-1' })
+
+    expect(response.filingFailed).toBeUndefined()
   })
 })

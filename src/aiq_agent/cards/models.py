@@ -107,7 +107,7 @@ class CardModel(BaseModel):
 
     It runs on EVERY emission path, because all of them go through
     ``grid_card_adapter`` or :func:`validate_cards` — the ``emit_card`` tool, the
-    post-hoc batch generator, the shallow-researcher DSML path, project memory
+    post-hoc batch generator, Piloti's DSML path, project memory
     and surfaced documents. Identifier-shaped fields (IFC GlobalIds, model file
     names, JSON-pointer paths) inherit it too and are unaffected: none of the
     three constructs can occur in one.
@@ -175,8 +175,27 @@ class LegalBasisCard(CardModel):
             "when you did not see it: an invented Ausgabe makes an unverifiable citation look verified."
         ),
     )
-    article: str | None = Field(default=None, description="Relevant article or paragraph number")
-    section: str | None = Field(default=None, description="Relevant section or chapter")
+    article: str | None = Field(
+        default=None,
+        description=(
+            "The article or point NUMBER alone, as the document prints it: '3.1.1', '87', '8 bis 10', "
+            "'Art. 5 Abs. 2'. It is set in the card's MARGIN, the way a statute prints its § beside the "
+            "text, so it must be an identifier and not a sentence — 'Punkte 8 bis 10 der OIB-Richtlinie 2' "
+            "names the Richtlinie a second time and does not fit a margin; write '8 bis 10' here and let "
+            "`summary` say what those Punkte require. Roughly 20 characters is the whole budget. Omit it "
+            "when the passage carries no number."
+        ),
+    )
+    section: str | None = Field(
+        default=None,
+        description=(
+            "The section, table or annex LABEL alone: 'Tabelle 1a', 'Abs. 4', 'Anhang B', 'Pkt. 2.1'. Set "
+            "in the same margin as `article`, under the same budget, so it is a label and never a heading "
+            "or a description of what the section regulates — 'Anwendungsbereiche der ergänzenden "
+            "Richtlinien' is a summary of the passage, and belongs in `summary`. Omit it when the passage "
+            "carries no such label."
+        ),
+    )
     summary: str | None = Field(default=None, description="Plain-language summary of the legal relevance")
     original_text: str | None = Field(default=None, description="Literal excerpt from the source, if available")
 
@@ -1845,6 +1864,300 @@ class ChangeImpactCard(CardModel):
     note: str | None = Field(default=None, description="Optional one-line caveat, e.g. what the list does not cover")
 
 
+# ── The graph the other cards cannot hold ────────────────────────────────────
+# `process_map` draws a LINE and `condition_tree` draws a FAN, and each is the
+# right card the moment an answer is that shape. What neither can hold is a
+# GRAPH: a path that forks and rejoins, three parties handing things back and
+# forth in order, a stage a Verfahren can RETURN to, a Nachweis two others
+# depend on. Those answers were coming back as prose — or as a ```mermaid fence,
+# which this product has drawn and been able to file into a project as SVG + PDF
+# for a while now (`docs/architecture/diagrams.md`) without a single prompt,
+# tool or skill ever telling the model it could draw one.
+#
+# This card is that fence, catalogued. The fence stays as the fallback for
+# everything the card refuses; what the card adds is the three things a fence
+# cannot have. It has a CATALOG entry, which is how the model learns a card
+# exists at all — a fence has to win attention from prompt text instead. It is
+# VALIDATED here, before it reaches a browser, where a fence is unvalidated
+# until mermaid chokes on it in front of the reader. And filing the drawing
+# WRITES two `documents` rows, which makes the reader's click a decision that
+# ADR-0030 says has to persist on the message rather than in component-local
+# React state — which is exactly where the fence's filing button holds it.
+#
+# What this card CANNOT have is the invariant every other drawing card in this
+# module is built on: the renderer does the geometry, so a card cannot show a
+# diagram that disagrees with its own numbers. Mermaid text IS the geometry —
+# whatever the model writes is what is drawn, with no arithmetic in between and
+# therefore nothing to catch a disagreement. So the boundary is drawn around the
+# SUBJECT instead: a diagram that makes no dimensional claim has nothing on it
+# that can be measurably wrong. Everything measured belongs to the fifteen
+# schematic cards above, and that seam is stated in three places that must
+# agree — here, `docs/architecture/diagrams.md`, and the frontend's own
+# `lib/diagrams/diagram-sources.ts`.
+
+
+DiagramGrammar = Literal["flowchart", "sequence", "state", "pie"]
+"""The four mermaid grammars verified end to end: drawn, filed AND printed.
+
+Not "the four we like" — the four that survive the whole pipeline. A diagram in
+this product is rendered in the browser, re-serialised through the SERVER's SVG
+allow-list before it is even shown, and then converted to PDF for an
+Einreichung; a grammar that fails at any of those three is a card that renders
+as a grey code block in an answer.
+
+`journey` is the instructive exclusion. Mermaid emits `<foreignObject>` for it
+whatever `htmlLabels` says, and `<foreignObject>` is arbitrary HTML inside a
+file that gets served back to browsers, so the SVG validator refuses it — in the
+browser, before the drawing is shown, which is why a journey degrades to its own
+source text rather than drawing and then failing to file. `gantt`, `erDiagram`,
+`classDiagram` and `mindmap` are simply unverified: nobody has put one through
+the PDF converter, and a diagram that previews and then prints blank is worse
+than one that never drew.
+"""
+
+# The declaration keywords mermaid accepts, mapped to the grammar they select.
+# Both spellings of each are real: `graph TD` is the legacy flowchart header
+# that most training data still carries, and `stateDiagram-v2` is the version
+# mermaid's own docs steer you to. Refusing either would refuse a diagram that
+# draws perfectly, which is the one direction this validator must not fail in.
+_DIAGRAM_DECLARATIONS: dict[str, str] = {
+    "flowchart": "flowchart",
+    "graph": "flowchart",
+    "sequencediagram": "sequence",
+    "statediagram": "state",
+    "statediagram-v2": "state",
+    "pie": "pie",
+}
+
+#: `--- title: … ---` front matter, the one preamble mermaid allows above the
+#: declaration. Stripped before the declaration is read, not refused: it is
+#: valid mermaid and the model will occasionally write it.
+_MERMAID_FRONT_MATTER = re.compile(r"\A\s*---\s*\r?\n.*?\r?\n\s*---\s*(?:\r?\n|\Z)", re.DOTALL)
+
+#: `%%{init: {...}}%%` — a directive, not a comment, and it may sit on the line
+#: above the declaration or run across several lines.
+_MERMAID_DIRECTIVE = re.compile(r"%%\{.*?\}%%", re.DOTALL)
+
+
+#: Mermaid grammars this pipeline does NOT carry, kept by name so the refusal
+#: can say which one was written instead of "no diagram type". A model that
+#: reaches for `gantt` has understood the request and picked a grammar we cannot
+#: file; telling it that is a different instruction from telling it the source
+#: has no header, and the two failures have different fixes.
+_UNSUPPORTED_DECLARATIONS = frozenset(
+    {
+        "journey",
+        "gantt",
+        "erdiagram",
+        "classdiagram",
+        "classdiagram-v2",
+        "mindmap",
+        "timeline",
+        "gitgraph",
+        "quadrantchart",
+        "requirementdiagram",
+        "c4context",
+        "sankey-beta",
+        "xychart-beta",
+        "block-beta",
+        "architecture-beta",
+    }
+)
+
+
+def _first_statement(source: str) -> str | None:
+    """The first line of ``source`` that mermaid actually reads, or None.
+
+    "First line mermaid reads" is the one thing worth being careful about:
+    mermaid lets front matter, an init directive and `%%` comments precede the
+    declaration, and a validator that took line one literally would refuse
+    sources that draw perfectly. None means there is nothing but preamble — the
+    source declares no grammar, which is the single most common way a
+    model-written diagram fails, because mermaid then has nothing to parse the
+    rest with and the whole block collapses.
+
+    The raw line is returned rather than the keyword so a refusal can quote what
+    the model actually wrote; the keyword is derived by the one caller.
+    """
+    body = _MERMAID_DIRECTIVE.sub("", _MERMAID_FRONT_MATTER.sub("", source))
+    for line in body.splitlines():
+        stripped = line.strip()
+        if not stripped or stripped.startswith("%%"):
+            continue
+        return stripped
+    return None
+
+
+class DiagramCard(CardModel):
+    """Emit for a named diagram ask no shaped card fits, and for a fork, exchange or dependency — never a measurement.
+
+    A relationship prose cannot hold: a Verfahren whose stages fork and come back
+    together, several Stellen handing something to each other in order, a
+    Nachweis that other Nachweise wait on.
+
+    It is the residue after the purpose-built cards have taken their shapes.
+    `process_map` owns the ordered Verfahren, which is a LINE; `condition_tree`
+    owns the fork on one factor, which is a FAN. Reach for this card only when
+    the answer is a GRAPH neither of them can draw — a branch that comes back
+    together, a Bescheid that returns a stage, three parties passing an Akt
+    between them, a dependency between requirements. If the answer does fit a
+    line or a fan, that card draws it better, because there the renderer decides
+    what the picture looks like.
+
+    ## The boundary, and why it is about subject rather than quality
+
+    Every other drawing in this catalog is a schematic card: the model emits
+    parameters and the renderer computes the geometry, so a card cannot show a
+    diagram that disagrees with its own numbers. Here the source IS the geometry.
+    Nothing stands between what the model types and what is drawn, so nothing can
+    catch a disagreement — which is why the rule is that there must be nothing to
+    disagree WITH. A Verfahrensablauf, an Einreichungssequenz, a
+    Zuständigkeitskarte: none of them claims a measurement, so none of them can
+    be measurably wrong.
+
+    Anything carrying a measurement — a section, a stair, an escape route, a fire
+    compartment, a setback — belongs to the fifteen schematic cards, where the
+    renderer draws to scale. A mermaid box with „40 m" typed inside it is
+    precisely the artefact the card system exists to prevent, and it is the one
+    that gets screenshotted into an Einreichung.
+
+    Naming a threshold in a branch condition („Fluchtniveau > 22 m → GK 5") is
+    not that artefact and is not refused: the reader cannot mistake a rounded
+    rectangle for a section, and the number there is a label the answer has
+    already grounded. What is refused is the drawing that asks to be read as
+    scaled. No regular expression is going to tell those apart — the same „22 m"
+    appears in both — so the line is drawn in words, in the catalog, where the
+    model reads it before it writes.
+
+    ## One per answer
+
+    A diagram earns its place when it shows something prose cannot: a fork, an
+    ordering, a dependency. Most answers have none of those, and a decorative
+    diagram in a compliance answer costs the reader trust in every drawing beside
+    it. At most one per answer, for the same reason `callout` says so: a second
+    puts both back at the weight of the prose around them.
+    """
+
+    type: Literal["diagram"]
+    title: str = Field(
+        min_length=1,
+        description=(
+            "Heading above the drawing, e.g. 'Ablauf einer Bauanzeige – Wien'. It is read on its "
+            "own, above the picture, so write it as a document title rather than as a sentence"
+        ),
+    )
+    diagram_type: DiagramGrammar = Field(
+        description=(
+            "Which mermaid grammar `source` is written in: 'flowchart' (a path that forks and "
+            "rejoins, or a dependency), 'sequence' (parties exchanging things in order), 'state' (a "
+            "stage that can be returned to), 'pie' (a split the answer has already established). "
+            "These four are verified end to end; every other mermaid type either fails to draw or "
+            "fails to file, so an answer needing one writes prose instead"
+        )
+    )
+    source: str = Field(
+        min_length=1,
+        max_length=4000,
+        description=(
+            "The mermaid source, starting with its own declaration line ('flowchart TD', "
+            "'sequenceDiagram', 'stateDiagram-v2', 'pie') — a source that declares nothing draws "
+            "nothing. Labels in the answer's language and in Sie-Form; no label may carry a claim "
+            "the answer has not grounded, because the drawing leaves the page without the paragraph "
+            "that qualified it. Five to nine nodes: past that nobody reads the picture"
+        ),
+    )
+    caption: str | None = Field(
+        default=None,
+        description=(
+            "One line under the drawing saying what it shows that the prose does not — which "
+            "Bundesland's Verfahren this is, which case is drawn, what it leaves out. Omit it rather "
+            "than restating the title"
+        ),
+    )
+    reference: NormReference | None = Field(
+        default=None,
+        description=(
+            "The Bestimmung the depicted Verfahren rests on, e.g. the Land's Bauordnung. A procedure "
+            "differs by Bundesland, so a drawing of one without its Fundstelle is a procedure from "
+            "nowhere"
+        ),
+    )
+
+    @field_validator("source", mode="before")
+    @classmethod
+    def _unwrap_a_fenced_source(cls, value: object) -> object:
+        """A markdown fence around the source is decoration, not information.
+
+        Everything this product teaches the model about mermaid — the chat
+        prompt, the diagrams skill, the renderer's own fallback — says "mermaid
+        lives in a fenced block", so the single most natural way to fill this
+        field in is to wrap the source in one. Refusing that wrapper cost three
+        field turns in a row: the drawing inside was valid, the refusal named
+        only the fence, and the model apologised instead of unwrapping. Strip
+        the wrapper and validate what it contains; a real defect (a `journey`,
+        a missing declaration, a grammar mismatch) is still refused below.
+        """
+        if not isinstance(value, str):
+            return value
+        lines = value.strip().splitlines()
+        if not lines:
+            return value
+        if re.fullmatch(r"(`{3,}|~{3,})\s*(mermaid)?\s*", lines[0]):
+            lines = lines[1:]
+            if lines and re.fullmatch(r"(`{3,}|~{3,})\s*", lines[-1]):
+                lines = lines[:-1]
+            return "\n".join(lines)
+        return value
+
+    @model_validator(mode="after")
+    def _source_declares_the_grammar_it_says_it_does(self) -> "DiagramCard":
+        """Refuse a source that declares nothing, or declares something else.
+
+        This is the one invariant available to a card whose renderer cannot do
+        the geometry, and it catches the failure that actually bites. A missing
+        declaration is the most common way a model-written diagram fails: mermaid
+        has no grammar to parse the rest with, so the whole block collapses to a
+        grey code box in the middle of an answer, which reads as this product
+        being unable to draw. And a `journey` or a `gantt` smuggled in under a
+        declared 'flowchart' would pass every other check here and then be
+        refused by the SVG validator in the reader's browser.
+
+        Refused rather than repaired: `emit_card` hands the message back to the
+        model, which fixes the source and calls again, and every refusal is
+        logged with the card type — so a doctrine that keeps producing
+        undeclared diagrams is visible instead of silently patched over.
+        """
+        statement = _first_statement(self.source)
+        if statement is None:
+            raise ValueError(
+                "`source` declares no diagram type: it is nothing but front matter, a directive or "
+                "comments. Its first real line must be the mermaid declaration itself — "
+                "'flowchart TD', 'sequenceDiagram', 'stateDiagram-v2' or 'pie'."
+            )
+        keyword = statement.split()[0].lower().rstrip(":")
+        if keyword in _UNSUPPORTED_DECLARATIONS:
+            raise ValueError(
+                f"`source` is a '{keyword}' diagram, which this product cannot draw or file: only "
+                "flowchart, sequence, state and pie survive rendering, the SVG allow-list and the "
+                "PDF conversion. Rewrite it as one of those four, or write the answer as prose."
+            )
+        declared = _DIAGRAM_DECLARATIONS.get(keyword)
+        if declared is None:
+            raise ValueError(
+                f"`source` declares no diagram type: it opens with {statement[:60]!r}. The first "
+                "real line must be the declaration itself — 'flowchart TD', 'sequenceDiagram', "
+                "'stateDiagram-v2' or 'pie'. Without it mermaid has no grammar to read the rest "
+                "with and nothing is drawn."
+            )
+        if declared != self.diagram_type:
+            raise ValueError(
+                f"`diagram_type` is '{self.diagram_type}' but `source` declares '{declared}'. "
+                "Make them agree, and note that only flowchart, sequence, state and pie are "
+                "supported — any other mermaid type is refused before it reaches the reader."
+            )
+        return self
+
+
 # ── Document-surfacing card (system-emitted) ─────────────────────────────────
 # Surfaced by the `surface_documents` tool from a REAL vector search over the
 # project + Büroarchiv corpus — never fabricated by the model (it is a system
@@ -1879,6 +2192,241 @@ class DocumentGridCard(CardModel):
     title: str = Field(min_length=1, description="Short heading, e.g. 'Relevante Dokumente – Fluchtwege'")
     query: str | None = Field(default=None, description="The search phrase these documents matched")
     documents: list[SurfacedDocument] = Field(min_length=1, description="The surfaced files, best match first")
+
+
+# ── Draft card (system-emitted) ──────────────────────────────────────────────
+#: The editorial states of a document version, mirrored (not imported) from
+#: ``DOCUMENT_VERSION_STATES`` in
+#: ``frontends/ui/src/lib/documents/lifecycle-types.ts`` — the same
+#: parse-independently rule the request-context headers follow, since the
+#: contract crosses a language boundary and the JSON Schema at
+#: ``frontends/ui/tests/fixtures/document-lifecycle.schema.json`` is what pins
+#: the two together (``tests/aiq_agent/tools/documents/test_wire_contract.py``).
+DocumentVersionState = Literal[
+    "draft",
+    "in_review",
+    "changes_requested",
+    "approved",
+    "published",
+    "superseded",
+    "rejected",
+]
+
+# The one thing that says a chat turn WROTE something. Pushed by `write_file`
+# and `edit_file` from the conversation's working directory
+# (`tools/documents/draft_store.py`), never by the model: a draft the reader can
+# open has to be a file that exists, and a fabricated one would name a path
+# nothing wrote.
+
+
+class DocumentDraftCard(CardModel):
+    """A document the agent wrote into this conversation's working directory.
+
+    System-emitted by the working directory's ``write_file`` / ``edit_file``, and
+    again by ``file_draft`` once the draft has become a project document.
+
+    **The card has two states, and the difference is three fields.** Unfiled, it
+    reports a file that exists in this conversation and nowhere else: not filed,
+    not indexed, not citable, not in the Files pane. Filed, it names a
+    ``documents`` row — and then it can offer the two things a reader wants,
+    opening it and sending it for review, both through the routes the Files pane
+    itself uses.
+
+    The three fields travel together or not at all: a card carrying a
+    ``document_id`` and no ``version_state`` could not say whether the draft is
+    still submittable, and one carrying a state with no ``version_id`` could not
+    submit it. ``_require_filed_together`` is what refuses the half-filled shape,
+    because the alternative is a card that renders a live-looking control over
+    nothing.
+    """
+
+    type: Literal["document_draft"] = "document_draft"
+    title: str = Field(min_length=1, description="The document's first heading, or its file name when it has none")
+    path: str = Field(min_length=1, description="Path in the working directory, e.g. '/entwuerfe/aktenvermerk.md'")
+    bytes: int = Field(ge=0, description="Size of the draft as stored, in UTF-8 bytes")
+    version: int = Field(ge=1, description="How often this path has been written or edited in this conversation")
+    document_id: str | None = Field(
+        default=None, description="The project document this draft was filed as; absent while it is unfiled"
+    )
+    version_id: str | None = Field(
+        default=None, description="The open version of that document — what 'submit for review' acts on"
+    )
+    version_state: DocumentVersionState | None = Field(
+        default=None, description="That version's editorial state, as the lifecycle API last reported it"
+    )
+
+    @model_validator(mode="after")
+    def _require_filed_together(self) -> "DocumentDraftCard":
+        filed = (self.document_id, self.version_id, self.version_state)
+        if any(filed) and not all(filed):
+            raise ValueError(
+                "document_id, version_id and version_state are the filed state and travel together: "
+                "a card with some of them cannot say what it is offering"
+            )
+        return self
+
+
+# ── Task created (system-emitted, informational) ─────────────────────────────
+# Pushed by `create_task` (`tools/tasks/register.py`) and by nothing else. A
+# delegated task is a ROW the BFF has already created by the time the card
+# exists, so this card REPORTS rather than proposes: there is nothing to accept,
+# and a control here would offer to do a second time what the tool just did.
+
+#: The kinds a person may delegate. Mirrored (not imported) from
+#: `DELEGATABLE_TASK_KINDS` in `frontends/ui/src/lib/db/schema/tasks.ts` — the
+#: same parse-independently rule `DocumentVersionState` follows one screen up,
+#: for the same reason: the contract crosses a language boundary, and a shared
+#: schema between the two would be a build step neither tier wants.
+TaskKind = Literal["compliance_check", "einreichcheck", "document", "revision"]
+
+
+class TaskCreatedCard(CardModel):
+    """Work Piloti has taken on, as a row somebody can come back to.
+
+    System-emitted by ``create_task``. What it exists to prevent is the answer
+    „ich mache den Einreichcheck bis Freitag" with nothing behind it: the card is
+    proof there is a row, and the row is what carries the requester's permission,
+    the deadline and — when a person judges the result — the decision that reaches
+    the next attempt (ADR-0051).
+
+    Informational, not interactive. The task is already queued when this renders,
+    so there is no Accept: a control would either repeat the delegation or cancel
+    it, and cancelling delegated work is a Files-and-tasks surface decision, not
+    a chat one.
+
+    ``conversation_id`` is the thread the run writes into, so the card can link a
+    reader to the work rather than only announce it. Absent when the run's
+    conversation could not be created, which is the same degraded shape a
+    scheduled job has had since jobs got conversations at all.
+    """
+
+    type: Literal["task_created"] = "task_created"
+    task_id: str = Field(min_length=1, description="The task row's id")
+    kind: TaskKind = Field(description="What kind of work was delegated")
+    title: str = Field(min_length=1, max_length=200, description="What the task is called in the inbox and the list")
+    goal: str = Field(min_length=1, max_length=500, description="What was asked, in the requester's own words")
+    due_at: str | None = Field(
+        default=None, description="ISO instant the work is wanted by, or absent when none was named"
+    )
+    conversation_id: str | None = Field(
+        default=None, description="The conversation the run writes into; absent when it could not be created"
+    )
+
+
+# ── File-operation proposal (system-emitted, interactive) ────────────────────
+# ONE card type for four verbs, discriminated by `operation`, because the
+# alternative is four cards that differ in one field and share every line of
+# their chrome, their decision lifecycle and their i18n. The four write-side
+# workspace tools (`tools/files/`) each emit this card and NEVER perform the
+# operation: the Python tier holds no path into `grid_app` (ADR-0003), so
+# accepting it is what executes — through the same routes the Files pane uses,
+# in the reader's own session, under `requireProjectAccess`.
+#
+# The batch is what makes it one card and not one per file. „Räum die
+# Einreichunterlagen zusammen" is four moves, and four cards asking the same
+# question four times is four decisions for one intention. So `operations`
+# is a list, capped, and every entry shares the card's `operation` kind.
+
+#: How many operations one card may carry. A tidying turn proposes a handful;
+#: past that the card stops being a decision the reader can actually read
+#: before answering, and „alles verschieben" is not a proposal, it is a job.
+MAX_FILE_OPERATIONS = 8
+
+#: The four verbs. Each names the tool that emits it (`move_document`,
+#: `rename_document`, `create_folder`, `assign_document`).
+#:
+#: A fifth, `set_doc_class`, was here and is gone. A project document has no
+#: doc_class route for an Accept to run, so the card drew the proposal and no
+#: control — a decision the reader could read and could not take. It comes back
+#: with the route, not before it.
+FileOperationKind = Literal["move", "rename", "create_folder", "assign"]
+
+
+class FileOperationItem(CardModel):
+    """One proposed change, in the vocabulary of the operation that owns it.
+
+    Deliberately flat with per-operation fields rather than a nested union: the
+    card is built by the tool, validated once here, and rendered by one
+    component that switches on the CARD's `operation` — a shape the frontend's
+    generated Zod can narrow without a second discriminator inside every row.
+    :meth:`FileOperationProposalCard._require_operation_fields` is what keeps a
+    row from carrying another operation's fields.
+
+    ``document`` is a FILE NAME and never an id. The agent's inventory
+    (``knowledge/inventory.py``) knows files by ``(collection, file_name)`` and
+    has no document ids in it at all, so a card carrying an id would be
+    carrying something the tool invented. The reader's session resolves the
+    name against their own document list when they accept.
+    """
+
+    document: str | None = Field(
+        default=None,
+        description="File name exactly as the inventory lists it (move, rename, assign)",
+    )
+    source: Literal["projekt", "buero"] | None = Field(
+        default=None,
+        description="Which shelf the document sits on, so the name resolves in the right corpus",
+    )
+    current: str | None = Field(
+        default=None,
+        description="What this is TODAY (current folder or name) — for the before/after line",
+    )
+    target_folder: str | None = Field(
+        default=None,
+        description="move: the destination folder PATH, e.g. 'Einreichung/Pläne'. Empty string is the project root",
+    )
+    new_display_name: str | None = Field(default=None, description="rename: the new display name")
+    folder_name: str | None = Field(default=None, description="create_folder: the new folder's own name (one segment)")
+    parent_folder: str | None = Field(
+        default=None,
+        description="create_folder: the parent folder PATH, or an empty string for the project root",
+    )
+    member: str | None = Field(
+        default=None,
+        description="assign: the person as the user named them; the reader's session resolves it against the project",
+    )
+
+
+class FileOperationProposalCard(CardModel):
+    """A workspace change the agent PROPOSES and the reader executes.
+
+    System-emitted by the four tools under ``src/aiq_agent/tools/files/``. Every
+    one of them is a write, none of them writes: the card is the proposal, the
+    reader's Accept runs it through the existing document/folder/assignment
+    routes in their own session, and the tool's own result text says plainly
+    that nothing has changed yet.
+    """
+
+    type: Literal["file_operation_proposal"] = "file_operation_proposal"
+    title: str = Field(min_length=1, description="Short action title, e.g. 'Vier Dateien in „Einreichung“ verschieben'")
+    operation: FileOperationKind = Field(description="Which verb every entry in `operations` is")
+    operations: list[FileOperationItem] = Field(
+        min_length=1,
+        max_length=MAX_FILE_OPERATIONS,
+        description="The proposed changes, in the order they will be applied",
+    )
+    note: str | None = Field(default=None, description="One line of context under the list, when it adds something")
+
+    @model_validator(mode="after")
+    def _require_operation_fields(self) -> "FileOperationProposalCard":
+        """Every entry must carry what its verb needs, and nothing it does not.
+
+        The card is built in Python, so this is not a guard against a model —
+        it is the guard against a TOOL that grows a fifth caller and forgets a
+        field. A row missing its target renders as a proposal to do nothing,
+        which the reader would accept.
+        """
+        required: dict[str, tuple[str, ...]] = {
+            "move": ("document", "target_folder"),
+            "rename": ("document", "new_display_name"),
+            "create_folder": ("folder_name",),
+            "assign": ("document", "member"),
+        }[self.operation]
+        for index, item in enumerate(self.operations):
+            missing = [name for name in required if getattr(item, name) is None]
+            if missing:
+                raise ValueError(f"operation {index} ({self.operation}) is missing {', '.join(missing)}")
+        return self
 
 
 # ---------------------------------------------------------------------------
@@ -2177,6 +2725,7 @@ GridCard = (
     | DocumentChecklistCard
     | DeadlineTimelineCard
     | ChangeImpactCard
+    | DiagramCard
     | FollowUpsCard
     | BuildingSectionCard
     | StairDiagramCard
@@ -2195,6 +2744,9 @@ GridCard = (
     | ParkingRequirementCard
     | MemoryProposalCard
     | DocumentGridCard
+    | DocumentDraftCard
+    | TaskCreatedCard
+    | FileOperationProposalCard
     | IfcViewerCard
     | IfcComplianceCard
     | IfcScheduleCard
@@ -2222,7 +2774,9 @@ __all__ = [
     "ConditionTreeCard",
     "Deadline",
     "DeadlineTimelineCard",
+    "DiagramCard",
     "DocumentChecklistCard",
+    "DocumentDraftCard",
     "DocumentGridCard",
     "FollowUp",
     "FollowUpsCard",
@@ -2249,6 +2803,7 @@ __all__ = [
     "ProjectProfilePatchPreviewItem",
     "RequirementChecklistCard",
     "SummaryCard",
+    "TaskCreatedCard",
     "TypedColumn",
     "TypedTableCard",
     "VerdictHeaderCard",
@@ -2272,16 +2827,24 @@ def validate_cards(raw: list[dict]) -> list[dict]:
     ``remember``). The model is never told these types exist, so any occurrence
     here is a fabrication — enforce the same invariant ``emit_card`` and the
     DSML salvage already enforce, closing the last emission path.
+
+    Envelope types (``ENVELOPE_CARD_TYPES``) are dropped for the same closing
+    reason: no surface asks a model for them any more — they are answer_meta
+    fields on the chat contract, and nothing at all on this one — so an
+    occurrence here is a model reaching for a shape its catalog no longer
+    offers.
     """
     import logging
 
+    from aiq_agent.cards.catalog import ENVELOPE_CARD_TYPES
     from aiq_agent.cards.catalog import SYSTEM_CARD_TYPES
 
     logger = logging.getLogger(__name__)
     validated: list[dict] = []
+    withheld = SYSTEM_CARD_TYPES | ENVELOPE_CARD_TYPES
     for item in raw:
-        if isinstance(item, dict) and item.get("type") in SYSTEM_CARD_TYPES:
-            logger.warning("Dropping model-fabricated system card (type=%s)", item.get("type"))
+        if isinstance(item, dict) and item.get("type") in withheld:
+            logger.warning("Dropping model-fabricated system/envelope card (type=%s)", item.get("type"))
             continue
         try:
             validated.append(grid_card_adapter.validate_python(item).model_dump(exclude_none=True))

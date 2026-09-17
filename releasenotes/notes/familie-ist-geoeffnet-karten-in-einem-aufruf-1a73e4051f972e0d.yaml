@@ -1,0 +1,11 @@
+---
+improvements:
+  - >
+    Eine Frage nach einer ganzen Richtlinie („Was weißt du über die OIB 2?“)
+    ist einen Schritt früher beantwortet: Die Teile, die der Suchlauf mit
+    Geltungsbereich und Gliederung zurückgibt, gelten als aufgeschlagen, und
+    Piloti schlägt sie nicht noch einmal einzeln auf. Aufgeschlagen wird von
+    dort aus nur noch ein einzelner Punkt, wenn die Antwort ihn braucht.
+  - >
+    Gehören zu einer Antwort mehrere Karten, kommen sie zusammen in einem
+    Schritt statt nacheinander.

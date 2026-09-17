@@ -72,9 +72,10 @@ export type SheetSide = keyof typeof SIDE_CLASSES
  *
  * So: `--motion-deliberate` on `--ease-entrance`. The decision lands at the
  * START of the move, which is what an arriving surface wants, and the same pair
- * `DockedPanel` uses — the app's two large sliding panels now agree on what
- * "a panel arriving" feels like. The exit is one step shorter on `--ease-exit`
- * via `OVERLAY_EXIT`, because nobody wants to watch a thing they dismissed.
+ * the page sheet uses (`motionSheetEnter` in the motion kit) — the app's large
+ * sliding panels agree on what "a panel arriving" feels like. The exit is one
+ * step shorter on `--ease-exit` via `OVERLAY_EXIT`, because nobody wants to
+ * watch a thing they dismissed.
  */
 interface SheetContentProps extends React.ComponentPropsWithoutRef<typeof SheetPrimitive.Content> {
   side?: SheetSide
@@ -91,7 +92,7 @@ const SheetContent = React.forwardRef<React.ElementRef<typeof SheetPrimitive.Con
         style={style}
         className={cn(
           'fixed z-50 flex flex-col gap-4 overflow-y-auto bg-background p-6 shadow-lg data-[state=open]:animate-in data-[state=closed]:animate-out '
-            + 'ease-entrance data-[state=open]:duration-deliberate '
+            + 'data-[state=open]:ease-entrance data-[state=open]:duration-deliberate '
             + `${OVERLAY_EXIT} ${OVERLAY_REDUCED}`,
           SIDE_CLASSES[side],
           className,
@@ -101,7 +102,7 @@ const SheetContent = React.forwardRef<React.ElementRef<typeof SheetPrimitive.Con
         {children}
         <SheetPrimitive.Close
           className={cn(
-            'absolute right-4 top-4 rounded-sm text-muted-foreground opacity-70 outline-none transition-opacity duration-quick ease-out hover:opacity-100 disabled:pointer-events-none disabled:opacity-50 motion-reduce:transition-none touch-target',
+            'absolute right-4 top-4 inline-flex size-8 items-center justify-center rounded-md text-muted-foreground outline-none transition-colors duration-quick ease-out hover:bg-accent hover:text-foreground disabled:pointer-events-none disabled:opacity-50 motion-reduce:transition-none touch-target',
             FOCUS_RING,
           )}
         >
@@ -128,7 +129,7 @@ const SheetTitle = React.forwardRef<
   React.ElementRef<typeof SheetPrimitive.Title>,
   React.ComponentPropsWithoutRef<typeof SheetPrimitive.Title>
 >(({ className, ...props }, ref) => (
-  <SheetPrimitive.Title ref={ref} className={cn('text-base font-semibold', className)} {...props} />
+  <SheetPrimitive.Title ref={ref} className={cn('text-lg font-semibold', className)} {...props} />
 ))
 SheetTitle.displayName = SheetPrimitive.Title.displayName
 

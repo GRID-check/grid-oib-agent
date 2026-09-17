@@ -16,7 +16,13 @@ export {
   CitationAccumulator,
   citationNumbers,
   citedLoci,
+  // The two specific claims, exported deliberately: `documentPages` is what a
+  // SURFACE prints, and these are what it is made of. Kept nameable so a caller
+  // that means "cited" or "read" can say so rather than reaching for the
+  // display rule and then explaining why.
   citedPages,
+  documentPages,
+  readPages,
   compareDocuments,
   documentIdentity,
   hitCount,
@@ -26,6 +32,8 @@ export {
   isHttpUrl,
   locusKey,
   locusOf,
+  normalizeFileKey,
+  normalizeFileName,
   normalizeUrl,
   refHost,
   refKey,
@@ -65,6 +73,7 @@ export {
 export { buildCitationModel, citationSnippet, type CitationInputs } from './build'
 
 export {
+  openAtLocus,
   resolveCitationTarget,
   type CitationTarget,
   type StoredDocumentRef,
@@ -78,6 +87,7 @@ export {
   bibliographyRows,
   documentShelfLabel,
   documentTabLabel,
+  referencesByNumber,
   splitAnswerBody,
   totalHits,
   unusedDocuments,

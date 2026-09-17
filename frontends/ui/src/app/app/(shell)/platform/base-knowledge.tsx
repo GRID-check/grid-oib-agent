@@ -623,7 +623,7 @@ export function BaseKnowledge() {
           aria-label={t('knowledgeAdmin.sortBy', { column: label })}
           // A column header is text-height by design; `touch-target` makes it
           // tappable without turning the header row into a row of buttons.
-          className="inline-flex items-center gap-1 rounded-sm uppercase tracking-wide transition-colors duration-200 ease-out hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60 touch-target"
+          className="inline-flex items-center gap-1 rounded-sm uppercase tracking-wide transition-colors duration-quick ease-out hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60 touch-target"
         >
           {label}
           <Icon className="size-3" aria-hidden />
@@ -692,8 +692,8 @@ export function BaseKnowledge() {
               onDragLeave={() => setIsDragActive(false)}
               onDrop={onDrop}
               className={cn(
-                'flex min-h-[7.5rem] cursor-pointer flex-col items-center justify-center gap-1 rounded-xl border-2 border-dashed px-4 py-5 text-center transition-colors duration-200 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60',
-                'animate-in fade-in-0 duration-200 ease-out motion-reduce:animate-none',
+                'flex min-h-[7.5rem] cursor-pointer flex-col items-center justify-center gap-1 rounded-xl border-2 border-dashed px-4 py-5 text-center transition-colors duration-quick ease-out motion-reduce:transition-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60',
+                'animate-in fade-in-0 duration-base ease-out motion-reduce:animate-none',
                 isDragActive ? 'border-primary bg-accent' : 'border-border hover:border-primary/60 hover:bg-accent/40',
                 (isUploading || isSyncing) && 'pointer-events-none opacity-60',
               )}

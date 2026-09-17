@@ -188,3 +188,20 @@ class TestPlatformMaxResultsOverride:
         assert [urlparse(h).hostname for h in hrefs] == ["a.example"]
         # The resolver's cache is process-global; do not leave this outage in it.
         retrieval_settings.reset_retrieval_settings_cache()
+
+
+class TestLaneCapture:
+    """Shown web hits reach the per-round ledger with their round stamp."""
+
+    async def test_result_urls_are_captured_with_the_round(self, fake_langchain_tavily):
+        """Result URLs are captured with the active round."""
+        from aiq_agent.common import turn_status
+
+        token = turn_status.begin_lane_capture()
+        try:
+            with turn_status.retrieval_round_scope(1):
+                await _run_search(TavilyWebSearchToolConfig(max_results=5))
+            hits = turn_status.get_lane_captures()
+        finally:
+            turn_status.end_lane_capture(token)
+        assert hits == [{"round": 1, "name": "https://a.example", "title": "A"}]

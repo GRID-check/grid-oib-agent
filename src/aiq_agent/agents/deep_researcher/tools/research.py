@@ -8,6 +8,10 @@ import json
 import logging
 import os
 import re
+from collections.abc import Iterator
+from collections.abc import Sequence
+from dataclasses import dataclass
+from dataclasses import field
 from typing import Any
 from typing import cast
 
@@ -19,10 +23,17 @@ from langgraph.errors import GraphRecursionError
 
 from aiq_agent.common import RunBudgetExceededError
 from aiq_agent.common import extract_json
+from aiq_agent.common.cost_tracking import BudgetExceededError
+from aiq_agent.common.retrieval_rounds import repeat_fetches
+from aiq_agent.common.turn_status import emit_repeat_fetch
+from aiq_agent.common.turn_status import fetch_signature
+from aiq_agent.common.turn_status import record_round_announcement
+from aiq_agent.common.turn_status import retrieval_round_scope
 
 from ..models import ResearchGap
 from ..models import ResearchNotes
 from ..models import ResearchQuery
+from ..models import last_message_text
 
 _NO_TOOL_RUNTIME = cast(ToolRuntime, None)
 logger = logging.getLogger(__name__)
@@ -72,6 +83,54 @@ class ResearcherExhaustedError(Exception):
     """Terminal per-query worker outcome: the query cannot be researched within its step budget."""
 
 
+@dataclass
+class RetrievalRounds:
+    """One run's retrieval rounds: what each batch announced, and what it returned.
+
+    Built per run and handed to the batch tool (ADR-0018). The agent instance is
+    shared across runs and tenants, so a module-level accumulator would put one
+    tenant's rounds on another tenant's report.
+    """
+
+    #: One entry per announced batch, in dispatch order, as
+    #: ``turn_status.record_round_announcement`` shapes it. Its position is the
+    #: round index the hits of that batch are stamped with.
+    announcements: list[dict[str, Any]] = field(default_factory=list)
+    #: Fetch signature to the note that signature's first execution returned,
+    #: as the wire dict the batch replies with. A query that FAILED is absent,
+    #: so the retry the orchestrator sends runs.
+    results: dict[str, dict[str, Any]] = field(default_factory=dict)
+
+
+def _query_call(query: ResearchQuery, conclusion: str) -> dict[str, Any]:
+    """One planned query as the tool call it stands for.
+
+    The announcement, the round's corpora and the repeat guard all read THIS one
+    derivation, so what a round says it did and what it was allowed to run
+    cannot drift apart. The call is named after the primary preferred tool
+    because that is the tool the worker runs first (researcher.j2, step 8).
+    """
+    return {
+        "name": query.preferred_tools[0],
+        "args": {"query": query.query, "conclusion": conclusion},
+        "id": _query_digest(query),
+    }
+
+
+def _split_batch(calls: list[dict[str, Any]], executed: Sequence[str]) -> tuple[list[int], list[str]]:
+    """The batch positions that RUN, and the signatures an earlier note answers.
+
+    Only the fetches ``fetch_signature`` signs can be withheld at all: a web or
+    catalog query is not the same bytes twice and runs every time it is asked
+    for. Positions on the way out, because the caller pairs them back up with
+    the queries it was handed.
+    """
+    withheld = {id(call) for call in repeat_fetches(calls, executed)}
+    running = [index for index, call in enumerate(calls) if id(call) not in withheld]
+    repeats = [signature for call in calls if id(call) in withheld and (signature := fetch_signature(call)) is not None]
+    return running, repeats
+
+
 def format_research_request(query: ResearchQuery) -> str:
     """Create the single-query researcher task text used by the batch tool."""
     query_json = json.dumps(query.model_dump(mode="json"), indent=2, ensure_ascii=False)
@@ -95,28 +154,6 @@ def researcher_invoke_state(query: ResearchQuery, runtime: ToolRuntime | None) -
     return invoke_state
 
 
-def _last_message_text(result: Any) -> str | None:
-    """Return the final assistant message text from a researcher runnable result."""
-    messages = result.get("messages") if isinstance(result, dict) else None
-    if not messages:
-        return None
-    content = getattr(messages[-1], "content", None)
-    if isinstance(content, str):
-        return content.strip() or None
-    if isinstance(content, list):
-        # Structured block content: join text blocks rather than repr the list.
-        parts: list[str] = []
-        for block in content:
-            if isinstance(block, str):
-                parts.append(block)
-            elif isinstance(block, dict) and isinstance(block.get("text"), str):
-                parts.append(block["text"])
-            elif isinstance(getattr(block, "text", None), str):
-                parts.append(block.text)
-        return "\n".join(parts).strip() or None
-    return None
-
-
 def _structured_research_notes(result: Any) -> ResearchNotes:
     """Coerce a researcher runnable result into ResearchNotes.
 
@@ -130,11 +167,26 @@ def _structured_research_notes(result: Any) -> ResearchNotes:
     """
     structured = result.get("structured_response") if isinstance(result, dict) else None
     if structured is None:
-        text = _last_message_text(result)
+        text = last_message_text(result) if isinstance(result, dict) else None
         structured = extract_json(text) if text else None
     if structured is None:
         raise ValueError("researcher worker did not return structured ResearchNotes")
     return ResearchNotes.model_validate(structured)
+
+
+def _worker_config(callbacks: list[Any]) -> dict[str, Any]:
+    """Per-worker invoke config with its own callback instances.
+
+    Stateful handlers (``VerboseTraceCallback``) mutate per-run instance state
+    and must not span concurrent runs (ADR-0018); ``for_new_run()`` hands back
+    a fresh instance per worker so up to ``max_research_concurrency``
+    researchers do not race on one handler's state.
+    """
+    worker_callbacks = [cb.for_new_run() if hasattr(cb, "for_new_run") else cb for cb in callbacks]
+    config: dict[str, Any] = {"recursion_limit": RESEARCHER_RECURSION_LIMIT}
+    if worker_callbacks:
+        config["callbacks"] = worker_callbacks
+    return config
 
 
 async def _run_research_query(
@@ -145,26 +197,22 @@ async def _run_research_query(
     callbacks: list[Any],
     semaphore: asyncio.Semaphore,
 ) -> ResearchNotes:
-    """Run one researcher worker and return its structured notes."""
+    """Run one researcher worker and return its structured notes.
+
+    Budget exhaustion is terminal and propagates untouched (never a
+    resubmittable RuntimeError); a step-budget overrun becomes
+    ``ResearcherExhaustedError``; any other worker failure is captured as a
+    per-item failure naming the query. A note with no findings and an empty
+    summary is schema-valid only because the contract sets no minimum
+    length — it is treated as a failed worker so the orchestrator resubmits
+    instead of persisting an empty note that silently drops the work.
+    """
     async with semaphore:
-        # Build a per-worker callbacks list rather than reusing the shared
-        # batch-level list across concurrent invocations. Stateful handlers
-        # (e.g. VerboseTraceCallback) mutate per-run instance state and their
-        # own docstrings warn a single instance must not span concurrent runs
-        # (ADR-0018); for_new_run() hands back a fresh instance per worker so
-        # up to max_research_concurrency researchers running at once don't
-        # race on the same handler's state. Callbacks without for_new_run are
-        # passed through unchanged.
-        worker_callbacks = [cb.for_new_run() if hasattr(cb, "for_new_run") else cb for cb in callbacks]
         try:
-            config: dict[str, Any] = {"recursion_limit": RESEARCHER_RECURSION_LIMIT}
-            if worker_callbacks:
-                config["callbacks"] = worker_callbacks
             result = await researcher_runnable.ainvoke(
-                researcher_invoke_state(query, runtime),
-                config=config,
+                researcher_invoke_state(query, runtime), config=_worker_config(callbacks)
             )
-        except RunBudgetExceededError:
+        except (RunBudgetExceededError, BudgetExceededError):
             raise
         except GraphRecursionError:
             raise ResearcherExhaustedError(
@@ -174,24 +222,13 @@ async def _run_research_query(
         except Exception as exc:  # noqa: BLE001 - captured as per-item failure
             raise RuntimeError(f"researcher worker failed for query {query.query!r}: {exc}") from exc
 
-        try:
-            note = _structured_research_notes(result)
-        except Exception as exc:  # noqa: BLE001 - captured as per-item failure
-            raise ValueError(
-                f"researcher worker returned invalid ResearchNotes for query {query.query!r}: {exc}"
-            ) from exc
-
-        # A note with no findings and an empty summary carries no research
-        # result — it is schema-valid only because the contract sets no minimum
-        # length. Treat it as a failed worker so the orchestrator resubmits the
-        # query instead of persisting an empty note that silently drops the work.
-        if not note.findings and not note.summary.strip():
-            raise ValueError(
-                f"researcher worker returned an empty ResearchNotes (no findings and blank summary) "
-                f"for query {query.query!r}"
-            )
-
-        return note
+    note = _structured_research_notes(result)
+    if not note.findings and not note.summary.strip():
+        raise ValueError(
+            f"researcher worker returned an empty ResearchNotes (no findings and blank summary) "
+            f"for query {query.query!r}"
+        )
+    return note
 
 
 def _research_note_slug(text: str) -> str:
@@ -214,24 +251,23 @@ def _research_note_path(query: ResearchQuery) -> str:
     return f"/shared/research_note_{slug}_{digest}.json"
 
 
+def _string_leaves(container: Any, key: Any, value: Any) -> Iterator[tuple[Any, Any, str]]:
+    """Every ``(container, key, string)`` leaf of a nested JSON value."""
+    if isinstance(value, str):
+        yield container, key, value
+        return
+    children = value.items() if isinstance(value, dict) else enumerate(value) if isinstance(value, list) else ()
+    for child_key, child in children:
+        yield from _string_leaves(value, child_key, child)
+
+
 def _largest_string_leaf(obj: Any) -> tuple[Any, Any] | None:
     """Return ``(container, key)`` of the longest string leaf in a nested JSON value."""
-    best: tuple[int, Any, Any] | None = None
-
-    def walk(container: Any, key: Any, value: Any) -> None:
-        nonlocal best
-        if isinstance(value, str):
-            if best is None or len(value) > best[0]:
-                best = (len(value), container, key)
-        elif isinstance(value, dict):
-            for k, v in value.items():
-                walk(value, k, v)
-        elif isinstance(value, list):
-            for i, v in enumerate(value):
-                walk(value, i, v)
-
-    walk(None, None, obj)
-    return (best[1], best[2]) if best is not None else None
+    leaves = list(_string_leaves(None, None, obj))
+    if not leaves:
+        return None
+    container, key, _ = max(leaves, key=lambda leaf: len(leaf[2]))
+    return container, key
 
 
 def _truncate_research_note(note: ResearchNotes) -> ResearchNotes:
@@ -290,20 +326,55 @@ def _research_note_files(queries: list[ResearchQuery], notes: list[ResearchNotes
     return files
 
 
-def _persist_research_notes(
+async def _persist_research_notes(
     *,
     backend: Any | None,
     queries: list[ResearchQuery],
     notes: list[ResearchNotes],
 ) -> None:
-    """Persist returned ResearchNotes into parent /shared state."""
+    """Persist returned ResearchNotes into parent /shared state.
+
+    The async upload: trivial for the in-memory ``StateBackend``, but the same
+    call goes to a sandbox route if ``/shared/`` is ever re-routed, and a
+    synchronous upload there would block the loop.
+    """
     if backend is None or not notes:
         return
 
-    responses = backend.upload_files(_research_note_files(queries, notes))
+    responses = await backend.aupload_files(_research_note_files(queries, notes))
     errors = [f"{response.path}: {response.error}" for response in responses if getattr(response, "error", None)]
     if errors:
         raise RuntimeError(f"failed to persist research note file(s): {'; '.join(errors)}")
+
+
+def _collect_worker_results(
+    queries: list[ResearchQuery],
+    raw_results: list[Any],
+) -> tuple[list[ResearchQuery], list[ResearchNotes], list[str]]:
+    """Sort gathered worker outcomes into (query, note) pairs and surfaced errors.
+
+    An exhausted worker already burned its per-worker step budget; resubmitting
+    it cannot help, so it becomes a terminal unresearchable note instead of a
+    retryable error that would re-feed the plan -> batch -> resubmit loop the
+    step cap exists to stop. Budget exhaustion is re-raised: it is terminal for
+    the whole run.
+    """
+    successful_queries: list[ResearchQuery] = []
+    notes: list[ResearchNotes] = []
+    errors: list[str] = []
+    for query, raw_result in zip(queries, raw_results, strict=False):
+        if isinstance(raw_result, (RunBudgetExceededError, BudgetExceededError)):
+            raise raw_result
+        if isinstance(raw_result, ResearcherExhaustedError):
+            successful_queries.append(query)
+            notes.append(_terminal_unresearchable_note(query))
+            continue
+        if isinstance(raw_result, BaseException):
+            errors.append(f"{query.query}: {str(raw_result) or raw_result.__class__.__name__}")
+            continue
+        successful_queries.append(query)
+        notes.append(raw_result)
+    return successful_queries, notes, errors
 
 
 async def _run_research_queries(
@@ -329,28 +400,16 @@ async def _run_research_queries(
         ),
         return_exceptions=True,
     )
+    return _collect_worker_results(queries, list(raw_results))
 
-    successful_queries: list[ResearchQuery] = []
-    notes: list[ResearchNotes] = []
-    errors: list[str] = []
-    for query, raw_result in zip(queries, raw_results, strict=False):
-        if isinstance(raw_result, BaseException):
-            if isinstance(raw_result, RunBudgetExceededError):
-                raise raw_result
-            if isinstance(raw_result, ResearcherExhaustedError):
-                # An exhausted worker already burned its per-worker step budget;
-                # resubmitting it cannot help. Record a terminal unresearchable
-                # note instead of a retryable error so it does not re-feed the
-                # plan -> batch -> resubmit loop the step cap exists to stop.
-                successful_queries.append(query)
-                notes.append(_terminal_unresearchable_note(query))
-                continue
-            error = str(raw_result) or raw_result.__class__.__name__
-            errors.append(f"{query.query}: {error}")
-        else:
-            successful_queries.append(query)
-            notes.append(raw_result)
-    return successful_queries, notes, errors
+
+def _assert_batch_size(queries: list[ResearchQuery], max_research_concurrency: int) -> None:
+    if len(queries) <= max_research_concurrency:
+        return
+    raise ValueError(
+        f"run_research_batch accepts at most {max_research_concurrency} curated queries. "
+        f"Received {len(queries)}. Rank, merge, or drop lower-priority queries and call again."
+    )
 
 
 def _assert_preferred_tools_available(queries: list[ResearchQuery], researcher_tool_names: set[str]) -> None:
@@ -401,6 +460,110 @@ def _terminal_unresearchable_note(query: ResearchQuery) -> ResearchNotes:
     )
 
 
+def _partition_by_submission_budget(
+    queries: list[ResearchQuery],
+    submission_counts: dict[str, int],
+) -> tuple[list[ResearchQuery], list[ResearchQuery]]:
+    """Record this submission of each query; split into (runnable, exhausted).
+
+    ``submission_counts`` is the run's ledger of submissions per query digest;
+    a query past ``MAX_QUERY_SUBMISSIONS`` is exhausted and gets a terminal
+    note instead of another worker.
+    """
+    runnable: list[ResearchQuery] = []
+    exhausted: list[ResearchQuery] = []
+    for query in queries:
+        digest = _query_digest(query)
+        submission_counts[digest] = submission_counts.get(digest, 0) + 1
+        (exhausted if submission_counts[digest] > MAX_QUERY_SUBMISSIONS else runnable).append(query)
+    return runnable, exhausted
+
+
+def _batch_failure_message(
+    errors: list[str],
+    *,
+    total_queries: int,
+    successful_count: int,
+    registered: bool,
+    persisted: bool,
+) -> str:
+    """The partial-failure message the orchestrator resubmits from."""
+    message = (
+        f"run_research_batch failed for {len(errors)} of {total_queries} researcher worker(s). "
+        f"Errors: {'; '.join(errors)}."
+    )
+    if not successful_count:
+        return message
+    actions = [name for name, done in (("registered", registered), ("persisted under /shared/", persisted)) if done]
+    retained = " and ".join(actions) or "retained"
+    return (
+        f"{message} {successful_count} successful researcher worker(s) were {retained}; "
+        "resubmit only the failed queries."
+    )
+
+
+def _announce_round(rounds: RetrievalRounds, calls: list[dict[str, Any]]) -> int | None:
+    """Record what this batch is about to fetch, and return the round it is.
+
+    ``None`` when the batch announced nothing: every query it held was withheld,
+    or none of their tools reaches a corpus this module can name. The batch's
+    hits are then stamped with no round, which keeps them off the card of the
+    round before it.
+    """
+    index = len(rounds.announcements)
+    announcement = record_round_announcement(round_index=index, calls=calls, conclusion=None)
+    if announcement is None:
+        return None
+    rounds.announcements.append(announcement)
+    return index
+
+
+def _record_batch_results(
+    rounds: RetrievalRounds,
+    queries: Sequence[ResearchQuery],
+    notes: Sequence[ResearchNotes],
+    conclusion: str,
+) -> None:
+    """Sign each query that RETURNED a note with the note it returned.
+
+    A query whose worker failed is not among ``notes`` and signs nothing, so the
+    retry the orchestrator sends runs. First result wins: a later batch must not
+    overwrite the answer an earlier repeat was already given.
+    """
+    for query, note in zip(queries, notes, strict=False):
+        signature = fetch_signature(_query_call(query, conclusion))
+        if signature is not None:
+            rounds.results.setdefault(signature, note.model_dump(mode="json", exclude_none=True))
+
+
+def _log_withheld(rounds: RetrievalRounds, repeats: Sequence[str], total: int) -> None:
+    """Leave the record a withheld query would otherwise not leave.
+
+    A repeat runs nothing and announces nothing, so without this the run looks
+    like one that was simply asked for less. ``status:repeat:N`` is what makes
+    the rate countable in a trace.
+    """
+    if not repeats:
+        return
+    emit_repeat_fetch(round_index=len(rounds.announcements), withheld=len(repeats))
+    logger.info(
+        "Duplicate research query withheld: %d of %d answered with the note this run already holds",
+        len(repeats),
+        total,
+    )
+
+
+def _withheld_notes(repeats: Sequence[str], results: dict[str, dict[str, Any]]) -> list[dict[str, Any]]:
+    """The notes that answer the repeats this batch withheld.
+
+    Withholding a repeat means ANSWERING it with what the run already fetched,
+    never dropping it: the orchestrator resubmits what it did not get back, and
+    a guard that silently shortened the batch would feed the loop it exists to
+    stop.
+    """
+    return [results[signature] for signature in repeats if signature in results]
+
+
 def build_research_batch_tool(
     *,
     researcher_runnable: Any,
@@ -409,81 +572,70 @@ def build_research_batch_tool(
     researcher_tool_names: set[str],
     backend: Any | None = None,
     source_registry_middleware: Any | None = None,
+    submission_counts: dict[str, int] | None = None,
+    rounds: RetrievalRounds | None = None,
 ) -> BaseTool:
     """Build an orchestrator-only tool that runs researcher tasks concurrently.
 
-    Tracks submitted query digests across calls: after ``MAX_QUERY_SUBMISSIONS``
-    submissions of the same digest the query is returned as a terminal
-    unresearchable gap instead of being re-run.
+    ``submission_counts`` is the run's ledger of submissions per query digest
+    (fresh when omitted; see :func:`_partition_by_submission_budget`).
+    ``rounds`` is the run's retrieval-round ledger, which the caller reads back
+    when the report is assembled. Both are arguments so the caller that owns the
+    run owns the state.
     """
-    _submission_counts: dict[str, int] = {}
+    ledger: dict[str, int] = submission_counts if submission_counts is not None else {}
+    retrieval: RetrievalRounds = rounds if rounds is not None else RetrievalRounds()
 
     @tool
     async def run_research_batch(
         queries: list[ResearchQuery],
+        conclusion: str = "",
         runtime: ToolRuntime = _NO_TOOL_RUNTIME,
     ) -> str:
-        """Run planned research queries in parallel and return ResearchNotes JSON."""
+        """Run planned research queries in parallel and return ResearchNotes JSON.
+
+        Args:
+            queries: The curated ResearchQuery objects to research in this batch.
+            conclusion: ONE sentence: what the batches so far established and
+                what this one still has to close. Empty on the first batch.
+        """
         if not queries:
             return "[]"
-
-        if len(queries) > max_research_concurrency:
-            raise ValueError(
-                f"run_research_batch accepts at most {max_research_concurrency} curated queries. "
-                f"Received {len(queries)}. Rank, merge, or drop lower-priority queries and call again."
-            )
-
+        _assert_batch_size(queries, max_research_concurrency)
         _assert_preferred_tools_available(queries, researcher_tool_names)
-
-        # Separate queries that have exhausted their resubmission budget.
-        runnable_queries: list[ResearchQuery] = []
-        terminal_queries: list[ResearchQuery] = []
-        for q in queries:
-            digest = _query_digest(q)
-            _submission_counts[digest] = _submission_counts.get(digest, 0) + 1
-            if _submission_counts[digest] > MAX_QUERY_SUBMISSIONS:
-                terminal_queries.append(q)
-            else:
-                runnable_queries.append(q)
-
-        successful_queries, notes, errors = await _run_research_queries(
-            queries=runnable_queries,
-            researcher_runnable=researcher_runnable,
-            runtime=runtime,
-            callbacks=callbacks,
-            max_concurrency=min(max_research_concurrency, len(runnable_queries) if runnable_queries else 1),
-        )
-
-        # Append terminal outcomes for oversubmitted queries.
-        for q in terminal_queries:
-            successful_queries.append(q)
-            notes.append(_terminal_unresearchable_note(q))
+        calls = [_query_call(query, conclusion) for query in queries]
+        fresh, repeated = _split_batch(calls, list(retrieval.results))
+        _log_withheld(retrieval, repeated, len(queries))
+        runnable_queries, exhausted_queries = _partition_by_submission_budget([queries[i] for i in fresh], ledger)
+        with retrieval_round_scope(_announce_round(retrieval, [calls[i] for i in fresh])):
+            successful_queries, notes, errors = await _run_research_queries(
+                queries=runnable_queries,
+                researcher_runnable=researcher_runnable,
+                runtime=runtime,
+                callbacks=callbacks,
+                max_concurrency=min(max_research_concurrency, len(runnable_queries) or 1),
+            )
+        successful_queries.extend(exhausted_queries)
+        notes.extend(_terminal_unresearchable_note(query) for query in exhausted_queries)
 
         if source_registry_middleware is not None:
             source_registry_middleware.register_research_note_sources(notes)
-        _persist_research_notes(backend=backend, queries=successful_queries, notes=notes)
+        await _persist_research_notes(backend=backend, queries=successful_queries, notes=notes)
+        _record_batch_results(retrieval, successful_queries, notes, conclusion)
 
         if errors:
-            retained_detail = ""
-            total_successful = len(successful_queries)
-            if notes:
-                retained_actions = []
-                if source_registry_middleware is not None:
-                    retained_actions.append("registered")
-                if backend is not None:
-                    retained_actions.append("persisted under /shared/")
-                retained_text = " and ".join(retained_actions) if retained_actions else "retained"
-                retained_detail = (
-                    f" {total_successful} successful researcher worker(s) were {retained_text}; "
-                    "resubmit only the failed queries."
-                )
             raise RuntimeError(
-                f"run_research_batch failed for {len(errors)} of {len(queries)} researcher worker(s). "
-                f"Errors: {'; '.join(errors)}.{retained_detail}"
+                _batch_failure_message(
+                    errors,
+                    total_queries=len(queries),
+                    successful_count=len(successful_queries) if notes else 0,
+                    registered=source_registry_middleware is not None,
+                    persisted=backend is not None,
+                )
             )
-
         return json.dumps(
-            [note.model_dump(mode="json", exclude_none=True) for note in notes],
+            [note.model_dump(mode="json", exclude_none=True) for note in notes]
+            + _withheld_notes(repeated, retrieval.results),
             indent=2,
             ensure_ascii=False,
         )

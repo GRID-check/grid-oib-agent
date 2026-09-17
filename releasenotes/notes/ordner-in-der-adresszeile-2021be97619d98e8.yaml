@@ -1,0 +1,10 @@
+---
+features:
+  - >
+    Ordner in den Projektdateien haben jetzt eine eigene Adresse. Der
+    Zurück-Button geht damit eine Ebene nach oben statt aus den Dateien heraus,
+    ein Neuladen bleibt im geöffneten Ordner, und ein Ordner lässt sich per Link
+    weitergeben.
+  - >
+    Über der Ordneransicht steht jetzt ein benannter Weg nach oben — "Zurück zu
+    Planung" — statt nur der Brotkrumenleiste, die sagt, wo man ist.

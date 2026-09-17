@@ -1,0 +1,20 @@
+---
+improvements:
+  - >
+    Eine Frage nach einer ganzen Richtlinie oder nach einer Projektdatei
+    schlägt jetzt zuerst die Gliederung des Dokuments auf. Piloti sieht damit,
+    welche Punkte es wirklich gibt, statt eine Nummer zu raten und die Suche
+    ein zweites Mal zu starten. Die Antwort nennt danach die Punkte, die sie
+    tatsächlich gelesen hat.
+  - >
+    Die Herleitung zeigt jetzt zu jedem Rechercheschritt, was dabei geöffnet
+    wurde: Seite oder Punkt je Dokument, ein Hinweis bei einer Datei, die schon
+    ein früherer Schritt geliefert hat, und ein eigener Schritt für das gezielte
+    Aufschlagen einer Fundstelle.
+fixes:
+  - >
+    Piloti ruft dieselbe Stelle innerhalb einer Antwort nicht mehr zweimal ab.
+    Bisher standen in der Herleitung dieselben Dokumente unter zwei Schritten,
+    und eine Suche nach dem Namen einer Richtlinie brachte vor allem deren
+    Deckblätter zurück. Die dadurch frei gewordenen Abrufe gehen in die
+    eigentliche Recherche.

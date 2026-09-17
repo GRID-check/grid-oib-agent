@@ -50,3 +50,20 @@ def test_legacy_raw_json_still_readable(monkeypatch):
     monkeypatch.delenv("GRID_JOB_PAYLOAD_KEK", raising=False)
     # A row written before the wrapper existed is bare JSON.
     assert payload_crypto.deserialize('{"input_text": "x"}') == {"input_text": "x"}
+
+
+def test_wrapped_plaintext_rejected_with_kek(monkeypatch):
+    # A dev-format (json:) row under a KEK deployment: pre-KEK legacy or a
+    # DB-write attacker's forgery — either way it must never execute.
+    monkeypatch.delenv("GRID_JOB_PAYLOAD_KEK", raising=False)
+    stored = payload_crypto.serialize(_PAYLOAD)
+    assert stored.startswith("json:")
+    monkeypatch.setenv("GRID_JOB_PAYLOAD_KEK", base64.b64encode(os.urandom(32)).decode())
+    with pytest.raises(payload_crypto.PayloadKeyError):
+        payload_crypto.deserialize(stored)
+
+
+def test_legacy_raw_json_rejected_with_kek(monkeypatch):
+    monkeypatch.setenv("GRID_JOB_PAYLOAD_KEK", base64.b64encode(os.urandom(32)).decode())
+    with pytest.raises(payload_crypto.PayloadKeyError):
+        payload_crypto.deserialize('{"input_text": "x"}')

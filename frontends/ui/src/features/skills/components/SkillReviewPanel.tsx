@@ -1,7 +1,7 @@
 'use client'
 
 /**
- * The reviewer's opinion of the skill being written.
+ * The check step: run the reviewer, and see where what it found still lives.
  *
  * Why this is a model and not a linter: the question that actually decides
  * whether a skill works is "will this description match the requests people
@@ -10,76 +10,87 @@
  * enforces — but not that it is specific enough to be selected over every other
  * skill in the org. So the check is the same kind of thing it is checking.
  *
- * Advisory, never blocking. Findings appear beside the form; the save is
- * unaffected by them, and a review that fails to run says so rather than
- * quietly reporting a clean bill of health. Reviewing a draft is also not a
- * privileged action — the same panel appears for anyone who can open the
- * editor, because the person most likely to write a description that never
- * matches anything is the person writing their first skill.
+ * ## It no longer holds the findings
+ *
+ * It used to render the whole list under its own heading, which put the
+ * critique of the DESCRIPTION two steps away from the description. Revising
+ * meant walking back with the advice held in your head and walking forward
+ * again to see whether you had addressed it.
+ *
+ * The findings now sit under the fields they are about (`SkillFindingList`,
+ * inline, on steps 1 and 2). What is left here is what is genuinely about the
+ * whole draft: has it been read, what came back, and WHERE the open findings
+ * are — each row a way to the step that holds them. The verdict stays one
+ * object; only its parts are shown where they can be acted on.
+ *
+ * ## Required to RUN, never required to pass
+ *
+ * The save waits until the check has been run on the draft as it currently
+ * stands. Editing after a check makes the verdict stale and closes the gate
+ * again, because a verdict on an older text is not a verdict on this one — and
+ * the button then says „Erneut prüfen" rather than „Skill prüfen", because by
+ * then re-running is the whole job.
+ *
+ * What the findings SAY changes nothing. They are a model's opinion about
+ * whether a description will be matched, and a save blocked on a model's
+ * opinion is the same forcing this codebase spent ADR-0060 removing, turned
+ * around to point at the author. The requirement is that somebody looked.
+ *
+ * A reviewer that could not run also lets the save through. „You must have
+ * looked" is a claim about the author; „the model must be reachable" would be
+ * a claim about our infrastructure, and paying for our outage with their
+ * unsaveable draft is not a trade we get to make.
+ *
+ * Reviewing is not a privileged action — the same panel appears for anyone who
+ * can open the editor, because the person most likely to write a description
+ * that never matches anything is the person writing their first skill.
  */
 
-import { useCallback, useState, type FC } from 'react'
-import { AlertTriangle, Check, Lightbulb, XCircle } from 'lucide-react'
+import type { FC } from 'react'
+import { ArrowRight, Check } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Spinner } from '@/components/ui/spinner'
 import { useTranslations } from '@/i18n'
 import { cn } from '@/lib/utils'
-import { reviewSkill, type SkillReviewFinding } from '@/adapters/api/skills-client'
+import type { SkillReviewFinding } from '@/adapters/api/skills-client'
+import type { SkillReviewField, SkillReviewState } from '../hooks/use-skill-review'
 
 export interface SkillReviewPanelProps {
-  name: string
-  description: string
-  body: string
+  state: SkillReviewState
+  /** The draft has moved on since the verdict on screen. */
+  stale: boolean
+  findings: readonly SkillReviewFinding[]
+  onRun: () => void
+  /**
+   * Go to the step that holds this field. Omit and the summary is read-only —
+   * the panel never navigates a surface that did not offer to be navigated.
+   */
+  onGoToField?: (field: SkillReviewField) => void
   className?: string
 }
 
-const SEVERITY_ORDER: Record<SkillReviewFinding['severity'], number> = {
-  error: 0,
-  warning: 1,
-  suggestion: 2,
-}
-
-const SEVERITY_ICON = {
-  error: XCircle,
-  warning: AlertTriangle,
-  suggestion: Lightbulb,
-} as const
-
-const SEVERITY_TONE = {
-  error: 'text-destructive',
-  warning: 'text-warning-foreground',
-  suggestion: 'text-muted-foreground',
-} as const
-
-type ReviewState =
-  | { kind: 'idle' }
-  | { kind: 'running' }
-  | { kind: 'done'; findings: SkillReviewFinding[] }
-  | { kind: 'unavailable' }
+/** The order the summary lists fields in: the order the builder asks for them. */
+const FIELD_ORDER: readonly SkillReviewField[] = ['name', 'description', 'body']
 
 export const SkillReviewPanel: FC<SkillReviewPanelProps> = ({
-  name,
-  description,
-  body,
+  state,
+  stale,
+  findings,
+  onRun,
+  onGoToField,
   className,
 }) => {
   const t = useTranslations('skills')
-  const [state, setState] = useState<ReviewState>({ kind: 'idle' })
+  const running = state.kind === 'running'
+  // „Erneut prüfen" once a verdict exists, because by then re-running IS the
+  // job — the author has revised and wants to know whether it took.
+  const ranBefore = state.kind === 'done' || state.kind === 'unavailable'
+  const actionLabel = ranBefore ? t('editor.review.again') : t('editor.review.action')
 
-  const run = useCallback(async () => {
-    setState({ kind: 'running' })
-    const { findings } = await reviewSkill({ name, description, body })
-    // `null` is "could not check", NOT "nothing wrong". Saying "looks good"
-    // here would be the one failure mode this panel must never have.
-    setState(findings ? { kind: 'done', findings } : { kind: 'unavailable' })
-  }, [body, description, name])
-
-  const sorted =
-    state.kind === 'done'
-      ? [...state.findings].sort(
-          (left, right) => SEVERITY_ORDER[left.severity] - SEVERITY_ORDER[right.severity],
-        )
-      : []
+  const open = FIELD_ORDER.map((field) => ({
+    field,
+    count: findings.filter((finding) => finding.field === field).length,
+  })).filter((row) => row.count > 0)
 
   return (
     <section
@@ -93,29 +104,32 @@ export const SkillReviewPanel: FC<SkillReviewPanelProps> = ({
         </h3>
         <Button
           type="button"
-          variant="outline"
+          variant={stale && ranBefore ? 'default' : 'outline'}
           size="sm"
-          onClick={() => void run()}
-          disabled={state.kind === 'running'}
-          aria-busy={state.kind === 'running'}
+          onClick={onRun}
+          disabled={running}
+          aria-busy={running}
           className="h-8 px-3.5 text-xs"
+          data-testid="skill-review-run"
         >
+          {/* Both labels stay mounted so the button does not change width when
+              it starts working. */}
           <span className="inline-grid justify-items-start">
             <span
               className={cn(
                 'col-start-1 row-start-1 inline-flex items-center gap-1.5',
-                state.kind === 'running' && 'invisible',
+                running && 'invisible',
               )}
-              aria-hidden={state.kind === 'running'}
+              aria-hidden={running}
             >
-              {t('editor.review.action')}
+              {actionLabel}
             </span>
             <span
               className={cn(
                 'col-start-1 row-start-1 inline-flex items-center gap-1.5',
-                state.kind !== 'running' && 'invisible',
+                !running && 'invisible',
               )}
-              aria-hidden={state.kind !== 'running'}
+              aria-hidden={!running}
             >
               <Spinner size="sm" aria-hidden />
               {t('editor.review.running')}
@@ -126,65 +140,70 @@ export const SkillReviewPanel: FC<SkillReviewPanelProps> = ({
 
       <p className="text-muted-foreground text-xs">{t('editor.review.subtitle')}</p>
 
-      {state.kind === 'unavailable' && (
+      {/* The verdict is stale and the author has not re-run yet: the one thing
+          this panel must not do is let that pass quietly, because everything
+          on screen is then about a draft that no longer exists. */}
+      {stale && ranBefore && (
+        <p
+          className="text-foreground animate-in fade-in-0 rounded-lg border border-dashed px-3 py-2 text-xs duration-base ease-out motion-reduce:animate-none"
+          role="status"
+          data-testid="skill-review-stale"
+        >
+          {t('editor.review.staleAction')}
+        </p>
+      )}
+
+      {state.kind === 'unavailable' && !stale && (
         <p
           className="text-muted-foreground animate-in fade-in-0 rounded-lg border border-dashed px-3 py-2 text-xs duration-base ease-out motion-reduce:animate-none"
           role="status"
+          data-testid="skill-review-unavailable"
         >
           {/* Explicitly NOT "looks good": the reviewer never ran. */}
           {t('editor.review.unavailable')}
         </p>
       )}
 
-      {state.kind === 'done' && sorted.length === 0 && (
+      {state.kind === 'done' && findings.length === 0 && !stale && (
         <p
-          className="text-muted-foreground animate-in fade-in-0 flex items-center gap-2 rounded-lg border px-3 py-2 text-xs duration-base ease-out motion-reduce:animate-none"
+          className="text-foreground animate-in fade-in-0 flex items-start gap-2 rounded-lg border px-3 py-2 text-xs duration-base ease-out motion-reduce:animate-none"
           role="status"
+          data-testid="skill-review-clean"
         >
-          <Check className="size-3.5 shrink-0 text-success-foreground" aria-hidden />
+          <Check className="text-success mt-px size-3.5 shrink-0" aria-hidden />
           {t('editor.review.clean')}
         </p>
       )}
 
-      {state.kind === 'done' && sorted.length > 0 && (
-        <ul
-          className="animate-in fade-in-0 flex flex-col gap-1.5 duration-base ease-out motion-reduce:animate-none"
-          data-testid="skill-review-findings"
-        >
-          {sorted.map((finding, index) => {
-            const Icon = SEVERITY_ICON[finding.severity]
-            return (
-              <li
-                key={`${finding.field}-${index}`}
-                className="flex items-start gap-2.5 rounded-lg border px-3 py-2"
+      {/* WHERE the open findings are, not what they say — they say it beside
+          the field they are about, which is where they can be acted on. Each
+          row is the way there. */}
+      {state.kind === 'done' && open.length > 0 && !stale && (
+        <ul className="flex flex-col gap-1.5" data-testid="skill-review-summary">
+          {open.map(({ field, count }) => (
+            <li key={field}>
+              <button
+                type="button"
+                onClick={() => onGoToField?.(field)}
+                disabled={!onGoToField}
+                className={cn(
+                  'focus-visible:ring-ring/60 flex w-full items-center gap-2 rounded-lg border px-3 py-2 text-left text-xs focus-visible:outline-none focus-visible:ring-2',
+                  onGoToField && 'hover:bg-muted/50 transition-colors duration-quick ease-out',
+                )}
+                data-testid={`skill-review-open-${field}`}
               >
-                <Icon
-                  className={cn('mt-px size-3.5 shrink-0', SEVERITY_TONE[finding.severity])}
-                  aria-hidden
-                />
-                <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-                  <p className="text-foreground text-xs font-medium">
-                    <span className="text-muted-foreground font-mono text-[10.5px] uppercase tracking-wider">
-                      {t(`editor.review.fields.${finding.field}`)}
-                    </span>{' '}
-                    {finding.message}
-                  </p>
-                  {finding.fix && (
-                    <p className="text-muted-foreground text-xs leading-snug">{finding.fix}</p>
-                  )}
-                  {/* The rule that produced this, quietly. It is what turns a
-                      complaint into a citation — an author who disagrees can go
-                      read the rule instead of arguing with a verdict. Muted and
-                      last, because it is provenance, not the point. */}
-                  {finding.check && (
-                    <p className="text-muted-foreground/70 font-mono text-xs leading-snug">
-                      {finding.check}
-                    </p>
-                  )}
-                </div>
-              </li>
-            )
-          })}
+                <span className="text-foreground font-medium">
+                  {t(`editor.review.fields.${field}`)}
+                </span>
+                <span className="text-muted-foreground">
+                  {t('editor.review.openCount', { count })}
+                </span>
+                {onGoToField && (
+                  <ArrowRight className="text-muted-foreground ml-auto size-3.5" aria-hidden />
+                )}
+              </button>
+            </li>
+          ))}
         </ul>
       )}
     </section>

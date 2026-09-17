@@ -211,15 +211,15 @@ const LIVE_FRAMES: unknown[] = [
   {
     type: 'system_intermediate_message',
     id: 'st1',
-    content: { name: 'Function Start: intent_classifier', payload: 'Frage wird eingeordnet' },
+    content: { name: 'Function Start: knowledge_search', payload: 'Rettungswege Innenhof' },
     status: 'in_progress',
   },
   {
     type: 'system_intermediate_message',
     id: 'st2',
     content: {
-      name: 'Function Complete: intent_classifier',
-      payload: 'Fachfrage → flache Recherche',
+      name: 'Function Complete: knowledge_search',
+      payload: '3 Treffer in OIB-Richtlinie 2',
     },
     status: 'complete',
   },

@@ -28,6 +28,8 @@ import logging
 import os
 import re
 from collections.abc import Callable
+from collections.abc import Iterable
+from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
 from typing import Literal
@@ -37,6 +39,9 @@ import yaml
 from pydantic import BaseModel
 from pydantic import Field
 from pydantic import ValidationError
+
+from aiq_agent.common.source_kinds import AGENT_AUTHORED_LANE
+from aiq_agent.common.source_kinds import AGENT_AUTHORED_LANE_LABEL
 
 logger = logging.getLogger(__name__)
 
@@ -114,7 +119,9 @@ NORM_DOCTRINE = """## Normenhierarchie & Dokumentrollen
 
 **Autoritätsordnung ≠ Abrufreihenfolge.** Welche Quelle eine Frage BEANTWORTET (Bundesgesetz >
 Landesgesetz/Verordnung > OIB-Richtlinie > Leitfaden/Erläuterung) ist nicht dieselbe Ordnung, in der Quellen
-ABGERUFEN werden (Projektdokumente → RIS → Web).
+ABGERUFEN werden (Wissensbasis — Projektdokumente UND Basiswissen — → RIS → Web). Die Wissensbasis steht
+am Anfang, auch wenn die Frage nach einer Richtlinie klingt: deren verbindlicher Text liegt dort, mit Seite
+zitierbar. RIS kommt, wenn die Wissensbasis die Ebene nicht führt (Gesetz, Verordnung, Judikatur).
 
 **Dokumentrollen beachten:**
 - Anforderungen („muss", „darf nicht", Mindestwerte) stammen ausschließlich aus NORMATIVEN Dokumenten (Gesetz,
@@ -307,8 +314,30 @@ def set_db_loader(
     reset_registry_cache()
 
 
+# The repository root, three levels above this file (src/aiq_agent/common/).
+# Only meaningful for a source checkout; an installed wheel has no seed beside it.
+_REPO_ROOT = Path(__file__).resolve().parents[3]
+
+
 def _norms_dir(path: str | None) -> Path:
-    return Path(path or os.environ.get(ENV_NORMS_DIR, DEFAULT_NORMS_DIR))
+    """The norms seed directory: explicit ``path``, else ``$GRID_NORMS_DIR``, else the default.
+
+    The default is relative to the working directory, which is the repo root
+    everywhere the seed is loaded on purpose. When it is NOT there — a test run
+    from a package directory such as ``frontends/aiq_api`` — resolve it against
+    the repository root instead, so the seed does not silently vanish and every
+    caller downstream sees an empty registry.
+    """
+    if path:
+        return Path(path)
+    env_value = os.environ.get(ENV_NORMS_DIR)
+    if env_value:
+        return Path(env_value)
+    default = Path(DEFAULT_NORMS_DIR)
+    if default.is_dir():
+        return default
+    from_root = _REPO_ROOT / DEFAULT_NORMS_DIR
+    return from_root if from_root.is_dir() else default
 
 
 def _validated_entries(norms_file: NormsFile, origin: str) -> list[NormEntry]:
@@ -553,9 +582,8 @@ def focus_entries(entries: list[NormEntry], bundesland: str | None) -> list[Norm
 
 _BLOCK_HEADER = (
     "Kuratierter Normenkatalog (verifizierte RIS-Verweise).\n"
-    "Für diese Normen KEINE RIS-Suche verwenden: das Dokument direkt über das RIS-Fetch-Tool\n"
-    "(Dokumentnummer oder 'Gesamt'-URL) laden. Für Themensuche im Katalog das\n"
-    "RIS-Catalog-Lookup-Tool verwenden."
+    "Die RIS-Werkzeuge kennen diesen Katalog und lösen einen Verweis selbst auf; ein Eintrag hier\n"
+    "ist eine Adresse, die im Aufruf genannt werden kann, keine Fundstelle."
 )
 
 OIB_CORPUS_NOTE = (
@@ -685,6 +713,11 @@ def parcel_note(available_documents: list[dict] | None, country: str | None = No
     tags). Returns None when the project holds no tagged parcel document — the
     static doctrine rule (demand the plan / point at the public portal) then
     applies unchanged.
+
+    The note is the FILE LIST and nothing else. What to do with a parcel
+    question is standing doctrine and lives in the prompt above the KV-cache
+    boundary (``prompts/piloti_static.md``, ``<dokumentrollen>``), so the
+    per-turn block carries only what varies: which documents this project has.
     """
     if not available_documents:
         return None
@@ -705,11 +738,6 @@ def parcel_note(available_documents: list[dict] | None, country: str | None = No
         if tag in by_tag:
             files = ", ".join(sorted(by_tag[tag]))
             lines.append(f"- {tag}: {files}")
-    lines.append(
-        "Diese Dokumente sind für parzellenbezogene Fragen die maßgebliche Quelle — VOR OIB und Bauordnung "
-        "heranziehen (knowledge_search). Generische Antworten auf Parzellen-Fragen sind unzulässig, solange "
-        "diese Dokumente nicht geprüft wurden."
-    )
     return "\n".join(lines)
 
 
@@ -752,6 +780,9 @@ _LANE_LABELS: dict[str, str] = {
     **{key: label for key, label in _RANK_LANES.values()},
     "baurecht_ris": "Rechtsquelle (RIS)",
     "baurecht_basis": "Basisdokument",
+    # Reachable only through stated PROVENANCE (``authored_by: agent``), never
+    # through a doc_class — see :data:`~aiq_agent.common.source_kinds.AGENT_AUTHORED_LANE`.
+    AGENT_AUTHORED_LANE: AGENT_AUTHORED_LANE_LABEL,
 }
 
 
@@ -804,9 +835,26 @@ _OIB_TITLE_ROLE_PREFIXES: tuple[tuple[str, str], ...] = (
     ("aenderungen_", "Änderungen zu "),
 )
 
-_OIB_EDITION_RE = re.compile(r"ausgabe[_-]mai[_-]2023")
+# The edition as the corpus files spell it: ``ausgabe_<monat>_<jahr>`` or
+# ``ausgabe_<jahr>``. The month is any word, the year any four digits — the
+# shipped corpus is all "Mai 2023", but a title parser that only knows one
+# edition mislabels the next one as the one it knows, or refuses it.
+_OIB_EDITION_RE = re.compile(r"ausgabe[_-](?:([^\W\d_]+)[_-])?(\d{4})")
+# Filenames write German umlauts as digraphs (``maerz``); the title writes them
+# as letters. A structural transliteration rather than a table of month names.
+_UMLAUT_DIGRAPHS = (("ae", "ä"), ("oe", "ö"), ("ue", "ü"))
 _OIB_REVISION_RE = re.compile(r"rev[_.]?(\d+)")
 _OIB_NUMBER_RE = re.compile(r"^(\d+(?:\.\d+)?)")
+
+
+def _render_edition(month: str | None, year: str) -> str:
+    """``("mai", "2023")`` -> ``"Ausgabe Mai 2023"``; ``(None, "2019")`` -> ``"Ausgabe 2019"``."""
+    if not month:
+        return f"Ausgabe {year}"
+    word = month
+    for digraph, letter in _UMLAUT_DIGRAPHS:
+        word = word.replace(digraph, letter)
+    return f"Ausgabe {word.capitalize()} {year}"
 
 
 def guess_display_title(file_name: str) -> str | None:
@@ -847,7 +895,7 @@ def guess_display_title(file_name: str) -> str | None:
     edition = ""
     edition_match = _OIB_EDITION_RE.search(low)
     if edition_match:
-        edition = "Ausgabe Mai 2023"
+        edition = _render_edition(edition_match.group(1), edition_match.group(2))
         low = (low[: edition_match.start()] + low[edition_match.end() :]).strip("_")
 
     revision = ""
@@ -879,6 +927,207 @@ def guess_display_title(file_name: str) -> str | None:
     return f"{title}, {tail}" if tail else title
 
 
+# ---------------------------------------------------------------------------
+# Families: which Richtlinien belong together, derived from what is INDEXED.
+#
+# "OIB-Richtlinien 1–6" is a range, and a range names no members. OIB-RL 2 is
+# four separate documents — 2, 2.1 (Betriebsbauten), 2.2 (Garagen), 2.3
+# (Hochhäuser) — and the prompt never said so, so an overview question ("Was
+# weißt du über die OIB 2?") could open three of them, forget the fourth, and
+# read as complete. Nothing structural noticed, because nothing knew the family
+# had four members.
+#
+# Membership is DERIVED, never listed: a deployment whose corpus holds no 2.3
+# must not be told it has one, and a corpus that grows a 2.4 must not need this
+# file edited. The only input is the set of indexed filenames.
+# ---------------------------------------------------------------------------
+
+#: The Richtlinie number inside an OIB corpus filename, after the `oib-rl_`
+#: prefix: `2`, `2.1`, `6`. Anchored, so an edition or a revision that follows
+#: cannot be read as part of the number.
+_OIB_FAMILY_NUMBER_RE = re.compile(r"^(\d+(?:\.\d+)?)(?:[_-]|$)")
+
+
+@dataclass(frozen=True)
+class NormFamily:
+    """One Richtlinie and every part of it the corpus actually holds.
+
+    ``key`` is the family number (``"2"``), ``members`` the part numbers in
+    numeric order (``("2", "2.1", "2.2", "2.3")``) and ``files`` the indexed
+    filename of each, parallel to ``members``. A family with one member is
+    still a family — that is what "OIB-RL 3 has no parts" looks like, and it is
+    a different statement from "we do not know".
+    """
+
+    key: str
+    members: tuple[str, ...]
+    files: tuple[str, ...]
+
+    @property
+    def label(self) -> str:
+        return f"OIB-Richtlinie {self.key}"
+
+
+def oib_family_member(file_name: str) -> str | None:
+    """The Richtlinie part number a corpus filename IS, or ``None``.
+
+    Only the Richtlinie itself. A Leitfaden, an Erläuterung, an Änderungs-
+    dokument, the Begriffsbestimmungen and the Zitierte Normen are not members:
+    they are read WITH a Richtlinie, and counting them as parts of it would
+    make an overview answer look complete for having opened a reading aid.
+    """
+    name = Path(file_name or "").name.lower()
+    if oib_doc_class(name) != "richtlinie":
+        return None
+    match = _OIB_FAMILY_NUMBER_RE.match(name[len("oib-rl_") :])
+    return match.group(1) if match else None
+
+
+def _member_sort_key(member: str) -> tuple[int, ...]:
+    return tuple(int(part) for part in member.split("."))
+
+
+def oib_families(file_names: Iterable[str]) -> list[NormFamily]:
+    """Group indexed corpus filenames into families, in numeric order.
+
+    Duplicates collapse on the part number, so a corpus carrying two editions of
+    OIB-RL 2 still reports one member `2` — the family is about which
+    requirements exist, not about how many files carry them.
+    """
+    by_family: dict[str, dict[str, str]] = {}
+    for file_name in file_names:
+        member = oib_family_member(file_name)
+        if member is None:
+            continue
+        by_family.setdefault(member.split(".")[0], {}).setdefault(member, Path(file_name).name)
+    families: list[NormFamily] = []
+    for key in sorted(by_family, key=lambda k: int(k) if k.isdigit() else 0):
+        members = sorted(by_family[key], key=_member_sort_key)
+        families.append(NormFamily(key=key, members=tuple(members), files=tuple(by_family[key][m] for m in members)))
+    return families
+
+
+# ---------------------------------------------------------------------------
+# Family-shaped queries: a question that names a Richtlinie and nothing else.
+#
+# "Was weißt du über die OIB 2?" asks for the family, not for a passage inside
+# it. Semantic search answers it with whatever two documents ranked highest,
+# and the model then opens the rest one at a time. Detected here, the retrieval
+# layer can answer it with every member the corpus holds in ONE round.
+#
+# Detection is pure and lives beside :func:`oib_families`, which turns the
+# number this returns into the members. It reads the anchor vocabulary the
+# requery gate reads (``knowledge_layer.requery._NARROW_ANCHOR_PATTERNS``) and
+# adds the bare ``OIB 2`` spelling, which is how the question is usually asked.
+# ---------------------------------------------------------------------------
+
+#: An OIB Richtlinie named by number, however a question spells it: ``OIB 2``,
+#: ``OIB-RL 2``, ``OIB-Richtlinie 2.1``, ``Richtlinie 2``, ``RL 4``. The number
+#: is captured; :func:`family_query_number` reduces ``2.1`` to its family.
+_FAMILY_ANCHOR_RE = re.compile(
+    r"\b(?:oib[-\s]*(?:rl|richtlinie)?|rl|richtlinie)[-\s]*(\d+(?:\.\d+)?)\b",
+    re.IGNORECASE,
+)
+
+#: What makes a query a LOCATOR rather than a question about the whole
+#: Richtlinie. A Punkt, a paragraph, a page or a table is addressed inside one
+#: document, and a file name names one file: each is already answered better by
+#: the ordinary path, and none of them wants four documents back.
+_FAMILY_BLOCKER_RE = re.compile(
+    "|".join(
+        (
+            r"\bpkt\.?\s*\d",
+            r"\bpunkt\w*\s*\d",
+            r"§",
+            r"\babs\.?\s*\d",
+            r"\bseite\s*\d",
+            r"\bpage\s*\d",
+            r"\btabelle",
+            r"\banhang",
+            r"\.pdf\b",
+            r"oib-rl_",
+        )
+    ),
+    re.IGNORECASE,
+)
+
+#: Every word a family-shaped question may hold BESIDES its anchor: question
+#: words, articles, pronouns, the verbs that ask what a document is for, the
+#: overview nouns, and the edition words that name a printing rather than a
+#: topic. A token outside this set is a TOPIC, and a topic question is an
+#: ordinary search. "OIB 2 Fluchtweglänge GK 4" must come back as passages.
+#:
+#: Casefolded spellings: ``str.casefold`` writes "weißt" as "weisst", so that is
+#: the form listed here.
+_FAMILY_QUERY_STOPWORDS = frozenset(
+    """
+    was wer wie wo welche welcher welches welchem welchen warum wieso weshalb worum wofuer wofür
+    wozu ob der die das den dem des ein eine einer eines einem einen und oder aber in im zu zum
+    zur von vom ueber über um an am auf aus bei fuer für mit nach es ich du mir mich dir dich sie
+    man sich bitte mal denn noch schon alles etwas mehr kurz genau eigentlich ueberhaupt überhaupt
+    gibt gibts gib ist sind war waren hat haben habe hast kannst kann koennen können sagen sagst
+    sag sage erzaehl erzähl erzaehle erzähle zeig zeige zeigen weisst weiss wissen kennst kennen
+    lies lesen geht gehts handelt steht regelt regeln behandelt enthaelt enthält umfasst
+    beinhaltet beschreibt bedeutet sagt drin darin dazu davon nenn nenne liste fasse fass zusammen
+    erklaer erklär erklaere erkläre brauche moechte möchte will
+    ueberblick überblick uebersicht übersicht inhalt inhalte inhalts gliederung aufbau struktur
+    thema themen punkte kapitel teil teile teilen zusammenfassung zusammenfassen allgemein
+    allgemeine allgemeines
+    ausgabe ausgaben edition fassung version aktuell aktuelle aktueller aktuellen gueltige gültige
+    geltende stand rev revision
+    jaenner jänner januar februar maerz märz april mai juni juli august september oktober november
+    dezember
+    oib rl richtlinie richtlinien
+    what do you know about the tell me is of on a an and give show summarize summarise please it
+    its overview summary contents scope
+    """.split()
+)
+
+#: A word or a number, with punctuation and separators dropped.
+_FAMILY_TOKEN_RE = re.compile(r"[^\W\d_]+|\d+(?:[.,]\d+)?")
+
+
+def _is_topic_free(text: str) -> bool:
+    """True when nothing in ``text`` names a topic.
+
+    Digits pass: what is left of "OIB 2 Ausgabe Mai 2023" once the anchor and
+    the edition words are gone is a year, and a year is a printing.
+    """
+    return all(
+        token.isdigit() or token in _FAMILY_QUERY_STOPWORDS for token in _FAMILY_TOKEN_RE.findall(text.casefold())
+    )
+
+
+def family_query_number(query: str) -> str | None:
+    """The Richtlinien-family a query asks about AS A WHOLE, or ``None``.
+
+    ``"was weißt du über die OIB 2"`` and ``"OIB-Richtlinie 2.1"`` both answer
+    ``"2"``: the family key, which :func:`oib_families` turns into the members
+    the corpus holds. A part number resolves to its family on purpose: a
+    reader who asks about 2.1 is asking inside a Richtlinie whose other parts
+    they are unlikely to know exist.
+
+    ``None`` for everything else, and that is the common answer. A query that
+    still names a topic once the anchor is removed is an ordinary search; so is
+    one that addresses a Punkt, a paragraph, a page, a table or a file; and so
+    is one naming two families, because a single overview cannot be both.
+    """
+    text = (query or "").strip()
+    if not text or _FAMILY_BLOCKER_RE.search(text):
+        return None
+    keys: set[str] = set()
+    rest: list[str] = []
+    cursor = 0
+    for match in _FAMILY_ANCHOR_RE.finditer(text):
+        keys.add(match.group(1).split(".")[0])
+        rest.append(text[cursor : match.start()])
+        cursor = match.end()
+    rest.append(text[cursor:])
+    if len(keys) != 1 or not _is_topic_free(" ".join(rest)):
+        return None
+    return keys.pop()
+
+
 def _host_matches(source_url: str | None, domain: str) -> bool:
     """True when *source_url*'s host is ``domain`` or a subdomain of it.
 
@@ -906,6 +1155,8 @@ def lane_for_hit(
     source_url: str | None = None,
     collection: str | None = None,
     registry: NormRegistry | None = None,
+    shelf: object = None,
+    authored_by: str | None = None,
 ) -> tuple[str, str]:
     """(stratum_key, human label) for a retrieval/citation hit — display tagging only.
 
@@ -916,20 +1167,46 @@ def lane_for_hit(
     An explicit, human-set ``doc_class`` (the "Dokumentart") is FIRST priority:
     when valid it fully determines the lane, overriding every collection/filename/
     url heuristic below. This is the authoritative signal the filename guess only
-    approximates.
+    approximates. The one exception is the DEFAULT class on a user's own shelf:
+    ``sonstiges`` is what ingestion stamps on a file nobody classified, and on a
+    project, session or Büroarchiv document it says nothing a person decided —
+    it must not turn the user's plan into a "Basisdokument" in law blue.
+
+    ``shelf`` is the shelf the caller knows the hit came from; without it the
+    collection id is read the legacy way (ADR-0047).
+
+    ``authored_by`` is the stated PROVENANCE of the document
+    (``common/provenance.py``), and it outranks everything else here — the
+    doc_class included. A published Piloti document is filed on the project or
+    the Archiv shelf like any other document, so every rule below would place
+    it as Projektwissen or Büroarchiv and lose the one fact a reader must not
+    miss; and a doc_class stamped on it by ingest would place it in the norm
+    hierarchy, in law blue, under the ``"Baurecht"`` label fallback. Who wrote
+    a document is not a guess any of those signals can overturn.
     """
+    from aiq_agent.common.provenance import is_agent_author
+    from aiq_agent.common.source_kinds import Shelf
+    from aiq_agent.common.source_kinds import legacy_shelf_for_collection_name
+    from aiq_agent.common.source_kinds import parse_shelf
+
+    if is_agent_author(authored_by):
+        return (AGENT_AUTHORED_LANE, AGENT_AUTHORED_LANE_LABEL)
+    known_shelf = parse_shelf(shelf) or legacy_shelf_for_collection_name(collection)
+    users_shelf = known_shelf in (Shelf.ARCHIV, Shelf.PROJECT, Shelf.SESSION)
     if doc_class:
+        from aiq_agent.knowledge.document_classification import DEFAULT_DOC_CLASS
         from aiq_agent.knowledge.document_classification import DOCUMENT_CLASS_LANES
         from aiq_agent.knowledge.document_classification import is_valid_doc_class
 
-        if is_valid_doc_class(doc_class):
+        if is_valid_doc_class(doc_class) and not (doc_class == DEFAULT_DOC_CLASS and users_shelf):
             lane_key = DOCUMENT_CLASS_LANES[doc_class]
             return (lane_key, _LANE_LABELS.get(lane_key, "Baurecht"))
-    if collection:
-        if collection.startswith("archiv_"):
-            return ("buero", "Büroarchiv")
-        if collection.startswith(("proj_", "s_")):
-            return ("projekt", "Projektwissen")
+    if known_shelf is Shelf.ARCHIV:
+        return ("buero", "Büroarchiv")
+    if known_shelf is Shelf.PROJECT:
+        return ("projekt", "Projektwissen")
+    if known_shelf is Shelf.SESSION:
+        return ("projekt", "Private Sitzung")
     if file_name:
         doc_class = oib_doc_class(Path(file_name).name)
         if doc_class:
@@ -957,6 +1234,8 @@ def lane_for_knowledge_hit(
     source_url: str | None = None,
     collection: str | None = None,
     registry: NormRegistry | None = None,
+    shelf: object = None,
+    authored_by: str | None = None,
 ) -> tuple[str, str]:
     """:func:`lane_for_hit` for a hit that came from the KNOWLEDGE LAYER.
 
@@ -978,5 +1257,7 @@ def lane_for_knowledge_hit(
         source_url=source_url,
         collection=collection,
         registry=registry,
+        shelf=shelf,
+        authored_by=authored_by,
     )
     return ("projekt", "Projektwissen") if lane == ("web", "Web") else lane

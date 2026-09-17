@@ -98,11 +98,18 @@ def test_delete_exact_match_still_works(monkeypatch):
     assert collection._chunks == {}
 
 
-def test_delete_returns_false_when_no_chunks_match(monkeypatch):
-    """A name that matches nothing (and has no tracking entry) reports failure."""
-    _patch_side_effects(monkeypatch)
+def test_delete_returns_false_when_no_chunks_match_but_still_forgets_the_file(monkeypatch):
+    """A name that matches nothing (and has no tracking entry) reports failure —
+    and still clears the summary row and text mirror. The early return that
+    skipped them left a chunk-less document in the agent's inventory for good:
+    the BFF had already dropped its row, and every later delete took the same
+    exit."""
+    monkeypatch.setattr(adapter_mod, "bump_collection_version", lambda *_: None)
+    forgotten: list[tuple[str, str]] = []
+    monkeypatch.setattr(knowledge_pkg, "unregister_summary", lambda c, f: forgotten.append((c, f)), raising=False)
     collection = _FakeCollection({"c1": {"file_name": "something-else.pdf"}})
     ing = _ingestor(collection)
 
     assert ing.delete_file("missing.pdf", "proj_test") is False
     assert set(collection._chunks) == {"c1"}
+    assert forgotten == [("proj_test", "missing.pdf")]

@@ -92,11 +92,11 @@ describe('groupsEligibleForBootstrap', () => {
   })
 
   it('refuses every group on a deployment pointed at another provider', () => {
-    // config_grid_oib.yml (Kimi) and config_web_default_llamaindex.yml (NVIDIA)
-    // are shipped, supported BACKEND_CONFIG values. Seeding an OpenRouter id
-    // into either sends an unknown model to that provider on every request.
+    // A deployment may hand BACKEND_CONFIG a config on another provider.
+    // Seeding an OpenRouter id into it sends an unknown model to that
+    // provider on every request.
     expect(groupsEligibleForBootstrap(allOn('https://api.kimi.com/coding/v1'))).toEqual([])
-    expect(groupsEligibleForBootstrap(allOn('https://integrate.api.nvidia.com/v1'))).toEqual([])
+    expect(groupsEligibleForBootstrap(allOn('https://api.openai.com/v1'))).toEqual([])
   })
 
   it('refuses a group whose endpoint is unknown rather than assuming OpenRouter', () => {
@@ -113,19 +113,19 @@ describe('groupsEligibleForBootstrap', () => {
     expect(deepResearch?.configLlmRefs.length).toBeGreaterThan(1)
     const mixed: LlmBaseUrls = {
       ...allOn(OPENROUTER),
-      [deepResearch!.configLlmRefs[0]]: 'https://integrate.api.nvidia.com/v1',
+      [deepResearch!.configLlmRefs[0]]: 'https://api.openai.com/v1',
     }
     expect(groupsEligibleForBootstrap(mixed)).not.toContain('deep_research')
-    expect(groupsEligibleForBootstrap(mixed)).toContain('intent')
+    expect(groupsEligibleForBootstrap(mixed)).toContain('shallow_research')
   })
 
   it('leaves ingest_vlm out when the ingestion VLM is on its own provider', () => {
-    // The shipped AIQ_VLM_BASE_URL default routes to NVIDIA while the chat
-    // models route to OpenRouter. Seeding ingest_vlm there would make an
-    // operator's AIQ_VLM_MODEL dead config and fail every caption call.
+    // An operator may point AIQ_VLM_BASE_URL at another provider while the
+    // chat models route to OpenRouter. Seeding ingest_vlm there would make
+    // their AIQ_VLM_MODEL dead config and fail every caption call.
     const vlmElsewhere: LlmBaseUrls = {
       ...allOn(OPENROUTER),
-      vlm: 'https://integrate.api.nvidia.com/v1',
+      vlm: 'https://api.openai.com/v1',
     }
     const eligible = groupsEligibleForBootstrap(vlmElsewhere)
     expect(eligible).not.toContain('ingest_vlm')
@@ -177,7 +177,7 @@ describe('bootstrapPlatformModelDefaults', () => {
     expect(input.actorUserId).toBe(BOOTSTRAP_ACTOR)
     // The ZDR signal is the control migration 0026 built so tenants enforcing
     // Zero-Data-Retention can be warned; a seed that leaves it NULL disables it.
-    expect(input.modelSnapshot.intent._zdr.safe).toBe(true)
+    expect(input.modelSnapshot.shallow_research._zdr.safe).toBe(true)
   })
 
   it('records an audit event for a decision no human made', async () => {
@@ -195,7 +195,7 @@ describe('bootstrapPlatformModelDefaults', () => {
   })
 
   it('does nothing when the deployment already has defaults', async () => {
-    getPlatformModelDefaults.mockResolvedValue({ intent: 'vendor/owner-pick' })
+    getPlatformModelDefaults.mockResolvedValue({ shallow_research: 'vendor/owner-pick' })
 
     expect(await bootstrapPlatformModelDefaults()).toEqual([])
     expect(savePlatformModelDefaults).not.toHaveBeenCalled()
@@ -230,13 +230,13 @@ describe('bootstrapPlatformModelDefaults', () => {
     freshDeployment()
     getWorkflowLlmBaseUrls.mockResolvedValue({
       ...allOn(OPENROUTER),
-      vlm: 'https://integrate.api.nvidia.com/v1',
+      vlm: 'https://api.openai.com/v1',
     })
 
     const written = await bootstrapPlatformModelDefaults()
 
     expect(written).not.toContain('ingest_vlm')
-    expect(written).toContain('intent')
+    expect(written).toContain('shallow_research')
     expect(Object.keys(savePlatformModelDefaults.mock.calls[0][0].defaults)).not.toContain(
       'ingest_vlm',
     )
@@ -270,7 +270,7 @@ describe('bootstrapPlatformModelDefaults', () => {
 
     await bootstrapPlatformModelDefaults()
 
-    expect(savePlatformModelDefaults.mock.calls[0][0].modelSnapshot.intent._zdr.safe).toBeNull()
+    expect(savePlatformModelDefaults.mock.calls[0][0].modelSnapshot.shallow_research._zdr.safe).toBeNull()
   })
 
   it('keeps the defaults when the audit sink fails', async () => {

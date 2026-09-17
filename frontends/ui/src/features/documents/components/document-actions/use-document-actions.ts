@@ -25,7 +25,8 @@
 import { useCallback, useState } from 'react'
 import { toast } from 'sonner'
 import { useTranslations } from '@/i18n'
-import { startBrowserDownload } from '@/lib/browser-download'
+import { startDocumentDownload } from '@/lib/documents/download'
+import { notifyDocumentsChanged } from '@/lib/documents/document-changes'
 import { documentDisplayName, type NamedDocument } from '@/lib/documents/display-name'
 
 /** Which corpus the document belongs to — and so which words and which route. */
@@ -117,6 +118,9 @@ export function useDocumentActions({
           body !== null && typeof body === 'object' && 'displayName' in body
             ? ((body as { displayName: string | null }).displayName ?? null)
             : displayName
+        // A rename changes the display name a citation chip carries, and the
+        // listings that hold it are cached for the page lifetime.
+        notifyDocumentsChanged()
         onRenamed?.(document.id, stored)
         toast.success(
           stored === null
@@ -137,9 +141,15 @@ export function useDocumentActions({
   const remove = useCallback(async (): Promise<boolean> => {
     setIsDeleting(true)
     try {
-      const url = scope === 'archiv' ? `/api/archiv/documents/${document.id}` : `/api/documents/${document.id}`
+      const url =
+        scope === 'archiv'
+          ? `/api/archiv/documents/${document.id}`
+          : `/api/documents/${document.id}`
       const res = await fetch(url, { method: 'DELETE' })
       if (!res.ok && res.status !== 204) throw new Error(`Delete failed (${res.status})`)
+      // A citation to a document that no longer exists must degrade honestly
+      // rather than keep offering a viewer onto a deleted object.
+      notifyDocumentsChanged()
       toast.success(t('delete.success', { name }))
       onDeleted?.(document.id)
       return true
@@ -152,25 +162,15 @@ export function useDocumentActions({
   }, [document.id, name, onDeleted, scope, t])
 
   /**
-   * The download route answers with JSON (`{ downloadUrl }`), not with bytes —
-   * so this fetches the link and then starts a browser download. Do not
-   * `location.assign` the presigned URL: if the object store ignores
-   * `Content-Disposition` the whole SPA is replaced by the file (#434).
+   * Shared with the citation surface — see `lib/documents/download.ts`, which
+   * also carries the reason the presigned URL is never navigated to (#434).
+   * This side owns only how a failure READS here: an inline line, not a toast.
    */
   const download = useCallback(async (): Promise<void> => {
     setDownloadFailed(false)
     setIsDownloading(true)
     try {
-      const res = await fetch(`/api/documents/${document.id}/download`)
-      const data = res.ok ? await res.json() : null
-      if (typeof data?.downloadUrl === 'string' && data.downloadUrl !== '') {
-        startBrowserDownload(
-          data.downloadUrl,
-          typeof data.filename === 'string' && data.filename !== '' ? data.filename : name,
-        )
-      } else setDownloadFailed(true)
-    } catch {
-      setDownloadFailed(true)
+      if (!(await startDocumentDownload(document.id, name))) setDownloadFailed(true)
     } finally {
       setIsDownloading(false)
     }

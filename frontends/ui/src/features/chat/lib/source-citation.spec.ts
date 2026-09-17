@@ -298,3 +298,51 @@ describe('CSL ids are unique per reference', () => {
     expect(id).toMatch(/^[A-Za-z0-9._-]+$/)
   })
 })
+
+/**
+ * The Punkt — the identifier Austrian building law is actually cited by.
+ *
+ * The chunker establishes it against the corpus's own contents pages, the
+ * knowledge layer prints it, the wire carries it and the model holds it. Every
+ * export then dropped it, so a citation an architect pastes into a Befund named
+ * the PAGE — a fact about one edition's PDF — instead of the requirement.
+ */
+describe('a Punkt is carried through to the citation', () => {
+  const withPunkt = refFor({
+    id: 'p1',
+    content: '',
+    timestamp: NOW,
+    title: 'OIB-Richtlinie 2 – Brandschutz, Ausgabe Mai 2023',
+    fileName: 'oib-rl_2_ausgabe_mai_2023.pdf',
+    citationKey: 'oib-rl_2_ausgabe_mai_2023.pdf, p.12',
+    collection: 'oib_knowledge',
+    kind: 'baurecht',
+    lane: 'baurecht_oib',
+    origin: 'kb',
+    page: 12,
+    punkt: '3.5.2',
+    number: 1,
+    isCited: true,
+  })
+
+  test('rides on the CSL item as `section`, which is the field for it', () => {
+    expect(toCslItem(withPunkt, NOW).section).toBe('3.5.2')
+  })
+
+  test('is named before the page in the Fachtext form', () => {
+    // The requirement identifies itself; the page only says where this edition
+    // prints it.
+    const text = toFachtext(withPunkt, NOW)
+
+    expect(text).toContain('Pkt. 3.5.2')
+    expect(text).toContain('S. 12')
+    expect(text.indexOf('Pkt. 3.5.2')).toBeLessThan(text.indexOf('S. 12'))
+  })
+
+  test('is absent when the citation does not name one', () => {
+    // A document-level reference has no Punkt, and inventing one would be the
+    // same overstatement `refPage` refuses for pages.
+    expect(toCslItem(oib, NOW).section).toBeUndefined()
+    expect(toFachtext(oib, NOW)).not.toContain('Pkt.')
+  })
+})

@@ -23,7 +23,7 @@ class TestBuildCardGenerationPrompt:
 
     def test_contains_card_type_descriptions(self):
         prompt = build_card_generation_prompt()
-        assert "concise overview" in prompt
+        assert "A legal norm, regulation, or OIB Richtlinie" in prompt
         assert "legal norm" in prompt.lower()
 
     def test_expands_nested_building_blocks(self):
@@ -71,10 +71,18 @@ class TestCatalogSharedAcrossSurfaces:
         assert render_card_index() in description
         assert render_card_catalog() not in description
 
-    def test_the_tool_points_at_the_shape_lookup(self):
-        # Without this pointer the model guesses the nesting and burns a turn on
-        # a validation error, which costs more than the shapes it saved.
-        assert "describe_card" in _build_tool_description()
+    def test_the_tool_teaches_the_shape_on_the_RETRY_rather_than_in_advance(self):
+        # This used to point at `describe_card` and talk the model into paying
+        # for it up front — on every turn, for every card, including the ones it
+        # would have filled in correctly. The shape is only ever needed when the
+        # first attempt would have been wrong, so that is where it is spent now:
+        # a failed `emit_card` returns the same L2 entry `describe_card` did.
+        description = _build_tool_description()
+        assert "describe_card" not in description
+        assert "the error hands you that type's full shape and a worked example" in description
+        # And the reason the pointer existed at all is preserved: an unfamiliar
+        # shape must never be what stops a card being emitted.
+        assert "never a reason to skip a card the answer called for" in description
 
     def test_post_hoc_generation_embeds_the_catalog_minus_the_model_cards(self):
         assert render_card_catalog(include_model_backed=False) in build_card_generation_prompt()
@@ -123,8 +131,10 @@ class TestTheDoctrineReachesThePostHocPath:
         # generic ones that fire on an ordinary answer.
         assert "a riser, tread or stair width" in prompt
         assert "-> stair_diagram" in prompt
-        assert "the two to five points the reader must leave with" in prompt
-        assert "changes what the reader DOES" in prompt
+        # The rhetorical triggers left the table with their card types: those
+        # shapes are answer-envelope fields now, on every surface.
+        assert "key_takeaways" not in prompt
+        assert "-> callout" not in prompt
 
     def test_the_negative_default_survives(self):
         # The trigger table without its counterweight is an instruction to
@@ -157,7 +167,7 @@ class TestTheDoctrineReachesThePostHocPath:
         What this costs is real and is written down rather than glossed: a
         finished deep-research REPORT now carries no follow-up questions at all,
         because the post-answer stage's gate skips a turn with a
-        `deep_research_job_id` (§7.6). Covering the report path means a stage on
+        `run_id` (§7.6). Covering the report path means a stage on
         the job runner, which is separate work.
         """
         prompt = build_card_generation_prompt()
@@ -166,14 +176,15 @@ class TestTheDoctrineReachesThePostHocPath:
         # The ordering rule used to end on "follow_ups last", which was the only
         # place the word survived the removals above.
         assert "WHERE THEY GO" in prompt
-        assert "the verdict first, the substance after it" in prompt
+        assert "the substance the report turns on first" in prompt
 
     def test_both_surfaces_render_the_one_doctrine(self):
         # The pairing that keeps this from becoming a copy: neither surface
-        # holds the trigger table, both render it, and the only difference is
-        # the IFC triggers the post-hoc path cannot act on.
+        # holds the trigger table, both render it, and they differ only in what
+        # this path cannot act on — the IFC triggers, and the per-card craft,
+        # most of which instructs an agent still composing the answer.
         assert render_card_doctrine() in _build_tool_description()
-        assert render_card_doctrine(include_ifc_triggers=False) in build_card_generation_prompt()
+        assert render_card_doctrine(include_ifc_triggers=False, include_craft=False) in build_card_generation_prompt()
 
 
 class TestWhatThePostHocPathIsNotToldToDo:
@@ -245,12 +256,26 @@ class TestTheCraftThatCouldNotBeInherited:
     applicable judgement.
     """
 
+    def test_the_shared_craft_is_not_paid_here(self):
+        # `include_craft=False`. The doctrine's craft says things like "mark
+        # `current_step` only where the conversation established it" and "put the
+        # decisive passage in `original_text`" — moves that edit an answer this
+        # path cannot edit. What stands in is `_POST_HOC_CRAFT`, a test over the
+        # report as handed, at a fraction of the tokens.
+        prompt = build_card_generation_prompt()
+        assert "Stations must CARRY something" not in prompt
+        assert "-> process_map" in prompt
+        assert "WHICH ONE EARNS ITS PLACE" in prompt
+
     def test_the_generic_cards_carry_their_test(self):
         prompt = build_card_generation_prompt()
         assert "WHICH ONE EARNS ITS PLACE" in prompt
-        assert "would a reader who reads ONLY this card" in prompt  # key_takeaways
-        assert "ONE headline value" in prompt  # verdict_header
-        assert "A second callout" in prompt  # callout
+        # calculation: only a number the report WORKED OUT, operands as stated.
+        assert "a number the report WORKED OUT" in prompt
+        # The envelope paragraphs are gone with their card types — a craft
+        # section teaching a card the validator drops is dead prompt weight.
+        assert "verdict_header" not in prompt
+        assert "A second callout" not in prompt
 
     def test_the_three_table_shaped_cards_are_told_apart(self):
         prompt = build_card_generation_prompt()

@@ -147,14 +147,30 @@ into `project_context` (`compose_project_context`), whose answering prompt tells
 the model to treat confirmed facts as *binding constraints it must never
 contradict*. That rule is meant for the intake profile; inherited by agent-authored
 `unverified` notes it turns stale memory into something the agent defends. The
-answering prompt (`shallow_researcher/prompts/researcher.j2`) therefore carves
-`PROJECT_MEMORY` out explicitly: prior notes, not confirmed facts and not law;
+answering prompt therefore carves `PROJECT_MEMORY` out explicitly, in
+`prompts/piloti_static.md` `<project_record>` (above the KV-cache boundary,
+since the explanation is the same bytes on every turn while only the VALUES
+vary): prior notes, not confirmed facts and not law;
 `user_confirmed` alone carries a confirmed fact's weight; entries run pinned-first
 then newest-first; the current conversation always wins; and a memory entry is
 never a citable source for a legal requirement.
 
+**What the project decided about the agent's proposals travels with the
+digest.** A `project_profile_patch` or `memory_proposal` card is a proposal;
+the reader's Accept or Reject is persisted on the message (ADR-0030) and,
+until 2026-09, read by nothing the agent could see, so a declined patch came
+back next turn. `lib/projects/proposal-decisions.ts` renders the most recent
+verdicts as a bounded `PROPOSAL_DECISIONS v1` block (≤10 lines / ≤900 chars,
+newest first, in the card's own words) that is appended to the digest on the
+handshake and on the live per-turn fetch. The memory header cap is sized for
+both blocks (`MEMORY_HEADER_MAX_CHARS`), and `<project_record>` explains the
+block once, next to PROJECT_MEMORY: accepted means already in place, declined
+means not raised again without new evidence.
+
 ### 3.4 Maintain — keep it small and fresh
 - `last_referenced_at` + salience decay → low-value items sink out of the digest.
+- Reinforcement (`recall_count`, `last_referenced_at`) fires only on a build ranked against a question; the query-less handshake build reinforces nothing, so recency cannot reinforce recency.
+- A finding that contradicts a pinned, user-confirmed or user-written note is inserted beside it with `conflicts_with_id` naming that note (migration 0076); a person resolves the pair in the panel.
 - Superseded/dismissed items are archived (kept for provenance, excluded from serve).
 - Periodic re-summarization collapses many small related items into one.
 
@@ -163,7 +179,7 @@ The in-turn `remember` tool depends on the answering agent pausing mid-flow to
 record a finding — which a busy answer often skips. The **reflection stage** is
 the safety net. It runs in the chat entrypoint's *post-processing phase*,
 **scheduled after the answer is already returned** (`schedule_memory_reflection`
-in `agents/project_memory/reflection.py`), so it never adds latency to the reply.
+in `memory/reflection.py`), so it never adds latency to the reply.
 
 Flow (fire-and-forget background task on the event loop):
 1. The entrypoint captures the turn (query + answer), the project/organization
@@ -220,7 +236,7 @@ Safety limits (see [memory-reflection-audit.md](./memory-reflection-audit.md)):
 - **Reflection can retire what it corrects**, not only append. Each finding
   carries a `supersedes` field (part of the strict structured-output contract, so
   the model has a sanctioned way to return one): the verbatim content of the entry
-  it replaces, copied from the digest it was shown. `_sanitize_findings` honours
+  it replaces, copied from the digest it was shown. `_finding_from_entry` honours
   it ONLY when it matches one COMPLETE entry of the shown digest (normalized
   equality against the parsed entry contents, not a substring test — a truncated
   quote like "Client chose a flat" for "Client chose a flat roof" would otherwise
@@ -240,11 +256,16 @@ User-informing: both in-turn and reflection writes surface under each answer as 
 fed by `GET /api/projects/{id}/memory?conversationId=…`), labelling in-turn
 (`agent`) vs reflection (`distillation`) provenance.
 
-De-duplication: `createProjectMemoryItem` runs a two-pass write-time check on
+De-duplication: `createProjectMemoryItem` runs a three-pass write-time check on
 every write (both the tool and this stage) — a normalized-equal active item is
-refreshed in place instead of duplicated, and a same-kind **paraphrase** (token
-Jaccard ≥ 0.8 over a bounded candidate scan) merges the same way **unless it
-asserts the opposite**, in which case it supersedes rather than merges (§3.2) —
+refreshed in place instead of duplicated; a **restatement** the embedder scores
+at cosine ≥ 0.9 (any kind: one fact filed as `constraint` and as `derived_fact`
+is one row) or a same-kind **paraphrase** (token Jaccard ≥ 0.8 over a bounded
+candidate scan) merges the same way **unless it asserts the opposite**, in which
+case it supersedes rather than merges (§3.2); and an entry the caller quotes as
+superseded is retired even when the finding itself merges. Within one turn the
+reflection stage also sees what the `remember` tool already wrote, so the two
+writers never file the same fact twice —
 backed by two partial UNIQUE indexes on normalized content (migration
 `0010_project_memory_dedup.sql`) that close the race window. This is a
 pragmatic slice of the §3.2 gate; embed-based consolidation remains a follow-up.

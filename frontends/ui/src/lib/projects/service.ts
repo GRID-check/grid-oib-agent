@@ -74,6 +74,7 @@ export async function listProjects(
     projects.map(async (project) => {
       const allowed = await checkResourcePermission({
         organizationMembershipId: session.organizationMembershipId,
+        organizationId: session.organizationId,
         permissionSlug: 'project:view',
         resourceExternalId: project.id,
         resourceTypeSlug: 'project',

@@ -78,7 +78,6 @@ export default function AppRailPreview(): JSX.Element {
           where the rail is replaced by the mobile bar. */}
       <div className="hidden md:contents">
         <AppSidebar
-          scope="project"
           projectId="p-1"
           projects={PROJECTS}
           user={{ name: 'Anna Berger', email: 'anna.berger@example.at' }}

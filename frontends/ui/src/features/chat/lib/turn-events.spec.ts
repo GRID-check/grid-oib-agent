@@ -32,6 +32,7 @@ import {
   researchTruncation,
   stepEventPayload,
   turnEventLiveText,
+  turnEventOf,
 } from './turn-events'
 
 const tDe = createTranslator(de, 'chat')
@@ -77,9 +78,9 @@ describe('turnEventLiveText', () => {
       corpus: 'knowledge',
       query: 'Fluchtweglänge GK4',
     })
-    expect(turnEventLiveText(step, tDe)).toBe('Sucht im OIB-Wissen: „Fluchtweglänge GK4“')
+    expect(turnEventLiveText(step, tDe)).toBe('Sucht im Wissen: „Fluchtweglänge GK4“')
     expect(turnEventLiveText(step, tEn)).toBe(
-      'Searching the OIB knowledge base: “Fluchtweglänge GK4”'
+      'Searching the knowledge base: “Fluchtweglänge GK4”'
     )
   })
 
@@ -87,26 +88,41 @@ describe('turnEventLiveText', () => {
     // `und` is grammar, and so is the preposition welded onto each name. The
     // wire carries `knowledge,ris` and nothing else.
     const step = status('retrieval:0', 'status.retrieval.plain', { corpus: 'knowledge,ris' })
-    expect(turnEventLiveText(step, tDe)).toBe('Sucht im OIB-Wissen und im RIS …')
+    expect(turnEventLiveText(step, tDe)).toBe('Sucht im Wissen und im RIS …')
     expect(turnEventLiveText(step, tEn)).toBe(
-      'Searching the OIB knowledge base and RIS (Austrian law) …'
+      'Searching the knowledge base and RIS (Austrian law) …'
     )
   })
 
-  test('the routing DECISION is phrased; the model\'s reason never reaches the line', () => {
-    const step = event('status:routing', {
+  test('the escalation is phrased; the model\'s reason never reaches the line', () => {
+    const step = event('status:escalation', {
       kind: 'status',
       channel: 'live',
-      slot: 'routing',
-      key: 'status.routing.deep',
+      slot: 'escalation',
+      key: 'status.escalation',
       values: {},
-      // Free-text prose in whatever language the classifier wrote. It travels
-      // for the secondary "why this route?" row, which attributes it.
+      // Free-text prose in whatever language the agent wrote. It travels for
+      // the framing node's escalation narration, which attributes it.
       reason: 'Mehrere klar getrennte Teilfragen.',
     })
-    expect(turnEventLiveText(step, tEn)).toBe('Deep research: working through several sources')
+    expect(turnEventLiveText(step, tEn)).toBe('A quick lookup is not enough — starting deep research')
     expect(turnEventLiveText(step, tEn)).not.toContain('Teilfragen')
-    expect(turnEventLiveText(step, tDe)).toBe('Tiefenrecherche: mehrere Quellen werden geprüft')
+    expect(turnEventLiveText(step, tDe)).toBe('Kurzrecherche reicht nicht — Tiefenrecherche startet')
+  })
+
+  test('the synthesis phase is phrased in the composing words', () => {
+    // Without this the line keeps showing the last retrieval event through
+    // the whole synthesis call. Same words as the legacy `composing` activity
+    // on purpose: one vocabulary, whichever era produced the line.
+    const step = event('status:synthesis', {
+      kind: 'status',
+      channel: 'live',
+      slot: 'synthesis',
+      key: 'status.synthesis',
+      values: {},
+    })
+    expect(turnEventLiveText(step, tDe)).toBe('Antwort wird formuliert …')
+    expect(turnEventLiveText(step, tEn)).toBe('Composing the answer …')
   })
 
   test('a technical event is refused even if it somehow carries a key', () => {
@@ -114,11 +130,11 @@ describe('turnEventLiveText', () => {
     // Belt and braces, because a leak here is the phantom-Websuche class of bug.
     expect(
       turnEventLiveText(
-        event('status:routing', {
+        event('status:escalation', {
           kind: 'status',
           channel: 'technical',
-          slot: 'routing',
-          key: 'status.routing.deep',
+          slot: 'escalation',
+          key: 'status.escalation',
           values: {},
         }),
         tDe
@@ -241,12 +257,21 @@ describe('turnEventLiveText', () => {
 describe('every key the backend can emit has words in every locale', () => {
   const repoRoot = join(process.cwd(), '..', '..')
 
-  /** The string literals inside a `ALL_*_KEYS: tuple[str, ...] = ( … )` block. */
+  /**
+   * The string literals inside an `ALL_*_KEYS: tuple[str, ...] = ( … )` block.
+   *
+   * Cut at the first `)`, not at the first `\n)`. A tuple that shrinks to one
+   * entry is reformatted onto a single line (`= ("skill.activated",)`), and a
+   * parser that only knows the multi-line shape then reads past the tuple and
+   * swallows the rest of the module — which fails this suite with a diff full
+   * of Python source instead of the missing key it is meant to name. No key
+   * contains a parenthesis, so the first one always terminates the tuple.
+   */
   const registry = (file: string, constant: string): string[] => {
     const source = readFileSync(join(repoRoot, file), 'utf8')
     const block = source.split(`${constant}: tuple[str, ...] = (`)[1]
     expect(block, `${constant} not found in ${file}`).toBeDefined()
-    return [...block.split('\n)')[0].matchAll(/'([^']+)'|"([^"]+)"/g)].map((m) => m[1] ?? m[2])
+    return [...block.split(')')[0].matchAll(/'([^']+)'|"([^"]+)"/g)].map((m) => m[1] ?? m[2])
   }
 
   const backendKeys = [
@@ -307,6 +332,19 @@ describe('stepEventPayload — decoded exactly once', () => {
 describe('researchTruncation — where a cut-off turn stopped', () => {
   const budget = (extra: Record<string, unknown>) =>
     event('status:budget', { kind: 'status', channel: 'technical', slot: 'budget', ...extra })
+
+  test('the input-token ceiling is a truncation in its own slot', () => {
+    const found = researchTruncation([
+      event('status:budget:input', {
+        kind: 'status',
+        channel: 'technical',
+        slot: 'budget:input',
+        truncated: true,
+        tools: ['knowledge_search', 'read_passage'],
+      }),
+    ])
+    expect(found).toEqual({ lastTool: 'read_passage' })
+  })
 
   test('a turn with no budget step was never truncated', () => {
     expect(researchTruncation([status('retrieval:0', 'status.retrieval.plain', { corpus: 'knowledge' })])).toBeNull()
@@ -438,10 +476,12 @@ describe('answerDegradations — an answer weaker than it looks', () => {
     expect(answerDegradations([status('citations', 'status.citations')])).toEqual([])
   })
 
-  test('both known reasons survive, in the order the backend recorded them', () => {
+  test('every known reason survives, in the order the backend recorded them', () => {
     expect(
-      answerDegradations([degraded({ degraded: true, reasons: ['no_report_file', 'no_valid_citations'] })])
-    ).toEqual(['no_report_file', 'no_valid_citations'])
+      answerDegradations([
+        degraded({ degraded: true, reasons: ['no_report_file', 'no_valid_citations', 'cards_generation_failed'] }),
+      ])
+    ).toEqual(['no_report_file', 'no_valid_citations', 'cards_generation_failed'])
   })
 
   test('an unknown token is dropped, not surfaced', () => {
@@ -460,5 +500,57 @@ describe('answerDegradations — an answer weaker than it looks', () => {
   test('the record only counts when it says the answer degraded', () => {
     expect(answerDegradations([degraded({ reasons: ['no_report_file'] })])).toEqual([])
     expect(answerDegradations([degraded({ degraded: true })])).toEqual([])
+  })
+})
+
+describe('a stored step renders from its hoisted event', () => {
+  test('the words come back after the payload is gone', () => {
+    const live = status('retrieval:0', 'status.retrieval.withQuery', {
+      corpus: 'knowledge',
+      query: 'Fluchtweglänge GK4',
+    })
+    const hoisted = turnEventOf(live)
+    expect(hoisted).toEqual({
+      key: 'status.retrieval.withQuery',
+      values: { corpus: 'knowledge', query: 'Fluchtweglänge GK4' },
+    })
+    const stored = { functionName: live.functionName, content: '', turnEvent: hoisted }
+    expect(turnEventLiveText(stored, tDe)).toBe('Sucht im Wissen: „Fluchtweglänge GK4“')
+  })
+
+  test('a live payload still wins over a stale hoisted event', () => {
+    const live = status('retrieval:0', 'status.retrieval.plain', { corpus: 'ris' })
+    const withStale = { ...live, turnEvent: { key: 'status.retrieval.withQuery', values: { corpus: 'knowledge', query: 'alt' } } }
+    expect(turnEventLiveText(withStale, tDe)).toBe('Sucht im RIS …')
+  })
+
+  test('tools on a retrieval round are hoisted with the checkpoint', () => {
+    const live = event('status:retrieval:0', {
+      kind: 'status',
+      channel: 'live',
+      slot: 'retrieval:0',
+      key: 'status.retrieval.plain',
+      values: { corpus: 'ifc' },
+      tools: ['ifc_measure', 'knowledge_search'],
+    })
+    expect(turnEventOf(live)?.tools).toEqual(['ifc_measure', 'knowledge_search'])
+  })
+
+  test('a checkpoint reason is hoisted and never interpolated into the live line', () => {
+    const live = event('status:retrieval:1', {
+      kind: 'status',
+      channel: 'live',
+      slot: 'retrieval:1',
+      key: 'status.retrieval.withQuery',
+      values: { corpus: 'knowledge', query: 'Überhang Dachrand' },
+      reason: 'OIB 3 Pkt. 3.4.2 verweist auf den lichten Einfallswinkel.',
+    })
+    const hoisted = turnEventOf(live)
+    expect(hoisted?.reason).toBe('OIB 3 Pkt. 3.4.2 verweist auf den lichten Einfallswinkel.')
+    expect(turnEventLiveText(live, tDe)).toBe('Sucht im Wissen: „Überhang Dachrand“')
+    expect(turnEventLiveText(live, tDe)).not.toContain('Einfallswinkel')
+    expect(turnEventLiveText({ functionName: live.functionName, content: '', turnEvent: hoisted }, tEn)).toBe(
+      'Searching the knowledge base: “Überhang Dachrand”'
+    )
   })
 })

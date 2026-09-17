@@ -29,7 +29,7 @@
  *
  * They are a group of their own rather than entries in `chat.thinking.nodeName`
  * because the two vocabularies do not meet. `nodeName` names NAT function ids
- * (`shallow_research_agent`, `intent_classifier`, `knowledge_search`) — the
+ * (`shallow_research_agent`, `deep_research_agent`, `knowledge_search`) — the
  * nodes of a chat turn's graph. These are the roles WITHIN one deep-research
  * run, and not one identifier appears in both lists. Filing them under
  * `nodeName` would put two unrelated vocabularies in one namespace; restating

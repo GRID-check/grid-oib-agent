@@ -16,14 +16,19 @@ Agent selection is DETERMINISTIC and derived from the JOB's chosen output kind.
 A skill no longer declares how it runs — scheduling is a property of the job (a
 prompt on a timer), and the output kind is the user's choice on that job:
 
-* ``output='chat'``          → ``shallow_researcher`` (quick single-turn job)
+* ``output='chat'``          → ``researcher`` (quick single-turn job)
 * ``output='deep-research'`` → ``deep_researcher`` (the deep research agent)
 
 ``agent_type`` is an explicit escape hatch for future output kinds; when
-omitted the table above decides. The submitted job carries the skill names in
-``force_skills`` so the worker force-activates them (the agent-side consumer
-lives in ``src/aiq_agent``); a job may legitimately attach NO skill at all, in
-which case the list is empty and the run is the prompt alone.
+omitted the table above decides. A job may legitimately attach NO skill at all,
+in which case the list is empty and the run is the prompt alone.
+
+An attached skill reaches the run through ``input`` and nothing else: the BFF
+composes the job prompt WITH the skill's body before it calls this route.
+``skills`` is therefore a name list for the log and nothing is forced on the
+worker — no agent state carries a forced-skill list any more, because a skill
+is a working method the model picks from its catalog, and a body already in the
+prompt needs no tool call to arrive.
 
 Guarded by ``GRID_INTERNAL_API_TOKEN`` (the ``maintenance.py`` pattern) and,
 critically, NOT added to ``AuthMiddleware.EXTERNAL_ALLOWED_PATHS`` — so it is
@@ -54,7 +59,7 @@ logger = logging.getLogger(__name__)
 
 # The JOB's chosen output kind maps onto exactly one async-job-capable agent
 # type. Both entries are registered in AGENT_REGISTRY at import time
-# (deep_researcher, shallow_researcher). Deterministic by construction: there is
+# (deep_researcher, researcher). Deterministic by construction: there is
 # no path from an output kind to "some other agent".
 #
 # The mapping itself is unchanged; only where the value comes from moved. It
@@ -62,7 +67,7 @@ logger = logging.getLogger(__name__)
 # skill declare how it ran. It is now a column on the job row, chosen by the
 # user, and a skill is merely attached on top.
 _OUTPUT_AGENT_TYPES: dict[str, str] = {
-    "chat": "shallow_researcher",
+    "chat": "researcher",
     "deep-research": "deep_researcher",
 }
 
@@ -92,7 +97,10 @@ class SkillSubmitPayload(BaseModel):
     )
     skills: list[str] = Field(
         default_factory=list,
-        description="Skill names to force-activate for this run; empty = no skill attached, the prompt runs alone",
+        description=(
+            "Names of the skills attached to this job, for the log. The skill BODY travels "
+            "composed into `input`; nothing is forced on the worker. Empty = no skill attached."
+        ),
     )
     # The wire field is `output`; `execution` is the pre-rename spelling, kept
     # readable for ONE release. The BFF and this service deploy separately, and
@@ -127,6 +135,17 @@ class SkillSubmitPayload(BaseModel):
         description="Collection scope (base + project + scoped collections); the project collection is derived from it",
     )
     project_context: str | None = Field(None, description="Optional project-context prompt block")
+    project_memory: str | None = Field(
+        None,
+        description=(
+            "The project-memory digest as of fire time; the worker fetches a live one and "
+            "keeps this only when that fetch fails"
+        ),
+    )
+    memory_reflection_enabled: bool = Field(
+        False,
+        description="Whether the worker may run the post-run memory reflection pass (the org's flag, BFF-evaluated)",
+    )
     organization_id: str = Field(..., description="WorkOS organization id owning the run (required)")
     user_id: str | None = Field(None, description="Skill owner's WorkOS user id")
     project_id: str | None = Field(None, description="Project id the skill run is scoped to")
@@ -135,6 +154,15 @@ class SkillSubmitPayload(BaseModel):
         description=(
             "Conversation the BFF created for this run to land in (output='chat' jobs only). "
             "Absent for deep-research jobs, and for any run whose conversation could not be created."
+        ),
+    )
+    run_id: str | None = Field(
+        None,
+        max_length=64,
+        description=(
+            "The `task_runs` row this job IS (ADR-0062). Carried into the worker so the run "
+            "flushes its ledger to its own message; a job submitted without one still narrates "
+            "itself on its event stream and writes nothing."
         ),
     )
     owner_email: str | None = Field(None, description="Skill owner's email (job ownership)")
@@ -291,13 +319,20 @@ def add_skill_routes(router: APIRouter) -> None:
                 data_sources=body.data_sources,
                 collection_scope=body.collection_scope,
                 project_context=body.project_context,
+                project_memory=body.project_memory,
                 model_overrides=body.model_overrides,
                 usage_context=usage_context,
-                force_skills=body.skills,
+                # The flag is the BFF's to evaluate (per organization); the
+                # reflection LLM ref is the worker's to resolve from its config.
+                memory_reflection_enabled=body.memory_reflection_enabled,
                 # Explicit, because a scheduled run has no request context to
                 # inherit one from. This is what lets the worker write the
                 # answer into a thread a human can open and continue.
                 conversation_id=body.conversation_id,
+                # And this is what lets it narrate itself there: without the run
+                # id the worker builds no `RunLedgerFold`, the block is minted
+                # and then never moves (`jobs/runner.py`).
+                run_id=body.run_id,
             )
         except JobAdmissionError as exc:
             raise HTTPException(429, str(exc), headers={"Retry-After": str(exc.retry_after_seconds)})
@@ -315,7 +350,7 @@ def add_skill_routes(router: APIRouter) -> None:
             raise HTTPException(500, "Failed to persist skill job authorization metadata")
 
         logger.info(
-            "Submitted skill %s job %s for org %s (owner %s, output %s, %d forced skill(s))",
+            "Submitted skill %s job %s for org %s (owner %s, output %s, %d attached skill(s))",
             agent_type,
             job_id,
             body.organization_id,

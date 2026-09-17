@@ -1,0 +1,13 @@
+---
+features:
+  - >
+    Sending a version back for changes now has a second form: „Piloti
+    überarbeiten lassen" stands beside „Änderungen anfordern" in Freigabe und
+    Fassungen and asks for the same written reason, and Piloti then drafts the
+    next version and submits it for approval instead of leaving the work with
+    whoever wrote it.
+fixes:
+  - >
+    The „Unterhaltung öffnen" link on a task card now opens the conversation the
+    task is running in. It pointed at an address that did not exist, so the one
+    control on the card led nowhere.

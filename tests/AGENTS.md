@@ -27,7 +27,7 @@ while everything passes. `.venv/bin/pytest tests/aiq_agent/cards` for one area;
 | Fix a bug | Add the test that fails without your fix | Review. A fix with no test is a fix that comes back |
 | Assert on an LLM call | Assert the contract, never the prose: tools bound, prompt block present, bounds respected | The test passes until the model changes its wording, then fails for no reason |
 | Test tenant behaviour | Remember this suite does not exercise row-level security; `task db:test:rls` does, and `task verify` does not run it | A tenancy bug that only RLS would catch |
-| Add a suite under `sources/` | Run `pytest sources -q` yourself and paste the output. No CI job runs it ([`sources/AGENTS.md`](../sources/AGENTS.md)) | Nothing. That is the problem |
+| Add a suite under `sources/` | Nothing extra — `task be:test:sources` runs it, in `be:verify` and in CI. One pytest per package, because two `tests/` packages in one run collide on `tests.conftest` ([`sources/AGENTS.md`](../sources/AGENTS.md)) | The **backend-test** CI job |
 
 ## Reference
 

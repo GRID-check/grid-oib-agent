@@ -62,6 +62,7 @@ vi.mock('@/lib/db/schema', () => ({
     folderId: 'documents.folder_id',
     filename: 'documents.filename',
     collectionName: 'documents.collection_name',
+    authoredBy: 'documents.authored_by',
     updatedAt: 'documents.updated_at',
   },
   projectFolders: { id: 'folders.id', projectId: 'folders.project_id', path: 'folders.path' },
@@ -77,6 +78,7 @@ const DOCUMENT = {
   folderId: null,
   filename: 'Fluchtwegplan.pdf',
   collectionName: 'proj_1',
+  authoredBy: 'user' as const,
 }
 
 let fetchSpy: ReturnType<typeof vi.fn>
@@ -151,6 +153,19 @@ describe('moveDocumentToFolder', () => {
     expect(result.ok).toBe(true)
     expect(db.updates).toHaveLength(0)
     // No write, so nothing for the backend to catch up on either.
+    expect(fetchSpy).not.toHaveBeenCalled()
+  })
+
+  it('moves a machine-authored row without addressing the backend by filename', async () => {
+    db.selects = [
+      [{ ...DOCUMENT, authoredBy: 'agent', filename: 'brandschutz-gutachten-2026-08-20.pdf' }],
+      [{ id: 'folder-1', path: 'Berichte' }],
+    ]
+
+    const result = await moveDocumentToFolder({ documentId: 'doc-1', folderId: 'folder-1' }, SESSION)
+
+    expect(result.ok).toBe(true)
+    expect(db.updates[0].folderId).toBe('folder-1')
     expect(fetchSpy).not.toHaveBeenCalled()
   })
 

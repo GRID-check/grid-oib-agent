@@ -38,8 +38,8 @@ RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y \
 ENV UV_PYTHON_INSTALL_DIR=/opt/uv-python
 
 RUN python3 -m pip install --break-system-packages --no-cache-dir uv \
-    && uv python install 3.13 \
-    && UV_PYTHON_BIN="$(uv python find 3.13)" \
+    && uv python install 3.14 \
+    && UV_PYTHON_BIN="$(uv python find 3.14)" \
     && ln -sf "$UV_PYTHON_BIN" /usr/local/bin/python \
     && ln -sf "$UV_PYTHON_BIN" /usr/local/bin/python3
 
@@ -48,6 +48,9 @@ RUN uv venv /app/.venv --python /usr/local/bin/python
 ENV VIRTUAL_ENV=/app/.venv
 ENV PATH="/app/.venv/bin:$PATH"
 ENV UV_PYTHON=/app/.venv/bin/python
+# nltk pathsec refuses hard-linked corpora (st_nlink>=2). SentenceSplitter
+# opens them on ingest; copy mode is the install that makes that legal.
+ENV UV_LINK_MODE=copy
 
 # Copy workspace configuration and lockfile
 COPY pyproject.toml uv.lock ./
@@ -74,9 +77,7 @@ RUN uv sync --frozen --no-dev --no-install-workspace
 
 # Install workspace packages (without CLI for base)
 RUN uv pip install --no-deps -e . \
-    && uv pip install --no-deps -e ./sources/google_scholar_paper_search \
     && uv pip install --no-deps -e ./sources/tavily_web_search \
-    && uv pip install --no-deps -e ./sources/exa_web_search \
     && uv pip install --no-deps -e ./sources/ris_adapter \
     && uv pip install --no-deps -e "./sources/knowledge_layer[all]" \
     && uv pip install --no-deps -e ./frontends/aiq_api \
@@ -140,6 +141,15 @@ ENV PYTHONUNBUFFERED=1
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PATH="/app/.venv/bin:$PATH"
 
+# The commit this image was built from. `--build-arg GRID_GIT_SHA=$(git rev-parse
+# HEAD)` in the image build (publish-images.yml / docker-build.yml); unset
+# everywhere else, and the boot line then prints `sha=unknown` rather than
+# guessing. There is no `.git` in the image, so a build arg is the only way the
+# running container can answer "which commit am I", and it is the question a
+# pilot report cannot be actioned without.
+ARG GRID_GIT_SHA=""
+ENV GRID_GIT_SHA=$GRID_GIT_SHA
+
 EXPOSE 8000
 
 ENTRYPOINT ["python", "/app/deploy/entrypoint.py"]
@@ -168,6 +178,15 @@ ENV PYTHONUNBUFFERED=1
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PATH="/app/.venv/bin:$PATH"
 ENV APP_ENV=production
+
+# The commit this image was built from. `--build-arg GRID_GIT_SHA=$(git rev-parse
+# HEAD)` in the image build (publish-images.yml / docker-build.yml); unset
+# everywhere else, and the boot line then prints `sha=unknown` rather than
+# guessing. There is no `.git` in the image, so a build arg is the only way the
+# running container can answer "which commit am I", and it is the question a
+# pilot report cannot be actioned without.
+ARG GRID_GIT_SHA=""
+ENV GRID_GIT_SHA=$GRID_GIT_SHA
 
 EXPOSE 8000
 

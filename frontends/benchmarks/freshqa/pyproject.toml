@@ -11,11 +11,11 @@ name = "freshqa-eval"
 version = "1.0.0"
 description = "FreshQA evaluator for NAT - FreshEval Relaxed evaluation methodology"
 readme = "README.md"
-requires-python = ">=3.11,<3.14"
+requires-python = ">=3.14,<3.15"
 license = {text = "Apache-2.0"}
 dependencies = [
     "nvidia-nat-eval==1.7.0",
-    "pytz>=2024.1",
+    "pytz>=2026.3.post1",
     "pydantic>=2.0.0",
 ]
 

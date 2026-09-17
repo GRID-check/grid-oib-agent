@@ -86,10 +86,16 @@ describe('summarizeValidation', () => {
     expect(summarizeValidation(result, t)).toBe('2 Dateien haben Probleme')
   })
 
-  it('says how much room is left when the shelf is already crowded', () => {
+  it('says how much room is left when the session is already crowded', () => {
+    // A SESSION context, not a durable one: the batch total-size cap is the
+    // chat session's, because a project or Archiv upload is bounded by the
+    // organization's quota instead (see `durableCorpus` in `validation.ts`).
+    // Left on a durable corpus, this ceiling rejected a real Einreichung
+    // wholesale in an org with terabytes to spare. The message it produces is
+    // still the right one where the cap genuinely applies.
     const result = validateFileUpload(
       [file('Plan.pdf', 40 * 1024 * 1024)],
-      context({ existingTotalSize: 90 * 1024 * 1024 }),
+      context({ existingTotalSize: 90 * 1024 * 1024, durableCorpus: false }),
       config,
       'de'
     )

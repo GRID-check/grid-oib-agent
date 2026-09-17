@@ -44,10 +44,17 @@ export const ComparisonTableCard: FC<ComparisonTableCardProps> = ({
       reference={reference}
     >
       <div className="w-full overflow-x-auto">
-        <table className="w-full min-w-max border-collapse text-xs">
+        {/* ONE SIZE FOR THE WHOLE TABLE, with weight and ink doing the
+            hierarchy. Every cell, label and header used to be 12px — the
+            charter's CAPTION step, spent on what the charter itself calls
+            Body: "every row of every list. The default." A comparison
+            table's rows ARE rows of a list, and read at 12px inside a
+            16px answer they were the smallest thing on screen while
+            carrying the comparison the card exists for. */}
+        <table className="card-body w-full min-w-max border-collapse">
           <thead>
             <tr className="border-b">
-              <th className="py-1.5 pr-3 text-left font-normal text-muted-foreground" scope="col">
+              <th className="py-1.5 pr-3 text-left font-medium text-muted-foreground" scope="col">
                 {t('cards.comparison.criterion')}
               </th>
               {options.map((option, i) => (
@@ -96,7 +103,7 @@ export const ComparisonTableCard: FC<ComparisonTableCardProps> = ({
       </div>
 
       {recommendation && (
-        <p className="flex items-start gap-1.5 text-xs leading-relaxed text-foreground">
+        <p className="card-body flex items-start gap-1.5 text-foreground">
           <ThumbsUp className="mt-0.5 size-3.5 shrink-0" style={{ color: success }} aria-hidden="true" />
           <span className="max-w-prose">{recommendation}</span>
         </p>

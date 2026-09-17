@@ -4,10 +4,11 @@ import { type ReactNode, Suspense, useEffect, useRef } from 'react'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { useAuth } from '@/adapters/auth'
 import { MainLayout } from '@/features/layout'
-import { useChatStore, useLoadJobData, useDeepResearchTitle } from '@/features/chat'
-import type { ResearchPanelTab } from '@/features/layout/types'
+import { useChatStore, useDeepResearchTitle } from '@/features/chat'
+import { conversationMatchesProject } from '@/features/chat/lib/project-scope'
 import { newChatDropsFilePreview } from '@/features/documents/lib/ask-arrival'
 import { fileItemFromStatus } from '@/features/documents/lib/document-question'
+import { isUuid } from '@/lib/ids'
 import { useCitationPeek } from '@/features/documents/hooks/use-citation-peek'
 import { useFilePreviewStore } from '@/features/documents/stores/file-preview-store'
 
@@ -54,20 +55,21 @@ const ProjectChatContent = ({
   const loadServerConversations = useChatStore((s) => s.loadServerConversations)
   const setComposerPrefill = useChatStore((s) => s.setComposerPrefill)
   const startNewSessionDraft = useChatStore((s) => s.startNewSessionDraft)
+  const selectConversation = useChatStore((s) => s.selectConversation)
+  // Retry triggers, not values: a deep-linked id this browser has never seen
+  // only becomes resolvable once the server list lands (or identity arrives).
+  const sessionConversationCount = useChatStore((s) => s.conversations.length)
+  const sessionServerLoaded = useChatStore((s) => s.serverConversationsLoaded)
+  const sessionUserId = useChatStore((s) => s.currentUserId)
 
-  // Deep link from the project Research page: /projects/:id/chat?job=<jobId>
-  // loads that job's report into the research panel. An optional &tab= selects
-  // which panel tab to open — failed runs deep-link to `thinking` so the run
-  // can be diagnosed even though it has no report.
+  // The deep links this route answers are `?session=`, `?run=`, `?ask=`,
+  // `?doc=`, `?file=` and `?new=` — every one of them lands the reader in the
+  // thread. `?job=<jobId>&tab=` used to open the legacy research panel instead;
+  // a run is read in the thread that commissioned it now (ADR-0062), so the
+  // params resolve to nothing and the panel has no door left.
   const searchParams = useSearchParams()
   const router = useRouter()
   const pathname = usePathname()
-  const jobId = searchParams?.get('job') ?? null
-  const tabParam = searchParams?.get('tab')
-  const jobTab: ResearchPanelTab =
-    tabParam === 'thinking' || tabParam === 'tasks' ? tabParam : 'report'
-  const { loadResearchPanelTab } = useLoadJobData()
-  const loadedJobRef = useRef<string | null>(null)
 
   // While a deep-research job streams, reflect its progress in the tab title.
   // The base "<Project> · Chat — Piloti" title comes from route metadata
@@ -121,6 +123,97 @@ const ProjectChatContent = ({
     return () => setProjectId(null)
   }, [projectId, setProjectId, loadServerConversations])
 
+  // `?session=` deep link — including the job-output threads the sessions
+  // panel hides. `useSessionUrl` (mounted inside MainLayout below) resolves a
+  // session only against the personal list, so a task row's "continue in
+  // chat" link into a job-produced conversation reads as a stale id there,
+  // gets stripped from the URL, and lands on whatever thread was last active.
+  // This hydrates the same param against every conversation in THIS project
+  // first: the lookup deliberately includes job conversations
+  // (`lib/project-scope.ts` promises `?session=<id>` selects one), while the
+  // switch itself stays with `selectConversation`, whose ownership and
+  // project-context guards remain authoritative (UX-8).
+  const sessionParam = searchParams?.get('session') ?? null
+  const sessionHydratedRef = useRef<string | null>(null)
+
+  useEffect(() => {
+    // A fresh draft wins over a thread: `?new=1` always lands on an empty
+    // chat, and hydrating a session underneath it would undo that.
+    if (!isAuthenticated || !sessionParam || newParam) return
+    if (sessionHydratedRef.current === sessionParam) return
+    // Identity first, like `useSessionUrl`: the selection guard stamps rows
+    // to the fetcher, so attempting before the user is known can only refuse.
+    if (!sessionUserId) return
+    const state = useChatStore.getState()
+    if (state.currentConversation?.id === sessionParam) {
+      sessionHydratedRef.current = sessionParam
+      return
+    }
+    const target = state.conversations.find((c) => c.id === sessionParam)
+    if (!target) {
+      // Not stale, just not fetched yet: a deep-linked id this browser never
+      // saw only resolves once the server list lands. Giving up here would
+      // strand every task link on its first open.
+      if (!sessionServerLoaded) return
+      sessionHydratedRef.current = sessionParam
+      return
+    }
+    // Never activate another project's session under this socket, and never
+    // another person's: both stay `selectConversation`'s call, which refuses
+    // them the same way. Unknown ids are left for `useSessionUrl`'s stale
+    // handling rather than landing on the wrong thread here.
+    if (!conversationMatchesProject(target, projectId) || target.userId !== sessionUserId) {
+      sessionHydratedRef.current = sessionParam
+      return
+    }
+    selectConversation(sessionParam)
+    sessionHydratedRef.current = sessionParam
+  }, [
+    isAuthenticated,
+    sessionParam,
+    newParam,
+    projectId,
+    sessionConversationCount,
+    sessionServerLoaded,
+    sessionUserId,
+    selectConversation,
+  ])
+
+  // `?run=<runId>` — a deep link that names the RUN and not its thread.
+  //
+  // The run id is the public key of a run (ADR-0062): its backend job id expires
+  // with the job store, and its conversation is not something a caller should
+  // have to know. So this resolves the run and rewrites the URL to the
+  // `?session=` the rest of this file already handles, keeping the
+  // `#message-<id>` anchor — `useMessageAnchor` captured that at mount, so the
+  // scroll still lands once the thread renders.
+  //
+  // `?job=` keeps working underneath: rows older than run messages have nothing
+  // to resolve here and open the research panel exactly as before.
+  const runParam = searchParams?.get('run') ?? null
+  const resolvedRunRef = useRef<string | null>(null)
+
+  useEffect(() => {
+    if (!isAuthenticated || !runParam || sessionParam || !pathname) return
+    if (resolvedRunRef.current === runParam) return
+    resolvedRunRef.current = runParam
+
+    let cancelled = false
+    void fetch(`/api/projects/${encodeURIComponent(projectId)}/runs/${encodeURIComponent(runParam)}`)
+      .then((response) => (response.ok ? response.json() : null))
+      .then((body: { conversationId?: string | null } | null) => {
+        if (cancelled || !body?.conversationId) return
+        const params = new URLSearchParams(searchParams?.toString() ?? '')
+        params.delete('run')
+        params.set('session', body.conversationId)
+        router.replace(`${pathname}?${params.toString()}${window.location.hash}`, { scroll: false })
+      })
+      .catch(() => undefined)
+    return () => {
+      cancelled = true
+    }
+  }, [isAuthenticated, runParam, sessionParam, projectId, pathname, router, searchParams])
+
   useEffect(() => {
     // Files, IFC walls and applicable standards all land here: one Ask Piloti
     // pipe (`setComposerPrefill`). `doc` is the optional subject of that ask,
@@ -131,7 +224,7 @@ const ProjectChatContent = ({
     setComposerPrefill(
       askPrefill ?? '',
       undefined,
-      docPrefill
+      docPrefill && isUuid(docPrefill)
         ? {
             resourceType: 'document',
             resourceId: docPrefill,
@@ -160,7 +253,9 @@ const ProjectChatContent = ({
   useCitationPeek({ projectId, projectName, canCollaborate })
 
   useEffect(() => {
-    if (!subjectId) return
+    // `?doc=` is a documents.id. A filename here used to hit
+    // GET /api/documents/<filename>/status and 500 (#572).
+    if (!subjectId || !isUuid(subjectId)) return
     const preview = useFilePreviewStore.getState()
     if (preview.file?.id === subjectId) {
       preview.peek()
@@ -193,14 +288,6 @@ const ProjectChatContent = ({
       cancelled = true
     }
   }, [subjectId, projectId, projectName, canCollaborate])
-
-  useEffect(() => {
-    if (!isAuthenticated || !jobId) return
-    // Guard against re-loading the same job across re-renders.
-    if (loadedJobRef.current === jobId) return
-    loadedJobRef.current = jobId
-    void loadResearchPanelTab(jobId, jobTab)
-  }, [isAuthenticated, jobId, jobTab, loadResearchPanelTab])
 
   return (
     <MainLayout

@@ -354,7 +354,7 @@ def test_the_committed_artifact_is_well_formed():
 
 
 def test_a_product_change_needs_a_note():
-    assert require_note.needs_note(["src/aiq_agent/agents/bim/register.py"])
+    assert require_note.needs_note(["src/aiq_agent/tools/bim/register.py"])
     assert require_note.needs_note(["frontends/ui/src/app/page.tsx"])
 
 
@@ -362,7 +362,7 @@ def test_tests_and_docs_do_not_need_a_note():
     assert not require_note.needs_note(
         [
             "tests/test_release_notes.py",
-            "src/aiq_agent/agents/bim/tests/test_measure.py",
+            "src/aiq_agent/tools/bim/tests/test_measure.py",
             "frontends/ui/src/app/page.spec.tsx",
             "docs/architecture/overview.md",
             "deploy/pulumi/src/index.ts",

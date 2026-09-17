@@ -98,6 +98,9 @@ describe('GET /api/documents/[id]/image', () => {
   it('streams the image for a validly signed URL', async () => {
     await stubDocument(imageRow)
     vi.mocked(s3Client.send).mockResolvedValue({
+      // ContentLength is always present on a real GetObject response; the
+      // empty-object guard reads it, so the mock carries it like S3 does.
+      ContentLength: 48211,
       Body: { transformToWebStream: () => new ReadableStream() },
     } as never)
 
@@ -168,6 +171,7 @@ describe('GET /api/documents/[id]/image', () => {
   it('serves the thumbnail object as JPEG for the thumb variant', async () => {
     await stubDocument(imageRow)
     vi.mocked(s3Client.send).mockResolvedValue({
+      ContentLength: 48211,
       Body: { transformToWebStream: () => new ReadableStream() },
     } as never)
 
@@ -184,6 +188,17 @@ describe('GET /api/documents/[id]/image', () => {
   it('404s when the thumbnail object was never generated', async () => {
     await stubDocument(imageRow)
     vi.mocked(s3Client.send).mockRejectedValue(new Error('NoSuchKey'))
+
+    const response = await call(signedQuery(DOC, 'thumb'))
+
+    expect(response.status).toBe(404)
+  })
+
+  it('404s when the thumbnail object is empty (#366)', async () => {
+    // A failed ingest render can leave a 0-byte object in the slot: it exists,
+    // so it is not a NoSuchKey, but it decodes to nothing.
+    await stubDocument(imageRow)
+    vi.mocked(s3Client.send).mockResolvedValue({ ContentLength: 0, Body: undefined } as never)
 
     const response = await call(signedQuery(DOC, 'thumb'))
 

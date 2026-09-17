@@ -1,0 +1,13 @@
+---
+improvements:
+  - >
+    Answers now appear as they are written, line by line, instead of landing on
+    the page in one block. Long answers take no longer to read than before — the
+    text is revealed at a pace set by its length — and the effect steps aside
+    for anyone whose system asks for reduced motion.
+fixes:
+  - >
+    An answer can once again carry more than one card. Building a card counted
+    against the same budget as looking things up, so on any question that took
+    real research the second card was dropped before it was drawn, however well
+    it fitted the answer.

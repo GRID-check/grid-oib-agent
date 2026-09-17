@@ -25,18 +25,7 @@ import userEvent from '@testing-library/user-event'
 import { vi, describe, test, expect, beforeEach } from 'vitest'
 import { AgentResponse } from './AgentResponse'
 import { asStoreState, type DeepPartial, type StoreSelector } from '@/test-utils/store-fixtures'
-import type { LayoutStore } from '@/features/layout/types'
 import type { ChatStoreWithHydration } from '../store'
-
-vi.mock('@/features/layout/store', () => ({
-  useLayoutStore: vi.fn((selector?: StoreSelector<LayoutStore>) => {
-    const state: DeepPartial<LayoutStore> = {
-      openRightPanel: vi.fn(),
-      setResearchPanelTab: vi.fn(),
-    }
-    return selector ? selector(asStoreState<LayoutStore>(state)) : state
-  }),
-}))
 
 vi.mock('../store', () => ({
   useChatStore: vi.fn((selector?: StoreSelector<ChatStoreWithHydration>) => {
@@ -55,17 +44,6 @@ vi.mock('../store', () => ({
 
 vi.mock('@/adapters/api', () => ({ cancelJob: vi.fn() }))
 vi.mock('@/adapters/auth', () => ({ useAuth: () => ({ accessToken: null }) }))
-vi.mock('../hooks', () => ({
-  useLoadJobData: () => ({
-    loadReport: vi.fn(),
-    importJobStream: vi.fn(),
-    loadResearchPanelTab: vi.fn(),
-    isLoading: false,
-    error: null,
-    clearError: vi.fn(),
-  }),
-}))
-
 // The disclosure fetches descriptions on expand; a standard skill has none,
 // which is the shape this test wants anyway.
 const listInvocableSkills = vi.fn()
@@ -96,6 +74,8 @@ describe.each(['default', 'inline'] as const)('the %s answer variant', (variant)
       />
     )
 
+    // The skills record lives inside the answer-details disclosure now.
+    await user.click(screen.getByTestId('answer-details-trigger'))
     await user.click(screen.getByTestId('skills-used-trigger'))
     const panel = await screen.findByTestId('skills-used-panel')
     // The record names everything that ran — hidden is never concealed.
@@ -119,6 +99,7 @@ describe.each(['default', 'inline'] as const)('the %s answer variant', (variant)
       />
     )
 
+    await user.click(screen.getByTestId('answer-details-trigger'))
     await user.click(screen.getByTestId('skills-used-trigger'))
     const hiddenRow = await screen.findByTestId('skills-used-hidden-row')
     // Presence never changes; emphasis does. A `showReasoning` that stops being

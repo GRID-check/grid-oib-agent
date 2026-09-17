@@ -38,12 +38,14 @@ from .data_source_registry import get_source_id_for_tool
 from .data_sources import DEFAULT_DATA_SOURCES
 from .data_sources import DISABLED_SOURCES_HEADER
 from .data_sources import all_mapped_tools_filtered_out
+from .data_sources import disabled_source_notice
 from .data_sources import extract_messages_and_sources
 from .data_sources import filter_tools_by_sources
 from .data_sources import format_data_source_tools
 from .data_sources import get_disabled_sources_from_context
 from .data_sources import parse_data_sources
 from .data_sources import parse_disabled_sources
+from .data_sources import unavailable_source_ids
 from .db_utils import redact_db_url
 from .human_prompt import build_human_prompt
 from .human_prompt import extract_user_response
@@ -76,6 +78,7 @@ from .model_overrides import sanitize_model_overrides
 from .nat_step_repair import SpanClosingProfilerHandler
 from .prompt_utils import load_prompt
 from .prompt_utils import render_prompt_template
+from .reasoning_settings import get_reasoning_efforts
 from .tool_validation import format_tool_unavailability_error
 from .tool_validation import format_user_facing_tool_error
 from .tool_validation import validate_tool_availability
@@ -114,6 +117,7 @@ __all__ = [
     "SpanClosingProfilerHandler",
     "VerboseTraceCallback",
     "all_mapped_tools_filtered_out",
+    "disabled_source_notice",
     "CONTINUATION_TURN",
     "content_to_text",
     "create_budget_guard_callback",
@@ -130,15 +134,18 @@ __all__ = [
     "parse_model_overrides",
     "redact_db_url",
     "sanitize_model_overrides",
+    "get_reasoning_efforts",
     "build_human_prompt",
     "extract_json",
     "extract_user_response",
     "extract_messages_and_sources",
     "filter_tools_by_sources",
+    "unavailable_source_ids",
     "format_data_source_tools",
     "format_tool_unavailability_error",
     "format_user_facing_tool_error",
     "get_all_tool_refs",
+    "get_checkpoint_pool",
     "get_checkpointer",
     "get_or_create_session_registry",
     "get_source_id_for_tool",
@@ -184,8 +191,17 @@ def _create_chat_response(
     content: str,
     response_id: str = "conversational_response",
     model: str | None = None,
+    *,
+    usage: Usage | None = None,
 ) -> ChatResponse:
-    """Create a standardized ChatResponse object."""
+    """Create a standardized ChatResponse object.
+
+    ``usage`` carries the turn's provider totals when the caller has them
+    (see :func:`attach_tracker_usage`); it defaults to an empty ``Usage()``
+    so the five turn-finalize call sites that have no tracker in scope keep
+    their shape. An empty usage renders as empty ``usageDetails`` downstream,
+    so any site that DOES hold the tracker must pass it.
+    """
     return ChatResponse(
         id=response_id,
         model=model or "unknown-model",
@@ -197,8 +213,37 @@ def _create_chat_response(
             )
         ],
         created=datetime.datetime.now(datetime.UTC),
-        usage=Usage(),
+        usage=usage if usage is not None else Usage(),
     )
+
+
+def attach_tracker_usage(response: ChatResponse, tracker: object | None) -> ChatResponse:
+    """Stamp a cost tracker's turn totals onto a wire response. Never raises.
+
+    The provider usage enters through ``GridCostTracker`` (OpenRouter's usage
+    object, cost included); without this call the response keeps the empty
+    ``Usage()`` from :func:`_create_chat_response` and the turn's generation
+    observation is unattributable. A tracker with no recorded calls leaves
+    the response untouched — absent usage stays absent rather than zeroed.
+    Duck-typed (``prompt_tokens``/``completion_tokens``/``events_recorded``)
+    like ``stages.runner._cost_metadata`` so tests need no real tracker.
+    """
+    try:
+        if tracker is None:
+            return response
+        prompt_tokens = max(0, int(getattr(tracker, "prompt_tokens", 0) or 0))
+        completion_tokens = max(0, int(getattr(tracker, "completion_tokens", 0) or 0))
+        calls = max(0, int(getattr(tracker, "events_recorded", 0) or 0))
+        if calls <= 0 and prompt_tokens <= 0 and completion_tokens <= 0:
+            return response
+        response.usage = Usage(
+            prompt_tokens=prompt_tokens,
+            completion_tokens=completion_tokens,
+            total_tokens=prompt_tokens + completion_tokens,
+        )
+    except Exception:
+        logger.debug("Could not attach tracker usage to the wire response", exc_info=True)
+    return response
 
 
 def is_postgres_dsn(value: str) -> bool:
@@ -218,19 +263,48 @@ def _build_checkpointer_serde() -> JsonPlusSerializer:
     This flips the checkpointer from permissive to STRICT deserialization: only
     the listed pydantic state types may be reconstructed from a checkpoint. The
     list below is the complete set of custom pydantic types carried in
-    ``ChatResearcherState`` (the shallow graph has no checkpointer). Any NEW
-    pydantic state type MUST be added here or restore will break for it.
+    ``ConversationState`` (a research turn's own state is never checkpointed).
+    Any NEW pydantic state type MUST be added here or restore will break for it.
+
+    A type that was on this list and is gone (``ShallowResult``, whose one
+    escalation bit is a plain field now) needs no entry: a blocked type decodes
+    to its own kwargs dict instead of raising, and a channel the graph no
+    longer declares is dropped on restore.
     """
     # Imported lazily to avoid a circular import: the agent state modules import
     # from ``aiq_agent.common`` at module load time.
-    from aiq_agent.agents.chat_researcher.models.depth import DepthDecision
-    from aiq_agent.agents.chat_researcher.models.intent import IntentResult
-    from aiq_agent.agents.chat_researcher.models.result import ShallowResult
     from aiq_agent.knowledge.schema import AvailableDocument
 
     return JsonPlusSerializer(
-        allowed_msgpack_modules=[IntentResult, DepthDecision, ShallowResult, AvailableDocument],
+        allowed_msgpack_modules=[AvailableDocument],
     )
+
+
+def get_checkpoint_pool(dsn: str) -> AsyncConnectionPool:
+    """The process-wide connection pool for the checkpoint database, per DSN.
+
+    ONE pool per DSN, whoever asks: the conversation checkpointer opens it, and
+    the chat working directory's LangGraph store (``tools/documents``) rides the
+    same connections rather than opening a second ceiling's worth against the
+    same database.
+    """
+    pool = _postgres_pools.get(dsn)
+    if pool is not None:
+        return pool
+    # Per-replica connection ceiling for checkpoint reads/writes. The old
+    # hard-coded max_size=3 throttled the chat tier's concurrent turns (every
+    # super-step checks out a connection); make it tunable and default higher
+    # now that the tier scales (ADR-0028).
+    min_size = _pool_int_env("GRID_CHECKPOINT_POOL_MIN_SIZE", 1)
+    max_size = max(min_size, _pool_int_env("GRID_CHECKPOINT_POOL_MAX_SIZE", 10))
+    pool = AsyncConnectionPool(
+        conninfo=dsn,
+        min_size=min_size,
+        max_size=max_size,
+        kwargs={"autocommit": True, "row_factory": dict_row},
+    )
+    _postgres_pools[dsn] = pool
+    return pool
 
 
 async def get_checkpointer(checkpoint_db: str) -> BaseCheckpointSaver:
@@ -257,22 +331,7 @@ async def get_checkpointer(checkpoint_db: str) -> BaseCheckpointSaver:
             return checkpointer
 
         if is_postgres_dsn(checkpoint_db):
-            pool = _postgres_pools.get(checkpoint_db)
-            if pool is None:
-                # Per-replica connection ceiling for checkpoint reads/writes. The
-                # old hard-coded max_size=3 throttled the chat tier's concurrent
-                # turns (every super-step checks out a connection); make it tunable
-                # and default higher now that the tier scales (ADR-0028).
-                min_size = _pool_int_env("GRID_CHECKPOINT_POOL_MIN_SIZE", 1)
-                max_size = max(min_size, _pool_int_env("GRID_CHECKPOINT_POOL_MAX_SIZE", 10))
-                pool = AsyncConnectionPool(
-                    conninfo=checkpoint_db,
-                    min_size=min_size,
-                    max_size=max_size,
-                    kwargs={"autocommit": True, "row_factory": dict_row},
-                )
-                _postgres_pools[checkpoint_db] = pool
-            checkpointer = AsyncPostgresSaver(pool, serde=_build_checkpointer_serde())
+            checkpointer = AsyncPostgresSaver(get_checkpoint_pool(checkpoint_db), serde=_build_checkpointer_serde())
             await checkpointer.setup()
             logger.info("Postgres checkpointer initialized via async pool.")
         else:

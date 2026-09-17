@@ -1,5 +1,17 @@
 # Project Memory System — Extensive Audit (2026-07)
 
+> **Update, 2026-08 — F2 and F3 are closed.** The embedding gate this audit
+> called the single most important unbuilt component now exists, along with
+> query-relevant recall, a decay/reinforcement term that finally reads
+> `salience` and `last_referenced_at`, a bound on pinned items, and a
+> truncation notice the model can see. The vector lives on the row rather than
+> in `mem_<project>`, so `embedding_synced` was never needed — the reasoning,
+> and what is still open, is in
+> [`semantic-notes.md`](semantic-notes.md). The findings below are kept as
+> written: they are the evidence the fix was built from.
+
+
+
 > Full-system audit of the project-memory feature: capture (in-turn `remember`
 > tool + async reflection), the single-writer BFF, the serve/injection path,
 > curation APIs/UI, tenancy, and lifecycle. Complements the earlier

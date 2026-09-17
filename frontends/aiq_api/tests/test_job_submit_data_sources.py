@@ -132,10 +132,10 @@ async def test_submit_job_forwards_selected_data_sources(submit_app):
 async def test_data_sources_lists_registry_and_reports_vlm_available_true(submit_app, monkeypatch):
     """GET /v1/data_sources lists the registry and reports vlm_available=True when a VLM key resolves."""
     app, _submitted_job, _builder = submit_app
-    # A resolvable VLM key ⇒ derived capability is True. Force NVIDIA_API_KEY off
-    # so only the explicit override drives the result.
+    # A resolvable VLM key ⇒ derived capability is True. Force the provider key
+    # off so only the explicit override drives the result.
     monkeypatch.setenv("AIQ_VLM_API_KEY", "vlm-secret")
-    monkeypatch.delenv("NVIDIA_API_KEY", raising=False)
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
 
     with TestClient(app) as client:
         response = client.get("/v1/data_sources")
@@ -148,10 +148,11 @@ async def test_data_sources_lists_registry_and_reports_vlm_available_true(submit
 
 @pytest.mark.asyncio
 async def test_data_sources_reports_vlm_available_false_without_a_key(submit_app, monkeypatch):
-    """vlm_available is False when no VLM key (explicit or NVIDIA fallback) resolves."""
+    """vlm_available is False when no VLM key (explicit or inferred provider key) resolves."""
     app, _submitted_job, _builder = submit_app
     monkeypatch.delenv("AIQ_VLM_API_KEY", raising=False)
-    monkeypatch.delenv("NVIDIA_API_KEY", raising=False)
+    monkeypatch.delenv("AIQ_VLM_BASE_URL", raising=False)
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
 
     with TestClient(app) as client:
         response = client.get("/v1/data_sources")
@@ -161,11 +162,12 @@ async def test_data_sources_reports_vlm_available_false_without_a_key(submit_app
 
 
 @pytest.mark.asyncio
-async def test_data_sources_vlm_available_true_via_nvidia_fallback(submit_app, monkeypatch):
-    """The NVIDIA_API_KEY fallback in the resolver also lights up the capability."""
+async def test_data_sources_vlm_available_true_via_provider_inference(submit_app, monkeypatch):
+    """The provider key inferred from the default OpenRouter VLM host also lights up the capability."""
     app, _submitted_job, _builder = submit_app
     monkeypatch.delenv("AIQ_VLM_API_KEY", raising=False)
-    monkeypatch.setenv("NVIDIA_API_KEY", "nvidia-secret")
+    monkeypatch.delenv("AIQ_VLM_BASE_URL", raising=False)
+    monkeypatch.setenv("OPENROUTER_API_KEY", "openrouter-secret")
 
     with TestClient(app) as client:
         response = client.get("/v1/data_sources")
@@ -426,16 +428,16 @@ async def test_submit_job_forwards_valid_data_sources_exactly_as_provided(submit
 
 
 @pytest.mark.asyncio
-async def test_submit_job_validates_sources_for_shallow_researcher(submit_app, monkeypatch):
+async def test_submit_job_validates_sources_for_researcher(submit_app, monkeypatch):
     app, submitted_job, builder = submit_app
     import aiq_api.routes.jobs as jobs_routes
 
-    shallow_config = AgentConfig(
-        class_path="aiq_agent.agents.shallow_researcher.agent.ShallowResearcherAgent",
+    research_config = AgentConfig(
+        class_path="aiq_agent.agents.piloti.agent.PilotiAgent",
         config_name="shallow_research_agent",
-        description="Test shallow researcher",
+        description="Test researcher",
     )
-    monkeypatch.setattr(jobs_routes, "get_agent_config", lambda _agent_type: shallow_config)
+    monkeypatch.setattr(jobs_routes, "get_agent_config", lambda _agent_type: research_config)
     builder.get_function_config.return_value = SimpleNamespace(
         tools=None,
         exclude_tools=["web_search_tool"],
@@ -444,12 +446,12 @@ async def test_submit_job_validates_sources_for_shallow_researcher(submit_app, m
     with TestClient(app) as client:
         response = client.post(
             "/v1/jobs/async/submit",
-            json={"agent_type": "shallow_researcher", "input": "query", "data_sources": ["web_search"]},
+            json={"agent_type": "researcher", "input": "query", "data_sources": ["web_search"]},
         )
 
     assert response.status_code == 422
     assert response.json()["detail"] == {
-        "message": "Data source(s) are not available for agent 'shallow_researcher': web_search",
+        "message": "Data source(s) are not available for agent 'researcher': web_search",
         "invalid_ids": [],
         "unavailable_for_agent": ["web_search"],
         "known_ids": ["knowledge_layer", "web_search"],

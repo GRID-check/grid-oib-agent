@@ -44,7 +44,7 @@ import { ChevronDown, Layers } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
 import { CountPill } from '@/components/ui/count-pill'
-import { AnimatePresence, motion, springSnappy } from '@/components/motion'
+import { AnimatePresence, motion, springSnap } from '@/components/motion'
 import { cn } from '@/lib/utils'
 import { useAuth } from '@/adapters/auth'
 import { useTranslations } from '@/i18n'
@@ -81,7 +81,7 @@ const StratumUnit = ({ signal, label }: { signal: SourceSignal; label: string })
       initial={{ opacity: 0, x: 4 }}
       animate={{ opacity: 1, x: 0 }}
       exit={{ opacity: 0, x: -4 }}
-      transition={springSnappy}
+      transition={springSnap}
       className={cn('inline-flex items-center gap-1', SIGNAL_TEXT[signal])}
     >
       <Icon className="size-3.5 shrink-0" aria-hidden="true" />
@@ -165,7 +165,7 @@ export const SourceBasisTrigger = forwardRef<HTMLButtonElement, SourceBasisTrigg
           key={`receipt-${receipt}`}
           initial={{ y: -2 }}
           animate={{ y: 0 }}
-          transition={springSnappy}
+          transition={springSnap}
           className="inline-flex items-center gap-2"
         >
           {summary.kind === 'all' ? (

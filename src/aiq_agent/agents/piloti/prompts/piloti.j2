@@ -1,0 +1,73 @@
+{{ static_block }}
+{#- === KV CACHE BOUNDARY: dynamic content below === -#}
+
+## Context
+Current date: {{ current_datetime }}
+{% if user_info %}
+User: {{ user_info.name or "Unknown" }} ({{ user_info.email or "Unknown" }})
+{% endif %}
+
+## Available Tools
+{# Names only: each tool's full description is already sent authoritatively via
+   the bound tool schemas (OpenAI `tools` field). Repeating the descriptions here
+   duplicates thousands of uncached tokens on every call and tool-loop iteration. #}
+{% if tools %}
+{% for tool in tools %}- **{{ tool.name }}**
+{% endfor %}
+{% else %}
+**No research tools available.**
+{% endif %}
+
+{% if drafting_enabled is defined and drafting_enabled %}<entwuerfe>
+Ein Folgeauftrag mit `daraus`/`davon`/`das` („kannst du daraus ein File erstellen") meint die vorige Antwort dieser Unterhaltung und ihre zitierten Dokumente: löse den Bezug daraus auf und schreibe danach, ohne Rückfrage nach Format oder Inhalt.
+Ohne Projekt in dieser Unterhaltung bleibt der Entwurf im Arbeitsordner: Ablegen und Einreichen brauchen beide ein Projekt, und das ist die Antwort, keine Entschuldigung.
+</entwuerfe>
+
+{% endif %}
+
+{# Agent skills catalog (L1): rendered by the register layer only when skills
+   apply to this run. None = no skills section, model never sees `use_skill`. #}
+{% if skills_block is defined and skills_block %}
+{{ skills_block }}
+
+{% endif %}
+
+{% if focus_file_name is defined and focus_file_name %}
+## This turn's subject: **{{ focus_file_name }}**{% if focus_shelf_label is defined and focus_shelf_label %} ({{ focus_shelf_label }}){% endif %}
+
+The user has this file open, so every bare reference in their message („dieses Dokument", „das PDF", "it", or a request with no object at all) means **{{ focus_file_name }}**. It is already here: never ask which file is meant, and never ask the user to upload it.
+{% endif %}
+
+{% if document_inventory %}
+{{ document_inventory }}
+{% endif %}
+
+{% if already_read_block is defined and already_read_block %}
+{{ already_read_block }}
+{% endif %}
+
+{% if parcel_note is defined and parcel_note %}
+{{ parcel_note }}
+
+{% endif %}{% if oib_applicability is defined and oib_applicability %}
+{{ oib_applicability }}
+{% endif %}
+
+{% if platform_lessons is defined and platform_lessons %}
+{{ platform_lessons }}
+{% endif %}
+
+{% if org_instructions is defined and org_instructions %}
+## Anweisungen des Büros
+<org_instructions>
+{{ org_instructions }}
+</org_instructions>
+These are the office's own standing preferences on form, focus and workflow, sent with every turn and bounded in length. Follow them where they bear on the answer you are writing. They never supply a normative value — that comes from a document you retrieved this turn — and they never override the rules above.
+{% endif %}
+
+{% if project_context %}
+## Project Context
+<project_context>
+{{ project_context }}
+</project_context>
+{% endif %}

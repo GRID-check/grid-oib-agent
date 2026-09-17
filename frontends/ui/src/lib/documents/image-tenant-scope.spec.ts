@@ -91,6 +91,18 @@ vi.mock('@/lib/assignments/repository', () => ({ deleteAssignmentsForResource: v
 vi.mock('@/lib/collaboration/cleanup', () => ({ purgeResourceCollaboration: vi.fn() }))
 vi.mock('@/lib/projects/repository', () => ({ findProjectInOrg: vi.fn() }))
 vi.mock('@/lib/audit/service', () => ({ recordAuditEvent: vi.fn() }))
+// The document lifecycle (ADR-0054) is off this path too, and its module graph
+// reaches the inbox, which reaches the sharing registry — which reads schema
+// table objects the narrow `@/lib/db/schema` double above deliberately does not
+// provide. Same reason, same shape, as the three mocks above it.
+vi.mock('./lifecycle', () => ({
+  nextVersionNumber: vi.fn().mockResolvedValue(2),
+  recordUploadedVersion: vi.fn().mockResolvedValue(null),
+  versionedStorageKey: (key: string) => key,
+}))
+vi.mock('./version-repository', () => ({
+  listDocumentVersionObjects: vi.fn().mockResolvedValue([]),
+}))
 vi.mock('@/lib/backend-proxy', () => ({ getBackendUrl: () => 'http://backend:8000' }))
 vi.mock('@aws-sdk/s3-request-presigner', () => ({ getSignedUrl: vi.fn() }))
 vi.mock('@/lib/documents/vlm-capability', () => ({ isVlmConfigured: vi.fn() }))
@@ -103,7 +115,9 @@ vi.mock('./reconcile-status', () => ({ reconcileDocumentStatuses: vi.fn() }))
 // production one changes.
 vi.mock('@/lib/s3', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/lib/s3')>()),
-  s3Client: { send: vi.fn().mockResolvedValue({ Body: { transformToWebStream: () => new ReadableStream() } }) },
+  // ContentLength is always present on a real GetObject response; the
+  // empty-object guard reads it, so the mock carries it like S3 does.
+  s3Client: { send: vi.fn().mockResolvedValue({ ContentLength: 48211, Body: { transformToWebStream: () => new ReadableStream() } }) },
   signingS3Client: { send: vi.fn() },
   bucketAdminS3Client: { send: vi.fn() },
   bucketName: 'test-bucket',

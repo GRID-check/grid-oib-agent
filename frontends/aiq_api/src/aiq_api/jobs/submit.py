@@ -30,6 +30,24 @@ def job_execution_mode() -> str:
     return os.environ.get("GRID_JOB_EXECUTION", "dask").strip().lower()
 
 
+def async_job_dispatch() -> str | None:
+    """The backend that can run an agent job out of process, or ``None``.
+
+    ``db`` wins when both are configured: it is the queue row, not the cluster,
+    that runs the job. This is THE acceptance condition — ``submit_agent_job``
+    refuses exactly when this returns ``None``, and the chat dispatch gate
+    (``piloti.conversation_register``) imports this same function, so the two
+    cannot drift. They once did: the chat gate read only the scheduler address,
+    which no db-mode deployment sets, and every deployment that actually had
+    workers researched synchronously instead.
+    """
+    if job_execution_mode() == "db":
+        return "db"
+    if os.environ.get("NAT_DASK_SCHEDULER_ADDRESS"):
+        return "dask"
+    return None
+
+
 def _build_run_agent_payload(
     *,
     configure_logging,
@@ -46,13 +64,15 @@ def _build_run_agent_payload(
     auth_token,
     collection_scope,
     project_context,
+    project_memory,
+    platform_lessons,
     model_overrides,
     usage_context,
     user_info,
     clarifier_result,
     memory_reflection_enabled,
     memory_reflection_llm,
-    force_skills,
+    run_id,
 ) -> dict:
     """Build the JSON-serializable ``run_agent_job`` kwargs a DB worker replays.
 
@@ -91,13 +111,22 @@ def _build_run_agent_payload(
         "auth_token": auth_token,
         "collection_scope": collection_scope,
         "project_context": project_context,
+        "project_memory": project_memory,
+        "platform_lessons": platform_lessons,
         "model_overrides": model_overrides,
         "usage_context": usage_context,
         "user_info": user_info,
         "clarifier_result": clarifier_result,
         "memory_reflection_enabled": memory_reflection_enabled,
         "memory_reflection_llm": memory_reflection_llm,
-        "force_skills": force_skills,
+        # The ``task_runs`` row this job is, when the caller knows it: the only
+        # identity the run-ledger route has, and the worker cannot look it up.
+        "run_id": run_id,
+        # No owner at submit time (unclaimed): the DB worker fills in its own
+        # worker id at replay for the runner's still-owner publish gate
+        # (hardening item 10). Travels inside the encrypted payload like the
+        # rest; the Dask path leaves it None (no claim table).
+        "claim_owner": None,
     }
 
 
@@ -259,11 +288,12 @@ def _base_collection_name() -> str:
 def _derive_project_collection(collection_scope: list[str] | None) -> str | None:
     """Extract the project collection from a request's collection scope.
 
-    The collection scope contains the base/OIB collection, the project
-    collection, and an ``s_<conversation>`` scoped collection. The project
-    collection is the single remaining entry once those two are excluded.
-    Returns None if no such entry exists (or more than one candidate remains,
-    which indicates an ambiguous scope not worth guessing at).
+    The collection scope contains the base/OIB collection, the office Archiv
+    (``archiv_<org>``), the project collection, and an ``s_<conversation>``
+    scoped collection. The project collection is the single remaining entry
+    once those others are excluded. Returns None if no such entry exists (or
+    more than one candidate remains, which indicates an ambiguous scope not
+    worth guessing at).
     """
     if not collection_scope:
         return None
@@ -272,7 +302,7 @@ def _derive_project_collection(collection_scope: list[str] | None) -> str | None
     candidates = [
         collection
         for collection in collection_scope
-        if collection != base_collection and not collection.startswith("s_")
+        if collection != base_collection and not collection.startswith("s_") and not collection.startswith("archiv_")
     ]
     if len(candidates) == 1:
         return candidates[0]
@@ -316,14 +346,21 @@ async def submit_agent_job(
     auth_token: str | None = None,
     collection_scope: list[str] | None = None,
     project_context: str | None = None,
+    # The project-memory digest as of submit time, the worker's fallback when
+    # its own live fetch fails. The chat path leaves it None: the worker fetches.
+    project_memory: str | None = None,
+    # Rendered PLATFORM_LESSONS block. Passed explicitly rather than resolved in
+    # the worker: request contextvars do not survive into a background job, and
+    # the holdout decision belongs to the turn that dispatched the job.
+    platform_lessons: str | None = None,
     model_overrides: dict[str, str] | None = None,
     usage_context: dict | None = None,
     user_info: dict | None = None,
     clarifier_result: str | None = None,
     memory_reflection_enabled: bool = False,
     memory_reflection_llm: str | None = None,
-    force_skills: list[str] | None = None,
     conversation_id: str | None = None,
+    run_id: str | None = None,
 ) -> str:
     """
     Submit an agent job to the Dask cluster.
@@ -361,12 +398,10 @@ async def submit_agent_job(
         memory_reflection_llm: Optional ``llms:`` ref for the reflection pass
             (e.g. ``card_llm``). When set and enabled, the worker records durable
             project findings from the completed report.
-        force_skills: Optional list of skill names the agent run must
-            force-activate. Travels the same path ``data_sources`` does (job
-            payload for the DB path, job_args positionally for Dask) and is
-            injected onto the worker's agent state as ``force_skills`` where
-            the agent's state model declares the field (Agent Skills feature;
-            the consumer lives in ``src/aiq_agent``).
+        run_id: Optional id of the ``task_runs`` row this job is. Carried into
+            the worker so the run can flush its ledger to its own message; a
+            job submitted without one still narrates itself on its event
+            stream and writes nothing (``jobs/run_ledger_fold.py``).
 
     Returns:
         The job ID.
@@ -428,8 +463,10 @@ async def submit_agent_job(
     use_threads = os.environ.get("NAT_USE_DASK_THREADS", "0") == "1"
 
     db_execution = job_execution_mode() == "db"
-    if not scheduler_address and not db_execution:
-        raise SchedulerNotConfiguredError("Async job submission requires NAT_DASK_SCHEDULER_ADDRESS to be set")
+    if async_job_dispatch() is None:
+        raise SchedulerNotConfiguredError(
+            "Async job submission requires NAT_DASK_SCHEDULER_ADDRESS or GRID_JOB_EXECUTION=db"
+        )
 
     # Auto-capture auth token if not explicitly provided
     if auth_token is None:
@@ -553,13 +590,15 @@ async def submit_agent_job(
                 auth_token=auth_token,
                 collection_scope=collection_scope,
                 project_context=project_context,
+                project_memory=project_memory,
+                platform_lessons=platform_lessons,
                 model_overrides=model_overrides,
                 usage_context=usage_context,
                 user_info=user_info,
                 clarifier_result=clarifier_result,
                 memory_reflection_enabled=memory_reflection_enabled,
                 memory_reflection_llm=memory_reflection_llm,
-                force_skills=force_skills,
+                run_id=run_id,
             )
             await job_store._create_job(
                 config_file=config_path or None,
@@ -587,13 +626,16 @@ async def submit_agent_job(
                     auth_token,
                     collection_scope,
                     project_context,
+                    project_memory,
+                    platform_lessons,
                     model_overrides,
                     usage_context,
                     user_info,
                     clarifier_result,
                     memory_reflection_enabled,
                     memory_reflection_llm,
-                    force_skills,
+                    None,  # claim_owner: no queue claim on the Dask path (see run_agent_job)
+                    run_id,
                 ],
             )
         await loop.run_in_executor(

@@ -192,8 +192,11 @@ def test_the_production_exclusion_list_still_covers_every_change_log_pdf():
     # silent regression, so the harness asserts the list is still complete.
     excluded = corpus.production_excluded_file_names()
     corpus_dir = corpus.default_corpus_dir()
-    if not corpus_dir.exists():
-        pytest.skip("data/oib is not present in this checkout")
+    # Presence of the DIRECTORY is not presence of the corpus: it is committed with
+    # a README and the PDFs are operator-provided and gitignored, so it exists and
+    # is empty in every fresh clone. Guard on the files, or this asserts nothing.
+    if not any(corpus_dir.glob("*.pdf")):
+        pytest.skip("no OIB corpus in this checkout — see data/oib/README.md")
     # An empty exclusion list is NOT a skip condition — it is precisely the regression
     # this test exists to catch. If `exclude_file_names` is emptied or renamed in
     # configs/config_oib_openrouter.yml, `production_excluded_file_names()` returns

@@ -1,4 +1,4 @@
-"""Cross-encoder reranking over an HTTP reranking endpoint.
+"""Cross-encoder reranking over OpenRouter's reranking endpoint.
 
 A cross-encoder scores the query and a candidate *together*, so unlike the
 bi-encoder that retrieved them it can see whether a chunk actually answers the
@@ -8,47 +8,74 @@ tens of milliseconds against the full chunk — where the LLM judge in
 :mod:`knowledge_layer.rerank` needs a second-scale call and, historically, a
 truncated excerpt to fit its reply budget.
 
-``rerank.py`` used to record that no such endpoint was reachable from this
-deployment. That is no longer true: the hosts this deployment already holds
-credentials for expose reranking routes, so the judge becomes the fallback
-rather than the only option.
+One provider, on purpose. OpenRouter is the host every deployment already
+holds a key for (``OPENROUTER_API_KEY``) and its ``POST /api/v1/rerank`` takes
+``{model, query, documents: [str], top_n}`` and answers
+``{results: [{index, relevance_score}]}``. This module used to carry adapters
+for Cohere, Voyage, Jina and NVIDIA's hosted NIM as well; none of them was
+ever configured, and NVIDIA's hosted URL had gone (HTTP 410) by the time the
+feature was switched on. A self-hosted reranker that speaks the same shape
+still fits through ``AIQ_RERANKER_BASE_URL``.
 
-Every provider here reduces to the same contract — *(query, documents) →
-ranked (index, score) pairs* — but none of them agree on the request or
-response shape, so each gets an explicit adapter rather than a shared guess:
+One key per SEARCH, not per process. The handle is built once at startup where
+no tenant is in scope, so for a release every organization's reranks went out
+on the platform key and onto the platform's bill; the credential is now
+resolved per call from the turn's organization, which is what lets a BYOK org
+pay for its own reranking. Each call also leaves a ``rerank`` usage event on
+the turn's ledger — the endpoint prices in search units and reports no cost, so
+the row carries estimated tokens and says ``estimate`` rather than inventing a
+dollar figure.
 
-============  ==========================================  =========================
-provider      request body                                 response
-============  ==========================================  =========================
-openrouter    ``{model, query, documents: [str], top_n}``  ``{results:[{index, relevance_score}]}``
-cohere        ``{model, query, documents: [str], top_n}``  ``{results:[{index, relevance_score}]}``
-voyage        ``{model, query, documents: [str], top_k}``  ``{data:[{index, relevance_score}]}``
-jina          ``{model, query, documents: [str], top_n}``  ``{results:[{index, relevance_score}]}``
-nvidia        ``{model, query:{text}, passages:[{text}]}`` ``{rankings:[{index, logit}]}``
-============  ==========================================  =========================
-
-NVIDIA is the odd one twice over: the nested ``{"text": ...}`` shape, and
-``logit`` scores that are routinely negative. Only the *order* is consumed here,
-so the scale never has to be reconciled — the same reason
-``foundational_rag/adapter.py`` clamps its reranker logits rather than trusting
-them as similarities.
-
-Fail-open, like every other retrieval enhancement in this package: any transport
-error, timeout, unknown provider, or unparseable body returns ``None`` and the
-caller keeps the order it already had. Disabled by default
-(``AIQ_RERANKER_PROVIDER=none``) so no deployment acquires a new outbound
-dependency without asking for it.
+Fail-open, like every other retrieval enhancement in this package: any
+transport error, timeout, unknown provider name, or unparseable body returns
+``None`` and the caller keeps the order it already had. Per-search failure
+warnings are throttled to one per 5 minutes (debug inside the window), and
+five consecutive failures trip a 5-minute breaker that disables the
+cross-encoder outright. The reference config turns it on
+(``reranker_provider: openrouter``); the env default stays ``none`` so a bare
+process acquires no outbound dependency it did not ask for.
 """
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import math
 import os
+import threading
+import time
 from dataclasses import dataclass
 from typing import Any
 
 logger = logging.getLogger(__name__)
+
+PROVIDER = "openrouter"
+#: Provider names this module used to speak and no longer does. They fail LOUD
+#: (error, not warning) in :func:`resolve_cross_encoder` so a stale config is
+#: noticed instead of silently degrading to the judge.
+_REMOVED_PROVIDERS = ("cohere", "voyage", "jina", "nvidia")
+_PATH = "/rerank"
+_DEFAULT_BASE_URL = "https://openrouter.ai/api/v1"
+_DEFAULT_MODEL = "cohere/rerank-v3.5"
+_KEY_ENV = "OPENROUTER_API_KEY"
+_RESULTS_KEY = "results"
+_SCORE_KEY = "relevance_score"
+
+#: Consecutive failed reranks before the breaker trips, and how long a tripped
+#: breaker disables the cross-encoder. Module-level on purpose: the failure is
+#: a provider property, not a per-instance one, and ``resolve_cross_encoder``
+#: builds once at startup.
+_BREAKER_THRESHOLD = 5
+_BREAKER_COOLDOWN_SECONDS = 300.0
+
+_breaker_lock = threading.Lock()
+_consecutive_failures = 0
+_breaker_tripped_until = 0.0  # time.monotonic() timestamp; 0.0 means closed
+#: ``None`` means "not warned yet in this process". A float sentinel cannot say
+#: that: ``time.monotonic()`` is time since boot on Linux, so a fresh container
+#: reads well under the cooldown and ``now - 0.0 < _BREAKER_COOLDOWN_SECONDS``
+#: swallowed the one warning the throttle exists to guarantee.
+_last_failure_warn_at: float | None = None
 
 
 def _env_float(name: str, fallback: float) -> float:
@@ -77,38 +104,39 @@ def _env_float(name: str, fallback: float) -> float:
 # @type str
 # @default none
 # @required false
-# Cross-encoder reranking provider: none | openrouter | cohere | voyage | jina |
-# nvidia. `none` (the default) leaves reranking to the LLM judge configured by
-# `rerank_llm`. Any other value makes the cross-encoder primary and the judge the
-# fallback.
+# Cross-encoder reranking: none | openrouter. `none` (the env default) leaves
+# reranking to the LLM judge configured by `rerank_llm`; the reference config's
+# `reranker_provider` field sets `openrouter`, which makes the cross-encoder
+# primary and the judge the fallback.
 DEFAULT_PROVIDER = os.environ.get("AIQ_RERANKER_PROVIDER", "none").strip().lower()
 
 # @environment_variable AIQ_RERANKER_MODEL
 # @category Knowledge Layer
 # @type str
-# @default (provider-specific)
+# @default cohere/rerank-v3.5
 # @required false
-# Reranking model id. Defaults to the provider's general-purpose multilingual
-# reranker — the corpus is German, so a multilingual model is not optional.
+# Reranking model id on OpenRouter. The corpus is German, so a multilingual
+# model is not optional.
 DEFAULT_MODEL = os.environ.get("AIQ_RERANKER_MODEL", "").strip()
 
 # @environment_variable AIQ_RERANKER_BASE_URL
 # @category Knowledge Layer
 # @type str
-# @default (provider-specific)
+# @default https://openrouter.ai/api/v1
 # @required false
-# Override the provider's default host (self-hosted NIM, a gateway, a test double).
+# Override the host (a gateway, a self-hosted reranker speaking the same
+# request and response shape, a test double).
 DEFAULT_BASE_URL = os.environ.get("AIQ_RERANKER_BASE_URL", "").strip()
 
 # @environment_variable AIQ_RERANKER_TIMEOUT_SECONDS
 # @category Knowledge Layer
 # @type float
-# @default 10.0
+# @default 3.0
 # @required false
-# Per-request timeout. Cross-encoders answer in ~100ms; 10s is already a generous
-# bound on a provider having a bad day, and reranking must never hold a turn open
-# longer than the retrieval it is improving.
-DEFAULT_TIMEOUT_SECONDS = _env_float("AIQ_RERANKER_TIMEOUT_SECONDS", 10.0)
+# Per-request timeout. Cross-encoders answer in ~100ms; 3s bounds a provider
+# having a bad day, and a hang must never cost more than a fraction of the 30s
+# LLM-judge fallback it precedes — worst case a turn pays 3s + 30s.
+DEFAULT_TIMEOUT_SECONDS = _env_float("AIQ_RERANKER_TIMEOUT_SECONDS", 3.0)
 
 # @environment_variable AIQ_RERANKER_MAX_DOC_CHARS
 # @category Knowledge Layer
@@ -125,97 +153,121 @@ DEFAULT_TIMEOUT_SECONDS = _env_float("AIQ_RERANKER_TIMEOUT_SECONDS", 10.0)
 DEFAULT_MAX_DOC_CHARS = max(1, int(_env_float("AIQ_RERANKER_MAX_DOC_CHARS", 4000.0)))
 
 
-@dataclass(frozen=True)
-class _ProviderSpec:
-    """Everything that differs between reranking providers."""
-
-    path: str
-    default_base_url: str
-    default_model: str
-    key_env: str
-    #: Response key holding the ranked entries.
-    results_key: str
-    #: Entry key holding the relevance value (only its ordering is used).
-    score_key: str
-    #: NVIDIA nests query/documents as ``{"text": ...}`` objects.
-    nested_text: bool = False
-    #: Voyage spells the truncation parameter ``top_k``; everyone else ``top_n``.
-    top_param: str = "top_n"
+def _breaker_open() -> bool:
+    """True while the breaker is tripped; recovers after the cooldown passes."""
+    global _consecutive_failures, _breaker_tripped_until
+    now = time.monotonic()
+    with _breaker_lock:
+        if _breaker_tripped_until and now < _breaker_tripped_until:
+            return True
+        if _breaker_tripped_until:
+            _breaker_tripped_until = 0.0
+            _consecutive_failures = 0
+            logger.info("Cross-encoder breaker cooled down; retrying the provider")
+        return False
 
 
-_PROVIDERS: dict[str, _ProviderSpec] = {
-    "openrouter": _ProviderSpec(
-        path="/rerank",
-        default_base_url="https://openrouter.ai/api/v1",
-        default_model="cohere/rerank-v3.5",
-        key_env="OPENROUTER_API_KEY",
-        results_key="results",
-        score_key="relevance_score",
-    ),
-    "cohere": _ProviderSpec(
-        path="/rerank",
-        default_base_url="https://api.cohere.com/v2",
-        default_model="rerank-v3.5",
-        key_env="COHERE_API_KEY",
-        results_key="results",
-        score_key="relevance_score",
-    ),
-    "voyage": _ProviderSpec(
-        path="/rerank",
-        default_base_url="https://api.voyageai.com/v1",
-        default_model="rerank-2.5",
-        key_env="VOYAGE_API_KEY",
-        results_key="data",
-        score_key="relevance_score",
-        top_param="top_k",
-    ),
-    "jina": _ProviderSpec(
-        path="/rerank",
-        default_base_url="https://api.jina.ai/v1",
-        default_model="jina-reranker-v3",
-        key_env="JINA_API_KEY",
-        results_key="results",
-        score_key="relevance_score",
-    ),
-    "nvidia": _ProviderSpec(
-        # The hosted catalog puts the model in the path; a self-hosted NIM serves
-        # `/v1/ranking` instead, which is why the base URL is overridable.
-        path="/reranking",
-        default_base_url="https://ai.api.nvidia.com/v1/retrieval/nvidia/llama-nemotron-rerank-1b-v2",
-        default_model="nvidia/llama-nemotron-rerank-1b-v2",
-        key_env="NVIDIA_API_KEY",
-        results_key="rankings",
-        score_key="logit",
-        nested_text=True,
-    ),
-}
+def _record_success() -> None:
+    """A usable ranking resets the consecutive-failure count."""
+    global _consecutive_failures
+    with _breaker_lock:
+        _consecutive_failures = 0
+
+
+def _record_failure() -> None:
+    """Count one failed rerank; trip the breaker at the threshold (warns once)."""
+    global _consecutive_failures, _breaker_tripped_until
+    with _breaker_lock:
+        _consecutive_failures += 1
+        if _consecutive_failures >= _BREAKER_THRESHOLD and not _breaker_tripped_until:
+            _breaker_tripped_until = time.monotonic() + _BREAKER_COOLDOWN_SECONDS
+            logger.warning(
+                "Cross-encoder failed %d times in a row; disabling it for %ds, falling back to the LLM judge",
+                _consecutive_failures,
+                int(_BREAKER_COOLDOWN_SECONDS),
+            )
+
+
+def _throttled_warning(message: str, *args: Any) -> None:
+    """One warning per cooldown window; debug for the rest (log-throttle).
+
+    A failing provider is hit up to 8 times per turn, so an unthrottled warning
+    per search buries the log. The first failure per window warns; subsequent
+    ones debug with the identical text.
+    """
+    global _last_failure_warn_at
+    now = time.monotonic()
+    with _breaker_lock:
+        emit_warning = _last_failure_warn_at is None or now - _last_failure_warn_at >= _BREAKER_COOLDOWN_SECONDS
+        if emit_warning:
+            _last_failure_warn_at = now
+    if emit_warning:
+        logger.warning(message, *args)
+    else:
+        logger.debug(message, *args)
+
+
+def _reset_breaker_state() -> None:
+    """Reset breaker and throttle state. Tests only — production never calls this."""
+    global _consecutive_failures, _breaker_tripped_until, _last_failure_warn_at
+    with _breaker_lock:
+        _consecutive_failures = 0
+        _breaker_tripped_until = 0.0
+        _last_failure_warn_at = None
+
+
+def _normalize_base_url(base_url: str) -> str:
+    """Normalize a reranker base URL: strip whitespace, trailing slashes, and a
+    trailing ``/rerank`` path segment.
+
+    The request path is appended by the caller, so a user-supplied
+    ``AIQ_RERANKER_BASE_URL`` ending in ``/rerank`` would otherwise double-append
+    (``.../rerank/rerank``) and fail every call.
+    """
+    normalized = (base_url or "").strip().rstrip("/")
+    if normalized.lower().endswith(_PATH):
+        normalized = normalized[: -len(_PATH)].rstrip("/")
+    return normalized
 
 
 def available_providers() -> tuple[str, ...]:
     """Provider names this module can talk to (excluding ``none``)."""
-    return tuple(sorted(_PROVIDERS))
+    return (PROVIDER,)
 
 
-def _resolve_api_key(spec: _ProviderSpec, base_url: str, organization_id: str | None) -> str:
-    """Resolve the reranker key through the shared resolver, with a local fallback.
+@dataclass(frozen=True)
+class _Credential:
+    """What one rerank call is made with. ``byok`` is what the ledger records."""
 
-    ``AIQ_RERANKER_API_KEY`` wins, then the provider's conventional env var, then
-    host inference — the same chain every other bespoke call site in this
-    deployment uses, so an org's BYOK key reaches reranking for free on the hosts
-    the resolver knows.
+    api_key: str
+    base_url: str
+    byok: bool = False
+
+
+def _resolve_credential(base_url: str, model: str, organization_id: str | None) -> _Credential:
+    """Resolve the reranker credential through the shared resolver, env as fallback.
+
+    An organization's own key (BYOK) wins when one is known, then
+    ``AIQ_RERANKER_API_KEY``, then ``OPENROUTER_API_KEY``, then host inference
+    — the same chain every other bespoke call site in this deployment uses. A
+    BYOK hit replaces the key AND the base URL, never the model (ADR-0022).
     """
     try:
         from aiq_agent.common.credential_resolution import resolve_llm_credential
 
         resolved = resolve_llm_credential(
             primary_env="AIQ_RERANKER_API_KEY",
-            fallback_envs=(spec.key_env,),
+            fallback_envs=(_KEY_ENV,),
             default_base_url=base_url,
-            default_model=spec.default_model,
+            default_model=model,
             organization_id=organization_id,
         )
         if resolved.api_key:
-            return resolved.api_key
+            return _Credential(
+                api_key=resolved.api_key,
+                base_url=_normalize_base_url(resolved.base_url) or base_url,
+                byok=resolved.source == "byok",
+            )
     except ImportError:
         # knowledge_layer is usable without the aiq_agent package.
         logger.debug("credential_resolution unavailable; falling back to a direct env read")
@@ -227,10 +279,94 @@ def _resolve_api_key(spec: _ProviderSpec, base_url: str, organization_id: str | 
         # nosemgrep: python.lang.security.audit.logging.logger-credential-leak.python-logger-credential-disclosure
         logger.warning("Reranker credential resolution failed (%s); trying the env directly", type(e).__name__)
 
-    return os.environ.get("AIQ_RERANKER_API_KEY", "") or os.environ.get(spec.key_env, "")
+    env_key = os.environ.get("AIQ_RERANKER_API_KEY", "") or os.environ.get(_KEY_ENV, "")
+    return _Credential(api_key=env_key, base_url=base_url)
 
 
-def _parse_rankings(payload: Any, spec: _ProviderSpec, candidate_count: int) -> list[int] | None:
+def _resolve_api_key(base_url: str, model: str, organization_id: str | None) -> str:
+    """The key only — what the constructor needs to answer :attr:`configured`."""
+    return _resolve_credential(base_url, model, organization_id).api_key
+
+
+def _organization_id_in_scope() -> str | None:
+    """The organization this search belongs to, or ``None`` outside a turn.
+
+    The reranker is built ONCE at startup, where no organization is in scope,
+    which is why BYOK was unwired here: the key was resolved before any tenant
+    existed. The org id travels on the request context of every turn, so the
+    search — not the construction — is where it can be asked for.
+    """
+    try:
+        from aiq_agent.project_context import get_organization_id_from_context
+
+        return get_organization_id_from_context()
+    except Exception:  # noqa: BLE001 - no aiq_agent, or no request context: platform key
+        return None
+
+
+#: Characters per token, for the estimate below. Deliberately crude: the point
+#: is a number of the right ORDER on the ledger, not a token count nobody can
+#: reconcile. German runs longer per token than English, so this under-counts
+#: rather than over-counts, and the row says ``estimate`` either way.
+_CHARS_PER_TOKEN = 4
+
+
+def _reported_usage(payload: Any) -> dict[str, Any]:
+    """The provider's own usage object, if it sent one.
+
+    Cohere-shaped rerank replies carry ``meta.billed_units.search_units``;
+    OpenAI-shaped ones carry ``usage``. Neither is guaranteed, and a gateway in
+    between may drop it, so this returns ``{}`` and the caller estimates.
+    """
+    if not isinstance(payload, dict):
+        return {}
+    usage = payload.get("usage")
+    if isinstance(usage, dict):
+        return usage
+    billed = (payload.get("meta") or {}).get("billed_units") if isinstance(payload.get("meta"), dict) else None
+    return billed if isinstance(billed, dict) else {}
+
+
+def _record_usage(model: str, query: str, documents: list[str], payload: Any, *, byok: bool) -> None:
+    """Put one rerank on the turn's ledger (ledger row 25).
+
+    A rerank is a frontier-model call on the answer's critical path — one per
+    ``knowledge_search``, sixty documents wide — and it went through `httpx`
+    rather than LangChain, so the cost tracker's callback hook never saw it. It
+    was charged to nobody: absent from the ledger, from the org's budget, and
+    from every "what did this turn cost" answer the product gives.
+
+    What it can honestly report is tokens, not dollars: the endpoint prices in
+    search units and does not return a cost, so the row is ``estimate`` and the
+    money stays 0 rather than being invented. An org limited in TOKENS (the
+    unit for an organization on its own key, migration 0080) is metered
+    correctly by that alone.
+
+    Never raises: accounting is not allowed to cost a search its ranking.
+    """
+    try:
+        from aiq_agent.common.cost_tracking import USAGE_ROLE_RERANK
+        from aiq_agent.common.cost_tracking import record_usage_event
+    except ImportError:  # knowledge_layer without the agent package
+        return
+
+    usage = _reported_usage(payload)
+    reported = usage.get("prompt_tokens") or usage.get("input_tokens") or usage.get("total_tokens")
+    if isinstance(reported, int) and reported > 0:
+        prompt_tokens, source = reported, "usage_field"
+    else:
+        prompt_tokens = (len(query) + sum(len(document) for document in documents)) // _CHARS_PER_TOKEN
+        source = "estimate"
+    record_usage_event(
+        model=model,
+        role=USAGE_ROLE_RERANK,
+        prompt_tokens=prompt_tokens,
+        cost_source=source,
+        is_byok=byok,
+    )
+
+
+def _parse_rankings(payload: Any, candidate_count: int) -> list[int] | None:
     """Extract validated 0-based candidate indices, best first, or ``None``.
 
     Applies the same scepticism as the LLM judge's parser: an index outside the
@@ -240,12 +376,12 @@ def _parse_rankings(payload: Any, spec: _ProviderSpec, candidate_count: int) -> 
     """
     if not isinstance(payload, dict):
         return None
-    entries = payload.get(spec.results_key)
+    entries = payload.get(_RESULTS_KEY)
     if not isinstance(entries, list) or not entries:
         return None
 
-    # (score, position, index). Providers return their results already sorted, so
-    # `position` is the tie-break and the fallback ordering when a score is
+    # (score, position, index). The provider returns its results already sorted,
+    # so `position` is the tie-break and the fallback ordering when a score is
     # missing or non-numeric -- a scoreless-but-ordered reply still ranks
     # correctly. NaN is excluded by the isfinite check, because a single NaN
     # makes every comparison against it false and the sort order undefined.
@@ -258,7 +394,7 @@ def _parse_rankings(payload: Any, spec: _ProviderSpec, candidate_count: int) -> 
             continue
         if not 0 <= index < candidate_count:
             continue
-        score = entry.get(spec.score_key)
+        score = entry.get(_SCORE_KEY)
         usable = isinstance(score, (int, float)) and not isinstance(score, bool) and math.isfinite(float(score))
         ordered.append((float(score) if usable else 0.0, position, index))
 
@@ -278,7 +414,7 @@ def _parse_rankings(payload: Any, spec: _ProviderSpec, candidate_count: int) -> 
 
 
 class CrossEncoderReranker:
-    """Reranks chunks against a query via a provider's HTTP reranking endpoint.
+    """Reranks chunks against a query via OpenRouter's reranking endpoint.
 
     Construct with :func:`resolve_cross_encoder`, which returns ``None`` when no
     provider is configured — so the caller never has to branch on config.
@@ -286,7 +422,7 @@ class CrossEncoderReranker:
 
     def __init__(
         self,
-        provider: str,
+        provider: str = PROVIDER,
         *,
         model: str | None = None,
         base_url: str | None = None,
@@ -295,16 +431,14 @@ class CrossEncoderReranker:
         max_doc_chars: int = DEFAULT_MAX_DOC_CHARS,
         organization_id: str | None = None,
     ):
-        spec = _PROVIDERS.get(provider)
-        if spec is None:
+        if provider != PROVIDER:
             raise ValueError(f"Unknown reranker provider {provider!r}; expected one of {available_providers()}")
         self.provider = provider
-        self._spec = spec
-        self.base_url = (base_url or DEFAULT_BASE_URL or spec.default_base_url).rstrip("/")
-        self.model = model or DEFAULT_MODEL or spec.default_model
+        self.base_url = _normalize_base_url(base_url or DEFAULT_BASE_URL or _DEFAULT_BASE_URL)
+        self.model = model or DEFAULT_MODEL or _DEFAULT_MODEL
         self.timeout_seconds = timeout_seconds
         self.max_doc_chars = max_doc_chars
-        self._api_key = api_key if api_key is not None else _resolve_api_key(spec, self.base_url, organization_id)
+        self._api_key = api_key if api_key is not None else _resolve_api_key(self.base_url, self.model, organization_id)
 
     @property
     def configured(self) -> bool:
@@ -312,22 +446,38 @@ class CrossEncoderReranker:
         return bool(self._api_key)
 
     def _build_body(self, query: str, documents: list[str], top_n: int | None) -> dict[str, Any]:
-        spec = self._spec
-        if spec.nested_text:
-            body: dict[str, Any] = {
-                "model": self.model,
-                "query": {"text": query},
-                "passages": [{"text": doc} for doc in documents],
-                "truncate": "END",
-            }
-        else:
-            body = {"model": self.model, "query": query, "documents": documents}
+        body: dict[str, Any] = {"model": self.model, "query": query, "documents": documents}
         # Non-positive means "no trim", matching `_trim` in rerank.py. `if top_n:` was
         # true for a negative value and `min()` kept it negative, so the provider was
         # asked for top_n=-1.
         if top_n and top_n > 0:
-            body[spec.top_param] = min(top_n, len(documents))
+            body["top_n"] = min(top_n, len(documents))
         return body
+
+    async def _credential_for_search(self) -> _Credential:
+        """The key and host THIS search runs on: the turn's org key when it has one.
+
+        Resolved per search rather than once at construction, which is the
+        whole of the BYOK fix: the reranker is built at startup, where there is
+        no tenant, so every organization's searches went out on the platform
+        key and the platform's bill. An org that brought its own key pays for
+        its own reranks now.
+
+        Off the event loop, because the resolution can reach the BFF on a cold
+        entry (it is cached for 60s in-process afterwards) and a blocked loop
+        would stall every other turn on the replica. No org in scope skips the
+        hop entirely: that is a ContextVar read and the common case for an
+        ingest thread or a CLI run.
+        """
+        organization_id = _organization_id_in_scope()
+        if not organization_id:
+            return _Credential(api_key=self._api_key, base_url=self.base_url)
+        resolved = await asyncio.to_thread(_resolve_credential, self.base_url, self.model, organization_id)
+        if resolved.api_key:
+            return resolved
+        # Nothing resolved for the org: the key this was built with still works,
+        # and a search that refuses to run is worse than one on the platform key.
+        return _Credential(api_key=self._api_key, base_url=self.base_url)
 
     async def rerank(self, query: str, chunks: list[Any], *, top_n: int | None = None) -> list[Any] | None:
         """Return ``chunks`` re-ordered by cross-encoder relevance, or ``None``.
@@ -338,11 +488,15 @@ class CrossEncoderReranker:
         if not chunks or not query:
             return None
         if not self.configured:
-            logger.warning("Cross-encoder provider %r has no API key resolved; skipping", self.provider)
+            _throttled_warning("Cross-encoder provider %r has no API key resolved; skipping", self.provider)
+            return None
+        if _breaker_open():
+            logger.debug("Cross-encoder breaker tripped; keeping retrieval order")
             return None
 
         documents = [str(getattr(chunk, "content", ""))[: self.max_doc_chars] for chunk in chunks]
-        url = f"{self.base_url}{self._spec.path}"
+        credential = await self._credential_for_search()
+        url = f"{credential.base_url}{_PATH}"
         try:
             # Imported inside the guard: httpx is an optional transitive dependency, and
             # an ImportError here must degrade to "no opinion" like every other failure.
@@ -352,7 +506,7 @@ class CrossEncoderReranker:
                 response = await client.post(
                     url,
                     headers={
-                        "Authorization": f"Bearer {self._api_key}",
+                        "Authorization": f"Bearer {credential.api_key}",
                         "Content-Type": "application/json",
                         "Accept": "application/json",
                     },
@@ -361,7 +515,8 @@ class CrossEncoderReranker:
                 response.raise_for_status()
                 payload = response.json()
         except Exception as e:
-            logger.warning(
+            _record_failure()
+            _throttled_warning(
                 "Cross-encoder rerank via %s failed (%s: %s); keeping retrieval order",
                 self.provider,
                 type(e).__name__,
@@ -369,10 +524,14 @@ class CrossEncoderReranker:
             )
             return None
 
-        indices = _parse_rankings(payload, self._spec, len(chunks))
+        indices = _parse_rankings(payload, len(chunks))
         if indices is None:
-            logger.warning("Cross-encoder %s returned no usable ranking; keeping retrieval order", self.provider)
+            _record_failure()
+            _throttled_warning("Cross-encoder %s returned no usable ranking; keeping retrieval order", self.provider)
             return None
+
+        _record_success()
+        _record_usage(self.model, query, documents, payload, byok=credential.byok)
 
         ranked = [chunks[i] for i in indices]
         # A provider honouring top_n returns a subset. The unranked remainder keeps
@@ -395,8 +554,10 @@ def resolve_cross_encoder(
     """Build the configured cross-encoder, or ``None`` when reranking stays with the judge.
 
     Returns ``None`` — never raises — for ``none``/empty, an unknown provider name,
-    or a provider whose key does not resolve, so a misconfiguration degrades to the
-    previous behaviour instead of taking retrieval down.
+    or a key that does not resolve, so a misconfiguration degrades to the
+    previous behaviour instead of taking retrieval down. The four removed
+    provider names (cohere/voyage/jina/nvidia) log an error naming the removal
+    and the migration, then fall back the same way.
     """
     candidate = provider if provider is not None else DEFAULT_PROVIDER
     if not isinstance(candidate, str):
@@ -405,12 +566,19 @@ def resolve_cross_encoder(
     name = (candidate or "none").strip().lower()
     if name in {"", "none", "off", "false", "0", "llm_judge"}:
         return None
-    if name not in _PROVIDERS:
-        logger.warning(
-            "Unknown reranker provider %r; expected one of %s. Falling back to the LLM judge.",
-            name,
-            available_providers(),
-        )
+    if name != PROVIDER:
+        if name in _REMOVED_PROVIDERS:
+            logger.error(
+                "Reranker provider %r was removed; only 'openrouter' is supported. "
+                "Migrate with `reranker_provider: openrouter`. Falling back to the LLM judge.",
+                name,
+            )
+        else:
+            logger.warning(
+                "Unknown reranker provider %r; expected one of %s. Falling back to the LLM judge.",
+                name,
+                available_providers(),
+            )
         return None
 
     reranker = CrossEncoderReranker(
@@ -430,8 +598,8 @@ def resolve_cross_encoder(
             "Reranker provider %r is configured but no API key resolved (AIQ_RERANKER_API_KEY / %s); "
             "falling back to the LLM judge.",
             name,
-            _PROVIDERS[name].key_env,
+            _KEY_ENV,
         )
         return None
-    logger.info("Cross-encoder reranking enabled: provider=%s model=%s", name, reranker.model)
+    logger.info("Cross-encoder reranking via %s (%s)", name, reranker.model)
     return reranker

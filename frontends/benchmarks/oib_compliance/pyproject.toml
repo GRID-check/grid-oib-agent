@@ -11,7 +11,7 @@ name = "oib-compliance-eval"
 version = "1.0.0"
 description = "Golden OIB-compliance eval suite for NAT - deterministic checklist + latency/cost bounds evaluator"
 readme = "README.md"
-requires-python = ">=3.11,<3.14"
+requires-python = ">=3.14,<3.15"
 license = {text = "Apache-2.0"}
 dependencies = [
     "nvidia-nat-eval==1.7.0",

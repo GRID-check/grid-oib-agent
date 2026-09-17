@@ -142,12 +142,40 @@ function ProjectDocumentRow({ doc }: { doc: ProjectDocument }) {
   )
 }
 
+/**
+ * Loading placeholder that mirrors the loaded geometry — the four stat tiles,
+ * then two card sections each with `Item`-shaped rows (icon + two text lines +
+ * trailing badge) — so the panel loads with the skeleton vocabulary instead
+ * of three arbitrary slabs.
+ */
 function LoadingSkeleton() {
   return (
-    <div className="space-y-3" data-testid="knowledge-loading">
-      <Skeleton className="h-20 w-full rounded-xl" />
-      <Skeleton className="h-64 w-full rounded-xl" />
-      <Skeleton className="h-40 w-full rounded-xl" />
+    <div className="space-y-8" data-testid="knowledge-loading">
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4" aria-hidden="true">
+        {Array.from({ length: 4 }).map((_, i) => (
+          <Skeleton key={i} className="h-[4.25rem] w-full rounded-xl" />
+        ))}
+      </div>
+      {[0, 1].map((section) => (
+        <div key={section} className="rounded-xl border" aria-hidden="true">
+          <div className="space-y-2 border-b px-4 py-4">
+            <Skeleton className="h-4 w-1/3" />
+            <Skeleton className="h-3 w-2/3" />
+          </div>
+          <div className="divide-y">
+            {Array.from({ length: 3 }).map((_, i) => (
+              <div key={i} className="flex items-center gap-3 px-4 py-3">
+                <Skeleton className="size-4 shrink-0 rounded" />
+                <div className="min-w-0 flex-1 space-y-1.5">
+                  <Skeleton className="h-3.5 w-2/5" />
+                  <Skeleton className="h-3 w-3/5" />
+                </div>
+                <Skeleton className="h-5 w-16 shrink-0 rounded-full" />
+              </div>
+            ))}
+          </div>
+        </div>
+      ))}
     </div>
   )
 }

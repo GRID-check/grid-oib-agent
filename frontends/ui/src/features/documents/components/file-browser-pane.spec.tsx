@@ -1,7 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { renderToStaticMarkup } from 'react-dom/server'
 import { render, screen, within } from '@/test-utils'
 import userEvent from '@testing-library/user-event'
 import { FileBrowserPane } from './file-browser-pane'
+import { FileSearchField } from './file-search-bar'
+import { useFileSearch } from '../hooks/use-file-search'
+import { useTranslations } from '@/i18n'
 import type { FileItem, FolderItem } from './project-file-workspace'
 
 const files: FileItem[] = [
@@ -39,17 +43,46 @@ const files: FileItem[] = [
   },
 ]
 
-function renderPane(overrides: Partial<Parameters<typeof FileBrowserPane>[0]> = {}) {
-  return render(
-    <FileBrowserPane
-      files={files}
-      selectedFileId={null}
-      onSelectFile={vi.fn()}
-      isLoading={false}
-      hasFolderSelected={false}
-      {...overrides}
-    />
+type PaneProps = Parameters<typeof FileBrowserPane>[0]
+type HarnessProps = Omit<Partial<PaneProps>, 'search'> & {
+  /** Corpus the semantic search runs against. Omit to offer the filter alone. */
+  projectId?: string
+}
+
+/**
+ * The pane as the PAGE composes it — search field above, listing below. The
+ * query is owned by `useFileSearch` one level up (Files renders the field in
+ * the page header), so a test that types has to go through the same two-part
+ * arrangement the app uses rather than reaching into the pane.
+ */
+function Harness({ projectId, ...paneProps }: HarnessProps) {
+  const t = useTranslations('files')
+  const search = useFileSearch({ projectId })
+  return (
+    <>
+      <FileSearchField
+        value={search.query}
+        onChange={search.setQuery}
+        onSubmit={search.run}
+        onClear={search.clear}
+        placeholder={search.canSearch ? t('browser.semantic.searchPlaceholder') : t('browser.searchPlaceholder')}
+        searchLabel={t('browser.searchLabel')}
+        resetLabel={t('browser.resetSearch')}
+      />
+      <FileBrowserPane
+        files={files}
+        selectedFileId={null}
+        onSelectFile={vi.fn()}
+        isLoading={false}
+        {...paneProps}
+        search={search}
+      />
+    </>
   )
+}
+
+function renderPane(overrides: HarnessProps = {}) {
+  return render(<Harness {...overrides} />)
 }
 
 describe('FileBrowserPane — card grid', () => {
@@ -90,11 +123,15 @@ describe('FileBrowserPane — card grid', () => {
     expect(screen.getByText('Failed')).toBeInTheDocument()
   })
 
-  it('marks the selected card with aria-pressed', () => {
+  // `aria-current`, not `aria-pressed`: the card opens the file, it does not
+  // toggle. It used to close the preview when you clicked the row you were
+  // already looking at — the one surface in the product that did.
+  it('marks the card the preview is showing with aria-current', () => {
     renderPane({ selectedFileId: 'f1' })
     const cards = screen.getAllByTestId('file-card')
     const selected = cards.find((c) => within(c).queryByText('site-plan.pdf'))!
-    expect(selected).toHaveAttribute('aria-pressed', 'true')
+    expect(selected).toHaveAttribute('aria-current', 'true')
+    expect(selected).not.toHaveAttribute('aria-pressed')
   })
 
   it('renders the upload card as the last tile of the grid', () => {
@@ -115,43 +152,81 @@ describe('FileBrowserPane — document descriptions', () => {
   })
 })
 
-describe('FileBrowserPane — folder chips', () => {
+describe('FileBrowserPane — folder drill-down', () => {
   const folders: FolderItem[] = [
     { id: 'root-1', parentId: null, name: 'Pläne', path: '/Pläne' },
     { id: 'root-2', parentId: null, name: 'Bescheide', path: '/Bescheide' },
     { id: 'child-1', parentId: 'root-1', name: 'EG', path: '/Pläne/EG' },
   ]
 
-  it('renders top-level folders (only) as a chip row and forwards selection', async () => {
+  const folderNav = (currentFolderId: string | null, onNavigate = vi.fn()) => ({
+    folders,
+    currentFolderId,
+    onNavigate,
+    onCreateFolder: vi.fn(async () => true),
+    onRenameFolder: vi.fn(async () => true),
+    onDeleteFolder: vi.fn(async () => true),
+  })
+
+  it('renders the current level’s folders as cards (only), and clicking one drills in', async () => {
     const user = userEvent.setup()
-    const onSelectFolder = vi.fn()
-    renderPane({ folders, selectedFolderId: null, onSelectFolder })
+    const onNavigate = vi.fn()
+    renderPane({ folderNav: folderNav(null, onNavigate) })
 
-    expect(screen.getByRole('button', { name: 'Pläne' })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Bescheide' })).toBeInTheDocument()
-    // Nested folders stay in the sidebar tree, not the chip row.
-    expect(screen.queryByRole('button', { name: 'EG' })).not.toBeInTheDocument()
-    // The "All Files" chip is the root selection.
-    expect(screen.getByRole('button', { name: 'All Files' })).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByRole('button', { name: 'Open folder “Pläne”' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Open folder “Bescheide”' })).toBeInTheDocument()
+    // A nested folder belongs to ITS level, not the root.
+    expect(screen.queryByRole('button', { name: 'Open folder “EG”' })).not.toBeInTheDocument()
 
-    await user.click(screen.getByRole('button', { name: 'Pläne' }))
-    expect(onSelectFolder).toHaveBeenCalledWith('root-1')
+    await user.click(screen.getByRole('button', { name: 'Open folder “Pläne”' }))
+    expect(onNavigate).toHaveBeenCalledWith('root-1')
   })
 
-  it('renders no chip row without folders or handler', () => {
+  it('names the path in the breadcrumb, every ancestor a click back out', async () => {
+    const user = userEvent.setup()
+    const onNavigate = vi.fn()
+    renderPane({
+      // Standing inside Pläne › EG: its own level shows, the path walks up.
+      files: [],
+      searchFiles: files,
+      folderNav: folderNav('child-1', onNavigate),
+    })
+
+    const breadcrumb = screen.getByRole('navigation', { name: 'Folder path' })
+    expect(within(breadcrumb).getByText('EG')).toBeInTheDocument()
+    await user.click(within(breadcrumb).getByRole('button', { name: 'Pläne' }))
+    expect(onNavigate).toHaveBeenCalledWith('root-1')
+    await user.click(within(breadcrumb).getByRole('button', { name: 'All Files' }))
+    expect(onNavigate).toHaveBeenCalledWith(null)
+  })
+
+  it('counts what is directly inside a folder on its card', () => {
+    renderPane({
+      files,
+      searchFiles: [{ ...files[0], folderId: 'root-1' }, files[1]],
+      folderNav: folderNav(null),
+    })
+    // Pläne holds one document and one subfolder — two items.
+    const card = screen.getByTestId('folder-card-root-1')
+    expect(within(card).getByText('2 item(s)')).toBeInTheDocument()
+  })
+
+  it('a typed query escapes the current folder and searches the corpus', async () => {
+    const user = userEvent.setup()
+    renderPane({
+      // Standing inside an empty folder; the corpus lives elsewhere.
+      files: [],
+      searchFiles: files,
+      folderNav: folderNav('root-2'),
+    })
+
+    await user.type(screen.getByRole('textbox', { name: /search files/i }), 'permit')
+    expect(screen.getByText('permit.pdf')).toBeInTheDocument()
+  })
+
+  it('renders no folder navigation without folderNav (the Archiv is flat)', () => {
     renderPane()
-    expect(screen.queryByRole('button', { name: 'All Files' })).not.toBeInTheDocument()
-  })
-
-  // The row is a flex item of a column that is one viewport tall while the grid
-  // under it is as tall as the corpus, and `overflow-x-auto` waives its
-  // automatic minimum size — so without `shrink-0` the browser hands it the
-  // whole negative free space and it collapses onto its own padding, clipping
-  // the pills through the middle of their labels. jsdom does no layout, so what
-  // is pinned here is the declaration that prevents it.
-  it('never absorbs the column’s overflow — the chip row cannot shrink', () => {
-    renderPane({ folders, selectedFolderId: null, onSelectFolder: vi.fn() })
-    expect(screen.getByRole('group', { name: 'Folders' })).toHaveClass('shrink-0')
+    expect(screen.queryByRole('navigation', { name: 'Folder path' })).not.toBeInTheDocument()
   })
 })
 
@@ -232,13 +307,13 @@ describe('FileBrowserPane — semantic search (explicit run)', () => {
 
     await user.type(screen.getByRole('textbox', { name: /search files/i }), 'fire escape{Enter}')
 
-    // The banner AND the panel both say it now, which is why this counts two.
-    expect(await screen.findAllByText(/could not be run/i)).toHaveLength(2)
+    // Said once, by the panel — the banner that used to repeat it is gone.
+    expect(await screen.findAllByText(/could not be run/i)).toHaveLength(1)
     expect(screen.queryByText(/no semantic matches/i)).not.toBeInTheDocument()
-    // And the banner above it: a count is a claim about the corpus, and a
-    // search that never ran has not counted anything. "0 results" over a panel
-    // that says the search failed is the same lie twice.
-    expect(await screen.findByTestId('semantic-banner')).not.toHaveTextContent(/0 results/i)
+    // And nowhere a count: a count is a claim about the corpus, and a search
+    // that never ran has not counted anything. "0 results" beside a panel that
+    // says the search failed is the same lie twice.
+    expect(screen.queryByText(/0 results/i)).not.toBeInTheDocument()
   })
 
   it('retries the SAME query, instead of only offering to give up', async () => {
@@ -324,10 +399,9 @@ describe('FileBrowserPane — semantic search (explicit run)', () => {
 
     await user.type(screen.getByRole('textbox', { name: /search files/i }), 'fire escape{Enter}')
 
-    // Transparent banner naming the mode + result count for the query.
-    const banner = await screen.findByTestId('semantic-banner')
-    expect(banner).toHaveTextContent(/semantic search: 1 result for/i)
-    expect(banner).toHaveTextContent(/fire escape/)
+    // The results ARE the report — no banner restating the mode and the count
+    // over a list that shows both.
+    expect(screen.queryByText(/semantic search:/i)).not.toBeInTheDocument()
 
     // The match evidence: snippet + page + relevance percent.
     const match = await screen.findByTestId('semantic-match')
@@ -343,16 +417,18 @@ describe('FileBrowserPane — semantic search (explicit run)', () => {
     })
   })
 
-  it('reset returns to the normal list and clears the banner', async () => {
+  it('clearing the field returns to the normal list', async () => {
     const user = userEvent.setup()
     renderPane({ projectId: 'proj-1' })
 
     await user.type(screen.getByRole('textbox', { name: /search files/i }), 'fire escape{Enter}')
-    await screen.findByTestId('semantic-banner')
+    await screen.findByTestId('semantic-match')
 
-    await user.click(screen.getByRole('button', { name: /show all files/i }))
+    // The field's own ✕ is the whole way out now that the banner — which used
+    // to carry a second one — is gone.
+    await user.click(screen.getByRole('button', { name: /reset search/i }))
 
-    expect(screen.queryByTestId('semantic-banner')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('semantic-match')).not.toBeInTheDocument()
     // Back to the full list.
     expect(screen.getByText('site-plan.pdf')).toBeInTheDocument()
     expect(screen.getByText('permit.pdf')).toBeInTheDocument()
@@ -383,5 +459,208 @@ describe('FileBrowserPane — search zero-match', () => {
     expect(screen.getByText('site-plan.pdf')).toBeInTheDocument()
     expect(screen.getByText('permit.pdf')).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /clear search/i })).not.toBeInTheDocument()
+  })
+})
+
+
+/**
+ * A FILTER THAT MATCHES NOTHING MUST NOT CLAIM THE FOLDER IS EMPTY.
+ *
+ * The pane is handed already-filtered files, so it could not tell the two
+ * apart and drew "this folder is empty" over a folder full of documents. „Von
+ * Piloti" paid for that twice: it is the filter whose meaning nobody could
+ * infer, and the one state where the product could have explained it said
+ * something false instead.
+ */
+describe('FileBrowserPane — a filter emptied the level', () => {
+  const notice = {
+    title: 'Piloti hat hier noch nichts abgelegt',
+    description: 'Hier erscheinen die Dateien, die Piloti selbst erstellt hat.',
+    onClear: vi.fn(),
+  }
+
+  beforeEach(() => notice.onClear.mockClear())
+
+  it('says which filter emptied it, instead of that the folder is empty', () => {
+    renderPane({ files: [], filterEmptyNotice: notice })
+
+    expect(screen.getByText(notice.title)).toBeInTheDocument()
+    expect(screen.getByText(notice.description)).toBeInTheDocument()
+    expect(screen.queryByText('This folder is empty')).not.toBeInTheDocument()
+  })
+
+  it('offers the way out that actually applies — widen the filter, not upload', async () => {
+    const user = userEvent.setup()
+    renderPane({
+      files: [],
+      filterEmptyNotice: notice,
+      uploadControl: <button type="button">Upload a file</button>,
+    })
+
+    // Uploading answers a question nobody asked: the files exist, the filter
+    // is hiding them.
+    expect(screen.queryByText('Upload a file')).not.toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: /clear filters/i }))
+    expect(notice.onClear).toHaveBeenCalled()
+  })
+
+  it('leaves the genuine empty folder alone', () => {
+    renderPane({ files: [], filterEmptyNotice: null, uploadControl: <button type="button">Upload a file</button> })
+
+    expect(screen.getByText('Upload a file')).toBeInTheDocument()
+    expect(screen.queryByText(notice.title)).not.toBeInTheDocument()
+  })
+})
+
+/**
+ * THE SKELETON IS A PROMISE ABOUT THE NEXT FRAME.
+ *
+ * The one it replaced drew a full-width `h-9` bar — a search field the page had
+ * moved into its header a release earlier and was never bringing back — above a
+ * full-width grid of six card placeholders. What then arrived was a breadcrumb
+ * row over a 1200px column that starts with folder tiles and ends with a dashed
+ * upload cell. Every load ended in a jump, and the loading state described a
+ * layout that had not existed for months.
+ *
+ * These pin the parts that made it wrong, so the next person to move a control
+ * out of this pane finds out here rather than in a screenshot.
+ */
+describe('FileBrowserPane — loading', () => {
+  const folderNav = {
+    folders: [] as FolderItem[],
+    currentFolderId: null,
+    onNavigate: vi.fn(),
+    onCreateFolder: vi.fn(),
+    onRenameFolder: vi.fn(),
+    onDeleteFolder: vi.fn(),
+  }
+
+  it('draws the breadcrumb row, the folder tiles and the upload cell it is about to be replaced by', () => {
+    renderPane({
+      isLoading: true,
+      folderNav,
+      uploadCard: <button type="button">Drop files</button>,
+    })
+
+    const skeleton = screen.getByTestId('file-browser-skeleton')
+    expect(within(skeleton).getByTestId('folder-breadcrumb-skeleton')).toBeInTheDocument()
+    expect(within(skeleton).getAllByTestId('folder-card-skeleton').length).toBeGreaterThan(0)
+    // The dashed cell is the last tile of a project's grid; a skeleton without
+    // it is one tile shorter than the answer.
+    expect(within(skeleton).getByText('Drop files')).toBeInTheDocument()
+  })
+
+  it('leaves the breadcrumb out on a surface that has no folders', () => {
+    renderPane({ isLoading: true })
+    const skeleton = screen.getByTestId('file-browser-skeleton')
+    expect(within(skeleton).queryByTestId('folder-breadcrumb-skeleton')).not.toBeInTheDocument()
+    expect(within(skeleton).queryByTestId('folder-card-skeleton')).not.toBeInTheDocument()
+  })
+
+  it('takes the shape of the view the reader chose', () => {
+    renderPane({ isLoading: true, view: 'list', folderNav })
+    const skeleton = screen.getByTestId('file-browser-skeleton')
+    expect(within(skeleton).getByTestId('file-list-skeleton')).toBeInTheDocument()
+    // The detail view's column headings are known before the listing is, so the
+    // rows do not jump down by a header when the answer lands.
+    expect(within(skeleton).getByText('Status')).toBeInTheDocument()
+  })
+})
+
+/**
+ * A folder card carries two aggregates — how much is inside, and how recently
+ * anything under it changed. Both used to be computed per card by re-scanning
+ * the corpus, and the second recursed while doing it. They are one pass now;
+ * these say the answers did not move.
+ */
+describe('FileBrowserPane — folder aggregates', () => {
+  const tree: FolderItem[] = [
+    { id: 'root-a', parentId: null, name: 'Einreichung', path: 'Einreichung' },
+    { id: 'child-a', parentId: 'root-a', name: 'Plaene', path: 'Einreichung/Plaene' },
+  ]
+  const corpus: FileItem[] = [
+    { ...files[0], id: 'in-root', folderId: 'root-a', createdAt: '2026-01-01T00:00:00Z' },
+    { ...files[1], id: 'in-child', folderId: 'child-a', createdAt: '2026-03-09T00:00:00Z' },
+  ]
+
+  it('counts direct children only, and reports the newest date from the whole subtree', () => {
+    renderPane({
+      files: [],
+      searchFiles: corpus,
+      folderNav: {
+        folders: tree,
+        currentFolderId: null,
+        onNavigate: vi.fn(),
+        onCreateFolder: vi.fn(),
+        onRenameFolder: vi.fn(),
+        onDeleteFolder: vi.fn(),
+      },
+    })
+
+    const card = screen.getByTestId('folder-card-root-a')
+    // One document + one subfolder directly inside: two items, not the three
+    // things that exist underneath it.
+    expect(within(card).getByText('2 item(s)')).toBeInTheDocument()
+    // The newest thing under it is in the SUBFOLDER, so the walk has to reach
+    // it — the folder's own document is two months older.
+    expect(within(card).getByRole('time')).toHaveAttribute('datetime', '2026-03-09T00:00:00Z')
+  })
+
+  it('survives a parent cycle in the folder rows rather than overflowing the stack', () => {
+    const cyclic: FolderItem[] = [
+      { id: 'a', parentId: 'b', name: 'A', path: 'A' },
+      { id: 'b', parentId: 'a', name: 'B', path: 'B' },
+    ]
+    expect(() =>
+      renderPane({
+        files: [],
+        searchFiles: [],
+        folderNav: {
+          folders: cyclic,
+          currentFolderId: null,
+          onNavigate: vi.fn(),
+          onCreateFolder: vi.fn(),
+          onRenameFolder: vi.fn(),
+          onDeleteFolder: vi.fn(),
+        },
+      }),
+    ).not.toThrow()
+  })
+})
+
+/**
+ * THE LISTING MUST BE VISIBLE IN THE HTML THE SERVER SENDS.
+ *
+ * The Files page reads its documents server-side so the first paint is the
+ * corpus rather than a skeleton. motion writes an `initial` prop into the
+ * SERVER's markup — `initial={{opacity: 0}}` really does render
+ * `style="opacity:0"` — so every per-tile entrance animation this pane had was
+ * quietly undoing that: the cards were in the document and invisible until the
+ * bundle booted and hydration released them, which is the exact wait the server
+ * render exists to remove.
+ *
+ * This renders the pane the way the server does and asserts the markup carries
+ * no hidden content. It is the only place that catches it: in a browser the
+ * animation completes in 240ms and everything looks fine.
+ */
+describe('FileBrowserPane — server-rendered markup', () => {
+  const folderNav = {
+    folders: [{ id: 'f1', parentId: null, name: 'Brandschutz', path: 'Brandschutz' }],
+    currentFolderId: null,
+    onNavigate: vi.fn(),
+    onCreateFolder: vi.fn(),
+    onRenameFolder: vi.fn(),
+    onDeleteFolder: vi.fn(),
+  }
+
+  it('paints the level and its tiles at full opacity before any JavaScript runs', () => {
+    const html = renderToStaticMarkup(<Harness folderNav={folderNav} />)
+    // No navigation has happened, so nothing may be mid-transition.
+    expect(html).not.toMatch(/opacity:\s*0(?![.\d])/)
+    // And the content really is in there, so the assertion above is not passing
+    // on an empty render.
+    expect(html).toContain('site-plan.pdf')
+    expect(html).toContain('Brandschutz')
   })
 })

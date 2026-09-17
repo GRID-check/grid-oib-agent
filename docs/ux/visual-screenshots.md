@@ -90,6 +90,7 @@ in light and dark, the same bar as desktop.
    - The card gallery `src/app/dev/cards/page.tsx` is the reference for a pure (fetch-free) preview; `src/app/dev/document-grid/page.tsx` is the reference for a preview that shims fetch.
 2. **Add the target** to `frontends/ui/visual/registry.mjs` with an `id`, `path`, `description`, and a `waitFor` selector that only appears once the surface has rendered (e.g. a `data-testid`).
    - **Capturing a `:focus-visible` state?** Add `tabStops: <n>` — the harness presses Tab that many times before the shot so keyboard focus (and only keyboard focus) engages `:focus-visible`. The `focus-ring` target uses this to guard the rounded focus outline (Tab 1 is the layout's "Skip to content" link, Tab 2 the first control). Programmatic `.focus()` is deliberately not used because it doesn't reliably trigger `:focus-visible`.
+   - **Capturing something that only exists under the pointer?** Add `hover: '<selector>'` — the harness moves the real cursor onto that element and leaves it there for both shots. Use it for a peek, a tooltip, or any panel a hover opens: the `file-reference-peek` target is the reference. A synthesised `pointerover` from the dev page is not a substitute — it fires the enter handler, but the cursor is still parked where Playwright left it, so the first real pointer event closes the panel and the shot lands on a page at rest. Point `waitFor` at the *trigger*, not the panel: the panel is what the hover opens, and the wait runs first. The hover is skipped on the mobile variant, which has no pointer — a hover-only surface should not set `mobile: true`.
 3. **Run** `npm run screenshots -- <id>` and commit the resulting PNGs alongside the change.
 4. **PR preview (automatic):** when the PR diff adds a new target id to the
    registry, the `screenshot-preview` workflow (`.github/workflows/screenshot-preview.yml`)
@@ -105,6 +106,66 @@ in light and dark, the same bar as desktop.
    reviewers see them rendered, in the diff. The workflow is informational only
    and never blocks the PR, and it runs for same-repo PRs only (fork tokens are
    read-only and cannot receive comments).
+
+## The registry gate (`visual/registry.spec.mjs`)
+
+A unit test, not a workflow, so it runs in `task fe:test` and in `task verify`
+like everything else. It holds four things the harness previously left to
+convention:
+
+1. **Every registry target has its PNGs committed** — two for a desktop-only
+   target, four when it sets `mobile: true`.
+2. **No PNG is orphaned.** An image whose target was renamed or deleted stays in
+   the repo forever, looking like the current state of something.
+3. **Every target's `/dev` route exists.**
+4. **No PNG is older than the preview it photographs.**
+
+(4) is the one that actually went wrong: PR #631 and #634 both shipped with the
+harness unrun (bun was unavailable in that session), so the `sessions*` images
+stopped describing the surface and nothing said so.
+
+**The mechanism is a checksum manifest**, `visual/screenshots.manifest.json`,
+written by `capture.mjs` after every successful run. Each entry records the
+SHA-256 of the target's `/dev` route source *as it was when the shot was taken*.
+Edit the preview and the hash no longer matches; the spec fails and names the
+command that fixes it.
+
+The two mechanisms it is deliberately **not**:
+
+- **File mtimes.** A checkout writes every file at checkout time, so on a CI
+  runner every PNG and every route are the same age. The comparison is
+  meaningless exactly where it has to run.
+- **`git log` dates.** Re-capturing a PNG leaves it *modified*; `git log -1` on
+  it still answers with the commit before the re-capture. The gate would fail on
+  the branch that fixes the staleness and pass once it was committed — precisely
+  backwards. It also needs full history, which not every CI job checks out.
+
+Do not hand-edit the manifest; re-run the harness. A partial run
+(`npm run screenshots -- sessions`) merges into it and leaves every other entry
+alone, which is what you want — a capture of six targets must not claim the
+other hundred and sixty were re-shot.
+
+**Where the harness cannot run, CI heals it.** `.github/workflows/screenshot-preview.yml`
+computes the pending set with `frontends/ui/visual/pending.mjs` — the same
+"missing PNG or route hash changed" definition the spec fails on — captures
+those targets on a same-repo PR, and commits the PNGs plus the regenerated
+manifest back to the branch as `github-actions[bot]`. A fork PR is skipped by
+the *whole* workflow — `detect` refuses to run when the head repository differs
+from this one, and `capture`, `commit` and `comment` all depend on it — so the
+artifact-and-comment path is same-repo only too. The `fe:test` registry gate
+then passes on the next run. That is deliberately NOT a way to skip the
+harness: the artifact and the diff both carry the real images, and the commit
+lands them where the gate can see them.
+
+Scope, stated plainly: the route file is one input and the components it renders
+are others. Hashing the whole import graph would gate every target on every
+shared-atom edit and be ignored within a week. The route is what the harness
+loads and where a preview change lands, so it is the honest unit; the
+`visual-coverage` workflow below covers the other half (a new component arriving
+with no preview at all).
+
+The manifest was bootstrapped from the tip when the gate landed, so it stops the
+*next* drift rather than certifying every image already committed.
 
 ## Visual coverage gate (CI)
 

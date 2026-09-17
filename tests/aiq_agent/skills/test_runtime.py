@@ -23,7 +23,7 @@ CARDS = Skill(
     name="gamma",
     description="Dritter Skill.",
     body="gamma body",
-    metadata={"grid-cards": "comparison_table,summary"},
+    metadata={"grid-cards": "comparison_table,legal_basis"},
     origin="platform",
 )
 TITLED = Skill(
@@ -77,16 +77,30 @@ def _use_skill(runtime: SkillRuntime) -> object:
     return next(t for t in runtime.build_tools() if t.name == "use_skill")
 
 
-def _runtime(*, forced: list[str] | None = None) -> SkillRuntime:
-    return SkillRuntime(skills=(S1, S2), force_names=forced)
+def _runtime() -> SkillRuntime:
+    return SkillRuntime(skills=(S1, S2))
 
 
 def test_no_skills_yields_no_prompt_and_no_tools() -> None:
     runtime = SkillRuntime(skills=())
     assert runtime.prompt_block() is None
-    assert runtime.forced_block() is None
     assert runtime.build_tools() == []
     assert runtime.activated == ()
+
+
+def test_the_runtime_offers_and_cannot_require() -> None:
+    """There is no way to put a skill in front of the model.
+
+    The whole surface is the catalog plus ``use_skill``: no constructor
+    argument names a skill, no second prompt block says one is active, and no
+    property reports what was "asked for and ignored". A standing instruction
+    the answer must obey is prompt text, not a tool call the model may skip.
+    """
+    runtime = SkillRuntime(skills=(S1, S2))
+    for gone in ("forced", "forced_block", "forced_not_activated", "standard_count", "force_names"):
+        assert not hasattr(runtime, gone), gone
+    with pytest.raises(TypeError):
+        SkillRuntime(skills=(S1,), force_names=["alpha"])  # type: ignore[call-arg]
 
 
 def test_prompt_block_lists_descriptions_only() -> None:
@@ -100,12 +114,13 @@ def test_prompt_block_lists_descriptions_only() -> None:
     assert "beta body" not in block
 
 
-def test_prompt_block_omits_skills_with_auto_invoke_off() -> None:
-    """Off means the model does not see it. Slash and force still can.
+def test_a_stored_auto_invoke_off_no_longer_hides_a_skill() -> None:
+    """The catalog is the model's inventory, not a list a person edits.
 
-    A skill whose author turned auto-invoke off is still resolved and still
-    loadable through ``use_skill``. Listing it in L1 would be the model picking
-    it, which is the thing the switch forbids.
+    ``grid-auto-invoke: false`` used to cut a row out of L1. Its author-facing
+    switch is gone (ADR-0060: nothing but the model decides which skill runs),
+    so honouring the stored token would now hide a skill from every turn with
+    nobody able to bring it back. The key still parses; it decides nothing.
     """
     silent = Skill(
         name="einreichcheck",
@@ -117,97 +132,41 @@ def test_prompt_block_omits_skills_with_auto_invoke_off() -> None:
     runtime = SkillRuntime(skills=(S1, silent))
     block = runtime.prompt_block() or ""
     assert "`alpha`: Erster Skill." in block
-    assert "einreichcheck" not in block
-    # The tool is still wired: a forced turn or a guessed name can load it.
-    assert runtime.build_tools()
-
-
-def test_forced_skill_stays_in_the_catalog_even_when_auto_invoke_is_off() -> None:
-    """The turn already named it. The description is what tells the model why."""
-    silent = Skill(
-        name="einreichcheck",
-        description="Was diesem Bauansuchen noch fehlt.",
-        body="body",
-        metadata={"grid-auto-invoke": "false"},
-        origin="platform",
-    )
-    runtime = SkillRuntime(skills=(silent,), force_names=["einreichcheck"])
-    block = runtime.prompt_block() or ""
     assert "`einreichcheck`: Was diesem Bauansuchen noch fehlt." in block
-    assert runtime.forced_block() is not None
-
-
-def test_prompt_block_is_none_when_every_skill_is_slash_only() -> None:
-    silent = Skill(
-        name="einreichcheck",
-        description="Was diesem Bauansuchen noch fehlt.",
-        body="body",
-        metadata={"grid-auto-invoke": "false"},
-        origin="platform",
-    )
-    runtime = SkillRuntime(skills=(silent,))
-    assert runtime.prompt_block() is None
     assert runtime.build_tools()
 
 
-def test_forcing_a_skill_does_not_activate_it() -> None:
-    """A force is an instruction; activation is a delivery.
+def test_prompt_block_is_none_only_when_there_are_no_skills_at_all() -> None:
+    assert SkillRuntime(skills=()).prompt_block() is None
 
-    `forced_block()` contributes a heading and the skill's NAME — the body
-    travels through `use_skill` and nowhere else. So a model that ignores the
-    instruction has read nothing, and `activated` (which the disclosure renders
-    as "this shaped the answer") must not claim otherwise. This is the whole
-    defect: with an LLM that never calls the tool, the reader was told the
-    house voice wrote an answer it never saw.
+
+def test_only_a_delivered_body_counts_as_activated() -> None:
+    """Listing a skill shapes nothing; handing its body over does.
+
+    ``activated`` is what the disclosure renders as "this shaped the answer",
+    and the catalog is on every turn. A model that read past `beta`'s line has
+    not been shaped by `beta`.
     """
-    runtime = _runtime(forced=["beta"])
-    assert runtime.forced == ("beta",)
+    runtime = _runtime()
     assert runtime.activated == ()
-    assert runtime.forced_not_activated == ("beta",)
+    _use_skill(runtime).invoke({"skill_name": "beta"})
+    assert runtime.activated == ("beta",)
 
 
-def test_what_was_delivered_is_reported_in_the_order_it_was_asked_for() -> None:
-    """Membership is delivery; order is the forced block's order.
+def test_what_was_delivered_is_reported_in_call_order() -> None:
+    """One order, and it is the model's own: the order it asked.
 
-    Raw delivery order is not reportable: a model opens both house skills in
-    one PARALLEL batch and the tool node runs them concurrently, so which body
-    lands first is scheduling noise — and a reader's panel that reorders itself
-    between two identical turns is a worse answer to "what shaped this?" than a
-    stable one. So the reported order stays what the user asked for, then the
-    fleet floor, then what the model chose. Only membership changed.
+    There is no second order to reconcile with it any more — no forced list in
+    front, no fleet floor behind — so the list reads as the run happened.
     """
-    runtime = _runtime(forced=["beta"])
+    runtime = _runtime()
     tool = _use_skill(runtime)
     assert tool.invoke({"skill_name": "alpha"}) == "alpha body"
-    assert runtime.activated == ("alpha",)
     assert tool.invoke({"skill_name": "beta"}) == "beta body"
-    # `beta` was delivered second and is reported first: it is the forced one.
-    assert runtime.activated == ("beta", "alpha")
-    assert runtime.forced_not_activated == ()
+    assert runtime.activated == ("alpha", "beta")
     # Re-invoking the same skill does not duplicate it.
     tool.invoke({"skill_name": "alpha"})
-    assert runtime.activated == ("beta", "alpha")
-
-
-def test_forced_block_names_only_forced_skills() -> None:
-    block = _runtime(forced=["beta"]).forced_block()
-    assert block is not None
-    assert block.startswith("## Active skills (required for this turn)")
-    assert "`beta`" in block
-    assert "`alpha`" not in block
-
-
-def test_force_unknown_skill_is_ignored() -> None:
-    runtime = SkillRuntime(skills=(S1,), force_names=["ghost", "alpha"])
-    assert runtime.forced == ("alpha",)
-    assert runtime.forced_block().startswith("## Active skills")
-    # A name nobody can resolve is not "forced and unread" either — there is no
-    # skill to have read.
-    assert runtime.forced_not_activated == ("alpha",)
-
-
-def test_forced_block_none_when_nothing_forced() -> None:
-    assert _runtime().forced_block() is None
+    assert runtime.activated == ("alpha", "beta")
 
 
 def test_unknown_skill_message_lists_available_names() -> None:
@@ -227,7 +186,7 @@ def test_preferred_cards_are_appended_on_activation_only() -> None:
     assert "## Preferred cards" in body
     # Author order is preserved, and the types are named verbatim so the model
     # can copy them into `type` without translating a prose paraphrase.
-    assert "`comparison_table`, `summary`" in body
+    assert "`comparison_table`, `legal_basis`" in body
     # A preference, not a command — the wording must leave an out.
     assert "not a requirement" in body
     # The whole point of the feature: it costs nothing until activation.
@@ -247,10 +206,10 @@ def test_unknown_and_system_card_types_never_reach_the_model() -> None:
         name="delta",
         description="Vierter Skill.",
         body="delta body",
-        metadata={"grid-cards": "summary,memory_proposal,ganz_erfunden"},
+        metadata={"grid-cards": "legal_basis,memory_proposal,ganz_erfunden"},
     )
     body = _use_skill(SkillRuntime(skills=(skill,))).invoke({"skill_name": "delta"})
-    assert "`summary`" in body
+    assert "`legal_basis`" in body
     assert "memory_proposal" not in body
     assert "ganz_erfunden" not in body
 
@@ -296,15 +255,12 @@ class TestActivationEvents:
 
     def test_each_activation_emits_exactly_one_event_named_for_its_skill(self, context_state) -> None:
         events = self._sink(context_state)
-        runtime = SkillRuntime(skills=(S1, S2, TITLED), force_names=["beta"])
+        runtime = SkillRuntime(skills=(S1, S2, TITLED))
         tool = _use_skill(runtime)
         tool.invoke({"skill_name": "titel"})
         # Re-invoking an already-active skill must not say so a second time.
         tool.invoke({"skill_name": "titel"})
 
-        # The forced skill announces nothing until its body is handed over:
-        # "applying the Brandschutznachweis skill" said before the model has
-        # read a word of it is the live-line version of the same false claim.
         assert [e["name"] for e in events if e["phase"] == "activated"] == ["titel"]
         tool.invoke({"skill_name": "beta"})
 
@@ -312,25 +268,26 @@ class TestActivationEvents:
         assert [e["name"] for e in activations] == ["titel", "beta"]
         # One STEP per skill: sharing a name collapses N skills into one step.
         assert [e["step"] for e in activations] == ["skill:titel", "skill:beta"]
-        # The EVENTS are in the order things happened; the reported list is in
-        # the order the forced block reads (see `activated`).
-        assert runtime.activated == ("beta", "titel")
-        assert runtime.forced == ("beta",)
+        # The reported list is the same order the events came in: call order.
+        assert runtime.activated == ("titel", "beta")
 
-    def test_forced_and_model_chosen_differ_only_in_who_decided(self, context_state) -> None:
+    def test_every_activation_is_the_same_event_because_there_is_one_way_to_run(self, context_state) -> None:
+        """No ``forced`` flag and no second key: delivery is the only story.
+
+        ``skill.forced`` existed while a request or a deployment could require
+        a skill. Nothing can, so an event that said "the user named this one"
+        would be describing a state the system no longer has.
+        """
         events = self._sink(context_state)
-        runtime = SkillRuntime(skills=(TITLED, TITLED_TWO), force_names=["titel"])
+        runtime = SkillRuntime(skills=(TITLED, TITLED_TWO))
         tool = _use_skill(runtime)
         tool.invoke({"skill_name": "titel"})
         tool.invoke({"skill_name": "titel-zwei"})
 
         by_name = {e["name"]: e for e in events if e["phase"] == "activated"}
-        assert by_name["titel"]["forced"] is True
-        assert by_name["titel-zwei"]["forced"] is False
-        # Who decided is a different KEY, not a different verb inside one
-        # sentence: that difference is not one word in every language.
-        assert by_name["titel"]["key"] == "skill.forced"
-        assert by_name["titel-zwei"]["key"] == "skill.activated"
+        for event in by_name.values():
+            assert "forced" not in event
+            assert event["key"] == "skill.activated"
         # Both are LIVE, and the only value either carries is the human title —
         # never the id, and never a finished sentence.
         for event in by_name.values():
@@ -354,19 +311,18 @@ class TestActivationEvents:
     def test_a_hidden_skill_is_recorded_but_kept_off_the_live_line(self, context_state) -> None:
         """Hidden = out of the noisy live line, never concealed.
 
-        The activation STILL fires and STILL records (name, title, forced) so
+        The activation STILL fires and STILL records (name, title) so
         the disclosure names it and the reasoning view surfaces it — only the
         channel changes to technical and the live ``key`` is withheld, which is
         the one thing that would put it back in the running line.
         """
         events = self._sink(context_state)
-        _use_skill(SkillRuntime(skills=(HIDDEN,), force_names=["piloti-voice"])).invoke({"skill_name": "piloti-voice"})
+        _use_skill(SkillRuntime(skills=(HIDDEN,))).invoke({"skill_name": "piloti-voice"})
 
         activation = next(e for e in events if e["phase"] == "activated")
         # Recorded, and honest about what it is…
         assert activation["name"] == "piloti-voice"
         assert activation["title"] == "Piloti-Stimme"
-        assert activation["forced"] is True
         # …but never in the live line: technical channel, no live sentence.
         assert activation["channel"] == "technical"
         assert "key" not in activation
@@ -385,14 +341,16 @@ class TestActivationEvents:
 
     def test_offered_reports_the_catalog_but_never_as_activity(self, context_state) -> None:
         events = self._sink(context_state)
-        emit_skills_offered(SkillRuntime(skills=(S1, S2), force_names=["beta"]))
+        emit_skills_offered(SkillRuntime(skills=(S1, S2)))
 
         offered = next(e for e in events if e["phase"] == "offered")
         assert offered["step"] == "skill_selection"
         # Availability is not activity: a catalog size must never be shown live.
         assert offered["channel"] == "technical"
         assert offered["offered_count"] == 2
-        assert offered["forced_names"] == ["beta"]
+        # Nothing about what was REQUIRED, because nothing can be: the catalog
+        # size is the whole fact this event has.
+        assert "forced_names" not in offered
 
     def test_a_turn_with_no_skills_says_nothing(self, context_state) -> None:
         events = self._sink(context_state)
@@ -402,7 +360,7 @@ class TestActivationEvents:
 
     def test_the_span_stack_is_left_exactly_as_it_was_found(self, context_state) -> None:
         """Every step is a balanced pair; a leaked frame corrupts the next real close."""
-        runtime = SkillRuntime(skills=(TITLED,), force_names=["titel"])
+        runtime = SkillRuntime(skills=(TITLED,))
         emit_skills_offered(runtime)
         _use_skill(runtime).invoke({"skill_name": "titel"})
         assert context_state.active_span_id_stack.get() == ["root"]
@@ -417,7 +375,7 @@ class TestActivationEvents:
         the same word in every locale.
         """
         events = self._sink(context_state)
-        runtime = SkillRuntime(skills=(TITLED, TITLED_TWO), force_names=["titel"])
+        runtime = SkillRuntime(skills=(TITLED, TITLED_TWO))
         emit_skills_offered(runtime)
         _use_skill(runtime).invoke({"skill_name": "titel"})
         _use_skill(runtime).invoke({"skill_name": "titel-zwei"})
@@ -435,64 +393,46 @@ class TestActivationEvents:
     def test_a_broken_event_never_takes_the_turn_down(self, context_state, monkeypatch) -> None:
         """Transparency is worth less than the answer it describes."""
         monkeypatch.setattr("aiq_agent.skills.events.push_custom_step", _boom)
-        runtime = SkillRuntime(skills=(TITLED,), force_names=["titel"])
+        runtime = SkillRuntime(skills=(TITLED,))
         emit_skills_offered(runtime)
         assert _use_skill(runtime).invoke({"skill_name": "titel"}) == "titel body"
         assert runtime.activated == ("titel",)
 
 
+#: A row the BFF marked ``standard``. The backend does not read that marker any
+#: more — there is no ``Skill.standard`` field — so it is an ordinary skill here,
+#: which is exactly what these two tests pin.
 STANDARD = Skill(
     name="haus-stil",
     description="Fleet standard equipment.",
     body="standard body",
     origin="org",
-    standard=True,
 )
 
 
-def test_standard_skills_are_applied_without_being_asked_for() -> None:
-    # `delivery: standard` already means "resolved for every organization, no
-    # decision to make". Resolving it only put its description in the catalog,
-    # and a description the model may or may not open is not fleet policy.
+def test_a_standard_row_is_an_ordinary_catalog_entry() -> None:
+    """The tier's "applied" property is gone, and with it the field behind it.
+
+    ``delivery: standard`` still means "resolved for every organization", and
+    that is all it means to the model: one line in L1 like every other skill.
+    Fleet policy that must hold on every answer is prompt text now.
+    """
+    assert not hasattr(Skill, "standard") or "standard" not in Skill.model_fields
     runtime = SkillRuntime(skills=(S1, STANDARD))
-    assert "haus-stil" in runtime.forced
-    assert "haus-stil" in (runtime.forced_block() or "")
-    # …but "applied" is the instruction, not yet the fact: it becomes activated
-    # when the model fetches the body, like every other skill.
+    assert "`haus-stil`: Fleet standard equipment." in (runtime.prompt_block() or "")
     assert runtime.activated == ()
     _use_skill(runtime).invoke({"skill_name": "haus-stil"})
     assert runtime.activated == ("haus-stil",)
 
 
-def test_an_ordinary_skill_is_not_forced() -> None:
-    # The flag is the whole gate: an offer the org took up, or a builtin, must
-    # stay opt-in or every resolved skill becomes mandatory.
-    runtime = SkillRuntime(skills=(S1, S2))
-    assert runtime.forced == ()
-    assert runtime.forced_block() is None
+def test_a_standard_marker_on_the_payload_is_ignored() -> None:
+    """The wire may still carry it; nothing in the backend may act on it."""
+    from aiq_agent.skills.resolver import _build_org_skills
 
-
-def test_user_forces_are_listed_before_standard_skills() -> None:
-    # The forced block reads back to the model in order; what the user asked
-    # for should not sit underneath something they never mentioned.
-    runtime = SkillRuntime(skills=(S1, STANDARD), force_names=["alpha"])
-    assert runtime.forced == ("alpha", "haus-stil")
-
-
-def test_a_user_forced_standard_skill_is_not_listed_twice() -> None:
-    runtime = SkillRuntime(skills=(S1, STANDARD), force_names=["haus-stil"])
-    assert runtime.forced == ("haus-stil",)
-    tool = _use_skill(runtime)
-    tool.invoke({"skill_name": "haus-stil"})
-    tool.invoke({"skill_name": "haus-stil"})
-    assert runtime.activated.count("haus-stil") == 1
-
-
-def test_the_forced_doctrine_says_when_a_writing_skill_binds() -> None:
-    # Without "before you write", a skill that governs prose is loaded after the
-    # prose exists, which is the one moment it cannot affect anything.
-    runtime = SkillRuntime(skills=(STANDARD,))
-    assert "before you write" in (runtime.forced_block() or "")
+    (skill,) = _build_org_skills(
+        [{"name": "haus-stil", "description": "Fleet standard equipment.", "body": "b", "standard": True}]
+    )
+    assert not hasattr(skill, "standard")
 
 
 HIDDEN_STD = Skill(
@@ -501,15 +441,14 @@ HIDDEN_STD = Skill(
     body="voice body",
     metadata={"grid-hidden": "true"},
     origin="org",
-    standard=True,
 )
 
 
 def test_hidden_activated_is_the_grid_hidden_subset() -> None:
     # The disclosure NAMES every activated skill, but a skill that runs on every
     # answer is noise there too — this subset is what the frontend mutes until
-    # the reasoning view is open. Resolved here because only the runtime holds a
-    # standard skill's metadata; the invocable list the disclosure reads excludes it.
+    # the reasoning view is open. Resolved here because only the runtime holds
+    # each skill's metadata.
     runtime = SkillRuntime(skills=(S1, HIDDEN_STD))
     _use_skill(runtime).invoke({"skill_name": "haus-stimme"})
     assert "haus-stimme" in runtime.activated

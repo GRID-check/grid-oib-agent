@@ -87,7 +87,7 @@ export const StepEventPayloadSchema = z
     slot: z.string().optional().catch(undefined),
     intent: z.string().optional().catch(undefined),
     depth: z.string().optional().catch(undefined),
-    /** Routing/escalation rationale, in the classifier's own words. */
+    /** Escalation rationale, in the agent's own words. */
     reason: z.string().optional().catch(undefined),
     tools: z.array(z.string()).optional().catch(undefined),
     /**
@@ -111,11 +111,13 @@ export const StepEventPayloadSchema = z
     title: z.string().optional().catch(undefined),
     description: z.string().optional().catch(undefined),
     origin: z.string().optional().catch(undefined),
-    /** `activated` only — the USER named this skill rather than the model. */
-    forced: z.boolean().optional().catch(undefined),
     offered_count: z.number().optional().catch(undefined),
-    forced_names: z.array(z.string()).optional().catch(undefined),
     body_chars: z.number().optional().catch(undefined),
+    // No `forced` and no `forced_names`. Nothing produces them: forcing was
+    // deleted from the agent tier with the `standard` delivery and the
+    // envelope's skill array (ADR-0060), and `SkillEvent` carries no such
+    // field. `.passthrough()` above means an old payload that still had them
+    // is still accepted; it is simply not lifted, because nothing read it.
   })
   .passthrough()
 
@@ -234,19 +236,52 @@ export const TURN_EVENT_KEYS: Record<string, string> = {
   'status.documents.project': 'thinking.turnStatus.',
   'status.documents.session': 'thinking.turnStatus.',
   'status.documents.several': 'thinking.turnStatus.',
-  'status.routing.meta': 'thinking.turnStatus.',
-  'status.routing.outOfScope': 'thinking.turnStatus.',
-  'status.routing.shallow': 'thinking.turnStatus.',
-  'status.routing.deep': 'thinking.turnStatus.',
+  'status.documents.waiting': 'thinking.turnStatus.',
   'status.retrieval.withQuery': 'thinking.turnStatus.',
   'status.retrieval.plain': 'thinking.turnStatus.',
+  // The locator rounds: a passage the agent already identified is being READ,
+  // not searched for. No `{corpus}` slot — the document names itself.
+  'status.retrieval.punkt': 'thinking.turnStatus.',
+  'status.retrieval.page': 'thinking.turnStatus.',
+  'status.retrieval.requery': 'thinking.turnStatus.',
   'status.action.remember': 'thinking.turnStatus.',
   'status.action.card': 'thinking.turnStatus.',
+  // The conversation's working directory: one verb per tool, and nothing is
+  // being RETRIEVED — the draft being worked on is the one the turn is writing.
+  'status.action.draftList': 'thinking.turnStatus.',
+  'status.action.draftRead': 'thinking.turnStatus.',
+  'status.action.draftWrite': 'thinking.turnStatus.',
+  'status.action.draftEdit': 'thinking.turnStatus.',
+  // A file operation being PROPOSED. One key for all five verbs: the card that
+  // follows says which operation on which file, so the live line's job is only
+  // to say that a proposal is being prepared — not to be the card, early.
+  'status.action.fileProposal': 'thinking.turnStatus.',
+  // The two steps that leave the conversation: the draft becomes a project
+  // document, and then a person is asked to look at it. Kept apart, unlike the
+  // five proposal verbs above, because there is no card following to say which
+  // of the two just happened.
+  'status.action.draftFiled': 'thinking.turnStatus.',
+  'status.action.draftSubmitted': 'thinking.turnStatus.',
+  // Handing the work over: this turn will not produce the answer, something
+  // outside the conversation will. Its own key, and not one of the two above,
+  // because no draft is moving.
+  'status.action.taskCreated': 'thinking.turnStatus.',
+  // The tool calls are over and the answer is being written. Without this key
+  // the live line keeps showing the last retrieval event through the whole
+  // synthesis call — a status event marks what happens NEXT, and nothing else
+  // marks this phase.
+  'status.synthesis': 'thinking.turnStatus.',
   'status.citations': 'thinking.turnStatus.',
+  'status.repair': 'thinking.turnStatus.',
   'status.escalation': 'thinking.turnStatus.',
   // Skill keys drop the `skill.` segment: it is already the dictionary group.
+  //
+  // There is one. `skill.forced` was the other — the sentence for a skill the
+  // turn HAD to apply because the composer named it or the platform published
+  // it as fleet standard. Both mechanisms are gone (migration 0088), so every
+  // activation is now the model reaching for a capability, which is what
+  // `skill.activated` already said.
   'skill.activated': 'thinking.',
-  'skill.forced': 'thinking.',
 }
 
 /** Keys whose template has a `{corpus}` slot filled from a list of corpus ids. */

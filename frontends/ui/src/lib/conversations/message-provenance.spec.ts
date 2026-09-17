@@ -30,7 +30,6 @@ describe('sanitizeProvenance', () => {
       answerConfidence: 'high',
       answerConfidenceReason: 'Zwei übereinstimmende Quellen.',
       routingDecision: 'shallow',
-      routingReason: 'Direkte Normfrage.',
       citationsRemoved: { count: 2, reasons: ['ungrounded', 'duplicate'] },
       deepResearchJobId: 'job_1',
       showViewReport: true,
@@ -51,7 +50,6 @@ describe('sanitizeProvenance', () => {
       answerConfidence: 'high',
       answerConfidenceReason: 'Zwei übereinstimmende Quellen.',
       routingDecision: 'shallow',
-      routingReason: 'Direkte Normfrage.',
       citationsRemoved: { count: 2, reasons: ['ungrounded', 'duplicate'] },
       deepResearchJobId: 'job_1',
       showViewReport: true,
@@ -99,13 +97,11 @@ describe('sanitizeProvenance', () => {
   it('caps reasons and truncates the step list', () => {
     const result = sanitizeProvenance({
       answerConfidenceReason: 'a'.repeat(5_000),
-      routingReason: 'b'.repeat(5_000),
       escalationReason: 'c'.repeat(5_000),
       thinkingSteps: Array.from({ length: 500 }, (_, index) => step({ id: `s${index}` })),
     })
 
     expect(result!.answerConfidenceReason).toHaveLength(600)
-    expect(result!.routingReason).toHaveLength(600)
     expect(result!.escalationReason).toHaveLength(600)
     expect(result!.thinkingSteps).toHaveLength(200)
   })
@@ -197,9 +193,9 @@ describe('why the run stopped, and what it cost', () => {
   it('keeps the degradations, de-duplicated', () => {
     expect(
       sanitizeProvenance({
-        degradedReasons: ['no_report_file', 'no_valid_citations', 'no_report_file'],
+        degradedReasons: ['no_report_file', 'no_valid_citations', 'cards_generation_failed', 'no_report_file'],
       })
-    ).toEqual({ degradedReasons: ['no_report_file', 'no_valid_citations'] })
+    ).toEqual({ degradedReasons: ['no_report_file', 'no_valid_citations', 'cards_generation_failed'] })
   })
 
   it('drops an unknown degradation without losing the ones beside it', () => {
@@ -215,5 +211,126 @@ describe('why the run stopped, and what it cost', () => {
     expect(sanitizeProvenance({ degradedReasons: [] })).toBeNull()
     expect(sanitizeProvenance({ degradedReasons: ['quantum_flux'] })).toBeNull()
     expect(sanitizeProvenance({ degradedReasons: 'no_report_file' })).toBeNull()
+  })
+})
+
+describe('the turn event on a stored step', () => {
+  it('keeps the key and its values, bounded', () => {
+    const result = sanitizeProvenance({
+      thinkingSteps: [
+        step({
+          turnEvent: {
+            key: 'status.retrieval.withQuery',
+            values: { corpus: 'knowledge', query: 'Fluchtweglänge GK4' },
+          },
+        }),
+      ],
+    })
+    expect(result!.thinkingSteps![0].turnEvent).toEqual({
+      key: 'status.retrieval.withQuery',
+      values: { corpus: 'knowledge', query: 'Fluchtweglänge GK4' },
+    })
+  })
+
+  it('keeps a checkpoint reason, capped like other model-authored sentences', () => {
+    const result = sanitizeProvenance({
+      thinkingSteps: [
+        step({
+          turnEvent: {
+            key: 'status.retrieval.withQuery',
+            values: { corpus: 'knowledge', query: 'x' },
+            reason: 'OIB 3 Pkt. 3.4.2 verweist auf den lichten Einfallswinkel.',
+          },
+        }),
+        step({
+          id: 's2',
+          turnEvent: { key: 'status.retrieval.plain', reason: 'r'.repeat(800) },
+        }),
+      ],
+    })
+    expect(result!.thinkingSteps![0].turnEvent!.reason).toBe(
+      'OIB 3 Pkt. 3.4.2 verweist auf den lichten Einfallswinkel.'
+    )
+    expect(result!.thinkingSteps![1].turnEvent!.reason).toHaveLength(600)
+  })
+
+  it('keeps the tools this round called, bounded', () => {
+    const result = sanitizeProvenance({
+      thinkingSteps: [
+        step({
+          turnEvent: {
+            key: 'status.retrieval.plain',
+            tools: ['ifc_measure', 'knowledge_search', ...Array.from({ length: 12 }, (_, i) => `t${i}`)],
+          },
+        }),
+      ],
+    })
+    expect(result!.thinkingSteps![0].turnEvent!.tools).toEqual([
+      'ifc_measure',
+      'knowledge_search',
+      't0',
+      't1',
+      't2',
+      't3',
+      't4',
+      't5',
+    ])
+  })
+
+  it('caps every string and the number of values, and drops a keyless event', () => {
+    const values = Object.fromEntries(Array.from({ length: 20 }, (_, i) => [`k${i}`, 'v'.repeat(500)]))
+    const result = sanitizeProvenance({
+      thinkingSteps: [
+        step({ turnEvent: { key: 'x'.repeat(500), values } }),
+        step({ id: 's2', turnEvent: { values: { query: 'no key' } } }),
+        step({ id: 's3', turnEvent: 'not an object' }),
+      ],
+    })
+    const [first, second, third] = result!.thinkingSteps!
+    expect(first.turnEvent!.key).toHaveLength(64)
+    expect(Object.keys(first.turnEvent!.values!)).toHaveLength(8)
+    expect(first.turnEvent!.values!.k0).toHaveLength(64)
+    expect(second).not.toHaveProperty('turnEvent')
+    expect(third).not.toHaveProperty('turnEvent')
+  })
+})
+
+describe('the retrieval ledger survives storage', () => {
+  const wireLedger = [
+    {
+      index: 0,
+      key: 'status.retrieval.withQuery',
+      tools: ['knowledge_search'],
+      corpora: ['knowledge'],
+      query: 'Fluchtweglänge GK4',
+      docs: [{ name: 'OIB-RL_2.pdf', detail: 'p.12' }],
+      new_docs: ['OIB-RL_2.pdf'],
+      hits: 1,
+      documents: 1,
+    },
+  ]
+
+  it('keeps a bounded ledger on the way in', () => {
+    // Dropped here, a reloaded conversation shows the Herleitung rebuilt from
+    // step names while the live turn read the backend's account — two restores
+    // of one thread disagreeing about what the turn did.
+    expect(sanitizeProvenance({ retrievalLedger: wireLedger })?.retrievalLedger).toEqual([
+      {
+        index: 0,
+        key: 'status.retrieval.withQuery',
+        tools: ['knowledge_search'],
+        corpora: ['knowledge'],
+        query: 'Fluchtweglänge GK4',
+        docs: [{ name: 'OIB-RL_2.pdf', detail: 'p.12' }],
+        newDocs: ['OIB-RL_2.pdf'],
+        hits: 1,
+        documents: 1,
+      },
+    ])
+  })
+
+  it('drops garbage instead of storing it', () => {
+    expect(sanitizeProvenance({ retrievalLedger: 'oib' })).toBeNull()
+    expect(sanitizeProvenance({ retrievalLedger: [{ key: 'no-index' }] })).toBeNull()
   })
 })

@@ -1,21 +1,30 @@
 /**
  * SessionsPanel Component
  *
- * The chat-history panel: a docked aside listing this project's chats, newest
- * first, grouped by day. Opened from the chat toolbar's history door.
+ * The history sheet: this project's chats AND its deep-research runs, newest
+ * first, grouped by day. Opened from the chat toolbar's history door, it rises
+ * as a page sheet over the chat — the History page it replaced is gone, and
+ * this one surface is the whole record of the project's past.
  *
- * Anatomy, top to bottom — the order is the panel's argument about what it is
- * for:
+ * It reads as a sibling of the Inbox and Archiv sheets: the same wide sheet,
+ * the same centred `max-w-3xl` reading column, the same `bg-card` divided
+ * lists. Anatomy, top to bottom — the order is the sheet's argument about what
+ * it is for:
  *
- *   heading      "Chat history · N chats" — the panel names itself and its size.
- *   pinned block New chat, then the search field. Both stay put while the list
+ *   header       "Chat history · N chats" — the sheet names itself and its size.
+ *   pinned block New chat, the search field, and (flag on) the All / Chats /
+ *                Deep Research scope filter. All stay put while the list
  *                scrolls: a search field that scrolls away is unusable exactly
- *                when the list is long enough to need it.
- *   list         the ONLY scrolling region, with sticky day headings.
- *   footer       what "saved" means here, a storage warning when one is due,
- *                and delete-all — the destructive bulk action, parked at the
- *                far end of the panel rather than one row above the list it
- *                destroys.
+ *                when the list is long enough to need it. The search covers
+ *                runs as well as chats — one query over the whole past — and
+ *                the filter composes with it rather than replacing it.
+ *   list         the ONLY scrolling region, with sticky day headings and a
+ *                bottom scroll fade; the Deep-research block leads, always
+ *                open, with honest loading and error states of its own.
+ *   footer       what "saved" means here (chats live in the workspace, not
+ *                this browser), and delete-all — the destructive bulk action,
+ *                parked at the far end of the sheet rather than one row above
+ *                the list it destroys.
  */
 
 'use client'
@@ -23,6 +32,7 @@
 import {
   type FC,
   type KeyboardEvent,
+  forwardRef,
   memo,
   useCallback,
   useMemo,
@@ -34,45 +44,42 @@ import { useShallow } from 'zustand/react/shallow'
 import Link from 'next/link'
 import {
   AlertCircle,
-  ChevronRight,
   CircleEllipsis,
   FileCheck2,
   FlaskConical,
   Loader2,
   MessageSquare,
-  MessageSquareText,
   Pencil,
   Plus,
   Search,
+  Square,
   Trash2,
 } from 'lucide-react'
+import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Chip } from '@/components/ui/chip'
+import { CountPill } from '@/components/ui/count-pill'
 import { EmptyState } from '@/components/ui/empty-state'
 import { Input } from '@/components/ui/input'
-import { Item, ItemList } from '@/components/ui/item'
+import { Item, ItemContent, ItemList, ItemMedia } from '@/components/ui/item'
 import { SearchField } from '@/components/ui/search-field'
 import { SectionLabel } from '@/components/ui/section-label'
+import { Skeleton } from '@/components/ui/skeleton'
 import { Spinner } from '@/components/ui/spinner'
+import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
+import { PageSheet } from '@/components/ui/page-sheet'
+import { AnimatePresence, motion, motionQuick } from '@/components/motion'
+import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
 import { formatAbsoluteTime, formatRelativeTime, formatTimeOfDay } from '@/lib/format'
-import { motion } from '@/components/motion'
 import { useIsMobile } from '@/hooks/use-is-mobile'
 import { useLocale, useTranslations } from '@/i18n'
 import { listResearchRuns, type ResearchRun } from '@/adapters/api/research-runs-client'
 import { useLayoutStore } from '../store'
 import { useChatStore } from '@/features/chat'
-import { checkStorageHealth } from '@/features/chat/lib/storage-manager'
 import { DeleteSessionConfirmationModal } from './DeleteSessionConfirmationModal'
 import { DeleteAllSessionsConfirmationModal } from './DeleteAllSessionsConfirmationModal'
-import { DockedPanel } from './DockedPanel'
-
-/**
- * Percentage of the browser storage quota above which the panel says so. Below
- * this the line is pure noise — "Using 0% of browser storage quota" on every
- * open told nobody anything they could act on.
- */
-const STORAGE_WARNING_PERCENT = 60
+import { StopResearchConfirmationModal } from './StopResearchConfirmationModal'
+import { PurgeStuckResearchConfirmationModal } from './PurgeStuckResearchConfirmationModal'
 
 interface Session {
   id: string
@@ -81,6 +88,44 @@ interface Session {
   hasActiveDeepResearch?: boolean
   hasCompletedReport?: boolean
   hasExpiredReport?: boolean
+  /**
+   * The stuck run's id, when this session's latest research job is still
+   * non-terminal. Travels with the row so the history can stop the run it
+   * shows spinning — without it an abandoned run can only be watched, never
+   * dismissed, and its delete stays disabled forever.
+   */
+  activeDeepResearchJobId?: string | null
+}
+
+/**
+ * A stop awaiting confirmation. Stopping cancels server-side work that cannot
+ * be resumed, so the row/run buttons only ARM this — the shared ConfirmDialog
+ * fires it. `refetchRuns` re-reads the server run list afterwards, so a
+ * run stopped from the Deep Research section reads cancelled instead of
+ * running.
+ */
+interface PendingStop {
+  sessionId: string | null
+  jobId: string
+  refetchRuns: boolean
+}
+
+/**
+ * Which half of the record the list shows. Only rendered (and only meaningful)
+ * when the deep-research section is enabled — without it the panel is chats
+ * only and needs no filter.
+ */
+type HistoryScope = 'all' | 'chats' | 'research'
+
+const HISTORY_SCOPES: readonly HistoryScope[] = ['all', 'chats', 'research']
+
+const isHistoryScope = (value: string): value is HistoryScope =>
+  (HISTORY_SCOPES as readonly string[]).includes(value)
+
+const SCOPE_LABEL_KEY: Record<HistoryScope, string> = {
+  all: 'sessionsPanel.filterAll',
+  chats: 'sessionsPanel.filterChats',
+  research: 'sessionsPanel.filterResearch',
 }
 
 interface SessionsPanelProps {
@@ -99,9 +144,10 @@ interface SessionsPanelProps {
   /** Callback when a session is renamed */
   onRenameSession?: (sessionId: string, newTitle: string) => void
   /**
-   * FB-10: render the server-backed "Deep Research" section and per-session
-   * research label chips (gated by the `research-in-chat-history` flag,
-   * threaded from MainLayout). Default off so existing callers are unaffected.
+   * FB-10: render the server-backed "Deep Research" section, the scope filter
+   * and per-session research label chips (gated by the
+   * `research-in-chat-history` flag, threaded from MainLayout). Default off so
+   * existing callers are unaffected.
    */
   showDeepResearchSection?: boolean
   /** Active project id — builds the `?job=` deep links for research runs. */
@@ -127,6 +173,7 @@ export const SessionsPanel: FC<SessionsPanelProps> = memo(function SessionsPanel
   projectCollection,
 }) {
   const t = useTranslations('research')
+  const tCommon = useTranslations('common')
   const { locale } = useLocale()
   const isMobile = useIsMobile()
   const isSessionsPanelOpen = useLayoutStore((s) => s.isSessionsPanelOpen)
@@ -137,6 +184,15 @@ export const SessionsPanel: FC<SessionsPanelProps> = memo(function SessionsPanel
   const refreshDeepResearchSessionStatuses = useChatStore(
     (s) => s.refreshDeepResearchSessionStatuses
   )
+  // Dismissing a stuck run cancels its backend job best-effort and marks the
+  // thread terminal locally — the counterpart to `refresh…` above, which only
+  // reconciles what the backend still admits to.
+  const dismissDeepResearchJob = useChatStore((s) => s.dismissDeepResearchJob)
+  const purgeAbandonedDeepResearchJobs = useChatStore((s) => s.purgeAbandonedDeepResearchJobs)
+  // Jobs this browser settled itself (see `resolvedDeepResearchJobs`): the
+  // runs list can serve a stale `running` for them indefinitely, so rows read
+  // the recorded verdict first.
+  const resolvedDeepResearchJobs = useChatStore((s) => s.resolvedDeepResearchJobs)
   // Navigation-specific busy check: only shallow thinking (WebSocket) and HITL prompts
   // block session switching. Deep research runs server-side and can be reconnected,
   // so it should NOT prevent navigation.
@@ -148,18 +204,28 @@ export const SessionsPanel: FC<SessionsPanelProps> = memo(function SessionsPanel
   )
   const isNavigationBlocked = isStreaming || hasPendingInteraction
   const [searchQuery, setSearchQuery] = useState('')
+  const [scopeFilter, setScopeFilter] = useState<HistoryScope>('all')
   const [deleteModalOpen, setDeleteModalOpen] = useState(false)
   const [deleteAllModalOpen, setDeleteAllModalOpen] = useState(false)
   const [sessionToDelete, setSessionToDelete] = useState<string | null>(null)
   const refreshStatusesInFlightRef = useRef(false)
   const searchInputRef = useRef<HTMLInputElement>(null)
+  const [isPurgingStuck, setIsPurgingStuck] = useState(false)
+  // The stop awaiting confirmation (single run) and the bulk-purge confirm.
+  // Both render the shared ConfirmDialog, which owns the pending state of its
+  // own confirm button — so no extra in-flight flags are needed to prevent
+  // double confirms.
+  const [pendingStop, setPendingStop] = useState<PendingStop | null>(null)
+  const [purgeConfirmOpen, setPurgeConfirmOpen] = useState(false)
 
-  // FB-10: server-truth deep-research runs for the collapsed "Deep Research"
-  // section. Fetched on panel open (like the status refresh above) so the list
-  // includes headless/CLI jobs that never touched local storage. Null = not yet
-  // loaded; [] = loaded, empty.
+  // FB-10: server-truth deep-research runs for the "Deep Research" section.
+  // Fetched on panel open (like the status refresh above) so the list includes
+  // headless/CLI jobs that never touched local storage. Null = not yet loaded;
+  // [] = loaded, empty.
   const [deepResearchRuns, setDeepResearchRuns] = useState<ResearchRun[] | null>(null)
-  const [isDeepResearchOpen, setIsDeepResearchOpen] = useState(false)
+  // A failed fetch must not masquerade as "no runs": the flag switches the
+  // section to an inline error line with a retry, instead of silence.
+  const [deepResearchError, setDeepResearchError] = useState(false)
   const deepResearchFetchInFlightRef = useRef(false)
   // Tracks the projectCollection the current fetch belongs to. Only an identity
   // change (a different collection) invalidates an in-flight result — closing the
@@ -167,42 +233,40 @@ export const SessionsPanel: FC<SessionsPanelProps> = memo(function SessionsPanel
   // valid on reopen.
   const deepResearchCollectionRef = useRef<string | null>(null)
 
-  // Storage usage percentage — refreshes only when the panel opens
-  const [storagePercent, setStoragePercent] = useState<number>(0)
   useEffect(() => {
-    if (isSessionsPanelOpen) {
-      const { percentUsed } = checkStorageHealth()
-      setStoragePercent(Math.round(percentUsed))
-      if (!refreshStatusesInFlightRef.current) {
-        refreshStatusesInFlightRef.current = true
-        void Promise.resolve(refreshDeepResearchSessionStatuses()).finally(() => {
-          refreshStatusesInFlightRef.current = false
-        })
-      }
+    if (isSessionsPanelOpen && !refreshStatusesInFlightRef.current) {
+      refreshStatusesInFlightRef.current = true
+      void Promise.resolve(refreshDeepResearchSessionStatuses()).finally(() => {
+        refreshStatusesInFlightRef.current = false
+      })
     }
   }, [isSessionsPanelOpen, refreshDeepResearchSessionStatuses])
 
-  // A query left behind from last time is a filtered list the user did not ask
-  // for — and one that can hide the chat they came back for. Reset on close.
+  // A query — or a scope filter — left behind from last time is a filtered list
+  // the user did not ask for, and one that can hide the chat they came back
+  // for. Reset both on close.
   useEffect(() => {
-    if (!isSessionsPanelOpen) setSearchQuery('')
+    if (!isSessionsPanelOpen) {
+      setSearchQuery('')
+      setScopeFilter('all')
+    }
   }, [isSessionsPanelOpen])
 
-  // FB-10: load the project's research runs when the panel opens (flag on).
-  // Fail-soft: any error yields an empty section rather than a broken panel.
+  // FB-10: load the project's research runs.
   //
   // The in-flight ref is purely a concurrent-dedup guard; it does NOT discard
   // resolved data. Crucially, a quick close→reopen while the fetch is pending
   // must still populate the section once it resolves — the component stays
   // mounted, so the result is never stale. We therefore always set state on
   // settle and only ignore a result whose projectCollection has since changed.
-  useEffect(() => {
-    if (!isSessionsPanelOpen || !showDeepResearchSection || !projectCollection) return
+  const fetchDeepResearchRuns = useCallback(() => {
+    if (!projectCollection) return
     if (deepResearchFetchInFlightRef.current) return
     deepResearchFetchInFlightRef.current = true
     const requestedCollection = projectCollection
     deepResearchCollectionRef.current = requestedCollection
-    listResearchRuns({ projectCollection, limit: 50 })
+    setDeepResearchError(false)
+    listResearchRuns({ projectCollection: requestedCollection, limit: 50 })
       .then((response) => {
         // Only a projectCollection (identity) change invalidates this result;
         // panel visibility does not.
@@ -214,12 +278,18 @@ export const SessionsPanel: FC<SessionsPanelProps> = memo(function SessionsPanel
         setDeepResearchRuns(sorted)
       })
       .catch(() => {
-        if (deepResearchCollectionRef.current === requestedCollection) setDeepResearchRuns([])
+        if (deepResearchCollectionRef.current === requestedCollection) setDeepResearchError(true)
       })
       .finally(() => {
         deepResearchFetchInFlightRef.current = false
       })
-  }, [isSessionsPanelOpen, showDeepResearchSection, projectCollection])
+  }, [projectCollection])
+
+  // Fetch on panel open (flag on) — and again from the retry button below.
+  useEffect(() => {
+    if (!isSessionsPanelOpen || !showDeepResearchSection || !projectCollection) return
+    fetchDeepResearchRuns()
+  }, [isSessionsPanelOpen, showDeepResearchSection, projectCollection, fetchDeepResearchRuns])
 
   const handleDeleteClick = useCallback((sessionId: string) => {
     setSessionToDelete(sessionId)
@@ -262,6 +332,21 @@ export const SessionsPanel: FC<SessionsPanelProps> = memo(function SessionsPanel
     setSearchQuery('')
     searchInputRef.current?.focus()
   }, [])
+
+  // Stop one stuck run from its chat row. The row's delete stays disabled
+  // while the run looks active, so without this the chat holding an abandoned
+  // run could never be removed at all. Arms the confirm dialog — stopping
+  // cancels server-side work that cannot be resumed.
+  const handleStopSessionResearch = useCallback((sessionId: string, jobId: string) => {
+    setPendingStop({ sessionId, jobId, refetchRuns: false })
+  }, [])
+
+  // Fires the armed stop from the confirm dialog.
+  const handleConfirmStop = useCallback(async () => {
+    if (!pendingStop) return
+    await dismissDeepResearchJob(pendingStop.sessionId, pendingStop.jobId)
+    if (pendingStop.refetchRuns) fetchDeepResearchRuns()
+  }, [pendingStop, dismissDeepResearchJob, fetchDeepResearchRuns])
 
   const untitledLabel = t('sessionsPanel.untitledSession')
   const trimmedQuery = searchQuery.trim()
@@ -317,55 +402,505 @@ export const SessionsPanel: FC<SessionsPanelProps> = memo(function SessionsPanel
     [sessionTitleById, t]
   )
 
-  // The chat page's ?job= loader resolves any job id; failed runs deep-link to
-  // the thinking tab (no report to show) so the run can still be diagnosed.
-  const runHref = useCallback(
+  // A run this browser settled itself (dismissed from this history) renders
+  // its recorded verdict, in the list's own vocabulary — not whatever the
+  // runs list still serves for it. The list can lag a crashed run
+  // indefinitely (a dismissed `failure` keeps arriving as `running`), which is
+  // how stopped runs used to come back spinning after every refetch.
+  const effectiveRunStatus = useCallback(
     (run: ResearchRun): string => {
-      const base = `/app/projects/${projectId}/chat?job=${run.job_id}`
-      return run.status === 'failed' ? `${base}&tab=thinking` : base
+      const resolved = resolvedDeepResearchJobs[run.job_id]
+      if (resolved === 'success') return 'completed'
+      if (resolved === 'failure') return 'failed'
+      if (resolved === 'interrupted') return 'cancelled'
+      return run.status
     },
+    [resolvedDeepResearchJobs]
+  )
+
+  // A run opens the thread it was commissioned in, whatever became of it: its
+  // report, its progress and, on a failure, what it tried are one message there
+  // now (ADR-0062). The `?job=` links this used to build — plus `&tab=thinking`
+  // for a failed run — addressed the deep-research side panel, so they read as
+  // live links and land on a chat that does nothing with them.
+  //
+  // Null when the run names no conversation, which a headless or CLI job does
+  // not: this list has the backend job id and nothing that resolves it to a
+  // thread, so the row says what the run became and offers no door.
+  const runHref = useCallback(
+    (run: ResearchRun): string | null =>
+      run.conversation_id
+        ? `/app/projects/${projectId}/chat?session=${encodeURIComponent(run.conversation_id)}`
+        : null,
     [projectId]
   )
 
-  const hasDeepResearchRuns = (deepResearchRuns?.length ?? 0) > 0
-  const showDeepResearch = showDeepResearchSection && Boolean(projectId) && hasDeepResearchRuns
+  // The search covers runs as well as chats: one query over the whole past.
+  const filteredRuns = useMemo(() => {
+    const runs = deepResearchRuns ?? []
+    if (!trimmedQuery) return runs
+    const query = trimmedQuery.toLowerCase()
+    return runs.filter((run) => runLabel(run).toLowerCase().includes(query))
+  }, [deepResearchRuns, trimmedQuery, runLabel])
+
+  const deepResearchEnabled = showDeepResearchSection && Boolean(projectId)
+  const researchScopeSelected = deepResearchEnabled && scopeFilter === 'research'
+  const showChats = !deepResearchEnabled || scopeFilter !== 'research'
+  const isResearchLoading = deepResearchRuns === null && !deepResearchError
+
+  // The section stays quiet when there is nothing to say (zero runs under the
+  // "All" scope) but never lies: a pending fetch shows skeletons and a failed
+  // one shows the error line — and under the Deep Research scope the section is
+  // the whole list, so it always renders, empty state included.
+  const showResearchSection =
+    deepResearchEnabled &&
+    scopeFilter !== 'chats' &&
+    (researchScopeSelected || isResearchLoading || deepResearchError || filteredRuns.length > 0)
+
+  // Stop one stuck run from the Deep Research section. Arms the confirm
+  // dialog; on confirm the server list is re-read so a cancelled run reads
+  // cancelled instead of running.
+  const handleStopRun = useCallback((run: ResearchRun) => {
+    setPendingStop({ sessionId: run.conversation_id, jobId: run.job_id, refetchRuns: true })
+  }, [])
+
+  // Purge every stuck run of the current user: cancel best-effort, mark each
+  // thread terminal, unblock every row it held. Reports how many runs it
+  // stopped, because a button that silently does nothing reads as broken when
+  // the last stuck run belonged to another project and nothing on screen moves.
+  const handlePurgeStuckResearch = useCallback(async () => {
+    if (isPurgingStuck) return
+    setIsPurgingStuck(true)
+    try {
+      const count = await purgeAbandonedDeepResearchJobs()
+      if (deepResearchEnabled) fetchDeepResearchRuns()
+      if (count === 0) {
+        toast.message(t('sessionsPanel.purgeIdle'))
+      } else {
+        toast.success(t('sessionsPanel.purgeDone', { count }))
+      }
+    } finally {
+      setIsPurgingStuck(false)
+    }
+  }, [
+    isPurgingStuck,
+    purgeAbandonedDeepResearchJobs,
+    deepResearchEnabled,
+    fetchDeepResearchRuns,
+    t,
+  ])
 
   return (
-    <DockedPanel
+    <PageSheet
       open={isSessionsPanelOpen}
-      side="left"
-      onClose={handleClose}
-      forceMount
-      aria-label={t('sessionsPanel.title')}
-      // Finding a past chat is why this panel gets opened, so the search field
+      onOpenChange={(next) => {
+        if (!next) handleClose()
+      }}
+      title={t('sessionsPanel.title')}
+      // The sheet states its own size, so "is this all of them?" is answered
+      // before it is asked.
+      subtitle={
+        hasSessions
+          ? sessions.length === 1
+            ? t('sessionsPanel.countLabelOne')
+            : t('sessionsPanel.countLabel', { count: sessions.length })
+          : undefined
+      }
+      closeLabel={t('sessionsPanel.close')}
+      // Finding a past chat is why this sheet gets opened, so the search field
       // is where focus belongs — except on mobile, where it would throw up the
       // on-screen keyboard over the very list the user came to read.
       initialFocusRef={isMobile ? undefined : searchInputRef}
-      heading={
-        <>
-          <MessageSquareText className="size-4 shrink-0" aria-hidden="true" />
-          <span className="truncate">{t('sessionsPanel.title')}</span>
-          {/* The panel states its own size, so "is this all of them?" is
-              answered before it is asked. */}
-          {hasSessions && (
-            <span className="text-muted-foreground shrink-0 font-normal">
-              {sessions.length === 1
-                ? t('sessionsPanel.countLabelOne')
-                : t('sessionsPanel.countLabel', { count: sessions.length })}
-            </span>
-          )}
-        </>
-      }
-      footer={
-        <div className="flex flex-col gap-2">
-          {/* Only shown once the quota is close enough to act on, and then it
-              says what to do about it. */}
-          {storagePercent >= STORAGE_WARNING_PERCENT && (
-            <p className="text-warning text-xs font-medium">
-              {t('sessionsPanel.storageQuota', { percent: storagePercent })}
+      bodyClassName="flex min-h-0 flex-col"
+    >
+      {/* ---- Pinned block: the controls that must never scroll away ----
+          The sheet's width is the place; the centred `max-w-3xl` column is the
+          measure — the same geometry as the Inbox sheet, applied per band so
+          the footer's border can still run edge to edge. */}
+      <div className="shrink-0 px-4 pb-3 pt-4 md:px-8">
+        <div className="mx-auto flex w-full max-w-3xl flex-col gap-3">
+          {/* New chat is disabled and every row is dimmed while a turn is in
+              flight. Say why, ABOVE the controls it explains, rather than leaving
+              the user to test them one by one. The spinner carries "temporary"
+              without spending a word on it. */}
+          {isNavigationBlocked && (
+            <p
+              className="border-border bg-muted text-muted-foreground flex min-h-11 items-start gap-2 rounded-lg border px-3 py-2 text-xs"
+              role="status"
+            >
+              {/* Spinner injects its own role=status; hide it so this region
+                  announces the message once rather than "Loading" + the copy. */}
+              <span aria-hidden="true">
+                <Spinner size="sm" className="mt-0.5 shrink-0" />
+              </span>
+              <span>{t('sessionsPanel.navigationBlocked')}</span>
             </p>
           )}
-          <p className="text-muted-foreground text-xs">{t('sessionsPanel.storageNote')}</p>
+
+          <Button
+            variant="outline"
+            className="h-9 w-full justify-start gap-2"
+            onClick={handleNewSession}
+            disabled={isNavigationBlocked}
+            aria-label={
+              isNavigationBlocked
+                ? t('sessionsPanel.newSessionDisabled')
+                : t('sessionsPanel.startNewSession')
+            }
+            title={
+              isNavigationBlocked
+                ? t('sessionsPanel.cannotCreateActive')
+                : t('sessionsPanel.startNewSession')
+            }
+          >
+            <Plus className="size-4" aria-hidden="true" />
+            <span className="text-sm font-medium">{t('sessionsPanel.newSessionButton')}</span>
+          </Button>
+
+          {/* No list, nothing to search — the field would be a control that can
+              only ever return nothing. */}
+          {hasSessions && (
+            <div className="flex flex-col gap-1.5">
+              {/* Same molecule as every other search in the product (`DataToolbar`,
+                  file search). `type="text"` so specs still query a textbox;
+                  `inputRef` receives the sheet's initial focus (desktop). */}
+              <SearchField
+                type="text"
+                inputRef={searchInputRef}
+                value={searchQuery}
+                onChange={setSearchQuery}
+                onClear={handleClearSearch}
+                placeholder={t('sessionsPanel.searchPlaceholder')}
+                label={t('sessionsPanel.searchAria')}
+                clearLabel={t('sessionsPanel.clearSearch')}
+              />
+              {/* Says how much of the list the query is hiding — announced, so a
+                  screen-reader user learns it without scanning the list. */}
+              {isSearching && (
+                <p className="text-muted-foreground px-0.5 text-xs" aria-live="polite">
+                  {t('sessionsPanel.searchResults', {
+                    count: filteredSessions.length,
+                    total: sessions.length,
+                  })}
+                </p>
+              )}
+            </div>
+          )}
+
+          {/* Scope filter (FB-10) — the inbox toolbar pattern. It composes with
+              the search: the query still covers whichever list is showing. */}
+          {deepResearchEnabled && (
+            <ToggleGroup
+              type="single"
+              variant="outline"
+              size="sm"
+              value={scopeFilter}
+              onValueChange={(value) => {
+                // type=single can emit "" when the pressed item is clicked
+                // again; the list always has a scope, so ignore a clear.
+                if (isHistoryScope(value)) setScopeFilter(value)
+              }}
+              aria-label={t('sessionsPanel.filterAria')}
+            >
+              {HISTORY_SCOPES.map((scope) => (
+                <ToggleGroupItem key={scope} value={scope}>
+                  {t(SCOPE_LABEL_KEY[scope])}
+                  {scope === 'research' && (
+                    // Always mounted: appearing only when there are runs would
+                    // grow the segment and shove its neighbours sideways.
+                    // Invisible at zero keeps the slot; `aria-hidden` so the
+                    // radio does not read "Deep Research 0".
+                    <CountPill
+                      className={cn((deepResearchRuns?.length ?? 0) === 0 && 'invisible')}
+                      aria-hidden={(deepResearchRuns?.length ?? 0) === 0 || undefined}
+                    >
+                      {deepResearchRuns?.length ?? 0}
+                    </CountPill>
+                  )}
+                </ToggleGroupItem>
+              ))}
+            </ToggleGroup>
+          )}
+        </div>
+      </div>
+
+      {/* ---- The one scrolling region ----
+          `scroll-fade-bottom` dissolves the last row at the edge instead of
+          guillotining it (design language, "Scroll boundaries"). No row
+          stagger, deliberately: the user opened this to reach a specific row,
+          and a cascade delays precisely the row they are reaching for — the
+          sheet's own rise is the arrival. */}
+      <div className="scroll-fade-bottom flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-contain px-4 pb-6 md:px-8">
+        <div className="mx-auto flex w-full max-w-3xl flex-1 flex-col">
+          {/* Deep Research (FB-10) — server-truth runs for this project, always
+              open, with a count. Includes headless/CLI jobs that have no local
+              session. Quiet under "All" when there is nothing to show; the
+              whole list under the Deep Research scope. */}
+          {showResearchSection && (
+            <section data-testid="deep-research-section" className="mb-4 flex flex-col gap-1.5">
+              <SectionLabel
+                as="h3"
+                icon={FlaskConical}
+                className="flex items-center gap-1.5 pt-1"
+              >
+                {t('sessionsPanel.deepResearchHeading')}
+                <CountPill
+                  className={cn(filteredRuns.length === 0 && 'invisible')}
+                  aria-hidden={filteredRuns.length === 0 || undefined}
+                >
+                  {filteredRuns.length}
+                </CountPill>
+              </SectionLabel>
+
+              {isResearchLoading ? (
+                // Skeletons shaped like the real rows (media disc + title +
+                // badge), never a spinner — the inbox's loading treatment.
+                <ItemList
+                  as="ul"
+                  aria-busy="true"
+                  data-testid="deep-research-skeleton"
+                  className="bg-card shadow-xs"
+                >
+                  {Array.from({ length: 2 }).map((_, index) => (
+                    <Item as="li" key={index} className="items-start py-3.5">
+                      <ItemMedia>
+                        <Skeleton className="size-8 shrink-0 rounded-full" />
+                      </ItemMedia>
+                      <ItemContent className="flex flex-col gap-2">
+                        <Skeleton className="h-3.5 w-3/5" />
+                        <Skeleton className="h-4 w-24" />
+                      </ItemContent>
+                    </Item>
+                  ))}
+                </ItemList>
+              ) : deepResearchError ? (
+                // A failed fetch must never read as "no runs": one quiet line
+                // with the way to try again, beside the lists that still work.
+                <div className="border-border bg-card flex min-h-11 flex-wrap items-center justify-between gap-2 rounded-lg border px-4 py-2.5 shadow-xs">
+                  <p className="text-muted-foreground text-xs">
+                    {t('sessionsPanel.researchLoadFailed')}
+                  </p>
+                  <Button variant="outline" size="sm" onClick={fetchDeepResearchRuns}>
+                    {tCommon('actions.retry')}
+                  </Button>
+                </div>
+              ) : filteredRuns.length === 0 ? (
+                // Only reachable under the Deep Research scope (the section is
+                // hidden when "All" has nothing to show).
+                isSearching ? (
+                  <EmptyState
+                    variant="bare"
+                    icon={Search}
+                    title={t('sessionsPanel.noMatching')}
+                    description={t('sessionsPanel.noMatchingDescription', { query: trimmedQuery })}
+                    action={
+                      <Button variant="outline" size="sm" onClick={handleClearSearch}>
+                        {t('sessionsPanel.clearSearch')}
+                      </Button>
+                    }
+                  />
+                ) : (
+                  <EmptyState
+                    variant="bare"
+                    icon={FlaskConical}
+                    title={t('sessionsPanel.noRuns')}
+                    description={t('sessionsPanel.noRunsDescription')}
+                  />
+                )
+              ) : (
+                <ItemList as="ul" className="bg-card shadow-xs">
+                  {filteredRuns.map((run) => {
+                    // Resolved once per row: every element below reads the same
+                    // status, so a dismissed run cannot show a terminal badge
+                    // beside a running spinner.
+                    const status = effectiveRunStatus(run)
+                    const href = runHref(run)
+                    return (
+                    <Item key={run.job_id} as="li" className="relative items-start py-3.5">
+                      {/* The media disc mirrors the inbox anatomy; a failed run
+                          is the one tinted case, and its Badge below says the
+                          same in words — colour never travels alone. */}
+                      <ItemMedia
+                        aria-hidden
+                        className={cn(
+                          'mt-0.5 rounded-full border',
+                          status === 'failed'
+                            ? 'border-transparent bg-destructive/10 text-destructive'
+                            : 'border-border bg-card text-muted-foreground'
+                        )}
+                      >
+                        <RunStatusIcon status={status} />
+                      </ItemMedia>
+                      <ItemContent>
+                        <div className="flex min-w-0 items-start justify-between gap-2">
+                          {/* Stretched link: the whole row is the target. The
+                              truncation lives on an inner span so the overlay
+                              pseudo-element cannot be clipped by it.
+
+                              A run with no thread to open keeps the same line
+                              without the link and without the overlay: the row
+                              still names the run and states its status, and it
+                              no longer promises a click it cannot honour. */}
+                          {href ? (
+                            <Link
+                              href={href}
+                              onClick={handleClose}
+                              aria-label={t('sessionsPanel.deepResearchRunLabel', {
+                                label: runLabel(run),
+                                status: t(runStatusKey(status)),
+                              })}
+                              className="min-w-0 flex-1 rounded-sm text-sm font-medium leading-snug outline-none after:absolute after:inset-0 after:content-[''] focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/50"
+                            >
+                              <span className="block truncate" title={runLabel(run)}>
+                                {runLabel(run)}
+                              </span>
+                            </Link>
+                          ) : (
+                            <span
+                              className="min-w-0 flex-1 truncate text-sm font-medium leading-snug"
+                              title={runLabel(run)}
+                            >
+                              {runLabel(run)}
+                            </span>
+                          )}
+                          <time
+                            className="text-muted-foreground shrink-0 text-xs"
+                            dateTime={run.created_at}
+                            title={formatAbsoluteTime(run.created_at, locale)}
+                          >
+                            {formatRelativeTime(run.created_at, locale)}
+                          </time>
+                        </div>
+                        {/* The state in WORDS, on its own line — a failed run
+                            and a finished one used to differ only by icon. */}
+                        <div className="mt-1.5 flex items-center gap-1">
+                          <Badge variant={runBadgeVariant(status)}>
+                            {t(runStatusKey(status))}
+                          </Badge>
+                          {/* A run that will never finish cannot be waited out:
+                              stop it here. The stretched link covers the whole
+                              row, so the button sits above it (`relative z-10`)
+                              the way the chat rows' overlay actions do. */}
+                          {isRunActive(status) && (
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="relative z-10 size-7"
+                              onClick={() => handleStopRun(run)}
+                              aria-label={t('sessionsPanel.stopResearch')}
+                              title={t('sessionsPanel.stopResearchTitle')}
+                            >
+                              <Square className="size-4" aria-hidden="true" />
+                            </Button>
+                          )}
+                        </div>
+                      </ItemContent>
+                    </Item>
+                    )
+                  })}
+                </ItemList>
+              )}
+            </section>
+          )}
+
+          {showChats &&
+            groupedSessions.map(([dateLabel, dateSessions]) => (
+              // `last:mb-0` — the trailing group used to add 16px of dead scroll
+              // below the final row.
+              <div key={dateLabel} className="mb-4 flex flex-col gap-1.5 last:mb-0">
+                {/* Sticky so the day you are scrolling through stays named. The
+                    scroller is the offset parent, hence `top-0`; `-mx-2 px-2`
+                    widens the opaque backing past the card's shadow so rows pass
+                    UNDER it rather than beside it. */}
+                <SectionLabel className="bg-background sticky top-0 z-10 -mx-2 px-2 pb-1.5 pt-1">
+                  {dateLabel}
+                </SectionLabel>
+                <ItemList as="ul" className="bg-card shadow-xs">
+                  {/* Deleting a row removes it, so the list needs an exit —
+                      which CSS cannot give it — and `layout` so the rows below
+                      close the gap instead of jumping. The inbox's pattern,
+                      for the same reason. */}
+                  <AnimatePresence initial={false} mode="popLayout">
+                    {dateSessions.map((session) => (
+                      <SessionItem
+                        key={session.id}
+                        session={session}
+                        isSelected={selectedSessionId === session.id}
+                        isBusy={isNavigationBlocked}
+                        isSessionActive={isSessionBusy(session.id)}
+                        showResearchLabel={showDeepResearchSection}
+                        // The day is already on the group heading, so the row carries
+                        // the part it does not: the time. Except under "Today", where
+                        // "12 minutes ago" is the more useful reading of recency.
+                        showRelativeTime={dateLabel === todayLabel}
+                        onSelect={handleSessionClick}
+                        onDelete={handleDeleteClick}
+                        onRename={onRenameSession}
+                        activeResearchJobId={session.activeDeepResearchJobId ?? null}
+                        onStopResearch={(sessionId, jobId) =>
+                          handleStopSessionResearch(sessionId, jobId)
+                        }
+                      />
+                    ))}
+                  </AnimatePresence>
+                </ItemList>
+              </div>
+            ))}
+
+          {showChats && isEmptyState && (
+            <div className="flex flex-1 flex-col items-center justify-center py-8">
+              {isSearching ? (
+                <EmptyState
+                  variant="bare"
+                  icon={Search}
+                  title={t('sessionsPanel.noMatching')}
+                  description={t('sessionsPanel.noMatchingDescription', { query: trimmedQuery })}
+                  action={
+                    <Button variant="outline" size="sm" onClick={handleClearSearch}>
+                      {t('sessionsPanel.clearSearch')}
+                    </Button>
+                  }
+                />
+              ) : (
+                // No CTA here: "New chat" is pinned two rows above and never
+                // scrolls away, so a second identical button would only make the
+                // reader decide which of the two to press.
+                <EmptyState
+                  variant="bare"
+                  icon={MessageSquare}
+                  title={t('sessionsPanel.noSessions')}
+                  description={t('sessionsPanel.noSessionsDescription')}
+                />
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* ---- Footer: what "saved" means, and the bulk destroyer at the far end ---- */}
+      <div className="bg-background shrink-0 border-t px-4 py-3 md:px-8">
+        <div className="mx-auto flex w-full max-w-3xl flex-col gap-2">
+          <p className="text-muted-foreground text-xs">{t('sessionsPanel.syncedNote')}</p>
+          {/* Stuck research runs keep their rows spinning and their deletes
+              disabled — and block delete-all while any session is busy. This
+              stops every abandoned run of the current user (cancel
+              best-effort, thread marked stopped) so the history is actionable
+              again. Lives here beside delete-all, the other bulk action over
+              this list, rather than one row above the rows it touches. */}
+          {sessions.some((s) => s.hasActiveDeepResearch) && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="-ml-2 h-8 w-fit justify-start px-2"
+              onClick={() => setPurgeConfirmOpen(true)}
+              disabled={isPurgingStuck}
+              aria-label={t('sessionsPanel.purgeStuckRuns')}
+              title={t('sessionsPanel.purgeStuckRuns')}
+            >
+              <Square className="size-4" aria-hidden="true" />
+              <span>{t('sessionsPanel.purgeStuckRunsButton')}</span>
+            </Button>
+          )}
           {/* Delete-all lives HERE, not above the list. It used to sit in the
               top row with equal weight to New chat — the loudest thing in the
               panel was the one action that destroys everything in it, one row
@@ -389,235 +924,7 @@ export const SessionsPanel: FC<SessionsPanelProps> = memo(function SessionsPanel
             </Button>
           )}
         </div>
-      }
-    >
-      {/* ---- Pinned block: the two controls that must never scroll away ---- */}
-      <div className="flex shrink-0 flex-col gap-3 px-4 pb-3 pt-4">
-        {/* New chat is disabled and every row is dimmed while a turn is in
-            flight. Say why, ABOVE the controls it explains, rather than leaving
-            the user to test them one by one. The spinner carries "temporary"
-            without spending a word on it. */}
-        {isNavigationBlocked && (
-          <p
-            className="border-border bg-muted text-muted-foreground flex min-h-11 items-start gap-2 rounded-lg border px-3 py-2 text-xs"
-            role="status"
-          >
-            {/* Spinner injects its own role=status; hide it so this region
-                announces the message once rather than "Loading" + the copy. */}
-            <span aria-hidden="true">
-              <Spinner size="sm" className="mt-0.5 shrink-0" />
-            </span>
-            <span>{t('sessionsPanel.navigationBlocked')}</span>
-          </p>
-        )}
-
-        <Button
-          variant="outline"
-          className="h-9 w-full justify-start gap-2"
-          onClick={handleNewSession}
-          disabled={isNavigationBlocked}
-          aria-label={
-            isNavigationBlocked
-              ? t('sessionsPanel.newSessionDisabled')
-              : t('sessionsPanel.startNewSession')
-          }
-          title={
-            isNavigationBlocked
-              ? t('sessionsPanel.cannotCreateActive')
-              : t('sessionsPanel.startNewSession')
-          }
-        >
-          <Plus className="size-4" aria-hidden="true" />
-          <span className="text-sm font-medium">{t('sessionsPanel.newSessionButton')}</span>
-        </Button>
-
-        {/* No list, nothing to search — the field would be a control that can
-            only ever return nothing. */}
-        {hasSessions && (
-          <div className="flex flex-col gap-1.5">
-            {/* Same molecule as every other search in the product (`DataToolbar`,
-                file search). `type="text"` so specs still query a textbox;
-                `inputRef` keeps DockedPanel's autofocus on this field. */}
-            <SearchField
-              type="text"
-              inputRef={searchInputRef}
-              value={searchQuery}
-              onChange={setSearchQuery}
-              onClear={handleClearSearch}
-              placeholder={t('sessionsPanel.searchPlaceholder')}
-              label={t('sessionsPanel.searchAria')}
-              clearLabel={t('sessionsPanel.clearSearch')}
-            />
-            {/* Says how much of the list the query is hiding — announced, so a
-                screen-reader user learns it without scanning the list. */}
-            {isSearching && (
-              <p className="text-muted-foreground px-0.5 text-xs" aria-live="polite">
-                {t('sessionsPanel.searchResults', {
-                  count: filteredSessions.length,
-                  total: sessions.length,
-                })}
-              </p>
-            )}
-          </div>
-        )}
       </div>
-
-      {/* ---- The one scrolling region ----
-          It used to be nested inside a second scroller (the panel body), and
-          being `flex-1` without `min-h-0` it could not shrink — so a full list
-          overflowed the panel and painted straight through the footer.
-
-          The list fades in as ONE surface, driven by the open state rather than
-          by mounting (forceMount keeps the panel in the DOM). It used to stagger
-          every row through `fadeRise` (`opacity: 0, y: 8`) with an uncapped
-          `staggerChildren: 0.05`, so row N only began animating after
-          0.05 + N×0.05s — with a couple of dozen sessions the lower rows sat
-          invisible AND pushed 8px down for over a second. A history panel is
-          also the wrong place for a cascade: the user opened it to reach a
-          specific row, and staggering delays precisely the row they are
-          reaching for. */}
-      <motion.div
-        className="flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-contain px-4 pb-4"
-        initial={false}
-        animate={{ opacity: isSessionsPanelOpen ? 1 : 0 }}
-        transition={{ duration: 0.18, ease: 'easeOut' }}
-      >
-        {/* Deep Research (FB-10) — server-truth runs for this project, collapsed
-            by default with a count badge. Includes headless/CLI jobs that have
-            no local session. Hidden entirely when there are no runs. */}
-        {showDeepResearch && (
-          <div className="border-border mb-3 shrink-0 border-b pb-3">
-            <button
-              type="button"
-              onClick={() => setIsDeepResearchOpen((open) => !open)}
-              aria-expanded={isDeepResearchOpen}
-              data-testid="deep-research-toggle"
-              className="text-muted-foreground hover:text-foreground focus-visible:ring-ring/50 flex min-h-11 w-full items-center gap-2 rounded-md py-1.5 text-left text-sm font-semibold outline-none transition-colors duration-quick ease-out motion-reduce:transition-none focus-visible:ring-2 pointer-coarse:min-h-11"
-            >
-              <ChevronRight
-                className={cn(
-                  'size-4 shrink-0 transition-transform duration-quick ease-out motion-reduce:transition-none',
-                  isDeepResearchOpen && 'rotate-90'
-                )}
-                aria-hidden="true"
-              />
-              <FlaskConical className="size-4 shrink-0" aria-hidden="true" />
-              <span>
-                {t('sessionsPanel.deepResearchHeading', { count: deepResearchRuns?.length ?? 0 })}
-              </span>
-            </button>
-
-            {isDeepResearchOpen && (
-              <ItemList className="mt-1 flex flex-col gap-1 overflow-visible rounded-none border-0 divide-y-0 animate-in fade-in-0 duration-snap ease-out motion-reduce:animate-none">
-                {(deepResearchRuns ?? []).map((run) => (
-                  <Item
-                    key={run.job_id}
-                    asChild
-                    // Same geometry and hover weight as a chat row (including the
-                    // transparent border), so the two lists share one left edge.
-                    className="hover:bg-muted focus-visible:ring-ring/50 min-h-11 items-start gap-2.5 rounded-lg border border-transparent py-2.5 pl-2.5 pr-2 outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:bg-transparent"
-                  >
-                    <Link
-                      href={runHref(run)}
-                      onClick={handleClose}
-                      aria-label={t('sessionsPanel.deepResearchRunLabel', {
-                        label: runLabel(run),
-                        status: t(runStatusKey(run.status)),
-                      })}
-                    >
-                      <RunStatusIcon status={run.status} className="mt-0.5" />
-                      {/* Same two-line anatomy as a chat row, for the same reason:
-                          the state goes on its own line instead of competing with
-                          the title for width. Stating it in WORDS is the point —
-                          a failed run and a finished one differed only by icon. */}
-                      <span className="flex min-w-0 flex-1 flex-col gap-0.5">
-                        <span className="flex min-w-0 items-center gap-2">
-                          <span className="min-w-0 flex-1 truncate text-sm" title={runLabel(run)}>
-                            {runLabel(run)}
-                          </span>
-                          <span
-                            className="text-muted-foreground shrink-0 text-xs"
-                            title={formatAbsoluteTime(run.created_at, locale)}
-                          >
-                            {formatRelativeTime(run.created_at, locale)}
-                          </span>
-                        </span>
-                        <Chip
-                          size="sm"
-                          variant={run.status === 'failed' ? 'destructive' : 'muted'}
-                        >
-                          {t(runStatusKey(run.status))}
-                        </Chip>
-                      </span>
-                    </Link>
-                  </Item>
-                ))}
-              </ItemList>
-            )}
-          </div>
-        )}
-
-        {groupedSessions.map(([dateLabel, dateSessions]) => (
-          // `last:mb-0` — the trailing group used to add 16px of dead scroll
-          // below the final row.
-          <div key={dateLabel} className="mb-4 flex flex-col gap-1 last:mb-0">
-            {/* Sticky so the day you are scrolling through stays named. This
-                element is the scroll container, hence `top-0`; `-mx-4 px-4`
-                widens the opaque backing to the panel's full width so rows
-                pass UNDER it rather than beside it. */}
-            <SectionLabel className="bg-background sticky top-0 z-10 -mx-4 px-4 pb-1.5 pt-1">
-              {dateLabel}
-            </SectionLabel>
-            <ItemList className="flex flex-col gap-1 overflow-visible rounded-none border-0 divide-y-0">
-              {dateSessions.map((session) => (
-                <SessionItem
-                  key={session.id}
-                  session={session}
-                  isSelected={selectedSessionId === session.id}
-                  isBusy={isNavigationBlocked}
-                  isSessionActive={isSessionBusy(session.id)}
-                  showResearchLabel={showDeepResearchSection}
-                  // The day is already on the group heading, so the row carries
-                  // the part it does not: the time. Except under "Today", where
-                  // "12 minutes ago" is the more useful reading of recency.
-                  showRelativeTime={dateLabel === todayLabel}
-                  onSelect={handleSessionClick}
-                  onDelete={handleDeleteClick}
-                  onRename={onRenameSession}
-                />
-              ))}
-            </ItemList>
-          </div>
-        ))}
-
-        {isEmptyState && (
-          <div className="flex flex-1 flex-col items-center justify-center py-8">
-            {isSearching ? (
-              <EmptyState
-                variant="bare"
-                icon={Search}
-                title={t('sessionsPanel.noMatching')}
-                description={t('sessionsPanel.noMatchingDescription', { query: trimmedQuery })}
-                action={
-                  <Button variant="outline" size="sm" onClick={handleClearSearch}>
-                    {t('sessionsPanel.clearSearch')}
-                  </Button>
-                }
-              />
-            ) : (
-              // No CTA here: "New chat" is pinned two rows above and never
-              // scrolls away, so a second identical button would only make the
-              // reader decide which of the two to press.
-              <EmptyState
-                variant="bare"
-                icon={MessageSquare}
-                title={t('sessionsPanel.noSessions')}
-                description={t('sessionsPanel.noSessionsDescription')}
-              />
-            )}
-          </div>
-        )}
-      </motion.div>
 
       <DeleteSessionConfirmationModal
         open={deleteModalOpen}
@@ -632,20 +939,39 @@ export const SessionsPanel: FC<SessionsPanelProps> = memo(function SessionsPanel
         onConfirm={handleConfirmDeleteAll}
         count={sessions.length}
       />
-    </DockedPanel>
+
+      {/* Stopping cancels server-side work that cannot be resumed — the single
+          stop and the bulk purge both confirm through the shared ConfirmDialog
+          rather than firing off their icons. */}
+      <StopResearchConfirmationModal
+        open={pendingStop !== null}
+        onOpenChange={(open) => {
+          if (!open) setPendingStop(null)
+        }}
+        onConfirm={() => handleConfirmStop()}
+      />
+
+      <PurgeStuckResearchConfirmationModal
+        open={purgeConfirmOpen}
+        onOpenChange={setPurgeConfirmOpen}
+        onConfirm={() => handlePurgeStuckResearch()}
+      />
+    </PageSheet>
   )
 })
 
 /**
  * SessionItem Component
  *
- * One chat row: status icon, title, timestamp, and hover/focus-revealed
- * rename + delete actions.
+ * One chat row inside the day group's card: status icon in a media disc, title,
+ * timestamp, and hover/focus-revealed rename + delete actions.
  *
- * The row IS the button, and the two actions are its SIBLINGS overlaid on top —
- * not children. They used to be nested inside a `role="button"` div, which is
- * invalid (interactive content inside a widget role) and left assistive tech to
- * guess at a control containing two other controls.
+ * The row's one control is a BUTTON stretched over the whole row (the inbox's
+ * stretched-link pattern), and the two actions are its SIBLINGS overlaid on
+ * top — never children, which would be interactive content inside a widget.
+ * The row owns its own <li> so it is the element that animates: exit + layout
+ * under the list's `AnimatePresence`, so deleting a chat slides it out and the
+ * rows below close the gap.
  */
 interface SessionItemProps {
   session: Session
@@ -662,19 +988,35 @@ interface SessionItemProps {
   onSelect?: (sessionId: string) => void
   onDelete?: (sessionId: string) => void
   onRename?: (sessionId: string, newTitle: string) => void
+  /**
+   * The session's still-running research job, when there is one. Enables the
+   * stop action beside rename/delete: without it an abandoned run leaves the
+   * row with two disabled buttons and no way out.
+   */
+  activeResearchJobId?: string | null
+  /**
+   * Request stopping the session's stuck research run. Only arms the shared
+   * stop confirm — the parent fires the dismiss once confirmed.
+   */
+  onStopResearch?: (sessionId: string, jobId: string) => void
 }
 
-const SessionItem: FC<SessionItemProps> = ({
-  session,
-  isSelected,
-  isBusy = false,
-  isSessionActive = false,
-  showResearchLabel = false,
-  showRelativeTime = false,
-  onSelect,
-  onDelete,
-  onRename,
-}) => {
+const SessionItem = forwardRef<HTMLLIElement, SessionItemProps>(function SessionItem(
+  {
+    session,
+    isSelected,
+    isBusy = false,
+    isSessionActive = false,
+    showResearchLabel = false,
+    showRelativeTime = false,
+    onSelect,
+    onDelete,
+    onRename,
+    activeResearchJobId,
+    onStopResearch,
+  },
+  ref
+) {
   const t = useTranslations('research')
   const { locale } = useLocale()
   const [isHovered, setIsHovered] = useState(false)
@@ -729,6 +1071,14 @@ const SessionItem: FC<SessionItemProps> = ({
     [onDelete, session.id]
   )
 
+  const handleStopClick = useCallback(
+    (e: React.MouseEvent) => {
+      e.stopPropagation()
+      if (activeResearchJobId) onStopResearch?.(session.id, activeResearchJobId)
+    },
+    [onStopResearch, session.id, activeResearchJobId]
+  )
+
   const handleSaveRename = useCallback(() => {
     const trimmedValue = editValue.trim()
     if (!trimmedValue) {
@@ -780,66 +1130,80 @@ const SessionItem: FC<SessionItemProps> = ({
       : t('sessionsPanel.sessionLabel', { title: displayTitle })
 
   return (
-    <div
-      className="relative"
-      onMouseEnter={() => setIsHovered(true)}
-      onMouseLeave={() => setIsHovered(false)}
-      // Keyboard parity with hover: reveal the rename/delete actions while
-      // focus is anywhere inside the row (focus/blur bubble in React).
-      onFocus={() => setIsFocused(true)}
-      onBlur={(e) => {
-        if (!e.currentTarget.contains(e.relatedTarget as Node | null)) {
-          setIsFocused(false)
-        }
-      }}
+    <Item
+      asChild
+      className={cn(
+        'relative min-h-11 gap-3',
+        showResearchChip ? 'items-start' : 'items-center',
+        isBusy ? 'cursor-not-allowed opacity-60' : 'cursor-pointer',
+        // Selected reads one surface step ABOVE hover (`accent` > `muted`), plus
+        // an inset hairline ring — so the row the reader is IN stays
+        // distinguishable from the row they are merely over. `focus-within`
+        // mirrors hover so the revealed actions always sit on the same surface
+        // their fade-out gradient names.
+        isSelected
+          ? 'bg-accent ring-border ring-1 ring-inset hover:bg-accent'
+          : 'hover:bg-muted focus-within:bg-muted'
+      )}
     >
-      {isEditing ? (
-        <div className="flex min-h-11 w-full items-center py-2 pl-2.5 pr-2">
-          <Input
-            ref={inputRef}
-            type="text"
-            value={editValue}
-            onChange={handleInputChange}
-            onKeyDown={handleKeyDown}
-            onBlur={handleInputBlur}
-            className="h-8 min-w-0 flex-1 px-2.5"
-            aria-label={t('sessionsPanel.editTitle')}
-          />
-        </div>
-      ) : (
-        <Item
-          asChild
-          className={cn(
-            'focus-visible:ring-ring/50 min-h-11 w-full gap-2.5 rounded-lg border py-2 pl-2.5 pr-2 outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:bg-transparent',
-            // A one-line row centres; a row with the research chip must align
-            // its icon to the TITLE, not float to the middle of two lines.
-            showResearchChip ? 'items-start py-2.5' : 'items-center',
-            isBusy ? 'cursor-not-allowed opacity-60' : 'cursor-pointer',
-            // Selected reads as a raised card (border + fill + subtle shadow); hover
-            // sits one step BELOW it on the surface ladder (`muted` < `accent`), which
-            // is what keeps the two distinguishable now that neither is an alpha of
-            // the other.
-            isSelected
-              ? 'border-border bg-accent text-foreground shadow-sm hover:bg-accent'
-              : 'hover:bg-muted border-transparent'
-          )}
-        >
-          <button
-            type="button"
-            onClick={handleClick}
-            disabled={isBusy}
-            aria-current={isSelected ? 'true' : undefined}
-            aria-label={rowLabel}
-          >
-            <SessionStatusIcon
-              session={session}
-              isSessionActive={isSessionActive}
-              className={showResearchChip ? 'mt-0.5' : undefined}
+      <motion.li
+        ref={ref}
+        layout
+        exit={{ opacity: 0, x: 12 }}
+        transition={motionQuick}
+        onMouseEnter={() => setIsHovered(true)}
+        onMouseLeave={() => setIsHovered(false)}
+        // Keyboard parity with hover: reveal the rename/delete actions while
+        // focus is anywhere inside the row (focus/blur bubble in React).
+        onFocus={() => setIsFocused(true)}
+        onBlur={(e) => {
+          if (!e.currentTarget.contains(e.relatedTarget as Node | null)) {
+            setIsFocused(false)
+          }
+        }}
+      >
+        {isEditing ? (
+          <div className="flex min-h-8 w-full items-center">
+            <Input
+              ref={inputRef}
+              type="text"
+              value={editValue}
+              onChange={handleInputChange}
+              onKeyDown={handleKeyDown}
+              onBlur={handleInputBlur}
+              className="h-8 min-w-0 flex-1 px-2.5"
+              aria-label={t('sessionsPanel.editTitle')}
             />
+          </div>
+        ) : (
+          <>
+            {/* Decorative — the button's label already carries this state in
+                words (see `statusKeyFor`). Sibling of the button: a <div> may
+                not live inside one, and the stretched overlay keeps the disc
+                clickable anyway. */}
+            <ItemMedia
+              aria-hidden
+              className={cn(
+                'border-border bg-card rounded-full border',
+                showResearchChip && 'mt-0.5'
+              )}
+            >
+              <SessionStatusIcon session={session} isSessionActive={isSessionActive} />
+            </ItemMedia>
 
-            {/* Two-line content block: title + persistent time on line 1, the
-                calm Deep Research chip on line 2. */}
-            <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+            <button
+              type="button"
+              onClick={handleClick}
+              disabled={isBusy}
+              aria-current={isSelected ? 'true' : undefined}
+              aria-label={rowLabel}
+              // Stretched over the whole row via the ::after overlay, the
+              // inbox's pattern — so the row stays ONE control without nesting
+              // the icon disc inside it.
+              className="flex min-w-0 flex-1 flex-col gap-0.5 rounded-sm text-left outline-none after:absolute after:inset-0 after:content-[''] focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/50"
+            >
+              {/* Two-line content block: title + persistent time on line 1, the
+                  calm Deep Research badge on line 2. */}
               <span className="flex min-w-0 items-center gap-2">
                 <span className="min-w-0 flex-1 truncate text-sm" title={displayTitle}>
                   {displayTitle}
@@ -856,83 +1220,102 @@ const SessionItem: FC<SessionItemProps> = ({
                 )}
               </span>
 
-              {/* FB-10: a calm "Deep Research" chip marks sessions that carry a
+              {/* FB-10: a calm "Deep Research" badge marks sessions that carry a
                   research run. It lives on its own line so it never swaps with
                   the trailing actions. */}
               {showResearchChip && (
-                <Chip size="sm" variant="muted">
+                <Badge variant="secondary" className="mt-0.5">
                   {t('sessionsPanel.deepResearchChip')}
-                </Chip>
+                </Badge>
               )}
-            </span>
-          </button>
-        </Item>
-      )}
+            </button>
+          </>
+        )}
 
-      {/* The actions OVERLAY the row on hover/focus instead of holding a
-          permanent 64px column. Reserving that column did buy a reflow-free
-          hover, but it charged every row a quarter of its width for controls
-          that are almost never on screen — and the title, the only thing a user
-          scans this list by, paid for it by truncating. Overlaying is still
-          reflow-free (the row never resizes) and the resting row now spends its
-          full width on the title. */}
-      {showActions && (
-        <div
-          // Fade the row out beneath the buttons so a long title slides under
-          // them instead of colliding with them. Both the hovered and the
-          // selected row sit on --accent, so one ramp covers both.
-          className="absolute inset-y-0 right-2 flex items-center gap-1 rounded-r-lg pl-6 [background:linear-gradient(to_right,transparent,var(--accent)_1.5rem)] animate-in fade-in-0 duration-snap ease-out motion-reduce:animate-none"
-        >
-          <Button
-            variant="ghost"
-            size="icon"
-            className="size-7"
-            onClick={handleEditClick}
-            disabled={isBusy || isSessionActive}
-            aria-label={
-              isBusy || isSessionActive
-                ? t('sessionsPanel.renameDisabled')
-                : t('sessionsPanel.rename')
-            }
-            title={
-              isBusy || isSessionActive
-                ? t('sessionsPanel.cannotRenameBusy')
-                : t('sessionsPanel.rename')
-            }
+        {/* The actions OVERLAY the row on hover/focus instead of holding a
+            permanent column that taxes every title's width. Overlaying is
+            reflow-free (the row never resizes) and the resting row spends its
+            full width on the title. The gradient fades the row out beneath the
+            buttons so a long title slides under them instead of colliding —
+            its colour names the surface the row is actually on: `accent` for
+            the selected row, `muted` for the hovered/focused one. */}
+        {showActions && (
+          <div
+            className={cn(
+              'absolute inset-y-0 right-2 z-10 flex items-center gap-1 pl-6 animate-in fade-in-0 duration-snap ease-out motion-reduce:animate-none',
+              isSelected
+                ? '[background:linear-gradient(to_right,transparent,var(--accent)_1.5rem)]'
+                : '[background:linear-gradient(to_right,transparent,var(--muted)_1.5rem)]'
+            )}
           >
-            <Pencil className="size-4" aria-hidden="true" />
-          </Button>
-          <Button
-            variant="ghost"
-            size="icon"
-            className="text-destructive hover:text-destructive size-7"
-            onClick={handleDeleteClick}
-            disabled={isBusy || isSessionActive}
-            aria-label={
-              isBusy || isSessionActive
-                ? t('sessionsPanel.deleteDisabled')
-                : t('sessionsPanel.deleteSession')
-            }
-            title={
-              isBusy || isSessionActive
-                ? t('sessionsPanel.cannotDeleteBusy')
-                : t('sessionsPanel.deleteSession')
-            }
-          >
-            <Trash2 className="size-4" aria-hidden="true" />
-          </Button>
-        </div>
-      )}
-    </div>
+            {/* A stuck run's only way out: rename and delete stay disabled
+                while the run looks active, so the row that needs dismissing
+                most is the one that cannot be touched without this. */}
+            {isSessionActive && activeResearchJobId && onStopResearch && (
+              <Button
+                variant="ghost"
+                size="icon"
+                className="size-7"
+                onClick={handleStopClick}
+                aria-label={t('sessionsPanel.stopResearch')}
+                title={t('sessionsPanel.stopResearchTitle')}
+              >
+                <Square className="size-4" aria-hidden="true" />
+              </Button>
+            )}
+            <Button
+              variant="ghost"
+              size="icon"
+              className="size-7"
+              onClick={handleEditClick}
+              disabled={isBusy || isSessionActive}
+              aria-label={
+                isBusy || isSessionActive
+                  ? t('sessionsPanel.renameDisabled')
+                  : t('sessionsPanel.rename')
+              }
+              title={
+                isBusy || isSessionActive
+                  ? t('sessionsPanel.cannotRenameBusy')
+                  : t('sessionsPanel.rename')
+              }
+            >
+              <Pencil className="size-4" aria-hidden="true" />
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="text-destructive hover:text-destructive size-7"
+              onClick={handleDeleteClick}
+              disabled={isBusy || isSessionActive}
+              aria-label={
+                isBusy || isSessionActive
+                  ? t('sessionsPanel.deleteDisabled')
+                  : t('sessionsPanel.deleteSession')
+              }
+              title={
+                isBusy || isSessionActive
+                  ? t('sessionsPanel.cannotDeleteBusy')
+                  : t('sessionsPanel.deleteSession')
+              }
+            >
+              <Trash2 className="size-4" aria-hidden="true" />
+            </Button>
+          </div>
+        )}
+      </motion.li>
+    </Item>
   )
-}
+})
 
 /**
- * Status icon for a research run row (FB-10). Mirrors SessionStatusIcon's
- * iconography: completed = document check, failed/cancelled = alert, everything
- * still in flight = a quiet spinner. The row's Link carries the accessible name,
- * so the icon itself is decorative.
+ * Whether a server-listed run is still in flight. Mirrors `runStatusKey`:
+ * anything the badge does not name as completed/failed/cancelled reads as
+ * running — including `submitted` and anything unrecognised.
  */
+const isRunActive = (status: string): boolean =>
+  status !== 'completed' && status !== 'failed' && status !== 'cancelled'
+
 /**
  * A run's status as a translation key. The backend's `submitted`/`running` (and
  * anything unrecognised) are all "still working" from the reader's side.
@@ -944,32 +1327,46 @@ const runStatusKey = (status: string): string => {
   return 'sessionsPanel.runStatus.running'
 }
 
-const RunStatusIcon: FC<{ status: string; className?: string }> = ({ status, className }) => {
-  const base = cn('size-4 shrink-0', className)
-  if (status === 'completed') {
-    return <FileCheck2 className={cn(base, 'text-success')} aria-hidden="true" />
-  }
-  if (status === 'failed') {
-    return <AlertCircle className={cn(base, 'text-destructive')} aria-hidden="true" />
-  }
-  if (status === 'cancelled') {
-    return <AlertCircle className={cn(base, 'text-muted-foreground')} aria-hidden="true" />
-  }
-  return <Loader2 className={cn(base, 'text-accent-primary animate-spin')} aria-hidden="true" />
+/**
+ * The design language's status-badge mapping: completed = success,
+ * running/submitted = info, failed = destructive, cancelled = neutral.
+ */
+const runBadgeVariant = (status: string): 'success' | 'info' | 'destructive' | 'secondary' => {
+  if (status === 'completed') return 'success'
+  if (status === 'failed') return 'destructive'
+  if (status === 'cancelled') return 'secondary'
+  return 'info'
 }
 
 /**
- * The row's leading icon. Purely DECORATIVE: the row is a single button whose
- * `aria-label` already carries the same state in words (see `statusKeyFor`), so
- * labelling the icon too would either be ignored (the button's explicit label
- * wins) or announced twice. It also may not nest a live region inside a button.
+ * Status icon for a research run row (FB-10), drawn inside the row's media
+ * disc. The disc supplies the colour (neutral ink; destructive tint for failed
+ * runs), so the icon only carries shape — plus the spinner's motion for a run
+ * still in flight. The row's Link carries the accessible name, so the icon
+ * itself is decorative.
+ */
+const RunStatusIcon: FC<{ status: string }> = ({ status }) => {
+  if (status === 'completed') {
+    return <FileCheck2 className="size-4 shrink-0" aria-hidden="true" />
+  }
+  if (status === 'failed' || status === 'cancelled') {
+    return <AlertCircle className="size-4 shrink-0" aria-hidden="true" />
+  }
+  return <Loader2 className="size-4 shrink-0 animate-spin" aria-hidden="true" />
+}
+
+/**
+ * The chat row's leading icon, inside the media disc. Purely DECORATIVE: the
+ * row is a single button whose `aria-label` already carries the same state in
+ * words (see `statusKeyFor`), so labelling the icon too would either be ignored
+ * (the button's explicit label wins) or announced twice. It also may not nest a
+ * live region inside a button.
  */
 const SessionStatusIcon: FC<{
   session: Session
   isSessionActive: boolean
-  className?: string
-}> = ({ session, isSessionActive, className }) => {
-  const base = cn('size-4 shrink-0', className)
+}> = ({ session, isSessionActive }) => {
+  const base = 'size-4 shrink-0'
   const isActive = isSessionActive || session.hasActiveDeepResearch
 
   if (isActive) {

@@ -42,7 +42,16 @@ vi.mock('@/lib/db/schema', () => ({
   },
 }))
 
+// Pure helpers stay real (enrichment/normalization behavior is under test in
+// other cases); only the network-reaching embed calls are stubbed, defaulting
+// to null — exactly the fail-open "no embedder" behavior of the real module.
+vi.mock('@/lib/knowledge/embeddings', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/knowledge/embeddings')>()
+  return { ...actual, embedNote: vi.fn(async () => null), embedNotes: vi.fn(async () => null) }
+})
+
 import { getDb } from '@/lib/db'
+import { embedNote } from '@/lib/knowledge/embeddings'
 import type { ProjectMemoryItem } from '@/lib/db/schema'
 import { asDb, makeMemoryItem } from '@/test-utils/db-fixtures'
 import {
@@ -50,6 +59,7 @@ import {
   createProjectMemoryItem,
   deleteProjectMemoryItem,
   formatDigestLines,
+  implicateMemoryFromFeedback,
   listProjectMemory,
   organizationExists,
   updateProjectMemoryItem,
@@ -210,11 +220,12 @@ describe('buildProjectMemoryDigest', () => {
         eq('pm.status', 'active')
       )
     )
-    // Pinned-first, then most recently updated.
-    expect(orderBy).toHaveBeenCalledWith(
-      { op: 'desc', col: 'pm.pinned' },
-      { op: 'desc', col: 'pm.updatedAt' }
-    )
+    // Most-recent-first is now the CANDIDATE order, not the digest order:
+    // recency is rank-based in `rankByRecallScore`, so the SQL supplies the
+    // recency signal and the ranking (relevance + importance + reinforcement)
+    // happens over the fetched candidates. Pinned-first is applied in JS,
+    // bounded by DIGEST_MAX_PINNED so pins can no longer starve recall.
+    expect(orderBy).toHaveBeenCalledWith({ op: 'desc', col: 'pm.updatedAt' })
   })
 
   it('does not filter by org when no organization is known (anonymous mode)', async () => {
@@ -655,6 +666,74 @@ describe('createProjectMemoryItem paraphrase de-duplication', () => {
   })
 
   /**
+   * The finding restates a row we already hold AND the caller named the entry
+   * it makes obsolete. Merging into the restatement used to end the write
+   * before the quote was read, so the named row stayed live beside the
+   * refreshed one — the second entry a reviewer saw after a correction.
+   */
+  it('retires a named target even when the finding merges into a paraphrase', async () => {
+    const existing = makeMemoryItem({
+      id: 'dup-1',
+      kind: 'derived_fact',
+      content: 'Natural smoke extraction was approved for the stairwell',
+    })
+    const stale = makeMemoryItem({
+      id: 'stale-3',
+      kind: 'constraint',
+      content: 'The stairwell must be pressurised (Druckbelueftung)',
+    })
+    // exact-dup: none; near-dup: the restatement; resolve scan: the named entry.
+    const { values, set } = mockSupersedeChain([[], [existing], [stale]])
+    const onSuperseded = vi.fn()
+
+    await createProjectMemoryItem(
+      {
+        scope: 'project',
+        projectId: 'proj-1',
+        organizationId: 'org-1',
+        kind: 'derived_fact',
+        content: 'Natural smoke extraction was approved for the stairwell instead',
+      },
+      { supersedesContent: 'The stairwell must be pressurised (Druckbelueftung)', onSuperseded }
+    )
+
+    expect(values).not.toHaveBeenCalled()
+    expect(set).toHaveBeenCalledWith(expect.objectContaining({ status: 'superseded' }))
+    expect(onSuperseded).toHaveBeenCalledWith('stale-3')
+  })
+
+  /**
+   * A person's note is never retired by the agent. The finding still lands —
+   * beside it — and the row remembers WHICH note it was not allowed to
+   * replace, so the contradiction is a fact a panel can show rather than a
+   * server log line nobody reads.
+   */
+  it('records a conflict instead of retiring a pinned, human-curated note', async () => {
+    const human = makeMemoryItem({
+      id: 'human-1',
+      kind: 'constraint',
+      pinned: true,
+      content: 'The stairwell must be pressurised (Druckbelueftung)',
+    })
+    const { values, txSet } = mockSupersedeChain([[], [], [human]])
+
+    await createProjectMemoryItem(
+      {
+        scope: 'project',
+        projectId: 'proj-1',
+        organizationId: 'org-1',
+        kind: 'derived_fact',
+        content: 'Natural smoke extraction was approved for the stairwell instead.',
+      },
+      { supersedesContent: 'The stairwell must be pressurised (Druckbelueftung)' }
+    )
+
+    expect(values).toHaveBeenCalledWith(expect.objectContaining({ conflictsWithId: 'human-1' }))
+    expect(values).not.toHaveBeenCalledWith(expect.objectContaining({ supersedesId: 'human-1' }))
+    expect(txSet).not.toHaveBeenCalled()
+  })
+
+  /**
    * The retirement is reported by the write, not read off the returned row: a
    * duplicate/paraphrase refresh hands back an EXISTING item that may already
    * carry a `supersedesId` from an earlier correction, and the internal
@@ -785,5 +864,54 @@ describe('organizationExists', () => {
   it('is false for an unknown org', async () => {
     mockSelectChain([])
     await expect(organizationExists('org-nope')).resolves.toBe(false)
+  })
+})
+
+describe('implicateMemoryFromFeedback', () => {
+  it('does nothing without an embedder — no penalty on a lexical-only deployment', async () => {
+    const execute = vi.fn()
+    vi.mocked(getDb).mockReturnValue(asDb({ execute }))
+    const count = await implicateMemoryFromFeedback({
+      organizationId: 'org-1',
+      projectId: 'proj-1',
+      comment: 'Die Antwort hat OIB 4 mit der Wiener BO vermischt.',
+    })
+    expect(count).toBe(0)
+    expect(execute).not.toHaveBeenCalled()
+  })
+
+  it('penalizes the semantically implicated notes and reports how many', async () => {
+    vi.mocked(embedNote).mockResolvedValue({ vector: [0.1, 0.2], fingerprint: 'model-a' })
+    // An array: postgres-js resolves execute() to a RowList, not `{ rows }`.
+    const execute = vi.fn(async () => [{ id: 'mem-1' }, { id: 'mem-2' }])
+    vi.mocked(getDb).mockReturnValue(asDb({ execute }))
+    const count = await implicateMemoryFromFeedback({
+      organizationId: 'org-1',
+      projectId: 'proj-1',
+      comment: 'Die Antwort hat OIB 4 mit der Wiener BO vermischt.',
+    })
+    expect(count).toBe(2)
+    expect(execute).toHaveBeenCalledTimes(1)
+    // The one statement carries the policy numbers: decay, floor, threshold,
+    // limit — and the org id that keeps it inside the tenant.
+    const flat = JSON.stringify((execute.mock.calls as unknown[][])[0]?.[0])
+    expect(flat).toContain('0.6')
+    expect(flat).toContain('0.05')
+    expect(flat).toContain('0.78')
+    expect(flat).toContain('org-1')
+  })
+
+  it('returns 0 for a blank comment and never throws on db failure', async () => {
+    expect(
+      await implicateMemoryFromFeedback({ organizationId: 'org-1', projectId: null, comment: '   ' })
+    ).toBe(0)
+    vi.mocked(embedNote).mockResolvedValue({ vector: [0.1], fingerprint: 'model-a' })
+    const execute = vi.fn(async () => {
+      throw new Error('db down')
+    })
+    vi.mocked(getDb).mockReturnValue(asDb({ execute }))
+    await expect(
+      implicateMemoryFromFeedback({ organizationId: 'org-1', projectId: null, comment: 'kaputt' })
+    ).resolves.toBe(0)
   })
 })

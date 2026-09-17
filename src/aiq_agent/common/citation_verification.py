@@ -11,6 +11,11 @@ Usage:
     # ... populate via SourceRegistryMiddleware or manually ...
     result = verify_citations(report_text, registry)
     clean_report = result.verified_report
+
+Where the regexes live, and why. The TOOL side is structured: an evidence tool
+states :class:`~aiq_agent.common.grounding_block.GroundingHit` records and this
+module reads the fields (ADR-0061). The ANSWER side is text, because the model
+writes text and a citation key in prose is all there is to read.
 """
 
 from __future__ import annotations
@@ -20,6 +25,7 @@ import dataclasses
 import difflib
 import hashlib
 import logging
+import math
 import os
 import re
 import threading
@@ -38,6 +44,8 @@ from urllib.parse import unquote
 from urllib.parse import urlparse
 from urllib.parse import urlunparse
 
+from aiq_agent.common.grounding_block import GroundingHit
+from aiq_agent.common.grounding_block import get_grounding_block
 from aiq_agent.common.source_kinds import SCOPE_QUALIFIERS
 from aiq_agent.common.source_kinds import TOOL_RESULT_SOURCE_TYPE
 from aiq_agent.common.source_kinds import Shelf
@@ -81,6 +89,14 @@ class SourceEntry:
     # it is the FIRST-priority signal for lane/kind placement, overriding the
     # filename/collection heuristics. None for sources without an explicit class.
     doc_class: str | None = None
+    # WHO WROTE THE DOCUMENT this passage came from — ``"agent"`` for a
+    # published Piloti document, None for everything a human wrote. Parsed from
+    # the knowledge-layer tool output's ``Herkunft:`` line
+    # (``common/provenance.py``). It is its own axis, never a doc_class and
+    # never a shelf: it decides the lane before either of those is consulted,
+    # and it is what ``answer_envelope._gate_verdict`` reads to refuse a
+    # normative verdict resting on an office document Piloti wrote itself.
+    authored_by: str | None = None
     # Retrieved passage body for knowledge-layer hits (the chunk content the KB
     # tool returned, truncated at 1500 chars per chunk). Used by
     # ``verify_quoted_spans`` to check that a QUOTED sentence in the answer
@@ -89,6 +105,17 @@ class SourceEntry:
     # the same (filename, page) key their bodies are joined (see ``add``). None
     # for URL/web sources and for output produced before this field was threaded.
     chunk_text: str | None = None
+    # The Punkt this passage belongs to ("3.5.2"), as the chunker established
+    # it and the knowledge layer's ``Punkt:`` line states it. This is the
+    # citation form Austrian building law uses; None for page-fallback chunks
+    # and every document without a numbered outline. When several chunks
+    # dedup onto one page entry the first stated Punkt survives (see ``add``).
+    punkt: str | None = None
+    # The retrieval score the knowledge layer printed for this passage, a true
+    # cosine similarity. Carried so a reader can ask not only WHERE a passage
+    # is but how nearly it matched; the best score of a page's chunks survives
+    # dedup. None for URL/web sources.
+    score: float | None = None
     # BINDING CLASSIFICATION carried to the client (see
     # ``binding_classification_for_entry``). Both default to the honest-unknown
     # value on purpose: a source that matched no catalogued norm must NEVER claim
@@ -328,18 +355,25 @@ class SourceRegistry:
                 self._citation_keys.append(entry)
                 if not added:
                     added = True
-            elif entry.chunk_text:
+            else:
                 # A single page may hold >1 retrieved chunk; dedup collapses them
                 # onto one (collection, filename, page) entry, but each chunk's
                 # body is distinct evidence for quote verification. Append the new
                 # body to the surviving entry so the whole-registry fuzzy match
-                # sees every chunk of the page rather than only the first.
+                # sees every chunk of the page rather than only the first. The
+                # provenance fields fold the same way: the first stated Punkt
+                # survives, and the page keeps the best score any chunk earned.
                 for existing in self._citation_keys:
                     if self._identity(existing) == dedup_key:
-                        if not existing.chunk_text:
-                            existing.chunk_text = entry.chunk_text
-                        elif entry.chunk_text not in existing.chunk_text:
-                            existing.chunk_text = f"{existing.chunk_text}\n\n{entry.chunk_text}"
+                        if entry.chunk_text:
+                            if not existing.chunk_text:
+                                existing.chunk_text = entry.chunk_text
+                            elif entry.chunk_text not in existing.chunk_text:
+                                existing.chunk_text = f"{existing.chunk_text}\n\n{entry.chunk_text}"
+                        if existing.punkt is None and entry.punkt:
+                            existing.punkt = entry.punkt
+                        if entry.score is not None and (existing.score is None or entry.score > existing.score):
+                            existing.score = entry.score
                         break
         if added:
             self._all.append(entry)
@@ -543,6 +577,14 @@ _REGISTRY_CACHE_TTL_SECONDS = int(os.environ.get("GRID_CITATION_REGISTRY_TTL_SEC
 
 
 def _registry_from_cached_entries(entries: Any) -> SourceRegistry:
+    """Rebuild a session's registry from the cached dicts ``persist_session_registry`` wrote.
+
+    Every field a later turn can still read off an entry is restored, including
+    ``punkt`` and ``score``: they reach the wire (``source_entry_to_wire``), so
+    dropping them made a resumed conversation's chips lose the locus and the
+    match strength that the same conversation had shown a minute earlier, on a
+    replica move nobody could see.
+    """
     registry = SourceRegistry()
     if isinstance(entries, list):
         for item in entries:
@@ -558,7 +600,10 @@ def _registry_from_cached_entries(entries: Any) -> SourceRegistry:
                             collection=item.get("collection"),
                             shelf=item.get("shelf"),
                             doc_class=item.get("doc_class"),
+                            authored_by=item.get("authored_by"),
                             chunk_text=item.get("chunk_text"),
+                            punkt=item.get("punkt"),
+                            score=item.get("score"),
                             rank=item.get("rank"),
                             binding_status=item.get("binding_status", "unbekannt"),
                         )
@@ -601,9 +646,12 @@ def get_or_create_session_registry(session_id: str | None) -> SourceRegistry:
     """
     if session_id is None:
         return SourceRegistry()
+    from aiq_agent.common.profiler import annotate_current_span
+
     with _session_registries_lock:
         if session_id in _session_registries:
             _session_registries.move_to_end(session_id)
+            annotate_current_span(cache_citation_registry="hit")
             return _session_registries[session_id]
 
     # Shared-cache hydration outside the lock (network I/O must not serialize
@@ -617,6 +665,7 @@ def get_or_create_session_registry(session_id: str | None) -> SourceRegistry:
             hydrated = _registry_from_cached_entries(entries)
     except Exception:
         logger.debug("Citation registry hydration failed for %s", session_id, exc_info=True)
+    annotate_current_span(cache_citation_registry="hit-shared" if hydrated is not None else "miss")
 
     with _session_registries_lock:
         if session_id in _session_registries:
@@ -734,17 +783,29 @@ def extract_sources_from_tool_result(
     """Extract sources from a tool's output.
 
     Strategy:
+    0. If this exact text was rendered from a grounding block during this turn,
+       copy the fields off the records the producer stated (ADR-0061). No
+       parsing, and nothing the passage body can forge.
     1. If a registered parser matches the tool name, use it (for special
-       formats like knowledge layer citation keys).
-    2. Otherwise, fall back to the generic URL extractor which finds all
-       URLs in any tool output regardless of format.
+       formats like knowledge layer citation keys). Its answer is final,
+       including an empty one: a knowledge, RIS or read_passage text with no
+       ``Citation:`` line states no source, and the URLs it happens to contain
+       belong to a passage body or to an error message.
+    2. For a tool with no registered parser (web search and anything new), fall
+       back to the generic URL extractor, which finds all URLs in any tool
+       output regardless of format.
     3. If neither produces entries, register the tool result itself as a
        non-URL citation source.
+
+    Step 0 misses for everything that holds the text without the records: a
+    turn replayed from Postgres, a registry hydrated from the shared cache, the
+    job runner's callback. Those fall through to the text parsers below, which
+    is what the parsers are still there for.
 
     This means new sources (Bing, Perplexity, etc.) work automatically
     without any parser registration — as long as their output contains URLs.
 
-    The non-URL fallback is permissive on purpose: callers (the shallow and
+    The non-URL fallback is permissive on purpose: callers (Piloti and
     deep researchers) are responsible for deciding which tool calls are
     eligible to contribute sources, typically by limiting capture to the
     agent's loaded tool set. The optional ``source_id`` is stored on the
@@ -753,6 +814,12 @@ def extract_sources_from_tool_result(
     :func:`aiq_agent.common.data_source_registry.get_source_id_for_tool`,
     but it does not gate the fallback.
     """
+    block = get_grounding_block(content)
+    if block is not None:
+        # Block order is load-bearing: ``SourceRegistry.add`` merges a repeated
+        # (collection, filename, page) onto the entry that arrived first.
+        return [_entry_from_hit(hit, tool_name) for hit in block.hits]
+
     name_lower = tool_name.lower()
     for match_fn, parser_fn in _PARSER_REGISTRY:
         if match_fn(name_lower):
@@ -840,6 +907,42 @@ def _is_status_message(content: str) -> bool:
             "no documents found",
             "no results found",
         )
+    )
+
+
+# ---------------------------------------------------------------------------
+# Structured reader: the live path
+# ---------------------------------------------------------------------------
+
+
+def _entry_from_hit(hit: GroundingHit, tool_name: str) -> SourceEntry:
+    """One captured grounding hit as a registry entry, by field copy.
+
+    The structured twin of :func:`_kl_entry`, and the reason the text parsers
+    below no longer run on a live turn. Every value here is the one the
+    producer stated, so the only work left is the registry's emptiness
+    convention: ``""`` and ``None`` mean the same thing to every reader
+    downstream, and the entry states ``None``.
+
+    ``url`` stays unset even for a hit that carries a ``source_url``. A RIS
+    passage is cited by its key, not by its link, and giving it a URL would
+    move it onto the registry's URL identity and out of the document dedup.
+    """
+    return SourceEntry(
+        citation_key=hit.citation_key.strip(),
+        title=hit.display_title.strip() or None,
+        source_type="knowledge_layer",
+        tool_name=tool_name,
+        collection=(hit.collection or "").strip() or None,
+        shelf=str(hit.shelf) if hit.shelf is not None else None,
+        doc_class=(hit.doc_class or "").strip() or None,
+        authored_by=hit.authored_by,
+        # The body as EVIDENCE: no truncation marker (the renderer adds it) and
+        # no surrounding blank lines, so ``verify_quoted_spans`` matches an
+        # answer's quote against the passage and nothing else.
+        chunk_text=hit.body.strip() or None,
+        punkt=(hit.punkt or "").strip() or None,
+        score=hit.score,
     )
 
 
@@ -939,6 +1042,18 @@ def _parse_generic_urls(content: str, tool_name: str) -> list[SourceEntry]:
     return entries
 
 
+# --- The LEGACY path: reading a grounding block back out of its text --------
+#
+# Everything from here to ``_parse_knowledge_layer`` reconstructs hits from the
+# rendered block. On a live turn it does not run: the producer's records are
+# captured by the renderer and read by ``_entry_from_hit`` (ADR-0061). It stays
+# for the callers that hold the text and never had the records: a registry
+# hydrated from the shared cache, a turn replayed out of Postgres, and the job
+# runner's callback, which can run outside the tool's context.
+#
+# It is not deprecated and it is not allowed to rot: those callers are real, and
+# the pipeline contract test asserts that both paths produce the same entries.
+#
 # Knowledge layer is the only source that needs a specific parser because
 # it uses citation keys (e.g., "report.pdf, p.15") instead of URLs.
 _KL_CITATION_RE = re.compile(r"^Citation:\s*(.+)$", re.MULTILINE)
@@ -951,6 +1066,31 @@ _KL_SHELF_RE = re.compile(r"^Shelf:\s*(.+)$", re.MULTILINE)
 # `_format_results` (``Dokumentart: <doc_class_key>``). ``Doc-Class:`` is
 # accepted as an alias for robustness.
 _KL_DOC_CLASS_RE = re.compile(r"^(?:Dokumentart|Doc-Class):\s*(.+)$", re.MULTILINE)
+# WHO WROTE the document, stated by ``_format_results`` as a ``Herkunft:`` line
+# whose value BEGINS with the frozen ``Piloti-Dokument`` token
+# (``source_kinds.AGENT_AUTHORED_LANE_LABEL``) and continues with the German
+# approval clause. Only the leading token is read here: it is an identity in
+# this position, the way a shelf qualifier is inside a citation key, and the
+# rest of the line is rendering. The machine-readable approval fields travel
+# structured, in the Trace-Lanes ``provenance`` object — never re-derived from
+# this sentence.
+_KL_PROVENANCE_RE = re.compile(r"^Herkunft:\s*(.+)$", re.MULTILINE)
+# The Punkt the excerpt belongs to, as the chunker established it
+# (``punkt_chunking.py``, measured 946/946 against the corpus's contents
+# pages) and ``_format_results`` states it. This is the citation form Austrian
+# building law actually uses ("OIB-RL 2, Pkt. 3.5.2"); until it was parsed here
+# the number reached the model as prose and died before the citation the reader
+# sees. Absent for page-fallback chunks and web documents. The value is the
+# rest of the line, not one token: the corpus form is ``3.5.2``, a RIS passage
+# states its locus the way a lawyer reads it, ``§ 63 Abs 1``, and squeezing that
+# to ``§63Abs1`` to fit a one-token rule put an unreadable locus on every chip.
+_KL_PUNKT_RE = re.compile(r"^Punkt:\s*(.+?)\s*$", re.MULTILINE)
+# The retrieval score ``_format_results`` prints, a true cosine similarity since
+# the audit's F6 fix. Parsed from the WHOLE block rather than the header region:
+# the header is defined as everything above this very line. A body could in
+# principle contain the same words, but the header's line precedes it and
+# ``_first`` takes the first match.
+_KL_SCORE_RE = re.compile(r"^Relevance Score:\s*(-?\d+(?:\.\d+)?)\s*$", re.MULTILINE)
 
 # Per-hit block/body markers, mirroring register.py:_format_results layout: each
 # hit is a ``--- Result N ---`` block whose passage body follows the
@@ -1047,6 +1187,21 @@ def _parse_kl_doc_class(raw: str | None) -> str | None:
     return raw.split("—")[0].split(" - ")[0].strip() or None
 
 
+def _parse_kl_authored_by(raw: str | None) -> str | None:
+    """``"agent"`` when a ``Herkunft:`` value names a Piloti document, else None.
+
+    Fails CLOSED: an unrecognised, reworded or absent value leaves the author
+    unknown rather than claiming a human wrote it — unknown and human are the
+    same for every reader downstream, and only this exact token buys the
+    document its Piloti lane and its verdict ban.
+    """
+    from aiq_agent.common.provenance import AGENT_AUTHOR
+    from aiq_agent.common.source_kinds import AGENT_AUTHORED_LANE_LABEL
+
+    value = (raw or "").strip()
+    return AGENT_AUTHOR if value.startswith(AGENT_AUTHORED_LANE_LABEL) else None
+
+
 def _kl_entry(
     *,
     citation_key: str,
@@ -1054,8 +1209,11 @@ def _kl_entry(
     collection: str | None,
     shelf: str | None = None,
     doc_class: str | None,
+    authored_by: str | None = None,
     chunk_text: str | None,
     tool_name: str,
+    punkt: str | None = None,
+    score: float | None = None,
 ) -> SourceEntry:
     """Build a knowledge-layer :class:`SourceEntry` from one hit's fields."""
     parsed_shelf = parse_shelf(shelf)
@@ -1067,18 +1225,32 @@ def _kl_entry(
         collection=collection or None,
         shelf=str(parsed_shelf) if parsed_shelf else None,
         doc_class=doc_class or None,
+        authored_by=authored_by or None,
         chunk_text=chunk_text or None,
+        punkt=(punkt or "").strip() or None,
+        score=score,
     )
 
 
+def _parse_kl_score(value: str | None) -> float | None:
+    """The ``Relevance Score:`` value as a float, or None when absent or malformed."""
+    if not value:
+        return None
+    try:
+        score = float(value)
+    except ValueError:
+        return None
+    return score if math.isfinite(score) else None
+
+
 def _parse_knowledge_layer(content: str, tool_name: str) -> list[SourceEntry]:
-    """Parse knowledge layer retrieval output.
+    """Parse knowledge layer retrieval output. THE LEGACY PATH; see the banner above.
 
     Extracts citation keys (filename + page), the retrieval ``Collection:``
     each hit came from (threaded by the KB tool so ``source_lane`` can place
     the hit deterministically), the explicit ``Dokumentart:`` classification,
-    and the retrieved passage body. Falls back to generic URL extraction if no
-    Citation: fields found.
+    and the retrieved passage body. A text with no ``Citation:`` field carries
+    no sources, and says so with an empty list.
 
     Fields are read PER ``--- Result N ---`` BLOCK, never by zipping separate
     whole-document ``findall`` lists. ``_format_results`` emits ``Collection:``
@@ -1109,8 +1281,13 @@ def _parse_knowledge_layer(content: str, tool_name: str) -> list[SourceEntry]:
                     collection=_first(_KL_COLLECTION_RE, header),
                     shelf=_first(_KL_SHELF_RE, header),
                     doc_class=_parse_kl_doc_class(_first(_KL_DOC_CLASS_RE, header)),
+                    authored_by=_parse_kl_authored_by(_first(_KL_PROVENANCE_RE, header)),
                     chunk_text=_kl_block_body(block),
                     tool_name=tool_name,
+                    punkt=_first(_KL_PUNKT_RE, header),
+                    # The score line is the header's last line by definition of
+                    # ``_kl_block_header``, so it is read off the whole block.
+                    score=_parse_kl_score(_first(_KL_SCORE_RE, block)),
                 )
             )
     else:
@@ -1133,14 +1310,34 @@ def _parse_knowledge_layer(content: str, tool_name: str) -> list[SourceEntry]:
                 )
             )
 
-    if not entries:
-        return _parse_generic_urls(content, tool_name)
+    # No Citation: line, no sources. A URL in a passage body is part of the
+    # retrieved text, and a knowledge tool that FAILED returns an error message
+    # whose links are nobody's evidence. Both used to register as web sources
+    # through the generic URL extractor, which is why a turn that tripped a
+    # pydantic validation error showed a source card for errors.pydantic.dev.
     return entries
 
 
 # Register knowledge layer as the only special-case parser.
 # All other tools (Tavily, paper search, etc.) use the generic URL fallback.
 register_source_parser(lambda name: "knowledge" in name, _parse_knowledge_layer)
+# ``ris_lookup`` emits the SAME grounding grammar (``ris_adapter.lookup``), so
+# it gets the same parser rather than a second one: a RIS passage carries a
+# Citation key, a Punkt (``§63Abs1``) and ``Dokumentart: gesetz``, and every one
+# of those dies in the generic URL extractor — which is what the three older RIS
+# tools still fall through to, correctly, because their output is references and
+# a 40 000-character blob, not passages. One grammar, one parser, two producers.
+register_source_parser(lambda name: "ris_lookup" in name, _parse_knowledge_layer)
+# ``read_passage`` is the third producer of that grammar: it renders through the
+# knowledge layer's own ``_format_results``, and its name does not contain
+# "knowledge", so it used to fall all the way through to the non-URL fallback and
+# register ONE source whose citation key was the string "read_passage". A turn
+# that opened a passage and cited it therefore had that citation dropped as
+# ``citation_key_not_in_registry``, while the config comment beside the tool said
+# the opposite. Registering it here is also what keeps the two readers level: the
+# structured path reads its block by hash and would otherwise recover passages
+# the text path cannot (ADR-0061).
+register_source_parser(lambda name: "read_passage" in name, _parse_knowledge_layer)
 
 # ---------------------------------------------------------------------------
 # Citation parsing and source-section layout normalization
@@ -1343,6 +1540,47 @@ def cited_document_entries(text: str, registry: SourceRegistry) -> list[SourceEn
     return cited
 
 
+_TITLE_PREFIX_SEPARATOR_RE = re.compile(r"\s+[-\u2013\u2014]\s+|:\s+")
+
+
+def _title_prefix_tails(text: str) -> list[str]:
+    """Every tail of ``text`` after a ``Title - `` / ``Title – `` / ``Title: `` separator.
+
+    Shortest tail first (the segment after the LAST separator), because a
+    reference line that decorates its filename with a title puts the title in
+    front, and the filename is what is left at the end.
+    """
+    tails: list[str] = []
+    for match in _TITLE_PREFIX_SEPARATOR_RE.finditer(text):
+        tail = text[match.end() :].strip()
+        if tail:
+            tails.append(tail)
+    return sorted(set(tails), key=len)
+
+
+def _is_digest_shaped_line(ref_text: str) -> bool:
+    """Whether a source line is an already-read DIGEST line, not a citation.
+
+    The digest (``knowledge.already_read``) is an index, not evidence: one line
+    per opened document — ``"<file> | <collection> | Seiten <p> | Punkte <n> |
+    Turn <k>"`` — and its own prompt block says the line itself is never cited;
+    quoting or citing re-opens the passage with ``read_passage`` first. A source
+    line in that shape cites the INDEX, so verification rejects it even when the
+    filename names a genuinely retrieved document (the registry scan below would
+    otherwise accept it on the filename alone).
+
+    Structural, not imported: ``already_read.parse_digest_line`` is the same
+    test, but that module imports ``_parse_citation_key`` from HERE, so sharing
+    it would be a cycle. The last three pipe segments are the digest's own
+    markers; a real citation key never carries them.
+    """
+    parts = [part.strip() for part in ref_text.split("|")]
+    if len(parts) < 5:
+        return False
+    lowered = [part.lower() for part in parts[-3:]]
+    return lowered[0].startswith("seiten ") and lowered[1].startswith("punkte ") and lowered[2].startswith("turn ")
+
+
 def _is_knowledge_citation(ref_text: str, registry: SourceRegistry | None = None) -> tuple[bool, str | None]:
     """Check if reference text looks like a knowledge-layer citation.
 
@@ -1367,9 +1605,14 @@ def _is_knowledge_citation(ref_text: str, registry: SourceRegistry | None = None
 
     # Strip trailing "(Internal)" or similar parenthetical
     cleaned = re.sub(r"\s*\(.*?\)\s*$", "", unemphasized).strip()
-    # Remove leading "Title - " or "Title: " prefix by taking last segment
-    # if it contains a filename pattern
-    for segment in [cleaned, cleaned.split(" - ")[-1].strip(), cleaned.split(": ")[-1].strip()]:
+    # Remove a leading "Title - ", "Title – " or "Title: " prefix by taking the
+    # last segment if it contains a filename pattern. The TAIL segments come
+    # first: the whole line also matches the shape test (`.+\.ext, p.N` is
+    # satisfied by "OIB-Richtlinie 2 – file.pdf, p.1" as one long filename), and
+    # a key that carries the title in front of the filename meets no document
+    # anywhere downstream. The en and em dash are what the model actually
+    # writes between a display title and a filename.
+    for segment in [*_title_prefix_tails(cleaned), cleaned]:
         if _KL_CITATION_PATTERN_RE.match(segment):
             return True, segment
 
@@ -1416,12 +1659,17 @@ def source_lane(entry: SourceEntry, registry: NormRegistry | None = None) -> tup
     if registry is None:
         registry = load_registry() if (entry.url and "ris.bka.gv.at" in entry.url) else None
     classify = lane_for_knowledge_hit if entry.source_type == "knowledge_layer" else lane_for_hit
+    # The shelf the hit already carries (ADR-0047) is what decides whether the
+    # default doc class means anything; without it the resolver has to guess
+    # the shelf back from the collection name.
     return classify(
         doc_class=entry.doc_class,
         file_name=file_name,
         source_url=entry.url,
         collection=entry.collection,
         registry=registry,
+        shelf=entry.shelf,
+        authored_by=entry.authored_by,
     )
 
 
@@ -1708,6 +1956,202 @@ def source_origin_token(entry: SourceEntry) -> str:
     return ""
 
 
+def agent_authored_document_names(registry: SourceRegistry | None) -> frozenset[str]:
+    """Normalised names of the AGENT-AUTHORED documents this turn captured.
+
+    The input to the verdict gate (``answer_envelope._gate_verdict``), which
+    has a model-written ``reference.document`` and no registry of its own. Both
+    identities a model could name a document by are included — the indexed
+    filename and the display title — each reduced through
+    :func:`~aiq_agent.common.provenance.normalize_document_name` so
+    ``"**Brandschutzkonzept Haus B.md**"`` and ``"Brandschutzkonzept Haus-B"``
+    are the same name.
+
+    Empty when the turn captured no such document, which is the overwhelmingly
+    common case and the one that must cost nothing: an empty set makes the gate
+    a no-op.
+    """
+    from aiq_agent.common.provenance import is_agent_author
+    from aiq_agent.common.provenance import normalize_document_name
+
+    names: set[str] = set()
+    for entry in registry.all_sources() if registry else ():
+        if not is_agent_author(entry.authored_by):
+            continue
+        file_name, _ = _parse_citation_key(entry.citation_key or "")
+        # The basename only: a published Piloti document is indexed under a
+        # namespaced path (``piloti/<item id>/<slug>.md``) that no model would
+        # ever write, while the slug is the name it WOULD write.
+        base_name = file_name.rsplit("/", 1)[-1]
+        names.update(normalize_document_name(value) for value in (base_name, entry.title))
+    names.discard("")
+    return frozenset(names)
+
+
+# ---------------------------------------------------------------------------
+# Trailer-value grounding: a copyable value needs a Fundstelle this turn.
+#
+# The verdict, a takeaway and a detail are the three trailer fields that carry
+# VALUES a reader copies into a Nachweis — a measurement (Zahl), a class
+# (Klasse: REI 60, GK 4) or a deadline (Frist: vier Wochen). The prose around
+# them is citation-checked, but the trailer is not prose: nothing requires its
+# numbers to come from anywhere. So a value in one of these fields survives
+# only when a Fundstelle stands behind it that resolves to a source THIS turn
+# actually retrieved (``get_turn_captures``) — the verdict's ``reference``, a
+# takeaway's ``detail``, the detail text itself. Otherwise the FIELD drops (the
+# verdict, the takeaway item, the detail key) while the prose keeps every word:
+# enrichment is lost, the answer never is.
+#
+# Mechanical on purpose: "carries a value" is three regexes (a bare number is
+# NOT one — ``Tabelle 1b``, ``Pkt. 3.5.2`` and ``§ 63`` are locators, not
+# measurements, and flagging them would empty every trailer), and "resolves" is
+# the same either-direction normalised-name match the verdict's
+# agent-authored gate uses. A verdict like ``Nicht geregelt`` carries no value
+# and is never touched. With no turn sources to judge against the gate
+# abstains — an empty capture log is "nothing retrieved", not "nothing
+# grounded".
+# ---------------------------------------------------------------------------
+
+#: A measurement with its unit: ``100 cm``, ``1,10 m``, ``55 dB``, ``6 %``.
+#: The unit is what separates a copyable value from a locator — a bare number
+#: is a table, a Punkt or a paragraph, never something a reader builds from.
+_VALUE_ZAHL_RE = re.compile(
+    r"\b\d+(?:[.,]\d+)?\s*(?:m²|m³|cm\b|mm\b|km\b|m\b|dB\b|%|°C\b|kWh\b|Stpl\.?\b|Stück\b|kg\b|\bh\b|min\b)",
+    re.IGNORECASE,
+)
+
+#: A fire-resistance or building class: ``REI 60``, ``EI 30``, ``R 90``,
+#: ``F 90``, ``GK 4``, ``Gebäudeklasse 4``. The digit floor (2–3 for
+#: resistances) keeps ``R 2``-shaped fragments from firing.
+_VALUE_KLASSE_RE = re.compile(
+    r"\b(?:REI|EI?|R|F)\s*-?\s*\d{2,3}\b|\bGK\s*\d\b|\b\w*klasse\s+\d\b",
+    re.IGNORECASE,
+)
+
+#: A deadline span: ``4 Jahre``, ``sechs Wochen``, ``binnen``, ``unverzüglich``.
+#: Word-numbers are closed (ein–zwölf) because an open ``\w+`` before a time
+#: noun matches ``nächste Woche`` — a pointer, not a span.
+_VALUE_FRIST_RE = re.compile(
+    r"\b\d+\s*(?:Tag|Woche|Monat|Jahr|Stunde|Minute|Sekunde)\w*\b"
+    r"|\b(?:ein(?:e|er|em|en|es)?|zwei|drei|vier|fünf|sechs|sieben|acht|neun|zehn|elf|zwölf)"
+    r"\s+(?:Tag|Woche|Monat|Jahr|Stunde|Minute|Sekunde)\w*\b"
+    r"|\bbinnen\b|\bunverzüglich\b",
+    re.IGNORECASE,
+)
+
+#: A Fundstelle shorter than this, once normalised, is not a document name a
+#: substring test can judge — mirrors the verdict gate's own floor.
+_VALUE_MIN_MATCHABLE_NAME_CHARS = 4
+
+
+def _copyable_value_present(text: str) -> bool:
+    """Whether ``text`` states a Zahl, Klasse or Frist a reader would copy."""
+    if not text:
+        return False
+    return bool(_VALUE_ZAHL_RE.search(text) or _VALUE_KLASSE_RE.search(text) or _VALUE_FRIST_RE.search(text))
+
+
+def _turn_source_names(turn_sources: Sequence[SourceEntry]) -> frozenset[str]:
+    """Normalised names of the documents this turn retrieved.
+
+    Both identities a trailer Fundstelle could name — the indexed basename and
+    the display title — reduced through ``normalize_document_name``, exactly
+    like :func:`agent_authored_document_names`. Short names are dropped at the
+    match, not here.
+    """
+    from aiq_agent.common.provenance import normalize_document_name
+
+    names: set[str] = set()
+    for entry in turn_sources or ():
+        file_name, _page = _parse_citation_key(entry.citation_key or "")
+        base_name = file_name.rsplit("/", 1)[-1]
+        names.update(normalize_document_name(value) for value in (base_name, entry.title))
+    names.discard("")
+    return frozenset(names)
+
+
+def _names_turn_source(signal: str, names: frozenset[str]) -> bool:
+    """Whether a Fundstelle signal names a document this turn retrieved."""
+    from aiq_agent.common.provenance import normalize_document_name
+
+    named = normalize_document_name(signal)
+    if len(named) < _VALUE_MIN_MATCHABLE_NAME_CHARS:
+        return False
+    return any(name in named or named in name for name in names if len(name) >= _VALUE_MIN_MATCHABLE_NAME_CHARS)
+
+
+def drop_ungrounded_trailer_values(
+    meta: dict[str, Any] | None,
+    turn_sources: Sequence[SourceEntry],
+) -> dict[str, Any] | None:
+    """Drop trailer VALUES no retrieved source stands behind; the prose survives.
+
+    Operates on the GATED ``answer_meta`` wire dict (``gate_answer_meta`` has
+    already run): a verdict whose value carries a Zahl/Klasse/Frist but whose
+    ``reference`` names no turn source is dropped; a takeaway item whose text
+    carries one is dropped unless its ``detail`` names one; a ``detail`` (on a
+    takeaway item or the callout) that carries one itself but names none is
+    dropped while its claim stays. Fields without a value are never touched,
+    and with no turn sources the gate abstains. Returns ``None`` when no
+    anatomy survives — the same empty-means-absent contract ``gate_answer_meta``
+    keeps.
+    """
+    if not meta:
+        return None
+    sources = list(turn_sources or [])
+    if not sources:
+        return meta
+    names = _turn_source_names(sources)
+    pruned = dict(meta)
+
+    verdict = pruned.get("verdict")
+    if isinstance(verdict, dict):
+        reference = verdict.get("reference")
+        document = reference.get("document") if isinstance(reference, dict) else None
+        if _copyable_value_present(str(verdict.get("value") or "")) and not (
+            isinstance(document, str) and _names_turn_source(document, names)
+        ):
+            pruned.pop("verdict", None)
+
+    takeaways = pruned.get("takeaways")
+    if isinstance(takeaways, list):
+        kept: list[dict[str, Any]] = []
+        for item in takeaways:
+            if not isinstance(item, dict):
+                continue
+            text = str(item.get("text") or "")
+            detail = item.get("detail")
+            if _copyable_value_present(text) and not (isinstance(detail, str) and _names_turn_source(detail, names)):
+                continue
+            if (
+                isinstance(detail, str)
+                and detail.strip()
+                and _copyable_value_present(detail)
+                and not _names_turn_source(detail, names)
+            ):
+                item = {key: value for key, value in item.items() if key != "detail"}
+            kept.append(item)
+        if kept:
+            pruned["takeaways"] = kept
+        else:
+            pruned.pop("takeaways", None)
+
+    callout = pruned.get("callout")
+    if isinstance(callout, dict):
+        detail = callout.get("detail")
+        if (
+            isinstance(detail, str)
+            and detail.strip()
+            and _copyable_value_present(detail)
+            and not _names_turn_source(detail, names)
+        ):
+            pruned["callout"] = {key: value for key, value in callout.items() if key != "detail"}
+
+    if not any(key != "v" for key in pruned):
+        return None
+    return pruned
+
+
 def source_entry_to_wire(entry: SourceEntry, *, number: int | None = None) -> dict[str, Any]:
     """Serialize a :class:`SourceEntry` for the citation wire (SSE / WS).
 
@@ -1802,8 +2246,90 @@ def source_entry_to_wire(entry: SourceEntry, *, number: int | None = None) -> di
         "binding_status": classification.binding_status,
         "file_name": file_name,
         "page": page,
+        # WHERE within the document, in the law's own numbering, and HOW NEARLY
+        # it matched. Both are absent (dropped by the None-filter) when the
+        # producer did not state them — a web source has neither.
+        "punkt": entry.punkt,
+        "score": entry.score,
+        # THE PASSAGE ITSELF — the one thing a reader checking a citation is
+        # actually after, and the one field this serializer used to drop.
+        #
+        # It was captured (``SourceEntry.chunk_text``), deduplicated and merged
+        # across the chunks of a page, and then left behind here. The frontend
+        # therefore had no passage for any knowledge-layer citation, and every
+        # surface built to show one was inert against real traffic: the viewer's
+        # text-layer highlight, the Fundstelle rail, the "Zitierte Stelle" box,
+        # and "Zitat kopieren", which fell back to a bare bibliography line.
+        # Nothing failed — a missing snippet is a supported outcome everywhere —
+        # so the whole apparatus looked healthy and marked nothing.
+        #
+        # It is bounded here rather than at the reader: this travels on every
+        # SSE frame and into ``messages.metadata``, and the client only needs
+        # enough to locate a sentence in a document it already has.
+        "snippet": _wire_snippet(entry.chunk_text),
     }
     return {key: value for key, value in payload.items() if value is not None}
+
+
+#: The wire keys a READ-BUT-UNCITED source keeps: identity (which document,
+#: which page) and placement (which kind, which lane) — never prose.
+#:
+#: Dropped structurally rather than by convention: no ``snippet`` (the
+#: retrieved passage), no ``content`` locator line, no ``score``/``punkt``,
+#: no ``[N]`` number, no binding claims. A reader checking "what else did it
+#: read" gets document chips; anything that could restate evidence stays on
+#: the cited channel.
+_READ_SOURCE_WIRE_KEYS = frozenset(
+    {
+        "document_id",
+        "citation_key",
+        "file_name",
+        "page",
+        "collection",
+        "shelf",
+        "kind",
+        "lane",
+        "lane_label",
+        "title",
+        "url",
+    }
+)
+
+
+def read_source_to_wire(entry: SourceEntry) -> dict[str, Any]:
+    """Serialize a :class:`SourceEntry` for the read-but-uncited wire (``read_sources``).
+
+    The same derivation as :func:`source_entry_to_wire` — the same document
+    identity the chips group on, the same kind/lane placement — minus every
+    key that carries prose or a claim: no passage, no locator line, no score,
+    no citation number, no binding classification. What travels names the
+    document and where it sits, nothing more.
+    """
+    return {key: value for key, value in source_entry_to_wire(entry).items() if key in _READ_SOURCE_WIRE_KEYS}
+
+
+#: How much of a retrieved passage travels to the client.
+#:
+#: A passage is located by matching it against the document's own text, and the
+#: matchers anchor on the ends of the snippet — so what is needed is a faithful
+#: excerpt, not the whole chunk. 1200 characters is longer than any sentence a
+#: legal answer quotes and short enough that a turn citing a dozen passages does
+#: not put a novel on the wire or into ``messages.metadata``.
+_WIRE_SNIPPET_MAX_CHARS = 1200
+
+
+def _wire_snippet(chunk_text: str | None) -> str | None:
+    """The retrieved passage, bounded, or None when the producer carried none."""
+    text = (chunk_text or "").strip()
+    if not text:
+        return None
+    if len(text) <= _WIRE_SNIPPET_MAX_CHARS:
+        return text
+    # Cut on a word boundary: a snippet ending mid-word cannot anchor a match on
+    # its own tail, which is one of the two ends the matchers rely on.
+    clipped = text[:_WIRE_SNIPPET_MAX_CHARS]
+    boundary = clipped.rfind(" ")
+    return clipped[:boundary] if boundary > _WIRE_SNIPPET_MAX_CHARS // 2 else clipped
 
 
 # A leading origin token on the post-``[N]`` text of a source line, e.g. the
@@ -1917,7 +2443,7 @@ def _normalize_source_section_layout(ref_section: str) -> str:
         # German-or-else binary mirrors the writer's contract, which allows the
         # label exactly two forms: "**Quellen:**" for a German answer and
         # "**References:**" for an answer in any other language, never a label
-        # translated into a third language (see researcher.j2 <language> and
+        # translated into a third language (see piloti.j2 <language> and
         # <output_contract>). A translated label would land on "## Sources".
         lines[0] = "## Quellen" if _GERMAN_REFERENCE_HEADING_LABEL_RE.search(lines[0]) else "## Sources"
         ref_section = "\n".join(lines)
@@ -2026,6 +2552,34 @@ _QUOTE_WINDOW_PAD_MIN = 4
 # verbatim fixtures net ≤4 elided chars, clause splices net ≥7. TUNABLE.
 _QUOTE_MAX_ELIDED_GAP = 6
 
+# The elision budget above is a LENGTH budget, calibrated on OCR noise, and
+# length is the wrong axis for what a quote can lose: dropping one short word
+# from „Bauteile müssen nicht brennbar sein" turns a prohibition into a
+# permission while staying inside a budget sized for a hyphen or a swapped
+# letter (quote-verification-calibration-2026-07.md, T2-CIT1: elisions of ≤6
+# characters were caught 0% of the time). Tuning the budget down accuses
+# correct answers; the calibration doc says so and is right.
+#
+# So the matcher also asks WHAT it is skipping, structurally: OCR noise is
+# sub-word (a hyphenation remnant, a swapped character, an inflection ending),
+# whereas a skipped or inserted run that contains a whole word is a different
+# sentence, whichever word it is. No vocabulary is consulted — which word
+# changes the meaning is the model's judgement to make when it writes, and the
+# verifier's job is only to refuse to call an edited sentence verbatim.
+# Three letters is the floor at which a run is a word and not an ending.
+_WHOLE_WORD_RE = re.compile(r"(?<![^\W\d_])[^\W\d_]{3,}(?![^\W\d_])")
+
+
+def _skips_a_word(text: str) -> bool:
+    """True when ``text`` (a skipped or inserted run, already casefolded) holds a whole word.
+
+    The run's own edges count as word boundaries: a gap of exactly ``"nicht "``
+    is the whole word, and the character before it belongs to a matched block
+    that is by construction the same in quote and passage.
+    """
+    return bool(text) and _WHOLE_WORD_RE.search(text) is not None
+
+
 # Inline marker appended immediately after a quoted span that could not be
 # verified against any retrieved passage. Fail-open: the sentence is NEVER
 # stripped or altered; only this marker is inserted after the closing quote.
@@ -2048,6 +2602,123 @@ _QUOTED_SPAN_RE = re.compile(
 _QUOTE_EDGE_CHARS = "„“”»«\"'‚‘’ "
 
 
+# Regions of the answer that are CODE, and therefore carry no quotations to
+# verify. A mermaid node label is written `A["Anwendungsbereich"]`, which the
+# ASCII branch of `_QUOTED_SPAN_RE` reads as a quoted claim — so a sourced
+# answer carrying a diagram had every one of its labels flagged, and
+# `annotate_unverified_quotes` inserted its marker after the closing quote,
+# i.e. INSIDE the bracket:
+#
+#     A["OIB-Richtlinie 2<br/>Brandschutz" [nicht wörtlich in der Quelle belegt]]
+#
+# That is not a mis-annotation, it is a syntax error: the diagram stops parsing,
+# the frontend falls back to printing the source, and the reader gets a code
+# listing where the answer promised a drawing. The same pass then reported the
+# labels as unverified quotes, which caps the turn's confidence to "low" — so
+# one diagram degraded the chip on an otherwise well-sourced answer.
+_FENCE_RE = re.compile(r"^[ \t]{0,3}(`{3,}|~{3,})")
+
+# Inline code, matched only outside fences. `\1` requires the same run length,
+# and the lookarounds keep a ``longer`` run from closing a shorter one.
+_INLINE_CODE_RE = re.compile(r"(?<!`)(`+)(?!`)(.+?)(?<!`)\1(?!`)", re.DOTALL)
+
+
+def _code_spans(
+    text: str,
+    *,
+    include_inline: bool = True,
+    unterminated_fence_is_code: bool = True,
+) -> list[tuple[int, int]]:
+    """Half-open ``(start, end)`` offsets of every code region in ``text``.
+
+    Fenced blocks first (``` or ~~~, three or more, closed by at least as many
+    of the same character), then inline spans in what is left.
+
+    The defaults are the READER's contract (``verify_quoted_spans``): an
+    UNTERMINATED fence runs to the end of the text, because a streaming answer
+    meets this function mid-fence routinely and a half-written diagram is still
+    code. A REWRITER over a complete document passes
+    ``unterminated_fence_is_code=False``: there, run-to-EOF would silently
+    exempt the whole rest of the report from URL hygiene on one broken fence.
+    ``include_inline=False`` likewise serves a rewriter whose rule (markdown
+    link collapse) must be allowed to span an inline code run inside a link's
+    display text.
+    """
+    spans: list[tuple[int, int]] = []
+    offset = 0
+    fence: str | None = None
+    fence_start = 0
+    for line in text.splitlines(keepends=True):
+        match = _FENCE_RE.match(line)
+        marker = match.group(1) if match else None
+        if fence is None:
+            if marker is not None:
+                fence, fence_start = marker, offset
+        elif marker is not None and marker[0] == fence[0] and len(marker) >= len(fence):
+            spans.append((fence_start, offset + len(line)))
+            fence = None
+        offset += len(line)
+    if fence is not None and unterminated_fence_is_code:
+        spans.append((fence_start, len(text)))
+
+    if include_inline:
+        for match in _INLINE_CODE_RE.finditer(text):
+            if not any(start <= match.start() < end for start, end in spans):
+                spans.append((match.start(), match.end()))
+    return spans
+
+
+def _map_outside_code(
+    text: str,
+    transform: Callable[[str], str],
+    *,
+    include_inline: bool = True,
+    unterminated_fence_is_code: bool = True,
+) -> str:
+    """Apply ``transform`` to everything in ``text`` except code.
+
+    The companion to the skip in ``verify_quoted_spans``, for the passes that
+    REWRITE rather than read. `sanitize_report` strips URLs and collapses runs
+    of spaces across the whole answer body, and a mermaid fence is answer body:
+    a `click` directive's URL became `[1]`, and two-space indentation became
+    one. The diagram is the source, so editing it is editing the drawing.
+
+    Segments rather than offsets, because a rewrite changes lengths: the spans
+    are read once from the ORIGINAL text, the code between them is passed
+    through untouched, and only the prose around it is transformed.
+
+    Safe on the URL question, which is the one worth asking before declining to
+    sanitize something. A URL inside a fence cannot become a link: mermaid runs
+    at ``securityLevel: 'strict'`` (``features/diagrams/render-diagram.ts``),
+    which refuses click bindings and DOMPurifies labels, and a fence that is not
+    a diagram renders as a code listing, which is text.
+    """
+    spans = sorted(
+        _code_spans(
+            text,
+            include_inline=include_inline,
+            unterminated_fence_is_code=unterminated_fence_is_code,
+        )
+    )
+    if not spans:
+        return transform(text)
+    out: list[str] = []
+    cursor = 0
+    for start, end in spans:
+        if start > cursor:
+            out.append(transform(text[cursor:start]))
+        out.append(text[max(cursor, start) : end])
+        cursor = max(cursor, end)
+    if cursor < len(text):
+        out.append(transform(text[cursor:]))
+    return "".join(out)
+
+
+def _inside(offset: int, spans: Sequence[tuple[int, int]]) -> bool:
+    """Whether ``offset`` falls inside any of ``spans``."""
+    return any(start <= offset < end for start, end in spans)
+
+
 @dataclass
 class UnverifiedQuote:
     """A quoted span in the answer body that no source chunk text supports."""
@@ -2063,6 +2734,12 @@ class UnverifiedQuote:
     # Best coverage achieved against any source chunk text (0.0–1.0). Below
     # ``QUOTE_MATCH_THRESHOLD`` by construction; retained for diagnostics.
     best_coverage: float
+    # WHY the span was flagged: ``"not_verbatim"`` (the fuzzy match failed),
+    # ``"too_long"`` (over ``_QUOTE_MAX_WORDS`` — a passage pasted as a quote),
+    # ``"uncited"`` (no ``[N]`` in its sentence). Combined with ``"+"`` when
+    # several fire. The annotation is the same either way; the reason tells the
+    # repair which failure it is looking at.
+    reason: str = "not_verbatim"
 
 
 def _normalize_for_quote_match(text: str) -> str:
@@ -2152,7 +2829,11 @@ def _quote_coverage(norm_quote: str, norm_chunk: str) -> float:
                 chunk_gap = block.b - prev_b_end
                 quote_gap = block.a - prev_a_end
                 elided += max(0, chunk_gap - quote_gap)
-                if elided > _QUOTE_MAX_ELIDED_GAP:
+                # A gap that skips or inserts a whole word cuts the run whatever
+                # its length: „muss nicht brennbar" quoted as „muss brennbar" is
+                # a different sentence, not a noisy one.
+                edited = _skips_a_word(window[prev_b_end : block.b]) or _skips_a_word(norm_quote[prev_a_end : block.a])
+                if elided > _QUOTE_MAX_ELIDED_GAP or edited:
                     run = 0
                     elided = 0
             run += block.size
@@ -2161,6 +2842,75 @@ def _quote_coverage(norm_quote: str, norm_chunk: str) -> float:
             prev_b_end = block.b + block.size
         best = max(best, best_run / quote_len)
     return best
+
+
+# ---------------------------------------------------------------------------
+# Mechanical quote gates: form, not wording.
+#
+# The fuzzy match above proves a quoted sentence APPEARS in the evidence. Two
+# abuses pass it untouched: a whole passage pasted between quote marks (verbatim
+# and therefore "verified", but a quote no reader asked for and no repair would
+# dare trim), and a quote with no citation anywhere near it (verbatim, but
+# unattributable — the reader cannot tell WHICH source it came from). Both are
+# decidable without any passage text, so they run as part of
+# :func:`verify_quoted_spans` — the strictest existing layer — wherever that
+# layer runs. Where it does NOT run (no source carries chunk text) nothing is
+# flagged either way: ``test_no_chunk_text_fails_open`` pins that a URL-only
+# turn stays silent, and a mechanical gate must not be stricter than the layer
+# that hosts it.
+# ---------------------------------------------------------------------------
+
+#: A quote longer than this is a pasted passage, not a quotation — flagged
+#: whatever the fuzzy match says. Forty words is roughly three German legal
+#: sentences; anything a reader should check belongs in the cited channel
+#: (the passage snippet on the wire), not between quote marks in the prose.
+_QUOTE_MAX_WORDS = 40
+
+#: What ends the sentence a quote sits in, for the citation-proximity check. A
+#: period between digits is a decimal point (``2.50 m``), not an end — the same
+#: guard ``piloti.grounding`` uses. Single newlines count: a list item is its
+#: own sentence for attribution purposes. Deliberately NOT abbreviation-aware
+#: (``vgl.``, ``z. B.`` split the window): the one-sentence lookahead below
+#: absorbs exactly that shape, and a closed abbreviation list would be a second
+#: thing to keep in sync with the language the models actually write.
+_QUOTE_SENTENCE_END_RE = re.compile(r"(?<!\d)\.(?!\d)|[!?…]|\n")
+
+
+def _quote_sentence_windows(body: str, start: int, end: int) -> tuple[tuple[int, int], tuple[int, int] | None]:
+    """The sentence holding ``[start, end)`` and the one right after it.
+
+    Returns ``(containing, following_or_None)`` as half-open offsets. A
+    boundary strictly INSIDE the span (``Pkt.`` in the quoted text) does not
+    split its window: the quote is one unit, and only the text around it is
+    judged. The lookahead exists for the two shapes that put the marker one
+    segment late — a citation trailing its sentence (``… Satz. [1] …``) and an
+    abbreviation split (``… „Quote" vgl. … [1].``). A quote two sentences from
+    any marker is unattributed under either window and is flagged.
+    """
+    ends = list(_QUOTE_SENTENCE_END_RE.finditer(body))
+    win_start = 0
+    for match in ends:
+        if match.end() <= start:
+            win_start = match.end()
+        else:
+            break
+    win_end = len(body)
+    following: tuple[int, int] | None = None
+    for match in ends:
+        if match.start() >= end:
+            win_end = match.start()
+            after = next((later for later in ends if later.start() >= match.end()), None)
+            following = (match.end(), after.start() if after is not None else len(body))
+            break
+    return (win_start, win_end), following
+
+
+def _quote_has_citation_in_sentence(body: str, start: int, end: int) -> bool:
+    """Whether an ``[N]`` marker shares the quote's sentence (or the next one)."""
+    (win_start, win_end), following = _quote_sentence_windows(body, start, end)
+    if _INLINE_CITATION_RE.search(body, win_start, win_end):
+        return True
+    return following is not None and _INLINE_CITATION_RE.search(body, following[0], following[1]) is not None
 
 
 def _answer_body_before_sources(answer_text: str) -> str:
@@ -2191,7 +2941,19 @@ def verify_quoted_spans(
     (never the source section). Fail-open: when no source carries chunk text
     (e.g. URL-only web sources), there is nothing to verify against and an empty
     list is returned — nothing is ever flagged on a best-effort miss.
+
+    Mechanical gates run first, on every span the fuzzy match would see: a span
+    over ``_QUOTE_MAX_WORDS`` words, or with no ``[N]`` in its sentence, is
+    flagged (``reason="too_long"`` / ``"uncited"``) even when it IS verbatim —
+    verbatim is not attributable. Flagged means annotated downstream, never
+    stripped: the sentence stays, the marker names the doubt.
     """
+    body = _answer_body_before_sources(answer_text)
+    # Code is not prose and carries nothing to verify — see `_code_spans`.
+    # Skipped by OFFSET rather than by stripping the code out, so every
+    # `start`/`end` below still indexes the text `annotate_unverified_quotes`
+    # will be handed.
+    code = _code_spans(body)
     normalized_chunks = [
         norm
         for source in registry.all_sources()
@@ -2201,17 +2963,23 @@ def verify_quoted_spans(
     if not normalized_chunks:
         return []
 
-    body = _answer_body_before_sources(answer_text)
     unverified: list[UnverifiedQuote] = []
     for match in _QUOTED_SPAN_RE.finditer(body):
+        if _inside(match.start(), code):
+            continue
         inner = next((group for group in match.groups() if group is not None), None)
         if inner is None:
             continue
         norm_quote = _normalize_for_quote_match(inner)
         if len(norm_quote) < min_quote_len:
             continue
+        too_long = len(inner.split()) > _QUOTE_MAX_WORDS
+        uncited = not _quote_has_citation_in_sentence(body, match.start(), match.end())
         best_coverage = max(_quote_coverage(norm_quote, chunk) for chunk in normalized_chunks)
-        if best_coverage < threshold:
+        if too_long or uncited or best_coverage < threshold:
+            reasons = (
+                "+".join(name for name, hit in (("too_long", too_long), ("uncited", uncited)) if hit) or "not_verbatim"
+            )
             unverified.append(
                 UnverifiedQuote(
                     quote=inner,
@@ -2219,6 +2987,7 @@ def verify_quoted_spans(
                     start=match.start(),
                     end=match.end(),
                     best_coverage=best_coverage,
+                    reason=reasons,
                 )
             )
     return unverified
@@ -2341,7 +3110,7 @@ def verify_citations(
     # Origin token per validated citation number, e.g. {1: "[Web]", 3: "[KB]"}.
     # Applied AFTER the [N] marker in the cleaned_ref_lines pass so the
     # LLM-written source section gains the same deterministic labels the
-    # fallback-synthesized and shallow-chat paths already carry. Lines that
+    # fallback-synthesized and chat paths already carry. Lines that
     # already start with a token are left as-is (idempotent).
     origin_tokens: dict[int, str] = {}
 
@@ -2357,6 +3126,14 @@ def verify_citations(
         token_match = _ORIGIN_TOKEN_RE.match(ref_text)
         already_tokenized = token_match is not None
         match_text = ref_text[token_match.end() :] if token_match else ref_text
+
+        # A digest line cites the conversation's read-index, not a retrieved
+        # passage (see ``_is_digest_shaped_line``): rejected before either the
+        # URL or the filename scan can accept it on a fragment it contains.
+        if _is_digest_shaped_line(match_text):
+            logger.debug("[CitationVerify]   [%d] REMOVE — digest_line_not_citable: %s", num, ref_text[:80])
+            removed_citations.append({"number": num, "line": full_line, "reason": "digest_line_not_citable"})
+            continue
 
         # Try URL match first
         url_match = _URL_IN_LINE_RE.search(match_text)
@@ -2557,6 +3334,12 @@ class ReportSanitizationResult:
     # remap them or the chips end up labelled with numbers the prose no longer
     # uses. Empty when no source section was present or nothing moved.
     renumber_map: dict[int, int] = field(default_factory=dict)
+    # Original (pre-renumber) ``[N]`` numbers whose source lines this pass
+    # deleted (shortened / truncated / unsafe URLs). Callers that put
+    # ``verify_citations`` numbers on the wire MUST drop these entries
+    # fail-closed: without them a chip stays trusted/clickable at a URL the
+    # prose no longer cites. Empty when nothing was deleted.
+    removed_citation_numbers: set[int] = field(default_factory=set)
 
 
 def sanitize_report(report_text: str) -> ReportSanitizationResult:
@@ -2587,6 +3370,10 @@ def sanitize_report(report_text: str) -> ReportSanitizationResult:
     shortened_urls_removed: list[str] = []
     truncated_urls_removed: list[str] = []
     unsafe_urls_removed: list[str] = []
+    # Deaths this pass caused: pre-renumber [N] numbers whose source lines are
+    # deleted below. Returned so wire callers can drop the matching chips
+    # fail-closed instead of remapping a dead number onto a survivor.
+    sanitize_removed_numbers: set[int] = set()
 
     # Split into body and source section
     ref_match = _REFERENCE_SECTION_RE.search(report_text)
@@ -2618,14 +3405,31 @@ def sanitize_report(report_text: str) -> ReportSanitizationResult:
         body_urls_removed += 1
         return ""
 
-    # Collapse markdown links to display text
-    cleaned_body = _MD_LINK_RE.sub(r"\1", body)
-    # Replace matching bare URLs with [N], strip the rest
-    cleaned_body = _BODY_URL_RE.sub(_replace_body_url, cleaned_body)
-    # Clean up leftover empty parentheses and extra spaces
-    cleaned_body = re.sub(r"\(\s*\)", "", cleaned_body)
-    cleaned_body = re.sub(r"  +", " ", cleaned_body)
-    cleaned_body = _SPACE_BEFORE_PUNCTUATION_RE.sub("", cleaned_body)
+    def _collapse_links(segment: str) -> str:
+        return _MD_LINK_RE.sub(r"\1", segment)
+
+    def _clean_prose(segment: str) -> str:
+        # Replace matching bare URLs with [N], strip the rest
+        segment = _BODY_URL_RE.sub(_replace_body_url, segment)
+        # Clean up leftover empty parentheses and extra spaces
+        segment = re.sub(r"\(\s*\)", "", segment)
+        segment = re.sub(r"  +", " ", segment)
+        return _SPACE_BEFORE_PUNCTUATION_RE.sub("", segment)
+
+    # Prose only — every rule here is about how a SENTENCE should read, and none
+    # of them is true of code: the space collapse alone rewrites a diagram's
+    # indentation. Two passes, because the rules protect different spans:
+    #   1. Link collapse skips only FENCES. A link's display text may itself
+    #      carry inline code (`[den ``pulumi`` Befehl](url)`), and segmenting at
+    #      the inline span would split the link so it never collapses — the URL
+    #      half then rots in the reader-visible report.
+    #   2. URL/space hygiene skips fences AND inline code, computed on the
+    #      link-collapsed text.
+    # Both passes treat an unterminated fence as prose: this runs on the
+    # COMPLETE report (unlike the streaming reader), and run-to-EOF would
+    # exempt everything after one broken fence from URL hygiene.
+    cleaned_body = _map_outside_code(body, _collapse_links, include_inline=False, unterminated_fence_is_code=False)
+    cleaned_body = _map_outside_code(cleaned_body, _clean_prose, unterminated_fence_is_code=False)
 
     if body_urls_replaced:
         logger.debug("[ReportSanitize] Replaced %d body URL(s) with citation numbers", body_urls_replaced)
@@ -2682,12 +3486,15 @@ def sanitize_report(report_text: str) -> ReportSanitizationResult:
                 continue
 
         if lines_to_remove:
-            # Collect which [N] numbers were removed
+            # Collect which [N] numbers were removed — these are the deaths the
+            # wire must drop fail-closed (a chip at a removed URL must never
+            # stay trusted/clickable).
             removed_numbers: set[int] = set()
             for i in lines_to_remove:
                 line_m = _CITATION_LINE_RE.match(ref_lines[i])
                 if line_m:
                     removed_numbers.add(int(line_m.group(1)))
+            sanitize_removed_numbers.update(removed_numbers)
 
             cleaned_ref_lines = [line for i, line in enumerate(ref_lines) if i not in lines_to_remove]
             ref_section = "\n".join(cleaned_ref_lines)
@@ -2751,4 +3558,5 @@ def sanitize_report(report_text: str) -> ReportSanitizationResult:
         truncated_urls_removed=truncated_urls_removed,
         unsafe_urls_removed=unsafe_urls_removed,
         renumber_map=renumber_map,
+        removed_citation_numbers=sanitize_removed_numbers,
     )

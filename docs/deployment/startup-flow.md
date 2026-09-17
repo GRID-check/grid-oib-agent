@@ -58,7 +58,10 @@ docker compose up -d --build
          │      │
          │      │   start_web.py:
          │      │   1. Configures logging (LOG_LEVEL, format)
-         │      │   2. Loads NAT config YAML via nat.runtime.loader.load_config()
+         │      │   2. Registers Grid telemetry `_type`s, then load_config()
+         │      │      • otelcollector_logs / otelcollector_redaction register at
+         │      │        import; without that, load_config ValidationError's and
+         │      │        the pod CrashLoopBackOffs
          │      │      • Validates with Pydantic
          │      │   3. Sets NAT_CONFIG_FILE env var for NAT's FastAPI app
          │      │   4. Reads runner_class from config.general.front_end
@@ -137,7 +140,8 @@ docker compose -f deploy/compose/docker-compose.yaml --env-file deploy/.env exec
 ```
 
 This command:
-1. Enumerates PDFs in `data/oib/`
+1. Enumerates PDFs in `data/oib/` and `data/oib_uploads/` (both may be empty —
+   the corpus is operator-provided, see `data/oib/README.md`)
 2. Computes SHA-256 hashes and compares against `data/oib_registry.json`
 3. Uploads new/changed files to the LlamaIndex ingestor
 4. Polls file status until SUCCESS or FAILED (2s interval, 600s timeout)

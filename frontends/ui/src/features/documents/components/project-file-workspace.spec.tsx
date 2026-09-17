@@ -8,6 +8,7 @@ import { ProjectFileWorkspace } from './project-file-workspace'
 import { FilePreviewHost } from './file-preview-host'
 import { useFilePreviewStore } from '../stores/file-preview-store'
 import { useProjectDocuments } from '../hooks/use-project-documents'
+import type { DocumentWireRow } from '../lib/file-item'
 
 function renderWorkspace(ui: ReactElement) {
   return render(
@@ -64,10 +65,12 @@ vi.mock('next/navigation', () => ({
  * an upload finally lands is the only place the app says what the file became.
  */
 const toastSuccess = vi.fn()
+/** A failure that stops an upload is an assertion too — see the folder plan. */
+const toastError = vi.fn()
 vi.mock('sonner', () => ({
   toast: {
     success: (...args: unknown[]) => toastSuccess(...args),
-    error: vi.fn(),
+    error: (...args: unknown[]) => toastError(...args),
   },
 }))
 
@@ -151,7 +154,7 @@ describe('ProjectFileWorkspace', () => {
     expect(screen.getByText(/drop files to upload/i)).toBeInTheDocument()
   })
 
-  it('routes a dropped file into the existing upload path (uploadFiles)', () => {
+  it('routes a dropped file into the existing upload path (uploadFiles)', async () => {
     renderWorkspace(<ProjectFileWorkspace projectId="proj-1" projectName="Test" collectionName="test-coll" />)
     const dropzone = screen.getByTestId('workspace-dropzone')
     const file = new File(['x'], 'plan.pdf', { type: 'application/pdf' })
@@ -160,13 +163,17 @@ describe('ProjectFileWorkspace', () => {
     fireEvent.dragEnter(dropzone, { dataTransfer })
     fireEvent.drop(dropzone, { dataTransfer })
 
-    expect(mockUploadFiles).toHaveBeenCalledTimes(1)
+    // The drop path resolves a microtask later: a DROPPED FOLDER is invisible
+    // to `dataTransfer.files` and has to be walked through the entries API, so
+    // the handler captures entries synchronously and hands over the files
+    // afterwards. A plain file drop still ends in exactly this call.
+    await waitFor(() => expect(mockUploadFiles).toHaveBeenCalledTimes(1))
     expect(mockUploadFiles).toHaveBeenCalledWith([file])
     // Overlay clears after drop.
     expect(screen.queryByTestId('workspace-drop-overlay')).not.toBeInTheDocument()
   })
 
-  it('flags an unsupported drag but still defers rejection to uploadFiles, like the button', () => {
+  it('flags an unsupported drag but still defers rejection to uploadFiles, like the button', async () => {
     renderWorkspace(<ProjectFileWorkspace projectId="proj-1" projectName="Test" collectionName="test-coll" />)
     const dropzone = screen.getByTestId('workspace-dropzone')
     const badFile = new File(['x'], 'photo.png', { type: 'image/png' })
@@ -178,7 +185,581 @@ describe('ProjectFileWorkspace', () => {
 
     fireEvent.drop(dropzone, { dataTransfer })
     // Same contract as the button: files still flow to uploadFiles, which validates.
-    expect(mockUploadFiles).toHaveBeenCalledWith([badFile])
+    await waitFor(() => expect(mockUploadFiles).toHaveBeenCalledWith([badFile]))
+  })
+})
+
+/**
+ * A FOLDER IS NOT A LONGER LIST OF FILES.
+ *
+ * It used to be treated as one: every file landed in whichever folder the
+ * reader stood in, the tree survived only as a string on the row, and two files
+ * of the same name inside one drop both uploaded — one silently overwriting the
+ * other, because a project holds one document per filename (0074). These pin
+ * the plan that replaced that: what it says, what the reader decides, and where
+ * the files actually go.
+ */
+describe('ProjectFileWorkspace — a dropped folder', () => {
+  const existing: DocumentWireRow = {
+    id: 'doc-eg',
+    filename: 'EG.pdf',
+    displayName: null,
+    fileSize: 10,
+    contentType: 'application/pdf',
+    status: 'ready',
+    folderId: null,
+    createdAt: '2026-06-14T09:00:00.000Z',
+    errorMessage: null,
+    summary: null,
+    pageCount: null,
+    chunkCount: null,
+    contentTypes: null,
+    tags: null,
+    assignees: [],
+    authoredBy: 'user' as const,
+  }
+
+  /** A `File` carrying the path a folder input reports. */
+  function pathed(relativePath: string, size = 10): File {
+    const name = relativePath.split('/').pop()!
+    const file = new File(['x'.repeat(size)], name, { type: 'application/pdf' })
+    Object.defineProperty(file, 'webkitRelativePath', { value: relativePath, configurable: true })
+    return file
+  }
+
+  let ensureRequests: Array<{ parentId: string | null; paths: string[] }>
+  let moveRequests: Array<{ documentId: string; folderId: string | null }>
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    searchParams = new URLSearchParams()
+    resetPreviewStore()
+    ensureRequests = []
+    moveRequests = []
+    server.use(
+      http.get('/api/documents', () => HttpResponse.json({ documents: [] })),
+      http.get('/api/projects/:projectId/folders', () => HttpResponse.json({ folders: [] })),
+      http.post('/api/projects/:projectId/folders/ensure', async ({ request }) => {
+        const body = (await request.json()) as { parentId: string | null; paths: string[] }
+        ensureRequests.push(body)
+        return HttpResponse.json({
+          folders: [],
+          folderIdByPath: Object.fromEntries(body.paths.map((path) => [path, `folder-for-${path}`])),
+        })
+      }),
+      http.patch('/api/documents/:id/folder', async ({ params, request }) => {
+        const body = (await request.json()) as { folderId: string | null }
+        moveRequests.push({ documentId: String(params.id), folderId: body.folderId })
+        return HttpResponse.json({ id: params.id })
+      }),
+    )
+  })
+
+  // `clearMocks` does not undo a stubbed global, and one test replaces `crypto`
+  // to give happy-dom the `subtle.digest` it does not ship.
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  function renderWithCorpus(
+    files: DocumentWireRow[] = [existing],
+    folders: Array<{ id: string; parentId: string | null; name: string; path: string }> = [],
+  ) {
+    return renderWorkspace(
+      <ProjectFileWorkspace
+        projectId="proj-1"
+        projectName="Test"
+        collectionName="test-coll"
+        initialFiles={files}
+        initialFolders={folders}
+      />,
+    )
+  }
+
+  async function dropFolder(files: File[]) {
+    const input = screen.getByTestId('project-upload-folder-input') as HTMLInputElement
+    // `userEvent.upload` rebuilds the FileList and would drop the paths we just
+    // stamped, which are the only thing that makes this a folder at all.
+    Object.defineProperty(input, 'files', { value: files, configurable: true })
+    fireEvent.change(input)
+    return screen.findByTestId('folder-upload-dialog')
+  }
+
+  it('asks before it touches anything, and says what it is about to do', async () => {
+    renderWithCorpus()
+    await dropFolder([pathed('Wohnbau/Plaene/EG.pdf'), pathed('Wohnbau/Plaene/OG.pdf')])
+
+    // Nothing has been uploaded on the strength of the gesture alone.
+    expect(mockUploadFiles).not.toHaveBeenCalled()
+
+    const dialog = await screen.findByTestId('folder-upload-dialog')
+    // One file is new; the other already exists under that name, project-wide,
+    // which is the rule the server enforces.
+    expect(within(dialog).getByTestId('folder-upload-count-new')).toHaveTextContent('1')
+    expect(within(dialog).getByTestId('folder-upload-count-update')).toHaveTextContent('1')
+    // Two folders in the tree, neither of which exists here yet.
+    expect(within(dialog).getByTestId('folder-upload-count-folders')).toHaveTextContent('2')
+  })
+
+  it('creates the tree and files each document into its own folder', async () => {
+    renderWithCorpus()
+    await dropFolder([pathed('Wohnbau/Plaene/EG.pdf'), pathed('Wohnbau/Statik/Bericht.pdf')])
+
+    await userEvent.click(await screen.findByTestId('folder-upload-confirm'))
+
+    await waitFor(() => expect(ensureRequests).toHaveLength(1))
+    expect(ensureRequests[0]).toEqual({
+      parentId: null,
+      paths: ['Wohnbau', 'Wohnbau/Plaene', 'Wohnbau/Statik'],
+    })
+
+    await waitFor(() => expect(mockUploadFiles).toHaveBeenCalledTimes(1))
+    const [sent, options] = mockUploadFiles.mock.calls[0] as [
+      File[],
+      { folderIdFor: (file: File) => string | null },
+    ]
+    expect(sent.map((file) => file.name).sort()).toEqual(['Bericht.pdf', 'EG.pdf'])
+    // The whole point: two files from one drop, two different folders.
+    const targets = sent.map((file) => options.folderIdFor(file))
+    expect(new Set(targets)).toEqual(
+      new Set(['folder-for-Wohnbau/Plaene', 'folder-for-Wohnbau/Statik']),
+    )
+  })
+
+  it('leaves the existing documents alone when the reader unticks the update', async () => {
+    renderWithCorpus()
+    await dropFolder([pathed('Wohnbau/EG.pdf'), pathed('Wohnbau/New.pdf')])
+
+    const toggle = await screen.findByTestId('folder-upload-include-updates')
+    await userEvent.click(within(toggle).getByRole('checkbox'))
+    await userEvent.click(screen.getByTestId('folder-upload-confirm'))
+
+    await waitFor(() => expect(mockUploadFiles).toHaveBeenCalledTimes(1))
+    const [sent] = mockUploadFiles.mock.calls[0] as [File[]]
+    expect(sent.map((file) => file.name)).toEqual(['New.pdf'])
+  })
+
+  it('sends neither of two files that share a name inside one drop', async () => {
+    renderWithCorpus()
+    await dropFolder([pathed('W/A/Deckblatt.pdf'), pathed('W/B/Deckblatt.pdf')])
+
+    const dialog = await screen.findByTestId('folder-upload-dialog')
+    // Before this, both uploaded and one overwrote the other with nothing said.
+    expect(within(dialog).getByTestId('folder-upload-collisions')).toBeInTheDocument()
+    expect(screen.getByTestId('folder-upload-confirm')).toBeDisabled()
+  })
+
+  it('uploads nothing when the folders could not be created', async () => {
+    server.use(
+      http.post('/api/projects/:projectId/folders/ensure', () =>
+        HttpResponse.json({ error: 'nope' }, { status: 500 }),
+      ),
+    )
+    renderWithCorpus()
+    await dropFolder([pathed('Wohnbau/New.pdf')])
+
+    await userEvent.click(await screen.findByTestId('folder-upload-confirm'))
+
+    // A half-applied plan is the state that is hardest to reason about
+    // afterwards; the whole thing is repeatable instead.
+    await waitFor(() => expect(toastError).toHaveBeenCalled())
+    expect(mockUploadFiles).not.toHaveBeenCalled()
+  })
+
+  /*
+   * THE RE-SYNC, which is what this feature is for.
+   *
+   * A büro drops the project directory again. Every file in it is already here
+   * and unchanged, and one document has since been reorganised in Piloti. There
+   * is nothing to upload — and the dialog's own promise, that the folder
+   * structure is recreated, is false unless that one document moves.
+   */
+  it('moves an unchanged document the tree files somewhere else, without uploading', async () => {
+    const digest = `sha256:${'a'.repeat(64)}`
+    renderWithCorpus(
+      [{ ...existing, contentHash: digest, folderId: null }],
+      [{ id: 'folder-plaene', parentId: null, name: 'Plaene', path: 'Plaene' }],
+    )
+    // The planner hashes the plausible duplicates in the browser to find out
+    // that they are identical. happy-dom ships no `crypto.subtle`, so it is
+    // supplied here — 32 bytes of 0xaa, which is the digest above in hex.
+    vi.stubGlobal('crypto', {
+      ...globalThis.crypto,
+      subtle: { digest: async () => new Uint8Array(32).fill(0xaa).buffer },
+    })
+
+    await dropFolder([pathed('Plaene/EG.pdf')])
+
+    // Not an upload, and not "nothing to do" either.
+    const confirm = await screen.findByTestId('folder-upload-confirm')
+    await waitFor(() => expect(confirm).toBeEnabled())
+    await userEvent.click(confirm)
+
+    await waitFor(() => expect(moveRequests).toHaveLength(1))
+    // Resolved through the ensure response, exactly as the uploads are — the
+    // folder a document moves into may have been created a moment ago.
+    expect(moveRequests[0]).toEqual({ documentId: 'doc-eg', folderId: 'folder-for-Plaene' })
+  })
+
+  it('still takes a handful of picked files straight to the upload path', async () => {
+    renderWithCorpus()
+    const input = screen.getByTestId('project-upload-input') as HTMLInputElement
+    const file = new File(['x'], 'plan.pdf', { type: 'application/pdf' })
+    Object.defineProperty(input, 'files', { value: [file], configurable: true })
+    fireEvent.change(input)
+
+    await waitFor(() => expect(mockUploadFiles).toHaveBeenCalledWith([file]))
+    expect(screen.queryByTestId('folder-upload-dialog')).not.toBeInTheDocument()
+  })
+})
+
+/**
+ * The listing the SERVER already read.
+ *
+ * Dateien used to paint a skeleton, boot its bundle and only then ask for the
+ * folders and the documents — three round trips stacked behind the JavaScript,
+ * on a page whose whole job is to show a list the page request could already
+ * have had. The page reads both now and hands them down; what these pin is that
+ * the seed is a first paint and not a second source of truth: the corpus is on
+ * screen in the first frame, and nothing goes back out to fetch what it was
+ * just given.
+ */
+describe('ProjectFileWorkspace — server-seeded first paint', () => {
+  const seededFile = {
+    id: 'doc-seed',
+    filename: 'Einreichplan.pdf',
+    displayName: null,
+    fileSize: 2048,
+    contentType: 'application/pdf',
+    status: 'ready',
+    folderId: null,
+    createdAt: '2026-06-14T09:00:00.000Z',
+    errorMessage: null,
+    summary: null,
+    pageCount: null,
+    chunkCount: null,
+    contentTypes: null,
+    tags: null,
+    assignees: [],
+    authoredBy: 'user' as const,
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    searchParams = new URLSearchParams()
+    resetPreviewStore()
+  })
+
+  it('renders the seeded corpus without asking for it again', async () => {
+    const documentsRequests: string[] = []
+    const folderRequests: string[] = []
+    server.use(
+      http.get('/api/documents', ({ request }) => {
+        documentsRequests.push(request.url)
+        return HttpResponse.json({ documents: [] })
+      }),
+      http.get('/api/projects/:projectId/folders', ({ request }) => {
+        folderRequests.push(request.url)
+        return HttpResponse.json({ folders: [] })
+      }),
+    )
+
+    renderWorkspace(
+      <ProjectFileWorkspace
+        projectId="proj-1"
+        projectName="Test"
+        collectionName="test-coll"
+        initialFiles={[seededFile]}
+        initialFolders={[{ id: 'folder-1', parentId: null, name: 'Brandschutz', path: 'Brandschutz' }]}
+      />,
+    )
+
+    // The file and the folder are there to be found immediately — no skeleton
+    // frame to wait through, which is the whole point of the seed.
+    expect(await findFileButton(/Einreichplan\.pdf/)).toBeInTheDocument()
+    expect(screen.getByTestId('folder-card-folder-1')).toBeInTheDocument()
+    expect(screen.queryByTestId('file-browser-skeleton')).not.toBeInTheDocument()
+
+    // And neither listing is re-requested on mount. A refetch here would be
+    // invisible on a fast connection and would still cost every reader two
+    // round trips for an answer they can already see.
+    await waitFor(() => expect(mockUploadFiles).not.toHaveBeenCalled())
+    expect(documentsRequests).toHaveLength(0)
+    expect(folderRequests).toHaveLength(0)
+  })
+
+  it('still fetches when the caller has nothing to seed with', async () => {
+    let documentsRequests = 0
+    server.use(
+      http.get('/api/documents', () => {
+        documentsRequests += 1
+        return HttpResponse.json({ documents: [seededFile] })
+      }),
+      http.get('/api/projects/:projectId/folders', () => HttpResponse.json({ folders: [] })),
+    )
+
+    renderWorkspace(
+      <ProjectFileWorkspace projectId="proj-1" projectName="Test" collectionName="test-coll" />,
+    )
+
+    expect(await findFileButton(/Einreichplan\.pdf/)).toBeInTheDocument()
+    expect(documentsRequests).toBe(1)
+  })
+
+  it('re-reads the listing when the „Von Piloti" chip narrows it server-side', async () => {
+    const requested: string[] = []
+    server.use(
+      http.get('/api/documents', ({ request }) => {
+        requested.push(new URL(request.url).searchParams.get('authoredBy') ?? '')
+        return HttpResponse.json({ documents: [] })
+      }),
+      http.get('/api/projects/:projectId/folders', () => HttpResponse.json({ folders: [] })),
+    )
+
+    renderWorkspace(
+      <ProjectFileWorkspace
+        projectId="proj-1"
+        projectName="Test"
+        collectionName="test-coll"
+        initialFiles={[seededFile]}
+        initialFolders={[]}
+      />,
+    )
+    expect(await findFileButton(/Einreichplan\.pdf/)).toBeInTheDocument()
+
+    await userEvent.click(screen.getByRole('button', { name: /filter/i }))
+    await userEvent.click(await screen.findByLabelText('By Piloti'))
+
+    // The seed is spent by the mount, not by the component's lifetime: a filter
+    // that only the server can apply must still reach it.
+    await waitFor(() => expect(requested).toEqual(['agent']))
+  })
+})
+
+/**
+ * „Bisher keine Möglichkeit, Dateien per Drag & Drop in Ordner zu verschieben."
+ *
+ * The move itself already existed — `PATCH /api/documents/[id]/folder`, offered
+ * as „Verschieben" in the overflow menu — so what was missing was the gesture
+ * people try first, and whose absence reads as the capability being absent.
+ *
+ * The hazard is that this workspace ALREADY listens for drags: dropping files
+ * from the desktop is how you upload. The two must not be confused, and the
+ * discriminator is a fact the browser guarantees rather than a flag we set —
+ * `dataTransfer.types` contains `Files` only for a drag carrying real files.
+ */
+describe('ProjectFileWorkspace — dragging a file into a folder', () => {
+  /**
+   * A drag started inside the page.
+   *
+   * `items` is here because a real browser puts it there — every entry set with
+   * `setData` is an item — and its absence is what let the upload overlay's
+   * defect hide. The overlay used to raise itself for any drag with items at
+   * all; this fixture had none, so the assertion below passed while the product
+   * covered the folder in „Dateien hier ablegen" the moment a document moved
+   * over it.
+   */
+  const dragTransfer = (documentId: string) => {
+    const store: Record<string, string> = { 'application/x-grid-document-id': documentId }
+    return {
+      types: ['application/x-grid-document-id'],
+      items: [{ kind: 'string', type: 'application/x-grid-document-id' }],
+      getData: (key: string) => store[key] ?? '',
+      setData: (key: string, value: string) => {
+        store[key] = value
+      },
+    }
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    searchParams = new URLSearchParams()
+    server.use(
+      http.get('/api/projects/:projectId/folders', () =>
+        HttpResponse.json({ folders: [{ id: 'folder-1', name: 'Brandschutz', parentId: null }] })
+      ),
+      http.get('/api/documents', () =>
+        HttpResponse.json({
+          documents: [
+            {
+              id: 'doc-1',
+              filename: 'plan.pdf',
+              displayName: null,
+              fileSize: 1024,
+              contentType: 'application/pdf',
+              status: 'ready',
+              folderId: null,
+              createdAt: '2026-01-01T00:00:00Z',
+              errorMessage: null,
+              summary: null,
+              pageCount: null,
+              chunkCount: null,
+              contentTypes: null,
+              tags: null,
+            },
+          ],
+        })
+      ),
+      http.patch('/api/documents/:id/folder', () => HttpResponse.json({ ok: true }))
+    )
+  })
+
+  it('moves the file through the same endpoint the menu uses', async () => {
+    const patched: Array<{ url: string; body: unknown }> = []
+    server.use(
+      http.patch('/api/documents/:id/folder', async ({ request, params }) => {
+        patched.push({ url: String(params.id), body: await request.json() })
+        return HttpResponse.json({ ok: true })
+      })
+    )
+
+    renderWorkspace(
+      <ProjectFileWorkspace projectId="proj-1" projectName="Test" collectionName="test-coll" />
+    )
+
+    const folder = await screen.findByTestId('folder-card-folder-1')
+    fireEvent.dragOver(folder, { dataTransfer: dragTransfer('doc-1') })
+    fireEvent.drop(folder, { dataTransfer: dragTransfer('doc-1') })
+
+    await waitFor(() => expect(patched).toHaveLength(1))
+    expect(patched[0]).toMatchObject({ url: 'doc-1', body: { folderId: 'folder-1' } })
+  })
+
+  it('does not raise the upload overlay for a drag that started in the page', async () => {
+    renderWorkspace(
+      <ProjectFileWorkspace projectId="proj-1" projectName="Test" collectionName="test-coll" />
+    )
+
+    const dropzone = screen.getByTestId('workspace-dropzone')
+    // No `Files` in `types` — this drag carries a document id, not an upload.
+    fireEvent.dragEnter(dropzone, { dataTransfer: dragTransfer('doc-1') })
+
+    expect(screen.queryByTestId('workspace-drop-overlay')).not.toBeInTheDocument()
+    expect(mockUploadFiles).not.toHaveBeenCalled()
+  })
+
+  it('still raises it for a real upload', async () => {
+    renderWorkspace(
+      <ProjectFileWorkspace projectId="proj-1" projectName="Test" collectionName="test-coll" />
+    )
+
+    const dropzone = screen.getByTestId('workspace-dropzone')
+    fireEvent.dragEnter(dropzone, {
+      dataTransfer: makeDataTransfer([new File(['x'], 'plan.pdf', { type: 'application/pdf' })]),
+    })
+
+    // The other half of the discriminator: narrowing it must not have taken the
+    // upload affordance with it.
+    expect(screen.getByTestId('workspace-drop-overlay')).toBeInTheDocument()
+  })
+})
+
+/**
+ * MOVING A FOLDER, by the same gesture that moves a document.
+ *
+ * `PATCH .../folders/[folderId]` with a `parentId` already re-parented a
+ * folder — it is what the tree needed to be nestable at all — and nothing in
+ * the UI reached it. A folder could be created inside another one and never
+ * moved afterwards.
+ */
+describe('ProjectFileWorkspace — dragging a folder into a folder', () => {
+  const folders = [
+    { id: 'f-a', name: 'Brandschutz', parentId: null, path: 'Brandschutz' },
+    { id: 'f-b', name: 'Statik', parentId: null, path: 'Statik' },
+    { id: 'f-a1', name: 'Fluchtwege', parentId: 'f-a', path: 'Brandschutz/Fluchtwege' },
+  ]
+
+  const folderDragTransfer = (folderId: string) => {
+    const store: Record<string, string> = { 'application/x-grid-folder-id': folderId }
+    return {
+      types: ['application/x-grid-folder-id', `application/x-grid-folder-id:${folderId}`],
+      items: [{ kind: 'string', type: 'application/x-grid-folder-id' }],
+      getData: (key: string) => store[key] ?? '',
+      setData: (key: string, value: string) => {
+        store[key] = value
+      },
+    }
+  }
+
+  let patched: Array<{ url: string; body: unknown }>
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    searchParams = new URLSearchParams()
+    resetPreviewStore()
+    patched = []
+    server.use(
+      http.get('/api/documents', () => HttpResponse.json({ documents: [] })),
+      http.get('/api/projects/:projectId/folders', () => HttpResponse.json({ folders })),
+      http.patch('/api/projects/:projectId/folders/:folderId', async ({ request, params }) => {
+        patched.push({ url: String(params.folderId), body: await request.json() })
+        return HttpResponse.json({ folder: { id: params.folderId } })
+      }),
+    )
+  })
+
+  function renderWithFolders() {
+    return renderWorkspace(
+      <ProjectFileWorkspace
+        projectId="proj-1"
+        projectName="Test"
+        collectionName="test-coll"
+        initialFiles={[]}
+        initialFolders={folders}
+      />,
+    )
+  }
+
+  it('re-parents the dragged folder', async () => {
+    renderWithFolders()
+    const target = screen.getByTestId('folder-card-f-b')
+
+    fireEvent.dragOver(target, { dataTransfer: folderDragTransfer('f-a') })
+    fireEvent.drop(target, { dataTransfer: folderDragTransfer('f-a') })
+
+    await waitFor(() => expect(patched).toHaveLength(1))
+    expect(patched[0]).toMatchObject({ url: 'f-a', body: { parentId: 'f-b' } })
+  })
+
+  it('refuses a folder dropped on itself', async () => {
+    renderWithFolders()
+    const target = screen.getByTestId('folder-card-f-a')
+
+    fireEvent.dragOver(target, { dataTransfer: folderDragTransfer('f-a') })
+    // Not even a highlight: the refusal has to be visible before the release,
+    // or the gesture promises a move the server will reject.
+    expect(target).not.toHaveAttribute('data-drop-over')
+
+    fireEvent.drop(target, { dataTransfer: folderDragTransfer('f-a') })
+    await waitFor(() => expect(patched).toHaveLength(0))
+  })
+
+  it('refuses a folder dropped into its own descendant', async () => {
+    // Standing in `Brandschutz`, where `Fluchtwege` is a tile. Dragging
+    // `Brandschutz` onto it would cut the subtree off from the tree.
+    searchParams = new URLSearchParams('folder=f-a')
+    renderWithFolders()
+    const target = screen.getByTestId('folder-card-f-a1')
+
+    fireEvent.dragOver(target, { dataTransfer: folderDragTransfer('f-a') })
+    expect(target).not.toHaveAttribute('data-drop-over')
+
+    fireEvent.drop(target, { dataTransfer: folderDragTransfer('f-a') })
+    await waitFor(() => expect(patched).toHaveLength(0))
+  })
+
+  it('moves a nested folder back out through the breadcrumb root', async () => {
+    searchParams = new URLSearchParams('folder=f-a')
+    renderWithFolders()
+
+    // „Alle Dateien" is the only way OUT: every other target nests one folder
+    // inside another, so without it a folder goes deeper and never back.
+    const root = screen.getByRole('button', { name: 'All Files' })
+    fireEvent.dragOver(root, { dataTransfer: folderDragTransfer('f-a1') })
+    fireEvent.drop(root, { dataTransfer: folderDragTransfer('f-a1') })
+
+    await waitFor(() => expect(patched).toHaveLength(1))
+    expect(patched[0]).toMatchObject({ url: 'f-a1', body: { parentId: null } })
   })
 })
 
@@ -524,7 +1105,7 @@ describe('ProjectFileWorkspace — a settling document settles on screen', () =>
  * flight — but nothing coordinated that poll with a FOREGROUND load (mount,
  * upload settled, `onComplete`, retry). A slow poll carrying `processing` could
  * land after a newer foreground load had already brought back `ready`, putting
- * the "Wird gelesen…" badge back on a document the user had just been told was
+ * the "Wird verarbeitet…" badge back on a document the user had just been told was
  * citable — and, because the row read as unsettled again, restarting the poll
  * that was supposed to have stopped. The Archiv workspace carries the twin of
  * this test over its own loader.
@@ -661,13 +1242,43 @@ describe('ProjectFileWorkspace — an .ifc opens as a building', () => {
     )
   })
 
-  it('puts the model in the URL rather than opening the file preview', async () => {
+  /**
+   * This used to assert the opposite — a click went straight to the stage —
+   * and that is what made the model the ONE file type with no preview, and
+   * what made the same `.ifc` behave differently here and in the Archiv, which
+   * had no stage to jump to.
+   */
+  it('opens the preview first, like every other file', async () => {
     renderWorkspace(
       <ProjectFileWorkspace
         projectId="proj-1"
         projectName="Test"
         collectionName="test-coll"
         showModels
+      />
+    )
+    fireEvent.click(await findFileButton(/Haus-A\.ifc/i))
+
+    expect(await screen.findByRole('dialog')).toBeInTheDocument()
+    // And the stage is NOT entered behind the reader's back.
+    expect(
+      routerPush.mock.calls.some((call) => String(call[0]).includes('model=Haus-A.ifc'))
+    ).toBe(false)
+  })
+
+  /**
+   * The flag exists so this can be flipped in production without a deploy, and
+   * the Archiv reads the same one — an `.ifc` that behaves one way in a project
+   * and another in the Archiv is the defect the whole change is about.
+   */
+  it('goes straight to the stage when preview-first is switched off', async () => {
+    renderWorkspace(
+      <ProjectFileWorkspace
+        projectId="proj-1"
+        projectName="Test"
+        collectionName="test-coll"
+        showModels
+        previewFirst={false}
       />
     )
     fireEvent.click(await findFileButton(/Haus-A\.ifc/i))
@@ -710,5 +1321,340 @@ describe('ProjectFileWorkspace — an .ifc opens as a building', () => {
 
     expect(await screen.findByRole('dialog')).toBeInTheDocument()
     expect(routerReplace).not.toHaveBeenCalled()
+  })
+})
+
+describe('ProjectFileWorkspace — the Von Piloti filter', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    searchParams = new URLSearchParams()
+    resetPreviewStore()
+  })
+
+  it('asks the LISTING for agent-authored rows rather than filtering what it already has', async () => {
+    // Authorship is a column with a partial index and the listing is capped at
+    // 500 rows: filtering client-side would quietly miss a report that fell off
+    // the end of a large corpus, which is the one thing this chip exists to
+    // find. So the chip is a query parameter, and the listing is re-read.
+    const searches: string[] = []
+    server.use(
+      http.get('/api/projects/:projectId/folders', () => HttpResponse.json({ folders: [] })),
+      http.get('/api/documents', ({ request }) => {
+        searches.push(new URL(request.url).search)
+        return HttpResponse.json({ documents: [] })
+      }),
+    )
+
+    renderWorkspace(<ProjectFileWorkspace projectId="proj-1" projectName="Test" collectionName="test-coll" />)
+
+    await waitFor(() => expect(searches.length).toBeGreaterThan(0))
+    expect(searches[0]).not.toContain('authoredBy')
+
+    // „Von Piloti" is inside the filter menu now, not an open chip in the
+    // header. The rule it tests is unchanged: the filter is a QUERY, not a
+    // client-side pass over rows already fetched.
+    await userEvent.click(screen.getByTestId('file-filter-menu-trigger'))
+    await userEvent.click(await screen.findByLabelText('By Piloti'))
+
+    await waitFor(() => expect(searches.at(-1)).toContain('authoredBy=agent'))
+    expect(searches.at(-1)).toContain('projectId=proj-1')
+  })
+
+  it('goes back to the whole estate when the chip is released', async () => {
+    const searches: string[] = []
+    server.use(
+      http.get('/api/projects/:projectId/folders', () => HttpResponse.json({ folders: [] })),
+      http.get('/api/documents', ({ request }) => {
+        searches.push(new URL(request.url).search)
+        return HttpResponse.json({ documents: [] })
+      }),
+    )
+
+    renderWorkspace(<ProjectFileWorkspace projectId="proj-1" projectName="Test" collectionName="test-coll" />)
+    await waitFor(() => expect(searches.length).toBeGreaterThan(0))
+
+    await userEvent.click(screen.getByTestId('file-filter-menu-trigger'))
+    const check = await screen.findByLabelText('By Piloti')
+    await userEvent.click(check)
+    await waitFor(() => expect(searches.at(-1)).toContain('authoredBy=agent'))
+    await userEvent.click(check)
+
+    // Unfiltered is not the same as `authoredBy=user`: the default listing is
+    // the whole project's estate, both hands.
+    await waitFor(() => expect(searches.at(-1)).not.toContain('authoredBy'))
+  })
+})
+
+/**
+ * AN ACTIVE FILTER MUST NOT BLANK THE FILES IT MATCHED.
+ *
+ * `filterEmptyNotice` is rendered by `FileBrowserPane` before every other
+ * branch, so the workspace may only hand one over when the level is actually
+ * empty: the memo used to answer filter state alone, and turning on any filter
+ * — even one matching everything on screen — replaced the whole listing with
+ * the "filter emptied it" panel.
+ */
+describe('ProjectFileWorkspace — a filter keeps what it matches', () => {
+  const DOCUMENTS = [
+    {
+      id: 'doc-photo',
+      filename: 'foto.jpg',
+      fileSize: 1024,
+      contentType: 'image/jpeg',
+      status: 'ready',
+      folderId: null,
+      createdAt: '2026-01-01T00:00:00Z',
+      errorMessage: null,
+    },
+    {
+      id: 'doc-report',
+      filename: 'bericht.pdf',
+      fileSize: 2048,
+      contentType: 'application/pdf',
+      status: 'ready',
+      folderId: null,
+      createdAt: '2026-01-02T00:00:00Z',
+      errorMessage: null,
+    },
+  ]
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    searchParams = new URLSearchParams()
+    resetPreviewStore()
+    server.use(
+      http.get('/api/projects/:projectId/folders', () => HttpResponse.json({ folders: [] })),
+      http.get('/api/documents', () => HttpResponse.json({ documents: DOCUMENTS })),
+    )
+  })
+
+  const openMenu = async () => {
+    await userEvent.click(screen.getByTestId('file-filter-menu-trigger'))
+  }
+
+  it('keeps listing the files a kind filter matches, instead of the empty-filter panel', async () => {
+    renderWorkspace(<ProjectFileWorkspace projectId="proj-1" projectName="Test" collectionName="test-coll" />)
+    await findFileButton(/foto\.jpg/i)
+    await openMenu()
+    await userEvent.click(await screen.findByLabelText('Photo'))
+
+    // The filter applied (the PDF is a document, not a photo) — and what it
+    // matched is still on screen rather than replaced by the notice.
+    expect(await findFileButton(/foto\.jpg/i)).toBeInTheDocument()
+    expect(screen.queryByText('bericht.pdf')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /clear filters/i })).not.toBeInTheDocument()
+  })
+
+  it('says a filter emptied the level only when the level really is empty, and clearing restores it', async () => {
+    renderWorkspace(<ProjectFileWorkspace projectId="proj-1" projectName="Test" collectionName="test-coll" />)
+    await findFileButton(/foto\.jpg/i)
+    await openMenu()
+    await userEvent.click(await screen.findByLabelText('3D model (IFC)'))
+    await userEvent.keyboard('{Escape}')
+
+    expect(screen.queryByText('foto.jpg')).not.toBeInTheDocument()
+    expect(screen.queryByText('bericht.pdf')).not.toBeInTheDocument()
+    const clear = await screen.findByRole('button', { name: /clear filters/i })
+    await userEvent.click(clear)
+
+    expect(await findFileButton(/foto\.jpg/i)).toBeInTheDocument()
+    expect(await findFileButton(/bericht\.pdf/i)).toBeInTheDocument()
+  })
+})
+
+/**
+ * THE FOLDER IS PART OF THE ADDRESS.
+ *
+ * It was `useState`, which made the folder tree the one part of this page the
+ * browser did not know about: three folders deep, back left Dateien entirely
+ * instead of going up one level, a reload dropped the reader at the root, and a
+ * folder could not be sent to a colleague at all. Every other view on this page
+ * — which model, which storey, which element — has lived in the URL for exactly
+ * those reasons.
+ */
+describe('ProjectFileWorkspace — folders are addressable', () => {
+  const FOLDERS = [
+    { id: 'f-1', name: 'Planung', parentId: null },
+    { id: 'f-2', name: 'Statik', parentId: 'f-1' },
+  ]
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    searchParams = new URLSearchParams()
+    resetPreviewStore()
+    server.use(
+      http.get('/api/projects/:projectId/folders', () => HttpResponse.json({ folders: FOLDERS })),
+      http.get('/api/documents', () =>
+        HttpResponse.json({
+          documents: [
+            {
+              id: 'doc-in-folder',
+              filename: 'Statikbericht.pdf',
+              fileSize: 2048,
+              contentType: 'application/pdf',
+              status: 'ready',
+              folderId: 'f-2',
+              createdAt: '2026-01-02T00:00:00Z',
+              errorMessage: null,
+            },
+          ],
+        })
+      )
+    )
+  })
+
+  const render = () =>
+    renderWorkspace(
+      <ProjectFileWorkspace projectId="proj-1" projectName="Test" collectionName="test-coll" />
+    )
+
+  it('opening a folder PUSHES it into the URL, so back means "up one level"', async () => {
+    render()
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Open folder “Planung”' }))
+
+    const href = String(routerPush.mock.calls.at(-1)?.[0])
+    expect(new URLSearchParams(href.split('?')[1]).get('folder')).toBe('f-1')
+    // `push`, not `replace`. With `replace` there is no history entry, and back
+    // leaves the page instead of leaving the folder — which is the defect.
+    expect(routerReplace).not.toHaveBeenCalled()
+  })
+
+  it('reads the level back out of the URL, so a pasted link opens that folder', async () => {
+    searchParams = new URLSearchParams('folder=f-2')
+    render()
+
+    // The document filed in `f-2` — not visible at the root, where this page
+    // used to land whatever the link said.
+    expect(await screen.findByText(/Statikbericht/)).toBeInTheDocument()
+  })
+
+  it('offers a named way up, not just a breadcrumb to aim at', async () => {
+    searchParams = new URLSearchParams('folder=f-2')
+    render()
+
+    // Named, so it says where it goes before it is pressed. The breadcrumb says
+    // where you ARE, and reading a map to find the exit is work — three levels
+    // deep the parent is a truncated word in a scrolling row.
+    const back = await screen.findByTestId('folder-back')
+    expect(back).toHaveTextContent('Planung')
+
+    fireEvent.click(back)
+    const href = String(routerPush.mock.calls.at(-1)?.[0])
+    expect(new URLSearchParams(href.split('?')[1]).get('folder')).toBe('f-1')
+  })
+
+  it('leaves the root with no way up, because there is nowhere to go', async () => {
+    render()
+    await screen.findByRole('button', { name: 'Open folder “Planung”' })
+    expect(screen.queryByTestId('folder-back')).not.toBeInTheDocument()
+  })
+})
+
+/**
+ * `?doc=` and the open preview, in both directions.
+ *
+ * The regression these exist for: the URL and the preview each had an effect
+ * pulling ONE way — one only ever opened, the other only ever dropped the
+ * parameter — so the transition nobody owned was the reader pressing Back. The
+ * parameter went and the file stayed open, which is precisely the gesture the
+ * parameter was added to serve.
+ */
+describe('ProjectFileWorkspace — the open file is on the URL', () => {
+  const doc: DocumentWireRow = {
+    id: 'doc-eg',
+    filename: 'EG.pdf',
+    displayName: null,
+    fileSize: 10,
+    contentType: 'application/pdf',
+    status: 'ready',
+    folderId: null,
+    createdAt: '2026-06-14T09:00:00.000Z',
+    errorMessage: null,
+    summary: null,
+    pageCount: null,
+    chunkCount: null,
+    contentTypes: null,
+    tags: null,
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    resetPreviewStore()
+    searchParams = new URLSearchParams()
+  })
+
+  function renderAt(query = '') {
+    searchParams = new URLSearchParams(query)
+    return renderWorkspace(
+      <ProjectFileWorkspace
+        projectId="proj-1"
+        projectName="Test"
+        collectionName="test-coll"
+        initialFiles={[doc]}
+      />,
+    )
+  }
+
+  it('names the file it opened, so the link can be handed to somebody', async () => {
+    renderAt()
+    fireEvent.click(await findFileButton(/EG\.pdf/))
+
+    await waitFor(() => expect(routerPush).toHaveBeenCalled())
+    const href = String(routerPush.mock.calls.at(-1)?.[0])
+    expect(new URLSearchParams(href.split('?')[1]).get('doc')).toBe('doc-eg')
+    // A push and not a replace: on a phone, back is how anyone dismisses a
+    // full-screen overlay, so opening has to leave an entry to go back to.
+    expect(routerReplace).not.toHaveBeenCalled()
+  })
+
+  it('opens the file a link names', async () => {
+    renderAt('doc=doc-eg')
+    await waitFor(() => expect(useFilePreviewStore.getState().file?.id).toBe('doc-eg'))
+    // Answering the URL must not push it again: that is a history entry whose
+    // back takes you to the screen you are already on.
+    expect(routerPush).not.toHaveBeenCalled()
+  })
+
+  it('closes the preview when the reader goes back', async () => {
+    const { rerender } = renderAt('doc=doc-eg')
+    await waitFor(() => expect(useFilePreviewStore.getState().file?.id).toBe('doc-eg'))
+
+    // Back: the entry without the parameter. Nothing else changes — this is the
+    // case the two one-way effects both declined to handle.
+    searchParams = new URLSearchParams()
+    rerender(
+      <>
+        <ProjectFileWorkspace
+          projectId="proj-1"
+          projectName="Test"
+          collectionName="test-coll"
+          initialFiles={[doc]}
+        />
+        <FilePreviewHost />
+      </>,
+    )
+
+    await waitFor(() => expect(useFilePreviewStore.getState().file).toBeNull())
+  })
+
+  it('drops the parameter when the preview is closed by its own control', async () => {
+    // Opened from the URL, because the mock router does not feed a `push` back
+    // into `useSearchParams` — and the parameter has to really be there for
+    // dropping it to mean anything.
+    renderAt('doc=doc-eg')
+    await waitFor(() => expect(useFilePreviewStore.getState().file?.id).toBe('doc-eg'))
+
+    // The X, Escape and the scrim all land here — the store is the one thing
+    // all three of them touch, and the only one this workspace can observe.
+    useFilePreviewStore.getState().close()
+
+    await waitFor(() => expect(routerReplace).toHaveBeenCalled())
+    const href = String(routerReplace.mock.calls.at(-1)?.[0])
+    expect(href).not.toContain('doc=')
+    // …and the row stops claiming to be the one on screen.
+    await waitFor(() =>
+      expect(screen.getByTestId('file-card').querySelector('[aria-current="true"]')).toBeNull(),
+    )
   })
 })

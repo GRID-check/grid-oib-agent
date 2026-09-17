@@ -10,6 +10,8 @@ import asyncio
 import logging
 import os
 from contextlib import suppress
+from dataclasses import dataclass
+from typing import Any
 from typing import Literal
 
 from pydantic import Field
@@ -40,6 +42,25 @@ _MAX_CHUNKS_PER_DOC = 2
 # survivors.
 _AGENT_FILTER_OVERFETCH = 3
 
+# Substring identifying an embedding-fingerprint mismatch in a layer failure.
+# Produced by ``embed_fingerprint_mismatch`` in the llamaindex adapter (which
+# reports a same-dimension model swap as "embedding mismatch: ...") and
+# preserved verbatim in ``RetrievalResult.error_message`` by ``_retrieve_sync``
+# ("Retrieval failed: Collection '...' embedding mismatch: ..."). A mismatch
+# means the stored and query vectors live in different spaces, so the affected
+# collection contributed nothing — total base-corpus loss when it is the only
+# layer. Unlike a missing session collection (routine, stays quiet) this is a
+# configuration fault and must surface as degraded/error, never as a miss.
+_EMBEDDING_MISMATCH_MARKER = "embedding mismatch"
+
+
+def _is_embedding_mismatch(value: object) -> bool:
+    """True when a layer failure reports a fingerprint mismatch, not a routine miss."""
+    if isinstance(value, BaseException):
+        value = str(value)
+    return isinstance(value, str) and _EMBEDDING_MISMATCH_MARKER in value.lower()
+
+
 # Agent-facing contract. Distinct from ``surface_documents`` (show a file).
 # Anthropic: descriptions are the prompt — say when to call, when not to,
 # how to name parameters, and what a miss means. Do not chain this tool
@@ -61,17 +82,36 @@ _KNOWLEDGE_SEARCH_DESCRIPTION = (
     "BROWSE files, no legal question): that is `surface_documents`. After "
     "you cite a project or Büroarchiv file, do not also call "
     "`surface_documents`; the UI peeks the cited file. Live Austrian law "
-    "(statutes, Bauordnungen) is the RIS tools, not this index.\n"
+    "(statutes, Bauordnungen) is the RIS tools, not this index. When you "
+    "already know WHICH document you need, that is `read_passage` — with the "
+    "Punkt or page when you have one, with the document alone when you do not "
+    "(it then returns that document's scope and its outline). A lookup, not a "
+    "second search.\n"
     "HOW TO QUERY — rewrite the user question into a search query (topic + "
     "jurisdiction + implied year). Prefer one precise call over a broad dump. "
-    "At most 2 calls; change the query on the second. Never invent a "
-    "`file_name`; take it from the inventory or the user. The OIB base corpus "
+    "If a conclusion names a document and a Punkt or page you have not opened, "
+    "open it with `read_passage`; search again only when you still do not know "
+    "WHICH document holds the answer. Empty results: change the query and "
+    "try again; do not invent a citation around a gap you could still close. "
+    "Never invent a `file_name`; take it from the inventory or the user. The "
+    "OIB base corpus "
     "is not enumerated there — reach it by `doc_class` (e.g. `oib_richtlinie`) "
     "or by plain semantic search, never a guessed name. Do not pass a raw "
-    "`filters` object unless you need `content_type`.\n"
+    "`filters` object unless you need `content_type`. "
+    "A query that names a Richtlinie and nothing else ('OIB 2', "
+    "'OIB-Richtlinie 2.1') returns every part of that Richtlinie the corpus "
+    "holds, each with its Geltungsbereich and its Gliederung, so ask it that "
+    "way when you want the whole Richtlinie.\n"
+    "ALWAYS pass `conclusion=` — one sentence saying what you now know and what "
+    "you still need, which is why you are making THIS call. Empty on your first "
+    "call of the turn. It is the Herleitung checkpoint the reader sees above the "
+    "fetch; it changes nothing about the search and never appears in `answer`.\n"
     "RETURNS — numbered passages with Source, Citation (copy this key "
     "verbatim), Dokumentart, Ordner (the folder the file is filed in, when it "
     "has one), page, and the passage. Cite only those keys. "
+    "A hit whose Herkunft line says 'Piloti-Dokument' is office knowledge the "
+    "office has approved, never a source for a normative value: cite it for "
+    "what the office decided, not for what the OIB requires. "
     "An empty result tells you how to retry (narrower query, `file_name`, "
     "`title_contains`); it is not permission to invent a citation."
 )
@@ -165,7 +205,7 @@ class KnowledgeRetrievalConfig(FunctionBaseConfig, name="knowledge_retrieval"):
     reranker_provider: str | None = Field(
         default=None,
         description=(
-            "Cross-encoder reranking provider (none|openrouter|cohere|voyage|jina|nvidia). "
+            "Cross-encoder reranking provider (none|openrouter). "
             "None falls back to the AIQ_RERANKER_PROVIDER environment default, which is "
             "'none'. When one resolves it becomes the primary reranker and rerank_llm "
             "becomes the fallback; a missing key or any provider error degrades to the judge."
@@ -173,7 +213,7 @@ class KnowledgeRetrievalConfig(FunctionBaseConfig, name="knowledge_retrieval"):
     )
     reranker_model: str | None = Field(
         default=None,
-        description="Cross-encoder model id. None uses the provider's multilingual default.",
+        description="Cross-encoder model id (default cohere/rerank-v3.5, multilingual — a German corpus needs one).",
     )
     rerank_candidates: int = Field(
         default=15,
@@ -183,6 +223,50 @@ class KnowledgeRetrievalConfig(FunctionBaseConfig, name="knowledge_retrieval"):
             "Reranking converts recall into precision, so this should exceed top_k by "
             "several times, not by a margin. Must be >= 1: zero used to be accepted and "
             "trimmed every search to nothing."
+        ),
+    )
+    requery_llm: str | None = Field(
+        default=None,
+        description=(
+            "Optional LLM reference from llms: section that judges whether the fused "
+            "candidate pool can answer the query and, when it cannot, proposes alternative "
+            "formulations that are retrieved and fused into the same pool before reranking "
+            "(the retrieval loop). Runs beside the reranker, so a sufficient pool costs no "
+            "extra latency. Unset = one-shot retrieval. Fail-open: any judge error keeps "
+            "the first pool."
+        ),
+    )
+    requery_max_queries: int = Field(
+        default=2,
+        ge=1,
+        le=4,
+        description=(
+            "Ceiling on alternative queries the judge may propose per search when "
+            "requery_llm is set. Each is one retrieval per in-scope collection."
+        ),
+    )
+    hyde_enabled: bool = Field(
+        default=False,
+        description=(
+            "HyDE-as-channel experiment (backlog item 14), default OFF. When true, a "
+            "query with no exact identifier shape drafts a hypothetical norm-register "
+            "passage that is retrieved and fused as one extra RRF channel beside the "
+            "original query (which always stays in the mix and is what the reranker "
+            "judges). The draft reuses the resolved rerank_llm handle — greedy, "
+            "reasoning-free, already paid for — so enabling this adds no model "
+            "plumbing and re-points no model. Draft failure/slowness degrades to the "
+            "baseline silently. Ship as default behaviour only if the golden harness "
+            "shows an overview lift with no exact-id/paraphrase regression."
+        ),
+    )
+    hyde_timeout_seconds: float = Field(
+        default=8.0,
+        ge=1.0,
+        le=30.0,
+        description=(
+            "Upper bound on the HyDE draft call. It runs beside the first retrieval "
+            "fan-out, so a fast draft costs no latency; past this it reads as no "
+            "draft and the search is the baseline."
         ),
     )
     # Foundational RAG (hosted RAG Blueprint) options
@@ -489,22 +573,53 @@ def _resolve_target_collections(
     return [entry.collection for entry in _resolve_scoped_collections(config, session_id, base_collection)]
 
 
-def _base_collection_filters(config: KnowledgeRetrievalConfig, caller_filters: dict | None) -> dict | None:
-    """Base-collection metadata filter: configured file exclusions merged with caller filters.
+#: The ``chunking`` value the base corpus uses for text that is not evidence.
+#:
+#: ``punkt_documents`` (``llamaindex/punkt_chunking.py``) cuts a Punkt-structured
+#: Richtlinie into one chunk per numbered Punkt, tagged ``chunking: "punkt"``, and
+#: emits everything outside that run -- the cover page and the Impressum -- as
+#: per-page Documents tagged ``chunking: "page"``. Neither is citable: pdfplumber
+#: returns the cover's display type as garble, and the Impressum is furniture. A
+#: title-shaped query ("OIB-Richtlinie 2 Ausgabe Mai 2023") matched exactly those
+#: two, so an overview question came back as four cover pages at page 1 and the
+#: model learned nothing.
+#:
+#: The exclusion is a STORE filter rather than a post-retrieval drop because a
+#: dropped hit still costs its candidate slot. It is ``$ne`` rather than a
+#: whitelist of ``punkt`` on purpose: only Punkt-structured documents carry the
+#: key at all -- Begriffsbestimmungen, Zitierte Normen, project uploads and office
+#: files carry no ``chunking`` key -- and a whitelist would delete them from
+#: search. Measured against the deployed store (chromadb 1.5.9, the version
+#: ``deploy/`` pins): ``$ne`` KEEPS records that lack the key, so the keyless
+#: majority of the corpus is untouched. ``tests/knowledge_layer_tests/
+#: test_page_chunk_exclusion.py`` round-trips that through a real collection, so
+#: a version bump that changed the semantics fails a test rather than emptying
+#: the corpus silently.
+#:
+#: ``read_passage`` builds its own filters and is deliberately NOT subject to
+#: this: naming page 1 of a Richtlinie is an explicit request, not a similarity hit.
+_NON_EVIDENCE_CHUNKING = "page"
 
-    ``exclude_file_names`` becomes a ``file_name NOT IN [...]`` clause; the caller's
-    optional ``filters`` dict is AND-ed with it. Applied to the base collection only
-    (session/project collections are never filtered). Returns None when neither is set.
+
+def _base_collection_filters(config: KnowledgeRetrievalConfig, caller_filters: dict | None) -> dict:
+    """Base-collection metadata filter: the page-chunk exclusion, file exclusions, caller filters.
+
+    Three clauses, AND-ed, applied to the base collection only (session/project
+    collections are user content and are never filtered):
+
+    1. ``chunking != "page"``, always. See :data:`_NON_EVIDENCE_CHUNKING`.
+    2. ``exclude_file_names`` as a ``file_name NOT IN [...]`` clause, when configured.
+    3. the caller's optional ``filters`` dict, when given.
+
+    Never returns None: clause 1 holds for every base-corpus search.
     """
+    clauses: list[dict] = [{"chunking": {"$ne": _NON_EVIDENCE_CHUNKING}}]
     excluded = sorted(set(config.exclude_file_names))
-    clauses: list[dict] = []
     if excluded:
         clauses.append({"file_name": {"$nin": excluded}})
     if caller_filters:
         clauses.append(caller_filters)
 
-    if not clauses:
-        return None
     if len(clauses) == 1:
         return clauses[0]
     return {"$and": clauses}
@@ -606,9 +721,13 @@ def _merge_results(results, query: str, top_k: int, backend_name: str, max_per_d
     cosine similarity, but the professionally chunked base corpus sits in a systematically
     better distance band than a session or project collection, so a user's own uploaded
     PDF can never win on raw score and "layered retrieval" does not layer. Each surviving
-    collection therefore contributes one RRF channel (in ``target_collections`` order, so
+    result therefore contributes one RRF channel (in ``target_collections`` order, so
     the base corpus wins exact ties) and the merged order is the fused rank — scale-free
     by construction, so a session hit at rank 0 can outrank a corpus hit at rank 5.
+    When the retrieval loop has fanned out, ``results`` also carries one result per
+    (collection, alternative query), appended after the originals: a chunk that two
+    formulations agree on is fused upward, one that only a paraphrase reached enters
+    the pool, and the original query keeps the tie-break seat.
 
     Selection over that fused order is diversity-aware; see ``_apply_diversity_cap``. With
     a single collection and ``max_per_document=0`` this is identical to a plain top-k
@@ -619,7 +738,16 @@ def _merge_results(results, query: str, top_k: int, backend_name: str, max_per_d
 
     Failed layers (``success=False``, e.g. a brand-new session whose collection
     does not exist yet) and raised exceptions are treated as empty contributions
-    and skipped. This never raises.
+    and skipped — EXCEPT an embedding-fingerprint mismatch (see
+    ``_EMBEDDING_MISMATCH_MARKER``), which is a configuration fault, not a miss:
+    a wrong ``AIQ_EMBED_MODEL``/``AIQ_EMBED_BASE_URL`` silently drops the whole
+    base corpus while the surviving layers still answer. A mismatch therefore
+    rides along on the merged result instead of being skipped quietly: no
+    surviving channel means ``success=False`` with the mismatch detail (an
+    error the caller cannot mistake for "nothing matched"); surviving channels
+    mean ``success=True`` with ``error_message`` set (a degraded signal — real
+    chunks, but from an incomplete corpus). A missing collection stays routine:
+    ``success=True`` with no ``error_message``. This never raises.
 
     Args:
         results: List of RetrievalResult objects or Exceptions (from asyncio.gather),
@@ -630,15 +758,23 @@ def _merge_results(results, query: str, top_k: int, backend_name: str, max_per_d
         max_per_document: Diversity cap per distinct document on the first pass.
 
     Returns:
-        A synthetic RetrievalResult with success=True and the merged top-k chunks.
+        A synthetic RetrievalResult with the merged top-k chunks: ``success=False``
+        when mismatches left no surviving channel, ``success=True`` with
+        ``error_message`` set when mismatches dropped some channels but others
+        survived (degraded), and a plain ``success=True`` otherwise.
     """
     from aiq_agent.knowledge.schema import RetrievalResult
 
     channels: list[list] = []
     backend = backend_name
+    mismatch_errors: list[str] = []
     for result in results:
         if isinstance(result, Exception):
-            logger.debug("Knowledge layer raised, skipping: %s", result)
+            if _is_embedding_mismatch(result):
+                mismatch_errors.append(str(result)[:500])
+                logger.error("Knowledge layer embedding mismatch, skipping: %s", result)
+            else:
+                logger.debug("Knowledge layer raised, skipping: %s", result)
             continue
         if not getattr(result, "success", False):
             # A missing collection is routine — every new conversation's session
@@ -649,7 +785,11 @@ def _merge_results(results, query: str, top_k: int, backend_name: str, max_per_d
             # failed to translate all produced a confident answer built on an empty
             # knowledge layer with nothing above DEBUG to say so.
             message = getattr(result, "error_message", None) or ""
-            if "not found" in message.lower():
+            if _is_embedding_mismatch(message):
+                if message not in mismatch_errors:
+                    mismatch_errors.append(message)
+                logger.error("Knowledge layer embedding mismatch, skipping: %s", message)
+            elif "not found" in message.lower():
                 logger.debug("Knowledge layer absent, skipping: %s", message)
             else:
                 logger.warning("Knowledge layer failed, skipping: %s", message)
@@ -694,6 +834,30 @@ def _merge_results(results, query: str, top_k: int, backend_name: str, max_per_d
 
     merged_top_k = _apply_diversity_cap(merged_chunks, top_k, max_per_document)
 
+    if mismatch_errors:
+        # De-duplicated: the requery fan-out retries each collection per
+        # alternative query, so one broken corpus reports once per query.
+        unique = list(dict.fromkeys(mismatch_errors))
+        detail = "; ".join(unique)
+        if not channels:
+            # Total loss: every layer dropped out on a fingerprint mismatch.
+            # success=False so the caller renders a failure, never a miss.
+            return RetrievalResult(success=False, chunks=[], query=query, backend=backend, error_message=detail)
+        # Partial loss: the chunks below are real, but the corpus behind them is
+        # incomplete. success=True carries them; error_message carries the
+        # degraded signal `_format_results` renders as a WARNING banner.
+        return RetrievalResult(
+            success=True,
+            chunks=merged_top_k,
+            query=query,
+            backend=backend,
+            error_message=(
+                f"Degraded retrieval: {len(unique)} collection(s) skipped "
+                f"due to embedding mismatch ({detail}). Results cover only the "
+                "remaining collections and are incomplete."
+            ),
+        )
+
     return RetrievalResult(success=True, chunks=merged_top_k, query=query, backend=backend)
 
 
@@ -716,6 +880,24 @@ def _fuse_channels(channels: list[list]) -> list[tuple]:
         return [(chunk, rank, 0.0) for rank, chunk in enumerate(flat)]
 
 
+async def _draft_hyde_text(hyde_llm_obj, query: str, *, enabled: bool, timeout_seconds: float) -> str | None:
+    """Draft the HyDE probe passage for ``query``; ``None`` means baseline.
+
+    The single seam between the search path and the draft model, so tests can
+    pin "identifier-shaped query → no model call" and "slow model → baseline"
+    without driving the whole search. Never raises: the gate, the import and
+    the draft call all fail open to ``None``.
+    """
+    try:
+        from aiq_agent.common.hyde import draft_passage
+        from aiq_agent.common.hyde import should_draft
+    except ImportError:
+        return None
+    if not should_draft(query, enabled=enabled and hyde_llm_obj is not None):
+        return None
+    return await draft_passage(hyde_llm_obj, query, timeout_seconds=timeout_seconds)
+
+
 def _resolve_doc_classes(chunks) -> dict[tuple[str, str], str]:
     """Resolve the authoritative ``doc_class`` for each hit's document.
 
@@ -730,6 +912,12 @@ def _resolve_doc_classes(chunks) -> dict[tuple[str, str], str]:
     try:
         from aiq_agent.knowledge.factory import get_document_doc_classes
     except Exception:
+        # Fail-open, but never silent: with the store unreachable every hit
+        # falls back to its chunk metadata, and that fallback looks exactly
+        # like a correct answer from the outside.
+        logger.warning(
+            "document metadata store unavailable; %s falls back to chunk metadata", "doc_class", exc_info=True
+        )
         return resolved
 
     # Group the distinct documents by collection so each collection needs a
@@ -754,6 +942,12 @@ def _resolve_doc_classes(chunks) -> dict[tuple[str, str], str]:
         try:
             stored_map = get_document_doc_classes(collection, file_names)
         except Exception:
+            logger.warning(
+                "document metadata store read failed for collection %s; %s falls back to chunk metadata",
+                collection,
+                "doc_class",
+                exc_info=True,
+            )
             stored_map = {}
         for file_name, stored in stored_map.items():
             if stored:
@@ -790,6 +984,12 @@ def _resolve_display_titles(chunks) -> dict[tuple[str, str], str]:
     try:
         from aiq_agent.knowledge.factory import get_document_display_titles
     except Exception:
+        # Fail-open, but never silent: with the store unreachable every hit
+        # falls back to its chunk metadata, and that fallback looks exactly
+        # like a correct answer from the outside.
+        logger.warning(
+            "document metadata store unavailable; %s falls back to chunk metadata", "display_title", exc_info=True
+        )
         return resolved
 
     by_collection: dict[str, list[str]] = {}
@@ -809,6 +1009,12 @@ def _resolve_display_titles(chunks) -> dict[tuple[str, str], str]:
         try:
             stored_map = get_document_display_titles(collection, file_names)
         except Exception:
+            logger.warning(
+                "document metadata store read failed for collection %s; %s falls back to chunk metadata",
+                collection,
+                "display_title",
+                exc_info=True,
+            )
             stored_map = {}
         for file_name, stored in stored_map.items():
             if stored:
@@ -857,6 +1063,12 @@ def _resolve_folder_paths(chunks) -> dict[tuple[str, str], str]:
     try:
         from aiq_agent.knowledge.factory import get_document_folder_paths
     except Exception:
+        # Fail-open, but never silent: with the store unreachable every hit
+        # falls back to its chunk metadata, and that fallback looks exactly
+        # like a correct answer from the outside.
+        logger.warning(
+            "document metadata store unavailable; %s falls back to chunk metadata", "folder_path", exc_info=True
+        )
         return resolved
 
     by_collection: dict[str, list[str]] = {}
@@ -876,6 +1088,12 @@ def _resolve_folder_paths(chunks) -> dict[tuple[str, str], str]:
         try:
             stored_map = get_document_folder_paths(collection, file_names)
         except Exception:
+            logger.warning(
+                "document metadata store read failed for collection %s; %s falls back to chunk metadata",
+                collection,
+                "folder_path",
+                exc_info=True,
+            )
             stored_map = {}
         for file_name, stored in stored_map.items():
             if stored:
@@ -1027,10 +1245,55 @@ def _trace_lanes_json(
     would merely repeat the filename (project/Büroarchiv uploads, where the
     filename IS the user-meaningful name).
 
+    A source the publish path marked as agent-authored carries a
+    ``provenance`` object (``authored_by``/``approved_by``/``approved_at``/
+    ``producer``) and lands in its own lane, ``buero_piloti``. That lane is
+    decided by the provenance BEFORE the shelf, so a published Piloti document
+    filed on the project shelf keeps its author instead of joining
+    Projektwissen.
+
     ``resolved`` is the store-authoritative doc_class map from
     :func:`_resolve_doc_classes` and ``resolved_titles`` the stored display-title
     map from :func:`_resolve_display_titles`; when omitted they are computed here
     so the function stays usable standalone.
+
+    This is the CHUNK-facing entry point. It turns chunks into the same
+    :class:`~aiq_agent.common.grounding_block.GroundingHit` records the header
+    lines are rendered from and hands them to :func:`_trace_lanes_for_hits`, so
+    a hit's shelf, Dokumentart and title are derived once (ADR-0061).
+    """
+    try:
+        if resolved is None:
+            resolved = _resolve_doc_classes(chunks)
+        if resolved_titles is None:
+            resolved_titles = _resolve_display_titles(chunks)
+        hits = [
+            _grounding_hit(
+                chunk,
+                resolved=resolved,
+                resolved_titles=resolved_titles,
+                # Neither reaches the fan-out: it names documents by raw
+                # filename, so no citation key is built and no folder is read.
+                resolved_folders={},
+                ambiguous=set(),
+            )
+            for chunk in chunks
+        ]
+    except Exception:
+        logger.exception("Failed to build Trace-Lanes summary; omitting UI block metadata")
+        return '{"lanes":[]}'
+    return _trace_lanes_for_hits(hits)
+
+
+def _trace_lanes_for_hits(hits, opened_files: frozenset[str] = frozenset()) -> str:
+    """The ``## Trace-Lanes`` fan-out for records that are already built.
+
+    ``opened_files`` names the documents this result set OPENED rather than
+    ranked (the members of a family overview); their hits are stamped as
+    locator reads on the turn's ledger.
+
+    Fail-open: never break tool output for the LLM. See :func:`_trace_lanes_json`
+    for what the payload means and why each field is on it.
     """
     try:
         import json
@@ -1039,45 +1302,128 @@ def _trace_lanes_json(
         from aiq_agent.common.norm_registry import lane_for_knowledge_hit
         from aiq_agent.common.source_kinds import kind_for_lane
 
-        if resolved is None:
-            resolved = _resolve_doc_classes(chunks)
-        if resolved_titles is None:
-            resolved_titles = _resolve_display_titles(chunks)
-
         lanes: OrderedDict[str, dict] = OrderedDict()
-        for chunk in chunks:
-            metadata = chunk.metadata or {}
-            collection = metadata.get("collection")
-            doc_class = _hit_doc_class(chunk, resolved)
-            key, label = lane_for_knowledge_hit(doc_class=doc_class, file_name=chunk.file_name, collection=collection)
-            bucket = lanes.get(key)
-            if bucket is None:
-                bucket = {
-                    "key": key,
-                    "label": label,
-                    "kind": kind_for_lane(key),
-                    "hitCount": 0,
-                    "sources": [],
-                }
-                lanes[key] = bucket
+        for hit in hits:
+            key, label = lane_for_knowledge_hit(
+                doc_class=hit.doc_class,
+                file_name=hit.file_name,
+                collection=hit.collection,
+                shelf=hit.shelf,
+                authored_by=hit.authored_by,
+            )
+            bucket = lanes.setdefault(
+                key,
+                {"key": key, "label": label, "kind": kind_for_lane(key), "hitCount": 0, "sources": []},
+            )
             bucket["hitCount"] += 1
-            name = chunk.file_name or ""
-            detail = f"p.{chunk.page_number}" if chunk.page_number and chunk.page_number > 0 else None
-            # Deduplicate identical name+detail pairs inside a lane.
-            sig = (name, detail or "")
-            existing = {(s.get("name"), s.get("detail") or "") for s in bucket["sources"]}
-            if name and sig not in existing:
-                entry: dict[str, str] = {"name": name}
-                title = _hit_display_title(chunk, resolved_titles)
-                if title and title != name:
-                    entry["title"] = title
-                if detail:
-                    entry["detail"] = detail
-                bucket["sources"].append(entry)
+            _append_lane_source(bucket, hit, opened_files)
         return json.dumps({"lanes": list(lanes.values())}, ensure_ascii=False)
     except Exception:
         logger.exception("Failed to build Trace-Lanes summary; omitting UI block metadata")
         return '{"lanes":[]}'
+
+
+def _lane_detail(hit) -> str | None:
+    """Where in the document this hit sits, as the Herleitung names it.
+
+    The Punkt leads when the hit states one: a normative document is read by
+    its numbering, and "Pkt. 3.5.2" is the locus the reader can act on, where
+    "p.12" is where the printer happened to break the page. The page follows on
+    the same line because the frontend takes the preview's page out of this
+    string (``features/chat/lib/citations/build.ts``), and an entry that lost
+    it would open the document at page 1. The two are separated by a SPACE:
+    the Herleitung card joins several loci of one document with ", ", and a
+    comma inside one locus would read as two.
+    """
+    page = f"p.{hit.page}" if hit.page is not None else ""
+    if not hit.punkt:
+        return page or None
+    return f"Pkt. {hit.punkt} {page}".strip()
+
+
+def _append_lane_source(bucket: dict, hit, opened_files: frozenset[str] = frozenset()) -> None:
+    """Add one hit to its lane's source list, unless the lane already names it.
+
+    A hit from a document in ``opened_files`` is stamped as a locator read,
+    whatever tool rendered it: the family branch fetches each member the way
+    ``read_passage(document=…)`` does, so the ledger must credit those
+    documents as opened, or a later read of one of them is not a repeat.
+    """
+    from aiq_agent.common.provenance import provenance_metadata
+
+    name = hit.file_name or ""
+    detail = _lane_detail(hit)
+    # Deduplicate identical name+detail pairs inside a lane.
+    existing = {(source.get("name"), source.get("detail") or "") for source in bucket["sources"]}
+    if not name or (name, detail or "") in existing:
+        return
+    entry: dict[str, Any] = {"name": name}
+    if hit.display_title and hit.display_title != name:
+        entry["title"] = hit.display_title
+    if detail:
+        entry["detail"] = detail
+    if hit.shelf is not None:
+        entry["shelf"] = str(hit.shelf)
+    if hit.provenance is not None:
+        # The KEYS, not the German sentence: the fan-out is data, and a
+        # frontend that wants "freigegeben von …" should build it in the
+        # reader's own locale from the approver and the ISO date rather than
+        # parse it back out of prose.
+        entry["provenance"] = provenance_metadata(hit.provenance)
+    _stamp_and_capture_lane_source(entry, opened=name in opened_files)
+    bucket["sources"].append(entry)
+
+
+def _stamp_and_capture_lane_source(entry: dict, *, opened: bool = False) -> None:
+    """Stamp the entry with its retrieval round and note it on the turn's ledger.
+
+    The per-round ledger reads this, never the prose: the capture keeps every
+    round's hits apart, while the turn_sources log dedups documents across
+    rounds. A missing round stamp must not drop the hit.
+
+    ``record_lane_hit`` builds its OWN record and stamps the producing tool on
+    it from the scope the tool opened. That stamp stays in the capture: the
+    ``entry`` below is the Trace-Lanes payload the model and the frontend read,
+    and which tool fetched a passage is how a repeat is DERIVED, not something
+    either of them is shown.
+    """
+    try:
+        from contextlib import nullcontext
+
+        from aiq_agent.common.turn_status import READ_PASSAGE_TOOL
+        from aiq_agent.common.turn_status import current_retrieval_round
+        from aiq_agent.common.turn_status import lane_tool_scope
+        from aiq_agent.common.turn_status import record_lane_hit
+
+        round_index = current_retrieval_round()
+        if round_index is not None:
+            entry["round"] = round_index
+        # The producing tool is read off its scope, never passed (the rule in
+        # ``record_lane_hit``); an opened document gets the locator's scope.
+        with lane_tool_scope(READ_PASSAGE_TOOL) if opened else nullcontext():
+            record_lane_hit(
+                entry["name"],
+                title=entry.get("title"),
+                detail=entry.get("detail"),
+                shelf=entry.get("shelf"),
+            )
+    except Exception:  # noqa: BLE001 (the fan-out survives a missing status module)
+        logger.debug("Turn status unavailable; lane hit goes unstamped", exc_info=True)
+
+
+def _hit_provenance(chunk):
+    """The agent provenance stated in a hit's chunk metadata, or ``None``.
+
+    The keys are stamped at ingest by the publish path and read back by
+    ``aiq_agent.common.provenance``; a human-authored document has none, and
+    every line below that depends on this is simply not emitted for it. Chunk
+    metadata is the only carrier — unlike doc_class and the display title there
+    is no store-resolved override, because authorship is decided once, at
+    publish, and cannot be edited afterwards.
+    """
+    from aiq_agent.common.provenance import parse_agent_provenance
+
+    return parse_agent_provenance(chunk.metadata or {})
 
 
 def _chunk_shelf(chunk):
@@ -1114,129 +1460,286 @@ def _ambiguous_file_names(chunks) -> set[str]:
     return {name for name, shelves in shelves_by_name.items() if len(shelves) > 1}
 
 
-def _format_results(retrieval_result, query: str) -> str:
-    """
-    Format retrieval results for LLM consumption.
+def _citation_key_for(file_name: str, shelf, page: int | None, ambiguous: set[str]) -> str:
+    """The key the model copies: ``"filename, p.X"``, or just ``"filename"``.
 
-    Returns a structured string that provides context for the agent.
-    The format includes explicit citation fields so the LLM knows exactly
-    what to use in its References section.
+    It keeps the REAL filename, which is the document identity preview
+    resolution and source dedup use; only the human ``Source:`` label is
+    prettified. When the same filename arrived from two different shelves in
+    this very result set the name alone no longer identifies a document, so it
+    is qualified: ``Plan.pdf (Projektwissen), p.3``. The qualifier is
+    rendering, not transport, and an unknown shelf gets none.
     """
+    from aiq_agent.common.source_kinds import shelf_qualifier
+
+    name = file_name
+    qualifier = shelf_qualifier(shelf) if name and name.lower() in ambiguous else None
+    if qualifier:
+        name = f"{name} ({qualifier})"
+    return f"{name}, p.{page}" if page is not None else name
+
+
+def _stored_image_index(metadata: dict) -> int | None:
+    """The index of a raster the ingest pipeline stored beside the document.
+
+    ``None`` unless the chunk carries BOTH keys (``image_store.py``): the model
+    reads the index off the rendered line and passes it to
+    ``view_knowledge_image``, which then shows the embedded image itself rather
+    than a render of the page around it, and an index with no stored key names
+    nothing.
+    """
+    index = metadata.get("stored_image_index")
+    if index is None or not metadata.get("image_key"):
+        return None
+    try:
+        return int(index)
+    except (TypeError, ValueError):
+        logger.warning("Ignoring unreadable stored_image_index %r", index)
+        return None
+
+
+def _metadata_text(value: object) -> str | None:
+    """A chunk-metadata value as the string a grounding block states, or ``None``."""
+    return str(value) if value else None
+
+
+def _grounding_hit(chunk, *, resolved, resolved_titles, resolved_folders, ambiguous: set[str]):
+    """One retrieval chunk as the RECORD a grounding block is made of (ADR-0061).
+
+    The single place a chunk becomes citable fields, so the header lines, the
+    Trace-Lanes fan-out and the citation registry cannot disagree about a hit's
+    shelf, Dokumentart or title. Three fields are resolved against the document
+    metadata store rather than chunk metadata (``doc_class``, ``display_title``,
+    ``folder_path``): the store is authoritative and a folder rename must take
+    effect with no re-ingest (ADR-0049).
+    """
+    from aiq_agent.common.grounding_block import GroundingHit
+
+    metadata = chunk.metadata or {}
+    shelf = _chunk_shelf(chunk)
+    page = chunk.page_number if chunk.page_number and chunk.page_number > 0 else None
+    content = chunk.content
+    truncated = len(content) > _CHUNK_TRUNCATE_CHARS
+    return GroundingHit(
+        citation_key=_citation_key_for(chunk.file_name, shelf, page, ambiguous),
+        file_name=chunk.file_name,
+        page=page,
+        shelf=shelf,
+        collection=_metadata_text(metadata.get("collection")),
+        doc_class=_hit_doc_class(chunk, resolved),
+        display_title=_hit_display_title(chunk, resolved_titles) or chunk.file_name,
+        folder_path=_hit_folder_path(chunk, resolved_folders),
+        punkt=_metadata_text(metadata.get("punkt_id")),
+        score=chunk.score,
+        content_type=chunk.content_type.value,
+        provenance=_hit_provenance(chunk),
+        stored_image_index=_stored_image_index(metadata),
+        status_note=None,
+        source_url=None,
+        body=content[:_CHUNK_TRUNCATE_CHARS] if truncated else content,
+        body_truncated=truncated,
+    )
+
+
+def _grounding_hits(chunks) -> tuple:
+    """Every chunk of one result set as a record.
+
+    The three store reads are batched once per result set (one query per
+    in-scope collection), and which filenames are ambiguous is a property of
+    the whole set, so both belong here rather than in the per-chunk builder.
+    """
+    resolved = _resolve_doc_classes(chunks)
+    resolved_titles = _resolve_display_titles(chunks)
+    resolved_folders = _resolve_folder_paths(chunks)
+    ambiguous = _ambiguous_file_names(chunks)
+    return tuple(
+        _grounding_hit(
+            chunk,
+            resolved=resolved,
+            resolved_titles=resolved_titles,
+            resolved_folders=resolved_folders,
+            ambiguous=ambiguous,
+        )
+        for chunk in chunks
+    )
+
+
+def _format_results(
+    retrieval_result,
+    query: str,
+    notice: str = "",
+    trailer: str = "",
+    preamble_note: str = "",
+    opened_files: frozenset[str] = frozenset(),
+) -> str:
+    """Build this result set's grounding hits and render them for the LLM.
+
+    The layout itself lives in
+    :func:`~aiq_agent.common.grounding_block.render_grounding_block`, which also
+    files the records under the hash of the bytes it returns, so the citation
+    registry reads fields rather than re-parsing this text (ADR-0061). That is
+    why both decorations are rendered here and neither is glued on by the
+    caller: a byte added after rendering changes the hash, and the reader would
+    fall back to parsing the text. ``notice`` is what the model must read before
+    the results (the requery widening, a family overview that could not be
+    built) and goes ahead of everything; ``trailer`` is ``read_passage``'s
+    ``## Gliederung`` index and follows the fan-out.
+
+    ``preamble_note`` is what the CALL was, when that is more than a count: the
+    family a family-shaped query resolved to, and where its parts sit in the
+    results. It is a second preamble line, so a result set without one renders
+    byte-for-byte as before.
+    """
+    # The two answers below carry no block, so they carry no hash to protect
+    # either; there the trailer is simply appended, which keeps it stated
+    # whichever answer this call has.
+    tail = f"\n{trailer}" if trailer else ""
+
     # Check for retrieval errors and surface them to the agent
+    # getattr: callers pass duck-typed result-likes (e.g. SimpleNamespace in
+    # tests) that may not carry the optional error_message field.
     if not retrieval_result.success:
-        error_msg = retrieval_result.error_message or "Unknown error"
-        return f"Knowledge retrieval failed: {error_msg}\n\nQuery: '{query}'"
+        error_msg = getattr(retrieval_result, "error_message", None) or "Unknown error"
+        return f"Knowledge retrieval failed: {error_msg}\n\nQuery: '{query}'{tail}"
+
+    # Degraded partial retrieval (e.g. the base corpus dropped out on an
+    # embedding-fingerprint mismatch while other layers survived): the chunks
+    # below are real, but they are NOT the full corpus. Without this banner the
+    # LLM reads a partial answer as a complete one.
+    degraded_detail = getattr(retrieval_result, "error_message", None)
+    degraded_banner = notice + (f"WARNING: {degraded_detail}\n\n" if degraded_detail else "")
 
     if not retrieval_result.chunks:
-        return f"No relevant documents found for query: '{query}'"
+        return f"{degraded_banner}No relevant documents found for query: '{query}'{tail}"
 
-    lines = [f"Found {len(retrieval_result.chunks)} relevant document(s):\n"]
+    from aiq_agent.common.grounding_block import GroundingBlock
+    from aiq_agent.common.grounding_block import render_grounding_block
 
-    # Resolve the authoritative doc_class per document once (store wins over chunk
-    # metadata) and reuse it for both the Dokumentart line and the Trace-Lanes
-    # fan-out so the two never disagree.
-    resolved = _resolve_doc_classes(retrieval_result.chunks)
-    # Resolve the user-facing display title per document once (stored override →
-    # derived default). This becomes the citation chip label so the answer never
-    # surfaces a raw corpus filename like "oib-rl_2_ausgabe_mai_2023.pdf".
-    resolved_titles = _resolve_display_titles(retrieval_result.chunks)
-    # Where each document is filed (ADR-0049) — one batched read per collection,
-    # same shape as the two above. The model needs it to say "der Plan im Ordner
-    # Brandschutz" rather than only naming the file.
-    resolved_folders = _resolve_folder_paths(retrieval_result.chunks)
-    # Names this result set holds on more than one shelf; only these are qualified.
-    ambiguous = _ambiguous_file_names(retrieval_result.chunks)
+    hits = _grounding_hits(retrieval_result.chunks)
+    preamble = f"Found {len(hits)} relevant document(s):"
+    return render_grounding_block(
+        GroundingBlock(
+            preamble=f"{preamble}\n{preamble_note}" if preamble_note else preamble,
+            degraded_banner=degraded_banner,
+            hits=hits,
+            # Fan-out summary for the Herleitung UI, from the same records the
+            # header lines state.
+            lanes=_trace_lanes_for_hits(hits, opened_files),
+            trailer=trailer,
+        )
+    )
 
-    for i, chunk in enumerate(retrieval_result.chunks, 1):
-        # Build citation string: "filename, p.X" or just "filename". The Citation
-        # keeps the real filename — it is the document identity used for preview
-        # resolution and source dedup; only the human Source label is prettified.
-        # When the same filename arrived from two different shelves in this very
-        # result set, the name alone no longer identifies a document, so it is
-        # qualified: "Plan.pdf (Projektwissen), p.3".
-        shelf = _chunk_shelf(chunk)
-        name = chunk.file_name
-        if name and name.lower() in ambiguous:
-            from aiq_agent.common.source_kinds import shelf_qualifier
 
-            # Rendering, not transport: the qualifier is how the shelf READS in a
-            # key the model copies. An unknown shelf gets none (unattributed).
-            qualifier = shelf_qualifier(shelf)
-            if qualifier:
-                name = f"{name} ({qualifier})"
-        if chunk.page_number and chunk.page_number > 0:
-            citation = f"{name}, p.{chunk.page_number}"
-        else:
-            citation = name
+#: The one line the model reads when the overview raised. Without it a family
+#: question answered by ranked passages is indistinguishable from an ordinary
+#: two-document search, in the result and in the Herleitung built from it. It
+#: names the way back rather than an instruction: the parts are still readable,
+#: one call each.
+_FAMILY_OVERVIEW_FAILED_NOTICE = (
+    "Hinweis: der Überblick über die Teile der OIB-Richtlinie {key} konnte nicht erstellt werden; "
+    "es folgen nur die gerankten Treffer, die Teile sind einzeln mit `read_passage(document=…)` "
+    "zu öffnen.\n\n"
+)
 
-        # Header with source info. `Source:` carries the user-facing display name
-        # (parsed into the citation chip's title); it falls back to the filename
-        # for documents with no display title (project/Büroarchiv uploads).
-        display_title = _hit_display_title(chunk, resolved_titles) or chunk.file_name
 
-        lines.append(f"--- Result {i} ---")
-        lines.append(f"Source: {display_title}")
-        collection = (chunk.metadata or {}).get("collection")
-        if collection:
-            lines.append(f"Collection: {collection}")
-        # The shelf travels as DATA (ADR-0047): the citation payload states it so
-        # the source registry never re-derives it from the collection id. Omitted
-        # when unknown — the reader must see the absence, not a default.
-        if shelf is not None:
-            lines.append(f"Shelf: {shelf}")
-        # WHERE the user filed this document (ADR-0049). Resolved from the
-        # metadata store, not from chunk metadata, so a folder rename shows up
-        # here immediately. Omitted for a document at the shelf's root — an
-        # absent line is "no folder", never a default one.
-        folder_path = _hit_folder_path(chunk, resolved_folders)
-        if folder_path:
-            lines.append(f"Ordner: {folder_path}")
-        # Explicit per-document classification ("Dokumentart"). Emit the machine
-        # doc_class key first (the citation parser reads it) followed by the
-        # German label so the LLM is told the document's role in the norm
-        # hierarchy. The summary store is authoritative; chunk metadata is only a
-        # fallback (standalone deploys with no summary DB).
-        doc_class = _hit_doc_class(chunk, resolved)
-        if doc_class:
-            from aiq_agent.knowledge.document_classification import DOCUMENT_CLASS_LABELS
+@dataclass(frozen=True, slots=True)
+class _FamilyBranch:
+    """What the family branch produced: an overview, or the fact that it broke.
 
-            label = DOCUMENT_CLASS_LABELS.get(doc_class, doc_class)
-            lines.append(f"Dokumentart: {doc_class} — {label}")
-        if chunk.page_number and chunk.page_number > 0:
-            lines.append(f"Page: {chunk.page_number}")
-        # The Punkt this excerpt belongs to, when the chunker established one. An
-        # Austrian building-law answer cites a requirement number ("OIB-RL 2, Pkt.
-        # 5.1.1"), and without this line the model has to read that number out of the
-        # excerpt text. That works for a Punkt that starts its own chunk and fails
-        # exactly where it matters: an over-long Punkt is split downstream by
-        # SentenceSplitter, and its continuation chunks inherit `punkt_id` in metadata
-        # while presenting to the model as anonymous prose with a page number. The
-        # model then guesses a number, and the prompt tells it to produce one.
-        #
-        # Stating it is also what makes the chunker's verified `punkt_id` reachable by
-        # anything downstream: until now it was computed, measured exactly against the
-        # corpus's contents pages, and then dropped before the citation the user reads.
-        punkt_id = (chunk.metadata or {}).get("punkt_id")
-        if punkt_id:
-            lines.append(f"Punkt: {punkt_id}")
-        lines.append(f"Citation: {citation}")
-        lines.append(f"Content Type: {chunk.content_type.value}")
-        lines.append(f"Relevance Score: {chunk.score:.2f}")
-        lines.append("")
+    "This query names no family the corpus holds" and "the overview raised"
+    both used to arrive as ``None``, so the tool result could not say which had
+    happened, and neither could a trace of it.
+    """
 
-        content = chunk.content
-        if len(content) > _CHUNK_TRUNCATE_CHARS:
-            content = content[:_CHUNK_TRUNCATE_CHARS] + "... [truncated]"
-        lines.append(content)
-        lines.append("")
+    overview: Any = None
+    failed: bool = False
 
-    # Fan-out summary for the Herleitung UI (after chunk bodies so the LLM
-    # still sees citations first; parsers look for the marker explicitly).
-    lines.append("## Trace-Lanes")
-    lines.append(_trace_lanes_json(retrieval_result.chunks, resolved, resolved_titles))
-    lines.append("")
 
-    return "\n".join(lines)
+#: No family branch ran: an ordinary search, with nothing to say about one.
+_NO_FAMILY_BRANCH = _FamilyBranch()
+
+
+async def _family_branch(entries, family_key: str) -> _FamilyBranch:
+    """The family branch, fail-open: a broken overview keeps the ordinary search.
+
+    Imported here rather than at module scope because ``read_passage`` imports
+    this module back; both directions are function-scoped, so neither package
+    can be half-initialised by the other.
+    """
+    from .read_passage import FamilyUnreadable
+    from .read_passage import family_overview
+
+    try:
+        return _FamilyBranch(overview=await family_overview(entries, family_key))
+    except FamilyUnreadable as exc:
+        logger.warning("Family overview skipped for Richtlinie %s: %s", family_key, exc)
+        return _FamilyBranch(failed=True)
+    except Exception:  # noqa: BLE001 — the ranked passages are always a valid answer
+        logger.warning("Family overview skipped for Richtlinie %s", family_key, exc_info=True)
+        return _FamilyBranch(failed=True)
+
+
+def _without_chunks(chunks, exclude) -> list:
+    """``chunks`` minus every chunk ``exclude`` already carries, by chunk id.
+
+    A scope passage the search ALSO ranked is one passage, and rendering it
+    twice would spend a result slot on a repeat and offer the model two
+    citation keys for one text.
+    """
+    taken = {getattr(chunk, "chunk_id", None) for chunk in exclude}
+    taken.discard(None)
+    return [chunk for chunk in chunks if getattr(chunk, "chunk_id", None) not in taken]
+
+
+def _normalized_query_for_span(text: str) -> str:
+    """Latency-span form of a query: whitespace-folded, casefolded.
+
+    Local (not imported) so the span path never depends on the judge module:
+    tracing must stay up when the loop module cannot be imported. Mirrors
+    ``knowledge_layer.requery._normalised``.
+    """
+    import re as _re
+
+    try:
+        return _re.sub(r"\s+", " ", str(text or "")).strip().casefold()
+    except Exception:
+        return ""
+
+
+def _citation_key_for_span(chunk) -> str | None:
+    """The citation key a returned chunk will be cited by, for the span.
+
+    Mirrors ``_format_results`` without its shelf-qualification: the span
+    needs a stable per-fetch key loop_eval can count (repeat_query,
+    cross_turn, family_overlap), not the rendering. Prefers the stored
+    display citation when the backend populated it. Never raises.
+    """
+    try:
+        stored = getattr(chunk, "display_citation", None)
+        if isinstance(stored, str) and stored.strip():
+            return " ".join(stored.split())
+        name = getattr(chunk, "file_name", None) or ""
+        page = getattr(chunk, "page_number", None)
+        if not name:
+            return None
+        if isinstance(page, int) and page > 0:
+            return f"{name}, p.{page}"
+        return str(name)
+    except Exception:
+        return None
+
+
+def _current_span_round() -> int | None:
+    """The retrieval round this fetch runs in, or ``None`` when unstamped.
+
+    Fail-open: instrumentation never breaks the search.
+    """
+    try:
+        from aiq_agent.common.turn_status import current_retrieval_round
+
+        return current_retrieval_round()
+    except Exception:
+        return None
 
 
 @register_function(config_type=KnowledgeRetrievalConfig)
@@ -1273,9 +1776,30 @@ async def knowledge_retrieval(config: KnowledgeRetrievalConfig, _builder: Builde
         except Exception as e:
             logger.warning(f"Could not resolve rerank_llm '{config.rerank_llm}', reranking disabled: {e}")
 
+    # The retrieval loop's judge (fail-open the same way). Shares the reranker's
+    # handle when the config names the same model, which is the reference setup.
+    requery_llm_obj = None
+    if config.requery_llm:
+        if config.requery_llm == config.rerank_llm and rerank_llm_obj is not None:
+            requery_llm_obj = rerank_llm_obj
+        else:
+            from aiq_agent.common import get_langchain_llm
+
+            try:
+                requery_llm_obj = await get_langchain_llm(_builder, config.requery_llm)
+                logger.info("Resolved requery model: %s", config.requery_llm)
+            except Exception as e:
+                logger.warning(f"Could not resolve requery_llm '{config.requery_llm}', retrieval loop disabled: {e}")
+
     # Cross-encoder reranking, when configured. Primary when present; the LLM judge
     # above stays as the fallback. Returns None (never raises) for 'none', an unknown
-    # provider, or a key that does not resolve.
+    # provider, or a key that does not resolve. Built once at startup with no
+    # organization in scope, which is why the KEY is no longer decided here: the
+    # handle resolves its credential per search from the turn's organization, so
+    # a BYOK org's reranks go out on its own key
+    # (``cross_encoder.CrossEncoderReranker._credential_for_search``). The
+    # platform key still has to resolve at startup, because a handle that could
+    # never authenticate anything is one this returns None for.
     cross_encoder = None
     try:
         from knowledge_layer.cross_encoder import resolve_cross_encoder
@@ -1283,6 +1807,17 @@ async def knowledge_retrieval(config: KnowledgeRetrievalConfig, _builder: Builde
         cross_encoder = resolve_cross_encoder(config.reranker_provider, model=config.reranker_model)
     except Exception as e:
         logger.warning(f"Cross-encoder reranker unavailable ({type(e).__name__}: {e}); using the LLM judge")
+
+    # HyDE-as-channel (backlog item 14, experiment, default off): the draft
+    # reuses the resolved rerank handle — temperature-0, reasoning-free, the
+    # shape a hypothetical-passage probe wants — so this adds no model
+    # plumbing and re-points no model. Without that handle the channel is
+    # silently off, however the flag is set.
+    hyde_armed = bool(config.hyde_enabled and rerank_llm_obj is not None)
+    logger.info(
+        "HyDE channel: %s",
+        "armed (draft via rerank_llm)" if hyde_armed else "disabled",
+    )
 
     # Initialize summary DB with configured URL
     from aiq_agent.knowledge.factory import configure_summary_db
@@ -1316,6 +1851,7 @@ async def knowledge_retrieval(config: KnowledgeRetrievalConfig, _builder: Builde
         title_contains: str | None = None,
         file_name: str | None = None,
         folder: str | None = None,
+        conclusion: str = "",
     ) -> str:
         """Read and cite passages from the ingested knowledge base.
 
@@ -1323,6 +1859,12 @@ async def knowledge_retrieval(config: KnowledgeRetrievalConfig, _builder: Builde
             query (str): The fact or passage you need, rewritten as a search
                 query (topic + jurisdiction + implied year). Not the raw user
                 message.
+            conclusion (str): ONE sentence: what you now know and what you
+                still need, which is why you are making this call. Empty on
+                your first call of the turn, when you know nothing yet. It is
+                the Herleitung checkpoint the reader sees above this fetch; it
+                does not change what is searched and does not belong in your
+                answer.
             file_name (str | None): Indexed file name to read (from the
                 inventory or the user). Never invent a name. Base-corpus
                 files are not listed in the inventory — filter those with
@@ -1344,6 +1886,12 @@ async def knowledge_retrieval(config: KnowledgeRetrievalConfig, _builder: Builde
         Returns:
             str: Numbered excerpts with a Citation key to copy verbatim.
         """
+        # `conclusion` is deliberately unread HERE. It is a checkpoint channel,
+        # not a retrieval parameter: the researcher's agent node reads it off
+        # the tool CALL (`turn_status.emit_retrieval`) before this coroutine
+        # runs, and it must not influence what is searched — a sentence that
+        # changed the result would make the Herleitung a cause instead of a
+        # record of one.
         query = (query or "").strip()
         file_name = (file_name or "").strip() or None
         title_contains = (title_contains or "").strip() or None
@@ -1422,13 +1970,38 @@ async def knowledge_retrieval(config: KnowledgeRetrievalConfig, _builder: Builde
             [(entry.collection, entry.shelf) for entry in target_collections],
         )
 
-        async def _retrieve_collection(entry):
+        # A query that names a Richtlinie and nothing else asks about the whole
+        # FAMILY, and OIB 2 is four documents. Ranked passages answer that with
+        # whichever two scored best, and the model cannot ask for the parts it
+        # does not know exist, so this reads every member's scope and
+        # Gliederung BESIDE the search and renders both in one block.
+        # `file_name=` and `folder=` are the caller narrowing to one document,
+        # which is the opposite request.
+        from aiq_agent.common.norm_registry import family_query_number
+
+        family_key = None if (file_name or folder) else family_query_number(query)
+        family_task = asyncio.create_task(_family_branch(target_collections, family_key)) if family_key else None
+
+        # Per-turn requery budget: one firing per turn. Reset per turn id when
+        # the NAT context states one (user message id), falling back to the
+        # executing-round stamp (round zero opens a new turn); unstamped
+        # callers (tests, standalone) get a slot rather than inheriting a
+        # spent cap. Fail-open when neither is visible.
+        span_round = _current_span_round()
+        try:
+            from knowledge_layer.requery import reset_requery_slot_for_turn
+
+            reset_requery_slot_for_turn(span_round)
+        except Exception:
+            logger.debug("Requery slot reset skipped", exc_info=True)
+
+        async def _retrieve_collection(entry, search_query: str = retrieval_query):
             coll = entry.collection
             # File exclusions + caller filters apply to the base collection only;
             # session/project collections are user content and are never filtered.
             coll_filters = _base_collection_filters(config, filters) if coll == base_collection else None
             result = await retriever.retrieve(
-                query=retrieval_query, collection_name=coll, top_k=candidate_k, filters=coll_filters
+                query=search_query, collection_name=coll, top_k=candidate_k, filters=coll_filters
             )
             # Tag each chunk with its collection so the merge does not lose the
             # per-hit stratum — the trace UI's lane labels and source_lane read it.
@@ -1473,33 +2046,88 @@ async def knowledge_retrieval(config: KnowledgeRetrievalConfig, _builder: Builde
 
         try:
             # Fan out across all layers concurrently; tolerate empty/missing layers.
-            results = await asyncio.gather(
+            # The HyDE draft (when armed) is drafted BESIDE that fan-out, so a fast
+            # draft costs no latency; a slow one reads as no draft (fail-open) and
+            # the search below is exactly the baseline. return_exceptions=True also
+            # covers the draft slot, so the probe can never break the search.
+            gathered = await asyncio.gather(
                 *(_retrieve_collection(entry) for entry in target_collections),
+                _draft_hyde_text(
+                    rerank_llm_obj,
+                    query,
+                    enabled=config.hyde_enabled,
+                    timeout_seconds=config.hyde_timeout_seconds,
+                ),
                 return_exceptions=True,
             )
+            *results, hyde_text = gathered
+            if isinstance(hyde_text, Exception) or not hyde_text:
+                hyde_text = None
+
+            hyde_results: list = []
+            if hyde_text:
+                # One extra RRF channel per collection, APPENDED after the
+                # original query's channels so the question as asked keeps the
+                # tie-break seat (same convention as the requery widening
+                # below). The draft goes through the SAME retrieve path — same
+                # embedding model and fingerprint chain, same filters, same
+                # hybrid boost — and is discarded right after: it never reaches
+                # the reranker (which judges the original query) or the
+                # formatted answer. Any fan-out failure keeps the first pool.
+                try:
+                    hyde_results = await asyncio.gather(
+                        *(_retrieve_collection(entry, hyde_text) for entry in target_collections),
+                        return_exceptions=True,
+                    )
+                    logger.info(
+                        "HyDE channel widened the pool with a %d-char draft for %r",
+                        len(hyde_text),
+                        query[:60],
+                    )
+                except Exception:  # noqa: BLE001 - the first ranking is always a valid answer
+                    logger.warning("HyDE fan-out failed; keeping the first pool", exc_info=True)
+                    hyde_results = []
 
             # Merge by cross-collection rank fusion (scores are NOT comparable across
-            # collections) with a per-document diversity cap so cross-cutting questions
-            # span multiple documents. `results` is in `target_collections` order, which
-            # is the channel order the fusion breaks exact ties by.
-            merged = _merge_results(results, query, candidate_k, retriever.backend_name, effective_max_per_document)
+            # collections). `results` is in `target_collections` order, which is the
+            # channel order the fusion breaks exact ties by.
+            #
+            # The per-document diversity cap is NOT applied here. This merge builds the
+            # CANDIDATE pool (`candidate_k`, 60 under the reference config), and a cap
+            # measured against that budget decides nothing: with one collection in scope
+            # the pool is at most `candidate_k` long, the soft fill returns everything,
+            # and the final trim to `top_k` below applied no cap at all -- one PDF could
+            # fill all sixteen answer slots while the tool description promised five.
+            # The cap belongs on the ANSWER budget, after the reranker has had the whole
+            # pool to judge (rag-system-audit-2026-08 F16), so it is applied below.
+            # HyDE channels ride along EMPTY by default and appended after the
+            # originals when the probe fired, so the baseline order is untouched
+            # unless the experiment added a real channel.
+            merged = _merge_results(
+                [*results, *hyde_results], query, candidate_k, retriever.backend_name, max_per_document=0
+            )
 
             # Agentic narrowing, then trim to the effective top_k.
             # `file_name=` is a FILTER, not a preference: the agent named a
             # file, so other hits would be a silent bait-and-switch.
-            if doc_class or title_contains or file_name or folder:
-                kept = _apply_agent_filters(
-                    merged.chunks,
-                    doc_class=doc_class,
-                    title_contains=title_contains,
-                    file_name=file_name,
-                    folder=folder,
-                )
-                merged = merged.model_copy(update={"chunks": kept})
+            def _narrowed(pool):
+                if doc_class or title_contains or file_name or folder:
+                    return _apply_agent_filters(
+                        pool.chunks,
+                        doc_class=doc_class,
+                        title_contains=title_contains,
+                        file_name=file_name,
+                        folder=folder,
+                    )
+                return pool.chunks
+
+            merged = merged.model_copy(update={"chunks": _narrowed(merged)})
 
             # Reranking: cross-encoder first when configured, LLM judge as the
             # fallback (fail-open: any error keeps the fused order).
-            if rerank_llm_obj is not None or cross_encoder is not None:
+            async def _reranked(chunks):
+                if rerank_llm_obj is None and cross_encoder is None:
+                    return chunks
                 from knowledge_layer.rerank import rerank_chunks
 
                 # Never trim below what the caller is about to ask for. `top_k` is
@@ -1509,16 +2137,122 @@ async def knowledge_retrieval(config: KnowledgeRetrievalConfig, _builder: Builde
                 # no error — the "must exceed top_k" invariant was documented in a
                 # comment and enforced nowhere.
                 rerank_top_n = max(effective_top_k, config.rerank_candidates)
-                reranked = await rerank_chunks(
+                return await rerank_chunks(
                     rerank_llm_obj,
                     query,
-                    merged.chunks,
+                    chunks,
                     top_n=rerank_top_n,
                     cross_encoder=cross_encoder,
                 )
-                merged = merged.model_copy(update={"chunks": reranked})
 
-            merged = merged.model_copy(update={"chunks": merged.chunks[:effective_top_k]})
+            # The retrieval loop (rag-system-audit-2026-08 F13). The judge reads
+            # the head of the fused pool BESIDE the reranker rather than before
+            # it, so a pool that is sufficient — the common case — pays nothing
+            # for having been judged. Only an insufficient verdict costs a second
+            # round: the proposed formulations are retrieved from every collection
+            # in scope, fused into the SAME RRF as new channels (a chunk two
+            # queries agree on rises, one only a paraphrase found enters), and the
+            # widened pool is reranked once more. Never raises: the judge fails
+            # open to "sufficient", and a failed fan-out keeps the first ranking.
+            #
+            # Latency gate: the judge is skipped when the first pool already
+            # answers (decisively strong scores, or a known-entity/family
+            # lookup), and the turn fires at most ONCE no matter what the judge
+            # says — on lookups the verdict manufactures the second round.
+            requery_skipped_reason: str | None = None
+
+            async def _judged(chunks):
+                nonlocal requery_skipped_reason
+                # A search pinned to one document is a precision lookup — the
+                # caller knows where the passage is and wants that passage.
+                # Paraphrasing it across every collection in scope is the
+                # opposite of what was asked, and every document it drags in
+                # lands in the Herleitung as "read".
+                if requery_llm_obj is None or file_name:
+                    if file_name:
+                        requery_skipped_reason = "file_pinned"
+                    return None
+                try:
+                    from knowledge_layer.requery import requery_already_fired
+                    from knowledge_layer.requery import should_skip_judge
+
+                    if requery_already_fired():
+                        requery_skipped_reason = "already_fired"
+                        logger.info("Retrieval loop judge skipped (already_fired) for %r", query[:60])
+                        return None
+                    skip, reason = should_skip_judge(
+                        query,
+                        chunks,
+                        file_name=file_name,
+                        doc_class=doc_class,
+                        title_contains=title_contains,
+                        folder=folder,
+                        embedding_model=getattr(retriever, "embed_model_name", None),
+                    )
+                    if skip:
+                        requery_skipped_reason = reason
+                        logger.info("Retrieval loop judge skipped (%s) for %r", reason, query[:60])
+                        return None
+                except Exception:
+                    logger.debug("Requery gate failed open to the judge", exc_info=True)
+                from knowledge_layer.requery import judge_sufficiency
+
+                return await judge_sufficiency(requery_llm_obj, query, chunks, max_queries=config.requery_max_queries)
+
+            reranked, verdict = await asyncio.gather(_reranked(merged.chunks), _judged(merged.chunks))
+            requery_queries: list[str] = []
+            requery_fired = False
+            if verdict is not None and verdict.wants_requery:
+                try:
+                    from knowledge_layer.requery import claim_requery_slot
+
+                    if not claim_requery_slot():
+                        requery_skipped_reason = "already_fired"
+                        logger.info(
+                            "Retrieval loop requery suppressed (already_fired): "
+                            "one firing per turn already spent, keeping the first pool"
+                        )
+                    else:
+                        from aiq_agent.common.turn_status import emit_retrieval_requery
+
+                        emit_retrieval_requery(query_count=len(verdict.queries))
+                        extra = await asyncio.gather(
+                            *(
+                                _retrieve_collection(entry, alternative)
+                                for alternative in verdict.queries
+                                for entry in target_collections
+                            ),
+                            return_exceptions=True,
+                        )
+                        # The original query's channels stay first: RRF breaks exact
+                        # ties by channel order, and the question as asked keeps the
+                        # tie-break seat over any rewording of it.
+                        widened = _merge_results(
+                            [*results, *extra], query, candidate_k, retriever.backend_name, max_per_document=0
+                        )
+                        widened = widened.model_copy(update={"chunks": _narrowed(widened)})
+                        reranked = await _reranked(widened.chunks)
+                        merged = widened
+                        requery_queries = list(verdict.queries)
+                        requery_fired = True
+                        logger.info(
+                            "Retrieval loop widened the pool with %d alternative quer(y/ies) to %d candidate(s)",
+                            len(requery_queries),
+                            len(merged.chunks),
+                        )
+                except Exception:  # noqa: BLE001 - the first ranking is always a valid answer
+                    logger.warning("Retrieval loop fan-out failed; keeping the first pool", exc_info=True)
+            merged = merged.model_copy(update={"chunks": reranked})
+
+            # Diversity cap on the ANSWER budget, in whatever order survived reranking
+            # (or the fused order when no reranker is configured). Soft, as the tool
+            # description promises: at most `max_chunks_per_document` per document
+            # where possible, filled back from the deferred ranks when there are not
+            # enough distinct documents. With the cap disabled this is the plain trim.
+            pre_cap_count = len(merged.chunks)
+            capped = _apply_diversity_cap(merged.chunks, effective_top_k, effective_max_per_document)
+            dropped_by_cap = max(0, pre_cap_count - len(capped))
+            merged = merged.model_copy(update={"chunks": capped})
 
             # Relevance floor. Without one, top_k is ALWAYS filled: a question this
             # corpus cannot answer still returns sixteen formatted excerpts with page
@@ -1566,6 +2300,23 @@ async def knowledge_retrieval(config: KnowledgeRetrievalConfig, _builder: Builde
                     dropped_by_floor = before_floor - len(kept)
                 merged = merged.model_copy(update={"chunks": kept})
 
+            # The family's members go in FRONT of the ranked passages, and after
+            # the cap and the floor: they are addressed, not ranked, so neither
+            # budget decides whether a part of the Richtlinie is shown. A
+            # passage the search also found is one passage, not two.
+            branch = await family_task if family_task is not None else _NO_FAMILY_BRANCH
+            overview = branch.overview
+            if not merged.success:
+                # A fan-out that FAILED is reported as a failure. Decorating it
+                # with an overview would render a complete-looking block over a
+                # corpus that answered nothing.
+                overview = None
+            family_note = overview.preamble if overview is not None else ""
+            if overview is not None:
+                merged = merged.model_copy(
+                    update={"chunks": [*overview.chunks, *_without_chunks(merged.chunks, overview.chunks)]}
+                )
+
             # The picking, as a first-class observation (ADR-0044): one
             # `retrieve.knowledge_search` span carrying query, collections,
             # budgets and the picked chunk ids/files/scores — metadata only,
@@ -1577,26 +2328,98 @@ async def knowledge_retrieval(config: KnowledgeRetrievalConfig, _builder: Builde
             from aiq_agent.observability.retrieval_trace import emit_retrieval_span
 
             try:
+                search_input = build_retrieval_input(
+                    query=query,
+                    retrieval_query=retrieval_query,
+                    collections=target_collections,
+                    candidate_k=candidate_k,
+                    top_k=effective_top_k,
+                    reranked=rerank_llm_obj is not None or cross_encoder is not None,
+                    dropped_by_floor=dropped_by_floor,
+                    requery_queries=requery_queries,
+                )
+                # Per-fetch latency instrumentation (additive only; no behavior
+                # change — tracing must never break the search). These are the
+                # fields loop_eval counts double-fetch rates off: which round
+                # and tool fetched, the normalized query to spot repeat_query,
+                # the locator args to spot locator_eligible, the returned
+                # citation keys to spot cross_turn/family_overlap, and the
+                # requery/cap/refusal flags to spot cap_retry/repair_fetch.
+                # No usage/cost telemetry by design: counts and keys only.
+                try:
+                    search_input["round"] = span_round
+                    search_input["tool"] = "knowledge_search"
+                    search_input["normalized_query"] = _normalized_query_for_span(query)
+                    if file_name:
+                        search_input["file_name"] = file_name
+                    if doc_class:
+                        search_input["doc_class"] = doc_class
+                    if title_contains:
+                        search_input["title_contains"] = title_contains
+                    if folder:
+                        search_input["folder"] = folder
+                    if requery_skipped_reason:
+                        search_input["requery_skipped"] = requery_skipped_reason
+                    search_input["requery_fired"] = bool(requery_fired)
+                    if dropped_by_cap:
+                        search_input["dropped_by_cap"] = dropped_by_cap
+                    if not merged.chunks:
+                        search_input["empty"] = True
+                    if getattr(merged, "error_message", None):
+                        search_input["degraded"] = True
+                    if not getattr(merged, "success", True):
+                        search_input["refused"] = True
+                except Exception:
+                    logger.debug("Retrieval span enrichment skipped", exc_info=True)
+                picks = build_retrieval_output(chunks=merged.chunks)
+                try:
+                    keys = [_citation_key_for_span(chunk) for chunk in merged.chunks]
+                    keys = [key for key in keys if key]
+                    if keys:
+                        picks["citation_keys"] = keys
+                    punkt_ids = [(getattr(chunk, "metadata", None) or {}).get("punkt_id") for chunk in merged.chunks]
+                    punkt_ids = [str(value) for value in punkt_ids if value]
+                    if punkt_ids:
+                        picks["punkt_ids"] = punkt_ids
+                except Exception:
+                    logger.debug("Retrieval picks enrichment skipped", exc_info=True)
                 emit_retrieval_span(
                     tool_name="knowledge_search",
-                    search_input=build_retrieval_input(
-                        query=query,
-                        retrieval_query=retrieval_query,
-                        collections=target_collections,
-                        candidate_k=candidate_k,
-                        top_k=effective_top_k,
-                        reranked=rerank_llm_obj is not None or cross_encoder is not None,
-                        dropped_by_floor=dropped_by_floor,
-                    ),
-                    picks=build_retrieval_output(chunks=merged.chunks),
+                    search_input=search_input,
+                    picks=picks,
                 )
             except Exception:  # noqa: BLE001 - tracing must never break the search path
                 logger.debug("Retrieval pick span failed", exc_info=True)
 
+            # The widening, said out loud to the model that asked for the search
+            # (roadmap: "hidden loops the model does not own"). Empty for the
+            # one-shot search every other turn runs, and carried on the
+            # empty-result message too: a search that widened AND still found
+            # nothing is the case where the model most needs to know that its
+            # own formulation was already given a second chance.
+            from knowledge_layer.requery import requery_notice
+
+            notice = requery_notice(requery_queries)
+            # The overview raised, and the passages below are what is left of
+            # the family question. Said only where there ARE passages: an empty
+            # or failed search already tells the model the stronger thing.
+            if branch.failed and merged.chunks:
+                notice += _FAMILY_OVERVIEW_FAILED_NOTICE.format(key=family_key)
+
             # After the floor, not before: the floor is the only thing that can empty a
             # non-empty result set, and this message is the vocabulary for saying so.
+            # A failed or degraded merge is NOT a miss: total fingerprint loss comes
+            # back as success=False, partial loss as error_message set — both must
+            # reach `_format_results`, which renders the failure/warning, rather
+            # than the retry-hint below, which would read as "nothing matched".
+            from aiq_agent.common.turn_status import KNOWLEDGE_SEARCH_TOOL
+            from aiq_agent.common.turn_status import lane_tool_scope
+
             if not merged.chunks:
-                return _empty_search_message(
+                if not merged.success or getattr(merged, "error_message", None):
+                    with lane_tool_scope(KNOWLEDGE_SEARCH_TOOL):
+                        return notice + _format_results(merged, query)
+                return notice + _empty_search_message(
                     query,
                     file_name=file_name,
                     doc_class=doc_class,
@@ -1608,19 +2431,46 @@ async def knowledge_retrieval(config: KnowledgeRetrievalConfig, _builder: Builde
             # doc_class resolution plus pure-CPU string building; run it off the
             # event loop so the synchronous DB round-trips never block the loop
             # (and stall other concurrent turns).
-            formatted = await asyncio.to_thread(_format_results, merged, query)
+            #
+            # The lane-tool scope is entered HERE, outside the await, not inside
+            # `_format_results`: `asyncio.to_thread` copies the context when the
+            # call is made, so a scope opened in the worker thread would be a
+            # copy nobody reads back. The family branch renders through this
+            # same call, so it is stamped with it.
+            with lane_tool_scope(KNOWLEDGE_SEARCH_TOOL):
+                formatted = await asyncio.to_thread(
+                    _format_results,
+                    merged,
+                    query,
+                    notice,
+                    overview.trailer if overview is not None else "",
+                    family_note,
+                    overview.opened_files if overview is not None else frozenset(),
+                )
             logger.info(f"Knowledge search returned {len(merged.chunks)} chunks")
             logger.debug(f"Formatted result for LLM:\n{formatted[:500]}...")
             return formatted
 
         except Exception as e:
+            from aiq_agent.common.turn_status import FETCH_FAILED_MARKER
+
             logger.error(f"Knowledge search failed: {e}")
+            # The marker is load-bearing, not decoration: the agent's
+            # duplicate-fetch guard reads it to tell a failed call from a
+            # fetched one, so the retry this sentence asks for is not
+            # withheld as a repeat (`FETCH_FAILED_MARKER`).
             return (
-                f"Knowledge search failed for query={query!r}. "
+                f"{FETCH_FAILED_MARKER} Knowledge search failed for query={query!r}. "
                 "Retry once with the same query; if it fails again, say you "
                 "could not search the knowledge base and do not invent a citation. "
                 f"Technical detail: {e}"
             )
+        finally:
+            # An answer that returned before the family read was awaited leaves
+            # a task holding a store fetch. Cancelling it here is what keeps the
+            # concurrency free: nothing outlives the call it was started for.
+            if family_task is not None and not family_task.done():
+                family_task.cancel()
 
     # Yield the function info for NAT registration
     if max_per_document > 0:

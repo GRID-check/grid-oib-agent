@@ -50,7 +50,7 @@ def test_preserves_existing_extra_body():
 
 
 def test_non_openrouter_llm_is_untouched():
-    llm = FakeLLM(base_url="https://integrate.api.nvidia.com/v1")
+    llm = FakeLLM(base_url="https://llm.example.test/v1")
     apply_openrouter_structured_defaults(llm)
     assert llm.extra_body is None
 
@@ -81,3 +81,235 @@ async def test_get_langchain_llm_resolves_and_hardens():
     assert result is llm
     assert result.extra_body["plugins"] == [{"id": "response-healing"}]
     builder.get_llm.assert_awaited_once()
+
+
+# -- prompt-cache affinity on the outgoing request ----------------------------
+#
+# The seam these pin is `prepare_request`, which both the chat-completions and
+# the Responses payload builders pass through. Asserting on the PAYLOAD rather
+# than on the helper is the point: the fields have to survive langchain's
+# per-API payload construction, and on the Responses path they ride in
+# `extra_body` precisely because that is the one bag both builders forward.
+
+
+def _openrouter_chat_model(**kwargs):
+    from langchain_openai import ChatOpenAI
+
+    from aiq_agent.common.llm_factory import enforce_chat_request_contract
+
+    llm = ChatOpenAI(
+        model="openai/gpt-5.6-luna",
+        api_key="test-key",  # pragma: allowlist secret
+        base_url="https://openrouter.ai/api/v1",
+        **kwargs,
+    )
+    return enforce_chat_request_contract(apply_openrouter_structured_defaults(llm))
+
+
+def _sent_payload(llm, messages, **bind_kwargs):
+    """The request body one `invoke` would put on the wire, without the network."""
+    captured = {}
+    base = type(llm).__mro__[1]
+    original = base._generate
+
+    def _capture(self, msgs, stop=None, run_manager=None, **kwargs):
+        captured["payload"] = self._get_request_payload(msgs, stop=stop, **kwargs)
+        raise _Captured
+
+    base._generate = _capture
+    try:
+        (llm.bind(**bind_kwargs) if bind_kwargs else llm).invoke(messages)
+    except _Captured:
+        pass
+    finally:
+        base._generate = original
+    return captured["payload"]
+
+
+class _Captured(Exception):
+    """Stop the call once the payload exists; nothing should reach the network."""
+
+
+def _messages(system="You are Piloti."):
+    from langchain_core.messages import HumanMessage
+    from langchain_core.messages import SystemMessage
+
+    return [SystemMessage(content=system), HumanMessage(content="Wie hoch darf die Brüstung sein?")]
+
+
+DEFERRED_TOOLS = [
+    {"type": "tool_search"},
+    {"type": "namespace", "name": "piloti", "tools": [{"type": "function", "name": "knowledge_search"}]},
+]
+
+
+def test_chat_completions_payload_carries_the_cache_routing_fields():
+    payload = _sent_payload(_openrouter_chat_model(), _messages(), tools=DEFERRED_TOOLS)
+    extra_body = payload["extra_body"]
+    assert extra_body["session_id"] == extra_body["prompt_cache_key"]
+    assert extra_body["session_id"].startswith("grid-")
+
+
+def test_responses_payload_carries_the_cache_routing_fields():
+    llm = _openrouter_chat_model(use_responses_api=True)
+    payload = _sent_payload(llm, _messages(), tools=DEFERRED_TOOLS)
+    assert "input" in payload  # the Responses shape, not chat completions
+    assert payload["extra_body"]["session_id"].startswith("grid-")
+
+
+def test_cache_routing_does_not_displace_the_response_healing_plugin():
+    payload = _sent_payload(_openrouter_chat_model(), _messages(), tools=DEFERRED_TOOLS)
+    assert payload["extra_body"]["plugins"] == [{"id": "response-healing"}]
+
+
+def test_usage_include_is_not_sent():
+    # OpenRouter: "The `usage: { include: true }` … parameters are deprecated
+    # and have no effect." Sending one would be cargo cult, not configuration.
+    payload = _sent_payload(_openrouter_chat_model(), _messages(), tools=DEFERRED_TOOLS)
+    assert "usage" not in payload
+    assert "usage" not in payload["extra_body"]
+
+
+def test_provider_order_is_not_pinned():
+    # A manual provider order DISABLES OpenRouter's sticky routing, which is
+    # the mechanism the cache key exists to drive.
+    payload = _sent_payload(_openrouter_chat_model(), _messages(), tools=DEFERRED_TOOLS)
+    assert "provider" not in payload["extra_body"]
+
+
+def test_a_turns_iterations_share_one_key():
+    from langchain_core.messages import AIMessage
+    from langchain_core.messages import ToolMessage
+
+    llm = _openrouter_chat_model(use_responses_api=True)
+    first = _sent_payload(llm, _messages(), tools=DEFERRED_TOOLS)
+    later = _sent_payload(
+        llm,
+        [
+            *_messages(),
+            AIMessage(content="", tool_calls=[{"name": "knowledge_search", "args": {}, "id": "call_1"}]),
+            ToolMessage(content="a passage", tool_call_id="call_1"),
+        ],
+        tools=DEFERRED_TOOLS,
+    )
+    assert first["extra_body"]["session_id"] == later["extra_body"]["session_id"]
+
+
+def test_a_different_system_prompt_gets_a_different_key():
+    llm = _openrouter_chat_model()
+    first = _sent_payload(llm, _messages(), tools=DEFERRED_TOOLS)
+    other = _sent_payload(llm, _messages(system="Du bist Piloti."), tools=DEFERRED_TOOLS)
+    assert first["extra_body"]["session_id"] != other["extra_body"]["session_id"]
+
+
+def test_a_non_openrouter_model_sends_no_cache_routing():
+    # `session_id` is OpenRouter's own field; a direct OpenAI-compatible
+    # endpoint would be handed a parameter it never declared.
+    from langchain_openai import ChatOpenAI
+
+    from aiq_agent.common.llm_factory import enforce_chat_request_contract
+
+    llm = enforce_chat_request_contract(
+        ChatOpenAI(
+            model="gpt-5.6",
+            api_key="test-key",  # pragma: allowlist secret
+            base_url="https://api.openai.test/v1",
+        )
+    )
+    payload = _sent_payload(llm, _messages())
+    assert "extra_body" not in payload
+
+
+def test_cache_routing_composes_with_zdr_provider_routing():
+    # The other extra_body writer is the per-request ZDR seam
+    # (`model_overrides.apply_zdr_routing`), which sets `provider.zdr`. The two
+    # must compose: a tenant on ZDR still gets a cache key, and the key must not
+    # displace the routing policy that keeps its data out of training sets.
+    from aiq_agent.common.model_overrides import apply_zdr_routing
+
+    llm = apply_zdr_routing(_openrouter_chat_model())
+    payload = _sent_payload(llm, _messages(), tools=DEFERRED_TOOLS)
+    extra_body = payload["extra_body"]
+    assert extra_body["provider"] == {"zdr": True, "data_collection": "deny"}
+    assert extra_body["session_id"].startswith("grid-")
+    assert extra_body["plugins"] == [{"id": "response-healing"}]
+
+
+def test_a_model_override_changes_the_key():
+    # A re-pointed group (ADR-0014) is a different cache, so it must not be
+    # pinned to the previous model's shard.
+    from aiq_agent.common.model_overrides import override_model
+
+    llm = _openrouter_chat_model()
+    before = _sent_payload(llm, _messages(), tools=DEFERRED_TOOLS)
+    after = _sent_payload(override_model(llm, "anthropic/claude-sonnet-5"), _messages(), tools=DEFERRED_TOOLS)
+    assert before["extra_body"]["session_id"] != after["extra_body"]["session_id"]
+
+
+# -- previous_response_id on the OpenRouter Responses path ---------------------
+#
+# NAT hands every `api_type: responses` client `use_previous_response_id=True`,
+# which langchain-openai fills from the last `resp_…` AIMessage id. OpenRouter
+# rejects the field outright, so `get_langchain_llm` must turn it off — and only
+# for OpenRouter, where a direct OpenAI endpoint keeps the feature it supports.
+
+
+def _responses_chat_model(base_url):
+    """A client shaped exactly the way NAT builds an `api_type: responses` one."""
+    from langchain_openai import ChatOpenAI
+
+    return ChatOpenAI(
+        model="openai/gpt-5.6-luna",
+        api_key="test-key",  # pragma: allowlist secret
+        base_url=base_url,
+        use_responses_api=True,
+        use_previous_response_id=True,
+    )
+
+
+async def _resolved(llm):
+    builder = SimpleNamespace(get_llm=AsyncMock(return_value=llm))
+    return await get_langchain_llm(builder, "some_ref")
+
+
+def _turn_after_a_resp_id_answer():
+    from langchain_core.messages import AIMessage
+    from langchain_core.messages import HumanMessage
+
+    return [
+        *_messages(),
+        AIMessage(content="Einen Meter.", response_metadata={"id": "resp_abc"}),
+        HumanMessage(content="Und im Dachgeschoss?"),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_openrouter_responses_client_never_sends_previous_response_id():
+    llm = await _resolved(_responses_chat_model("https://openrouter.ai/api/v1"))
+    assert llm.use_previous_response_id is False
+
+    payload = _sent_payload(llm, _turn_after_a_resp_id_answer())
+    assert "input" in payload  # still the Responses shape, not chat completions
+    assert "previous_response_id" not in payload
+    assert "previous_response_id" not in payload.get("extra_body", {})
+
+
+@pytest.mark.asyncio
+async def test_the_whole_conversation_still_goes_without_the_server_side_handle():
+    # Dropping the handle is only safe because the payload stops being truncated
+    # to the messages *after* the resp_ id: OpenRouter is stateless, so the
+    # history has to travel with every request.
+    llm = await _resolved(_responses_chat_model("https://openrouter.ai/api/v1"))
+    payload = _sent_payload(llm, _turn_after_a_resp_id_answer())
+    sent = str(payload["input"])
+    assert "Brüstung" in sent
+    assert "Dachgeschoss" in sent
+
+
+@pytest.mark.asyncio
+async def test_a_non_openrouter_responses_client_is_untouched():
+    llm = await _resolved(_responses_chat_model("https://api.openai.test/v1"))
+    assert llm.use_previous_response_id is True
+
+    payload = _sent_payload(llm, _turn_after_a_resp_id_answer())
+    assert payload["previous_response_id"] == "resp_abc"

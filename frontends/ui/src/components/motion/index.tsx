@@ -71,6 +71,12 @@ const EASE_OUT: Bezier = [0, 0, 0.2, 1]
 const EASE_ENTRANCE: Bezier = [0.16, 1, 0.3, 1]
 
 /**
+ * For things LEAVING — departure accelerates away. Mirrors `--ease-exit`.
+ * An exit that decelerates reads as the app not believing the dismissal.
+ */
+const EASE_EXIT: Bezier = [0.4, 0, 1, 1]
+
+/**
  * A spring, described structurally so its parameters stay readable (and
  * assertable — see index.spec.tsx, which recomputes ζ from these three numbers
  * rather than trusting the comments).
@@ -196,8 +202,15 @@ export const springGlide: SpringTransition = {
 export const springSnapLinear =
   'linear(0, 0.0723, 0.237, 0.4331, 0.6213, 0.7801, 0.9009, 0.9837, 1.0336, 1.058, 1.0643, 1.0595, 1.0488, 1.0362, 1.0241, 1.0139, 1.0062, 1.001, 0.9978, 0.9963, 0.9959, 0.9962, 0.9969, 0.9977, 1)'
 
+/**
+ * Seconds until `springSnap` has settled — the one number a choreography that
+ * waits for a snap to land may schedule against. A spring has no duration of
+ * its own, so this is the settle its `linear()` twin is sampled to.
+ */
+export const springSnapSettleSeconds = 0.44
+
 /** Duration at which `springSnapLinear` settles like `springSnap`. */
-export const springSnapLinearDuration = '440ms'
+export const springSnapLinearDuration = `${springSnapSettleSeconds * 1000}ms`
 
 export const springDrawerLinear =
   'linear(0, 0.0505, 0.167, 0.3102, 0.4555, 0.5885, 0.7023, 0.7945, 0.866, 0.9191, 0.9568, 0.9822, 0.9984, 1.0077, 1.0123, 1.0138, 1.0134, 1.0119, 1.0099, 1.0079, 1.006, 1.0044, 1.0031, 1.002, 1)'
@@ -227,6 +240,47 @@ export const motionBase: Transition = { duration: 0.24, ease: EASE_OUT }
 
 /** 240ms on the entrance curve — for things ARRIVING (see EASE_ENTRANCE). */
 export const motionEntrance: Transition = { duration: 0.24, ease: EASE_ENTRANCE }
+
+/**
+ * 180ms on the exit curve — a row's live content folding, a chip leaving. The
+ * exit half of a `motionBase` entrance: one step shorter, accelerating away.
+ */
+export const motionQuickExit: Transition = { duration: 0.18, ease: EASE_EXIT }
+
+/**
+ * 320ms — the ceiling, `--motion-deliberate`. As a tween it is a panel; as a
+ * DELAY it is the pause a choreography holds before its last move, long enough
+ * for the eye to have read the state that just landed.
+ */
+export const motionDeliberate: Transition = { duration: 0.32, ease: EASE_OUT }
+
+/**
+ * The change with no motion — what every transition here becomes under
+ * `prefers-reduced-motion`. `<MotionConfig reducedMotion="user">` already drops
+ * transforms; opacity still tweens under it, and a DELAYED opacity is an
+ * element that is invisible for the delay, which is the opposite of what the
+ * reader asked for (see the reduced-motion block in globals.css). A component
+ * that schedules delays swaps in this one, delay included.
+ */
+export const motionInstant: Transition = { duration: 0, delay: 0 }
+
+/**
+ * The sheet pair — `--motion-deliberate` on `--ease-entrance`, and the exit one
+ * step shorter on `--ease-exit`. These are the JS half of the numbers
+ * `PageSheet` used to write as `duration-deliberate ease-entrance` /
+ * `OVERLAY_EXIT` classes; the sheet now animates through motion.dev so its
+ * entrance, its exit and the drag-to-dismiss gesture share one transform
+ * pipeline (a CSS keyframe and a drag both writing `transform` fight, and the
+ * loser jumps).
+ *
+ * Why a tween and not a spring: past ~300px of travel there is no spring left
+ * to pick — see the design language's Motion vocabulary. The sheet's travel is
+ * its own height.
+ */
+export const motionSheetEnter: Transition = { duration: 0.32, ease: EASE_ENTRANCE }
+
+/** The sheet's exit — shorter, accelerating away (`--ease-exit`). */
+export const motionSheetExit: Transition = { duration: 0.24, ease: EASE_EXIT }
 
 /**
  * @deprecated Use `springPress`. Kept so existing call sites keep compiling.

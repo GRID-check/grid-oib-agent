@@ -363,6 +363,16 @@ def main(argv: list[str] | None = None) -> int:
         "(downloads once); still not production's embedder.",
     )
     parser.add_argument("--structure-only", action="store_true", help="Skip retrieval; print the chunking A/B only.")
+    parser.add_argument(
+        "--fail-below",
+        type=float,
+        default=None,
+        metavar="PCT",
+        help=(
+            "Exit 1 when the Punkt arm's citable-unit share (percent of leaf Punkte whose chunk holds no other "
+            "leaf Punkt whole) is below PCT. The regression gate: model-free, key-free, offline."
+        ),
+    )
     parser.add_argument("--arms", nargs="*", default=list(corpus.ARMS), choices=list(corpus.ARMS))
     parser.add_argument("--verbose", action="store_true")
     args = parser.parse_args(argv)
@@ -386,7 +396,27 @@ def main(argv: list[str] | None = None) -> int:
         file=stream,
     )
 
-    print_structure(structure.measure_structure(index), stream)
+    # An empty `data/oib` is the ordinary state of a fresh clone, not a bug in the
+    # harness, so it exits with the instruction rather than a traceback. This is also
+    # why there is no CI job here any more: no CI checkout can hold the corpus
+    # (ADR-0058, "Update (2026-09-09)").
+    try:
+        report = structure.measure_structure(index)
+    except corpus.CorpusMissingError as exc:
+        print(f"\nCANNOT RUN — {exc}", file=stream)
+        return 1
+    print_structure(report, stream)
+    if args.fail_below is not None:
+        citable_pct = report.totals[corpus.ARM_PUNKT].isolated_pct
+        if citable_pct < args.fail_below:
+            print(
+                f"\nFAIL: the Punkt arm's citable-unit share is {citable_pct:.1f}%, "
+                f"below the {args.fail_below:.1f}% gate. A chunker or German-analyzer change made "
+                "fewer Punkte survive as a citable unit (rag-system-audit-2026-08 Part IV; ADR-0058 rule 7).",
+                file=stream,
+            )
+            return 1
+        print(f"\nGATE: citable-unit share {citable_pct:.1f}% >= {args.fail_below:.1f}%.", file=stream)
     if args.structure_only:
         return 0
 

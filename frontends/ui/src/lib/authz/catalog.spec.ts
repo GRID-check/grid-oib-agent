@@ -188,6 +188,44 @@ describe('authorization catalog', () => {
     expect(projectRoles.sort()).toEqual([...assignable].sort())
   })
 
+  /**
+   * `project:documents:generate` is required IN ADDITION to
+   * `project:documents:write` at the generated-document seam
+   * (`lib/documents/generated.ts`). Two things follow for the catalog, and
+   * neither is enforced anywhere else.
+   */
+  describe('machine authorship is separable and never standalone', () => {
+    it('no role grants generate without the write permission it rides on', () => {
+      // A role holding only `generate` could put bytes into a project's file
+      // system that it cannot put there by uploading, and cannot delete
+      // afterwards — a principal that writes more than it can undo. The seam
+      // refuses such a session, so a role like that is not a hole; it is a role
+      // whose grant does nothing, which is worse to debug than one that is
+      // simply absent.
+      const broken = ROLES.filter(
+        (role) =>
+          role.permissions.includes('project:documents:generate') &&
+          !role.permissions.includes('project:documents:write')
+      ).map((role) => role.slug)
+      expect(broken).toEqual([])
+    })
+
+    it('the built-in editor and admin hold it; the read-only personas do not', () => {
+      // Held, so the shipped feature works once the catalog is provisioned. An
+      // organization that does not want machine authorship withholds it on a
+      // CUSTOM project role — which is the ADR-0038 §4 extensibility contract
+      // and leaves this catalog (and therefore `provision:authz --check`) alone.
+      for (const slug of ['project-editor', 'project-admin']) {
+        expect(findRoleSpec(slug)?.permissions, slug).toContain('project:documents:generate')
+      }
+      // A contributor may run the research agent and may not change the corpus,
+      // so it gets the answer and not the file. A viewer writes nothing at all.
+      for (const slug of ['project-viewer', 'project-contributor']) {
+        expect(findRoleSpec(slug)?.permissions, slug).not.toContain('project:documents:generate')
+      }
+    })
+  })
+
   it('the fine-grained org personas each hold a strict subset of Admin', () => {
     // This is the extensibility contract made testable: if a persona could hold
     // something Admin does not, "Admin can do everything in the org" is false.

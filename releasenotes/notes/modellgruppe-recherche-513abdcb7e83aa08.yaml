@@ -1,0 +1,8 @@
+---
+improvements:
+  - >
+    In Platform settings, the model group that used to be called "Shallow
+    research" is now called "Research". It is the same group and the same
+    agent — the one that answers every chat message and decides for itself when
+    a question needs deep research — so any model you have pinned to it stays
+    pinned. Only the name on the page changed.

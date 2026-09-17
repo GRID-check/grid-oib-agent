@@ -35,6 +35,23 @@ export const MAX_JOB_PROMPT_LENGTH = 8000
 export const MAX_DATA_SOURCES = 50
 /** The always-on knowledge source (project documents + OIB base corpus). */
 export const KNOWLEDGE_SOURCE_ID = 'knowledge_layer'
+/** Austrian law. Always on for the same reason the knowledge layer is. */
+export const RIS_SOURCE_ID = 'ris'
+
+/**
+ * The sources every run gets, whatever the person picked.
+ *
+ * The knowledge layer is the project's own documents and the OIB corpus; RIS is
+ * the law those documents are judged against. Neither is a preference: a
+ * Normprüfung run with RIS switched off does not answer the question faster, it
+ * answers a different question — "what do the plans say" instead of "what does
+ * the law require of them" — and returns it in the same words, which is the one
+ * failure a compliance product cannot have.
+ *
+ * Web search is the only real choice, because it is the only source whose
+ * absence narrows an answer rather than invalidating it.
+ */
+export const ALWAYS_ON_SOURCE_IDS: readonly string[] = [KNOWLEDGE_SOURCE_ID, RIS_SOURCE_ID]
 
 /**
  * The agent an output kind runs on — the mirror of `_OUTPUT_AGENT_TYPES` in
@@ -42,26 +59,28 @@ export const KNOWLEDGE_SOURCE_ID = 'knowledge_layer'
  * must never be able to attach a skill its chosen output kind cannot run.
  */
 export const AGENT_FOR_OUTPUT: Record<JobOutput, KnownSkillAgent> = {
-  chat: 'shallow_researcher',
+  chat: 'researcher',
   'deep-research': 'deep_researcher',
 }
 
 /**
- * Normalize a stored/submitted `dataSources` value so the always-on
- * `knowledge_layer` source (project documents + OIB base corpus) is present —
- * the same contract the workflows domain uses. `null` (all sources) stays
- * `null`; an array is returned as a copy with `knowledge_layer` prepended when
- * absent (an empty array becomes `['knowledge_layer']`); when already present
- * the array is returned unchanged.
+ * Normalize a stored/submitted `dataSources` value so every always-on source is
+ * present — the same contract the workflows domain uses. `null` (all sources)
+ * stays `null`; an array comes back as a COPY with the missing always-on ids
+ * prepended in their canonical order (an empty array becomes exactly them).
+ *
+ * Applied on read as well as on write, so a job STORED before RIS became
+ * always-on starts including it on its next fire rather than keeping a narrower
+ * world nobody can see or fix from the wizard.
  */
-export function withAlwaysOnKnowledge(dataSources: string[] | null): string[] | null {
+export function withAlwaysOnSources(dataSources: string[] | null): string[] | null {
   if (dataSources === null) return null
-  // A COPY in both branches. Returning the caller's own array when the source
-  // was already present made the result alias its input, so a later push on
-  // either one silently mutated the other — the one path where this is applied
-  // to a stored row's `dataSources` would then edit the row object in place.
-  if (dataSources.includes(KNOWLEDGE_SOURCE_ID)) return [...dataSources]
-  return [KNOWLEDGE_SOURCE_ID, ...dataSources]
+  // A COPY, always. Returning the caller's own array when nothing was missing
+  // made the result alias its input, so a later push on either one silently
+  // mutated the other — and the one path that applies this to a stored row's
+  // `dataSources` would then edit the row object in place.
+  const missing = ALWAYS_ON_SOURCE_IDS.filter((id) => !dataSources.includes(id))
+  return [...missing, ...dataSources]
 }
 
 /**
@@ -111,11 +130,33 @@ const attachedSkillNameSchema = skillNameSchema.nullish()
 
 const dataSourcesSchema = z.array(z.string().trim().min(1)).max(MAX_DATA_SOURCES)
 
+/**
+ * When a one-shot is wanted, as an ISO instant.
+ *
+ * `nullish` for the same reason `skillName` is: absent on create means no due
+ * date, an explicit `null` on patch means "this is not a one-shot any more".
+ * The value is coerced to a `Date` here so every reader downstream — the
+ * service, the CHECK constraint, the scheduler's scan — sees an instant rather
+ * than a string somebody still has to parse.
+ */
+const dueAtSchema = z.coerce.date().nullish()
+
 /** Cron/timezone shape check shared by create + patch of a job. */
 function refineSchedule(
-  value: { scheduleCron?: string | null; scheduleTimezone?: string },
+  value: { scheduleCron?: string | null; scheduleTimezone?: string; dueAt?: Date | null },
   ctx: z.RefinementCtx
 ): void {
+  // A definition fires on a cron, once at a due time, or only by hand. Letting
+  // both through would hit `task_definitions_due_only_when_once` as a 500 from
+  // the database instead of a 422 naming the field, because the trigger a row
+  // gets is derived from these two and cannot be both.
+  if (value.scheduleCron != null && value.dueAt != null) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['dueAt'],
+      message: 'A task runs on a schedule or once at a due time, not both.',
+    })
+  }
   const tz = value.scheduleTimezone ?? 'UTC'
   if (value.scheduleTimezone != null && !isValidTimezone(value.scheduleTimezone)) {
     ctx.addIssue({
@@ -138,11 +179,14 @@ export const createJobSchema = z
     name: jobNameSchema,
     prompt: jobPromptSchema,
     skillName: attachedSkillNameSchema,
-    output: jobOutputSchema,
+    // No `output`. A standing task is always a research run that files a
+    // report: „Chat" meant „leaves no deliverable", which is the one thing a
+    // task is for. See `createJob`.
     dataSources: dataSourcesSchema.nullish(),
     enabled: z.boolean().optional(),
     scheduleCron: z.string().trim().min(1).nullish(),
     scheduleTimezone: z.string().trim().min(1).optional(),
+    dueAt: dueAtSchema,
   })
   .superRefine(refineSchedule)
 
@@ -153,11 +197,11 @@ export const patchJobSchema = z
     name: jobNameSchema.optional(),
     prompt: jobPromptSchema.optional(),
     skillName: attachedSkillNameSchema,
-    output: jobOutputSchema.optional(),
     dataSources: dataSourcesSchema.nullish(),
     enabled: z.boolean().optional(),
     scheduleCron: z.string().trim().min(1).nullish(),
     scheduleTimezone: z.string().trim().min(1).optional(),
+    dueAt: dueAtSchema,
   })
   .superRefine(refineSchedule)
 
@@ -176,15 +220,9 @@ export type ListRunsQuery = z.infer<typeof listRunsQuerySchema>
  * Still `scheduleId`, and deliberately: the scheduler container and the BFF
  * deploy separately, so renaming the wire field would break every scheduled run
  * in the window between the two deploys — the same hazard the `execution` ->
- * `output` rename is carrying a compatibility shim for. It names a `jobs.id`.
+ * `output` rename is carrying a compatibility shim for. It names a
+ * `task_definitions.id` since migration 0086.
  */
 export const internalFireSchema = z.object({
   scheduleId: z.string().uuid(),
 })
-
-/** Query of the attachable-skills route: which skills a given output can run. */
-export const attachableSkillsQuerySchema = z.object({
-  output: jobOutputSchema,
-})
-
-export type AttachableSkillsQuery = z.infer<typeof attachableSkillsQuerySchema>

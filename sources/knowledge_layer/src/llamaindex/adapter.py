@@ -4,14 +4,14 @@ LlamaIndex adapter for the Knowledge Layer.
 This adapter provides a lightweight, no-deployment-required local solution.
 It uses:
 - ChromaDB for local vector storage (file-based, like Milvus-lite)
-- NVIDIA embeddings via LlamaIndex's NVIDIA integration
+- Embeddings via LlamaIndex's `NVIDIAEmbedding` client pointed at an OpenAI-compatible endpoint (OpenRouter by default)
 - LlamaIndex's document loaders and chunking
-- Optional multimodal extraction (tables, charts, images) with NVIDIA VLM captioning
+- Optional multimodal extraction (tables, charts, images) with VLM captioning through the same endpoint
 
 Configuration options:
     persist_dir: Directory for ChromaDB persistence (default: /tmp/chroma_data)
     embed_model: NVIDIA embedding model (default: nvidia/llama-nemotron-embed-vl-1b-v2)
-    embed_base_url: Embedding model base URL (default: https://integrate.api.nvidia.com/v1)
+    embed_base_url: Embedding model base URL (default: https://openrouter.ai/api/v1)
     chunk_size: Chunk size for text splitting (default: 1024, model supports up to 2048 tokens)
     chunk_overlap: Overlap between chunks (default: 128)
 
@@ -19,8 +19,8 @@ Multimodal options:
     extract_tables: Enable table extraction via pdfplumber (default: False)
     extract_charts: Enable chart extraction with VLM data extraction (default: False)
     extract_images: Enable image extraction with VLM captioning (default: False)
-    vlm_model: NVIDIA VLM model for captioning (default: nvidia/llama-3.2-90b-vision-instruct)
-    vlm_base_url: VLM model base URL (default: https://integrate.api.nvidia.com/v1)
+    vlm_model: VLM model for captioning (default: openai/gpt-5.6-luna)
+    vlm_base_url: VLM model base URL (default: https://openrouter.ai/api/v1)
 
 Chart extraction uses the VLM to:
 1. Classify images as charts/graphs vs regular images
@@ -62,11 +62,62 @@ from aiq_agent.knowledge.schema import RetrievalResult
 
 logger = logging.getLogger(__name__)
 
-# Default VLM model for image captioning
-# nemotron-nano is faster (12B vs 90B) - same as NV-Ingest service mode uses
-DEFAULT_VLM_MODEL = os.environ.get("AIQ_VLM_MODEL", "nvidia/nemotron-nano-12b-v2-vl")
+
+#: Sentinel for "strictly positive", which is not expressible as a `minimum`
+#: float: 0 must be rejectable for a timeout and accepted for a count.
+_POSITIVE = float("-inf")
+
+
+def _env_float(name: str, fallback: float, *, minimum: float = _POSITIVE) -> float:
+    """Read a finite float from the environment, failing open to ``fallback``.
+
+    A module-scope ``float(os.environ[...])`` makes a typo'd env var raise at IMPORT
+    time, taking down the whole knowledge layer. A misconfiguration must degrade to
+    the default, not to an unimportable module.
+
+    ``minimum`` defaults to "strictly positive", which is right for a timeout or a
+    batch size but WRONG for a count whose zero means "off": rejecting
+    ``AIQ_MAX_RENDERED_PAGES=0`` silently restored the default of 20 and the
+    deployment paid VLM cost it had explicitly opted out of. Pass ``minimum=0``
+    for those.
+    """
+    raw = os.environ.get(name, "")
+    try:
+        value = float(raw)
+    except (TypeError, ValueError):
+        if raw:
+            logger.warning("%s=%r is not a number; using %s", name, raw, fallback)
+        return fallback
+    if not math.isfinite(value):
+        logger.warning("%s=%r must be finite; using %s", name, raw, fallback)
+        return fallback
+    if minimum is _POSITIVE:
+        if value <= 0:
+            logger.warning("%s=%r must be positive and finite; using %s", name, raw, fallback)
+            return fallback
+    elif value < minimum:
+        logger.warning("%s=%r must be >= %s; using %s", name, raw, minimum, fallback)
+        return fallback
+    return value
+
+
+def _env_int(name: str, fallback: int, *, minimum: float = _POSITIVE) -> int:
+    """Integer half of :func:`_env_float`: garbage degrades to ``fallback``.
+
+    Truncates (never rounds up) so a fractional value cannot exceed the stated
+    budget. Clamping stays at the call site, where the existing ``max(1, ...)``
+    guards already live.
+    """
+    return int(_env_float(name, float(fallback), minimum=minimum))
+
+
+# Default VLM model for image captioning: the house model every deployment
+# already holds a key for, so captioning needs no second credential. It takes
+# image input (verified on OpenRouter); caption quality on OIB tables and
+# drawings is still unevaluated, like its predecessor's was.
+DEFAULT_VLM_MODEL = os.environ.get("AIQ_VLM_MODEL", "openai/gpt-5.6-luna")
 # Default VLM model base URL
-DEFAULT_VLM_BASE_URL = os.environ.get("AIQ_VLM_BASE_URL", "https://integrate.api.nvidia.com/v1")
+DEFAULT_VLM_BASE_URL = os.environ.get("AIQ_VLM_BASE_URL", "https://openrouter.ai/api/v1")
 
 
 # ---------------------------------------------------------------------------
@@ -266,17 +317,17 @@ RENDER_VISUAL_PAGES = os.environ.get("AIQ_RENDER_VISUAL_PAGES", "true").lower() 
 # or below the vision-encoder caps of current VLMs (above this the provider
 # just downsamples). Scale is computed per page from its point size so an A0
 # sheet and an A4 sheet both land near this target.
-PAGE_RENDER_MAX_DIM = int(os.environ.get("AIQ_PAGE_RENDER_MAX_DIM", "2048"))
+PAGE_RENDER_MAX_DIM = _env_int("AIQ_PAGE_RENDER_MAX_DIM", 2048)
 
 # A page is treated as "visual" (→ rendered + VLM-captioned) when its
 # watermark-stripped extractable text is shorter than this many characters...
-VISUAL_PAGE_MIN_TEXT_CHARS = int(os.environ.get("AIQ_VISUAL_PAGE_MIN_TEXT_CHARS", "200"))
+VISUAL_PAGE_MIN_TEXT_CHARS = _env_int("AIQ_VISUAL_PAGE_MIN_TEXT_CHARS", 200, minimum=0)
 # ...OR it carries at least this many vector path objects (a plan/section/
 # elevation is typically hundreds-to-tens-of-thousands of paths).
-VISUAL_PAGE_MIN_PATHS = int(os.environ.get("AIQ_VISUAL_PAGE_MIN_PATHS", "300"))
+VISUAL_PAGE_MIN_PATHS = _env_int("AIQ_VISUAL_PAGE_MIN_PATHS", 300, minimum=0)
 # Hard cap on rendered pages per document, to bound VLM cost/latency on large
 # plan sets. Excess visual pages are skipped (logged), text still indexed.
-MAX_RENDERED_PAGES = int(os.environ.get("AIQ_MAX_RENDERED_PAGES", "20"))
+MAX_RENDERED_PAGES = _env_int("AIQ_MAX_RENDERED_PAGES", 20, minimum=0)
 
 # @environment_variable AIQ_VLM_TIMEOUT_SECONDS
 # @category Knowledge Layer
@@ -294,7 +345,7 @@ MAX_RENDERED_PAGES = int(os.environ.get("AIQ_MAX_RENDERED_PAGES", "20"))
 # placeholders are skipped, not embedded. Clamped like the sibling knobs: a
 # misconfigured 0 or negative value would fail every VLM request immediately and
 # silently disable captioning altogether.
-VLM_REQUEST_TIMEOUT_SECONDS = max(1, int(os.environ.get("AIQ_VLM_TIMEOUT_SECONDS", "180")))
+VLM_REQUEST_TIMEOUT_SECONDS = max(1, _env_int("AIQ_VLM_TIMEOUT_SECONDS", 180))
 
 # @environment_variable AIQ_EMBED_BATCH_SIZE
 # @category Knowledge Layer
@@ -305,7 +356,21 @@ VLM_REQUEST_TIMEOUT_SECONDS = max(1, int(os.environ.get("AIQ_VLM_TIMEOUT_SECONDS
 # too many round-trips on large documents — a 500-chunk PDF costs ~50
 # sequential HTTP calls. Every OpenAI-compatible embeddings endpoint accepts
 # far more per call (OpenAI 2048, NVIDIA NIM 259); 64 is conservative.
-EMBED_BATCH_SIZE = max(1, int(os.environ.get("AIQ_EMBED_BATCH_SIZE", "64")))
+EMBED_BATCH_SIZE = max(1, _env_int("AIQ_EMBED_BATCH_SIZE", 64))
+
+# @environment_variable AIQ_EMBED_TIMEOUT_SECONDS
+# @category Knowledge Layer
+# @type float
+# @default 60
+# @required false
+# Per-request timeout on the embeddings client. The client's own defaults are
+# 120s with five retries, so a hung embeddings endpoint could hold the query
+# embedding, and with it the whole chat turn, for ten minutes; retrieval fails
+# open everywhere else, and this is what lets it fail open here. Two retries
+# stay for the transient 5xx a batch of EMBED_BATCH_SIZE texts occasionally
+# meets; 60s covers such a batch with room.
+EMBED_TIMEOUT_SECONDS = max(1.0, _env_float("AIQ_EMBED_TIMEOUT_SECONDS", 60.0))
+EMBED_MAX_RETRIES = 2
 
 # pypdfium2 page-object type constants (the C API values are not always exposed
 # as Python attributes across versions).
@@ -346,7 +411,7 @@ WATERMARK_LINE_PATTERNS = [
 # @default 24
 # @required false
 # Hours before stale collections are deleted by the TTL cleanup thread.
-COLLECTION_TTL_HOURS = float(os.environ.get("AIQ_COLLECTION_TTL_HOURS", "24"))
+COLLECTION_TTL_HOURS = _env_float("AIQ_COLLECTION_TTL_HOURS", 24.0)
 
 # @environment_variable AIQ_TTL_CLEANUP_INTERVAL_SECONDS
 # @category Knowledge Layer
@@ -354,7 +419,7 @@ COLLECTION_TTL_HOURS = float(os.environ.get("AIQ_COLLECTION_TTL_HOURS", "24"))
 # @default 3600
 # @required false
 # Seconds between TTL cleanup runs.
-TTL_CLEANUP_INTERVAL_SECONDS = int(os.environ.get("AIQ_TTL_CLEANUP_INTERVAL_SECONDS", "3600"))
+TTL_CLEANUP_INTERVAL_SECONDS = _env_int("AIQ_TTL_CLEANUP_INTERVAL_SECONDS", 3600)
 
 # Terminal jobs are retained this long for status polling/file listings, then
 # pruned so in-memory job tracking doesn't grow for the life of the process.
@@ -365,7 +430,7 @@ JOB_RETENTION_SECONDS = 3600  # 1 hour
 # from Chroma chunks — with a fresh id, exactly as for any never-tracked file);
 # FAILED rows drop off the listing once this window passes. Bounds self._files,
 # which otherwise grew for the life of the process (scaling review phase-2, #13).
-FILE_TRACKING_RETENTION_SECONDS = int(os.environ.get("AIQ_FILE_TRACKING_RETENTION_SECONDS", "86400"))  # 24h
+FILE_TRACKING_RETENTION_SECONDS = _env_int("AIQ_FILE_TRACKING_RETENTION_SECONDS", 86400)  # 24h
 
 # Document summarization + tag-classification input limits live in the shared
 # aiq_agent.knowledge.document_classification module (CLASSIFY_MAX_INPUT_CHARS).
@@ -556,9 +621,48 @@ EMBED_EXCLUDED_METADATA_KEYS = (
     "image_format",
     "image_width",
     "image_height",
+    # Where the stored raster lives (image_store.py): an object key and an
+    # ordinal, addressing for the view tool and not a word of what the image
+    # shows.
+    "image_key",
+    "stored_image_index",
     "drawing_type",
     "drawing_scale",
+    # The v2 structured payload: multi-KB JSON for the detail view / later
+    # re-mapping, plus per-sheet segment bookkeeping. Embedding any of it
+    # would double the segment text's weight (drawing_data restates the chunk
+    # body as JSON) and burn the chunk's token budget on braces.
+    "drawing_data",
+    "segment_index",
+    "segment_count",
+    # Provenance (ADR-0054). Excluded from both renderings and STORED anyway:
+    # exclusion governs what the splitter renders into the embedded text and
+    # the LLM header, not what the vector store keeps, and retrieval reads
+    # these off `Chunk.metadata` directly. A release date and a producer id
+    # carry no retrieval signal, and embedding an approver's name would shift
+    # every chunk of the document toward whoever signed it — the German line
+    # the reader and the model see is built once, in the grounding block, from
+    # the stored fields.
+    "authored_by",
+    "approved_by",
+    "approved_at",
+    "producer",
 )
+
+
+def _provenance_from_config(config: dict) -> dict[str, str]:
+    """The provenance keys a job config carries, or an empty dict.
+
+    Read through ``aiq_agent.common.provenance`` rather than by picking four
+    strings out of ``config``, so the ingest side and the retrieval side spell
+    the keys once. Empty for every human document, which is what makes the
+    stamping loop a no-op for them.
+    """
+    from aiq_agent.common.provenance import parse_agent_provenance
+    from aiq_agent.common.provenance import provenance_metadata
+
+    provenance = parse_agent_provenance(config)
+    return provenance_metadata(provenance) if provenance else {}
 
 
 def _apply_metadata_exclusions(document: Any) -> None:
@@ -719,12 +823,11 @@ def _local_chroma_where(filters: dict[str, Any]) -> dict[str, Any]:
 def _resolve_embed_api_key(base_url: str, model: str) -> str:
     """Resolve the embeddings API key through the shared credential resolver.
 
-    Chain: explicit ``AIQ_EMBED_API_KEY`` → ``NVIDIA_API_KEY`` fallback →
-    provider inference from ``base_url``. Inference only selects the KEY for the
-    configured embeddings endpoint; it NEVER changes ``base_url`` (embeddings
-    need an embeddings-capable endpoint, so the caller keeps its configured
-    base). With the default deployment (NVIDIA base, ``NVIDIA_API_KEY`` set) this
-    is byte-identical to the old ``_get_nvidia_api_key()`` behaviour.
+    Chain: explicit ``AIQ_EMBED_API_KEY`` → provider inference from
+    ``base_url`` (``OPENROUTER_API_KEY`` for the default OpenRouter host).
+    Inference only selects the KEY for the configured embeddings endpoint; it
+    NEVER changes ``base_url`` (embeddings need an embeddings-capable endpoint,
+    so the caller keeps its configured base).
 
     BYOK is intentionally NOT wired here, but no longer for want of an org id:
     ``/v1/ingest`` forwards ``x-grid-organization-id`` into the ingest thread's
@@ -737,7 +840,6 @@ def _resolve_embed_api_key(base_url: str, model: str) -> str:
 
     return resolve_llm_credential(
         primary_env="AIQ_EMBED_API_KEY",
-        fallback_envs=("NVIDIA_API_KEY",),
         default_base_url=base_url,
         default_model=model,
         organization_id=None,
@@ -755,9 +857,8 @@ def resolve_vlm_credential(organization_id: str | None = None):
          bring-your-own credential, the org's key + base URL win (never the
          model — mirrors ADR-0022/0014).
       1. explicit override           — ``AIQ_VLM_API_KEY``
-      2. platform default            — ``NVIDIA_API_KEY``
-      3. deployment provider key     — inferred from ``AIQ_VLM_BASE_URL`` (e.g.
-         ``OPENROUTER_API_KEY`` when the base URL is openrouter.ai)
+      2. deployment provider key     — inferred from ``AIQ_VLM_BASE_URL``
+         (``OPENROUTER_API_KEY`` for the default OpenRouter host)
 
     Passing ``organization_id`` is what makes per-project/Archiv uploads use the
     tenant's own key + endpoint; the org-agnostic paths (base OIB corpus sync)
@@ -767,8 +868,7 @@ def resolve_vlm_credential(organization_id: str | None = None):
 
     return resolve_llm_credential(
         primary_env="AIQ_VLM_API_KEY",
-        fallback_envs=("NVIDIA_API_KEY",),
-        default_base_url="https://integrate.api.nvidia.com/v1",
+        default_base_url=DEFAULT_VLM_BASE_URL,
         default_model=DEFAULT_VLM_MODEL,
         base_url_env="AIQ_VLM_BASE_URL",
         model_env="AIQ_VLM_MODEL",
@@ -1087,24 +1187,57 @@ def _looks_like_pdf(file_path: str) -> bool:
 
 
 def _looks_like_image(file_path: str) -> str | None:
-    """Detect standalone PNG/JPEG images by file magic (mirrors _looks_like_pdf).
+    """Detect standalone PNG/JPEG/WebP images by file magic (mirrors _looks_like_pdf).
 
-    Returns the normalized format ("png"/"jpeg") or None. Standalone images must
-    be routed to VLM captioning; without this they slip through to
+    Returns the normalized format ("png"/"jpeg"/"webp") or None. Standalone
+    images must be routed to VLM captioning; without this they slip through to
     SimpleDirectoryReader, which UTF-8-garbles the binary and is then rejected by
     the binary-content guard. The signatures are specific enough (8-byte PNG,
-    3-byte JPEG SOI) that text/PDF inputs never false-positive.
+    3-byte JPEG SOI, RIFF????WEBP) that text/PDF inputs never false-positive.
     """
     try:
         with open(file_path, "rb") as handle:
-            header = handle.read(8)
+            header = handle.read(12)
     except OSError:
         return None
     if header.startswith(b"\x89PNG\r\n\x1a\n"):
         return "png"
     if header.startswith(b"\xff\xd8\xff"):
         return "jpeg"
+    # RIFF container with a WEBP payload; bytes 4-8 are the file size.
+    if header.startswith(b"RIFF") and header[8:12] == b"WEBP":
+        return "webp"
     return None
+
+
+def _read_image_as_jpeg(file_path: str, file_name: str) -> tuple[bytes, int, int] | None:
+    """Decode a standalone image and re-encode it as a VLM-ready JPEG.
+
+    Returns ``(jpeg_bytes, original_width, original_height)`` or ``None`` when
+    the bytes cannot be decoded (corrupt/unsupported). Re-encodes to JPEG (RGB)
+    for a uniform VLM payload, exactly like the PDF-embedded-image path
+    (``_extract_images_from_pdf``), downscaling the longest edge to
+    ``VLM_MAX_IMAGE_DIM`` (aspect preserved, never upscaled); the ORIGINAL
+    dimensions are what the caller records in metadata.
+    """
+    import io
+
+    from PIL import Image
+
+    try:
+        with open(file_path, "rb") as handle:
+            raw = handle.read()
+        with Image.open(io.BytesIO(raw)) as pil_image:
+            pil_image.load()
+            width, height = pil_image.size
+            rgb_image = pil_image.convert("RGB")
+            rgb_image.thumbnail((VLM_MAX_IMAGE_DIM, VLM_MAX_IMAGE_DIM))
+            buf = io.BytesIO()
+            rgb_image.save(buf, format="JPEG", quality=95)
+            return (buf.getvalue(), width, height)
+    except Exception as e:
+        logger.error("Could not decode standalone image %s: %s", file_name, e)
+        return None
 
 
 def _build_image_caption_document(
@@ -1124,30 +1257,12 @@ def _build_image_caption_document(
     cannot be decoded as an image (corrupt/unsupported) so the caller can fail
     the file cleanly instead of crashing the job.
     """
-    import io
-
     from llama_index.core import Document
-    from PIL import Image
 
-    try:
-        with open(file_path, "rb") as handle:
-            raw = handle.read()
-        with Image.open(io.BytesIO(raw)) as pil_image:
-            pil_image.load()
-            width, height = pil_image.size
-            # Re-encode to JPEG (RGB) for a uniform VLM payload, exactly like the
-            # PDF-embedded-image path (_extract_images_from_pdf). Downscale the
-            # longest edge to VLM_MAX_IMAGE_DIM first (aspect preserved, never
-            # upscaled) to bound the payload; thumbnail() is a no-op when already
-            # within bounds. Metadata still records the ORIGINAL size below.
-            rgb_image = pil_image.convert("RGB")
-            rgb_image.thumbnail((VLM_MAX_IMAGE_DIM, VLM_MAX_IMAGE_DIM))
-            buf = io.BytesIO()
-            rgb_image.save(buf, format="JPEG", quality=95)
-            image_bytes = buf.getvalue()
-    except Exception as e:
-        logger.error("Could not decode standalone image %s: %s", file_name, e)
+    decoded = _read_image_as_jpeg(file_path, file_name)
+    if decoded is None:
         return None
+    image_bytes, width, height = decoded
 
     # Same content-hash cache as the PDF-embedded-image batch path: re-uploading
     # an identical image skips the VLM call entirely (and the cache is scoped to
@@ -1179,6 +1294,189 @@ def _build_image_caption_document(
             "file_size": file_size,
             "page_label": "1",
             "content_type": content_type,
+            "image_index": 0,
+            "image_format": image_format,
+            "image_width": width,
+            "image_height": height,
+        },
+    )
+
+
+def analyze_visual(
+    image_bytes: bytes,
+    vlm_model: str = DEFAULT_VLM_MODEL,
+    vlm_base_url: str = DEFAULT_VLM_BASE_URL,
+    vlm_api_key: str | None = None,
+    extract_charts: bool = True,
+) -> tuple[str, str, dict[str, Any]]:
+    """Analyse ONE visual — the single entry point for every image source.
+
+    A rendered PDF page, a raster embedded in a PDF and an uploaded image file
+    all arrive here. They used to be analysed by two different prompts: pages
+    got the structured schema while embedded rasters got a generic English
+    caption, so a scanned plan placed inside a PDF was indexed as one paragraph
+    while the identical sheet as a vector page was indexed per drawing. There
+    is now one prompt, and photos and diagrams are types WITHIN it.
+
+    Returns ``(content_type, caption, fields)`` where ``content_type`` is
+    ``drawing`` / ``chart`` / ``image``, ``caption`` is the text to index and
+    ``fields`` carries the flat legacy fields plus, when the reply parsed, the
+    full analysis under ``fields["analysis"]``.
+
+    Degradation is layered, cheapest first: a parsed v3 analysis types itself;
+    a v1 ``KEY: value`` reply is a drawing by construction; a reply that parses
+    as NEITHER — prose from a model that cannot hold the JSON, or an outright
+    provider failure — spends one more call on the legacy caption prompt, which
+    both keeps charts classified and gives the big prompt a smaller thing to
+    fail back to. Only when that also fails is a failure placeholder returned,
+    for the caller to skip rather than index.
+    """
+    from knowledge_layer.llamaindex import processing as _processing
+    from knowledge_layer.llamaindex import visual_analysis
+    from knowledge_layer.llamaindex import visual_domains
+
+    caption, fields = _processing._cached_vlm_call(
+        image_bytes,
+        visual_analysis.cache_prompt_type(visual_domains.resolve_registry()),
+        _analyze_drawing_page_with_vlm,
+        image_bytes,
+        vlm_model=vlm_model,
+        vlm_base_url=vlm_base_url,
+        vlm_api_key=vlm_api_key,
+        model=vlm_model,
+    )
+    fields = fields if isinstance(fields, dict) else {}
+
+    if not _processing.is_failed_caption(caption):
+        analysis = fields.get("analysis")
+        if analysis:
+            return (visual_analysis.content_type_for(analysis), caption, fields)
+        if fields:
+            # v1 fallback shape: the legacy line format only ever described drawings.
+            return ("drawing", caption, fields)
+
+    # Rare by design — the prompt types photos and diagrams itself — so the
+    # extra call costs little, and on a hard failure it is the difference
+    # between a captioned chunk and no chunk at all.
+    logger.info("Structured visual analysis unusable; falling back to the caption prompt")
+    content_type, legacy_caption = _processing._cached_vlm_call(
+        image_bytes,
+        f"image:charts={extract_charts}",
+        _analyze_image_with_vlm,
+        image_bytes,
+        vlm_model=vlm_model,
+        vlm_base_url=vlm_base_url,
+        vlm_api_key=vlm_api_key,
+        extract_charts=extract_charts,
+        model=vlm_model,
+    )
+    return (content_type, legacy_caption, {})
+
+
+#: Chunk-body prefix per content type. Kept as a map so every source spells the
+#: marker the same way — ``get_document_visual_details`` strips it back off.
+_VISUAL_PREFIXES = {"drawing": "DRAWING", "chart": "CHART", "image": "IMAGE"}
+
+
+def visual_documents(
+    content_type: str,
+    caption: str,
+    fields: dict[str, Any],
+    *,
+    file_name: str,
+    file_size: int,
+    page_number: int,
+    extra_metadata: dict[str, Any] | None = None,
+) -> list[Any]:
+    """Turn one analysed visual into its indexable chunks — the single builder.
+
+    A structured analysis yields ONE chunk PER SEGMENT (a sheet carrying
+    Grundriss + Schnitt + Detail becomes three targeted chunks, each with its
+    own scale and its own slice of ``drawing_data``); anything else yields the
+    single caption chunk. ``extra_metadata`` is what differs between sources —
+    the embedded-image indices and formats, a render's pixel size — and nothing
+    else about the shape does.
+    """
+    from knowledge_layer.llamaindex import visual_analysis
+    from llama_index.core import Document
+
+    prefix = _VISUAL_PREFIXES.get(content_type, "IMAGE")
+    base = {
+        "file_name": file_name,
+        "file_size": file_size,
+        "page_label": str(page_number),
+        "content_type": content_type,
+        **(extra_metadata or {}),
+    }
+
+    analysis = fields.get("analysis") if fields else None
+    if analysis:
+        return [
+            Document(
+                text=f"[{prefix} from page {page_number}]\n\n{payload['text']}",
+                metadata={
+                    **base,
+                    "drawing_type": payload["drawing_type"],
+                    "drawing_scale": payload["drawing_scale"],
+                    "segment_index": payload["segment_index"],
+                    "segment_count": payload["segment_count"],
+                    "drawing_data": payload["drawing_data"],
+                },
+            )
+            for payload in visual_analysis.segment_payloads(analysis)
+        ]
+
+    metadata = dict(base)
+    if fields:
+        metadata["drawing_type"] = fields.get("drawing_type", "")
+        metadata["drawing_scale"] = fields.get("scale", "")
+    return [Document(text=f"[{prefix} from page {page_number}]\n\n{caption}", metadata=metadata)]
+
+
+def _build_image_documents(
+    file_path: str,
+    file_name: str,
+    file_size: int,
+    image_format: str,
+    vlm_model: str = DEFAULT_VLM_MODEL,
+    vlm_base_url: str = DEFAULT_VLM_BASE_URL,
+    extract_charts: bool = True,
+    vlm_api_key: str | None = None,
+) -> list[Any] | None:
+    """Standalone uploaded image → Documents, through the shared analyser.
+
+    Thin by design: decode, then the same :func:`analyze_visual` +
+    :func:`visual_documents` every other source uses. Returns ``None`` when the
+    image cannot be decoded or its analysis failed outright — the caption is
+    the file's only content, so the caller fails the file (retryable via
+    re-ingest) rather than indexing a content-free chunk.
+    """
+    from knowledge_layer.llamaindex import processing as _processing
+
+    decoded = _read_image_as_jpeg(file_path, file_name)
+    if decoded is None:
+        return None
+    image_bytes, width, height = decoded
+
+    content_type, caption, fields = analyze_visual(
+        image_bytes,
+        vlm_model=vlm_model,
+        vlm_base_url=vlm_base_url,
+        vlm_api_key=vlm_api_key,
+        extract_charts=extract_charts,
+    )
+    if _processing.is_failed_caption(caption):
+        logger.error("VLM analysis failed for standalone image %s: %s", file_name, caption[:120])
+        return None
+
+    return visual_documents(
+        content_type,
+        caption,
+        fields,
+        file_name=file_name,
+        file_size=file_size,
+        page_number=1,
+        extra_metadata={
             "image_index": 0,
             "image_format": image_format,
             "image_width": width,
@@ -1441,41 +1739,15 @@ def _caption_image_with_vlm(
 # Visual-page rendering (vector/scanned architectural drawings)
 # =============================================================================
 
-# Drawing-aware VLM prompt (German — the OIB Baurecht corpus is German). Asks
-# for a compact, structured description so the drawing *type* and *scale* are
-# captured explicitly rather than buried in prose, and instructs the model to
-# report but exclude any watermark from the content so it never pollutes the
-# summary. Kept as plain text (not response_format=json_schema) because not
-# every OpenAI-compatible VLM honours structured outputs; the response is
-# parsed leniently.
-_DRAWING_VLM_PROMPT = """Du analysierst das Bild EINER PDF-Seite aus einem \
-österreichischen Bauprojekt (Baurecht, OIB-Richtlinien). Es handelt sich \
-meist um eine technische Zeichnung (Grundriss, Schnitt, Ansicht, Detail, \
-Lageplan oder Perspektive) — häufig als Vektorzeichnung ohne extrahierbaren \
-Text.
-
-Beschreibe, WAS die Zeichnung tatsächlich zeigt. Erhalte dabei visuelle \
-Beziehungen und den Maßstab. Antworte AUSSCHLIESSLICH in diesem Format:
-
-ZEICHNUNGSTYP: <grundriss|schnitt|ansicht|detail|lageplan|perspektive|sonstiges>
-MASSSTAB: <z.B. 1:100, M 1:50, oder "Maßstabsfiguren/-balken vorhanden" oder "unbekannt">
-TITEL/PROJEKT: <Projekt-/Planname aus dem Schriftfeld, sonst "unbekannt">
-GESCHOSSE/EBENEN: <Anzahl und Bezeichnung der dargestellten Geschosse/Ebenen, sonst "-">
-NUTZUNG: <erkennbare Gebäude-/Raumnutzung, z.B. Schule, Wohnbau, Büro, sonst "unbekannt">
-RÄUME/ELEMENTE: <wichtigste beschriftete Räume oder Bauteile, kommagetrennt>
-MATERIALIEN/BAUWEISE: <erkennbare Materialien/Konstruktion, z.B. Stahlbeton, Holzbau, Glas, sonst "-">
-ABMESSUNGEN/KOTEN: <sichtbare Maße/Kotierungen, sonst "keine sichtbar">
-RÄUMLICHE BEZIEHUNGEN: <ein bis zwei Sätze zu Anordnung, Ebenen, Erschließung, Orientierung>
-DETAILBESCHREIBUNG: <3-5 Sätze in EINEM Absatz zu Bauteilen, Konstruktion, Erschließung, Freiräumen und Gesamteindruck>
-WASSERZEICHEN: <erkannter Wasserzeichen-/Lizenztext, z.B. "VECTORWORKS EDUCATIONAL VERSION", sonst "keines">
-ZUSAMMENFASSUNG: <EIN Satz, der den Inhalt der Zeichnung inkl. Maßstab beschreibt — OHNE Wasserzeichen zu erwähnen>
-
-Ignoriere Wasserzeichen-/Lizenztext bei der inhaltlichen Analyse; nenne ihn \
-nur im Feld WASSERZEICHEN."""
+# The prompt + schema live in ``visual_analysis`` (domain-neutral kernel) and
+# ``visual_domains`` (the vocabulary each domain contributes). This module keeps the legacy
+# ``KEY: value`` parser below as the FALLBACK for replies that are not
+# parseable schema JSON — a weaker VLM (or an old cached caption) degrades to
+# earlier behaviour, never to a lost page.
 
 
 def _parse_drawing_fields(caption: str) -> dict[str, str]:
-    """Parse the ``KEY: value`` lines of a drawing-VLM response into a dict.
+    """Parse the v1 ``KEY: value`` lines of a drawing-VLM response into a dict.
 
     Lenient: unknown/extra lines are ignored and any field the model omitted is
     simply absent. Keys are normalised to lowercase ascii slugs.
@@ -1511,17 +1783,27 @@ def _analyze_drawing_page_with_vlm(
     vlm_model: str = DEFAULT_VLM_MODEL,
     vlm_base_url: str = DEFAULT_VLM_BASE_URL,
     vlm_api_key: str | None = None,
-) -> tuple[str, dict[str, str]]:
-    """VLM-describe a full rendered PDF page as a technical drawing.
+) -> tuple[str, dict[str, Any]]:
+    """VLM-analyse a full rendered PDF page as a technical drawing (schema v2).
 
-    Returns ``(caption, fields)`` where ``caption`` is the raw structured text
-    stored in the chunk and ``fields`` is the parsed ``_parse_drawing_fields``
-    dict (drawing_type, scale, summary, …) used to build the document summary.
-    ``vlm_api_key`` is a pre-resolved key (e.g. an org's BYOK key); ``None`` uses
-    the org-agnostic deployment key. Fail-open: on any error returns a
-    placeholder caption and empty fields so the page is still indexed (never
-    crashes the job).
+    Returns ``(caption, fields)``. ``caption`` is the rendered structured text
+    (``visual_analysis.render_analysis_text``) stored/embedded in the chunk;
+    ``fields`` is the flat dict every pre-schema consumer reads (drawing_type,
+    scale, summary, …) plus — when the reply parsed — the full canonical
+    analysis under ``fields["analysis"]``. A reply that is not valid schema
+    JSON falls back verbatim to the legacy ``KEY: value`` path, so a weaker
+    model degrades rather than fails. The domain vocabulary comes from the
+    resolved :mod:`visual_domains` registry, so this function is the same for
+    architecture and for any other domain. ``vlm_api_key`` is a pre-resolved
+    key (e.g. an org's BYOK key); ``None`` uses the org-agnostic deployment
+    key. Fail-open: on any error returns a placeholder caption and empty
+    fields so the page is still indexed (never crashes the job).
     """
+    from knowledge_layer.llamaindex import visual_analysis
+    from knowledge_layer.llamaindex import visual_domains
+
+    registry = visual_domains.resolve_registry()
+
     try:
         from openai import OpenAI
     except ImportError:
@@ -1540,24 +1822,34 @@ def _analyze_drawing_page_with_vlm(
             timeout=VLM_REQUEST_TIMEOUT_SECONDS,
             max_retries=1,
         )
-        caption = _vlm_chat_create(
+        reply = _vlm_chat_create(
             client,
             model=vlm_model,
             messages=[
                 {
                     "role": "user",
                     "content": [
-                        {"type": "text", "text": _DRAWING_VLM_PROMPT},
+                        {"type": "text", "text": visual_analysis.build_prompt(registry)},
                         {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{image_b64}"}},
                     ],
                 }
             ],
-            max_tokens=1100,
+            # The JSON reply is bulkier than the legacy twelve-line format; a
+            # budget sized for that would truncate mid-object and forfeit the
+            # whole structure to the fallback parser on every multi-segment
+            # sheet. (_vlm_chat_create still doubles this once on truncation.)
+            max_tokens=3000,
         ).strip()
-        if not caption:
+        if not reply:
             return ("[Drawing - empty VLM response]", {})
-        logger.debug("Drawing VLM analysis: %s...", caption[:100])
-        return (caption, _parse_drawing_fields(caption))
+        logger.debug("Drawing VLM analysis: %s...", reply[:100])
+        analysis = visual_analysis.parse_visual_analysis(reply, registry)
+        if analysis is None:
+            # Legacy fallback: the reply is stored as-is and parsed line-wise.
+            return (reply, _parse_drawing_fields(reply))
+        fields: dict[str, Any] = visual_analysis.legacy_fields(analysis)
+        fields["analysis"] = analysis
+        return (visual_analysis.render_analysis_text(analysis), fields)
     except Exception as e:
         logger.error("Drawing VLM analysis failed: %s", e)
         return (f"[Drawing - analysis failed: {str(e)[:50]}]", {})
@@ -1633,7 +1925,7 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
     Configuration options:
         persist_dir: ChromaDB persistence directory (default from AIQ_CHROMA_DIR)
         embed_model: NVIDIA embedding model name (default: nvidia/llama-nemotron-embed-vl-1b-v2)
-        embed_base_url: Embedding model base URL (default: https://integrate.api.nvidia.com/v1)
+        embed_base_url: Embedding model base URL (default: https://openrouter.ai/api/v1)
         chunk_size: Text chunk size (default: 1024, model supports up to 2048 tokens)
         chunk_overlap: Chunk overlap (default: 128)
 
@@ -1641,7 +1933,7 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
         extract_tables: Enable table extraction from PDFs (default: False)
         extract_charts: Enable chart extraction with structured data (default: False)
         extract_images: Enable image extraction with VLM captioning (default: False)
-        vlm_model: NVIDIA VLM for captioning (default: nvidia/llama-3.2-90b-vision-instruct)
+        vlm_model: VLM for captioning (default: openai/gpt-5.6-luna)
 
     Environment variables:
         AIQ_CHROMA_DIR: Default ChromaDB persistence directory
@@ -1667,18 +1959,20 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
     # @environment_variable AIQ_EMBED_MODEL
     # @category Knowledge Layer
     # @type str
-    # @default nvidia/llama-nemotron-embed-vl-1b-v2
+    # @default openai/text-embedding-3-large
     # @required false
-    # NVIDIA embedding model name for LlamaIndex vector encoding.
-    DEFAULT_EMBED_MODEL = os.environ.get("AIQ_EMBED_MODEL", "nvidia/llama-nemotron-embed-vl-1b-v2")
+    # Embedding model id for LlamaIndex vector encoding (the production
+    # compose default; ingest and query MUST share it, stored vectors are
+    # only comparable to vectors from the same model).
+    DEFAULT_EMBED_MODEL = os.environ.get("AIQ_EMBED_MODEL", "openai/text-embedding-3-large")
 
     # @environment_variable AIQ_EMBED_BASE_URL
     # @category Knowledge Layer
     # @type str
-    # @default https://integrate.api.nvidia.com/v1
+    # @default https://openrouter.ai/api/v1
     # @required false
-    # Embedding model base URL.
-    DEFAULT_EMBED_BASE_URL = os.environ.get("AIQ_EMBED_BASE_URL", "https://integrate.api.nvidia.com/v1")
+    # Embedding model base URL (OpenAI-compatible embeddings endpoint).
+    DEFAULT_EMBED_BASE_URL = os.environ.get("AIQ_EMBED_BASE_URL", "https://openrouter.ai/api/v1")
 
     # @environment_variable AIQ_EXTRACT_TABLES
     # @category Knowledge Layer
@@ -1695,7 +1989,7 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
     # @required false
     # Maximum concurrent ingestion jobs per process. Excess uploads queue
     # (job status stays PENDING) instead of each spawning a thread.
-    INGEST_MAX_WORKERS = max(1, int(os.environ.get("AIQ_INGEST_MAX_WORKERS", "2")))
+    INGEST_MAX_WORKERS = max(1, _env_int("AIQ_INGEST_MAX_WORKERS", 2))
 
     # @environment_variable AIQ_EXTRACT_IMAGES
     # @category Knowledge Layer
@@ -1784,18 +2078,20 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
         try:
             from llama_index.embeddings.nvidia import NVIDIAEmbedding
 
-            nvidia_api_key = _resolve_embed_api_key(self.embed_base_url, self.embed_model_name)
-            if not nvidia_api_key:
+            embed_api_key = _resolve_embed_api_key(self.embed_base_url, self.embed_model_name)
+            if not embed_api_key:
                 logger.error(
-                    "No embeddings API key resolved (AIQ_EMBED_API_KEY / NVIDIA_API_KEY / "
+                    "No embeddings API key resolved (AIQ_EMBED_API_KEY / "
                     "the provider key for AIQ_EMBED_BASE_URL) - ingestion/retrieval will fail."
                 )
 
             self._embed_model = NVIDIAEmbedding(
                 base_url=self.embed_base_url,
                 model=self.embed_model_name,
-                api_key=nvidia_api_key,
+                api_key=embed_api_key,
                 embed_batch_size=EMBED_BATCH_SIZE,
+                timeout=EMBED_TIMEOUT_SECONDS,
+                max_retries=EMBED_MAX_RETRIES,
             )
 
             # Ensure persist directory exists
@@ -2454,15 +2750,19 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                     if file_name in (stripped, unquote(stripped)):
                         matching_ids.append(all_results["ids"][i])
                 if not matching_ids:
-                    if not tracking_ids_to_remove:
-                        logger.warning(f"No chunks found for file_name={file_name}")
-                        return False
-                    # No chunks in ChromaDB but tracking entries exist (e.g. FAILED files).
-                    # Clean them up and report success.
-                    with self._lock:
-                        for tid in tracking_ids_to_remove:
-                            self._files.pop(tid, None)
-                    logger.info(f"Removed {len(tracking_ids_to_remove)} tracking entries for file {file_name}")
+                    # No chunks in ChromaDB. Whatever else the document left
+                    # behind — tracking entries for a FAILED file, the summary
+                    # row the inventory is built from, the lexical mirror — is
+                    # forgotten regardless: a delete that returned early here
+                    # left a file with no chunks in the agent's inventory for
+                    # good, and every later delete took the same early exit.
+                    if tracking_ids_to_remove:
+                        with self._lock:
+                            for tid in tracking_ids_to_remove:
+                                self._files.pop(tid, None)
+                        logger.info(f"Removed {len(tracking_ids_to_remove)} tracking entries for file {file_name}")
+                    else:
+                        logger.warning(f"No chunks found for file_name={file_name}; clearing its summary and text")
 
                     from aiq_agent.knowledge import unregister_summary
 
@@ -2471,7 +2771,8 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                     from aiq_agent.knowledge.chunk_text_store import get_chunk_text_store
 
                     get_chunk_text_store().delete_by_file(collection_name, file_name)
-                    return True
+                    # True only when something of the file was actually removed.
+                    return bool(tracking_ids_to_remove)
                 results = {"ids": matching_ids}
 
             collection.delete(ids=results["ids"])
@@ -2725,9 +3026,12 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
         :meth:`get_document_text_sample`. Returns ``[]`` on any lookup failure or
         when the document has no visual chunks.
 
-        Each item: ``{page, content_type, drawing_type, scale, text}`` where
-        ``text`` is the caption body (the ``[DRAWING from page N]`` prefix
-        stripped), sorted by page then content type.
+        Each item: ``{page, content_type, drawing_type, scale, text, segment,
+        structured}`` where ``text`` is the caption body (the ``[DRAWING from
+        page N]`` prefix stripped), ``segment`` is the drawing's index on its
+        sheet (0 for v1 chunks and non-drawings), and ``structured`` is the
+        parsed v2 ``drawing_data`` payload (``None`` for v1 chunks and
+        non-drawings). Sorted by page, then content type, then segment.
         """
         try:
             client = self._get_chroma_client()
@@ -2752,6 +3056,19 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                 page = int(meta.get("page_label") or 0)
             except (TypeError, ValueError):
                 page = 0
+            try:
+                segment = int(meta.get("segment_index") or 0)
+            except (TypeError, ValueError):
+                segment = 0
+            # The v2 structured payload rides along parsed, so the FE never
+            # has to know it is stored as a JSON string in Chroma metadata.
+            structured = None
+            raw_data = meta.get("drawing_data")
+            if raw_data:
+                try:
+                    structured = json.loads(raw_data)
+                except (TypeError, ValueError):
+                    structured = None
             items.append(
                 {
                     "page": page,
@@ -2759,10 +3076,12 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                     "drawing_type": meta.get("drawing_type") or "",
                     "scale": meta.get("drawing_scale") or "",
                     "text": body.strip(),
+                    "segment": segment,
+                    "structured": structured,
                 }
             )
 
-        items.sort(key=lambda it: (it["page"], it["content_type"]))
+        items.sort(key=lambda it: (it["page"], it["content_type"], it["segment"]))
         return items
 
     @staticmethod
@@ -2841,6 +3160,73 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
             logger.info("Uploaded thumbnail (%d bytes)", len(thumbnail_bytes))
         except Exception:
             logger.warning("Failed to upload thumbnail", exc_info=True)
+
+    def _replace_previous_versions(self, chroma_collection, collection_name: str, incoming_names: list[str]) -> None:
+        """Delete the chunks of any EARLIER upload of these file names, so a
+        re-upload REPLACES its predecessor instead of coexisting with it.
+
+        Law does not go stale, it gets replaced — and the OIB sync already has
+        replacement semantics through its hash registry. Uploaded office and
+        project documents had none: re-uploading `statik-standard.pdf` appended
+        a second full set of chunks next to the first, and both versions then
+        competed in retrieval on similarity alone, so an answer could cite the
+        superseded one with full confidence. The newest upload of a name is the
+        version the user means; this enforces exactly that, per collection.
+
+        Matching mirrors delete_file's normalization (tmp[8]_ prefix strip plus
+        percent-decoding), because stored names carry either form depending on
+        how the file reached the backend. One metadata scan per ingestion JOB,
+        not per file. Defensive: replacement failing must never fail the
+        ingest — worst case is the pre-existing duplicate behavior, logged.
+
+        Deliberately name-based only: a NEW name is a new document, even when
+        its content supersedes an old one. Detecting renamed versions
+        semantically would guess, and a wrong guess silently deletes a document
+        someone still cites — the human-classification-wins rule applies.
+        """
+        try:
+            from urllib.parse import unquote
+
+            from aiq_agent.knowledge import unregister_summary
+            from aiq_agent.knowledge.chunk_text_store import get_chunk_text_store
+
+            tmp_prefix = re.compile(r"^tmp.{8}_")
+
+            def normalize(name: str) -> str:
+                return unquote(tmp_prefix.sub("", name or ""))
+
+            targets = {normalize(name) for name in incoming_names if name}
+            targets.discard("")
+            if not targets:
+                return
+            existing = chroma_collection.get(include=["metadatas"])
+            ids_by_stored: dict[str, list[str]] = {}
+            for chunk_id, meta in zip(existing.get("ids", []), existing.get("metadatas", []) or [], strict=False):
+                stored = (meta or {}).get("file_name", "") or ""
+                if normalize(stored) in targets:
+                    ids_by_stored.setdefault(stored, []).append(chunk_id)
+            if not ids_by_stored:
+                return
+            all_ids = [cid for ids in ids_by_stored.values() for cid in ids]
+            chroma_collection.delete(ids=all_ids)
+            bump_collection_version(collection_name)
+            for stored in ids_by_stored:
+                unregister_summary(collection_name, stored)
+                get_chunk_text_store().delete_by_file(collection_name, stored)
+                normalized = normalize(stored)
+                if normalized != stored:
+                    get_chunk_text_store().delete_by_file(collection_name, normalized)
+            logger.info(
+                "Replaced previous version(s): removed %d chunk(s) of %s from %s before re-ingest",
+                len(all_ids),
+                sorted(ids_by_stored),
+                collection_name,
+            )
+        except Exception:  # noqa: BLE001 — replacement must never break ingestion
+            logger.warning(
+                "Could not remove previous versions before ingest; duplicate chunks may remain",
+                exc_info=True,
+            )
 
     def _run_ingestion(
         self,
@@ -2924,6 +3310,15 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
             vector_store = ChromaVectorStore(chroma_collection=chroma_collection)
             storage_context = StorageContext.from_defaults(vector_store=vector_store)
 
+            # A re-upload replaces its predecessor (same normalized file name,
+            # this collection) before anything new is written — see
+            # _replace_previous_versions for why versions must not coexist.
+            provided_names = config.get("original_filenames", [])
+            incoming_names = [
+                provided_names[i] if i < len(provided_names) else Path(fp).name for i, fp in enumerate(file_paths)
+            ]
+            self._replace_previous_versions(chroma_collection, collection_name, incoming_names)
+
             # Track extraction stats
             total_chunks = 0
             total_tables = 0
@@ -2943,14 +3338,17 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                     # Explicit per-document classification ("Dokumentart").
                     # Prefer a human-set stored class over the filename guess;
                     # stamped into every chunk's metadata below and persisted to
-                    # the summaries row after ingestion. Only meaningful for
-                    # base-corpus files — a guess of "sonstiges" for project/
-                    # session uploads is harmless.
+                    # the summaries row after ingestion. The guess is for the
+                    # base corpus only: on a project, session or Büroarchiv
+                    # upload a guessed "sonstiges" is not harmless — it labelled
+                    # every user document a "Basisdokument" in the Herleitung.
                     from aiq_agent.common.norm_registry import guess_doc_class
+                    from aiq_agent.common.source_kinds import legacy_shelf_for_collection_name
                     from aiq_agent.knowledge import get_document_doc_class
 
                     stored_doc_class = get_document_doc_class(collection_name, file_name)
-                    doc_class = stored_doc_class or guess_doc_class(file_name)
+                    base_corpus = legacy_shelf_for_collection_name(collection_name) is None
+                    doc_class = stored_doc_class or (guess_doc_class(file_name) if base_corpus else None)
                     is_pdf = (
                         file_name.lower().endswith(".pdf")
                         or Path(file_path).suffix.lower() == ".pdf"
@@ -2966,6 +3364,8 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                             image_format = "png"
                         elif ext in (".jpg", ".jpeg"):
                             image_format = "jpeg"
+                        elif ext == ".webp":
+                            image_format = "webp"
                     is_image = image_format is not None and not is_pdf
 
                     mode_str = "text"
@@ -3006,7 +3406,7 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                             logger.warning("Image ingestion skipped (VLM not configured): %s", file_name)
                             continue
 
-                        caption_doc = _build_image_caption_document(
+                        image_docs = _build_image_documents(
                             file_path,
                             file_name,
                             file_size,
@@ -3016,7 +3416,7 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                             vlm_api_key=vlm_api_key,
                             extract_charts=extract_charts,
                         )
-                        if caption_doc is None:
+                        if image_docs is None:
                             self._update_file_status(
                                 job,
                                 i,
@@ -3025,23 +3425,38 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                             )
                             logger.warning("Image could not be decoded or captioned: %s", file_name)
                             continue
-                        text_documents = [caption_doc]
-                        # Keep the job-level visual counters accurate (the caption
-                        # is the file's only chunk, and it is an image/chart —
-                        # not a text chunk).
-                        if caption_doc.metadata.get("content_type") == "chart":
+                        text_documents = image_docs
+                        # Keep the job-level visual counters accurate: the file
+                        # is ONE visual (an image/chart, or a drawing analysed
+                        # into per-segment chunks) — not a text chunk.
+                        if image_docs[0].metadata.get("content_type") == "chart":
                             total_charts += 1
                         else:
                             total_images += 1
                     else:
-                        from llama_index.core import SimpleDirectoryReader
+                        # Known office formats first: SimpleDirectoryReader's
+                        # per-format readers are an optional distribution this
+                        # deployment does not install, and its fallback reads
+                        # raw bytes as text — a .docx (a zip) became PK\x03…
+                        # garbage that the binary guard rejected, failing every
+                        # Word upload. The office extractors handle
+                        # docx/xlsx/pptx with the libraries already here;
+                        # plain-text formats (.txt/.md/.csv) stay on the
+                        # generic reader, which handles them correctly.
+                        from knowledge_layer.llamaindex import office_extractors
 
-                        text_documents = SimpleDirectoryReader(input_files=[file_path]).load_data()
+                        office_documents = office_extractors.extract_office_documents(file_path, file_name, file_size)
+                        if office_documents is not None:
+                            text_documents = office_documents
+                        else:
+                            from llama_index.core import SimpleDirectoryReader
 
-                        # Override file_name metadata (SimpleDirectoryReader uses temp path)
-                        for doc in text_documents:
-                            doc.metadata["file_name"] = file_name
-                            doc.metadata["file_size"] = file_size
+                            text_documents = SimpleDirectoryReader(input_files=[file_path]).load_data()
+
+                            # Override file_name metadata (SimpleDirectoryReader uses temp path)
+                            for doc in text_documents:
+                                doc.metadata["file_name"] = file_name
+                                doc.metadata["file_size"] = file_size
 
                     all_documents.extend(text_documents)
                     logger.info(f"  Text extraction: {len(text_documents)} documents")
@@ -3125,7 +3540,28 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                             extract_charts=extract_charts,
                         )
 
-                        # Build image/chart documents
+                        # Keep the rasters the VLM just captioned, beside the
+                        # document, so `view_knowledge_image` can show one at
+                        # its own resolution rather than as a page render.
+                        # Only a document the BFF dispatched has an id and a
+                        # prefix to store under; the corpus sync has neither
+                        # and keeps captions only. Fail-open inside.
+                        document_id = config.get("document_id")
+                        if document_id and image_results:
+                            from knowledge_layer.llamaindex import image_store as _image_store
+
+                            _image_store.store_extracted_images(
+                                image_results,
+                                document_id=str(document_id),
+                                collection=collection_name,
+                                organization_id=organization_id,
+                            )
+
+                        # Build image/chart/drawing documents. An embedded raster
+                        # now goes through the SAME analysis as a rendered page,
+                        # so a scanned plan placed inside a PDF is indexed per
+                        # drawing rather than as one paragraph — the `drawing`
+                        # content type is reachable from this branch too.
                         file_charts = 0
                         file_images = 0
                         for record, content_type, caption in image_results:
@@ -3133,26 +3569,35 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
 
                             is_chart = content_type == "chart"
 
+                            # `extract_images` is the switch for every non-chart
+                            # visual, drawings included.
                             if extract_charts and not extract_images and not is_chart:
                                 continue
                             if extract_images and not extract_charts and is_chart:
                                 continue
 
-                            prefix = "CHART" if is_chart else "IMAGE"
-                            image_doc = Document(
-                                text=f"[{prefix} from page {record['page_number']}]\n\n{caption}",
-                                metadata={
-                                    "file_name": file_name,
-                                    "file_size": file_size,
-                                    "page_label": str(record["page_number"]),
-                                    "content_type": content_type,
-                                    "image_index": record["image_index"],
-                                    "image_format": record["format"],
-                                    "image_width": record["width"],
-                                    "image_height": record["height"],
-                                },
+                            all_documents.extend(
+                                visual_documents(
+                                    content_type,
+                                    caption,
+                                    record.get("fields") or {},
+                                    file_name=file_name,
+                                    file_size=file_size,
+                                    page_number=record["page_number"],
+                                    extra_metadata={
+                                        "image_index": record["image_index"],
+                                        "image_format": record["format"],
+                                        "image_width": record["width"],
+                                        "image_height": record["height"],
+                                        # Present only when the raster was stored.
+                                        **{
+                                            key: record[key]
+                                            for key in ("image_key", "stored_image_index")
+                                            if key in record
+                                        },
+                                    },
+                                )
                             )
-                            all_documents.append(image_doc)
                             if is_chart:
                                 file_charts += 1
                             else:
@@ -3163,23 +3608,26 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                         if file_charts or file_images:
                             logger.info(f"  Visual extraction: {file_charts} charts, {file_images} images")
 
-                        # Build drawing documents
+                        # Build rendered-page documents through the same builder
+                        # the embedded rasters above use. A rendered page is
+                        # nearly always a drawing, but the analysis types it —
+                        # a rendered photo page is not forced to claim it is a
+                        # plan just because of where its bytes came from.
                         for page in drawing_pages:
-                            fields = page.get("fields") or {}
-                            drawing_doc = Document(
-                                text=f"[DRAWING from page {page['page_number']}]\n\n{page.get('caption', '')}",
-                                metadata={
-                                    "file_name": file_name,
-                                    "file_size": file_size,
-                                    "page_label": str(page["page_number"]),
-                                    "content_type": "drawing",
-                                    "drawing_type": fields.get("drawing_type", ""),
-                                    "drawing_scale": fields.get("scale", ""),
-                                    "image_width": page.get("width", 0),
-                                    "image_height": page.get("height", 0),
-                                },
+                            all_documents.extend(
+                                visual_documents(
+                                    page.get("content_type") or "drawing",
+                                    page.get("caption", ""),
+                                    page.get("fields") or {},
+                                    file_name=file_name,
+                                    file_size=file_size,
+                                    page_number=page["page_number"],
+                                    extra_metadata={
+                                        "image_width": page.get("width", 0),
+                                        "image_height": page.get("height", 0),
+                                    },
+                                )
                             )
-                            all_documents.append(drawing_doc)
                         total_images += len(drawing_pages)
                         if drawing_pages:
                             logger.info(f"  Drawing extraction: {len(drawing_pages)} rendered page(s)")
@@ -3265,8 +3713,18 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                     # chunk's metadata (next to file_name) so it survives into
                     # Chunk.metadata at retrieval and drives the lane/kind
                     # classifiers ahead of the filename guess.
+                    #
+                    # Provenance rides in the same loop and is a SEPARATE axis
+                    # (ADR-0054): who wrote the document and who released it,
+                    # never what it is. It goes on the CHUNK because that is
+                    # where retrieval reads it — `norm_registry.lane_for_hit`
+                    # and the grounding block both see a chunk, not a metadata
+                    # row — and an empty dict for every human document leaves
+                    # those chunks byte-for-byte unchanged.
+                    provenance = _provenance_from_config(config)
                     for doc in all_documents:
                         doc.metadata["doc_class"] = doc_class
+                        doc.metadata.update(provenance)
                         _apply_metadata_exclusions(doc)
 
                     # Create/update index with all documents
@@ -3381,6 +3839,18 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                         folder_path = (config.get("folder_path") or "").strip() or None
                         if folder_path:
                             set_document_folder_path(collection_name, file_name, folder_path)
+
+                        # The same four keys on the document metadata row, so a
+                        # surface that reads the row rather than a chunk — the
+                        # collection listing, the agent's inventory — sees the
+                        # author too. The row is deleted with the chunks
+                        # (`unregister_summary` in `delete_file`), which is what
+                        # makes a superseded or archived version's provenance
+                        # go with the passages it described.
+                        if provenance:
+                            from aiq_agent.knowledge import set_document_provenance
+
+                            set_document_provenance(collection_name, file_name, provenance)
 
                         # Also store in local FileInfo for backwards compatibility
                         file_id = config.get("file_id")
@@ -3517,6 +3987,12 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
 # =============================================================================
 
 
+#: Entries in the exact-term document-frequency cache before it is cleared. The live
+#: key set is a handful of terms per collection; the cap only bounds a pathological
+#: run of one-off terms.
+_EXACT_TERM_DF_CACHE_MAX = 512
+
+
 @register_retriever("llamaindex")
 class LlamaIndexRetriever(BaseRetriever):
     """
@@ -3526,7 +4002,7 @@ class LlamaIndexRetriever(BaseRetriever):
 
     Configuration options:
         persist_dir: ChromaDB persistence directory (default from AIQ_CHROMA_DIR)
-        embed_model: NVIDIA embedding model name (default from AIQ_EMBED_MODEL)
+        embed_model: Embedding model id (default from AIQ_EMBED_MODEL)
         top_k: Default number of results (default: 10)
         hybrid_search: Enable lexical+vector hybrid retrieval (default from AIQ_HYBRID_RETRIEVAL)
 
@@ -3540,15 +4016,15 @@ class LlamaIndexRetriever(BaseRetriever):
 
     # Default configuration from environment variables
     DEFAULT_PERSIST_DIR = os.environ.get("AIQ_CHROMA_DIR", "/tmp/chroma_data")
-    DEFAULT_EMBED_MODEL = os.environ.get("AIQ_EMBED_MODEL", "nvidia/llama-nemotron-embed-vl-1b-v2")
-    DEFAULT_EMBED_BASE_URL = os.environ.get("AIQ_EMBED_BASE_URL", "https://integrate.api.nvidia.com/v1")
+    DEFAULT_EMBED_MODEL = os.environ.get("AIQ_EMBED_MODEL", "openai/text-embedding-3-large")
+    DEFAULT_EMBED_BASE_URL = os.environ.get("AIQ_EMBED_BASE_URL", "https://openrouter.ai/api/v1")
     # @environment_variable AIQ_RETRIEVER_TOP_K
     # @category Knowledge Layer
     # @type int
     # @default 10
     # @required false
     # Default number of results returned by the LlamaIndex retriever.
-    DEFAULT_TOP_K = int(os.environ.get("AIQ_RETRIEVER_TOP_K", "10"))
+    DEFAULT_TOP_K = _env_int("AIQ_RETRIEVER_TOP_K", 10)
     # @environment_variable AIQ_HYBRID_RETRIEVAL
     # @category Knowledge Layer
     # @type bool
@@ -3595,6 +4071,11 @@ class LlamaIndexRetriever(BaseRetriever):
         self._embed_cache_order: list[tuple[str, str]] = []
         self._embed_cache_lock = threading.Lock()
 
+        # Document frequency of each exact term, per collection size, so the
+        # `$contains` channel's DF ceiling costs one `get` per new term rather
+        # than one per retrieval. See `_selective_exact_terms`.
+        self._exact_term_df: dict[tuple[str, int, str], int] = {}
+
         # Result cache for static corpora (the shared OIB knowledge base):
         # identical questions recur across users and conversations, and the
         # corpus only changes on re-sync. Keyed on the collection write
@@ -3612,7 +4093,7 @@ class LlamaIndexRetriever(BaseRetriever):
     # @default 512
     # @required false
     # Maximum cached query embeddings per retriever (LRU).
-    EMBED_CACHE_MAX = int(os.environ.get("AIQ_QUERY_EMBED_CACHE_SIZE", "512"))
+    EMBED_CACHE_MAX = _env_int("AIQ_QUERY_EMBED_CACHE_SIZE", 512, minimum=0)
     # @environment_variable AIQ_STATIC_RESULT_CACHE_COLLECTIONS
     # @category Knowledge Layer
     # @type str
@@ -3653,18 +4134,20 @@ class LlamaIndexRetriever(BaseRetriever):
             from llama_index.core import Settings
             from llama_index.embeddings.nvidia import NVIDIAEmbedding
 
-            nvidia_api_key = _resolve_embed_api_key(self.embed_base_url, self.embed_model_name)
-            if not nvidia_api_key:
+            embed_api_key = _resolve_embed_api_key(self.embed_base_url, self.embed_model_name)
+            if not embed_api_key:
                 logger.error(
-                    "No embeddings API key resolved (AIQ_EMBED_API_KEY / NVIDIA_API_KEY / "
+                    "No embeddings API key resolved (AIQ_EMBED_API_KEY / "
                     "the provider key for AIQ_EMBED_BASE_URL) - retrieval/ingestion will fail."
                 )
 
             self._embed_model = NVIDIAEmbedding(
                 base_url=self.embed_base_url,
                 model=self.embed_model_name,
-                api_key=nvidia_api_key,
+                api_key=embed_api_key,
                 embed_batch_size=EMBED_BATCH_SIZE,
+                timeout=EMBED_TIMEOUT_SECONDS,
+                max_retries=EMBED_MAX_RETRIES,
             )
             Settings.embed_model = self._embed_model
 
@@ -3878,6 +4361,57 @@ class LlamaIndexRetriever(BaseRetriever):
                 error_message=f"Retrieval failed: {str(e)[:500]}",
             )
 
+    def _selective_exact_terms(self, collection, collection_name: str, terms: list[str]) -> list[str]:
+        """Keep the exact terms whose document frequency leaves them worth retrieving.
+
+        One id-only ``collection.get`` per term measures it against the LIVE collection.
+        "OIB is noise" is a property of this corpus rather than of German, so the
+        frequency is measured and never listed (``german_text``'s module docstring
+        states the rule this follows). For the ubiquitous term the measurement REPLACES
+        the vector query that used to run, so the common case gets cheaper.
+
+        The cache key is ``(collection, chunk count, term)``. The term set is tiny and
+        stays stable while the corpus does, and a changed count invalidates it. An
+        in-place edit leaving the count identical keeps the old frequency. That is
+        acceptable for a noise heuristic, and it is why nothing downstream treats this
+        as a correctness gate.
+
+        It runs unlocked, unlike the caches beside it. Those keep an ordering list a
+        race would corrupt; the worst a race costs here is measuring one term twice.
+        Locking would hold the lock across a Chroma round trip and serialise the
+        per-collection fan-out this retriever exists to run in parallel.
+
+        Fails OPEN. An unmeasurable frequency keeps the term, so a Chroma that cannot
+        answer ``get`` degrades to the previous behaviour instead of to no lexical
+        channel at all.
+        """
+        from .hybrid import selective_terms
+
+        try:
+            total = collection.count()
+        except Exception as e:  # noqa: BLE001 - selectivity is an optimisation, never a gate
+            logger.warning("Exact-term frequencies unavailable (%s); keeping all terms", e)
+            return terms
+
+        frequencies: dict[str, int] = {}
+        for term in terms:
+            key = (collection_name, total, term)
+            frequency = self._exact_term_df.get(key)
+            if frequency is None:
+                try:
+                    matched = collection.get(where_document={"$contains": term}, include=[])
+                    frequency = len(matched.get("ids") or [])
+                except Exception as e:  # noqa: BLE001 - see the fail-open note above
+                    logger.warning("Frequency of exact term %r unmeasurable (%s); keeping it", term, e)
+                    frequencies[term] = 1
+                    continue
+                if len(self._exact_term_df) >= _EXACT_TERM_DF_CACHE_MAX:
+                    self._exact_term_df.clear()
+                self._exact_term_df[key] = frequency
+            frequencies[term] = frequency
+
+        return selective_terms(frequencies, total)
+
     def _hybrid_lexical_boost(
         self,
         query: str,
@@ -3907,6 +4441,13 @@ class LlamaIndexRetriever(BaseRetriever):
             # lexical pass raise, and the fail-open below turned hybrid off for exactly
             # the filtered queries, visible only in a log line.
             where = _to_chroma_where(filters)
+            # A `$contains` pass is a FILTER over the dense ranking, so a term that is
+            # on nearly every chunk hands the vector channel straight back and RRF then
+            # counts that ranking twice -- demoting every chunk only the German sparse
+            # channel found. Price the terms against the live collection first, the same
+            # rule and the same constants the sparse channel has always used.
+            if terms:
+                terms = self._selective_exact_terms(collection, collection_name, terms)
             channels: list[list[Chunk]] = [chunks]
             for term in terms:
                 raw = collection.query(

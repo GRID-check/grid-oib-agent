@@ -1,8 +1,9 @@
 /**
  * Overlay motion — the arrive/leave pair, written once.
  *
- * Six Radix-driven surfaces (`Dialog`, `Popover`, `DropdownMenu`, `Select`,
- * `Tooltip`, `Sheet`) all open and close the same way: a `data-[state]` flip
+ * Seven Radix-driven surfaces (`Dialog`, `Popover`, `DropdownMenu`,
+ * `ContextMenu`, `Select`, `Tooltip`, `Sheet`) all open and close the same way:
+ * a `data-[state]` flip
  * that tw-animate-css turns into `animate-in` / `animate-out` keyframes. Left to
  * themselves each one picked its own timing — the dialog ran a bare
  * `duration-200 ease-out`, and the other five ran tw-animate-css's default

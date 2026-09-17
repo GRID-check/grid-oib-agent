@@ -37,7 +37,7 @@ import { useLayoutStore } from '@/features/layout/store'
 import { useTranslations } from '@/i18n'
 import type { ResearchPanelTab } from '@/features/layout/types'
 import { normalizeDeepResearchTodos } from '../lib/deep-research-todos'
-import { dedupeBufferedCitations } from '../lib/wire-citation'
+import { dedupeBufferedCitations, mergeCitation, sameCitation } from '../lib/wire-citation'
 import type { WireCitationSource } from '../types'
 
 const STREAM_BACKED_RESEARCH_TABS = new Set<ResearchPanelTab>(['tasks', 'thinking'])
@@ -217,6 +217,8 @@ export const useLoadJobData = (): UseLoadJobDataReturn => {
   const setStreaming = useChatStore((s) => s.setStreaming)
   const patchConversationMessage = useChatStore((s) => s.patchConversationMessage)
   const addDeepResearchBanner = useChatStore((s) => s.addDeepResearchBanner)
+  const recordDeepResearchFiling = useChatStore((s) => s.recordDeepResearchFiling)
+  const recordDeepResearchFilingFailure = useChatStore((s) => s.recordDeepResearchFilingFailure)
   const attachToDeepResearchJob = useChatStore((s) => s.attachToDeepResearchJob)
 
   const openRightPanel = useLayoutStore((s) => s.openRightPanel)
@@ -296,23 +298,6 @@ export const useLoadJobData = (): UseLoadJobDataReturn => {
   )
 
   /**
-   * Load job data using REST API (report only)
-   */
-  const _loadReportOnly = useCallback(
-    async (jobId: string): Promise<boolean> => {
-      const response = await getJobReport(jobId, idToken || undefined)
-
-      if (response.has_report && response.report) {
-        setReportContent(response.report, 'final_report')
-        return true
-      }
-
-      return false
-    },
-    [idToken, setReportContent]
-  )
-
-  /**
    * Load job state for additional artifacts (tool calls, outputs)
    * This is faster than streaming but provides less data than full stream replay
    */
@@ -369,11 +354,26 @@ export const useLoadJobData = (): UseLoadJobDataReturn => {
   const loadJobDataFast = useCallback(
     async (jobId: string, scope: JobLoadScope): Promise<void> => {
       const [reportResult] = await Promise.allSettled([
-        getJobReport(jobId, idToken || undefined),
+        getJobReport(jobId, idToken || undefined, {
+          projectId: useChatStore.getState().projectId,
+        }),
         loadJobState(jobId, scope),
       ])
 
       if (!isJobLoadScopeCurrent(scope)) return
+
+      if (reportResult.status === 'fulfilled' && reportResult.value.filed) {
+        // Recorded even when the panel has moved on: the filing is a fact about
+        // the project, not about which tab is open.
+        recordDeepResearchFiling(jobId, {
+          documentId: reportResult.value.filed.documentId,
+          filename: reportResult.value.filed.filename,
+        })
+      } else if (reportResult.status === 'fulfilled' && reportResult.value.filingFailed) {
+        // Same reason, opposite fact: a promised filing that did not land is
+        // also a fact about the project rather than about this tab.
+        recordDeepResearchFilingFailure(jobId)
+      }
 
       if (
         reportResult.status === 'fulfilled' &&
@@ -382,8 +382,24 @@ export const useLoadJobData = (): UseLoadJobDataReturn => {
       ) {
         setReportContent(reportResult.value.report, 'final_report')
       }
+
+      // The report's verified sources, each with the `[N]` the report cites it
+      // by. The state endpoint above knows tools and outputs but no sources, so
+      // a report opened from the history had a source list with no numbers —
+      // or none at all. After BOTH fetches settled, so nothing here is
+      // overwritten by the state load.
+      if (reportResult.status === 'fulfilled') {
+        const { addDeepResearchCitation } = useChatStore.getState()
+        for (const wire of reportResult.value.sources ?? []) addDeepResearchCitation(wire, true)
+      }
     },
-    [idToken, loadJobState, setReportContent]
+    [
+      idToken,
+      loadJobState,
+      setReportContent,
+      recordDeepResearchFiling,
+      recordDeepResearchFilingFailure,
+    ]
   )
 
   /**
@@ -475,7 +491,18 @@ export const useLoadJobData = (): UseLoadJobDataReturn => {
             timestamp: now,
           }))
 
+          // A replay must not lose what the report route already told us:
+          // the `[N]` of each source lives only in the persisted output, and
+          // the stream's own citation events never carry it. Folding the
+          // numbered rows already in the store into the replayed list keeps
+          // the Report tab numbered whichever tab was opened first.
           const citations = dedupeBufferedCitations(buffer.citations, now)
+          for (const known of useChatStore.getState().deepResearchCitations) {
+            if (known.number === undefined) continue
+            const index = citations.findIndex((candidate) => sameCitation(candidate, known))
+            if (index >= 0) citations[index] = mergeCitation(citations[index], known)
+            else citations.push(known)
+          }
 
           const files = Array.from(buffer.files.entries()).map(([filename, content], idx) => ({
             id: `file-${idx}`,

@@ -1,0 +1,6 @@
+---
+improvements:
+  - >
+    The message box at the bottom of a chat now has a thin grey outline, so it
+    is easier to see where the typing area begins when a long conversation
+    scrolls behind it.

@@ -18,7 +18,9 @@ import pytest
 from langchain_core.messages import ToolMessage
 from langchain_core.tools import tool
 
+from aiq_agent.agents.deep_researcher.custom_middleware import SelectiveToolRetryMiddleware
 from aiq_agent.agents.deep_researcher.custom_middleware import ToolResultPruningMiddleware
+from aiq_agent.agents.deep_researcher.custom_middleware import is_retryable_tool_error
 from aiq_agent.agents.deep_researcher.models import ResearchNotes
 from aiq_agent.agents.deep_researcher.models import ResearchQuery
 from aiq_agent.agents.deep_researcher.tools.research import _UNRESEARCHABLE_NARRATIVE
@@ -404,7 +406,85 @@ class TestTotalCharBudget:
 
         sent = await self._sent(middleware, list(messages))
 
-        # keep_last_n=3 ÔåÆ msg0 (oldest oversized) evicted by keep-last-N;
+        # keep_last_n=3 → msg0 (oldest oversized) evicted by keep-last-N;
         # total-char budget=0 means no additional truncation beyond that.
         assert sent[0].content.endswith("[... truncated ...]")
         assert len(sent[1].content) == 200
+
+
+class TestBudgetThroughBatchToolPath:
+    """Backlog item 2 ratchet: budget-exceeded through the real batch tool path.
+
+    Drives ``RunBudgetExceededError`` from a researcher worker through
+    ``build_research_batch_tool`` AND the orchestrator's
+    ``SelectiveToolRetryMiddleware`` (the exact production stack). Before the fix
+    the middleware converted the terminal error into a retryable error
+    ToolMessage ("Please try again"), so the orchestrator resubmitted into an
+    already-exceeded tracker until the wall clock. Now it must propagate after a
+    single execution — no retry loop, no ToolMessage to re-queue.
+    """
+
+    def _batch_tool(self):
+        runnable = MagicMock()
+        runnable.ainvoke = AsyncMock(side_effect=RunBudgetExceededError(ceiling=1000, used=1500))
+        return build_research_batch_tool(
+            researcher_runnable=runnable,
+            callbacks=[],
+            max_research_concurrency=2,
+            researcher_tool_names={"web_search_tool"},
+        )
+
+    def _middleware(self) -> SelectiveToolRetryMiddleware:
+        return SelectiveToolRetryMiddleware(
+            max_retries=3,
+            backoff_factor=0.0,
+            initial_delay=0.0,
+            jitter=False,
+            retry_on=is_retryable_tool_error,
+            no_retry_tools={"run_research_batch"},
+        )
+
+    @pytest.mark.asyncio
+    async def test_batch_tool_alone_reraises_budget(self):
+        """The batch tool itself never wraps a budget error into a RuntimeError."""
+        batch_tool = self._batch_tool()
+
+        with pytest.raises(RunBudgetExceededError):
+            await batch_tool.ainvoke({"queries": [_make_query()]})
+
+    @pytest.mark.asyncio
+    async def test_batch_through_middleware_propagates_without_retry_loop(self):
+        """Batch + orchestrator middleware: exactly one execution, then propagate.
+
+        Asserts the three properties item 2 requires:
+        - no retry loop (the batch runnable ran once; the middleware did not
+          re-execute it below the LLM),
+        - no re-queueable signal (the error propagates as RunBudgetExceededError,
+          never as an error ToolMessage the model could resubmit),
+        - degraded, not silent (the exception carries the ceiling so the salvage
+          path can mark the run ``run_budget`` instead of shipping it clean).
+        """
+        from types import SimpleNamespace
+
+        batch_tool = self._batch_tool()
+        middleware = self._middleware()
+        executions = 0
+
+        async def handler(request):
+            nonlocal executions
+            executions += 1
+            # What the tool layer returns when the tracker is already exceeded:
+            # the batch tool raising through, exactly as production does.
+            await batch_tool.ainvoke({"queries": [_make_query()]})
+            raise AssertionError("unreachable: batch tool must raise")
+
+        request = MagicMock()
+        request.tool = SimpleNamespace(name="run_research_batch")
+        request.tool_call = {"name": "run_research_batch", "id": "tc1"}
+
+        with pytest.raises(RunBudgetExceededError) as exc_info:
+            await middleware.awrap_tool_call(request, handler)
+
+        assert executions == 1
+        assert exc_info.value.ceiling == 1000
+        assert exc_info.value.used == 1500

@@ -4,6 +4,7 @@ import asyncio
 import json
 import logging
 import re
+from dataclasses import dataclass
 from typing import Any
 
 from langchain_core.language_models import BaseChatModel
@@ -45,14 +46,44 @@ def _coerce_to_card_list(parsed: Any) -> list[Any] | None:
     return None
 
 
-def _parse_cards_text(raw_text: str) -> list[Any] | None:
+def _content_to_text(raw: Any) -> str:
+    """Coerce an LLM message content to text the card parser can read.
+
+    Most providers return ``str``; some return a list of content blocks
+    (``[{"type": "text", "text": "..."}, ...]``, #653). Join the text parts
+    rather than crashing on ``list.strip`` — cards are best-effort.
+    """
+    if isinstance(raw, str):
+        return raw
+    if isinstance(raw, list):
+        parts: list[str] = []
+        for block in raw:
+            if isinstance(block, str):
+                parts.append(block)
+            elif isinstance(block, dict):
+                text = block.get("text")
+                if isinstance(text, str):
+                    parts.append(text)
+                elif isinstance(text, list):
+                    parts.extend(item for item in text if isinstance(item, str))
+            else:
+                text_attr = getattr(block, "text", None)
+                if isinstance(text_attr, str):
+                    parts.append(text_attr)
+        return "".join(parts)
+    if raw is None:
+        return ""
+    return str(raw)
+
+
+def _parse_cards_text(raw_text: Any) -> list[Any] | None:
     """Tolerantly extract a card list from a raw LLM response.
 
     Handles code-fence wrapping and leading/trailing prose (which would break a
     whole-string ``json.loads``) by salvaging the first balanced ``[...]`` or
     ``{...}`` span. Returns None when nothing parseable is found.
     """
-    text = raw_text.strip()
+    text = _content_to_text(raw_text).strip()
     if text.startswith("```"):
         text = text.split("\n", 1)[-1].rsplit("```", 1)[0].strip()
 
@@ -102,7 +133,28 @@ async def _ainvoke_card_llm(llm: Any, messages: list[Any]) -> Any:
     return await llm.ainvoke(messages)
 
 
+@dataclass(frozen=True)
+class CardGenerationResult:
+    """What post-hoc card generation produced, and whether it was TRIED and lost.
+
+    ``cards`` is ``None`` whenever nothing usable came out. ``failed`` separates
+    the two ways that happens: the model was never asked (no LLM, empty inputs)
+    or answered that the report warrants no cards — ordinary, not failed — from a
+    timeout, a provider error, unparseable output or a batch in which no card
+    survived validation. The job runner records the second kind as a degraded
+    reason on the answer; the first kind is not a caveat.
+    """
+
+    cards: list[dict[str, Any]] | None
+    failed: bool = False
+
+
 async def generate_cards(llm: Any, query: str, research_context: str) -> list[dict[str, Any]] | None:
+    """:func:`generate_cards_result` reduced to its cards; ``None`` on any miss."""
+    return (await generate_cards_result(llm, query, research_context)).cards
+
+
+async def generate_cards_result(llm: Any, query: str, research_context: str) -> CardGenerationResult:
     """Generate validated Grid response cards from a query and research context.
 
     Best-effort helper shared by the synchronous chat path and the async job
@@ -115,7 +167,8 @@ async def generate_cards(llm: Any, query: str, research_context: str) -> list[di
         research_context: The final answer/report to derive cards from.
 
     Returns:
-        A list of validated card dicts, or None if no cards could be produced.
+        The validated cards, or ``cards=None`` if none could be produced —
+        with ``failed`` saying whether that was an outcome or an accident.
     """
     # Known follow-up (pre-existing gap): the card LLM is passed in already-built
     # and is NOT run through the org BYOK credential swap
@@ -124,7 +177,7 @@ async def generate_cards(llm: Any, query: str, research_context: str) -> list[di
     # applying the credential where this llm is constructed/handed in (chat path +
     # async job runner), which is out of scope for the unified-resolution change.
     if llm is None or not query or not research_context:
-        return None
+        return CardGenerationResult(cards=None)
 
     prompt = build_card_generation_prompt()
     messages = [
@@ -136,17 +189,25 @@ async def generate_cards(llm: Any, query: str, research_context: str) -> list[di
         response = await asyncio.wait_for(_ainvoke_card_llm(llm, messages), timeout=_CARD_LLM_TIMEOUT_S)
     except TimeoutError:
         logger.warning("Card generation timed out after %ss; returning no cards", _CARD_LLM_TIMEOUT_S)
-        return None
+        return CardGenerationResult(cards=None, failed=True)
     except Exception as e:
         logger.exception("Card generation failed: %s", e)
-        return None
+        return CardGenerationResult(cards=None, failed=True)
 
     try:
-        raw_text = response.content if hasattr(response, "content") else str(response)
-        parsed = _parse_cards_text(raw_text)
+        response_text = response.content if hasattr(response, "content") else str(response)
+        parsed = _parse_cards_text(response_text)
         if parsed is None:
-            return None
-        return validate_cards(parsed)
+            # The model answered, but with nothing a card could be read from.
+            return CardGenerationResult(cards=None, failed=True)
+        if not parsed:
+            # The model's own verdict that the report warrants no proposals.
+            return CardGenerationResult(cards=[])
+        validated = validate_cards(parsed)
+        if not validated:
+            # It proposed cards and not one of them was well-formed.
+            return CardGenerationResult(cards=None, failed=True)
+        return CardGenerationResult(cards=validated)
     except Exception as e:
         logger.exception("Card validation failed: %s", e)
-        return None
+        return CardGenerationResult(cards=None, failed=True)

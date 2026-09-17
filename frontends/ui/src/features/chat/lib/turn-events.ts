@@ -42,11 +42,13 @@
 
 import {
   parseStepEventPayloads,
+  renderTurnEventKey,
   stepEventLiveText,
   unescapeStepPayload,
   type StepEventPayload,
   type StepEventTranslator,
 } from '@/adapters/api/step-event-schemas'
+import type { StoredTurnEvent } from '../types'
 import {
   isSkillSelectionStepName,
   isSkillStepName,
@@ -78,6 +80,40 @@ export interface TurnEventStep {
   functionName: string
   content?: string
   rawPayload?: string
+  /** The hoisted event, when the payload has already been pruned away. */
+  turnEvent?: StoredTurnEvent
+}
+
+/**
+ * The event a status step should keep once its payload is gone: the newest
+ * payload in the step that carries a live key. A slot re-emitted within one
+ * turn appends payloads oldest-first, and the live line reads them newest-first,
+ * so this is the same choice `turnEventLiveText` makes — persisted.
+ *
+ * `key` and `values` survive as the live line (proper nouns, dictionary ids,
+ * the reader's own words echoed back). `reason` survives as the Herleitung
+ * checkpoint: the model's own words, never interpolated into the live line,
+ * same discipline as an escalation rationale. The search query stays in
+ * `values` for the one-liner and is NOT what the graph draws (PF-12).
+ */
+export const turnEventOf = (step: TurnEventStep): StoredTurnEvent | undefined => {
+  if (!isStatusStepName(step.functionName || '')) return undefined
+  const payloads = parseStepEventPayloads(stepEventPayload(step))
+  for (let i = payloads.length - 1; i >= 0; i -= 1) {
+    const payload = payloads[i]
+    if (payload.channel === 'technical') continue
+    const key = payload.key?.trim()
+    if (!key) continue
+    const reason = payload.reason?.trim()
+    const tools = payload.tools?.map((name) => name.trim()).filter(Boolean)
+    return {
+      key,
+      ...(payload.values ? { values: payload.values } : {}),
+      ...(reason ? { reason } : {}),
+      ...(tools && tools.length > 0 ? { tools } : {}),
+    }
+  }
+  return step.turnEvent
 }
 
 /**
@@ -127,6 +163,8 @@ export const turnEventLiveText = (
     const text = stepEventLiveText(payloads[i], t)
     if (text) return text
   }
+  // A stored step: the payload was pruned, the hoisted event was kept.
+  if (step.turnEvent) return renderTurnEventKey(step.turnEvent.key, step.turnEvent.values, t)
   return null
 }
 
@@ -149,8 +187,13 @@ export interface ResearchTruncation {
   lastTool?: string
 }
 
-/** Step slot the backend emits the budget record under (`status:budget`). */
-const BUDGET_SLOT = 'budget'
+/**
+ * Step slots the backend emits a shallow-research cutoff under. `budget` is
+ * the round ceiling, `budget:input` the per-turn input-token ceiling; both
+ * mean the same thing to the reader — the research chain stopped before the
+ * model chose to stop.
+ */
+const BUDGET_SLOTS: readonly string[] = ['budget', 'budget:input']
 
 /**
  * The NEWEST status payload a predicate accepts, or `null`.
@@ -177,7 +220,7 @@ const lastStatusPayload = (
 export const researchTruncation = (steps: TurnEventStep[]): ResearchTruncation | null => {
   const payload = lastStatusPayload(
     steps,
-    (p) => p.slot === BUDGET_SLOT && p.truncated === true
+    (p) => typeof p.slot === 'string' && BUDGET_SLOTS.includes(p.slot) && p.truncated === true
   )
   if (!payload) return null
   const tools = payload.tools?.filter((name) => name.trim().length > 0) ?? []
@@ -265,9 +308,10 @@ export const deepResearchCutoff = (steps: TurnEventStep[]): DeepResearchCutoff |
  * `no_report_file` — the writer never persisted a report, so what shipped is a
  * chat message wearing a report's clothes. `no_valid_citations` — citation
  * verification found nothing it could stand behind, so nothing in the answer is
- * provably grounded.
+ * provably grounded. `cards_generation_failed` — the report is whole, but the
+ * proposals a job derives from it afterwards could not be produced.
  */
-export const ANSWER_DEGRADATIONS = ['no_report_file', 'no_valid_citations'] as const
+export const ANSWER_DEGRADATIONS = ['no_report_file', 'no_valid_citations', 'cards_generation_failed'] as const
 export type AnswerDegradation = (typeof ANSWER_DEGRADATIONS)[number]
 
 /**

@@ -8,7 +8,7 @@
 
 ## Context
 
-The `aiq-agent` container hosts the interactive chat / shallow-researcher path
+The `aiq-agent` container hosts the interactive chat / researcher path
 over WebSocket. The scaling review found it was **not** safe to run at
 `backendReplicas > 1`: the WebSocket session registry, human-in-the-loop
 (clarifier) futures, and the running LangGraph task are held **in process**

@@ -1,0 +1,24 @@
+---
+features:
+  - >
+    A draft Piloti wrote can now be put into the project. Ask for it — "leg das
+    ins Projekt", "ablegen" — and the document appears in Files, marked as a
+    draft, with the card beside the answer linking straight to it.
+  - >
+    Asking a second time updates the same document instead of leaving a second
+    copy beside the first, so a conversation that revises an Aktenvermerk three
+    times ends with one file and its history rather than three files.
+  - >
+    A filed draft can be sent for approval, from the card or by asking Piloti,
+    and it then appears in the reviewer's inbox. Approving, publishing and
+    archiving stay where they were: they are things a person does, and Piloti
+    cannot do them at all.
+improvements:
+  - >
+    Nothing Piloti files is approved or searchable. It arrives as a draft, says
+    so on the card and in the answer, and only a version somebody has approved
+    and published is ever added to what search can find.
+  - >
+    Filing happens under your own name and your own permissions. Piloti files as
+    the person who asked, so a document it puts into a project is one you could
+    have put there yourself — and the trail says who asked for it.

@@ -77,7 +77,7 @@ services:
       - SEAWEED_ACCESS_KEY=${SEAWEED_READONLY_ACCESS_KEY:-grid-backend-read}
       - SEAWEED_SECRET_KEY=${SEAWEED_READONLY_SECRET_KEY:?set it in deploy/.env — see the SeaweedFS section of deploy/.env.example}
       - SEAWEED_BUCKET=${SEAWEED_BUCKET:-grid-documents}
-      # LlamaIndex persistence (used by config_web_default_llamaindex.yml)
+      # LlamaIndex persistence (the Chroma store config_oib_openrouter.yml reads)
       - AIQ_CHROMA_DIR=${AIQ_CHROMA_DIR:-/app/data/chroma_data}
       # Server config
       # Grid OIB config (default)
@@ -100,6 +100,9 @@ services:
       - "${PORT:-8000}:8000"
     volumes:
       - ../../configs:/app/configs:ro
+      # Operator-provided OIB corpus; ships empty (data/oib/README.md). Read-only
+      # on purpose: an admin removes a document through the UI, which records an
+      # exclusion, rather than by deleting a file the mount would restore.
       - ../../data/oib:/app/data/oib:ro
       - aiq-data:/app/data
       - chroma_data:/app/data/chroma_data
@@ -303,6 +306,53 @@ services:
     networks:
       - aiq-network
 
+  # One-shot audit-schema reconciler, and the compose half of what the
+  # Kubernetes Job `grid-app-audit-schemas` does (deploy/pulumi/src/app/
+  # audit-schemas-job.ts). WorkOS validates every emitted Audit Log event
+  # against the schema registered for its action and rejects the event when
+  # there is none — or when the registered one has the wrong targets or
+  # metadata keys, which is the same rejection.
+  #
+  # It runs BEFORE the frontend serves, unlike the Kubernetes Job, because
+  # `document.generated` is emitted with the THROWING emitter: a rejected event
+  # does not thin the audit trail, it unfiles the document the trail was about
+  # (frontends/ui/src/lib/documents/generated.ts). An unreconciled environment
+  # therefore serves a Piloti that files nothing, silently, and there is no
+  # rolling update here whose availability the ordering would cost — the stack
+  # comes up as a unit, and where WORKOS_API_KEY is set WorkOS is already a hard
+  # dependency of it (nobody can log in without one).
+  #
+  # No key, no reconcile, exit 0: the default stack is anonymous
+  # (REQUIRE_AUTH=false), and there is no WorkOS environment to reconcile
+  # against — the same condition `deploy/pulumi/index.ts` expresses as
+  # `if (cfg.auth.requireAuth)`. The guard is on the KEY rather than on
+  # REQUIRE_AUTH because the key is what the script and every emit actually
+  # need.
+  #
+  # `--apply` reconciles (reads first, writes only what is missing or changed),
+  # so re-running on every `up` is a no-op against an environment that already
+  # matches. Bare `node`: the runtime image ships no npm and no devDependencies.
+  grid-audit-schemas:
+    image: ${FRONTEND_IMAGE:-nvcr.io/nvidia/blueprint/aiq-frontend:2.0.0}
+    build:
+      context: ../../frontends/ui
+      dockerfile: deploy/Dockerfile
+    container_name: aiq-blueprint-audit-schemas
+    restart: "no"
+    command:
+      - sh
+      - -c
+      - >
+        if [ -z "$${WORKOS_API_KEY}" ]; then
+        echo "WORKOS_API_KEY is unset - no WorkOS environment to reconcile, skipping.";
+        exit 0;
+        fi;
+        node scripts/provision-workos-audit-schemas.mjs --apply
+    environment:
+      - WORKOS_API_KEY=${WORKOS_API_KEY:-}
+    networks:
+      - aiq-network
+
   frontend:
     image: ${FRONTEND_IMAGE:-nvcr.io/nvidia/blueprint/aiq-frontend:2.0.0}
     build:
@@ -314,6 +364,12 @@ services:
     command: ["node", "server.js"]
     environment:
       - REQUIRE_AUTH=${REQUIRE_AUTH:-false}
+      # The commit this deployment is running. Stamped into the image as a
+      # build arg by publish-images.yml, so it is normally already set inside
+      # the container and this line only matters for a locally built or
+      # hand-tagged image. It appears in the `[boot]` log line and on the health
+      # endpoints, and it is what makes a pilot report nameable.
+      - GRID_GIT_SHA=${GRID_GIT_SHA:-}
       # APP_ENV lets the internal memory route distinguish dev from prod: the
       # well-known dev default GRID_INTERNAL_API_TOKEN is only accepted when
       # APP_ENV is development/dev/local (NODE_ENV is always 'production' in
@@ -336,6 +392,10 @@ services:
       - WORKOS_API_KEY=${WORKOS_API_KEY}
       - NEXT_PUBLIC_WORKOS_REDIRECT_URI=${NEXT_PUBLIC_WORKOS_REDIRECT_URI:-${WORKOS_REDIRECT_URI:-http://localhost:3000/api/auth/callback}}
       - WORKOS_COOKIE_PASSWORD=${WORKOS_COOKIE_PASSWORD}
+      # PostHog product analytics (fail-open: unset means no events leave the
+      # browser — see frontends/ui/src/lib/analytics/posthog.ts).
+      - NEXT_PUBLIC_POSTHOG_HOST=${NEXT_PUBLIC_POSTHOG_HOST:-}
+      - NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN=${NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN:-}
       # BYOK LLM credentials (ADR-0022): secret backend for tenant API keys.
       # Default: WorkOS Vault when WORKOS_API_KEY is set, else local AES-GCM
       # under GRID_BYOK_LOCAL_KEK (32 bytes, base64).
@@ -371,9 +431,6 @@ services:
       # The catalog endpoint works unauthenticated; the key (same one the
       # backend uses) scopes the listing to account availability when set.
       - OPENROUTER_API_KEY=${OPENROUTER_API_KEY:-}
-      # Euros per 1 USD for comparing EUR budget limits against the USD costs
-      # OpenRouter reports (docs/architecture/usage-budgets.md).
-      - GRID_BUDGET_EUR_PER_USD=${GRID_BUDGET_EUR_PER_USD:-0.86}
       # Platform tier (ADR-0016): break-glass owner bootstrap, platform-org
       # external id override, and the self-serve org creation gate.
       - GRID_PLATFORM_OWNER_EMAILS=${GRID_PLATFORM_OWNER_EMAILS:-}
@@ -384,8 +441,20 @@ services:
       # the WS-upgrade rate limiter. Unset = per-process in-memory fallback.
       - REDIS_URL=${REDIS_URL:-redis://dragonfly:6379/0}
       - GRID_WS_UPGRADE_RATE_LIMIT=${GRID_WS_UPGRADE_RATE_LIMIT:-30}
+      # The commit this deployment is running. Stamped into the image as a
+      # build arg by publish-images.yml, so it is normally already set inside
+      # the container and this line only matters for a locally built or
+      # hand-tagged image. It appears in the `[boot]` log line and on the health
+      # endpoints, and it is what makes a pilot report nameable.
+      - GRID_GIT_SHA=${GRID_GIT_SHA:-}
       # ── Agent Skills (ADR-0046): dark-launch gate + save-time cron validation ──
       - GRID_SKILLS_ENABLED=${GRID_SKILLS_ENABLED:-false}
+      # Flag ENFORCEMENT itself. It was on the skill-scheduler and NOT here,
+      # which meant `enforcementOn()` in the BFF read an unset variable no
+      # matter what the operator had configured — the frontend and the
+      # scheduler could disagree about whether WorkOS flags decide anything.
+      # Same default, so nothing moves until an operator sets it.
+      - GRID_ENFORCE_FEATURE_FLAGS=${GRID_ENFORCE_FEATURE_FLAGS:-false}
       - GRID_SKILL_MIN_INTERVAL_MINUTES=${GRID_SKILL_MIN_INTERVAL_MINUTES:-15}
       # ── Collaboration (ADR-0032…0035): shared chats, @-mentions, the inbox ──
       # Dark-launch gate, default-deny: with it off the inbox nav entry, the
@@ -395,6 +464,7 @@ services:
       # IFC/BIM models (ADR-0045). ON by default; set false to withdraw the
       # feature without turning on flag enforcement for everything else.
       - GRID_IFC_MODELS_ENABLED=${GRID_IFC_MODELS_ENABLED:-true}
+      - GRID_AGENT_AUTHORED_DOCUMENTS_ENABLED=${GRID_AGENT_AUTHORED_DOCUMENTS_ENABLED:-true}
       # Extraction bounds. BIM_MAX_IFC_BYTES is also the UPLOAD ceiling for a
       # .ifc — the two must not disagree. Defaults: 250 MB / 200 000 rows.
       - BIM_MAX_IFC_BYTES=${BIM_MAX_IFC_BYTES:-}
@@ -405,6 +475,11 @@ services:
       - aiq-network
     depends_on:
       grid-migrate:
+        condition: service_completed_successfully
+      # Wait for the WorkOS audit schemas before serving. A rejected
+      # `document.generated` event unfiles the document it was about, so an
+      # unreconciled environment serves a Piloti that files nothing.
+      grid-audit-schemas:
         condition: service_completed_successfully
       aiq-agent:
         condition: service_healthy

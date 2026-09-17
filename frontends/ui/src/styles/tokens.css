@@ -5,10 +5,13 @@
    docs/design/click-dummy-overhaul-spec.md §4 and
    docs/design/grid-design-language.md). Warm paper surfaces, a near-black ink
    ramp, hairline alpha-ink borders that composite correctly on any surface,
-   layered soft shadows for elevation, and NO brand accent color on actions —
-   the primary action is near-black ink. The only chroma is the
+   layered soft shadows for elevation, and no accent color on ACTIONS — the
+   primary action is still near-black ink. Chroma is mostly the
    source/provenance signal system (--source-*, --status-*, --signal-*),
    always paired with icon + label in the UI (color never travels alone).
+   There is no general accent token: --accent-pop was carved out for one in
+   2026-08 and withdrawn in 2026-09 (design doc §"Accent pop"). A control
+   that wants to stand out wants contrast, not chroma.
 
    Three var vocabularies are defined here:
 
@@ -87,6 +90,7 @@
   --status-done-tint: var(--source-auto-tint);
   --signal-error: oklch(0.567 0.157 31); /* #c14a38 — errors only */
   --signal-error-tint: oklch(0.941 0.02 32.5); /* #f9e7e3 */
+
 
   /* ---- shadcn vars (light) — warm paper ---- */
   --background: oklch(0.973 0.003 106.4); /* #f6f6f4 — warm paper app bg */
@@ -212,6 +216,7 @@
   --status-done-tint: var(--source-auto-tint);
   --signal-error: oklch(0.672 0.144 31.6); /* lifted #c14a38 */
   --signal-error-tint: oklch(0.316 0.062 31.6);
+
 
   /* ---- shadcn vars (dark) — warm charcoal paper.
 

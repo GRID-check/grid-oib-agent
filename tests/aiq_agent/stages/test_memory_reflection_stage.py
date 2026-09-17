@@ -1,7 +1,7 @@
 """Memory reflection as a post-answer stage.
 
 The gate cases moved here verbatim from
-``tests/aiq_agent/agents/chat_researcher/test_register_helpers.py`` — the
+``tests/aiq_agent/agents/piloti/test_register_helpers.py`` — the
 predicate is the same predicate, it just reads ``TurnFacts`` instead of the graph
 state now. The new cases are the two defects the migration closes: a hard
 timeout, and a gate that finally reads ``research_truncated``.
@@ -17,6 +17,7 @@ from aiq_agent.stages.flags import legacy_enabled_stages
 from aiq_agent.stages.flags import stages_for_flag_slug
 from aiq_agent.stages.memory_reflection import MEMORY_REFLECTION
 from aiq_agent.stages.memory_reflection import MemoryReflectionPayload
+from aiq_agent.stages.memory_reflection import matches_escalation_keywords
 from aiq_agent.stages.spec import StageContext
 from aiq_agent.stages.spec import TurnFacts
 
@@ -29,7 +30,7 @@ def _facts(**overrides) -> TurnFacts:
         project_id="proj_1",
         query="Wie hoch darf die Brüstung sein?",
         answer="Das Gebäude ist Gebäudeklasse 4.",
-        intent="research",
+        routing_decision="shallow",
         enabled_stages=frozenset({"memory_reflection"}),
     )
     return dataclasses.replace(base, **overrides)
@@ -87,16 +88,21 @@ class TestGate:
     def test_real_research_answer_passes(self):
         assert _gate().run is True
 
-    def test_meta_intent_skipped(self):
-        decision = _gate(intent="meta", answer="Hello! How can I help?")
+    def test_direct_reply_skipped(self):
+        """A greeting, a listing, an off-topic decline: the turn consulted
+        nothing and graded nothing, so there is nothing to remember."""
+        decision = _gate(routing_decision="meta", answer="Hello! How can I help?")
         assert decision.run is False
-        assert decision.reason == "intent_meta"
+        assert decision.reason == "routing_meta"
 
-    def test_error_intent_skipped(self):
-        assert _gate(intent="error", answer="Something went wrong.").reason == "intent_error"
+    def test_error_route_skipped(self):
+        assert _gate(routing_decision="error", answer="Something went wrong.").reason == "routing_error"
 
-    def test_out_of_scope_intent_skipped(self):
-        assert _gate(intent="out_of_scope", answer="A concrete finding.").reason == "intent_out_of_scope"
+    def test_an_unobserved_route_still_runs(self):
+        """``None`` is "not recorded", not "direct reply": a deep-research
+        answer delivered off the WebSocket path has no observation and must
+        not be filed as small talk."""
+        assert _gate(routing_decision=None).run is True
 
     def test_insufficiency_answer_skipped(self):
         decision = _gate(answer="I don't have enough information to answer that.")
@@ -118,8 +124,9 @@ class TestGate:
         assert decision.run is False
         assert decision.reason == "research_truncated"
 
-    def test_deep_research_stub_skipped(self):
-        assert _gate(deep_research_job_id="job_1").reason == "deep_research_job"
+    def test_a_turn_that_only_commissioned_a_run_is_skipped(self):
+        # The run reflects on its own report, on the worker, once it exists.
+        assert _gate(run_id="run_1").reason == "commissioned_run"
 
     def test_a_project_less_conversation_has_nothing_it_may_write(self):
         assert _gate(project_id=None).reason == "no_project"
@@ -128,14 +135,14 @@ class TestGate:
 class TestHandler:
     @pytest.mark.asyncio
     async def test_nothing_durable_is_an_empty_payload_not_an_invention(self):
-        with patch("aiq_agent.agents.project_memory.reflection.run_memory_reflection", return_value=[]) as run:
+        with patch("aiq_agent.memory.reflection.run_memory_reflection", return_value=[]) as run:
             payload = await MEMORY_REFLECTION.handler(StageContext(facts=_facts(), llm=object()))
         assert payload is None
         assert run.await_count == 1
 
     @pytest.mark.asyncio
     async def test_written_items_are_reported_as_the_payload(self):
-        with patch("aiq_agent.agents.project_memory.reflection.run_memory_reflection", return_value=_WRITTEN):
+        with patch("aiq_agent.memory.reflection.run_memory_reflection", return_value=_WRITTEN):
             payload = await MEMORY_REFLECTION.handler(StageContext(facts=_facts(), llm=object()))
         assert payload == {"items": _WRITTEN}
         assert MemoryReflectionPayload.model_validate(payload).items[0].kind == "constraint"
@@ -149,7 +156,7 @@ class TestHandler:
         exists to delete — the poll would come back, wearing a frame as a
         trigger. The writer had the words in hand; it sends them.
         """
-        with patch("aiq_agent.agents.project_memory.reflection.run_memory_reflection", return_value=_WRITTEN):
+        with patch("aiq_agent.memory.reflection.run_memory_reflection", return_value=_WRITTEN):
             payload = await MEMORY_REFLECTION.handler(StageContext(facts=_facts(), llm=object()))
         items = MemoryReflectionPayload.model_validate(payload).items
         assert [item.content for item in items] == [row["content"] for row in _WRITTEN]
@@ -158,7 +165,7 @@ class TestHandler:
     @pytest.mark.asyncio
     async def test_the_pass_sees_the_digest_the_agent_saw_this_turn(self):
         facts = _facts(memory_digest='- [decision | high | verified] "Flachdach"')
-        with patch("aiq_agent.agents.project_memory.reflection.run_memory_reflection", return_value=[]) as run:
+        with patch("aiq_agent.memory.reflection.run_memory_reflection", return_value=[]) as run:
             await MEMORY_REFLECTION.handler(StageContext(facts=facts, llm="the-llm"))
         kwargs = run.await_args.kwargs
         assert kwargs["memory_digest"] == facts.memory_digest
@@ -166,3 +173,26 @@ class TestHandler:
         assert kwargs["project_id"] == "proj_1"
         assert kwargs["organization_id"] == "org_1"
         assert kwargs["conversation_id"] == "conv_1"
+
+
+class TestMatchesEscalationKeywords:
+    """The insufficiency heuristic, read ONLY by this stage's gate: escalation
+    itself requires Piloti's explicit structured ask."""
+
+    def test_english_phrase_hits(self):
+        assert matches_escalation_keywords("Unfortunately I don't have enough information to answer.") is True
+
+    def test_german_phrase_one_hits(self):
+        assert matches_escalation_keywords("Es liegen nicht genügend Informationen vor.") is True
+
+    def test_german_phrase_two_hits(self):
+        assert matches_escalation_keywords("Weitere Recherche erforderlich, um dies zu klären.") is True
+
+    def test_adequate_german_answer_no_hit(self):
+        content = "Die OIB-Richtlinie 2 regelt den Brandschutz umfassend und eindeutig."
+        assert matches_escalation_keywords(content) is False
+
+    def test_keyword_before_last_800_chars_no_hit(self):
+        # Keyword placed well before the last 800 characters is not matched.
+        content = "unable to find" + ("x" * 900)
+        assert matches_escalation_keywords(content) is False

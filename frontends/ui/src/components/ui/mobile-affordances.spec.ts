@@ -22,9 +22,11 @@
  *  2. A text field under 16px. iOS Safari zooms the whole page in when one takes
  *     focus and does NOT zoom back out on blur, so a 14px rename field leaves the
  *     reader magnified and scrolled sideways inside the surface they were reading.
- *     The Input and Textarea primitives have carried the `text-base … md:text-sm`
- *     floor for a while; every raw `<input>` written since has had to remember it
- *     on its own, and three of them did not.
+ *     Every raw `<input>` has to carry the floor itself, and three did not — and
+ *     the floor is on the POINTER axis, because the version of it built out of a
+ *     viewport breakpoint (`text-base … md:text-sm`) is not a floor at all: past
+ *     the breakpoint a coarse-pointer tablet renders 14px and zooms exactly as a
+ *     phone would. Both halves are asserted below.
  *
  * Both are asserted against the SOURCE for the same reason `touch-target.spec.ts`
  * asserts wiring rather than pixels: these are cheap invariants that hold on every
@@ -34,8 +36,24 @@
 import { describe, expect, it } from 'vitest'
 import { readFileSync, readdirSync, statSync } from 'node:fs'
 import { join } from 'node:path'
+import { blankComments } from '../../../scripts/check-static-utility-modifiers.mjs'
 
 const SRC = join(__dirname, '..', '..')
+
+/**
+ * Read a source file with its COMMENT BODIES BLANKED.
+ *
+ * Every rule below matches on class strings, and a comment explaining one of
+ * these defects contains the defect's own class names — so scanning raw source
+ * makes the documentation fail the check that the documentation is about. It did:
+ * the note in `input.tsx` saying "this was `text-base … md:text-sm`" was reported
+ * as a `md:text-sm`.
+ *
+ * `blankComments` is the repo's existing solution to exactly this, already
+ * exported by `scripts/check-static-utility-modifiers.mjs`. It preserves byte
+ * offsets and leaves string literals alone, which is where class names live.
+ */
+const readCode = (file: string): string => blankComments(readFileSync(file, 'utf8')) as string
 
 const walk = (dir: string, out: string[] = []): string[] => {
   for (const entry of readdirSync(dir)) {
@@ -97,7 +115,7 @@ describe('a hover reveal always has a second way in', () => {
   it('never hides a control behind hover alone', () => {
     const offenders: string[] = []
     for (const file of SOURCE_FILES) {
-      for (const region of classRegions(readFileSync(file, 'utf8'))) {
+      for (const region of classRegions(readCode(file))) {
         if (!region.includes('group-hover:opacity-100')) continue
         // `md:opacity-0` is the inversion, and it also contains `opacity-0` —
         // match the bare utility only.
@@ -129,19 +147,59 @@ describe('no text field invites the iOS zoom', () => {
     const offenders: string[] = []
     for (const file of SOURCE_FILES) {
       if (file.endsWith('.spec.tsx') || file.endsWith('.test.tsx')) continue
-      const source = readFileSync(file, 'utf8')
+      const source = readCode(file)
       for (const match of source.matchAll(TYPED_TAG)) {
         const tag = match[0]
         if (EXEMPT_TYPE.test(tag) || VISUALLY_GONE.test(tag)) continue
         // Under 16px…
         if (!/\btext-(?:xs|sm|\[1[0-5](?:\.\d+)?px\])\b/.test(tag)) continue
-        // …unless the small step is itself the breakpoint-restored one, i.e. the
-        // field also declares the 16px base that applies below it.
-        if (/\btext-base\b/.test(tag)) continue
+        // …unless the field also raises itself back to 16px on a coarse pointer.
+        if (/\bpointer-coarse:text-base\b/.test(tag)) continue
         offenders.push(`${relative(file)}: ${tag.slice(0, 90).replace(/\s+/g, ' ')}`)
       }
     }
     expect(offenders).toEqual([])
+  })
+
+  /**
+   * THE FLOOR IS ON THE POINTER AXIS, NOT A BREAKPOINT — and this is the half
+   * that got missed the first time.
+   *
+   * `text-base … md:text-sm` looks like a floor and is not one: past the
+   * breakpoint the override wins, so a coarse-pointer TABLET renders 14px and
+   * iOS zooms exactly as it would have on a phone. The bug is invisible in
+   * review because the `text-base` is right there in the class list.
+   *
+   * A field may only step down below 16px on `pointer-fine:`, where no soft
+   * keyboard can appear. Width never re-enables the zoom.
+   */
+  it('never rebuilds the floor out of a viewport breakpoint', () => {
+    const offenders: string[] = []
+    const BREAKPOINT_SHRINK = /\b(?:sm|md|lg|xl|2xl):text-(?:xs|sm|\[1[0-5](?:\.\d+)?px\])\b/g
+    for (const file of SOURCE_FILES) {
+      if (file.endsWith('.spec.tsx') || file.endsWith('.test.tsx')) continue
+      const source = readCode(file)
+      for (const match of source.matchAll(TYPED_TAG)) {
+        const tag = match[0]
+        if (EXEMPT_TYPE.test(tag) || VISUALLY_GONE.test(tag)) continue
+        for (const shrink of tag.match(BREAKPOINT_SHRINK) ?? []) {
+          offenders.push(`${relative(file)}: ${shrink}`)
+        }
+      }
+    }
+    expect(offenders).toEqual([])
+  })
+
+  it('the shared field primitives raise themselves on a coarse pointer', () => {
+    // These three are what every other field inherits from, so the floor holding
+    // here is most of the coverage. `select.tsx` is a button rather than a text
+    // field and cannot zoom on its own — it carries the same step so a select and
+    // an input standing side by side are never two different sizes.
+    for (const file of ['input.tsx', 'textarea.tsx', 'select.tsx']) {
+      const source = readCode(join(SRC, 'components', 'ui', file))
+      expect(source, file).toContain('pointer-coarse:text-base')
+      expect(source, file).not.toMatch(/\bmd:text-sm\b/)
+    }
   })
 })
 
@@ -164,7 +222,7 @@ describe('no library stylesheet keeps the page scroll', () => {
   const FLOW = join(SRC, 'features', 'chat', 'components', 'reasoning', 'ReasoningFlow.tsx')
 
   it('the reasoning graph opts into the override', () => {
-    const source = readFileSync(FLOW, 'utf8')
+    const source = readCode(FLOW)
     expect(source).toContain('reasoning-flow-scrollable')
     // The override is only defensible while the graph really does own no
     // gestures. If one of these is ever turned on, the pane needs its
@@ -208,7 +266,7 @@ describe('the soft keyboard is told what the action key does', () => {
     ['features/layout/components/InputArea.tsx', 'send'],
     ['components/ui/type-to-confirm-dialog.tsx', 'done'],
   ])('%s declares enterKeyHint="%s"', (file, hint) => {
-    const source = readFileSync(join(SRC, ...file.split('/')), 'utf8')
+    const source = readCode(join(SRC, ...file.split('/')))
     expect(source).toContain(`enterKeyHint="${hint}"`)
   })
 
@@ -216,7 +274,7 @@ describe('the soft keyboard is told what the action key does', () => {
     // A query matches strings. Autocapitalize turns "oib" into "Oib" and
     // autocorrect rewrites the abbreviations these documents are named with, so
     // the result set disagrees with what the reader believes they typed.
-    const source = readFileSync(join(SRC, 'components', 'ui', 'search-field.tsx'), 'utf8')
+    const source = readCode(join(SRC, 'components', 'ui', 'search-field.tsx'))
     expect(source).toMatch(/autoCapitalize="off"/)
     expect(source).toMatch(/autoCorrect="off"/)
   })

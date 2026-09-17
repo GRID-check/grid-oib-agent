@@ -32,17 +32,47 @@ describe('ConfidenceChip', () => {
 
   test('shows the quote-unverified reason in the tooltip when a quote could not be verified', async () => {
     const user = userEvent.setup()
-    render(<ConfidenceChip confidence="low" cappedReason="quote_unverified" />)
+    // A grounded answer with one unverified quote is held at "medium", so the
+    // reason no longer names a level; it says what was capped and why.
+    render(<ConfidenceChip confidence="medium" cappedReason="quote_unverified" />)
 
     await user.hover(screen.getByRole('button'))
 
     expect(
       (
         await screen.findAllByText(
-          /Low confidence: a quote could not be verified verbatim against the source\./
+          /A quote could not be verified verbatim against the source; the assessment is capped accordingly\./
         )
       ).length
     ).toBeGreaterThan(0)
+  })
+
+  test("labels the model's reason as the one it gave before the cap", async () => {
+    const user = userEvent.setup()
+    // The model explained a "high"; the backend held the answer at "medium".
+    // Showing that explanation under the shown level would read as nonsense,
+    // so the label says which level the reason belongs to.
+    render(
+      <ConfidenceChip
+        confidence="medium"
+        cappedReason="quote_unverified"
+        reason="Every claim is backed by the cited paragraph."
+      />
+    )
+
+    await user.hover(screen.getByRole('button'))
+
+    expect((await screen.findAllByText(/Assistant's reason before the cap:/)).length).toBeGreaterThan(0)
+    expect(screen.queryByText(/^Assistant's reason:$/)).not.toBeInTheDocument()
+  })
+
+  test("labels the model's reason plainly when nothing capped it", async () => {
+    const user = userEvent.setup()
+    render(<ConfidenceChip confidence="high" reason="Directly stated in the cited paragraph." />)
+
+    await user.hover(screen.getByRole('button'))
+
+    expect((await screen.findAllByText(/Assistant's reason:/)).length).toBeGreaterThan(0)
   })
 
   test('falls back to the generic tooltip when no reason is present', async () => {

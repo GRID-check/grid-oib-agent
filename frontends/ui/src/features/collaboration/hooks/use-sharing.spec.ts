@@ -36,7 +36,7 @@ vi.mock('../lib/event-hub', () => ({
   },
 }))
 
-import { useSharing } from './use-sharing'
+import { useMentionCandidates, useSharing } from './use-sharing'
 
 const RESOURCE_ID = 's_conv_new'
 const URL = `/api/sharing/conversation/${RESOURCE_ID}`
@@ -207,5 +207,98 @@ describe('useSharing — the ordinary path', () => {
 
     await runLadder()
     expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+})
+
+/**
+ * The mention picker's own read, which had NO test at all — and that absence is
+ * why a fix that could not work shipped looking green.
+ *
+ * The reported symptom was "@ still does not work in a new window". A new window
+ * nulls the conversation; typing `@` creates a CLIENT-SIDE session only, since
+ * the server row is written by `_appendMessage` at send time. So every rung of
+ * this ladder 404s, the hook clears its data, and the composer renders no picker
+ * at all — not an empty one. Re-arming the ladder against the same missing row
+ * could only 404 again, which is what the previous attempt did.
+ *
+ * The composer's fix is to create the row before asking. These pin the hook's
+ * half of the contract: what it does with no id, and what a `restart()` against
+ * a row that is still missing actually buys.
+ */
+const CONVERSATION_ID = 's_conv_new'
+const MENTION_URL = `/api/conversations/${CONVERSATION_ID}/mention-candidates`
+
+const candidates = (): Response =>
+  ({
+    ok: true,
+    status: 200,
+    json: async () => ({ candidates: [{ kind: 'agent', id: 'agent', name: 'Piloti' }] }),
+  }) as unknown as Response
+
+describe('useMentionCandidates — before the conversation exists', () => {
+  test('asks nothing at all while there is no conversation id', async () => {
+    const { result } = renderHook(() => useMentionCandidates(null, true))
+
+    await runLadder()
+    act(() => result.current.restart())
+    await runLadder()
+
+    // Not one request, ever. `restart()` on a null id is a no-op, so the
+    // composer cannot recover by asking harder — the ROW has to exist first.
+    expect(fetchMock).not.toHaveBeenCalled()
+    expect(result.current.data).toBeNull()
+    expect(result.current.loading).toBe(false)
+  })
+
+  test('gives up after the ladder when the row is genuinely absent', async () => {
+    fetchMock.mockResolvedValue(notFound())
+
+    const { result } = renderHook(() => useMentionCandidates(CONVERSATION_ID, true))
+
+    await runLadder()
+
+    expect(fetchMock).toHaveBeenCalledTimes(LADDER_RUNGS + 1)
+    expect(fetchMock).toHaveBeenCalledWith(MENTION_URL)
+    // Null, not an empty list — and null is what makes the composer render
+    // NOTHING rather than an empty picker.
+    expect(result.current.data).toBeNull()
+    expect(result.current.loading).toBe(false)
+  })
+
+  test('a restart against a row that is STILL missing only burns the ladder again', async () => {
+    fetchMock.mockResolvedValue(notFound())
+    const { result } = renderHook(() => useMentionCandidates(CONVERSATION_ID, true))
+    await runLadder()
+    fetchMock.mockClear()
+
+    act(() => result.current.restart())
+    await runLadder()
+
+    // This is the whole point: the re-arm works exactly as designed and buys
+    // nothing, because nothing about the server changed between the two.
+    expect(fetchMock).toHaveBeenCalledTimes(LADDER_RUNGS + 1)
+    expect(result.current.data).toBeNull()
+  })
+
+  test('converges the moment the row appears, with nothing prompting it', async () => {
+    // The shape of the real recovery: the composer creates the row while the
+    // ladder is still climbing.
+    fetchMock.mockResolvedValueOnce(notFound()).mockResolvedValue(candidates())
+
+    const { result } = renderHook(() => useMentionCandidates(CONVERSATION_ID, true))
+
+    await runLadder()
+
+    expect(result.current.data).not.toBeNull()
+    expect(result.current.loading).toBe(false)
+  })
+
+  test('a gated org asks nothing and schedules nothing', async () => {
+    const { result } = renderHook(() => useMentionCandidates(CONVERSATION_ID, false))
+
+    await runLadder()
+
+    expect(fetchMock).not.toHaveBeenCalled()
+    expect(result.current.data).toBeNull()
   })
 })

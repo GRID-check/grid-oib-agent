@@ -32,7 +32,7 @@ from pydantic import Field
 from pydantic import ValidationError
 from ris_adapter.cache import cache_get_json
 from ris_adapter.cache import cache_set_json
-from ris_adapter.cache import doc_cache_key
+from ris_adapter.cache import fetch_document_cached
 from ris_adapter.cache import ingested_marker_key
 from ris_adapter.cache import ris_cache_ttl_seconds
 from ris_adapter.cache import search_cache_key
@@ -40,7 +40,6 @@ from ris_adapter.client import CONTROLLER_FOR_APPLICATION
 from ris_adapter.client import DEFAULT_BASE_URL
 from ris_adapter.client import PAGE_SIZES
 from ris_adapter.client import RisClient
-from ris_adapter.client import RisDocument
 from ris_adapter.client import RisError
 from ris_adapter.client import RisHit
 from ris_adapter.client import build_document_url
@@ -66,6 +65,14 @@ except ImportError:  # adapter used standalone, without the Grid agent package
     load_registry = None  # type: ignore[assignment]
     match_entries = None  # type: ignore[assignment]
     _CATALOG_AVAILABLE = False
+
+try:
+    from aiq_agent.common.turn_status import record_lane_hit as _record_lane_hit
+
+    _LANE_CAPTURE_AVAILABLE = True
+except ImportError:  # adapter used standalone, without the Grid agent package
+    _record_lane_hit = None  # type: ignore[assignment]
+    _LANE_CAPTURE_AVAILABLE = False
 
 logger = logging.getLogger(__name__)
 
@@ -301,6 +308,34 @@ def _make_planner(llm):
     return _plan
 
 
+def _cache_hits(raw: object) -> list[tuple[str | None, str | None, str | None]]:
+    """The hit triples stored beside a cached search text, defensively read.
+
+    The cache is shared and may hold a payload from another build: anything
+    that is not a (name, title, detail) triple is skipped, never guessed.
+    """
+    if not isinstance(raw, list):
+        return []
+    hits: list[tuple[str | None, str | None, str | None]] = []
+    for entry in raw:
+        if isinstance(entry, (list, tuple)) and len(entry) == 3:
+            hits.append((entry[0], entry[1], entry[2]))
+    return hits
+
+
+def _capture_lane_hits(hits: list[tuple[str | None, str | None, str | None]]) -> None:
+    """Best-effort per-round ledger capture: ``(name, title, detail)`` per shown hit.
+
+    No-op when the adapter runs standalone (guarded import above) and never
+    raising: ``record_lane_hit`` itself cannot fail, so a capture must never
+    break a tool result. The ledger reads this, never the prose.
+    """
+    if not _LANE_CAPTURE_AVAILABLE or _record_lane_hit is None:
+        return
+    for name, title, detail in hits:
+        _record_lane_hit(name or "", title=title, detail=detail)
+
+
 def _format_hit(index: int, hit: RisHit) -> str:
     lines = [f"--- Result {index} ---"]
     if hit.title:
@@ -317,7 +352,11 @@ def _format_hit(index: int, hit: RisHit) -> str:
     if source_url:
         lines.append(f"Source: {source_url}")
     if hit.fetch_url:
-        lines.append(f"Fetch full text: ris_fetch_document with '{hit.document_number or hit.fetch_url}'")
+        # The ADDRESS of the full text, not an instruction to go and get it.
+        # The sequence this used to teach ("then call ris_fetch_document") is
+        # inside `ris_lookup` now; deep research, which still drives these three
+        # tools itself, needs the address and can read a fact.
+        lines.append(f"Full text at document number: {hit.document_number or hit.fetch_url}")
     if hit.full_law_url:
         lines.append(f"Entire consolidated law (all paragraphs): {hit.full_law_url}")
     return "\n".join(lines)
@@ -404,9 +443,9 @@ async def ris_search(tool_config: RisSearchToolConfig, builder: Builder):
         - Content of the OIB-Richtlinien themselves or user-uploaded documents → knowledge_search.
         - Non-Austrian law, news, products, or general facts → web search.
 
-        This returns document REFERENCES, not full texts. Never quote legal wording from these
-        snippets: pass the document number (or Source URL) to ris_fetch_document and read the
-        entire document before citing it.
+        This returns document REFERENCES — title, application, document number, citation URL —
+        and never the wording of a provision. Nothing here is quotable: a reference is an address,
+        and a legal answer is grounded in the document that address names.
 
         Args:
             query (str): German legal search terms, e.g. "Stellplatzverpflichtung Garage". Use
@@ -457,24 +496,44 @@ async def ris_search(tool_config: RisSearchToolConfig, builder: Builder):
                 matches = focus_entries(matches, detected_land)
                 if matches:
                     shown = matches[:max_results]
+                    _capture_lane_hits(
+                        [
+                            (
+                                entry.citation_url or entry.source_url or entry.title,
+                                entry.title or None,
+                                entry.document_number or None,
+                            )
+                            for entry in shown
+                        ]
+                    )
                     lines = [
                         f"Curated RIS catalog match(es) for '{query}' - verified pointers, no live search performed:",
                         "",
                     ]
                     lines.extend(_format_catalog_entry(i, entry) + "\n" for i, entry in enumerate(shown, 1))
                     lines.append(
-                        "Fetch the full text with ris_fetch_document using the document number or the "
-                        "'Entire consolidated law' URL. This answer comes from the curated catalog; "
-                        "refine the query (e.g. name a court, set an explicit application, or a date) "
-                        "to force a live RIS search."
+                        "These are verified pointers — an address each, not the text at it. This answer "
+                        "comes from the curated catalog; refine the query (e.g. name a court, set an "
+                        "explicit application, or a date) to force a live RIS search."
                     )
                     return "\n".join(lines)
         # Live-search read-through cache: skips both the planner LLM and the RIS
         # API for a repeat of the exact same search. The catalog shortcut above
         # is local and already free, so it is deliberately not cached here.
+        #
+        # The cache entry carries the HITS beside the text, so a repeat search
+        # still feeds the per-round ledger: the model receives the same
+        # documents either way, and a round whose evidence silently vanished
+        # from the account would make the ledger lie exactly on repeats.
         search_key = search_cache_key("|".join([application, query, title, bundesland, date_from, date_to, str(page)]))
         cached_search = await cache_get_json(search_key)
+        if isinstance(cached_search, dict) and isinstance(cached_search.get("text"), str) and cached_search["text"]:
+            _capture_lane_hits(_cache_hits(cached_search.get("hits")))
+            return cached_search["text"]
         if isinstance(cached_search, str) and cached_search:
+            # A legacy entry written before the hits rode along: the text is
+            # still good, the hits are not reconstructible — capture nothing
+            # rather than inventing a round's evidence.
             return cached_search
 
         effective = {
@@ -536,6 +595,15 @@ async def ris_search(tool_config: RisSearchToolConfig, builder: Builder):
             )
 
         shown = result.hits[:max_results]
+        hit_triples = [
+            (
+                hit.citation_url or hit.fetch_url or hit.title,
+                hit.title or None,
+                hit.document_number or None,
+            )
+            for hit in shown
+        ]
+        _capture_lane_hits(hit_triples)
         total_pages = max(1, -(-result.total // result.page_size)) if result.total else 1
         lines = [
             f"Found {result.total or len(shown)} RIS document(s) "
@@ -546,13 +614,15 @@ async def ris_search(tool_config: RisSearchToolConfig, builder: Builder):
         if effective["application"] in _KONSOLIDIERT_APPLICATIONS:
             lines.append(_KONSOLIDIERT_NOTE)
         lines.append(
-            "To read a document in full, call ris_fetch_document with its document number or Source URL. "
-            "For the complete text of a law (all paragraphs), fetch the 'Entire consolidated law' URL."
+            "These are references. A document's own text lives at its Source URL, and the complete "
+            "text of a law (all paragraphs) at its 'Entire consolidated law' URL."
         )
         output = "\n".join(lines)
         # Only successful, non-empty results are cached (errors / "no documents
-        # found" returned earlier and are never stored).
-        await cache_set_json(search_key, output, ris_cache_ttl_seconds())
+        # found" returned earlier and are never stored). The hits ride along so
+        # a cache repeat can still feed the per-round ledger (see the read
+        # above); a legacy string entry stays readable either way.
+        await cache_set_json(search_key, {"text": output, "hits": hit_triples}, ris_cache_ttl_seconds())
         return output
 
     try:
@@ -616,12 +686,12 @@ async def ris_catalog_lookup(tool_config: RisCatalogLookupToolConfig, builder: B
         """Look up an Austrian building-law topic in the curated RIS catalog of verified norms.
 
         WHEN TO USE THIS TOOL:
-        - First stop for any question about Austrian building law: Bauordnungen,
+        - Any question about Austrian building law: Bauordnungen,
           Bautechnikgesetze/-verordnungen, and the adjacent federal acts. The catalog
           maps topics to VERIFIED RIS pointers (application, document number, citation
           URL, 'entire consolidated law' URL) - no keyword guessing, no wrong silo.
-        - Then call ris_fetch_document with the returned document number or the
-          'Entire consolidated law' URL to read the full text before citing anything.
+        - What it returns is an ADDRESS per norm, never the text at it and never a
+          requirement: a pointer is not a provision and cannot be cited as one.
 
         WHEN NOT TO USE:
         - The catalog covers only the core building-relevant norms. For case law,
@@ -653,6 +723,16 @@ async def ris_catalog_lookup(tool_config: RisCatalogLookupToolConfig, builder: B
         from aiq_agent.common.retrieval_settings import get_retrieval_setting
 
         matches = matches[: get_retrieval_setting("ris_catalog.max_matches", tool_config.max_matches)]
+        _capture_lane_hits(
+            [
+                (
+                    entry.citation_url or entry.source_url or entry.title,
+                    entry.title or None,
+                    entry.document_number or None,
+                )
+                for entry in matches
+            ]
+        )
         if not matches:
             return (
                 f"No curated RIS catalog entry matches '{topic}'. The catalog covers only the core "
@@ -663,8 +743,8 @@ async def ris_catalog_lookup(tool_config: RisCatalogLookupToolConfig, builder: B
         for i, entry in enumerate(matches, 1):
             lines.append(_format_catalog_entry(i, entry) + "\n")
         lines.append(
-            "These are verified pointers - fetch the full text with ris_fetch_document using the "
-            "document number or the 'Entire consolidated law' URL. No ris_search needed."
+            "These are verified pointers - an address each, not the text at it. They were checked "
+            "by a person, so no live RIS search is needed to find these norms."
         )
         return "\n".join(lines)
 
@@ -832,11 +912,11 @@ async def ris_fetch_document(tool_config: RisFetchDocumentToolConfig, builder: B
         """Fetch the ENTIRE text of an Austrian law or court decision from RIS on demand.
 
         WHEN TO USE THIS TOOL:
-        - Always after ris_search, before citing or quoting any legal provision. Search snippets
-          are references only — legal answers must be grounded in the full document text.
-        - To load a complete consolidated law (every paragraph) via the 'Entire consolidated law'
-          URL from ris_search results, e.g. before answering questions spanning multiple sections.
-        - To re-read a document the user or an earlier step referenced by document number or RIS URL.
+        - You hold a RIS ADDRESS — a document number or a ris.bka.gv.at URL — and need the text
+          at it. A reference is not quotable; this is what turns one into a document.
+        - To load a complete consolidated law (every paragraph) from its 'Entire consolidated law'
+          URL, e.g. for a question spanning several sections.
+        - To re-read a document the user or an earlier step referenced.
 
         WHEN NOT TO USE:
         - For documents not hosted on ris.bka.gv.at (this tool only fetches RIS).
@@ -868,22 +948,10 @@ async def ris_fetch_document(tool_config: RisFetchDocumentToolConfig, builder: B
             # Shared-cache read-through: an identical document fetched earlier
             # (this turn, an earlier turn, another replica, before a restart) is
             # served without the network download. Fail-open — a cache miss/error
-            # just falls through to the live fetch.
-            cache_key = doc_cache_key(url)
-            cached_doc = await cache_get_json(cache_key)
-            if isinstance(cached_doc, dict) and cached_doc.get("text"):
-                document = RisDocument(
-                    url=cached_doc.get("url", url),
-                    title=cached_doc.get("title", ""),
-                    text=cached_doc["text"],
-                )
-            else:
-                document = await client.fetch_document_text(url)
-                await cache_set_json(
-                    cache_key,
-                    {"url": document.url, "title": document.title, "text": document.text},
-                    ris_cache_ttl_seconds(),
-                )
+            # just falls through to the live fetch. Shared with the reader route
+            # (`GET /v1/ris/document`), which is why it is a function and not
+            # written out here; see `fetch_document_cached`.
+            document = await fetch_document_cached(client, url)
         except RisError as exc:
             return f"Error: RIS document fetch failed - {exc}"
         except Exception as exc:  # a tool must always hand the agent a string
@@ -935,6 +1003,7 @@ async def ris_fetch_document(tool_config: RisFetchDocumentToolConfig, builder: B
         parts = ["\n".join(header), "", text]
         if footer:
             parts.extend(["", "\n".join(footer)])
+        _capture_lane_hits([(document.url, document.title or None, None)])
         return "\n".join(parts)
 
     try:

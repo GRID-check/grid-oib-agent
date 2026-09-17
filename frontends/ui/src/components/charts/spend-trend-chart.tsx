@@ -6,35 +6,39 @@
  * data ends, recessive baseline, no legend for a single series (the card
  * title names it), full-column hover targets with a per-day tooltip, and all
  * text in text tokens (color only ever paints the marks).
+ *
+ * Unit-agnostic on purpose (ADR-0053): the tenant's card feeds it credits,
+ * the platform's overview feeds it USD cost. The caller names the value and
+ * formats it; the chart only draws.
  */
 
 import { type FC } from 'react'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { SeriesPaletteStyle } from '@/components/charts/palette'
 import { SectionLabel } from '@/components/ui/section-label'
-import { formatEur as eur } from '@/lib/format'
 import { useLocale } from '@/i18n'
 
 export interface SpendTrendPoint {
   day: string
-  usd: number
+  value: number
   events: number
 }
 
 interface SpendTrendChartProps {
   points: SpendTrendPoint[]
-  eurPerUsd: number
+  /** The unit is the caller's: credits for a tenant, USD for the platform. */
+  formatValue: (value: number) => string
   requestsLabel: (count: number) => string
   emptyLabel: string
 }
 
-export const SpendTrendChart: FC<SpendTrendChartProps> = ({ points, eurPerUsd, requestsLabel, emptyLabel }) => {
+export const SpendTrendChart: FC<SpendTrendChartProps> = ({ points, formatValue, requestsLabel, emptyLabel }) => {
   const { locale } = useLocale()
-  const maxUsd = Math.max(...points.map((point) => point.usd), 0)
+  const maxValue = Math.max(...points.map((point) => point.value), 0)
   const dateLabel = (day: string): string =>
     new Date(`${day}T00:00:00Z`).toLocaleDateString(locale, { month: 'short', day: 'numeric', timeZone: 'UTC' })
 
-  if (points.length === 0 || maxUsd <= 0) {
+  if (points.length === 0 || maxValue <= 0) {
     return <p className="text-sm text-muted-foreground">{emptyLabel}</p>
   }
 
@@ -47,7 +51,7 @@ export const SpendTrendChart: FC<SpendTrendChartProps> = ({ points, eurPerUsd, r
       <div className="grid-usage-viz overflow-x-auto">
         <div className="min-w-[420px]">
           <div className="flex justify-end">
-            <SectionLabel className="leading-4">{eur(maxUsd * eurPerUsd, locale)}</SectionLabel>
+            <SectionLabel className="leading-4">{formatValue(maxValue)}</SectionLabel>
           </div>
           <div className="flex h-24 items-end gap-[2px] border-b border-border" role="img">
             {points.map((point) => (
@@ -55,7 +59,7 @@ export const SpendTrendChart: FC<SpendTrendChartProps> = ({ points, eurPerUsd, r
                 {/* Full-height column = hit target bigger than the mark. */}
                 <TooltipTrigger asChild>
                   <div className="flex h-full min-w-[6px] flex-1 cursor-default items-end">
-                    {point.usd > 0 ? (
+                    {point.value > 0 ? (
                       <div
                         // 3px, not `rounded-t-sm` (6px): the bar is 6px wide at
                         // its floor, and a 6px cap turns a mark into a lozenge.
@@ -63,7 +67,7 @@ export const SpendTrendChart: FC<SpendTrendChartProps> = ({ points, eurPerUsd, r
                         className="w-full rounded-t-[3px]"
                         style={{
                           backgroundColor: 'var(--grid-series-1)',
-                          height: `${Math.max((point.usd / maxUsd) * 100, 3)}%`,
+                          height: `${Math.max((point.value / maxValue) * 100, 3)}%`,
                         }}
                       />
                     ) : (
@@ -74,7 +78,7 @@ export const SpendTrendChart: FC<SpendTrendChartProps> = ({ points, eurPerUsd, r
                 <TooltipContent>
                   <p className="font-medium">{dateLabel(point.day)}</p>
                   <p className="tabular-nums">
-                    {eur(point.usd * eurPerUsd, locale)} · {requestsLabel(point.events)}
+                    {formatValue(point.value)} · {requestsLabel(point.events)}
                   </p>
                 </TooltipContent>
               </Tooltip>

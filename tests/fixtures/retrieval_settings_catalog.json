@@ -1,5 +1,13 @@
 [
   {
+    "key": "lessons.holdout_pct",
+    "defaultValue": 0,
+    "min": 0,
+    "max": 50,
+    "label": "Lektionen: Kontrollgruppe (%)",
+    "description": "Anteil der Unterhaltungen, die KEINE Plattform-Lektionen erhalten — die Vergleichsgruppe, an der sich messen lässt, ob die Lektionen überhaupt helfen. 0 schaltet die Messung ab."
+  },
+  {
     "key": "knowledge.top_k",
     "defaultValue": 16,
     "min": 1,

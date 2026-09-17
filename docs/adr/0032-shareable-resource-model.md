@@ -164,7 +164,7 @@ Documents are the second consumer (Files as a shareable resource + a
 conversation subject). The design is
 [`../superpowers/specs/2026-08-13-file-native-ownership-design.md`](../superpowers/specs/2026-08-13-file-native-ownership-design.md).
 Assignment — who is professionally on the hook — is **not** this ADR's
-`owner` role; that split is [ADR-0047](0047-assignment-is-not-access.md).
+`owner` role; that split is [ADR-0047](0059-assignment-is-not-access.md).
 
 The 2026-07-31 addendum's number still holds: a second type today would pay
 roughly twice its legitimate cost. That cost is paid **in the files change**,
@@ -175,6 +175,27 @@ test this ADR set.
 
 YAGNI still applies to product scope around files (no PDF comments, no
 compliance board). It does not apply to §3 of the shareable-type doc.
+
+## Addendum, 2026-08-20: the second consumer grows a non-human author, and nothing here changes
+
+Documents are now produced by an agent as well as by people: a commissioned
+deep-research run is filed into the project as a `documents` row with
+`authored_by = 'agent'`
+([../superpowers/specs/2026-08-20-agent-authored-documents-design.md](../superpowers/specs/2026-08-20-agent-authored-documents-design.md)).
+
+**This ADR required no amendment for it, and that is the finding worth
+recording.** Authorship is a column on the resource, not a participant in the
+access model: the descriptor, `resource_shares`, the `owner` role and its
+last-owner invariant, the effective-access resolution and the inbox targets all
+behave for a generated report exactly as they do for an uploaded PDF, because
+the question "who may open this" never asked who wrote it. A shareable type
+whose rows can be machine-authored was not designed for and needed nothing —
+which is the substrate holding, in the sense the 2026-07-31 addendum meant.
+
+The relation that *did* need a new column is responsibility's neighbour, not
+access's: see [ADR-0047's 2026-08-20 addendum](0059-assignment-is-not-access.md).
+A generated report arrives with zero assignees and is never rendered as
+somebody's work until a human clicks `Zuweisen`.
 
 ## References
 

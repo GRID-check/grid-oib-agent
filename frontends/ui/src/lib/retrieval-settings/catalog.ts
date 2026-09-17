@@ -37,6 +37,19 @@ const RIS_PAGE_SIZES = [10, 20, 50, 100] as const
 
 export const RETRIEVAL_SETTINGS: readonly RetrievalSettingDefinition[] = [
   {
+    // Not a retrieval count, but exactly this catalog's shape: one bounded
+    // platform-wide integer the backend reads through the same internal pull.
+    // 0 = off, which is the default — measurement never degrades a slice of
+    // answers unless an operator asks for it. See lib/platform-lessons/holdout.ts.
+    key: 'lessons.holdout_pct',
+    defaultValue: 0,
+    min: 0,
+    max: 50,
+    label: 'Lektionen: Kontrollgruppe (%)',
+    description:
+      'Anteil der Unterhaltungen, die KEINE Plattform-Lektionen erhalten — die Vergleichsgruppe, an der sich messen lässt, ob die Lektionen überhaupt helfen. 0 schaltet die Messung ab.',
+  },
+  {
     key: 'knowledge.top_k',
     defaultValue: 16,
     min: 1,

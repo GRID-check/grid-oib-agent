@@ -44,7 +44,7 @@ describe.skipIf(!url)('model-config service against live Postgres', () => {
 
     const v2 = await createAndActivateVersion({
       organizationId: org,
-      overrides: { deep_research: { model: 'vendor/model-b' }, intent: { model: 'vendor/model-c' } },
+      overrides: { deep_research: { model: 'vendor/model-b' }, shallow_research: { model: 'vendor/model-c' } },
       modelSnapshot: null,
       comment: 'second',
       actorUserId: 'admin_1',
@@ -52,7 +52,7 @@ describe.skipIf(!url)('model-config service against live Postgres', () => {
     expect(v2.version).toBe(2)
     expect(await getActiveModelOverrides(org)).toEqual({
       deep_research: 'vendor/model-b',
-      intent: 'vendor/model-c',
+      shallow_research: 'vendor/model-c',
     })
 
     // History is append-only, newest first.

@@ -38,17 +38,16 @@ The summary/tagging LLM is only constructible inside the NAT runtime (resolved
 from the ``llms:`` config section during function registration). Scripts run
 outside NAT, so this builds an OpenAI-compatible client directly from env vars
 that MUST match the config's ``summary_llm`` settings (see the ``summary_llm``
-block in ``configs/config_*.yml`` — ``_type: nim`` is OpenAI-compatible). The
+block in ``configs/config_oib_openrouter.yml``). The
 key is resolved through the shared credential resolver
 (``aiq_agent.common.credential_resolution``), so this script inherits the same
 chain as every other bespoke call site. BYOK does not apply (no org context
 outside NAT):
 
-* ``BACKFILL_SUMMARY_API_KEY`` — required, but falls back to ``NVIDIA_API_KEY``
-  (what the ``summary_llm`` block references) and then to the provider key
-  inferred from the base URL (e.g. ``OPENROUTER_API_KEY`` for an openrouter.ai
-  base URL).
-* ``BACKFILL_SUMMARY_BASE_URL`` — default ``https://integrate.api.nvidia.com/v1``.
+* ``BACKFILL_SUMMARY_API_KEY`` — required, but falls back to the provider key
+  inferred from the base URL (``OPENROUTER_API_KEY`` for the default
+  openrouter.ai base URL).
+* ``BACKFILL_SUMMARY_BASE_URL`` — default ``https://openrouter.ai/api/v1``.
 * ``BACKFILL_SUMMARY_MODEL`` — default ``nvidia/nemotron-mini-4b-instruct``.
 
 STORE ACCESS
@@ -126,9 +125,9 @@ def build_summary_llm() -> _OpenAICompatLLM:
 
     Resolves through the shared credential resolver so this script inherits the
     same chain as every other bespoke call site: explicit
-    ``BACKFILL_SUMMARY_API_KEY`` → ``NVIDIA_API_KEY`` fallback → the provider key
-    inferred from ``BACKFILL_SUMMARY_BASE_URL`` (so pointing the base URL at
-    OpenRouter and setting ``OPENROUTER_API_KEY`` just works). Runs outside NAT
+    ``BACKFILL_SUMMARY_API_KEY`` → the provider key inferred from
+    ``BACKFILL_SUMMARY_BASE_URL`` (``OPENROUTER_API_KEY`` for the default
+    OpenRouter base URL). Runs outside NAT
     with no request context, so BYOK is not applicable here (org id is None).
     """
     from openai import OpenAI
@@ -137,17 +136,16 @@ def build_summary_llm() -> _OpenAICompatLLM:
 
     cred = resolve_llm_credential(
         primary_env="BACKFILL_SUMMARY_API_KEY",
-        fallback_envs=("NVIDIA_API_KEY",),
-        default_base_url="https://integrate.api.nvidia.com/v1",
-        default_model="nvidia/nemotron-mini-4b-instruct",
+        default_base_url="https://openrouter.ai/api/v1",
+        default_model=os.environ.get("GRID_DEFAULT_MODEL", "openai/gpt-5.6-luna"),
         base_url_env="BACKFILL_SUMMARY_BASE_URL",
         model_env="BACKFILL_SUMMARY_MODEL",
         organization_id=None,
     )
     if not cred.api_key:
         raise RuntimeError(
-            "No API key: set BACKFILL_SUMMARY_API_KEY (or NVIDIA_API_KEY, or the "
-            "provider key for BACKFILL_SUMMARY_BASE_URL) to the key for the summary "
+            "No API key: set BACKFILL_SUMMARY_API_KEY (or the provider key for "
+            "BACKFILL_SUMMARY_BASE_URL) to the key for the summary "
             "model configured in configs/config_*.yml."
         )
     logger.info("Tagging LLM: model=%s base_url=%s", cred.model, cred.base_url)

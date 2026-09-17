@@ -11,10 +11,18 @@
  */
 
 import 'server-only'
-import { and, count, desc, eq, inArray, isNull } from 'drizzle-orm'
+import { and, asc, count, desc, eq, inArray, ne } from 'drizzle-orm'
 import { getDb } from '@/lib/db'
 import { withOptionalTenant, withTenant } from '@/lib/db/tenant-context'
-import { documents, projectFolders, type Document, type ResourceVisibility } from '@/lib/db/schema'
+import { documentNameVariants } from './name-match'
+import {
+  documents,
+  projectFolders,
+  type Document,
+  type DocumentAuthor,
+  type DocumentLifecycle,
+  type ResourceVisibility,
+} from '@/lib/db/schema'
 
 /** Hard cap for unpaginated per-project document lists. */
 export const DOCUMENT_LIST_LIMIT = 500
@@ -28,20 +36,114 @@ export interface DocumentListRow {
   fileSize: number | null
   contentType: string | null
   status: string
+  /**
+   * Whose hand wrote the bytes (migration 0063).
+   *
+   * On the LIST row and not only on the full document, because "Von Piloti
+   * erstellt" is a line in the Files pane and the pane never loads the full
+   * row. Serving it here rather than deriving it from `status === 'stored'` in
+   * the UI keeps the two facts separate: `stored` is what happened to the
+   * INDEXING, `authoredBy` is who wrote it, and a future producer that does get
+   * indexed would make the derivation quietly wrong.
+   */
+  authoredBy: DocumentAuthor
+  /**
+   * The version the item's storage columns mirror, or `null` (ADR-0054).
+   *
+   * On the LIST row because `collectionFileRef` REQUIRES it: a machine-authored
+   * row owns chunks only once a version of it has been published, and the two
+   * sweeps that address the backend from a list — the status/metadata
+   * reconcile and the session-document cleanup — build their refs out of these
+   * rows. A row type that cannot answer the question cannot be handed to the
+   * constructor at all, which is the same argument `authoredBy` makes one line
+   * up.
+   */
+  publishedVersionId: string | null
+  /**
+   * Whether the item is in the working set (ADR-0054).
+   *
+   * On the LIST row because the one surface that asks for archived documents
+   * shows them MIXED with the active ones — a listing that could not say which
+   * is which would be a pane where „archiviert" is invisible again, one layer
+   * further in.
+   */
+  lifecycle: DocumentLifecycle
   collectionName: string
   folderId: string | null
+  /**
+   * Where the file came from, when a folder upload recorded one (0071).
+   * On the list row because the Files pane shows it in the detail rail without
+   * a second fetch — and because "go back to the original" is the one thing a
+   * reader wants from it, which is a per-file question.
+   */
+  originPath: string | null
+  /**
+   * A digest of the stored bytes (`sha256:<hex>`), or null when unknown.
+   *
+   * On the LIST row because the folder-upload planner runs in the browser: it
+   * compares what the reader just dropped against the corpus it already has on
+   * screen, and a second request per candidate file would be a round trip to
+   * learn that nothing needs uploading.
+   */
+  contentHash: string | null
   createdAt: Date
   updatedAt: Date
   errorMessage: string | null
   metadata: unknown
 }
 
+/**
+ * `authoredBy` narrows the listing to one hand — the query behind the `Von
+ * Piloti` chip (agent-authored documents design, decision 9).
+ *
+ * A trailing optional parameter rather than an options object, so every existing
+ * caller keeps compiling and keeps meaning "both hands". Omitted is not the same
+ * as `'user'`: the unfiltered listing is the whole project's estate, which is
+ * what the Files pane shows by default.
+ *
+ * It is a column filter and not a folder filter on purpose. How a report is
+ * FILED and how it is FOUND are different questions, and tying the second to the
+ * first is what turns a folder convention into a load-bearing one — moving,
+ * renaming or abandoning `Berichte` later has to cost nothing. The partial index
+ * `documents_agent_authored_idx` (migration 0063) is on
+ * `(project_id, created_at DESC) WHERE authored_by = 'agent'`, so the `'agent'`
+ * case — the one any surface actually asks for — is a point query in the
+ * listing's own sort order.
+ */
+export interface ListProjectDocumentsOptions {
+  limit?: number
+  /**
+   * Rows to skip before the page — the draft-filing veto's paginated scan.
+   * Default 0 (first page, as before); bounded below like `limit` so a
+   * negative offset cannot widen the listing.
+   */
+  offset?: number
+  authoredBy?: DocumentAuthor
+  /**
+   * Show the documents somebody archived as well (ADR-0054).
+   *
+   * Default false, and that default is the point of the column: „archiviert"
+   * is a statement that the file has left the working set, and a file that is
+   * still in every listing has not left it. The archive gesture already purges
+   * the chunks so the agent stops citing it; the listing was the other half and
+   * it was missing, which made the whole act read as a no-op with an audit
+   * event.
+   *
+   * An OPTION rather than a second query, because the surface that shows them
+   * (the Files filter's „Archiviert" chip) needs the same projection, the same
+   * cap and the same assignment hydration as the default one — a second query
+   * would be a second definition of what a document listing is.
+   */
+  includeArchived?: boolean
+}
+
 export async function listProjectDocuments(
   projectId: string,
   organizationId: string,
-  limit = DOCUMENT_LIST_LIMIT,
+  { limit = DOCUMENT_LIST_LIMIT, offset = 0, authoredBy, includeArchived = false }: ListProjectDocumentsOptions = {},
 ): Promise<DocumentListRow[]> {
   const boundedLimit = Math.min(Math.max(1, Math.trunc(limit)), DOCUMENT_LIST_LIMIT)
+  const boundedOffset = Math.max(0, Math.trunc(offset))
   const db = getDb()
   return withTenant({ organizationId }, () =>
     db
@@ -52,8 +154,13 @@ export async function listProjectDocuments(
         fileSize: documents.fileSize,
         contentType: documents.contentType,
         status: documents.status,
+        authoredBy: documents.authoredBy,
+        publishedVersionId: documents.publishedVersionId,
+        lifecycle: documents.lifecycle,
         collectionName: documents.collectionName,
         folderId: documents.folderId,
+        originPath: documents.originPath,
+        contentHash: documents.contentHash,
         createdAt: documents.createdAt,
         updatedAt: documents.updatedAt,
         errorMessage: documents.errorMessage,
@@ -73,10 +180,16 @@ export async function listProjectDocuments(
           // non-project scope would end it silently. A project listing lists
           // project documents; that is now what it asks for.
           eq(documents.scope, 'project'),
+          ...(authoredBy ? [eq(documents.authoredBy, authoredBy)] : []),
+          ...(includeArchived ? [] : [eq(documents.lifecycle, 'active')]),
         ),
       )
-      .orderBy(desc(documents.createdAt))
-      .limit(boundedLimit),
+      // Newest first, with the id as tiebreak: createdAt ties are real (a
+      // batch import lands on one timestamp), and under offset pagination an
+      // unstable order drops rows from one page and repeats them on the next.
+      .orderBy(desc(documents.createdAt), asc(documents.id))
+      .limit(boundedLimit)
+      .offset(boundedOffset),
   )
 }
 
@@ -88,7 +201,7 @@ export async function findDocumentTenancy(
   documentId: string,
 ): Promise<Pick<
   Document,
-  'organizationId' | 'projectId' | 'visibility' | 'createdBy' | 'deletedAt' | 'filename' | 'displayName'
+  'organizationId' | 'projectId' | 'visibility' | 'createdBy' | 'filename' | 'displayName'
 > | null> {
   const db = getDb()
   const [row] = await db
@@ -97,7 +210,6 @@ export async function findDocumentTenancy(
       projectId: documents.projectId,
       visibility: documents.visibility,
       createdBy: documents.createdBy,
-      deletedAt: documents.deletedAt,
       filename: documents.filename,
       displayName: documents.displayName,
     })
@@ -163,6 +275,106 @@ export async function findDocumentInOrg(documentId: string, organizationId: stri
 }
 
 /**
+ * The document a given reference already filed, if it filed one.
+ *
+ * The idempotency probe behind `fileGeneratedDocument`. A report is fetched
+ * every time its tab is opened, so without this a multi-minute run's single
+ * artifact would appear once per re-read — and a duplicate of a report is
+ * indistinguishable from a second run's, which is precisely the thing an
+ * office cannot untangle later.
+ *
+ * `authored_by_ref` is the key because it is the one identifier the producer
+ * and the row already share — a backend job id for a research run, the answer
+ * an artifact was drawn in for a diagram (migration 0066, which renamed the
+ * column off the first of those two after it had stopped being the only one).
+ * Scoped by organization like every other read here, so a reference guessed from
+ * another tenant finds nothing.
+ *
+ * `authored_by_ref_kind` is deliberately NOT filtered on, and the index does not
+ * carry it either. The kind is a function of the producer — the filing path
+ * derives one from the other — and the producer is already in the key, so asking
+ * for it as well would be a column in the index that this probe does not filter
+ * by, which is the index-wider-than-the-probe failure 0064 names.
+ *
+ * Scoped by PRODUCER since migration 0065, because a run can owe more than one
+ * FILE. A diagram is two artifacts that are not substitutes — an SVG that
+ * previews and carries its own source, and a PDF that is what gets attached to
+ * an Einreichung — and under 0064's key the second call found the first row and
+ * answered "already filed", so a diagram could be one or the other and never
+ * both. The producer is the right discriminator because that is what a producer
+ * has meant since 0063: a KIND OF DELIVERABLE, not a piece of software. A run
+ * owes at most one of each kind, which is the rule 0065's index states. The
+ * alternative — two synthetic run ids, `{run}:svg` and `{run}:pdf` — needed no
+ * migration and was rejected: the column exists so somebody can later ask what
+ * wrote a file and in which run, and a key that joins back to no real run is
+ * what the schema calls "an audit trail in appearance only".
+ *
+ * This is the CHEAP half of "once per run", never the guarantee. A lookup cannot
+ * see a concurrent caller that has not inserted yet: two report tabs both probe,
+ * both miss, and both file. Migration 0065's partial unique index
+ * `uniq_documents_authored_ref_producer_per_project` is the half that holds under
+ * concurrency, and it is keyed on exactly the four columns this function filters
+ * by — `(organization_id, project_id, authored_by_ref, authored_by_producer)`
+ * WHERE `authored_by <> 'user'`. THAT AGREEMENT IS LOAD-BEARING IN BOTH DIRECTIONS: a
+ * narrower index rejects rows this probe would accept (and the caller's recovery
+ * finds no winner to return), a wider one admits duplicates this probe was meant
+ * to prevent. Changing the columns here means changing the index in the same
+ * commit.
+ *
+ * Scoped by PROJECT as well, and that is not symmetry for its own sake. The
+ * filing target comes from the report request's own `projectId`, so an
+ * org-wide probe answered "already filed" for a run whose report went to a
+ * DIFFERENT project — handing back the other project's document id and folder,
+ * so the second project silently never received the report and the client's
+ * Öffnen/Zuweisen actions pointed somewhere the reader may not even be. The
+ * probe has to ask the question the caller is actually asking: has this run
+ * filed into THIS project.
+ */
+export async function findDocumentAuthoredByRef(
+  ref: string,
+  organizationId: string,
+  projectId: string,
+  producer: string,
+): Promise<Pick<Document, 'id' | 'filename' | 'folderId'> | null> {
+  const db = getDb()
+  const rows = await withTenant({ organizationId }, () =>
+    db
+      .select({
+        id: documents.id,
+        filename: documents.filename,
+        folderId: documents.folderId,
+      })
+      .from(documents)
+      .where(
+        and(
+          eq(documents.authoredByRef, ref),
+          eq(documents.organizationId, organizationId),
+          eq(documents.projectId, projectId),
+          eq(documents.authoredByProducer, producer),
+          // The index's own predicate, restated. 0064 argues the probe and the
+          // index must be the same clause, and until now that agreement held
+          // over the KEY COLUMNS only: the index is partial on
+          // `authored_by <> 'user'` and the probe filtered on all four columns
+          // and no authorship at all — so the probe was WIDER than the rule the
+          // index enforces, which is the direction 0064 names as dangerous.
+          //
+          // What that admits is not hypothetical: 0063's CHECK is one-
+          // directional on purpose, so a `user` row MAY carry a producer and a
+          // reference (a person saving an artefact a run showed them), and the
+          // index is partial precisely so two colleagues doing that do not
+          // collide. Such a row would answer this probe. The caller would be
+          // told `alreadyFiled` and handed a HUMAN document's id, filename and
+          // folder: the report is never filed, and the banner's „Im Projekt
+          // öffnen" opens somebody else's upload.
+          ne(documents.authoredBy, 'user'),
+        ),
+      )
+      .limit(1),
+  )
+  return rows[0] ?? null
+}
+
+/**
  * Resolve a document's SeaweedFS storage key from its `(collectionName,
  * filename)` pair — the only identity the Python backend carries. Used by the
  * internal document-file lookup (`/api/internal/document-file`), which is
@@ -172,7 +384,158 @@ export async function findDocumentInOrg(documentId: string, organizationId: stri
  * for `archiv_` collections); when omitted the lookup stays collection-only.
  * Soft-deleted rows are never returned, and when a filename is re-uploaded
  * into the same collection, the most-recent row wins.
+ *
+ * ## Machine-authored rows are never resolved here, and that is the invariant
+ *
+ * `authored_by = 'user'` is not belt-and-braces. This is the second path by
+ * which a document's BYTES reach the agent tier, and until it was added it was
+ * the open one.
+ *
+ * The design's safety argument is that a document Piloti wrote is never
+ * retrievable by Piloti, enforced by never creating chunks for it —
+ * `dispatchDocument` refuses a non-`user` row, and `fileGeneratedDocument`
+ * notes that "the safety comes from the dispatch that does not happen, never
+ * from this string" about the project collection name it writes. This function
+ * is what made that string load-bearing after all: it resolves any
+ * `(collection, filename)` pair, and `view_knowledge_image` in the knowledge
+ * layer calls the internal route with a file name and collection the MODEL
+ * supplies, fetches the object, renders a page with pdfium and hands it back
+ * as "the actual page the retrieved chunk describes".
+ *
+ * Two changes turned that from theory into a path. Filing the report as a PDF
+ * made it a format that tool renders — a `.docx` was excluded by extension and
+ * unrenderable by pdfium — and `generatedFilename` is deterministic
+ * (`slug(title)-YYYY-MM-DD.pdf`) from a title that IS the H1 the writer agent
+ * wrote. So the model does not have to guess the name of its own filed report;
+ * it derived it.
+ *
+ * Chunk-free was only ever half of "unrepresentable". This is the other half,
+ * and it is enforced the same way the dispatcher is: by reading the row, not by
+ * trusting the caller.
  */
+/**
+ * The live document a re-upload of this filename would collide with, if any.
+ *
+ * A RE-UPLOAD USED TO LEAVE A GHOST. `uploadDocument` minted a fresh id and
+ * inserted unconditionally — there is no unique index on (collection, filename)
+ * — while the ingest pipeline's `_replace_previous_versions` deletes chunks by
+ * filename. So the SECOND upload's chunks replaced the FIRST's, and the first
+ * row survived: listed, downloadable, cited by nothing, findable by nothing,
+ * and charged to the organization's quota twice.
+ *
+ * Scoped to one collection — a project's, the Archiv's or a conversation's,
+ * all three shelves replace the same way. The comparison is exact, matching `_replace_previous_versions`'
+ * own identity rule ("a NEW name is a new document, even when its content
+ * supersedes an old one") — a looser match here would let this tier and that
+ * one disagree about what the same file is.
+ *
+ * Only rows a PERSON uploaded. A machine-authored row (`fileGeneratedDocument`)
+ * carries a filename the model chose and owns no chunks, so a person dropping a
+ * file of the same name is not correcting Piloti's report — and pointing the
+ * agent's row at their bytes would leave a human file wearing the agent's
+ * authorship. The two coexist; only human uploads replace human uploads.
+ *
+ * `uniq_documents_live_name_per_collection` (migration 0074, restated by 0077
+ * without the never-written `deleted_at`) is this probe's WHERE clause as a
+ * constraint, so a concurrent first upload of one name cannot
+ * slip past it and recreate the ghost this exists to stop.
+ */
+export async function findLiveDocumentByFilename(
+  organizationId: string,
+  collectionName: string,
+  filename: string,
+): Promise<{
+  id: string
+  storageKey: string
+  storageBucket: string | null
+  fileSize: number | null
+  contentHash: string | null
+  folderId: string | null
+  status: string | null
+} | null> {
+  const db = getDb()
+  const [row] = await withTenant({ organizationId }, () =>
+    db
+      .select({
+        id: documents.id,
+        storageKey: documents.storageKey,
+        storageBucket: documents.storageBucket,
+        fileSize: documents.fileSize,
+        contentHash: documents.contentHash,
+        folderId: documents.folderId,
+        status: documents.status,
+      })
+      .from(documents)
+      .where(
+        and(
+          eq(documents.organizationId, organizationId),
+          eq(documents.collectionName, collectionName),
+          /*
+           * Either Unicode form of the name, not just the one the caller holds.
+           *
+           * A name off a Mac is decomposed and the same name typed here is
+           * composed; they render identically, and `= $1` matches one of them.
+           * Rows written since `documentNameKey` reached the upload path are all
+           * composed, but the ones written before it are whatever arrived — and
+           * a miss here is not a null result, it is a SECOND document under a
+           * name a person cannot tell apart from the first.
+           *
+           * Two exact candidates rather than `normalize(filename, NFC) = $1`,
+           * which no index can serve.
+           */
+          inArray(documents.filename, documentNameVariants(filename)),
+          eq(documents.authoredBy, 'user'),
+        ),
+      )
+      // Newest wins if history already left more than one — this function is
+      // also how that history stops growing.
+      .orderBy(desc(documents.createdAt))
+      .limit(1),
+  )
+  return row ?? null
+}
+
+/**
+ * Point an existing document row at newly uploaded bytes.
+ *
+ * The id is deliberately kept. It is what every citation, every chat subject
+ * and every folder assignment already references, so replacing the bytes under
+ * a stable id is the difference between "this document was updated" and "a
+ * second document appeared and the first one stopped working".
+ */
+export async function replaceDocumentContents(
+  organizationId: string,
+  documentId: string,
+  next: {
+    storageKey: string
+    storageBucket: string | null
+    fileSize: number
+    contentType: string | null
+    folderId: string | null
+    createdBy: string
+  },
+): Promise<void> {
+  const db = getDb()
+  await withTenant({ organizationId }, () =>
+    db
+      .update(documents)
+      .set({
+        storageKey: next.storageKey,
+        storageBucket: next.storageBucket,
+        fileSize: next.fileSize,
+        contentType: next.contentType,
+        folderId: next.folderId,
+        // The uploader of the CURRENT bytes: "who brought this file in" is a
+        // question about what is there now, and the audit trail keeps both.
+        createdBy: next.createdBy,
+        status: 'uploaded',
+        errorMessage: null,
+        updatedAt: new Date(),
+      })
+      .where(and(eq(documents.organizationId, organizationId), eq(documents.id, documentId))),
+  )
+}
+
 export async function findStorageKeyByCollectionAndFilename(
   collectionName: string,
   filename: string,
@@ -198,11 +561,50 @@ export async function findStorageKeyByCollectionAndFilename(
           and(
             eq(documents.collectionName, collectionName),
             eq(documents.filename, filename),
-            isNull(documents.deletedAt),
+            // See the note above: this is a byte-serving path reachable with
+            // model-supplied arguments. A machine-authored row must not resolve.
+            eq(documents.authoredBy, 'user'),
             ...(organizationId ? [eq(documents.organizationId, organizationId)] : []),
           ),
         )
         .orderBy(desc(documents.createdAt))
+        .limit(1),
+  )
+  return row ?? null
+}
+
+/**
+ * The storage location of a document the ingest pipeline is working on,
+ * addressed the way the pipeline knows it: by the `document_id` the dispatch
+ * sent AND the collection it was sent for. Both must match — the id alone is
+ * unguessable, but requiring the collection means a caller holding one
+ * document's id cannot mint derived objects under it from another shelf's
+ * ingest. Same row filters as {@link findStorageKeyByCollectionAndFilename}:
+ * live, user-authored (this feeds a presigned WRITE under the document's
+ * prefix), and org-narrowed when the caller carries one.
+ */
+export async function findStorageKeyByIdAndCollection(
+  documentId: string,
+  collectionName: string,
+  organizationId?: string,
+): Promise<{ storageKey: string; storageBucket: string | null } | null> {
+  const db = getDb()
+  const [row] = await withOptionalTenant(
+    organizationId,
+    'internal document-image presign: the service-token caller identifies the row by its ' +
+      'unguessable document id and collection name and carries no organization',
+    () =>
+      db
+        .select({ storageKey: documents.storageKey, storageBucket: documents.storageBucket })
+        .from(documents)
+        .where(
+          and(
+            eq(documents.id, documentId),
+            eq(documents.collectionName, collectionName),
+            eq(documents.authoredBy, 'user'),
+            ...(organizationId ? [eq(documents.organizationId, organizationId)] : []),
+          ),
+        )
         .limit(1),
   )
   return row ?? null

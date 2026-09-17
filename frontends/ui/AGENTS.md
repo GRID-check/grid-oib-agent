@@ -68,7 +68,11 @@ check. RLS is the backstop, never the plan.
 **Put the organization in every cache key.** `getCached` returns before the
 loader runs, so a key without the organization serves whatever the first caller
 populated and never enters the tenant scope. `lib/project-profile/prompt-view.ts`
-is the pattern.
+is the pattern, and `grid/require-tenant-cache-key` is the check: a `getCached`
+or `setCached` key with no organization segment fails lint. A key that really is
+one per deployment (platform defaults, an upstream catalog) goes in
+`eslint-rules/global-cache-keys.mjs` **with the reason it is safe to share** —
+an unexplained entry there is indistinguishable from a leak somebody silenced.
 
 **The project profile has one editor, the intake wizard.** Settings shows it
 read-only and links there. Its facts are interdependent, so edits belong in the

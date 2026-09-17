@@ -194,7 +194,10 @@ paired with icon + label so color is never the only carrier (a11y).
   chats. **Now specified:** `collaboration-sharing-and-inbox-spec.md` defines
   the reusable sharing substrate (private / project / organisation visibility
   plus additive per-person grants) and the access chip this dummy element
-  implies (SH-18). Still no UI here until that spec's Phase 1 ships.
+  implies (SH-18). The chip itself is **gone from the empty canvas** (2026-08):
+  it stated `Privat` on every new thread, which is what every new thread is, so
+  it said nothing a reader could act on. Audience is now stated only where it
+  can differ — the thread header, once there is a thread (SH-18).
 - **Answer feedback storage + NPS** — needs a small BFF domain (§6, WS-7).
 
 ---

@@ -129,6 +129,30 @@ export const organization: typeof en.organization = {
     saveError: 'Die Organisationseinstellungen konnten nicht gespeichert werden. Bitte versuchen Sie es erneut.',
     loadError: 'Die Organisationseinstellungen konnten gerade nicht geladen werden. Bitte laden Sie die Seite neu.',
   },
+  /**
+   * Organisation → Anweisungen: der Anweisungsblock, unter dem jede Antwort
+   * dieser Organisation geschrieben wird. Der Hinweis nennt die Grenze
+   * ausdrücklich, weil sie der Punkt ist: stehende Vorlieben zu Form, Fokus und
+   * Ablauf — keine Regel, die Piloti aushebelt, und kein normativer Wert.
+   */
+  instructions: {
+    title: 'Anweisungen',
+    description:
+      'Was Piloti für Ihre Organisation dauerhaft beachten soll. Wird bei jeder Anfrage mitgegeben.',
+    label: 'Stehende Anweisungen',
+    placeholder:
+      'z. B. Antworten zuerst mit dem Ergebnis, dann mit der Begründung. Standardmäßig Wien annehmen, wenn kein Bundesland genannt ist. Bei Prüfaufträgen immer eine Mängelliste anhängen.',
+    hint: 'Stehende Vorlieben zu Form, Fokus und Ablauf. Sie setzen Pilotis eigene Regeln nie außer Kraft und liefern nie einen normativen Wert — eine OIB-Anforderung stammt aus der Richtlinie, nie aus diesem Feld.',
+    remaining: '{used} von {max} Zeichen',
+    overCap: '{over} Zeichen zu viel. Bitte kürzen Sie den Text, bevor Sie speichern.',
+    save: 'Anweisungen speichern',
+    saving: 'Wird gespeichert…',
+    saved: 'Anweisungen gespeichert',
+    clear: 'Löschen',
+    cleared: 'Anweisungen gelöscht',
+    saveError: 'Die Anweisungen konnten nicht gespeichert werden. Bitte versuchen Sie es erneut.',
+    loadError: 'Die Anweisungen konnten gerade nicht geladen werden. Bitte laden Sie die Seite neu.',
+  },
   members: {
     title: 'Mitglieder',
     description: 'Laden Sie Personen ein, weisen Sie Rollen zu und verwalten Sie den Zugriff.',
@@ -163,6 +187,7 @@ export const organization: typeof en.organization = {
     searchPlaceholder: 'Geeignete Modelle suchen…',
     noResults: 'Keine geeigneten Modelle entsprechen Ihrer Suche.',
     contextWindow: 'Kontext',
+    creditsPerRequest: '≈ {credits} Punkte pro Anfrage',
     resetToDefault: 'Standard verwenden',
     comment: 'Änderungsnotiz (optional)',
     commentPlaceholder: 'Warum ändern Sie die Modelle?',
@@ -280,16 +305,22 @@ export const organization: typeof en.organization = {
   budgets: {
     title: 'Verbrauch & Budgets',
     description:
-      'LLM-Ausgaben pro Modell im Verhältnis zu Ihren Organisationslimits. Die Kosten stammen aus dem OpenRouter-Usage-Accounting; Limits werden vor jeder Anfrage durchgesetzt.',
+      'Verbrauch pro Modell im Verhältnis zu Ihren Organisationslimits. Jede Anfrage wird während der Ausführung erfasst; Limits werden vor jeder Anfrage durchgesetzt.',
     memberTitle: 'Ihr Verbrauch',
     memberDescription:
-      'Ihre eigenen Ausgaben im Verhältnis zu Ihren Organisationslimits. Ist ein Budget aufgebraucht, wird der Chat pausiert, bis eine Administratorin oder ein Administrator das Limit erhöht.',
+      'Ihr eigener Verbrauch im Verhältnis zu Ihren Organisationslimits. Ist ein Budget aufgebraucht, wird der Chat pausiert, bis eine Administratorin oder ein Administrator das Limit erhöht.',
     today: 'Heute',
     thisMonth: 'Dieser Monat',
     ofLimit: '{spent} von {limit}',
     noLimit: '{spent} (kein Limit)',
+    creditsValue: '{value} Punkte',
+    tokensValue: '{value} Tokens',
+    unitCredits: 'Punkte',
+    unitTokens: 'Tokens',
+    ownKeyNote:
+      'Ihre Organisation arbeitet mit einem eigenen Anbieterschlüssel. Der Verbrauch wird in Tokens auf Ihrer eigenen Rechnung gezählt; Piloti berechnet dafür keine Punkte.',
     overLimit: 'Budget ausgeschöpft — neue Anfragen werden blockiert',
-    legendTitle: 'Ausgaben nach Modell',
+    legendTitle: 'Verbrauch nach Modell',
     legendEmpty: 'In diesem Zeitraum wurde noch keine LLM-Nutzung erfasst.',
     trendTitle: 'Letzte 30 Tage',
     trendEmpty: 'In den letzten 30 Tagen wurde keine Nutzung erfasst.',
@@ -297,16 +328,18 @@ export const organization: typeof en.organization = {
     tooltipRequests: '{count, plural, one {# Anfrage} other {# Anfragen}}',
     limitsTitle: 'Organisationslimits',
     limitsDescription:
-      'Standardmäßig gelten 10 € pro Tag und 100 € pro Monat, bis Sie eigene Werte festlegen. EUR-Limits werden mit den USD-Kosten über einen konfigurierbaren Kurs verglichen.',
-    dailyLimit: 'Tageslimit (EUR)',
-    monthlyLimit: 'Monatslimit (EUR)',
+      'Bis Sie eigene Limits festlegen, gilt das Kontingent Ihres Plans. Limits werden in Punkten angegeben und vor jeder Anfrage durchgesetzt.',
+    limitsDescriptionTokens:
+      'Es gilt kein Limit, bis Sie eines festlegen. Limits werden in Tokens auf Ihrem eigenen Schlüssel angegeben und vor jeder Anfrage durchgesetzt.',
+    dailyLimit: 'Tageslimit ({unit})',
+    monthlyLimit: 'Monatslimit ({unit})',
     noLimitPlaceholder: 'Kein Limit',
     saveLimits: 'Limits speichern',
     limitsSaved: 'Budgetlimits gespeichert',
     limitsSaveError: 'Die Budgetlimits konnten nicht gespeichert werden.',
     membersTitle: 'Mitglieder — Verbrauch & Limits',
     membersDescription:
-      'Ausgaben pro Mitglied mit optionalen individuellen Obergrenzen. Ein Mitgliedslimit überschreitet nie die Organisationslimits und gilt zusätzlich zu ihnen.',
+      'Verbrauch pro Mitglied mit optionalen individuellen Obergrenzen. Ein Mitgliedslimit überschreitet nie die Organisationslimits und gilt zusätzlich zu ihnen.',
     colMember: 'Mitglied',
     limitLabel: 'Limit',
     setLimit: 'Limit festlegen',

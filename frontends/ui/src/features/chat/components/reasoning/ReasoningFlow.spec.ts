@@ -2,8 +2,16 @@
  * @vitest-environment node
  */
 import { describe, test, expect } from 'vitest'
-import { buildGraph, planFan, type ReasoningFlowProps } from './ReasoningFlow'
+import {
+  buildGraph,
+  defaultFoldedRounds,
+  planFan,
+  type ReasoningFlowProps,
+  type SpineFolding,
+} from './ReasoningFlow'
 import type { CitedDocument } from '../../lib/citations'
+import type { FanCard } from '../../lib/retrieval-rounds'
+import type { RetrievalLedger } from '@/lib/conversations/message-retrieval-ledger'
 import type { ThinkingStep } from '../../types'
 import { de, en } from '@/i18n/dictionaries'
 import { createTranslator, getByPath } from '@/i18n/translate'
@@ -16,12 +24,57 @@ const t = ((key: string) => key) as unknown as Translator
 const card = (id: string): CitedDocument => ({
   id,
   title: id,
+  fileName: `${id}.pdf`,
   kind: 'baurecht',
   tint: 'law',
   loci: [{ key: 'whole', isCited: true }],
 })
 
 const base: ReasoningFlowProps = { steps: [], userQuestion: 'Frage?' }
+
+const retrievalStep = (
+  index: number,
+  query: string,
+  reason?: string,
+  tools: string[] = ['knowledge_search']
+): ThinkingStep => ({
+  id: `r${index}`,
+  userMessageId: 'u1',
+  category: 'agents',
+  functionName: `status:retrieval:${index}`,
+  displayName: `status:retrieval:${index}`,
+  content: JSON.stringify({
+    kind: 'status',
+    channel: 'live',
+    slot: `retrieval:${index}`,
+    key: 'status.retrieval.withQuery',
+    values: { corpus: 'knowledge', query },
+    tools,
+    ...(reason ? { reason } : {}),
+  }),
+  timestamp: new Date(),
+  isComplete: true,
+})
+
+const toolHit = (id: string, file: string, round?: number): ThinkingStep => ({
+  id: `t-${id}`,
+  userMessageId: 'u1',
+  category: 'tools',
+  functionName: 'knowledge_search',
+  displayName: 'knowledge_search',
+  content: '',
+  timestamp: new Date(),
+  isComplete: true,
+  traceLanes: [
+    {
+      key: 'baurecht_oib',
+      label: 'OIB-Richtlinie',
+      hitCount: 1,
+      sources: [{ name: `${file}.pdf`, round }],
+      signal: 'law',
+    },
+  ],
+})
 
 /** A desktop chat column; a phone viewport. */
 const DESKTOP_W = 680
@@ -35,14 +88,24 @@ const framingHandles = (g: ReturnType<typeof buildGraph>): string[] =>
 const targetHandles = (g: ReturnType<typeof buildGraph>, id: string): string[] =>
   ((g.nodes.find((n) => n.id === id)!.data as { targets: Array<{ id: string }> }).targets).map((h) => h.id)
 
+const isColumnId = (id: string) => /(^|-)col-\d+$/.test(id)
 const columnToColumnEdges = (g: ReturnType<typeof buildGraph>) =>
-  g.edges.filter((e) => e.source.startsWith('col-') && e.target.startsWith('col-'))
+  g.edges.filter((e) => isColumnId(e.source) && isColumnId(e.target))
 
-/** Cards each column node carries, left→right. */
+/** The fan slots one column node carries. */
+const slotsOf = (node: { data: unknown }): FanCard[] =>
+  (node.data as { cards: FanCard[] }).cards
+
+/**
+ * What each column node carries, left→right: the card's id, or — for a ledger
+ * doc the card model has no card for — the ledger's own name.
+ */
 const columnCards = (g: ReturnType<typeof buildGraph>): string[][] =>
-  g.nodes
-    .filter((n) => n.type === 'sourceColumn')
-    .map((n) => (n.data as unknown as { cards: CitedDocument[] }).cards.map((c) => c.id))
+  g.nodes.filter((n) => n.type === 'sourceColumn').map((n) => slotsOf(n).map((s) => s.card?.id ?? s.name))
+
+/** Every fan slot under round `i`, in column order. */
+const fanSlots = (g: ReturnType<typeof buildGraph>, i: number): FanCard[] =>
+  g.nodes.filter((n) => n.id.startsWith(`r${i}-col-`)).flatMap(slotsOf)
 
 describe('planFan — sources pack into columns, never a forced single column', () => {
   test('a desktop chat column fans out one column per source for a typical turn', () => {
@@ -118,6 +181,213 @@ describe('buildGraph — parallel wiring (P1-4)', () => {
     }
     // The bug was framing→src1→src2→…: there must be NO column→column edge.
     expect(columnToColumnEdges(g)).toHaveLength(0)
+  })
+
+  test('one retrieval round keeps the old fan — no round nodes', () => {
+    const steps = [retrievalStep(0, 'Fluchtweg GK4')]
+    const cards = [card('a'), card('b')]
+    const g = buildGraph(
+      { ...base, steps, answerConfidence: 'high' },
+      t,
+      planFan(DESKTOP_W, 2),
+      cards
+    )
+    expect(g.nodes.filter((n) => n.type === 'round')).toHaveLength(0)
+    expect(g.edges).toContainEqual(expect.objectContaining({ source: 'framing', target: 'col-0' }))
+  })
+
+  test('two retrieval rounds become a spine, then the fan', () => {
+    const steps = [retrievalStep(0, 'OIB 3 Pkt. 3.4.2'), retrievalStep(1, 'Überhang Dachrand')]
+    const cards = [card('a'), card('b')]
+    const g = buildGraph(
+      { ...base, steps, answerConfidence: 'high' },
+      t,
+      planFan(DESKTOP_W, 2),
+      cards
+    )
+    // No tool hits claimed either fetch. Cards stay in "Belegt durch"; the
+    // spine does not pretend the last search returned them.
+    expect(g.nodes.map((n) => n.id)).toEqual(['framing', 'round-0', 'round-1', 'findings'])
+    expect(g.edges).toContainEqual(expect.objectContaining({ source: 'framing', target: 'round-0' }))
+    expect(g.edges).toContainEqual(expect.objectContaining({ source: 'round-0', target: 'round-1' }))
+    expect(g.edges).toContainEqual(expect.objectContaining({ source: 'round-1', target: 'findings' }))
+    expect(g.nodes.filter((n) => n.type === 'sourceColumn')).toHaveLength(0)
+    expect(g.edges.filter((e) => e.source === 'framing' && e.target.includes('col-'))).toHaveLength(0)
+    expect(columnToColumnEdges(g)).toHaveLength(0)
+    expect(g.rows).toEqual([['framing'], ['round-0'], ['round-1'], ['findings']])
+  })
+
+  test('each checkpoint hangs the files THAT fetch returned', () => {
+    const steps = [
+      retrievalStep(0, 'OIB 2'),
+      toolHit('oib', 'a'),
+      retrievalStep(1, 'Grundriss', 'Die Richtlinie staffelt nach GK — der Plan fehlt.'),
+      toolHit('plan', 'b'),
+    ]
+    const g = buildGraph(
+      { ...base, steps, answerConfidence: 'high' },
+      t,
+      planFan(DESKTOP_W, 2),
+      [card('a'), card('b')]
+    )
+    expect(columnCards(g)).toEqual([['a'], ['b']])
+    expect(g.nodes.map((n) => n.id)).toEqual([
+      'framing',
+      'round-0',
+      'r0-col-0',
+      'round-1',
+      'r1-col-0',
+      'findings',
+    ])
+    expect(g.edges).toContainEqual(expect.objectContaining({ source: 'round-0', target: 'r0-col-0' }))
+    expect(g.edges).toContainEqual(expect.objectContaining({ source: 'r0-col-0', target: 'round-1' }))
+    expect(g.edges).toContainEqual(expect.objectContaining({ source: 'round-1', target: 'r1-col-0' }))
+    expect(g.edges).toContainEqual(expect.objectContaining({ source: 'r1-col-0', target: 'findings' }))
+    const round0 = g.nodes.find((n) => n.id === 'round-0')!.data as { actions: string[] }
+    const round1 = g.nodes.find((n) => n.id === 'round-1')!.data as { text: string; actions: string[] }
+    expect(round0.actions).toEqual(['thinking.stepName.corpus'])
+    expect(round1.text).toContain('der Plan fehlt')
+    expect(g.rows).toEqual([
+      ['framing'],
+      ['round-0'],
+      ['r0-col-0'],
+      ['round-1'],
+      ['r1-col-0'],
+      ['findings'],
+    ])
+  })
+
+  test('a merged knowledge_search step still hangs each fetch\'s files on its checkpoint', () => {
+    const merged: ThinkingStep = {
+      id: 'merged',
+      userMessageId: 'u1',
+      category: 'tools',
+      functionName: 'knowledge_search',
+      displayName: 'knowledge_search',
+      content: '',
+      timestamp: new Date(),
+      isComplete: true,
+      traceLanes: [
+        {
+          key: 'baurecht_oib',
+          label: 'OIB-Richtlinie',
+          hitCount: 1,
+          sources: [{ name: 'a.pdf', round: 0 }],
+          signal: 'law',
+        },
+        {
+          key: 'projekt',
+          label: 'Projektwissen',
+          hitCount: 1,
+          sources: [{ name: 'b.pdf', round: 1 }],
+          signal: 'project',
+        },
+      ],
+    }
+    const g = buildGraph(
+      {
+        ...base,
+        steps: [retrievalStep(0, 'OIB 2'), retrievalStep(1, 'Grundriss'), merged],
+        answerConfidence: 'high',
+      },
+      t,
+      planFan(DESKTOP_W, 2),
+      [card('a'), card('b')]
+    )
+    expect(columnCards(g)).toEqual([['a'], ['b']])
+  })
+
+  test('the spine speaks the checkpoint, never the search query (PF-12)', () => {
+    const steps = [
+      retrievalStep(0, 'OIB 3 Pkt. 3.4.2'),
+      retrievalStep(
+        1,
+        'Überhang Dachrand',
+        'OIB 3 Pkt. 3.4.2 verweist auf den lichten Einfallswinkel — messe den Überhang.'
+      ),
+    ]
+    const g = buildGraph(
+      { ...base, steps, answerConfidence: 'high' },
+      t,
+      planFan(DESKTOP_W, 2),
+      [card('a'), card('b')]
+    )
+    const round0 = g.nodes.find((n) => n.id === 'round-0')!.data as {
+      label: string
+      sub: string
+      text: string
+    }
+    const round1 = g.nodes.find((n) => n.id === 'round-1')!.data as {
+      label: string
+      sub: string
+      text: string
+    }
+    expect(round0.text).toBe('')
+    // ONE numbering language: every layer counts the same 1-based execution
+    // order, whatever it did. The old two-noun sequence (`Suche 1`, then
+    // `Folgerung 2…`) read as one run while counting tool calls and
+    // inferences apart.
+    expect(round0.label).toBe('thinking.node.stepTab')
+    expect(round1.label).toBe('thinking.node.stepTab')
+    // WHAT the layer did rides along as the typed sublabel, never as the
+    // number: a bare fetch is a search, a Thought without new files is the
+    // conclusion it states.
+    expect(round0.sub).toBe('thinking.node.stepKindSearch')
+    expect(round1.sub).toBe('thinking.node.stepKindConclusion')
+    expect(round1.text).toBe(
+      'OIB 3 Pkt. 3.4.2 verweist auf den lichten Einfallswinkel — messe den Überhang.'
+    )
+    expect(round0.text).not.toContain('OIB 3 Pkt. 3.4.2')
+    expect(round1.text).not.toContain('Überhang Dachrand')
+  })
+
+  test('the typed sublabel reads reason × files off the round', () => {
+    // A Thought grounded in what the fetch returned is a finding; files with
+    // no Thought were read but never concluded upon.
+    const steps = [
+      retrievalStep(0, 'q0', 'Die Grundregel steht.'),
+      toolHit('a', 'a', 0),
+      retrievalStep(1, 'q1'),
+      toolHit('b', 'b', 1),
+    ]
+    const g = buildGraph(
+      { ...base, steps, answerConfidence: 'high' },
+      t,
+      planFan(DESKTOP_W, 2),
+      [card('a'), card('b')]
+    )
+    const sub = (i: number) =>
+      (g.nodes.find((n) => n.id === `round-${i}`)!.data as { sub: string }).sub
+    expect(sub(0)).toBe('thinking.node.stepKindFinding')
+    expect(sub(1)).toBe('thinking.node.stepKindRead')
+  })
+
+  test.each(['de', 'en'])('%s numbers every layer Schritt N / Step N, with the kind beside it', (locale) => {
+    const dictionary = locale === 'de' ? de : en
+    const translator = createTranslator(dictionary, 'chat') as Translator
+    const steps = [
+      retrievalStep(0, 'q0', 'Zuerst die Grundregel.'),
+      toolHit('a', 'a', 0),
+      retrievalStep(1, 'q1'),
+    ]
+    const g = buildGraph(
+      { ...base, steps, answerConfidence: 'high' },
+      translator,
+      planFan(DESKTOP_W, 1),
+      [card('a')]
+    )
+    const layer = (i: number) =>
+      g.nodes.find((n) => n.id === `round-${i}`)!.data as { label: string; sub: string }
+    expect(layer(0).label).toContain('1')
+    expect(layer(1).label).toContain('2')
+    for (const i of [0, 1]) {
+      expect(layer(i).label).not.toContain('thinking.')
+      expect(layer(i).sub).not.toContain('thinking.')
+      expect(layer(i).sub.trim().length).toBeGreaterThan(0)
+    }
+    // No layer wears a tool-call id as its number: the counter is the
+    // position on the spine, so two layers never share one.
+    expect(layer(0).label).not.toEqual(layer(1).label)
   })
 
   test('stacked columns keep exactly two straight edges each — nothing pierces a card', () => {
@@ -483,10 +753,11 @@ describe('a deep run that was cut off or degraded says so under the assessment',
   })
 
   test('a degraded answer is marked as one the reader should check', () => {
-    const g = build([degradedStep(['no_report_file', 'no_valid_citations'])])
+    const g = build([degradedStep(['no_report_file', 'no_valid_citations', 'cards_generation_failed'])])
     expect(limits(g)?.lines).toEqual([
       { text: 'thinking.node.limits.degraded.noReport', warn: true },
       { text: 'thinking.node.limits.degraded.noCitations', warn: true },
+      { text: 'thinking.node.limits.degraded.noCards', warn: true },
     ])
   })
 
@@ -526,7 +797,7 @@ describe('a deep run that was cut off or degraded says so under the assessment',
       [cutoffStep({ reason: 'wall_clock', salvaged: true, source_count: 1, elapsed_seconds: 62 })],
       [cutoffStep({ reason: 'step_limit', salvaged: false, source_count: 9, elapsed_seconds: 900 })],
       [cutoffStep({ reason: 'quota_exhausted', salvaged: false })],
-      [degradedStep(['no_report_file', 'no_valid_citations'])],
+      [degradedStep(['no_report_file', 'no_valid_citations', 'cards_generation_failed'])],
     ]
     for (const steps of shapes) {
       const block = limits(build(steps, translator))
@@ -567,5 +838,436 @@ describe('a deep run that was cut off or degraded says so under the assessment',
       (key) => typeof getByPath(dictionary, `chat.thinking.node.limits.${key}`) !== 'string'
     )
     expect(missing).toEqual([])
+  })
+})
+
+describe('a checkpoint layer folds its own fan (ledger 19)', () => {
+  /** n rounds, each returning one file, wired to n cards. */
+  const spine = (n: number, folding?: SpineFolding) => {
+    const steps: ThinkingStep[] = []
+    for (let i = 0; i < n; i++) {
+      steps.push(retrievalStep(i, `query ${i}`, `Folgerung ${i}`))
+      steps.push(toolHit(`h${i}`, `s${i}`, i))
+    }
+    const cards = Array.from({ length: n }, (_, i) => card(`s${i}`))
+    return buildGraph(
+      { ...base, steps, answerConfidence: 'high' },
+      t,
+      planFan(DESKTOP_W, 1),
+      cards,
+      new Map(),
+      folding
+    )
+  }
+
+  const roundData = (g: ReturnType<typeof buildGraph>, i: number) =>
+    g.nodes.find((n) => n.id === `round-${i}`)!.data as unknown as {
+      foldable: boolean
+      folded: boolean
+      foldSummary: string
+      toggleLabel: string
+      onToggle: () => void
+    }
+
+  test('two rounds arrive open — folding half of a comparison hides the comparison', () => {
+    expect([...defaultFoldedRounds(2)]).toEqual([])
+    const g = spine(2, { folded: defaultFoldedRounds(2), onToggle: () => {} })
+    expect(g.nodes.map((n) => n.id)).toEqual([
+      'framing',
+      'round-0',
+      'r0-col-0',
+      'round-1',
+      'r1-col-0',
+      'findings',
+    ])
+    expect(roundData(g, 0).folded).toBe(false)
+    expect(roundData(g, 1).folded).toBe(false)
+  })
+
+  test('three rounds arrive open — evidence hidden by default reads as no evidence', () => {
+    expect([...defaultFoldedRounds(3)]).toEqual([])
+    expect([...defaultFoldedRounds(4)]).toEqual([])
+    const g = spine(3, { folded: defaultFoldedRounds(3), onToggle: () => {} })
+    // Every layer keeps its fan: nothing is reclaimed, nothing is hidden.
+    expect(g.nodes.map((n) => n.id)).toEqual([
+      'framing',
+      'round-0',
+      'r0-col-0',
+      'round-1',
+      'r1-col-0',
+      'round-2',
+      'r2-col-0',
+      'findings',
+    ])
+    expect(g.rows).toEqual([
+      ['framing'],
+      ['round-0'],
+      ['r0-col-0'],
+      ['round-1'],
+      ['r1-col-0'],
+      ['round-2'],
+      ['r2-col-0'],
+      ['findings'],
+    ])
+  })
+
+  test('a folded checkpoint wires straight into the next one', () => {
+    const g = spine(3, { folded: new Set([0, 1]), onToggle: () => {} })
+    expect(g.edges).toContainEqual(expect.objectContaining({ source: 'round-0', target: 'round-1' }))
+    expect(g.edges).toContainEqual(expect.objectContaining({ source: 'round-1', target: 'round-2' }))
+    expect(g.edges).toContainEqual(expect.objectContaining({ source: 'round-2', target: 'r2-col-0' }))
+    expect(g.edges).toContainEqual(expect.objectContaining({ source: 'r2-col-0', target: 'findings' }))
+    // Nothing may point at a column that is no longer in the graph.
+    const ids = new Set(g.nodes.map((n) => n.id))
+    for (const e of g.edges) {
+      expect(ids.has(e.source)).toBe(true)
+      expect(ids.has(e.target)).toBe(true)
+    }
+  })
+
+  test('the fold summary carries scent — count plus the top filenames, never the query', () => {
+    const steps = [
+      retrievalStep(0, 'Fluchtweglänge GK4', 'Zuerst die Grundregel.'),
+      toolHit('a', 'OIB-RL_2', 0),
+      toolHit('b', 'Brandschutzkonzept', 0),
+      toolHit('c', 'Grundriss_EG', 0),
+      retrievalStep(1, 'Treppenraum Entrauchung', 'Offen ist der Treppenraum.'),
+      toolHit('d', 'Bauordnung', 1),
+    ]
+    const cards = [card('OIB-RL_2'), card('Brandschutzkonzept'), card('Grundriss_EG'), card('Bauordnung')]
+    for (const dictionary of [de, en]) {
+      const translator = createTranslator(dictionary, 'chat') as Translator
+      const g = buildGraph(
+        { ...base, steps, answerConfidence: 'high' },
+        translator,
+        planFan(DESKTOP_W, 4),
+        cards,
+        new Map(),
+        { folded: new Set([0]), onToggle: () => {} }
+      )
+      const folded = roundData(g, 0)
+      // Three files: the count, the first name, and "u.a." — never a bare count.
+      expect(folded.foldSummary).toContain('3')
+      expect(folded.foldSummary).toContain('OIB-RL_2')
+      expect(folded.foldSummary).toContain(dictionary === de ? 'u.a.' : 'and others')
+      // …and never the query that produced them (PF-12).
+      expect(folded.foldSummary).not.toContain('Fluchtweg')
+    }
+    const g = buildGraph(
+      { ...base, steps, answerConfidence: 'high' },
+      createTranslator(de, 'chat') as Translator,
+      planFan(DESKTOP_W, 4),
+      cards,
+      new Map(),
+      { folded: new Set([0]), onToggle: () => {} }
+    )
+    expect(roundData(g, 0).toggleLabel).toBe('Schritt 1 aufklappen')
+    expect(roundData(g, 1).toggleLabel).toBe('Schritt 2 zuklappen')
+  })
+
+  test('the singular is spelled, in both locales', () => {
+    for (const dictionary of [de, en]) {
+      const translator = createTranslator(dictionary, 'chat') as Translator
+      // One file with a known page: document PLUS locus, not a bare "1 Datei".
+      // (The card carries the wire title `a` as-is — the short name only
+      // derives a nicer one when the wire sent none.)
+      const paged: CitedDocument = {
+        ...card('a'),
+        loci: [{ key: 'p3', page: 3, isCited: true }],
+      }
+      const g = buildGraph(
+        {
+          ...base,
+          steps: [
+            retrievalStep(0, 'q0'),
+            toolHit('a', 'a', 0),
+            retrievalStep(1, 'q1'),
+            toolHit('b', 'b', 1),
+          ],
+          answerConfidence: 'high',
+        },
+        translator,
+        planFan(DESKTOP_W, 2),
+        [paged, card('b')],
+        new Map(),
+        { folded: new Set([0]), onToggle: () => {} }
+      )
+      expect(roundData(g, 0).foldSummary).toBe(dictionary === de ? 'a · S. 3' : 'a · p. 3')
+    }
+  })
+
+  test('two files name both, with no count at all', () => {
+    const translator = createTranslator(de, 'chat') as Translator
+    const g = buildGraph(
+      {
+        ...base,
+        steps: [
+          retrievalStep(0, 'q0', 'Zwei Treffer.'),
+          toolHit('a', 'OIB-RL_2', 0),
+          toolHit('b', 'Brandschutzkonzept', 0),
+          retrievalStep(1, 'q1'),
+        ],
+        answerConfidence: 'high',
+      },
+      translator,
+      planFan(DESKTOP_W, 2),
+      [card('OIB-RL_2'), card('Brandschutzkonzept')],
+      new Map(),
+      { folded: new Set([0]), onToggle: () => {} }
+    )
+    const summary = roundData(g, 0).foldSummary
+    expect(summary).toContain('OIB-RL_2')
+    expect(summary).toContain('Brandschutzkonzept')
+    expect(summary).not.toContain('2 Dateien')
+  })
+
+  test('a document the answer never cited folds to its bare name — no borrowed locus', () => {
+    // Cited keeps its locus (the singular test above); retrieved-but-uncited
+    // names none. The fan card already marks it "abgerufen, nicht zitiert",
+    // so a fold naming "S. 3" beside it would promise a Beleg the fan
+    // withholds — while the filename itself still shows.
+    for (const dictionary of [de, en]) {
+      const translator = createTranslator(dictionary, 'chat') as Translator
+      const retrieved: CitedDocument = {
+        ...card('a'),
+        loci: [{ key: 'p3', page: 3, isCited: false }],
+      }
+      const g = buildGraph(
+        {
+          ...base,
+          steps: [
+            retrievalStep(0, 'q0', 'Zuerst die Grundregel.'),
+            toolHit('a', 'a', 0),
+            retrievalStep(1, 'q1'),
+          ],
+          answerConfidence: 'high',
+        },
+        translator,
+        planFan(DESKTOP_W, 1),
+        [retrieved],
+        new Map(),
+        { folded: new Set([0]), onToggle: () => {} }
+      )
+      expect(roundData(g, 0).foldSummary).toBe('a')
+    }
+  })
+
+  test('a checkpoint that fetched nothing offers no fold — a control that removes nothing', () => {
+    const g = buildGraph(
+      { ...base, steps: [retrievalStep(0, 'q0'), retrievalStep(1, 'q1')], answerConfidence: 'high' },
+      t,
+      planFan(DESKTOP_W, 2),
+      [card('a'), card('b')],
+      new Map(),
+      { folded: new Set(), onToggle: () => {} }
+    )
+    expect(roundData(g, 0).foldable).toBe(false)
+    expect(roundData(g, 1).foldable).toBe(false)
+  })
+
+  test('the toggle reports which layer it belongs to', () => {
+    const seen: number[] = []
+    const g = spine(3, { folded: defaultFoldedRounds(3), onToggle: (i) => seen.push(i) })
+    roundData(g, 0).onToggle()
+    roundData(g, 2).onToggle()
+    expect(seen).toEqual([0, 2])
+  })
+
+  test('one retrieval is not a spine and gains no fold control', () => {
+    const g = buildGraph(
+      { ...base, steps: [retrievalStep(0, 'q0')], answerConfidence: 'high' },
+      t,
+      planFan(DESKTOP_W, 1),
+      [card('a')]
+    )
+    expect(g.nodes.filter((n) => n.type === 'round')).toHaveLength(0)
+  })
+})
+
+/**
+ * The ledger draws the fan (PR #665 phase b).
+ *
+ * Before this, every round drew the TURN-LEVEL card of each file whose name it
+ * returned, so a second round that re-opened the same four files at different
+ * pages drew four identical cards a second time — the same aggregate count, the
+ * same cited page — and a genuine re-fetch was indistinguishable from a new
+ * page of a file already read. The backend's `retrieval_ledger` states what
+ * each round returned and at which passages; these assert the spine draws THAT
+ * when it has it — one slot per DOCUMENT, carrying every locus that round read
+ * of it — and today's filename match when it does not.
+ */
+describe('a ledger round draws its own fan', () => {
+  /** Three rounds: a search, the opens it led to, then a pass back over one file. */
+  const steps: ThinkingStep[] = [
+    retrievalStep(0, 'Fluchtweglänge GK4'),
+    toolHit('a0', 'a', 0),
+    toolHit('b0', 'b', 0),
+    retrievalStep(1, 'Treppenraum', 'Die Grundregel steht.', ['read_passage']),
+    toolHit('a1', 'a', 1),
+    toolHit('b1', 'b', 1),
+    retrievalStep(2, 'Treppenraum', 'Ich lese die Punkte selbst.', ['read_passage']),
+    toolHit('a2', 'a', 2),
+  ]
+
+  /**
+   * A ledger entry whose docs carry no per-passage `repeat` — the shape of a
+   * turn stored before the backend stamped it, which Postgres still replays.
+   * The fan then reads the document-level `newDocs`, and these tests pin that
+   * fallback. The stamped path is pinned in `retrieval-rounds.spec.ts`.
+   */
+  const entry = (
+    index: number,
+    docs: RetrievalLedger[number]['docs'],
+    newDocs: string[],
+    tools: string[]
+  ): RetrievalLedger[number] => ({
+    index,
+    key: 'status.retrieval.withQuery',
+    tools,
+    corpora: ['knowledge'],
+    docs,
+    newDocs,
+    hits: docs.length,
+    documents: new Set(docs.map((d) => d.name.toLowerCase())).size,
+  })
+
+  const ledger: RetrievalLedger = [
+    entry(0, [{ name: 'a.pdf' }, { name: 'b.pdf' }], ['a.pdf', 'b.pdf'], ['knowledge_search']),
+    // The search only RANKED both files; this round is the first to read into
+    // them, so both are work — the backend says so with `newDocs`.
+    entry(
+      1,
+      [
+        { name: 'a.pdf', detail: 'S. 12' },
+        { name: 'b.pdf', detail: 'S. 3' },
+      ],
+      ['a.pdf', 'b.pdf'],
+      ['read_passage']
+    ),
+    // Back over a file round 1 already opened: two more Punkte, both repeats.
+    entry(
+      2,
+      [
+        { name: 'a.pdf', detail: 'Pkt. 3.1' },
+        { name: 'a.pdf', detail: 'Pkt. 3.2' },
+      ],
+      [],
+      ['read_passage']
+    ),
+  ]
+
+  const build = (retrievalLedger?: RetrievalLedger) =>
+    buildGraph(
+      { ...base, steps, answerConfidence: 'high', ...(retrievalLedger ? { retrievalLedger } : {}) },
+      t,
+      planFan(DESKTOP_W, 2),
+      [card('a'), card('b')]
+    )
+
+  test('each slot is the same turn-level card, at the loci THAT round read', () => {
+    const g = build(ledger)
+    // Same cards, so the chip, the preview and the markers are untouched…
+    expect(fanSlots(g, 1).map((s) => s.card?.id)).toEqual(['a', 'b'])
+    // …but the loci are the round's own, not the turn aggregate.
+    expect(fanSlots(g, 1).map((s) => s.loci?.map((l) => l.detail))).toEqual([['S. 12'], ['S. 3']])
+    expect(fanSlots(g, 0).map((s) => s.loci?.map((l) => l.detail))).toEqual([[undefined], [undefined]])
+  })
+
+  test('one document opened at two Punkte is ONE slot carrying both', () => {
+    const g = build(ledger)
+    const slots = fanSlots(g, 2)
+    expect(slots.map((s) => s.card?.id)).toEqual(['a'])
+    expect(slots[0]!.loci?.map((l) => l.detail)).toEqual(['Pkt. 3.1', 'Pkt. 3.2'])
+  })
+
+  test('a file an earlier round OPENED is marked; one a search only ranked is not', () => {
+    const g = build(ledger)
+    expect(fanSlots(g, 0).map((s) => s.loci?.map((l) => l.repeat))).toEqual([[false], [false]])
+    expect(fanSlots(g, 1).map((s) => s.loci?.map((l) => l.repeat))).toEqual([[false], [false]])
+    expect(fanSlots(g, 2).map((s) => s.loci?.map((l) => l.repeat))).toEqual([[true, true]])
+  })
+
+  test('a ledger doc the card model has no card for keeps its slot, bare', () => {
+    // The answer-repair pass reads files after the cards are built. Dropping
+    // the slot would make the round claim it returned one file when it read two.
+    const g = build([
+      ledger[0]!,
+      entry(1, [{ name: 'a.pdf', detail: 'S. 12' }, { name: 'Reparatur.pdf', detail: 'S. 1' }], [], [
+        'read_passage',
+      ]),
+    ])
+    const slots = fanSlots(g, 1)
+    expect(slots.map((s) => s.card?.id)).toEqual(['a', undefined])
+    expect(slots[1]!.name).toBe('Reparatur.pdf')
+    // The verdict reaches the bare slot too — it is the slot whose document
+    // the reader can check least, so losing the marker there costs most.
+    expect(slots[1]!.loci).toEqual([{ detail: 'S. 1', repeat: true }])
+  })
+
+  test('no ledger: the fan is the filename match, exactly as before', () => {
+    const g = build()
+    expect(columnCards(g)).toEqual([['a'], ['b'], ['a'], ['b'], ['a']])
+    // No round speaks for a slot, so every card keeps its turn aggregate.
+    for (const i of [0, 1]) expect(fanSlots(g, i).map((s) => s.loci)).toEqual([undefined, undefined])
+  })
+
+  test('a round the ledger does not have falls back on its own', () => {
+    // One bad round must not blank the turn: round 0 is accounted for, round 1
+    // is not, and the spine draws each the only way it can.
+    const g = build([ledger[0]!])
+    expect(fanSlots(g, 0).map((s) => s.loci?.map((l) => l.repeat))).toEqual([[false], [false]])
+    expect(fanSlots(g, 1).map((s) => s.loci)).toEqual([undefined, undefined])
+    expect(columnCards(g)).toEqual([['a'], ['b'], ['a'], ['b'], ['a']])
+  })
+
+  test('a round that only opened passages is an Öffnen layer, not a search', () => {
+    const g = build(ledger)
+    const sub = (i: number) => (g.nodes.find((n) => n.id === `round-${i}`)!.data as { sub: string }).sub
+    expect(sub(0)).toBe('thinking.node.stepKindRead')
+    // Round 1 concluded something AND returned files, which would have read as
+    // a Befund — but it searched for nothing, and that is the distinction.
+    expect(sub(1)).toBe('thinking.node.stepKindOpen')
+  })
+
+  test.each(['de', 'en'])('%s spells the Öffnen layer', (locale) => {
+    const translator = createTranslator(locale === 'de' ? de : en, 'chat') as Translator
+    const g = buildGraph(
+      { ...base, steps, answerConfidence: 'high', retrievalLedger: ledger },
+      translator,
+      planFan(DESKTOP_W, 2),
+      [card('a'), card('b')]
+    )
+    const sub = (g.nodes.find((n) => n.id === 'round-1')!.data as { sub: string }).sub
+    expect(sub).toBe(locale === 'de' ? 'Öffnen' : 'Open')
+  })
+
+  test('a folded ledger round folds to the locus IT read, never the turn aggregate', () => {
+    const cited: CitedDocument = {
+      ...card('a'),
+      loci: [{ key: 'p:4', page: 4, isCited: true, number: 1 }],
+    }
+    const folding: SpineFolding = { folded: new Set([1]), onToggle: () => {} }
+    // The real copy, not the identity translator: what is asserted here is
+    // WHICH locus the sentence carries, and the key alone carries none.
+    const g = buildGraph(
+      {
+        ...base,
+        steps,
+        answerConfidence: 'high',
+        retrievalLedger: [
+          ledger[0]!,
+          entry(1, [{ name: 'a.pdf', detail: 'S. 12' }], [], ['read_passage']),
+        ],
+      },
+      createTranslator(de, 'chat') as Translator,
+      planFan(DESKTOP_W, 2),
+      [cited],
+      new Map(),
+      folding
+    )
+    const round1 = g.nodes.find((n) => n.id === 'round-1')!.data as { foldSummary: string }
+    // The answer cited page 4; this round read page 12. The fold says 12.
+    expect(round1.foldSummary).toContain('S. 12')
+    expect(round1.foldSummary).not.toContain('S. 4')
   })
 })

@@ -4,6 +4,7 @@
 - **Date**: 2026-07-07
 - **Deciders**: Grid Agent team
 - **Related**: ADR-0008 (single-writer grid_app), ADR-0013 (base64url context headers), ADR-0014 (runtime model configuration), `docs/architecture/usage-budgets.md`
+- **Amended by**: ADR-0053 — limits and every tenant-facing figure are credits, the ledger also carries a frozen price, and the EUR conversion in §6 below is gone.
 
 ## Context
 

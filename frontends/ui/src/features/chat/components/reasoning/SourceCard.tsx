@@ -11,7 +11,7 @@
  *
  * Now the card can state both halves of the derivation honestly:
  *  - the markers it carries in the answer (`[2] [7]`), or
- *  - "gelesen, nicht verwendet" when retrieval returned it and the answer
+ *  - "abgerufen, nicht zitiert" when retrieval returned it and the answer
  *    did not use it — a real research outcome that was previously not
  *    expressible at all.
  *
@@ -19,7 +19,7 @@
  * seated on the top-left of a card holding name · detail · "N Treffer".
  */
 
-import type { FC } from 'react'
+import { Fragment, type FC } from 'react'
 import { Scale, FileText, Archive, Globe, type LucideIcon } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useTranslations } from '@/i18n'
@@ -30,11 +30,12 @@ import { AuthorityTag } from '../AuthorityTag'
 import { KIND_TO_SIGNAL } from '../../lib/source-kinds'
 import {
   citationNumbers,
-  citedPages,
+  documentPages,
   documentTabLabel,
   isCited,
   type CitedDocument,
 } from '../../lib/citations'
+import type { RoundLocus } from '../../lib/retrieval-rounds'
 import { Ruler } from 'lucide-react'
 import { SourcePreviewChip } from '../SourcePreview'
 
@@ -50,13 +51,59 @@ const SIGNAL_ICON: Record<SourceSignal, LucideIcon> = {
   model: Ruler,
 }
 
+/**
+ * The pages and Punkte one round read of one document, in the order the round
+ * returned them, printed exactly as the backend stated them (`p.12`,
+ * `Pkt. 3.1` — rendered, never parsed).
+ *
+ * `marked` is off when EVERY locus was a re-fetch: the pill above already says
+ * so once, and repeating it beside each line would bury the one thing the
+ * reader came for. It is on for a mixed round, where the distinction between
+ * "read three more Punkte" and "read them all again" lives per locus.
+ */
+const RoundLoci: FC<{ loci: RoundLocus[]; marked: boolean; repeatLabel: string }> = ({
+  loci,
+  marked,
+  repeatLabel,
+}) => {
+  const named = loci.filter((locus) => locus.detail)
+  if (named.length === 0) return null
+  return (
+    <span className="text-xs tabular-nums text-muted-foreground">
+      {named.map((locus, i) => (
+        // A Fragment, not a wrapper span: the separators and the loci stay
+        // direct text of one element, so the line reads as one string to a
+        // screen reader and to a test rather than as a row of chips.
+        <Fragment key={`${locus.detail}-${i}`}>
+          {i > 0 && ', '}
+          {locus.detail}
+          {marked && locus.repeat && (
+            <span className="italic text-muted-foreground/80"> ({repeatLabel})</span>
+          )}
+        </Fragment>
+      ))}
+    </span>
+  )
+}
+
 export const SourceCard: FC<{
   document: CitedDocument
   hitLabel: string
   gapLabel: string
   /** The turn is still running — see the `live` note on the verdict below. */
   live?: boolean
-}> = ({ document: doc, hitLabel, gapLabel, live = false }) => {
+  /**
+   * Every passage THIS round read of the document, when a ledger round built
+   * the fan.
+   *
+   * The card is the same card — same chip, same preview, same markers — but a
+   * fan slot under a round is a claim about that round, so the locus line
+   * states the round's own pages/Punkte, in its own order, and a passage the
+   * round fetched a second time says so instead of repeating the turn's hit
+   * count. Absent on the turn-level fan, where the aggregate IS the claim.
+   */
+  loci?: RoundLocus[]
+}> = ({ document: doc, hitLabel, gapLabel, live = false, loci }) => {
   const t = useTranslations('chat')
   // The tab states the document's provenance: its fine lane, else the SHELF the
   // wire carried (ADR-0047 — read as data, never prefix-matched off a collection
@@ -70,8 +117,17 @@ export const SourceCard: FC<{
   const tint = sourceSignalStyle(doc.tint)
   const used = isCited(doc)
   const numbers = citationNumbers(doc)
-  const pages = citedPages(doc)
+  // `documentPages`, not `citedPages`: this card also stands for a document
+  // labelled „abgerufen, nicht zitiert", every locus of which is uncited, and
+  // the precise claim is empty for exactly those — silently deleting the pages
+  // retrieval actually read from the one surface whose job is to show them.
+  const pages = documentPages(doc)
   const hitsText = doc.loci.length > 0 ? hitLabel : gapLabel
+  // Every passage this round read was one it had already fetched, so the round
+  // did no new work on this document and one pill says it once. A round that
+  // reached even one new passage keeps its tally and marks the repeats where
+  // they happened — see {@link RoundLoci}.
+  const allRepeat = !!loci && loci.length > 0 && loci.every((locus) => locus.repeat)
   // The badge earns its space only when it names a tier the label does not
   // already say: "OIB · OIB-Richtlinie" repeated itself and pushed the label
   // into an ellipsis, while "RIS · Bundesrecht" names the register behind it.
@@ -142,19 +198,40 @@ export const SourceCard: FC<{
         />
 
         <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+          {/* A round that only re-fetched what it already had states THAT,
+              muted, where the count would be: the turn aggregate ("4 Treffer")
+              is identical on every repeat of the same file, which is exactly
+              what made a re-read indistinguishable from a new fetch. */}
           <span
             className={cn(
               'inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium',
-              used ? 'bg-secondary tabular-nums text-muted-foreground' : 'bg-muted text-muted-foreground'
+              allRepeat
+                ? 'bg-muted italic text-muted-foreground/80'
+                : used
+                  ? 'bg-secondary tabular-nums text-muted-foreground'
+                  : 'bg-muted text-muted-foreground'
             )}
           >
-            {hitsText}
+            {allRepeat ? t('thinking.node.roundDocRepeat') : hitsText}
           </span>
-          {pages.length > 0 && (
-            <span className="text-xs tabular-nums text-muted-foreground">
-              {t('answerSources.pages', { pages: pages.join(', ') })}
-            </span>
-          )}
+          {/* The loci. Under a ledger round they are THAT round's pages and
+              Punkte, as the backend stated them — and nothing at all when the
+              round named none, because the turn aggregate would be a claim
+              about other rounds. Everywhere else it stays the aggregate it
+              always was. */}
+          {loci
+            ? <RoundLoci loci={loci} marked={!allRepeat} repeatLabel={t('thinking.node.roundDocRepeat')} />
+            : pages.length > 0 && (
+                <span className="text-xs tabular-nums text-muted-foreground">
+                  {/* Singular and plural are two keys, as every other page line in
+                      the product already knows. German „S." is number-agnostic, so
+                      always taking the plural was invisible here and read „pp. 9"
+                      in English. */}
+                  {pages.length === 1
+                    ? t('answerSources.page', { page: pages[0]! })
+                    : t('answerSources.pages', { pages: pages.join(', ') })}
+                </span>
+              )}
           {/* Which markers in the answer this document carries — the link
               between "what was read" and "what was used" that the trace could
               not express before. A document the answer used but whose [N] the
@@ -165,7 +242,7 @@ export const SourceCard: FC<{
               {numbers.map((n) => `[${n}]`).join(' ')}
             </span>
           )}
-          {/* "gelesen, nicht verwendet" is a claim about the FINISHED answer.
+          {/* "abgerufen, nicht zitiert" is a claim about the FINISHED answer.
               While the turn is still running there is no answer to make it
               about, so every retrieved document read as discarded — including
               the ones about to be cited a second later. Withheld until the
@@ -176,6 +253,49 @@ export const SourceCard: FC<{
             </span>
           )}
         </div>
+      </div>
+    </div>
+  )
+}
+
+/**
+ * A ledger doc the turn's card model has no card for.
+ *
+ * The answer-repair pass reads files after the cards are built, and a name the
+ * model dropped is a name the fan would otherwise silently lose — so the slot
+ * survives as what the ledger actually knows: the name and the loci THAT round
+ * read, with the same repeat verdict a carded slot draws. Deliberately bare
+ * otherwise: no chip, no preview, no citation markers. Every one of those would
+ * be a claim about a document this turn has no card for, and a control that
+ * opens nothing is worse than no control.
+ */
+export const BareSourceCard: FC<{ name: string; loci?: RoundLocus[] }> = ({ name, loci }) => {
+  const t = useTranslations('chat')
+  // The same verdict the carded slot draws, through the same component — a
+  // slot without a card still knows what its round did, and dropping the
+  // marker here would make a re-fetch look like a first read on exactly the
+  // documents the reader can check least.
+  const allRepeat = !!loci && loci.length > 0 && loci.every((locus) => locus.repeat)
+  return (
+    <div role="listitem" data-source-card className="flex min-w-0 flex-col">
+      <div className="min-w-0 flex-1 rounded-lg border border-dashed bg-card px-3 py-2.5 opacity-75 shadow-xs">
+        <p className="line-clamp-2 text-sm leading-snug text-foreground">{name}</p>
+        {loci && loci.length > 0 && (
+          <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+            {/* No hit tally to stand in for: a bare slot has no card, so the
+                pill appears only when there is a repeat to declare. */}
+            {allRepeat && (
+              <span className="inline-flex items-center rounded-full bg-muted px-2 py-0.5 text-xs font-medium italic text-muted-foreground/80">
+                {t('thinking.node.roundDocRepeat')}
+              </span>
+            )}
+            <RoundLoci
+              loci={loci}
+              marked={!allRepeat}
+              repeatLabel={t('thinking.node.roundDocRepeat')}
+            />
+          </div>
+        )}
       </div>
     </div>
   )

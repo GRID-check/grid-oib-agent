@@ -1,18 +1,22 @@
 'use client'
 
 /**
- * Per-job run history. Lists append-only `job_runs` (newest first): a trigger
- * badge (manual/scheduled), a status badge, a relative timestamp and a link
- * into the research panel.
+ * Per-job run history. Lists this job's runs (newest first): a trigger badge
+ * (manual/scheduled), a status badge, a relative timestamp and a link into the
+ * thread the run wrote itself into.
  *
- * `job_runs.status` only records how the SUBMISSION went — the run's actual
- * fate lives in the backend job store. So rows that produced a job are joined
- * against the project's research runs (`GET /v1/jobs/async/jobs`, the same
- * list the History page uses) to show the live job status, and that status
- * picks the row's action: follow a run that is still going, open the CHAT a
- * finished `chat` run landed in, open the report of a finished report run, or
- * inspect the thinking of one that failed. The join is best-effort — without
- * it a row falls back to its submission badge.
+ * The run row's own status only records how the SUBMISSION went — the run's
+ * actual fate lives in the backend job store. So rows that produced a job are
+ * joined against the project's research runs (`GET /v1/jobs/async/jobs`, the
+ * same list the History page uses) to show the live job status. The join is
+ * best-effort — without it a row falls back to its submission badge.
+ *
+ * That status used to pick the row's DESTINATION as well: the report, the
+ * thinking or the progress tab of the deep-research side panel, all of them
+ * `?job=<backendJobId>`. There is one destination now, the run's message in
+ * the thread that commissioned it (ADR-0062), and the status only picks the
+ * words on the link. A run whose conversation this list cannot name gets no
+ * link at all — see the row below for why that is the honest answer.
  */
 
 import { useCallback, useEffect, useState } from 'react'
@@ -62,13 +66,12 @@ const JOB_STATUS_POLL_MS = 10000
 const JOB_STATUS_LOOKUP_LIMIT = 200
 
 /**
- * The conversation a run landed in, or null when it produced no chat.
+ * The conversation this run is narrated in, or null when nothing named one.
  *
  * Two sources, because the run row and the job are written at different times:
- * `job_runs.conversation_id` is recorded when the submission already knows the
- * conversation, and the joined job carries it when the conversation was minted
- * during the run. Either one means the same thing — this run's output is a
- * chat, not a report.
+ * the run row's `conversation_id` is recorded when the submission already knows
+ * the conversation, and the joined job carries it when the conversation was
+ * minted during the run. Either one is the thread the run's message lives in.
  */
 function conversationFor(run: JobRun, byJobId: Record<string, string>): string | null {
   if (run.conversationId) return run.conversationId
@@ -181,32 +184,25 @@ export function JobRunHistory({
       {runs.map((run) => {
         const TriggerIcon = run.trigger === 'schedule' ? CalendarClock : Hand
         const jobStatus = run.jobId ? jobStatuses[run.jobId] : undefined
-        const hasJob = run.status === 'submitted' && Boolean(run.jobId)
         const isActive = jobStatus !== undefined && ACTIVE_JOB_STATUSES.has(jobStatus)
-        const hasReport = jobStatus === 'completed'
-        // A finished `chat` run IS its conversation, and that is a different
-        // destination from a report: `?session=` opens the thread so it can be
-        // continued (the parameter the chat surface reads — see
-        // `lib/sharing/registry.ts`), where `?job=` opens the research panel.
-        // Only once the run is no longer active, because a conversation that
-        // is still being written is followed as progress.
-        const conversationId = !isActive ? conversationFor(run, conversationIds) : null
-        // Unknown live status (join unavailable, or a run older than the
-        // lookup window) keeps the previous behavior: offer the report.
-        const link = isActive
-          ? `/app/projects/${projectId}/chat?job=${run.jobId}&tab=tasks`
-          : conversationId
-            ? `/app/projects/${projectId}/chat?session=${encodeURIComponent(conversationId)}`
-            : jobStatus === 'failed' || jobStatus === 'cancelled'
-              ? `/app/projects/${projectId}/chat?job=${run.jobId}&tab=thinking`
-              : `/app/projects/${projectId}/chat?job=${run.jobId}`
-        const linkLabel = isActive
-          ? t('history.viewProgress')
-          : conversationId
-            ? t('history.openChat')
-            : hasReport || jobStatus === undefined
-              ? t('history.viewReport')
-              : t('history.viewThinking')
+        // The thread, live run or finished one alike: progress, report and
+        // failure are all the run's own message now (ADR-0062), so there is
+        // nothing left for a status to choose between.
+        //
+        // `?session=` selects the conversation and `?run=` names the run inside
+        // it — the id this list already holds, which the chat page resolves
+        // through `GET /api/projects/[id]/runs/[runId]`. No `#message-` anchor:
+        // this wire shape carries no run message id, so the reader lands in the
+        // thread rather than ON the run. The `?job=` links that used to stand
+        // here are gone with the side panel that read them.
+        const conversationId = conversationFor(run, conversationIds)
+        // No conversation, no thread — and a run history that cannot say where
+        // a run went says nothing rather than offering a link that goes
+        // nowhere. The badge still states what became of it.
+        const link = conversationId
+          ? `/app/projects/${projectId}/chat?session=${encodeURIComponent(conversationId)}&run=${encodeURIComponent(run.id)}`
+          : null
+        const linkLabel = isActive ? t('history.viewProgress') : t('history.openChat')
 
         return (
           <Item as="li" key={run.id} className="flex-wrap justify-between py-2.5">
@@ -233,7 +229,7 @@ export function JobRunHistory({
                 {formatRelativeTime(run.createdAt, locale)}
               </span>
             </ItemContent>
-            {hasJob && (
+            {link && (
               <ItemActions>
                 <Button asChild size="sm" variant="ghost" className="shrink-0">
                   <Link href={link}>

@@ -150,4 +150,23 @@ describe('mergeMessageMetadata', () => {
 
     expect(updateSpy.mock.calls[0][0].metadata).toEqual({ cardInteractions: { a: 1 } })
   })
+
+  it('strips NUL bytes before the write: jsonb rejects U+0000 (#581)', async () => {
+    // Extracted document text can carry a stray NUL into cards or citations,
+    // and the merge re-writes that stored content on every PATCH — so the
+    // strip happens here, at the SQL boundary, not in the PATCH sanitizers.
+    selectedRow.current = {
+      id: 'm1',
+      metadata: { cards: [{ type: 'summary', content: 'a\u0000extract' }] },
+    }
+
+    await mergeMessageMetadata('conv_1', 'm1', {
+      cardInteractions: { 'memory_proposal-0': { decision: 'savedOrg', decidedAt: DECIDED_AT } },
+    })
+
+    expect(updateSpy.mock.calls[0][0].metadata).toEqual({
+      cards: [{ type: 'summary', content: 'aextract' }],
+      cardInteractions: { 'memory_proposal-0': { decision: 'savedOrg', decidedAt: DECIDED_AT } },
+    })
+  })
 })
