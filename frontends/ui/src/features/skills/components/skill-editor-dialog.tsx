@@ -31,6 +31,7 @@
  */
 
 import { useCallback, useMemo, useState } from 'react'
+import { useStore } from '@tanstack/react-form'
 import { X } from 'lucide-react'
 import { toast } from 'sonner'
 import { z } from 'zod'
@@ -88,7 +89,11 @@ import { renderSkillDocument, type ParsedSkillDocument } from '../lib/skill-docu
 import { MarkdownEditor, type MarkdownEditorLabels } from './MarkdownEditor'
 import { SkillRawDocumentSection } from './SkillRawDocumentSection'
 import { SkillDocumentPreview } from './SkillDocumentPreview'
+import { Stepper } from '@/components/ui/stepper'
+import { Advanced, StepHeading } from '@/components/ui/step-form'
+import { SkillFindingList } from './SkillFindingList'
 import { SkillReviewPanel } from './SkillReviewPanel'
+import { useSkillReview, type SkillReviewField } from '../hooks/use-skill-review'
 import { capturePosthog } from '@/lib/analytics/posthog'
 
 /** Rule names must satisfy server-side: lowercase a-z/0-9, single hyphens. */
@@ -197,6 +202,31 @@ interface EditorValues {
   body: string
 }
 
+/**
+ * The three questions, in the order an author can actually answer them.
+ *
+ * `what` before `instructions` because a skill that cannot be FOUND is not a
+ * skill — the name and the one-line description are the whole of what an agent
+ * reads every turn, and writing them first is writing the contract before the
+ * implementation. `check` last because it reads all three.
+ */
+const STEP_KEYS = ['what', 'instructions', 'check'] as const
+type StepKey = (typeof STEP_KEYS)[number]
+
+/** Which step holds each field a finding can be about. */
+const STEP_FOR_FIELD: Record<SkillReviewField, StepKey> = {
+  name: 'what',
+  description: 'what',
+  body: 'instructions',
+}
+
+/** The control to put the caret in when a finding sends the author to a field. */
+const CONTROL_ID: Record<SkillReviewField, string> = {
+  name: 'name',
+  description: 'description',
+  body: 'skill-body',
+}
+
 export function SkillEditorDialog({
   open,
   onOpenChange,
@@ -281,6 +311,62 @@ export function SkillEditorDialog({
    * re-categorized would surprise on every import.
    */
   const [categoryId, setCategoryId] = useState<string | null>(source?.categoryId ?? null)
+  /**
+   * Whether the draft as it now stands has been through the check.
+   *
+   * The save waits on it. A skill is an instruction the model will act on
+   * unsupervised, and the one failure the author cannot see from inside the
+   * form is a description that never gets matched — which is what the reviewer
+   * reads for. Making the check a step, rather than a button beside the form
+   * that nobody presses, is the only way that reading actually happens.
+   *
+   * What the findings SAY is not a condition. Blocking a save on a model's
+   * verdict would be the forcing this codebase removed from every other
+   * surface, aimed at the author instead of the agent; and a reviewer that
+   * could not run blocks nothing at all, because our outage is not the
+   * author's to pay for.
+   */
+  const [stepIndex, setStepIndex] = useState(0)
+  /**
+   * The furthest step reached, so everything behind the reader is a button and
+   * nothing ahead is. A stepper that let somebody jump to the end would offer a
+   * shortcut the form's own validation then takes back.
+   */
+  const [furthest, setFurthest] = useState(0)
+  const step: StepKey = STEP_KEYS[stepIndex] ?? 'what'
+  /**
+   * Take the author to the field a finding is about, and put the caret in it.
+   *
+   * The focus waits a frame: the step it belongs to has not rendered at the
+   * moment the row is pressed, so there is nothing to focus yet.
+   */
+  const goToField = useCallback((field: SkillReviewField) => {
+    setStepIndex(STEP_KEYS.indexOf(STEP_FOR_FIELD[field]))
+    requestAnimationFrame(() => {
+      document.getElementById(CONTROL_ID[field])?.focus()
+    })
+  }, [])
+
+  const goTo = useCallback((next: number) => {
+    const clamped = Math.max(0, Math.min(next, STEP_KEYS.length - 1))
+    setStepIndex(clamped)
+    setFurthest((seen) => Math.max(seen, clamped))
+  }, [])
+
+  /**
+   * What the last step's „Erweitert" is already holding, so nobody has to open
+   * it to find out. An advanced section that quietly carries three of your
+   * answers is a trap.
+   */
+  const advancedSummary = [
+    agents.selected.length < SKILL_AGENTS.length ? t('editor.agents.heading') : null,
+    hidden ? t('editor.hiddenLabel') : null,
+    categoryId ? t('editor.category.heading') : null,
+    preferredCards.length > 0 ? t('editor.cards.heading') : null,
+  ]
+    .filter((part): part is string => part !== null)
+    .join(' · ')
+
   const [formError, setFormError] = useState<string | null>(null)
   const [confirmOpen, setConfirmOpen] = useState(false)
   const [deleting, setDeleting] = useState(false)
@@ -392,6 +478,49 @@ export function SkillEditorDialog({
   })
 
   /**
+   * The draft as it stands, subscribed rather than read off `form.state`.
+   *
+   * The review's staleness is derived from these three strings, so they have to
+   * cause a render when they change — a snapshot read in the body would leave a
+   * verdict looking current about text that has moved on, which is the one lie
+   * this surface must not tell.
+   */
+  const liveName = useStore(form.store, (state) => (state.values as EditorValues).name)
+  const liveDescription = useStore(
+    form.store,
+    (state) => (state.values as EditorValues).description,
+  )
+  const liveBody = useStore(form.store, (state) => (state.values as EditorValues).body)
+  const review = useSkillReview({
+    name: liveName,
+    description: liveDescription,
+    body: liveBody,
+  })
+
+  /**
+   * The steps, each marked with what the reviewer left open on it.
+   *
+   * This is the map a revision is done from: the critique sits under the field
+   * it is about, and the rail says which steps still hold one — so an author
+   * who has just read the verdict knows where to go without holding a list in
+   * their head. Marked only while the verdict is CURRENT; a stale one describes
+   * a draft that no longer exists.
+   */
+  const openOnStep = (key: StepKey): number =>
+    review.stale
+      ? 0
+      : review.findings.filter((finding) => STEP_FOR_FIELD[finding.field] === key).length
+  const steps = STEP_KEYS.map((key) => {
+    const open = openOnStep(key)
+    return {
+      key,
+      label: t(`editor.steps.${key}`),
+      ...(open > 0 ? { note: t('editor.review.openCount', { count: open }) } : {}),
+    }
+  })
+
+
+  /**
    * A whole SKILL.md, written back into the form.
    *
    * Every field the document can carry is replaced, including the ones it does
@@ -458,14 +587,22 @@ export function SkillEditorDialog({
   return (
     <>
       <Dialog open={open} onOpenChange={(next) => !form.state.isSubmitting && onOpenChange(next)}>
-        {/* Wide on purpose. Writing a skill is writing a document: the body is
-            Markdown with headings and lists, and the settings around it only
-            make sense next to it. At `max-w-lg` the two were stacked in a
-            column narrower than the text it produced. The dialog is a flex
-            column so the header and the footer stay put while the middle
-            scrolls — a two-column form is tall enough that a footer scrolled
-            off the bottom is a footer nobody finds. */}
-        <DialogContent className="flex max-h-[calc(100dvh-2rem)] flex-col gap-0 overflow-hidden p-0 sm:max-w-5xl">
+        {/* A reading column, not a page.
+
+            This used to be a `sm:max-w-5xl` two-column form: the document on
+            the left, a rail of eight settings on the right, everything at once.
+            It asked an author to hold the whole skill in their head before
+            they had written a line of it, and the rail — agents, cards,
+            category, two switches — sat at the same weight as the description,
+            which is the ONE field that decides whether the skill is ever
+            picked.
+
+            It is a stepped form now, the same shape and the same `Stepper` the
+            task builder wears, because it asks the same kind of thing: a short
+            sequence of questions where knowing how many are left is what
+            decides whether somebody finishes. Everything that is not the
+            document is behind one „Erweitert" on the last step. */}
+        <DialogContent className="flex max-h-[calc(100dvh-2rem)] flex-col gap-0 overflow-hidden p-0 sm:max-w-2xl">
           <DialogHeader className="border-border shrink-0 border-b px-6 py-5 pr-14">
             <DialogTitle>
               {isEdit
@@ -488,302 +625,355 @@ export function SkillEditorDialog({
             className="flex min-h-0 flex-1 flex-col"
           >
             <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5">
-              <div className="grid items-start gap-x-8 gap-y-6 lg:grid-cols-[minmax(0,1fr)_19rem]">
-                {/* ---- the document being written ---- */}
-                <div className="flex min-w-0 flex-col gap-5">
-                  <form.AppField name="name">
-                    {(field) => (
-                      <field.TextField
-                        label={t('editor.nameLabel')}
-                        placeholder={t('editor.namePlaceholder')}
-                        description={t('editor.nameHint')}
-                        required
-                        className="font-mono"
+              <div className="flex flex-col gap-6">
+                <Stepper
+                  steps={steps}
+                  current={stepIndex}
+                  furthest={furthest}
+                  onSelect={goTo}
+                  label={t('editor.steps.label')}
+                  progressLabel={t('editor.steps.progress', {
+                    current: stepIndex + 1,
+                    total: STEP_KEYS.length,
+                  })}
+                />
+
+                <div className="min-h-[24rem]">
+                  {step === 'what' && (
+                    <section data-testid="skill-step-what">
+                      <StepHeading
+                        title={t('editor.steps.whatTitle')}
+                        hint={t('editor.steps.whatHint')}
                       />
-                    )}
-                  </form.AppField>
-
-                  {/* The description is not a caption. It is the ONLY thing an
-                      agent reads before deciding whether to load the skill, so
-                      the hint says so in those words and the budget it has to
-                      say it in is visible while it is being written. */}
-                  <form.AppField name="description">
-                    {(field) => (
-                      <div className="flex flex-col gap-1.5">
-                        <field.TextAreaField
-                          label={t('editor.descriptionLabel')}
-                          placeholder={t('editor.descriptionPlaceholder')}
-                          required
-                          rows={3}
-                        />
-                        <div className="flex items-start justify-between gap-4">
-                          <p className="text-muted-foreground text-xs leading-snug">
-                            {t('editor.descriptionHint')}
-                          </p>
-                          <span
-                            className={cn(
-                              'shrink-0 text-xs tabular-nums',
-                              (field.state.value ?? '').length > DESCRIPTION_MAX
-                                ? 'text-destructive'
-                                : 'text-muted-foreground',
-                            )}
-                          >
-                            {(field.state.value ?? '').length}/{DESCRIPTION_MAX}
-                          </span>
-                        </div>
-                      </div>
-                    )}
-                  </form.AppField>
-
-                  <form.AppField name="body">
-                    {(field) => {
-                      const errors = field.state.meta.isTouched
-                        ? (field.state.meta.errors as Array<string | { message: string } | undefined>)
-                        : []
-                      return (
-                        <FieldShell
-                          label={t('editor.bodyLabel')}
-                          description={t('editor.bodyHint')}
-                          required
-                          htmlFor="skill-body"
-                          errors={errors}
-                        >
-                          <MarkdownEditor
-                            id="skill-body"
-                            value={field.state.value ?? ''}
-                            onChange={field.handleChange}
-                            onBlur={field.handleBlur}
-                            placeholder={t('editor.bodyPlaceholder')}
-                            invalid={errors.length > 0}
-                            labels={markdownLabels}
-                          />
-                        </FieldShell>
-                      )
-                    }}
-                  </form.AppField>
-
-                  {/* The document these fields produce, and the reviewer's
-                      opinion of it — both directly under the body, at the
-                      width of the body, because both are about the text. */}
-                  <form.Subscribe selector={(state) => state.values}>
-                    {(values) => (
-                      <>
-                        <SkillDocumentPreview
-                          name={values.name}
-                          description={values.description}
-                          body={values.body}
-                          metadata={buildMetadata()}
-                        />
-                        {/* The same panel for everyone who can open this
-                            dialog — the author most likely to write a
-                            description that never matches anything is the one
-                            writing their first skill. */}
-                        <SkillReviewPanel
-                          name={values.name}
-                          description={values.description}
-                          body={values.body}
-                        />
-                        {/* Last, and folded away: the same document as above,
-                            but editable. It is the only control here that can
-                            rewrite every field at once, so it sits after the
-                            read-only view it mirrors rather than in place of
-                            it. */}
-                        <SkillRawDocumentSection
-                          document={renderSkillDocument({
-                            name: values.name,
-                            description: values.description,
-                            body: values.body,
-                            metadata: buildMetadata(),
-                          })}
-                          onApply={applyDocument}
-                        />
-                      </>
-                    )}
-                  </form.Subscribe>
-                </div>
-
-                {/* ---- the reserved metadata, in one rail ---- */}
-                <aside className="flex min-w-0 flex-col gap-4 lg:sticky lg:top-0">
-                  {/* Who may use it. `grid-agents` is the ONLY scope there is,
-                      so it gets a control rather than living in the raw
-                      document — and the default is both, because most skills
-                      are useful to both and the ones that are not say so. */}
-                  <section className="border-border flex flex-col gap-4 rounded-xl border p-4">
-                    <div className="flex flex-col gap-0.5">
-                      <h3 className="text-sm font-medium">{t('editor.agents.heading')}</h3>
-                      <p className="text-muted-foreground text-xs">{t('editor.agents.hint')}</p>
-                    </div>
-
-                    <div className="flex flex-col gap-2.5">
-                      {SKILL_AGENTS.map((agent) => {
-                        const checked = agents.selected.includes(agent)
-                        // Un-checking the last one would mean "available to no
-                        // agent", which `grid-agents` cannot express — an empty
-                        // allowlist reads as "all agents" to both resolvers. So
-                        // the last remaining box is held.
-                        const last = checked && agents.selected.length === 1
-                        const key = agent === 'researcher' ? 'chat' : 'deep'
-                        return (
-                          <Field
-                            key={agent}
-                            orientation="horizontal"
-                            className="justify-start gap-2.5"
-                          >
-                            <Checkbox
-                              id={`skill-agent-${agent}`}
-                              checked={checked}
-                              disabled={last}
-                              onCheckedChange={(next) =>
-                                setAgents((current) => ({
-                                  ...current,
-                                  selected:
-                                    next === true
-                                      ? SKILL_AGENTS.filter(
-                                          (name) =>
-                                            name === agent || current.selected.includes(name),
-                                        )
-                                      : current.selected.filter((name) => name !== agent),
-                                }))
-                              }
-                              className="mt-0.5"
+                      <div className="flex flex-col gap-5">
+                        <form.AppField name="name">
+                          {(field) => (
+                            <field.TextField
+                              label={t('editor.nameLabel')}
+                              placeholder={t('editor.namePlaceholder')}
+                              description={t('editor.nameHint')}
+                              required
+                              className="font-mono"
                             />
-                            <div className="flex min-w-0 flex-col gap-0.5">
-                              <FieldLabel
-                                htmlFor={`skill-agent-${agent}`}
-                                className="font-medium"
-                              >
-                                {t(`editor.agents.${key}.label`)}
-                              </FieldLabel>
-                              <FieldDescription className="leading-snug">
-                                {t(`editor.agents.${key}.hint`)}
-                              </FieldDescription>
-                            </div>
-                          </Field>
-                        )
-                      })}
-                    </div>
-
-                    <Field orientation="horizontal">
-                      <div className="flex min-w-0 flex-col gap-0.5">
-                        <FieldLabel htmlFor="skill-hidden">{t('editor.hiddenLabel')}</FieldLabel>
-                        <FieldDescription>{t('editor.hiddenHint')}</FieldDescription>
-                      </div>
-                      <Switch id="skill-hidden" checked={hidden} onCheckedChange={setHidden} />
-                    </Field>
-
-                    <Field orientation="horizontal">
-                      <div className="flex min-w-0 flex-col gap-0.5">
-                        <FieldLabel htmlFor="skill-enabled">
-                          {persistence?.switchLabels?.label ?? t('editor.enabledLabel')}
-                        </FieldLabel>
-                        <FieldDescription>
-                          {persistence?.switchLabels?.hint ?? t('editor.enabledHint')}
-                        </FieldDescription>
-                      </div>
-                      <Switch id="skill-enabled" checked={enabled} onCheckedChange={setEnabled} />
-                    </Field>
-                  </section>
-
-                  {/* The category it stands on. Arrangement, not document: where the
-                      toolbox groups it, nothing about what it says. Unsorted
-                      is a real answer — most skills start there until somebody
-                      curates them. */}
-                  <section className="border-border flex flex-col gap-2 rounded-xl border p-4">
-                    <div className="flex flex-col gap-0.5">
-                      <h3 className="text-sm font-medium">{t('editor.category.heading')}</h3>
-                      <p className="text-muted-foreground text-xs">{t('editor.category.hint')}</p>
-                    </div>
-                    <Field>
-                      <FieldLabel htmlFor="skill-category">{t('editor.category.label')}</FieldLabel>
-                      <Select
-                        value={categoryId ?? '__unsorted__'}
-                        onValueChange={(next) => setCategoryId(next === '__unsorted__' ? null : next)}
-                      >
-                        <SelectTrigger id="skill-category">
-                          <SelectValue placeholder={t('editor.category.unsorted')} />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="__unsorted__">{t('editor.category.unsorted')}</SelectItem>
-                          {categories.map((category) => (
-                            <SelectItem key={category.id} value={category.id}>
-                              {category.name}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </Field>
-                  </section>
-
-                  {/* Preferred output cards (`grid-cards`). Deliberately plain:
-                      the card TYPE and its own one-line description are the
-                      whole content of a row, so nothing competes with them for
-                      attention and 25 rows do not turn into 25 repeated
-                      glyphs. */}
-                  <section className="border-border flex flex-col gap-2 rounded-xl border p-4">
-                    <div className="flex flex-col gap-0.5">
-                      <h3 className="text-sm font-medium">{t('editor.cards.heading')}</h3>
-                      <p className="text-muted-foreground text-xs">{t('editor.cards.hint')}</p>
-                    </div>
-
-                    {preferredCards.length === 0 ? (
-                      <EmptyState variant="bare" title={t('editor.cards.empty')} className="py-3" />
-                    ) : (
-                      <ul className="flex flex-col gap-1.5">
-                        {preferredCards.map((type) => (
-                          <li key={type} className="flex flex-col items-start gap-0.5">
-                            <Chip variant="secondary" size="sm">
-                              <span className="font-mono">{type}</span>
-                              <button
-                                type="button"
-                                aria-label={t('editor.cards.removeAria', { type })}
-                                onClick={() => removeCard(type)}
-                                className="text-muted-foreground hover:text-foreground focus-visible:ring-ring/50 -mr-0.5 rounded-sm leading-none transition-colors duration-quick ease-out focus-visible:outline-none focus-visible:ring-2"
-                              >
-                                <X className="size-3" aria-hidden />
-                              </button>
-                            </Chip>
-                            <span className="text-muted-foreground text-xs">
-                              {catalogByType.get(type)?.description}
-                            </span>
-                          </li>
-                        ))}
-                      </ul>
-                    )}
-
-                    <SearchField
-                      type="text"
-                      value={cardQuery}
-                      onChange={setCardQuery}
-                      placeholder={t('editor.cards.searchPlaceholder')}
-                      label={t('editor.cards.searchPlaceholder')}
-                    />
-
-                    <div className="h-44">
-                      {cardResults.length === 0 ? (
-                        <EmptyState
-                          variant="bare"
-                          title={t('editor.cards.noMatches')}
-                          className="flex h-full items-center py-3"
+                          )}
+                        </form.AppField>
+                        {/* The reviewer's findings about THIS field, under it. The
+                            critique belongs beside the thing criticised: an author revising
+                            the name should not have to walk two steps back carrying the
+                            advice in their head. */}
+                        <SkillFindingList
+                          findings={review.findingsFor('name')}
+                          variant="inline"
+                          stale={review.stale}
+                          data-testid="skill-findings-name"
                         />
-                      ) : (
-                        <ScrollArea className="h-full">
-                          <ItemList>
-                            {cardResults.map((entry) => (
-                              <Item key={entry.type} asChild>
-                                <button type="button" onClick={() => addCard(entry.type)}>
-                                  <ItemContent>
-                                    <ItemTitle className="font-mono">{entry.type}</ItemTitle>
-                                    <ItemDescription>{entry.description}</ItemDescription>
-                                  </ItemContent>
-                                </button>
-                              </Item>
-                            ))}
-                          </ItemList>
-                        </ScrollArea>
-                      )}
-                    </div>
-                  </section>
-                </aside>
+                        {/* The description is not a caption. It is the ONLY
+                            thing an agent reads before deciding whether to load
+                            the skill, so it gets its own step beside the name
+                            and nothing else competes with it. */}
+                        <form.AppField name="description">
+                          {(field) => (
+                            <div className="flex flex-col gap-1.5">
+                              <field.TextAreaField
+                                label={t('editor.descriptionLabel')}
+                                placeholder={t('editor.descriptionPlaceholder')}
+                                required
+                                rows={3}
+                              />
+                              <div className="flex items-start justify-between gap-4">
+                                <p className="text-muted-foreground text-xs leading-snug">
+                                  {t('editor.descriptionHint')}
+                                </p>
+                                <span
+                                  className={cn(
+                                    'shrink-0 text-xs tabular-nums',
+                                    (field.state.value ?? '').length > DESCRIPTION_MAX
+                                      ? 'text-destructive'
+                                      : 'text-muted-foreground',
+                                  )}
+                                >
+                                  {(field.state.value ?? '').length}/{DESCRIPTION_MAX}
+                                </span>
+                              </div>
+                            </div>
+                          )}
+                        </form.AppField>
+                        {/* The reviewer's findings about THIS field, under it. The
+                            critique belongs beside the thing criticised: an author revising
+                            the description should not have to walk two steps back carrying the
+                            advice in their head. */}
+                        <SkillFindingList
+                          findings={review.findingsFor('description')}
+                          variant="inline"
+                          stale={review.stale}
+                          data-testid="skill-findings-description"
+                        />
+                      </div>
+                    </section>
+                  )}
+
+                  {step === 'instructions' && (
+                    <section data-testid="skill-step-instructions">
+                      <StepHeading
+                        title={t('editor.steps.instructionsTitle')}
+                        hint={t('editor.steps.instructionsHint')}
+                      />
+                    <form.AppField name="body">
+                      {(field) => {
+                        const errors = field.state.meta.isTouched
+                          ? (field.state.meta.errors as Array<string | { message: string } | undefined>)
+                          : []
+                        return (
+                          <FieldShell
+                            label={t('editor.bodyLabel')}
+                            description={t('editor.bodyHint')}
+                            required
+                            htmlFor="skill-body"
+                            errors={errors}
+                          >
+                            <MarkdownEditor
+                              id="skill-body"
+                              value={field.state.value ?? ''}
+                              onChange={field.handleChange}
+                              onBlur={field.handleBlur}
+                              placeholder={t('editor.bodyPlaceholder')}
+                              invalid={errors.length > 0}
+                              labels={markdownLabels}
+                            />
+                          </FieldShell>
+                        )
+                      }}
+                    </form.AppField>
+                    {/* The reviewer's findings about THIS field, under it. The
+                        critique belongs beside the thing criticised: an author revising
+                        the instructions should not have to walk two steps back carrying the
+                        advice in their head. */}
+                    <SkillFindingList
+                      findings={review.findingsFor('body')}
+                      variant="inline"
+                      stale={review.stale}
+                      data-testid="skill-findings-body"
+                    />
+                      <form.Subscribe selector={(state) => state.values}>
+                        {(values) => (
+                          /* Not wrapped in `Advanced`: this section brings its
+                             own disclosure, and a fold inside a fold is two
+                             chevrons for one act. It is the only control that
+                             can rewrite every field at once, so it sits last. */
+                          <SkillRawDocumentSection
+                            document={renderSkillDocument({
+                              name: values.name,
+                              description: values.description,
+                              body: values.body,
+                              metadata: buildMetadata(),
+                            })}
+                            onApply={applyDocument}
+                          />
+                        )}
+                      </form.Subscribe>
+                    </section>
+                  )}
+
+                  {step === 'check' && (
+                    <section data-testid="skill-step-check">
+                      <StepHeading
+                        title={t('editor.steps.checkTitle')}
+                        hint={t('editor.steps.checkHint')}
+                      />
+                      <form.Subscribe selector={(state) => state.values}>
+                        {(values) => (
+                          <div className="flex flex-col gap-5">
+                            {/* The check is the step. Running it is what opens
+                                the save; what it finds is the author's to
+                                weigh. */}
+                            <SkillReviewPanel
+                              state={review.state}
+                              stale={review.stale}
+                              findings={review.findings}
+                              onRun={() => void review.run()}
+                              onGoToField={goToField}
+                            />
+                            <SkillDocumentPreview
+                              name={values.name}
+                              description={values.description}
+                              body={values.body}
+                              metadata={buildMetadata()}
+                            />
+                            <Advanced
+                              label={t('editor.steps.advanced')}
+                              summary={advancedSummary || null}
+                              data-testid="skill-advanced"
+                            >
+                            <section className="border-border flex flex-col gap-4 rounded-xl border p-4">
+                              <div className="flex flex-col gap-0.5">
+                                <h3 className="text-sm font-medium">{t('editor.agents.heading')}</h3>
+                                <p className="text-muted-foreground text-xs">{t('editor.agents.hint')}</p>
+                              </div>
+
+                              <div className="flex flex-col gap-2.5">
+                                {SKILL_AGENTS.map((agent) => {
+                                  const checked = agents.selected.includes(agent)
+                                  // Un-checking the last one would mean "available to no
+                                  // agent", which `grid-agents` cannot express — an empty
+                                  // allowlist reads as "all agents" to both resolvers. So
+                                  // the last remaining box is held.
+                                  const last = checked && agents.selected.length === 1
+                                  const key = agent === 'researcher' ? 'chat' : 'deep'
+                                  return (
+                                    <Field
+                                      key={agent}
+                                      orientation="horizontal"
+                                      className="justify-start gap-2.5"
+                                    >
+                                      <Checkbox
+                                        id={`skill-agent-${agent}`}
+                                        checked={checked}
+                                        disabled={last}
+                                        onCheckedChange={(next) =>
+                                          setAgents((current) => ({
+                                            ...current,
+                                            selected:
+                                              next === true
+                                                ? SKILL_AGENTS.filter(
+                                                    (name) =>
+                                                      name === agent || current.selected.includes(name),
+                                                  )
+                                                : current.selected.filter((name) => name !== agent),
+                                          }))
+                                        }
+                                        className="mt-0.5"
+                                      />
+                                      <div className="flex min-w-0 flex-col gap-0.5">
+                                        <FieldLabel
+                                          htmlFor={`skill-agent-${agent}`}
+                                          className="font-medium"
+                                        >
+                                          {t(`editor.agents.${key}.label`)}
+                                        </FieldLabel>
+                                        <FieldDescription className="leading-snug">
+                                          {t(`editor.agents.${key}.hint`)}
+                                        </FieldDescription>
+                                      </div>
+                                    </Field>
+                                  )
+                                })}
+                              </div>
+                              <Field orientation="horizontal">
+                                <div className="flex min-w-0 flex-col gap-0.5">
+                                  <FieldLabel htmlFor="skill-hidden">{t('editor.hiddenLabel')}</FieldLabel>
+                                  <FieldDescription>{t('editor.hiddenHint')}</FieldDescription>
+                                </div>
+                                <Switch id="skill-hidden" checked={hidden} onCheckedChange={setHidden} />
+                              </Field>
+
+                              <Field orientation="horizontal">
+                                <div className="flex min-w-0 flex-col gap-0.5">
+                                  <FieldLabel htmlFor="skill-enabled">
+                                    {persistence?.switchLabels?.label ?? t('editor.enabledLabel')}
+                                  </FieldLabel>
+                                  <FieldDescription>
+                                    {persistence?.switchLabels?.hint ?? t('editor.enabledHint')}
+                                  </FieldDescription>
+                                </div>
+                                <Switch id="skill-enabled" checked={enabled} onCheckedChange={setEnabled} />
+                              </Field>
+                              </section>
+                            <section className="border-border flex flex-col gap-2 rounded-xl border p-4">
+                              <div className="flex flex-col gap-0.5">
+                                <h3 className="text-sm font-medium">{t('editor.category.heading')}</h3>
+                                <p className="text-muted-foreground text-xs">{t('editor.category.hint')}</p>
+                              </div>
+                              <Field>
+                                <FieldLabel htmlFor="skill-category">{t('editor.category.label')}</FieldLabel>
+                                <Select
+                                  value={categoryId ?? '__unsorted__'}
+                                  onValueChange={(next) => setCategoryId(next === '__unsorted__' ? null : next)}
+                                >
+                                  <SelectTrigger id="skill-category">
+                                    <SelectValue placeholder={t('editor.category.unsorted')} />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    <SelectItem value="__unsorted__">{t('editor.category.unsorted')}</SelectItem>
+                                    {categories.map((category) => (
+                                      <SelectItem key={category.id} value={category.id}>
+                                        {category.name}
+                                      </SelectItem>
+                                    ))}
+                                  </SelectContent>
+                                </Select>
+                              </Field>
+                            </section>
+                            <section className="border-border flex flex-col gap-2 rounded-xl border p-4">
+                              <div className="flex flex-col gap-0.5">
+                                <h3 className="text-sm font-medium">{t('editor.cards.heading')}</h3>
+                                <p className="text-muted-foreground text-xs">{t('editor.cards.hint')}</p>
+                              </div>
+
+                              {preferredCards.length === 0 ? (
+                                <EmptyState variant="bare" title={t('editor.cards.empty')} className="py-3" />
+                              ) : (
+                                <ul className="flex flex-col gap-1.5">
+                                  {preferredCards.map((type) => (
+                                    <li key={type} className="flex flex-col items-start gap-0.5">
+                                      <Chip variant="secondary" size="sm">
+                                        <span className="font-mono">{type}</span>
+                                        <button
+                                          type="button"
+                                          aria-label={t('editor.cards.removeAria', { type })}
+                                          onClick={() => removeCard(type)}
+                                          className="text-muted-foreground hover:text-foreground focus-visible:ring-ring/50 -mr-0.5 rounded-sm leading-none transition-colors duration-quick ease-out focus-visible:outline-none focus-visible:ring-2"
+                                        >
+                                          <X className="size-3" aria-hidden />
+                                        </button>
+                                      </Chip>
+                                      <span className="text-muted-foreground text-xs">
+                                        {catalogByType.get(type)?.description}
+                                      </span>
+                                    </li>
+                                  ))}
+                                </ul>
+                              )}
+
+                              <SearchField
+                                type="text"
+                                value={cardQuery}
+                                onChange={setCardQuery}
+                                placeholder={t('editor.cards.searchPlaceholder')}
+                                label={t('editor.cards.searchPlaceholder')}
+                              />
+
+                              <div className="h-44">
+                                {cardResults.length === 0 ? (
+                                  <EmptyState
+                                    variant="bare"
+                                    title={t('editor.cards.noMatches')}
+                                    className="flex h-full items-center py-3"
+                                  />
+                                ) : (
+                                  <ScrollArea className="h-full">
+                                    <ItemList>
+                                      {cardResults.map((entry) => (
+                                        <Item key={entry.type} asChild>
+                                          <button type="button" onClick={() => addCard(entry.type)}>
+                                            <ItemContent>
+                                              <ItemTitle className="font-mono">{entry.type}</ItemTitle>
+                                              <ItemDescription>{entry.description}</ItemDescription>
+                                            </ItemContent>
+                                          </button>
+                                        </Item>
+                                      ))}
+                                    </ItemList>
+                                  </ScrollArea>
+                                )}
+                              </div>
+                            </section>
+                            </Advanced>
+                          </div>
+                        )}
+                      </form.Subscribe>
+                    </section>
+                  )}
+                </div>
               </div>
             </div>
 
@@ -793,51 +983,87 @@ export function SkillEditorDialog({
                   <AlertDescription>{formError}</AlertDescription>
                 </Alert>
               )}
-              <DialogFooter>
-                <Button type="button" variant="ghost" onClick={() => onOpenChange(false)}>
-                  {t('editor.cancel')}
+              {/* Back / Weiter, and Speichern only on the last step — the task
+                  builder's nav, because this is the same kind of form.
+                  „Weiter" never validates: a stepped form that refuses to move
+                  on is one people answer defensively, and every field is
+                  validated on the save anyway. */}
+              <DialogFooter className="sm:justify-between">
+                <Button
+                  type="button"
+                  variant="ghost"
+                  onClick={() => (stepIndex === 0 ? onOpenChange(false) : goTo(stepIndex - 1))}
+                  data-testid="skill-back"
+                >
+                  {stepIndex === 0 ? t('editor.cancel') : t('editor.steps.back')}
                 </Button>
-                {canDelete && (
+                {step !== 'check' ? (
+                  <Button type="button" onClick={() => goTo(stepIndex + 1)} data-testid="skill-next">
+                    {t('editor.steps.next')}
+                  </Button>
+                ) : (
+                  <div className="flex items-center gap-2">
+              {canDelete && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="text-destructive hover:text-destructive"
+                  onClick={() => setConfirmOpen(true)}
+                >
+                  {t('actions.delete')}
+                </Button>
+              )}
+              <form.Subscribe
+                selector={(state) => [state.canSubmit, state.isSubmitting] as const}
+              >
+                {([canSubmit, isSubmitting]) => (
                   <Button
-                    type="button"
-                    variant="outline"
-                    className="text-destructive hover:text-destructive"
-                    onClick={() => setConfirmOpen(true)}
+                    type="submit"
+                    disabled={!canSubmit || isSubmitting || !review.gate.checked}
+                    aria-busy={isSubmitting}
+                    // Named, not just greyed: a disabled button with no
+                    // reason is a dead end, and the reason here is a step the
+                    // author can take in one click.
+                    aria-describedby={review.gate.checked ? undefined : 'skill-review-required'}
                   >
-                    {t('actions.delete')}
+                    <span className="inline-grid justify-items-start">
+                      <span
+                        className={cn(
+                          'col-start-1 row-start-1 inline-flex items-center gap-2',
+                          isSubmitting && 'invisible',
+                        )}
+                        aria-hidden={isSubmitting}
+                      >
+                        {t('editor.save')}
+                      </span>
+                      <span
+                        className={cn(
+                          'col-start-1 row-start-1 inline-flex items-center gap-2',
+                          !isSubmitting && 'invisible',
+                        )}
+                        aria-hidden={!isSubmitting}
+                      >
+                        <Spinner size="sm" aria-hidden />
+                        {t('editor.saving')}
+                      </span>
+                    </span>
                   </Button>
                 )}
-                <form.Subscribe
-                  selector={(state) => [state.canSubmit, state.isSubmitting] as const}
-                >
-                  {([canSubmit, isSubmitting]) => (
-                    <Button type="submit" disabled={!canSubmit || isSubmitting} aria-busy={isSubmitting}>
-                      <span className="inline-grid justify-items-start">
-                        <span
-                          className={cn(
-                            'col-start-1 row-start-1 inline-flex items-center gap-2',
-                            isSubmitting && 'invisible',
-                          )}
-                          aria-hidden={isSubmitting}
-                        >
-                          {t('editor.save')}
-                        </span>
-                        <span
-                          className={cn(
-                            'col-start-1 row-start-1 inline-flex items-center gap-2',
-                            !isSubmitting && 'invisible',
-                          )}
-                          aria-hidden={!isSubmitting}
-                        >
-                          <Spinner size="sm" aria-hidden />
-                          {t('editor.saving')}
-                        </span>
-                      </span>
-                    </Button>
-                  )}
-                </form.Subscribe>
+              </form.Subscribe>
+                  </div>
+                )}
               </DialogFooter>
+              {step === 'check' && !review.gate.checked && (
+                <p
+                  id="skill-review-required"
+                  className="text-muted-foreground mt-2 text-right text-xs"
+                  data-testid="skill-review-required"
+                >
+                  {t('editor.review.required')}
+                </p>
+              )}
             </div>
+
           </form>
         </DialogContent>
       </Dialog>

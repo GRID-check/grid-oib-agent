@@ -1564,6 +1564,14 @@
         "skill-activation.mobile.dark.png"
       ]
     },
+    "skill-builder": {
+      "route": "src/app/dev/skill-editor/page.tsx",
+      "routeHash": "a0fc0e6c84aa07137616118c49ca6742e8d906cc80308c10ec28a6b2549e84a9",
+      "shots": [
+        "skill-builder.light.png",
+        "skill-builder.dark.png"
+      ]
+    },
     "skill-composer": {
       "route": "src/app/dev/skill-composer/page.tsx",
       "routeHash": "7f8f0333e0ba480ace436d2286ca3b52811e242f7a8bc41850e2d4a1c1b46bd1",
@@ -1584,7 +1592,7 @@
     },
     "skill-editor": {
       "route": "src/app/dev/skill-editor/page.tsx",
-      "routeHash": "a9ad9088e4185f5c4b681eb66e861c85ecf8a341c4a86acc9871b61c61363d07",
+      "routeHash": "e76f396624785129d6f26c1d636095831d2c39378fa918ca55e6d7f0f3c390dd",
       "shots": [
         "skill-editor.light.png",
         "skill-editor.dark.png"

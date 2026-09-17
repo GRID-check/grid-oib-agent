@@ -159,7 +159,7 @@ export const jobs: typeof en.jobs = {
       deepResearchNoun: 'einen Bericht',
     },
 
-    advancedOutput: 'Skill und Datenquellen',
+    advancedOutput: 'Datenquellen',
     advancedSchedule: 'Zeitzone und Cron',
 
     skillSection: 'Skill',

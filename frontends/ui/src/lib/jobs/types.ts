@@ -206,10 +206,3 @@ export type ListRunsQuery = z.infer<typeof listRunsQuerySchema>
 export const internalFireSchema = z.object({
   scheduleId: z.string().uuid(),
 })
-
-/** Query of the attachable-skills route: which skills a given output can run. */
-export const attachableSkillsQuerySchema = z.object({
-  output: jobOutputSchema,
-})
-
-export type AttachableSkillsQuery = z.infer<typeof attachableSkillsQuerySchema>

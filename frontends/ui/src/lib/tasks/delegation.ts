@@ -52,8 +52,6 @@ import { DELEGATABLE_TASK_KINDS } from '@/lib/db/schema'
 import { createTaskThread, submitAgentRun } from '@/lib/jobs/service'
 import { JobSubmitError, JobSubmitSkippedError } from '@/lib/jobs/backend-client'
 import { minIntervalMinutesFromEnv, nextOccurrence, validateCron } from '@/lib/jobs/schedule'
-import { resolveSkillSnapshot } from '@/lib/skills/service'
-import type { SkillSnapshot } from '@/lib/skills/types'
 import { emptySkillSnapshot } from '@/lib/jobs/types'
 import * as repository from './repository'
 import { TASK_GOAL_MAX_CHARS } from './wire'
@@ -82,10 +80,17 @@ export const REVISION_SOURCE_MAX_CHARS = 60_000
  */
 export const COMMISSION_PERMISSIONS = ['project:edit', 'project:documents:write'] as const
 
-/** What one task kind runs on. `skill` and `instruction` are alternatives. */
+/**
+ * What one task kind runs on.
+ *
+ * There is no `skill` field any more. It named a skill to resolve, freeze and
+ * paste into the prompt under „Verwende dabei den folgenden Skill verbindlich
+ * und vollständig" — a body in front of the model with no `use_skill` call and
+ * no judgment, which is forcing however the person arrived at it. A kind that
+ * wants a playbook NAMES it in its instruction, the same `/name` a person
+ * types in chat, and the model decides.
+ */
 interface TaskEngine {
-  /** A builtin or org skill to attach, resolved at delegation time and frozen. */
-  readonly skill: string | null
   /**
    * The instruction the run is submitted with, in German because it is read by
    * the same agent the chat surface talks to. `goal` is the requester's own
@@ -104,7 +109,6 @@ const TASK_ENGINES: Record<DelegatableTaskKind, TaskEngine> = {
    * with the retrieval tools it already binds.
    */
   compliance_check: {
-    skill: null,
     instruction: (goal) =>
       [
         'Führe für dieses Projekt eine Normprüfung durch: arbeite mit `knowledge_search` und `read_passage`',
@@ -118,12 +122,18 @@ const TASK_ENGINES: Record<DelegatableTaskKind, TaskEngine> = {
   },
   /**
    * The builtin Einreichcheck skill, whose "Done" section is literally the work
-   * list. Attached by name and snapshotted, exactly as a job attaches one.
+   * list — NAMED, the way a person would name it in the composer, never pasted
+   * in. If the run reads the name and judges the skill wrong for this project,
+   * that judgment is the point; a frozen body would have removed it.
    */
   einreichcheck: {
-    skill: 'einreichcheck',
     instruction: (goal) =>
-      ['Prüfe die Vollständigkeit der Einreichung für dieses Projekt.', '', 'Der Auftrag, wörtlich:', goal].join('\n'),
+      [
+        'Prüfe die Vollständigkeit der Einreichung für dieses Projekt — /einreichcheck.',
+        '',
+        'Der Auftrag, wörtlich:',
+        goal,
+      ].join('\n'),
     title: (goal) => `Einreichcheck: ${goal}`,
   },
   /**
@@ -139,7 +149,6 @@ const TASK_ENGINES: Record<DelegatableTaskKind, TaskEngine> = {
    * session at completion, so the BFF files.
    */
   document: {
-    skill: null,
     instruction: (goal) =>
       [
         'Schreibe das beauftragte Dokument VOLLSTÄNDIG als deine Antwort, in Markdown,',
@@ -163,7 +172,6 @@ const TASK_ENGINES: Record<DelegatableTaskKind, TaskEngine> = {
    * as a second one.
    */
   revision: {
-    skill: null,
     instruction: (goal) =>
       [
         'Eine Person hat einen Entwurf zurückgegeben. Überarbeite ihn nach dem, was sie',
@@ -305,8 +313,7 @@ export async function delegateTask(
   }
 
   const engine = TASK_ENGINES[input.kind]
-  const skill = engine.skill ? await resolveDelegatedSkill(engine.skill, session.organizationId) : null
-  const prompt = [engine.instruction(goal), sourceBlock(input.sourceText), skillBlock(skill)]
+  const prompt = [engine.instruction(goal), sourceBlock(input.sourceText)]
     .filter(Boolean)
     .join('\n\n')
   const requester = input.requester ?? { userId: session.userId, email: session.email }
@@ -330,7 +337,11 @@ export async function delegateTask(
     title,
     plan: {
       prompt,
-      skill: skill ?? emptySkillSnapshot(),
+      // Always empty. The column records what a job was configured with, and
+      // nothing configures one any more: a kind that wants a playbook names it
+      // in `prompt`. Kept rather than dropped because legacy rows hold real
+      // snapshots and the pair CHECK is theirs.
+      skill: emptySkillSnapshot(),
       dataSources: null,
       goal,
       subject: input.subject ?? null,
@@ -374,7 +385,7 @@ export async function delegateTask(
     trigger: 'delegated',
     triggeredBy: session.userId,
     status: 'queued',
-    skillSnapshot: skill ?? emptySkillSnapshot(),
+    skillSnapshot: emptySkillSnapshot(),
   })
 
   await recordAuditEvent({
@@ -629,42 +640,5 @@ function sourceBlock(text: string | null | undefined): string {
     shown,
     '```',
     ...(cut ? ['', 'Diese Fassung ist hier gekürzt; der Rest steht unverändert im Projekt.'] : []),
-  ].join('\n')
-}
-
-/** The attached skill's frozen snapshot, or a refusal naming it. */
-async function resolveDelegatedSkill(name: string, organizationId: string): Promise<SkillSnapshot> {
-  try {
-    return await resolveSkillSnapshot(name, organizationId)
-  } catch (error) {
-    if (error instanceof NotFoundError || error instanceof ForbiddenError) {
-      throw new UnprocessableError(`The skill "${name}" is not available to this organization`)
-    }
-    throw error
-  }
-}
-
-/**
- * The skill body, appended the way `buildFirePrompt` appends it.
- *
- * The same words in the same order, because the run is submitted the same way a
- * job's is and a second wording would be a second contract for the model to
- * learn. It is a small duplication of `buildFirePrompt` and a deliberate one:
- * that function is pinned byte-for-byte against the job builder's WYSIWYG
- * preview (`features/skills/lib/fire-prompt-preview.ts`), and a delegated task
- * has no preview pane to keep in step with.
- */
-function skillBlock(skill: SkillSnapshot | null): string {
-  if (!skill) return ''
-  return [
-    '---',
-    '',
-    'Verwende dabei den folgenden Skill verbindlich und vollständig.',
-    '',
-    `Skill: ${skill.name}`,
-    `Beschreibung: ${skill.description}`,
-    '',
-    skill.body,
-    '---',
   ].join('\n')
 }

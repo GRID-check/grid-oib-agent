@@ -172,32 +172,28 @@ describe('delegateTask', () => {
     })
   })
 
-  it('attaches and freezes the einreichcheck skill', async () => {
-    vi.mocked(resolveSkillSnapshot).mockResolvedValue({
-      name: 'einreichcheck',
-      description: 'Was fehlt',
-      body: '# Einreichcheck',
-      metadata: {},
-      origin: 'platform',
-    })
-
+  // A kind that wants a playbook NAMES it, the way a person names one in the
+  // composer. It used to resolve the skill, freeze its body and paste it in
+  // under „Verwende dabei den folgenden Skill verbindlich und vollständig" —
+  // forcing, spelled out in German, reached through a code table instead of a
+  // picker. ADR-0060 says nothing may impose a skill on a turn, and a table in
+  // our own source is no more allowed to than a job or a request is.
+  it('names the einreichcheck skill in the prompt and pastes no body', async () => {
     await delegateTask(session, { projectId: PROJECT, kind: 'einreichcheck', goal: 'Prüf die Einreichung' })
 
-    expect(resolveSkillSnapshot).toHaveBeenCalledWith('einreichcheck', 'org_1')
-    expect(insertedDefinition.plan.skill.name).toBe('einreichcheck')
-    // The same words a job's fire prompt uses, so the model reads one contract.
-    expect(insertedDefinition.plan.prompt).toContain('Verwende dabei den folgenden Skill verbindlich und vollständig.')
-    expect(insertedDefinition.plan.prompt).toContain('# Einreichcheck')
-    expect(insertedRun.skillSnapshot.name).toBe('einreichcheck')
+    expect(insertedDefinition.plan.prompt).toContain('/einreichcheck')
+    expect(insertedDefinition.plan.prompt).not.toContain('verbindlich')
+    expect(resolveSkillSnapshot).not.toHaveBeenCalled()
   })
 
-  it('refuses when the skill an engine names is not available to this organization', async () => {
-    vi.mocked(resolveSkillSnapshot).mockRejectedValue(new NotFoundError('Unknown skill "einreichcheck".'))
+  it('freezes no snapshot, so nothing can be delivered without the model asking', async () => {
+    await delegateTask(session, { projectId: PROJECT, kind: 'einreichcheck', goal: 'Prüf die Einreichung' })
 
-    await expect(
-      delegateTask(session, { projectId: PROJECT, kind: 'einreichcheck', goal: 'Prüf das' }),
-    ).rejects.toBeInstanceOf(UnprocessableError)
-    expect(repository.insertDefinition).not.toHaveBeenCalled()
+    // `emptySkillSnapshot()` is literally `{}` — the honest expression of "this
+    // row was configured with no skill", and what the pair CHECK expects
+    // beside a null `skill_name`.
+    expect(insertedDefinition.plan.skill).toEqual({})
+    expect(insertedRun.skillSnapshot).toEqual({})
   })
 
   it('quotes the version being revised into the prompt, fenced and bounded', async () => {

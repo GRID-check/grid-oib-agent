@@ -34,6 +34,14 @@ import { cn } from '@/lib/utils'
 export interface StepperStep {
   key: string
   label: string
+  /**
+   * A short word about what is still open on this step, e.g. „2 Befunde".
+   *
+   * Folded into the circle's accessible NAME rather than shown only under the
+   * label, because the label is `aria-hidden` and hidden below `sm` — a marker
+   * a screen reader and a phone both miss is a marker that does not exist.
+   */
+  note?: string
 }
 
 export interface StepperProps {
@@ -95,7 +103,16 @@ export function Stepper({
                   onClick={() => reachable && onSelect(index)}
                   disabled={!reachable}
                   aria-current={active ? 'step' : undefined}
-                  aria-label={step.label}
+                  // Numbered, because a bare label is ambiguous twice over: in
+                  // a rail of circles it does not say WHERE in the sequence it
+                  // is, and a step named after the field it holds („Anweisungen")
+                  // is otherwise indistinguishable from that field's own label
+                  // to anything querying by accessible name.
+                  aria-label={
+                    step.note
+                      ? `${index + 1}. ${step.label} — ${step.note}`
+                      : `${index + 1}. ${step.label}`
+                  }
                   className={cn(
                     'focus-visible:ring-ring/60 flex size-7 shrink-0 items-center justify-center rounded-full border text-xs font-semibold tabular-nums',
                     'transition-colors duration-quick ease-out focus-visible:outline-none focus-visible:ring-2 motion-reduce:transition-none',
@@ -124,6 +141,14 @@ export function Stepper({
               >
                 {step.label}
               </span>
+              {step.note && (
+                <span
+                  aria-hidden
+                  className="text-muted-foreground hidden max-w-full truncate text-center text-[10.5px] sm:block"
+                >
+                  {step.note}
+                </span>
+              )}
             </li>
           )
         })}

@@ -61,8 +61,13 @@ export const SCHEDULES: Job[] = [
     ...base,
     id: 'j2',
     name: 'Monatlicher Schallschutz-Nachweis',
+    // The playbook is NAMED in the prompt, the way a person names one in the
+    // composer, so the wizard's field shows the chip the chat composer shows.
+    // `skillName`/`skillSnapshot` are a LEGACY row's leftovers: the wizard no
+    // longer reads them, and a fixture that still carries them is evidence
+    // that an old job edits cleanly rather than losing its prompt.
     prompt: [
-      'Fasse den Stand des Schallschutz-Nachweises für dieses Projekt zusammen.',
+      '/schallschutz-bericht — fasse den Stand des Nachweises für dieses Projekt zusammen.',
       '',
       'Gehe dabei Geschoss für Geschoss vor und nenne für jedes trennende Bauteil,',
       'welche Unterlage den Nachweis belegt — und wo noch keine vorliegt.',
@@ -158,10 +163,12 @@ export function installScheduleShim(flag: string): void {
   window.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
     const url =
       typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url
-    if (url.includes('/api/skills/attachable')) {
-      // The picker must be able to offer the attached skill, otherwise the
-      // wizard detaches it on mount and the preview loses its skill block.
-      return Response.json({ skills: [SCHEDULE_SKILL] })
+    if (url.includes('/api/skills/invocable')) {
+      // What the `/` menu offers, and what resolves a name already in the text
+      // back to a chip.
+      return Response.json({
+        skills: [{ name: SCHEDULE_SKILL.name, description: SCHEDULE_SKILL.description, origin: 'org' }],
+      })
     }
     if (url.includes('/data_sources')) {
       return Response.json({

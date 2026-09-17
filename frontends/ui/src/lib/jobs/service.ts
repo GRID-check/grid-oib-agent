@@ -45,7 +45,7 @@ import type {
   TaskRun,
   TaskRunTrigger,
 } from '@/lib/db/schema'
-import { resolveSelectableSkills, resolveSkillSnapshot } from '@/lib/skills/service'
+import { resolveSkillSnapshot } from '@/lib/skills/service'
 import { snapshotOf, type SkillSnapshot } from '@/lib/skills/types'
 import { nextOccurrence, validateCron, validateDueAt, minIntervalMinutesFromEnv } from './schedule'
 import {
@@ -59,7 +59,6 @@ import { previousDecisionsBlock } from '@/lib/tasks/service'
 import { taskThreadConversationId } from '@/lib/tasks/task-thread'
 import { createRunMessage } from '@/lib/runs/service'
 import {
-  AGENT_FOR_OUTPUT,
   emptySkillSnapshot,
   withAlwaysOnKnowledge,
   type CreateJobInput,
@@ -449,31 +448,6 @@ export async function listJobRuns(
 }
 
 // ---------------------------------------------------------------------------
-// Attachable skills — the payoff of consolidating availability on grid-agents
-// ---------------------------------------------------------------------------
-
-/** A skill the picker may offer for a given output kind. */
-export type AttachableSkill = {
-  name: string
-  description: string
-  /** Full body — the builder's WYSIWYG preview embeds it. */
-  body: string
-  metadata: Record<string, string>
-  origin: 'org' | 'platform-clone' | 'platform'
-}
-
-export async function listAttachableSkills(
-  session: AuthorizedSession,
-  output: JobOutput,
-): Promise<{ skills: AttachableSkill[] }> {
-  assertJobsFeatureOn(session)
-  const { skills } = await resolveSelectableSkills(session.organizationId, AGENT_FOR_OUTPUT[output])
-  return {
-    skills: [...skills].sort((left, right) => left.name.localeCompare(right.name)),
-  }
-}
-
-// ---------------------------------------------------------------------------
 // Fire path (manual + scheduler share it)
 // ---------------------------------------------------------------------------
 
@@ -492,39 +466,30 @@ export async function runJobNow(
   return fireJob(definition, 'manual', session.userId)
 }
 
-/** What `buildFirePrompt` needs: the definition's prompt and attached skill. */
+/** What `buildFirePrompt` needs. The prompt, and since ADR-0060 nothing else. */
 export interface FirePromptInput {
   prompt: string
-  skill: SkillSnapshot | null
 }
 
 /**
- * The deterministic prompt a run is submitted with.
+ * The deterministic prompt a run is submitted with: the definition's prompt,
+ * exactly as a person would have typed it into a new chat.
  *
- * The prompt ALWAYS, exactly as a person would have typed it into a new chat,
- * plus the attached skill's full body when there is one. With no skill
- * attached the output is the prompt and nothing else.
+ * It used to append the attached skill's whole body under the sentence
+ * „Verwende dabei den folgenden Skill VERBINDLICH und vollständig." — forcing,
+ * written out in German, in the one place a person was least likely to look.
+ * A job could therefore impose a skill on a turn, which ADR-0060 says nothing
+ * may do, "not the request, not the deployment, not a job", and which
+ * `docs/architecture/agent-skills.md` already claimed jobs did not.
  *
- * WYSIWYG contract: `src/features/skills/lib/fire-prompt-preview.ts` is a
- * byte-identical transcription of this function and a spec pins that they
- * agree. Whoever changes one changes the other in the same commit.
+ * A job that should run a playbook NAMES it in its prompt, with the same `/`
+ * the chat composer has. The model reads the name among the words and decides,
+ * the same decision it makes about every other skill in its catalog. That is
+ * one mechanism instead of two, and it is the one that cannot lie about who
+ * chose.
  */
-export function buildFirePrompt({ prompt, skill }: FirePromptInput): string {
-  const text = prompt.trim()
-  if (!skill) return text
-  return [
-    text,
-    '',
-    '---',
-    '',
-    'Verwende dabei den folgenden Skill verbindlich und vollständig.',
-    '',
-    `Skill: ${skill.name}`,
-    `Beschreibung: ${skill.description}`,
-    '',
-    skill.body,
-    '---',
-  ].join('\n')
+export function buildFirePrompt({ prompt }: FirePromptInput): string {
+  return prompt.trim()
 }
 
 /**
@@ -707,11 +672,7 @@ export async function fireJob(
     // What earlier runs of this definition were told "no" about, in the
     // reviewer's words, so the rejection reaches the run instead of a log line.
     const decisions = await previousDecisionsBlock(definition)
-    const skill = definition.plan.skill.name ? definition.plan.skill : null
-    const firePrompt = [
-      buildFirePrompt({ prompt: definition.plan.prompt, skill }),
-      decisions,
-    ]
+    const firePrompt = [buildFirePrompt({ prompt: definition.plan.prompt }), decisions]
       .filter(Boolean)
       .join('\n\n')
     // The definition's own thread, created on the first fire and found by id on
@@ -726,7 +687,11 @@ export async function fireJob(
       ownerEmail: definition.requesterEmail,
       title: definition.title,
       prompt: firePrompt,
-      skillSnapshot: skill,
+      // Dormant: a legacy row's snapshot is still recorded on the run so the
+      // history says what the job was configured with, and the submission's
+      // `skills` name list is a log line. Neither puts a body in front of the
+      // model any more.
+      skillSnapshot: definition.plan.skill.name ? definition.plan.skill : null,
       output: definition.kind === 'deep-research' ? 'deep-research' : 'chat',
       dataSources: definition.plan.dataSources ?? null,
       runId,

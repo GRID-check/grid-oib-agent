@@ -1,0 +1,13 @@
+---
+upgrade:
+  - >
+    Ein Auftrag hängt keinen Skill mehr an. Stattdessen nennen Sie ihn im
+    Auftragstext selbst — das Eingabefeld im Assistenten ist jetzt das
+    Chat-Eingabefeld, mit demselben „/"-Menü. Piloti liest den Namen und
+    entscheidet, wie im Gespräch auch. Bestehende Zeitpläne laufen
+    unverändert weiter.
+  - >
+    Die Skill-Prüfung ist jetzt ein Schritt: Sie führen sie aus, bevor Sie
+    speichern können. Was sie findet, gewichten Sie selbst — Befunde
+    blockieren das Speichern nicht, und wenn die Prüfung nicht erreichbar
+    ist, können Sie trotzdem speichern.

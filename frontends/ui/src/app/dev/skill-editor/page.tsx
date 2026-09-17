@@ -29,12 +29,12 @@
  * production on a server boundary.
  */
 
-import { useEffect, useRef } from 'react'
+import { Suspense, useEffect } from 'react'
+import { useSearchParams } from 'next/navigation'
 
 import { I18nProvider } from '@/i18n'
 import { SkillEditorDialog } from '@/features/skills/components/skill-editor-dialog'
 import { SkillDocumentPreview } from '@/features/skills/components/SkillDocumentPreview'
-import { SkillReviewPanel } from '@/features/skills/components/SkillReviewPanel'
 
 const SKILL = {
   name: 'brandschutz-check',
@@ -107,32 +107,13 @@ export default function SkillEditorPreviewPage(): JSX.Element {
         // document and the findings are read at the width they ship at.
         className="text-foreground mx-auto flex w-full max-w-[680px] flex-col gap-8 p-6"
       >
-        {/* The REAL editor dialog, open. The panes below render standalone so
-            each is legible on its own, but the dialog is the surface an author
-            actually meets — and the only place the Markdown editor, the
-            card-preference control and the metadata switches appear.
-
-            The full instruction is used here: the settings now sit in their own
-            rail beside the form rather than below it, so nothing is pushed
-            under the fold by a body long enough to be worth writing in a real
-            Markdown editor. */}
-        <SkillEditorDialog
-          open
-          onOpenChange={() => {}}
-          skill={{
-            ...SKILL,
-            id: 'skill-preview',
-            origin: 'org',
-            enabled: true,
-            // Unsorted, which is what a skill written straight into the editor
-            // is until somebody files it.
-            categoryId: null,
-            clonedFrom: null,
-            createdAt: null,
-            updatedAt: null,
-          }}
-          onSaved={() => {}}
-        />
+        {/* The REAL builder, open. `?step=` walks it forward by pressing its
+            own „Weiter", so each step can be captured as an author meets it —
+            step 1 is the two lines an agent reads every turn, step 3 is the
+            check the save waits on. */}
+        <Suspense>
+          <BuilderAtStep />
+        </Suspense>
 
         <SkillDocumentPreview
           name={SKILL.name}
@@ -140,37 +121,41 @@ export default function SkillEditorPreviewPage(): JSX.Element {
           body={SKILL.body}
           metadata={SKILL.metadata}
         />
-
-        <ReviewDriver />
       </main>
     </I18nProvider>
   )
 }
 
 /**
- * Presses the review panel's own button once it exists.
+ * The builder, walked to the requested step by pressing its own „Weiter".
  *
- * Found by the panel's test id rather than by its label: the copy is localised,
- * and a driver keyed on German text silently does nothing in an English run —
- * which is how a capture of this kind first came back showing the untouched
- * idle state. It retries only while the button is MISSING and stops the moment
- * it has pressed it, so a second press can never send a finished review back to
- * "Wird geprüft…".
+ * One press per frame, looking the button up each time: it only exists once the
+ * step before it has rendered, so holding a node would press a button that has
+ * been replaced. `document`, not a ref — the dialog renders in a PORTAL. On the
+ * last step it presses „Skill prüfen" instead, because the findings, and the
+ * save the check unlocks, are what that step is.
  */
-function ReviewDriver(): JSX.Element {
-  const rootRef = useRef<HTMLDivElement | null>(null)
+function BuilderAtStep(): JSX.Element {
+  const target = Number(useSearchParams()?.get('step') ?? '1')
 
   useEffect(() => {
-    const root = rootRef.current
-    if (!root) return
+    if (!Number.isFinite(target) || target <= 1) return
     let stopped = false
+    let pressed = 0
     const tick = (): void => {
       if (stopped) return
-      const button = root.querySelector<HTMLButtonElement>(
-        '[data-testid="skill-review-panel"] button',
-      )
-      if (button) {
-        button.click()
+      if (pressed < target - 1) {
+        const next = document.querySelector<HTMLButtonElement>('[data-testid="skill-next"]')
+        if (next) {
+          next.click()
+          pressed += 1
+        }
+        requestAnimationFrame(tick)
+        return
+      }
+      const check = document.querySelector<HTMLButtonElement>('[data-testid="skill-review-run"]')
+      if (check) {
+        check.click()
         return
       }
       requestAnimationFrame(tick)
@@ -179,11 +164,25 @@ function ReviewDriver(): JSX.Element {
     return () => {
       stopped = true
     }
-  }, [])
+  }, [target])
 
   return (
-    <div ref={rootRef}>
-      <SkillReviewPanel name={SKILL.name} description={SKILL.description} body={SKILL.body} />
-    </div>
+    <SkillEditorDialog
+      open
+      onOpenChange={() => {}}
+      skill={{
+        ...SKILL,
+        id: 'skill-preview',
+        origin: 'org',
+        enabled: true,
+        // Unsorted, which is what a skill written straight into the editor is
+        // until somebody files it.
+        categoryId: null,
+        clonedFrom: null,
+        createdAt: null,
+        updatedAt: null,
+      }}
+      onSaved={() => {}}
+    />
   )
 }

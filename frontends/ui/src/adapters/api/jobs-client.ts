@@ -3,7 +3,7 @@
  *
  * Typed fetch client for the project-scoped job endpoints
  * (`/api/projects/[id]/jobs…`) plus the builder's skill picker
- * (`/api/skills/attachable`). These are grid_app-owned BFF routes, so they are
+ * These are grid_app-owned BFF routes, so they are
  * always called same-origin and return the camelCase JSON envelope the BFF
  * service layer produces.
  *
@@ -121,16 +121,6 @@ export type UpdateJobInput = Partial<CreateJobInput>
 export interface ListJobRunsParams {
   limit?: number
   offset?: number
-}
-
-/** A skill the picker may offer for the job's chosen output kind. */
-export interface AttachableSkill {
-  name: string
-  description: string
-  /** Full body — the builder's WYSIWYG preview embeds it. */
-  body: string
-  metadata: Record<string, string>
-  origin: 'org' | 'platform-clone' | 'platform'
 }
 
 // ============================================================
@@ -299,21 +289,4 @@ export const listJobRuns = async (
   if (!response.ok) await throwJobApiError(response, 'Failed to list job runs')
   const data = (await response.json()) as { runs?: JobRun[] } | JobRun[]
   return Array.isArray(data) ? data : (data.runs ?? [])
-}
-
-/**
- * The skills a job with this output kind may attach.
- *
- * `chat` resolves against `researcher` and `deep-research` against
- * `deep_researcher`, both via `grid-agents` — so the picker can never offer a
- * skill the chosen output kind cannot run. Re-fetch when the output changes.
- */
-export const listAttachableSkills = async (output: JobOutput): Promise<AttachableSkill[]> => {
-  const response = await fetch(
-    `/api/skills/attachable?output=${encodeURIComponent(output)}`,
-    { headers: jsonHeaders },
-  )
-  if (!response.ok) await throwJobApiError(response, 'Failed to list attachable skills')
-  const data = (await response.json()) as { skills?: AttachableSkill[] } | AttachableSkill[]
-  return Array.isArray(data) ? data : (data.skills ?? [])
 }

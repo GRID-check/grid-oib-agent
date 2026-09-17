@@ -33,7 +33,6 @@ vi.mock('@/adapters/api/jobs-client', async (importOriginal) => {
     createJob: (...args: unknown[]) => createJob(...args),
     updateJob: (...args: unknown[]) => updateJob(...args),
     runJob: (...args: unknown[]) => runJob(...args),
-    listAttachableSkills: async () => [],
   }
 })
 
@@ -123,14 +122,28 @@ describe('step 1 — one required answer', () => {
 })
 
 describe('progressive disclosure', () => {
-  test('step 2 asks one question; the skill and the sources are folded away', async () => {
+  test('step 2 asks one question; the sources are folded away', async () => {
     const { user } = wizard()
     await user.type(screen.getByLabelText(/The request/), 'Brandschutz prüfen')
     await user.click(next())
     expect(screen.getByTestId('wizard-output-chat')).toBeInTheDocument()
-    expect(screen.queryByText(/Attached skill/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/always included in every run/i)).not.toBeInTheDocument()
     await user.click(screen.getByTestId('wizard-advanced'))
-    expect(screen.getByText(/Attached skill/)).toBeInTheDocument()
+    expect(screen.getByText(/always included in every run/i)).toBeInTheDocument()
+  })
+
+  // A task names a playbook in its PROMPT, with the same `/` the chat composer
+  // has — the model reads the name and decides. The `<Select>` that used to be
+  // folded away here attached one skill and `buildFirePrompt` pasted its whole
+  // body in front of the model: the last thing in the product that could put a
+  // skill on a turn without the model choosing it.
+  test('offers no way to attach a skill to the job', async () => {
+    const { user } = wizard()
+    await user.type(screen.getByLabelText(/The request/), 'Brandschutz prüfen')
+    await user.click(next())
+    await user.click(screen.getByTestId('wizard-advanced'))
+    expect(screen.queryByText(/Attached skill/)).not.toBeInTheDocument()
+    expect(screen.queryByRole('combobox')).not.toBeInTheDocument()
   })
 
   test('step 3 asks one question; the timezone and the cron are folded away', async () => {
@@ -298,13 +311,16 @@ describe('the rail', () => {
     await user.type(screen.getByLabelText(/The request/), 'Brandschutz prüfen')
     await user.click(next())
     await user.click(next())
-    await user.click(screen.getByRole('button', { name: 'Task' }))
+    // Numbered: a circle in a rail has to say WHERE in the sequence it is, and
+    // a step named after the field it holds is otherwise indistinguishable
+    // from that field's own label to anything querying by accessible name.
+    await user.click(screen.getByRole('button', { name: '1. Task' }))
     expect(screen.getByLabelText(/The request/)).toHaveValue('Brandschutz prüfen')
   })
 
   test('does NOT offer a jump past a question nobody has answered', () => {
     wizard()
-    expect(screen.getByRole('button', { name: 'Review' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: '4. Review' })).toBeDisabled()
   })
 
   test('Back on the first step is the only place leaving costs anything', async () => {

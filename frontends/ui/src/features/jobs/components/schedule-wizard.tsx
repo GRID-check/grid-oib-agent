@@ -4,7 +4,7 @@
  * The schedule wizard — four steps, one decision each.
  *
  * What this replaced was one page holding six stacked cards: name, prompt,
- * output, skill, data sources, cron, timezone, two switches, and a live preview
+ * output, data sources, cron, timezone, two switches, and a live preview
  * pane beside them. Every field was justified on its own and the page was still
  * wrong, because the cost of a form is not the number of fields — it is the
  * number a person has to hold in mind AT ONCE. Sixteen controls with no stated
@@ -16,7 +16,7 @@
  *   1. **One required decision per step.** Step 1 asks what Piloti should do.
  *      Step 2 asks what should come out. Step 3 asks when. Step 4 asks nothing
  *      and shows what will happen. Nothing else is required anywhere.
- *   2. **Everything optional is folded away.** The skill, the data sources, the
+ *   2. **Everything optional is folded away.** The data sources, the
  *      timezone and the raw cron field live behind one "Erweitert" disclosure
  *      per step, shut by default. They are not hidden because they do not
  *      matter; they are hidden because the dictionary's own copy says most
@@ -40,11 +40,11 @@
  * the client-knowable rules, for instant feedback.
  *
  * Scalar text fields use TanStack Form + Zod (`components/form`); the dynamic
- * pieces — the skill picker, the data-source checkboxes, the schedule composer
+ * pieces — the data-source checkboxes, the schedule composer
  * — are local state merged on submit, as before.
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   ArrowLeft,
   ArrowRight,
@@ -60,7 +60,7 @@ import {
 import { toast } from 'sonner'
 import { z } from 'zod'
 
-import { useAppForm } from '@/components/form'
+import { FieldShell, useAppForm } from '@/components/form'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
@@ -77,6 +77,7 @@ import {
 } from '@/components/ui/select'
 import { Spinner } from '@/components/ui/spinner'
 import { Stepper } from '@/components/ui/stepper'
+import { Advanced, StepHeading } from '@/components/ui/step-form'
 import { Switch } from '@/components/ui/switch'
 import { useLocale, useTranslations } from '@/i18n'
 import { formatAbsoluteTime } from '@/lib/format'
@@ -84,18 +85,15 @@ import { cn } from '@/lib/utils'
 import { createDataSourcesClient, type DataSourceFromAPI } from '@/adapters/api/data-sources-client'
 import {
   createJob,
-  listAttachableSkills,
   runJob,
   updateJob,
   JobApiError,
-  type AttachableSkill,
   type CreateJobInput,
   type Job,
   type JobOutput,
 } from '@/adapters/api/jobs-client'
-import type { SkillSnapshot } from '@/adapters/api/skills-client'
+import { SkillPromptField } from '@/features/skills/components/SkillPromptField'
 import { capturePosthog } from '@/lib/analytics/posthog'
-import { buildFirePromptPreview } from '../lib/fire-prompt-preview'
 import { nextOccurrences } from '../lib/occurrences'
 import {
   buildCron,
@@ -120,15 +118,6 @@ import type { ScheduleDraft } from '../lib/schedule-draft'
 
 /** The always-included knowledge source: a pinned row, never a checkbox. */
 const KNOWLEDGE_LAYER_ID = 'knowledge_layer'
-
-/**
- * The picker's "no skill" value.
- *
- * A sentinel rather than the empty string: Radix reserves `''` for "nothing
- * selected", and "no skill" here is a CHOICE the reader can make explicitly —
- * it has to be a selectable row, not the absence of one.
- */
-const NO_SKILL = '__none__'
 
 /** The two output kinds, in the order they are offered. */
 const JOB_OUTPUTS: readonly JobOutput[] = ['chat', 'deep-research']
@@ -155,17 +144,6 @@ interface ScheduleWizardProps {
 interface WizardValues {
   name: string
   prompt: string
-}
-
-/** The picker rows and the pinned snapshot share this shape. */
-function toSnapshot(item: AttachableSkill): SkillSnapshot {
-  return {
-    name: item.name,
-    description: item.description,
-    body: item.body,
-    metadata: item.metadata,
-    origin: item.origin,
-  }
 }
 
 /**
@@ -202,19 +180,6 @@ export function ScheduleWizard({
 
   // --- What comes out, and everything that follows from it -----------------
   const [output, setOutput] = useState<JobOutput>(job?.output ?? 'chat')
-  const [attachable, setAttachable] = useState<AttachableSkill[] | null>(null)
-  const [skillsError, setSkillsError] = useState(false)
-  const [skill, setSkill] = useState<SkillSnapshot | null>(job?.skillSnapshot ?? null)
-  /** Set when switching output dropped the attachment — shown, never silent. */
-  const [detached, setDetached] = useState<{ name: string; output: JobOutput } | null>(null)
-  /**
-   * The attachment as the picker effect sees it. A ref, not a dependency: the
-   * effect re-fetches on OUTPUT change, and listing `skill` would make every
-   * pick of a skill re-request the list it was picked from.
-   */
-  const skillRef = useRef<SkillSnapshot | null>(skill)
-  skillRef.current = skill
-
   // --- Sources --------------------------------------------------------------
   const [sources, setSources] = useState<DataSourceFromAPI[] | null>(null)
   const [sourcesError, setSourcesError] = useState(false)
@@ -327,36 +292,6 @@ export function ScheduleWizard({
     return () => controller.abort()
   }, [])
 
-  /**
-   * The attachable skills for the CURRENT output kind.
-   *
-   * Re-runs whenever the output changes, and an attachment the new list does
-   * not contain is dropped here — the picker must never be able to offer, or
-   * keep, a skill the chosen output cannot run. A failed fetch keeps whatever
-   * is attached: not knowing the list is not evidence against the attachment.
-   */
-  useEffect(() => {
-    const controller = new AbortController()
-    listAttachableSkills(output)
-      .then((items) => {
-        if (controller.signal.aborted) return
-        setAttachable(items)
-        setSkillsError(false)
-        const current = skillRef.current
-        if (current && !items.some((item) => item.name === current.name)) {
-          setSkill(null)
-          setDetached({ name: current.name, output })
-        }
-      })
-      .catch(() => {
-        if (!controller.signal.aborted) {
-          setAttachable(null)
-          setSkillsError(true)
-        }
-      })
-    return () => controller.abort()
-  }, [output])
-
   const additionalSources = useMemo(
     () => sources?.filter((source) => source.id !== KNOWLEDGE_LAYER_ID) ?? null,
     [sources],
@@ -397,9 +332,11 @@ export function ScheduleWizard({
         name: value.name.trim(),
         prompt: value.prompt.trim(),
         output,
-        // Explicit null, not omitted: on PATCH that is what DETACHES a skill,
-        // and omitting it would leave a removed attachment in place.
-        skillName: skill?.name ?? null,
+        // Always null. A task names a skill IN ITS PROMPT (`/name`, the chat
+        // gesture), which the model reads and decides on. Explicit rather than
+        // omitted because on PATCH that is what DETACHES a skill a previous
+        // build attached — a job edited here stops carrying one.
+        skillName: null,
         dataSources: selectedSources.size > 0 ? Array.from(selectedSources) : null,
         enabled,
         scheduleCron: effectiveCron,
@@ -417,7 +354,6 @@ export function ScheduleWizard({
         // rewrite and nobody can tell whether the new flow does better.
         const analytics = {
           output,
-          has_skill: skill !== null,
           additional_source_count: selectedSources.size,
           // Kept as it was named when the step was a switch, so the series
           // does not break at the rewrite: "is this task on a timer at all".
@@ -495,8 +431,6 @@ export function ScheduleWizard({
 
   const changeOutput = (next: JobOutput): void => {
     if (next === output) return
-    setDetached(null)
-    setAttachable(null)
     setOutput(next)
   }
 
@@ -534,16 +468,35 @@ export function ScheduleWizard({
             <StepHeading title={t('builder.steps.taskTitle')} hint={t('builder.steps.taskHint')} />
             {/* The prompt is the only required answer in the whole wizard, so
                 it gets the page: eight rows, first, and nothing above it to
-                read past. */}
+                read past.
+
+                And it is the CHAT INPUT, `/` and all. A task that should run a
+                playbook names it here the way a person would name it in a
+                message — the model reads the name and decides. The advanced
+                section used to hold a one-or-none `<Select>` instead, whose
+                body the fire prompt then pasted in front of the model: the
+                last mechanism in the product that could impose a skill on a
+                turn, which ADR-0060 says nothing may do, "not the request, not
+                the deployment, not a job". */}
             <form.AppField name="prompt">
               {(field) => (
-                <field.TextAreaField
+                <FieldShell
                   label={t('builder.promptLabel')}
-                  placeholder={t('builder.promptPlaceholder')}
                   description={t('builder.promptHint')}
                   required
-                  rows={8}
-                />
+                  htmlFor="wizard-prompt"
+                  errors={field.state.meta.isTouched ? field.state.meta.errors : []}
+                >
+                  <SkillPromptField
+                    id="wizard-prompt"
+                    value={field.state.value}
+                    onChange={(next) => field.handleChange(next)}
+                    onBlur={field.handleBlur}
+                    placeholder={t('builder.promptPlaceholder')}
+                    rows={8}
+                    data-testid="wizard-prompt"
+                  />
+                </FieldShell>
               )}
             </form.AppField>
 
@@ -574,14 +527,6 @@ export function ScheduleWizard({
           <OutputStep
             output={output}
             onOutputChange={changeOutput}
-            skill={skill}
-            onSkillChange={(next) => {
-              setDetached(null)
-              setSkill(next)
-            }}
-            attachable={attachable}
-            skillsError={skillsError}
-            detached={detached}
             sources={additionalSources}
             sourcesError={sourcesError}
             selectedSources={selectedSources}
@@ -636,7 +581,6 @@ export function ScheduleWizard({
               <ReviewStep
                 values={values}
                 output={output}
-                skill={skill}
                 sourceCount={selectedSources.size}
                 cadence={cadence}
                 effectiveCron={effectiveCron}
@@ -784,73 +728,10 @@ function WizardNav({
   )
 }
 
-/** The heading every step wears: one question, one sentence under it. */
-function StepHeading({ title, hint }: { title: string; hint: string }): JSX.Element {
-  return (
-    <div className="mb-4">
-      <h2 className="text-foreground text-lg font-semibold tracking-[-0.01em]">{title}</h2>
-      <p className="text-muted-foreground mt-1 text-sm leading-relaxed">{hint}</p>
-    </div>
-  )
-}
-
-/**
- * The one disclosure every step gets, shut by default.
- *
- * Progressive disclosure done as a RULE rather than case by case: if a control
- * is not needed by most schedules, it goes behind this, and the label says what
- * is inside so nobody has to open it to find out. The count on the trigger is
- * how a reader knows something in there is already set — an "Erweitert" that
- * quietly holds three of your answers is a trap.
- */
-function Advanced({
-  label,
-  summary,
-  children,
-}: {
-  label: string
-  /** What is already set inside, or null when everything is at its default. */
-  summary: string | null
-  children: ReactNode
-}): JSX.Element {
-  const [open, setOpen] = useState(false)
-  return (
-    <Collapsible open={open} onOpenChange={setOpen} className="border-border mt-5 border-t pt-4">
-      <CollapsibleTrigger asChild>
-        <button
-          type="button"
-          className="text-muted-foreground hover:text-foreground focus-visible:ring-ring/60 flex w-full items-center gap-2 rounded-md text-sm focus-visible:outline-none focus-visible:ring-2"
-          data-testid="wizard-advanced"
-        >
-          <ChevronDown
-            className={cn(
-              'size-4 shrink-0 transition-transform duration-quick ease-out motion-reduce:transition-none',
-              open && 'rotate-180',
-            )}
-            aria-hidden
-          />
-          {label}
-          {summary && !open && (
-            <span className="text-muted-foreground/80 min-w-0 truncate text-xs">· {summary}</span>
-          )}
-        </button>
-      </CollapsibleTrigger>
-      <CollapsibleContent className="duration-base ease-out motion-reduce:animate-none">
-        <div className="space-y-4 pt-4">{children}</div>
-      </CollapsibleContent>
-    </Collapsible>
-  )
-}
-
 /** Step 2 — what should come out. Two choices; everything else is folded away. */
 function OutputStep({
   output,
   onOutputChange,
-  skill,
-  onSkillChange,
-  attachable,
-  skillsError,
-  detached,
   sources,
   sourcesError,
   selectedSources,
@@ -858,11 +739,6 @@ function OutputStep({
 }: {
   output: JobOutput
   onOutputChange: (next: JobOutput) => void
-  skill: SkillSnapshot | null
-  onSkillChange: (next: SkillSnapshot | null) => void
-  attachable: AttachableSkill[] | null
-  skillsError: boolean
-  detached: { name: string; output: JobOutput } | null
   sources: DataSourceFromAPI[] | null
   sourcesError: boolean
   selectedSources: Set<string>
@@ -875,7 +751,6 @@ function OutputStep({
   // What the folded section already holds, so nobody has to open it to find
   // out whether they set something in there.
   const advancedSummary = [
-    skill ? t('builder.skillSummary', { name: skill.name }) : null,
     selectedSources.size > 0
       ? t('builder.sourcesSummary', { count: selectedSources.size })
       : null,
@@ -930,61 +805,15 @@ function OutputStep({
       </div>
 
       <Advanced label={t('builder.advancedOutput')} summary={advancedSummary || null}>
-        <Field>
-          <FieldLabel>{t('builder.skillLabel')}</FieldLabel>
-          {attachable === null && !skillsError ? (
-            <p className="text-muted-foreground flex min-h-9 items-center text-sm">
-              {t('builder.skillsLoading')}
-            </p>
-          ) : skillsError ? (
-            <p className="text-muted-foreground flex min-h-9 items-center text-sm">
-              {t('builder.skillsError')}
-            </p>
-          ) : (
-            <Select
-              value={skill?.name ?? NO_SKILL}
-              onValueChange={(name) => {
-                if (name === NO_SKILL) {
-                  onSkillChange(null)
-                  return
-                }
-                const item = attachable?.find((entry) => entry.name === name)
-                if (item) onSkillChange(toSnapshot(item))
-              }}
-            >
-              <SelectTrigger>
-                <SelectValue placeholder={t('builder.skillPlaceholder')} />
-              </SelectTrigger>
-              <SelectContent>
-                {/* The empty state is a row, not the absence of one. */}
-                <SelectItem value={NO_SKILL}>{t('builder.skillNone')}</SelectItem>
-                {(attachable ?? []).map((item) => (
-                  <SelectItem key={item.name} value={item.name}>
-                    {item.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          )}
-          <FieldDescription>
-            {skill !== null ? skill.description : t('builder.skillNoneHint')}
-          </FieldDescription>
-          {attachable !== null && attachable.length === 0 && !skillsError && (
-            <FieldDescription>{t('builder.skillsEmpty')}</FieldDescription>
-          )}
-        </Field>
-
-        {detached && (
-          <p
-            role="status"
-            className="animate-in fade-in-0 text-foreground text-xs font-medium duration-base ease-out motion-reduce:animate-none"
-          >
-            {t('builder.skillDetached', {
-              name: detached.name,
-              output: outputLabel(detached.output),
-            })}
-          </p>
-        )}
+        {/* No skill picker. A task that should run a playbook names it in its
+            PROMPT — the `/` menu on the first step, the same gesture and the
+            same mechanism as a chat message. The `<Select>` that used to sit
+            here attached one skill, or none, and `buildFirePrompt` then pasted
+            its whole body in front of the model: the last place in the product
+            where a person's choice, not the model's, decided that a skill ran.
+            ADR-0060 says nothing may do that, "not the request, not the
+            deployment, not a job", and the doc already claimed jobs did not —
+            this control was the code disagreeing with it. */}
 
         <div>
           {/* The knowledge layer is server-guaranteed on every run, so it is a
@@ -1475,7 +1304,6 @@ function UpcomingRuns({
 function ReviewStep({
   values,
   output,
-  skill,
   sourceCount,
   cadence,
   effectiveCron,
@@ -1487,7 +1315,6 @@ function ReviewStep({
 }: {
   values: WizardValues
   output: JobOutput
-  skill: SkillSnapshot | null
   sourceCount: number
   cadence: Cadence
   effectiveCron: string | null
@@ -1499,7 +1326,12 @@ function ReviewStep({
 }): JSX.Element {
   const t = useTranslations('jobs')
   const [promptOpen, setPromptOpen] = useState(false)
-  const compiled = buildFirePromptPreview({ prompt: values.prompt, skill })
+  // The prompt IS what the agent receives, verbatim. It used to be the prompt
+  // plus the attached skill's whole body, which is why this pane existed: what
+  // was submitted differed from what was typed. Nothing is appended any more —
+  // a `/name` in the text is part of the text — so the pane shows the trimmed
+  // prompt, and that is now the honest answer rather than a stale one.
+  const compiled = values.prompt.trim()
 
   const outputNoun = t(`builder.output.${output === 'chat' ? 'chatNoun' : 'deepResearchNoun'}`)
   const rhythm = scheduleSummary(t, effectiveCron, timezone, locale, { withTimezone: false })
@@ -1537,10 +1369,6 @@ function ReviewStep({
         <ReviewRow label={t('builder.nameLabel')} value={values.name.trim()} />
         <ReviewRow label={t('builder.scheduleSection')} value={whenValue} />
         <ReviewRow label={t('builder.outputSection')} value={t(`list.output.${output}`)} />
-        <ReviewRow
-          label={t('builder.skillSection')}
-          value={skill ? skill.name : t('builder.skillNone')}
-        />
         <ReviewRow
           label={t('builder.sourcesSection')}
           value={

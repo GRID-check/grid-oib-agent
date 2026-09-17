@@ -114,15 +114,45 @@ export const skills = {
   },
 
   editor: {
+    /** The three questions the builder asks, in order. */
+    steps: {
+      label: 'Steps',
+      progress: 'Step {current} of {total}',
+      back: 'Back',
+      next: 'Next',
+      what: 'What it does',
+      instructions: 'Instructions',
+      check: 'Check',
+      whatTitle: 'What can this skill do?',
+      whatHint:
+        'These two lines are all an agent reads before deciding whether to load the skill. Everything else is only read once it has.',
+      instructionsTitle: 'What should it do?',
+      instructionsHint:
+        'The procedure, in the words you would use to brief a colleague. Loaded only when the agent reaches for the skill.',
+      checkTitle: 'Read it back',
+      checkHint:
+        'A reviewer reads the skill the way an agent will. Run it, then decide what its findings are worth.',
+      advanced: 'Advanced',
+    },
     review: {
       heading: 'Skill check',
       subtitle:
-        'A reviewer reads the skill the way an agent will and says what would stop it being picked. Advisory — it never blocks saving.',
+        'A reviewer reads the skill the way an agent will and says what would stop it being picked. Run it before saving; what it finds is yours to weigh.',
       action: 'Check this skill',
       running: 'Checking…',
       clean: 'Nothing to flag. The description says what the skill does and when to use it.',
       // Deliberately not "looks good": the reviewer did not run.
-      unavailable: 'The check could not run just now. Nothing was assessed — try again in a moment.',
+      unavailable: 'The check could not run just now. Nothing was assessed — you can still save.',
+      /** Under the disabled save, so the button is never a dead end. */
+      required: 'Run the check before saving.',
+      /** The button once a verdict exists: re-running IS the job by then. */
+      again: 'Check again',
+      /** Beside a field, how many findings it still carries. */
+      openCount: '{count, plural, one {# finding} other {# findings}}',
+      /** The verdict on screen is about text that has since changed. */
+      staleAction: 'The skill has changed since this check. Run it again to see where it stands.',
+      /** The verdict on screen is about text that has since changed. */
+      stale: 'The skill has changed since this check. Run it again.',
       fields: {
         name: 'Name',
         description: 'Description',

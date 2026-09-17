@@ -167,7 +167,7 @@ export const jobs = {
     },
 
     /** Everything behind the one disclosure per step. */
-    advancedOutput: 'Skill and data sources',
+    advancedOutput: 'Data sources',
     advancedSchedule: 'Timezone and cron',
 
     skillSection: 'Skill',

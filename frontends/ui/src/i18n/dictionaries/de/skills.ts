@@ -112,14 +112,39 @@ export const skills: typeof en.skills = {
   },
 
   editor: {
+    steps: {
+      label: 'Schritte',
+      progress: 'Schritt {current} von {total}',
+      back: 'Zurück',
+      next: 'Weiter',
+      what: 'Wofür',
+      instructions: 'Anweisungen',
+      check: 'Prüfen',
+      whatTitle: 'Was kann dieser Skill?',
+      whatHint:
+        'Diese zwei Zeilen sind alles, was ein Agent liest, bevor er entscheidet, ob er den Skill lädt. Der Rest wird erst danach gelesen.',
+      instructionsTitle: 'Was soll er tun?',
+      instructionsHint:
+        'Das Vorgehen, so wie Sie es einer Kollegin erklären würden. Wird erst geladen, wenn der Agent den Skill heranzieht.',
+      checkTitle: 'Gegenlesen',
+      checkHint:
+        'Eine Prüfinstanz liest den Skill so, wie ein Agent ihn liest. Führen Sie sie aus und entscheiden Sie dann, was die Befunde wert sind.',
+      advanced: 'Erweitert',
+    },
     review: {
       heading: 'Skill-Prüfung',
       subtitle:
-        'Eine Prüfinstanz liest den Skill so, wie ein Agent ihn liest, und nennt, was seiner Auswahl im Weg steht. Beratend – sie blockiert das Speichern nie.',
+        'Eine Prüfinstanz liest den Skill so, wie ein Agent ihn liest, und nennt, was seiner Auswahl im Weg steht. Vor dem Speichern auszuführen; wie Sie die Befunde gewichten, bleibt Ihnen überlassen.',
       action: 'Skill prüfen',
       running: 'Wird geprüft…',
       clean: 'Nichts zu beanstanden. Die Beschreibung sagt, was der Skill tut und wann er einzusetzen ist.',
-      unavailable: 'Die Prüfung konnte gerade nicht ausgeführt werden. Es wurde nichts bewertet – bitte gleich erneut versuchen.',
+      unavailable: 'Die Prüfung konnte gerade nicht ausgeführt werden. Es wurde nichts bewertet – Sie können trotzdem speichern.',
+      required: 'Bitte vor dem Speichern die Prüfung ausführen.',
+      again: 'Erneut prüfen',
+      openCount: '{count, plural, one {# Befund} other {# Befunde}}',
+      staleAction:
+        'Der Skill hat sich seit dieser Prüfung geändert. Prüfen Sie erneut, um zu sehen, wo er steht.',
+      stale: 'Der Skill hat sich seit dieser Prüfung geändert. Bitte erneut prüfen.',
       fields: {
         name: 'Name',
         description: 'Beschreibung',

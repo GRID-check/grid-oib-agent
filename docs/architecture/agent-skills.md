@@ -758,10 +758,6 @@ not a skill route, and here because it is where forcing went:
   which deletes the row. The service caps at 1500 characters, the CHECK caps
   again, and `server.js` sends the result on every WS upgrade as
   `X-Grid-Org-Instructions` (base64url) beside the project context.
-- `GET  /api/skills/attachable?output=chat|deep-research` — the job builder's
-  skill picker: the skills the chosen output kind's agent can run, resolved
-  through the same one gate. Carries bodies, because the builder previews the
-  composed fire prompt.
 - `POST /api/skills/review` — ask the backend reviewer what is wrong with a
   draft. Deliberately looser validation than the create schema (the point is to
   review something not yet valid) and always 200 with `{ findings, error? }` —
@@ -822,9 +818,10 @@ from the job row itself, and it never throws for a skip:
 2. For an `output: 'chat'` job, create the conversation the run will land in
    (see below). Before submission, because the backend needs its id.
 3. POST the backend `POST /v1/internal/skills/submit` with
-   `input` = `buildFirePrompt({ prompt, skill })`, `skills` = the attached
-   snapshot's name **or an empty list**, `output` — which selects the agent —
-   and `conversation_id` when there is one.
+   `input` = `buildFirePrompt({ prompt })`, `skills` = a legacy row's snapshot
+   name **or an empty list** (log only — nothing is delivered from it),
+   `output` — which selects the agent — and `conversation_id` when there is
+   one.
 4. Record a `job_runs` row: `submitted` (+ `job_id` + `conversation_id`),
    `skipped` (a 429 with `Retry-After` → detail) or `error`, and touch
    `last_run_at`. Context building sits inside the try, so a transient
@@ -857,21 +854,33 @@ unmakes a good run.
 
 ### The fire prompt
 
-`buildFirePrompt` is the job's prompt, trimmed, **plus** the attached skill's
-name, description and full body under a `---` fence when a skill is attached.
-With no skill the output is the prompt and nothing else — no
-`Skill:`/`Beschreibung:` block and no dangling fences.
+`buildFirePrompt` is the job's prompt, trimmed. That is the whole function.
 
-The builder shows that text as a WYSIWYG "what the agent receives" pane, so
-there is a client mirror, `features/jobs/lib/fire-prompt-preview.ts`, that is a
-byte-identical transcription of the server function.
-`fire-prompt-preview.spec.ts` runs in the node environment, imports the real
-`server-only` service and pins the two against each other, so one side cannot
-change without the other. The backend's `input` ceiling is 48000 chars — sized
-for the composed result, since either half alone fits under the 32000-char
-skill-body limit but their sum need not — and an over-long prompt is a 422,
-never a silent truncation. The BFF caps `prompt` at 8000 chars so a job
-attaching the largest legal skill still fits.
+It used to append the attached skill's name, description and full body under a
+`---` fence, introduced by the sentence *„Verwende dabei den folgenden Skill
+**verbindlich** und vollständig."* — forcing, written out in German, in the one
+place an author was least likely to look. A job could therefore impose a skill
+on a turn, which the doctrine above says nothing may do, "not the request, not
+the deployment, not a job". The code was disagreeing with its own doc.
+
+A job that should run a playbook **names it in its prompt**. The wizard's
+prompt field is the chat composer's surface — the same `/` menu, the same
+picker, the same chip — so the name lands in the text and the model reads it
+among the words and decides, exactly as it decides in a chat turn. One
+mechanism, and the one that cannot lie about who chose.
+
+Three things fell away with the fence. `features/jobs/lib/fire-prompt-preview.ts`,
+the byte-identical client mirror, existed because what was submitted differed
+from what was typed; now it does not, so the builder's "what the agent
+receives" pane shows the trimmed prompt directly. `GET /api/skills/attachable`
+and `listAttachableSkills` fed the picker and have no caller. And the 48000-char
+`input` ceiling is no longer sized for a composed result — the BFF's 8000-char
+`prompt` cap is the binding one.
+
+`jobs.skill_name` / `jobs.skill_snapshot` and `task_definitions.plan.skill` are
+**dormant, not dropped**: legacy rows hold real snapshots, the pair CHECK is
+theirs, and a run still records what its definition was configured with. Nothing
+writes a new one, and nothing delivers a body from one.
 
 ### Job conversations (`output: 'chat'`)
 
@@ -1111,6 +1120,37 @@ organization-wide ("what procedures do we have"), jobs are project-scoped
 - `app/app/projects/[id]/skills` — the org toolbox **alone**
   (`features/skills/components/skills-panel.tsx` → `skill-toolbox.tsx`,
   `skill-editor-dialog.tsx`). Read-only without `org:skills:manage`.
+
+  The builder is a **stepped form**, wearing the schedule wizard's `Stepper`
+  and nav (both now `components/ui/step-form.tsx`, so the two cannot drift):
+  *what it does* (name + description), *instructions* (the body), *check*. It
+  was a `max-w-5xl` two-column dialog with a rail of eight settings — agents,
+  cards, category, two switches — at the same visual weight as the
+  description, which is the ONE field that decides whether the skill is ever
+  picked. Everything that is not the document now sits behind one „Erweitert"
+  on the last step, with a summary on the trigger so nobody has to open it to
+  learn something is set.
+
+  **The check is a step the save waits on.** A skill is an instruction the
+  model acts on unsupervised, and the failure an author cannot see from inside
+  the form is a description that never gets matched — which is exactly what
+  the reviewer reads for. A button beside a form is a button nobody presses.
+  Required to RUN, never to pass: blocking a save on a model's verdict would
+  be this document's own forcing, aimed at the author instead of the agent,
+  and a reviewer that could not be reached blocks nothing at all.
+
+  **The findings sit under the field they are about** (`SkillFindingList`,
+  inline), not in the panel — the critique belongs beside the thing
+  criticised, or revising means walking back with the advice held in your
+  head. The verdict is therefore held above all three steps
+  (`hooks/use-skill-review.ts`), the rail marks which steps still hold one,
+  and the panel keeps what is genuinely about the whole draft: run / „Erneut
+  prüfen", and where what is left lives. A verdict goes stale the moment the
+  draft changes — including a change made while the request was in flight —
+  which closes the gate and marks the findings rather than letting them pass
+  as current. Nothing ever writes a `fix` into a field: it is advice in prose,
+  and applying it would make the reviewer the author of the skill it is
+  reviewing.
 - `app/app/projects/[id]/automation?tab=schedule` — the project's schedules
   (`features/jobs/components/schedule-panel.tsx`, `schedule-timetable.tsx`,
   `schedule-card.tsx`, `schedule-detail.tsx`, `schedule-wizard.tsx`,
@@ -1174,9 +1214,7 @@ history surfaces, and the run-history link and job-glyph rendering that
 - BFF vitest, jobs: `lib/jobs/service.spec.ts` (the fire path, the skill pair,
   the conversation creation and its best-effort contract),
   `lib/jobs/types.spec.ts`, `lib/jobs/schedule.spec.ts` (cron + min interval +
-  timezone), `lib/jobs/backend-client.spec.ts`, and
-  `features/jobs/lib/fire-prompt-preview.spec.ts` — which imports the real
-  server builder and pins the client mirror byte-for-byte against it.
+  timezone) and `lib/jobs/backend-client.spec.ts`.
 - The feature-gate spec (`isSkillsEnabled` / `requireSkillsEnabled`, including
   the dark-launch property) covers both surfaces: jobs ride the same `skills`
   flag.
