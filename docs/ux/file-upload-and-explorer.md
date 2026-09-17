@@ -3,7 +3,7 @@
 **Date:** 2026-08-11
 **Status:** Implemented
 **Surfaces:** project Files workspace, org Büroarchiv, chat-session uploads
-**Screenshot evidence:** `frontends/ui/visual/screenshots/upload-tray.*.png` (`/dev/upload-tray`)
+**Preview:** `/dev/upload-tray`
 
 ## The complaint
 
@@ -171,8 +171,7 @@ Same lens, applied to the surface that opens when a document is clicked:
 
 ## The card of a document that is still being read
 
-**Screenshot evidence:** `frontends/ui/visual/screenshots/file-browser-uploading.*.png`
-(`/dev/file-browser?variant=uploading`)
+**Preview:** `/dev/file-browser?variant=uploading`
 
 > "Whilst uploading, but the preview is already available, it looks weird."
 

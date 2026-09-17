@@ -4,7 +4,7 @@
  * Sessions dev preview: renders the REAL SessionsPanel — the history sheet —
  * over the REAL app shell (`AppSidebar` rail + a chat-plane stand-in), so it
  * can be reviewed and screenshotted exactly as it rises in the product
- * (visual/registry.mjs → `sessions*`). Not linked anywhere and 404s outside
+ * . Not linked anywhere and 404s outside
  * development.
  *
  * Why the real rail. The sheet dims the whole shell behind it, and whether

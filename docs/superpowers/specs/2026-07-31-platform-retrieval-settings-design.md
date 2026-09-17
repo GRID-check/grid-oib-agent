@@ -150,8 +150,8 @@ Whole-set upsert in one transaction on save (mirror
   (placeholder), a Save bar, and a "reset to defaults" affordance (clears
   rows).
 - Nav entry in the platform layout next to Models/Norms.
-- `/dev/platform-retrieval` preview route with fixture data + registry target;
-  light+dark screenshots committed (`task fe:screenshots`).
+- `/dev/platform-retrieval` preview route with fixture data; light+dark captures
+  attached to the PR (`docs/ux/visual-screenshots.md`).
 
 ## Error handling
 

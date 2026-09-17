@@ -864,21 +864,19 @@ mounted.
 
 ### 6.3 The committed rationale that must be rewritten
 
-`frontends/ui/visual/registry.mjs:150-156` currently reads:
+The screenshot registry has since been deleted, and this argument went with it.
+It is kept here because the argument still has to be answered by whoever makes
+the change. `frontends/ui/visual/registry.mjs:150-156` used to read:
 
 > `answer-follow-ups` — "An inline callout mid-answer and a `follow_ups` card
 > **ENDING the answer**, with the provenance footer directly beneath it — **the
 > chips have to still read as part of the answer rather than as footer
 > chrome**."
 
-That is a committed argument for exactly the placement this change reverses, and
-a screenshot target that will no longer exist. **It must be rewritten in the same
-PR, not left contradicting the code.** The replacement target captures the new
-truth — chips as a rail *below* the answer card, in the same column, and the
-thing that is now easy to get wrong: the rail must not read as a *second answer*.
-The registry entry is also what the visual-coverage gate
-(`.github/workflows/visual-coverage.yml`) looks for when `FollowUpsRail` appears,
-so shipping the component without updating it fails the intended review anyway.
+That is an argument for exactly the placement this change reverses. The capture
+that ships with the PR has to show the new truth — chips as a rail *below* the
+answer card, in the same column, and the thing that is now easy to get wrong:
+the rail must not read as a *second answer*.
 
 The `/dev/chat-turn?variant=follow-ups` route and its fixture change with it.
 
