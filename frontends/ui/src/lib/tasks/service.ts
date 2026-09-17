@@ -33,8 +33,9 @@ import { openDraftForRevision } from '@/lib/documents/revision'
 import { fileResearchReport } from '@/lib/documents/research-report'
 import { resolvePeople } from '@/lib/sharing/directory'
 import type { TaskWireRow } from '@/features/tasks/lib/task-view'
-import { toTaskWireRow } from './list-projection'
+import { loadRunSummaries, toTaskWireRow } from './list-projection'
 import * as repository from './repository'
+import { isActiveTaskRunStatus } from './task-vocabulary'
 import type { ReviewTaskInput } from './types'
 
 export type TaskOutcomeStatus = 'success' | 'failure' | 'interrupted'
@@ -245,9 +246,11 @@ async function fileResultFor(
  *
  * The inbox type is the existing `job.completed` / `job.failed` pair: the
  * payload already carries the ids, and a second type would be a second
- * presentation for a row that says the same thing. `actorUserId: null` because
- * the work was Piloti's, and because `emitInboxItems` drops a row whose actor
- * is its recipient.
+ * presentation for a row that says the same thing. (`job.waiting`, the third
+ * of the family, is emitted where the ledger turns to `wartet` —
+ * `lib/runs/service.ts` — because that is the only tier that sees it.)
+ * `actorUserId: null` because the work was Piloti's, and because
+ * `emitInboxItems` drops a row whose actor is its recipient.
  *
  * Idempotent: the unique `(recipient, group_key)` upsert folds a retried report
  * into the existing row.
@@ -277,6 +280,10 @@ export async function recordRunOutcome(
         jobId: run.definitionId,
         runId: run.id,
         conversationId: run.conversationId,
+        // With the message, the row lands ON the run block in its thread
+        // (ADR-0062) rather than in the task drawer; null for a run submitted
+        // before run messages existed, and the drawer is the fallback.
+        runMessageId: run.runMessageId,
         taskId: run.id,
         filedDocumentId: completed.filed?.documentId ?? null,
         filedFilename: completed.filed?.filename ?? null,
@@ -306,11 +313,15 @@ export async function listTaskViews(
 ): Promise<TaskWireRow[]> {
   const runs = await listTasks(session, projectId)
   if (runs.length === 0) return []
-  const people = await resolvePeople(
-    session.organizationId,
-    [...new Set(runs.map((run) => run.requesterUserId))],
+  const [people, summaries] = await Promise.all([
+    resolvePeople(session.organizationId, [...new Set(runs.map((run) => run.requesterUserId))]),
+    // What each ACTIVE run is doing, off its message's ledger — one bounded
+    // query for the page (`list-projection.ts`).
+    loadRunSummaries(runs),
+  ])
+  return runs.map((run) =>
+    toTaskWireRow(run, people.get(run.requesterUserId)?.name ?? null, summaries.get(run.id) ?? null),
   )
-  return runs.map((run) => toTaskWireRow(run, people.get(run.requesterUserId)?.name ?? null))
 }
 
 /**
@@ -329,7 +340,7 @@ export async function reviewTask(
   await requireProjectAccess(session, projectId, 'project:edit')
   const run = await repository.findRunInProject(taskId, projectId, session.organizationId)
   if (!run) throw new NotFoundError('Task not found')
-  if (run.status === 'queued' || run.status === 'running') {
+  if (isActiveTaskRunStatus(run.status)) {
     throw new ConflictError('A task can only be reviewed once it has finished')
   }
 

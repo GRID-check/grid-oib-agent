@@ -403,6 +403,12 @@ export const collaboration = {
         title: '"{subject}" failed',
         body: 'The job could not be completed. The run history in the project names the reason.',
       },
+      // A run stopped to ask its requester something (ADR-0062, `wartet`). The
+      // body says where the answer goes, because the run resumes nowhere else.
+      jobWaiting: {
+        title: '"{subject}" is waiting for you',
+        body: 'Piloti has a question about this task. Answer it in the thread and the run carries on.',
+      },
       // A version of a document is waiting for a decision (ADR-0054).
       // {subject} is the document, {actor} whoever submitted it.
       documentReviewRequested: {

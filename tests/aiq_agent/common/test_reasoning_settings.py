@@ -15,6 +15,7 @@ from aiq_agent.common.model_overrides import AgentGroup
 from aiq_agent.common.model_overrides import apply_model_override
 from aiq_agent.common.model_overrides import override_reasoning_effort
 from aiq_agent.common.reasoning_settings import get_reasoning_effort
+from aiq_agent.common.reasoning_settings import get_reasoning_efforts
 from aiq_agent.common.reasoning_settings import reset_reasoning_settings_cache
 from aiq_agent.common.reasoning_settings import sanitize_reasoning_efforts
 
@@ -100,6 +101,17 @@ class TestResolution:
 
         assert get_reasoning_effort("shallow_research") == "none"
         assert get_reasoning_effort("deep_research") is None
+
+    def test_the_whole_map_is_one_round_trip_and_a_copy(self, monkeypatch):
+        """``LLMProvider.with_reasoning_efforts`` takes the map; it must not alias the cache."""
+        monkeypatch.setenv("GRID_INTERNAL_API_TOKEN", "tok")
+        calls = _mock_bff(monkeypatch, {"efforts": {"shallow_research": "high", "deep_research": "low"}})
+
+        efforts = get_reasoning_efforts()
+        assert efforts == {"shallow_research": "high", "deep_research": "low"}
+        efforts["shallow_research"] = "none"
+        assert get_reasoning_effort("shallow_research") == "high"
+        assert calls["n"] == 1
 
     def test_bff_failure_fails_open(self, monkeypatch):
         monkeypatch.setenv("GRID_INTERNAL_API_TOKEN", "tok")

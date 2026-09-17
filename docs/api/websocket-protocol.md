@@ -326,7 +326,13 @@ Delivers final or streaming response text.
   status: "in_progress" | "complete" | "error",
   timestamp: "<ISO 8601>",
   cards?: [...],
-  deep_research_job_id?: string,
+  // The run this turn commissioned instead of answering itself (ADR-0062), and
+  // the message that run narrates itself in. Present together or not at all;
+  // the terminal frame's own content is EMPTY when they are, because the run's
+  // block is the narration. They replace `deep_research_job_id`, which carried
+  // a job id the client had to hang a panel off.
+  run_id?: string,
+  run_message_id?: string,
   answer_confidence?: "low" | "medium" | "high",
   // Optional one-clause justification the model appended to its confidence
   // marker (`[CONFIDENCE:high | <reason>]`), ≤300 chars, shown verbatim in the
@@ -418,7 +424,7 @@ interface RetrievalLedgerEntry {
 - **SystemResponseContent** (`{ text: string | null }`): Standard assistant response.
 - **GenerateResponse** (`{ output: string }`): Shallow/meta response format.
 
-The client extracts content in priority order: `output` → `text` → raw string. The `isFinal` flag is derived from `status === 'complete'`. Every structured extra is optional and fail-open when absent — `cards`, `deep_research_job_id`, `answer_confidence`, `answer_confidence_reason`, `sources`, `read_sources`, plus the transparency extras tabled below.
+The client extracts content in priority order: `output` → `text` → raw string. The `isFinal` flag is derived from `status === 'complete'`. Every structured extra is optional and fail-open when absent — `cards`, `run_id`, `run_message_id`, `answer_confidence`, `answer_confidence_reason`, `sources`, `read_sources`, plus the transparency extras tabled below.
 
 **Transparency extras** (terminal frame; all optional, fail-open per-field):
 
@@ -649,3 +655,55 @@ POST /chat/stream
 ```
 
 Configured via `apiConfig.chatStreamUrl` pointing to the backend URL. The SSE endpoint provides equivalent functionality for non-streaming or restricted-network scenarios.
+
+### Run event streams
+
+A run — a deep-research run, a task run — streams its own events from
+`job_events` rather than over the socket: `GET /v1/jobs/async/{jobId}/events`
+(`aiq_api.routes.jobs.stream_job_events`), replayable from `last_event_id`. That
+stream carries the `job.*` lifecycle events (`job.phase`, `job.heartbeat`,
+`job.degraded`, `job.error`, `job.cancelled`), the `artifact.update` events the
+agent callbacks emit, and one more:
+
+| Event | Payload | Meaning |
+|---|---|---|
+| `run.ledger` | `{"ledger": RunLedger}` | The run's WHOLE account of itself, as of this moment |
+
+`RunLedger` is the contract in
+[`frontends/ui/src/lib/runs/run-ledger-types.ts`](../../frontends/ui/src/lib/runs/run-ledger-types.ts)
+(`runId`, `status`, `phases[]`, `steps[]` with the intent the runner stated and
+the documents each step reached, `result` or `error`) — the same shape stored on
+the run's message as `metadata.run_ledger`, and the same one the JSON Schema
+fixture `frontends/ui/tests/fixtures/run-ledger.schema.json` pins.
+
+Two properties a client should rely on:
+
+- **It is a snapshot, not a delta.** Replace what you hold with the payload. The
+  ledger is folded in exactly one place (`aiq_api.jobs.run_ledger_fold`), and a
+  client that folded its own from the raw events would be a second account of
+  one run, differing from the stored one precisely when something went wrong.
+- **It is emitted on every flush** — debounced to about a second, and always on
+  a phase transition and at the end — so a late subscriber gets the whole
+  account with the next one, and a replay from `last_event_id` ends on the
+  newest.
+
+`job.phase` keeps its own shape (`{"phase": ..., "batch_index": ...,
+"batch_size": ..., "conclusion": ...}`); the ledger is what those events fold
+into, and the status pill still reads them directly.
+
+**How the browser consumes it.** The block in the thread
+(`frontends/ui/src/features/runs/hooks/use-run-ledger.ts`) does exactly what the
+two properties above allow and nothing more. It starts from the ledger stored on
+the run's message (`metadata.run_ledger`, read back sanitised by the message
+mapper); if that ledger is not terminal it reads
+`GET /api/projects/[id]/runs/[runId]` for `backendJobId`, opens the stream
+through the same-origin proxy (`/api/jobs/async/job/[jobId]/stream`, the SSE
+client in `frontends/ui/src/adapters/api/deep-research-client.ts`) with **no**
+`last_event_id`, so the replay runs from the first flush and the newest snapshot
+lands last, and wires only `onLedger`. Every snapshot goes through
+`sanitizeRunLedger` and **replaces** what is held, unless its `updatedAt` is older
+than what is already shown (the stored ledger can be ahead of the replay's first
+frames). On a terminal status the client disconnects; on unmount it disconnects.
+Each block holds its own subscription, keyed by run id — several live runs in one
+thread are the normal case. A refused read or a stream that never opens leaves the
+stored ledger on screen; a reload shows the same block either way.

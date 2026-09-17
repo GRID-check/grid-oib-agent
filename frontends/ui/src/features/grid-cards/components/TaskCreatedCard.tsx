@@ -19,26 +19,24 @@
  * the conversation the run writes into — a real `<a>`, so middle-click and „copy
  * link address" work, exactly as the draft card's „Im Projekt öffnen" does.
  *
- * ## Where „Unterhaltung öffnen" goes
+ * ## Why there is no „Unterhaltung öffnen" any more
  *
- * `/app/chat?session=<id>`, which is the ONE way this product opens a
- * conversation by id and the same URL the inbox emits (`lib/sharing/registry`'s
- * conversation `deepLink`). A conversation lives on its project's chat surface,
- * and the card does not know the project — the task's run does — so it uses the
- * container-less form, and `/app/chat` resolves the project for a reader who may
- * open the thread and lands them on `/app/projects` when they may not.
+ * A run is one message in the thread that commissioned it (ADR-0062), and it
+ * appears right under this card as the run block. The link used to open the
+ * run's own conversation; that conversation no longer exists, and a link to
+ * the thread the reader is already in is a control that does nothing. The
+ * `conversationId` still arrives on the wire (the tool result names the
+ * thread) and is accepted so an older backend's payload stays valid; it is
+ * not rendered.
  *
- * It used to be `/chat/<id>`: a path with no route behind it anywhere in the
- * app, so the one control on the card 404'd. The sharing registry has the
- * comment that names the same class of mistake one tier down („this used to
- * invent `?conversation=`, which nothing anywhere parsed"), and the rule both
- * of them are: a deep link is only ever the string some surface already reads.
+ * ## Why it no longer says „läuft"
  *
- * ## Why it says „läuft" and not „erledigt"
- *
- * The card states the state, so the answer beside it cannot quietly overstate
- * it. The status line is the product's own promise read back: work was handed
- * over, it is running, and somebody will hear when it is done.
+ * It used to, so that the answer beside it could not quietly overstate the
+ * work. The run block directly beneath it now says the state — and keeps
+ * saying it, which a card frozen at „läuft" cannot — so this card is the
+ * COMMISSIONING RECEIPT and nothing more: what was handed over, of what kind,
+ * and by when it is wanted. Two adjacent claims about one run's state are
+ * how a thread starts disagreeing with itself the moment the run moves on.
  */
 
 import type { FC } from 'react'
@@ -74,7 +72,6 @@ export const TaskCreatedCard: FC<TaskCreatedCardProps> = ({
   title,
   goal,
   dueAt,
-  conversationId,
 }) => {
   const t = useTranslations('chat')
   const { locale } = useLocale()
@@ -109,10 +106,6 @@ export const TaskCreatedCard: FC<TaskCreatedCardProps> = ({
           <span data-testid="task-created-kind">
             {t(`cards.taskCreated.kind.${KIND_LABEL[kind]}` as 'cards.taskCreated.kind.einreichcheck')}
           </span>
-          <span aria-hidden className="text-muted-foreground/40">
-            ·
-          </span>
-          <span data-testid="task-created-status">{t('cards.taskCreated.running')}</span>
           {dueLabel && (
             <>
               <span aria-hidden className="text-muted-foreground/40">
@@ -123,19 +116,6 @@ export const TaskCreatedCard: FC<TaskCreatedCardProps> = ({
           )}
         </span>
 
-        {conversationId && (
-          <a
-            href={`/app/chat?session=${encodeURIComponent(conversationId)}`}
-            data-testid="task-created-open"
-            className={cn(
-              'inline-flex min-h-11 items-center rounded-sm font-medium text-primary',
-              'transition-colors duration-quick ease-out motion-reduce:transition-none',
-              'hover:text-primary/80 focus-visible:ring-ring/50 focus-visible:outline-none focus-visible:ring-2',
-            )}
-          >
-            {t('cards.taskCreated.open')}
-          </a>
-        )}
       </p>
     </Card>
   )

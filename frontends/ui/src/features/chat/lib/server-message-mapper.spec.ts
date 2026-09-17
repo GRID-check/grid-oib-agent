@@ -372,6 +372,64 @@ describe('mapServerMessageToChatMessage — the answer’s provenance', () => {
     expect(bad!.retrievalLedger).toBeUndefined()
   })
 
+  it('restores the run ledger on a run’s own message, bounded again on the way out', () => {
+    // The one payload on a message that this tier did not write: the Python
+    // fold produces it, so „written by another build" is the ordinary case
+    // rather than the legacy one.
+    const mapped = mapServerMessageToChatMessage(
+      serverMessage({
+        role: 'assistant',
+        metadata: {
+          run_ledger: {
+            runId: 'run-1',
+            status: 'laeuft',
+            phases: [{ phase: 'recherchieren', startedAt: '2026-09-16T08:00:00.000Z' }],
+            steps: [
+              {
+                id: 'batch-1',
+                phase: 'recherchieren',
+                intent: 'OIB-2 auf Fluchtwegbreiten prüfen',
+                startedAt: '2026-09-16T08:01:00.000Z',
+                docs: [{ name: 'OIB-RL_2.pdf', loci: ['S. 12'] }],
+                tool: 'knowledge_search',
+              },
+            ],
+            startedAt: '2026-09-16T08:00:00.000Z',
+            updatedAt: '2026-09-16T08:01:00.000Z',
+          },
+        },
+      }),
+    )
+    expect(mapped!.runLedger?.steps[0]).toEqual({
+      id: 'batch-1',
+      phase: 'recherchieren',
+      intent: 'OIB-2 auf Fluchtwegbreiten prüfen',
+      startedAt: '2026-09-16T08:01:00.000Z',
+      docs: [{ name: 'OIB-RL_2.pdf', loci: ['S. 12'] }],
+    })
+
+    const bad = mapServerMessageToChatMessage(
+      serverMessage({ role: 'assistant', metadata: { run_ledger: 'lief gut' } }),
+    )
+    expect(bad!.runLedger).toBeUndefined()
+  })
+
+  it('reads the run title back as one bounded line, and drops one that is not a string', () => {
+    const mapped = mapServerMessageToChatMessage(
+      serverMessage({
+        role: 'assistant',
+        metadata: { run_title: `Normprüfung:\n  Fluchtwege ${'x'.repeat(300)}` },
+      }),
+    )
+    expect(mapped!.runTitle).toMatch(/^Normprüfung: Fluchtwege x+$/)
+    expect(mapped!.runTitle).toHaveLength(200)
+
+    const bad = mapServerMessageToChatMessage(
+      serverMessage({ role: 'assistant', metadata: { run_title: { de: 'Titel' } } }),
+    )
+    expect(bad!.runTitle).toBeUndefined()
+  })
+
   it('ignores a provenance blob written by some other build', () => {
     // Narrowed, not cast: the server bounds this on write, but a row written
     // earlier is whatever it was, and a bad value must not reach a renderer.

@@ -176,8 +176,8 @@ export const deriveExecutedSteps = (
     const name = (step.functionName || '').trim()
     if (!name || step.isDeepResearch) continue
     if (SKIP_RE.test(name) || isLLMModel(name)) continue
-    // Round-level skill bookkeeping (how many were offered, which were pinned)
-    // is availability, not activity — it never earns a chip.
+    // Round-level skill bookkeeping (how many were offered) is availability,
+    // not activity — it never earns a chip.
     if (isSkillSelectionStepName(name)) continue
     // Status one-liners are sentences, not executed tools (see the header).
     if (isStatusStepName(name)) continue

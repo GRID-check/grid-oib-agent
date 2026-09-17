@@ -1,0 +1,14 @@
+---
+features:
+  - >
+    Der Skill-Editor ist ein Assistent in drei Schritten geworden, wie der
+    Aufgaben-Assistent: zuerst Name und Beschreibung — die zwei Zeilen, die
+    Piloti vor jeder Entscheidung liest —, dann die Anweisungen, dann die
+    Prüfung. Alles, was die wenigsten brauchen, liegt hinter einem
+    „Erweitert" im letzten Schritt.
+  - >
+    Die Befunde der Skill-Prüfung stehen jetzt unter dem Feld, um das es
+    geht, und die Schrittleiste zeigt, wo noch etwas offen ist. Nach einer
+    Überarbeitung führt „Erneut prüfen" die Prüfung auf dem geänderten
+    Stand aus; ein Befund zu einem Text, der sich inzwischen geändert hat,
+    wird als veraltet gekennzeichnet statt weiter als aktuell zu gelten.

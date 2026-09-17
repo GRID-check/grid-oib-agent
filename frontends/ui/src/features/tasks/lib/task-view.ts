@@ -13,6 +13,7 @@
  * two ends from drifting.
  */
 
+import type { RunStatus } from '@/lib/runs/run-ledger-types'
 import type {
   TaskKind,
   TaskReview,
@@ -36,6 +37,13 @@ export interface TaskWireRow {
   filedDocumentId: string | null
   /** The conversation an `output: 'chat'` task wrote into. */
   conversationId: string | null
+  /**
+   * The message this run narrates itself in, inside that conversation
+   * (ADR-0062). Null for every run submitted before run messages existed, and
+   * for one whose message could not be minted — those rows still open their
+   * thread, they just land at the bottom of it rather than at the run.
+   */
+  runMessageId: string | null
   /**
    * The backend async-job id — the handle on the run's own report and its
    * thinking. Null for a task whose submission never reached the agent.
@@ -63,6 +71,20 @@ export interface TaskWireRow {
   finishedAt: string | null
   /** The sanitized, user-safe error the worker reported. */
   error: string | null
+  /**
+   * What the run did, read off its message's ledger (ADR-0062): the compact
+   * run line a card shows under its title — the same glyph, word and tallies
+   * as the block's header in the thread. Filled for every row on the page that
+   * has a run message; absent or null otherwise, and the card shows no line.
+   */
+  runSummary?: TaskRunSummary | null
+}
+
+/** The three facts the card's run line needs from a ledger; nothing a block would. */
+export interface TaskRunSummary {
+  status: RunStatus
+  rounds: number
+  docs: number
 }
 
 /**
@@ -101,7 +123,8 @@ export function isActiveTask(task: TaskWireRow): boolean {
  *
  *   1. the **document** it was filed as, which is the durable artefact and the
  *      thing the rest of the product treats as real;
- *   2. the **conversation** a `chat` run wrote into, which can be continued;
+ *   2. the **conversation** the run was commissioned in, opened at the run's own
+ *      message, which can be read and continued;
  *   3. the run's own **report**, reached by backend job id.
  *
  * (3) is the one the surface used to be missing, and its absence is why a
@@ -117,6 +140,38 @@ export type TaskResultTarget =
   | { kind: 'document' | 'conversation' | 'report' | 'thinking'; href: string }
   | null
 
+/**
+ * The query (and anchor) that opens a task's thread AT its run.
+ *
+ * `?session=` selects the conversation and `#message-<id>` scrolls to the
+ * message and marks it — the shape the inbox links already use
+ * (`lib/sharing/registry.ts`, `useMessageAnchor`), reused rather than reinvented
+ * so one mechanism carries every deep link into a thread. `?run=` rides along
+ * because the run id is the public key of a run: a surface that has only that
+ * resolves the rest itself (`GET /api/projects/[id]/runs/[runId]`).
+ *
+ * A row with no run message gets the plain `?session=` it always got.
+ */
+function conversationQuery(task: TaskWireRow): string {
+  const session = `session=${encodeURIComponent(task.conversationId ?? '')}`
+  if (!task.runMessageId) return session
+  return `${session}&run=${encodeURIComponent(task.id)}#message-${encodeURIComponent(task.runMessageId)}`
+}
+
+/**
+ * The thread at this run, or null when the task never minted one.
+ *
+ * A SECOND destination beside `taskResultTarget`, and deliberately not folded
+ * into it: the result answers „what came out", the thread answers „how it got
+ * there", and a run that filed a document has both. `taskResultTarget` ranks
+ * the document first and would otherwise hide the account of the work behind
+ * the artefact — which is the one thing the run block exists to show.
+ */
+export function taskThreadHref(projectId: string, task: TaskWireRow): string | null {
+  if (!task.conversationId) return null
+  return `/app/projects/${encodeURIComponent(projectId)}/chat?${conversationQuery(task)}`
+}
+
 export function taskResultTarget(projectId: string, task: TaskWireRow): TaskResultTarget {
   const project = encodeURIComponent(projectId)
   if (task.filedDocumentId) {
@@ -128,7 +183,7 @@ export function taskResultTarget(projectId: string, task: TaskWireRow): TaskResu
   if (task.conversationId) {
     return {
       kind: 'conversation',
-      href: `/app/projects/${project}/chat?session=${encodeURIComponent(task.conversationId)}`,
+      href: `/app/projects/${project}/chat?${conversationQuery(task)}`,
     }
   }
   if (!task.backendJobId) return null

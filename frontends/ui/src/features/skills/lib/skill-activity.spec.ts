@@ -70,7 +70,6 @@ describe('parseSkillActivity', () => {
         title: 'Alpha',
         description: 'd',
         origin: 'org',
-        forced: true,
         body_chars: 4096,
       })
     )
@@ -80,16 +79,24 @@ describe('parseSkillActivity', () => {
       title: 'Alpha',
       description: 'd',
       origin: 'org',
-      forced: true,
       bodyChars: 4096,
     })
   })
 
   test('reads the round-level skill_selection shape, which carries no name', () => {
+    const activity = parseSkillActivity(JSON.stringify({ phase: 'offered', offered_count: 6 }))
+    expect(activity).toEqual({ phase: 'offered', offeredCount: 6 })
+  })
+
+  // Forcing is gone (ADR-0060) and no producer emits these. An old payload
+  // still PARSES — the schema passes unknown keys through — it is simply not
+  // lifted, so nothing downstream can grow a reader for a fact that has no
+  // producer.
+  test('drops a legacy payload’s forcing fields rather than carrying them', () => {
     const activity = parseSkillActivity(
-      JSON.stringify({ phase: 'offered', offered_count: 6, forced_names: ['a'] })
+      JSON.stringify({ phase: 'offered', offered_count: 6, forced: true, forced_names: ['a'] })
     )
-    expect(activity).toEqual({ phase: 'offered', offeredCount: 6, forcedNames: ['a'] })
+    expect(activity).toEqual({ phase: 'offered', offeredCount: 6 })
   })
 
   test('takes the LAST phase when several have accumulated on one step', () => {

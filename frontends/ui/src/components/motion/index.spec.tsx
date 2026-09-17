@@ -15,8 +15,11 @@ import { describe, expect, it } from 'vitest'
 import {
   easeQuiet,
   motionBase,
+  motionDeliberate,
   motionEntrance,
+  motionInstant,
   motionQuick,
+  motionQuickExit,
   motionSnap,
   springDrawer,
   springGlide,
@@ -27,6 +30,7 @@ import {
   springSnap,
   springSnapLinear,
   springSnapLinearDuration,
+  springSnapSettleSeconds,
   springSnappy,
   staggerMaxSteps,
   staggerParent,
@@ -176,6 +180,13 @@ describe('linear() equivalents', () => {
   it.each(cases)('$name pairs with a duration in milliseconds', ({ duration }) => {
     expect(duration).toMatch(/^\d+ms$/)
   })
+
+  it('states the snap settle once, in seconds, and derives the CSS duration from it', () => {
+    expect(springSnapLinearDuration).toBe(`${springSnapSettleSeconds * 1000}ms`)
+    // Longer than the base tween: a choreography waiting for the snap to land
+    // must wait for the settle, not for the first crossing of the target.
+    expect(springSnapSettleSeconds).toBeGreaterThan(motionBase.duration as number)
+  })
 })
 
 describe('tween scale', () => {
@@ -184,6 +195,21 @@ describe('tween scale', () => {
     expect(motionQuick.duration).toBe(0.18)
     expect(motionBase.duration).toBe(0.24)
     expect(motionEntrance.duration).toBe(0.24)
+    expect(motionDeliberate.duration).toBe(0.32)
+  })
+
+  it('runs an exit one step shorter than its entrance, on the exit curve', () => {
+    expect(motionQuickExit.duration).toBe(motionQuick.duration)
+    expect(motionQuickExit.duration).toBeLessThan(motionBase.duration as number)
+    // cubic-bezier(0.4, 0, 1, 1): the first control point sits on the axis, so
+    // the departure accelerates away rather than decelerating into nothing.
+    const [x1, y1] = motionQuickExit.ease as [number, number, number, number]
+    expect(y1).toBeLessThan(x1)
+  })
+
+  it('reduces to nothing at all — no duration and, as importantly, no delay', () => {
+    expect(motionInstant.duration).toBe(0)
+    expect(motionInstant.delay).toBe(0)
   })
 
   it('gives entrances an ease-OUT curve, not the CSS default ease that ramps in', () => {

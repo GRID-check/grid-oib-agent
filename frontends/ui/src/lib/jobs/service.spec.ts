@@ -22,6 +22,13 @@ vi.mock('@/lib/conversations/repository', () => ({
   insertConversation: vi.fn(),
 }))
 
+// The run's message. Its deterministic id is `lib/runs/service.spec.ts`'s
+// subject; what this spec cares about is that one is minted in the right thread,
+// for the run being recorded, and only once the backend has taken the work.
+vi.mock('@/lib/runs/service', () => ({
+  createRunMessage: vi.fn(async (_conversationId: string, runId: string) => ({ id: `msg-${runId}` })),
+}))
+
 vi.mock('@/lib/projects/repository', () => ({
   findProjectInOrg: vi.fn(),
 }))
@@ -94,6 +101,8 @@ import { getEffectiveModelOverrides } from '@/lib/model-config/service'
 import { loadProjectBundesland, loadProjectPromptView } from '@/lib/project-profile/prompt-view'
 import { resolveSelectableSkills, resolveSkillSnapshot } from '@/lib/skills/service'
 import { insertConversation } from '@/lib/conversations/repository'
+import { createRunMessage } from '@/lib/runs/service'
+import { taskThreadConversationId } from '@/lib/tasks/task-thread'
 import { previousDecisionsBlock } from '@/lib/tasks/service'
 import * as repository from '@/lib/tasks/repository'
 import { submitJob, JobSubmitError, JobSubmitSkippedError } from './backend-client'
@@ -519,19 +528,92 @@ describe('fireJob', () => {
     expect(submitted.input).toContain('PREVIOUS_DECISIONS v1')
 
     const inserted = vi.mocked(repository.insertRun).mock.calls[0][0]
+    // The run's own id travels with the submission: without it the worker
+    // folds no ledger and the block in the thread never moves (ADR-0062).
+    expect(submitted.run_id).toBe(inserted.id)
     expect(inserted).toMatchObject({
       definitionId: DEFINITION,
       trigger: 'schedule',
       triggeredBy: 'scheduler',
       status: 'running',
       backendJobId: 'backend-1',
-      conversationId: 's_conv_1',
+      conversationId: taskThreadConversationId(DEFINITION),
       requesterUserId: 'user_1',
       title: 'Wochencheck',
     })
     // The run freezes the FIRED prompt — decisions included — not the raw plan.
     expect(inserted.plan?.prompt).toContain('PREVIOUS_DECISIONS v1')
     expect(repository.touchDefinitionLastRun).toHaveBeenCalledWith(DEFINITION, run.createdAt)
+  })
+
+  /**
+   * The run's place in the thread (ADR-0062). The message is minted for the id
+   * the row is about to be written with, which is what makes the run's ledger
+   * and its report find the same message later.
+   */
+  it('gives the run a message in the definition thread and stores its id on the row', async () => {
+    await fireJob(definitionRow(), 'schedule', 'scheduler')
+
+    const thread = taskThreadConversationId(DEFINITION)
+    expect(insertConversation).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: thread,
+        title: 'Aufgabe: Wochencheck',
+        visibility: 'project',
+        jobId: DEFINITION,
+        createdBy: 'user_1',
+      })
+    )
+    const inserted = vi.mocked(repository.insertRun).mock.calls[0][0]
+    // The definition's title heads the block in the thread, so a reader of the
+    // task thread sees WHICH standing task this run is before it has said anything.
+    expect(createRunMessage).toHaveBeenCalledWith(thread, inserted.id, { title: 'Wochencheck' })
+    expect(inserted.runMessageId).toBe(`msg-${inserted.id}`)
+  })
+
+  /**
+   * One definition, one thread. The id is derived from the definition's, so the
+   * second fire re-attempts the SAME row and `ON CONFLICT DO NOTHING` makes that
+   * a no-op — no lookup, no unique index, and two concurrent fires converge.
+   */
+  it('fires twice into one thread, with a message per fire', async () => {
+    const definition = definitionRow({ trigger: 'schedule', scheduleCron: '0 8 * * 1' })
+    await fireJob(definition, 'schedule', 'scheduler')
+    await fireJob(definition, 'schedule', 'scheduler')
+
+    const thread = taskThreadConversationId(DEFINITION)
+    expect(vi.mocked(insertConversation).mock.calls.map((call) => call[0].id)).toEqual([thread, thread])
+    const messageCalls = vi.mocked(createRunMessage).mock.calls
+    expect(messageCalls.map((call) => call[0])).toEqual([thread, thread])
+    // Two runs, two messages: the thread accumulates, it does not overwrite.
+    expect(new Set(messageCalls.map((call) => call[1])).size).toBe(2)
+  })
+
+  /**
+   * A retried submit is a no-op rather than a second half-written run: the
+   * message id is derived from the run id, so the same run always lands on the
+   * same row (`createRunMessage`, `lib/runs/service.ts`). The fire path's part of
+   * that bargain is that the id it derives from is the id it records.
+   */
+  it('derives the message from the id the run row is written with', async () => {
+    await fireJob(definitionRow(), 'manual', 'user_1')
+
+    const inserted = vi.mocked(repository.insertRun).mock.calls[0][0]
+    expect(vi.mocked(createRunMessage).mock.calls[0][1]).toBe(inserted.id)
+  })
+
+  /**
+   * A fire the agent refused leaves nothing in the thread. The old shape created
+   * a whole conversation before submitting, so an org that hit its cap collected
+   * empty threads; this one mints the message only once the work is accepted.
+   */
+  it('writes no message into the thread when the submission is refused', async () => {
+    vi.mocked(submitJob).mockRejectedValue(new JobSubmitSkippedError('org job cap reached', 60))
+
+    await fireJob(definitionRow(), 'schedule', 'scheduler')
+
+    expect(createRunMessage).not.toHaveBeenCalled()
+    expect(vi.mocked(repository.insertRun).mock.calls[0][0].runMessageId).toBeNull()
   })
 
   it('records a skipped fire as a visible run instead of losing it', async () => {

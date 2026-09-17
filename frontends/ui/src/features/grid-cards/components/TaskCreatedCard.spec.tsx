@@ -30,16 +30,21 @@ const TASK = {
 }
 
 describe('TaskCreatedCard — what it reports', () => {
-  it('names the kind, the goal and the deadline, and says the work is running', () => {
+  it('names the kind, the goal and the deadline — the receipt and nothing else', () => {
     render(<TaskCreatedCard {...TASK} />)
 
     expect(screen.getByText(TASK.title)).toBeInTheDocument()
     expect(screen.getByText(TASK.goal)).toBeInTheDocument()
     expect(screen.getByTestId('task-created-kind')).toHaveTextContent('Submission check')
-    // The most important string on the card: the answer beside it must not
-    // read as though the work is done.
-    expect(screen.getByTestId('task-created-status')).toHaveTextContent('running')
     expect(screen.getByTestId('task-created-due')).toHaveTextContent('by Sep 18, 2026')
+  })
+
+  // The run block renders directly beneath this card and keeps saying how the
+  // work is going. A status frozen at „läuft" beside it is a second claim about
+  // one run that stops being true the moment the run moves on.
+  it('states no status of its own', () => {
+    render(<TaskCreatedCard {...TASK} />)
+    expect(screen.queryByTestId('task-created-status')).not.toBeInTheDocument()
   })
 
   it('says nothing about a deadline nobody named', () => {
@@ -53,24 +58,12 @@ describe('TaskCreatedCard — what it reports', () => {
   })
 })
 
-describe('TaskCreatedCard — the link to the run', () => {
-  it('opens the conversation through the one URL this app resolves by id', () => {
+describe('TaskCreatedCard — no link to a run that lives right here', () => {
+  it('offers no conversation link: the run block follows the card in this thread', () => {
+    // ADR-0062: the run is a message in the commissioning thread, so a link to
+    // „the conversation" would open the one the reader is already in.
     render(<TaskCreatedCard {...TASK} />)
-
-    const link = screen.getByTestId('task-created-open')
-    expect(link).toHaveTextContent('Open conversation')
-    // `/app/chat?session=` — what `lib/sharing/registry` emits for a
-    // conversation whose project the caller does not know, and what the
-    // `/app/chat` route resolves. `/chat/<id>` routed nowhere.
-    expect(link).toHaveAttribute(
-      'href',
-      `/app/chat?session=${encodeURIComponent(TASK.conversationId)}`,
-    )
-  })
-
-  it('offers no link at all when the run has no conversation', () => {
-    // The degraded shape a scheduled job has always had: announce the task,
-    // promise nothing that cannot be opened.
+    expect(screen.queryByTestId('task-created-open')).not.toBeInTheDocument()
     render(<TaskCreatedCard {...TASK} conversationId={null} />)
     expect(screen.queryByTestId('task-created-open')).not.toBeInTheDocument()
   })

@@ -7,11 +7,15 @@ vi.mock('server-only', () => ({}))
 vi.mock('./repository', () => ({
   insertDefinition: vi.fn(),
   insertDefinitionWithRun: vi.fn(),
+  insertRun: vi.fn(),
   updateRun: vi.fn(),
 }))
 vi.mock('@/lib/audit/service', () => ({ recordAuditEvent: vi.fn() }))
 vi.mock('@/lib/authz/projects', () => ({ requireProjectAccess: vi.fn() }))
-vi.mock('@/lib/jobs/service', () => ({ submitAgentRun: vi.fn() }))
+vi.mock('@/lib/jobs/service', () => ({
+  submitAgentRun: vi.fn(),
+  createTaskThread: vi.fn(async () => 's_definition_thread'),
+}))
 vi.mock('@/lib/skills/service', () => ({ resolveSkillSnapshot: vi.fn() }))
 
 import { NotFoundError, UnprocessableError } from '@/lib/api/errors'
@@ -20,10 +24,15 @@ import type { AuthorizedSession } from '@/lib/auth/types'
 import { requireProjectAccess } from '@/lib/authz/projects'
 import type { TaskDefinition, TaskRun } from '@/lib/db/schema'
 import { JobSubmitError } from '@/lib/jobs/backend-client'
-import { submitAgentRun } from '@/lib/jobs/service'
+import { createTaskThread, submitAgentRun } from '@/lib/jobs/service'
 import { resolveSkillSnapshot } from '@/lib/skills/service'
 import * as repository from './repository'
-import { delegateTask, isDelegatableTaskKind, TASK_GOAL_MAX_CHARS } from './delegation'
+import {
+  commissionResearchRun,
+  delegateTask,
+  isDelegatableTaskKind,
+  TASK_GOAL_MAX_CHARS,
+} from './delegation'
 
 const session = {
   userId: 'user_asker',
@@ -61,8 +70,17 @@ beforeEach(() => {
     } as TaskRun
     return { definition: insertedDefinition, run: insertedRun }
   })
+  vi.mocked(repository.insertRun).mockImplementation(async (values) => {
+    insertedRun = { ...values, id: 'run-1', conversationId: null } as TaskRun
+    return insertedRun
+  })
   vi.mocked(repository.updateRun).mockImplementation(async (_id, _org, patch) => ({ ...insertedRun, ...patch }) as TaskRun)
-  vi.mocked(submitAgentRun).mockResolvedValue({ backendJobId: 'backend-1', conversationId: 's_conv_2' })
+  vi.mocked(createTaskThread).mockResolvedValue('s_definition_thread')
+  vi.mocked(submitAgentRun).mockImplementation(async (spec) => ({
+    backendJobId: 'backend-1',
+    conversationId: spec.conversationId,
+    runMessageId: spec.conversationId ? `msg-${spec.runId}` : null,
+  }))
   vi.spyOn(console, 'error').mockImplementation(() => undefined)
 })
 
@@ -99,41 +117,83 @@ describe('delegateTask', () => {
       projectId: PROJECT,
       userId: 'user_asker',
       output: 'chat',
-      jobId: null,
+      // The run's title heads its block in the thread — the same string the
+      // Aufträge card shows, so both surfaces name one run the same way.
+      title: 'Dokument: Schreib den Aktenvermerk',
     })
     expect(insertedRun.conversationId).toBeNull()
     // The conversation id comes back from the submission and is recorded, so
     // the card can link a reader to the work rather than only announce it.
     const updated = vi.mocked(repository.updateRun).mock.calls[0][2]
-    expect(updated).toMatchObject({ status: 'running', backendJobId: 'backend-1', conversationId: 's_conv_2' })
+    expect(updated).toMatchObject({
+      status: 'running',
+      backendJobId: 'backend-1',
+      conversationId: 's_definition_thread',
+    })
   })
 
-  it('attaches and freezes the einreichcheck skill', async () => {
-    vi.mocked(resolveSkillSnapshot).mockResolvedValue({
-      name: 'einreichcheck',
-      description: 'Was fehlt',
-      body: '# Einreichcheck',
-      metadata: {},
-      origin: 'platform',
+  /**
+   * A run is one message in the thread that commissioned it (ADR-0062), so
+   * „@Piloti prüf das" answers where it was asked. The old shape minted a
+   * conversation per delegation, which put the answer somewhere the person who
+   * asked had no reason to look.
+   */
+  it('lands the run in the thread the person was typing in, and records its message', async () => {
+    await delegateTask(session, {
+      projectId: PROJECT,
+      kind: 'document',
+      goal: 'Schreib den Aktenvermerk',
+      conversationId: 's_live_chat',
     })
 
-    await delegateTask(session, { projectId: PROJECT, kind: 'einreichcheck', goal: 'Prüf die Einreichung' })
-
-    expect(resolveSkillSnapshot).toHaveBeenCalledWith('einreichcheck', 'org_1')
-    expect(insertedDefinition.plan.skill.name).toBe('einreichcheck')
-    // The same words a job's fire prompt uses, so the model reads one contract.
-    expect(insertedDefinition.plan.prompt).toContain('Verwende dabei den folgenden Skill verbindlich und vollständig.')
-    expect(insertedDefinition.plan.prompt).toContain('# Einreichcheck')
-    expect(insertedRun.skillSnapshot.name).toBe('einreichcheck')
+    // No thread of its own: the person already has one open.
+    expect(createTaskThread).not.toHaveBeenCalled()
+    expect(vi.mocked(submitAgentRun).mock.calls[0][0]).toMatchObject({
+      conversationId: 's_live_chat',
+      runId: 'run-1',
+    })
+    expect(vi.mocked(repository.updateRun).mock.calls[0][2]).toMatchObject({
+      conversationId: 's_live_chat',
+      runMessageId: 'msg-run-1',
+    })
   })
 
-  it('refuses when the skill an engine names is not available to this organization', async () => {
-    vi.mocked(resolveSkillSnapshot).mockRejectedValue(new NotFoundError('Unknown skill "einreichcheck".'))
+  /**
+   * A reviewer's send-back on a version nobody filed from a chat has no thread
+   * to answer in, and the definition's own thread is the place for it — never
+   * nowhere, which would leave the revision with no account of itself at all.
+   */
+  it('gives a delegation nobody typed the definition’s own thread', async () => {
+    await delegateTask(session, { projectId: PROJECT, kind: 'document', goal: 'Schreib das' })
 
-    await expect(
-      delegateTask(session, { projectId: PROJECT, kind: 'einreichcheck', goal: 'Prüf das' }),
-    ).rejects.toBeInstanceOf(UnprocessableError)
-    expect(repository.insertDefinition).not.toHaveBeenCalled()
+    expect(createTaskThread).toHaveBeenCalledWith(insertedDefinition)
+    expect(vi.mocked(submitAgentRun).mock.calls[0][0]).toMatchObject({
+      conversationId: 's_definition_thread',
+    })
+  })
+
+  // A kind that wants a playbook NAMES it, the way a person names one in the
+  // composer. It used to resolve the skill, freeze its body and paste it in
+  // under „Verwende dabei den folgenden Skill verbindlich und vollständig" —
+  // forcing, spelled out in German, reached through a code table instead of a
+  // picker. ADR-0060 says nothing may impose a skill on a turn, and a table in
+  // our own source is no more allowed to than a job or a request is.
+  it('names the einreichcheck skill in the prompt and pastes no body', async () => {
+    await delegateTask(session, { projectId: PROJECT, kind: 'einreichcheck', goal: 'Prüf die Einreichung' })
+
+    expect(insertedDefinition.plan.prompt).toContain('/einreichcheck')
+    expect(insertedDefinition.plan.prompt).not.toContain('verbindlich')
+    expect(resolveSkillSnapshot).not.toHaveBeenCalled()
+  })
+
+  it('freezes no snapshot, so nothing can be delivered without the model asking', async () => {
+    await delegateTask(session, { projectId: PROJECT, kind: 'einreichcheck', goal: 'Prüf die Einreichung' })
+
+    // `emptySkillSnapshot()` is literally `{}` — the honest expression of "this
+    // row was configured with no skill", and what the pair CHECK expects
+    // beside a null `skill_name`.
+    expect(insertedDefinition.plan.skill).toEqual({})
+    expect(insertedRun.skillSnapshot).toEqual({})
   })
 
   it('quotes the version being revised into the prompt, fenced and bounded', async () => {
@@ -300,8 +360,16 @@ describe('what a delegated run is told to produce', () => {
         insertedRun = { ...runValues, definitionId: insertedDefinition.id, id: 'run-1' } as TaskRun
         return { definition: insertedDefinition, run: insertedRun }
       })
-      vi.mocked(repository.updateRun).mockImplementation(async (_id, _org, patch) => ({ ...insertedRun, ...patch }) as TaskRun)
-      vi.mocked(submitAgentRun).mockResolvedValue({ backendJobId: 'b', conversationId: null })
+      vi.mocked(repository.insertRun).mockImplementation(async (values) => {
+    insertedRun = { ...values, id: 'run-1', conversationId: null } as TaskRun
+    return insertedRun
+  })
+  vi.mocked(repository.updateRun).mockImplementation(async (_id, _org, patch) => ({ ...insertedRun, ...patch }) as TaskRun)
+      vi.mocked(submitAgentRun).mockResolvedValue({
+        backendJobId: 'b',
+        conversationId: null,
+        runMessageId: null,
+      })
       await delegateTask(session, {
         projectId: PROJECT,
         kind,
@@ -313,5 +381,110 @@ describe('what a delegated run is told to produce', () => {
       // The answer IS the document, which is what `completeRunForOutcome` files.
       expect(insertedDefinition.plan.prompt).toContain('Markdown')
     }
+  })
+})
+
+
+describe('commissionResearchRun — an escalated question becomes a run', () => {
+  const THREAD = 's_where_it_was_asked'
+  const QUESTION = 'Gilt für das Atrium in Haus A OIB 2 oder OIB 2.3? Bitte mit den Wiener Abweichungen.'
+
+  it('writes one run with no definition behind it, in the thread it was asked in', async () => {
+    const result = await commissionResearchRun(session, {
+      projectId: PROJECT,
+      conversationId: THREAD,
+      question: QUESTION,
+    })
+
+    const inserted = vi.mocked(repository.insertRun).mock.calls[0][0]
+    expect(inserted).toMatchObject({
+      definitionId: null,
+      kind: 'deep-research',
+      trigger: 'delegated',
+      triggeredBy: 'user_asker',
+      status: 'queued',
+      requesterUserId: 'user_asker',
+      projectId: PROJECT,
+    })
+    // The question is the prompt, verbatim: a rewritten one is a different run.
+    expect(inserted.plan?.prompt).toBe(QUESTION)
+    // The title is the question's first sentence, so a list row names the work.
+    expect(inserted.title).toBe('Gilt für das Atrium in Haus A OIB 2 oder OIB 2.3?')
+
+    expect(vi.mocked(submitAgentRun).mock.calls[0][0]).toMatchObject({
+      output: 'deep-research',
+      conversationId: THREAD,
+      runId: 'run-1',
+    })
+    // Never a thread of its own: an escalation always has the one it came from.
+    expect(createTaskThread).not.toHaveBeenCalled()
+
+    expect(result).toEqual({
+      runId: 'run-1',
+      runMessageId: 'msg-run-1',
+      conversationId: THREAD,
+      status: 'running',
+    })
+  })
+
+  it('composes what the turn already settled below the question, and keeps it out of the title', async () => {
+    await commissionResearchRun(session, {
+      projectId: PROJECT,
+      conversationId: THREAD,
+      question: QUESTION,
+      context: 'Frage: Welches Geschoss? Antwort: Das Erdgeschoss.',
+    })
+
+    const inserted = vi.mocked(repository.insertRun).mock.calls[0][0]
+    expect(inserted.plan?.prompt).toBe(
+      `${QUESTION}\n\nWas in der Unterhaltung bereits geklärt wurde:\nFrage: Welches Geschoss? Antwort: Das Erdgeschoss.`,
+    )
+    expect(inserted.title).toBe('Gilt für das Atrium in Haus A OIB 2 oder OIB 2.3?')
+  })
+
+  it('asks for the same permissions handing over a task asks for', async () => {
+    await commissionResearchRun(session, { projectId: PROJECT, conversationId: THREAD, question: QUESTION })
+    expect(requireProjectAccess).toHaveBeenCalledWith(session, PROJECT, [
+      'project:edit',
+      'project:documents:write',
+    ])
+  })
+
+  it('refuses a question that says nothing, and one past the bound', async () => {
+    await expect(
+      commissionResearchRun(session, { projectId: PROJECT, conversationId: THREAD, question: '   ' }),
+    ).rejects.toBeInstanceOf(UnprocessableError)
+    await expect(
+      commissionResearchRun(session, {
+        projectId: PROJECT,
+        conversationId: THREAD,
+        question: 'x'.repeat(TASK_GOAL_MAX_CHARS + 1),
+      }),
+    ).rejects.toBeInstanceOf(UnprocessableError)
+    expect(repository.insertRun).not.toHaveBeenCalled()
+  })
+
+  it('records a refused submission as a failed run instead of throwing', async () => {
+    vi.mocked(submitAgentRun).mockRejectedValue(new JobSubmitError('backend unreachable', 502))
+
+    const result = await commissionResearchRun(session, {
+      projectId: PROJECT,
+      conversationId: THREAD,
+      question: QUESTION,
+    })
+
+    expect(result.status).toBe('failed')
+    expect(vi.mocked(repository.updateRun).mock.calls[0][2]).toMatchObject({
+      status: 'failed',
+      error: 'backend unreachable',
+    })
+  })
+
+  it('lets a refused gate through: there is no run to record yet', async () => {
+    vi.mocked(requireProjectAccess).mockRejectedValueOnce(new NotFoundError('Unknown project'))
+    await expect(
+      commissionResearchRun(session, { projectId: PROJECT, conversationId: THREAD, question: QUESTION }),
+    ).rejects.toBeInstanceOf(NotFoundError)
+    expect(repository.insertRun).not.toHaveBeenCalled()
   })
 })

@@ -31,6 +31,8 @@ from aiq_agent.agents.piloti.models import ClarifyResult
 from aiq_agent.agents.piloti.models import ConversationState
 from aiq_agent.agents.piloti.models import ResearchAgentState
 from aiq_agent.common.job_admission import JobAdmissionError
+from aiq_agent.turn.commission import CommissionedRun
+from aiq_agent.turn.commission import CommissionRefused
 from aiq_agent.turn.response import RESPONSE_LIFTS
 
 
@@ -175,7 +177,8 @@ class TestAnswerLifts:
         written = {field for _, field in ANSWER_LIFTS} | {
             "research_truncated",
             "escalation_reason",
-            "deep_research_job_id",
+            "run_id",
+            "run_message_id",
             "job_admission_rejected",
             "retry_after_seconds",
         }
@@ -250,13 +253,13 @@ async def _clarifier(request):
     return ClarifyResult(research_context="log", outcome="approved")
 
 
-def _agent(research_fn=None, *, deep_fn=None, deep_submitter=None):
+def _agent(research_fn=None, *, deep_fn=None, commissioner=None):
     """Build a ConversationGraph with trivial async node functions."""
     return ConversationGraph(
         research_fn=research_fn or _research_fn("answer"),
         deep_research_fn=deep_fn or _deep,
         clarifier_fn=_clarifier,
-        deep_research_job_submitter=deep_submitter,
+        commission_run_fn=commissioner,
     )
 
 
@@ -351,10 +354,10 @@ class TestJobAdmissionRejectedPropagation:
 
     @pytest.mark.asyncio
     async def test_both_fields_propagate(self):
-        async def rejecting_submitter(state):
+        async def rejecting_commissioner(state):
             raise JobAdmissionError("Queue is full, try later", retry_after_seconds=42)
 
-        agent = _agent(_research_fn("Teilantwort.", escalating=True), deep_submitter=rejecting_submitter)
+        agent = _agent(_research_fn("Teilantwort.", escalating=True), commissioner=rejecting_commissioner)
 
         state = ConversationState(messages=[HumanMessage(content="Deep question")])
         result = await agent.run(state, thread_id="t")
@@ -366,11 +369,11 @@ class TestJobAdmissionRejectedPropagation:
         assert any("Queue is full" in c for c in contents)
 
     @pytest.mark.asyncio
-    async def test_successful_submission_has_no_rejection_fields(self):
-        async def ok_submitter(state):
-            return "job-123"
+    async def test_a_commissioned_run_has_no_rejection_fields(self):
+        async def ok_commissioner(state):
+            return CommissionedRun(run_id="run-1", run_message_id="msg-1", conversation_id="s_1")
 
-        agent = _agent(_research_fn("Teilantwort.", escalating=True), deep_submitter=ok_submitter)
+        agent = _agent(_research_fn("Teilantwort.", escalating=True), commissioner=ok_commissioner)
 
         state = ConversationState(messages=[HumanMessage(content="Deep question")])
         result = await agent.run(state, thread_id="t")
@@ -378,8 +381,52 @@ class TestJobAdmissionRejectedPropagation:
         # Absent-when-not-applicable: reset at the turn boundary, never set here.
         assert result.job_admission_rejected is None
         assert result.retry_after_seconds is None
-        assert result.deep_research_job_id == "job-123"
+        # The two ids the reader's client needs to show the block that appeared,
+        # and no prose at all: the run's own message is the narration.
+        assert result.run_id == "run-1"
+        assert result.run_message_id == "msg-1"
+        assert result.messages[-1].content == ""
         assert result.routing_decision == "deep"
+
+
+class TestARefusedCommissionStillAnswers:
+    """A question that cannot become a run is still researched.
+
+    Every refusal except a full queue falls back to the in-process path — the
+    same one a deployment with no worker takes. What is lost is the block in
+    the thread, never the work: a reader who asked something hard and got a
+    sentence about permissions instead of an answer is the failure this avoids.
+    """
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("reason", ["no_project", "no_envelope", "forbidden", "unreachable"])
+    async def test_a_refusal_falls_back_to_research_in_process(self, reason):
+        async def refusing(state):
+            raise CommissionRefused(reason, "nope")
+
+        agent = _agent(_research_fn("Teilantwort.", escalating=True), commissioner=refusing)
+
+        result = await agent.run(ConversationState(messages=[HumanMessage(content="Deep question")]), thread_id="t")
+
+        assert result.messages[-1].content == "Deep report."
+        assert result.run_id is None
+        assert result.job_admission_rejected is None
+
+    @pytest.mark.asyncio
+    async def test_a_full_queue_is_told_to_the_reader_with_its_retry_hint(self):
+        async def busy(state):
+            raise CommissionRefused("busy", "Queue is full, try later", retry_after_seconds=42)
+
+        agent = _agent(_research_fn("Teilantwort.", escalating=True), commissioner=busy)
+
+        result = await agent.run(ConversationState(messages=[HumanMessage(content="Deep question")]), thread_id="t")
+
+        # Not researched in process: the queue being full is exactly the state
+        # in which starting minutes of work in the request would be the wrong
+        # answer, and the reader can come back.
+        assert result.job_admission_rejected is True
+        assert result.retry_after_seconds == 42
+        assert "Queue is full" in result.messages[-1].content
 
 
 class TestEscalationReasonEndToEnd:

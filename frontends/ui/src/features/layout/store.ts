@@ -32,7 +32,6 @@ const initialState: LayoutState = {
   vlmAvailable: false, // Default to false until API confirms the VLM capability
   dataSourcesLoading: false,
   dataSourcesError: null,
-  deepResearchIntent: false,
   activeSourcePreset: null,
   // Deprecated aliases for backwards compatibility
   detailsPanelTab: 'report',
@@ -92,8 +91,6 @@ export const useLayoutStore = create<LayoutStore>()(
 
       setTheme: (theme: ThemeMode) => set({ theme }, false, 'setTheme'),
 
-      setDeepResearchIntent: (on: boolean) =>
-        set({ deepResearchIntent: on }, false, 'setDeepResearchIntent'),
 
       setShowTechnicalReasoning: (on: boolean) =>
         set({ showTechnicalReasoning: on }, false, 'setShowTechnicalReasoning'),
@@ -182,12 +179,10 @@ export const useLayoutStore = create<LayoutStore>()(
     }),
       {
         name: 'grid-layout',
-        // Only explicit user preferences survive reloads (theme + the
-        // Deep-Research intent hint) — panel/tab/data-source state stays
-        // ephemeral per session.
+        // Only explicit user preferences survive reloads — panel/tab/data-source
+        // state stays ephemeral per session.
         partialize: (state) => ({
           theme: state.theme,
-          deepResearchIntent: state.deepResearchIntent,
           showTechnicalReasoning: state.showTechnicalReasoning,
         }),
       }

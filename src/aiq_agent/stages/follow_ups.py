@@ -238,9 +238,10 @@ def _gate(facts: TurnFacts) -> GateDecision:
     whether the bet paid. Ordered most specific first, so a turn that fails two
     conditions is filed under the one that says the most about it.
     """
-    if facts.deep_research_job_id:
-        # The chat turn is a stub; the report arrives later on the job path.
-        return GateDecision.skip("deep_research_job")
+    if facts.run_id:
+        # The turn commissioned a run; the report arrives on the run's own
+        # message, and the follow-ups belong to it rather than to the handover.
+        return GateDecision.skip("commissioned_run")
     if facts.routing_decision == "meta":
         # A direct reply — small talk, a shelf listing, an off-topic decline —
         # has no subject to go deeper into: `_FOLLOW_UPS_RULE`'s first

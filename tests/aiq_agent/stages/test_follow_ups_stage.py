@@ -147,7 +147,7 @@ class TestGate:
     @pytest.mark.parametrize(
         ("overrides", "reason"),
         [
-            ({"deep_research_job_id": "job_1"}, "deep_research_job"),
+            ({"run_id": "run_1"}, "commissioned_run"),
             ({"routing_decision": "meta"}, "routing_meta"),
             ({"routing_decision": "error"}, "routing_error"),
             ({"research_truncated": True}, "research_truncated"),

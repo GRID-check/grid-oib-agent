@@ -22,16 +22,30 @@ import { DELEGATABLE_TASK_KINDS } from '@/lib/db/schema'
 export const TASK_GOAL_MAX_CHARS = 500
 
 /**
+ * Bound on the context a commissioned research run is handed.
+ *
+ * A question is one sentence; what the turn already established with the person
+ * — the clarifier's answers, the shelf they named — is not, and losing it would
+ * make the run redo a conversation that already happened. Bounded well under
+ * the submit route's own prompt ceiling, because the question and its context
+ * are composed into ONE prompt.
+ */
+export const RESEARCH_CONTEXT_MAX_CHARS = 8_000
+
+/**
  * `POST /api/internal/tasks` — the ONE machine entry point for delegation.
  *
- * A discriminated union on `op` with exactly one member, deliberately: the
- * document-versions route's op set is derived from the lifecycle's `actor`
- * field, and this one is `create` and nothing else because there is no second
- * verb a machine may reach. Reviewing a task is a person's act
- * (`POST /api/projects/[id]/tasks/[taskId]/review`, a session route), and
- * cancelling one is not built. Writing the union out now means the second verb,
- * if it ever exists, is a member here and a branch in the route rather than a
- * second route with a second identity check.
+ * A discriminated union on `op` with two members: `create`, which states a
+ * standing intent and its first attempt, and `research`, which commissions ONE
+ * run for a question the person just asked (ADR-0062). They are two verbs
+ * because they leave different things behind — a definition the project keeps,
+ * versus a single run with no cadence it never had — and one route because the
+ * identity question is the same one, answered once.
+ *
+ * What a machine still may not do is JUDGE work: `reviewTask` is a session
+ * route because a review is a person's statement about the project's own
+ * record, and a machine that could accept its own output would close the loop
+ * ADR-0051 exists to open.
  *
  * `projectId` is the caller's to name and is checked: the pinned session's
  * `requireProjectAccess` runs against it in `delegateTask`, so naming a project
@@ -70,6 +84,24 @@ export const internalTaskRequestSchema = z.discriminatedUnion('op', [
       cadenceTimezone: z.string().trim().min(1).max(80).optional(),
     })
     .strict(),
+  z
+    .object({
+      op: z.literal('research'),
+      projectId: z.string().uuid(),
+      /**
+       * The question the run is to answer, as the turn restated it. It IS the
+       * run's prompt, so it is bounded like a goal and carries no markup: a
+       * question nobody typed this way would be a run about something else.
+       */
+      question: z.string().trim().min(1).max(TASK_GOAL_MAX_CHARS),
+      /**
+       * What the turn already established with the person, verbatim — the
+       * clarifier's questions and answers. Composed into the run's prompt
+       * below the question, never into the title.
+       */
+      context: z.string().trim().min(1).max(RESEARCH_CONTEXT_MAX_CHARS).optional(),
+    })
+    .strict(),
 ])
 
 export type InternalTaskRequest = z.infer<typeof internalTaskRequestSchema>
@@ -91,6 +123,25 @@ export const internalTaskResponseSchema = z.object({
 })
 
 export type InternalTaskResponse = z.infer<typeof internalTaskResponseSchema>
+
+/**
+ * What the `research` op answers with: where the run narrates itself.
+ *
+ * A different shape from `create`'s on purpose — there is no definition, no
+ * cadence and no deadline to report, and padding those with nulls would invite
+ * a reader to look for them. The two ids are what the turn needs to point at
+ * the block it just commissioned.
+ */
+export const internalResearchResponseSchema = z.object({
+  runId: z.string(),
+  /** The run's message in the thread, or null when it could not be minted. */
+  runMessageId: z.string().nullable(),
+  conversationId: z.string(),
+  /** `running` when the worker took it, `failed` when it refused. */
+  status: z.string(),
+})
+
+export type InternalResearchResponse = z.infer<typeof internalResearchResponseSchema>
 
 /**
  * The deadline, as an instant, or `null` when the string is not one.

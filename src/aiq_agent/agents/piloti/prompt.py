@@ -131,7 +131,7 @@ def resolve_static_block() -> ResolvedPrompt:
     return resolved
 
 
-async def stamp_static_prompt_for_turn() -> None:
+async def stamp_static_prompt_for_turn() -> str:
     """Resolve the static half for THIS turn, then name a fallback in its trace.
 
     Awaited on the event loop at the start of a turn. The resolution runs in a
@@ -141,9 +141,20 @@ async def stamp_static_prompt_for_turn() -> None:
     turn's: the render that follows hits the store's cache and serves the same
     identity. Never raises: the store never raises into a turn, and
     ``record_trace_metadata`` absorbs its own failures.
+
+    Returns the rendered static half, the bytes ``render_system_prompt`` opens
+    with this turn, so the caller can name it as the provider cache's stable
+    prefix (``prompt_caching.begin_stable_prefix``). Rendered here from the
+    same resolution, so it cannot differ from what the turn's prompt starts
+    with; the render is cached on the text, so this costs a hash.
     """
-    await asyncio.to_thread(resolve_static_block)
+    static_text = await asyncio.to_thread(_render_resolved_static_block)
     record_static_prompt_metadata()
+    return static_text
+
+
+def _render_resolved_static_block() -> str:
+    return render_static_block(resolve_static_block().text)
 
 
 def record_static_prompt_metadata() -> None:

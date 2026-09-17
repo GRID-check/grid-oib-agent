@@ -7,7 +7,7 @@ second identical search is wasted"), and prose does not hold: the call is
 charged when the model emits it and never refunded, so a re-fetch costs the
 round that would have found the thing it was still missing.
 
-The guard is built on ONE pure derivation (``agent._repeat_fetches``) read in
+The guard is built on ONE pure derivation (``common.retrieval_rounds.repeat_fetches``) read in
 BOTH nodes — the agent node decides what to charge, the tools node what to run.
 It is the only guard on that seam now that the round-zero fan-out cap is gone.
 So these tests go through the COMPILED

@@ -78,6 +78,7 @@ from .model_overrides import sanitize_model_overrides
 from .nat_step_repair import SpanClosingProfilerHandler
 from .prompt_utils import load_prompt
 from .prompt_utils import render_prompt_template
+from .reasoning_settings import get_reasoning_efforts
 from .tool_validation import format_tool_unavailability_error
 from .tool_validation import format_user_facing_tool_error
 from .tool_validation import validate_tool_availability
@@ -133,6 +134,7 @@ __all__ = [
     "parse_model_overrides",
     "redact_db_url",
     "sanitize_model_overrides",
+    "get_reasoning_efforts",
     "build_human_prompt",
     "extract_json",
     "extract_user_response",

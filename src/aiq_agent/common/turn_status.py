@@ -203,7 +203,7 @@ def lane_tool_scope(tool: str | None) -> Iterator[None]:
 #: disagree.
 #:
 #: ``tool`` is IN-PROCESS only. It travels from this capture to
-#: :func:`~aiq_agent.agents.piloti.ledger.build_retrieval_ledger` and stops
+#: :func:`~aiq_agent.common.retrieval_ledger.build_retrieval_ledger` and stops
 #: there: the ledger's wire docs carry name/title/detail/shelf and nothing
 #: else, because which tool fetched a passage is how the repeat verdict is
 #: DERIVED, not something a reader is shown.

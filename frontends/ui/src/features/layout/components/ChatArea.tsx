@@ -45,6 +45,9 @@ import type { UserMessageAuthor } from '@/features/chat/components/UserMessage'
 // and a new export on it would have to be added to every one of those mocks.
 import { FollowUpsRail } from '@/features/chat/components/FollowUpsRail'
 import { offersAktenvermerk } from '@/features/chat/lib/aktenvermerk-chip'
+// Its own module rather than a barrel, for the reason FollowUpsRail is: the
+// specs that mock `@/features/chat` must not have to know about the run block.
+import { RunBlockMessage } from '@/features/runs/components/RunBlockMessage'
 import { AGENT_MENTION_ID } from '@/lib/mentions/types'
 import { cn } from '@/lib/utils'
 import { AwaitingBanner } from '@/features/collaboration/components/AwaitingBanner'
@@ -874,6 +877,7 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
                       <MessageRenderer
                         message={message}
                         conversationId={currentConversation?.id}
+                        projectId={activeProjectId}
                         onPromptRespond={handlePromptRespond}
                         onErrorDismiss={dismissErrorCard}
                         onErrorRetry={handleErrorRetry}
@@ -1100,6 +1104,8 @@ interface MessageRendererProps {
   message: ChatMessage
   /** Id of the conversation these messages belong to (for the memory chip). */
   conversationId?: string | null
+  /** The active project — the run block reads its live ledger through it. */
+  projectId?: string | null
   onPromptRespond: (promptId: string, response: string) => void
   onErrorDismiss?: (messageId: string) => void
   /** Resend the last user message + dismiss this error card (retry affordance). */
@@ -1126,6 +1132,7 @@ interface MessageRendererProps {
 const MessageRendererComponent: FC<MessageRendererProps> = ({
   message,
   conversationId,
+  projectId,
   onPromptRespond,
   onErrorDismiss,
   onErrorRetry,
@@ -1178,9 +1185,11 @@ const MessageRendererComponent: FC<MessageRendererProps> = ({
         />
       )
 
-    case 'agent_response':
-      // Short answers from the agent displayed in the chat area
-      return (
+    case 'agent_response': {
+      // Short answers from the agent displayed in the chat area. Built once,
+      // here, because a RUN's message renders the same card beneath its block
+      // once the run has a report — and the prop mapping must exist in one place.
+      const answer = (
         <AgentResponse
           content={message.content}
           timestamp={message.timestamp}
@@ -1217,6 +1226,25 @@ const MessageRendererComponent: FC<MessageRendererProps> = ({
           routingDecision={message.routingDecision}
         />
       )
+      // A message that carries a run ledger IS a run (ADR-0062): the block
+      // renders from the ledger, and the answer card above becomes the report
+      // beneath it once the run has one. Nothing else about the message
+      // changes — same row, same id, same deep-link target.
+      //
+      // An escalated chat question now mints a run message like any other run,
+      // so this path no longer has a second rendering to fall back to.
+      // `DeepResearchBanner`, `ResearchPanel` and the store's
+      // `deepResearchJobId` slice are kept DELIBERATELY and not because
+      // anything new needs them: threads written before run messages existed
+      // still hold messages whose only account of a run is those surfaces, and
+      // deleting them would blank work a reader can still open. The retirement
+      // is recorded in ADR-0062; the `deepResearch*` props below are what the
+      // legacy messages carry.
+      if (message.runLedger) {
+        return <RunBlockMessage message={message} projectId={projectId} answer={answer} />
+      }
+      return answer
+    }
 
     case 'file':
       // File operation messages show upload/ingest status. The wire status is
@@ -1313,6 +1341,7 @@ const areMessageRendererPropsEqual = (
   prev.message.content === next.message.content &&
   prev.message.isStreaming === next.message.isStreaming &&
   prev.conversationId === next.conversationId &&
+  prev.projectId === next.projectId &&
   prev.showConfidenceChip === next.showConfidenceChip &&
   prev.showAnswerFeedback === next.showAnswerFeedback &&
   prev.showReasoning === next.showReasoning &&

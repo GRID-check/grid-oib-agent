@@ -92,8 +92,8 @@ class ResearchAgentState(BaseModel):
     #: the ``ToolNode`` returned, from the calls it really executed — never
     #: from the calls the model asked for, or a withheld repeat would mark
     #: itself as done. Both nodes read it to derive the same withholding
-    #: (``agent._repeat_fetches``): the agent node decides what not to CHARGE,
-    #: the tools node what not to RUN. Per-turn like the round counter — the
+    #: (``common.retrieval_rounds.repeat_fetches``): the agent node decides what
+    #: not to CHARGE, the tools node what not to RUN. Per-turn like the round counter — the
     #: chat node builds a fresh state each turn, and a fetch is only wasted
     #: within the turn that already holds its result.
     executed_fetches: list[str] = []
@@ -207,7 +207,7 @@ class ResearchAgentState(BaseModel):
     # conversation field it mirrors — never a new pydantic type.
     already_read_digest: list[str] | None = None
     # The backend's own account of this turn's retrieval rounds (see
-    # ``ledger.build_retrieval_ledger`` for the shape): one entry per
+    # ``common.retrieval_ledger.build_retrieval_ledger`` for the shape): one entry per
     # announced round with query, tools, returned docs and which of them were
     # new. Carried for the Herleitung — no renderer reads it yet (phase b).
     # None when no round was announced — a direct reply has no retrieval to

@@ -144,3 +144,13 @@ def get_reasoning_effort(group: str) -> str | None:
     calls.
     """
     return _resolve().get(group)
+
+
+def get_reasoning_efforts() -> dict[str, str]:
+    """Every pinned effort, ``{agent_group: effort}``, for ``LLMProvider.with_reasoning_efforts``.
+
+    A copy: callers may not reach the shared cache entry. Platform-wide, so any
+    process that can reach the BFF resolves the same map (a detached worker
+    needs nothing captured at submit time, unlike the per-org model overrides).
+    """
+    return dict(_resolve())

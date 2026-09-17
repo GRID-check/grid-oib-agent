@@ -10,6 +10,7 @@ import type { DraftMention } from '@/features/collaboration/lib/mention-text'
 import type { AnswerConfidenceCappedReason } from '@/lib/conversations/message-provenance'
 import type { AnswerMeta } from '@/lib/conversations/message-answer-meta'
 import type { RetrievalLedger } from '@/lib/conversations/message-retrieval-ledger'
+import type { RunLedger } from '@/lib/runs/run-ledger-types'
 import type { MessageStages } from '@/lib/conversations/message-stages'
 import type { StageFrame } from './stores/messages-store'
 import type { SourceSignal } from '@/features/layout/lib/source-presets'
@@ -520,6 +521,24 @@ export interface ChatMessage {
    * it; persisted with the message so reloads draw the same one.
    */
   retrievalLedger?: RetrievalLedger
+  /**
+   * The account of the RUN this message is (ADR-0062): the phases it walked,
+   * the steps it took and what it left behind.
+   *
+   * Present on exactly one message per run — the one `messages.run_id` names —
+   * and absent on every ordinary turn. Same sanitize contract as
+   * `retrievalLedger`: written bounded and re-bounded on read, because a run is
+   * narrated by a worker and stored as jsonb.
+   */
+  runLedger?: RunLedger
+  /**
+   * The run's title, for the block's header: the task's title or the question
+   * a deep-research run was asked. Set once by the BFF when the run's message
+   * is minted (`metadata.run_title`); absent on every ordinary turn and on a
+   * run minted before it was recorded, where the block shows its own word for
+   * an untitled run.
+   */
+  runTitle?: string
   /**
    * The WS turn id (`parent_id`) this answer belongs to
    * (`docs/architecture/post-answer-stages.md` §1.6, §4.1).
@@ -1263,6 +1282,12 @@ export interface ChatActions {
     meta: Partial<ChatMessage>,
     cards?: (GridCard | undefined)[]
   ) => string
+  /**
+   * Put a run's own message into the open thread with the id the SERVER gave
+   * it (ADR-0062): the run's message already exists, so this adopts a row
+   * rather than minting a second block for one run. Idempotent by that id.
+   */
+  adoptRunMessage: (message: ChatMessage) => void
   /** Patch a specific message in a conversation */
   patchConversationMessage: (
     conversationId: string,

@@ -102,12 +102,6 @@ export const chat = {
     placeholder: 'Ask Piloti about this project …',
     sources: 'Data basis',
     sourcesAria: 'Data basis — {enabled} of {total} sources enabled. Opens the data sources panel.',
-    deepResearch: 'Deep Research',
-    deepResearchAria: 'Deep Research preference',
-    // Honest intent hint: the agent auto-escalates; the pill records a
-    // preference, it does not force a deep-research run.
-    deepResearchHint:
-      'Preference noted — Piloti escalates to Deep Research automatically when a question calls for it.',
     scopeAria: 'Search scope: {project}',
     scopeFallback: 'This project',
     scopeCurrent: 'Current project',
@@ -453,11 +447,11 @@ export const chat = {
     },
     // Work Piloti has taken on and will finish after this conversation
     // (ADR-0051). The card offers nothing: the row exists by the time it
-    // renders. „running" is therefore the most important word on it — the
-    // answer beside it must not read as though the work were done.
+    // renders, and the run block below it says how the work is going — so
+    // this card is the receipt (what, of what kind, by when) and states no
+    // status of its own.
     taskCreated: {
       eyebrow: 'Task',
-      running: 'running',
       due: 'by {date}',
       open: 'Open conversation',
       // The four kinds, in the words somebody would use to ask for them.

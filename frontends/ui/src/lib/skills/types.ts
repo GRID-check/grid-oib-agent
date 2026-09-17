@@ -18,9 +18,8 @@
  * `grid-execution` and `grid-schedulable` used to live here too. Both are gone:
  * a skill says nothing about WHEN a JOB runs or WHAT a run produces. Scheduling
  * is a property of the JOB that attaches the skill, and the output kind is the
- * user's choice on that job (`jobs.output`). `grid-auto-invoke` is catalog
- * membership, not scheduling: slash and jobs still attach the skill when it is
- * off.
+ * user's choice on that job (`jobs.output`). `grid-auto-invoke` joined them
+ * below: retired, still tolerated, read by nobody.
  */
 
 import { z } from 'zod'
@@ -126,32 +125,20 @@ export function isHiddenSkill(metadata: Record<string, string>): boolean {
 }
 
 /**
- * `grid-auto-invoke` — whether the model may pick this skill from L1.
+ * `grid-auto-invoke` — RETIRED, and deliberately not replaced.
  *
- * On (the default, and the absent key): the one-line description sits in the
- * catalog the model reads every turn, and it may call `use_skill` unprompted.
- * Off: the skill is still resolved, still in the `/` picker, still attachable
- * to a job, still loadable when forced. It is merely invisible to the model
- * until a person or a job names it.
+ * It said whether the model might pick a skill from the L1 catalog: a bit an
+ * author set that deleted a line from the model's own inventory. That is a
+ * person deciding which skill runs, which is the thing ADR-0060 removed
+ * everywhere else, so the switch is gone from the editor and the agent tier
+ * lists every resolved skill (`skills/runtime.py` — `prompt_block`).
  *
- * Mirrors the Python `GRID_AUTO_INVOKE_KEY`. This is not scheduling.
+ * The KEY is still tolerated on a stored document, like `grid-execution`: an
+ * old row keeps parsing and keeps its value verbatim. Nothing reads it, here or
+ * in Python, and nothing writes it. It is named here only so the next person to
+ * meet one in a SKILL.md knows what it was and that it does nothing.
  */
 export const METADATA_AUTO_INVOKE = 'grid-auto-invoke'
-
-/** Case-insensitive falsy tokens marking auto-invoke off; anything else is on. */
-const AUTO_INVOKE_FALSE: ReadonlySet<string> = new Set(['false', '0', 'no'])
-
-/**
- * Whether the model may pick this skill from the L1 catalog unprompted.
- *
- * Absent or unrecognised reads as on: that is today's behaviour, and forgetting
- * the flag must not silently hide a skill from every turn.
- */
-export function isAutoInvokeSkill(metadata: Record<string, string>): boolean {
-  const token = (metadata[METADATA_AUTO_INVOKE] ?? '').trim().toLowerCase()
-  if (!token) return true
-  return !AUTO_INVOKE_FALSE.has(token)
-}
 
 /**
  * The agents a skill may name in `grid-agents`.

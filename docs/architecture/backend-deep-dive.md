@@ -72,7 +72,7 @@ Key files:
 - Workflow registration + response creation: `src/aiq_agent/agents/piloti/conversation_register.py`.
 - WS wire types (NAT, vendored): `.venv/Lib/site-packages/nat/data_models/api_server.py`
   — `ChatResponse` and the WS message models are `extra="allow"`, so extra
-  fields (cards, deep_research_job_id) survive serialization.
+  fields (cards, run_id) survive serialization.
 
 ### The monkeypatch (critical seam)
 
@@ -83,7 +83,8 @@ so the frontend can read them at `message.<field>` (not nested under
 `message.content`):
 
 - `cards`  → `message.cards`  (rendered as Grid cards)
-- `deep_research_job_id` → `message.deep_research_job_id` (opens the research panel)
+- `run_id` / `run_message_id` → the run's block in the thread (ADR-0062); the
+  terminal frame carries no answer text when they are present
 - `answer_confidence` → `message.answer_confidence` (honest self-assessment chip)
 - `answer_confidence_reason` → `message.answer_confidence_reason` (the model's
   own one-clause justification, shown verbatim in the chip tooltip)
@@ -1018,6 +1019,13 @@ not read it" — had to ask the corpus to find that passage again by similarity,
 paying a full fan-out, a reranker pass and possibly the requery judge for a
 lookup it could already address.
 
+Both answering surfaces bind it. Deep research had only the search for a
+release, on the reading that a run planning retrieval across six researchers
+does not run against a chat turn's tool ceiling — true, and beside the point: a
+worker that has read a Gliederung and knows the Punkt it needs was still asking
+the corpus to find that passage by similarity, and every batch spent that way is
+a round the run does not get back.
+
 `read_passage` (`sources/knowledge_layer/src/read_passage.py`) is that lookup:
 `document` (exact indexed name, stored display title, or the derived OIB title)
 plus `punkt` (the `punkt_id` the Punkt chunker verified against the corpus's own
@@ -1587,16 +1595,21 @@ ifc-lite's WASM kernel + WebGPU renderer. A browser without WebGPU loses only
 the picture: the structure, elements, properties, quantities and every agent
 answer are unaffected, and the fallback says so.
 
-## 7. Deep research (async jobs)
+## 7. Deep research (a commissioned run)
 
-- The `deep_research` graph node submits a Dask job and returns the stub message
-  **plus** a structured `deep_research_job_id` (added in this pass), threaded
-  through `ConversationState` → `ChatResponse.deep_research_job_id` → monkeypatch
-  → `message.deep_research_job_id`.
-- The frontend (`use-websocket-chat.ts`) opens the research panel from the
-  **structured field** (`deepResearchJobId`), falling back to the old prose regex
-  only for older backends. This fixes the fragile-regex failure where any wording
-  drift silently hid the entire research panel.
+- The `deep_research` graph node no longer submits anything itself. It asks the
+  BFF to commission a RUN (`turn/commission.py` → `POST /api/internal/tasks`,
+  `op: "research"`), which writes the `task_runs` row, mints the run's message
+  in this thread and submits the job with that run's id (ADR-0062). The turn
+  returns an EMPTY answer plus `run_id` / `run_message_id`, threaded through
+  `ConversationState` → `ChatResponse` → the terminal websocket frame.
+- The frontend renders the run's own message — the run block — and there is no
+  prose to parse and no panel to open. The stub sentence („Deep research job
+  submitted. Job ID: …") and the `deep_research_job_id` field it fed are gone.
+- A question that cannot become a run (no project, no signed envelope, a refusal
+  from the route) falls back to researching IN PROCESS, the same path a
+  deployment with no worker takes: what is lost is the block, never the work. A
+  full queue is the exception — it is told to the reader with its retry hint.
 - Job data (progress, thinking, citations, report) streams via SSE from backend
   `/v1/jobs/async/*` through the BFF proxy `/api/jobs/async/[...path]` into the
   `ResearchPanel` (Tasks / Thinking / Report tabs).
@@ -1871,9 +1884,10 @@ yet).
 
 Reusable instruction packages (`SKILL.md`, agentskills.io contract) that
 extend a research turn's procedure. A skill is an OFFER the model takes up:
-nothing can require one. The model picks from the L1 catalog unless the skill
-sets `grid-auto-invoke: false`, and `/name` in the composer inserts a mention
-into the message text rather than a force list on the wire. Delivery is
+nothing can require one. The model picks from the L1 catalog, which lists every
+resolved skill — nothing a person sets takes a row out of it — and `/name` in
+the composer inserts a mention into the message text rather than a force list on
+the wire. Delivery is
 **progressive disclosure**: L1 is a one-line-per-skill catalog in the system
 prompt (`## Available skills`), L2 is the full body, loaded only when the model
 calls the `use_skill` tool. Per-run `SkillRuntime` (ADR-0018 — never cached on

@@ -42,6 +42,7 @@ import type { LucideIcon } from 'lucide-react'
 import { Chip } from '@/components/ui/chip'
 import { RaisedCard, RaisedCardBody, RaisedCardFooter } from '@/components/ui/raised-card'
 import { Spinner } from '@/components/ui/spinner'
+import { RunBlockLine } from '@/features/runs/components/RunBlockLine'
 import { useLocale, useTranslations } from '@/i18n'
 import { formatAbsoluteTime, formatRelativeTime } from '@/lib/format'
 import type { TaskRunStatus } from '@/lib/tasks/task-vocabulary'
@@ -194,10 +195,20 @@ export function TaskCard({ projectId, task, onSelect }: TaskCardProps): JSX.Elem
               </div>
 
               <div className="flex flex-wrap items-center gap-1.5">
-                <Chip size="sm" variant={STATUS_TONE[task.status]} data-testid="task-status">
-                  {active ? <Spinner size="sm" aria-hidden /> : <CircleDot aria-hidden />}
-                  {t(`status.${task.status}`)}
-                </Chip>
+                {/* The status chip yields to the run line when there is one.
+                    Both say the state, in two different sets of words —
+                    `succeeded` beside „Fertig" — and two adjacent labels for
+                    one fact stop reading as one fact. The line wins because it
+                    is the shared organism the thread also composes; the chip is
+                    this card's private vocabulary. It stays for a row with no
+                    run, where the swatch would otherwise be the ONLY carrier
+                    of the status and colour never travels alone. */}
+                {!task.runSummary && (
+                  <Chip size="sm" variant={STATUS_TONE[task.status]} data-testid="task-status">
+                    {active ? <Spinner size="sm" aria-hidden /> : <CircleDot aria-hidden />}
+                    {t(`status.${task.status}`)}
+                  </Chip>
+                )}
                 <Chip size="sm" variant="outline" data-testid="task-kind">
                   {t(`kind.${task.kind}`)}
                 </Chip>
@@ -212,6 +223,25 @@ export function TaskCard({ projectId, task, onSelect }: TaskCardProps): JSX.Elem
                   </Chip>
                 )}
               </div>
+
+              {/* The run, as the block's header reduced to one line: the same
+                  glyph, the same status word and the same tallies the thread
+                  shows, off the run's ledger (ADR-0062), so the index row and
+                  the block cannot disagree about the run they both describe.
+                  Without the title (the heading above IS the title) and
+                  without the trailing link (the card IS the link: it opens the
+                  drawer, which renders the whole block); a finished row dates
+                  the line by when it finished. Compact — the card is about the
+                  task, and the block is where the run is read. */}
+              {task.runSummary && (
+                <RunBlockLine
+                  ledger={null}
+                  status={task.runSummary.status}
+                  tallies={task.runSummary}
+                  at={active ? undefined : (task.finishedAt ?? undefined)}
+                  className="min-h-0 text-xs"
+                />
+              )}
 
               {/* The requester's own sentence, clamped: in a column of cards an
                   unclamped goal sets the height of the whole list. A scheduled

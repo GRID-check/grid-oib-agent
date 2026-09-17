@@ -34,7 +34,8 @@ NO_RESPONSE_TEXT = "No response generated."
 #: rejection it belongs to, and an empty mute list is the same fact as no
 #: mute list.
 RESPONSE_LIFTS: tuple[tuple[str, str, str | None], ...] = (
-    ("deep_research_job_id", "deep_research_job_id", None),
+    ("run_id", "run_id", None),
+    ("run_message_id", "run_message_id", None),
     ("answer_confidence", "answer_confidence", None),
     ("verified_sources", "sources", None),
     ("read_sources", "read_sources", None),
@@ -120,7 +121,7 @@ def post_answer_turn_facts(
         answer=answer_text(state),
         routing_decision=getattr(response, "routing_decision", None),
         research_truncated=bool(state.research_truncated),
-        deep_research_job_id=state.deep_research_job_id,
+        run_id=state.run_id,
         emitted_card_types=emitted_card_types(cards),
         answer_confidence=state.answer_confidence,
         remembered_this_turn=remembered_this_turn,

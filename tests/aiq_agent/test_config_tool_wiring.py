@@ -127,19 +127,33 @@ def test_the_deep_researcher_can_show_a_file_and_not_only_cite_it(config: dict):
     assert "surface_documents" in _tools(config, "deep_research_agent")
 
 
-def test_the_locator_is_declared_and_bound_on_the_answering_agent(config: dict, functions: dict):
+def test_the_locator_is_declared_and_bound_on_both_answering_agents(config: dict, functions: dict):
     """`read_passage` is what makes a second round a lookup instead of a search.
 
-    Bound on the SHALLOW agent only, deliberately: it is the chat loop that runs
-    against a tool ceiling of 7 and pays for a second semantic search out of the
-    same budget as the measurement. A deep run plans its own retrieval across up
-    to six researchers and does not have that shape. If deep research later grows
-    a Punkt-following step, this is the line to change and the reason to state.
+    It was bound on the SHALLOW agent only, on the reading that a deep run plans
+    its own retrieval across up to six researchers and does not run against a
+    chat turn's tool ceiling. That was the wrong invariant: a worker that has
+    read a Gliederung and knows the Punkt it needs was still sending the corpus
+    to find that passage by similarity. The budget shapes differ; the address
+    does not, and paying a fan-out for one is waste on either surface.
     """
     entry = functions.get("read_passage")
     assert entry is not None, "read_passage must be declared under `functions:`"
     assert entry["_type"] == "read_passage"
     assert "read_passage" in _tools(config, "shallow_research_agent")
+    assert "read_passage" in _tools(config, "deep_research_agent")
+
+
+def test_the_deep_writer_learns_a_card_shape_without_a_round_trip(config: dict):
+    """`describe_card` was the deep agent's last binding, and it bought nothing.
+
+    `emit_card` accepts arrays, and a failed emit already returns the L2 entry
+    for the type that failed — so the shape arrives on the retry that needs it
+    rather than in a charged lookup before it. Putting the name back on this
+    list re-creates a round trip whose answer the failure path already carries.
+    """
+    assert "describe_card" not in _tools(config, "deep_research_agent")
+    assert "describe_card" not in _tools(config, "shallow_research_agent")
 
 
 def test_the_locator_shares_the_searchs_collection_scope(functions: dict):

@@ -291,7 +291,7 @@ export const SCREENSHOT_TARGETS = [
     mobile: true,
     path: '/dev/composer',
     description:
-      'The chat composer (real InputArea, backend-free) in its empty-thread state — textarea, scope/deep-research controls (the Datenbasis picker is withheld for now), attach + send — desktop + mobile.',
+      'The chat composer (real InputArea, backend-free) in its empty-thread state — textarea, the scope chip (the Datenbasis picker is withheld for now), attach + send — desktop + mobile. Nothing offers to choose deep research: Piloti decides whether a question needs a run.',
     waitFor: '[data-testid="composer-preview"]',
   },
   {
@@ -732,8 +732,50 @@ export const SCREENSHOT_TARGETS = [
     mobile: true,
     path: '/dev/task-list',
     description:
-      "The Tasks list \u2014 a project's delegated work (ADR-0051) as the product's own card, which is what the rewrite is for: the row it replaced offered a 200px hover-underlined title as its only click target, in a line of chips and links that looked exactly as clickable. Three panels. (1) A MIXED list, which is what a project looks like after a fortnight of using Piloti: something running, a scheduled run, something accepted, something sent back with the reviewer's own words under it, and one failure carrying the worker's sanitized error. Judge the STATUS RAIL down each card's left edge (one sweep down one column finds the red one), the dot marking finished work nobody has judged, the recency headings that turn a list into a timeline, the filter row whose counts say what is behind each chip before it is pressed \u2014 `Ungepr\u00fcft` is the number a person should want at zero \u2014 and the single result link on the tray, the one thing inside the card that is not the card's own target. (2) The empty state, which must read as an invitation rather than as a list that failed to load. (3) The failure state, which is that same distinction from the other side: \u201eNoch nichts \u00fcbergeben\u201c over a failed request is the one lie this surface could tell that somebody would act on.",
+      "The Tasks list \u2014 a project's delegated work (ADR-0051) as the product's own card, which is what the rewrite is for: the row it replaced offered a 200px hover-underlined title as its only click target, in a line of chips and links that looked exactly as clickable. Three panels. (1) A MIXED list, which is what a project looks like after a fortnight of using Piloti: something running, a scheduled run, something accepted, something sent back with the reviewer's own words under it, and one failure carrying the worker's sanitized error. Judge the STATUS SWATCH on each card's title line \u2014 the same 10px rounded square the timetable's legend uses, so one sweep down the column finds the red one \u2014 the compact run line under the title, which is where the status is now stated IN WORDS (the chip that used to say it beside this line said the same fact in a second vocabulary, `succeeded` next to \u201eFertig\u201c), the dot marking finished work nobody has judged, the recency headings that turn a list into a timeline, the filter row whose counts say what is behind each chip before it is pressed \u2014 `Ungepr\u00fcft` is the number a person should want at zero \u2014 and the single result link on the tray, the one thing inside the card that is not the card's own target. (2) The empty state, which must read as an invitation rather than as a list that failed to load. (3) The failure state, which is that same distinction from the other side: \u201eNoch nichts \u00fcbergeben\u201c over a failed request is the one lie this surface could tell that somebody would act on.",
     waitFor: '[data-testid="task-list-preview"]',
+  },
+  {
+    id: 'task-detail',
+    mobile: true,
+    path: '/dev/task-detail',
+    description:
+      "The Auftr\u00e4ge drawer \u2014 the run block, and the two doors out of it. This is the decision the shot is evidence of: clicking a row opens the ACCOUNT of the work rather than a second description of the row. It used to restate the card it was opened from (kind chip, status chip, goal, review reason, error), which made the bigger surface say strictly less about the run than the row that opened it \u2014 the card at least carried the run line. Now the body IS `RunBlock`, off the run's own ledger, read once through the same door the thread uses and opened rather than folded, because the click on the row IS the request to see inside. Judge whether the block sits in a sheet as well as it sits in a thread, and whether the result, \u201eIm Verlauf \u00f6ffnen\u201c and \u201eals stehende Aufgabe speichern\u201c read as a ladder rather than as three equal ways out.",
+    // The block's body animates its height open; the stand paints before it
+    // has. The footer is the last row inside the fold, so waiting on it waits
+    // for the expand rather than for the block's first frame.
+    waitFor: '[data-testid="run-footer"]',
+  },
+  {
+    id: 'task-detail-legacy',
+    path: '/dev/task-detail?state=legacy',
+    description:
+      "The same drawer over a run from before run messages existed. There is no ledger to render, so it falls back to exactly the paragraphs it always showed \u2014 status, the requester's own sentence, the reviewer's words. Judge that this reads as \u201ethis is all there is\u201c rather than as a surface that failed to load: the distinction matters because a refused READ says something different again, and the two must not look alike.",
+    waitFor: '[data-testid="task-detail-goal"]',
+  },
+  {
+    id: 'run-block',
+    mobile: true,
+    path: '/dev/run-block',
+    description:
+      'The Laufblock — a run as ONE element in the thread that commissioned it, in all seven states plus the collapsed form and the compact line. Judge the header first: it must read as a bar of the Herleitung’s family (glyph in a fixed slot, the bold state word, the title, muted phase · rounds · documents, the elapsed pill, the chevron) with the one action that fits the state at its right end and NO other number. Then the rail: five swatches, the filled check for a done phase, the ring for the live one, border-grey for the rest — readable as a position without reading a word. Then the live phase under it: each research round as the runner’s own sentence, the documents it reached as the same „Belegt durch“ chips the answer wears (law family with OIB/RIS badge, project, office), a re-read document saying so inside its chip, and the open points in plain words — an analyst at work, not a log. A failed run must state its reason and what was already done in ONE quiet red line, so nobody commissions the research twice; a cancelled one must not be red at all. The collapsed done block must be small enough to sit above the report it produced. The four compact rows at the bottom must agree with the headers above them word for word.',
+    waitFor: '[data-testid="run-block-lines"]',
+  },
+  {
+    id: 'run-block-live',
+    mobile: true,
+    path: '/dev/run-block?variant=motion',
+    description:
+      'The run block mid-run, held at a known frame of the scripted sequence (`/dev/run-block?variant=motion` walks a ledger frame by frame). Evidence for the shape the reader watches while a run works: the rail with one phase live and the ones behind it checked, the rounds that have arrived with their documents, the open points. The sequence itself is watched in the browser — a still cannot show a check drawing in — so what this shot holds is the composition at the moment it is busiest.',
+    waitFor: '[data-motion-frame="3"]',
+  },
+  {
+    id: 'run-block-transition',
+    mobile: true,
+    path: '/dev/run-block?variant=transition',
+    description:
+      'The handover as the thread shows it in the first seconds: the person’s message, the task-created card that acknowledges it, and directly beneath it the Laufblock in „Wird gestartet“ with every phase pending and the sentence naming where the result will be filed. Judge that the three read as one exchange in one column — nothing opens elsewhere, nothing asks to be clicked to follow — and that the block already looks like the element the run will live in rather than a placeholder waiting to be replaced.',
+    waitFor: '[data-testid="run-block-transition"]',
   },
   {
     id: 'file-operation-proposal-card',
@@ -801,7 +843,7 @@ export const SCREENSHOT_TARGETS = [
     mobile: true,
     path: '/dev/schedule-wizard?step=1',
     description:
-      'The schedule wizard on its first step. What it replaced was one page of six stacked cards \u2014 name, prompt, output, skill, sources, cron, timezone, two switches and a live preview pane \u2014 sixteen controls with no stated order, and the first thing most people did with it was leave. Step 1 asks ONE thing: what should Piloti do. The name below it is pre-answered rather than requested, its placeholder showing live what the schedule will be called, because asking for a name first asks somebody to summarise something they have not written yet. Judge the stepper: numbered circles with the step labels visible ahead of time (so the reader can see the last step is a review and not another form), the count stated for screen readers, and every visited step a button so correcting costs nothing.',
+      'The schedule wizard on its first step. What it replaced was one page of six stacked cards \u2014 name, prompt, output, skill, sources, cron, timezone, two switches and a live preview pane \u2014 sixteen controls with no stated order, and the first thing most people did with it was leave. Step 1 asks ONE thing: what should Piloti do \u2014 and asks it in the CHAT COMPOSER\u2019S OWN FIELD, `/` menu and invoked-skill chip and all. A task that should run a playbook names it here the way a person names one in a message; the `<Select>` that used to attach one, and whose body the fire prompt then pasted in front of the model, was the last thing in the product that could put a skill on a turn without the model choosing it (ADR-0060). Judge whether the `/` panel reads as the same gesture it is in chat when it hangs under a form field rather than over a toolbar. The name below is pre-answered rather than requested, its placeholder showing live what the schedule will be called, because asking for a name first asks somebody to summarise something they have not written yet. Judge the stepper: numbered circles with the step labels visible ahead of time (so the reader can see the last step is a review and not another form), the count stated for screen readers, and every visited step a button so correcting costs nothing.',
     waitFor: '[data-testid="wizard-step-task"]',
   },
   {
@@ -823,7 +865,7 @@ export const SCREENSHOT_TARGETS = [
     mobile: true,
     path: '/dev/skill-composer',
     description:
-      'The composer half of Agent Skills (ADR-0045) — the `/` menu open on a typed fragment, with the invoked-skill chip below it. A row carries exactly the level-1 metadata the agent itself is given and nothing else: the token to type, with the matched fragment emphasised, and the sentence that says when to type it. The fixture matches the same fragment two ways, in the name and in the description only, which is the ranking the menu applies. The chip beneath states the CONSEQUENCE — these instructions will be loaded — because a `/token` in a sentence says nothing about what it does.',
+      'The composer half of Agent Skills (ADR-0045) — the `/` menu open on a typed fragment, with the invoked-skill chip below it. A row carries exactly the level-1 metadata the agent itself is given and nothing else: the token to type, with the matched fragment emphasised, and the sentence that says when to type it. The fixture matches the same fragment two ways, in the name and in the description only, which is the ranking the menu applies. The chip beneath restates that a skill is attached, and says what the token actually does: Piloti READS the name among the words and decides. It used to promise that the instructions would load, which was true while a named skill was forced onto the turn and false since ADR-0060 \u2014 a chip asserting an affordance the product no longer has, which the reader only discovers from an answer that ignored the skill they thought they had picked.',
     waitFor: '[data-testid="slash-command-picker"]',
   },
   {
@@ -834,11 +876,18 @@ export const SCREENSHOT_TARGETS = [
     waitFor: '[data-testid="slash-command-picker"]',
   },
   {
-    id: 'skill-editor',
+    id: 'skill-builder',
     path: '/dev/skill-editor',
     description:
-      'The two panes beside the skill editor form: the SKILL.md the form is writing, split at the seam that decides everything about how a skill behaves (frontmatter in the agent’s context on every turn, instructions loaded only on activation), and the reviewer’s verdict on the draft beneath it. The draft is deliberately mediocre — a description that never says when to use the skill — so the findings show all three severities across all three fields rather than a clean bill of health that would prove nothing. The preview presses the check itself, because findings do not exist until somebody asks for them.',
-    waitFor: '[data-testid="skill-review-findings"]',
+      "The skill builder on its first step. What it replaced was a `sm:max-w-5xl` two-column dialog \u2014 the document on the left, a rail of eight settings on the right (agents, cards, category, two switches), everything at once. It asked an author to hold the whole skill in their head before they had written a line of it, and it gave the rail the same weight as the DESCRIPTION, which is the one field that decides whether the skill is ever picked at all. It is a stepped form now, wearing the same `Stepper` and the same nav as the task builder, because it asks the same kind of thing: a short sequence of questions where knowing how many are left is what decides whether somebody finishes. Step 1 is the two lines an agent reads every turn and nothing else; everything that is not the document is behind one \u201eErweitert\u201c on the last step.",
+    waitFor: '[data-testid="skill-step-what"]',
+  },
+  {
+    id: 'skill-editor',
+    path: '/dev/skill-editor?step=3',
+    description:
+      'The builder\u2019s last step, which is the CHECK. Running it is what opens the save: a skill is an instruction the model acts on unsupervised, and the one failure an author cannot see from inside the form is a description that never gets matched \u2014 exactly what the reviewer reads for. A button beside a form is a button nobody presses. What the findings SAY is not a condition (blocking a save on a model\u2019s verdict would be the forcing this codebase removed everywhere else, pointed at the author instead of the agent), and a reviewer that could not run blocks nothing \u2014 our outage is not the author\u2019s to pay for with an unsaveable draft. Beneath it, the SKILL.md the form is writing, split at the seam that decides everything about how a skill behaves (frontmatter in the agent’s context on every turn, instructions loaded only on activation), and the reviewer’s verdict on the draft beneath it. The draft is deliberately mediocre — a description that never says when to use the skill — so the findings show all three severities across all three fields rather than a clean bill of health that would prove nothing. The preview presses the check itself, because findings do not exist until somebody asks for them \u2014 and because the SAVE now waits on it: a skill is an instruction the model acts on unsupervised, and the one failure an author cannot see from inside the form is a description that never gets matched, which is precisely what the reviewer reads for. A button beside the form is a button nobody presses. What the findings SAY is not a condition (blocking a save on a model\u2019s verdict would be the forcing this codebase removed everywhere else, pointed at the author instead of the agent), and a reviewer that could not run blocks nothing \u2014 our outage is not the author\u2019s to pay for with an unsaveable draft.',
+    waitFor: '[data-testid="skill-step-check"] [data-testid="skill-review-findings"]',
   },
   {
     id: 'skill-editor-advanced',

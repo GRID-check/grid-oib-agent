@@ -8,6 +8,7 @@ from langchain_core.language_models import BaseChatModel
 
 from aiq_agent.common.model_overrides import AgentGroup
 from aiq_agent.common.model_overrides import override_model
+from aiq_agent.common.model_overrides import override_reasoning_effort
 
 logger = logging.getLogger(__name__)
 
@@ -139,6 +140,40 @@ class LLMProvider:
         def _resolve(llm: BaseChatModel, group: AgentGroup | None) -> BaseChatModel:
             model_id = overrides.get(group.value) if group is not None else None
             return override_model(llm, model_id) if model_id else llm
+
+        if self._default is not None:
+            derived._default = _resolve(self._default, self._default_group)
+        for role, llm in self._llms.items():
+            derived._llms[role] = _resolve(llm, self._groups.get(role))
+        return derived
+
+    def with_reasoning_efforts(self, efforts: Mapping[str, str]) -> "LLMProvider":
+        """Return a provider with the platform owner's thinking level applied per group.
+
+        ``efforts`` is ``{agent_group: effort}`` as ``get_reasoning_efforts``
+        resolves it (Platform → Models). Like ``with_model_overrides`` this
+        returns ``self`` when no pinned effort targets a group this provider is
+        tagged with, so the identity fast-path (prebuilt agent stays hot) still
+        holds. Each affected LLM is copied via ``override_reasoning_effort``;
+        the build-time instance is never mutated.
+        """
+        tagged_groups = {g for g in (self._default_group, *self._groups.values()) if g is not None}
+        applied = {g: efforts[g.value] for g in tagged_groups if efforts.get(g.value)}
+        if not applied:
+            return self
+
+        logger.info(
+            "Reasoning effort active: %s",
+            {g.value: applied[g] for g in sorted(applied, key=lambda g: g.value)},
+        )
+
+        derived = LLMProvider()
+        derived._groups = dict(self._groups)
+        derived._default_group = self._default_group
+
+        def _resolve(llm: BaseChatModel, group: AgentGroup | None) -> BaseChatModel:
+            effort = applied.get(group) if group is not None else None
+            return override_reasoning_effort(llm, effort) if effort else llm
 
         if self._default is not None:
             derived._default = _resolve(self._default, self._default_group)

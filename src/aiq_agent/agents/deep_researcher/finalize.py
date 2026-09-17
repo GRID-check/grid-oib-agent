@@ -13,6 +13,7 @@ from __future__ import annotations
 import logging
 import re
 from collections.abc import Iterable
+from collections.abc import Sequence
 from dataclasses import dataclass
 from dataclasses import field
 from typing import Any
@@ -28,6 +29,7 @@ from aiq_agent.common.citation_verification import source_label
 from aiq_agent.common.citation_verification import source_origin_token
 from aiq_agent.common.citation_verification import verify_citations
 from aiq_agent.common.citation_verification import verify_quoted_spans
+from aiq_agent.common.retrieval_ledger import build_retrieval_ledger
 from aiq_agent.common.turn_status import CUTOFF_RUN_BUDGET
 from aiq_agent.common.turn_status import CUTOFF_STEP_LIMIT
 from aiq_agent.common.turn_status import CUTOFF_UPSTREAM_TIMEOUT
@@ -576,6 +578,23 @@ def annotate_state(result: Any, finalized: FinalizedReport, skill_runtime: Skill
         set_state_field(result, "answer_confidence_reason", finalized.confidence_reason)
     if finalized.confidence_capped_reason is not None:
         set_state_field(result, "answer_confidence_capped_reason", finalized.confidence_capped_reason)
+
+
+def record_retrieval_ledger(
+    result: Any,
+    announcements: Sequence[dict[str, Any]],
+    lane_hits: Sequence[dict[str, Any]],
+) -> None:
+    """Attach the run's own account of its retrieval rounds, beside its sources.
+
+    Same field name and same wire shape as a chat turn's, because one reader
+    renders both. Absent rather than empty when the run announced no round: a
+    surface cannot tell "no retrieval happened" from "we lost it" once an empty
+    list is written.
+    """
+    ledger = build_retrieval_ledger(announcements, lane_hits)
+    if ledger is not None:
+        set_state_field(result, "retrieval_ledger", ledger)
 
 
 def emit_final_report(callbacks: Iterable[Any], report: str) -> None:

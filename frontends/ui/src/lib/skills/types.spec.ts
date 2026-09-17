@@ -5,7 +5,6 @@ import { describe, expect, it } from 'vitest'
 import {
   createCategorySchema,
   createSkillSchema,
-  isAutoInvokeSkill,
   isHiddenSkill,
   METADATA_AUTO_INVOKE,
   METADATA_CARDS,
@@ -149,18 +148,14 @@ describe('isHiddenSkill (grid-hidden)', () => {
   })
 })
 
-describe('isAutoInvokeSkill (grid-auto-invoke)', () => {
-  it('reads absent and truthy tokens as on (the default)', () => {
-    expect(isAutoInvokeSkill({})).toBe(true)
-    for (const token of ['true', '1', 'yes', 'TRUE', '', 'maybe']) {
-      expect(isAutoInvokeSkill({ [METADATA_AUTO_INVOKE]: token })).toBe(true)
-    }
-  })
-
-  it('reads the falsy tokens as off', () => {
-    for (const token of ['false', '0', 'no', 'FALSE', '  No  ']) {
-      expect(isAutoInvokeSkill({ [METADATA_AUTO_INVOKE]: token })).toBe(false)
-    }
+// `grid-auto-invoke` is retired: no switch writes it and no reader honours it,
+// here or in the agent tier. The constant survives so a stored key has a name
+// the next reader can look up; this holds that nothing grew a reader back.
+describe('grid-auto-invoke is a name, not a decision', () => {
+  it('exports the key and nothing that acts on it', async () => {
+    const skillTypes = await import('./types')
+    expect(METADATA_AUTO_INVOKE).toBe('grid-auto-invoke')
+    expect('isAutoInvokeSkill' in skillTypes).toBe(false)
   })
 })
 

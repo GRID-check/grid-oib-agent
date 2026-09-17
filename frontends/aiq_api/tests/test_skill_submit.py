@@ -391,3 +391,25 @@ def test_memory_digest_and_reflection_flag_are_forwarded(client, prod_token, sub
     kwargs = submit_mock.await_args.kwargs
     assert kwargs["project_memory"] == "PROJECT_MEMORY v1\n- Atrium ist OIB 2.3"
     assert kwargs["memory_reflection_enabled"] is True
+
+
+def test_run_id_is_forwarded_so_the_worker_can_narrate_the_run(client, prod_token, submit_mock):
+    """The run's own id reaches the worker (ADR-0062).
+
+    Without it `runner` builds no ``RunLedgerFold``: the BFF mints the run's
+    message, the block appears — and then never moves, because nothing flushes
+    a ledger to it. The field is the whole reason the block is live.
+    """
+    body = _valid_body()
+    body["run_id"] = "6f1c2f6e-4a1b-4c2e-9f3a-2b1d4e5f6a7b"
+    resp = _post(client, body)
+    assert resp.status_code == 200
+    assert submit_mock.await_args.kwargs["run_id"] == "6f1c2f6e-4a1b-4c2e-9f3a-2b1d4e5f6a7b"
+
+
+def test_a_submit_without_a_run_id_still_runs(client, prod_token, submit_mock):
+    """A job with no run row behind it narrates itself on its event stream and
+    writes no ledger — absent, not invalid."""
+    resp = _post(client, _valid_body())
+    assert resp.status_code == 200
+    assert submit_mock.await_args.kwargs["run_id"] is None

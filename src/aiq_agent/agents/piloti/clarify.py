@@ -68,6 +68,7 @@ from aiq_agent.common import get_langchain_llm
 from aiq_agent.common import get_latest_user_query
 from aiq_agent.common import get_model_overrides_from_context
 from aiq_agent.common import get_org_llm_credential_from_context
+from aiq_agent.common import get_reasoning_efforts
 from aiq_agent.common import get_zdr_only_from_context
 from aiq_agent.common import is_verbose
 from aiq_agent.common import load_prompt
@@ -657,6 +658,7 @@ class Clarifier:
         credential = get_org_llm_credential_from_context()
         active = (
             self.provider.with_model_overrides(overrides)
+            .with_reasoning_efforts(get_reasoning_efforts())
             .with_credential(credential)
             .with_zdr(get_zdr_only_from_context())
         )

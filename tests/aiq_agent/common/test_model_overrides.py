@@ -568,3 +568,68 @@ class TestSharedTier:
         cache.set_json(M.shared_model_config_key("org_1"), {"overrides": "nope"}, 60)
         monkeypatch.setattr(M, "_fetch_org_config", lambda org: ({"deep_research": "x-ai/grok-4.5"}, False))
         assert M._resolve_org_config("org_1").overrides == {"deep_research": "x-ai/grok-4.5"}
+
+
+class ThinkingChatModel(FakeChatModel):
+    """Stand-in for a ChatOpenAI built with a YAML ``reasoning_effort``."""
+
+    reasoning_effort: str | None = "medium"
+
+
+class TestProviderWithReasoningEfforts:
+    """Platform → Models pins a thinking level per group; the provider seam must carry it.
+
+    Every user-facing agent resolves its LLMs through ``LLMProvider``, so an
+    effort applied only in ``apply_model_override`` never reached chat, deep
+    research or the compliance check. The seam mirrors ``with_model_overrides``:
+    identity when nothing applies, a copy per affected group otherwise.
+    """
+
+    def _provider(self) -> LLMProvider:
+        provider = LLMProvider()
+        provider.set_default(ThinkingChatModel(model_name="default/model"), group=AgentGroup.DEEP_RESEARCH)
+        provider.configure(
+            LLMRole.ROUTER, ThinkingChatModel(model_name="router/model"), group=AgentGroup.DEEP_RESEARCH_ROUTER
+        )
+        provider.configure(LLMRole.SUMMARIZER, ThinkingChatModel(model_name="untagged/model"))
+        return provider
+
+    def test_identity_when_nothing_is_pinned(self):
+        provider = self._provider()
+        assert provider.with_reasoning_efforts({}) is provider
+        assert provider.with_reasoning_efforts({"shallow_research": "low"}) is provider
+
+    def test_pinned_effort_reaches_every_llm_of_the_group(self):
+        provider = self._provider()
+        derived = provider.with_reasoning_efforts({"deep_research": "low", "deep_research_router": "none"})
+        assert derived is not provider
+        assert derived.get(LLMRole.PLANNER).reasoning_effort == "low"
+        assert derived.get(LLMRole.ROUTER).reasoning_effort == "none"
+        # Untagged roles keep their YAML value: no group, no dial.
+        assert derived.get(LLMRole.SUMMARIZER).reasoning_effort == "medium"
+
+    def test_original_provider_never_mutated(self):
+        provider = self._provider()
+        provider.with_reasoning_efforts({"deep_research": "xhigh"})
+        assert provider.get(LLMRole.PLANNER).reasoning_effort == "medium"
+
+    def test_composes_with_the_model_override(self):
+        """The turn's LLM carries BOTH dials: the org's model and the platform's effort."""
+        provider = self._provider()
+        derived = provider.with_model_overrides({"deep_research": "vendor/deep"}).with_reasoning_efforts(
+            {"deep_research": "high"}
+        )
+        planner = derived.get(LLMRole.PLANNER)
+        assert (planner.model_name, planner.reasoning_effort) == ("vendor/deep", "high")
+
+    def test_applied_efforts_are_logged(self, caplog):
+        provider = self._provider()
+        with caplog.at_level("INFO", logger="aiq_agent.common.llm_provider"):
+            provider.with_reasoning_efforts({"deep_research": "low", "unknown_group": "high"})
+        assert "Reasoning effort active" in caplog.text
+        assert "deep_research" in caplog.text and "unknown_group" not in caplog.text
+
+    def test_untagged_provider_is_never_derived(self):
+        provider = LLMProvider()
+        provider.set_default(ThinkingChatModel())
+        assert provider.with_reasoning_efforts({"deep_research": "low"}) is provider

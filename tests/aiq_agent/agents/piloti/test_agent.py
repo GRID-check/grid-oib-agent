@@ -10,7 +10,6 @@ from langchain_core.messages import HumanMessage
 from langchain_core.tools import tool
 
 from aiq_agent.agents.piloti.agent import PilotiAgent
-from aiq_agent.agents.piloti.agent import _assistant_checkpoint
 from aiq_agent.agents.piloti.answer_pipeline import append_minimal_citation
 from aiq_agent.agents.piloti.models import ResearchAgentState
 from aiq_agent.agents.piloti.repair import VerificationFailures
@@ -27,6 +26,7 @@ from aiq_agent.common.citation_verification import reset_session_registry
 from aiq_agent.common.citation_verification import set_session_registry
 from aiq_agent.common.data_source_registry import populate_from_config
 from aiq_agent.common.data_source_registry import reset_registry
+from aiq_agent.common.retrieval_rounds import assistant_checkpoint
 from tests.fixtures.drafting_turns import COMMISSION
 from tests.fixtures.drafting_turns import FILE
 from tests.fixtures.drafting_turns import REVISE
@@ -3409,18 +3409,18 @@ class TestAssistantCheckpoint:
             content="OIB 3 Pkt. 3.4.2 verweist auf den lichten Einfallswinkel.",
             tool_calls=[{"name": "knowledge_search", "args": {"query": "x"}, "id": "1"}],
         )
-        assert _assistant_checkpoint(message) == ("OIB 3 Pkt. 3.4.2 verweist auf den lichten Einfallswinkel.")
+        assert assistant_checkpoint(message) == ("OIB 3 Pkt. 3.4.2 verweist auf den lichten Einfallswinkel.")
 
     def test_empty_content_is_not_invented(self):
         message = AIMessage(
             content="",
             tool_calls=[{"name": "knowledge_search", "args": {"query": "x"}, "id": "1"}],
         )
-        assert _assistant_checkpoint(message) is None
+        assert assistant_checkpoint(message) is None
 
     def test_a_fenced_answer_is_not_a_checkpoint(self):
         message = AIMessage(content='```answer_json\n{"answer": "x", "kind": "direct"}\n```')
-        assert _assistant_checkpoint(message) is None
+        assert assistant_checkpoint(message) is None
 
 
 class TestRepairRetrievalFailOpen:

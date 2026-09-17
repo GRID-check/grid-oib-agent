@@ -12,7 +12,7 @@
  */
 
 import 'server-only'
-import { and, desc, eq, exists, inArray, isNull, ne, or, sql } from 'drizzle-orm'
+import { and, desc, eq, exists, inArray, isNotNull, isNull, ne, or, sql } from 'drizzle-orm'
 import { getDb } from '@/lib/db'
 import { stripJsonNullBytes } from '@/lib/text/jsonb'
 import {
@@ -456,6 +456,34 @@ export async function listRecentMessagesWithCardDecisions(
   return rows.map((row) => ({ metadata: row.metadata, createdAt: new Date(row.createdAt) }))
 }
 
+/**
+ * The stored `run_ledger` of each run message named, by message id
+ * (ADR-0062). Only the ledger column crosses, not the message: the Tasks list
+ * reads a phase and two tallies off it, and a run's report can be long.
+ *
+ * Bounded by the caller's list — the ids of one page of `task_runs` — and by
+ * `LIMIT` to the same number, so a widened caller cannot turn this into a
+ * table scan. `run_id IS NOT NULL` is the partial index's own predicate
+ * (`idx_messages_run_id`), so the lookup rides it. Tenant-scoped by the
+ * caller's context; the ids come off rows RLS already filtered.
+ *
+ * The values are UNSANITISED jsonb — `sanitizeRunLedger` at the consumer, as
+ * every other reader of this column does.
+ */
+export async function listRunLedgersByMessageIds(
+  messageIds: readonly string[],
+): Promise<Map<string, unknown>> {
+  const ids = [...new Set(messageIds)]
+  if (ids.length === 0) return new Map()
+  const db = getDb()
+  const rows = await db
+    .select({ id: messages.id, ledger: sql<unknown>`${messages.metadata} -> 'run_ledger'` })
+    .from(messages)
+    .where(and(inArray(messages.id, ids), isNotNull(messages.runId)))
+    .limit(ids.length)
+  return new Map(rows.map((row) => [row.id, row.ledger]))
+}
+
 export async function listMessagesForConversation(
   conversationId: string,
   limit = MESSAGE_LIST_LIMIT,
@@ -574,6 +602,45 @@ export async function mergeMessageMetadata(
     const [row] = await tx
       .update(messages)
       .set({ metadata: stripJsonNullBytes(merged) })
+      .where(scope)
+      .returning()
+    return row ?? null
+  })
+}
+
+/**
+ * Fill in a message that already exists: its content, and a metadata merge.
+ *
+ * The one writer is a finished run filling in its own message (`lib/runs/
+ * service.ts`). Every other producer of an assistant turn INSERTS it, which is
+ * why `insertMessages` can no-op on conflict and this cannot: the run's message
+ * is minted empty at submit time, so „upsert" would silently discard the report
+ * it exists to hold.
+ *
+ * Same transaction and same row lock as `mergeMessageMetadata`, for the same
+ * reason — a ledger flush and a report write can be in flight at once, and the
+ * merge is per top-level key so neither erases the other's. Scoped to the
+ * conversation, so a caller that has not resolved that conversation org-scoped
+ * cannot patch another tenant's message by guessing an id. Returns null when the
+ * message is not in that conversation.
+ */
+export async function writeMessageContent(
+  conversationId: string,
+  messageId: string,
+  content: string,
+  metadataPatch: Record<string, unknown>,
+): Promise<Message | null> {
+  const db = getDb()
+  const scope = and(eq(messages.id, messageId), eq(messages.conversationId, conversationId))
+
+  return db.transaction(async (tx) => {
+    const [existing] = await tx.select().from(messages).where(scope).limit(1).for('update')
+    if (!existing) return null
+
+    const merged = { ...((existing.metadata ?? {}) as Record<string, unknown>), ...metadataPatch }
+    const [row] = await tx
+      .update(messages)
+      .set({ content, metadata: stripJsonNullBytes(merged) })
       .where(scope)
       .returning()
     return row ?? null

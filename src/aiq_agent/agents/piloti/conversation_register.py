@@ -49,7 +49,7 @@ from aiq_agent.turn.context import load_turn_context
 from aiq_agent.turn.context import thread_id_for_turn
 from aiq_agent.turn.context import turn_identity
 from aiq_agent.turn.context import user_info_from_principal
-from aiq_agent.turn.dispatch import build_deep_research_job_submitter
+from aiq_agent.turn.dispatch import build_run_commissioner
 from aiq_agent.turn.inventory import Inventory
 from aiq_agent.turn.inventory import load_inventory
 from aiq_agent.turn.inventory import resolve_scope
@@ -215,7 +215,7 @@ async def _build_agent(config: ChatDeepResearcherConfig, builder: Builder) -> Co
         deep_research_fn=deep_fn.ainvoke,
         clarifier_fn=await _build_clarifier(config, builder),
         max_history_tokens=config.max_history_tokens,
-        deep_research_job_submitter=build_deep_research_job_submitter(config),
+        commission_run_fn=build_run_commissioner(config),
         checkpointer=await get_checkpointer(config.checkpoint_db),
         validate_deep_research_tools_fn=_tool_validator(await _deep_research_tools(builder)),
     )

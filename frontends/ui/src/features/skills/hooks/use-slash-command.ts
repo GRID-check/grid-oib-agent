@@ -86,8 +86,13 @@ export function useSlashCommand({
   })
   const pickerRef = useRef<SlashCommandPickerHandle>(null)
 
-  // Nothing is fetched until the user actually types `/`.
-  const { skills, loading, available } = useInvocableSkills(enabled && query !== null)
+  // Nothing is fetched until the user types `/` — or until the text ALREADY
+  // leads with a plausible `/token`, which is how a draft that was restored, or
+  // a task prompt loaded for editing, gets its chip without the author having
+  // to retype the name to be told it is recognised. Shape only; whether the
+  // token names a real skill is still decided against the fetched list.
+  const namesSomething = /^\s*\/[^\s/]+/.test(text)
+  const { skills, loading, available } = useInvocableSkills(enabled && (query !== null || namesSomething))
 
   const names = useMemo(() => skills.map((skill) => skill.name), [skills])
 

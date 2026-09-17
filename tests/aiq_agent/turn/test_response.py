@@ -170,9 +170,9 @@ class TestPostAnswerTurnFacts:
         facts = self._facts(_state(), cards=[{"type": "follow_ups"}, {"type": "checklist"}, {}, "junk"])
         assert facts.emitted_card_types == frozenset({"follow_ups", "checklist"})
 
-    def test_deep_research_stub_and_confidence_cross(self):
-        facts = self._facts(_state(deep_research_job_id="job_1", answer_confidence="high"))
-        assert facts.deep_research_job_id == "job_1"
+    def test_the_commissioned_run_and_confidence_cross(self):
+        facts = self._facts(_state(run_id="run_1", answer_confidence="high"))
+        assert facts.run_id == "run_1"
         assert facts.answer_confidence == "high"
 
     def test_memory_writes_cross(self):

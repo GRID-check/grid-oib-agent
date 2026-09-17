@@ -38,6 +38,7 @@ import {
   Archive,
   AtSign,
   CheckCircle2,
+  Clock,
   EyeOff,
   HardDrive,
   MessageSquare,
@@ -92,6 +93,7 @@ const ICONS: Record<(typeof INBOX_TYPE_PRESENTATION)[keyof typeof INBOX_TYPE_PRE
     'check-circle': CheckCircle2,
     'hard-drive': HardDrive,
     'alert-triangle': AlertTriangle,
+    clock: Clock,
   }
 
 /** Dictionary root for the item-type entries. */

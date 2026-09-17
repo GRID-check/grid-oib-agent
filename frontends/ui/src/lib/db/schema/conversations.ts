@@ -80,6 +80,16 @@ export const conversations = pgTable(
      * (`WHERE job_id IS NOT NULL`) so it does not carry an entry for every human
      * chat. Drizzle's index builder cannot express a partial index, so it lives
      * only in migration 0044 — the same arrangement as `idx_jobs_due`.
+     *
+     * **It is not unique, and it cannot become unique** (migration 0091's
+     * header carries the record). A standing definition owns ONE thread from PR
+     * 1 onwards, but every fire before that stamped its own new conversation
+     * with the same `job_id`, so a unique index would fail at deploy on exactly
+     * the deployments that use scheduled work — and clearing the duplicates'
+     * `job_id` would delete the provenance this column exists for. The
+     * invariant is held upstream instead: the thread's id is derived from the
+     * definition id, so the PRIMARY KEY plus `ON CONFLICT DO NOTHING` makes
+     * „ensure the thread" idempotent.
      */
     jobId: uuid('job_id').references(() => taskDefinitions.id, { onDelete: 'set null' }),
     /**

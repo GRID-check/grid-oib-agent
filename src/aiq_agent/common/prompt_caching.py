@@ -61,7 +61,10 @@ within a turn. Two consequences, both wanted:
 * every call of one turn shares a key, so iteration 2 lands where iteration 1
   wrote its cache;
 * two turns of the same tenant with the same prompt and tools share it too, so
-  the cache survives across turns for as long as the provider keeps it.
+  the cache survives across turns for as long as the provider keeps it;
+* an agent whose system prompt has a stable prefix and a per-turn tail names
+  the prefix (``begin_stable_prefix``), so every turn of the tenant lands on
+  the shard that holds the prefix instead of starting it cold.
 
 The tenant is in the hash rather than left out of it because a cache key is also
 an accounting boundary, and because OpenAI advises partitioning traffic across
@@ -77,6 +80,8 @@ import json
 import logging
 from collections.abc import Mapping
 from collections.abc import Sequence
+from contextvars import ContextVar
+from contextvars import Token
 from typing import Any
 
 logger = logging.getLogger(__name__)
@@ -94,6 +99,38 @@ PROMPT_CACHE_KEY_FIELD = "prompt_cache_key"
 _KEY_PREFIX = "grid"
 
 _DIGEST_CHARS = 24
+
+#: The part of this turn's system prompt that is stable across turns, when the
+#: agent knows it. Piloti's system prompt is a static half (rules, tools,
+#: schema) followed by a dynamic half (the date, the inventory, what this
+#: conversation already read), and the dynamic half changes on every turn of
+#: one conversation by construction. Keyed on the whole message, every turn
+#: got a new key, so the provider re-picked a shard and the static ~10k tokens
+#: started cold. The provider caches by prefix anyway: the shard that holds
+#: the static half is the right one for every turn of the tenant.
+_STABLE_PREFIX: ContextVar[str | None] = ContextVar("prompt_cache_stable_prefix", default=None)
+
+
+def begin_stable_prefix(prefix: str | None) -> Token[str | None]:
+    """Name the stable prefix of this turn's system prompt; pair with ``end_stable_prefix``."""
+    return _STABLE_PREFIX.set(prefix or None)
+
+
+def end_stable_prefix(token: Token[str | None]) -> None:
+    _STABLE_PREFIX.reset(token)
+
+
+def _cacheable_prefix(system_prompt: str) -> str:
+    """What of the system prompt goes into the key: the stable prefix when it leads it.
+
+    A system prompt that does not START with the named prefix is keyed whole,
+    as before: a call from another agent, or a render the prefix no longer
+    matches, must not claim a shard it does not share.
+    """
+    prefix = _STABLE_PREFIX.get()
+    if prefix and system_prompt.startswith(prefix):
+        return prefix
+    return system_prompt
 
 
 def _canonical(value: Any) -> str:
@@ -196,7 +233,7 @@ def prompt_cache_extra_body(
     if system_prompt is None:
         return None
     key = prompt_cache_key(
-        system_prompt=system_prompt,
+        system_prompt=_cacheable_prefix(system_prompt),
         tools=(kwargs.get("tools"), kwargs.get("response_format")),
         organization_id=organization_id,
         model=model,

@@ -127,10 +127,10 @@ def _gate(facts: TurnFacts) -> GateDecision:
     opinion about its own answer. Each failed condition names itself, so the
     gate's own correctness is measurable rather than assumed.
     """
-    if facts.deep_research_job_id:
-        # The chat turn is only a stub; the report path reflects on the worker
-        # once the report exists.
-        return GateDecision.skip("deep_research_job")
+    if facts.run_id:
+        # The turn only commissioned the work; the run reflects on its own
+        # report, on the worker, once that report exists.
+        return GateDecision.skip("commissioned_run")
     if not facts.project_id:
         # The autonomous stage writes project-scoped memory ONLY (audit S1), so
         # an org-only conversation has nothing it may safely write.

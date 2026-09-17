@@ -42,17 +42,16 @@ import type { AuthorizedSession } from '@/lib/auth/types'
 import { requireProjectAccess } from '@/lib/authz/projects'
 import type {
   DelegatableTaskKind,
+  JobOutput,
   NewTaskDefinition,
   TaskDefinition,
   TaskPlan,
   TaskRun,
 } from '@/lib/db/schema'
 import { DELEGATABLE_TASK_KINDS } from '@/lib/db/schema'
-import { submitAgentRun } from '@/lib/jobs/service'
+import { createTaskThread, submitAgentRun } from '@/lib/jobs/service'
 import { JobSubmitError, JobSubmitSkippedError } from '@/lib/jobs/backend-client'
 import { minIntervalMinutesFromEnv, nextOccurrence, validateCron } from '@/lib/jobs/schedule'
-import { resolveSkillSnapshot } from '@/lib/skills/service'
-import type { SkillSnapshot } from '@/lib/skills/types'
 import { emptySkillSnapshot } from '@/lib/jobs/types'
 import * as repository from './repository'
 import { TASK_GOAL_MAX_CHARS } from './wire'
@@ -71,10 +70,27 @@ export { TASK_GOAL_MAX_CHARS }
  */
 export const REVISION_SOURCE_MAX_CHARS = 60_000
 
-/** What one task kind runs on. `skill` and `instruction` are alternatives. */
+/**
+ * What it takes to hand Piloti work in a project.
+ *
+ * One constant, because a second list is a second policy: commissioning a
+ * research run from a chat question and delegating „@Piloti prüf das" are the
+ * same act — a person spending the project's budget and adding to its record —
+ * and they must never drift into two different answers to the same question.
+ */
+export const COMMISSION_PERMISSIONS = ['project:edit', 'project:documents:write'] as const
+
+/**
+ * What one task kind runs on.
+ *
+ * There is no `skill` field any more. It named a skill to resolve, freeze and
+ * paste into the prompt under „Verwende dabei den folgenden Skill verbindlich
+ * und vollständig" — a body in front of the model with no `use_skill` call and
+ * no judgment, which is forcing however the person arrived at it. A kind that
+ * wants a playbook NAMES it in its instruction, the same `/name` a person
+ * types in chat, and the model decides.
+ */
 interface TaskEngine {
-  /** A builtin or org skill to attach, resolved at delegation time and frozen. */
-  readonly skill: string | null
   /**
    * The instruction the run is submitted with, in German because it is read by
    * the same agent the chat surface talks to. `goal` is the requester's own
@@ -93,7 +109,6 @@ const TASK_ENGINES: Record<DelegatableTaskKind, TaskEngine> = {
    * with the retrieval tools it already binds.
    */
   compliance_check: {
-    skill: null,
     instruction: (goal) =>
       [
         'Führe für dieses Projekt eine Normprüfung durch: arbeite mit `knowledge_search` und `read_passage`',
@@ -107,12 +122,18 @@ const TASK_ENGINES: Record<DelegatableTaskKind, TaskEngine> = {
   },
   /**
    * The builtin Einreichcheck skill, whose "Done" section is literally the work
-   * list. Attached by name and snapshotted, exactly as a job attaches one.
+   * list — NAMED, the way a person would name it in the composer, never pasted
+   * in. If the run reads the name and judges the skill wrong for this project,
+   * that judgment is the point; a frozen body would have removed it.
    */
   einreichcheck: {
-    skill: 'einreichcheck',
     instruction: (goal) =>
-      ['Prüfe die Vollständigkeit der Einreichung für dieses Projekt.', '', 'Der Auftrag, wörtlich:', goal].join('\n'),
+      [
+        'Prüfe die Vollständigkeit der Einreichung für dieses Projekt — /einreichcheck.',
+        '',
+        'Der Auftrag, wörtlich:',
+        goal,
+      ].join('\n'),
     title: (goal) => `Einreichcheck: ${goal}`,
   },
   /**
@@ -128,7 +149,6 @@ const TASK_ENGINES: Record<DelegatableTaskKind, TaskEngine> = {
    * session at completion, so the BFF files.
    */
   document: {
-    skill: null,
     instruction: (goal) =>
       [
         'Schreibe das beauftragte Dokument VOLLSTÄNDIG als deine Antwort, in Markdown,',
@@ -152,7 +172,6 @@ const TASK_ENGINES: Record<DelegatableTaskKind, TaskEngine> = {
    * as a second one.
    */
   revision: {
-    skill: null,
     instruction: (goal) =>
       [
         'Eine Person hat einen Entwurf zurückgegeben. Überarbeite ihn nach dem, was sie',
@@ -215,6 +234,16 @@ export interface DelegateTaskInput {
    * is what „@Piloti prüf das" means.
    */
   requester?: { userId: string; email: string | null }
+  /**
+   * The thread the work was commissioned in, when a person was typing in one.
+   *
+   * A run is one message in that thread (ADR-0062), so „@Piloti prüf das bis
+   * Freitag" answers where it was asked instead of in a conversation minted for
+   * it that nobody knows to open. Absent for a delegation nobody typed — a
+   * reviewer's send-back on a version with no origin — and then the definition's
+   * own thread holds the run.
+   */
+  conversationId?: string | null
 }
 
 /**
@@ -245,7 +274,7 @@ export async function delegateTask(
   session: AuthorizedSession,
   input: DelegateTaskInput,
 ): Promise<DelegateTaskResult> {
-  await requireProjectAccess(session, input.projectId, ['project:edit', 'project:documents:write'])
+  await requireProjectAccess(session, input.projectId, [...COMMISSION_PERMISSIONS])
 
   const goal = input.goal.trim()
   if (!goal) throw new UnprocessableError('A task needs a goal')
@@ -284,8 +313,7 @@ export async function delegateTask(
   }
 
   const engine = TASK_ENGINES[input.kind]
-  const skill = engine.skill ? await resolveDelegatedSkill(engine.skill, session.organizationId) : null
-  const prompt = [engine.instruction(goal), sourceBlock(input.sourceText), skillBlock(skill)]
+  const prompt = [engine.instruction(goal), sourceBlock(input.sourceText)]
     .filter(Boolean)
     .join('\n\n')
   const requester = input.requester ?? { userId: session.userId, email: session.email }
@@ -309,7 +337,11 @@ export async function delegateTask(
     title,
     plan: {
       prompt,
-      skill: skill ?? emptySkillSnapshot(),
+      // Always empty. The column records what a job was configured with, and
+      // nothing configures one any more: a kind that wants a playbook names it
+      // in `prompt`. Kept rather than dropped because legacy rows hold real
+      // snapshots and the pair CHECK is theirs.
+      skill: emptySkillSnapshot(),
       dataSources: null,
       goal,
       subject: input.subject ?? null,
@@ -353,7 +385,7 @@ export async function delegateTask(
     trigger: 'delegated',
     triggeredBy: session.userId,
     status: 'queued',
-    skillSnapshot: skill ?? emptySkillSnapshot(),
+    skillSnapshot: emptySkillSnapshot(),
   })
 
   await recordAuditEvent({
@@ -365,7 +397,144 @@ export async function delegateTask(
     metadata: { projectId: input.projectId, kind: input.kind, trigger: 'delegated' },
   })
 
-  return { definition, run: await dispatchRun(definition, run) }
+  return { definition, run: await dispatchRun(definition, run, input.conversationId ?? null) }
+}
+
+/**
+ * What an escalated chat question needs to become a run of its own.
+ *
+ * No kind and no skill: the question IS the prompt, and the deep researcher is
+ * the engine. `conversationId` is the thread the person asked in — an
+ * escalation always has one, which is why this never mints a thread the way a
+ * reviewer's send-back does.
+ */
+export interface CommissionResearchInput {
+  projectId: string
+  conversationId: string
+  /** The question as the turn restated it for the researcher. It IS the prompt. */
+  question: string
+  /**
+   * What the commissioning turn already established with the person — the
+   * clarifier's exchange, verbatim. Composed BELOW the question, so the run
+   * starts where the conversation got to instead of asking it all again.
+   */
+  context?: string | null
+}
+
+/** Where the commissioned run narrates itself, for the turn that commissioned it. */
+export interface CommissionedResearchRun {
+  runId: string
+  /** The run's message in the thread, or null when it could not be minted. */
+  runMessageId: string | null
+  conversationId: string
+  /** `queued` never survives this call: `running` when the worker took it, `failed` when it refused. */
+  status: TaskRun['status']
+}
+
+/**
+ * Commission a research run from a question somebody asked in a thread
+ * (ADR-0062: a run is one message in the thread that commissioned it).
+ *
+ * ## Why an escalated question is a run at all
+ *
+ * It was one already, in every way except the record: minutes of work, a
+ * budget, a report that outlives the turn. What it lacked was a row, so it
+ * could not be listed, stopped, filed, resumed or even named — the thread held
+ * a stub sentence and a job id, and nothing else knew it existed. One row fixes
+ * all of that at once, because every surface already reads runs.
+ *
+ * ## No definition
+ *
+ * A standing intent is something a person stated once and expects again; a
+ * question asked in passing is not that. The row therefore carries no
+ * `definitionId` — the column is nullable for exactly this case — and the run
+ * is its own whole story: `plan.prompt` is the question, `title` is the
+ * question shortened, and the Aufträge index shows it beside the scheduled
+ * ones with nothing missing but a cadence it never had.
+ *
+ * ## The gate is the delegation gate
+ *
+ * `COMMISSION_PERMISSIONS`, the same list `delegateTask` asks for. Escalating a
+ * question spends the project's budget and adds to its record exactly as
+ * handing over a task does, and a second, softer answer here would be a way
+ * around the first one.
+ *
+ * Never throws for a submission that failed: the run is a `failed` row with
+ * the reason, and the block in the thread says so. It DOES throw when the
+ * caller may not commission at all — that is the turn's answer to change, not
+ * a run to record.
+ */
+export async function commissionResearchRun(
+  session: AuthorizedSession,
+  input: CommissionResearchInput,
+): Promise<CommissionedResearchRun> {
+  await requireProjectAccess(session, input.projectId, [...COMMISSION_PERMISSIONS])
+
+  const question = input.question.trim()
+  if (!question) throw new UnprocessableError('A research run needs a question')
+  if (question.length > TASK_GOAL_MAX_CHARS) {
+    throw new UnprocessableError(`A question is at most ${TASK_GOAL_MAX_CHARS} characters`)
+  }
+
+  const context = input.context?.trim()
+  const plan: TaskPlan = {
+    prompt: context ? `${question}\n\n${CONTEXT_HEADING}\n${context}` : question,
+    skill: emptySkillSnapshot(),
+    dataSources: null,
+    goal: question,
+    subject: null,
+  }
+  const queued = await repository.insertRun({
+    organizationId: session.organizationId,
+    projectId: input.projectId,
+    // No definition: see above.
+    definitionId: null,
+    kind: 'deep-research',
+    title: researchTitle(question),
+    plan,
+    requesterUserId: session.userId,
+    requesterEmail: session.email,
+    trigger: 'delegated',
+    triggeredBy: session.userId,
+    status: 'queued',
+    skillSnapshot: emptySkillSnapshot(),
+  })
+
+  await recordAuditEvent({
+    organizationId: session.organizationId,
+    actor: { userId: session.userId, email: session.email },
+    action: 'task.created',
+    targetType: 'task',
+    targetId: queued.id,
+    metadata: { projectId: input.projectId, kind: 'deep-research', trigger: 'delegated' },
+  })
+
+  const run = await submitQueuedRun(queued, {
+    thread: () => Promise.resolve(input.conversationId),
+    output: 'deep-research',
+  })
+  return {
+    runId: run.id,
+    runMessageId: run.runMessageId,
+    conversationId: run.conversationId ?? input.conversationId,
+    status: run.status,
+  }
+}
+
+/**
+ * The question as a run's title: its first sentence, bounded.
+ *
+ * A title is read in a list, so it is the shortest thing that still names the
+ * work. The question's own first sentence is that — no rewrite, because a
+ * rewritten title is a second account of what was asked.
+ */
+/** What the composed prompt calls the block of things already settled. */
+const CONTEXT_HEADING = 'Was in der Unterhaltung bereits geklärt wurde:'
+
+function researchTitle(question: string): string {
+  const firstSentence = question.split(/(?<=[.?!])\s/)[0]?.trim() || question
+  const shown = firstSentence.length > 0 ? firstSentence : question
+  return shown.length > 200 ? `${shown.slice(0, 199).trimEnd()}…` : shown
 }
 
 /**
@@ -377,27 +546,60 @@ export async function delegateTask(
  * running inside a reviewer's request — to invent a second way of saying the
  * same thing.
  */
-async function dispatchRun(definition: TaskDefinition, run: TaskRun): Promise<TaskRun> {
+async function dispatchRun(
+  definition: TaskDefinition,
+  run: TaskRun,
+  originConversationId: string | null,
+): Promise<TaskRun> {
+  // The thread the work was commissioned in. „@Piloti prüf das" belongs in the
+  // conversation it was said in — that is where the person is looking, and
+  // where the follow-up question will be asked. Only a delegation nobody typed
+  // (a reviewer's send-back on a version filed outside any thread) needs a
+  // place of its own, and then the definition's own thread is that place.
+  return submitQueuedRun(run, {
+    thread: () => (originConversationId ? Promise.resolve(originConversationId) : createTaskThread(definition)),
+    // Every delegated kind runs as a chat output: the work lands in a real
+    // thread, which is where a draft card and a follow-up question can live.
+    output: 'chat',
+  })
+}
+
+/** How a queued run reaches the worker: which thread it narrates in, and what runs it. */
+interface DispatchTarget {
+  /** The conversation the run's block goes in, resolved only once the submit begins. */
+  thread: () => Promise<string | null>
+  output: JobOutput
+}
+
+/**
+ * Submit one queued run and record what came back — the half both callers share.
+ *
+ * Never throws, for the reason above: the failure has to survive as a row.
+ */
+async function submitQueuedRun(run: TaskRun, target: DispatchTarget): Promise<TaskRun> {
   try {
-    const { backendJobId, conversationId } = await submitAgentRun({
+    const conversation = await target.thread()
+    const { backendJobId, conversationId, runMessageId } = await submitAgentRun({
       organizationId: run.organizationId,
       projectId: run.projectId,
       userId: run.requesterUserId,
       ownerEmail: run.requesterEmail,
+      // The run's own title („Normprüfung: …"), the same string the Aufträge
+      // index shows, so the block in the thread and the card name one run alike.
+      title: run.title,
       prompt: run.plan.prompt,
       skillSnapshot: run.skillSnapshot.name ? run.skillSnapshot : null,
-      // Every delegated kind runs as a chat output: the work lands in a real
-      // thread, which is where a draft card and a follow-up question can live.
-      output: 'chat',
+      output: target.output,
       dataSources: run.plan.dataSources,
-      conversationTitle: definition.title,
-      jobId: null,
+      runId: run.id,
+      conversationId: conversation,
     })
     return (
       (await repository.updateRun(run.id, run.organizationId, {
         status: 'running',
         backendJobId,
         conversationId,
+        runMessageId,
         startedAt: new Date(),
       })) ?? run
     )
@@ -408,7 +610,7 @@ async function dispatchRun(definition: TaskDefinition, run: TaskRun): Promise<Ta
         : error instanceof Error
           ? error.message
           : 'Unexpected error while preparing the run'
-    console.error('[runs] could not submit the run for definition', definition.id, error)
+    console.error('[runs] could not submit run', run.id, error)
     return (
       (await repository.updateRun(run.id, run.organizationId, {
         status: 'failed',
@@ -438,42 +640,5 @@ function sourceBlock(text: string | null | undefined): string {
     shown,
     '```',
     ...(cut ? ['', 'Diese Fassung ist hier gekürzt; der Rest steht unverändert im Projekt.'] : []),
-  ].join('\n')
-}
-
-/** The attached skill's frozen snapshot, or a refusal naming it. */
-async function resolveDelegatedSkill(name: string, organizationId: string): Promise<SkillSnapshot> {
-  try {
-    return await resolveSkillSnapshot(name, organizationId)
-  } catch (error) {
-    if (error instanceof NotFoundError || error instanceof ForbiddenError) {
-      throw new UnprocessableError(`The skill "${name}" is not available to this organization`)
-    }
-    throw error
-  }
-}
-
-/**
- * The skill body, appended the way `buildFirePrompt` appends it.
- *
- * The same words in the same order, because the run is submitted the same way a
- * job's is and a second wording would be a second contract for the model to
- * learn. It is a small duplication of `buildFirePrompt` and a deliberate one:
- * that function is pinned byte-for-byte against the job builder's WYSIWYG
- * preview (`features/skills/lib/fire-prompt-preview.ts`), and a delegated task
- * has no preview pane to keep in step with.
- */
-function skillBlock(skill: SkillSnapshot | null): string {
-  if (!skill) return ''
-  return [
-    '---',
-    '',
-    'Verwende dabei den folgenden Skill verbindlich und vollständig.',
-    '',
-    `Skill: ${skill.name}`,
-    `Beschreibung: ${skill.description}`,
-    '',
-    skill.body,
-    '---',
   ].join('\n')
 }

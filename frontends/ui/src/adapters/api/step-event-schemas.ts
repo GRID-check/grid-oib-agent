@@ -111,11 +111,13 @@ export const StepEventPayloadSchema = z
     title: z.string().optional().catch(undefined),
     description: z.string().optional().catch(undefined),
     origin: z.string().optional().catch(undefined),
-    /** `activated` only — the USER named this skill rather than the model. */
-    forced: z.boolean().optional().catch(undefined),
     offered_count: z.number().optional().catch(undefined),
-    forced_names: z.array(z.string()).optional().catch(undefined),
     body_chars: z.number().optional().catch(undefined),
+    // No `forced` and no `forced_names`. Nothing produces them: forcing was
+    // deleted from the agent tier with the `standard` delivery and the
+    // envelope's skill array (ADR-0060), and `SkillEvent` carries no such
+    // field. `.passthrough()` above means an old payload that still had them
+    // is still accepted; it is simply not lifted, because nothing read it.
   })
   .passthrough()
 

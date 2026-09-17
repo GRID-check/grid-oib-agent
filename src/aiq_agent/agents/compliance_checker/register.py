@@ -34,6 +34,7 @@ from aiq_agent.common import VerboseTraceCallback
 from aiq_agent.common import get_langchain_llm
 from aiq_agent.common import get_model_overrides_from_context
 from aiq_agent.common import get_org_llm_credential_from_context
+from aiq_agent.common import get_reasoning_efforts
 from aiq_agent.common import get_zdr_only_from_context
 from aiq_agent.common import is_verbose
 from aiq_agent.knowledge.scoping import get_scoped_collections_from_context
@@ -108,9 +109,10 @@ def project_documents_in_scope() -> bool:
 
 
 def _active_llm(provider: LLMProvider) -> BaseChatModel:
-    """Per-org runtime model overrides (X-Grid-Model-Overrides) + BYOK (ADR-0022) + ZDR, as the other agents do."""
+    """Per-org model overrides + platform thinking level + BYOK (ADR-0022) + ZDR, as the other agents do."""
     return (
         provider.with_model_overrides(get_model_overrides_from_context())
+        .with_reasoning_efforts(get_reasoning_efforts())
         .with_credential(get_org_llm_credential_from_context())
         .with_zdr(get_zdr_only_from_context())
         .get(LLMRole.RESEARCHER)

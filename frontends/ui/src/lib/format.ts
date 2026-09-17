@@ -208,6 +208,31 @@ export const formatDurationShort = (seconds: number, locale?: string): string =>
 }
 
 /**
+ * A duration that already happened ("12 s", "3 min", "1,2 h"), as a fact.
+ *
+ * `formatDurationShort` rounds seconds UP to the next five because it states an
+ * estimate of what is still to come, where „15 s" is honest and „12 s" is
+ * false precision. A phase that took twelve seconds took twelve, so this one
+ * keeps the figure and only changes unit once the number would stop being
+ * readable — whole minutes under an hour, one decimal above.
+ */
+export const formatDurationElapsed = (seconds: number, locale?: string): string => {
+  const safe = Number.isFinite(seconds) && seconds > 0 ? seconds : 0
+  const unit: Intl.NumberFormatOptions['unit'] =
+    safe < 60 ? 'second' : safe < 3600 ? 'minute' : 'hour'
+  const value =
+    unit === 'second' ? Math.round(safe) : unit === 'minute' ? Math.round(safe / 60) : safe / 3600
+
+  return new Intl.NumberFormat(locale, {
+    style: 'unit',
+    unit,
+    unitDisplay: 'short',
+    minimumFractionDigits: 0,
+    maximumFractionDigits: unit === 'hour' ? 1 : 0,
+  }).format(value)
+}
+
+/**
  * A transfer rate ("4.2 MB/s" / "4,2 MB/s"), built from the shared byte
  * formatter so a speed and a size are punctuated identically on the same row.
  */

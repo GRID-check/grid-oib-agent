@@ -214,6 +214,18 @@ export const taskRuns = pgTable(
     backendJobId: text('backend_job_id'),
     /** The conversation an `output: 'chat'` run wrote into. */
     conversationId: text('conversation_id'),
+    /**
+     * The assistant message this run writes its ledger — and its report — into,
+     * in the conversation the work was commissioned in (migration 0091,
+     * ADR-0062).
+     *
+     * Minted deterministically from the run id (uuid5, `createRunMessage` in
+     * `lib/runs/service.ts`), so a retried submit finds the same message instead
+     * of writing a second one. Nullable and no foreign key: every run that
+     * predates 0091 has none, and a run whose conversation was deleted keeps its
+     * own history rather than cascading away with it.
+     */
+    runMessageId: uuid('run_message_id'),
     /** The document the result was filed as, when it was. */
     filedDocumentId: uuid('filed_document_id'),
     filingStatus: text('filing_status').$type<TaskFilingStatus>(),

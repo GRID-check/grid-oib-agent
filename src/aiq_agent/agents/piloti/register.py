@@ -29,6 +29,7 @@ from aiq_agent.common import get_all_tool_refs
 from aiq_agent.common import get_langchain_llm
 from aiq_agent.common import get_model_overrides_from_context
 from aiq_agent.common import get_org_llm_credential_from_context
+from aiq_agent.common import get_reasoning_efforts
 from aiq_agent.common import get_zdr_only_from_context
 from aiq_agent.common import is_verbose
 from aiq_agent.common import unavailable_source_ids
@@ -256,6 +257,14 @@ async def _read_org_credential():
         return None
 
 
+async def _read_reasoning_efforts() -> dict[str, str]:
+    try:
+        return await asyncio.to_thread(get_reasoning_efforts)
+    except Exception:  # noqa: BLE001 - a lost effort costs the thinking level, never the turn
+        logger.debug("Reasoning-efforts lookup failed; continuing with the configured levels", exc_info=True)
+        return {}
+
+
 async def _read_zdr_only() -> bool:
     try:
         return await asyncio.to_thread(get_zdr_only_from_context)
@@ -272,24 +281,31 @@ async def _read_zdr_only() -> bool:
 
 
 async def _active_provider(provider: LLMProvider) -> LLMProvider:
-    """Per-org model overrides + BYOK credential + ZDR (ADR-0022).
+    """Per-org model overrides + platform thinking level + BYOK credential + ZDR (ADR-0022).
 
     Each returns the boot provider unchanged when inactive, so the agent's
     identity check keeps the boot binding on a turn that overrides nothing.
 
-    The three lookups are header-first but each falls back to a blocking BFF
-    call (5s timeout, 60s in-process TTL), so a cold miss used to freeze the
-    event loop for every turn on the replica. Each runs on its own thread hop
-    and fails open (the ZDR bit closed) on its own, so the three overlap and
-    one bad reader costs its own value -- never the turn, and never the other
-    two. ContextVars travel with each hop.
+    The lookups are header-first (the platform efforts are cache-first) but
+    each falls back to a blocking BFF call (5s timeout, 60s in-process TTL),
+    so a cold miss used to freeze the event loop for every turn on the
+    replica. Each runs on its own thread hop and fails open (the ZDR bit
+    closed) on its own, so they overlap and one bad reader costs its own
+    value -- never the turn, and never the others. ContextVars travel with
+    each hop.
     """
-    model_overrides, org_credential, zdr_only = await asyncio.gather(
+    model_overrides, efforts, org_credential, zdr_only = await asyncio.gather(
         _read_model_overrides(),
+        _read_reasoning_efforts(),
         _read_org_credential(),
         _read_zdr_only(),
     )
-    return provider.with_model_overrides(model_overrides).with_credential(org_credential).with_zdr(zdr_only)
+    return (
+        provider.with_model_overrides(model_overrides)
+        .with_reasoning_efforts(efforts)
+        .with_credential(org_credential)
+        .with_zdr(zdr_only)
+    )
 
 
 def _skills_block(runtime: SkillRuntime) -> str:

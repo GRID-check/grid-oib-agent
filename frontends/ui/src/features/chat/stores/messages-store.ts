@@ -232,6 +232,17 @@ export type MessagesSlice = {
     meta: Partial<ChatMessage>,
     cards?: (GridCard | undefined)[]
   ) => string
+  /**
+   * Put a run's own message into the open thread, exactly as the server wrote
+   * it (ADR-0062).
+   *
+   * Its id is the SERVER's, not a fresh one: the run's message already exists —
+   * the BFF minted it when the run was commissioned — so this adopts a row
+   * rather than creating one, and a second copy with a local id would be a
+   * second block for one run. Idempotent by that id: a reload that raced this
+   * changes nothing.
+   */
+  adoptRunMessage: (message: ChatMessage) => void
   patchConversationMessage: (
     conversationId: string,
     messageId: string,
@@ -1791,6 +1802,27 @@ export const createMessagesSlice: StateCreator<ChatStore, [["zustand/devtools", 
     )
 
     return messageId
+  },
+
+  adoptRunMessage: (message: ChatMessage) => {
+    const { currentConversation, conversations } = get()
+    if (!currentConversation) return
+    if (currentConversation.messages.some((existing) => existing.id === message.id)) return
+
+    const updatedConversation: Conversation = {
+      ...currentConversation,
+      messages: [...currentConversation.messages, message],
+      updatedAt: new Date(),
+    }
+
+    set(
+      {
+        currentConversation: updatedConversation,
+        conversations: updateConversationInList(conversations, updatedConversation),
+      },
+      false,
+      'adoptRunMessage'
+    )
   },
 
   patchConversationMessage: (

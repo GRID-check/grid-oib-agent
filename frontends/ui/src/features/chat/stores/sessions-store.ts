@@ -30,7 +30,11 @@ import {
   clearDeepResearchSession,
 } from '../lib/deep-research-session-storage'
 import { hasActiveDeepResearchJob, hasNoUserChatMessages } from '../lib/session-activity'
-import { conversationMatchesProject, isJobConversation } from '../lib/project-scope'
+import {
+  conversationMatchesProject,
+  isHiddenJobConversation,
+  isJobConversation,
+} from '../lib/project-scope'
 import { mapServerMessagesToChatMessages } from '../lib/server-message-mapper'
 import { encodeCitations } from '../lib/citations'
 import type { CardInteractions } from '@/features/grid-cards/card-decision'
@@ -537,7 +541,7 @@ export const createSessionsSlice: StateCreator<ChatStore, [["zustand/devtools", 
           (c) =>
             c.userId === userId &&
             conversationMatchesProject(c, projectId) &&
-            !isJobConversation(c)
+            !isHiddenJobConversation(c)
         )
       : []
     const newCurrentConversation = shouldClearCurrent
@@ -592,15 +596,16 @@ export const createSessionsSlice: StateCreator<ChatStore, [["zustand/devtools", 
     // Scoped to the active project context; legacy sessions without a
     // projectId fail open (see lib/project-scope.ts).
     //
-    // Job conversations are excluded: they are the OUTPUT of a scheduled job,
-    // not chats this person started, and a weekly job would otherwise put 52
+    // The old PER-FIRE job conversations are excluded: they are the OUTPUT of a
+    // scheduled job, not chats this person started, and a weekly job put 52
     // threads a year into their history. They stay reachable by URL and from
-    // the job's run history — see `isJobConversation`.
+    // the job's run history. A standing task's ONE thread is not one of them and
+    // is shown — see `isHiddenJobConversation`.
     return conversations.filter(
       (c) =>
         c.userId === currentUserId &&
         conversationMatchesProject(c, projectId) &&
-        !isJobConversation(c)
+        !isHiddenJobConversation(c)
     )
   },
 
@@ -977,10 +982,13 @@ export const createSessionsSlice: StateCreator<ChatStore, [["zustand/devtools", 
     // (fail-open display rule, see lib/project-scope.ts). Sessions stamped
     // with a DIFFERENT project are never touched, so "delete all" cannot
     // silently wipe another project's history (UX-8).
-    // Job conversations are excluded for the same reason they are hidden from
-    // the list: "delete all" must mean exactly what the panel showed, and a
-    // job's output belongs to the job (and to everyone with project:view),
-    // not to whoever happens to own the job.
+    // EVERY job conversation is excluded here, including the standing task
+    // thread the list above now shows. „Delete all" usually means exactly what
+    // the panel showed; this is the one place it deliberately means less. A
+    // task's thread is the shared record of work that keeps running — it belongs
+    // to the project and to everyone with project:view — and clearing one
+    // person's chat history must not take the Wochencheck's whole history with
+    // it. Deleting it is a deliberate act on that thread, not a side effect.
     const isInScope = (c: Conversation): boolean =>
       c.userId === currentUserId &&
       conversationMatchesProject(c, projectId) &&

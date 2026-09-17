@@ -1356,6 +1356,36 @@
         "ris-source-unreachable.dark.png"
       ]
     },
+    "run-block": {
+      "route": "src/app/dev/run-block/page.tsx",
+      "routeHash": "ded756e682a7966a42b9ebe5167f7653f25a47b2f40422e73701c60a2b9f3e37",
+      "shots": [
+        "run-block.light.png",
+        "run-block.dark.png",
+        "run-block.mobile.light.png",
+        "run-block.mobile.dark.png"
+      ]
+    },
+    "run-block-live": {
+      "route": "src/app/dev/run-block/page.tsx",
+      "routeHash": "ded756e682a7966a42b9ebe5167f7653f25a47b2f40422e73701c60a2b9f3e37",
+      "shots": [
+        "run-block-live.light.png",
+        "run-block-live.dark.png",
+        "run-block-live.mobile.light.png",
+        "run-block-live.mobile.dark.png"
+      ]
+    },
+    "run-block-transition": {
+      "route": "src/app/dev/run-block/page.tsx",
+      "routeHash": "ded756e682a7966a42b9ebe5167f7653f25a47b2f40422e73701c60a2b9f3e37",
+      "shots": [
+        "run-block-transition.light.png",
+        "run-block-transition.dark.png",
+        "run-block-transition.mobile.light.png",
+        "run-block-transition.mobile.dark.png"
+      ]
+    },
     "schedule-panel": {
       "route": "src/app/dev/schedule-panel/page.tsx",
       "routeHash": "d8e7478b4c1f80a08e668a732d5979c38d23bc3fb8216e1d217d7c7fe397a761",
@@ -1534,6 +1564,14 @@
         "skill-activation.mobile.dark.png"
       ]
     },
+    "skill-builder": {
+      "route": "src/app/dev/skill-editor/page.tsx",
+      "routeHash": "8d8b00b07fca8a70a3b7de9961397eb8682d690a69803fb1e4d5598c61046bf2",
+      "shots": [
+        "skill-builder.light.png",
+        "skill-builder.dark.png"
+      ]
+    },
     "skill-composer": {
       "route": "src/app/dev/skill-composer/page.tsx",
       "routeHash": "7f8f0333e0ba480ace436d2286ca3b52811e242f7a8bc41850e2d4a1c1b46bd1",
@@ -1554,7 +1592,7 @@
     },
     "skill-editor": {
       "route": "src/app/dev/skill-editor/page.tsx",
-      "routeHash": "b7b48537dfe06e03fbfa024736116e2c1cf6b283fb123b52797c5c00fa626fdd",
+      "routeHash": "8d8b00b07fca8a70a3b7de9961397eb8682d690a69803fb1e4d5598c61046bf2",
       "shots": [
         "skill-editor.light.png",
         "skill-editor.dark.png"
@@ -1562,7 +1600,7 @@
     },
     "skill-editor-advanced": {
       "route": "src/app/dev/skill-editor-advanced/page.tsx",
-      "routeHash": "8719cce29d4d3f728b143785d6152fe8eaf87ddac2c4425874f7f2354402d4ee",
+      "routeHash": "12e6c9c5928a0a81a0836b379ff19c13d71c303c88611ca89f4becc7294d86d2",
       "shots": [
         "skill-editor-advanced.light.png",
         "skill-editor-advanced.dark.png"
@@ -1606,9 +1644,27 @@
         "task-created-card.mobile.dark.png"
       ]
     },
+    "task-detail": {
+      "route": "src/app/dev/task-detail/page.tsx",
+      "routeHash": "76029f1349282c4af1954415a5da9e0e5575ddcc5921f33c7fbd13d9e82b3cc2",
+      "shots": [
+        "task-detail.light.png",
+        "task-detail.dark.png",
+        "task-detail.mobile.light.png",
+        "task-detail.mobile.dark.png"
+      ]
+    },
+    "task-detail-legacy": {
+      "route": "src/app/dev/task-detail/page.tsx",
+      "routeHash": "76029f1349282c4af1954415a5da9e0e5575ddcc5921f33c7fbd13d9e82b3cc2",
+      "shots": [
+        "task-detail-legacy.light.png",
+        "task-detail-legacy.dark.png"
+      ]
+    },
     "task-list": {
       "route": "src/app/dev/task-list/page.tsx",
-      "routeHash": "c4b8aa0b50a5162337b1ffd885998e29ba064db62296cc72d1f4dcb7bac4d64f",
+      "routeHash": "aa2f4c12d27c19dc521d3e3ee891d3a5472e10b5a715174e6d30134035e8d8a3",
       "shots": [
         "task-list.light.png",
         "task-list.dark.png",

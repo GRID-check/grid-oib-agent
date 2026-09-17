@@ -25,6 +25,7 @@ const task = (overrides: Partial<TaskWireRow> = {}): TaskWireRow => ({
   reviewReason: null,
   filedDocumentId: null,
   conversationId: null,
+  runMessageId: null,
   backendJobId: null,
   trigger: 'delegated',
   requesterUserId: 'user_anna',
@@ -58,6 +59,59 @@ describe('a task card', () => {
     expect(screen.getByText('Fasse die Fluchtweglängen für die Einreichung zusammen')).toBeInTheDocument()
     expect(screen.getByTestId('task-kind')).toHaveTextContent('Document')
     expect(screen.getByTestId('task-status')).toHaveTextContent('Running')
+  })
+
+  test('wears the run block’s own line — glyph, status word, tallies — under the title', () => {
+    const runSummary = { status: 'laeuft' as const, rounds: 3, docs: 9 }
+    const { rerender } = list({ tasks: [task({ status: 'running', runSummary })] })
+    const line = screen.getByTestId('run-block-line')
+    expect(line).toHaveAttribute('data-status', 'laeuft')
+    expect(screen.getByTestId('run-glyph-laeuft')).toBeInTheDocument()
+    // The spinner speaks its label too, so the text is matched, not anchored.
+    expect(line).toHaveTextContent('Running · 3 rounds · 9 documents')
+    // No title (the heading is the title) and no link (the tray's is).
+    expect(screen.queryByTestId('run-line-open')).not.toBeInTheDocument()
+
+    // A run that is starting: the word alone, and zero tallies are left out
+    // rather than shown as zeros.
+    rerender(
+      <TaskList
+        projectId="p1"
+        tasks={[task({ status: 'queued', runSummary: { status: 'angelegt', rounds: 0, docs: 0 } })]}
+        filter={'all' as TaskFilter}
+        onFilterChange={vi.fn()}
+        onSelectTask={vi.fn()}
+      />,
+    )
+    expect(screen.getByTestId('run-block-line')).not.toHaveTextContent('round')
+
+    // Finished: the same line with the block's word for done, dated by when
+    // it finished — the tallies say how much work stands behind the result.
+    rerender(
+      <TaskList
+        projectId="p1"
+        tasks={[
+          task({
+            status: 'succeeded',
+            finishedAt: '2026-09-16T05:00:00.000Z',
+            runSummary: { ...runSummary, status: 'fertig' },
+          }),
+        ]}
+        filter={'all' as TaskFilter}
+        onFilterChange={vi.fn()}
+        onSelectTask={vi.fn()}
+      />,
+    )
+    const done = screen.getByTestId('run-block-line')
+    expect(done).toHaveAttribute('data-status', 'fertig')
+    expect(done).toHaveTextContent(/^Done · 3 rounds · 9 documents · /)
+    expect(screen.getByTestId('run-glyph-fertig')).toBeInTheDocument()
+    expect(done.querySelector('time')).toHaveAttribute('datetime', '2026-09-16T05:00:00.000Z')
+  })
+
+  test('shows no run line for a row that has no run message', () => {
+    list({ tasks: [task({ status: 'succeeded' })] })
+    expect(screen.queryByTestId('run-block-line')).not.toBeInTheDocument()
   })
 
   test('the WHOLE card opens the detail, not a hover-underlined title', async () => {

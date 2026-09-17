@@ -429,7 +429,16 @@ half right and one was a wrong diagnosis, which is worth keeping:
   derived from the request's own stable prefix — tenant, model, system prompt,
   tool set — and attached in the seam this section already named,
   `common/llm_factory`. `provider.order` stays unset on purpose: a manual order
-  *disables* sticky routing.
+  *disables* sticky routing. One correction since (2026-09-16): "system prompt"
+  there meant the whole first system message, and Piloti's dynamic half (the
+  already-read digest, the date) changes on every turn of one conversation by
+  construction, so every turn drew a new key and the ~10k-token static half
+  started cold on each turn's first call. The turn now names its static half
+  as the stable prefix (`begin_stable_prefix`, set in `agent.run()` from what
+  `stamp_static_prompt_for_turn` rendered), and only that goes into the key;
+  a system prompt that does not open with the named prefix is keyed whole as
+  before. Confirm on a follow-up turn: `input_cached_tokens` on its first
+  generation should now be near the static half's size instead of zero.
 - `cached_tokens` was being read (`cost_tracking`, `langfuse_trace_attributes`)
   and arriving as zero for a reason neither had to do with caching: on
   `api_type: responses` langchain-openai drops the provider usage object

@@ -5,7 +5,7 @@ off the finished ``ChatResponse`` and onto the terminal ``ChatResponseChunk``.
 The aiq_api handler then pulls names back off that chunk and attaches them to
 the websocket frame — via ``_TRANSPARENCY_EXTRA_FIELDS``,
 ``_SKILLS_EXTRA_FIELDS``, and the four hand-written lifts (``cards``,
-``deep_research_job_id``, ``answer_confidence``, ``sources``).
+``run_id``, ``answer_confidence``, ``sources``).
 
 Both halves are Python lists of strings that must agree, and NOTHING watched
 them agree. Rename one entry here — ``"research_truncated"`` to

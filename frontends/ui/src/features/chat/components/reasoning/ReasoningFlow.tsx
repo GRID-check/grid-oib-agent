@@ -175,6 +175,15 @@ import type { ChoicePrompt } from './citations'
 
 /** Hidden connection handle (edges anchor to it; the dot itself is invisible). */
 const H = { opacity: 0, width: 1, height: 1, minWidth: 0, minHeight: 0, border: 'none', background: 'transparent' } as const
+/**
+ * The edge ink: foreground at 18%, mixed rather than a token so it sits on any
+ * surface (muted, card, popover) in both themes without a second variable.
+ *
+ * It lived in `components/ui/timeline.tsx` while the run block drew a connected
+ * phase list with the same mix. That list is now hairline-separated rows
+ * (`ItemList`), so the graph is the only surface left that strokes an edge, and
+ * the constant lives where it is used.
+ */
 const EDGE_STROKE = 'color-mix(in oklch, var(--foreground) 18%, transparent)'
 
 /** One anchor point on a banner edge: a handle id + its x offset within the node. */

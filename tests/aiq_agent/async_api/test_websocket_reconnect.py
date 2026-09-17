@@ -784,7 +784,7 @@ class _RespContent(BaseModel):
 class _RespMessage(BaseModel):
     content: _RespContent
     cards: list | None = None
-    deep_research_job_id: str | None = None
+    run_id: str | None = None
     answer_confidence: str | None = None
 
 
@@ -866,7 +866,6 @@ async def test_persist_assistant_message_posts_expected_payload(monkeypatch) -> 
         text="The finished answer [1].",
         organization_id="org-1",
         cards=[{"type": "summary", "title": "T"}],
-        deep_research_job_id="job-9",
         answer_confidence="high",
         answer_confidence_reason="Direkt durch OIB-RL 2 belegt",
     )
@@ -885,7 +884,6 @@ async def test_persist_assistant_message_posts_expected_payload(monkeypatch) -> 
     assert body["messageType"] == "agent_response"
     assert body["id"] == websocket_reconnect.deterministic_assistant_message_id("conv-1", "user-msg-1")
     assert body["metadata"]["cards"] == [{"type": "summary", "title": "T"}]
-    assert body["metadata"]["deep_research_job_id"] == "job-9"
     assert body["metadata"]["answer_confidence"] == "high"
     assert body["metadata"]["answer_confidence_reason"] == "Direkt durch OIB-RL 2 belegt"
 

@@ -11,7 +11,6 @@ from aiq_agent.skills.models import SkillValidationError
 from aiq_agent.skills.models import build_skill_from_payload
 from aiq_agent.skills.models import parse_skill_md
 from aiq_agent.skills.models import preferred_cards
-from aiq_agent.skills.models import skill_auto_invoke
 from aiq_agent.skills.models import skill_hidden
 from aiq_agent.skills.models import skill_title
 
@@ -271,7 +270,6 @@ def test_unquoted_yaml_bool_metadata_is_coerced_to_a_string() -> None:
     assert parse_skill_md(hidden).metadata["grid-hidden"] == "true"
 
     off = VALID_MD.replace("  grid-agents: researcher", "  grid-auto-invoke: false")
-    assert skill_auto_invoke(parse_skill_md(off).metadata) is False
     assert parse_skill_md(off).metadata["grid-auto-invoke"] == "false"
 
 
@@ -333,23 +331,21 @@ def _with_auto_invoke(value: str) -> str:
     return VALID_MD.replace("  grid-agents: researcher", f'  grid-auto-invoke: "{value}"')
 
 
-def test_grid_auto_invoke_falsy_tokens_store_the_opt_out() -> None:
+# `grid-auto-invoke` is TOLERATED and no longer READ. Nothing decides anything
+# from it: the catalog lists every resolved skill, because a human bit that
+# deletes a row from the model's own inventory is the shape ADR-0060 removed.
+# These tests hold the toleration — an old document must keep parsing, and a
+# malformed value must keep being dropped rather than killing discovery.
+def test_grid_auto_invoke_falsy_tokens_are_kept_verbatim_and_read_by_nobody() -> None:
     for token in ("false", "0", "no", "FALSE", "  No  "):
         skill = parse_skill_md(_with_auto_invoke(token))
-        assert skill_auto_invoke(skill.metadata) is False, token
         assert skill.metadata["grid-auto-invoke"] == "false"
 
 
-def test_grid_auto_invoke_truthy_tokens_drop_the_key_and_read_on() -> None:
+def test_grid_auto_invoke_truthy_tokens_drop_the_key() -> None:
     for token in ("true", "1", "yes", ""):
         skill = parse_skill_md(_with_auto_invoke(token))
         assert "grid-auto-invoke" not in skill.metadata, token
-        assert skill_auto_invoke(skill.metadata) is True, token
-
-
-def test_absent_grid_auto_invoke_reads_on() -> None:
-    skill = parse_skill_md(VALID_MD)
-    assert skill_auto_invoke(skill.metadata) is True
 
 
 def test_garbage_grid_auto_invoke_is_a_strict_error_for_a_file_skill() -> None:
@@ -369,7 +365,6 @@ def test_org_row_drops_a_bad_auto_invoke_flag_instead_of_dying() -> None:
     )
     assert "grid-auto-invoke" not in skill.metadata
     assert skill.metadata["grid-agents"] == "researcher"
-    assert skill_auto_invoke(skill.metadata) is True
 
 
 def test_org_row_keeps_a_falsy_auto_invoke_flag() -> None:
@@ -382,7 +377,7 @@ def test_org_row_keeps_a_falsy_auto_invoke_flag() -> None:
         },
         origin="org",
     )
-    assert skill_auto_invoke(skill.metadata) is False
+    assert skill.metadata["grid-auto-invoke"] == "false"
 
 
 def _with_cards(value: str) -> str:

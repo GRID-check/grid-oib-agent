@@ -137,9 +137,7 @@ const mockSetDataSourcePanelTab = vi.fn()
 
 const mockCloseRightPanel = vi.fn()
 const mockSetDataSourcesPanelTab = vi.fn()
-const mockSetDeepResearchIntent = vi.fn()
 const mockApplySourcePreset = vi.fn()
-let mockDeepResearchIntent = false
 let mockActiveSourcePreset: string | null = null
 let mockAvailableDataSources: Array<{ id: string; name?: string }> = [
   { id: 'source-1', name: 'Quelle eins' },
@@ -162,8 +160,6 @@ const mockLayoutState = () => ({
   knowledgeLayerAvailable: true,
   availableDataSources: mockAvailableDataSources,
   rightPanel: null as string | null,
-  deepResearchIntent: mockDeepResearchIntent,
-  setDeepResearchIntent: mockSetDeepResearchIntent,
   activeSourcePreset: mockActiveSourcePreset,
   applySourcePreset: mockApplySourcePreset,
   // Sources popover (C4) — connection toggles lifted from the old panel.
@@ -339,7 +335,6 @@ describe('InputArea', () => {
     mockComposerPrefill = null
     mockComposerSubject = null
     mockDrafts = {}
-    mockDeepResearchIntent = false
     mockActiveSourcePreset = null
     mockIsStreaming = false
     mockAvailableDataSources = [
@@ -448,16 +443,14 @@ describe('InputArea', () => {
     await user.tab()
     expect(input).toHaveFocus()
 
-    // Order per the click-dummy composer: scope · Deep Research, then attach +
-    // send (the files counter appears only once files are attached, so it is
-    // absent here). The Datengrundlage trigger is withheld with the picker —
-    // see the commented-out block in InputArea.
+    // Order per the click-dummy composer: scope, then attach + send (the files
+    // counter appears only once files are attached, so it is absent here). The
+    // Datengrundlage trigger is withheld with the picker — see the
+    // commented-out block in InputArea. Nothing offers to choose deep research:
+    // Piloti decides whether a question needs a run, and says so with the block.
     await user.type(input, 'Hello')
     await user.tab()
     expect(screen.getByRole('button', { name: /search scope/i })).toHaveFocus()
-
-    await user.tab()
-    expect(screen.getByRole('button', { name: /deep research preference/i })).toHaveFocus()
 
     await user.tab()
     expect(screen.getByRole('button', { name: /attach files/i })).toHaveFocus()
@@ -1275,32 +1268,14 @@ describe('InputArea', () => {
       expect(mockStopStreaming).toHaveBeenCalledTimes(1)
     })
 
-    test('deep research pill toggles the stored intent (off → on)', async () => {
-      const user = userEvent.setup()
+    test('nothing in the composer offers to choose deep research', () => {
+      // The mode picker is gone: Piloti decides whether a question needs a run,
+      // and the block in the thread is how the reader finds out.
       render(<InputArea isAuthenticated={true} connectionMode="sse" />)
 
-      const pill = screen.getByRole('button', { name: /deep research preference/i })
-      expect(pill).toHaveAttribute('aria-pressed', 'false')
-
-      await user.click(pill)
-
-      expect(mockSetDeepResearchIntent).toHaveBeenCalledWith(true)
-    })
-
-    test('deep research pill keeps the auto-escalation hint as its title when on', () => {
-      mockDeepResearchIntent = true
-
-      render(<InputArea isAuthenticated={true} connectionMode="sse" />)
-
-      const pill = screen.getByRole('button', { name: /deep research preference/i })
-      expect(pill).toHaveAttribute('aria-pressed', 'true')
-      // The preference echo lives on the pill's title, not as a permanent
-      // line under the composer.
-      expect(pill).toHaveAttribute(
-        'title',
-        expect.stringMatching(/escalates to deep research automatically/i)
-      )
-      expect(screen.queryByText(/escalates to deep research automatically/i)).not.toBeInTheDocument()
+      expect(
+        screen.queryByRole('button', { name: /deep research preference/i })
+      ).not.toBeInTheDocument()
     })
 
     test('scope chip shows the project name and a disabled "All projects" option', async () => {
@@ -2007,10 +1982,9 @@ describe('InputArea', () => {
 
       expect(screen.getByRole('textbox')).toBeDisabled()
       expect(screen.getByRole('button', { name: /attach files/i })).toBeDisabled()
-      // The scope chip and the deep-research pill persist onto the conversation,
-      // so they are writes too — `disabled` used to reach only the textarea and
-      // the send button.
-      expect(screen.getByLabelText(/deep.research/i)).toBeDisabled()
+      // The scope chip persists onto the conversation, so it is a write too —
+      // `disabled` used to reach only the textarea and the send button.
+      expect(screen.getByRole('button', { name: /search scope/i })).toBeDisabled()
       // The Datenbasis trigger is withheld from the composer for now — its
       // disabled-for-viewers assertion resumes with the picker.
       expect(screen.queryByRole('button', { name: /data basis/i })).not.toBeInTheDocument()

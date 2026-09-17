@@ -601,12 +601,13 @@ functions:
   # being emitted. Rendering all 27 shapes up front costs ~5,200 tokens on every
   # turn whether or not a card is emitted, and ~190 more for each type we add.
   #
-  # NOT bound to `shallow_research_agent` any more. On the chat path a failed
-  # `emit_card` now returns this same L2 entry for the type that failed, so the
-  # shape is learned on the retry that needed it instead of in a charged round
-  # trip the prompt had to talk the model into paying in advance. The deep
-  # research worker still binds it: its writer composes one long report and pays
-  # the lookup once, where a chat turn paid it per turn.
+  # Bound to NO agent today, and declared so a config that wants it has the
+  # `_type` to hand. On the chat path a failed `emit_card` returns this same L2
+  # entry for the type that failed, so the shape is learned on the retry that
+  # needed it instead of in a charged round trip the prompt had to talk the
+  # model into paying in advance. Deep research learned the same thing: its
+  # writer emits arrays through `emit_card`, and the lookup it used to pay for
+  # bought a shape the failure path now hands back.
   describe_card:
     _type: describe_card
 
@@ -985,6 +986,12 @@ functions:
     # data_source_registry inheritance in the async job-worker build path.
     tools:
       - knowledge_search
+      # The locator, now on both surfaces. A researcher worker that has read a
+      # Gliederung and knows the Punkt it needs was sending the corpus to find
+      # that passage again by similarity, paying a fan-out and a reranker pass
+      # for an address it already held — and every batch it spent that way is a
+      # round the run does not get back.
+      - read_passage
       - view_knowledge_image
       - ris_search_tool
       - ris_fetch_tool
@@ -992,7 +999,6 @@ functions:
       - advanced_web_search_tool
       - remember
       - emit_card
-      - describe_card
       - surface_documents
       - ifc_query
       - ifc_measure

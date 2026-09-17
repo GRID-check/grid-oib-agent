@@ -21,7 +21,8 @@ from nat.data_models.api_server import ChatResponseChunk
 #: surfaced only when applicable — the frontend renders on PRESENCE.
 STREAM_EXTRA_FIELDS = (
     "cards",
-    "deep_research_job_id",
+    "run_id",
+    "run_message_id",
     "answer_confidence",
     "sources",
     # Retrieved-but-uncited document identities (no prose) for the

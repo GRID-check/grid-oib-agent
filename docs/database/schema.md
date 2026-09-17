@@ -94,7 +94,7 @@ export const conversations = pgTable('conversations', {
 | `created_by` | `text` | NOT NULL | WorkOS user ID |
 | `title` | `text` | | Auto-generated or user-set title |
 | `project_id` | `uuid` | FK → `projects.id` ON DELETE SET NULL | Scopes knowledge collection |
-| `job_id` | `uuid` | FK → `task_definitions.id` ON DELETE SET NULL (repointed by migration `0086`; was `jobs.id`, and the definition ids for job-backed rows are the same uuids) | **Provenance, not ownership**: the definition whose `output='chat'` run was materialised into this thread, or NULL when a person started it (every row before 0044, and the great majority after). `created_by` on a job conversation is still the JOB'S OWNER — a real user id, because the sharing roster, the last-owner invariant, `attributeLegacyAuthor` and audit all read that column as a person — so this column is the only thing that says "nobody typed this". Two behaviours hang off it: rendering the thread with the job's name and a job glyph instead of the owner's face, and filtering it out of the owner's personal sessions list (a weekly job is 52 threads a year) while it stays openable by URL and from the job's run history. `SET NULL`, because deleting a definition must never delete its output. |
+| `job_id` | `uuid` | FK → `task_definitions.id` ON DELETE SET NULL (repointed by migration `0086`; was `jobs.id`, and the definition ids for job-backed rows are the same uuids) | **Provenance, not ownership**: the definition whose `output='chat'` run was materialised into this thread, or NULL when a person started it (every row before 0044, and the great majority after). `created_by` on a job conversation is still the JOB'S OWNER — a real user id, because the sharing roster, the last-owner invariant, `attributeLegacyAuthor` and audit all read that column as a person — so this column is the only thing that says "nobody typed this". Two behaviours hang off it: rendering the thread with the job's name and a job glyph instead of the owner's face, and filtering it out of the owner's personal sessions list (a weekly job is 52 threads a year) while it stays openable by URL and from the job's run history. `SET NULL`, because deleting a definition must never delete its output. **From PR 1 (ADR-0062) a standing definition owns exactly ONE thread**, and each fire appends its run message to it rather than minting a conversation per fire. The invariant is held by the thread's ID, which is derived from the definition's (`lib/tasks/task-thread.ts`, uuid5) so the primary key plus `ON CONFLICT DO NOTHING` makes „ensure the thread“ idempotent: **this column is NOT unique and cannot become unique**, because every fire before that change stamped its own conversation with the same value, and clearing the duplicates would delete the provenance the column exists for (migration `0091`'s header carries the record). That derived id is also how a reader tells the two apart: the standing thread is shown in the sessions list, the per-fire conversations stay hidden. |
 | `visibility` | `text` | NOT NULL, default `'private'` | `private` \| `project` \| `organization` (ADR-0032). Read on the hot path with the row, so access resolution costs no join. **Migration 0027 backfilled pre-existing rows with a `project_id` to `'project'`** — conversations used to be resolved org-scoped only, so any org member with an id could read any thread; `'project'` keeps access for everyone inside the project and withdraws the accidental org-wide read. Rows with a NULL `project_id` stayed `'private'` (no project membership could describe their audience). |
 | `created_at` | `timestamptz` | NOT NULL, `defaultNow()` | |
 | `updated_at` | `timestamptz` | NOT NULL, `defaultNow()` | Updated on message activity |
@@ -128,6 +128,7 @@ export const messages = pgTable('messages', {
 | `role` | `text` | NOT NULL | `user`, `assistant`, `system`, or agent name |
 | `author_user_id` | `text` | | WorkOS user id of the human author; NULL for assistant/system/tool rows and for messages written before authorship existed. `role` only recorded the KIND of author, which was free with one human per thread and a defect with two. Legacy NULL-author `user` rows are attributed to the conversation's `created_by` **at read time**, never backfilled, so the column never claims a precision the data lacks (spec MG-3). |
 | `content` | `text` | NOT NULL | Message body |
+| `run_id` | `text` | | The `task_runs` row this message is the account of (migration `0091`, ADR-0062). A run — a deep-research run, a scheduled task — is ONE assistant message in the conversation it was commissioned in, and that message carries the run ledger in `metadata.run_ledger`; this column is what finds it. NULL on every message a person or an ordinary turn wrote. `text` and no foreign key, for the reason `document_versions.origin_conversation_id` has none: the honest constraint would be composite with the tenant column, worth its cost on a row that decides access and not on one that decides rendering. Rendering and lookup only — never authorization, which comes from the conversation. |
 | `metadata` | `jsonb` | | Flexible: see the key list below |
 | `created_at` | `timestamptz` | NOT NULL, `defaultNow()` | |
 
@@ -146,7 +147,18 @@ card key); it also rides the INSERT when a decision was already recorded
 locally, which is how a decision made before the row existed still reaches the
 server.
 
-**Indexes:** `messages_conversation_created_idx` on `(conversation_id, created_at)` — conversation history reads (migration `0014`; Postgres does not auto-index FK columns).
+`run_ledger` is the run's own account of itself — phases, steps described by the
+INTENT the runner stated (never a tool name), the documents each step reached,
+and the terminal result or error. It is written by the fold in the Python tier
+through `POST /api/internal/runs/{runId}/ledger` and sanitized on write and again
+on read (`lib/runs/run-ledger.ts`, `server-message-mapper.ts`) — the same
+contract `retrieval_ledger` keeps, and for a stronger reason: the payload is
+produced by a different deployable. The shape is defined once in zod
+(`lib/runs/run-ledger-types.ts`) and exported to
+`frontends/ui/tests/fixtures/run-ledger.schema.json`, which the Python models
+(`src/aiq_agent/common/run_ledger.py`) validate against (ADR-0055, ADR-0062).
+
+**Indexes:** `messages_conversation_created_idx` on `(conversation_id, created_at)` — conversation history reads (migration `0014`; Postgres does not auto-index FK columns); `idx_messages_run_id` on `(run_id)` **partial**, `WHERE run_id IS NOT NULL` (migration `0091`) — a run message is a small minority of all messages, and an index entry per chat message would be paid for on every insert. Drizzle's builder cannot express a partial index, so it lives only in the migration.
 
 ---
 
@@ -449,7 +461,15 @@ trigger (`once`, no due date), which is what lets chat say „jeden Montag".
   + `triggered_by`, `status` (`queued | running | succeeded | failed |
   interrupted | skipped | error` — the merge of the worker lifecycle with the
   submission's), `error`, `skill_snapshot`, `backend_job_id` (the one id the
-  worker holds), `conversation_id`, filing (`filed_document_id`, `filing_status`,
+  worker holds), `conversation_id` — *the thread the work was commissioned in:
+  the conversation a person was typing in, or the standing definition's own
+  thread; no longer a conversation minted per fire* — `run_message_id`
+  (migration `0091`, ADR-0062: the ONE assistant message this run writes its
+  ledger and its report into, in that thread; `uuid`, nullable, no foreign key,
+  minted deterministically from the run id so a retried submit is a no-op, and
+  NULL for every run that predates the migration and for one whose message could
+  not be created — a run without one still runs, and its report is written as a
+  question-and-answer pair the old way), filing (`filed_document_id`, `filing_status`,
   `filing_detail`) and review (`review`, `review_reason`, `reviewed_by`,
   `reviewed_at`) columns, `created_at`, `started_at`, `finished_at`,
   `updated_at`.
@@ -490,6 +510,17 @@ trigger (`once`, no due date), which is what lets chat say „jeden Montag".
   `task_definitions` in the same migration.
 - **0087 (held):** migration `0087` drops `jobs`, `job_runs` and `tasks` in a
   separate release, after several real scheduled fires have run on the new model.
+- **`run_message_id` (uuid, nullable, migration `0091`, ADR-0062):** the ONE
+  assistant message this run writes into, in the conversation the work was
+  commissioned in — its ledger lives in that message's
+  `metadata.run_ledger` and its report in its content. Minted deterministically
+  from the run id (uuid5 over `NAMESPACE_URL`, `lib/runs/service.ts`
+  `runMessageId`), so a retried submit lands on the same row instead of leaving
+  two half-written runs in a thread. NULL for every run created before 0091 and
+  for a run whose message could not be created; a run without one still runs and
+  still files. No foreign key, deliberately: a deleted conversation must not
+  cascade away a run's own history, and a dangling id reads as „keine
+  Nachricht".
 
 ---
 

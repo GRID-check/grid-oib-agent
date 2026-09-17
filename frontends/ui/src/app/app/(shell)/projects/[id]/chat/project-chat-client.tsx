@@ -185,6 +185,41 @@ const ProjectChatContent = ({
     selectConversation,
   ])
 
+  // `?run=<runId>` — a deep link that names the RUN and not its thread.
+  //
+  // The run id is the public key of a run (ADR-0062): its backend job id expires
+  // with the job store, and its conversation is not something a caller should
+  // have to know. So this resolves the run and rewrites the URL to the
+  // `?session=` the rest of this file already handles, keeping the
+  // `#message-<id>` anchor — `useMessageAnchor` captured that at mount, so the
+  // scroll still lands once the thread renders.
+  //
+  // `?job=` keeps working underneath: rows older than run messages have nothing
+  // to resolve here and open the research panel exactly as before.
+  const runParam = searchParams?.get('run') ?? null
+  const resolvedRunRef = useRef<string | null>(null)
+
+  useEffect(() => {
+    if (!isAuthenticated || !runParam || sessionParam || !pathname) return
+    if (resolvedRunRef.current === runParam) return
+    resolvedRunRef.current = runParam
+
+    let cancelled = false
+    void fetch(`/api/projects/${encodeURIComponent(projectId)}/runs/${encodeURIComponent(runParam)}`)
+      .then((response) => (response.ok ? response.json() : null))
+      .then((body: { conversationId?: string | null } | null) => {
+        if (cancelled || !body?.conversationId) return
+        const params = new URLSearchParams(searchParams?.toString() ?? '')
+        params.delete('run')
+        params.set('session', body.conversationId)
+        router.replace(`${pathname}?${params.toString()}${window.location.hash}`, { scroll: false })
+      })
+      .catch(() => undefined)
+    return () => {
+      cancelled = true
+    }
+  }, [isAuthenticated, runParam, sessionParam, projectId, pathname, router, searchParams])
+
   useEffect(() => {
     // Files, IFC walls and applicable standards all land here: one Ask Piloti
     // pipe (`setComposerPrefill`). `doc` is the optional subject of that ask,

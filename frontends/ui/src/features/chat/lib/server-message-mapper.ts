@@ -37,6 +37,7 @@ import { CAPPED_REASONS } from '@/lib/conversations/message-provenance'
 import { sanitizeAnswerMeta } from '@/lib/conversations/message-answer-meta'
 import { sanitizeRetrievalLedger } from '@/lib/conversations/message-retrieval-ledger'
 import { sanitizeStages } from '@/lib/conversations/message-stages'
+import { sanitizeRunLedger, sanitizeRunTitle } from '@/lib/runs/run-ledger'
 
 import type { AnswerConfidenceCappedReason } from '@/lib/conversations/message-provenance'
 import type { ChatMessage, ErrorCardData, FileCardData, MessageType, ThinkingStep } from '../types'
@@ -149,6 +150,20 @@ export const mapServerMessageToChatMessage = (message: Message): ChatMessage | n
     ...(() => {
       const ledger = sanitizeRetrievalLedger(metadata.retrieval_ledger)
       return ledger ? { retrievalLedger: ledger } : {}
+    })(),
+    // The run's own account of itself, on the one message a run owns
+    // (`messages.run_id`). Re-sanitized on read for the same reason its
+    // neighbour is, and one reason more: this payload is written by the PYTHON
+    // tier's fold, so the build that wrote it is not even the same deployable.
+    ...(() => {
+      const runLedger = sanitizeRunLedger(metadata.run_ledger)
+      return runLedger ? { runLedger } : {}
+    })(),
+    // The run's title, written once at mint time by the BFF. Bounded on read
+    // like the ledger: one line, 200 characters.
+    ...(() => {
+      const runTitle = sanitizeRunTitle(metadata.run_title)
+      return runTitle ? { runTitle } : {}
     })(),
     // Restored WITH their answers: a card whose patch was already applied must
     // not come back offering the button again (see card-decision.ts). Narrowed

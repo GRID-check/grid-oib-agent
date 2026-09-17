@@ -1,0 +1,11 @@
+---
+features:
+  - >
+    Ein Auftrag, den Sie Piloti übergeben, erscheint jetzt als ein Block direkt
+    im Verlauf, in dem Sie ihn erteilt haben: Titel, Stand (Läuft, Wartet auf
+    Sie, Fertig, …), die Phasen Planen · Recherchieren · Prüfen · Schreiben ·
+    Abgelegt und die Laufzeit. Der Block aktualisiert sich, solange der Auftrag
+    läuft; der fertige Bericht steht darunter, mit Quellen und Herleitung.
+  - >
+    In der Aufträge-Liste zeigt eine laufende Karte in einer Zeile, was der
+    Auftrag gerade tut, etwa „Recherchieren · 3 Runden · 9 Dokumente“.

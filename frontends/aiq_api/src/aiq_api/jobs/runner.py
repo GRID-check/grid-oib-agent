@@ -45,6 +45,7 @@ from .outcome_notify import notify_job_outcome
 from .phase_events import PHASE_DONE
 from .phase_events import PhaseProgressCallback
 from .phase_events import emit_phase_event
+from .run_ledger_fold import RunLedgerFold
 
 logger = logging.getLogger(__name__)
 
@@ -855,6 +856,12 @@ async def run_agent_job(
     # time (unclaimed); the DB worker fills in its own id at replay. Must stay
     # last: the Dask submit path passes these positionally.
     claim_owner: str | None = None,
+    # The ``task_runs`` row this job IS, when the BFF knows it — the only
+    # identity the run-ledger route has. Absent for a job submitted before that
+    # plumbing exists, and then the fold still narrates the run on its own event
+    # stream and posts nothing (``jobs/run_ledger_fold.py``). Keyword-only in
+    # practice: the Dask path passes positionally up to ``claim_owner``.
+    run_id: str | None = None,
 ):
     """
     Dask task to run any registered agent with cancellation support and telemetry.
@@ -914,6 +921,10 @@ async def run_agent_job(
             finished report to record durable project findings — the chat path
             skips reflection for deep jobs because the report only exists once
             the async job completes.
+        run_id: Optional id of the ``task_runs`` row this job is, used to
+            flush the run's ledger to the BFF. Without it the ledger is still
+            folded and still streamed as ``run.ledger`` events, but nothing is
+            written to the run's message.
         claim_owner: Optional DB-queue claim owner (worker id) for the
             still-owner publish gate. ``None`` (Dask path, or unclaimed at
             submit) skips the ownership check and only the terminal verdict
@@ -962,6 +973,9 @@ async def run_agent_job(
     job_store: JobStore | None = None
     cancellation_monitor: CancellationMonitor | None = None
     event_store: EventStore | BatchingEventStore | None = None
+    # Declared out here because the terminal paths below (cancel, failure, the
+    # finally) close it, and they run whether or not setup got that far.
+    run_ledger_fold: RunLedgerFold | None = None
     logger.info(
         "Dask worker received: agent=%s, config=%s, job_id=%s",
         agent_class_path,
@@ -1024,6 +1038,19 @@ async def run_agent_job(
                     provider = overridden
                     if llm is not None:
                         llm = provider.get(LLMRole.ORCHESTRATOR)
+
+            # The platform owner's thinking level per group (Platform → Models).
+            # Platform-wide, so nothing is captured at submit time: the worker
+            # resolves the same map the chat replicas do, off the loop because
+            # a cold cache is one BFF round-trip.
+            from aiq_agent.common import LLMRole
+            from aiq_agent.common import get_reasoning_efforts
+
+            with_efforts = provider.with_reasoning_efforts(await asyncio.to_thread(get_reasoning_efforts))
+            if with_efforts is not provider:
+                provider = with_efforts
+                if llm is not None:
+                    llm = provider.get(LLMRole.ORCHESTRATOR)
 
             # The tenant this job belongs to, captured at submit time inside
             # usage_context because a Dask worker has no request headers to read
@@ -1278,6 +1305,16 @@ async def run_agent_job(
 
                     raw_event_store = EventStore(db_url, job_id)
                     event_store = BatchingEventStore(raw_event_store)
+                    # The run's own account of itself, folded from the events
+                    # this job already emits and flushed to the run's message.
+                    # Built HERE, per run, never at module level (ADR-0018): a
+                    # worker process is reused across jobs and tenants, and an
+                    # accumulator that outlived a run would put one office's
+                    # documents on another office's report. Wrapping the store
+                    # is what feeds it — every producer downstream keeps writing
+                    # exactly as it did.
+                    run_ledger_fold = RunLedgerFold(job_id=job_id, run_id=run_id, event_store=event_store)
+                    event_store = run_ledger_fold.observing(event_store)
                     agent_event_callback = AgentEventCallback(event_store)
                     callbacks.append(agent_event_callback)
                     callbacks.append(nat_profiler_callback)
@@ -1516,7 +1553,7 @@ async def run_agent_job(
                     # status stays FAILURE — thread, Report and status would
                     # diverge, each telling a different story about the run.
                     if finalized:
-                        await write_job_turn(
+                        report_landed_in = await write_job_turn(
                             conversation_id=parent_conversation_id,
                             job_id=job_id,
                             usage_context=usage_context,
@@ -1534,6 +1571,12 @@ async def run_agent_job(
                             # is supposed to mean.
                             transparency=transparency,
                         )
+                        # What the run left behind, for its ledger: the message
+                        # the report was just written into, as the writer names
+                        # it (the run's own message, or the fallback turn). No
+                        # file id yet — this tier does not file the report.
+                        if run_ledger_fold is not None:
+                            run_ledger_fold.note_result(report_message_id=report_landed_in or None)
                     else:
                         logger.info(
                             "Job %s finished without a thread turn (%s); the standing verdict owns the thread",
@@ -1626,6 +1669,12 @@ async def run_agent_job(
             event_store.flush()
 
     finally:
+        # The run's last word on itself: seal the open step, emit the final
+        # snapshot, and state the terminal fact. Before the flush below, because
+        # the snapshot it writes is an event like any other and has to reach the
+        # store with the rest of them.
+        if run_ledger_fold is not None:
+            await run_ledger_fold.close()
         # Ensure terminal-path events are not left in the batch buffer.
         if event_store is not None and hasattr(event_store, "flush"):
             event_store.flush()

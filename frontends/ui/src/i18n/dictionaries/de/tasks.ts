@@ -83,6 +83,12 @@ export const tasks: typeof en.tasks = {
     goneTitle: 'Nicht gefunden',
     /** Die Überschrift, solange ein Deep Link noch geprüft wird — kein Befund. */
     loadingTitle: 'Wird geladen',
+    /** Solange der Ablauf des Laufs für den Block geladen wird. */
+    runLoading: 'Der Ablauf wird geladen …',
+    /** Die Abfrage wurde abgelehnt. Stattdessen stehen die Angaben der Zeile da. */
+    runUnavailable: 'Der vollständige Ablauf dieses Laufs konnte nicht geladen werden.',
+    /** In den Verlauf, neben dem Ergebnis — Lesen ist nicht Verfolgen. */
+    openThread: 'Im Verlauf öffnen',
   },
   list: {
     emptyTitle: 'Noch nichts übergeben',

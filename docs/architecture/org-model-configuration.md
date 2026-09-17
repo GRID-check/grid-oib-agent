@@ -124,8 +124,23 @@ on read — so a hand-edited row can never push a provider-native tier name (e.g
 DeepSeek's `max`, which OpenRouter rejects) into a request. Parity is pinned by
 `tests/fixtures/reasoning_efforts_catalog.json` from both languages.
 
-Applied at the same seam as the model, in `apply_model_override` — so every
-existing call site picks it up with no new plumbing.
+Applied at the same two seams as the model. Every user-facing agent (chat,
+the clarifier agent, deep research, the compliance check) resolves its LLMs
+through `LLMProvider`, so the effort has its own provider method,
+`with_reasoning_efforts(get_reasoning_efforts())`, chained right after
+`with_model_overrides` in each `_active_provider`/`_agent_for_request`, and in
+the detached worker (`aiq_api/jobs/runner.py`) after the captured overrides.
+Directly held LLMs (the clarifier planner, the reflection stage, the RIS
+router) get it inside `apply_model_override`. A dial that reaches only the
+second seam is the bug this paragraph used to describe as impossible: it was
+read by four minor call sites and never by a chat turn, and every test stayed
+green because none exercised the provider seam. `TestProviderWithReasoningEfforts`
+and `tests/aiq_agent/agents/piloti/test_active_provider.py` now pin it.
+
+The effort is platform-wide, so nothing is captured at submit time for the
+worker: any process that reaches the BFF resolves the same map (60 s TTL,
+fail-open to the YAML value). Grep the backend for
+`Reasoning effort active` to see the dial fire per group.
 
 The merge happens **BFF-side**, in `getEffectiveModelOverrides()`
 (`frontends/ui/src/lib/model-config/service.ts`). Every submission path already
@@ -294,12 +309,14 @@ server.js  ──  x-grid-model-overrides: base64url(JSON)  ──▶  aiq backe
    model_overrides.py: parse + sanitize (unknown group / bad id dropped, fail-open {})
                                      │
  sync turn: each agent register's _run (and clarify.Clarifier.deps_for):
-   provider.with_model_overrides(...)  → derived LLMProvider (model_copy per group)
+   provider.with_model_overrides(...).with_reasoning_efforts(...)
+                                       → derived LLMProvider (model_copy per group)
    directly-held LLMs (clarifier planner, reflection schedule)
    wrapped via apply_model_override(llm, group)
                                      │
  async deep research: submit_agent_job auto-captures the map → Dask runner
-   applies it to the worker's provider AND re-injects the header
+   applies it to the worker's provider AND re-injects the header;
+   the effort is resolved live in the worker (platform-wide, nothing captured)
 ```
 
 The `{group: modelId}` map read on the WS upgrade
@@ -312,6 +329,12 @@ set; a per-process fallback otherwise). For a replica other than the one that
 performed the save — or under the per-process fallback — a stale cache entry
 means a save can take up to 5 minutes to affect traffic. That applies to a
 fleet-wide default change too: it is fast, not instantaneous.
+
+The header is set once, on the WebSocket upgrade. A chat tab that is already
+open keeps the map it connected with until it reconnects, so the place to test
+a model save is a **new conversation**, not the next turn of the one you have
+open. The thinking level has no header: it is resolved per turn with a 60 s
+cache, so it shows up in the open tab within a minute.
 
 Key properties:
 

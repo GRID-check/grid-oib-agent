@@ -70,6 +70,12 @@ export const INBOX_ITEM_TYPES = [
   'job.completed',
   'job.failed',
   /**
+   * Actionable: a run the reader asked for has stopped to ask them something
+   * (the ledger's `wartet`, ADR-0062). Resolved by the run moving on — the
+   * answer lands in the thread, and the ledger's next status settles the row.
+   */
+  'job.waiting',
+  /**
    * Actionable: a version of a document is waiting for your Freigabe
    * (ADR-0054). The FIRST actionable type outside mentions, and the reason the
    * frame stayed generic — the row points at the document and anchors on the

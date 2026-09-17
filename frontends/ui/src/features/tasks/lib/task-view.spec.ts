@@ -56,6 +56,7 @@ describe('taskResultTarget', () => {
     reviewReason: null,
     filedDocumentId: null,
     conversationId: null,
+    runMessageId: null,
     backendJobId: null,
     trigger: 'delegated',
     requesterUserId: 'user_anna',
@@ -75,9 +76,27 @@ describe('taskResultTarget', () => {
     expect(target).toEqual({ kind: 'document', href: '/app/projects/p1/files?doc=doc-9' })
   })
 
-  test('a chat run continues in its conversation', () => {
+  test('a run with no message of its own still opens the thread it wrote into', () => {
     const target = taskResultTarget('p1', row({ conversationId: 'conv-1', backendJobId: 'bj-1' }))
     expect(target).toEqual({ kind: 'conversation', href: '/app/projects/p1/chat?session=conv-1' })
+  })
+
+  /**
+   * A run is one message in its thread (ADR-0062), and a standing task's thread
+   * holds every fire it has ever had — so „open the result" has to land on THIS
+   * run, not at the bottom of a year of them. `#message-<id>` is the anchor the
+   * inbox links already use, and `?run=` names the run for a surface that has
+   * only the thread.
+   */
+  test('a run with its own message opens the thread AT that message', () => {
+    const target = taskResultTarget(
+      'p1',
+      row({ id: 'run-7', conversationId: 'conv-1', runMessageId: 'msg-7', backendJobId: 'bj-1' }),
+    )
+    expect(target).toEqual({
+      kind: 'conversation',
+      href: '/app/projects/p1/chat?session=conv-1&run=run-7#message-msg-7',
+    })
   })
 
   test('a finished run that filed nothing still opens its report', () => {
@@ -130,6 +149,7 @@ describe('task filters', () => {
     reviewReason: null,
     filedDocumentId: null,
     conversationId: null,
+    runMessageId: null,
     backendJobId: null,
     trigger: 'delegated',
     requesterUserId: 'u',
@@ -190,6 +210,7 @@ describe('groupByRecency', () => {
     reviewReason: null,
     filedDocumentId: null,
     conversationId: null,
+    runMessageId: null,
     backendJobId: null,
     trigger: 'delegated',
     requesterUserId: 'u',

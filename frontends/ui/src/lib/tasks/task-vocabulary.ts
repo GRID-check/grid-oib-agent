@@ -72,6 +72,16 @@ export const TASK_RUN_STATUSES = [
 ] as const
 export type TaskRunStatus = (typeof TASK_RUN_STATUSES)[number]
 
+/**
+ * The run is still in the worker's hands: nothing about it can be judged yet,
+ * and it is the only state a cancel can reach. `queued` counts — a run stuck
+ * before its first status transition would otherwise be un-cancellable while
+ * still holding a slot (the same reason the backend cancels `SUBMITTED` jobs).
+ */
+export function isActiveTaskRunStatus(status: TaskRunStatus): boolean {
+  return status === 'queued' || status === 'running'
+}
+
 /** How a person judged the result. Null until somebody did. */
 export const TASK_REVIEWS = ['accepted', 'rejected'] as const
 export type TaskReview = (typeof TASK_REVIEWS)[number]

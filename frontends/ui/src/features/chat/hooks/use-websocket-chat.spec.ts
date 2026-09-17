@@ -20,6 +20,7 @@ const mockSetTurnWsParentId = vi.fn()
 const mockApplyStageFrame = vi.fn(() => null)
 const mockDiscardStreamingAssistantMessage = vi.fn()
 const mockAddAgentResponseWithMeta = vi.fn(() => 'msg-1')
+const mockAdoptRunMessage = vi.fn()
 const mockAddThinkingStep = vi.fn(() => 'step-1')
 const mockAppendToThinkingStep = vi.fn()
 const mockCompleteThinkingStep = vi.fn()
@@ -80,6 +81,7 @@ const defaultUseChatStoreImpl = (selector?: StoreSelector<ChatStoreWithHydration
     applyStageFrame: mockApplyStageFrame,
     discardStreamingAssistantMessage: mockDiscardStreamingAssistantMessage,
     addAgentResponseWithMeta: mockAddAgentResponseWithMeta,
+    adoptRunMessage: mockAdoptRunMessage,
     addThinkingStep: mockAddThinkingStep,
     appendToThinkingStep: mockAppendToThinkingStep,
     completeThinkingStep: mockCompleteThinkingStep,
@@ -222,7 +224,7 @@ let capturedCallbacks: {
     isFinal: boolean,
     parentId?: string,
     cards?: unknown[],
-    deepResearchJobId?: string,
+    commissionedRun?: { runId: string; runMessageId: string },
     answerConfidence?: 'low' | 'medium' | 'high',
     sources?: unknown[],
     transparency?: {
@@ -268,7 +270,12 @@ vi.mock('@/adapters/api/websocket-client', () => ({
   },
 }))
 
+// The one read a commissioning turn makes: the run's message, as the server
+// wrote it. Mocked so the test is about what the hook DOES with it.
+vi.mock('../lib/commissioned-run', () => ({ fetchRunMessage: vi.fn() }))
+
 import { useChatStore } from '../store'
+import { fetchRunMessage } from '../lib/commissioned-run'
 import { useFilePreviewStore } from '@/features/documents/stores/file-preview-store'
 // NOT mocked: the real registry is the point. `useSharedThread` publishes into it
 // after its access read, and the socket layer reads it to decide whether opening a
@@ -2288,85 +2295,32 @@ describe('useWebSocketChat', () => {
     )
   })
 
-  test('detects deep research escalation and starts SSE streaming', () => {
-    const mockStartDeepResearch = vi.fn()
-    const mockUpdateConversationTitle = vi.fn()
-    const localMockAddAgentResponseWithMeta = vi.fn(() => 'msg-1')
-    // Need to mock useChatStore to include startDeepResearch
-    vi.mocked(useChatStore).mockImplementation(
-      (selector?: StoreSelector<ChatStoreWithHydration>) => {
-        const state: DeepPartial<ChatStoreWithHydration> = {
-          ...mockStoreState,
-          addUserMessage: mockAddUserMessage,
-          addAgentResponse: mockAddAgentResponse,
-          appendAgentResponseDelta: mockAppendAgentResponseDelta,
-          finalizeAgentResponse: mockFinalizeAgentResponse,
-          setTurnWsParentId: mockSetTurnWsParentId,
-          applyStageFrame: mockApplyStageFrame,
-          addAgentResponseWithMeta: localMockAddAgentResponseWithMeta,
-          addThinkingStep: mockAddThinkingStep,
-          appendToThinkingStep: mockAppendToThinkingStep,
-          completeThinkingStep: mockCompleteThinkingStep,
-          updateThinkingStepByFunctionName: mockUpdateThinkingStepByFunctionName,
-          findThinkingStepByFunctionName: mockFindThinkingStepByFunctionName,
-          setReportContent: mockSetReportContent,
-          addAgentPrompt: mockAddAgentPrompt,
-          addErrorCard: mockAddErrorCard,
-          setCurrentStatus: mockSetCurrentStatus,
-          setPendingInteraction: mockSetPendingInteraction,
-          clearPendingInteraction: mockClearPendingInteraction,
-          setLoading: mockSetLoading,
-          setStreaming: mockSetStreaming,
-          clearThinkingSteps: mockClearThinkingSteps,
-          clearReportContent: mockClearReportContent,
-          createConversation: mockCreateConversation,
-          setCurrentUser: mockSetCurrentUser,
-          getUserConversations: mockGetUserConversations,
-          selectConversation: mockSelectConversation,
-          respondToPrompt: mockRespondToPrompt,
-          addPlanMessage: mockAddPlanMessage,
-          updatePlanMessageResponse: mockUpdatePlanMessageResponse,
-          addDeepResearchBanner: mockAddDeepResearchBanner,
-          startDeepResearch: mockStartDeepResearch,
-          updateConversationTitle: mockUpdateConversationTitle,
-          maybeGenerateConversationName: mockMaybeGenerateConversationName,
-        }
-        return selector ? selector(asStoreState<ChatStoreWithHydration>(state)) : state
-      }
-    )
+  test('a commissioned run puts the run’s own message in the thread and nothing else', async () => {
+    const runMessage = { id: 'msg-run', role: 'assistant', content: '' }
+    vi.mocked(fetchRunMessage).mockResolvedValue(runMessage as never)
+    mockStoreState.currentConversation = { id: 's_conv', messages: [] } as never
 
     renderWebSocketHook()
     mockStoreState.isStreaming = true
 
-    // Simulate response with deep research escalation signal
-    act(() => {
-      capturedCallbacks.onResponse?.(
-        'Deep research job submitted. Job ID: abc123-def456',
-        'complete',
-        false
-      )
+    // The terminal frame of a commissioning turn: no text, two ids.
+    await act(async () => {
+      capturedCallbacks.onResponse?.('', 'complete', true, undefined, undefined, {
+        runId: 'run-1',
+        runMessageId: 'msg-run',
+      })
+      await Promise.resolve()
     })
 
-    // Should detect deep research and call banner with 'starting' status
-    expect(mockAddDeepResearchBanner).toHaveBeenCalledWith(
-      'starting',
-      'abc123-def456',
-      undefined,
-      undefined,
-      undefined
-    )
-    // Should add tracking message with empty content and job metadata
-    expect(localMockAddAgentResponseWithMeta).toHaveBeenCalledWith(
-      '',
-      false,
-      expect.objectContaining({
-        deepResearchJobId: 'abc123-def456',
-        deepResearchJobStatus: 'submitted',
-        isDeepResearchActive: true,
-      }),
-      []
-    )
-    expect(mockStartDeepResearch).toHaveBeenCalledWith('abc123-def456', 'msg-1')
+    expect(fetchRunMessage).toHaveBeenCalledWith('s_conv', 'msg-run')
+    expect(mockAdoptRunMessage).toHaveBeenCalledWith(runMessage)
+    // No banner, no tracking message, no SSE stream: the block narrates the run
+    // and subscribes to it by itself.
+    expect(mockAddDeepResearchBanner).not.toHaveBeenCalled()
+    expect(mockAddAgentResponseWithMeta).not.toHaveBeenCalled()
+    // The composer is free again.
+    expect(mockSetStreaming).toHaveBeenCalledWith(false)
+    expect(mockSetLoading).toHaveBeenCalledWith(false)
   })
 })
 

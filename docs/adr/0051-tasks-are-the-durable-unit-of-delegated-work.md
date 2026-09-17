@@ -192,6 +192,58 @@ condition, both ways, and that the effect is on exactly one transition),
 and `tests/aiq_agent/tools/tasks/` (echo-never-sign, and every refusal before
 the call).
 
+### Addendum (2026-09-16): a run no longer gets its own conversation
+
+This record said a `chat` run's result should be "a REAL thread — one a
+colleague opens from the job's run history, reads, and keeps typing into", and
+what shipped was a NEW conversation per fire. Read back a quarter later, that is
+the same defect this ADR was written against, one level up: a weekly definition
+deposits fifty-two threads a year, each holding one question nobody typed and one
+answer, none of which anybody opens twice. A delegated task was worse — the
+answer to „@Piloti prüf das" landed in a conversation the person who asked had no
+reason to look in.
+
+So, from PR 1 (ADR-0062): **a run is ONE assistant message in the thread that
+commissioned it.** `submitAgentRun` takes the run's id and that conversation
+instead of a title, mints the message once the backend has accepted the work, and
+records it on `task_runs.run_message_id` (migration `0091`). The commissioning
+thread is the conversation the person was typing in, taken from the SIGNED
+envelope for a delegation; a standing definition — one that keeps running — owns
+exactly one thread of its own instead, and every fire appends to it.
+
+Three details are worth the ink because each replaced something more obvious:
+
+- **The standing thread's id is derived from the definition's** (uuid5,
+  `lib/tasks/task-thread.ts`), so `conversations`' primary key plus `ON CONFLICT
+  DO NOTHING` is the whole of „ensure the thread". The obvious build — a unique
+  index on `conversations(job_id)` — **cannot be created on live data**: every
+  fire before this stamped its own conversation with that value, so it would fail
+  at deploy on exactly the deployments that use scheduled work, and clearing the
+  duplicates would delete the provenance the column exists for.
+- **The message is minted after the submission, not before.** A fire the agent
+  refuses now leaves nothing in the thread; the old order left a whole empty
+  conversation behind for every capped or unreachable fire.
+- **The worker is told nothing new.** It holds one id, the job store's, and posts
+  the finished report to `POST /api/internal/runs/by-job/{backendJobId}/report`,
+  which resolves the run and fills in its message. A 404 there means „this run has
+  no message" — an interactive deep-research job, or a run older than this change
+  — and `conversation_output.py` falls back to the question-and-answer pair
+  unchanged, so the two services deploy in either order without losing a report.
+
+The old per-fire conversations are left exactly where they are, `job_id` and all,
+with no backfill: they still open, and the sessions list still hides them. The
+standing thread is not hidden, because a task's one thread is a place the team
+goes back to.
+
+Confirmation: `lib/jobs/service.spec.ts` (the thread created once and reused, the
+message minted for the id the row is written with, nothing written when the fire
+is refused), `lib/tasks/delegation.spec.ts` (the commissioning thread passed
+through; the definition's own thread when nobody typed),
+`lib/runs/service.spec.ts` and the route spec (the report reaching the run's
+message, and the 404 that keeps the old path alive), `lib/tasks/task-thread.spec.ts`
+(the derived id, and telling a standing thread from a per-fire one), and
+`test_job_conversation_output.py` (both paths, and that neither can fail a run).
+
 ## More Information
 
 - The row's columns and their reasons: `frontends/ui/src/lib/db/schema/tasks.ts`.

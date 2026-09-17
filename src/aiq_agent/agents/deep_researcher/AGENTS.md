@@ -31,4 +31,5 @@ diverge between them.
 |---|---|---|
 | Add work before the graph runs | Keep it off the loop and inside the heartbeat, or it is invisible dead time | The job fails as "no heartbeat", pointing at nothing |
 | Add post-processing of the report | Put it in `finalize.py` as a function of the state | The salvage path skips it, and a cut-off report ships unverified |
+| Add a step that fetches evidence | Open `retrieval_round_scope` around the dispatch and call `record_round_announcement` beside it, both from the SAME derived calls (`tools/research.py` — `_query_call`). The round ledger lives on `DeepResearchRunArtifacts`, per run like everything else here | Nothing local. The hits land under the round before them, and the Herleitung draws a batch that fetched nothing |
 | Change `agent_type` or a job's stored identifiers | `deep_researcher` is persisted in `jobs.agent_type`, `grid-agents` metadata and `SKILL_AGENTS`; the package name follows it, not the other way round | Every scoped skill drops off deep research |
