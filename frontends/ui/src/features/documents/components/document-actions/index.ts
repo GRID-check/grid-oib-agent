@@ -12,6 +12,8 @@ export {
   type DocumentActionKind,
   type DocumentActionsMenuProps,
 } from './document-actions-menu'
+export { DocumentObjectMenu, DocumentActionsTrigger } from './document-object-menu'
+export { DEFAULT_DOCUMENT_ACTIONS } from './action-entries'
 export { RenameDocumentDialog, type RenameDocumentDialogProps } from './rename-document-dialog'
 export {
   useDocumentActions,

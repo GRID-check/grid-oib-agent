@@ -8,11 +8,20 @@
  * - ResearchPanel (right, pushes content when open)
  *
  * Handles auth state to show different UI for logged-in vs logged-out users.
+ *
+ * The research panel is kept and no longer opened from here. A run is one
+ * message in the thread that commissioned it (ADR-0062), so the toolbar, the
+ * answer card and the `?job=` deep link have all given up their doors to it,
+ * and `useDeepResearch()` is no longer mounted — nothing connects the SSE
+ * stream the panel's live tabs were fed by. The one door left is the legacy
+ * `DeepResearchBanner`, which only appears on threads written before run
+ * messages existed. The panel is still rendered and the width math still
+ * accounts for it, because retiring the panel itself is the next change.
  */
 
 'use client'
 
-import { type FC, useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { type FC, useCallback, useMemo } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { useIsMobile } from '@/hooks/use-is-mobile'
 import { ChatToolbar } from './ChatToolbar'
@@ -20,8 +29,9 @@ import { SessionsPanel } from './SessionsPanel'
 import { ChatArea } from './ChatArea'
 import { InputArea } from './InputArea'
 import { ResearchPanel } from './ResearchPanel'
-import { useChatStore, useDeepResearch, NoSourcesBanner } from '@/features/chat'
+import { useChatStore, NoSourcesBanner } from '@/features/chat'
 import {
+  getLatestDeepResearchMessage,
   hasActiveDeepResearchJob,
   hasCompletedDeepResearchReport,
   hasExpiredDeepResearchReport,
@@ -32,6 +42,8 @@ import { useSessionUrl } from '@/hooks/use-session-url'
 import { documentDisplayName } from '@/lib/documents/display-name'
 import { useTranslations } from '@/i18n'
 import { useFilePreviewStore } from '@/features/documents/stores/file-preview-store'
+import { useComposerMetrics } from '../hooks/use-composer-metrics'
+import { motion } from '@/components/motion'
 
 interface MainLayoutProps {
   /** Whether the user is authenticated */
@@ -131,25 +143,16 @@ export const MainLayout: FC<MainLayoutProps> = ({
   const expandFile = useFilePreviewStore((s) => s.expand)
   const tFiles = useTranslations('files')
 
-  // Measure the floating composer stack (NoSourcesBanner + InputArea — variable
-  // height: multi-line textarea, wrapped chips, hint, banners) and publish it as
-  // --composer-h so ChatArea reserves EXACTLY that much bottom padding instead
-  // of a fixed guess. useLayoutEffect avoids a first-paint flash; ChatArea's
-  // 11rem fallback covers the pre-measure frame and jsdom (offsetHeight 0).
-  const composerRef = useRef<HTMLDivElement>(null)
-  const [composerHeight, setComposerHeight] = useState<number | null>(null)
-  useLayoutEffect(() => {
-    const el = composerRef.current
-    if (!el) return
-    const update = () => setComposerHeight(el.offsetHeight)
-    update()
-    const ro = new ResizeObserver(update)
-    ro.observe(el)
-    return () => ro.disconnect()
-  }, [])
+  // How many messages this thread holds decides two separate things — whether
+  // the toolbar calls the chat started, and whether the composer is lifted off
+  // the floor into the empty canvas — so it is read once, here.
+  const messageCount = currentConversation?.messages?.length ?? 0
 
-  // Deep research SSE hook - manages connection when deep research starts
-  useDeepResearch()
+  // Composer geometry (--composer-h, --welcome-offset, and the lift the stack
+  // travels on) — see useComposerMetrics.
+  // Shared with the /dev preview route so the two cannot drift.
+  const { composerRef, columnVars, composerStyle, composerMotion } =
+    useComposerMetrics(messageCount === 0)
 
   // Sync session state with URL query parameters
   const { updateSessionUrl, clearSessionUrl } = useSessionUrl({ isAuthenticated })
@@ -210,16 +213,28 @@ export const MainLayout: FC<MainLayoutProps> = ({
 
   const sessions = useMemo(
     () =>
-      userConversations.map((conv) => ({
-        id: conv.id,
-        title: conv.title,
-        date: conv.updatedAt,
-        hasActiveDeepResearch:
-          hasActiveDeepResearchJob(conv.messages) ||
-          (isDeepResearchStreaming && deepResearchOwnerConversationId === conv.id),
-        hasCompletedReport: hasCompletedDeepResearchReport(conv.messages),
-        hasExpiredReport: hasExpiredDeepResearchReport(conv.messages),
-      })),
+      userConversations.map((conv) => {
+        // The stuck run's id travels with the row so the history can stop it:
+        // without it a thread whose research will never finish can only be
+        // watched, never dismissed (its delete stays disabled while active).
+        const latestResearch = getLatestDeepResearchMessage(conv.messages)
+        const latestStatus = latestResearch?.deepResearchJobStatus
+        return {
+          id: conv.id,
+          title: conv.title,
+          date: conv.updatedAt,
+          hasActiveDeepResearch:
+            hasActiveDeepResearchJob(conv.messages) ||
+            (isDeepResearchStreaming && deepResearchOwnerConversationId === conv.id),
+          hasCompletedReport: hasCompletedDeepResearchReport(conv.messages),
+          hasExpiredReport: hasExpiredDeepResearchReport(conv.messages),
+          activeDeepResearchJobId:
+            latestResearch?.deepResearchJobId &&
+            (latestStatus === 'submitted' || latestStatus === 'running')
+              ? latestResearch.deepResearchJobId
+              : null,
+        }
+      }),
     [userConversations, isDeepResearchStreaming, deepResearchOwnerConversationId]
   )
 
@@ -256,11 +271,9 @@ export const MainLayout: FC<MainLayoutProps> = ({
             // motion belongs: the reader needs to see where the PANEL came
             // from, not watch their own text re-wrap sixty times.
             width: isResearchPanelOpen ? (isMobile ? '0%' : '50%') : '100%',
-            // Published from the ResizeObserver above; inherits into ChatArea
-            // (a descendant), which reads it via calc(). undefined pre-measure.
-            ...(composerHeight != null
-              ? { ['--composer-h' as string]: `${composerHeight}px` }
-              : {}),
+            // Published by useComposerMetrics; inherits into ChatArea (a
+            // descendant), which reads both via calc().
+            ...columnVars,
           }}
         >
           {/* Top fade scrim — a full-width gradient behind the floating pills
@@ -283,7 +296,7 @@ export const MainLayout: FC<MainLayoutProps> = ({
             projectName={projectName ?? undefined}
             onNewSession={handleNewSession}
             isNewSessionDisabled={isNavigationBlocked}
-            isChatStarted={(currentConversation?.messages?.length ?? 0) > 0}
+            isChatStarted={messageCount > 0}
             // Collaboration affordances in the thread header: the participant
             // strip, the access chip and the share dialog. All three are gated on
             // the dark-launch flag AND on there being a conversation to share, so
@@ -320,11 +333,40 @@ export const MainLayout: FC<MainLayoutProps> = ({
             canCollaborate={canCollaborate}
           />
 
+          {/* Bottom fade scrim — the mirror of the top one, behind the floating
+              composer. Without it the last message stopped at a hard edge
+              exactly where the composer's own surface began: two opaque,
+              same-width, same-radius panels stacked flush, reading as one
+              collided block rather than a transcript with an input floating
+              over it. This dissolves the message column into the composer's
+              glass instead. Taller than the top scrim (h-40 vs h-24): the
+              composer is a multi-line card, not a slim pill row, so the
+              gradient needs more room to resolve before its edge. */}
+          <div
+            aria-hidden="true"
+            className="from-background pointer-events-none absolute inset-x-0 bottom-0 z-10 h-40 bg-gradient-to-t from-[2.5rem] to-transparent"
+          />
+
           {/* Floating composer stack: overlays the bottom of the chat scroll
               area instead of docking below it, so messages scroll behind the
               translucent input. ChatArea pads its bottom to keep the last
-              message readable above it. */}
-          <div ref={composerRef} className="absolute inset-x-0 bottom-0 z-10 flex flex-col">
+              message readable above it. Narrower than the message column
+              (max-w-4xl inside — see InputArea) and given its own glass
+              surface, so it reads as a distinct floating object rather than
+              a same-width continuation of the transcript above it. */}
+          <motion.div
+            ref={composerRef}
+            className="absolute inset-x-0 z-10 flex flex-col"
+            style={composerStyle}
+            // The composer TRAVELS between the two places it lives. On an empty
+            // canvas it sits with the greeting in the middle of the column; the
+            // first message sends it to the floor, and before this it got there
+            // between two frames — the input the reader had just been typing in
+            // vanished and an identical one appeared somewhere else. A move is
+            // what says those are the same object. The rules for when that move
+            // is real, and why it is a transform, are in `useComposerMetrics`.
+            {...composerMotion}
+          >
             {/* No sources warning - shown when no data sources or files available */}
             <NoSourcesBanner isAuthenticated={isAuthenticated} />
 
@@ -339,10 +381,12 @@ export const MainLayout: FC<MainLayoutProps> = ({
               canCollaborate={canCollaborate}
               canChatInProject={canChatInProject}
             />
-          </div>
+          </motion.div>
         </div>
 
-        {/* Research Panel (Right) - Pushes content, shares the width 50/50 */}
+        {/* Research Panel (Right) - Pushes content, shares the width 50/50.
+            Closed for every thread that is not a legacy one; see the note at
+            the top of the file. */}
         <ResearchPanel showSourceBadges={showSourceBadges} />
       </div>
 

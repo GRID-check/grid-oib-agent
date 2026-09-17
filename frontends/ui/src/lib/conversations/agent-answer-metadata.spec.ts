@@ -266,10 +266,12 @@ describe('normalizeAgentAnswerMetadata', () => {
         truncation_reason: 'wall_clock',
         degraded_reasons: ['no_report_file'],
         citations_removed: { count: 1, reasons: ['unverifiable'] },
+        retrieval_ledger: [{ index: 0, key: 'k', docs: [], new_docs: [] }],
       }) ?? {}
 
     for (const key of [
       'sources',
+      'read_sources',
       'answer_confidence',
       'answer_confidence_reason',
       'deep_research_job_id',
@@ -277,9 +279,92 @@ describe('normalizeAgentAnswerMetadata', () => {
       'truncation_reason',
       'degraded_reasons',
       'citations_removed',
+      'retrieval_ledger',
     ]) {
       expect(result).not.toHaveProperty(key)
     }
+  })
+
+  it('translates read_sources into the readSources envelope the mapper restores', () => {
+    // The backend-written row for a turn whose client dropped mid-turn must
+    // reopen with the same disclosure a live tab showed.
+    const result = normalizeAgentAnswerMetadata({
+      sources: [kbSource()],
+      read_sources: [
+        {
+          document_id: 'doc:oib_knowledge:oib-rl_3.pdf',
+          citation_key: 'OIB-RL-3.pdf, p.4',
+          file_name: 'OIB-RL-3.pdf',
+          page: 4,
+          kind: 'baurecht',
+          lane: 'baurecht_oib',
+        },
+      ],
+    })
+
+    expect(result?.readSources).toMatchObject({ v: CITATIONS_PAYLOAD_VERSION })
+    const decoded = decodeCitations(result?.readSources, new Date('2026-09-01T10:00:00.000Z'))
+    expect(decoded).toHaveLength(1)
+    expect(decoded![0]).toMatchObject({ fileName: 'OIB-RL-3.pdf', page: 4 })
+  })
+
+  it('stores read_sources as identity + placement only — no prose, punkt or score', () => {
+    // A document the answer never cited must not carry evidence text into the
+    // row: the passage surfaces read the stored envelope, and prose stored
+    // under an uncited document would let it ground highlights it never earned.
+    const result = normalizeAgentAnswerMetadata({
+      read_sources: [
+        {
+          document_id: 'doc:oib_knowledge:oib-rl_3.pdf',
+          citation_key: 'OIB-RL-3.pdf, p.4',
+          file_name: 'OIB-RL-3.pdf',
+          page: 4,
+          collection: 'oib_base',
+          kind: 'baurecht',
+          lane: 'baurecht_oib',
+          lane_label: 'OIB-Richtlinie',
+          title: 'OIB-Richtlinie 3',
+          content: '[KB] OIB-RL-3.pdf, p.4 — Die Fluchtweglänge darf 40 m nicht überschreiten.',
+          snippet: 'Die Fluchtweglänge darf 40 m nicht überschreiten.',
+          punkt: '3.5.2',
+          score: 0.87,
+          number: 2,
+          source_type: 'knowledge_layer',
+          tool: 'knowledge_search',
+          origin: 'kb',
+        },
+      ],
+    })
+
+    const stored = (result?.readSources as { sources: Record<string, unknown>[] }).sources[0]
+    expect(stored).toMatchObject({ file_name: 'OIB-RL-3.pdf', page: 4 })
+    for (const key of [
+      'content',
+      'snippet',
+      'punkt',
+      'score',
+      'number',
+      'source_type',
+      'tool',
+      'origin',
+    ]) {
+      expect(stored).not.toHaveProperty(key)
+    }
+    // Still decodable: the locator the disclosure renders survived.
+    const decoded = decodeCitations(result?.readSources, new Date('2026-09-01T10:00:00.000Z'))
+    expect(decoded![0]).toMatchObject({ fileName: 'OIB-RL-3.pdf', page: 4 })
+  })
+
+  it('keeps storing the passage fields for cited sources', () => {
+    // The stripping above is read-only: a cited source still needs its
+    // passage, its Punkt and its score.
+    const result = normalizeAgentAnswerMetadata({ sources: [kbSource({ punkt: '3.5.2', score: 0.87 })] })
+    const stored = (result?.citations as { sources: Record<string, unknown>[] }).sources[0]
+    expect(stored).toMatchObject({
+      content: '[KB] OIB-Richtlinie 2, S. 18',
+      punkt: '3.5.2',
+      score: 0.87,
+    })
   })
 
   it("normalizes a row that carries ONLY the run's marks", () => {
@@ -300,6 +385,46 @@ describe('normalizeAgentAnswerMetadata', () => {
       degradedReasons: ['no_valid_citations'],
     })
     expect(result?.messageType).toBe('agent_response')
+  })
+
+  it('translates the backend-written retrieval ledger into provenance, one dialect', () => {
+    // The row the socket-persistence path writes when the client had gone.
+    // Left untranslated, the snake_case key would sit in the column forever
+    // and a later tightening of the strip list would delete the ledger for
+    // exactly the turns it exists for.
+    const result = normalizeAgentAnswerMetadata({
+      messageType: 'agent_response',
+      retrieval_ledger: [
+        {
+          index: 0,
+          key: 'status.retrieval.withQuery',
+          tools: ['knowledge_search'],
+          corpora: ['knowledge'],
+          query: 'Fluchtweglänge GK4',
+          docs: [{ name: 'OIB-RL_2.pdf', detail: 'p.12' }],
+          new_docs: ['OIB-RL_2.pdf'],
+          hits: 1,
+          documents: 1,
+        },
+      ],
+    }) ?? {}
+
+    expect(result).not.toHaveProperty('retrieval_ledger')
+    expect(result.provenance).toEqual({
+      retrievalLedger: [
+        {
+          index: 0,
+          key: 'status.retrieval.withQuery',
+          tools: ['knowledge_search'],
+          corpora: ['knowledge'],
+          query: 'Fluchtweglänge GK4',
+          docs: [{ name: 'OIB-RL_2.pdf', detail: 'p.12' }],
+          newDocs: ['OIB-RL_2.pdf'],
+          hits: 1,
+          documents: 1,
+        },
+      ],
+    })
   })
 
   it('never overwrites what the browser wrote — it saw the whole turn', () => {

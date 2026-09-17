@@ -17,7 +17,7 @@ Expected: the package installs and its `nat.plugins` entry point is registered.
 uv run pytest sources/my_data_source/tests
 ```
 
-Model tests on `sources/google_scholar_paper_search/tests/test_paper_search.py`:
+Model tests on `sources/ris_adapter/tests/test_client.py`:
 unit-test the client with `unittest.mock` (no live network), and cover both the
 configured path and the missing-secret stub path.
 

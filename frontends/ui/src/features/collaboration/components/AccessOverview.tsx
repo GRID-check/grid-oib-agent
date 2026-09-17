@@ -45,7 +45,7 @@ import { useId } from 'react'
 import type { ReactNode } from 'react'
 import { Users } from 'lucide-react'
 
-import { motion, springGentle } from '@/components/motion'
+import { motion, springSnap } from '@/components/motion'
 
 import { AvatarStack, PersonAvatar } from '@/components/ui/avatar-stack'
 import { EmptyState } from '@/components/ui/empty-state'
@@ -233,7 +233,7 @@ export function AccessOverview({
               <motion.div
                 key={role}
                 layout
-                transition={springGentle}
+                transition={springSnap}
                 className="space-y-1"
                 data-testid={`access-group-${role}`}
               >
@@ -258,7 +258,7 @@ export function AccessOverview({
                       key={entry.person.userId}
                       layout
                       layoutId={`${instanceId}-${entry.person.userId}`}
-                      transition={springGentle}
+                      transition={springSnap}
                       data-testid="access-row"
                       data-role={entry.role}
                       data-reason={entry.reason}

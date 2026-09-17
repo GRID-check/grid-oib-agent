@@ -210,7 +210,7 @@ def test_a_malformed_reranker_env_var_does_not_break_the_import() -> None:
     os.environ["AIQ_RERANKER_MAX_DOC_CHARS"] = "lots"
     try:
         reloaded = importlib.reload(cross_encoder)
-        assert reloaded.DEFAULT_TIMEOUT_SECONDS == 10.0
+        assert reloaded.DEFAULT_TIMEOUT_SECONDS == 3.0
         assert reloaded.DEFAULT_MAX_DOC_CHARS == 4000
     finally:
         del os.environ["AIQ_RERANKER_TIMEOUT_SECONDS"]
@@ -276,7 +276,7 @@ def test_the_same_model_on_a_different_host_is_a_different_vector_space() -> Non
     from sources.knowledge_layer.src.llamaindex.adapter import embed_fingerprint_mismatch
 
     stamped = embed_fingerprint_metadata("text-embedding-3-large", "https://openrouter.ai/api/v1")
-    assert embed_fingerprint_mismatch(stamped, "text-embedding-3-large", "https://integrate.api.nvidia.com/v1")
+    assert embed_fingerprint_mismatch(stamped, "text-embedding-3-large", "https://embeddings.example.com/v1")
 
 
 def test_a_trailing_slash_is_not_a_different_deployment() -> None:

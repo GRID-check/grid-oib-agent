@@ -1,0 +1,12 @@
+---
+fixes:
+  - >
+    Eine Frage zu einer gerade angehängten Datei wurde beantwortet, bevor die
+    Datei gelesen war — die Antwort kam dann aus allem außer dem Dokument, um
+    das es ging. Piloti hält die Frage jetzt kurz zurück und schickt sie ab,
+    sobald die Datei durchsucht werden kann. Im Chat steht, worauf gewartet
+    wird; wer nicht warten will, fragt mit einem Klick sofort.
+  - >
+    Ist eine Datei noch in Bearbeitung, weiß Piloti das jetzt auch selbst und
+    sagt es in der Antwort, statt eine unvollständige Antwort wie eine
+    vollständige aussehen zu lassen.

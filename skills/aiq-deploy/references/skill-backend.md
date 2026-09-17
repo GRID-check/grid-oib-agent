@@ -24,7 +24,7 @@ If port `8000` is already in use, choose another free port with `--port` and han
 ## Start
 
 ```bash
-./scripts/start_as_skill.sh --config_file configs/config_web_default_llamaindex.yml --port 8000
+./scripts/start_as_skill.sh --config_file configs/config_oib_openrouter.yml --port 8000
 ```
 
 The default Agent Skill backend path starts:

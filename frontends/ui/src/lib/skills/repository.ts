@@ -75,6 +75,7 @@ export type SkillUpdate = Partial<
     | 'body'
     | 'metadata'
     | 'enabled'
+    | 'categoryId'
     | 'updatedAt'
   >
 >

@@ -4,16 +4,35 @@ import { useState, useCallback, useEffect, useMemo, useRef } from 'react'
 import dynamic from 'next/dynamic'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { toast } from 'sonner'
-import { AlertCircle, Boxes, FileText, LayoutGrid, List, ListTree, RotateCcw, X } from 'lucide-react'
+import { AlertCircle, Boxes, FileText, LayoutGrid, List, RotateCcw, X } from 'lucide-react'
 import { sourceBase } from '@/lib/ui/source-tint'
 import { useProjectDocuments } from '../hooks/use-project-documents'
 import { useFileDragDrop } from '../hooks/use-file-drag-drop'
 import { useIngestionCompleteToast } from '../hooks/use-ingestion-complete-toast'
 import { useSettlingRefresh } from '../hooks/use-settling-refresh'
+import { useFileSearch } from '../hooks/use-file-search'
+import { toFileItem, type DocumentWireRow } from '../lib/file-item'
+import { digestFiles } from '../lib/content-digest'
+import {
+  buildFolderUploadPlan,
+  filesToUpload,
+  isFolderUpload,
+  type FolderUploadPlan,
+} from '../lib/folder-upload-plan'
+import { FolderUploadDialog } from './folder-upload-dialog'
 import { inferDocumentKind } from '../document-kind'
-import { FolderTreePane } from './folder-tree-pane'
 import { FileBrowserPane } from './file-browser-pane'
-import { DocumentActionsMenu } from './document-actions'
+import { FileSearchField } from './file-search-bar'
+import { FileFilterMenu } from './file-filter-menu'
+import {
+  NO_FILE_FILTERS,
+  applyFileFilters,
+  activeFilterCount,
+  type FileFilters,
+} from '../lib/file-filters'
+import { DEFAULT_FILE_SORT, type FileSort } from '../lib/file-sort'
+import { DocumentActionsTrigger, DocumentObjectMenu } from './document-actions'
+import { askAboutFile } from '../lib/ask-about-file'
 import { useFilePreviewStore } from '../stores/file-preview-store'
 import { FileDropOverlay, useWindowDragGuard } from './file-drop-overlay'
 import { ProjectUppyUpload } from './project-uppy-upload'
@@ -25,6 +44,12 @@ import { EmptyState } from '@/components/ui/empty-state'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import { useTranslations } from '@/i18n'
 import { documentDisplayName } from '@/lib/documents/display-name'
+import type { DocumentAuthor } from '@/lib/db/schema'
+import type {
+  DocumentLifecycle,
+  DocumentLifecyclePermission,
+  DocumentVersionState,
+} from '@/lib/documents/lifecycle-types'
 
 interface ProjectFileWorkspaceProps {
   projectId: string
@@ -37,18 +62,57 @@ interface ProjectFileWorkspaceProps {
    */
   showMetadataPanel?: boolean
   /**
-   * Whether an `.ifc` opens as a building (WorkOS `ifc-models`, ADR-0046).
+   * Whether the model workspace is reachable (WorkOS `ifc-models`, ADR-0046).
    *
-   * The model viewer used to be a page of its own behind this flag. It is a
-   * file preview now — there is no route left to hide — so the flag decides
-   * what a click on a model card DOES: open the viewer, or fall through to the
-   * ordinary file preview. Off by default here, because a viewer whose
+   * The flag has been three things. It hid a `/model` route; then, once the
+   * route was folded in here, it decided whether a click on a model card
+   * SKIPPED the file preview and went straight to the full-screen stage. That
+   * second meaning is what made an `.ifc` the one file type with no preview,
+   * and made the same file behave differently in Dateien and in the Archiv.
+   *
+   * It decides the smallest of the three things now: whether the preview offers
+   * the way on. A click always opens the preview, and `?model=` always opens
+   * the stage — the flag only gates the affordance between them, which is the
+   * shape a flag should have. Off by default here, because a viewer whose
    * endpoints answer 403 is worse than no viewer.
    */
   showModels?: boolean
+  /**
+   * Whether a click on an `.ifc` opens the preview first (`ifc-preview-first`).
+   *
+   * Defaults to preview-first, which is the safer direction to be wrong in: a
+   * reader who wanted the stage is one button from it inside the preview, while
+   * a reader thrown into a full-screen viewport has lost the preview entirely.
+   * Threaded from the page alongside the Archiv's copy of the same flag — the
+   * two surfaces must move together or the defect this fixes comes back.
+   */
+  previewFirst?: boolean
   /** Faces, Unvergeben, Zuweisen — behind the collaboration flag. */
   canCollaborate?: boolean
   currentUserId?: string
+  /**
+   * What this reader may do to a document's versions, resolved on the server
+   * (`lib/documents/lifecycle-permissions.ts`, ADR-0054). Handed to the preview
+   * pane, which shows exactly the review controls the transition table allows
+   * for the state AND the permission. Absent means the caller did not read them
+   * and the pane shows no Freigabe section — never a guessed set.
+   */
+  lifecyclePermissions?: readonly DocumentLifecyclePermission[]
+  /**
+   * The folder tree and the corpus as the SERVER already read them, for the
+   * first paint.
+   *
+   * Absent means "ask for them" — which is what every other caller of this
+   * component does, and what the page itself did until the two reads moved
+   * into it. Present means the first frame is the listing rather than a grid
+   * of grey rectangles waiting on three round trips behind the bundle.
+   *
+   * They seed state; they do not own it. Everything after the first frame — a
+   * filter, a settling poll, an upload landing, a retry — goes through the
+   * same loaders it always did.
+   */
+  initialFolders?: readonly FolderItem[]
+  initialFiles?: readonly DocumentWireRow[]
 }
 
 /**
@@ -69,6 +133,8 @@ export interface FolderItem {
   parentId: string | null
   name: string
   path: string
+  createdAt?: string
+  updatedAt?: string
 }
 
 export interface FileItem {
@@ -84,6 +150,26 @@ export interface FileItem {
   contentType: string | null
   status: string | null
   folderId: string | null
+  /**
+   * Where the file sat before it was uploaded, for a folder upload — e.g.
+   * `Wohnbau Nord/03_Einreichung/EG.pdf`. Null for a picked file, and null for
+   * everything uploaded before this was recorded.
+   *
+   * NOT `folderId`: that is Piloti's own filing, which somebody here chose and
+   * can change. This is a fact about the original, and it is what a person
+   * needs in order to go back and work on that original instead of editing a
+   * downloaded duplicate.
+   */
+  originPath?: string | null
+  /**
+   * A digest of the stored bytes (`sha256:<hex>`), or null when unknown.
+   *
+   * Read by the folder-upload planner and by nothing else on screen. It is on
+   * the row so the plan can be computed from the listing the reader is already
+   * looking at, instead of a request per candidate file to discover that
+   * nothing needs uploading.
+   */
+  contentHash?: string | null
   createdAt: string
   /** Server-persisted reason a document is in `failed` status, if any. */
   errorMessage: string | null
@@ -99,6 +185,34 @@ export interface FileItem {
   tags: string[] | null
   /** Who is on the hook. Empty = Unvergeben. Absent when collaboration is off. */
   assignees?: readonly FileAssignee[]
+  /**
+   * Whose hand wrote the bytes — `agent` for a report Piloti produced on a
+   * commissioned run. PROVENANCE, never responsibility: an agent-authored file
+   * has no assignees and its footer says `Unvergeben` like any other unclaimed
+   * file. Absent on a listing served before the column existed, which means
+   * exactly what the column's default means — a person uploaded it.
+   */
+  authoredBy?: DocumentAuthor
+  /**
+   * The NEWEST version's editorial state, and how many versions there are
+   * (ADR-0054). Both come from the listing, together, because the badge rule
+   * reads both: a plain upload has one published version and shows nothing.
+   *
+   * `null` means "this listing did not read it" — not „Entwurf". The chat's
+   * surfaced-documents reader and the Archiv listing do not pay for the second
+   * query, and a badge must not appear where nobody asked the question.
+   */
+  versionState?: DocumentVersionState | null
+  versionCount?: number | null
+  /**
+   * Whether the ITEM is still in the working set (ADR-0054).
+   *
+   * Absent everywhere the listing has no reason to say — the default listing
+   * carries active rows only, so „was fehlt hier" is answered by the filter and
+   * not by a field on every row. It is present, and `archived`, exactly when
+   * the reader asked for archived documents and is looking at a mixed list.
+   */
+  lifecycle?: DocumentLifecycle | null
 }
 
 export interface FileAssignee {
@@ -109,36 +223,18 @@ export interface FileAssignee {
 }
 
 /**
- * A `/api/documents` row as it arrives over the wire — the JSON projection of
- * `listDocuments`. Everything ingestion derives (summary, page/chunk counts,
- * content types, tags) is absent until the backend has produced it, which is
- * why each is normalized to `null` when the response is mapped to `FileItem`.
- */
-type DocumentWireRow = Omit<FileItem, OptionalWireField> & Partial<Pick<FileItem, OptionalWireField>>
-
-type OptionalWireField =
-  | 'displayName'
-  | 'folderId'
-  | 'errorMessage'
-  | 'summary'
-  | 'pageCount'
-  | 'chunkCount'
-  | 'contentTypes'
-  | 'tags'
-  | 'assignees'
-
-/**
  * Presentation of the file browser.
  *
- * `cards` browses, `list` is the explorer detail view for a corpus too large to
- * skim as tiles, `tree` puts the folder hierarchy alongside the cards. All
- * three read the same documents through the same search and folder filter.
+ * `cards` browses, `list` is the explorer detail view for a corpus too large
+ * to skim as tiles. Both read the same documents through the same search and
+ * the same Finder-style folder drill-down (the tree view is gone — drilling
+ * IS the folder navigation now, in both views).
  */
-type FileView = 'cards' | 'list' | 'tree'
+type FileView = 'cards' | 'list'
 
 const VIEW_STORAGE_KEY = 'grid.files.view'
 
-export function ProjectFileWorkspace({ projectId, projectName, collectionName, showMetadataPanel = true, showModels = false, canCollaborate = false, currentUserId }: ProjectFileWorkspaceProps) {
+export function ProjectFileWorkspace({ projectId, projectName, collectionName, showMetadataPanel = true, showModels = false, previewFirst = true, canCollaborate = false, currentUserId, lifecyclePermissions, initialFolders, initialFiles }: ProjectFileWorkspaceProps) {
   const t = useTranslations('files')
   const router = useRouter()
   const pathname = usePathname()
@@ -152,25 +248,14 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName, s
    * it, and every `/model?…` link ever written into a chat answer redirects
    * here and opens the same thing. Dateien itself learns exactly one fact —
    * whether that parameter is present.
+   *
+   * Nothing on this page sets it any more: the preview's own
+   * open-in-workspace link is the way in, and it is a real `href` so it opens
+   * in a new tab on middle-click. The parameter is still read here because
+   * chat answers, the `/model` redirect and a copied URL all arrive through
+   * it.
    */
   const stageModel = showModels ? (searchParams?.get('model')?.trim() ?? null) : null
-
-  const openModel = useCallback(
-    (filename: string) => {
-      const params = new URLSearchParams(searchParams?.toString() ?? '')
-      params.set('model', filename)
-      // `push`, not `replace`. The comment above says the back button closes
-      // the stage; with `replace` it pushed no history entry, so back left the
-      // Files page entirely and discarded the camera, the cut, the selection,
-      // the hidden set and every measurement. On a phone, back is the primary
-      // way anyone dismisses a full-screen overlay.
-      //
-      // Closing still REPLACES, so shutting the stage does not leave an entry
-      // that back would re-open.
-      router.push(`${pathname ?? ''}?${params.toString()}`, { scroll: false })
-    },
-    [pathname, router, searchParams]
-  )
 
   /**
    * Close the viewer, and take its whole view with it.
@@ -179,6 +264,24 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName, s
    * behind as dead parameters on the file browser — and re-opening any model
    * afterwards would inherit a selection from a different building.
    */
+  /**
+   * Straight to the stage, for the flag-off path.
+   *
+   * `push`, not `replace`: with `replace` the back button left the Files page
+   * entirely and discarded the camera, the cut, the selection, the hidden set
+   * and every measurement. On a phone, back is the primary way anyone dismisses
+   * a full-screen overlay. Closing still REPLACES, so shutting the stage does
+   * not leave an entry that back would re-open.
+   */
+  const openModel = useCallback(
+    (filename: string) => {
+      const params = new URLSearchParams(searchParams?.toString() ?? '')
+      params.set('model', filename)
+      router.push(`${pathname ?? ''}?${params.toString()}`, { scroll: false })
+    },
+    [pathname, router, searchParams]
+  )
+
   const closeModel = useCallback(() => {
     const params = new URLSearchParams(searchParams?.toString() ?? '')
     for (const key of ['model', 'element', 'storey', 'xray', 'tab', 'view', 'cut', 'cutup', 'proj']) {
@@ -189,24 +292,62 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName, s
     const path = pathname ?? ''
     router.replace(query ? `${path}?${query}` : path, { scroll: false })
   }, [pathname, router, searchParams])
-  // Default to the card grid (the click-dummy). The folder-tree workspace stays
-  // one click away and the choice persists per browser (sidebar-collapse pattern).
+  // Default to the card grid (the click-dummy). The choice persists per
+  // browser (sidebar-collapse pattern). A stored 'tree' — the removed third
+  // view — falls back to cards rather than surviving as a dead value.
   const [view, setView] = useState<FileView>('cards')
   useEffect(() => {
     if (typeof window === 'undefined') return
     const stored = window.localStorage.getItem(VIEW_STORAGE_KEY)
-    if (stored === 'cards' || stored === 'list' || stored === 'tree') setView(stored)
+    if (stored === 'cards' || stored === 'list') setView(stored)
   }, [])
   const selectView = useCallback((next: FileView) => {
     setView(next)
     if (typeof window !== 'undefined') window.localStorage.setItem(VIEW_STORAGE_KEY, next)
   }, [])
-  const [selectedFolderId, setSelectedFolderId] = useState<string | null>(null)
+  /**
+   * Which folder is open, in the URL rather than in state.
+   *
+   * It was `useState`, and that made the folder tree the one part of this page
+   * the browser did not know about: three folders deep, the back button left
+   * Dateien entirely instead of going up one level, a reload dropped the reader
+   * at the root, and a folder could not be sent to a colleague at all. Every
+   * other view on this page — which model, which storey, which element — has
+   * lived in the URL for exactly these reasons; the folder was the exception.
+   *
+   * `?folder=<id>` and not a path segment: the folder tree is arbitrarily deep
+   * and folders are renameable, so a route would need either a catch-all
+   * segment resolved by name (ambiguous — two siblings may share a name) or the
+   * same id in a prettier place. The id is what the API takes.
+   */
+  const selectedFolderId = searchParams?.get('folder')?.trim() || null
+
+  /**
+   * `push`, so each folder is its own history entry and back means "up one
+   * level" — which is the whole point of moving this into the URL. `scroll:
+   * false` because the listing replaces itself in place.
+   */
+  const setSelectedFolderId = useCallback(
+    (next: string | null) => {
+      const params = new URLSearchParams(searchParams?.toString() ?? '')
+      if (next === null) params.delete('folder')
+      else params.set('folder', next)
+      // Leaving a level closes whatever was open in it: a `doc` from the folder
+      // you just left is not in the folder you just entered.
+      params.delete('doc')
+      const query = params.toString()
+      const path = pathname ?? ''
+      router.push(query ? `${path}?${query}` : path, { scroll: false })
+    },
+    [pathname, router, searchParams]
+  )
   const [selectedFileId, setSelectedFileId] = useState<string | null>(null)
-  const [folders, setFolders] = useState<FolderItem[]>([])
-  const [files, setFiles] = useState<FileItem[]>([])
-  const [isLoadingFolders, setIsLoadingFolders] = useState(true)
-  const [isLoadingFiles, setIsLoadingFiles] = useState(true)
+  const [folders, setFolders] = useState<FolderItem[]>(() => [...(initialFolders ?? [])])
+  const [files, setFiles] = useState<FileItem[]>(() => (initialFiles ?? []).map(toFileItem))
+  // Seeded means loaded. Starting these at `true` with the answer already in
+  // state would draw the skeleton over a listing this render could paint.
+  const [isLoadingFolders, setIsLoadingFolders] = useState(initialFolders === undefined)
+  const [isLoadingFiles, setIsLoadingFiles] = useState(initialFiles === undefined)
   const [foldersError, setFoldersError] = useState(false)
   const [filesError, setFilesError] = useState(false)
 
@@ -227,6 +368,36 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName, s
   const loadGeneration = useRef(0)
 
   /**
+   * The `Von Piloti` filter, and the one filter on this surface that is asked
+   * of the SERVER rather than applied to the loaded listing.
+   *
+   * Assignment can be filtered here because the assignees ride along on every
+   * row. Authorship cannot: it is a column with a partial index
+   * (`WHERE authored_by = 'agent'`), the listing is capped at 500 rows, and
+   * "everything Piloti wrote" has to be able to find a report that fell off the
+   * end of a large corpus. So the chip becomes `?authoredBy=agent` and the
+   * effect below re-reads the listing, because `loadFiles` changes identity
+   * with it.
+   */
+  const [filters, setFilters] = useState<FileFilters>(NO_FILE_FILTERS)
+  const agentAuthoredOnly = filters.agentAuthoredOnly
+  // Same shape and the same reason as `agentAuthoredOnly`: the listing itself
+  // is what excludes an archived document, so this is a refetch and not a
+  // predicate (ADR-0054).
+  const includeArchived = filters.includeArchived
+
+  /**
+   * Ordering, lifted out of the detail view.
+   *
+   * `FileListView` used to own this. That made the order a property of ONE of
+   * the two views: switching to Kacheln threw away the sort you had chosen, and
+   * "which is the newest" was a question only the list could answer. It is a
+   * question about the listing, so it is asked here and both views read it —
+   * the list's column headers write back to this same state.
+   */
+  const [sort, setSort] = useState<FileSort>(DEFAULT_FILE_SORT)
+
+  /**
    * @param quiet Refresh without the skeleton — used by the settling poll
    *   below, which would otherwise flash the whole grid every few seconds.
    */
@@ -236,6 +407,8 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName, s
     if (!quiet) setIsLoadingFiles(true)
     setFilesError(false)
     const params = new URLSearchParams({ projectId })
+    if (agentAuthoredOnly) params.set('authoredBy', 'agent')
+    if (includeArchived) params.set('includeArchived', 'true')
     return fetch(`/api/documents?${params}`)
       .then((r) => {
         if (!r.ok) throw new Error(`Failed to load documents (${r.status})`)
@@ -243,24 +416,7 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName, s
       })
       .then((data) => {
         if (isStale()) return
-        const docs: FileItem[] = (data.documents ?? []).map((d) => ({
-          id: d.id,
-          filename: d.filename,
-          displayName: d.displayName ?? null,
-          fileSize: d.fileSize,
-          contentType: d.contentType,
-          status: d.status,
-          folderId: d.folderId ?? null,
-          createdAt: d.createdAt,
-          errorMessage: d.errorMessage ?? null,
-          summary: d.summary ?? null,
-          pageCount: d.pageCount ?? null,
-          chunkCount: d.chunkCount ?? null,
-          contentTypes: d.contentTypes ?? null,
-          tags: d.tags ?? null,
-          assignees: d.assignees ?? [],
-        }))
-        setFiles(docs)
+        setFiles((data.documents ?? []).map(toFileItem))
       })
       .catch(() => {
         // A failed POLL must not empty a list the user is looking at; only a
@@ -276,11 +432,18 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName, s
         // otherwise leave it spinning forever with nobody left to clear it.
         if (!quiet) setIsLoadingFiles(false)
       })
-  }, [projectId])
+  }, [projectId, agentAuthoredOnly, includeArchived])
+
+  // The query lives here rather than in the browser pane: the field sits in the
+  // page header (beside the view toggles and Upload) while the results it
+  // filters are rendered below, so the state has to be owned above both.
+  const search = useFileSearch({ projectId })
 
   const { uploadFiles, isUploading, trackedFiles, error, clearError, retryFile, cancelFile, cancelUpload, dismissFiles } =
     useProjectDocuments({
       projectId,
+      // The page resolved this server-side; the hook used to fetch it again.
+      collectionName,
       folderId: selectedFolderId ?? undefined,
       // Refresh the durable file list once ingestion of an upload completes so
       // new documents appear without a manual reload. Wrapped rather than passed
@@ -306,12 +469,35 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName, s
       .finally(() => setIsLoadingFolders(false))
   }, [projectId])
 
+  /**
+   * The seeded first render is already the answer, so the mount load is
+   * skipped once — and only once.
+   *
+   * A ref rather than a `hasLoaded` state: this must not re-render, and it
+   * must be consumed by the FIRST run of each effect rather than by a
+   * condition that could still be true when `loadFiles` changes identity. It
+   * changes identity when the „Von Piloti" chip flips, and that is a request
+   * for a different listing which has to reach the server.
+   */
+  const seededFolders = useRef(initialFolders !== undefined)
+  const seededFiles = useRef(initialFiles !== undefined)
+  const pickFilesRef = useRef<(() => void) | null>(null)
+  const pickFolderRef = useRef<(() => void) | null>(null)
+
   useEffect(() => {
+    if (seededFolders.current) {
+      seededFolders.current = false
+      return
+    }
     void loadFolders()
   }, [loadFolders])
 
   // Fetch files
   useEffect(() => {
+    if (seededFiles.current) {
+      seededFiles.current = false
+      return
+    }
     void loadFiles()
   }, [loadFiles])
 
@@ -375,17 +561,88 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName, s
     wasUploading.current = isUploading
   }, [isUploading, loadFiles])
 
-  const [assignmentFilter, setAssignmentFilter] = useState<'all' | 'mine' | 'unassigned'>('all')
-
   const docParam = searchParams?.get('doc')
-  const filteredFiles = useMemo(() => {
-    const inFolder = selectedFolderId ? files.filter((f) => f.folderId === selectedFolderId) : files
-    if (!canCollaborate || assignmentFilter === 'all') return inFolder
-    if (assignmentFilter === 'unassigned') {
-      return inFolder.filter((file) => !file.assignees || file.assignees.length === 0)
+
+  /**
+   * The filter menu applied to the whole corpus — and therefore the search
+   * scope too, so a narrowed listing stays narrowed when you search it.
+   *
+   * `agentAuthoredOnly` and `includeArchived` are deliberately absent: both are
+   * query parameters on the listing endpoint (see `loadFiles`), so `files` has
+   * already been narrowed — or widened — before this runs.
+   */
+  const filteredFiles = useMemo(
+    () => applyFileFilters(files, filters, { canCollaborate: !!canCollaborate, currentUserId }),
+    [files, filters, canCollaborate, currentUserId]
+  )
+
+  /**
+   * The current LEVEL, Finder-style: the root shows the unfiled documents plus
+   * the top-level folder cards; entering a folder shows what is directly in
+   * it. When the folder listing itself failed to load, folder scoping would
+   * hide every filed document behind an error, so the level falls open to the
+   * whole corpus instead.
+   */
+  const levelFiles = useMemo(() => {
+    if (foldersError) return filteredFiles
+    return filteredFiles.filter((file) => (file.folderId ?? null) === selectedFolderId)
+  }, [filteredFiles, selectedFolderId, foldersError])
+
+  /**
+   * When a FILTER emptied the level rather than the folder being empty.
+   *
+   * The browser pane is handed already-filtered files and cannot tell the two
+   * apart, so it drew "this folder is empty" over a folder full of documents
+   * the moment a filter matched nothing. „Von Piloti" is the one that cost
+   * most: it is the filter whose meaning nobody could infer, and the only
+   * place the product could have explained it — the state where it matches
+   * nothing — said something false instead.
+   *
+   * Authorship wins when both are on: it is the narrower and the less obvious
+   * of the two, so it is the one a reader needs explained.
+   */
+  const filterEmptyNotice = useMemo(() => {
+    const clear = () => setFilters(NO_FILE_FILTERS)
+    if (activeFilterCount(filters, !!canCollaborate) === 0) return null
+    // The notice REPLACES the whole listing (the pane renders it before every
+    // other branch), so it may only exist when the listing is actually empty —
+    // otherwise an active filter blanks the files it just matched. A query or
+    // semantic search owns its own empty states, so the notice yields to them.
+    if (search.query.trim() !== '' || search.semantic.active) return null
+    if (levelFiles.length > 0) return null
+    // An unfiltered-empty level is an empty folder, not a filter hiding
+    // anything — clearing the filter would still show nothing.
+    const levelOccupied = foldersError
+      ? files.length > 0
+      : files.some((file) => (file.folderId ?? null) === selectedFolderId)
+    if (!levelOccupied) return null
+    if (filters.agentAuthoredOnly) {
+      return {
+        title: t('authorship.emptyTitle'),
+        description: t('authorship.emptyDescription'),
+        onClear: clear,
+      }
     }
-    return inFolder.filter((file) => file.assignees?.some((person) => person.userId === currentUserId))
-  }, [files, selectedFolderId, canCollaborate, assignmentFilter, currentUserId])
+    if (canCollaborate && filters.assignment !== 'all') {
+      return {
+        title:
+          filters.assignment === 'mine'
+            ? t('assignment.emptyMine')
+            : t('assignment.emptyUnassigned'),
+        description: t('assignment.emptyDescription'),
+        onClear: clear,
+      }
+    }
+    // Type and status have no explanation of their own to give — unlike „Von
+    // Piloti", whose meaning nobody could infer, these two say what they mean
+    // on the chip. What the reader needs is the fact that a filter, and not an
+    // empty folder, is why they are looking at nothing.
+    return {
+      title: t('filters.emptyTitle'),
+      description: t('filters.emptyDescription'),
+      onClear: clear,
+    }
+  }, [filters, canCollaborate, t, search.query, search.semantic.active, levelFiles, files, selectedFolderId, foldersError])
 
   // After a successful re-ingestion the document is back to 'pending'; reflect
   // that locally so the badge flips to "Processing" and the dead-end failure UI
@@ -402,6 +659,18 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName, s
   const handleTagsUpdated = useCallback((fileId: string, tags: string[]) => {
     setFiles((prev) => prev.map((f) => (f.id === fileId ? { ...f, tags } : f)))
   }, [])
+
+  /**
+   * A Freigabe decision moved the document's state, so the card behind the pane
+   * moves with it. Patched rather than refetched, like a rename: the panel has
+   * just re-read the version list, so the two numbers are the server's own.
+   */
+  const handleLifecycleChanged = useCallback(
+    (fileId: string, summary: { versionState: DocumentVersionState; versionCount: number }) => {
+      setFiles((prev) => prev.map((f) => (f.id === fileId ? { ...f, ...summary } : f)))
+    },
+    [],
+  )
 
   // After a document is deleted, drop it from the local corpus and close the
   // preview overlay if it was the selected file.
@@ -432,6 +701,102 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName, s
     setFiles((prev) => prev.map((f) => (f.id === fileId ? { ...f, folderId } : f)))
   }, [])
 
+  /**
+   * A file dragged onto a folder.
+   *
+   * The same `PATCH .../folder` the „Verschieben" menu item already used — this
+   * adds the gesture, not the capability, which is why it goes through one
+   * request rather than a second code path that could disagree with the menu
+   * about what a move is.
+   *
+   * The list is updated optimistically and put back on failure: the card
+   * visibly leaves the level under the finger, so leaving it there until a
+   * round trip returns would make a successful move look broken and a failed
+   * one look successful.
+   */
+  const handleDropInFolder = useCallback(
+    async (documentId: string, folderId: string | null) => {
+      const file = files.find((candidate) => candidate.id === documentId)
+      if (!file || (file.folderId ?? null) === folderId) return
+      const previousFolderId = file.folderId ?? null
+      const folderName = folderId
+        ? (folders.find((folder) => folder.id === folderId)?.name ?? '')
+        : t('folders.allFiles')
+
+      setFiles((prev) => prev.map((f) => (f.id === documentId ? { ...f, folderId } : f)))
+      try {
+        const res = await fetch(`/api/documents/${documentId}/folder`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ folderId }),
+        })
+        if (!res.ok) throw new Error(`Move failed (${res.status})`)
+        toast.success(
+          t('actions.moved', { name: documentDisplayName(file), folder: folderName })
+        )
+      } catch {
+        setFiles((prev) =>
+          prev.map((f) => (f.id === documentId ? { ...f, folderId: previousFolderId } : f))
+        )
+        toast.error(t('actions.moveError'))
+      }
+    },
+    [files, folders, t]
+  )
+
+  /**
+   * A folder dragged onto another folder — or onto „Alle Dateien", which is the
+   * way back out to the project root.
+   *
+   * Optimistic on the PARENT and then re-read, which is the same split
+   * `handleRenameFolder` makes and for the same reason: `path` is materialised
+   * on every row, so moving a folder rewrites the path of everything beneath
+   * it. The parent is what decides where the tile is drawn, so changing it here
+   * moves the tile in the frame the finger let go; the paths are the server's
+   * rule and are read back rather than guessed at.
+   *
+   * The pane refuses a move into a folder's own subtree before the drop, so the
+   * failure this puts back is a network one, not a rejected move.
+   */
+  const handleDropFolderInFolder = useCallback(
+    async (draggedFolderId: string, parentId: string | null) => {
+      const folder = folders.find((candidate) => candidate.id === draggedFolderId)
+      if (!folder || (folder.parentId ?? null) === parentId) return
+      const previousParentId = folder.parentId ?? null
+      const parentName = parentId
+        ? (folders.find((candidate) => candidate.id === parentId)?.name ?? '')
+        : t('folders.allFiles')
+
+      setFolders((prev) =>
+        prev.map((f) => (f.id === draggedFolderId ? { ...f, parentId } : f))
+      )
+      try {
+        const res = await fetch(`/api/projects/${projectId}/folders/${draggedFolderId}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ parentId }),
+        })
+        if (!res.ok) throw new Error(`Move failed (${res.status})`)
+        await loadFolders()
+        toast.success(t('folders.movedFolder', { name: folder.name, parent: parentName }))
+      } catch {
+        setFolders((prev) =>
+          prev.map((f) => (f.id === draggedFolderId ? { ...f, parentId: previousParentId } : f))
+        )
+        toast.error(t('folders.moveFolderError'))
+      }
+    },
+    [folders, projectId, loadFolders, t]
+  )
+
+  /**
+   * Open a file's preview.
+   *
+   * It does NOT touch the URL. `?doc=` has one writer — the reconciler below —
+   * because the preview can also be opened from a link and shut by three
+   * controls this function never hears about, and a second writer here is what
+   * made the two disagree.
+   */
   const handleSelectFile = useCallback(
     (id: string | null) => {
       if (id === null) {
@@ -441,13 +806,26 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName, s
       }
       const file = files.find((candidate) => candidate.id === id)
       if (!file) return
-      const isModel =
+      // An `.ifc` opens the way every other file opens — by default.
+      //
+      // It used to be intercepted here unconditionally and thrown at the
+      // full-screen stage, which made the model the ONE file type with no
+      // preview, and meant the same file behaved differently depending on which
+      // workspace you clicked it in: the Archiv had no stage to jump to, so it
+      // showed a preview with no way out.
+      //
+      // Both halves are fixed, and the choice is now a flag rather than a
+      // surface's private opinion. The Archiv runs this identical branch off
+      // the identical flag, so the two cannot disagree again.
+      if (
+        !previewFirst &&
+        showModels &&
         inferDocumentKind({
           filename: file.filename,
           contentType: file.contentType,
           tags: file.tags,
         }) === 'model'
-      if (showModels && isModel) {
+      ) {
         openModel(file.filename)
         return
       }
@@ -458,34 +836,103 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName, s
         scope: 'files',
         canCollaborate,
         showMetadataPanel,
+        showModels,
+        lifecyclePermissions,
+        viewerUserId: currentUserId,
         onRenamed: handleRenamed,
         onDeleted: handleDeleted,
         onReingested: handleReingested,
         onTagsUpdated: handleTagsUpdated,
+        onLifecycleChanged: handleLifecycleChanged,
       })
     },
     [
       files,
       showModels,
+      previewFirst,
       openModel,
       projectId,
       projectName,
       canCollaborate,
       showMetadataPanel,
+      lifecyclePermissions,
+      currentUserId,
       handleRenamed,
       handleDeleted,
       handleReingested,
       handleTagsUpdated,
+      handleLifecycleChanged,
     ],
   )
 
+  const previewFileId = useFilePreviewStore((state) => state.file?.id ?? null)
+  const previousDocRef = useRef<string | null>(null)
+  const previousPreviewRef = useRef<string | null>(null)
+
+  /**
+   * Keep `?doc=` and the open preview saying the same thing, in both
+   * directions.
+   *
+   * This was two effects pulling one way each, and the transition neither of
+   * them owned was the one the change exists for: the opener returned when
+   * `?doc=` was absent, the closer returned while the preview was still up, so
+   * pressing Back dropped the parameter and left the file open. Back did
+   * nothing.
+   *
+   * One effect, and the rule is WHICH SIDE MOVED. The snapshot alone cannot
+   * tell a Back from a `router.push` that has not landed yet — in both, the URL
+   * names no file while the preview shows one — so the effect compares each
+   * side against what it was, and the side that changed is the cause. The other
+   * follows it. When the preview moved, the URL is rewritten: opening pushes
+   * (on a phone, back is how anyone dismisses a full-screen overlay) and
+   * closing replaces, so shutting the preview leaves no entry back would
+   * re-open. When the URL moved, the preview is opened or shut to match, and
+   * the row highlight goes with it — a card wearing `aria-current` under a
+   * closed preview points at nothing.
+   */
   useEffect(() => {
-    if (!docParam || files.length === 0) return
-    if (useFilePreviewStore.getState().file?.id === docParam) return
-    if (files.some((file) => file.id === docParam)) {
-      handleSelectFile(docParam)
+    const wanted = docParam ?? null
+    const urlMoved = previousDocRef.current !== wanted
+    const previewMoved = previousPreviewRef.current !== previewFileId
+    previousPreviewRef.current = previewFileId
+
+    if (wanted === previewFileId) {
+      previousDocRef.current = wanted
+      return
     }
-  }, [docParam, files, handleSelectFile])
+
+    if (previewMoved) {
+      previousDocRef.current = wanted
+      const params = new URLSearchParams(searchParams?.toString() ?? '')
+      const path = pathname ?? ''
+      if (previewFileId === null) {
+        setSelectedFileId(null)
+        params.delete('doc')
+        const query = params.toString()
+        router.replace(query ? `${path}?${query}` : path, { scroll: false })
+      } else {
+        params.set('doc', previewFileId)
+        router.push(`${path}?${params.toString()}`, { scroll: false })
+      }
+      return
+    }
+
+    if (!urlMoved) return
+
+    if (wanted === null) {
+      previousDocRef.current = wanted
+      setSelectedFileId(null)
+      useFilePreviewStore.getState().close()
+      return
+    }
+
+    // A link, or Back onto an entry that names a file. The rows may still be
+    // loading, and then this is NOT yet handled: `previousDocRef` is left
+    // behind on purpose so the render that has them still counts as a move.
+    if (!files.some((file) => file.id === wanted)) return
+    previousDocRef.current = wanted
+    handleSelectFile(wanted)
+  }, [docParam, previewFileId, files, handleSelectFile, pathname, router, searchParams])
 
   // This session's own uploads for this project's corpus — every phase, so the
   // tray can carry a batch all the way from queued to its "added" summary
@@ -497,12 +944,186 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName, s
     [trackedFiles, collectionName]
   )
 
+  /*
+   * A FOLDER IS NOT A LONGER LIST OF FILES.
+   *
+   * Every upload on this page — the button, the folder item in its menu, the
+   * dashed tile, a drop onto the workspace — comes through here, and this is
+   * where the two gestures part company. A handful of picked files goes
+   * straight to `uploadFiles`, exactly as before. A directory tree does not:
+   * it carries a structure, it usually overlaps what is already in the project,
+   * and applying it silently was costing work.
+   *
+   * Three things were wrong with the silent path, and the plan answers all
+   * three. The tree collapsed into whichever folder the reader stood in. Files
+   * whose names already existed replaced live documents with no statement that
+   * they would. And two files of one name inside a single drop both uploaded,
+   * one overwriting the other, because a project holds one document per
+   * filename (migration 0074) — a loss nothing on screen mentioned.
+   */
+  const [folderPlan, setFolderPlan] = useState<FolderUploadPlan | null>(null)
+  const [folderPlanOpen, setFolderPlanOpen] = useState(false)
+  const [folderPlanPending, setFolderPlanPending] = useState(false)
+  /**
+   * The plan's own generation, so a second drop while the first is still being
+   * hashed cannot land on top of it. Hashing a folder of models is seconds
+   * long, which is ample time to drop another folder.
+   */
+  const planGeneration = useRef(0)
+
+  const handleUpload = useCallback(
+    (incoming: File[]) => {
+      if (!isFolderUpload(incoming)) {
+        void uploadFiles(incoming)
+        return
+      }
+      const generation = ++planGeneration.current
+      setFolderPlan(null)
+      setFolderPlanPending(false)
+      setFolderPlanOpen(true)
+      void (async () => {
+        const base = { files: incoming, documents: files, folders, currentFolderId: selectedFolderId }
+        // First pass names the plausible duplicates; only those are read into
+        // memory. Everything else is an upload either way.
+        const first = buildFolderUploadPlan(base)
+        const digests = await digestFiles(first.hashCandidates)
+        if (generation !== planGeneration.current) return
+        setFolderPlan(buildFolderUploadPlan({ ...base, digests }))
+      })()
+    },
+    [uploadFiles, files, folders, selectedFolderId]
+  )
+
+  /**
+   * Apply the plan: make the folders, then send the files into them.
+   *
+   * The folders first and in ONE request, because a file cannot be filed into a
+   * folder that does not exist yet and forty sequential creates from the browser
+   * would be forty chances to end up with half a tree. If that request fails
+   * nothing is uploaded at all — a half-applied plan is the state that is hardest
+   * to reason about afterwards, and the whole thing is safely repeatable.
+   */
+  const applyFolderPlan = useCallback(
+    async (includeUpdates: boolean) => {
+      if (!folderPlan) return
+      const selected = filesToUpload(folderPlan, includeUpdates)
+      const moves = folderPlan.moves
+      if (selected.length === 0 && moves.length === 0) return
+      setFolderPlanPending(true)
+
+      const paths = folderPlan.folders.map((folder) => folder.path)
+      let folderIdByPath: Record<string, string> = {}
+      // The folders FIRST, and on their own, because their failure is the one
+      // that must stop everything: nothing below can be filed correctly without
+      // them, and a half-applied tree is the state that is hardest to reason
+      // about afterwards. Reported as a folder failure, which is what it is —
+      // the old single catch said "the folders could not be created" over an
+      // upload that had failed for its own reasons.
+      if (paths.length > 0) {
+        try {
+          const res = await fetch(`/api/projects/${projectId}/folders/ensure`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ parentId: selectedFolderId, paths }),
+          })
+          if (!res.ok) throw new Error(`Folders failed (${res.status})`)
+          const data = (await res.json()) as { folderIdByPath?: Record<string, string> }
+          folderIdByPath = data.folderIdByPath ?? {}
+        } catch {
+          // The dialog STAYS OPEN. Nothing was uploaded, the plan is still the
+          // plan, and closing it would leave a toast as the only account of a
+          // gesture the reader is entitled to simply retry.
+          setFolderPlanPending(false)
+          toast.error(t('folderUpload.foldersError'))
+          return
+        }
+      }
+
+      try {
+        // Resolved per file rather than per batch — that is the whole point of
+        // reproducing the tree. A file at the top of the drop has no path of
+        // its own and belongs in the level the reader is standing in.
+        const folderIdByFile = new Map<File, string | null>()
+        for (const planned of selected) {
+          folderIdByFile.set(
+            planned.file,
+            planned.targetPath ? (folderIdByPath[planned.targetPath] ?? selectedFolderId) : selectedFolderId
+          )
+        }
+
+        setFolderPlanOpen(false)
+
+        /*
+         * The documents that are already here, already correct, and filed
+         * somewhere the tree does not put them.
+         *
+         * Nothing is uploaded for these — that is what „unverändert" means — so
+         * without this the promise on the dialog ("the folder structure is
+         * recreated") is false for exactly the files a re-sync is mostly made
+         * of. `Promise.allSettled`: one refused move must not take the upload
+         * down with it, and the listing reload below is what tells the truth
+         * about which of them landed.
+         */
+        if (moves.length > 0) {
+          await Promise.allSettled(
+            moves.map((move) =>
+              fetch(`/api/documents/${move.documentId}/folder`, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  // Resolved through the SAME map the uploads are resolved
+                  // through, and only now, because the folder a document is
+                  // moving into may have been created a moment ago.
+                  folderId: move.targetPath
+                    ? (folderIdByPath[move.targetPath] ?? selectedFolderId)
+                    : selectedFolderId,
+                }),
+              })
+            )
+          )
+        }
+
+        if (selected.length > 0) {
+          await uploadFiles(
+            selected.map((planned) => planned.file),
+            { folderIdFor: (file) => folderIdByFile.get(file) ?? null }
+          )
+        }
+        // The tree just grew; the breadcrumb and the folder tiles have to know.
+        await loadFolders()
+        // A move writes a row this page is showing, and `uploadFiles` only
+        // refreshes the listing when it actually uploaded something.
+        await loadFiles(true)
+        // A move-only apply uploads nothing, and „0 Dateien hochgeladen" alone
+        // would read as a failed gesture over work that was actually done.
+        toast.success(
+          moves.length > 0
+            ? t('folderUpload.doneMoved', {
+                uploaded: String(selected.length),
+                skipped: String(folderPlan.counts.unchanged),
+                moved: String(moves.length),
+              })
+            : t('folderUpload.done', {
+                uploaded: String(selected.length),
+                skipped: String(folderPlan.counts.unchanged),
+              })
+        )
+      } catch {
+        toast.error(t('folderUpload.applyError'))
+      } finally {
+        setFolderPlanPending(false)
+      }
+    },
+    [folderPlan, projectId, selectedFolderId, uploadFiles, loadFolders, loadFiles, t]
+  )
+
   // Drag-and-drop onto the workspace routes dropped files into the SAME upload
-  // path the button uses (uploadFiles), which already targets the selected folder
-  // via the hook's folderId. Validation/limits stay in uploadFiles; the drag hook
-  // only surfaces a supported/unsupported affordance using the shared AppConfig.
+  // path the button uses, which is `handleUpload` — so a folder DRAGGED in gets
+  // the same plan a folder PICKED in the menu does. Validation and limits stay
+  // in `uploadFiles`; the drag hook only surfaces a supported/unsupported
+  // affordance using the shared AppConfig.
   const { isDragging, isUnsupportedDrag, dragHandlers } = useFileDragDrop({
-    onDrop: uploadFiles,
+    onDrop: handleUpload,
     disabled: isUploading,
   })
 
@@ -602,7 +1223,7 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName, s
       )
       return true
     },
-    [projectId, t, folders, files, selectedFolderId, loadFolders, loadFiles]
+    [projectId, t, folders, files, selectedFolderId, setSelectedFolderId, loadFolders, loadFiles]
   )
 
   return (
@@ -618,12 +1239,12 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName, s
       )}
 
       <ProjectSectionActions>
-        <div className="flex shrink-0 items-center gap-2">
+        <div className="flex min-w-0 shrink-0 flex-wrap items-center justify-end gap-2">
           <ToggleGroup
             type="single"
             value={view}
             onValueChange={(value) => {
-              if (value === 'cards' || value === 'list' || value === 'tree') selectView(value)
+              if (value === 'cards' || value === 'list') selectView(value)
             }}
             segmented
             size="icon-sm"
@@ -635,38 +1256,42 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName, s
             <ToggleGroupItem value="list" aria-label={t('workspace.view.list')} title={t('workspace.view.list')}>
               <List />
             </ToggleGroupItem>
-            <ToggleGroupItem value="tree" aria-label={t('workspace.view.tree')} title={t('workspace.view.tree')}>
-              <ListTree />
-            </ToggleGroupItem>
           </ToggleGroup>
-          {canCollaborate && (
-            <ToggleGroup
-              type="single"
-              value={assignmentFilter}
-              onValueChange={(value) => {
-                if (value === 'all' || value === 'mine' || value === 'unassigned') setAssignmentFilter(value)
-              }}
-              size="sm"
-              aria-label={t('assignment.responsible')}
-            >
-              {(['all', 'mine', 'unassigned'] as const).map((key) => (
-                <ToggleGroupItem key={key} value={key} className="px-2 text-xs">
-                  {t(
-                    key === 'all'
-                      ? 'assignment.filterAll'
-                      : key === 'mine'
-                        ? 'assignment.filterMine'
-                        : 'assignment.filterUnassigned',
-                  )}
-                </ToggleGroupItem>
-              ))}
-            </ToggleGroup>
-          )}
+          <FileFilterMenu
+            canCollaborate={!!canCollaborate}
+            filters={filters}
+            onFiltersChange={setFilters}
+            sort={sort}
+            onSortChange={setSort}
+            // A ranked result set orders itself; offering a column here would
+            // throw the ranking away without saying so.
+            sortDisabled={search.semantic.active}
+          />
+          {/* The corpus search, in the header with the other controls that act
+              on the listing — one search on the page, not a band under the one
+              it duplicates. */}
+          <FileSearchField
+            className="w-full sm:w-64 lg:w-72"
+            value={search.query}
+            onChange={search.setQuery}
+            onSubmit={search.run}
+            onClear={search.clear}
+            placeholder={t('browser.searchPlaceholder')}
+            searchLabel={t('browser.searchLabel')}
+            resetLabel={t('browser.resetSearch')}
+            // No run button: the field reads as the plain filter it mostly is,
+            // the way History's does. Enter still commits the query to the
+            // semantic search.
+          />
           <ProjectUppyUpload
             projectId={projectId}
             folderId={selectedFolderId}
-            onUpload={(files) => uploadFiles(files)}
+            onUpload={handleUpload}
             isUploading={isUploading}
+            // The durable corpus is where a büro brings a whole project in.
+            allowFolders
+            pickFilesRef={pickFilesRef}
+            pickFolderRef={pickFolderRef}
           />
         </div>
       </ProjectSectionActions>
@@ -700,27 +1325,14 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName, s
         onDismiss={dismissFiles}
       />
 
-      {/* Three-pane layout — stacks on mobile: folders on top, files below,
-          preview as a full-screen overlay. */}
-      <div className="flex min-h-0 flex-1 flex-col overflow-hidden md:flex-row">
-        {/* Folder tree — only in the tree view; the card view navigates folders
-            through the chip row instead. All tree functionality (expand/collapse,
-            selection, drill-in, create) is preserved. */}
-        {view === 'tree' && (
-          <div className="max-h-72 w-full shrink-0 overflow-y-auto border-b animate-in fade-in-0 duration-base ease-out motion-reduce:animate-none md:max-h-none md:w-60 md:border-b-0 md:border-r">
-            {foldersError ? (
-              <PaneLoadError message={t('workspace.foldersLoadError')} onRetry={loadFolders} />
-            ) : (
-              <FolderTreePane
-                folders={folders}
-                selectedFolderId={selectedFolderId}
-                onSelectFolder={setSelectedFolderId}
-                onCreateFolder={handleCreateFolder}
-                onRenameFolder={handleRenameFolder}
-                onDeleteFolder={handleDeleteFolder}
-                isLoading={isLoadingFolders}
-              />
-            )}
+      {/* The browser owns the whole column now (the tree band is gone); the
+          preview opens as a full-screen overlay. */}
+      <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+        {/* Folder listing failed: say so once, above a browser that falls open
+            to the whole corpus, instead of hiding every filed document. */}
+        {foldersError && (
+          <div className="border-b px-4 py-2">
+            <PaneLoadError message={t('workspace.foldersLoadError')} onRetry={loadFolders} inline />
           </div>
         )}
 
@@ -730,36 +1342,75 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName, s
             <PaneLoadError message={t('workspace.documentsLoadError')} onRetry={loadFiles} />
           ) : (
             <FileBrowserPane
-              files={filteredFiles}
+              files={levelFiles}
+              searchFiles={filteredFiles}
               selectedFileId={selectedFileId}
               onSelectFile={handleSelectFile}
-              isLoading={isLoadingFiles}
-              hasFolderSelected={selectedFolderId !== null}
-              projectId={projectId}
-              view={view === 'list' ? 'list' : 'cards'}
+              isLoading={isLoadingFiles || isLoadingFolders}
+              search={search}
+              view={view}
+              onViewChange={selectView}
+              sort={sort}
+              onSortChange={setSort}
               showAssignment={canCollaborate}
-              renderActions={(file) => (
-                <DocumentActionsMenu
+              filterEmptyNotice={filterEmptyNotice}
+              onDropDocumentInFolder={handleDropInFolder}
+              onDropFolderInFolder={handleDropFolderInFolder}
+              onPickFiles={() => pickFilesRef.current?.()}
+              onPickFolder={() => pickFolderRef.current?.()}
+              wrapFile={(file, card) => (
+                <DocumentObjectMenu
                   document={file}
                   scope="files"
                   folders={folders}
+                  onOpen={() => handleSelectFile(file.id)}
+                  onAsk={() =>
+                    askAboutFile({ projectId, file, navigate: (href) => router.push(href) })
+                  }
                   onRenamed={handleRenamed}
                   onDeleted={handleDeleted}
                   onMoved={handleMoved}
-                />
+                  onReingested={handleReingested}
+                >
+                  {card}
+                </DocumentObjectMenu>
               )}
-              {...(view !== 'tree'
-                ? {
-                    folders,
-                    selectedFolderId,
-                    onSelectFolder: setSelectedFolderId,
+              wrapFileRow={(file, row) => (
+                <DocumentObjectMenu
+                  asChild
+                  document={file}
+                  scope="files"
+                  folders={folders}
+                  onOpen={() => handleSelectFile(file.id)}
+                  onAsk={() =>
+                    askAboutFile({ projectId, file, navigate: (href) => router.push(href) })
                   }
-                : {})}
+                  onRenamed={handleRenamed}
+                  onDeleted={handleDeleted}
+                  onMoved={handleMoved}
+                  onReingested={handleReingested}
+                >
+                  {row}
+                </DocumentObjectMenu>
+              )}
+              renderActions={() => <DocumentActionsTrigger />}
+              {...(foldersError
+                ? {}
+                : {
+                    folderNav: {
+                      folders,
+                      currentFolderId: selectedFolderId,
+                      onNavigate: setSelectedFolderId,
+                      onCreateFolder: handleCreateFolder,
+                      onRenameFolder: handleRenameFolder,
+                      onDeleteFolder: handleDeleteFolder,
+                    },
+                  })}
               uploadControl={
                 <ProjectUppyUpload
                   projectId={projectId}
                   folderId={selectedFolderId}
-                  onUpload={(files) => uploadFiles(files)}
+                  onUpload={handleUpload}
                   isUploading={isUploading}
                   variant="default"
                   size="default"
@@ -770,7 +1421,7 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName, s
                 <ProjectUppyUpload
                   projectId={projectId}
                   folderId={selectedFolderId}
-                  onUpload={(files) => uploadFiles(files)}
+                  onUpload={handleUpload}
                   isUploading={isUploading}
                   variant="dropcard"
                 />
@@ -780,6 +1431,22 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName, s
         </div>
 
       </div>
+
+      {/* „Wollen Sie aktualisieren?" — the plan a dropped folder opens, before
+          anything moves. Rendered unconditionally so its own exit transition
+          runs; `open` is what decides. */}
+      <FolderUploadDialog
+        open={folderPlanOpen}
+        onOpenChange={setFolderPlanOpen}
+        plan={folderPlan}
+        currentFolderName={
+          selectedFolderId
+            ? (folders.find((folder) => folder.id === selectedFolderId)?.name ?? null)
+            : null
+        }
+        onConfirm={applyFolderPlan}
+        pending={folderPlanPending}
+      />
 
       {/*
         The model, when the URL names one. Full screen inside a popup — the
@@ -805,8 +1472,29 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName, s
 }
 
 /** Inline pane-level load failure with a retry affordance. */
-function PaneLoadError({ message, onRetry }: { message: string; onRetry: () => void }) {
+function PaneLoadError({
+  message,
+  onRetry,
+  inline = false,
+}: {
+  message: string
+  onRetry: () => void
+  /** One-row banner variant, for a failure that degrades a pane without emptying it. */
+  inline?: boolean
+}) {
   const t = useTranslations('files')
+  if (inline) {
+    return (
+      <div className="text-muted-foreground flex items-center gap-2 text-sm">
+        <AlertCircle className="size-4 shrink-0" aria-hidden />
+        <span className="min-w-0 flex-1 truncate">{message}</span>
+        <Button type="button" variant="outline" size="sm" className="gap-1.5" onClick={onRetry}>
+          <RotateCcw className="size-3.5" aria-hidden />
+          {t('workspace.tryAgain')}
+        </Button>
+      </div>
+    )
+  }
   return (
     <EmptyState
       variant="bare"

@@ -30,6 +30,9 @@
  * a client-supplied array in it is otherwise an unbounded write.
  */
 
+import type { RetrievalLedger } from './message-retrieval-ledger'
+import { sanitizeRetrievalLedger } from './message-retrieval-ledger'
+
 /** The compact stored form of one Herleitung step. */
 export interface StoredThinkingStep {
   id: string
@@ -42,6 +45,14 @@ export interface StoredThinkingStep {
   isTopLevel?: boolean
   /** The sources fan-out, which is the part of a step a reader actually reads. */
   traceLanes?: unknown[]
+  /**
+   * The turn event's key, values (what was searched, in which corpus),
+   * optional `reason` (the model's checkpoint sentence), and optional `tools`
+   * (basenames this round called). Bounded because the values are a
+   * client-supplied record. `reason` is the model's own words, capped like
+   * other reasons.
+   */
+  turnEvent?: { key: string; values?: Record<string, string>; reason?: string; tools?: string[] }
 }
 
 /**
@@ -89,6 +100,8 @@ export type TruncationReason = (typeof TRUNCATION_REASONS)[number]
  * - `no_report_file`     the run produced no persisted report; the answer in the
  *   thread is the only copy.
  * - `no_valid_citations` nothing the answer cited survived verification.
+ * - `cards_generation_failed` the report is whole, but the proposals a job
+ *   derives from it afterwards could not be produced.
  *
  * An EMPTY list is not a claim of "degraded in zero ways" — it is the ordinary
  * case, and it is stored as no key at all.
@@ -101,7 +114,6 @@ export interface MessageProvenance {
   answerConfidenceCappedReason?: AnswerConfidenceCappedReason
   answerConfidenceReason?: string
   routingDecision?: 'meta' | 'shallow' | 'deep' | 'error'
-  routingReason?: string
   escalationReason?: string
   citationsRemoved?: { count: number; reasons: string[] }
   /**
@@ -132,6 +144,13 @@ export interface MessageProvenance {
    */
   deepResearchJobId?: string
   showViewReport?: boolean
+  /**
+   * The backend's own account of this turn's retrieval rounds. Stored beside
+   * the thinking steps because it IS Herleitung data — the compact form the
+   * server keeps must equal what localStorage keeps, or two restores of one
+   * thread disagree about what a restored thread looks like.
+   */
+  retrievalLedger?: RetrievalLedger
 }
 
 /** One answer's Herleitung is tens of steps; a thousand is a runaway client. */
@@ -142,6 +161,11 @@ const MAX_REASON_CHARS = 600
 const MAX_REMOVED_REASONS = 20
 const MAX_REMOVED_REASON_CHARS = 120
 const MAX_TRACE_LANES = 40
+/** A turn event is one dotted key and a few short interpolation values. */
+const MAX_TURN_EVENT_KEY_CHARS = 64
+const MAX_TURN_EVENT_VALUES = 8
+const MAX_TURN_EVENT_VALUE_KEY_CHARS = 32
+const MAX_TURN_EVENT_VALUE_CHARS = 64
 
 const CONFIDENCES = ['low', 'medium', 'high'] as const
 export const CAPPED_REASONS = [
@@ -155,7 +179,7 @@ const ROUTING_DECISIONS = ['meta', 'shallow', 'deep', 'error'] as const
 /** The cutoff causes the deep researcher records. See {@link TruncationReason}. */
 export const TRUNCATION_REASONS = ['wall_clock', 'step_limit', 'upstream_timeout'] as const
 /** The degradations it records. See {@link AnswerDegradedReason}. */
-export const ANSWER_DEGRADED_REASONS = ['no_report_file', 'no_valid_citations'] as const
+export const ANSWER_DEGRADED_REASONS = ['no_report_file', 'no_valid_citations', 'cards_generation_failed'] as const
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value)
@@ -191,7 +215,35 @@ function sanitizeStep(input: unknown): StoredThinkingStep | null {
     ...(Array.isArray(input.traceLanes) && input.traceLanes.length > 0
       ? { traceLanes: input.traceLanes.slice(0, MAX_TRACE_LANES) }
       : {}),
+    ...sanitizeTurnEvent(input.turnEvent),
   }
+}
+
+/** The hoisted turn event, whitelisted and capped like everything else here. */
+function sanitizeTurnEvent(input: unknown): { turnEvent?: StoredThinkingStep['turnEvent'] } {
+  if (!isRecord(input)) return {}
+  const key = cap(input.key, MAX_TURN_EVENT_KEY_CHARS)
+  if (!key) return {}
+  const values: Record<string, string> = {}
+  if (isRecord(input.values)) {
+    for (const [name, value] of Object.entries(input.values).slice(0, MAX_TURN_EVENT_VALUES)) {
+      const safeName = cap(name, MAX_TURN_EVENT_VALUE_KEY_CHARS)
+      const safeValue = cap(value, MAX_TURN_EVENT_VALUE_CHARS)
+      if (safeName && safeValue !== undefined) values[safeName] = safeValue
+    }
+  }
+  const reason = cap(input.reason, MAX_REASON_CHARS)
+  const event: NonNullable<StoredThinkingStep['turnEvent']> = { key }
+  if (Object.keys(values).length > 0) event.values = values
+  if (reason) event.reason = reason
+  if (Array.isArray(input.tools)) {
+    const tools = input.tools
+      .slice(0, MAX_TURN_EVENT_VALUES)
+      .map((name) => cap(name, MAX_TURN_EVENT_VALUE_CHARS))
+      .filter((name): name is string => Boolean(name))
+    if (tools.length > 0) event.tools = tools
+  }
+  return { turnEvent: event }
 }
 
 /**
@@ -223,9 +275,6 @@ export function sanitizeProvenance(input: unknown): MessageProvenance | null {
 
   const routing = oneOf(input.routingDecision, ROUTING_DECISIONS)
   if (routing) out.routingDecision = routing
-
-  const routingReason = cap(input.routingReason, MAX_REASON_CHARS)
-  if (routingReason) out.routingReason = routingReason
 
   const escalationReason = cap(input.escalationReason, MAX_REASON_CHARS)
   if (escalationReason) out.escalationReason = escalationReason
@@ -273,6 +322,11 @@ export function sanitizeProvenance(input: unknown): MessageProvenance | null {
   if (jobId) out.deepResearchJobId = jobId
 
   if (input.showViewReport === true) out.showViewReport = true
+
+  // Re-bounded on write like everything else here, through the same sanitizer
+  // the wire boundary uses: one bound in one place instead of two that drift.
+  const ledger = sanitizeRetrievalLedger(input.retrievalLedger)
+  if (ledger) out.retrievalLedger = ledger
 
   return Object.keys(out).length > 0 ? out : null
 }

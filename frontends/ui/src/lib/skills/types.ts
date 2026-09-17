@@ -18,9 +18,8 @@
  * `grid-execution` and `grid-schedulable` used to live here too. Both are gone:
  * a skill says nothing about WHEN a JOB runs or WHAT a run produces. Scheduling
  * is a property of the JOB that attaches the skill, and the output kind is the
- * user's choice on that job (`jobs.output`). `grid-auto-invoke` is catalog
- * membership, not scheduling: slash and jobs still attach the skill when it is
- * off.
+ * user's choice on that job (`jobs.output`). `grid-auto-invoke` joined them
+ * below: retired, still tolerated, read by nobody.
  */
 
 import { z } from 'zod'
@@ -126,32 +125,20 @@ export function isHiddenSkill(metadata: Record<string, string>): boolean {
 }
 
 /**
- * `grid-auto-invoke` — whether the model may pick this skill from L1.
+ * `grid-auto-invoke` — RETIRED, and deliberately not replaced.
  *
- * On (the default, and the absent key): the one-line description sits in the
- * catalog the model reads every turn, and it may call `use_skill` unprompted.
- * Off: the skill is still resolved, still in the `/` picker, still attachable
- * to a job, still loadable when forced. It is merely invisible to the model
- * until a person or a job names it.
+ * It said whether the model might pick a skill from the L1 catalog: a bit an
+ * author set that deleted a line from the model's own inventory. That is a
+ * person deciding which skill runs, which is the thing ADR-0060 removed
+ * everywhere else, so the switch is gone from the editor and the agent tier
+ * lists every resolved skill (`skills/runtime.py` — `prompt_block`).
  *
- * Mirrors the Python `GRID_AUTO_INVOKE_KEY`. This is not scheduling.
+ * The KEY is still tolerated on a stored document, like `grid-execution`: an
+ * old row keeps parsing and keeps its value verbatim. Nothing reads it, here or
+ * in Python, and nothing writes it. It is named here only so the next person to
+ * meet one in a SKILL.md knows what it was and that it does nothing.
  */
 export const METADATA_AUTO_INVOKE = 'grid-auto-invoke'
-
-/** Case-insensitive falsy tokens marking auto-invoke off; anything else is on. */
-const AUTO_INVOKE_FALSE: ReadonlySet<string> = new Set(['false', '0', 'no'])
-
-/**
- * Whether the model may pick this skill from the L1 catalog unprompted.
- *
- * Absent or unrecognised reads as on: that is today's behaviour, and forgetting
- * the flag must not silently hide a skill from every turn.
- */
-export function isAutoInvokeSkill(metadata: Record<string, string>): boolean {
-  const token = (metadata[METADATA_AUTO_INVOKE] ?? '').trim().toLowerCase()
-  if (!token) return true
-  return !AUTO_INVOKE_FALSE.has(token)
-}
 
 /**
  * The agents a skill may name in `grid-agents`.
@@ -161,14 +148,41 @@ export function isAutoInvokeSkill(metadata: Record<string, string>): boolean {
  * `KNOWN_AGENTS` use, so the feature carries ONE agent vocabulary end to end
  * rather than one per layer.
  */
-export const KNOWN_SKILL_AGENTS = ['shallow_researcher', 'deep_researcher'] as const
+export const KNOWN_SKILL_AGENTS = ['researcher', 'deep_researcher'] as const
 export type KnownSkillAgent = (typeof KNOWN_SKILL_AGENTS)[number]
 
 /**
  * The agent a chat turn runs on, and therefore the one a `/name` invocation
  * from the composer resolves against.
  */
-export const CHAT_SKILL_AGENT: KnownSkillAgent = 'shallow_researcher'
+export const CHAT_SKILL_AGENT: KnownSkillAgent = 'researcher'
+
+/**
+ * Retired `grid-agents` names, and the agent each one now means.
+ *
+ * `shallow_researcher` became `researcher`. The name is author-written and was
+ * seeded by ten past migrations, so stored rows outlive the rename:
+ * `0081_grid_agents_researcher_rename.sql` rewrites what we can see, this map
+ * covers a row an older BFF wrote mid-deploy, a restored backup, or a skill
+ * somebody re-imports from an export taken before the rename.
+ *
+ * An alias and not a third `KNOWN_SKILL_AGENTS` entry, because both other
+ * readings fail in silence: ignored, an allowlist of only unknown names reads
+ * as absent and a chat-only skill leaks into deep research; known,
+ * `{shallow_researcher}` does not contain `researcher` and the skill vanishes
+ * from chat instead.
+ *
+ * Mirrored in `features/skills/lib/agent-scope.ts` (client-side, dependency-free
+ * by design) and in `src/aiq_agent/skills/resolver.py::AGENT_ALIASES`.
+ */
+const SKILL_AGENT_ALIASES: Record<string, KnownSkillAgent> = {
+  shallow_researcher: 'researcher',
+}
+
+/** The current name for `name`, following one retired alias. */
+export function canonicalSkillAgent(name: string): string {
+  return SKILL_AGENT_ALIASES[name] ?? name
+}
 
 /**
  * The card types a skill prefers, in author order; `[]` when unset.
@@ -277,6 +291,13 @@ const metadataSchema = z
     }
   })
 
+/**
+ * A category reference on a skill write. A UUID when categorized, null when the
+ * category is taken away. Omitted means "don't touch" — which is why PATCH takes
+ * the nullable form and CREATE the plain optional one.
+ */
+export const categoryIdSchema = z.string().trim().uuid('A skill category id must be a UUID.')
+
 export const createSkillSchema = z.object({
   name: skillNameSchema,
   description: descriptionSchema,
@@ -284,8 +305,8 @@ export const createSkillSchema = z.object({
   metadata: metadataSchema.optional(),
   enabled: z.boolean().optional(),
   clonedFrom: z.string().trim().min(1).max(MAX_SKILL_NAME_LENGTH).optional(),
+  categoryId: categoryIdSchema.optional(),
 })
-
 export type CreateSkillInput = z.infer<typeof createSkillSchema>
 
 export const patchSkillSchema = z.object({
@@ -294,9 +315,76 @@ export const patchSkillSchema = z.object({
   body: bodySchema.optional(),
   metadata: metadataSchema.optional(),
   enabled: z.boolean().optional(),
+  categoryId: categoryIdSchema.nullable().optional(),
 })
 
 export type PatchSkillInput = z.infer<typeof patchSkillSchema>
+
+// ---------------------------------------------------------------------------
+// Skill categories (categories)
+// ---------------------------------------------------------------------------
+
+export const MAX_CATEGORY_NAME_LENGTH = 60
+export const MAX_CATEGORY_DESCRIPTION_LENGTH = 500
+
+/**
+ * Postgres `integer` is 32-bit signed. The schema says so before the database
+ * has to — an out-of-range sort order would otherwise travel all the way to
+ * the INSERT and come back a 500.
+ */
+export const sortOrderSchema = z.number().int().min(-2147483648).max(2147483647)
+
+/**
+ * Category names are labels, not slash-names: spaces and mixed case are the
+ * point ("OIB", "Eigene Prüfungen"). The prompt-safety tag rule still applies
+ * — names render in the UI, and a stray tag there is still a stray tag.
+ */
+export const categoryNameSchema = z
+  .string()
+  .trim()
+  .min(1, 'A category name is required.')
+  .max(MAX_CATEGORY_NAME_LENGTH, `Category names are at most ${MAX_CATEGORY_NAME_LENGTH} characters.`)
+  .refine((name) => !XML_TAG_PATTERN.test(name), 'Category names must not contain XML tags.')
+
+const categoryDescriptionSchema = z
+  .string()
+  .trim()
+  .max(
+    MAX_CATEGORY_DESCRIPTION_LENGTH,
+    `Category descriptions are at most ${MAX_CATEGORY_DESCRIPTION_LENGTH} characters.`
+  )
+
+export const createCategorySchema = z.object({
+  name: categoryNameSchema,
+  description: categoryDescriptionSchema.optional(),
+  sortOrder: sortOrderSchema.optional(),
+})
+
+export type CreateCategoryInput = z.infer<typeof createCategorySchema>
+
+export const patchCategorySchema = z.object({
+  name: categoryNameSchema.optional(),
+  description: categoryDescriptionSchema.nullable().optional(),
+  sortOrder: sortOrderSchema.optional(),
+})
+
+export type PatchCategoryInput = z.infer<typeof patchCategorySchema>
+
+/** A category as the toolbox reads it — platform categories first, then the org's own. */
+export type SkillCategoryListItem = {
+  id: string
+  name: string
+  description: string | null
+  /**
+   * Stable key for platform categories seeded from builtin collections. Builtin
+   * file offers resolve to a category by this, never by the renamable name.
+   * Always null for org categories.
+   */
+  slug: string | null
+  sortOrder: number
+  /** 'platform' = curated for the whole fleet; 'org' = this organization's own. */
+  scope: 'platform' | 'org'
+}
 
 /**
  * Body of `PATCH /api/skills/curated/[name]` — an org switching a curated
@@ -310,12 +398,14 @@ export const curatedSkillActivationSchema = z.object({
 export type CuratedSkillActivationInput = z.infer<typeof curatedSkillActivationSchema>
 
 /**
- * `delivery` — how a curated skill reaches organizations.
+ * `delivery` — how a curated skill reaches organizations. One value: `offer`.
  *
- * The DB constraint (`platform_skills_delivery_check`, 0049) says the same
- * thing; this is the boundary that turns a bad value into a 400 with a message
- * rather than a 500 from Postgres. Both are needed: the schema catches the
- * caller, the constraint catches everything that is not a caller.
+ * The DB constraint (`platform_skills_delivery_check`, narrowed by 0088) says
+ * the same thing; this is the boundary that turns a bad value into a 400 with a
+ * message rather than a 500 from Postgres. Both are needed: the schema catches
+ * the caller, the constraint catches everything that is not a caller — and a
+ * caller still sending `standard` from an older client gets a 400 rather than a
+ * silent acceptance of a tier that no longer exists.
  */
 export const platformSkillDeliverySchema = z.enum(PLATFORM_SKILL_DELIVERIES)
 
@@ -324,15 +414,13 @@ export const platformSkillDeliverySchema = z.enum(PLATFORM_SKILL_DELIVERIES)
  *
  * The same SKILL.md rules as an org skill, because it is the same document —
  * a curated skill is not a privileged shape, it is the same thing written one
- * tier up. Two extra fields, and both default closed:
+ * tier up. Two extra fields:
  *
- *   `published`  false. The dashboard is a writing surface, and a draft must
- *                not reach every tenant.
- *   `delivery`   `offer`. A skill that says nothing about its audience is one
- *                organizations may take or leave, never one imposed on them.
- *
- * Imposing on the fleet therefore takes two deliberate words, which is the
- * right price for the only combination a tenant cannot undo.
+ *   `published`  false by default. The dashboard is a writing surface, and a
+ *                draft must not reach every tenant.
+ *   `delivery`   `offer`, the only value. A published skill is one
+ *                organizations may take or leave; nothing here can impose an
+ *                instruction on them (migration 0088).
  */
 export const createPlatformSkillSchema = z.object({
   name: skillNameSchema,
@@ -341,11 +429,14 @@ export const createPlatformSkillSchema = z.object({
   metadata: metadataSchema.optional(),
   published: z.boolean().optional(),
   delivery: platformSkillDeliverySchema.optional(),
+  categoryId: categoryIdSchema.optional(),
 })
 
 export type CreatePlatformSkillInput = z.infer<typeof createPlatformSkillSchema>
 
-export const patchPlatformSkillSchema = createPlatformSkillSchema.partial()
+export const patchPlatformSkillSchema = createPlatformSkillSchema
+  .partial()
+  .extend({ categoryId: categoryIdSchema.nullable().optional() })
 
 export type PatchPlatformSkillInput = z.infer<typeof patchPlatformSkillSchema>
 

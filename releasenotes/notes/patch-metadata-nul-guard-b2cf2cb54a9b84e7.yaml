@@ -1,0 +1,7 @@
+---
+fixes:
+  - >
+    Reacting to an answer's cards no longer fails on answers whose stored
+    content carries invisible control characters from an imported document.
+    The update is saved as before, minus the one character the database
+    cannot hold.

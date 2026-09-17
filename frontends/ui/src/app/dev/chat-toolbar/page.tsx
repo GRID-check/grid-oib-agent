@@ -17,13 +17,17 @@
  *   - status and controls are separated by a hairline, and status is never
  *     clickable — the avatar stack used to be a button that looked like
  *     information, the access chip information that looked like a control;
- *   - only New chat stays in the open. Share, rename and the research report are
- *     occasional, so they live in the one "…" menu;
+ *   - only New chat stays in the open. Share and rename are occasional, so they
+ *     live in the one "…" menu;
  *   - nothing appears that has nothing to say: no chip on a private thread, no
  *     separator with an empty status group, no menu at all when there is no
  *     action to disclose.
  *
  * The rows are the states whose *combination* is the hard part:
+ *   0. **fresh, empty chat** — the state every thread starts in, and the one
+ *      nothing captured until it was noticed by eye. The right pill is absent
+ *      here by design (nothing in it is true yet), so the LEFT one drops its
+ *      frame too: a single pill facing an empty half reads as a broken toolbar.
  *   1. **solo private** — the overwhelmingly common thread. Must carry no
  *      collaboration furniture at all: no faces, no access chip.
  *   2. **shared, long names** — the reported crowding case: a long project name,
@@ -35,12 +39,13 @@
  * Variants via `?variant=`:
  *   - default    — a thread at rest. This is what most threads look like, which
  *                  is the point of capturing it.
- *   - `running`  — deep research in flight. The one research state that belongs
- *                  in the open row, because it is STATUS: the thread's own
- *                  progress banner scrolls away, and this then is the only
- *                  persistent "still working" signal. Having a REPORT changes
- *                  nothing here — that is a menu entry — which is why the
- *                  captured second state is this one and not that.
+ *   - `running`  — deep research in flight. This is now the ONLY research state
+ *                  the toolbar has, and it belongs in the open row because it is
+ *                  STATUS: the thread's own progress banner scrolls away, and
+ *                  this then is the only persistent "still working" signal. A
+ *                  finished report used to add a "Recherchebericht" entry to the
+ *                  menu; a run is read in the thread that commissioned it now
+ *                  (ADR-0062), so the row states and never offers a way out.
  *
  * Each row reproduces the app's geometry: `max-w-3xl` (the message column) inside
  * a `relative` block, because the toolbar positions itself `absolute inset-x-0
@@ -114,10 +119,19 @@ const sharingState = (
  */
 const ROWS = [
   {
+    id: 'conv-empty',
+    caption: 'Frischer, leerer Chat — nur die Tür zum Verlauf, ohne Pillen-Rahmen',
+    projectName: 'Wohnbau Favoriten',
+    sessionTitle: '',
+    started: false,
+    state: sharingState('conv-empty', 'private', [ME_ENTRY]),
+  },
+  {
     id: 'conv-solo',
     caption: 'Privater Einzel-Chat — keine Kollaborations-Möblierung',
     projectName: 'Wohnbau Favoriten',
     sessionTitle: 'Fluchtweglängen OG2',
+    started: true,
     state: sharingState('conv-solo', 'private', [ME_ENTRY]),
   },
   {
@@ -125,6 +139,7 @@ const ROWS = [
     caption: 'Geteilt, lange Namen — der gemeldete Gedrängefall',
     projectName: 'Testprojekt Garagenordnung Wien',
     sessionTitle: 'Wiener Garagengesetz — Stellplatzverpflichtung',
+    started: true,
     state: sharingState('conv-shared', 'private', [
       ME_ENTRY,
       entry('u-anna', 'Anna Berger', 'collaborator', 'grant'),
@@ -136,6 +151,7 @@ const ROWS = [
     caption: 'Projektweit — die Regel ersetzt die Gesichter',
     projectName: 'Wohnbau Nord',
     sessionTitle: 'Brandschutz Stiegenhaus',
+    started: true,
     state: sharingState('conv-project', 'project', [
       ME_ENTRY,
       entry('u-anna', 'Anna Berger', 'collaborator', 'visibility-project'),
@@ -185,8 +201,8 @@ export default function ChatToolbarPreviewPage(): JSX.Element {
 
   // Seeded after mount so the server and the first client render agree. The
   // toolbar reads the current conversation only to decide whether renaming is
-  // possible, so one seeded id serves every row — and the deep-research fields are
-  // store-global, which is exactly why "research is running" is a page variant
+  // possible, so one seeded id serves every row — and `isDeepResearchStreaming`
+  // is store-global, which is exactly why "research is running" is a page variant
   // rather than a fourth row.
   const [ready, setReady] = useState(false)
   useEffect(() => {
@@ -195,7 +211,6 @@ export default function ChatToolbarPreviewPage(): JSX.Element {
     useChatStore.setState({
       currentUserId: ME,
       hasHydrated: true,
-      deepResearchJobId: isRunning ? 'job-preview' : null,
       isDeepResearchStreaming: isRunning,
     })
     setReady(true)
@@ -223,7 +238,7 @@ export default function ChatToolbarPreviewPage(): JSX.Element {
                     conversationId={row.id}
                     currentUserId={ME}
                     isCollaborationEnabled
-                    isChatStarted
+                    isChatStarted={row.started}
                   />
                 </div>
               </section>

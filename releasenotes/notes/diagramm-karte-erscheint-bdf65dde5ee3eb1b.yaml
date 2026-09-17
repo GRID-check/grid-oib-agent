@@ -1,0 +1,7 @@
+---
+fixes:
+  - >
+    Diagramme erscheinen jetzt zuverlässig als Zeichnung in der Antwort. Bisher
+    konnte ein angefordertes Diagramm kommentarlos fehlen, obwohl die Antwort
+    es ankündigte — die Diagrammkarte wurde intern in zwei häufigen Fällen
+    verworfen, statt gezeichnet zu werden.

@@ -8,6 +8,10 @@
  * evidence; give it a `/dev` preview route that renders the real component. The
  * harness (`visual/capture.mjs`) writes `<id>.light.png` / `<id>.dark.png` into
  * `visual/screenshots/`. See `docs/ux/visual-screenshots.md`.
+ *
+ * A target may also carry `hover: '<selector>'` — a real mouse rest on that
+ * element, held through both shots, for a surface that only exists under the
+ * pointer (a peek, a tooltip). Desktop only; the mobile variant has no hover.
  */
 
 export const SCREENSHOT_TARGETS = [
@@ -52,6 +56,22 @@ export const SCREENSHOT_TARGETS = [
     waitFor: '.react-flow__node',
   },
   {
+    id: 'herleitung-spine',
+    mobile: true,
+    path: '/dev/herleitung?variant=spine',
+    description:
+      'A turn that searched TWICE, drawn as a spine: checkpoint, the files that fetch returned, the next checkpoint, then the assessment. Both layers open — folding half of a comparison hides the comparison, so the fold only starts at the third round. Each layer carries a fold control (the whole card, with a chevron in its eyebrow) that a keyboard can reach; judge that the two conclusions read as the model’s own sentences and that NEITHER card shows a search query (PF-12) — the queries in this fixture are „Fluchtweglänge GK4“ and „Treppenraum Entrauchung“, and seeing either one is the failure.',
+    waitFor: '.react-flow__node',
+  },
+  {
+    id: 'herleitung-spine-folded',
+    mobile: true,
+    path: '/dev/herleitung?variant=spine-folded',
+    description:
+      'The same spine one round longer, which is where the graph stops being a shape and becomes a scroll: at three rounds the older layers arrive FOLDED and only the newest fan is drawn. What this pins is what a folded layer says instead of its fan — ‚2 files’ / ‚3 files’ (the preview is not locale-pinned, so it captures in the harness’s English), the count and nothing else. Not the filenames (that is the fan again, in worse typography) and not the query. The chevron on a folded card points right, the open one down, and the assessment now sits within one screen of the framing card, which is the whole reason the fold exists.',
+    waitFor: '.react-flow__node',
+  },
+  {
     id: 'pdf-passage',
     // The viewer's toolbar used to run off the right edge of a phone and take
     // the page's horizontal scroll with it; it wraps now, and this is the shot
@@ -60,6 +80,36 @@ export const SCREENSHOT_TARGETS = [
     path: '/dev/pdf-passage',
     description:
       'Cited passage lit up inside the in-app PDF viewer, over a real one-page Bescheid rendered by pdf.js. Left pane freezes the arrival pulse mid-swell, right pane shows the resting mark. The quoted passage spans two printed lines and is cited without the line-break hyphen, so both the de-hyphenation and the per-line rectangle merge are visible.',
+    waitFor: '[data-testid="passage-mark"]',
+  },
+  {
+    id: 'pdf-text-layer',
+    path: '/dev/pdf-passage?variant=text',
+    description:
+      "The text layer that makes a rendered page behave like a document — painted, because it ships transparent. pdf.js gives us a bitmap; a reader who drags across a bitmap selects nothing, so the page's own words are laid back over their glyphs as positioned runs. This is the shot that says they LINE UP: a layer that has drifted still selects, silently selecting the wrong words.",
+    waitFor: '.pdf-text-layer span',
+  },
+  {
+    id: 'citation-viewer',
+    mobile: true,
+    path: '/dev/pdf-passage?variant=citation',
+    description:
+      'What a clicked citation opens onto, whole: the source chip and the copy actions in the header, the Fundstellen rail beside the document (three passages, the one being read tinted with its source and quoted in full, the retrieved-but-uncited one marked as such), and the cited sentence lit up on the page itself. Mobile turns the rail into a strip of cards above the document.',
+    waitFor: '[data-testid="passage-mark"]',
+  },
+  {
+    id: 'citation-quote',
+    path: '/dev/pdf-passage?variant=quote',
+    description:
+      "What the reader does with a passage they found themselves: selecting text in the source offers to copy it AS A CITATION — the quotation plus the document and the page, the form a Stellungnahme quotes in. The browser can copy the words; only the viewer knows where they came from. Shown here mid-selection, which is the only state the affordance exists in.",
+    waitFor: '[data-testid="pdf-quote-bar"]',
+  },
+  {
+    id: 'citation-viewer-single',
+    mobile: true,
+    path: '/dev/pdf-passage?variant=single',
+    description:
+      'The same viewer for a document read at ONE page. It used to be a differently shaped dialog — no rail, the passage in a band above the document — so two citations that look identical in the chat opened two different surfaces. One rail, minus the stepper there is nowhere to step with.',
     waitFor: '[data-testid="passage-mark"]',
   },
   {
@@ -73,7 +123,7 @@ export const SCREENSHOT_TARGETS = [
     id: 'app-rail-collapsed',
     path: '/dev/app-rail?variant=collapsed',
     description:
-      'The 64px icon rail — the rail\'s OTHER layout, not a narrower one: labels go sr-only, group labels unmount, tiles become square hit areas. Captures what previously had no visual evidence at all, so the icon column\'s horizontal alignment against the brand mark, the group separation, and the footer\'s bottom edge (Settings, presence dot, avatar) are all reviewable.',
+      "The 64px icon rail — the rail's OTHER layout, not a narrower one: labels go sr-only, group labels unmount, tiles become square hit areas. Captures what previously had no visual evidence at all, so the icon column's horizontal alignment against the brand mark, the group separation, and the footer's bottom edge (Settings, presence dot, avatar) are all reviewable.",
     waitFor: '[data-testid="app-rail-preview"]',
   },
   {
@@ -87,15 +137,38 @@ export const SCREENSHOT_TARGETS = [
     id: 'app-shell-scopes',
     path: '/dev/app-shell-scopes',
     description:
-      'The persistent rail in BOTH scopes, side by side — project scope (switcher, project sections, pinned Settings) against org scope (a "Zurück zu <project>" control from the return trail, the org destinations, no Settings row) on a distinct surface tint. The comparison is the evidence: the top edge, the 36px context slot, the group rhythm, the footer edge and the 236px width line up across the seam, so stepping out of a project changes the contents and moves nothing.',
+      'The two chromes, side by side — project scope (the 236px rail: switcher, sections, pinned Settings, user footer) against org scope (the slim full-width header: wordmark, Archiv + Postfach doorways with the inbox badge, avatar). Since the org-nav redesign the scopes deliberately differ in SHAPE: above a project the rail is gone and the page owns the whole width, so the pair is the evidence for both chromes at once.',
     waitFor: '[data-testid="app-shell-scopes-preview"]',
+  },
+  {
+    id: 'user-menu',
+    path: '/dev/user-menu',
+    description:
+      'The avatar menu with theme and language as SUBMENU rows — one row each, naming the CURRENT value at its right edge, instead of eight standing rows. Account destinations above, sign-out below; the second click (the submenu itself) is the deliberate cost of a menu short enough to scan.',
+    waitFor: '[data-slot="dropdown-menu-sub-trigger"]',
+  },
+  {
+    id: 'page-sheet',
+    mobile: true,
+    path: '/dev/page-sheet',
+    description:
+      'The page sheet — the third overlay intent beside the modal and the side sheet: a whole PLACE (Archiv, Postfach) risen near-fullscreen over the current page, bottom-anchored on every viewport with the app visible above the top edge, rounded top corners, a grabber band (the pull-down-to-dismiss handle) above one header band with title, subtitle and a desktop-only close X.',
+    waitFor: '[data-slot="page-sheet-title"]',
+  },
+  {
+    id: 'automation-panel',
+    mobile: true,
+    path: '/dev/automation',
+    description:
+      'The Automation section \u2014 Tasks and Skills behind one slim tab bar under the section frame (its title and subtitle ARE the header; the panel adds no second description strip). Two tabs because a person arrives with one of two questions: what Piloti did and will do, and what instructions the organization keeps. A task MAY be on a schedule — that is a property of the task, asked by the wizard, not a third destination; the week grid is a VIEW inside Tasks. Tasks leads and is the default. Only the active tab is mounted, which is load-bearing rather than an optimization: the panels portal their primary action into ONE header slot. An empty list is the subject, not a bug \u2014 the preview serves empty sets so the chrome is what the image is evidence of.',
+    waitFor: '[data-slot="tabs-trigger"]',
   },
   {
     id: 'sessions',
     mobile: true,
     path: '/dev/sessions',
     description:
-      'Chat-history panel over the real app rail — flush with the viewport top (it replaces the rail rather than starting below a header that the chat route does not have), pinned New chat + search, day-grouped list with sticky day headings, and a footer that owns the destructive delete-all. Fixture spans today/yesterday/older and overflows the panel so grouping and scroll behaviour are visible.',
+      'The history sheet risen over the real app shell as a sibling of the Inbox — the default wide page sheet with a centred max-w-3xl reading column, pinned New chat + search, day groups as sticky headings over bg-card divided-row lists, a bottom scroll fade, and a footer that states chats live in the workspace and owns the destructive delete-all beside the stuck-research purge (one fixture run never finishes). Fixture spans today/yesterday/older and overflows the list so grouping and scroll behaviour are visible.',
     waitFor: '[data-testid="sessions-preview"]',
   },
   {
@@ -103,36 +176,36 @@ export const SCREENSHOT_TARGETS = [
     mobile: true,
     path: '/dev/sessions?variant=search',
     description:
-      'Chat history with a live query — trailing clear button, the "n of N chats" count, and the filtered list.',
+      'Chat history with a live query — trailing clear button, the "n of N chats" count under the pinned search field, and the filtered card list in the centred column.',
     waitFor: '[data-testid="sessions-preview"]',
   },
   {
     id: 'sessions-no-match',
     path: '/dev/sessions?variant=no-match',
     description:
-      'Chat history with a query that matches nothing — the search-specific empty state quotes the query and offers the way back out, instead of leaving a blank panel.',
+      'Chat history with a query that matches nothing — the search-specific empty state quotes the query and offers the way back out, instead of leaving a blank sheet.',
     waitFor: '[data-testid="sessions-preview"]',
   },
   {
     id: 'sessions-empty',
     path: '/dev/sessions?variant=empty',
     description:
-      'Chat history for a project with no chats — no search field and no delete-all (both could only ever act on nothing), and exactly one new-chat CTA.',
+      'Chat history for a project with no chats — no search field and no delete-all (both could only ever act on nothing), exactly one new-chat CTA, and the footer still stating where chats are saved.',
     waitFor: '[data-testid="sessions-preview"]',
   },
   {
     id: 'sessions-busy',
     path: '/dev/sessions?variant=busy',
     description:
-      'Chat history while a turn is in flight — every row dimmed and unclickable, with the panel saying why rather than leaving the user to discover it row by row.',
+      'Chat history while a turn is in flight — every card row dimmed and unclickable, with the pinned block saying why rather than leaving the user to discover it row by row.',
     waitFor: '[data-testid="sessions-preview"]',
   },
   {
     id: 'sessions-research',
     path: '/dev/sessions?variant=research',
     description:
-      'Chat history with the FB-10 Deep Research section expanded — server-truth runs (running / completed / failed) above the day groups, and the per-row Deep Research chips.',
-    waitFor: '[data-testid="deep-research-toggle"]',
+      'The history sheet with the FB-10 Deep Research surfaces: the All / Chats / Deep Research scope filter (with run-count pill) pinned under the search, the always-open Deep Research section — FlaskConical heading with count pill over an inbox-style card of run rows (media disc, title, relative time, status Badge, and a stop action on the run that never finishes) — and the per-chat Deep Research badges.',
+    waitFor: '[data-testid="deep-research-section"]',
   },
   {
     id: 'chat-turn',
@@ -186,7 +259,7 @@ export const SCREENSHOT_TARGETS = [
     mobile: true,
     path: '/dev/chat-turn?variant=memory-chip',
     description:
-      'The „Piloti hat sich gemerkt" chip as a fact about ONE TURN (docs/architecture/post-answer-stages.md §1.7, §5.1). The same answer twice, as two turns of one thread: above, the reflection stage ran and recorded nothing — its most common correct outcome — and there is no chip; below, it recorded two things and the chip says two. That difference is the change: the chip used to be fed by a three-shot poll of the whole conversation\'s memory fired by every rendered answer, so BOTH panels would have carried it and both would have shown the thread\'s running total. The second thing to judge is the meta row. The chip lands seconds after the answer and reserves nothing, which is only safe because it arrives into a row that is already on screen — confidence, copy, thumbs and timestamp are in it from the start. Cover the chip: the two footers must line up to the pixel, and on the phone shot the row must not gain a line. What a screenshot cannot show is the popover, which is where the in-turn write and the post-answer one are labelled apart; that distinction is held by MemoryNotedChip.spec.tsx.',
+      "The „Piloti hat sich gemerkt\" chip as a fact about ONE TURN (docs/architecture/post-answer-stages.md §1.7, §5.1). The same answer twice, as two turns of one thread: above, the reflection stage ran and recorded nothing — its most common correct outcome — and there is no chip; below, it recorded two things and the chip says two. That difference is the change: the chip used to be fed by a three-shot poll of the whole conversation's memory fired by every rendered answer, so BOTH panels would have carried it and both would have shown the thread's running total. The second thing to judge is the meta row. The chip lands seconds after the answer and reserves nothing, which is only safe because it arrives into a row that is already on screen — confidence, copy, thumbs and timestamp are in it from the start. Cover the chip: the two footers must line up to the pixel, and on the phone shot the row must not gain a line. What a screenshot cannot show is the popover, which is where the in-turn write and the post-answer one are labelled apart; that distinction is held by MemoryNotedChip.spec.tsx.",
     waitFor: '[data-testid="answer-layer-preview"]',
   },
   {
@@ -198,11 +271,27 @@ export const SCREENSHOT_TARGETS = [
     waitFor: '[data-testid="answer-layer-preview"]',
   },
   {
+    id: 'answer-feedback-footer',
+    mobile: true,
+    path: '/dev/chat-turn?variant=feedback-open',
+    description:
+      "The provenance footer with the feedback footnote OPEN, in the real answer card. The same answer twice — at rest, and after a „nicht hilfreich\" whose reason is chosen, so the note is showing too — because the comparison is the evidence. The footer is the one row where a 24px control row and a form share a wrapping flex row, and the open state had only ever been reviewed in the component's own gallery, where there is no row to break. It broke: one box held the thumbs and their form, `items-center` centred the copy actions against the form's height, and the result was two icons floating mid-footer in an empty left half with the reason chips and the note hanging off the row's right end. Read the two panels' top line: copy, export and the thumbs must sit on it at the same height in both, with the disclosure below on the answer's own left edge, and „Antwortdetails\" last.",
+    waitFor: '[data-testid="answer-layer-preview"]',
+  },
+  {
+    id: 'answer-anatomy',
+    mobile: true,
+    path: '/dev/chat-turn?variant=anatomy',
+    description:
+      "The envelope's native anatomy rendered FLAT, as answer typography rather than boxed cards: the masthead (eyebrow subject, large verdict value, the summary as a lede-sized standfirst, one closing hairline — no frame, no ground), the callout anchored between two paragraphs by its own-line [[callout]] marker and reading as an accent-ruled aside in the flow, and the takeaways closing the answer as an eyebrow + staircase block. Judge that nothing here reads as an object ON the answer — one document, hierarchy carried by type and rules — that the summary holds the lede emphasis exactly once (the first prose paragraph must NOT also be enlarged), and that the prose qualifies the masthead instead of repeating it.",
+    waitFor: '[data-testid="answer-layer-preview"]',
+  },
+  {
     id: 'composer',
     mobile: true,
     path: '/dev/composer',
     description:
-      'The chat composer (real InputArea, backend-free) in its empty-thread state — textarea, scope/sources/deep-research controls, attach + send — desktop + mobile.',
+      'The chat composer (real InputArea, backend-free) in its empty-thread state — textarea, the scope chip (the Datenbasis picker is withheld for now), attach + send — desktop + mobile. Nothing offers to choose deep research: Piloti decides whether a question needs a run.',
     waitFor: '[data-testid="composer-preview"]',
   },
   {
@@ -242,16 +331,16 @@ export const SCREENSHOT_TARGETS = [
     mobile: true,
     path: '/dev/chat-welcome',
     description:
-      'The authenticated empty chat state (real ChatArea WelcomeState) — greeting, the one-line subtitle telling first-timers that answers cite their sources, and the example-question chips — desktop + mobile.',
+      'The authenticated empty canvas as a user meets it: the real ChatArea welcome state AND the real composer beneath it, which is the whole point — the composer is LIFTED off the floor here (a measured transform, so it can GLIDE to the floor when the first message lands rather than teleport) so greeting and input read as one group in the middle of the column. Nothing else on the canvas: no subtitle, no example chips, no "private workspace" chip stating what every thread here already is, and the composer names neither an addressee nor a spark glyph. Desktop + mobile, where the lift has less room to give.',
     waitFor: 'h1',
   },
   {
-    id: 'chat-welcome-model',
+    id: 'chat-welcome-populated',
     mobile: true,
-    path: '/dev/chat-welcome-model',
+    path: '/dev/chat-welcome?variant=populated',
     description:
-      'The same empty chat canvas in a project that HAS a readable IFC model: two building questions lead, marked with the model glyph, ahead of the OIB-corpus ones. This is where the model feature is discovered — chat is where a model is used, and nothing else on the canvas says the building can be counted, checked or compared.',
-    waitFor: 'h1',
+      'The same real ChatArea + composer column, this time with a finished thread: an answer with sources, a skills disclosure and a follow-ups rail sitting right above the composer — the crowded case the bottom fade scrim, the composer’s narrower blurred glass surface and the accent-pop focus ring exist for. The composer sits at the floor (no lift) like any populated thread. Desktop + mobile.',
+    waitFor: 'text=Erster Fluchtweg',
   },
   {
     id: 'confirm-dialog',
@@ -303,12 +392,60 @@ export const SCREENSHOT_TARGETS = [
     waitFor: '[role="dialog"]',
   },
   {
+    id: 'drawing-structured',
+    mobile: true,
+    path: '/dev/drawing-structured',
+    description:
+      "The advanced structured-analysis disclosure under a visual chunk's description — one labelled line per vocabulary category, layers in order, figures that keep their meaning, and the provenance line. The second panel proves a domain this build ships no vocabulary for still renders, from its keys.",
+    waitFor: 'main',
+  },
+  {
     id: 'file-preview',
     mobile: true,
     path: '/dev/file-preview',
     description:
-      'File-preview modal (real FilePreviewDialog, backend-free) with rich metadata — desktop split (both columns scroll) vs. mobile full-screen sheet (preview capped, all metadata reachable).',
+      'File-preview modal (real FilePreviewDialog, backend-free) with rich metadata — desktop split (both columns scroll) vs. mobile full-screen sheet (preview capped, all metadata reachable). What this pins is the SPLIT between the two halves of the chrome. The header is the file name plus the four controls that act on the file — Herunterladen, the actions menu, expand, close — and it is the same on every document, so it can be learned; it used to carry ten things, five of them conditional, in a row that wrapped on anything narrower than a laptop, so the chrome reflowed as the reader moved between files. Under the name sit the two subheading chips that say WHICH document this is: the ingestion-detected category, and a status chip that appears ONLY when Piloti cannot quote the document — „Zitierbar" is true of almost everything in the library, so a badge saying so appeared on every file and distinguished none of them, and this shot is the ordinary case where it is silent (`file-preview-authored` is the one where it speaks). Everything that describes what Piloti made of the document leads the rail instead: „Von Piloti erstellt", „Verantwortlich" with the faces and the Zuweisen popover, then „Piloti dazu fragen" and „Kollegin fragen" full-width, directly above the summary that says whether asking is worth it.',
     waitFor: '[role="dialog"]',
+  },
+  {
+    id: 'file-preview-review',
+    mobile: true,
+    path: '/dev/file-preview?variant=review',
+    description:
+      'The review rail, IN the pane — „Freigabe und Fassungen" on a version in Prüfung, with its decisions (Freigeben, Änderungen anfordern, Piloti überarbeiten lassen, Ablehnen) and the version list under them. It had never been photographed anywhere: the section renders only for a project document whose reader’s lifecycle permissions the surface resolved, and no preview passed them, so the whole of ADR-0054’s reader-facing half shipped unseen. Three things this shot now pins: the section sits at the BOTTOM of the rail, under the summary and the facts, rather than leading it; it is nevertheless OPEN here without anybody having clicked, because this version is waiting on this reader; and the one WORD — „In Prüfung" — is up in the header beside the file’s name, where a reader gets it without scrolling a rail to its end. That chip obeys the same rule as the file card’s, so it stays silent on an ordinary one-version upload rather than appearing on every document in the library. „Archivieren" is no longer a fifth button in that row: it is item-level and a one-way door, so it stands in its own block at the end, and its confirm is photographed by `document-lifecycle-archive`. The MOBILE twin is the point (ledger 40): at 390px the rail stacks under the document instead of sitting beside it, the controls wrap into rows of full-width buttons rather than a squeezed line, and the page must not scroll sideways.',
+    waitFor: '[data-testid="document-lifecycle-panel"]',
+  },
+  {
+    id: 'file-preview-authored',
+    mobile: true,
+    path: '/dev/file-preview?authored=agent',
+    description:
+      'The same modal holding a document PILOTI wrote. Compare it with `file-preview`: same dialog, same shim, the only variable is the file. „Abgelegt" is the one case where the status chip in the header speaks — the chip appears only when Piloti cannot quote the document — and „Von Piloti erstellt" leads the rail as the reason; „Piloti dazu fragen" is GREY, and its hint says there is nothing to wait for rather than „Sobald die Datei zitierbar ist" — a machine-authored document is deliberately never dispatched to /v1/ingest, so „not citable YET" would be a lie with no yet in it. The „Von Piloti indexiert" rail is absent for the same reason, and with it the summary, the chunk count, the tags and the content types: those are ingestion output, and no ingestion ran. What this pins is that the pane never claims an ingestion that did not happen — the failure it would otherwise photograph is a report presented as ordinary Projektwissen, which is exactly what the whole authorship column exists to prevent.',
+    waitFor: '[role="dialog"]',
+  },
+  {
+    id: 'file-preview-markdown',
+    mobile: true,
+    path: '/dev/file-preview?variant=markdown',
+    description:
+      'A .md opened in the same file-preview modal, rendered as a document rather than as raw asterisks. Text, Markdown and CSV are accepted at upload and until now drew the identical grey "no inline preview" mock as a .dwg — a format we genuinely cannot open — although for these the bytes ARE the content. What this pins is that the checklist reads as a checklist: headings, task boxes, a table and a blockquote, at the prose size the rest of the product uses.',
+    waitFor: 'text=Einreichplanung',
+  },
+  {
+    id: 'file-preview-csv',
+    mobile: true,
+    path: '/dev/file-preview?variant=csv',
+    description:
+      'The same modal on a semicolon-delimited CSV — a German Excel export, which is the common case. The delimiter is sniffed rather than assumed: read comma-first, this file renders as one column of full rows, which looks less like a misparse than like a one-column file. The last row also carries a quoted cell containing its own semicolon, so the quoting rule is photographed too.',
+    waitFor: 'text=U-Wert',
+  },
+  {
+    id: 'file-preview-text',
+    mobile: true,
+    path: '/dev/file-preview?variant=text',
+    description:
+      'A .txt, monospaced and soft-wrapped, served TRUNCATED so the notice under the page is part of the evidence. A preview is a look at a file, not a delivery of it, and the failure this pins is the silent cut: without the line, the last row a reader sees reads as the end of the document.',
+    waitFor: 'text=Bauverhandlung',
   },
   {
     id: 'file-preview-model',
@@ -327,6 +464,35 @@ export const SCREENSHOT_TARGETS = [
     waitFor: '[role="dialog"]',
   },
   {
+    id: 'folder-upload-plan',
+    mobile: true,
+    path: '/dev/folder-upload',
+    description:
+      'The question a dropped folder now asks before anything moves, in the case it exists for: a b\u00fcro re-syncing an Einreichung a fortnight later. Most of the tree is byte-identical and is skipped, five drawings have been corrected and are offered as one update, and every folder the tree needs was MATCHED to a folder already here rather than created beside it. Before this, the same gesture flattened the tree into whichever folder the reader stood in, replaced live documents by name with no statement that it would, and re-uploaded five hundred unchanged files to do it. The shot has to show that the four counts read as one sentence and that the checkbox is visibly the only decision on the surface.',
+    waitFor: '[data-testid="folder-upload-dialog"]',
+  },
+  {
+    id: 'folder-upload-plan-first',
+    path: '/dev/folder-upload?variant=first',
+    description:
+      'The first time a project sees the folder: nothing matches, every folder is a creation, and there is no update question at all \u2014 so the checkbox is ABSENT rather than present and unticked, which is the difference between \u201cnothing to decide\u201d and \u201cdecided for you\u201d. Pinned beside the re-sync shot because the two are the same dialog and must not look like the same answer.',
+    waitFor: '[data-testid="folder-upload-dialog"]',
+  },
+  {
+    id: 'folder-upload-plan-collisions',
+    path: '/dev/folder-upload?variant=collisions',
+    description:
+      'Two files in one drop sharing a filename. A project holds one document per name (migration 0074), so both used to upload and one silently overwrote the other \u2014 a loss nothing on screen mentioned. Neither is sent now and the pair is named by its full path, while the one file that IS unambiguous still uploads \u2014 a collision is somebody else\u2019s problem to rename, not a reason to refuse the rest of the tree. This is the state the plan exists to make visible.',
+    waitFor: '[data-testid="folder-upload-collisions"]',
+  },
+  {
+    id: 'folder-upload-plan-known',
+    path: '/dev/folder-upload?variant=known',
+    description:
+      'The same folder against a corpus somebody has worked on since the last sync \u2014 the half the plan used to get wrong. One document was renamed here, so the row says what the project calls it: approving a replacement you cannot find in your own file list is not approval. One file matches a document under a name the SERVER would not treat as the same, so it is reported as already here instead of being uploaded into a second copy nobody can tell apart. And one byte-identical document has been re-filed in Piloti, so it is MOVED \u2014 without it, \u201edie Ordnerstruktur wird nachgebildet\u201c is false for exactly the files a re-sync is mostly made of, and the button would read \u201eNichts hochzuladen\u201c over work still to do.',
+    waitFor: '[data-testid="folder-upload-duplicates"]',
+  },
+  {
     id: 'upload-tray',
     mobile: true,
     path: '/dev/upload-tray',
@@ -335,10 +501,35 @@ export const SCREENSHOT_TARGETS = [
     waitFor: '[data-testid="upload-tray"]',
   },
   {
+    id: 'files-filter-menu',
+    mobile: true,
+    path: '/dev/files-filter-menu',
+    description:
+      'Every way of narrowing and ordering the Dateien listing, behind one button. The strip this replaced sat open in the page header beside a view switch, a `lg:w-72` search field and an upload button \u2014 about 1100px of controls in the ~900px a header gets inside the sidebar \u2014 and had no room left for the filters people asked for. The shot has to carry the cost of hiding them: the trigger at rest, the trigger with a count (a dimension counts ONCE however many values it holds), and the open panel with all five sections, Sortierung included \u2014 ordering used to be private to the detail view, so switching to Kacheln discarded it.',
+    waitFor: '[data-testid="file-filter-menu"]',
+  },
+  {
+    id: 'files-header',
+    mobile: true,
+    path: '/dev/files-header',
+    description:
+      'The Dateien header: section title, its description, and every control that acts on the listing — view toggle, the two filter axes, corpus search, and the upload button. Pinned because a layout regression landed here unphotographed: folder upload shipped as a SECOND full-width button, the action side took the width it needed, and the header\u2019s `min-w-0` title block gave up the rest, rendering \u201eDokumente, auf die sich Piloti in diesem Projekt st\u00fctzt.\u201c as a four-word column. What this shot proves is that the description still reads as a sentence beside a single upload control.',
+    waitFor: 'text=Hochladen',
+  },
+  {
+    id: 'files-header-narrow',
+    mobile: true,
+    path: '/dev/files-header?variant=narrow',
+    description:
+      'The same header at a laptop width, which is where the squeeze appeared first \u2014 a wide desktop has slack that hides it. The controls may wrap here; what must not happen is the title block collapsing to a narrow column while the action side keeps its full width.',
+    waitFor: 'text=Hochladen',
+  },
+  {
     id: 'file-browser',
     mobile: true,
     path: '/dev/file-browser',
-    description: 'Files browser grid — the shared raised FileCard in its home surface.',
+    description:
+      'Files browser with the Finder-style folder drill-down — the breadcrumb path row ("All Files"), folder cards with item counts beside the file cards, the New-folder control, and the content column capped and centred now that the tree band is gone. A folder tile is told apart from a document tile by what fills its well \u2014 a folder glyph where a document shows its first page \u2014 and not by a tint: the amber wash these used to carry was invisible at its own opacity here and read as a warning strip in the detail view, and gold is `--source-office` on the extension chips two rows down. It also pins that FORMAT beats the filename in the thumbnail: `Projektplan_Sanierung.md` draws a note and `Zeitplan_Gewerke.csv` a table, although the heuristic matches „plan" anywhere in a name and drew both as floor plans — walls and a door swing over prose. `Statik_Positionsplan.pdf` is the control: a PDF really can be a drawing, and it still reads as one.',
     waitFor: '[data-testid="file-card"]',
   },
   {
@@ -348,6 +539,30 @@ export const SCREENSHOT_TARGETS = [
     description:
       'The grid a second after a batch lands — the one row where the cards are not all the same shape. A document still being read has no AI summary yet, and the leftmost one already shows its page preview because a PDF thumbnail is produced at upload time while the rest of ingestion runs after it. Two things are pinned here: skeleton lines HOLD the description slot on the unsettled cards rather than leaving a blank gap that reads as a card which failed to render, and every tile reaches the bottom of its cell so the size · time footers line up across the row. Before, the short tile kept its natural height inside the stretched cell and its footer floated mid-card over a band of dead space.',
     waitFor: '[data-testid="file-card"]',
+  },
+  {
+    id: 'agent-authored',
+    mobile: true,
+    path: '/dev/agent-authored',
+    description:
+      'What a reader meets when Piloti has written a report into the project. The filter strip with `Unvergeben` + `Von Piloti` engaged together (two questions — who is responsible, who wrote it — that AND rather than replace each other); the card grid where the generated report carries a quiet `Von Piloti erstellt` byline under its name, a NEUTRAL `Abgelegt` badge (not green: nothing can cite it; not red: nothing went wrong) and, unchanged in the footer, the word `Unvergeben`; and the preview, where the byline sits above the type line, the assignment row two lines below it, and `Piloti dazu fragen` is disabled with a hint that says the report is not in the knowledge base instead of promising a wait that never ends.',
+    waitFor: '[data-testid="file-card"]',
+  },
+  {
+    id: 'diagram-answer',
+    mobile: true,
+    path: '/dev/diagram-answer',
+    description:
+      'A diagram Piloti drew, inside an answer. Three panels: the process flow DRAWN (mermaid laid out in the browser, its cascade flattened onto the elements, then put through the server\u2019s own SVG validator before it is shown \u2014 so the reader is looking at exactly the bytes the filing button sends), with the doctrine line \u201eSchematisch \u2014 ohne Ma\u00dfangabe." and the \u201eIm Projekt ablegen" action beneath it; the same fence with BROKEN mermaid, which degrades to the source text the reader would have seen anyway plus one quiet line, never a red box; and a fence mid-stream, which stays a code block because the markdown stabiliser auto-closes an odd fence and a half-written diagram would flash a parse error on every token. The drawing has no ground of its own: the plate paints no background, so the card shows through in both themes, and the ink is read off the product\u2019s tokens per theme (features/diagrams/diagram-palette.ts). The white slab this replaced was punched into the charcoal page, and mermaid\u2019s inherited lavender was sitting on it. The paper argument survives where it is true \u2014 the bytes the filing button sends are always drawn on paper, whatever theme the reader is in.',
+    waitFor: '[data-state="drawn"]',
+  },
+  {
+    id: 'research-filing',
+    mobile: true,
+    path: '/dev/research-filing',
+    description:
+      'What a person is told before and after Piloti writes a file into their project. The `starting` banner carries ONE quiet line naming the destination — Projekt › Berichte — and it sits there rather than in a modal because this is the only moment the run can still be stopped; a confirmation asked afterwards is answered yes every time. The second panel is the same line under the escalation narration, the case where the classifier started the run and „the user asked for a report" is not even true. The last two panels are the rule for the outcome: with a filed document the banner names the real filename and offers a second action that goes somewhere else than „Bericht anzeigen" (the research panel) — into the project, through the same /files?doc= deep link every other document surface uses; with nothing filed and nothing ever promised (a chat outside a project, a run older than the feature) it says nothing at all, because a banner must never claim a file that does not exist. The fifth panel is the one absence that is NOT silent: the disclosure was on screen, the filing was attempted for a resolved project and it failed, so one muted line takes the promise back — same size, same ink, same success variant, no red, no icon and no reason, because a refused quota and a revoked permission are one fact to the reader: the document is not there.',
+    waitFor: '[data-testid="research-filing-preview"]',
   },
   {
     id: 'file-browser-search-failed',
@@ -383,17 +598,39 @@ export const SCREENSHOT_TARGETS = [
     waitFor: '[data-testid="file-list-relevance"]',
   },
   {
+    id: 'file-browser-folder-drop',
+    path: '/dev/file-browser?variant=folder-drop',
+    description:
+      'A folder lit as a drop target, mid-drag \u2014 „Brandschutz\u201c held over „Statik\u201c. Two surfaces used to answer this gesture at once: the workspace\u2019s upload overlay reacted to any drag with items on it, and an in-app drag has one, so aiming a document (or now a folder) at a tile covered that tile in \u201edrop files to upload to this project\u201c. The shot is of ONE answer \u2014 the ring on the folder that will receive it \u2014 and of a highlight that survives the pointer crossing the tile\u2019s own children, which used to flicker it off and on for the whole drag.',
+    waitFor: '[data-drop-over]',
+  },
+  {
+    id: 'file-browser-folders-list',
+    mobile: true,
+    path: '/dev/file-browser?variant=folders-list',
+    description:
+      'The level\u2019s folders as rows above the sortable file table \u2014 the one composition of this pane that had no shot, which is how its rows came to be drawn in raw `amber-*`: a band of tinted rows over a neutral listing, reading as a warning strip where nothing is wrong. Chroma in this product belongs to provenance and nothing else, so a folder is told apart by its glyph and its shape. What this pins is that the band still reads as folders-then-files without borrowing a signal colour to do it.',
+    waitFor: '[data-testid="file-browser-folders-list"]',
+  },
+  {
+    id: 'file-browser-file-context',
+    path: '/dev/file-browser?variant=file-context',
+    description:
+      'Right-click on a file card in the Files workspace. The menu is Finder-shaped (Open, Ask about this, Download, Rename, Move, Delete) and is the same list the ⋯ renders, so the two cannot drift.',
+    waitFor: '[role="menuitem"]',
+  },
+  {
     id: 'file-browser-folder-menu',
     path: '/dev/file-browser?variant=folder-menu',
     description:
-      'A folder row\u2019s own \u22ef menu. Folders were create-only: a name typed wrong stayed wrong, and a folder made by mistake stayed in the tree forever. Rename and Delete now sit on the folder itself, one hover away, with the destructive one carrying its own colour \u2014 and the trigger stays lit while its menu is up, so the control that opened it does not vanish underneath the reader.',
+      'A folder card\u2019s own \u22ef menu. Rename and Delete sit on the folder itself, one hover away, with the destructive one carrying its own colour \u2014 and the trigger stays lit while its menu is up, so the control that opened it does not vanish underneath the reader.',
     waitFor: '[role="menuitem"]',
   },
   {
     id: 'file-browser-folder-rename',
     path: '/dev/file-browser?variant=folder-rename',
     description:
-      'Renaming a folder happens in the row itself \u2014 same indent, same width, pre-filled with the current name. The reader is looking at the name they want to change, so a dialog would take it off screen to ask about it. Enter commits, Escape cancels, an unchanged name makes no request at all, and a failed save leaves the field open with the typed text intact.',
+      'Renaming a folder happens on the card itself \u2014 the name swaps for its own field, pre-filled. The reader is looking at the name they want to change, so a dialog would take it off screen to ask about it. Enter commits, Escape cancels, an unchanged name makes no request at all, and a failed save leaves the field open with the typed text intact.',
     waitFor: '[data-testid="folder-rename-input-f-brand"]',
   },
   {
@@ -448,22 +685,112 @@ export const SCREENSHOT_TARGETS = [
     path: '/dev/cards',
     description:
       'Full Grid card gallery — every card type with fixture data, pinned to German so a translated string cannot render in English beside the cards whose copy is hardcoded. Captured on a phone as well, because the schematics are drawn geometry rather than styled boxes: a drawing that outgrows the card is clipped at its edge with the dimension number on the wrong side of the cut, and only the mobile shot shows it.',
-    waitFor: 'main',
+    // `main` alone photographed the `diagram` card as a skeleton: it is the one
+    // card in the gallery whose picture is laid out by a dynamically imported
+    // mermaid rather than drawn synchronously from its own payload.
+    waitFor: 'main:not(:has([data-state="drawing"]))',
   },
   {
     id: 'card-reveals',
     mobile: true,
     path: '/dev/card-reveals',
     description:
-      "The cards whose value is behind a click, driven into that state before the shot. The Rechenweg with its sources open (provenance tag, ± band and where each figure is written down, plus the line saying the card computed the result rather than copying it); the same card on a derivation whose exact result would ROUND onto the other side of its limit, which is the shot that proves the printed number and the printed verdict cannot disagree; and the Verfahrensablauf with a step opened AGAINST the one the project is at — dashed chrome, the correcting sentence inside the panel, while the current row keeps its node and its \u201Ehier stehen Sie\u201C chip. Then the three later cards in the state that carries their point: a conditional Einreichunterlage opened onto the case that makes it necessary, under a tally the card counted from its own rows (including the three documents nobody has asked about); a Frist opened onto what happens when it lapses, over a footer saying the rail is not to scale and no date is computed; and a change-impact card with NO known starting point, which says so in the header and again where the before/after pair would sit. None of it is visible in the gallery, which photographs every one of them folded.",
+      'The cards whose value is behind a click, driven into that state before the shot. The Rechenweg with its sources open (provenance tag, ± band and where each figure is written down, plus the line saying the card computed the result rather than copying it); the same card on a derivation whose exact result would ROUND onto the other side of its limit, which is the shot that proves the printed number and the printed verdict cannot disagree; and the Verfahrensablauf with a step opened AGAINST the one the project is at — dashed chrome, the correcting sentence inside the panel, while the current row keeps its node and its \u201Ehier stehen Sie\u201C chip. Then the three later cards in the state that carries their point: a conditional Einreichunterlage opened onto the case that makes it necessary, under a tally the card counted from its own rows (including the three documents nobody has asked about); a Frist opened onto what happens when it lapses, over a footer saying the rail is not to scale and no date is computed; and a change-impact card with NO known starting point, which says so in the header and again where the before/after pair would sit. None of it is visible in the gallery, which photographs every one of them folded.',
     waitFor: '[data-testid="card-reveals-preview"]',
+  },
+  {
+    id: 'diagram-card',
+    mobile: true,
+    path: '/dev/diagram-card',
+    description:
+      "The `diagram` card in the two states a shot can pin. Drawn: three Stellen handing an Akt to each other — the GRAPH shape neither the process map's rail nor the condition tree's fan can hold — on a plate that paints no ground, so the card shows through in both themes while the drawing's ink comes from the product's own tokens — the light slab this replaced was a hole punched in the charcoal page, and mermaid's lavender was sitting in it. Paper is where the FILED bytes are drawn, which is a second render (`fileSvg`) and not a claim about the screen. Under it the caption, then „Schematisch — ohne Maßangabe.\u201C, the same sentence a mermaid fence prints, because the model's text IS the geometry here and nothing can catch it disagreeing with itself. Then the state the card meets most: the model wrote an unclosed bracket, so there is no picture — the source in a code block and one quiet line, never a red box, with the title, the caption and the Fundstelle still standing, because a Verfahren without its Fundstelle is a Verfahren from nowhere. The third state, the skeleton held while mermaid lays the graph out, ends when the dynamic import resolves and is pinned in DiagramCard.spec.tsx instead.",
+    // Not the preview root: mermaid is dynamically imported (~214 KB gz on the
+    // first diagram of a session) and in `next dev` that took ~2–4 s here, so
+    // waiting on the container photographed two skeletons. This waits until NO
+    // card on the page is still in `drawing` — the one selector that is true
+    // only once both the drawn and the failed panel have settled.
+    waitFor: '[data-testid="diagram-card-preview"]:not(:has([data-state="drawing"]))',
+  },
+  {
+    id: 'document-draft-card',
+    mobile: true,
+    path: '/dev/document-draft-card',
+    description:
+      "The `document_draft` card, in the states a draft actually passes through. UNFILED it borrows the FILE idiom (name, path, size, and \u201eVon Piloti erstellt\u201C from the Files feature's own AuthorshipLine) without borrowing the file CARD: the draft is not filed, not indexed and not citable, so anything that read as a row of the Files pane would be the one wrong claim \u2014 and its \u201eIns Projekt \u00fcbernehmen\u201C writes nothing, it puts the request in the composer. FILED it names a project document and offers the two things that are then real, opening it and sending it for approval. IN REVIEW it draws no control at all, because the version can no longer be replaced. What the shot is for is the line between the first two: the unfiled card must never read as though the document is already in the project, the filed one must say ENTWURF and never Freigabe, and the quiet-ink controls (diagram-filing style, not buttons) must stay lighter than the draft's own name two lines above them \u2014 in both themes, where `text-primary` behaves differently. A fourth panel draws the empty first write (`v1`, `0 B`), which is inside the schema and is the day a card that only looks right on rich values looks broken.",
+    waitFor: '[data-testid="document-draft-card-preview"]',
+  },
+  {
+    id: 'task-created-card',
+    mobile: true,
+    path: '/dev/task-created-card',
+    description:
+      "The `task_created` card \u2014 work Piloti has taken on, in the shapes a delegation arrives in. It offers nothing, because the row exists by the time it renders, so everything the shot is for is in the reporting: \u201El\u00e4uft\u201C beside a kind and a Frist, and the one control being a LINK to the thread the run writes into. Four panels. The usual one, with both facts. The degraded one \u2014 no Frist named, no conversation created \u2014 which must still read as a finished card rather than as one that failed to load, and which draws no link rather than a dead one. A title and a goal that outrun the card, where the judgement is that the title truncates on one line while the goal wraps \u2014 a name survives being cut, the reader's own sentence does not \u2014 and the meta line keeps its shape either way. And the three remaining kinds, because the kind is the only word on the card that changes what the reader thinks was delegated \u2014 including \u00dcberarbeitung, the one that arrives from a Freigabe rather than from a sentence in the chat.",
+    waitFor: '[data-testid="task-created-card-preview"]',
+  },
+  {
+    id: 'task-list',
+    mobile: true,
+    path: '/dev/task-list',
+    description:
+      "The Tasks list \u2014 a project's delegated work (ADR-0051) as the product's own card, which is what the rewrite is for: the row it replaced offered a 200px hover-underlined title as its only click target, in a line of chips and links that looked exactly as clickable. Three panels. (1) A MIXED list, which is what a project looks like after a fortnight of using Piloti: something running, a scheduled run, something accepted, something sent back with the reviewer's own words under it, and one failure carrying the worker's sanitized error. Judge the STATUS SWATCH on each card's title line \u2014 the same 10px rounded square the timetable's legend uses, so one sweep down the column finds the red one \u2014 the compact run line under the title, which is where the status is now stated IN WORDS (the chip that used to say it beside this line said the same fact in a second vocabulary, `succeeded` next to \u201eFertig\u201c), the dot marking finished work nobody has judged, the recency headings that turn a list into a timeline, the filter row whose counts say what is behind each chip before it is pressed \u2014 `Ungepr\u00fcft` is the number a person should want at zero \u2014 and the single result link on the tray, the one thing inside the card that is not the card's own target. (2) The empty state, which must read as an invitation rather than as a list that failed to load. (3) The failure state, which is that same distinction from the other side: \u201eNoch nichts \u00fcbergeben\u201c over a failed request is the one lie this surface could tell that somebody would act on.",
+    waitFor: '[data-testid="task-list-preview"]',
+  },
+  {
+    id: 'task-detail',
+    mobile: true,
+    path: '/dev/task-detail',
+    description:
+      "The Auftr\u00e4ge drawer \u2014 the run block, and the two doors out of it. This is the decision the shot is evidence of: clicking a row opens the ACCOUNT of the work rather than a second description of the row. It used to restate the card it was opened from (kind chip, status chip, goal, review reason, error), which made the bigger surface say strictly less about the run than the row that opened it \u2014 the card at least carried the run line. Now the body IS `RunBlock`, off the run's own ledger, read once through the same door the thread uses and opened rather than folded, because the click on the row IS the request to see inside. Judge whether the block sits in a sheet as well as it sits in a thread, and whether the result, \u201eIm Verlauf \u00f6ffnen\u201c and \u201eals stehende Aufgabe speichern\u201c read as a ladder rather than as three equal ways out.",
+    // The block's body animates its height open; the stand paints before it
+    // has. The footer is the last row inside the fold, so waiting on it waits
+    // for the expand rather than for the block's first frame.
+    waitFor: '[data-testid="run-footer"]',
+  },
+  {
+    id: 'task-detail-legacy',
+    path: '/dev/task-detail?state=legacy',
+    description:
+      "The same drawer over a run from before run messages existed. There is no ledger to render, so it falls back to exactly the paragraphs it always showed \u2014 status, the requester's own sentence, the reviewer's words. Judge that this reads as \u201ethis is all there is\u201c rather than as a surface that failed to load: the distinction matters because a refused READ says something different again, and the two must not look alike.",
+    waitFor: '[data-testid="task-detail-goal"]',
+  },
+  {
+    id: 'run-block',
+    mobile: true,
+    path: '/dev/run-block',
+    description:
+      'The Laufblock — a run as ONE element in the thread that commissioned it, in all seven states plus the collapsed form and the compact line. Judge the header first: it must read as a bar of the Herleitung’s family (glyph in a fixed slot, the bold state word, the title, muted phase · rounds · documents, the elapsed pill, the chevron) with the one action that fits the state at its right end and NO other number. Then the rail: five swatches, the filled check for a done phase, the ring for the live one, border-grey for the rest — readable as a position without reading a word. Then the live phase under it: each research round as the runner’s own sentence, the documents it reached as the same „Belegt durch“ chips the answer wears (law family with OIB/RIS badge, project, office), a re-read document saying so inside its chip, and the open points in plain words — an analyst at work, not a log. A failed run must state its reason and what was already done in ONE quiet red line, so nobody commissions the research twice; a cancelled one must not be red at all. The collapsed done block must be small enough to sit above the report it produced. The four compact rows at the bottom must agree with the headers above them word for word.',
+    waitFor: '[data-testid="run-block-lines"]',
+  },
+  {
+    id: 'run-block-live',
+    mobile: true,
+    path: '/dev/run-block?variant=motion',
+    description:
+      'The run block mid-run, held at a known frame of the scripted sequence (`/dev/run-block?variant=motion` walks a ledger frame by frame). Evidence for the shape the reader watches while a run works: the rail with one phase live and the ones behind it checked, the rounds that have arrived with their documents, the open points. The sequence itself is watched in the browser — a still cannot show a check drawing in — so what this shot holds is the composition at the moment it is busiest.',
+    waitFor: '[data-motion-frame="3"]',
+  },
+  {
+    id: 'run-block-transition',
+    mobile: true,
+    path: '/dev/run-block?variant=transition',
+    description:
+      'The handover as the thread shows it in the first seconds: the person’s message, the task-created card that acknowledges it, and directly beneath it the Laufblock in „Wird gestartet“ with every phase pending and the sentence naming where the result will be filed. Judge that the three read as one exchange in one column — nothing opens elsewhere, nothing asks to be clicked to follow — and that the block already looks like the element the run will live in rather than a placeholder waiting to be replaced.',
+    waitFor: '[data-testid="run-block-transition"]',
+  },
+  {
+    id: 'file-operation-proposal-card',
+    mobile: true,
+    path: '/dev/file-operation-proposal-card',
+    description:
+      "The `file_operation_proposal` card \u2014 the workspace change Piloti proposed and did not make. The agent has no way to write a document row at all, so until this card is accepted nothing has happened; accepting runs the same routes the Files pane runs, in the reader's own session. Two panels, and what the shot is for is different in each. (1) A BATCH of three moves, because that is the shape a tidying turn produces \u2014 judge that the „von \u2192 nach\u201C rows stay legible when a file name is long, that the arrow does not wrap away from its target, and that „Oberste Ebene\u201C reads as a place rather than as a missing value. (2) A single rename, the other end of the range: one row, no „von\u201C. The settled states are not here; they are one sentence inside `ProposalShell`, already shot through `memory_proposal` in the gallery.",
+    waitFor: '[data-testid="file-operation-proposal-card-preview"]',
   },
   {
     id: 'condition-tree',
     mobile: true,
     path: '/dev/condition-tree',
     description:
-      "The Bedingungsbaum in its three states, in the real 680px thread column: the case that applies open at rest; another case opened AGAINST it (Konjunktiv lead, dashed chrome, „Nur zum Vergleich …\" inside the panel) while the active row keeps its tinted node, its outcome and its „trifft zu\" chip; and a tree with no case marked, which opens closed rather than picking one for the reader. The middle block is driven into the switched state before the shot, because that state — not the resting one — is what stops the wrong case being screenshotted into an Einreichung.",
+      'The Bedingungsbaum in its three states, in the real 680px thread column: the case that applies open at rest; another case opened AGAINST it (Konjunktiv lead, dashed chrome, „Nur zum Vergleich …" inside the panel) while the active row keeps its tinted node, its outcome and its „trifft zu" chip; and a tree with no case marked, which opens closed rather than picking one for the reader. The middle block is driven into the switched state before the shot, because that state — not the resting one — is what stops the wrong case being screenshotted into an Einreichung.',
     waitFor: '[data-testid="condition-tree-preview"]',
   },
   {
@@ -471,36 +798,60 @@ export const SCREENSHOT_TARGETS = [
     mobile: true,
     path: '/dev/report-outline',
     description:
-      'The deep-research report\'s outline, on a report long enough for it to exist: the real ReportTab against a ~1.400-word report in a box the size of the research panel. Collapsed and scrolled into the middle (the sticky row names the section in view), and open (ten entries, H3 indented, the current one marked). Both claims are properties of the report around it, so neither is reviewable from the component alone.',
+      "The deep-research report's outline, on a report long enough for it to exist: the real ReportTab against a ~1.400-word report in a box the size of the research panel. Collapsed and scrolled into the middle (the sticky row names the section in view), and open (ten entries, H3 indented, the current one marked). Both claims are properties of the report around it, so neither is reviewable from the component alone.",
     waitFor: '[data-testid="report-outline"]',
+  },
+  {
+    id: 'org-instructions',
+    mobile: true,
+    path: '/dev/org-instructions',
+    description:
+      "Organisation \u2192 Anweisungen \u2014 the standing instruction block every turn in the organization carries, and what replaced forcing a skill onto a turn (the composer's `skills` array and the platform's `standard` delivery tier, both retired). Two states: a written block with the counter part-used, and one pasted past the 1500-character cap, where the counter says by how much and Save stays refused rather than the text being truncated \u2014 an instruction cut mid-sentence says something its author never wrote. The hint under the box is the boundary, not chrome: standing preferences on form, focus and workflow, never a rule that overrides Piloti and never a normative value.",
+    waitFor: '[data-testid="org-instructions-preview"] textarea',
   },
   {
     id: 'platform-skills',
     path: '/dev/platform-skills',
     description:
-      'Platform \u2192 Skills \u2014 the catalogue Piloti writes for every organization, and the surface that replaced the per-tenant "clone a platform skill" button. Three row states, because they are the whole model: a published OFFER (on every org\'s Skills tab, each deciding whether to switch it on), a published STANDARD (running for the whole fleet, on nobody\'s tab, and not something a tenant can switch off or shadow) and a DRAFT (invisible fleet-wide, which is what makes this usable as a writing surface rather than a publish-on-save wire). The switch means published, not enabled; the select beside it is the one control that decides whether an organization gets a choice at all.',
+      'Platform \u2192 Skills \u2014 the catalogue Piloti writes for every organization, and the surface that replaced the per-tenant "clone a platform skill" button. Two row states, because they are now the whole model: a published OFFER (on every org\'s Skills tab, each deciding whether to switch it on) and a DRAFT (invisible fleet-wide, which is what makes this usable as a writing surface rather than a publish-on-save wire). The switch means published, not enabled. There is no delivery control any more: the STANDARD tier, which ran a skill for the whole fleet with no tenant decision in it and forced it onto every run, was retired by migration 0088 \u2014 what should apply to every answer belongs in the platform prompt, not in a skill.',
     waitFor: '[data-testid="platform-skills-preview"] [role="switch"]',
+  },
+  {
+    id: 'platform-lessons',
+    path: '/dev/platform-lessons',
+    description:
+      'Platform → Lessons — the failure-learning register distilled from down-voted answers (docs/architecture/platform-failure-learning.md). The four register states, because they are the whole lifecycle: an auditor-held CANDIDATE waiting for a human, two ACTIVE lessons (one with its root cause already marked addressed, one still open), and a capacity-EVICTED retirement. The bandage callout at the top is not chrome, it is the doctrine: every lesson is a symptomatic patch and the root-cause chip beside each row is what keeps the register from being read as a list of fixes.',
+    waitFor: '[data-testid="platform-lessons"]',
   },
   {
     id: 'skills-panel',
     path: '/dev/skills-panel',
     description:
-      'Agent Skills tab (ADR-0045) — FEATURED first (what Piloti curates for every organization, each with an activation switch), then the org\'s own skills, and NOTHING schedule-shaped: everything about when something runs moved to the Jobs tab. The pipeline\'s builtin skills are deliberately absent, because they are absent from the endpoint: they are machinery, nobody installs or edits one, and the clone button that used to sit on them is gone. The fixture covers a taken-up offer and an untaken one, plus an org skill in play and one switched off — the switch is the only state this page has an opinion about, so both positions have to be on screen.',
+      "Agent Skills tab (ADR-0045) — FEATURED first (what Piloti curates for every organization, each with an activation switch), then the org's own skills, grouped onto skill categories with the unsorted closers last. The pipeline's builtin skills are deliberately absent, because they are absent from the endpoint: they are machinery, nobody installs or edits one, and the clone button that used to sit on them is gone. The fixture covers a taken-up offer and an untaken one (one of them categorized), plus an org skill in play and one switched off (one of them on the org's own category) — the switch is the only state this page has an opinion about, so both positions have to be on screen.",
     waitFor: '[data-testid="skills-panel-preview"]',
   },
   {
-    id: 'jobs-panel',
-    path: '/dev/jobs-panel',
+    id: 'schedule-panel',
+    mobile: true,
+    path: '/dev/schedule-panel',
     description:
-      'Jobs tab, list mode — the Files shape: a compact bordered bar (title, one-line subtitle, the single New-job action) over a card GRID that fills the pane, not a narrow centred column. A card leads with the PROMPT, not the skill, because the prompt is what the job is and the skill is the optional extra; the fixture carries two jobs with no skill and two with one, so "Ohne Skill" is visibly a stated fact rather than a blank. Both output kinds (Chat / Bericht) are on screen, plus a disabled job (dimmed, badge, run-now unavailable) and one with no cron, which reads "Nur manuell". Captured at 1200px, which is the 2-up band; 3-up starts at 2xl, chosen so the run/edit/delete row still fits on one line.',
-    waitFor: '[data-testid="jobs-panel-preview"] [role="switch"]',
+      'The Tasks tab on its timetable view \u2014 the STUNDENPLAN over the standing-task cards, which is the answer to a question a list of cron strings cannot give: what does this project\u2019s week look like. The fixture is built for exactly that. Two tasks fire at Monday 06:00, so the collision renders as two equal blocks side by side in one column \u2014 one notification storm and one load spike, seen rather than deduced. Tuesday and Thursday carry an afternoon block, so the band has to CROP to roughly 05:00\u201317:30 instead of painting sixteen empty hours and squeezing the morning cluster into a sliver; the offer to un-crop sits in the header. One task is a ONE-SHOT due that week, so it sits in the grid as a single block among the recurring ones \u2014 a task due on Thursday is one of the most important answers this view has. One task is paused and one is manual-only, so both are absent from the grid and present in the cards below \u2014 the pairing a reader has to make sense of unaided, which is why every block carries its name and every card carries the swatch its blocks wear. Colour groups and never carries meaning alone: the palette is the validated categorical one the spend charts use, tinted so the label keeps `--foreground` ink. Below `md` the same week renders as an agenda, because seven columns cannot hold a name at phone width.',
+    waitFor: '[data-testid="timetable-block"]',
   },
   {
-    id: 'job-builder',
-    path: '/dev/job-builder',
+    id: 'schedule-wizard',
+    mobile: true,
+    path: '/dev/schedule-wizard?step=1',
     description:
-      'The job builder editing a fully populated job, reached the way a user reaches it — the preview presses Bearbeiten on a real card, so the shot carries the panel shell the builder now shares with the list (same bar, same body, only the title and the action change). Its point is the right-hand pane: "Was der Agent erhält" shows the COMPOSED fire prompt — the job prompt, then the attached skill block, closing fence included — which is byte-identical to what the server submits when the job fires. The left column runs in the order the decisions happen (name → prompt → output → skill → sources → schedule) with deep-research selected, so the picker below it is the one that output can actually run.',
-    waitFor: '[data-testid="job-prompt-preview"]',
+      'The schedule wizard on its first step, of three. What it replaced was one page of six stacked cards \u2014 name, prompt, output, skill, sources, cron, timezone, two switches and a live preview pane \u2014 sixteen controls with no stated order, and the first thing most people did with it was leave. Step 1 asks ONE thing: what should Piloti do \u2014 and asks it in the CHAT COMPOSER\u2019S OWN FIELD, `/` menu and invoked-skill chip and all. A task that should run a playbook names it here the way a person names one in a message; the `<Select>` that used to attach one, and whose body the fire prompt then pasted in front of the model, was the last thing in the product that could put a skill on a turn without the model choosing it (ADR-0060). Judge whether the `/` panel reads as the same gesture it is in chat when it hangs under a form field rather than over a toolbar. The name below is pre-answered rather than requested, its placeholder showing live what the schedule will be called, because asking for a name first asks somebody to summarise something they have not written yet. Judge the stepper: numbered circles with the step labels visible ahead of time (so the reader can see the last step is a review and not another form), the count stated for screen readers, and every visited step a button so correcting costs nothing. There are three circles on that rail, not four: the step that asked \u201eWas soll dabei herauskommen? Chat oder Bericht?\u201c is gone, because since ADR-0062 both answers land in a thread and the only difference the question still carried was whether anything was FILED \u2014 and a standing task whose result is not a deliverable is a standing task nobody reads. The data sources it used to fold away moved up here, behind this step\u2019s own \u201eErweitert\u201c, beside the work they qualify.',
+    waitFor: '[data-testid="wizard-step-task"]',
+  },
+  {
+    id: 'schedule-wizard-timing',
+    path: '/dev/schedule-wizard?step=2',
+    description:
+      'The wizard\u2019s second step, and the one that earns the split. It opens on ONE question with three answers \u2014 einmal, wiederkehrend, nur manuell \u2014 as cards rather than chips, because each needs a sentence: \u201eEinmal\u201c and \u201eWiederkehrend\u201c are indistinguishable from their one-word labels, and a reader choosing between them is choosing between behaviours. That choice used to be a switch (\u201erun on a schedule\u201c, on or off), which made the shape a planning office asks for most \u2014 run this once, the day before the Abgabe \u2014 the one thing that could not be said. Only the fields the chosen answer reads appear under it: the frequency chips and time for a rhythm, a single date for a one-shot, nothing at all for manual. A schedule is the only thing in this product a person cannot check by looking at it \u2014 \u201eMonatlich am 1. um 06:00\u201c is true until the month it is not, and `0 6 1 * *` is true to nobody \u2014 so the step ends in REAL fire times, computed by the same library the scheduler advances rows with, and a one-shot gets that same box showing the single instant it will run. The timezone and the raw cron field are behind the one \u201eErweitert\u201c disclosure every step gets, shut, with a summary on the trigger so nothing can hide in there unannounced.',
+    waitFor: '[data-testid="wizard-upcoming"]',
   },
   {
     id: 'job-run-history',
@@ -514,7 +865,7 @@ export const SCREENSHOT_TARGETS = [
     mobile: true,
     path: '/dev/skill-composer',
     description:
-      'The composer half of Agent Skills (ADR-0045) — the `/` menu open on a typed fragment, with the invoked-skill chip below it. A row carries exactly the level-1 metadata the agent itself is given and nothing else: the token to type, with the matched fragment emphasised, and the sentence that says when to type it. The fixture matches the same fragment two ways, in the name and in the description only, which is the ranking the menu applies. The chip beneath states the CONSEQUENCE — these instructions will be loaded — because a `/token` in a sentence says nothing about what it does.',
+      'The composer half of Agent Skills (ADR-0045) — the `/` menu open on a typed fragment, with the invoked-skill chip below it. A row carries exactly the level-1 metadata the agent itself is given and nothing else: the token to type, with the matched fragment emphasised, and the sentence that says when to type it. The fixture matches the same fragment two ways, in the name and in the description only, which is the ranking the menu applies. The chip beneath restates that a skill is attached, and says what the token actually does: Piloti READS the name among the words and decides. It used to promise that the instructions would load, which was true while a named skill was forced onto the turn and false since ADR-0060 \u2014 a chip asserting an affordance the product no longer has, which the reader only discovers from an answer that ignored the skill they thought they had picked.',
     waitFor: '[data-testid="slash-command-picker"]',
   },
   {
@@ -525,11 +876,18 @@ export const SCREENSHOT_TARGETS = [
     waitFor: '[data-testid="slash-command-picker"]',
   },
   {
-    id: 'skill-editor',
+    id: 'skill-builder',
     path: '/dev/skill-editor',
     description:
-      'The two panes beside the skill editor form: the SKILL.md the form is writing, split at the seam that decides everything about how a skill behaves (frontmatter in the agent’s context on every turn, instructions loaded only on activation), and the reviewer’s verdict on the draft beneath it. The draft is deliberately mediocre — a description that never says when to use the skill — so the findings show all three severities across all three fields rather than a clean bill of health that would prove nothing. The preview presses the check itself, because findings do not exist until somebody asks for them.',
-    waitFor: '[data-testid="skill-review-findings"]',
+      "The skill builder on its first step. What it replaced was a `sm:max-w-5xl` two-column dialog \u2014 the document on the left, a rail of eight settings on the right (agents, cards, category, two switches), everything at once. It asked an author to hold the whole skill in their head before they had written a line of it, and it gave the rail the same weight as the DESCRIPTION, which is the one field that decides whether the skill is ever picked at all. It is a stepped form now, wearing the same `Stepper` and the same nav as the task builder, because it asks the same kind of thing: a short sequence of questions where knowing how many are left is what decides whether somebody finishes. Step 1 is the two lines an agent reads every turn and nothing else; everything that is not the document is behind one \u201eErweitert\u201c on the last step.",
+    waitFor: '[data-testid="skill-step-what"]',
+  },
+  {
+    id: 'skill-editor',
+    path: '/dev/skill-editor?step=3',
+    description:
+      'The builder\u2019s last step, which is the CHECK. Running it is what opens the save: a skill is an instruction the model acts on unsupervised, and the one failure an author cannot see from inside the form is a description that never gets matched \u2014 exactly what the reviewer reads for. A button beside a form is a button nobody presses. What the findings SAY is not a condition (blocking a save on a model\u2019s verdict would be the forcing this codebase removed everywhere else, pointed at the author instead of the agent), and a reviewer that could not run blocks nothing \u2014 our outage is not the author\u2019s to pay for with an unsaveable draft. Beneath it, the SKILL.md the form is writing, split at the seam that decides everything about how a skill behaves (frontmatter in the agent’s context on every turn, instructions loaded only on activation), and the reviewer’s verdict on the draft beneath it. The draft is deliberately mediocre — a description that never says when to use the skill — so the findings show all three severities across all three fields rather than a clean bill of health that would prove nothing. The preview presses the check itself, because findings do not exist until somebody asks for them \u2014 and because the SAVE now waits on it: a skill is an instruction the model acts on unsupervised, and the one failure an author cannot see from inside the form is a description that never gets matched, which is precisely what the reviewer reads for. A button beside the form is a button nobody presses. What the findings SAY is not a condition (blocking a save on a model\u2019s verdict would be the forcing this codebase removed everywhere else, pointed at the author instead of the agent), and a reviewer that could not run blocks nothing \u2014 our outage is not the author\u2019s to pay for with an unsaveable draft.',
+    waitFor: '[data-testid="skill-step-check"] [data-testid="skill-review-findings"]',
   },
   {
     id: 'skill-editor-advanced',
@@ -635,12 +993,55 @@ export const SCREENSHOT_TARGETS = [
     waitFor: '[data-testid="platform-nav"]',
   },
   {
+    id: 'ris-source',
+    mobile: true,
+    path: '/dev/ris-source',
+    description:
+      'A legal source read INSIDE Piloti: the RIS document as text, with the cited passage found and marked in the tint of the chip that opened it, the provenance badge in the header beside the document\u2019s own title, and the link to the authoritative publication kept where a legal citation always needs it. The chip used to open a browser tab, which took the reader out of the answer and left the Fundstelle for them to find.',
+    waitFor: 'mark',
+  },
+  {
+    id: 'ris-source-unreachable',
+    path: '/dev/ris-source?variant=failed',
+    description:
+      'RIS unreachable. The reading copy is what failed, so the dialog says so in one sentence and keeps „Im RIS \u00f6ffnen" \u2014 the authoritative document is still reachable, and a viewer that spun forever would hide that.',
+    waitFor: '[role="dialog"]',
+  },
+  {
+    id: 'ris-source-busy',
+    path: '/dev/ris-source?variant=busy',
+    description:
+      'Too many sources opened at once. The rate limit is a different sentence to the reader than an unreachable RIS \u2014 the source is fine and the way out is to wait a moment \u2014 and rendering both as \u201elässt sich nicht anzeigen\u201c sent someone to the browser tab this reader exists to replace.',
+    waitFor: '[role="dialog"]',
+  },
+  {
     id: 'citation-interaction',
     mobile: true,
     path: '/dev/citation-interaction',
     description:
       'What happens when you USE a citation: inline [N] markers tinted by the provenance family of the source they name (three OIB passages and one binding legal source, distinguishable mid-sentence), each previewing document\u2009\u00b7\u2009authority\u2009\u00b7\u2009page\u2009\u00b7\u2009passage in place and marking the chip it belongs to \u2014 rendered through the real AgentResponse in both shells. Includes a claim carried by two sources, written [2][3], as the two separate pills it must render as.',
     waitFor: '[data-testid="citation-interaction-preview"]',
+  },
+  {
+    id: 'file-reference',
+    mobile: true,
+    path: '/dev/file-reference',
+    description:
+      'Filenames the answer writes into its own prose, as controls: nine names across three shelves (project files, B\u00fcroarchiv, a document attached to this chat), each a chip that opens the document in the pane beside the answer AND points the next question at it, instead of sending the reader to Dateien with a name to retype. Includes a name in a table cell (the reading-order table the agent actually writes), a name that resolves to nothing and correctly stays prose, and a citation pill in the same paragraph \u2014 the two must not read as the same affordance.',
+    waitFor: '[data-testid="file-reference"]',
+  },
+  {
+    id: 'file-reference-peek',
+    // Desktop only: this panel exists under the pointer, and a touch viewport
+    // has none. A tap on a phone opens the document itself, where every fact
+    // this panel states is on the page.
+    path: '/dev/file-reference',
+    hover: '[data-file-reference]',
+    // The chip, not the panel: the panel is what the hover OPENS, so waiting
+    // for it here would be waiting for something the capture has not done yet.
+    waitFor: '[data-file-reference]',
+    description:
+      'The file-reference peek OPEN \u2014 the second-order answer a resting screenshot can never show. The chip\u2019s click opens the document and makes it what the composer is asking about \u2014 which this panel\u2019s own action names \u2014 so it answers the question that decides WHICH of five recommended documents to open first: which shelf it came from, its format, size and page count, its summary, and whether Piloti has actually indexed it.',
   },
   {
     id: 'citation-peek',
@@ -746,6 +1147,14 @@ export const SCREENSHOT_TARGETS = [
     waitFor: '[data-testid="mention-pill-preview"]',
   },
   {
+    id: 'plan-approval',
+    mobile: true,
+    path: '/dev/plan-approval',
+    description:
+      'The research-plan decision bubble with its three ways out — Recherche starten, Kurz beantworten (the middle way: an immediate shallow answer instead of the multi-minute run), and Abbrechen — plus the answered states whose echo says the decision in words („Kurze Antwort angefordert"), never the wire keyword, and a restored legacy prompt that keeps its two-button pair.',
+    waitFor: '[data-testid="plan-approval-preview"]',
+  },
+  {
     id: 'awaiting-banner',
     mobile: true,
     path: '/dev/awaiting-banner',
@@ -830,7 +1239,7 @@ export const SCREENSHOT_TARGETS = [
     mobile: true,
     path: '/dev/chat-toolbar',
     description:
-      'The floating chat toolbar in the 768px column it actually gets. Left pill = orientation (history door + the thread\'s name) and takes all the elastic width; right pill = status, a hairline, then controls — information is never clickable and every control looks like one. Only New chat stays in the open; share, rename and the report are in the "…" menu. Three rows: a solo private thread (no collaboration furniture and no bare separator), a shared thread with long project + session names and three people, and a project-wide thread, where the rule REPLACES the faces: the audience there was never enumerated, so avatars would be a partial sample of it rather than a summary. Exactly one of the two forms, never both.',
+      'The floating chat toolbar in the 768px column it actually gets. The first row is a fresh, EMPTY chat: the right pill is absent because nothing in it is true yet, so the left one drops its frame too and the row goes quiet on both sides rather than reading as a toolbar with its right half missing. Then a started thread: left pill = orientation (history door + the thread\'s name) and takes all the elastic width; right pill = status, a hairline, then controls — information is never clickable and every control looks like one. Only New chat stays in the open; share and rename are in the "…" menu. Three rows: a solo private thread (no collaboration furniture and no bare separator), a shared thread with long project + session names and three people, and a project-wide thread, where the rule REPLACES the faces: the audience there was never enumerated, so avatars would be a partial sample of it rather than a summary. Exactly one of the two forms, never both.',
     waitFor: '[data-testid="chat-toolbar-preview"]',
   },
   {
@@ -838,7 +1247,7 @@ export const SCREENSHOT_TARGETS = [
     mobile: true,
     path: '/dev/chat-toolbar?variant=running',
     description:
-      'The same three toolbars while deep research is in flight — the one research state that belongs in the open row, because it is STATUS and not a control: the thread\'s own progress banner scrolls away, so this is the persistent "still working" signal. Merely HAVING a finished report changes nothing here; that is a menu entry.',
+      'The same three toolbars while deep research is in flight — now the ONLY research state the toolbar has, and it belongs in the open row because it is STATUS and not a control: the thread\'s own progress banner scrolls away, so this is the persistent "still working" signal. There is no way out of the row: a run is read in the thread that commissioned it (ADR-0062), so a finished report adds nothing here and the menu holds only share and rename.',
     waitFor: '[data-testid="chat-toolbar-preview"]',
   },
   {
@@ -1001,5 +1410,29 @@ export const SCREENSHOT_TARGETS = [
     description:
       'The same page for someone who has not worked in any project yet: the rail is filled by project recency instead, and the heading says "Your projects" rather than "Pick up where you left off". The label is load-bearing — the data cannot support a "continue" claim here, and the row timestamps fall back to the project’s own last movement.',
     waitFor: '[data-testid="projects-home-preview"]',
+  },
+  {
+    id: 'document-lifecycle',
+    mobile: true,
+    path: '/dev/document-lifecycle',
+    description:
+      'Freigabe und Fassungen, the CMS-like half of Dateien (ADR-0054), after it stopped shouting. The second block is the one to judge first: a person\u2019s upload \u2014 the great majority of every project \u2014 with the section SHUT, saying a word, a four-segment track and one sentence. That same document used to draw an open heading, a full version list and a lone unexplained \u201eArchivieren\u201c at the TOP of the rail, above the summary and the facts, which is the report this redesign came from. The track is the other half of the change: \u201eIn Pr\u00fcfung\u201c is only informative to somebody who already knows it comes after Entwurf and before Freigegeben, and nothing in the product taught that \u2014 judge that the segments read as a position rather than as a progress bar, with no chroma at all (ink for walked, paper for ahead, a dashed outline where a refusal stopped the walk). Then: an Entwurf OPEN without anybody having clicked, because a decision is outstanding for this reader \u2014 shut by default is only honest if the panel opens itself when it is your turn. Then In Pr\u00fcfung with the comment box open (the flow that must not be sendable without words), the SAME state with \u201ePiloti \u00fcberarbeiten lassen\u201c pressed instead \u2014 the one shot that shows the two boxes differ by one line \u2014 and last a published document opened to its three versions, who submitted, approved and published each, the comment that sent version 2 back, and the archive block set apart at the bottom with its own explanation.',
+    waitFor: '[data-testid="document-lifecycle-preview"]',
+  },
+  {
+    id: 'document-lifecycle-archive',
+    mobile: true,
+    path: '/dev/document-lifecycle?variant=archive',
+    description:
+      'The archive confirm, open. This is the shot that answers the complaint in its own words \u2014 no idea what archiving a document does. It used to be one click on an unlabelled verb standing in a row of review decisions, and three of its four consequences were written down only in a service docstring: the file leaves the Dateien listing (findable again through the one filter that WIDENS it), its knowledge-base entries are purged so Piloti stops citing it, nothing is deleted, and no surface in the product brings it back. Judge that the four lines read as four independent facts rather than as a paragraph, that the one which surprises people \u2014 Piloti stops citing it \u2014 cannot hide in the middle, and that the file is named in the question. Its own route because a dialog is a portal over the whole document: photographed on the gallery page it would cover every block behind it.',
+    waitFor: '[data-testid="document-archive-consequences"]',
+  },
+  {
+    id: 'document-version-diff',
+    mobile: true,
+    path: '/dev/document-version-diff',
+    description:
+      'Was sich zwischen zwei Fassungen ge\u00e4ndert hat, zeilenweise (ledger item 14). Four blocks: a revised Aktenvermerk with a corrected Geb\u00e4udeklasse, a reworded sentence and a new section; a line inserted near the top of a long checklist, where the two line-number columns visibly drift apart from the insert onwards; one change in a thirty-paragraph report, with the unchanged run folded into a counted gap; and two identical versions, which say so in a sentence rather than rendering an empty box. Judge that an added line and a removed line are told apart with NO chroma at all \u2014 a solid left rule against a dashed one, a +/\u2212 gutter and the ink weight are the whole vocabulary, because colour belongs to provenance and an editorial change is not provenance. Judge too that the folded gap reads as "nothing happened here" rather than as a missing chunk.',
+    waitFor: '[data-testid="document-version-diff-preview"]',
   },
 ]

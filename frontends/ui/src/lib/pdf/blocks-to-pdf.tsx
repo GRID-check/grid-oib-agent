@@ -296,20 +296,39 @@ const LINKISH = /\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)|(https?:\/\/[^\s<>()[\]]+)
 const trimUrl = (url: string): string => url.replace(/[.,;:!?'"]+$/, '')
 
 /**
+ * Coerce anything a block carries to renderable PDF text (#611, #589, #580).
+ *
+ * The block vocabulary types every text field as `string`, but block builders
+ * consume LLM/DB data cast from `unknown` — a card renderer passing an object
+ * through arrives here as an object, and react-pdf throws minified React #31
+ * ("Objects are not valid as a React child"). A dropped value is a missing
+ * sentence; a thrown render is a missing document. Coerce, never throw.
+ */
+export function pdfText(value: unknown): string {
+  if (typeof value === 'string') return value
+  if (value === null || value === undefined) return ''
+  if (typeof value === 'number' || typeof value === 'boolean' || typeof value === 'bigint') {
+    return String(value)
+  }
+  return ''
+}
+
+/**
  * Text, with its addresses turned into link annotations.
  *
  * Newlines are left in place: react-pdf breaks a line on `\n` inside a `Text`,
  * which is what a card's `missing` sentence and a reference's URL-on-its-own-line
  * were written expecting.
  */
-const inlineNodes = (text: string, keyPrefix: string): React.ReactNode[] => {
+const inlineNodes = (text: unknown, keyPrefix: string): React.ReactNode[] => {
+  const safe = pdfText(text)
   const nodes: React.ReactNode[] = []
   let cursor = 0
   let key = 0
 
   LINKISH.lastIndex = 0
   let match: RegExpExecArray | null
-  while ((match = LINKISH.exec(text)) !== null) {
+  while ((match = LINKISH.exec(safe)) !== null) {
     const [full, mdLabel, mdUrl, bare] = match
     // A bare address gives its trailing punctuation back to the prose: the
     // period at the end of "…see https://example.org/a." is the sentence's, and
@@ -319,7 +338,7 @@ const inlineNodes = (text: string, keyPrefix: string): React.ReactNode[] => {
     const end = bare ? match.index + url.length : match.index + full.length
 
     if (match.index > cursor) {
-      nodes.push(<Text key={`${keyPrefix}-t${key++}`}>{text.slice(cursor, match.index)}</Text>)
+      nodes.push(<Text key={`${keyPrefix}-t${key++}`}>{safe.slice(cursor, match.index)}</Text>)
     }
     nodes.push(
       <Link key={`${keyPrefix}-a${key++}`} src={url} style={styles.link}>
@@ -330,8 +349,8 @@ const inlineNodes = (text: string, keyPrefix: string): React.ReactNode[] => {
     LINKISH.lastIndex = end
   }
 
-  if (cursor < text.length) {
-    nodes.push(<Text key={`${keyPrefix}-t${key++}`}>{text.slice(cursor)}</Text>)
+  if (cursor < safe.length) {
+    nodes.push(<Text key={`${keyPrefix}-t${key++}`}>{safe.slice(cursor)}</Text>)
   }
   return nodes
 }
@@ -353,7 +372,7 @@ const runStyle = (run: DocRun) => [
 const runNodes = (runs: DocRun[], keyPrefix: string): React.ReactNode[] =>
   runs.map((run, index) => (
     <Text key={`${keyPrefix}-r${index}`} style={runStyle(run)}>
-      {inlineNodes(run.text, `${keyPrefix}-r${index}`)}
+      {inlineNodes(pdfText(run?.text), `${keyPrefix}-r${index}`)}
     </Text>
   ))
 
@@ -367,7 +386,7 @@ type TableBlock = Extract<DocBlock, { kind: 'table' }>
 
 /** A whole paragraph set in mono across several lines is a code listing. */
 const isCodeListing = (block: ParagraphBlock): boolean =>
-  block.runs.length === 1 && block.runs[0].mono === true && block.runs[0].text.includes('\n')
+  block.runs.length === 1 && block.runs[0].mono === true && pdfText(block.runs[0].text).includes('\n')
 
 /** `[7] ` in bold, the marker `answer-document.ts` writes for a reference. */
 const REFERENCE_MARKER = /^\[(\d{1,3})\]\s*$/
@@ -375,7 +394,7 @@ const REFERENCE_MARKER = /^\[(\d{1,3})\]\s*$/
 const referenceNumber = (block: ParagraphBlock): string | null => {
   const first = block.runs[0]
   if (!first?.bold) return null
-  return REFERENCE_MARKER.exec(first.text)?.[1] ?? null
+  return REFERENCE_MARKER.exec(pdfText(first.text))?.[1] ?? null
 }
 
 /**
@@ -402,7 +421,7 @@ const headingNode = (
   if (block.level === 1) {
     return (
       <View key={key} style={styles.h1Group} wrap={false} minPresenceAhead={72}>
-        <Text style={styles.h1}>{block.text}</Text>
+        <Text style={styles.h1}>{pdfText(block.text)}</Text>
         <View style={styles.h1Rule} />
       </View>
     )
@@ -411,13 +430,13 @@ const headingNode = (
     return (
       <View key={key} style={styles.h2Group} wrap={false} minPresenceAhead={64}>
         <View style={styles.h2Mark} />
-        <Text style={styles.h2}>{block.text}</Text>
+        <Text style={styles.h2}>{pdfText(block.text)}</Text>
       </View>
     )
   }
   return (
     <Text key={key} style={styles.h3} minPresenceAhead={56}>
-      {block.text}
+      {pdfText(block.text)}
     </Text>
   )
 }
@@ -426,7 +445,7 @@ const paragraphNode = (block: ParagraphBlock, key: string): React.ReactNode => {
   if (isCodeListing(block)) {
     return (
       <View key={key} style={styles.code}>
-        <Text style={styles.codeText}>{block.runs[0].text}</Text>
+        <Text style={styles.codeText}>{pdfText(block.runs[0].text)}</Text>
       </View>
     )
   }
@@ -525,7 +544,7 @@ const tableNode = (block: TableBlock, key: string): React.ReactNode => {
         <View style={styles.headRow} wrap={false}>
           {Array.from({ length: columns }, (_, index) => (
             <Text key={`${key}-h${index}`} style={[styles.headCell, { width: widths[index] }]}>
-              {block.head?.[index] ?? ''}
+              {pdfText(block.head?.[index] ?? '')}
             </Text>
           ))}
         </View>
@@ -581,6 +600,26 @@ export interface BlocksDocumentProps {
   cover: CoverInfo
   /** The document's body — prose, cards and references, already assembled. */
   blocks: DocBlock[]
+  /**
+   * The machine-readable AI marking, into the Info dictionary's Keywords.
+   *
+   * Separate from the printed notice on purpose, and both or neither: the
+   * notice is what a person reads, this is what a detector matches on, and a
+   * document that carries one without the other is marked for exactly one of
+   * its two audiences. `fileGeneratedDocument` verifies this string against the
+   * stored bytes before it stores them, so it cannot be merely claimed.
+   */
+  keywords?: string
+  /**
+   * The Info dictionary's Subject.
+   *
+   * The one marking field a reader actually SEES, in their viewer's
+   * document-properties panel — so „KI-generiert — nicht geprüft" reaches
+   * someone who never scrolls to page one. Set only when there is a marking, so
+   * an ordinary export's Subject is not overwritten with something it did not
+   * say.
+   */
+  subject?: string
 }
 
 /**
@@ -591,19 +630,30 @@ export interface BlocksDocumentProps {
  * viewer puts in its title bar, and leaving it blank means an exported answer
  * shows up in a DMS as an untitled file from an unnamed producer.
  */
-export const BlocksDocument: React.FC<BlocksDocumentProps> = ({ cover, blocks }) => (
+export const BlocksDocument: React.FC<BlocksDocumentProps> = ({
+  cover,
+  blocks,
+  keywords,
+  subject,
+}) => (
   <Document
     title={cover.title}
     author={PRODUCT_NAME}
     creator={PRODUCT_NAME}
     producer={PRODUCT_NAME}
+    keywords={keywords}
+    subject={subject}
   >
     <Page size="A4" style={COVER_PAGE_STYLE}>
       <CoverContent cover={cover} />
     </Page>
     <Page size="A4" style={styles.page}>
       <RunningHeader title={cover.title} />
-      <PageFooter />
+      {/* The branding's footer line rides on the page footer that already
+          exists rather than on a second fixed element: two fixed views at the
+          same edge is how a footer stops being drawn at all (see the
+          `lineHeight` note on `styles.page`). */}
+      <PageFooter line={cover.chrome?.footerLine} />
       {blockNodes(blocks)}
     </Page>
   </Document>

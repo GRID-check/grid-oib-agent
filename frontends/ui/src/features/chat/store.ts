@@ -51,6 +51,7 @@ export const useChatStore = create<ChatStoreWithHydration>()(
           currentConversation: state.currentConversation,
           pendingInteraction: state.pendingInteraction,
           composerDrafts: state.composerDrafts,
+          resolvedDeepResearchJobs: state.resolvedDeepResearchJobs,
         }),
         onRehydrateStorage: () => (state) => {
           // Mark hydration settled regardless of whether persisted data existed

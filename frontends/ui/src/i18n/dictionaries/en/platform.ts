@@ -338,7 +338,7 @@ export const platform = {
     // retrieval disagrees with the catalog — so the answer lives here.
     howTitle: 'What reconciling does',
     howBody:
-      'Deleting a document is two steps: drop its indexed chunks from the vector store, then drop its row from the catalog. When the first step is skipped or fails, the row disappears but the chunks stay behind — invisible everywhere in the app, yet still eligible to be retrieved and cited. Reconciling walks every collection, compares it against the catalog, and deletes the chunks no document owns any more.',
+      'Deleting a document is two steps: drop its indexed chunks from the vector store, then drop its row from the catalog. When the first step is skipped or fails, the row disappears but the chunks stay behind — invisible everywhere in the app, yet still eligible to be retrieved and cited. Reconciling walks every collection, compares it against the catalog, and deletes the chunks no document owns any more. It then forgets the opposite leftover: an entry in the assistant’s document inventory whose file has no chunks left, so the assistant stops listing a file it cannot read.',
     whenTitle: 'When you need it',
     whenBody:
       'Run it when an answer cites a document nobody can find, when a deleted file keeps reappearing as a source, or after a bulk delete that reported errors. Repeating it is harmless: on a healthy store it finds nothing and deletes nothing.',
@@ -366,6 +366,8 @@ export const platform = {
     measureFoundHint: 'Indexed files with no owning document row.',
     measureDeleted: 'Chunks removed',
     measureDeletedHint: 'Chunks the vector store confirmed it deleted.',
+    measureSummaries: 'Inventory entries forgotten',
+    measureSummariesHint: 'Files the assistant still listed although nothing of them was left to read.',
     outcomeRemoved: 'Removed {chunks} orphaned chunk(s) across {collections} collection(s).',
     outcomeClean: 'Nothing to clean up — every indexed chunk still has its document.',
     failuresTitle: '{count} collection(s) could not be reconciled',
@@ -377,17 +379,9 @@ export const platform = {
   },
   /** Platform → Skills: the catalogue curated for every organization. */
   skills: {
-    hint: 'A skill written here reaches every organization. As an offer, each one decides whether to switch it on; as a standard, all of them run it without seeing it on their Skills tab or being able to switch it off. Drafts stay invisible until you publish them.',
+    hint: 'A skill written here is offered to every organization, and each one decides whether to switch it on. Drafts stay invisible until you publish them. Anything that should apply to every answer belongs in the platform prompt, not in a skill.',
     new: 'New curated skill',
     draft: 'Draft',
-    standardBadge: 'Standard',
-    deliveryOffer: 'Offered',
-    deliveryStandard: 'Standard for all',
-    deliveryAria: 'Change how the skill “{name}” is delivered',
-    deliveryNowStandard:
-      '“{name}” is now standard: every organization runs it and none can switch it off.',
-    deliveryNowOffer:
-      '“{name}” is now an offer: it runs again only where an organization switches it on.',
     edit: 'Edit',
     delete: 'Delete',
     deleted: '“{name}” deleted.',
@@ -424,6 +418,7 @@ export const platform = {
     models: 'Models',
     retrieval: 'Retrieval',
     quality: 'Answer quality',
+    lessons: 'Lessons',
     cards: 'Cards',
     knowledge: 'Base knowledge',
     norms: 'Norm catalog',
@@ -513,7 +508,7 @@ export const platform = {
   sections: {
     overview: {
       title: 'Overview',
-      subtitle: 'Every organization on the platform, with projects and LLM spend.',
+      subtitle: 'Every organization on the platform, with projects, LLM cost and revenue — and the price list behind it.',
     },
     skills: {
       title: 'Skills',
@@ -536,6 +531,11 @@ export const platform = {
       title: 'Answer quality',
       subtitle: 'How well answers are grounded, what users thought of them, and the execution timeline behind any turn that was not.',
     },
+    lessons: {
+      title: 'Lessons',
+      subtitle:
+        'What the platform learned from negative feedback — anonymized, deduplicated, and injected into every answer so a reported failure does not repeat. Every lesson is a symptomatic patch, not a fix.',
+    },
     knowledge: {
       title: 'Base knowledge',
       subtitle: 'The shared OIB corpus every project grounds its answers on.',
@@ -552,6 +552,68 @@ export const platform = {
     maintenance: {
       title: 'Maintenance',
       subtitle: 'Vector-store upkeep. Only needed when retrieval and the corpus have drifted apart.',
+    },
+  },
+  /** Platform → lessons: the failure-learning register (bandage-framed). */
+  lessons: {
+    title: 'Lesson register',
+    description:
+      'Distilled automatically from down-voted answers: each report is anonymized, matched against the register, and — when it generalizes and passes the audit — activated as a process caution the assistant reads on every turn.',
+    doctrineTitle: 'These are bandages, not fixes',
+    doctrineBody:
+      'A lesson stops a reported failure from recurring by steering the assistant around the symptom. The cause — a prompt, a retrieval gap, a missing source — is still open until someone closes it and marks it addressed. A register that only ever grows is a backlog of unfixed causes, not an achievement.',
+    sweep: 'Process backlog',
+    sweeping: 'Processing…',
+    sweepDone: 'Processed {processed} reports: {created} new lessons, {linked} matched to existing ones.',
+    sweepError: 'The sweep failed. Reports stay queued and will be retried.',
+    loadError: 'Could not load the lesson register.',
+    emptyTitle: 'No lessons yet',
+    emptyBody:
+      'When users mark answers as not helpful, the reports are distilled into lessons here — automatically, and each one traceable back to the feedback behind it.',
+    updated: 'Lesson updated.',
+    updateError: 'Could not update the lesson.',
+    groups: {
+      candidate: 'Held for review',
+      active: 'Active — injected into every answer',
+      retired: 'Retired',
+    },
+    held: {
+      audit_flagged: 'Audit flagged',
+      not_generalizable: 'Not generalizable',
+    },
+    evicted: 'Evicted (capacity)',
+    rootCause: {
+      open: 'Root cause open',
+      addressed: 'Root cause addressed',
+    },
+    reportMeta: '{count}× reported',
+    orgMeta: '{count} org(s)',
+    lastReported: 'last {date}',
+    activate: 'Activate',
+    retire: 'Retire',
+    retireConfirmTitle: 'Retire this lesson?',
+    retireConfirmBody:
+      'The assistant stops reading it on the next turn, for every organization. The lesson and its full trail are kept.',
+    markAddressed: 'Mark cause addressed',
+    reopenRootCause: 'Reopen cause',
+    provenance: 'Trail',
+    provenanceTitle: 'Lesson trail',
+    provenanceSubtitle:
+      'Every transition and every report behind this lesson. Reports are anonymized by construction: a summary, a pseudonymous organization hash, and the feedback reference — the raw report stays inside its organization.',
+    provenanceReports: 'Reports',
+    provenanceNoReports: 'No provenance rows — this lesson predates report tracking.',
+    provenanceNoSummary: 'No summary was recorded for this report.',
+    provenanceOrg: 'org {hash}…',
+    provenanceFeedback: 'feedback {id}…',
+    provenanceEvents: 'Events',
+    eventActions: {
+      created: 'Distilled from a report',
+      report_linked: 'Another report matched',
+      activated: 'Activated',
+      retired: 'Retired',
+      reactivated: 'Reactivated',
+      edited: 'Wording edited',
+      root_cause_updated: 'Root-cause status changed',
     },
   },
   /** Platform → cards: the agent's presentation vocabulary, rendered. */
@@ -655,26 +717,63 @@ export const platform = {
   stats: {
     organizations: 'Organizations',
     projects: 'Projects',
-    spendToday: 'Spend today',
-    spendMonth: 'Spend this month',
+    // Cost is what OpenRouter charges, in USD, as charged — never converted.
+    costToday: 'Cost today',
+    costMonth: 'Cost this month',
+    revenueMonth: 'Revenue this month',
+    marginHint: 'Gross margin {margin}',
+    ownKeyExcluded: 'Excludes {amount} on organizations’ own keys',
     requestsMonth: '{count} requests this month',
   },
   orgs: {
     title: 'Organizations',
-    description: 'Every organization on the platform, biggest spender first. Costs come from the LLM usage ledger.',
+    description:
+      'Every organization on the platform, biggest revenue first. Cost is what OpenRouter charged in USD; revenue is what the organization is charged at the price list.',
     colOrganization: 'Organization',
     colProjects: 'Projects',
-    colToday: 'Today',
-    colMonth: 'This month',
+    colToday: 'Cost today',
+    colMonth: 'Cost this month',
+    colRevenue: 'Revenue this month',
     colCreated: 'Created',
     platformBadge: 'Platform',
+    ownKeyBadge: 'Own key',
+    ownKeyHint: '{amount} this month ran on the organization’s own key — its bill, not ours, and not in the cost columns.',
     empty: 'No organizations yet.',
   },
   trend: {
-    title: 'Spend trend',
-    description: 'Platform-wide LLM spend per day over the last 30 days (UTC), from the usage ledger.',
+    title: 'Cost trend',
+    description: 'Platform-wide LLM cost per day over the last 30 days (UTC), in USD as charged, from the usage ledger.',
     requests: '{count} requests',
     empty: 'No usage recorded in the last 30 days.',
+  },
+  pricing: {
+    title: 'Price list',
+    description:
+      'What organizations are charged for what OpenRouter charges Piloti. Cost × margin is the price; price ÷ credit price is what they see. A save applies to every organization from its next request — nothing already recorded is repriced.',
+    setBadge: 'Set',
+    bootFloorBadge: 'Boot floor — not set yet',
+    margin: 'Margin multiplier',
+    marginHint: 'Price ÷ cost. 1 is pass-through; 2.5 is a 150 % markup. {min}–{max}.',
+    usdPerCredit: 'Credit price (USD of price per credit)',
+    usdPerCreditHint: 'How much price one credit stands for. What a credit sells for in euros is the contract’s business.',
+    defaultDaily: 'Seeded daily allowance (credits)',
+    defaultMonthly: 'Seeded monthly allowance (credits)',
+    unlimitedPlaceholder: 'Unlimited',
+    example: 'A call OpenRouter charges {cost} for is priced at {price} and shows as {credits} credits.',
+    exampleIncomplete: 'Enter a margin and a credit price to see a worked example.',
+    note: 'Change note',
+    notePlaceholder: 'Why this price list (optional)',
+    save: 'Save price list',
+    saved: 'Price list saved — applies from the next request.',
+    saveError: 'The price list could not be saved.',
+    loadError: 'The price list could not be loaded.',
+    confirmTitle: 'Change the price list for every organization?',
+    confirmDescription:
+      'From the next request on, every organization is priced with these numbers. Usage already recorded keeps the price it was recorded at.',
+    confirmSave: 'Save for every organization',
+    updatedBy: 'Set by {email} on {date}',
+    historyTitle: 'Previous versions',
+    historyEntry: '{margin}× · {usdPerCredit} per credit · {daily}/day · {monthly}/month',
   },
   team: {
     title: 'Platform team',

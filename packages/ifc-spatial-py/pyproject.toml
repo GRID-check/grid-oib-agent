@@ -7,7 +7,7 @@ name = "ifc-spatial-py"
 version = "0.1.0"
 description = "Spike: the ifc-spatial operator surface on IfcOpenShell, with the answer contract intact"
 readme = "COVERAGE.md"
-requires-python = ">=3.11"
+requires-python = ">=3.14,<3.15"
 dependencies = [
   "ifcopenshell>=0.8.5",
   "numpy>=1.26",

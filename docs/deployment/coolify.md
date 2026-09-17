@@ -138,8 +138,23 @@ own domains, DB password, and internal token with no manual input.
    `SERVICE_FQDN_FRONTEND_3000`. Optionally override it with your own domain in
    the service's settings. Do the same for SeaweedFS if you want a stable S3 URL.
 5. **Deploy.** On first boot: Postgres runs `init-db.sql` (creates the 3 DBs),
-   the frontend runs Drizzle migrations for `grid_app`, `seaweedfs-init` creates the
-   bucket, and the backend starts + kicks off OIB ingestion in the background.
+   `grid-migrate` runs the Drizzle migrations for `grid_app`, `seaweedfs-init`
+   creates the bucket, `grid-audit-schemas` reconciles the WorkOS Audit Log
+   schemas, and the backend starts + kicks off OIB ingestion in the background.
+   The frontend waits for the first three; they are `depends_on:
+   service_completed_successfully`, so a failure in any of them stops the
+   frontend rather than letting it serve a half-provisioned environment.
+
+   > **`grid-audit-schemas` is why nothing here is a manual WorkOS step.** WorkOS
+   > rejects an Audit Log event whose action has no schema in the environment —
+   > and rejects one whose registered schema has the wrong targets or metadata
+   > keys the same way. Most of the trail survives that (the default emitter
+   > swallows it); `document.generated` does not, because it is emitted with the
+   > throwing emitter, so a rejected event unfiles the document it was about and
+   > Piloti quietly files nothing. With `WORKOS_API_KEY` unset the container
+   > prints one line and exits 0, so a `REQUIRE_AUTH=false` preview still boots.
+   > It reconciles rather than re-creates, so redeploys write nothing when the
+   > registry has not changed.
 
 ### WebSockets
 
@@ -281,7 +296,7 @@ preview exists. Public reachability comes entirely from the proxy + FQDN vars.
 
 The knowledge base is **purely volume-based** — there is no baked seed. Each
 fresh preview starts with an empty Chroma volume, so the backend ingests and
-**embeds the repo-shipped OIB corpus (`data/oib/*.pdf`) on first boot** — real
+**embeds whatever OIB corpus the operator has provided on first boot** — real
 OpenRouter embedding spend and a few minutes of warm-up, once per new volume
 (the persistent volume means a redeploy of the *same* environment reuses the
 already-embedded corpus and pays nothing).
@@ -299,10 +314,11 @@ There is **no separate embedding provider and no NVIDIA endpoint**. A single
 `OPENROUTER_API_KEY` powers the LLMs, the embeddings, and the VLM:
 
 - Embeddings: `openai/text-embedding-3-large` via `https://openrouter.ai/api/v1`.
-- LlamaIndex's embedding client happens to read `NVIDIA_API_KEY` as its API key,
-  so the compose sets `NVIDIA_API_KEY` to the OpenRouter key. Its `base_url`
-  stays on OpenRouter — NVIDIA is never contacted. The compose defaults handle
-  all of this; you only supply `OPENROUTER_API_KEY`.
+- The embeddings client resolves its key through the shared credential
+  resolver (`AIQ_EMBED_API_KEY`, else the provider key inferred from the base
+  URL), so the OpenRouter key reaches it on its own. `NVIDIA_API_KEY` is not
+  read anywhere. The compose defaults handle all of this; you only supply
+  `OPENROUTER_API_KEY`.
 
 So chat, web search, **and** the knowledge base all work with just
 `OPENROUTER_API_KEY` + `TAVILY_API_KEY`.
@@ -346,17 +362,19 @@ baked into the image:
 > of truth). Nothing to migrate by hand; just expect the first boot after the
 > switch to ingest. Set `OIB_FORCE_REINGEST=true` once only if you want to force
 > a rebuild.
-- **Source PDFs + registry** — `data/oib/*.pdf` (committed to the repo as normal
-  git blobs, ~71 MB, so they ship in every image), admin uploads under
-  `data/oib_uploads/`, and `data/oib_registry.json` (a `pdf-path → sha256` map),
-  all on the `aiq-data` volume (`/app/data`).
+- **Source PDFs + registry** — `data/oib/*.pdf` (operator-provided; the
+  directory is gitignored and ships empty, so nothing is baked into the image),
+  admin uploads under `data/oib_uploads/`, and `data/oib_registry.json` (a
+  `pdf-path → sha256` map), all on the `aiq-data` volume (`/app/data`).
 
 On boot, `oib_sync` compares each PDF's hash to the registry and embeds only what
 is new or changed. Because both volumes persist across redeploys of the same
 environment, a **redeploy re-uses the already-embedded corpus and pays nothing**.
 A brand-new volume (first-ever deploy, or a fresh per-PR preview) has no registry
-yet, so the repo-shipped `data/oib/*.pdf` are embedded live on first boot — a
-one-time cost per new volume (§5).
+yet, so whatever PDFs the operator has provided are embedded live on first
+boot — a one-time cost per new volume (§5). A brand-new volume with no corpus
+yet costs nothing and answers nothing: the OIB knowledge base stays empty until
+the platform owner uploads it.
 
 > **Why no baked seed?** A previous version fetched a pre-embedded tarball at
 > build time (`OIB_SEED_URL` + an `oib-seed` Dockerfile stage) and restored it on
@@ -387,7 +405,7 @@ redeploys of the same environment; each preview gets its own set.
 > Both OIB volumes persist across redeploys of the same environment, so an
 > ingested corpus survives a redeploy — it is lost only if the volumes are
 > deleted (or a brand-new preview environment starts with empty volumes, in
-> which case the repo-shipped `data/oib/*.pdf` are re-ingested live on first
+> which case the operator-provided `data/oib/*.pdf` are re-ingested live on first
 > boot).
 
 ---
@@ -401,6 +419,11 @@ redeploys of the same environment; each preview gets its own set.
       resolves to SeaweedFS's public domain and the signature host matches.
 - [ ] Ask an OIB question → knowledge results appear (confirms embeddings +
       ingestion). If empty, revisit §6 and §7.
+- [ ] (WorkOS environments) `grid-audit-schemas` exited 0 in the deploy log, and
+      a filed report produces a `document.generated` event in the org's audit
+      log. A rejected event unfiles the document, so "the report is not in
+      Berichte" and "the audit schema is stale" are the same symptom —
+      [agent-authored documents rollout](agent-authored-documents-rollout.md) §3.
 - [ ] (If a managed/external Postgres is used instead of the bundled one) the
       three databases exist — run `deploy/compose/init-db.sql` manually.
 

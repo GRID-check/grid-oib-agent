@@ -4,12 +4,18 @@
  * The chip under the composer that says a skill is attached to this message.
  *
  * The `/name` token in the textarea is the invocation, but a token in a sentence
- * is easy to lose track of once the message grows past a line — and unlike an
- * `@` mention, whose consequence (a person is asked) is obvious from the word
- * itself, "this skill's instructions will be loaded" is a mechanism the reader
- * cannot see. So the chip states the consequence rather than restating the name,
- * and it carries the description, which is the only thing that tells the user
- * whether the skill they picked is the one they meant.
+ * is easy to lose track of once the message grows past a line. So the chip
+ * restates that a skill is attached, and carries the description, which is the
+ * only thing that tells the user whether the skill they picked is the one they
+ * meant.
+ *
+ * What it must NOT say is that the instructions will load. It did say that, and
+ * it was true when a named skill was forced onto the turn. ADR-0060 deleted
+ * forcing: the token is TEXT, Piloti reads the name among the words and decides
+ * whether to reach for the skill, exactly as it decides about every other one in
+ * its catalog. A chip promising the load is the interface asserting an
+ * affordance the product no longer has — and the reader finds out it was wrong
+ * only from an answer that did not use the skill they thought they had picked.
  *
  * Removing it edits the token out of the text rather than tracking a separate
  * "cancelled" flag: the text is the record of the invocation, so the chip and

@@ -3,7 +3,7 @@
 - **Status:** Proposed
 - **Date:** 2026-08-20
 - **Deciders:** Grid engineering
-- **Related:** ADR-0047 (document shelf travels as data), ADR-0006 (knowledge collection scoping), ADR-0027 (unified ingest pipeline), ADR-0017 (BFF repository/service architecture)
+- **Related:** ADR-0047 (document shelf travels as data), ADR-0006 (knowledge collection scoping), ADR-0056 (unified ingest pipeline), ADR-0017 (BFF repository/service architecture)
 
 ## Context
 

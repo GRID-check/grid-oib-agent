@@ -1,13 +1,8 @@
-export { AppSidebar, type AppSidebarProps, type AppSidebarScope } from './app-sidebar'
-export { AppShellRail, type AppShellRailProps } from './app-shell-rail'
-export {
-  orgRailGroups,
-  orgSections,
-  projectIdFromPathname,
-  type OrgSection,
-  type OrgSectionKey,
-  type OrgSectionFlags,
-} from './org-sections'
+export { AppSidebar, type AppSidebarProps } from './app-sidebar'
+export { AppShellChrome, type AppShellChromeProps } from './app-shell-chrome'
+export { OrgHeader, type OrgHeaderProps } from './org-header'
+export { RoutePageSheet } from './route-page-sheet'
+export { projectIdFromPathname } from './org-sections'
 export { ShellContent, type ShellContentProps, type ShellContentWidth } from './shell-content'
 export { BackLink, type BackLinkProps } from './back-link'
 export { NavigationTrail, NavigationTrailLabel } from './navigation-trail'

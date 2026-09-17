@@ -1,0 +1,10 @@
+---
+improvements:
+  - >
+    The message box no longer sits flush against your last answer. It now
+    floats as its own translucent panel, with the conversation gently fading
+    into it as you scroll, so it reads as a control you are typing into
+    rather than another line of the chat.
+  - >
+    The chat header no longer repeats the project name next to the
+    conversation title, and its buttons are a touch smaller and quieter.

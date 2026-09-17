@@ -33,7 +33,7 @@ vi.mock('@/lib/audit/service', () => ({ recordAuditEvent: (e: unknown) => record
 vi.mock('@/lib/model-config/backend-defaults', () => ({
   getWorkflowGroupReasoningEfforts: vi
     .fn()
-    .mockResolvedValue({ intent: 'none', deep_research: 'medium' }),
+    .mockResolvedValue({ follow_ups: 'none', deep_research: 'medium' }),
 }))
 
 const listPlatformReasoningEfforts = vi.fn()
@@ -85,7 +85,7 @@ describe('/api/platform/reasoning-efforts', () => {
     const body = await res.json()
     expect(body.efforts.deep_research).toMatchObject({ effort: 'low', note: 'cheaper pilot' })
     // Naming what a clear returns to is the whole point of showing this.
-    expect(body.workflowEfforts).toEqual({ intent: 'none', deep_research: 'medium' })
+    expect(body.workflowEfforts).toEqual({ follow_ups: 'none', deep_research: 'medium' })
     expect(body.agentGroups.length).toBeGreaterThan(0)
   })
 
@@ -102,13 +102,13 @@ describe('/api/platform/reasoning-efforts', () => {
   it('PUT saves a valid effort set', async () => {
     const { PUT } = await import('./route')
     const res = await PUT(
-      put({ efforts: { intent: 'none', deep_research: 'xhigh' }, note: 'tuning' })
+      put({ efforts: { follow_ups: 'none', deep_research: 'xhigh' }, note: 'tuning' })
     )
 
     expect(res.status).toBe(200)
     expect(savePlatformReasoningEfforts).toHaveBeenCalledWith(
       expect.objectContaining({
-        efforts: { intent: 'none', deep_research: 'xhigh' },
+        efforts: { follow_ups: 'none', deep_research: 'xhigh' },
         note: 'tuning',
         actorUserId: 'owner-1',
       })
@@ -145,13 +145,13 @@ describe('/api/platform/reasoning-efforts', () => {
 
   it('PUT audits the fleet-wide change', async () => {
     const { PUT } = await import('./route')
-    await PUT(put({ efforts: { intent: 'minimal' } }))
+    await PUT(put({ efforts: { follow_ups: 'minimal' } }))
 
     expect(recordAuditEvent).toHaveBeenCalledWith(
       expect.objectContaining({
         action: 'platform.reasoning_efforts.updated',
         organizationId: 'org_platform',
-        metadata: { intent: 'minimal' },
+        metadata: { follow_ups: 'minimal' },
       })
     )
   })
@@ -161,7 +161,7 @@ describe('/api/platform/reasoning-efforts', () => {
     requirePlatformPermission.mockRejectedValue(new PlatformAccessDeniedError())
     const { PUT } = await import('./route')
 
-    expect((await PUT(put({ efforts: { intent: 'low' } }))).status).toBe(403)
+    expect((await PUT(put({ efforts: { follow_ups: 'low' } }))).status).toBe(403)
     expect(savePlatformReasoningEfforts).not.toHaveBeenCalled()
   })
 })

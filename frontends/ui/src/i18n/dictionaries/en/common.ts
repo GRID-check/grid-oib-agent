@@ -1,7 +1,7 @@
 /** Shared strings used across many surfaces. */
 export const common = {
   appName: 'Piloti',
-  tagline: 'AI-powered research assistant',
+  tagline: 'Workspace for planning offices',
   actions: {
     save: 'Save',
     cancel: 'Cancel',
@@ -25,6 +25,13 @@ export const common = {
     error: 'Something went wrong',
     empty: 'Nothing here yet',
     copyFailed: 'Could not copy',
+  },
+  codeBlock: {
+    copy: 'Copy',
+    copied: 'Copied',
+    copyCode: 'Copy code',
+    showLess: 'Show less',
+    showAll: 'Show all ({count} lines)',
   },
   theme: {
     label: 'Theme',

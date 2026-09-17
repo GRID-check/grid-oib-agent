@@ -101,11 +101,114 @@ permissions:
 # production apply must not queue behind a staging publish or vice versa.
 # Within each stack, updates still run strictly one at a time.
 jobs:
+  # The green-CI gate, lifted out of the deploy into its own job so that
+  # "do not deploy" and "something is wrong" can look different. As a step it
+  # had only one way to stop the run, `core.setFailed`, and a commit superseded
+  # before its CI finished took that path — so an ordinary merge train painted
+  # the Actions tab red, which is how a real deploy failure stops being noticed.
+  # Now: green → deploy; a FAILED check → this job fails, because a commit that
+  # should have shipped did not; a CANCELLED one → this job passes and the
+  # deploy is skipped, because the commit was superseded and was never going to
+  # ship. Nothing about WHICH commits reach the cluster changes.
+  gate:
+    name: Require green CI + Security
+    # Same conditions the deploy itself carries: this job decides whether that
+    # deploy runs, so it must not run in cases the deploy would not.
+    if: ${{ (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success') || (github.event_name == 'workflow_dispatch' && (inputs.target == 'staging' || inputs.target == 'both')) }}
+    runs-on: ubuntu-latest
+    outputs:
+      # 'true' only when every required workflow is green for this commit.
+      # Empty when the gate failed or was skipped, which the deploy reads as no.
+      proceed: ${{ steps.require.outputs.proceed }}
+    env:
+      DEPLOY_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
+    steps:
+      # The stated invariant: staging only receives commits whose CI and
+      # Security workflows passed. Publish Images has no `needs` relationship
+      # to them, so enforce it here by polling both workflows' conclusions for
+      # the deploy SHA (they usually finish long before the image build).
+      - name: Require green CI + Security for this commit
+        id: require
+        uses: actions/github-script@v9
+        with:
+          script: |
+            const required = ["CI", "Security"];
+            const sha = process.env.DEPLOY_SHA;
+            const deadline = Date.now() + 25 * 60 * 1000;
+            for (const name of required) {
+              for (;;) {
+                const runs = (await github.rest.actions.listWorkflowRunsForRepo({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  head_sha: sha,
+                  per_page: 50,
+                })).data.workflow_runs.filter((r) => r.name === name);
+                const run = runs[0]; // most recent for this SHA
+                if (run && run.status === "completed") {
+                  // CANCELLED is not a failure, it is a SUPERSESSION: `develop`
+                  // moved on while the images were building and the concurrency
+                  // group killed this commit's CI. Nothing is broken, nothing is
+                  // deployable, and the newer tip brings its own Publish Images →
+                  // Deploy chain. Standing down quietly is the whole point of
+                  // this job: a red mark here is meant to mean "a commit that
+                  // should have shipped did not", and a merge train that paints
+                  // it red as a matter of routine is how a real deploy failure
+                  // stops being noticed.
+                  if (run.conclusion === "cancelled") {
+                    // Cancelled means SUPERSEDED only when a newer commit exists
+                    // on the branch. On the tip nothing superseded it — a person
+                    // cancelled it, usually because a job was slow — and standing
+                    // down silently there STRANDS THE BRANCH: nothing re-runs a
+                    // cancelled workflow on its own, so the tip keeps a cancelled
+                    // check forever and every later dispatch takes this same path
+                    // and deploys nothing, reporting success each time. That is
+                    // the failure this branch exists to tell apart, and it cost
+                    // an evening of dispatching into a green no-op.
+                    const branch = context.payload.workflow_run?.head_branch || context.ref.replace("refs/heads/", "");
+                    const tip = (await github.rest.repos.getBranch({
+                      owner: context.repo.owner,
+                      repo: context.repo.repo,
+                      branch,
+                    })).data.commit.sha;
+                    if (tip !== sha) {
+                      core.notice(
+                        `${name} for ${sha} was cancelled — this commit was superseded before its ` +
+                        `checks finished, so there is nothing to deploy. Skipping.`
+                      );
+                      core.setOutput("proceed", "false");
+                      return;
+                    }
+                    core.setFailed(
+                      `${name} for ${sha} was cancelled, and ${sha} is the tip of ${branch} — nothing ` +
+                      `superseded it, so this is a cancelled check rather than a superseded commit. ` +
+                      `Re-run the ${name} workflow for this commit, then dispatch the deploy again.`
+                    );
+                    return;
+                  }
+                  if (run.conclusion !== "success") {
+                    core.setFailed(`${name} for ${sha} concluded '${run.conclusion}' — refusing to deploy.`);
+                    return;
+                  }
+                  core.info(`${name}: success`);
+                  break;
+                }
+                if (!run) core.info(`${name}: no run found yet for ${sha}, waiting…`);
+                else core.info(`${name}: ${run.status}, waiting…`);
+                if (Date.now() > deadline) {
+                  core.setFailed(`${name} for ${sha} did not complete within 25 minutes.`);
+                  return;
+                }
+                await new Promise((r) => setTimeout(r, 30_000));
+              }
+            }
+            core.setOutput("proceed", "true");
+
   deploy:
     name: Pulumi up (dev)
-    # Only when the image build actually succeeded (skip on failed/cancelled),
-    # or on a manual dispatch whose target is staging/both.
-    if: ${{ (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success') || (github.event_name == 'workflow_dispatch' && (inputs.target == 'staging' || inputs.target == 'both')) }}
+    # `gate` already encodes the trigger conditions; a skipped or failed gate
+    # leaves this output empty, so both read as "do not deploy".
+    needs: gate
+    if: ${{ needs.gate.outputs.proceed == 'true' }}
     runs-on: ubuntu-latest
     environment: staging
     concurrency:
@@ -120,6 +223,11 @@ jobs:
       # The triggering "Publish Images" run id — workflow_run only; empty on
       # workflow_dispatch, where every service is treated as built/pinned.
       RUN_ID: ${{ github.event.workflow_run.id }}
+      # The tag an OPERATOR typed, empty otherwise. It is what separates the two
+      # kinds of manual dispatch: a rollback, which pins every service to one
+      # chosen tag, from a bare re-deploy, which asks for the fleet as it should
+      # be — each service at the newest image actually built for it.
+      EXPLICIT_TAG: ${{ inputs.imageTag }}
     steps:
       # Manual dispatch only deploys develop: images are published only for
       # develop/release/tags, so dispatching from a feature branch would pin a
@@ -158,44 +266,6 @@ jobs:
         with:
           # Deploy the exact commit whose images were just published.
           ref: ${{ env.DEPLOY_SHA }}
-
-      # The stated invariant: staging only receives commits whose CI and
-      # Security workflows passed. Publish Images has no `needs` relationship
-      # to them, so enforce it here by polling both workflows' conclusions for
-      # the deploy SHA (they usually finish long before the image build).
-      - name: Require green CI + Security for this commit
-        uses: actions/github-script@v9
-        with:
-          script: |
-            const required = ["CI", "Security"];
-            const sha = process.env.DEPLOY_SHA;
-            const deadline = Date.now() + 25 * 60 * 1000;
-            for (const name of required) {
-              for (;;) {
-                const runs = (await github.rest.actions.listWorkflowRunsForRepo({
-                  owner: context.repo.owner,
-                  repo: context.repo.repo,
-                  head_sha: sha,
-                  per_page: 50,
-                })).data.workflow_runs.filter((r) => r.name === name);
-                const run = runs[0]; // most recent for this SHA
-                if (run && run.status === "completed") {
-                  if (run.conclusion !== "success") {
-                    core.setFailed(`${name} for ${sha} concluded '${run.conclusion}' — refusing to deploy.`);
-                    return;
-                  }
-                  core.info(`${name}: success`);
-                  break;
-                }
-                if (!run) core.info(`${name}: no run found yet for ${sha}, waiting…`);
-                else core.info(`${name}: ${run.status}, waiting…`);
-                if (Date.now() > deadline) {
-                  core.setFailed(`${name} for ${sha} did not complete within 25 minutes.`);
-                  return;
-                }
-                await new Promise((r) => setTimeout(r, 30_000));
-              }
-            }
 
       # Fail fast, with instructions, if the committed stack file is still the
       # template — otherwise the failure surfaces as a cryptic preview error.
@@ -345,7 +415,7 @@ jobs:
           # org/user variants differ by owner type, and listing versions would
           # need pagination over every sha ever published. A manifest HEAD is
           # exactly the lookup the kubelet will perform.
-          if [ -z "$RUN_ID" ]; then
+          if [ -z "$RUN_ID" ] && [ -n "$EXPLICIT_TAG" ]; then
             for service in backend frontend web; do
               image_path="${owner}/grid-oib-${service}"
               pull_token="$(curl -sSL -u "${GITHUB_ACTOR}:${GH_TOKEN}" \
@@ -375,9 +445,40 @@ jobs:
           is_built() {
             if [ -n "$RUN_ID" ]; then
               echo "$built_jobs" | grep -qx "Build & push $1 image"
-            else
+            elif [ -n "$EXPLICIT_TAG" ]; then
+              # Rollback: the operator pinned every service to their tag, and
+              # the loop above already proved it exists for all three.
               return 0
+            else
+              # Bare re-deploy (dispatch, no tag). Nothing was built FOR this
+              # commit, so treat every service as unbuilt and let the
+              # per-service resolution below find each one's newest image. This
+              # is the only way to redeploy the fleet after a commit that built
+              # nothing: pinning all three to this commit's own sha names tags
+              # GHCR does not have, and the preflight would fail the run.
+              return 1
             fi
+          }
+
+          # The newest develop commit at which publish-images actually BUILT
+          # this service, from run history. This is what a mutable stored ref
+          # resolves to: ':latest' names whatever the node happens to have
+          # cached, and — the failure that forced this — writing it back
+          # verbatim means an unchanged image string, so Kubernetes rolls
+          # nothing. Three times in one day a real change built fresh images
+          # and then a docs-only commit arrived minutes later, superseded the
+          # real commit's deploy (its CI is cancelled, the gate skips), and
+          # the docs commit's own deploy "kept" :latest — so the built images
+          # sat in GHCR unused and the fleet stayed stale, silently.
+          newest_built_sha() {
+            for rid in $(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/publish-images.yml/runs?branch=develop&status=success&per_page=25" --jq '.workflow_runs[].id'); do
+              hit="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$rid/jobs?per_page=50" --jq "[.jobs[] | select(.conclusion == \"success\") | .name] | index(\"Build & push $1 image\")")"
+              if [ -n "$hit" ] && [ "$hit" != "null" ]; then
+                gh api "repos/$GITHUB_REPOSITORY/actions/runs/$rid" --jq .head_sha
+                return 0
+              fi
+            done
+            return 1
           }
 
           resolve_ref() {
@@ -391,24 +492,34 @@ jobs:
                 tag="$IMAGE_TAG"
               fi
             else
-              # Not rebuilt: keep what the stack currently deploys. The
-              # per-service key already holds the FULL image ref the last
-              # deploy pinned (this workflow writes $*_IMAGE_REF verbatim), so
-              # echo it as-is — prefixing would double the registry/name.
-              deployed="$(pulumi config get "grid-oib:${service}Image" 2>/dev/null || true)"
-              if [ -n "$deployed" ]; then
-                if [[ "$deployed" == *:* ]]; then
-                  echo "$deployed"
-                  return 0
-                fi
-                # A bare tag (e.g. hand-set in the stack): normalize it.
-                tag="$deployed"
+              # Not rebuilt at THIS commit: staging tracks the newest image
+              # each service was actually BUILT at on develop. "Keep the
+              # stored ref" sounded like "no change means no change" and was
+              # instead the merge-train swallow, four times in one day: a real
+              # commit builds images, the changelog bot lands minutes later
+              # and supersedes its deploy (correctly, per the gate), and the
+              # bot commit's own deploy then "kept" a stored ref pointing at
+              # the PREVIOUS build — first as :latest, then as a stale
+              # immutable sha — so the fresh images sat in GHCR unused and
+              # nobody was told. Resolving from build history makes every
+              # deploy converge on the newest built state regardless of which
+              # commit's deploy happens to run. The stored ref survives only
+              # as a fallback for when run history is unavailable.
+              built="$(newest_built_sha "$service" || true)"
+              if [ -n "$built" ]; then
+                tag="sha-${built}"
               else
-                # Fallback for stacks that predate per-service pinning: the
-                # global imageTag (all images were historically built at every
-                # develop sha), then `latest`.
-                tag="$(pulumi config get grid-oib:imageTag 2>/dev/null || true)"
-                [ -n "$tag" ] || tag="latest"
+                deployed="$(pulumi config get "grid-oib:${service}Image" 2>/dev/null || true)"
+                if [ -n "$deployed" ]; then
+                  echo "::warning::${service}: no recent develop build found in run history; keeping stored ref ${deployed}" >&2
+                  case "$deployed" in
+                    *:*) echo "$deployed"; return 0 ;;
+                    *) tag="$deployed" ;;
+                  esac
+                else
+                  tag="$(pulumi config get grid-oib:imageTag 2>/dev/null || true)"
+                  [ -n "$tag" ] || tag="latest"
+                fi
               fi
             fi
             echo "${registry}/grid-oib-${service}:${tag}"

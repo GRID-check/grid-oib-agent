@@ -28,8 +28,9 @@
  */
 
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { X } from 'lucide-react'
+import { ClipboardCheck, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { EmptyState } from '@/components/ui/empty-state'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { useTranslations } from '@/i18n'
 import { cn } from '@/lib/utils'
@@ -70,7 +71,18 @@ const compareToken = (): number => (compareRequests += 1)
 export interface ModelAdvancedSheetProps {
   open: boolean
   onClose: () => void
-  projectId: string
+  /**
+   * The project the sheet was opened from, or `null` in the org-wide Archiv.
+   *
+   * Four of the five tabs are facts about the MODEL and work either way.
+   * Compliance is the exception and is not a gap to paper over: the OIB
+   * catalogue is run against a Gebäudeklasse and a Hauptnutzung that live in
+   * the project brief, so without a project there is no regulation to check
+   * against. Guessing one would assert a verdict about a building to an
+   * architect, which is the one failure this product cannot afford — so the
+   * tab is disabled and says why.
+   */
+  projectId: string | null
   model: BimModelHeaderView
   models: readonly BimModelHeaderView[]
   elements: readonly BimViewerElement[]
@@ -182,7 +194,10 @@ export function ModelAdvancedSheet({
 
   const compliance = useBimCompliance(
     projectId,
-    opened('compliance') ? modelId : null,
+    // Held shut without a project: the catalogue would run against facts
+    // nobody supplied. `useProjectRuleFacts(null)` never becomes ready, so the
+    // panel would sit on a spinner forever otherwise.
+    projectId && opened('compliance') ? modelId : null,
     ruleFacts,
     seriesModelIds
   )
@@ -208,7 +223,7 @@ export function ModelAdvancedSheet({
    * architect just read.
    */
   const bcfHref = useMemo(() => {
-    if (!modelId) return null
+    if (!modelId || !projectId) return null
     const query = new URLSearchParams({ modelId })
     if (ruleFacts.gebaeudeklasse !== null) {
       query.set('gebaeudeklasse', String(ruleFacts.gebaeudeklasse))
@@ -226,6 +241,9 @@ export function ModelAdvancedSheet({
    * brief belongs (ADR-0030).
    */
   const profileQuestionHref = useMemo(() => {
+    // The question is asked IN a project's conversation, and there is none in
+    // the Archiv. Null rather than a link to nowhere.
+    if (!projectId) return null
     const question = `Übernimm die aus dem Modell ${model.filename} ableitbaren Projektangaben in die Projektdaten.`
     return `/app/projects/${projectId}/chat?${new URLSearchParams({ ask: question }).toString()}`
   }, [model.filename, projectId])
@@ -291,7 +309,16 @@ export function ModelAdvancedSheet({
       >
         <TabsList className="mx-3 mt-2 shrink-0 justify-start overflow-x-auto">
           <TabsTrigger value="overview">{t('tabs.overview')}</TabsTrigger>
-          <TabsTrigger value="compliance">{t('tabs.compliance')}</TabsTrigger>
+          {/* Disabled rather than removed: the tab going missing in the Archiv
+              would read as the Prüfbuch having been lost, and the reader would
+              go looking for it. Present and explained is the honest shape. */}
+          <TabsTrigger
+            value="compliance"
+            disabled={projectId === null}
+            title={projectId === null ? t('tabs.complianceNeedsProject') : undefined}
+          >
+            {t('tabs.compliance')}
+          </TabsTrigger>
           <TabsTrigger value="structure">{t('tabs.structure')}</TabsTrigger>
           <TabsTrigger value="quantities">{t('tabs.quantities')}</TabsTrigger>
           <TabsTrigger value="revisions">{t('tabs.revisions')}</TabsTrigger>
@@ -320,6 +347,18 @@ export function ModelAdvancedSheet({
           forceMount
           className="min-h-0 flex-1 space-y-5 overflow-y-auto p-3 data-[state=inactive]:hidden"
         >
+          {/* `forceMount` above keeps every tab mounted, so this cannot lean on
+              the trigger being disabled — the panel would still run, with no
+              Gebäudeklasse and no Hauptnutzung, and render as a catalogue that
+              found nothing. The sentence is the honest answer instead. */}
+          {projectId === null ? (
+            <EmptyState
+              variant="bare"
+              icon={ClipboardCheck}
+              title={t('tabs.complianceNeedsProject')}
+              description={t('tabs.complianceNeedsProjectDescription')}
+            />
+          ) : (
           <IfcCompliancePanel
             onRetry={compliance.reload}
             onShowElements={onShowElements}
@@ -347,6 +386,7 @@ export function ModelAdvancedSheet({
             onWithdraw={compliance.withdraw}
             bcfHref={bcfHref}
           />
+          )}
         </TabsContent>
 
         <TabsContent

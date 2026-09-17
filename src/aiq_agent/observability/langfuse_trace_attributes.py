@@ -73,22 +73,55 @@ METADATA_PREFIX = "langfuse.trace.metadata."
 
 #: Per-turn facts a TOOL contributed, merged into the attributes below.
 #:
-#: A dict rather than repeated ``ContextVar.set`` calls so a tool can add to it
-#: from inside an awaited coroutine and have the value survive into the span's
-#: export task: ``asyncio.create_task`` snapshots the context at span END, by
-#: which point the tool has already returned.
+#: Copy-on-write: writers always ``ContextVar.set`` a NEW dict rather than
+#: mutating the one they read. ``asyncio.create_task`` snapshots the var's
+#: OBJECT reference, not the dict's contents, so an in-place ``update``/``append``
+#: after a span ended would still bleed into that span's export task — and, worse,
+#: into a concurrent job sharing the same dict object. A fresh dict per write
+#: keeps each snapshot frozen at what was known when the task was created.
+#: Per-job lifecycle (bind fresh at job start, reset in ``finally``) lives with
+#: the runner — see ``DeepResearcherAgent.run`` — the way ``cards/registry.py``
+#: and ``common/citation_verification.py`` bind per turn.
 _CONTRIBUTED: contextvars.ContextVar[dict[str, Any] | None] = contextvars.ContextVar(
     "grid_langfuse_contributed", default=None
 )
 
 
-def _contributions() -> dict[str, Any]:
-    """The current turn's contribution dict, created on first write."""
+def snapshot_contributions() -> dict[str, Any] | None:
+    """A frozen copy of the current turn's contributions, or None.
+
+    Copies both levels (the metadata dict and the tags list) so the caller
+    holds no live reference: later ``record_trace_metadata``/``add_trace_tag``
+    calls replace the ContextVar value and must never rewrite this snapshot.
+    """
     current = _CONTRIBUTED.get()
     if current is None:
-        current = {"metadata": {}, "tags": []}
-        _CONTRIBUTED.set(current)
-    return current
+        return None
+    try:
+        return {
+            "metadata": dict(current.get("metadata", {})),
+            "tags": list(current.get("tags", [])),
+        }
+    except Exception:
+        logger.debug("Failed to snapshot Langfuse trace contributions", exc_info=True)
+        return None
+
+
+def begin_trace_contributions() -> contextvars.Token:
+    """Bind a fresh contribution dict for one job/turn; reset it in ``finally``.
+
+    Follows the ``cards/registry.py`` token discipline: the caller holds the
+    token and passes it to :func:`end_trace_contributions`, which restores
+    whatever was bound before. Starting fresh (rather than inheriting) is what
+    keeps a reused Dask worker process from handing job N's tags to job N+1
+    across tenants.
+    """
+    return _CONTRIBUTED.set({"metadata": {}, "tags": []})
+
+
+def end_trace_contributions(token: contextvars.Token) -> None:
+    """Restore the contribution binding saved by :func:`begin_trace_contributions`."""
+    _CONTRIBUTED.reset(token)
 
 
 def record_trace_metadata(**pairs: Any) -> None:
@@ -105,9 +138,17 @@ def record_trace_metadata(**pairs: Any) -> None:
 
     Best-effort like everything else here: a failure to record telemetry must
     never fail the turn that was producing it.
+
+    Copy-on-write: builds a NEW dict and sets it, so an export task that
+    snapshotted the previous dict keeps seeing exactly what was known when its
+    span ended.
     """
     try:
-        _contributions()["metadata"].update({key: value for key, value in pairs.items() if value is not None})
+        current = _CONTRIBUTED.get()
+        metadata = dict(current.get("metadata", {})) if current else {}
+        tags = list(current.get("tags", [])) if current else []
+        metadata.update({key: value for key, value in pairs.items() if value is not None})
+        _CONTRIBUTED.set({"metadata": metadata, "tags": tags})
     except Exception:
         logger.debug("Failed to record Langfuse trace metadata", exc_info=True)
 
@@ -118,18 +159,229 @@ def add_trace_tag(tag: str) -> None:
     Tags are Langfuse's fast filter in the trace list, which is the same reason
     the organization is written as one. "Show me the turns that touched a
     building model" is otherwise a metadata scan.
+
+    Copy-on-write like :func:`record_trace_metadata`: sets a new dict so a
+    concurrent researcher holding the previous snapshot never observes this
+    append.
     """
     try:
-        tags = _contributions()["tags"]
+        current = _CONTRIBUTED.get()
+        metadata = dict(current.get("metadata", {})) if current else {}
+        tags = list(current.get("tags", [])) if current else []
         if tag not in tags:
             tags.append(tag)
+        _CONTRIBUTED.set({"metadata": metadata, "tags": tags})
     except Exception:
         logger.debug("Failed to add a Langfuse trace tag", exc_info=True)
 
 
 def reset_contributions() -> None:
-    """Drop what this turn contributed. For tests, and for a reused context."""
+    """Drop what this turn contributed. Test-only; src/ uses the token pair.
+
+    Production code binds per job/turn via :func:`begin_trace_contributions`
+    and restores via :func:`end_trace_contributions` in ``finally``, so a
+    reused Dask worker cannot hand job N's tags to job N+1. This helper stays
+    for tests that need a blank slate without holding a token.
+    """
     _CONTRIBUTED.set(None)
+
+
+# ---------------------------------------------------------------------------
+# Usage attribution: input/output/total (+cost) onto generation observations
+# ---------------------------------------------------------------------------
+#
+# Production showed empty ``usageDetails``/``costDetails`` on every
+# generation observation. The provider numbers DO enter the process:
+# OpenRouter's ``usage`` object (prompt/completion/total + ``cost`` +
+# cached/reasoning details) arrives on every chat completion and
+# ``GridCostTracker`` records it to ``llm_usage_events``. It never reaches
+# the spans Langfuse renders, through two drops:
+#
+# 1. NAT's ``LangchainProfilerHandler.on_llm_end`` reads ONLY LangChain's
+#    normalized ``message.usage_metadata`` (no cost field exists on its
+#    ``TokenUsageBaseModel`` at all), and the span exporter forwards only
+#    ``llm.token_count.prompt/completion/total``. The OpenRouter object —
+#    the only place ``cost`` lives — survives solely inside the span's
+#    ``nat.metadata`` JSON (``chat_responses[].message.response_metadata``),
+#    and only on the chat-completions path: a role on ``api_type: responses``
+#    leaves nothing there but LangChain's normalized ``usage_metadata``,
+#    whose ``input_token_details.cache_read`` is the cached bucket under
+#    another name. Reading only the provider shape is what rendered every
+#    Piloti research generation with bare input/output/total and no cache
+#    bucket, however well the provider was caching.
+# 2. The turn's terminal ``ChatResponse`` is built with an empty
+#    ``Usage()`` (see ``aiq_agent.common._create_chat_response``), so even
+#    the API-level generation object carries no totals.
+#
+# This processor closes drop 1 at export time, where every LLM span passes
+# regardless of which handler built it (NAT's stock handler on chat turns,
+# ``SpanClosingProfilerHandler`` on async jobs): it mirrors the counts into
+# the ``gen_ai.usage.*`` namespace Langfuse's OTel ingestion maps to
+# ``usageDetails``, pins the model so Langfuse can infer ``costDetails``
+# from its own model price table, and — when the provider object is present
+# in the span metadata — ingests the OpenRouter-reported cost verbatim.
+#
+# No client-side price table is consulted: the only ``PricingRegistry`` in
+# this repo (``aiq_agent.tokenomics.pricing``) is eval-only, built from the
+# ``tokenomics.pricing`` section of an eval YAML that is never deployed.
+# Per-span cost computation against a deployed table is the follow-up; until
+# then spans carry usage (+model for server-side inference, +verbatim cost
+# when the provider reported one) and per-turn dollars land on the trace
+# via ``aiq_agent.observability.usage_rollup``.
+
+#: OTel GenAI semconv usage keys Langfuse maps to ``usageDetails`` (it
+#: normalizes cache buckets server-side, so these stay provider-verbatim).
+GEN_AI_USAGE_INPUT_TOKENS = "gen_ai.usage.input_tokens"
+GEN_AI_USAGE_OUTPUT_TOKENS = "gen_ai.usage.output_tokens"
+#: The model a generation ran on — what Langfuse matches against its model
+#: price table to infer ``costDetails`` when no cost is ingested.
+GEN_AI_REQUEST_MODEL = "gen_ai.request.model"
+#: Flat Langfuse-style keys, stored verbatim (no server normalization), so
+#: their buckets must already be exclusive — see ``usage_observation_attributes``.
+OBSERVATION_USAGE_DETAILS = "langfuse.observation.usage_details"
+OBSERVATION_COST_DETAILS = "langfuse.observation.cost_details"
+OBSERVATION_MODEL_NAME = "langfuse.observation.model.name"
+
+
+# ---------------------------------------------------------------------------
+# Prompt linkage: which prompt version produced this generation
+# ---------------------------------------------------------------------------
+#
+# Langfuse renders `promptName`/`promptVersion` on a generation and lets the
+# trace list filter and aggregate on them — "did version 12 cost more than
+# version 11" is the question prompt management exists to answer, and until
+# something writes these two attributes both columns are null.
+#
+# The names are Langfuse's OTel property mapping, verified against its docs
+# (https://langfuse.com/integrations/native/opentelemetry) rather than guessed:
+# `langfuse.observation.prompt.name` and `langfuse.observation.prompt.version`,
+# in the same `langfuse.observation.*` namespace as the usage keys above, which
+# "always take precedence over the generic OpenTelemetry conventions".
+#
+# PROCESS STATE, WITH A PER-TURN BOX ON TOP. What is being named here is the
+# PLATFORM prompt: one static text per process, identical for every tenant and
+# every turn, changing only when `common/prompt_store.py` refreshes it from
+# Langfuse. So the identity lives in a process global. What a TURN's spans
+# carry is the identity that turn rendered with, which a refresh between the
+# render and the span export could otherwise misname: `begin_turn_prompt_link`
+# binds a mutable box in the turn's own context, every resolution writes into
+# it IN PLACE, and the span processor reads the box first. In place matters:
+# `asyncio.to_thread` copies the context, so a `.set()` from the render thread
+# would die with it, while a mutation of the shared dict is what the loop sees.
+# LangGraph nodes copy the context too, which is why the box is bound in
+# `PilotiAgent.run` and not where the prompt is rendered.
+#
+# THE KNOWN OVER-BROADNESS: a generation from another agent in this process —
+# the clarifier, deep research — renders its own prompt, which nothing manages,
+# and still gets stamped with the platform prompt's identity. Accepted rather
+# than unnoticed: the remedy is to bring those prompts under the store too, at
+# which point each records its own link and this becomes a per-prompt map.
+OBSERVATION_PROMPT_NAME = "langfuse.observation.prompt.name"
+OBSERVATION_PROMPT_VERSION = "langfuse.observation.prompt.version"
+
+#: The prompt identity this process is currently serving; see the note above.
+_PROMPT_LINK: dict[str, Any] = {}
+
+#: The identity THIS turn rendered with, when a turn bound one; see the note.
+_TURN_PROMPT_LINK: contextvars.ContextVar[dict[str, Any] | None] = contextvars.ContextVar(
+    "grid_turn_prompt_link", default=None
+)
+
+
+def begin_turn_prompt_link() -> contextvars.Token[dict[str, Any] | None]:
+    """Bind a fresh per-turn box; the turn's resolutions fill it, its spans read it."""
+    return _TURN_PROMPT_LINK.set({})
+
+
+def end_turn_prompt_link(token: contextvars.Token[dict[str, Any] | None]) -> None:
+    """Unbind the turn's box, restoring whatever was bound before."""
+    _TURN_PROMPT_LINK.reset(token)
+
+
+def _link_targets() -> list[dict[str, Any]]:
+    """The process global, plus the turn's box when one is bound."""
+    box = _TURN_PROMPT_LINK.get()
+    return [_PROMPT_LINK] if box is None else [_PROMPT_LINK, box]
+
+
+def record_prompt_link(*, name: str, version: str, is_fallback: bool = False) -> None:
+    """Remember which prompt this process, and the current turn, renders with.
+
+    Called by the prompt store's caller on every resolution — at boot, on every
+    refresh, and on a fallback. A fallback names no prompt Langfuse holds, so
+    it becomes no LINK (:func:`current_prompt_attributes` yields ``{}``) and is
+    read back by :func:`current_fallback_identity` for the trace metadata
+    instead. Recording it, rather than clearing, is what keeps both facts on
+    the same per-turn record: a transition in another turn cannot swap this
+    turn's fallback for a served version, or the reverse.
+
+    The version is stored as it arrived, so that
+    :func:`prompt_observation_attributes` is the one place deciding what a
+    version becomes on a span. Best-effort like everything else here:
+    telemetry bookkeeping must never fail the render that was producing it.
+    """
+    try:
+        if not name or not version:
+            return
+        for target in _link_targets():
+            target["name"] = str(name)
+            target["version"] = version
+            target["is_fallback"] = bool(is_fallback)
+    except Exception:
+        logger.debug("Failed to record the Langfuse prompt link", exc_info=True)
+
+
+def _current_link() -> dict[str, Any]:
+    """This turn's record when a turn bound one, else the process's."""
+    link = _TURN_PROMPT_LINK.get()
+    return _PROMPT_LINK if link is None else link
+
+
+def prompt_observation_attributes(*, name: str | None, version: str | None) -> dict[str, Any]:
+    """The two span attributes that link a generation to a prompt version.
+
+    Pure, so the mapping is testable without a span. Both or neither: a name
+    with no version renders as a prompt Langfuse cannot resolve to a text, and
+    a version with no name belongs to nothing.
+
+    The version is an INT because Langfuse's ingestion schema declares
+    ``promptVersion`` as one. While a string went out here, no GENERATION
+    observation reached production and the rest of every trace arrived intact. A version that is not a number is the
+    bundled fallback's git blob hash, which names no prompt Langfuse holds, so
+    it yields no link at all; Langfuse's own SDK links no fallback either.
+    """
+    if not name or not version or not isinstance(version, int | str):
+        return {}
+    try:
+        numeric = int(version)
+    except ValueError:
+        return {}
+    return {OBSERVATION_PROMPT_NAME: str(name), OBSERVATION_PROMPT_VERSION: numeric}
+
+
+def current_prompt_attributes() -> dict[str, Any]:
+    """The prompt link for THIS turn's render when a turn bound a box, else the process's.
+
+    A fallback render is no link at all, whichever record holds it.
+    """
+    link = _current_link()
+    if link.get("is_fallback"):
+        return {}
+    return prompt_observation_attributes(name=link.get("name"), version=link.get("version"))
+
+
+def current_fallback_identity() -> tuple[str, Any] | None:
+    """The bundled fallback's ``(name, version)`` when that is what renders, else ``None``."""
+    link = _current_link()
+    if not link.get("is_fallback"):
+        return None
+    return str(link.get("name")), link.get("version")
+
+
+def reset_prompt_link() -> None:
+    """Forget the recorded prompt identity, in the process record and the turn's box."""
+    for target in _link_targets():
+        target.clear()
 
 
 def identity_attributes_enabled() -> bool:
@@ -139,6 +391,231 @@ def identity_attributes_enabled() -> bool:
     decision the deployment makes, not a performance toggle.
     """
     return os.environ.get(IDENTITY_ATTRIBUTES_ENV, "").strip().lower() == "true"
+
+
+def _as_count(value: Any) -> int:
+    """A token count as a non-negative int; anything else is 0."""
+    try:
+        return max(0, int(value))
+    except (TypeError, ValueError):
+        return 0
+
+
+def _is_provider_usage(node: dict[str, Any]) -> bool:
+    """Whether ``node`` is OpenRouter's own usage object (the one carrying ``cost``)."""
+    return isinstance(node.get("prompt_tokens"), int | float) and isinstance(node.get("completion_tokens"), int | float)
+
+
+def _is_langchain_usage(node: dict[str, Any]) -> bool:
+    """Whether ``node`` is LangChain's normalized ``usage_metadata``.
+
+    The only usage a Responses-API call leaves in the span: langchain-openai
+    builds no ``llm_output`` there and keeps ``usage`` out of
+    ``response_metadata``, so the provider object never reaches the span and
+    the scan above found nothing — which is why every ``api_type: responses``
+    generation rendered with bare input/output/total and no cache bucket.
+    """
+    return isinstance(node.get("input_tokens"), int | float) and isinstance(node.get("output_tokens"), int | float)
+
+
+def _find_usage(node: Any, matches: Any, depth: int = 0) -> dict[str, Any] | None:
+    """First dict under ``node`` that ``matches``, or None.
+
+    A bounded recursive scan (not a fixed path) because the span metadata
+    serializer normalizes shapes across NAT versions while the usage key names
+    are stable. Depth-capped so a pathological payload cannot recurse.
+    """
+    if depth > 6 or node is None:
+        return None
+    children: Any = None
+    if isinstance(node, dict):
+        if matches(node):
+            return node
+        children = node.values()
+    elif isinstance(node, list):
+        children = node
+    if children is None:
+        return None
+    for value in children:
+        found = _find_usage(value, matches, depth + 1)
+        if found is not None:
+            return found
+    return None
+
+
+def _normalize_langchain_usage(usage: dict[str, Any]) -> dict[str, Any]:
+    """LangChain's ``usage_metadata`` reshaped into the provider key names.
+
+    ``input_token_details.cache_read`` is where langchain-openai puts
+    OpenRouter's ``input_tokens_details.cached_tokens`` (Responses) /
+    ``prompt_tokens_details.cached_tokens`` (Chat Completions). No ``cost``
+    exists on this shape, so none is claimed.
+    """
+    input_details = usage.get("input_token_details") or {}
+    output_details = usage.get("output_token_details") or {}
+    return {
+        "prompt_tokens": usage.get("input_tokens"),
+        "completion_tokens": usage.get("output_tokens"),
+        "total_tokens": usage.get("total_tokens"),
+        "prompt_tokens_details": {"cached_tokens": input_details.get("cache_read")},
+        "completion_tokens_details": {"reasoning_tokens": output_details.get("reasoning")},
+    }
+
+
+#: The one key in NAT's ``TraceMetadata`` holding THIS call's output. Both the
+#: chat-completions and the Responses-API path reach it through the same
+#: ``on_llm_end`` (``nat/plugins/langchain/callback_handler.py:318``, and :249
+#: for a streamed chunk); every other usage-bearing key on the span
+#: (``chat_inputs``, ``tool_inputs``, ``span_inputs``) is input.
+RESPONSE_METADATA_KEY = "chat_responses"
+
+
+def _find_provider_usage(node: Any, depth: int = 0) -> dict[str, Any] | None:
+    """The best usage object on ``node``'s RESPONSE side, or None.
+
+    Only ``chat_responses`` is scanned, because the input side of the same
+    span replays earlier AIMessages whose usage belongs to the call that
+    produced them. Within that side, OpenRouter's own object wins — it alone
+    carries ``cost`` — and LangChain's normalized one is the fallback, all a
+    Responses-API call leaves behind.
+    """
+    if not isinstance(node, dict):
+        return None
+    responses = node.get(RESPONSE_METADATA_KEY)
+    if responses is None:
+        return None
+    provider = _find_usage(responses, _is_provider_usage, depth)
+    if provider is not None:
+        return provider
+    normalized = _find_usage(responses, _is_langchain_usage, depth)
+    return _normalize_langchain_usage(normalized) if normalized is not None else None
+
+
+def extract_provider_usage(metadata_json: Any) -> dict[str, int | float] | None:
+    """Provider token counts (+cost) out of a span's serialized metadata.
+
+    Reads the response side of ``nat.metadata`` and nothing else — the input
+    side (``chat_inputs`` and friends) replays earlier messages whose usage is
+    the previous call's, so reading it makes every generation after the first
+    repeat that answer's numbers. Within ``chat_responses`` it prefers the
+    OpenRouter ``usage`` object (``[].message.response_metadata.token_usage``),
+    the only span-side carrier of ``cost`` and of cached/reasoning detail, and
+    falls back to LangChain's normalized ``usage_metadata``, which is all a
+    Responses-API call leaves behind — counts including the cache bucket, no
+    cost. Returns the counts with ``cost_usd`` (or None when the provider
+    reported no cost), or None when the response side carries no usage, which
+    sends the caller to ``llm.token_count.*``. Pure, so tests pin it without a
+    span.
+
+    ``cache_discount`` is deliberately NOT returned: OpenRouter's ``cost`` is
+    already net of it ("The ``cache_discount`` field in the response body will
+    tell you how much the response saved on cache usage"), so emitting it as a
+    second cost bucket would bill the saving twice. The saving is visible where
+    it belongs — as ``input_cached_tokens`` priced at the cache-read rate.
+    """
+    if not isinstance(metadata_json, str) or not metadata_json:
+        return None
+    try:
+        import json
+
+        payload = json.loads(metadata_json)
+    except Exception:
+        return None
+    try:
+        usage = _find_provider_usage(payload)
+        if usage is None:
+            return None
+        prompt_details = usage.get("prompt_tokens_details") or {}
+        completion_details = usage.get("completion_tokens_details") or {}
+        raw_cost = usage.get("cost")
+        return {
+            "prompt_tokens": _as_count(usage.get("prompt_tokens")),
+            "completion_tokens": _as_count(usage.get("completion_tokens")),
+            "total_tokens": _as_count(usage.get("total_tokens")),
+            "cached_tokens": _as_count(prompt_details.get("cached_tokens")),
+            "reasoning_tokens": _as_count(completion_details.get("reasoning_tokens")),
+            "cost_usd": float(raw_cost) if isinstance(raw_cost, int | float) else None,  # type: ignore[dict-item]
+        }
+    except Exception:
+        logger.debug("Failed to extract provider usage from span metadata", exc_info=True)
+        return None
+
+
+def extract_span_token_counts(attributes: dict[str, Any]) -> dict[str, int] | None:
+    """The ``llm.token_count.*`` counts NAT's exporter already set, or None.
+
+    The fallback when the provider object is absent from the metadata (older
+    traces, stripped payloads): token-only, no cached/reasoning/cost split.
+    None when all three are zero — absent usage stays absent rather than
+    rendering as a real measurement of zero tokens.
+    """
+    prompt = _as_count(attributes.get("llm.token_count.prompt"))
+    completion = _as_count(attributes.get("llm.token_count.completion"))
+    total = _as_count(attributes.get("llm.token_count.total"))
+    if prompt <= 0 and completion <= 0 and total <= 0:
+        return None
+    return {"prompt_tokens": prompt, "completion_tokens": completion, "total_tokens": total}
+
+
+def usage_observation_attributes(
+    *,
+    prompt_tokens: int,
+    completion_tokens: int,
+    total_tokens: int,
+    cached_tokens: int = 0,
+    reasoning_tokens: int = 0,
+    cost_usd: int | float | None = None,
+    model: str | None = None,
+) -> dict[str, Any]:
+    """The span attributes that land input/output/total (+cost) on a generation.
+
+    ``gen_ai.usage.*`` carries the provider-verbatim counts (Langfuse
+    normalizes cache buckets server-side on that path).
+    ``langfuse.observation.usage_details`` is stored VERBATIM, so its buckets
+    are exclusive here: ``input`` excludes cached tokens (which ride their own
+    ``input_cached_tokens`` bucket) and ``output`` excludes reasoning tokens
+    (own ``output_reasoning_tokens`` bucket) — otherwise Langfuse's
+    per-bucket cost math would bill the same token twice.
+    ``cost_details`` carries the provider-reported total when known; without
+    it Langfuse infers cost from ``model`` + usage via its model table.
+    Pure, so the mapping is testable without a span or an event loop.
+    """
+    import json
+
+    exclusive_input = max(0, prompt_tokens - cached_tokens)
+    exclusive_output = max(0, completion_tokens - reasoning_tokens)
+    details: dict[str, Any] = {
+        "input": exclusive_input,
+        "output": exclusive_output,
+        "total": total_tokens,
+    }
+    if cached_tokens > 0:
+        details["input_cached_tokens"] = cached_tokens
+    if reasoning_tokens > 0:
+        details["output_reasoning_tokens"] = reasoning_tokens
+    attributes: dict[str, Any] = {
+        GEN_AI_USAGE_INPUT_TOKENS: prompt_tokens,
+        GEN_AI_USAGE_OUTPUT_TOKENS: completion_tokens,
+        OBSERVATION_USAGE_DETAILS: json.dumps(details, separators=(",", ":")),
+    }
+    if model:
+        attributes[GEN_AI_REQUEST_MODEL] = model
+        attributes[OBSERVATION_MODEL_NAME] = model
+    if isinstance(cost_usd, int | float):
+        attributes[OBSERVATION_COST_DETAILS] = json.dumps({"total": float(cost_usd)}, separators=(",", ":"))
+    return attributes
+
+
+def is_generation_span(attributes: dict[str, Any]) -> bool:
+    """Whether a span is an LLM call, i.e. a Langfuse *generation*.
+
+    NAT writes its event type under a namespaced key whose prefix varies with
+    the exporter, so the suffix is what is matched — the same test the usage
+    processor has always used, lifted here so both processors agree on what a
+    generation is rather than each carrying its own copy.
+    """
+    event_type = next((value for key, value in attributes.items() if key.endswith(".event_type")), None)
+    return isinstance(event_type, str) and event_type.startswith("LLM")
 
 
 def langfuse_attributes_for(
@@ -196,6 +673,11 @@ def current_langfuse_attributes() -> dict[str, Any]:
     fail a turn, so every failure path returns ``{}`` and logs at DEBUG. A span
     missing its user id is a degraded trace; an exception escaping here would
     be a broken export pipeline.
+
+    Reads contributions via :func:`snapshot_contributions` so the attribute map
+    holds no live reference: a tool contributing after this call must not
+    rewrite an already-built map, and an export task holding this map must not
+    observe a concurrent researcher's later writes.
     """
     try:
         from aiq_agent.project_context import GridRequestContext
@@ -207,7 +689,7 @@ def current_langfuse_attributes() -> dict[str, Any]:
             organization_id=context.organization_id,
             project_id=context.project_id,
             conversation_id=get_conversation_id_from_context(),
-            contributed=_CONTRIBUTED.get(),
+            contributed=snapshot_contributions(),
         )
     except Exception:
         logger.debug("Failed to derive Langfuse trace attributes from context", exc_info=True)
@@ -248,8 +730,91 @@ try:
                 item.set_attribute(key, value)
             return item
 
+    class UsageAttributeProcessor(Processor[Span, Span]):
+        """Mirror provider usage onto generation spans in the namespaces Langfuse reads.
+
+        NAT's exporter sets only ``llm.token_count.*`` (token-only, and zero
+        whenever ``usage_metadata`` was absent), while Langfuse's OTel
+        ingestion maps ``gen_ai.usage.*`` / ``langfuse.observation.*`` to
+        ``usageDetails``/``costDetails`` — hence empty usage on every
+        generation. This processor runs ahead of redaction and adds the
+        missing namespaces from what the span already carries, preferring the
+        provider object in ``nat.metadata`` (has cost + cached/reasoning)
+        over the bare ``llm.token_count.*`` counts.
+
+        Counts and the model name are not sensitive, so — unlike the identity
+        processor — this one is always installed. Never raises: enrichment
+        must degrade the trace, never fail the export.
+        """
+
+        async def process(self, item: Span) -> Span:
+            """Stamp usage (+model, +verbatim cost when known) onto one LLM span.
+
+            Non-LLM spans and spans with no usage anywhere pass through
+            untouched: absent usage stays absent rather than rendering as a
+            real measurement of zero tokens.
+            """
+            try:
+                attributes = item.attributes or {}
+                if not is_generation_span(attributes):
+                    return item
+                counts: dict[str, Any] | None = None
+                for key, value in attributes.items():
+                    if not key.endswith(".metadata") or not isinstance(value, str):
+                        continue
+                    counts = extract_provider_usage(value)
+                    if counts is not None:
+                        break
+                if counts is None:
+                    counts = extract_span_token_counts(attributes)
+                if counts is None:
+                    return item
+                model = item.name or None
+                for key, value in usage_observation_attributes(
+                    prompt_tokens=int(counts.get("prompt_tokens") or 0),
+                    completion_tokens=int(counts.get("completion_tokens") or 0),
+                    total_tokens=int(counts.get("total_tokens") or 0),
+                    cached_tokens=int(counts.get("cached_tokens") or 0),
+                    reasoning_tokens=int(counts.get("reasoning_tokens") or 0),
+                    cost_usd=counts.get("cost_usd"),
+                    model=model,
+                ).items():
+                    item.set_attribute(key, value)
+            except Exception:
+                logger.debug("Failed to stamp usage attributes onto a span", exc_info=True)
+            return item
+
+    class PromptLinkProcessor(Processor[Span, Span]):
+        """Name the prompt version on every generation span.
+
+        Without it Langfuse renders `promptName`/`promptVersion` as null on
+        every observation, and prompt management is a store nothing reads back:
+        the version an answer was produced with is exactly what an operator
+        comparing two prompt versions needs the trace to carry.
+
+        Generations only. A retrieval or tool span has no prompt, and stamping
+        one would make Langfuse's per-prompt aggregates count spans that never
+        used it. Installed unconditionally like the usage processor — a prompt
+        name and a version number are not personal data — and ahead of
+        redaction, so an operator can still redact them if a prompt name ever
+        carries something they would rather not export.
+        """
+
+        async def process(self, item: Span) -> Span:
+            """Stamp the process's current prompt link onto one generation span."""
+            try:
+                if not is_generation_span(item.attributes or {}):
+                    return item
+                for key, value in current_prompt_attributes().items():
+                    item.set_attribute(key, value)
+            except Exception:
+                logger.debug("Failed to stamp the prompt link onto a span", exc_info=True)
+            return item
+
 except Exception:  # pragma: no cover - exercised only without the NAT extras
     # Mirrors the import guards in `otel_header_redaction_exporter.py`: the
     # pure mapping above stays importable (and testable) even where the NAT
     # observability extras are not installed.
     LangfuseTraceAttributeProcessor = None  # type: ignore[assignment,misc]
+    UsageAttributeProcessor = None  # type: ignore[assignment,misc]
+    PromptLinkProcessor = None  # type: ignore[assignment,misc]

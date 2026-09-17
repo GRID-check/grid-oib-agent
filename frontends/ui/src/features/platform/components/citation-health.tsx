@@ -489,7 +489,7 @@ export function CitationHealth(): JSX.Element {
           </CardContent>
         </Card>
       ) : (
-        <div className="animate-in fade-in-0 flex flex-col gap-4 duration-200 ease-out motion-reduce:animate-none">
+        <div className="animate-in fade-in-0 flex flex-col gap-4 duration-base ease-out motion-reduce:animate-none">
           {/* Headline: the clean rate first, then what went wrong. */}
           {stats(snapshot)}
 

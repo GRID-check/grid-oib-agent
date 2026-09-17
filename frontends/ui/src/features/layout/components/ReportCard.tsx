@@ -17,8 +17,11 @@ import { Button } from '@/components/ui/button'
 import { MarkdownRenderer } from '@/shared/components/MarkdownRenderer'
 import { downloadAsMarkdown } from '@/utils/download-as-markdown'
 import { useDownloadPdfRoute } from '@/hooks/use-download-pdf'
-import { useIsCurrentSessionBusy } from '@/features/chat'
+import { useChatStore, useIsCurrentSessionBusy } from '@/features/chat'
 import { useTranslations } from '@/i18n'
+import { DocumentLifecyclePanel } from '@/features/documents/components/document-lifecycle-panel'
+import { DiscussDocumentButton } from '@/features/documents/components/discuss-document-button'
+import type { DocumentLifecycleViewer } from '@/features/documents/lib/document-lifecycle'
 
 interface ReportCardProps {
   /** Report content in markdown format */
@@ -29,6 +32,24 @@ interface ReportCardProps {
   isDraft?: boolean
   /** Whether content is still streaming (deprecated - now checked via store) */
   isStreaming?: boolean
+  /**
+   * The document this report was FILED as, when it was filed (ADR-0054).
+   *
+   * Present, the card carries the same review controls the file's own pane does
+   * — Einreichen, Freigeben, Änderungen anfordern, Piloti überarbeiten lassen,
+   * Ablehnen, Veröffentlichen —
+   * because the reader deciding about a report is looking at the report, and
+   * making them find it in Dateien first is the extra step that gets skipped.
+   * Absent (a run that filed nothing, a chat outside a project) there is nothing
+   * to review and the card is what it always was.
+   *
+   * The version list is deliberately not here: the pane is where history
+   * belongs, and this surface is about the decision on what is on screen.
+   */
+  filedDocument?: {
+    documentId: string
+    viewer: DocumentLifecycleViewer
+  }
 }
 
 /**
@@ -46,9 +67,15 @@ export const ReportCard: FC<ReportCardProps> = ({
   title,
   isDraft = false,
   isStreaming: _isStreaming = false, // Deprecated - kept for backward compatibility but not used
+  filedDocument,
 }) => {
   const t = useTranslations('research')
   const { downloadPdf, isLoading: isPdfLoading } = useDownloadPdfRoute()
+  // The project of the chat this card is sitting in. Read from the store rather
+  // than threaded through `filedDocument`: the card has no project of its own —
+  // it is the conversation's — and a second copy of that fact would be one more
+  // thing to keep in step with the session switch.
+  const projectId = useChatStore((state) => state.projectId)
 
   const hasContent = content.trim().length > 0
   const wordCount = hasContent ? getWordCount(content) : 0
@@ -111,6 +138,40 @@ export const ReportCard: FC<ReportCardProps> = ({
       <div className="flex-1 overflow-y-auto pr-2">
         <MarkdownRenderer content={content} />
       </div>
+
+      {/* Freigabe, when this report is a filed document. Above the export row
+          and below the report: a decision about the content reads after the
+          content, and it is not an export action. */}
+      {filedDocument && (
+        <DocumentLifecyclePanel
+          documentId={filedDocument.documentId}
+          viewer={filedDocument.viewer}
+          authoredBy="agent"
+          showVersions={false}
+          className="mt-4 shrink-0 border-t pt-3"
+        />
+      )}
+
+      {/* „Besprechen" — the other thing a reader does with a report they have
+          just read, and until now the one they had to go and find. It sits with
+          the Freigabe controls rather than in the export row because it is a
+          decision about the CONTENT, not a way of taking the content elsewhere.
+
+          A filed report is a draft nobody has published, so it has no chunks and
+          used to be exactly the document Piloti could not answer about; the turn
+          now reads the subject version's bytes instead. Only when the report was
+          actually filed: without a document there is no subject to bind, and the
+          conversation would be an ordinary project question. */}
+      {filedDocument && projectId && (
+        <div className="mt-3 flex shrink-0 justify-end">
+          <DiscussDocumentButton
+            projectId={projectId}
+            documentId={filedDocument.documentId}
+            variant="outline"
+            withIcon
+          />
+        </div>
+      )}
 
       {/* Export Footer */}
       <div className="mt-4 flex shrink-0 items-center justify-end gap-2 border-t pt-3">

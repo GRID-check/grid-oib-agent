@@ -10,6 +10,7 @@ export const chat = {
     // Document-type chip in the preview dialog header.
     projectDocument: 'Project document',
     corpusDocument: 'Building law & guidelines',
+    risDocument: 'Legal source (RIS)',
     // Tinted box with the passage the answer cites.
     citedPassage: 'Cited passage',
     // Marks a source the report actually cited (vs. merely discovered).
@@ -70,19 +71,37 @@ export const chat = {
     showing: 'Showing {label}',
   },
   // Composer (InputArea) control row — WS-3 click-dummy overhaul.
+  // A file the answer names in its running prose ("Start with pd8280-2.pdf") —
+  // not evidence, but a pointer at a document the reader owns. Clicking it
+  // opens the document beside the answer.
+  fileReference: {
+    openAria: 'Open file: {name}',
+    // The document the agent can read: opening it is also the composer saying
+    // the next question is about it, and a label naming only half of that is a
+    // control that surprises the reader it was written for.
+    openAskAria: 'Open {name} and ask about it',
+    open: 'Open beside the answer',
+    openAsk: 'Open and ask about it',
+    pages: '{count, plural, one {# page} other {# pages}}',
+    // Shown when the answer spelled the name differently from the file itself.
+    writtenAs: 'In the text: {name}',
+    // Which shelf the file came from — the same distinction the sources draw:
+    // shared project knowledge, the office-wide archive, a private attachment.
+    shelf: {
+      projekt: 'Project files',
+      buero: 'Office archive',
+      session: 'Attachment in this chat',
+    },
+    notIndexed: 'Not indexed — readable, but it cannot be cited.',
+    failed: 'Processing this file failed.',
+  },
   composer: {
     /** Shown when the reader holds project:view but not project:chat. */
     noProjectChatPermission:
-      'The research agent is unavailable in this project for you right now. If you have read-only access, a project admin can grant you the Contributor role.',
+      'Piloti is unavailable in this project for you right now. If you have read-only access, a project admin can grant you the Contributor role.',
     placeholder: 'Ask Piloti about this project …',
     sources: 'Data basis',
     sourcesAria: 'Data basis — {enabled} of {total} sources enabled. Opens the data sources panel.',
-    deepResearch: 'Deep Research',
-    deepResearchAria: 'Deep Research preference',
-    // Honest intent hint: the agent auto-escalates; the pill records a
-    // preference, it does not force a deep-research run.
-    deepResearchHint:
-      'Preference noted — Piloti escalates to Deep Research automatically when a question calls for it.',
     scopeAria: 'Search scope: {project}',
     scopeFallback: 'This project',
     scopeCurrent: 'Current project',
@@ -108,31 +127,25 @@ export const chat = {
     afternoon: 'Good afternoon',
     evening: 'Good evening',
     withName: '{greeting}, {name}.',
-    subtitle: 'Ask about your project — answers cite their sources.',
+    // The empty canvas inside a project says ONE thing about itself: that
+    // Piloti writes as well as answers. Otherwise the only people who find out
+    // are the ones who happen to phrase a request as a commission (ledger 23).
+    // Project-only, because without a project there is nowhere for a draft to
+    // be filed.
+    projectWrites:
+      'Piloti does more than answer — ask, and it writes file notes, memos and drafts straight into the project files.',
   },
-  // Example Austrian Baurecht questions on the empty chat state — clicking one
-  // prefills the composer (does not auto-send) to break blank-page paralysis.
-  examples: {
-    label: 'Try asking',
-    questions: {
-      modelElements: 'How many external walls are on the ground floor?',
-      modelRequirements: 'Which requirements can my model not answer yet?',
-      fluchtweg: 'Escape route length per OIB-2?',
-      barrierefreiheit: 'Accessibility in Vienna residential construction?',
-      brandabschnitte: 'Fire compartments for building class 4?',
-    },
-  },
-  // Empty-state lock chip + thread role tabs (click-dummy overhaul, WS-3).
-  workspace: {
-    private: 'Private workspace',
-  },
+  // Thread role tabs (click-dummy overhaul, WS-3).
   roles: {
     input: 'Input',
     result: 'Result',
     // Role tab for a conversational / clarifying reply (routing_decision =
-    // 'meta': greetings, capability questions, clarifying Rückfragen) — marks
-    // it visibly apart from a substantive Baurecht 'Result'.
+    // 'meta' or answer_meta.kind = 'direct': greetings, capability questions,
+    // clarifying Rückfragen) — marks it visibly apart from a substantive
+    // Baurecht 'Result'.
     note: 'Note',
+    // Walkthrough: a guided answer without a ruling — not the Result document.
+    answer: 'Answer',
   },
   // "Belegt durch" provenance chip row under answers that carry source data.
   answerSources: {
@@ -148,6 +161,8 @@ export const chat = {
     sourceNumber: 'Source {number}',
     page: 'p. {page}',
     pages: 'pp. {pages}',
+    punkt: 'Pkt. {punkt}',
+    punktPage: 'Pkt. {punkt} · p. {page}',
     // Citations the user can actually paste somewhere — per source (Fachtext)
     // and for the whole answer in the formats external tools ingest.
     copyCitation: 'Copy citation',
@@ -203,6 +218,8 @@ export const chat = {
       no_report_file: 'No research report was filed — this answer is the only record of the run',
       no_valid_citations:
         'No citation survived verification — please check the figures yourself before relying on them',
+      cards_generation_failed:
+        'The report is complete, but the proposals derived from it could not be produced',
     },
     // The verification's own reasons for dropping a citation, in the reader's
     // words. The backend states them as tokens (`url_not_in_registry`, …) and
@@ -230,12 +247,19 @@ export const chat = {
     // whichever button produced it.
     sourcesHeading: 'Sources',
     untitledSource: 'Untitled source',
+    downloadDocx: 'Download as Word document',
+    downloadFailed: 'The Word document could not be created.',
   },
   // Thread-header breadcrumb (project / session title) with inline rename.
   // The citation peek: what a Fundstelle IS, before you open it.
   citationPeek: {
     wholeDocument: 'Whole document',
     openAtPage: 'Open at this passage',
+    notOpenable: 'Cannot be opened in Piloti',
+    noInlineViewer:
+      'This file format cannot be shown inside Piloti. Download the document and open it in your own application.',
+    download: 'Download document',
+    downloading: 'Preparing…',
     copyLink: 'Copy link',
     copyLinkAria: 'Copy a link to this passage: {label}',
     markerAria: 'Source {number}: {label} — open preview',
@@ -260,6 +284,10 @@ export const chat = {
     verifyRis: 'Verify in RIS',
     aiGenerated:
       'AI-generated citation — check the excerpt against the primary source (OIB / RIS).',
+    // The muted line under an UNPLACED legal basis surfaced flat above the
+    // prose (`EvidenceBlock`): the quote is model-generated, like the framed
+    // card's — shorter here, because the block beside it is spare already.
+    evidenceQuoteDisclaimer: 'AI-generated citation — check the excerpt against the primary source.',
     conditionTree: {
       eyebrow: 'Condition tree',
       dependsOn: 'Depends on',
@@ -321,6 +349,13 @@ export const chat = {
     followUps: {
       eyebrow: 'Ask on',
       groupAria: 'Follow-up questions',
+      // The one client-side chip under a long answer: the offer nobody
+      // otherwise discovers — Piloti writes, too (ledger 23).
+      aktenvermerk: 'Write this up as a file note',
+      // What the chip types into the composer. Deliberately not the label: the
+      // label is a sentence fragment, not a request. It is prefill and not a
+      // command, so the reader can edit it before pressing send.
+      aktenvermerkPrefill: 'Write that up as a file note in my project.',
     },
     keyTakeaways: {
       eyebrow: 'What matters most',
@@ -353,6 +388,118 @@ export const chat = {
       // inputs: the card did the arithmetic, so what they audit is the inputs.
       computedNote:
         'The result is computed by this card from the figures above, not copied from the answer.',
+    },
+    // The one card whose picture the renderer did not compute — the model wrote
+    // the mermaid. The rest of its words are shared with the mermaid FENCE
+    // (`diagrams.schematicOnly`, `diagrams.fallback`): the same claim about the
+    // same picture, said once.
+    diagram: {
+      eyebrow: 'Diagram',
+    },
+    // A document Piloti wrote into this conversation's working directory. Not a
+    // project document: nothing here is filed, indexed or citable until a
+    // person takes it into the project — which is what the (still inert)
+    // action under the card will do.
+    documentDraft: {
+      eyebrow: 'Draft',
+      // How often this path has been written in this conversation. Rendered as
+      // its own token beside the size, so a locale can drop the „v".
+      version: 'v{version}',
+      // The stand of a draft written once: a single write is no history, so
+      // the card names the state instead of numbering it.
+      draftState: 'Draft',
+      // The draft lives in this conversation only. "File into the project"
+      // files it through the BFF's draft-file door, in the reader's own
+      // session — one press, no prompt, no second turn. A same-name document
+      // already in the project is a 409 the card answers with an explicit
+      // confirmation rather than a silent second copy.
+      file: 'File into the project',
+      filing: 'Filing …',
+      fileError: 'Filing failed. Please try again.',
+      fileConflict: 'A document with this name is already in the project.',
+      fileAnyway: 'File anyway',
+      // The reference filed and a person moved the version on: nothing to
+      // retry and nothing to confirm — the Files pane owns it from here.
+      fileSubmitted: 'This draft has already been filed. Continue in the Files pane.',
+      // The unfiled draft's reading surface: the bytes live in the agent's
+      // working directory, fetched through the BFF draft-preview door. A read,
+      // so it writes nothing and stays presentational.
+      preview: 'View draft',
+      previewLoading: 'Loading the draft …',
+      previewError: 'The draft could not be loaded.',
+      previewRetry: 'Try again',
+      // From here on the document is in the project.
+      filed: 'Filed in the project as a draft',
+      open: 'Open in the project',
+      submit: 'Send for approval',
+      submitting: 'Sending …',
+      submitted: 'Sent for approval — waiting for a person',
+      // A state a person has already set. No button: what happens next is
+      // decided in the Files pane.
+      inReview: 'Awaiting approval',
+      changesRequested: 'Changes requested',
+      approved: 'Approved',
+      published: 'Published',
+      // A version a newer one overtook: neither a draft nor an approval —
+      // it reads, but it is no longer the stand.
+      ersetzt: 'Superseded',
+      error: 'Sending for approval failed. Please try again from the Files pane.',
+    },
+    // Work Piloti has taken on and will finish after this conversation
+    // (ADR-0051). The card offers nothing: the row exists by the time it
+    // renders, and the run block below it says how the work is going — so
+    // this card is the receipt (what, of what kind, by when) and states no
+    // status of its own.
+    taskCreated: {
+      eyebrow: 'Task',
+      due: 'by {date}',
+      open: 'Open conversation',
+      // The four kinds, in the words somebody would use to ask for them.
+      kind: {
+        complianceCheck: 'Compliance check',
+        einreichcheck: 'Submission check',
+        document: 'Document',
+        revision: 'Revision',
+      },
+    },
+    // The workspace change Piloti PROPOSED. Nothing has happened until the
+    // reader accepts: the agent has no way to write a document row at all, so
+    // the card is the whole of what the backend did. Accepting runs the same
+    // routes the Files pane runs, in the reader's own session.
+    fileOperationProposal: {
+      // One eyebrow per verb — the reader should know what kind of change this
+      // is before reading a single row of it.
+      eyebrow: {
+        move: 'Move',
+        rename: 'Rename',
+        create_folder: 'New folder',
+        assign: 'Assign',
+      },
+      // The project root has a path of nothing; it needs a name a person uses.
+      root: 'Top level',
+      prompt: 'Apply this?',
+      accept: 'Apply',
+      reject: 'Discard',
+      applying: 'Applying…',
+      applied: {
+        move: '{count, plural, one {File moved.} other {# files moved.}}',
+        rename: '{count, plural, one {File renamed.} other {# files renamed.}}',
+        create_folder: '{count, plural, one {Folder created.} other {# folders created.}}',
+        assign: '{count, plural, one {File assigned.} other {# files assigned.}}',
+      },
+      // Some of it landed and some did not. WHICH is not stored (a decision is
+      // a decision plus a timestamp), so after a reload this is all the card
+      // can honestly say — and it says where to look instead of guessing.
+      partial: 'Applied in part. Some entries could not be applied — check the file list.',
+      dismissed: 'Discarded. Nothing was changed.',
+      error: 'Could not be applied.',
+      // The one case where the card has nothing to run. The proposal still
+      // reads; the control does not appear, and this says why rather than
+      // failing on click.
+      unavailable: {
+        noProject:
+          'This chat is not attached to a project, so there is no file store to change.',
+      },
     },
     processMap: {
       eyebrow: 'Procedure',
@@ -610,20 +757,46 @@ export const chat = {
     reject: 'Reject',
     approvePlan: 'Approve plan',
     rejectPlan: 'Reject plan',
+    // The current three-way plan decision (start / answer briefly / cancel).
+    startResearch: 'Start research',
+    answerShallow: 'Answer briefly instead',
+    answerShallowAria: 'Answer the question briefly, without deep research',
+    cancelResearch: 'Cancel',
+    cancelResearchAria: 'Cancel the research',
     selectOption: 'Select option: {option}',
     yourResponse: 'Your response:',
     // Localized replacement for the backend's English approval envelope
     // sentence ("Reply approve to proceed, reject to cancel").
     approvalInstruction: 'Choose "Approve" to start the research or "Reject" to cancel.',
+    approvalInstructionThreeWay:
+      'Start the research, have your question answered briefly instead, or cancel.',
     // Duration/cost expectation shown at the decision point, BEFORE approval.
     durationHint: 'Deep research can take several minutes to run and consumes usage quota.',
+    // The plan bubble's scaffolding, localized in place of the backend's
+    // byte-stable English headers.
+    planPreviewHeading: 'Research plan',
+    planTitleLabel: 'Title:',
+    planSectionsLabel: 'Sections:',
+    // What the answered bubble echoes for a clicked decision — the wire
+    // keywords (approve/shallow/cancel/reject) never reach the reader.
+    responseApproved: 'Research started',
+    responseShallow: 'Quick answer requested',
+    responseCancelled: 'Research cancelled',
+    responseRejected: 'Plan rejected',
   },
-  agentResponse: {
-    viewProgress: 'View Progress',
-    viewReport: 'View Report',
-    loading: 'Loading...',
-    loadingLabel: 'Loading',
-    errorTitle: 'Error: {message}',
+  // The single disclosure in the answer footer that holds everything past the
+  // sources row and the copy actions (confidence, memory note, skills used,
+  // verification notes, feedback, timestamp).
+  answerDetails: {
+    trigger: 'Answer details',
+    triggerAria: 'Show details for this answer',
+    // Retrieved-but-uncited documents: what the turn read beyond what the
+    // answer claims. Document chips only — no passages, no new claims.
+    readSources: {
+      label: 'Read, not cited',
+      more: '+{count} more',
+      less: 'Show less',
+    },
   },
   profilePatchCard: {
     accept: 'Accept',
@@ -678,15 +851,15 @@ export const chat = {
     // dressed up as a status is noise, so an unclassifiable step falls through
     // to the previous meaningful phrase, or to `working` above.
     activity: {
-      // The same words as the chips below (`stepName.understanding` =
-      // "Classification", `stepName.routing` = "Research path"): the reader
-      // should learn one vocabulary, not two for the same thing.
+      // The same words as the chips below (`stepName.*`, e.g.
+      // `stepName.corpus` = "Knowledge"): the reader should learn one
+      // vocabulary, not two for the same thing.
       understanding: 'Classifying your question …',
       planning: 'Choosing the research path …',
       searchingWeb: 'Searching the web …',
-      searchingKnowledge: 'Searching OIB knowledge …',
-      searchingRis: 'Searching RIS (Austrian law) …',
-      searchingSources: 'Searching your sources …',
+      searchingKnowledge: 'Searching knowledge …',
+      searchingRis: 'Searching RIS …',
+      searchingSources: 'Searching sources …',
       researching: 'Researching …',
       reading: 'Reading the results …',
       composing: 'Composing the answer …',
@@ -702,11 +875,11 @@ export const chat = {
     // A key with no entry here renders NOTHING — the live line falls back to
     // the previous meaningful phrase. Never the key, never an identifier.
     turnStatus: {
-      // Corpus NAMES, because "im OIB-Wissen" is product copy with a German
+      // Corpus NAMES, because "im Wissen" is product copy with a German
       // preposition welded on, not a proper noun. The backend sends the id.
       // Each entry is the prepositional phrase the templates below slot in.
       corpus: {
-        knowledge: 'the OIB knowledge base',
+        knowledge: 'the knowledge base',
         ris: 'RIS (Austrian law)',
         web: 'the web',
         documents: 'your documents',
@@ -728,38 +901,64 @@ export const chat = {
           project: 'Reviewing documents from the project …',
           session: 'Reviewing documents from this conversation …',
           several: 'Reviewing your documents …',
-        },
-        // The routing DECISION, from a closed enum. The classifier's own
-        // reason for it is free-text prose in whatever language the model
-        // wrote, so it never appears here — it is quoted, attributed, in the
-        // secondary `routing.line` row below.
-        // Each line names what the reader gets, not what the system is setting
-        // up: "preparing" describes an internal step, "searching the relevant
-        // provisions" describes a working method an architect already knows.
-        // `meta` uses the same word the trace does (`routing.decision.meta`) —
-        // one path, one word.
-        routing: {
-          meta: 'Direct answer — no research needed',
-          outOfScope: 'Question outside the subject area',
-          shallow: 'Quick lookup: searching the relevant provisions',
-          deep: 'Deep research: working through several sources',
+          // A file uploaded moments ago is not indexed yet; the answer holds
+          // for it briefly rather than answering without it.
+          waiting: 'A new file is still being read — the answer is waiting for it …',
         },
         // `{query}` is the reader's own words echoed back — never translated,
         // and clipped by the backend so the line still fits one narrow row.
         retrieval: {
           withQuery: 'Searching {corpus}: “{query}”',
           plain: 'Searching {corpus} …',
+          // The passage was already identified and is being READ, so the line
+          // names the document instead of a corpus. `{document}` is the name
+          // the publisher or the office gave it — a proper noun, sent as
+          // itself and never translated.
+          punkt: 'Reading {document}, Pkt. {punkt} …',
+          page: 'Reading {document}, p. {page} …',
+          // Other formulations are being tried — the action, not the verdict:
+          // the line says what is happening NOW, replacing the round's search
+          // line, so it must not open with a failure. That the first pool was
+          // not enough lives in the key (`requery`), not the sentence. The
+          // formulations are the model's words, so they stay off the line.
+          requery: 'Searching with other terms …',
         },
         // Non-retrieval tools the user asked for by name. A tool with no entry
         // gets no line at all: its internal name is not a status.
         action: {
           remember: 'Saving the note …',
           card: 'Building the result card …',
+          // This conversation's working directory: one verb, one line. Never
+          // "searching" — nothing here is read as evidence for an answer; the
+          // document being written is what is being worked on.
+          draftList: 'Reviewing the drafts …',
+          draftRead: 'Reading the draft …',
+          draftWrite: 'Writing the draft …',
+          draftEdit: 'Revising the draft …',
+          // A workspace change being PROPOSED. Present tense and no verb: the
+          // card names the operation and the file a moment later, with the
+          // buttons attached, so saying it twice would only say it worse.
+          fileProposal: 'Preparing a suggestion for your files …',
+          // The two steps that leave the conversation. Their own lines, because
+          // what changes here is not the draft but where it lives — and because
+          // filing and sending for approval are two different things to the
+          // reader: one puts something down, the other asks somebody.
+          draftFiled: 'Filing the draft in the project …',
+          draftSubmitted: 'Sending the draft for approval …',
+          taskCreated: 'Creating the task …',
         },
+        // The tools are done, the answer is being written. The same words as
+        // `activity.composing` above: one vocabulary for one thing — whether
+        // the line comes from a turn event or the legacy classification must
+        // not show.
+        synthesis: 'Composing the answer …',
         // The product's trust proposition said out loud: what is checked is not
         // "the citations" in the abstract but every one of them, against what
         // was actually retrieved.
         citations: 'Checking every citation against the sources …',
+        // A citation or a quote failed verification; one more search and one
+        // rewrite are tried before the answer ships with its markers.
+        repair: 'A citation did not hold up — searching again …',
         escalation: 'A quick lookup is not enough — starting deep research',
       },
     },
@@ -769,24 +968,35 @@ export const chat = {
     // travels verbatim: it is their name for their own method.
     skill: {
       activated: 'Applying the “{skill}” skill',
-      forced: 'Applying the “{skill}” skill you asked for',
     },
     // Compact "what actually ran" chips in the Herleitung basis — one chip per
     // executed agent/tool, without the technical-steps opt-in.
     executedSteps: 'Ran:',
     stepName: {
-      understanding: 'Classification',
-      routing: 'Research path',
       webSearch: 'Web search',
       ris: 'RIS',
-      corpus: 'OIB knowledge',
+      corpus: 'Knowledge',
       assistant: 'Assistant',
       reading: 'Reading',
+      /** The conversation's working directory: write, read, edit, list — one word. */
+      draft: 'Draft',
+      /** The draft leaves the working directory: filed, or submitted for approval. */
+      filing: 'Filing',
+      task: 'Task',
+      /** The file actions PROPOSE and write nothing (ADR-0003). */
+      fileProposal: 'File proposal',
       // One chip per skill the turn actually applied. `{name}` is resolved by
       // the single label authority (features/skills/lib/skill-activity).
       skill: 'Skill: {name}',
       // The bare `use_skill` frame with no identifiable skill behind it.
       skillUnnamed: 'Skill',
+      model: 'Building model',
+      measure: 'Measurement',
+      drawing: 'Drawing',
+      documents: 'Files',
+      note: 'Note',
+      card: 'Card',
+      compliance: 'Compliance check',
     },
     // Reader-facing names for the nodes and tools the backend emits, used by
     // the opt-in technical panel. The names on the wire are internal ids
@@ -838,35 +1048,63 @@ export const chat = {
     gapHit: 'Nothing found',
     // A document the research read but the answer never cited — a real
     // research outcome, not a gap.
-    readNotUsed: 'read, not used',
+    readNotUsed: 'retrieved, not cited',
     moreSources: '+{count} more',
     // The files hung on THIS message. The data sources toggled on in the
     // composer are availability, not activity, and are deliberately not listed
     // here — what ran is the `executedSteps` row above.
     attachedFiles: 'Attached files:',
-    // "Why this path?" — the routing classification for this turn (WP-A
-    // `routing_decision` + `routing_reason`), in the trace framing node.
-    routing: {
-      whyLabel: 'Why this path?',
-      line: 'Classification: {decision} — {reason}',
-      decision: {
-        meta: 'Direct answer',
-        shallow: 'Quick research',
-        deep: 'Deep research',
-        error: 'Error',
-      },
-    },
     // One-liner when this turn escalated from shallow to deep research.
     escalationNarration: 'Escalated to deep research: {reason}',
     node: {
       framingTab: 'Framing',
       framingTitle: 'Question understood',
       framingQuestion: 'You asked: “{question}”',
+      // Every retrieval layer on the Herleitung spine, in execution order:
+      // one counter, one noun. The old two-noun sequence (`Search 1`, then
+      // `Conclusion 2…`) read as one run but counted two things — the tool
+      // calls and the inferences — so the numbers could double-book a layer.
+      // WHAT the layer did rides along as the typed sublabel below, never as
+      // the number.
+      stepTab: 'Step {n}',
+      // The typed sublabel beside `stepTab`: what this layer actually did,
+      // read off reason × files from the round the spine already owns. A
+      // layer that concluded on the back of what it fetched is a finding; a
+      // bare fetch that returned nothing is a search. `Read` reuses
+      // `stepName.reading`'s word on purpose: one vocabulary, not two.
+      stepKindSearch: 'Search',
+      stepKindRead: 'Reading',
+      stepKindFinding: 'Finding',
+      stepKindConclusion: 'Conclusion',
+      // A layer that only opened passages of files the turn already had: it
+      // searched for nothing. Telling that round apart from a fresh fetch is
+      // the whole reason the word exists.
+      stepKindOpen: 'Open',
+      // A folded layer keeps the scent of its fan: the count plus the top
+      // filename(s), never a bare count — evidence hidden by default reads
+      // as no evidence. Still never the query (PF-12).
+      roundFoldOne: '{name} · {locus}',
+      roundFoldOneBare: '{name}',
+      roundFoldTwo: '{first} · {second}',
+      roundFoldMany: '{count} files · {first} and others',
+      // The locus half of `roundFoldOne`, in the answer's own words (cf.
+      // `answerSources.punktPage`): the passage, not the mechanism.
+      roundFoldLocusPage: 'p. {page}',
+      roundFoldLocusPunkt: 'Pkt. {punkt}',
+      roundFoldLocusPunktPage: 'Pkt. {punkt} · p. {page}',
+      // Accessible name of the control that folds and unfolds the layer. The
+      // card's own text is a conclusion and makes a poor control name.
+      roundFold: 'Collapse step {n}',
+      roundUnfold: 'Expand step {n}',
+      // A file an earlier round already showed, where its hit count would be.
+      // The count is the whole turn's tally and therefore identical on every
+      // repeat — which is what made a re-read look like a second fetch.
+      roundDocRepeat: 'already retrieved',
       contextLabel: 'Context',
       sourcesTab: 'Sources',
       sourcesTitle: 'Sources examined',
-      findingsTab: 'Assessment',
-      // Reasoning-only detail in the assessment node: which source lanes
+      findingsTab: 'Findings',
+      // Reasoning-only detail in the findings node: which source lanes
       // produced hits. NOT the answer's trust verdict (confidence/provenance) —
       // that lives once, on the answer card.
       findingsHits: 'Hits in: {lanes}',
@@ -874,13 +1112,13 @@ export const chat = {
       // actually read, before naming which strata it came from.
       findingsTally: '{hits, plural, one {# hit} other {# hits}} across {docs} documents',
       findingsTallyOne: '{hits, plural, one {# hit} other {# hits}} in 1 document',
-      // While the turn streams there is no assessment yet, but the graph still
+      // While the turn streams there are no findings yet, but the graph still
       // needs its converge point — otherwise the source columns dangle and the
       // shape jumps when the answer lands.
-      findingsPendingTab: 'Assessment',
+      findingsPendingTab: 'Findings',
       findingsPending: 'Weighing the sources …',
       // The search did not finish; it ran into its iteration ceiling. It
-      // belongs in the assessment node because that node answers "what was
+      // belongs in the findings node because that node answers "what was
       // this answer built on?", and where the chain broke off is part of it.
       // {tool} is the last step that RAN, never the next one: nobody knows
       // what the model would have chosen, because it never got to propose it.
@@ -926,6 +1164,7 @@ export const chat = {
             'No research report was filed — the answer exists only here in the conversation.',
           noCitations:
             'No citation held up under checking. Please verify the figures yourself before using them.',
+          noCards: 'The report is complete, but the proposals derived from it could not be produced.',
         },
       },
       branchesTab: 'Next steps',
@@ -939,6 +1178,21 @@ export const chat = {
     success: {
       heading: 'Report Completed!{stats}',
       subheading: 'Research has finished and a report is ready to view in the research panel.',
+      // Rendered ONLY when the report really was filed and has a document id.
+      // Absent with nothing having been promised — no project, a run older than
+      // the feature — the banner says nothing rather than claiming a file that
+      // does not exist.
+      filedLine: 'Filed in the project: {filename}',
+      // The retraction of `starting.filingDisclosure`, and only that: the
+      // starting banner promised „wird abgelegt", the server attempted the
+      // filing (there was a project) and it did not land. A reader who saw the
+      // promise otherwise walks to Berichte, finds nothing, and the only record
+      // is a server log they cannot read. No reason travels — a refused quota,
+      // a revoked `project:documents:write` and a report too long to render are
+      // one fact here: the document is not there. Same quiet line as the
+      // promise, no red and no error state: the research itself succeeded. The
+      // folder is named in German because that is what the folder is called.
+      filingFailedLine: 'The report could not be filed under “Berichte”.',
     },
     failure: {
       heading: 'Report Failed to Complete',
@@ -958,8 +1212,23 @@ export const chat = {
       heading: 'Starting Deep Research',
       subheading:
         'Chat is paused while the report is created to prevent generating multiple reports. You can click away while this runs — it may take several minutes.',
+      // The disclosure that makes the authorization real. It sits on the
+      // STARTING banner rather than the outcome: deep research escalates out of
+      // a chat turn (there is no submit form), and a run can begin because the
+      // agent itself escalated rather than because anybody ordered a report. The
+      // moment the run can still be stopped is therefore the only moment at
+      // which naming the destination is worth anything. No dialog and no
+      // confirmation: a modal asked after the fact is only ever answered yes,
+      // which makes it a ritual rather than a decision. Shown inside a project
+      // only — outside one nothing is filed. The folder is named in German
+      // because that is literally what the folder in the file tree is called.
+      filingDisclosure: 'The finished report will be filed in this project under “Berichte”.',
     },
     viewReport: 'View Report',
+    // The success banner's second action, when something was filed. Worded
+    // apart from "View Report" on purpose: that opens the research panel, this
+    // opens the file in the project — two places, two words.
+    openInProject: 'Open in project',
     viewThinking: 'View Thinking',
     viewProgress: 'View Progress',
     // One-liner above the "Starting Deep Research" banner when the turn
@@ -971,6 +1240,11 @@ export const chat = {
     hideDetails: 'Hide details',
     // Retry action on an errored answer (design language: "helpful message + retry").
     retry: 'Try again',
+    // The failed request's id. The first eight characters are shown — the same
+    // ones the log line carries — and the whole id is what gets copied.
+    reference: 'Support reference',
+    referenceCopyAria: 'Copy reference {id}',
+    referenceCopied: 'Reference copied',
   },
   // Localized titles + default messages for the chat error registry
   // (features/chat/lib/error-registry.ts). Keyed by error code.
@@ -1101,11 +1375,14 @@ export const chat = {
     },
     // Label introducing the model's own one-clause justification (verbatim).
     reasonLabel: "Assistant's reason",
+    // The same label when the level was capped afterwards: the reason describes
+    // the level BEFORE the cap, not the one shown.
+    reasonLabelBeforeCap: "Assistant's reason before the cap",
     // Extra sentence appended to the tooltip explaining WHY the confidence was
     // capped, keyed by `answer_confidence_capped_reason` (WP-A, PB-9).
     cappedReasons: {
       ungrounded: 'Low confidence: answer not backed by sources.',
-      quoteUnverified: 'Low confidence: a quote could not be verified verbatim against the source.',
+      quoteUnverified: 'A quote could not be verified verbatim against the source; the assessment is capped accordingly.',
       // The measurement backs the number, not the legal statement beside it —
       // so the mixed answer stays at "low" and the tooltip says why.
       normativeClaimUncited:

@@ -71,7 +71,7 @@ async def test_empty_checkpoint_db_means_no_checkpointer_and_no_warning(caplog):
     config = DeepResearchAgentConfig(orchestrator_llm="orch_llm", tools=["web_search_tool"], checkpoint_db=None)
     with (
         patch.object(register_module, "DeepResearcherAgent", _agent_stub_factory(seen)),
-        patch("aiq_agent.common.get_checkpointer", side_effect=AssertionError("must not be called")),
+        patch.object(register_module, "get_checkpointer", side_effect=AssertionError("must not be called")),
     ):
         gen = deep_research_agent.__wrapped__(config, _FakeBuilder())
         with caplog.at_level("WARNING"):

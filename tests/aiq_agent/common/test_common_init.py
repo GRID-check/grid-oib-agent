@@ -144,6 +144,82 @@ class TestCreateChatResponse:
 
         assert response.usage is not None
 
+    def test_create_chat_response_carries_explicit_usage(self):
+        """Provider totals passed in land on the generation object (usageDetails)."""
+        from nat.data_models.api_server import Usage
+
+        response = _create_chat_response(
+            "Test", usage=Usage(prompt_tokens=1204, completion_tokens=331, total_tokens=1535)
+        )
+
+        assert response.usage.prompt_tokens == 1204
+        assert response.usage.completion_tokens == 331
+        assert response.usage.total_tokens == 1535
+
+    def test_create_chat_response_defaults_to_empty_usage(self):
+        """No usage in stays empty — absent, never a fabricated zero row."""
+        response = _create_chat_response("Test")
+
+        assert response.usage.prompt_tokens is None
+        assert response.usage.completion_tokens is None
+        assert response.usage.total_tokens is None
+
+
+class TestAttachTrackerUsage:
+    """Provider usage in → observation fields populated, end to end."""
+
+    def test_tracker_totals_land_on_the_wire_response(self):
+        from aiq_agent.common import attach_tracker_usage
+
+        class Tracker:
+            prompt_tokens = 1204
+            completion_tokens = 331
+            events_recorded = 2
+
+        response = attach_tracker_usage(_create_chat_response("Test"), Tracker())
+
+        assert response.usage.prompt_tokens == 1204
+        assert response.usage.completion_tokens == 331
+        assert response.usage.total_tokens == 1535
+
+    def test_provider_result_flows_through_tracker_to_response(self):
+        """The full passthrough: OpenRouter LLMResult → tracker → ChatResponse."""
+        from langchain_core.messages import AIMessage
+        from langchain_core.outputs import ChatGeneration
+        from langchain_core.outputs import LLMResult
+
+        from aiq_agent.common import attach_tracker_usage
+        from aiq_agent.common.cost_tracking import GridCostTracker
+
+        message = AIMessage(content="answer", id="gen-01")
+        result = LLMResult(
+            generations=[[ChatGeneration(message=message)]],
+            llm_output={
+                "model_name": "m",
+                "token_usage": {"prompt_tokens": 100, "completion_tokens": 20, "total_tokens": 120},
+            },
+        )
+        tracker = GridCostTracker(organization_id="org_1")
+        tracker.on_llm_end(result)
+
+        response = attach_tracker_usage(_create_chat_response("Test"), tracker)
+
+        assert response.usage.prompt_tokens == 100
+        assert response.usage.completion_tokens == 20
+        assert response.usage.total_tokens == 120
+
+    def test_empty_tracker_leaves_the_response_untouched(self):
+        from aiq_agent.common import attach_tracker_usage
+
+        class Tracker:
+            prompt_tokens = 0
+            completion_tokens = 0
+            events_recorded = 0
+
+        response = _create_chat_response("Test")
+        assert attach_tracker_usage(response, Tracker()).usage.prompt_tokens is None
+        assert attach_tracker_usage(response, None).usage.prompt_tokens is None
+
     def test_create_chat_response_special_characters(self):
         """Test chat response with special characters."""
         special_content = "Hello\n\tWorld! 🌍 <script>alert('xss')</script>"
@@ -391,11 +467,11 @@ class TestGetCheckpointer:
 
     @pytest.mark.asyncio
     async def test_sqlite_serde_round_trips_all_state_types(self):
-        """A fully-populated ChatResearcherState survives an AsyncSqliteSaver round-trip.
+        """A fully-populated ConversationState survives an AsyncSqliteSaver round-trip.
 
-        Exercises the explicit msgpack allow-list serde: all four custom pydantic
-        state types (IntentResult, DepthDecision, ShallowResult, AvailableDocument)
-        plus messages must deserialize back equal.
+        Exercises the explicit msgpack allow-list serde: the one custom
+        pydantic state type left (AvailableDocument) plus messages must
+        deserialize back equal.
         """
         import aiosqlite
         from langchain_core.messages import AIMessage
@@ -403,10 +479,7 @@ class TestGetCheckpointer:
         from langgraph.checkpoint.base import empty_checkpoint
         from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 
-        from aiq_agent.agents.chat_researcher.models.depth import DepthDecision
-        from aiq_agent.agents.chat_researcher.models.intent import IntentResult
-        from aiq_agent.agents.chat_researcher.models.result import ShallowResult
-        from aiq_agent.agents.chat_researcher.models.state import ChatResearcherState
+        from aiq_agent.agents.piloti.models import ConversationState
         from aiq_agent.common import _build_checkpointer_serde
         from aiq_agent.knowledge.schema import AvailableDocument
 
@@ -418,16 +491,11 @@ class TestGetCheckpointer:
             checkpointer = AsyncSqliteSaver(conn, serde=_build_checkpointer_serde())
             await checkpointer.setup()
 
-            state = ChatResearcherState(
+            state = ConversationState(
                 messages=[HumanMessage(content="hi"), AIMessage(content="hello")],
-                user_intent=IntentResult(intent="research", raw={"score": 1}),
-                depth_decision=DepthDecision(decision="shallow", raw_reasoning="quick lookup"),
-                shallow_result=ShallowResult(
-                    answer="the answer",
-                    confidence="low",
-                    escalate_to_deep=True,
-                    escalation_reason="insufficient",
-                ),
+                routing_decision="deep",
+                escalate_to_deep=True,
+                escalation_ask_reason="insufficient",
                 available_documents=[AvailableDocument(file_name="doc.txt", summary="s", tags=["oib"])],
                 answer_confidence="high",
             )
@@ -435,9 +503,9 @@ class TestGetCheckpointer:
             checkpoint = empty_checkpoint()
             checkpoint["channel_values"] = {
                 "messages": state.messages,
-                "user_intent": state.user_intent,
-                "depth_decision": state.depth_decision,
-                "shallow_result": state.shallow_result,
+                "routing_decision": state.routing_decision,
+                "escalate_to_deep": state.escalate_to_deep,
+                "escalation_ask_reason": state.escalation_ask_reason,
                 "available_documents": state.available_documents,
                 "answer_confidence": state.answer_confidence,
             }
@@ -446,14 +514,62 @@ class TestGetCheckpointer:
 
             restored = (await checkpointer.aget_tuple(saved_config)).checkpoint["channel_values"]
 
-            assert restored["user_intent"] == state.user_intent
-            assert isinstance(restored["user_intent"], IntentResult)
-            assert restored["depth_decision"] == state.depth_decision
-            assert restored["shallow_result"] == state.shallow_result
+            assert restored["routing_decision"] == "deep"
+            assert restored["escalate_to_deep"] is True
+            assert restored["escalation_ask_reason"] == "insufficient"
             assert restored["available_documents"] == state.available_documents
             assert isinstance(restored["available_documents"][0], AvailableDocument)
             assert restored["answer_confidence"] == "high"
             assert [m.content for m in restored["messages"]] == ["hi", "hello"]
+        finally:
+            await conn.close()
+            os.unlink(db_path)
+
+    @pytest.mark.asyncio
+    async def test_a_checkpoint_holding_a_retired_state_type_still_restores(self):
+        """A conversation mid-flight when a state type is retired keeps working.
+
+        ``ShallowResult`` used to be a channel value and an allow-list entry;
+        its one escalation bit is a plain field now. Checkpoints written before
+        that still carry the old object, so this pins what the serde does with
+        a type it no longer allows: hand back the kwargs dict, never raise —
+        and the graph drops the channel it no longer declares.
+        """
+        import aiosqlite
+        from langchain_core.messages import HumanMessage
+        from langgraph.checkpoint.base import empty_checkpoint
+        from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
+        from pydantic import BaseModel
+
+        from aiq_agent.agents.piloti.models import ConversationState
+        from aiq_agent.common import _build_checkpointer_serde
+
+        class RetiredStateType(BaseModel):
+            answer: str
+            escalate_to_deep: bool
+
+        with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as f:
+            db_path = f.name
+
+        conn = await aiosqlite.connect(db_path)
+        try:
+            checkpointer = AsyncSqliteSaver(conn, serde=_build_checkpointer_serde())
+            await checkpointer.setup()
+
+            checkpoint = empty_checkpoint()
+            checkpoint["channel_values"] = {
+                "messages": [HumanMessage(content="hi")],
+                "shallow_result": RetiredStateType(answer="a", escalate_to_deep=True),
+            }
+            config = {"configurable": {"thread_id": "t1", "checkpoint_ns": ""}}
+            saved_config = await checkpointer.aput(config, checkpoint, {}, {})
+
+            restored = (await checkpointer.aget_tuple(saved_config)).checkpoint["channel_values"]
+
+            assert restored["shallow_result"] == {"answer": "a", "escalate_to_deep": True}
+            assert [m.content for m in restored["messages"]] == ["hi"]
+            # And the retired channel is not a field the state would accept back.
+            assert "shallow_result" not in ConversationState.model_fields
         finally:
             await conn.close()
             os.unlink(db_path)

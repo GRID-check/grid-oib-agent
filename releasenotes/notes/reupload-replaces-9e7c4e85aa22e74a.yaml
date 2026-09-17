@@ -1,0 +1,12 @@
+---
+fixes:
+  - >
+    Wird eine Datei mit demselben Namen erneut hochgeladen — etwa ein
+    korrigierter Plan —, ersetzt sie jetzt die vorhandene, statt eine zweite
+    Kopie anzulegen. Bisher blieb der erste Eintrag in der Liste stehen, ließ
+    sich herunterladen, war aber für Piloti nicht mehr auffindbar, weil seine
+    Textstellen bereits durch die neuen ersetzt worden waren. Der
+    Speicherplatz wurde dabei doppelt berechnet.
+  - >
+    Das Dokument behält seine Identität: Verweise aus Antworten, der Bezug im
+    Chat und die Ablage im Ordner bleiben erhalten.

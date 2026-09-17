@@ -6,7 +6,7 @@ import { cn } from '@/lib/utils'
 const spinnerSizeMap = {
   xs: 'size-3.5',
   sm: 'size-4',
-  default: 'size-6',
+  default: 'size-4 lg:size-6',
   lg: 'size-8',
 } as const
 
@@ -29,7 +29,10 @@ const Spinner = React.forwardRef<HTMLSpanElement, SpinnerProps>(
         className={cn('inline-flex', className)}
         {...props}
       >
-        <Loader2 className={cn('animate-spin', spinnerSizeMap[size])} aria-hidden="true" />
+        <Loader2
+          className={cn('animate-spin motion-reduce:animate-none', spinnerSizeMap[size])}
+          aria-hidden="true"
+        />
         {decorative ? null : <span className="sr-only">{label}</span>}
       </span>
     )

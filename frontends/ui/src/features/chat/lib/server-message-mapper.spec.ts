@@ -77,12 +77,17 @@ describe('mapServerMessageToChatMessage', () => {
     expect(mapped!.messageFiles).toEqual([{ id: 'f1', fileName: 'a.pdf' }])
   })
 
-  it('drops a stored card the current schema does not know, keeping the rest', () => {
-    // This path — every card read back out of the database — used to CAST
+  it('holes a stored card the current schema does not know, keeping the rest in place', () => {
+    // This path - every card read back out of the database - used to CAST
     // rather than validate, while the live websocket path validated. One row
     // written under a different schema version then reached a renderer that
     // indexes a lookup table by an unvalidated field, threw during render, and
     // blanked the whole conversation instead of that one card.
+    //
+    // The rejected card leaves a HOLE rather than being filtered out:
+    // positions are card identity (`[[card:N]]` markers address them, persisted
+    // decisions key on them), so closing the gap would rebind every marker and
+    // decision after it onto the wrong card on reload.
     const mapped = mapServerMessageToChatMessage(
       serverMessage({
         role: 'assistant',
@@ -91,8 +96,9 @@ describe('mapServerMessageToChatMessage', () => {
         },
       })
     )
-    expect(mapped!.cards).toHaveLength(1)
-    expect(mapped!.cards?.[0]).toMatchObject({ type: 'summary' })
+    expect(mapped!.cards).toHaveLength(2)
+    expect(mapped!.cards?.[0]).toBeUndefined()
+    expect(mapped!.cards?.[1]).toMatchObject({ type: 'summary' })
   })
 
   it('restores interactive-card decisions so a settled card cannot be re-answered', () => {
@@ -249,7 +255,6 @@ describe('mapServerMessageToChatMessage — the answer’s provenance', () => {
     answerConfidence: 'high',
     answerConfidenceReason: 'Zwei übereinstimmende Quellen.',
     routingDecision: 'shallow',
-    routingReason: 'Direkte Normfrage.',
     citationsRemoved: { count: 1, reasons: ['ungrounded'] },
     deepResearchJobId: 'job_1',
     showViewReport: true,
@@ -269,7 +274,7 @@ describe('mapServerMessageToChatMessage — the answer’s provenance', () => {
     expect(step.traceLanes).toEqual([{ kind: 'oib', label: 'OIB 2.3' }])
   })
 
-  it('restores the confidence self-assessment and the routing transparency', () => {
+  it('restores the confidence self-assessment and the routing decision', () => {
     const mapped = mapServerMessageToChatMessage(
       serverMessage({ role: 'assistant', metadata: { provenance } }),
     )
@@ -277,7 +282,6 @@ describe('mapServerMessageToChatMessage — the answer’s provenance', () => {
     expect(mapped!.answerConfidence).toBe('high')
     expect(mapped!.answerConfidenceReason).toBe('Zwei übereinstimmende Quellen.')
     expect(mapped!.routingDecision).toBe('shallow')
-    expect(mapped!.routingReason).toBe('Direkte Normfrage.')
     expect(mapped!.citationsRemoved).toEqual({ count: 1, reasons: ['ungrounded'] })
     expect(mapped!.deepResearchJobId).toBe('job_1')
     expect(mapped!.showViewReport).toBe(true)
@@ -297,6 +301,133 @@ describe('mapServerMessageToChatMessage — the answer’s provenance', () => {
     )
 
     expect(mapped!.researchTruncated).toBeUndefined()
+  })
+
+  it('restores the retrieval ledger from provenance, so a reload reads the same account', () => {
+    const ledger = [
+      {
+        index: 0,
+        key: 'status.retrieval.withQuery',
+        tools: ['knowledge_search'],
+        corpora: ['knowledge'],
+        query: 'Fluchtweglänge GK4',
+        docs: [{ name: 'OIB-RL_2.pdf', detail: 'p.12' }],
+        new_docs: ['OIB-RL_2.pdf'],
+        hits: 1,
+        documents: 1,
+      },
+    ]
+    const mapped = mapServerMessageToChatMessage(
+      serverMessage({ role: 'assistant', metadata: { provenance: { ...provenance, retrievalLedger: ledger } } }),
+    )
+
+    expect(mapped!.retrievalLedger).toEqual([
+      {
+        index: 0,
+        key: 'status.retrieval.withQuery',
+        tools: ['knowledge_search'],
+        corpora: ['knowledge'],
+        query: 'Fluchtweglänge GK4',
+        docs: [{ name: 'OIB-RL_2.pdf', detail: 'p.12' }],
+        newDocs: ['OIB-RL_2.pdf'],
+        hits: 1,
+        documents: 1,
+      },
+    ])
+  })
+
+  it('restores the ledger the BFF persisted for a dropped socket, and drops garbage', () => {
+    const persisted = {
+      index: 1,
+      key: 'status.retrieval.punkt',
+      tools: ['read_passage'],
+      corpora: ['knowledge'],
+      docs: [{ name: 'OIB-RL_2.pdf' }],
+      new_docs: [],
+      hits: 1,
+      documents: 1,
+    }
+    const mapped = mapServerMessageToChatMessage(
+      serverMessage({ role: 'assistant', metadata: { retrieval_ledger: [persisted] } }),
+    )
+    expect(mapped!.retrievalLedger).toEqual([
+      {
+        index: 1,
+        key: 'status.retrieval.punkt',
+        tools: ['read_passage'],
+        corpora: ['knowledge'],
+        docs: [{ name: 'OIB-RL_2.pdf' }],
+        newDocs: [],
+        hits: 1,
+        documents: 1,
+      },
+    ])
+
+    const bad = mapServerMessageToChatMessage(
+      serverMessage({
+        role: 'assistant',
+        metadata: { retrieval_ledger: 'oib', provenance: { retrievalLedger: [{ key: 'no-index' }] } },
+      }),
+    )
+    expect(bad!.retrievalLedger).toBeUndefined()
+  })
+
+  it('restores the run ledger on a run’s own message, bounded again on the way out', () => {
+    // The one payload on a message that this tier did not write: the Python
+    // fold produces it, so „written by another build" is the ordinary case
+    // rather than the legacy one.
+    const mapped = mapServerMessageToChatMessage(
+      serverMessage({
+        role: 'assistant',
+        metadata: {
+          run_ledger: {
+            runId: 'run-1',
+            status: 'laeuft',
+            phases: [{ phase: 'recherchieren', startedAt: '2026-09-16T08:00:00.000Z' }],
+            steps: [
+              {
+                id: 'batch-1',
+                phase: 'recherchieren',
+                intent: 'OIB-2 auf Fluchtwegbreiten prüfen',
+                startedAt: '2026-09-16T08:01:00.000Z',
+                docs: [{ name: 'OIB-RL_2.pdf', loci: ['S. 12'] }],
+                tool: 'knowledge_search',
+              },
+            ],
+            startedAt: '2026-09-16T08:00:00.000Z',
+            updatedAt: '2026-09-16T08:01:00.000Z',
+          },
+        },
+      }),
+    )
+    expect(mapped!.runLedger?.steps[0]).toEqual({
+      id: 'batch-1',
+      phase: 'recherchieren',
+      intent: 'OIB-2 auf Fluchtwegbreiten prüfen',
+      startedAt: '2026-09-16T08:01:00.000Z',
+      docs: [{ name: 'OIB-RL_2.pdf', loci: ['S. 12'] }],
+    })
+
+    const bad = mapServerMessageToChatMessage(
+      serverMessage({ role: 'assistant', metadata: { run_ledger: 'lief gut' } }),
+    )
+    expect(bad!.runLedger).toBeUndefined()
+  })
+
+  it('reads the run title back as one bounded line, and drops one that is not a string', () => {
+    const mapped = mapServerMessageToChatMessage(
+      serverMessage({
+        role: 'assistant',
+        metadata: { run_title: `Normprüfung:\n  Fluchtwege ${'x'.repeat(300)}` },
+      }),
+    )
+    expect(mapped!.runTitle).toMatch(/^Normprüfung: Fluchtwege x+$/)
+    expect(mapped!.runTitle).toHaveLength(200)
+
+    const bad = mapServerMessageToChatMessage(
+      serverMessage({ role: 'assistant', metadata: { run_title: { de: 'Titel' } } }),
+    )
+    expect(bad!.runTitle).toBeUndefined()
   })
 
   it('ignores a provenance blob written by some other build', () => {
@@ -335,6 +466,40 @@ describe('mapServerMessageToChatMessage — the answer’s provenance', () => {
       )
       expect(mapped!.thinkingSteps).toBeUndefined()
     }
+  })
+
+  it('restores the read-but-uncited disclosure from its own envelope', () => {
+    // Stored under `readSources` in the same versioned envelope as the
+    // citations, so a reloaded thread still says what else the turn read.
+    const mapped = mapServerMessageToChatMessage(
+      serverMessage({
+        role: 'assistant',
+        metadata: {
+          readSources: {
+            v: 1,
+            sources: [
+              {
+                document_id: 'doc:oib_knowledge:oib-rl_2.pdf',
+                citation_key: 'oib-rl_2.pdf, p.12',
+                file_name: 'oib-rl_2.pdf',
+                page: 12,
+                kind: 'baurecht',
+                lane: 'baurecht_oib',
+              },
+            ],
+          },
+        },
+      }),
+    )
+
+    expect(mapped!.readSources).toHaveLength(1)
+    expect(mapped!.readSources![0]).toMatchObject({ fileName: 'oib-rl_2.pdf', page: 12 })
+  })
+
+  it('adds no disclosure when the row never recorded one', () => {
+    const mapped = mapServerMessageToChatMessage(serverMessage({ role: 'assistant' }))
+
+    expect(mapped!.readSources).toBeUndefined()
   })
 })
 

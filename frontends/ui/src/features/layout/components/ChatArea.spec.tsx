@@ -25,6 +25,25 @@ const mockSetComposerPrefill = vi.fn()
 const mockGetThinkingStepsForMessage = vi.fn((_messageId: string): ThinkingStep[] => [])
 const mockChatThinking = vi.fn((_props: unknown) => <div data-testid="chat-thinking">Thinking...</div>)
 
+// The run block's data half is mocked so the dispatch test asserts WHERE a run
+// message goes without opening a stream; the hook's own behaviour is covered
+// in features/runs/hooks/use-run-ledger.spec.ts. The block itself is stubbed
+// to its two testable facts (status, title) for the same reason.
+const mockUseRunLedger = vi.fn((input: { message: ChatMessage }) => ({
+  ledger: input.message.runLedger ?? null,
+  live: false,
+}))
+vi.mock('@/features/runs/hooks/use-run-ledger', () => ({
+  useRunLedger: (input: { message: ChatMessage }) => mockUseRunLedger(input),
+}))
+vi.mock('@/features/runs/components/RunBlock', () => ({
+  RunBlock: ({ ledger, title }: { ledger: { status: string }; title?: string | null }) => (
+    <div data-testid="run-block" data-status={ledger.status}>
+      {title}
+    </div>
+  ),
+}))
+
 /** A real `ThinkingStep`; the stubbed `ChatThinking` only reads how many there are. */
 const thinkingStep = (overrides: Partial<ThinkingStep> = {}): ThinkingStep => ({
   id: 'step-1',
@@ -112,6 +131,11 @@ vi.mock('@/features/chat', () => ({
     </div>
   ),
   ChatThinking: (props: unknown) => mockChatThinking(props),
+  // Only the bottom-of-thread typing cue (`TypingIndicator`, defined in
+  // ChatArea.tsx itself) reaches these — a real timer is not needed, a fixed
+  // "not elapsed yet" is enough to render.
+  useElapsedSeconds: () => 0,
+  formatElapsed: (seconds: number) => `${seconds}s`,
 }))
 
 // The ADR-0033 seam is mocked so this spec can drive the states it produces
@@ -231,55 +255,35 @@ describe('ChatArea', () => {
     mockBimModels = null
   })
 
-  describe('the empty canvas offers the building when there is one', () => {
-    const MODEL_CHIP = /how many external walls/i
-    const REQUIREMENTS_CHIP = /which requirements can my model not answer/i
+  describe('the empty canvas offers nothing to read, only something to do', () => {
+    // The greeting used to be followed by static example questions. They are
+    // gone: static examples cannot know the project. Their replacement —
+    // categorized, backend-driven starters from the project's own documents,
+    // checks and memory — is planned separately; until it lands, the canvas
+    // stays quiet rather than showing placeholders.
+    //
+    // This block is the ratchet. Suggestion chips are the kind of thing that
+    // grows back one well-argued pull request at a time, so the absence is
+    // asserted in the exact conditions that used to produce the most of them.
+    // A reintroduction must prefill only (never auto-send).
 
-    test('offers only corpus questions in a project with no model', () => {
+    test('grows no suggestion chips, not even where a readable model exists', () => {
       mockProjectId = 'proj-1'
-      mockBimModels = []
-      render(<ChatArea isAuthenticated />)
-
-      expect(screen.queryByRole('button', { name: MODEL_CHIP })).not.toBeInTheDocument()
-      expect(screen.getByRole('button', { name: /escape route length/i })).toBeInTheDocument()
-    })
-
-    test('offers building questions FIRST once a model is readable', async () => {
-      mockProjectId = 'proj-1'
+      // The strongest case: this project's model is ready, which is precisely
+      // when the canvas used to lead with two building questions.
       mockBimModels = [{ status: 'ready' }]
       render(<ChatArea isAuthenticated />)
 
-      const chips = screen.getAllByRole('button', { name: /\?$/ })
-      // The building leads: it is this project's own content, and it is the
-      // half of the product the OIB corpus cannot answer.
-      expect(chips[0]).toHaveAccessibleName(MODEL_CHIP)
-      expect(screen.getByRole('button', { name: REQUIREMENTS_CHIP })).toBeInTheDocument()
-      // The corpus questions stay — both capabilities are on offer, not one.
-      expect(screen.getByRole('button', { name: /fire compartments/i })).toBeInTheDocument()
-
-      // A chip prefills the composer rather than sending, like every other one.
-      await userEvent.click(chips[0])
-      expect(mockSetComposerPrefill).toHaveBeenCalledWith(
-        expect.stringMatching(MODEL_CHIP)
-      )
+      expect(screen.queryAllByRole('button', { name: /\?$/ })).toHaveLength(0)
+      expect(screen.queryByRole('group', { name: /example|beispiel/i })).not.toBeInTheDocument()
+      expect(mockSetComposerPrefill).not.toHaveBeenCalled()
     })
 
-    test('says nothing about a model that cannot be asked anything yet', () => {
-      mockProjectId = 'proj-1'
-      // Still extracting: the query layer has no rows, so a chip promising an
-      // exact count would be answered with "I could not read the model".
-      mockBimModels = [{ status: 'extracting' }]
+    test('leaves the greeting alone under it', () => {
       render(<ChatArea isAuthenticated />)
 
-      expect(screen.queryByRole('button', { name: MODEL_CHIP })).not.toBeInTheDocument()
-    })
-
-    test('never asks for models outside a project', () => {
-      mockProjectId = null
-      mockBimModels = [{ status: 'ready' }]
-      render(<ChatArea isAuthenticated />)
-
-      expect(screen.queryByRole('button', { name: MODEL_CHIP })).not.toBeInTheDocument()
+      expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent(GREETING_RE)
+      expect(screen.queryByText(/answers cite their sources/i)).not.toBeInTheDocument()
     })
   })
 
@@ -289,7 +293,7 @@ describe('ChatArea', () => {
     expect(
       screen.getByText(/piloti opens after your organization is verified/i)
     ).toBeInTheDocument()
-    expect(screen.getByText(/sign in to unlock project-scoped/i)).toBeInTheDocument()
+    expect(screen.getByText(/sign in to unlock the project workspace/i)).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /sign in with.*sso/i })).toBeInTheDocument()
   })
 
@@ -430,6 +434,56 @@ describe('ChatArea', () => {
     render(<ChatArea isAuthenticated={true} />)
 
     expect(screen.getByTestId('agent-response')).toHaveTextContent('Here is your answer')
+  })
+
+  /**
+   * A message that carries a run ledger IS a run (ADR-0062): it goes to the
+   * block, keyed to the active project, and its content is the report beneath
+   * the block once there is one — a live run shows the block alone.
+   */
+  test('dispatches a message with a run ledger to the run block', () => {
+    const runLedger = {
+      runId: 'run-1',
+      status: 'laeuft' as const,
+      phases: [],
+      steps: [],
+      startedAt: '2026-09-16T08:00:00.000Z',
+      updatedAt: '2026-09-16T08:00:00.000Z',
+    }
+    vi.mocked(useChatStore).mockImplementation((selector?: StoreSelector<ChatStoreWithHydration>) => {
+      const state: ChatStoreFixture = {
+        currentConversation: {
+          messages: [
+            {
+              id: 'msg-run',
+              role: 'assistant',
+              content: 'Der Bericht',
+              messageType: 'agent_response',
+              runLedger,
+              runTitle: 'Normprüfung: Fluchtwege',
+            },
+          ],
+        },
+        projectId: mockProjectId,
+        isLoading: false,
+        hasHydrated: true,
+        isStreaming: false,
+        respondToPrompt: mockRespondToPrompt,
+        dismissErrorCard: mockDismissErrorCard,
+      }
+      return selector ? selector(asStoreState<ChatStoreWithHydration>(state)) : state
+    })
+
+    render(<ChatArea isAuthenticated={true} />)
+
+    const block = screen.getByTestId('run-block')
+    expect(block).toHaveAttribute('data-status', 'laeuft')
+    expect(block).toHaveTextContent('Normprüfung: Fluchtwege')
+    expect(mockUseRunLedger).toHaveBeenCalledWith(
+      expect.objectContaining({ projectId: mockProjectId, message: expect.objectContaining({ id: 'msg-run' }) }),
+    )
+    // Still going: the report is not shown yet, only the block.
+    expect(screen.queryByTestId('agent-response')).not.toBeInTheDocument()
   })
 
   test('renders file messages', () => {
@@ -742,6 +796,141 @@ describe('ChatArea', () => {
     // Second turn is actively streaming — shows spinner, not interrupted.
     expect(secondCallProps.isThinking).toBe(true)
     expect(secondCallProps.isInterrupted).toBe(false)
+  })
+})
+
+/**
+ * The bottom-of-thread "still working" cue after a HITL prompt is answered.
+ *
+ * A clarifying question, a Folgewege choice, or a plan decision all render as
+ * a `prompt` message. `respondToPrompt` flips it to answered the instant the
+ * reply is sent — before anything has streamed back — so without a cue here
+ * the answered bubble just sits there looking finished while Piloti is, in
+ * fact, still working on the next thing.
+ */
+describe('ChatArea — a working cue after an answered HITL prompt', () => {
+  const stateWithLastMessage = (message: MessageFixture, isStreaming: boolean): ChatStoreFixture => ({
+    currentConversation: {
+      id: 'c1',
+      messages: [
+        { id: 'user-1', role: 'user', content: 'Frage', messageType: 'user' },
+        message,
+      ],
+    },
+    isLoading: isStreaming,
+    isStreaming,
+    currentUserMessageId: 'user-1',
+    currentStatus: null,
+    hasHydrated: true,
+    thinkingSteps: [],
+    respondToPrompt: mockRespondToPrompt,
+    dismissErrorCard: mockDismissErrorCard,
+    getThinkingStepsForMessage: mockGetThinkingStepsForMessage,
+  })
+
+  const mount = (state: ChatStoreFixture) => {
+    vi.mocked(useChatStore).mockImplementation((selector?: StoreSelector<ChatStoreWithHydration>) =>
+      selector ? selector(asStoreState<ChatStoreWithHydration>(state)) : state
+    )
+    render(<ChatArea isAuthenticated={true} />)
+  }
+
+  test('shows the working cue once an answered prompt is the last message and streaming resumed', () => {
+    mount(
+      stateWithLastMessage(
+        {
+          id: 'prompt-1',
+          role: 'assistant',
+          content: 'Welche Bauklasse?',
+          messageType: 'prompt',
+          promptType: 'choice',
+          isPromptResponded: true,
+          promptResponse: 'Bauklasse 4',
+        },
+        true
+      )
+    )
+
+    // English fallback without an i18n provider (see the AgentPrompt specs).
+    expect(screen.getByRole('status', { name: 'Piloti is responding …' })).toBeInTheDocument()
+  })
+
+  test('shows nothing while the prompt is still unanswered — that state is the prompt bubble itself', () => {
+    mount(
+      stateWithLastMessage(
+        {
+          id: 'prompt-1',
+          role: 'assistant',
+          content: 'Welche Bauklasse?',
+          messageType: 'prompt',
+          promptType: 'choice',
+          isPromptResponded: false,
+        },
+        true
+      )
+    )
+
+    // The stubbed AgentPrompt renders; the bottom "typing" cue must not also
+    // appear for a question that has not been answered yet.
+    expect(screen.getByTestId('agent-prompt')).toBeInTheDocument()
+    expect(screen.queryByRole('status', { name: 'Piloti is responding …' })).not.toBeInTheDocument()
+  })
+
+  test('shows nothing once the session has stopped streaming, even if the prompt is answered', () => {
+    mount(
+      stateWithLastMessage(
+        {
+          id: 'prompt-1',
+          role: 'assistant',
+          content: 'Welche Bauklasse?',
+          messageType: 'prompt',
+          promptType: 'choice',
+          isPromptResponded: true,
+          promptResponse: 'Bauklasse 4',
+        },
+        false
+      )
+    )
+
+    expect(screen.queryByRole('status', { name: 'Piloti is responding …' })).not.toBeInTheDocument()
+  })
+
+  test('an answer that has already arrived replaces the cue instead of stacking with it', () => {
+    mount({
+      currentConversation: {
+        id: 'c1',
+        messages: [
+          { id: 'user-1', role: 'user', content: 'Frage', messageType: 'user' },
+          {
+            id: 'prompt-1',
+            role: 'assistant',
+            content: 'Welche Bauklasse?',
+            messageType: 'prompt',
+            promptType: 'choice',
+            isPromptResponded: true,
+            promptResponse: 'Bauklasse 4',
+          },
+          {
+            id: 'answer-1',
+            role: 'assistant',
+            content: 'Für Bauklasse 4 gilt …',
+            messageType: 'agent_response',
+          },
+        ],
+      },
+      isLoading: true,
+      isStreaming: true,
+      currentUserMessageId: 'user-1',
+      currentStatus: null,
+      hasHydrated: true,
+      thinkingSteps: [],
+      respondToPrompt: mockRespondToPrompt,
+      dismissErrorCard: mockDismissErrorCard,
+      getThinkingStepsForMessage: mockGetThinkingStepsForMessage,
+    })
+
+    expect(screen.getByTestId('agent-response')).toBeInTheDocument()
+    expect(screen.queryByRole('status', { name: 'Piloti is responding …' })).not.toBeInTheDocument()
   })
 })
 

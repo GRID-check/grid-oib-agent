@@ -1,0 +1,14 @@
+---
+features:
+  - >
+    Whether Piloti may put the documents it writes into your project is now a
+    permission of its own, called "File agent-authored documents". Give it to
+    the roles that should let Piloti file a report or a diagram, and withhold it
+    from the rest. Anyone you withhold it from can still upload, rename and
+    delete their own files exactly as before.
+upgrade:
+  - >
+    The new permission has to be granted before Piloti files anything. The
+    built-in Project Editor and Project Admin roles receive it when your
+    organization is next provisioned. A custom project role does not: grant it
+    there yourself, or leave it out if you would rather Piloti only answered.

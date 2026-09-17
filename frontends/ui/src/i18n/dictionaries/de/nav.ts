@@ -1,12 +1,9 @@
 import type { en } from '../en'
 
-/** Navigation shell: sidebar, topbar, user menu, and the History page. */
+/** Navigation shell: sidebar, org header, and the user menu. */
 export const nav: typeof en.nav = {
   projectNavigation: 'Projektnavigation',
   projectSections: 'Projektbereiche',
-  orgNavigation: 'Organisationsnavigation',
-  orgSections: 'Organisationsbereiche',
-  backToProjects: 'Zurück zu den Projekten',
   allProjects: 'Piloti — alle Projekte',
   collapseSidebar: 'Seitenleiste einklappen',
   expandSidebar: 'Seitenleiste ausklappen',
@@ -20,35 +17,25 @@ export const nav: typeof en.nav = {
     files: 'Dateien',
     knowledge: 'Wissen',
     research: 'Recherche',
+    /** Automatisierung — Tasks und Skills als Tabs in einem Bereich. */
+    automation: 'Automatisierung',
     skills: 'Skills',
     jobs: 'Jobs',
+    // Der führende Tab: an Piloti übergebene Arbeit, eine Karte je Task (ADR-0051).
+    tasks: 'Tasks',
     archiv: 'Archiv',
-    history: 'Historie',
     settings: 'Einstellungen',
     // Der Intake-Assistent, im Produkt „Einrichtung" (nur ⌘K-Palette).
     intake: 'Einrichtung',
   },
-  /** Org-scope group headings. Deliberately NOT shared with `sectionGroups`:
-   * the same word must not head two different sets of destinations. */
-  orgSectionGroups: {
-    work: 'Organisationsweit',
-    account: 'Verwaltung',
-  },
-  scope: {
-    /** Stated inside the org region, so the scope survives grayscale. */
-    orgEyebrow: 'Organisationsweit — nicht dieses Projekt',
-  },
   sectionGroups: {
     work: 'Arbeit',
-    automate: 'Automatisieren',
     org: 'Organisation',
-    account: 'Verwaltung',
   },
   sectionSubtitles: {
     files: 'Dokumente, auf die sich Piloti in diesem Projekt stützt.',
-    history: 'Alle Unterhaltungen und Deep-Research-Läufe dieses Projekts.',
-    skills: 'Wiederverwendbare Anweisungen, die die Organisation einmal schreibt.',
-    jobs: 'Prompts, die dieses Projekt zeitgesteuert ausführt.',
+    automation:
+      'Was Piloti erledigt hat, während Sie weg waren, was als Nächstes ansteht — und die Skills, mit denen es arbeitet.',
     knowledge: 'Was die Wissensbasis derzeit enthält.',
     settings: 'Projektprofil, Mitglieder, Gedächtnis und Gefahrenzone.',
     intake: 'Geführtes Briefing für dieses Projekt.',
@@ -77,51 +64,13 @@ export const nav: typeof en.nav = {
     viewAllProjects: 'Alle Projekte ansehen',
     newProject: 'Neues Projekt',
   },
-  orgTopbar: {
-    organization: 'Organisation',
-  },
   userMenu: {
     label: 'Benutzermenü für {name}',
     defaultUser: 'Standardbenutzer',
     authNotConfigured: 'Authentifizierung nicht konfiguriert',
     profile: 'Profil',
-    archiv: 'Archiv',
     organization: 'Organisation',
     platform: 'Plattform',
     settings: 'Einstellungen',
-  },
-  /** Die Projekt-Historie: Unterhaltungen + Deep-Research-Läufe (FB-10). */
-  history: {
-    subtitle: 'Alle Unterhaltungen und Deep-Research-Läufe dieses Projekts.',
-    conversationsHeading: 'Unterhaltungen',
-    researchHeading: 'Deep Research',
-    filterAll: 'Alle',
-    filterAria: 'Historie nach Typ filtern',
-    typeConversation: 'Unterhaltung',
-    tagFilterLabel: 'Themen:',
-    tagFilterAria: 'Unterhaltungen nach Thema filtern',
-    tagFilterClear: 'Zurücksetzen',
-    tags: {
-      brandschutz: 'Brandschutz',
-      schallschutz: 'Schallschutz',
-      barrierefreiheit: 'Barrierefreiheit',
-      energie: 'Energie & Wärme',
-      statik: 'Statik',
-      hygiene: 'Hygiene & Umwelt',
-      nutzungssicherheit: 'Nutzungssicherheit',
-      allgemein: 'Allgemein',
-    },
-    searchPlaceholder: 'Anfragen durchsuchen…',
-    searchAria: 'Unterhaltungen nach Titel durchsuchen',
-    untitledConversation: 'Unbenannte Unterhaltung',
-    openConversation: 'Unterhaltung "{title}" im Chat öffnen',
-    emptyTitle: 'Noch keine Unterhaltungen',
-    emptyDescription:
-      'Stellen Sie Piloti im Chat eine Frage — jede Unterhaltung erscheint anschließend hier.',
-    emptyAction: 'Chat öffnen',
-    noMatchesTitle: 'Keine passenden Unterhaltungen',
-    noMatchesDescription: 'Versuchen Sie einen anderen Suchbegriff.',
-    errorTitle: 'Unterhaltungen konnten nicht geladen werden',
-    tryAgain: 'Erneut versuchen',
   },
 }

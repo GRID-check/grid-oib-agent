@@ -25,12 +25,21 @@ const isRouteGroup = (segment: string): boolean => segment.startsWith('(') && se
 /** Private folders `_name` are opted out of routing entirely. */
 const isPrivateFolder = (segment: string): boolean => segment.startsWith('_')
 
+/**
+ * Parallel-route slots `@name` never contribute a URL of their own: a slot's
+ * pages (including `(.)…` interception dirs inside it) render INTO an existing
+ * URL — the `@overlay` slot is how the Archiv/Postfach sheets rise above the
+ * current page — so the walker skips the whole subtree, exactly as the router
+ * resolves it.
+ */
+const isParallelSlot = (segment: string): boolean => segment.startsWith('@')
+
 const isPageFile = (name: string): boolean => /^page\.(tsx|ts|jsx|js)$/.test(name)
 
 function collectRouteUrls(dir: string, url: string, into: string[]): void {
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
     if (entry.isDirectory()) {
-      if (isPrivateFolder(entry.name)) continue
+      if (isPrivateFolder(entry.name) || isParallelSlot(entry.name)) continue
       const nextUrl = isRouteGroup(entry.name) ? url : `${url}/${entry.name}`
       collectRouteUrls(join(dir, entry.name), nextUrl, into)
     } else if (isPageFile(entry.name)) {

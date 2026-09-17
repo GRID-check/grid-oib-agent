@@ -1,0 +1,12 @@
+---
+fixes:
+  - >
+    Eine Deep-Research-Anfrage brach ab, wenn intern kurz kein freier Platz für
+    einen Quellenaufruf da war. Die Wartezeit auf unsere eigene Warteschlange
+    galt als „Quelle antwortet nicht" und beendete den ganzen Lauf — früh im
+    Lauf ohne Zwischenergebnis. Jetzt wird nur dieser eine Aufruf übersprungen,
+    und die Recherche läuft weiter.
+  - >
+    Eine laufende Recherche, die längere Zeit nichts meldet, wurde von der
+    Verbindung dazwischen für abgestorben gehalten und getrennt — obwohl im
+    Hintergrund alles lief. Die Verbindung wird jetzt regelmäßig wachgehalten.

@@ -1,0 +1,61 @@
+---
+features:
+  - >
+    Die Automatisierung hat jetzt einen Zeitplan-Tab mit einem echten
+    Stundenplan: eine Woche als Raster, jeder geplante Lauf als Block an seinem
+    Platz. So sieht man auf einen Blick, was sich überschneidet, an welchen
+    Tagen nichts läuft und wie dicht die Woche ist — bisher musste man das aus
+    einer Liste im Kopf zusammenrechnen.
+  - >
+    Lange leere Stunden fasst der Stundenplan als markierte Pause zusammen,
+    damit Vormittag und Nachmittag beide lesbar bleiben. Die ganzen 24 Stunden
+    sind einen Klick entfernt.
+  - >
+    Neue Zeitpläne entstehen jetzt in vier Schritten statt auf einer Seite mit
+    sechzehn Feldern: Auftrag, Ergebnis, Rhythmus, Prüfen. Pro Schritt ist genau
+    eine Angabe nötig; Skill, Datenquellen, Zeitzone und Cron-Ausdruck liegen
+    zusammengeklappt darunter, weil die meisten Zeitpläne sie nicht brauchen.
+    Der Name schlägt sich aus der ersten Zeile des Auftrags selbst vor.
+  - >
+    Im Schritt „Rhythmus" stehen die nächsten drei echten Termine. Ob
+    „Monatlich am 1. um 06:00" stimmt, ließ sich vorher nicht nachsehen — man
+    hat es beim ersten Lauf erfahren.
+  - >
+    Ein Rhythmus lässt sich jetzt über mehrere Wochentage legen: „Montag,
+    Mittwoch und Freitag" oder „werktags" ist eine Auswahl von Tagen statt eines
+    Cron-Ausdrucks. Die Uhrzeit ist frei wählbar — bisher liefen alle Vorlagen
+    um 06:00.
+  - >
+    Aus einer erledigten Aufgabe wird mit einem Klick ein Zeitplan: „Als
+    Zeitplan speichern" öffnet den Assistenten, der Auftrag steht schon darin.
+upgrade:
+  - >
+    „Läufe" heißen jetzt Tasks — dieselben Zeilen, das Wort, das im Rest des
+    Produkts für übergebene Arbeit steht.
+improvements:
+  - >
+    Die Automatisierung steht in der Seitenleiste jetzt bei den Hauptbereichen,
+    neben „Frag Piloti" und „Dateien", statt unter einer eigenen Überschrift
+    darunter.
+  - >
+    Jeder Task ist eine Karte, und die ganze Karte öffnet die Details — nicht
+    mehr nur der Titel. Ein Farbquadrat vor dem Titel zeigt den Status beim
+    Überfliegen, die Liste ist nach „Heute", „Gestern", „Diese Woche" gruppiert,
+    und eine Filterzeile mit Zählern trennt Laufendes, Ungeprüftes und
+    Fehlgeschlagenes.
+  - >
+    „Ungeprüft" zeigt fertige Arbeit, die noch niemand beurteilt hat, und
+    markiert sie auch auf der Karte. Das war bisher nirgends abfragbar.
+  - >
+    Die Zeitplan-Karten sagen jetzt, was der Zeitplan tut — der Auftrag im
+    Wortlaut — statt welchen Skill er benutzt. Der Skill steht weiterhin in den
+    Details.
+  - >
+    Ein Zeitplan lässt sich wieder löschen; die Aktion war beim Zusammenlegen
+    der Bereiche verloren gegangen.
+fixes:
+  - >
+    Ein fertiger Task, der kein Dokument abgelegt und keinen Chat eröffnet hat,
+    führte nirgendwohin: Die Zeile sagte „Fertig" und bot keinen Weg zum
+    Ergebnis. Jetzt öffnet sie den Bericht des Laufs, und ein fehlgeschlagener
+    Task den Gedankengang.

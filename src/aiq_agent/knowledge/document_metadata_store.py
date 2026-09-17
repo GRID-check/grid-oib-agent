@@ -3,8 +3,9 @@
 One row per ``(collection, filename)`` holding everything the system knows about
 an ingested document beyond its chunks: the one-sentence ``summary``, the
 controlled ``tags``, the explicit ``doc_class`` ("Dokumentart"), the
-user-facing ``display_title``, and the ``folder_path`` the document is filed
-under (ADR-0049). The table is named ``document_metadata`` because
+user-facing ``display_title``, the ``folder_path`` the document is filed
+under (ADR-0049), and the ``provenance`` of a document Piloti wrote and a
+person released (ADR-0054). The table is named ``document_metadata`` because
 it is exactly that — the summary is only one of several columns.
 
 Historically this was the ``summaries`` table (class ``SummaryStore``). A
@@ -46,13 +47,13 @@ _LEGACY_INDEX_NAME = "idx_summaries_collection"
 #: Optional (nullable) columns added after the original schema shipped. Kept as a
 #: single list so both the fresh-create path and the in-place backfill add the
 #: exact same set — a new column is introduced by appending one entry here.
-_OPTIONAL_COLUMNS: tuple[str, ...] = ("tags", "doc_class", "display_title", "folder_path")
+_OPTIONAL_COLUMNS: tuple[str, ...] = ("tags", "doc_class", "display_title", "folder_path", "provenance")
 
 # Every raw-SQL statement in this module interpolates ONLY trusted, code-defined
 # SQL identifiers: the table/index name constants above, and column names drawn
 # from a fixed allowlist (``_OPTIONAL_COLUMNS`` plus the literal
-# ``"tags"``/``"doc_class"``/``"display_title"``/``"folder_path"`` passed by the
-# typed accessors).
+# ``"tags"``/``"doc_class"``/``"display_title"``/``"folder_path"``/``"provenance"``
+# passed by the typed accessors).
 # SQL identifiers cannot be bound parameters, so they must live in the statement
 # text. Every caller-supplied *value* (collection, filename, summary, tags,
 # display_title, …) is always passed as a bound ``:param`` and never interpolated.
@@ -267,6 +268,7 @@ class DocumentMetadataStore:
                 "doc_class TEXT, "
                 "display_title TEXT, "
                 "folder_path TEXT, "
+                "provenance TEXT, "
                 "created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, "
                 "PRIMARY KEY (collection, filename))"
             )
@@ -426,6 +428,46 @@ class DocumentMetadataStore:
     def get_folder_paths_batch(self, collection: str, filenames: list[str]) -> dict[str, str]:
         """Return stored ``folder_path`` values for many documents in one query."""
         return self._get_column_batch(collection, filenames, "folder_path")
+
+    def set_provenance(self, collection: str, filename: str, provenance: dict[str, str] | None) -> bool:
+        """Replace only the ``provenance`` of an existing metadata row (sync).
+
+        Who wrote the document and who released it (ADR-0054), stored as the
+        same JSON object the chunks carry as four separate keys — one nullable
+        column rather than four because nothing queries the parts, every reader
+        wants the whole record, and a column per key would make the fifth key
+        this record ever grows a migration instead of an edit to
+        ``aiq_agent.common.provenance``.
+
+        Same UPDATE-only contract as :meth:`set_folder_path`: returns ``False``
+        when no metadata row exists, so an ingest that produced no summary never
+        creates a summary-less, NOT NULL-violating row. ``None`` or an empty
+        mapping clears the column, which is what "a human wrote this" means.
+        """
+        import json
+
+        return self._update_column(collection, filename, "provenance", json.dumps(provenance) if provenance else None)
+
+    def get_provenance(self, collection: str, filename: str) -> dict[str, str] | None:
+        """Return the stored provenance for a document, or ``None`` (sync).
+
+        ``None`` covers "no metadata row", "row present but unmarked" and
+        "stored value is not a JSON object" — every one of which means the same
+        thing to a caller, and none of which is worth raising over: a document
+        whose provenance cannot be read is a document with no provenance, which
+        is what an unmarked human document already is.
+        """
+        import json
+
+        raw = self._get_column(collection, filename, "provenance")
+        if not raw:
+            return None
+        try:
+            decoded = json.loads(raw)
+        except (TypeError, ValueError):
+            logger.warning("Ignoring unreadable provenance for %s in %s", filename, collection)
+            return None
+        return decoded if isinstance(decoded, dict) else None
 
     def rewrite_folder_paths(self, collection: str, from_path: str, to_path: str | None) -> int:
         """Re-file a whole subtree after a folder was renamed, moved or deleted.

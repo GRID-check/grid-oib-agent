@@ -161,8 +161,13 @@ The isolation suite needs a real Postgres, because the claim is that the
 pass every assertion while proving nothing.
 
 ```bash
-task db:test:rls          # throwaway cluster, full migration chain, then the suite
+task db:test:rls          # throwaway cluster, full migration chain, then the suites
 ```
+
+The same cluster also runs the other suites whose claims are about SQL rather
+than the boundary — the BIM query suites and the memory service's
+consolidation suite (`memory-service.integration.spec.ts`). The list is fixed
+in `scripts/rls-test-db.sh`; a new database-backed spec is added there.
 
 or against your own database:
 

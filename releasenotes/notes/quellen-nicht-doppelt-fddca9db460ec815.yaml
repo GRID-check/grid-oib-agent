@@ -1,0 +1,7 @@
+---
+fixes:
+  - >
+    Unter „Belegt durch" erschien dieselbe Quelle zweimal, einmal davon als toter
+    Chip ohne Fundstelle. Ursache war eine Quellenzeile mit einem Titel vor dem
+    Dateinamen, die die Oberfläche keinem Dokument zuordnen konnte. Jede Quelle
+    erscheint jetzt genau einmal, mit Fundstelle.

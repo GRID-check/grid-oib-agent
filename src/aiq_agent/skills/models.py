@@ -50,9 +50,9 @@ MAX_COMPATIBILITY_CHARS = 500
 #: row or an old SKILL.md still carrying one keeps it as an ordinary free-form
 #: metadata entry, and nothing reads it.
 #:
-#: ``grid-auto-invoke`` is a different question: whether the model may pick
-#: this skill from the L1 catalog unprompted. Slash invocation and jobs still
-#: attach it when the flag is off. Absent means on, matching today's behaviour.
+#: ``grid-auto-invoke`` is the same kind of leftover, and is listed here for
+#: the same reason: it is still validated so an old document parses, and it is
+#: read by nobody.
 GRID_METADATA_KEYS = frozenset(
     {"grid-agents", "grid-cards", "grid-title", "grid-hidden", "grid-auto-invoke", "grid-catalog"}
 )
@@ -107,21 +107,16 @@ MAX_TITLE_CHARS = 60
 #: transparency).
 #:
 #: A property of the SKILL, keyed off metadata rather than a name list in the
-#: runtime, for the same reason ``standard`` is: the platform owner sets it on a
-#: row and it takes effect with no deploy.
+#: runtime: the platform owner sets it on a row and it takes effect with no
+#: deploy.
 GRID_HIDDEN_KEY = "grid-hidden"
 
-#: ``grid-auto-invoke`` — whether the model may pick this skill from L1.
-#:
-#: On (the default, and the absent key): the one-line description sits in the
-#: catalog the model reads every turn, and it may call ``use_skill`` unprompted.
-#: Off: the skill is still resolved, still in the ``/`` picker, still attachable
-#: to a job, still loadable when forced. It is merely invisible to the model
-#: until a person or a job names it.
-#:
-#: This is not scheduling. A skill still says nothing about when a job fires.
-#: It is catalog membership, the same object as the author's "Agent may pick
-#: this" switch.
+#: ``grid-auto-invoke`` — RETIRED. It said whether the model might pick this
+#: skill from L1, which is a person deciding which skill runs: the thing
+#: ADR-0060 removed everywhere else. The author's switch is gone, so honouring
+#: a stored ``false`` would hide a skill from every turn with nobody able to
+#: bring it back. The key is still validated, so an old document parses and
+#: keeps its value; nothing reads it, here or in the BFF.
 GRID_AUTO_INVOKE_KEY = "grid-auto-invoke"
 
 #: Case-insensitive truthy tokens that mark a skill hidden. Anything else —
@@ -167,12 +162,8 @@ class Skill(BaseModel):
             ``use_skill``).
         metadata: Reserved GRID keys + free-form extra keys.
         origin: ``platform`` for builtin files, ``org`` for BFF-served rows.
-        standard: Fleet standard equipment — a published ``delivery: standard``
-            platform row. The organization made no decision about it and cannot
-            switch it off, so it is applied on every run that resolves it (see
-            ``SkillRuntime``) rather than waiting to be chosen.
         collection: Mid-level collection dir name for builtin files
-            (research|synthesis); ``None`` for org rows.
+            (bim|oib|presentation|research|synthesis); ``None`` for org rows.
         license: Optional license string.
         compatibility: Optional compatibility note (<=500 chars).
         allowed_tools: Optional tool allowlist string.
@@ -183,7 +174,6 @@ class Skill(BaseModel):
     body: str
     metadata: dict[str, str] = {}
     origin: Literal["platform", "org"] = "platform"
-    standard: bool = False
     collection: str | None = None
     license: str | None = None
     compatibility: str | None = None
@@ -354,10 +344,10 @@ def _validate_grid_hidden(value: str, *, strict: bool) -> str | None:
 def _validate_grid_auto_invoke(value: str, *, strict: bool) -> str | None:
     """Validate ``grid-auto-invoke``; return canonical ``"false"`` or ``None``.
 
-    On is the default, so a truthy token and an empty string drop the key —
-    storing ``"true"`` would be a second spelling of "nothing" for every reader
-    to special-case. A recognised falsy token stores ``"false"``, because that
-    is the opt-out: absent already means on.
+    Kept only so an old document still parses (see
+    :data:`GRID_AUTO_INVOKE_KEY`). A truthy token and an empty string drop the
+    key; a recognised falsy token is normalised to ``"false"`` and stored. No
+    reader acts on either.
 
     Same two tolerances as :func:`_validate_grid_hidden`. A garbage flag on a
     reviewed SKILL.md is an authoring error; on an org row it costs the flag
@@ -474,28 +464,11 @@ def skill_hidden(metadata: dict[str, str]) -> bool:
     return metadata.get(GRID_HIDDEN_KEY, "").strip().lower() in _HIDDEN_TRUE
 
 
-def skill_auto_invoke(metadata: dict[str, str]) -> bool:
-    """Whether the model may pick this skill from the L1 catalog unprompted.
-
-    Absent or unrecognised reads as on: that is today's behaviour, and
-    forgetting the flag must not silently hide a skill from every turn. Only a
-    recognised falsy token opts out. Slash invocation, jobs, and a forced
-    standard skill still attach it either way — see :data:`GRID_AUTO_INVOKE_KEY`.
-    """
-    token = metadata.get(GRID_AUTO_INVOKE_KEY, "").strip().lower()
-    if not token:
-        return True
-    if token in _HIDDEN_FALSE:
-        return False
-    return True
-
-
 def build_skill_from_payload(
     payload: dict[str, Any],
     *,
     origin: Literal["platform", "org"] = "platform",
     collection: str | None = None,
-    standard: bool = False,
 ) -> Skill:
     """Build + validate a :class:`Skill` from parsed data (YAML frontmatter or BFF row).
 
@@ -528,7 +501,6 @@ def build_skill_from_payload(
         body=body,
         metadata=metadata,
         origin=origin,
-        standard=standard,
         collection=collection,
         license=license_ if isinstance(license_, str) else None,
         compatibility=compatibility,
@@ -542,7 +514,6 @@ def parse_skill_md(
     *,
     origin: Literal["platform", "org"] = "platform",
     collection: str | None = None,
-    standard: bool = False,
 ) -> Skill:
     """Parse a SKILL.md document into a validated :class:`Skill`.
 

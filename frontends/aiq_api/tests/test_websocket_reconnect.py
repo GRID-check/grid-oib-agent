@@ -16,6 +16,8 @@ satisfied by the test environment.
 
 from __future__ import annotations
 
+import asyncio
+import contextlib
 import time
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
@@ -25,6 +27,7 @@ from unittest.mock import patch
 import pytest
 from starlette.datastructures import QueryParams
 
+from aiq_api import websocket_reconnect
 from aiq_api.websocket_reconnect import ReconnectableWebSocketMessageHandler
 from aiq_api.websocket_reconnect import persist_assistant_message
 from nat.data_models.api_server import ChatResponseChunk
@@ -360,10 +363,10 @@ class TestTransparencyExtrasLift:
         handler = self._handler(built)
         chunk = _chunk("full answer", "stop")
         chunk.routing_decision = "deep"
-        chunk.routing_reason = "needs multi-source synthesis"
         chunk.escalation_reason = "Die erste Antwort war unzureichend."
         chunk.answer_confidence_capped_reason = "ungrounded"
         chunk.citations_removed = {"count": 1, "reasons": ["dead link"]}
+        chunk.retrieval_ledger = [{"index": 0, "purpose": "first_search", "docs": [], "new_docs": []}]
         with patch("aiq_api.websocket_reconnect._registry") as reg:
             reg.send = AsyncMock(return_value=True)  # client present, no persist
             await handler.create_websocket_message(
@@ -372,10 +375,10 @@ class TestTransparencyExtrasLift:
                 status=WebSocketMessageStatus.COMPLETE,
             )
         assert built.routing_decision == "deep"
-        assert built.routing_reason == "needs multi-source synthesis"
         assert built.escalation_reason == "Die erste Antwort war unzureichend."
         assert built.answer_confidence_capped_reason == "ungrounded"
         assert built.citations_removed == {"count": 1, "reasons": ["dead link"]}
+        assert built.retrieval_ledger == [{"index": 0, "purpose": "first_search", "docs": [], "new_docs": []}]
 
     @pytest.mark.asyncio
     async def test_absent_extras_are_not_attached(self) -> None:
@@ -391,12 +394,12 @@ class TestTransparencyExtrasLift:
             )
         for field in (
             "routing_decision",
-            "routing_reason",
             "escalation_reason",
             "answer_confidence_capped_reason",
             "citations_removed",
             "job_admission_rejected",
             "retry_after_seconds",
+            "retrieval_ledger",
         ):
             assert not hasattr(built, field)
 
@@ -647,3 +650,82 @@ class TestPersistAssistantMessageInternalRoute:
             )
 
         assert ok is False
+
+
+class TestTurnHeartbeat:
+    """ "This turn is still running", on the socket the turn is running on.
+
+    The client used to guess: it held a copy of the server's own run ceiling and
+    waited it out, so a turn that had really died locked the composer for forty
+    minutes, and a turn that was healthy could still be accused if the two
+    constants ever drifted. These pin the three properties the client's rule
+    depends on.
+    """
+
+    async def test_a_short_turn_puts_nothing_extra_on_the_wire(self):
+        # The beat sleeps first. A turn that answers in two seconds does not
+        # need to say it is alive, and a frame per turn for every turn would be
+        # a cost paid by the overwhelming majority to describe the minority.
+        sent: list[object] = []
+        with (
+            patch.object(websocket_reconnect, "TURN_HEARTBEAT_SECONDS", 0.05),
+            patch.object(websocket_reconnect._registry, "send", AsyncMock(side_effect=lambda _c, m: sent.append(m))),
+        ):
+            task = asyncio.create_task(websocket_reconnect._beat_while_running("conv-1", "msg-1"))
+            await asyncio.sleep(0.01)
+            task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await task
+
+        assert sent == []
+
+    async def test_it_keeps_beating_and_carries_its_own_cadence(self):
+        # `every_ms` travels ON the frame: the client's tolerance is a multiple
+        # of what the server says it will do, so this interval can change
+        # without a matching constant in the frontend. That mirroring is the
+        # defect the frame exists to remove.
+        sent: list[object] = []
+        with (
+            patch.object(websocket_reconnect, "TURN_HEARTBEAT_SECONDS", 0.02),
+            patch.object(websocket_reconnect._registry, "send", AsyncMock(side_effect=lambda _c, m: sent.append(m))),
+        ):
+            task = asyncio.create_task(websocket_reconnect._beat_while_running("conv-1", "msg-1"))
+            await asyncio.sleep(0.11)
+            task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await task
+
+        assert len(sent) >= 2
+        first = sent[0].model_dump()
+        assert first["type"] == "grid_turn_heartbeat"
+        assert first["conversation_id"] == "conv-1"
+        assert first["parent_id"] == "msg-1"
+        assert first["every_ms"] == 20  # 0.02s, as patched
+
+    async def test_a_send_failure_does_not_stop_the_beat(self):
+        # The likeliest failure is no socket at all, because the reader closed
+        # the tab — which is not a failure, and the client may reconnect
+        # mid-turn and need the beats that come after it does.
+        calls = {"n": 0}
+
+        async def _explode(_conversation_id, _message):
+            calls["n"] += 1
+            raise RuntimeError("socket gone")
+
+        with (
+            patch.object(websocket_reconnect, "TURN_HEARTBEAT_SECONDS", 0.02),
+            patch.object(websocket_reconnect._registry, "send", _explode),
+        ):
+            task = asyncio.create_task(websocket_reconnect._beat_while_running("conv-1", None))
+            await asyncio.sleep(0.11)
+            task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await task
+
+        assert calls["n"] >= 2
+
+    async def test_no_conversation_means_no_beat(self):
+        # Nothing to address it to, and `_registry.send` would refuse it anyway.
+        with patch.object(websocket_reconnect._registry, "send", AsyncMock()) as send:
+            await websocket_reconnect._beat_while_running(None, "msg-1")
+        send.assert_not_awaited()

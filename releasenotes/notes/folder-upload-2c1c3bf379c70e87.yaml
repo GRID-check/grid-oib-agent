@@ -1,0 +1,17 @@
+---
+features:
+  - >
+    Ganze Ordner lassen sich jetzt hochladen — über „Ordner hochladen" oder
+    indem Sie den Ordner auf die Dateiablage ziehen. Ein gezogener Ordner hat
+    bisher gar nichts bewirkt. Alle Ebenen darunter werden übernommen; was
+    Piloti nicht lesen kann, wird einzeln abgelehnt statt des ganzen Ordners.
+  - >
+    Wo eine Datei vorher lag, steht jetzt als „Herkunft" in der Detailansicht
+    und lässt sich mit einem Klick kopieren. So können Sie am Original auf dem
+    Büroserver weiterarbeiten, statt eine Kopie herunterzuladen.
+fixes:
+  - >
+    Projekt- und Archiv-Uploads waren zusätzlich auf 100 MB pro Vorgang
+    begrenzt — eine echte Einreichung wurde damit komplett abgewiesen, obwohl
+    reichlich Speicher frei war. Dort gilt jetzt nur noch das Speicherkontingent
+    der Organisation.

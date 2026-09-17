@@ -1,6 +1,9 @@
 'use client'
 
+import { INLINE_PREVIEW_CONTENT_TYPES } from '@/lib/documents/preview-types'
+
 import { useState, useEffect, useCallback, useMemo, useRef, type ReactNode } from 'react'
+import { FileTextPage, isTextPageType } from './file-text-page'
 import Image from 'next/image'
 import dynamic from 'next/dynamic'
 import { toast } from 'sonner'
@@ -12,8 +15,8 @@ import {
   Download,
   FileCode2,
   FileText,
-  FileType2,
   FolderOpen,
+  FolderTree,
   HardDrive,
   Layers,
   Maximize2,
@@ -24,6 +27,7 @@ import {
   X,
   type LucideIcon,
 } from 'lucide-react'
+import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { SectionLabel } from '@/components/ui/section-label'
 import { DOCUMENT_TYPE_TAGS, DISCIPLINE_TAGS, MAX_TAGS } from '@/lib/documents/tag-vocabulary'
@@ -33,13 +37,30 @@ import { formatAbsoluteTime, formatBytes } from '@/lib/format'
 import { isOptimizerEligible } from '@/lib/images/optimizable'
 import { cn } from '@/lib/utils'
 import { extChipTint, fileExtensionLabel, inferDocumentKind } from '../document-kind'
+import type { DocumentKind } from '../document-kind'
+import { DocumentKindThumbnail } from './document-kind-thumbnail'
 import { PdfViewerDialog } from '@/features/knowledge/components/pdf-viewer-dialog'
 import { DocumentActionsMenu, useDocumentActions, type DocumentScope } from './document-actions'
-import { DocumentStatusBadge, fileTypeIcon, isCitableStatus, isFailedStatus } from './document-status'
+import {
+  DocumentStatusBadge,
+  fileTypeIcon,
+  isCitable,
+  isNeverIndexed,
+} from './document-status'
+import { DrawingStructuredDetails } from './drawing-structured-details'
+import { hasStructuredDetail, type DrawingStructured } from '@/lib/documents/drawing-structured'
 import { AssignmentFaces } from './assignment-faces'
+import { AuthorshipLine } from './authorship-line'
+import { DocumentLifecyclePanel } from './document-lifecycle-panel'
+import { DocumentVersionStateBadge } from './document-version-badge'
+import type {
+  DocumentLifecyclePermission,
+  DocumentVersionState,
+} from '@/lib/documents/lifecycle-types'
 import { AssignPopover } from './assign-popover'
 import { useRouter } from 'next/navigation'
 import { askAboutFile } from '../lib/ask-about-file'
+import { DiscussDocumentButton } from './discuss-document-button'
 import { dropFileSubject } from '../lib/open-file-peek'
 import { useFilePreviewStore } from '../stores/file-preview-store'
 
@@ -72,6 +93,14 @@ interface FilePreviewPaneProps {
    * gated — they predate the feature.
    */
   showMetadataPanel?: boolean
+  /**
+   * Whether an `.ifc` preview offers the model workspace (`ifc-models`).
+   *
+   * Defaults to true, fail-open like `showMetadataPanel`: a link that does not
+   * render is a feature nobody can find, and the workspace refuses on its own
+   * if the flag is really off.
+   */
+  showModels?: boolean
   /** Which corpus the document belongs to — decides the file operations' route. */
   scope?: DocumentScope
   /** The document was renamed from the header menu. */
@@ -79,12 +108,27 @@ interface FilePreviewPaneProps {
   /** The document was deleted from the header menu; the pane closes itself. */
   onDeleted?: (fileId: string) => void
   canCollaborate?: boolean
+  /**
+   * What this reader may do to the document's versions, resolved on the server
+   * (`lib/documents/lifecycle-permissions.ts`). Absent means the surface did not
+   * read them — the Archiv sheet, the chat peek — and the rail then shows no
+   * Freigabe section at all rather than guessing a set.
+   */
+  lifecyclePermissions?: readonly DocumentLifecyclePermission[]
+  /** The reader, so their own acts in the version list read as „Sie". */
+  viewerUserId?: string | null
+  /** A Freigabe decision landed — the listing behind the pane moves its badge. */
+  onLifecycleChanged?: (
+    fileId: string,
+    summary: { versionState: DocumentVersionState; versionCount: number },
+  ) => void
   /** Modal on Files; peek/expanded once this file is the chat subject. */
   presentation?: 'modal' | 'peek' | 'expanded'
   onAssigneesChanged?: (assignees: FileItem['assignees']) => void
 }
 
-const PREVIEW_TYPES = ['application/pdf', 'image/png', 'image/jpeg', 'image/jpg', 'image/gif', 'image/webp', 'image/svg+xml']
+/** The one list (`lib/documents/preview-types.ts`); this pane no longer keeps a copy. */
+const PREVIEW_TYPES: readonly string[] = INLINE_PREVIEW_CONTENT_TYPES
 
 /**
  * The building itself, in the well where a PDF shows its pages.
@@ -95,7 +139,8 @@ const PREVIEW_TYPES = ['application/pdf', 'image/png', 'image/jpeg', 'image/jpg'
  * that is usually opened on a PDF.
  */
 const IfcFilePreview = dynamic(
-  () => import('@/features/bim/components/ifc-file-preview').then((module) => module.IfcFilePreview),
+  () =>
+    import('@/features/bim/components/ifc-file-preview').then((module) => module.IfcFilePreview),
   { ssr: false }
 )
 
@@ -120,6 +165,10 @@ interface VisualDetail {
   drawingType: string
   scale: string
   text: string
+  /** Which drawing on the sheet — a sheet is indexed one chunk per drawing. */
+  segment?: number
+  /** The structured analysis behind the description; absent on older chunks. */
+  structured?: DrawingStructured | null
 }
 
 const VISUAL_CONTENT_TYPES = ['drawing', 'image', 'chart']
@@ -129,6 +178,9 @@ export function FilePreviewPane({
   projectId,
   projectName,
   canManage = true,
+  lifecyclePermissions,
+  viewerUserId,
+  onLifecycleChanged,
   scope = 'files',
   onClose,
   onReingested,
@@ -136,16 +188,37 @@ export function FilePreviewPane({
   onRenamed,
   onDeleted,
   showMetadataPanel = true,
+  showModels = true,
   canCollaborate = false,
   presentation = 'modal',
   onAssigneesChanged,
 }: FilePreviewPaneProps) {
   const t = useTranslations('files')
   const { locale } = useLocale()
-  const router = useRouter()
+  /**
+   * „Von Piloti indexiert" is a claim, and on a report Piloti WROTE it is a
+   * false one: that document was deliberately never dispatched to `/v1/ingest`,
+   * so there is nothing indexed to show and the eyebrow would contradict the
+   * hint on the disabled Ask button two lines above it. The rail keeps the
+   * facts that come from the file itself (type, size, project) and drops the
+   * section that describes an ingestion that never ran.
+   */
+  const showIndexedSection = showMetadataPanel && !isNeverIndexed(file)
+  /**
+   * What „Besprechen" will and will not be able to do with this document.
+   *
+   * It is a hint and no longer a reason a control is off: a report Piloti wrote
+   * was deliberately never dispatched to `/v1/ingest`, so it is not Projektwissen
+   * and cannot be cited as such — and it can still be read and discussed. Only
+   * the never-indexed case has anything to say; a citable document's button
+   * needs no explaining.
+   */
+  const discussHint = isNeverIndexed(file) ? t('authorship.notInKnowledge') : undefined
   const storeMode = useFilePreviewStore((state) => state.mode)
   const storeFileId = useFilePreviewStore((state) => state.file?.id)
-  const inChat = presentation === 'peek' || presentation === 'expanded' ||
+  const inChat =
+    presentation === 'peek' ||
+    presentation === 'expanded' ||
     ((storeMode === 'peek' || storeMode === 'expanded') && storeFileId === file.id)
   const peeking = presentation === 'peek'
   const [previewUrl, setPreviewUrl] = useState<string | null>(null)
@@ -160,6 +233,13 @@ export function FilePreviewPane({
   const [previewFailed, setPreviewFailed] = useState(false)
   /** The document is not there any more (or not the reader's) — see `loadPreview`. */
   const [previewGone, setPreviewGone] = useState(false)
+  /**
+   * A text document's content, when the pane renders the bytes itself rather
+   * than handing a URL to an iframe. Null for every other format, and for a
+   * text document whose fetch has not landed — `previewFailed`/`previewGone`
+   * carry the failure, exactly as they do for the URL path.
+   */
+  const [previewText, setPreviewText] = useState<{ text: string; truncated: boolean } | null>(null)
   const [isLargePreviewOpen, setIsLargePreviewOpen] = useState(false)
   // "Detailed information": per-page VLM descriptions of the document's visual
   // chunks (drawings/images/charts), lazily loaded on first expand. Secondary
@@ -181,9 +261,21 @@ export function FilePreviewPane({
    * `IfcFilePreview` removed that prerequisite; the surfaces that have a
    * project still use it, and the ones that do not now work.
    */
-  const isModel =
-    inferDocumentKind({ filename: file.filename, contentType: file.contentType, tags: file.tags }) === 'model'
+  const kind = inferDocumentKind({
+    filename: file.filename,
+    contentType: file.contentType,
+    tags: file.tags,
+  })
+  const isModel = kind === 'model'
   const canPreview = PREVIEW_TYPES.includes(file.contentType ?? '')
+  /**
+   * Text, Markdown and CSV are previewable too, by a different route: the pane
+   * fetches the CONTENT and renders it, because the object store publishes no
+   * CORS policy and a presigned URL is therefore unreadable to a `fetch`. Kept
+   * out of `canPreview` rather than folded into it — that flag means "there is
+   * a URL to put in an element", and these have none.
+   */
+  const isTextual = isTextPageType(file.contentType)
   const isImage = (file.contentType ?? '').startsWith('image/')
   // The large viewer dialog enlarges PDFs (native iframe viewer) and images
   // (img mode). Offer the expand affordance for both.
@@ -198,11 +290,48 @@ export function FilePreviewPane({
   const hasVisualContent = (file.contentTypes ?? []).some((c) => VISUAL_CONTENT_TYPES.includes(c))
   // The ingestion-detected document type (first document-type tag), shown as
   // the indexed panel's Type row. Only real metadata — nothing is inferred here.
-  const detectedType = (file.tags ?? []).find((tag) => (DOCUMENT_TYPE_TAGS as readonly string[]).includes(tag))
+  const detectedType = (file.tags ?? []).find((tag) =>
+    (DOCUMENT_TYPE_TAGS as readonly string[]).includes(tag)
+  )
 
   const loadPreview = useCallback(() => {
     setPreviewFailed(false)
     setPreviewGone(false)
+
+    if (isTextual) {
+      // Same three outcomes as the URL path, and deliberately the same states,
+      // so the retry button and the "stop asking about it" way out work on a
+      // `.md` exactly as they do on a PDF.
+      setPreviewUrl(null)
+      setPreviewText(null)
+      setIsLoading(true)
+      let gone = false
+      fetch(`/api/documents/${file.id}/text`)
+        .then(async (r) => {
+          if (r.status === 404) {
+            gone = true
+            return null
+          }
+          return r.ok ? await r.json() : null
+        })
+        .then((data) => {
+          if (typeof data?.text === 'string') {
+            setPreviewText({ text: data.text, truncated: data.truncated === true })
+          } else if (gone) {
+            setPreviewGone(true)
+          } else {
+            setPreviewFailed(true)
+          }
+        })
+        .catch(() => {
+          setPreviewText(null)
+          setPreviewFailed(true)
+        })
+        .finally(() => setIsLoading(false))
+      return
+    }
+
+    setPreviewText(null)
     if (!canPreview) {
       setPreviewUrl(null)
       return
@@ -248,7 +377,7 @@ export function FilePreviewPane({
         setPreviewFailed(true)
       })
       .finally(() => setIsLoading(false))
-  }, [file.id, canPreview])
+  }, [file.id, canPreview, isTextual])
 
   useEffect(() => {
     loadPreview()
@@ -299,127 +428,162 @@ export function FilePreviewPane({
   const ext = fileExtensionLabel(file.filename)
 
   return (
-    <div className="@container flex h-full min-h-0 flex-col bg-card">
-      {/* Peek chrome lives on the host — this header is the modal/expanded one. */}
+    <div className="@container bg-card flex h-full min-h-0 flex-col">
+      {/* Peek chrome lives on the host — this header is the modal/expanded one,
+          and it is deliberately the SAME six elements on every document.
+
+          It used to be the surface's noticeboard: the name, the byline, the
+          type · status line, the assignment faces with their popover, "Piloti
+          dazu fragen", "Kollegin fragen", Herunterladen, the actions menu,
+          expand and close. Ten things, five of them conditional, in a row that
+          had to WRAP on anything narrower than a laptop — so the chrome
+          reflowed into two or three lines as you moved between files, and the
+          controls that were always there moved to make room for the ones that
+          were not. A header that changes shape per document cannot be learned;
+          the reader re-reads it every time.
+
+          What is left is what acts on THIS FILE AS A FILE — download it, rename
+          or delete it, enlarge it, close it — beside the document's identity:
+          its name, and under it the two chips that say WHICH document this is,
+          status and category. Every one of those is unconditional (or as good
+          as: the menu goes with `canManage`, expand with a previewable format),
+          so the shape is the same at every width and the icons never move.
+          Everything that DESCRIBES what Piloti made of the document, and
+          everything that acts on it, moved to the rail — see the identity block
+          there. */}
       {!peeking && (
-      <div className="flex shrink-0 items-center gap-2.5 border-b px-3.5 pb-3.5 pt-[max(0.875rem,env(safe-area-inset-top))] @md:gap-3 @md:px-5 sm:pt-3.5">
-        <span
-          className="flex size-9 shrink-0 items-center justify-center rounded-lg text-xs font-bold uppercase leading-none"
-          style={extChipTint(ext)}
-          aria-hidden
-        >
-          {ext || <Icon className="size-4" />}
-        </span>
-        <div className="min-w-0 flex-1">
-          {/* The name the document was GIVEN, if it was given one. `title`
-              carries it in full for the truncated case — and the file's own
-              name underneath it, which is the answer to "which file is this
-              actually" for anyone who renamed it. */}
-          <h3
-            className="truncate text-sm font-semibold leading-tight tracking-[-0.01em] text-foreground"
-            title={actions.isRenamed ? `${actions.name}\n${file.filename}` : actions.name}
+        <div className="@md:gap-x-3 @md:px-5 flex shrink-0 items-start gap-x-2 border-b px-3.5 pb-3.5 pt-[max(0.875rem,env(safe-area-inset-top))] sm:pt-3.5">
+          <span
+            className="flex size-9 shrink-0 items-center justify-center rounded-lg text-xs font-bold uppercase leading-none"
+            style={extChipTint(ext)}
+            aria-hidden
           >
-            {actions.name}
-          </h3>
-          {/* Type AND status on one line. The status badge used to live only in
-              the metadata column, below the fold on a narrow panel — so the one
-              question a reader has on opening a file ("is this actually indexed,
-              or am I looking at a document the agent cannot see?") was answered
-              further away than the answer to "what format is it". A document in
-              `failed` is the case that matters, and it must not require a
-              scroll. */}
-          <div className="mt-1 flex min-w-0 items-center gap-1.5">
-            <p className="truncate text-xs text-muted-foreground">
-              {ext || file.contentType || t('preview.unknownType')}
-            </p>
-            <span className="text-muted-foreground/40" aria-hidden>
-              ·
-            </span>
-            <DocumentStatusBadge status={file.status} className="shrink-0" />
-          </div>
-          {canCollaborate && (
-            <div className="mt-1.5 flex min-w-0 items-center gap-1">
-              <AssignmentFaces assignees={file.assignees} />
-              <AssignPopover
-                documentId={file.id}
-                assignees={file.assignees ?? []}
-                onChanged={(next) => onAssigneesChanged?.(next)}
+            {ext || <Icon className="size-4" />}
+          </span>
+          {/* The name the document was GIVEN, if it was given one. `title`
+            carries it in full for the truncated case — and the file's own name
+            underneath it, which is the answer to "which file is this actually"
+            for anyone who renamed it. */}
+          <div className="min-w-0 flex-1">
+            <h3
+              className="text-foreground truncate text-sm font-semibold leading-tight tracking-[-0.01em]"
+              title={actions.isRenamed ? `${actions.name}\n${file.filename}` : actions.name}
+            >
+              {actions.name}
+            </h3>
+            {/* The subheading: what kind of document this is, and — only when
+              it matters — that Piloti cannot quote it.
+
+              „Zitierbar" is the case for almost every document in the library,
+              so a green badge saying so was a chip that appeared on everything
+              and therefore distinguished nothing; a reader scanning the header
+              learned only that the app has badges. The states worth a chip are
+              the ones that change what the reader can do next: „Wird
+              verarbeitet", „Fehlgeschlagen", and „Abgelegt" for a report Piloti
+              wrote and deliberately never indexed. In all three the Ask button
+              in the rail is grey, and this chip is why. Citable stays silent,
+              and the ordinary case has an ordinary header.
+
+              Neither chip is restated in the rail: the Status row and the
+              Document type row are gone from Properties, because the same fact
+              stated twice on one surface reads as two facts. */}
+            {/* `overflow-hidden` on the row and `shrink` on the type badge, and
+              both are load-bearing at phone width: `Badge` is `w-fit shrink-0`
+              by construction, so `min-w-0` alone never made it narrow — at
+              390px „Grundriss" simply ran out of the name column and under the
+              Download button beside it. It truncates now instead. The status
+              badge keeps `shrink-0` on purpose: „Wird verarbeitet" clipped to
+              „Wird ver…" is a state nobody can read, and it is the chip that
+              explains why the Ask button in the rail is grey. */}
+            <div className="mt-1 flex min-w-0 items-center gap-1.5 overflow-hidden">
+              {!isCitable(file) && (
+                <DocumentStatusBadge status={file.status} className="shrink-0" />
+              )}
+              {/* WHERE THE DOCUMENT STANDS, at the top with its name.
+
+                „Freigabe und Fassungen" is last in the rail now, which is right
+                for the machinery and wrong for the one word: whether the office
+                stands behind this document is a fact about the document, in the
+                class of its name and its type, and a reader should not have to
+                scroll a rail to the bottom to learn it.
+
+                It obeys `showsVersionStateBadge` rather than `always`, so it is
+                silent on the ordinary upload — one version, born published, a
+                person put it there — exactly like the file card's. A chip that
+                appeared on every document in the library would distinguish
+                nothing, which is the same argument the „Zitierbar" chip lost
+                two paragraphs up.
+
+                Restating it on the section's own row at the far end of the rail
+                is not the „same fact twice" the Properties rows were: those sat
+                in the reader's eyeful directly under this header. These two are
+                never on screen together — one names the document, the other
+                labels the section you have just opened. */}
+              <DocumentVersionStateBadge
+                versionState={file.versionState}
+                versionCount={file.versionCount}
+                lifecycle={file.lifecycle ?? undefined}
+                authoredBy={file.authoredBy}
+                className="shrink-0"
+                testId="file-preview-lifecycle-badge"
               />
+              {showMetadataPanel && detectedType && (
+                <Badge variant="secondary" className="min-w-0 max-w-full shrink font-normal">
+                  <span className="truncate">{detectedType}</span>
+                </Badge>
+              )}
             </div>
-          )}
-        </div>
-        {projectId && isCitableStatus(file.status) && !inChat && (
+          </div>
           <Button
             type="button"
+            variant="outline"
             size="sm"
-            className="h-8 shrink-0"
-            onClick={() =>
-              askAboutFile({
-                projectId,
-                file,
-                navigate: (href) => router.push(href),
-              })
-            }
+            className="pointer-coarse:min-w-11 @md:px-3 h-8 shrink-0 gap-1.5 px-2"
+            onClick={() => void actions.download()}
+            disabled={actions.isDownloading}
+            aria-label={t('preview.download')}
+            title={t('preview.download')}
           >
-            {t('assignment.ask')}
+            <Download className="size-3.5" aria-hidden />
+            <span className="@md:inline hidden">{t('preview.download')}</span>
           </Button>
-        )}
-        {projectId && canCollaborate && isCitableStatus(file.status) && (
-          <AskColleagueButton
-            projectId={projectId}
-            file={file}
-            documentId={file.id}
-          />
-        )}
-        {projectId && !isCitableStatus(file.status) && !isFailedStatus(file.status) && (
-          <Button size="sm" className="h-8 shrink-0" disabled title={t('assignment.askDisabled')}>
-            {t('assignment.ask')}
-          </Button>
-        )}
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          className="h-8 shrink-0 gap-1.5 px-2 pointer-coarse:min-w-11 @md:px-3"
-          onClick={() => void actions.download()}
-          disabled={actions.isDownloading}
-          aria-label={t('preview.download')}
-          title={t('preview.download')}
-        >
-          <Download className="size-3.5" aria-hidden />
-          <span className="hidden @md:inline">{t('preview.download')}</span>
-        </Button>
-        {/* Rename and delete. In the header, with the controls that act on this
+          {/* Rename and delete. In the header, with the controls that act on this
             document — not in the metadata rail, which describes it. */}
-        <DocumentActionsMenu
-          document={file}
-          scope={scope}
-          actions={['rename', 'delete']}
-          canManage={canManage}
-          onRenamed={onRenamed}
-          onDeleted={(fileId) => {
-            onDeleted?.(fileId)
-            onClose?.()
-          }}
-        />
-        {canExpandPreview && previewUrl && (
-          <Button
-            variant="ghost"
-            size="icon"
-            className="size-8 shrink-0"
-            onClick={() => setIsLargePreviewOpen(true)}
-            aria-label={t('preview.expandPreview')}
-            title={t('preview.expandPreview')}
-          >
-            <Maximize2 className="size-4" />
-          </Button>
-        )}
-        {onClose && (
-          <Button variant="ghost" size="icon" className="size-8 shrink-0" onClick={onClose} aria-label={t('preview.closePreview')}>
-            <X className="size-4" />
-          </Button>
-        )}
-      </div>
+          <DocumentActionsMenu
+            document={file}
+            scope={scope}
+            actions={['rename', 'delete']}
+            canManage={canManage}
+            onRenamed={onRenamed}
+            onDeleted={(fileId) => {
+              onDeleted?.(fileId)
+              onClose?.()
+            }}
+          />
+          {canExpandPreview && previewUrl && (
+            <Button
+              variant="ghost"
+              size="icon"
+              className="size-8 shrink-0"
+              onClick={() => setIsLargePreviewOpen(true)}
+              aria-label={t('preview.expandPreview')}
+              title={t('preview.expandPreview')}
+            >
+              <Maximize2 className="size-4" />
+            </Button>
+          )}
+          {onClose && (
+            <Button
+              variant="ghost"
+              size="icon"
+              className="size-8 shrink-0"
+              onClick={onClose}
+              aria-label={t('preview.closePreview')}
+            >
+              <X className="size-4" />
+            </Button>
+          )}
+        </div>
       )}
 
       {actions.downloadFailed && (
@@ -433,7 +597,7 @@ export function FilePreviewPane({
               button-until-you-give-up loop — so when the preview has already
               said the document is gone, this says it too, and offers the way
               out rather than the retry. */}
-          <p className="text-xs text-destructive">
+          <p className="text-destructive text-xs">
             {previewGone ? t('preview.gone') : t('preview.downloadFailed')}
           </p>
           {previewGone ? (
@@ -503,7 +667,7 @@ export function FilePreviewPane({
       <div
         className={cn(
           'flex min-h-0 flex-1 flex-col overscroll-contain',
-          peeking ? 'overflow-hidden' : 'overflow-y-auto @2xl:flex-row @2xl:overflow-hidden',
+          peeking ? 'overflow-hidden' : '@2xl:flex-row @2xl:overflow-hidden overflow-y-auto'
         )}
       >
         {/* Left: live preview, or a decorative page mock while loading / when
@@ -518,22 +682,35 @@ export function FilePreviewPane({
             drawing on a desk actually looks like, and the whole reason this
             column exists rather than a download link. */}
         <div
+          data-testid="file-preview-well"
           className={cn(
-            'flex min-w-0 justify-center overflow-hidden bg-gradient-to-b from-muted/25 to-muted/60',
+            'from-muted/25 to-muted/60 flex min-w-0 justify-center bg-gradient-to-b',
             peeking
-              // THE GROUND IS THE DOCUMENT'S, and the document sits centred on
-              // it. A drawing fitted to the width of a 320px pane is a quarter
-              // of its height and the well cannot make it bigger — width is the
-              // binding constraint, so the leftover vertical space exists
-              // whatever this element does. Top-aligned, the document read as
-              // having fallen to the top of a box. Handing the slack to the
-              // summary below was worse: that block's content is four lines
-              // whatever the pane's height, so the emptiness simply moved under
-              // it and changed colour. Centred on its own ground, with the
-              // summary as a footer band beneath, is the composition that reads
-              // as deliberate at every height.
-              ? 'h-full min-h-0 flex-1 items-center p-3'
-              : 'h-[50dvh] min-h-[50dvh] shrink-0 p-5 @2xl:h-auto @2xl:min-h-0 @2xl:flex-1 @2xl:overflow-y-auto @2xl:overscroll-contain @2xl:p-7',
+              ? // THE GROUND IS THE DOCUMENT'S, and the document sits centred on
+                // it. A drawing fitted to the width of a 320px pane is a quarter
+                // of its height and the well cannot make it bigger — width is the
+                // binding constraint, so the leftover vertical space exists
+                // whatever this element does. Top-aligned, the document read as
+                // having fallen to the top of a box. Handing the slack to the
+                // summary below was worse: that block's content is four lines
+                // whatever the pane's height, so the emptiness simply moved under
+                // it and changed colour. Centred on its own ground, with the
+                // summary as a footer band beneath, is the composition that reads
+                // as deliberate at every height.
+                //
+                // The well is also the peek's document SCROLL container. The peek
+                // body above is `overflow-hidden` and a text page only scrolls
+                // horizontally, so a tall document used to clip here with no way
+                // to reach the rest. Bounded by `flex-1 min-h-0` in the peek
+                // column (the summary footer below is capped and shrink-0), in
+                // the same `scroll-fade-bottom` language the summary speaks.
+                // Centring is per-child `my-auto` rather than `items-center` on
+                // purpose: a centred flex container clips the TOP of overflowing
+                // content unreachably, while auto margins collapse to
+                // top-aligned the moment the document outgrows the well — short
+                // docs sit centred, tall ones scroll from the top.
+                'scroll-fade-bottom h-full min-h-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-contain p-3 [&>*]:my-auto'
+              : '@2xl:h-auto @2xl:min-h-0 @2xl:flex-1 @2xl:overflow-y-auto @2xl:overscroll-contain @2xl:p-7 h-[50dvh] min-h-[50dvh] shrink-0 overflow-hidden p-5'
           )}
         >
           {isModel ? (
@@ -541,7 +718,18 @@ export function FilePreviewPane({
               documentId={file.id}
               filename={file.filename}
               projectId={projectId}
+              canOpenWorkspace={showModels}
               className="size-full"
+            />
+          ) : isTextual && isLoading ? (
+            <PageMock skeleton />
+          ) : isTextual && previewText ? (
+            <FileTextPage
+              text={previewText.text}
+              truncated={previewText.truncated}
+              contentType={file.contentType}
+              truncatedLabel={t('preview.textTruncated')}
+              peeking={peeking}
             />
           ) : canPreview && isLoading ? (
             <PageMock skeleton />
@@ -550,12 +738,12 @@ export function FilePreviewPane({
               <iframe
                 src={previewUrl}
                 className={cn(
-                  'h-full w-full rounded-lg border bg-background',
+                  'bg-background h-full w-full rounded-lg border',
                   // `shadow-sm` is the CARD step of the elevation ramp; `xs`
                   // dresses chips and buttons, and under a document it did not
                   // read as a page on a ground at all. `lg` is the modal step,
                   // which is what the enlarged view is.
-                  peeking ? 'shadow-sm' : 'shadow-lg',
+                  peeking ? 'shadow-sm' : 'shadow-lg'
                 )}
                 title={actions.name}
               />
@@ -592,13 +780,14 @@ export function FilePreviewPane({
                   setPreviewFailed(true)
                 }}
                 className={cn(
-                  'h-fit w-auto max-h-full max-w-full rounded-lg border bg-background object-contain @2xl:max-h-none',
-                  peeking ? 'shadow-sm' : 'shadow-lg',
+                  'bg-background @2xl:max-h-none h-fit max-h-full w-auto max-w-full rounded-lg border object-contain',
+                  peeking ? 'shadow-sm' : 'shadow-lg'
                 )}
               />
             )
           ) : (
             <PageMock
+              kind={kind}
               caption={
                 previewGone
                   ? t('preview.gone')
@@ -627,8 +816,14 @@ export function FilePreviewPane({
                     <X className="size-3.5" aria-hidden />
                     {t('preview.goneAction')}
                   </Button>
-                ) : previewFailed && canPreview ? (
-                  <Button type="button" variant="outline" size="sm" className="gap-1.5" onClick={loadPreview}>
+                ) : previewFailed && (canPreview || isTextual) ? (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="gap-1.5"
+                    onClick={loadPreview}
+                  >
                     <RotateCcw className="size-3.5" aria-hidden />
                     {t('preview.tryAgain')}
                   </Button>
@@ -700,196 +895,367 @@ export function FilePreviewPane({
             The utility is scroll-driven, so the fade RETRACTS at the bottom of
             travel: its presence is the signal, not decoration. */}
         {!peeking && (
-        <div className="scroll-fade-bottom bg-surface-sunken flex w-full flex-col border-t p-4 pb-[max(1rem,env(safe-area-inset-bottom))] @2xl:w-[280px] @2xl:shrink-0 @2xl:min-h-0 @2xl:overflow-y-auto @2xl:overscroll-contain @2xl:border-l @2xl:border-t-0 @2xl:pb-4">
-          {/* The building's own numbers lead the rail: they are what the file
+          <div className="scroll-fade-bottom bg-surface-sunken @2xl:w-[280px] @2xl:shrink-0 @2xl:min-h-0 @2xl:overflow-y-auto @2xl:overscroll-contain @2xl:border-l @2xl:border-t-0 @2xl:pb-4 flex w-full flex-col border-t p-4 pb-[max(1rem,env(safe-area-inset-bottom))]">
+            {/* WHO OWNS THIS DOCUMENT, AND WHAT YOU CAN ASK OF IT.
+
+              The byline, who is responsible and „Piloti dazu fragen" all used
+              to sit in the chrome above the document, where they made the row
+              wrap and where each was conditional. None of them acts on the
+              FILE: they say where the document came from, who is on the hook
+              for it, and what the agent can do with it — which is the rail's
+              whole subject. The Ask button in particular belongs next to the
+              summary that tells the reader whether asking is worth it.
+
+              It leads the rail, above the model facts and the summary, so
+              „Verantwortlich" and Ask never need a scroll. In the split layout
+              (@2xl+) it is level with the top of the document; stacked, it is
+              the first thing under the preview. */}
+            <div className="mb-4 space-y-3 border-b pb-4">
+              {/* Provenance, not status: the badge is up in the header with
+                the name. „Von Piloti erstellt" leads the rail instead, because
+                for the one document where it appears it is the reason the Ask
+                button below is grey. */}
+              <AuthorshipLine authoredBy={file.authoredBy} />
+              {/* Responsibility, as one more label/value row so it reads with
+                the facts below rather than as chrome. Never merged with the
+                byline above: provenance and responsibility are two answers, and
+                the design forbids reading them as one. */}
+              {canCollaborate && (
+                <div className="flex min-w-0 items-center justify-between gap-2">
+                  <span className="text-muted-foreground shrink-0 text-xs">
+                    {t('assignment.responsible')}
+                  </span>
+                  <div className="flex min-w-0 items-center gap-1">
+                    <AssignmentFaces assignees={file.assignees} />
+                    <AssignPopover
+                      documentId={file.id}
+                      assignees={file.assignees ?? []}
+                      onChanged={(next) => onAssigneesChanged?.(next)}
+                    />
+                  </div>
+                </div>
+              )}
+              {/* Full width, stacked, in the rail's own column. In the header
+                these were two 90px pills competing with four icon controls for
+                the same row; here they are the block's conclusion, and the
+                reader has just been told whether the document is citable. */}
+              {/* „Besprechen" — never conditional on the document being
+                citable any more, and that is the whole change.
+
+                This control used to be a PAIR: an enabled „Piloti dazu fragen"
+                for a citable file and a greyed-out twin for everything else,
+                with a hint explaining the grey. The grey covered exactly the
+                documents a reader most wants to talk about — every report Piloti
+                wrote, and every version nobody has published — because a turn
+                could only reach a document through the retrieval index, and only
+                a published version is dispatched to it (ADR-0054). The turn now
+                reads an unpublished subject version's own bytes into the
+                conversation's working directory, so the reason for the grey is
+                gone and the pair collapses into one always-live button.
+
+                What survives is the SENTENCE: `discussHint` still says whether
+                this document is in the knowledge base, because that changes what
+                the answer will be able to cite — it no longer changes whether the
+                conversation can happen. */}
+              {projectId && !inChat && (
+                <DiscussDocumentButton
+                  projectId={projectId}
+                  documentId={file.id}
+                  filename={file.filename}
+                  file={file}
+                  hint={discussHint}
+                  className="w-full"
+                />
+              )}
+              {projectId && canCollaborate && isCitable(file) && (
+                <AskColleagueButton projectId={projectId} file={file} documentId={file.id} />
+              )}
+            </div>
+            {/* The building's own numbers lead the rail: they are what the file
               IS. Ungated by the metadata flag, which covers what INGESTION
               derived — these come out of the IFC itself. Renders nothing until
               a model has actually been read. */}
-          {isModel && (
-            <IfcFileFacts
-              documentId={file.id}
-              projectId={projectId}
-              className="mb-4 border-b pb-4"
-            />
-          )}
-          {/* What Piloti made of the document, in its own words.
+            {isModel && (
+              <IfcFileFacts
+                documentId={file.id}
+                projectId={projectId}
+                className="mb-4 border-b pb-4"
+              />
+            )}
+            {/* What Piloti made of the document, in its own words.
               Promoted out of the fact list and onto a raised card: it is the
               single most valuable thing on this rail — the answer to "does the
               agent actually understand this file" — and it used to sit as one
               more 12.5px paragraph between an eyebrow and six key/value rows,
               read at the same weight as the MIME type. */}
-          {showMetadataPanel && (
-            <section className="space-y-2.5" aria-label={t('preview.indexed.title')}>
-              <SectionLabel as="p" icon={Sparkles} className="font-semibold tracking-[0.05em]">
-                {t('preview.indexed.title')}
-              </SectionLabel>
-              {/* Keyed by file so a newly-selected document always starts
+            {showIndexedSection && (
+              <section className="space-y-2.5" aria-label={t('preview.indexed.title')}>
+                <SectionLabel as="p" icon={Sparkles} className="font-semibold tracking-[0.05em]">
+                  {t('preview.indexed.title')}
+                </SectionLabel>
+                {/* Keyed by file so a newly-selected document always starts
                   collapsed and re-measures against its own text. */}
-              {file.summary && <IndexedSummary key={file.id} summary={file.summary} />}
-            </section>
-          )}
+                {file.summary && <IndexedSummary key={file.id} summary={file.summary} />}
+              </section>
+            )}
 
-          {/* One list of facts, not two.
+            {/* One list of facts, not two.
               Type and size used to sit in a separate block BELOW the tags,
               divorced from the page count and the document type they belong
               with, because one group was behind a feature flag and the other
               was not. The flag now gates ROWS, which is what it was always
               about; the group is whole either way. */}
-          <section className={cn('space-y-2', showMetadataPanel && 'mt-4')}>
-            <SectionLabel as="p" icon={FileCode2} className="font-semibold tracking-[0.05em]">
-              {t('preview.properties')}
-            </SectionLabel>
-            <div className="space-y-2">
-              {showMetadataPanel && detectedType && (
-                <MetaRow label={t('preview.indexed.documentType')} icon={FileType2}>
-                  <span className="text-xs font-medium text-foreground">{detectedType}</span>
-                </MetaRow>
-              )}
-              {showMetadataPanel && projectName && (
-                <MetaRow label={t('preview.indexed.project')} icon={FolderOpen}>
-                  <span className="truncate text-xs font-medium text-foreground">{projectName}</span>
-                </MetaRow>
-              )}
-              {showMetadataPanel && typeof file.pageCount === 'number' && file.pageCount > 0 && (
-                <MetaRow label={t('preview.pages')} icon={FileText}>
-                  <span className="text-xs font-medium tabular-nums text-foreground">{file.pageCount}</span>
-                </MetaRow>
-              )}
-              {showMetadataPanel && typeof file.chunkCount === 'number' && file.chunkCount > 0 && (
-                <MetaRow label={t('preview.chunks')} icon={Layers}>
-                  <span className="text-xs font-medium tabular-nums text-foreground">{file.chunkCount}</span>
-                </MetaRow>
-              )}
-              {showMetadataPanel && hasRichContent && (
-                <MetaRow label={t('preview.contents')} icon={Shapes}>
-                  <span className="text-xs text-foreground">
-                    {file.contentTypes!.map((c) => t(`preview.contentTypeNames.${c}`)).join(', ')}
+            <section className={cn('space-y-2', showIndexedSection && 'mt-4')}>
+              <SectionLabel as="p" icon={FileCode2} className="font-semibold tracking-[0.05em]">
+                {t('preview.properties')}
+              </SectionLabel>
+              <div className="space-y-2">
+                {/* No document-type row, and no status row: both are chips
+                  under the name in the header, where they answer "which
+                  document is this" beside the document's own name. Stated here
+                  as well they would read as two more facts. */}
+                {showMetadataPanel && projectName && (
+                  <MetaRow label={t('preview.indexed.project')} icon={FolderOpen}>
+                    <span className="text-foreground truncate text-xs font-medium">
+                      {projectName}
+                    </span>
+                  </MetaRow>
+                )}
+                {showMetadataPanel && typeof file.pageCount === 'number' && file.pageCount > 0 && (
+                  <MetaRow label={t('preview.pages')} icon={FileText}>
+                    <span className="text-foreground text-xs font-medium tabular-nums">
+                      {file.pageCount}
+                    </span>
+                  </MetaRow>
+                )}
+                {showMetadataPanel &&
+                  typeof file.chunkCount === 'number' &&
+                  file.chunkCount > 0 && (
+                    <MetaRow label={t('preview.chunks')} icon={Layers}>
+                      <span className="text-foreground text-xs font-medium tabular-nums">
+                        {file.chunkCount}
+                      </span>
+                    </MetaRow>
+                  )}
+                {showMetadataPanel && hasRichContent && (
+                  <MetaRow label={t('preview.contents')} icon={Shapes}>
+                    <span className="text-foreground text-xs">
+                      {file.contentTypes!.map((c) => t(`preview.contentTypeNames.${c}`)).join(', ')}
+                    </span>
+                  </MetaRow>
+                )}
+                {/* No status row: the badge at the top of this rail already
+                  answers it, and the same fact stated twice on one surface
+                  reads as two facts. */}
+                <MetaRow label={t('preview.type')} icon={FileCode2}>
+                  <span className="text-foreground truncate font-mono text-xs">
+                    {file.contentType ?? t('preview.unknownType')}
                   </span>
                 </MetaRow>
-              )}
-              {/* No status row: the header badge already answers it, and the
-                  same fact stated twice on one surface reads as two facts. */}
-              <MetaRow label={t('preview.type')} icon={FileCode2}>
-                <span className="truncate font-mono text-xs text-foreground">
-                  {file.contentType ?? t('preview.unknownType')}
-                </span>
-              </MetaRow>
-              <MetaRow label={t('preview.size')} icon={HardDrive}>
-                <span className="text-xs font-medium tabular-nums text-foreground">
-                  {formatBytes(file.fileSize, locale)}
-                </span>
-              </MetaRow>
-              {showMetadataPanel && (
-                <MetaRow label={t('preview.indexed.updated')} icon={Clock}>
-                  <span className="text-xs font-medium tabular-nums text-foreground">
-                    {formatAbsoluteTime(file.createdAt, locale)}
+                <MetaRow label={t('preview.size')} icon={HardDrive}>
+                  <span className="text-foreground text-xs font-medium tabular-nums">
+                    {formatBytes(file.fileSize, locale)}
                   </span>
                 </MetaRow>
-              )}
-            </div>
-          </section>
-
-          {showMetadataPanel && (
-            <>
-              <div className="mt-4">
-                <DocumentTagsSection
-                  fileId={file.id}
-                  initialTags={file.tags ?? []}
-                  onTagsUpdated={onTagsUpdated}
-                  readOnly={!canManage}
-                />
+                {file.originPath && (
+                  /* WHERE THIS FILE CAME FROM, so the reader can go back to it.
+                     The alternative on offer was download-and-edit, which makes
+                     a duplicate that the office server never hears about and
+                     that diverges from the moment it is saved. A path they can
+                     copy and paste into Explorer or Finder is the whole
+                     feature. Recorded by a folder upload only — a picked file
+                     genuinely has no origin path, and the row is absent rather
+                     than empty. */
+                  <MetaRow label={t('preview.originPath')} icon={FolderTree}>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        void navigator.clipboard
+                          ?.writeText(file.originPath!)
+                          .then(() => toast.success(t('preview.originPathCopied')))
+                          .catch(() => toast.error(t('preview.originPathCopyFailed')))
+                      }}
+                      title={file.originPath}
+                      className="text-foreground hover:text-foreground/80 min-w-0 truncate text-left font-mono text-xs underline-offset-2 hover:underline"
+                      data-testid="file-origin-path"
+                    >
+                      {file.originPath}
+                    </button>
+                  </MetaRow>
+                )}
+                {showMetadataPanel && (
+                  <MetaRow label={t('preview.indexed.updated')} icon={Clock}>
+                    <span className="text-foreground text-xs font-medium tabular-nums">
+                      {formatAbsoluteTime(file.createdAt, locale)}
+                    </span>
+                  </MetaRow>
+                )}
               </div>
-              {hasVisualContent && (
-                <div className="mt-4 border-t pt-3.5">
-                  <button
-                    type="button"
-                    onClick={toggleDetails}
-                    aria-expanded={detailsOpen}
-                    className="flex w-full items-center justify-between gap-2 text-left text-[10.5px] font-medium uppercase tracking-wider text-muted-foreground transition-colors duration-snap ease-out hover:text-foreground touch-target motion-reduce:transition-none"
-                  >
-                    {t('preview.visualDetails.title')}
-                    <ChevronDown
-                      className={cn(
-                        'size-3.5 shrink-0 transition-transform duration-quick ease-out motion-reduce:transition-none',
-                        detailsOpen && 'rotate-180',
-                      )}
-                      aria-hidden
-                    />
-                  </button>
-                  {detailsOpen && (
-                    <div className="mt-2.5 space-y-3">
-                      {detailsLoading && (
-                        <p className="text-xs text-muted-foreground">{t('preview.visualDetails.loading')}</p>
-                      )}
-                      {!detailsLoading && details && details.length === 0 && (
-                        <p className="text-xs text-muted-foreground">{t('preview.visualDetails.empty')}</p>
-                      )}
-                      {!detailsLoading &&
-                        details?.map((d, i) => (
-                          <div key={`${d.page}-${d.contentType}-${i}`} className="space-y-1">
-                            <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs font-medium text-foreground">
-                              <span>{t('preview.visualDetails.page', { page: d.page })}</span>
-                              {d.drawingType && <span className="text-muted-foreground">· {d.drawingType}</span>}
-                              {d.scale && d.scale.toLowerCase() !== 'unbekannt' && (
-                                <span className="text-muted-foreground">
-                                  · {t('preview.visualDetails.scale', { scale: d.scale })}
-                                </span>
+            </section>
+
+            {showMetadataPanel && (
+              <>
+                <div className="mt-4">
+                  <DocumentTagsSection
+                    fileId={file.id}
+                    initialTags={file.tags ?? []}
+                    onTagsUpdated={onTagsUpdated}
+                    readOnly={!canManage}
+                  />
+                </div>
+                {hasVisualContent && (
+                  <div className="mt-4 border-t pt-3.5">
+                    <button
+                      type="button"
+                      onClick={toggleDetails}
+                      aria-expanded={detailsOpen}
+                      className="text-muted-foreground duration-snap hover:text-foreground touch-target flex w-full items-center justify-between gap-2 text-left text-[10.5px] font-medium uppercase tracking-wider transition-colors ease-out motion-reduce:transition-none"
+                    >
+                      {t('preview.visualDetails.title')}
+                      <ChevronDown
+                        className={cn(
+                          'duration-quick size-3.5 shrink-0 transition-transform ease-out motion-reduce:transition-none',
+                          detailsOpen && 'rotate-180'
+                        )}
+                        aria-hidden
+                      />
+                    </button>
+                    {detailsOpen && (
+                      <div className="mt-2.5 space-y-3">
+                        {detailsLoading && (
+                          <p className="text-muted-foreground text-xs">
+                            {t('preview.visualDetails.loading')}
+                          </p>
+                        )}
+                        {!detailsLoading && details && details.length === 0 && (
+                          <p className="text-muted-foreground text-xs">
+                            {t('preview.visualDetails.empty')}
+                          </p>
+                        )}
+                        {!detailsLoading &&
+                          details?.map((d, i) => (
+                            <div
+                              key={`${d.page}-${d.contentType}-${d.segment ?? 0}-${i}`}
+                              className="space-y-1"
+                            >
+                              <div className="text-foreground flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs font-medium">
+                                <span>{t('preview.visualDetails.page', { page: d.page })}</span>
+                                {d.drawingType && (
+                                  <span className="text-muted-foreground">· {d.drawingType}</span>
+                                )}
+                                {d.scale && d.scale.toLowerCase() !== 'unbekannt' && (
+                                  <span className="text-muted-foreground">
+                                    · {t('preview.visualDetails.scale', { scale: d.scale })}
+                                  </span>
+                                )}
+                              </div>
+                              <p className="text-muted-foreground whitespace-pre-line text-xs leading-relaxed">
+                                {d.text}
+                              </p>
+                              {hasStructuredDetail(d.structured ?? null) && d.structured && (
+                                <DrawingStructuredDetails structured={d.structured} />
                               )}
                             </div>
-                            <p className="whitespace-pre-line text-xs leading-relaxed text-muted-foreground">
-                              {d.text}
-                            </p>
-                          </div>
-                        ))}
-                    </div>
-                  )}
-                </div>
-              )}
-            </>
-          )}
+                          ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </>
+            )}
 
-          {/* Failure reason + re-ingestion affordance (re-ingest is a mutation,
+            {/* FREIGABE UND FASSUNGEN — last in the rail, and shut.
+
+              It used to lead the rail, open, directly under the identity block.
+              That put a review apparatus — a strip of verbs and the full version
+              history — above the summary and the facts on every file, including
+              the great majority where there is nothing to decide at all: a
+              person's upload is born `published`, so the only control the strip
+              could draw was an unexplained „Archivieren". Ranked by what a
+              reader opens a file FOR, approval and versions come after what the
+              document is and what Piloti made of it, which is where they now
+              are.
+
+              Shut is not hidden. The section still states the stand — the word
+              and the track — without being opened, and it OPENS ITSELF when
+              something is expected of this reader (`lifecycleNeedsReader`), so
+              the one case where this matters does not depend on curiosity.
+
+              Only for a project document, and only where the surface resolved
+              this reader's permissions — the Archiv and the chat peek pass
+              neither, and a review control they cannot honour is worse than no
+              section. */}
+            {projectId && lifecyclePermissions && (
+              <DocumentLifecyclePanel
+                key={file.id}
+                documentId={file.id}
+                filename={file.filename}
+                authoredBy={file.authoredBy}
+                viewer={{ permissions: lifecyclePermissions, userId: viewerUserId }}
+                names={Object.fromEntries(
+                  (file.assignees ?? []).flatMap((person) =>
+                    person.name ? [[person.userId, person.name] as const] : [],
+                  ),
+                )}
+                onChanged={(summary) =>
+                  onLifecycleChanged?.(file.id, {
+                    versionState: summary.state,
+                    versionCount: summary.versionCount,
+                  })
+                }
+                className="mt-4 border-t pt-4"
+              />
+            )}
+
+            {/* Failure reason + re-ingestion affordance (re-ingest is a mutation,
               so the button is hidden for read-only viewers). */}
-          {isFailed && (
-            <div className="mt-4 space-y-2.5 border-t pt-4">
-              <div className="flex items-start gap-2">
-                <AlertCircle className="mt-0.5 size-4 shrink-0 text-destructive" aria-hidden />
-                <div className="min-w-0 space-y-1">
-                  <p className="text-sm font-medium text-destructive">{t('preview.ingestionFailed')}</p>
-                  <p className="break-words text-xs text-muted-foreground">
-                    {file.errorMessage || t('preview.ingestionFailedGeneric')}
-                  </p>
+            {isFailed && (
+              <div className="mt-4 space-y-2.5 border-t pt-4">
+                <div className="flex items-start gap-2">
+                  <AlertCircle className="text-destructive mt-0.5 size-4 shrink-0" aria-hidden />
+                  <div className="min-w-0 space-y-1">
+                    <p className="text-destructive text-sm font-medium">
+                      {t('preview.ingestionFailed')}
+                    </p>
+                    <p className="text-muted-foreground break-words text-xs">
+                      {file.errorMessage || t('preview.ingestionFailedGeneric')}
+                    </p>
+                  </div>
                 </div>
+                {canManage && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="w-full gap-2"
+                    onClick={handleReingest}
+                    disabled={actions.isReingesting}
+                  >
+                    <RotateCcw className="size-4" aria-hidden />
+                    {actions.isReingesting
+                      ? t('preview.retryingIngestion')
+                      : t('preview.retryIngestion')}
+                  </Button>
+                )}
               </div>
-              {canManage && (
-                <Button
-                  type="button"
-                  variant="outline"
-                  className="w-full gap-2"
-                  onClick={handleReingest}
-                  disabled={actions.isReingesting}
-                >
-                  <RotateCcw className="size-4" aria-hidden />
-                  {actions.isReingesting ? t('preview.retryingIngestion') : t('preview.retryIngestion')}
-                </Button>
-              )}
-            </div>
-          )}
+            )}
 
-          {/* No Delete block here any more. A full-width red button under the
+            {/* No Delete block here any more. A full-width red button under the
               tags made the most dangerous operation the loudest thing on a
               column whose job is to DESCRIBE the document, and its confirm step
               expanded in place, pushing the rest of the rail down. Both moved
               into the header's actions menu, beside the other controls that act
               on this file. */}
 
-          <div className="flex-1" />
-          {showMetadataPanel && (
-            <p className="mt-4 border-t pt-3 text-xs leading-relaxed text-muted-foreground/80">
-              {t('preview.indexed.caption')}
-            </p>
-          )}
-        </div>
+            <div className="flex-1" />
+            {/* Same claim as the section eyebrow, in a sentence — „beim Hochladen
+              automatisch erkannt" is about an upload and an ingestion that a
+              report Piloti wrote never had. */}
+            {showIndexedSection && (
+              <p className="text-muted-foreground/80 mt-4 border-t pt-3 text-xs leading-relaxed">
+                {t('preview.indexed.caption')}
+              </p>
+            )}
+          </div>
         )}
       </div>
 
@@ -943,10 +1309,10 @@ function IndexedSummary({ summary }: { summary: string }) {
   }, [expanded, summary])
 
   return (
-    <div className="rounded-lg border bg-card p-3 shadow-2xs">
+    <div className="bg-card shadow-2xs rounded-lg border p-3">
       <p
         ref={textRef}
-        className={cn('text-sm leading-[1.55] text-foreground', !expanded && 'line-clamp-5')}
+        className={cn('text-foreground text-sm leading-[1.55]', !expanded && 'line-clamp-5')}
         style={!expanded ? { WebkitLineClamp: SUMMARY_CLAMP_LINES } : undefined}
       >
         {summary}
@@ -956,13 +1322,13 @@ function IndexedSummary({ summary }: { summary: string }) {
           type="button"
           onClick={() => setExpanded((open) => !open)}
           aria-expanded={expanded}
-          className="mt-1.5 inline-flex items-center gap-1 text-xs font-medium text-muted-foreground transition-colors duration-snap ease-out hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 touch-target motion-reduce:transition-none"
+          className="text-muted-foreground duration-snap hover:text-foreground focus-visible:ring-ring/50 touch-target mt-1.5 inline-flex items-center gap-1 text-xs font-medium transition-colors ease-out focus-visible:outline-none focus-visible:ring-2 motion-reduce:transition-none"
         >
           {expanded ? t('preview.summaryLess') : t('preview.summaryMore')}
           <ChevronDown
             className={cn(
-              'size-3 shrink-0 transition-transform duration-quick ease-out motion-reduce:transition-none',
-              expanded && 'rotate-180',
+              'duration-quick size-3 shrink-0 transition-transform ease-out motion-reduce:transition-none',
+              expanded && 'rotate-180'
             )}
             aria-hidden
           />
@@ -1039,7 +1405,10 @@ function DocumentTagsSection({
 
   const removeTag = useCallback(
     (tag: string) => {
-      void persist(tags.filter((existing) => existing !== tag), tags)
+      void persist(
+        tags.filter((existing) => existing !== tag),
+        tags
+      )
     },
     [persist, tags]
   )
@@ -1075,12 +1444,12 @@ function DocumentTagsSection({
 
   return (
     <div className="space-y-1.5">
-      <p className="text-xs text-muted-foreground">{t('preview.tags')}</p>
+      <p className="text-muted-foreground text-xs">{t('preview.tags')}</p>
       <div className="flex flex-wrap items-center gap-1.5">
         {tags.map((tag) => (
           <span
             key={tag}
-            className="inline-flex items-center gap-1 rounded-md bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground"
+            className="bg-muted text-muted-foreground inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-xs font-medium"
           >
             {tag}
             {!readOnly && (
@@ -1089,7 +1458,7 @@ function DocumentTagsSection({
                 onClick={() => removeTag(tag)}
                 disabled={isSaving}
                 aria-label={t('preview.removeTag', { tag })}
-                className="-mr-0.5 rounded-sm p-0.5 transition-colors duration-snap ease-out hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50 touch-target motion-reduce:transition-none"
+                className="duration-snap hover:bg-accent hover:text-foreground focus-visible:ring-ring touch-target -mr-0.5 rounded-sm p-0.5 transition-colors ease-out focus-visible:outline-none focus-visible:ring-2 disabled:opacity-50 motion-reduce:transition-none"
               >
                 <X className="size-3" aria-hidden />
               </button>
@@ -1097,13 +1466,13 @@ function DocumentTagsSection({
           </span>
         ))}
         {tags.length === 0 && readOnly && (
-          <span className="text-xs text-muted-foreground/70">{t('preview.noTags')}</span>
+          <span className="text-muted-foreground/70 text-xs">{t('preview.noTags')}</span>
         )}
         {!readOnly && !atCap && (
           <span className="relative inline-flex items-center">
             {/* Follows the field's own left padding, which grows with it. */}
             <Plus
-              className="pointer-events-none absolute left-1.5 size-3 text-muted-foreground pointer-coarse:left-3"
+              className="text-muted-foreground pointer-coarse:left-3 pointer-events-none absolute left-1.5 size-3"
               aria-hidden
             />
             <input
@@ -1147,7 +1516,7 @@ function DocumentTagsSection({
               // `h-6` is 24px, a little over half the touch floor, on a control
               // that has to be hit precisely because a mis-tap lands on a tag
               // chip that removes itself.
-              className="h-6 w-28 rounded-md border border-dashed border-input bg-transparent pl-6 pr-1.5 text-xs text-foreground placeholder:text-muted-foreground/70 focus-visible:border-solid focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50 pointer-coarse:h-11 pointer-coarse:w-36 pointer-coarse:pl-8 pointer-coarse:text-base"
+              className="border-input text-foreground placeholder:text-muted-foreground/70 focus-visible:ring-ring pointer-coarse:h-11 pointer-coarse:w-36 pointer-coarse:pl-8 pointer-coarse:text-base h-6 w-28 rounded-md border border-dashed bg-transparent pl-6 pr-1.5 text-xs focus-visible:border-solid focus-visible:outline-none focus-visible:ring-2 disabled:opacity-50"
             />
           </span>
         )}
@@ -1155,7 +1524,11 @@ function DocumentTagsSection({
       {/* Controlled-vocabulary suggestions while the input is active: the PATCH
           endpoint rejects free-form values, so offer the real choices. */}
       {!readOnly && isEditing && suggestions.length > 0 && (
-        <div className="flex flex-wrap gap-1" role="group" aria-label={t('preview.suggestionsLabel')}>
+        <div
+          className="flex flex-wrap gap-1"
+          role="group"
+          aria-label={t('preview.suggestionsLabel')}
+        >
           {suggestions.map((tag) => (
             <button
               key={tag}
@@ -1169,7 +1542,7 @@ function DocumentTagsSection({
               // interaction, and at `py-0.5` each was a 20px chip in a wrapped row
               // of them. Grown rather than overhung — they are neighbours in a
               // flex-wrap row, so catchments would land on each other.
-              className="inline-flex items-center rounded-md border border-border bg-transparent px-2 py-0.5 text-xs font-medium text-muted-foreground transition-colors duration-snap ease-out hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50 motion-reduce:transition-none pointer-coarse:min-h-11 pointer-coarse:px-3.5"
+              className="border-border text-muted-foreground duration-snap hover:bg-muted hover:text-foreground focus-visible:ring-ring pointer-coarse:min-h-11 pointer-coarse:px-3.5 inline-flex items-center rounded-md border bg-transparent px-2 py-0.5 text-xs font-medium transition-colors ease-out focus-visible:outline-none focus-visible:ring-2 disabled:opacity-50 motion-reduce:transition-none"
             >
               {tag}
             </button>
@@ -1177,7 +1550,7 @@ function DocumentTagsSection({
         </div>
       )}
       {showNoMatchHint && (
-        <p className="text-xs text-muted-foreground/70">{t('preview.noTagMatch')}</p>
+        <p className="text-muted-foreground/70 text-xs">{t('preview.noTagMatch')}</p>
       )}
     </div>
   )
@@ -1207,8 +1580,8 @@ function MetaRow({
       {/* The LABEL never truncates — it is the key, and "Cont…" tells the
           reader nothing. Long values wrap in the right column instead, which is
           what a five-item content-type list actually needs. */}
-      <span className="flex shrink-0 items-center gap-1.5 pt-px text-xs text-muted-foreground">
-        <Icon className="size-3.5 shrink-0 text-muted-foreground/70" aria-hidden />
+      <span className="text-muted-foreground flex shrink-0 items-center gap-1.5 pt-px text-xs">
+        <Icon className="text-muted-foreground/70 size-3.5 shrink-0" aria-hidden />
         {label}
       </span>
       <span className="min-w-0 text-right">{children}</span>
@@ -1232,9 +1605,28 @@ function MetaRow({
  *    pretending to be content, and on a compliance surface it is worse than
  *    blank: a reader glancing at the column sees "a document" and moves on.
  */
-function PageMock({ caption, action, skeleton }: { caption?: string; action?: ReactNode; skeleton?: boolean }) {
+function PageMock({
+  caption,
+  action,
+  skeleton,
+  kind,
+}: {
+  caption?: string
+  action?: ReactNode
+  skeleton?: boolean
+  /**
+   * What the file IS, when there is no preview to show. The empty state used
+   * to be a dashed box with a sentence in it — the same box for a contract, a
+   * spreadsheet and a DWG floor plan — so the surface that exists to show a
+   * document showed nothing about it at all. The card in the grid behind this
+   * modal already draws the document's kind; borrowing that sketch means the
+   * reader recognises the file they clicked, and the two surfaces speak one
+   * visual language instead of two.
+   */
+  kind?: DocumentKind
+}) {
   return (
-    <div className="h-fit min-h-[320px] w-full max-w-[520px] rounded-lg border bg-background p-7 shadow-lg">
+    <div className="bg-background h-fit min-h-[320px] w-full max-w-[520px] rounded-lg border p-7 shadow-lg">
       <div className="flex items-baseline justify-between border-b pb-2.5">
         <div className="space-y-1.5">
           {/* The alphas are the point here, not drift: a skeleton paints solid
@@ -1242,13 +1634,22 @@ function PageMock({ caption, action, skeleton }: { caption?: string; action?: Re
               an illustration of a page, and nothing is coming). Same bars, two
               claims, and the opacity is what separates them. */}
           <div className={cn('h-[9px] w-28 rounded-sm', skeleton ? 'bg-muted' : 'bg-muted/50')} />
-          <div className={cn('h-[6px] w-16 rounded-sm', skeleton ? 'bg-muted/70' : 'bg-muted/40')} />
+          <div
+            className={cn('h-[6px] w-16 rounded-sm', skeleton ? 'bg-muted/70' : 'bg-muted/40')}
+          />
         </div>
         <div className={cn('h-[6px] w-12 rounded-sm', skeleton ? 'bg-muted/70' : 'bg-muted/40')} />
       </div>
       <div className="mt-3.5 flex h-[260px] flex-col items-center justify-center gap-3 rounded border border-dashed px-6 text-center">
+        {/* Faint, and never while loading: a skeleton claims content is coming,
+            and a line drawing is not that claim. */}
+        {!skeleton && kind && (
+          <DocumentKindThumbnail kind={kind} className="text-muted-foreground/45 h-16 w-24" />
+        )}
         {!skeleton && caption && (
-          <p className="max-w-[80%] text-xs leading-relaxed text-muted-foreground text-balance">{caption}</p>
+          <p className="text-muted-foreground max-w-[80%] text-balance text-xs leading-relaxed">
+            {caption}
+          </p>
         )}
         {action}
       </div>
@@ -1256,9 +1657,9 @@ function PageMock({ caption, action, skeleton }: { caption?: string; action?: Re
           cannot be previewed would be text this document does not have. */}
       {skeleton && (
         <div className="mt-3.5 space-y-1.5">
-          <div className="h-[7px] w-3/5 rounded bg-muted" />
-          <div className="h-[7px] w-1/2 rounded bg-muted" />
-          <div className="h-[7px] w-[55%] rounded bg-muted" />
+          <div className="bg-muted h-[7px] w-3/5 rounded" />
+          <div className="bg-muted h-[7px] w-1/2 rounded" />
+          <div className="bg-muted h-[7px] w-[55%] rounded" />
         </div>
       )}
     </div>
@@ -1281,7 +1682,6 @@ function AskColleagueButton({
       documentId={documentId}
       assignees={file.assignees ?? []}
       pickOnly
-      triggerLabel={t('assignment.askColleague')}
       onPick={(person) => {
         const name = person.name || person.email || t('assignment.to')
         askAboutFile({
@@ -1293,6 +1693,14 @@ function AskColleagueButton({
         })
       }}
       onChanged={() => undefined}
+      // Full width in the rail, beside „Piloti dazu fragen", rather than the
+      // ghost pill the popover draws for the Files list. The two Ask affordances
+      // are one pair and have to read as one.
+      trigger={
+        <Button type="button" variant="outline" size="sm" className="h-8 w-full">
+          {t('assignment.askColleague')}
+        </Button>
+      }
     />
   )
 }

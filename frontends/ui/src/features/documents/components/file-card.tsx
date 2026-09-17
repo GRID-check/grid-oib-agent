@@ -4,16 +4,20 @@ import { useEffect, useState, type CSSProperties, type ReactNode } from 'react'
 import Image from 'next/image'
 import { isOptimizerEligible } from '@/lib/images/optimizable'
 import type { FileItem } from './project-file-workspace'
-import { formatAbsoluteTime, formatBytes, formatRelativeTime } from '@/lib/format'
+import { formatBytes } from '@/lib/format'
+import { TimeAgo } from '@/components/ui/time-ago'
 import { cn } from '@/lib/utils'
 import { useTranslations } from '@/i18n'
 import { documentDisplayName } from '@/lib/documents/display-name'
+import { documentDragProps } from '../hooks/use-document-drag'
 import { sourceTint } from '@/lib/ui/source-tint'
 import { extChipTint, fileExtensionLabel, inferDocumentKind } from '../document-kind'
 import { DocumentKindThumbnail } from './document-kind-thumbnail'
+import { AuthorshipLine } from './authorship-line'
+import { DocumentVersionStateBadge } from './document-version-badge'
 import { DocumentStatusBadge, isCitableStatus, isSettlingStatus } from './document-status'
 import { SemanticMatch } from './semantic-match'
-import { RaisedCard, RaisedCardBody, RaisedCardFooter, RaisedCardMedia } from '@/components/ui/raised-card'
+import { GridTileBody, GridTileFooter, GridTileMedia, GridTileShell } from './grid-tile'
 import { Skeleton } from '@/components/ui/skeleton'
 
 /** Provenance tint per corpus, from the shared `--source-*` token family. */
@@ -138,7 +142,14 @@ export function ThumbnailWithFallback({ file }: { file: FileItem }) {
         unoptimized={!isOptimizerEligible(imgUrl)}
         className="object-cover"
         // A url that resolves but won't render is a genuine failure, not "no thumbnail".
-        onError={() => setState('error')}
+        onError={() => {
+          // …but the URL itself may be stale rather than the document imageless
+          // (a thumbnail object replaced after we resolved it): evict it so a
+          // later mount re-resolves instead of replaying the same poisoned URL
+          // on every remount (#366, #395).
+          thumbnailCache.delete(file.id)
+          setState('error')
+        }}
       />
     )
   }
@@ -189,6 +200,12 @@ export interface FileCardProps {
    * its own — this card is a `<button>`, so the slot sits beside it.
    */
   actions?: ReactNode
+  /**
+   * Let this card be dragged onto a folder. Off by default: a card that lifts
+   * under the finger where nothing can receive it promises a move the surface
+   * cannot make — the Archiv, for one, has no folders at all.
+   */
+  draggable?: boolean
 }
 
 /**
@@ -214,6 +231,7 @@ export function FileCard({
   hideFooter,
   testId = 'file-card',
   actions,
+  draggable = false,
 }: FileCardProps) {
   const t = useTranslations('files')
   const name = documentDisplayName(file)
@@ -228,23 +246,39 @@ export function FileCard({
   const isAwaitingSummary = !match && !isFailed && !file.summary && isSettlingStatus(file.status)
 
   return (
-    <RaisedCard
+    <GridTileShell
       interactive
-      className={cn('group/card', isSelected && 'ring-2 ring-ring', isBusy && 'cursor-progress opacity-70')}
+      className={cn(
+        'group/card',
+        isSelected && 'ring-2 ring-ring shadow-md',
+        isBusy && 'cursor-progress opacity-70',
+        !isSelected && 'hover:border-border/80'
+      )}
+      // Dragging is opt-in per surface: the Archiv has no folders to drop into,
+      // and a card that lifts under the finger where nothing can receive it is
+      // an affordance for a capability that is not there.
+      {...(draggable ? documentDragProps(file.id) : {})}
     >
       {actions && (
         <div
-          className="absolute left-1.5 top-1.5 z-[1]"
+          className="absolute right-1.5 top-1.5 z-[1] md:opacity-0 md:group-hover/card:opacity-100 group-focus-within/card:opacity-100 has-[[data-state=open]]:opacity-100 transition-opacity duration-quick ease-out motion-reduce:transition-none"
           onClick={(event) => event.stopPropagation()}
           onPointerDown={(event) => event.stopPropagation()}
         >
           {actions}
         </div>
       )}
+      {/* `aria-current`, not `aria-pressed`: pressing this OPENS the file, it
+          does not toggle anything. The card used to close the preview when you
+          clicked the row you were already looking at — the one surface in the
+          product that did — and `aria-pressed` was at least honest about that.
+          The behaviour was the bug; a row opens, and closing is the overlay's
+          job. `aria-current` says the remaining true thing: this is the one on
+          screen. */}
       <button
         type="button"
         onClick={onSelect}
-        aria-pressed={isSelected}
+        aria-current={isSelected ? 'true' : undefined}
         aria-label={ariaLabel}
         aria-busy={isBusy}
         data-testid={testId}
@@ -258,8 +292,8 @@ export function FileCard({
             leftover height showed as a band of dead surface underneath. Growing
             the white block instead puts every footer on the bottom edge, so the
             row reads as one strip whatever each card carries above it. */}
-        <RaisedCardBody className={cn('flex-1 p-0', hideFooter && 'rounded-none')}>
-          <RaisedCardMedia className="h-[124px]">
+        <GridTileBody className={cn('flex-1 p-0', hideFooter && 'rounded-none')}>
+          <GridTileMedia className="h-[124px]">
             <ThumbnailWithFallback file={file} />
             {showStatus && (
               <DocumentStatusBadge
@@ -267,10 +301,10 @@ export function FileCard({
                 // The 80% alpha is load-bearing: this badge floats over a document
                 // thumbnail, and with `backdrop-blur-sm` it frosts the image
                 // underneath instead of hiding it.
-                className="absolute right-2 top-2 border-transparent bg-background/80 px-1.5 py-0 text-xs font-medium leading-4 shadow-2xs backdrop-blur-sm"
+                className="absolute left-2 top-2 border-transparent bg-background/80 px-1.5 py-0 text-xs font-medium leading-4 shadow-2xs backdrop-blur-sm"
               />
             )}
-          </RaisedCardMedia>
+          </GridTileMedia>
 
           <div className="px-3.5 pb-3 pt-[11px]">
             <div className="flex items-center gap-2">
@@ -299,6 +333,25 @@ export function FileCard({
             <p className="mt-[10px] truncate text-xs font-medium leading-[1.4] text-foreground" title={name}>
               {name}
             </p>
+            {/* A byline, directly under the name — who WROTE this. It is not in
+                the footer, because the footer is where the faces and the word
+                `Unvergeben` live and that slot answers a different question:
+                who is responsible for it. */}
+            <AuthorshipLine authoredBy={file.authoredBy} className="mt-0.5" />
+            {/* The editorial state, on the same side as the byline and nowhere
+                near the footer, for exactly that reason: „freigegeben" is a
+                statement about the CONTENT and „Unvergeben" one about
+                responsibility (ADR-0047's addendum, ADR-0054). Silent without a
+                history: one version distinguishes nothing, so the badge appears
+                only once a second version exists — even for a draft Piloti wrote. */}
+            {(file.versionCount ?? 0) > 1 && (
+              <DocumentVersionStateBadge
+                versionState={file.versionState}
+                versionCount={file.versionCount}
+                authoredBy={file.authoredBy}
+                className="mt-1"
+              />
+            )}
             {match ? (
               <SemanticMatch snippet={match.snippet} page={match.page} score={match.score} />
             ) : isFailed ? (
@@ -321,26 +374,19 @@ export function FileCard({
               )
             )}
           </div>
-        </RaisedCardBody>
+        </GridTileBody>
 
         {!hideFooter && (
-          <RaisedCardFooter className="gap-1.5 px-3.5 pb-2.5 pt-[9px] text-xs text-muted-foreground/80">
+          <GridTileFooter className="gap-1.5 px-3.5 pb-2.5 pt-[9px] text-xs text-muted-foreground/80">
             {footerLead ?? <span className="flex-1" />}
             <span className="shrink-0 tabular-nums">{formatBytes(file.fileSize, locale)}</span>
             <span aria-hidden className="text-muted-foreground/40">
               ·
             </span>
-            <time
-              dateTime={file.createdAt}
-              title={formatAbsoluteTime(file.createdAt, locale)}
-              suppressHydrationWarning
-              className="shrink-0 tabular-nums"
-            >
-              {formatRelativeTime(file.createdAt, locale)}
-            </time>
-          </RaisedCardFooter>
+            <TimeAgo date={file.createdAt} locale={locale} className="shrink-0 tabular-nums" />
+          </GridTileFooter>
         )}
       </button>
-    </RaisedCard>
+    </GridTileShell>
   )
 }

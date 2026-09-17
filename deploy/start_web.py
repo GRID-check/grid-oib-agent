@@ -50,7 +50,7 @@ ENVIRONMENT VARIABLES
 
 This script reads:
 - CONFIG_FILE: Path to the NAT config YAML (default:
-  /app/configs/config_web_frag.yml)
+  /app/configs/config_oib_openrouter.yml)
 - HOST: Bind address (default: 0.0.0.0)
 - PORT: Bind port (default: 8000)
 
@@ -85,7 +85,7 @@ This script is the main entry point for the Docker container:
 
 Or run directly for local development:
 
-    export CONFIG_FILE=/app/configs/config_web_frag.yml
+    export CONFIG_FILE=/app/configs/config_oib_openrouter.yml
     python deploy/start_web.py
 
 =============================================================================
@@ -130,6 +130,19 @@ def configure_logging():
     return log_level
 
 
+def load_nat_config(config_file: str):
+    """Register Grid telemetry `_type`s, then load and validate the NAT YAML.
+
+    The JOIN `start_web` actually runs: a process that has imported none of
+    pytest's plugins. `load_config` alone is not enough.
+    """
+    from aiq_agent.observability import ensure_registered as register_grid_telemetry
+    from nat.runtime.loader import load_config
+
+    register_grid_telemetry()
+    return load_config(config_file)
+
+
 def main():
     """
     Main entry point for the web server.
@@ -146,7 +159,7 @@ def main():
     # Read configuration from environment (set by Docker or defaults)
     config_file = os.environ.get(
         "CONFIG_FILE",
-        "/app/configs/config_web_frag.yml",
+        "/app/configs/config_oib_openrouter.yml",
     )
     host = os.environ.get("HOST", "0.0.0.0")
     port = int(os.environ.get("PORT", "8000"))
@@ -164,12 +177,15 @@ def main():
     # -------------------------------------------------------------------------
     # STEP 1: Load and validate the NAT configuration
     # -------------------------------------------------------------------------
-    # NAT's load_config() reads the YAML file and returns a validated Config
-    # object using Pydantic. This ensures the config is valid before we start.
-    from nat.runtime.loader import load_config
-
+    # NAT's load_config() discovers plugins then validates YAML `_type` tags
+    # against the registry. Grid's otelcollector_logs / otelcollector_redaction
+    # register at import and are not in NAT's stock set. They used to ride in
+    # on chat_researcher.register; after that package dissolved, this process
+    # called load_config in a clean interpreter and CrashLoopBackOff'd.
+    # pytest already imported the plugins, so an in-process test cannot catch
+    # a miss — see test_shipped_config_loads_in_a_clean_interpreter.
     print("Loading configuration...")
-    config = load_config(config_file)
+    config = load_nat_config(config_file)
     print("✓ Configuration loaded and validated")
 
     # -------------------------------------------------------------------------

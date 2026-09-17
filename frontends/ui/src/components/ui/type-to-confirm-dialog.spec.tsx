@@ -41,6 +41,31 @@ describe('TypeToConfirmDialog', () => {
     expect(onConfirm).toHaveBeenCalledOnce()
   })
 
+  /**
+   * The field advertises `enterKeyHint="done"`, which is a promise to the phone
+   * keyboard that its action key finishes the job. It shipped here without a
+   * handler — the `Input` is in no `<form>`, so Enter dismissed the IME and did
+   * nothing else, telling the reader the action was complete when it had not
+   * started. These two hold the promise and its guard together.
+   */
+  it('confirms on Enter once the name matches, so the "done" key means it', async () => {
+    const user = userEvent.setup()
+    const onConfirm = renderDialog()
+
+    await user.type(screen.getByRole('textbox'), 'Alpha Plant')
+    await user.keyboard('{Enter}')
+    expect(onConfirm).toHaveBeenCalledOnce()
+  })
+
+  it('ignores Enter while the name does not match', async () => {
+    const user = userEvent.setup()
+    const onConfirm = renderDialog()
+
+    await user.type(screen.getByRole('textbox'), 'Alpha')
+    await user.keyboard('{Enter}')
+    expect(onConfirm).not.toHaveBeenCalled()
+  })
+
   it('disables everything while pending', async () => {
     const user = userEvent.setup()
     render(

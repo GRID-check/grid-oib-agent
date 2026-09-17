@@ -26,8 +26,8 @@
  * second-guessing it.
  *
  * The sentence itself is NOT the backend's to write. An activation ships the
- * key `skill.activated` or `skill.forced` plus `{ skill: <title> }`, and this
- * side renders it from `chat.thinking.skill.*` in whichever locale is reading.
+ * key `skill.activated` plus `{ skill: <title> }`, and this side renders it
+ * from `chat.thinking.skill.*` in whichever locale is reading.
  * The title travels verbatim because it is the office's own name for their own
  * method — the one value here that is the same word in every language.
  */
@@ -74,9 +74,7 @@ export interface SkillActivity {
   title?: string
   description?: string
   origin?: string
-  forced?: boolean
   offeredCount?: number
-  forcedNames?: string[]
   bodyChars?: number
 }
 
@@ -121,9 +119,7 @@ const toActivity = (payload: StepEventPayload): SkillActivity | null => {
     ...(payload.title?.trim() ? { title: payload.title.trim() } : {}),
     ...(payload.description?.trim() ? { description: payload.description.trim() } : {}),
     ...(payload.origin?.trim() ? { origin: payload.origin.trim() } : {}),
-    ...(payload.forced !== undefined ? { forced: payload.forced } : {}),
     ...(payload.offered_count !== undefined ? { offeredCount: payload.offered_count } : {}),
-    ...(payload.forced_names !== undefined ? { forcedNames: payload.forced_names } : {}),
     ...(payload.body_chars !== undefined ? { bodyChars: payload.body_chars } : {}),
   }
 }

@@ -47,6 +47,7 @@ import { useTranslations, type Translator } from '@/i18n'
 import { SchematicCard, statusColor } from '../schematics/kit'
 import { cn } from '@/lib/utils'
 import { CARD_LIST_ROW, CARD_ROW_BACK_LINK } from './card-rows'
+import { CARD_NOTICE_LAW, CardDisclosurePanel } from './card-chrome'
 import type { NormReferenceData, ProcessStepData } from '../schematics/types'
 
 interface ProcessMapCardProps {
@@ -138,7 +139,7 @@ const Station: FC<StationProps> = ({
         )}
         style={current ? { backgroundColor: tint } : undefined}
       >
-        {done ? <Check className="size-3" /> : number}
+        {done ? <Check className="size-3.5" /> : number}
       </span>
 
       <div className="col-start-2 min-w-0 pb-1.5">
@@ -213,14 +214,15 @@ const Station: FC<StationProps> = ({
             />
           </CollapsibleTrigger>
 
-          <CollapsibleContent className="animate-in fade-in-0 duration-base ease-out motion-reduce:animate-none">
+          <CollapsibleContent>
             <div
               className={cn(
-                'mt-1.5 flex flex-col gap-2 rounded-md border px-3 py-2.5',
                 // Chrome differs in KIND, not only in tint: dashed on muted
                 // ground for a step being looked at, a solid tinted panel for
                 // the one the project is actually at.
-                current ? 'border-transparent' : 'border-dashed bg-muted/30'
+                current
+                  ? 'mt-1.5 flex flex-col gap-2 rounded-md border border-transparent px-3 py-2.5'
+                  : CardDisclosurePanel
               )}
               style={
                 current
@@ -288,7 +290,7 @@ const Station: FC<StationProps> = ({
               )}
 
               {step.reference && (
-                <div className="flex flex-wrap items-center gap-x-2 gap-y-1 rounded-md bg-source-law-tint px-3 py-2 text-xs text-source-law-text">
+                <div className={cn(CARD_NOTICE_LAW, 'flex flex-wrap items-center gap-x-2 gap-y-1')}>
                   <Scale className="size-3.5 shrink-0" aria-hidden="true" />
                   <span className="text-[11px] font-medium uppercase tracking-wider opacity-70">
                     {t('cards.processMap.basis')}

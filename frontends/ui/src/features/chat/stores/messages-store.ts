@@ -10,7 +10,9 @@ import type {
   PromptType,
   FileCardData,
   ErrorCode,
+  DeepResearchBannerData,
   DeepResearchBannerType,
+  DeepResearchFiledDocument,
   Conversation,
   CitationSource,
   AnswerTransparency,
@@ -183,20 +185,20 @@ export type MessagesSlice = {
   addAgentResponse: (
     content: string,
     showViewReport?: boolean,
-    cards?: GridCard[],
+    cards?: (GridCard | undefined)[],
     answerConfidence?: 'low' | 'medium' | 'high',
     citations?: CitationSource[],
     transparency?: AnswerTransparency
   ) => void
   appendAgentResponseDelta: (
     content: string,
-    cards?: GridCard[],
+    cards?: (GridCard | undefined)[],
     answerConfidence?: 'low' | 'medium' | 'high',
     citations?: CitationSource[]
   ) => void
   finalizeAgentResponse: (
     content: string,
-    cards?: GridCard[],
+    cards?: (GridCard | undefined)[],
     answerConfidence?: 'low' | 'medium' | 'high',
     citations?: CitationSource[],
     transparency?: AnswerTransparency
@@ -228,8 +230,19 @@ export type MessagesSlice = {
     content: string,
     showViewReport: boolean,
     meta: Partial<ChatMessage>,
-    cards?: GridCard[]
+    cards?: (GridCard | undefined)[]
   ) => string
+  /**
+   * Put a run's own message into the open thread, exactly as the server wrote
+   * it (ADR-0062).
+   *
+   * Its id is the SERVER's, not a fresh one: the run's message already exists —
+   * the BFF minted it when the run was commissioned — so this adopts a row
+   * rather than creating one, and a second copy with a local id would be a
+   * second block for one run. Idempotent by that id: a reload that raced this
+   * changes nothing.
+   */
+  adoptRunMessage: (message: ChatMessage) => void
   patchConversationMessage: (
     conversationId: string,
     messageId: string,
@@ -248,6 +261,10 @@ export type MessagesSlice = {
     stats?: { totalTokens?: number; toolCallCount?: number },
     escalationReason?: string
   ) => void
+  /** See `ChatActions.recordDeepResearchFiling` — the filing arrives after the banner. */
+  recordDeepResearchFiling: (jobId: string, filed: DeepResearchFiledDocument) => void
+  /** See `ChatActions.recordDeepResearchFilingFailure` — the other half of the same answer. */
+  recordDeepResearchFilingFailure: (jobId: string) => void
   setProjectId: (projectId: string | null) => void
   /** Queue text for the composer to pick up (does NOT auto-send). */
   setComposerPrefill: (text: string, mentions?: DraftMention[], subject?: ComposerSubject) => void
@@ -520,6 +537,61 @@ const withDeepResearchBanner = (
   }
 }
 
+/**
+ * Patch one run's SUCCESS banner with what the report route said about filing,
+ * wherever in the store that banner happens to live.
+ *
+ * Shared by the two outcomes — a document landed, or a promised filing did not
+ * — because they differ only in the patch, never in the search. Both are
+ * reported by the same endpoint on the same fetch, and a second walk written
+ * separately is a second answer to "which banner is this about".
+ *
+ * Every conversation, not just the current one: the run's banner lives in the
+ * thread that commissioned it, and the report can be re-read (and so first
+ * filed) from another thread, from the run history, or after the reader has
+ * moved on. Searching by job id is what makes that safe.
+ *
+ * `patch` returns `null` for "already says this" — an attached run has no
+ * banner at all, and a report is re-fetched every time its tab is opened, so
+ * both callers would otherwise re-render the whole conversation list to write
+ * the value that is already there.
+ */
+const withPatchedDeepResearchSuccessBanner = (
+  conversations: Conversation[],
+  currentConversation: Conversation | null,
+  jobId: string,
+  patch: (data: DeepResearchBannerData) => DeepResearchBannerData | null
+): { conversations: Conversation[]; currentConversation: Conversation | null; changed: boolean } => {
+  let changed = false
+
+  const patchConversation = (conversation: Conversation): Conversation => {
+    let patchedHere = false
+    const messages = conversation.messages.map((message) => {
+      const data = message.deepResearchBannerData
+      if (
+        message.messageType !== 'deep_research_banner' ||
+        data?.jobId !== jobId ||
+        data.bannerType !== 'success'
+      ) {
+        return message
+      }
+      const patched = patch(data)
+      if (!patched) return message
+      patchedHere = true
+      return { ...message, deepResearchBannerData: patched }
+    })
+    if (!patchedHere) return conversation
+    changed = true
+    return { ...conversation, messages }
+  }
+
+  return {
+    conversations: conversations.map(patchConversation),
+    currentConversation: currentConversation ? patchConversation(currentConversation) : currentConversation,
+    changed,
+  }
+}
+
 export const initialMessagesState = {
   isStreaming: false,
   isLoading: false,
@@ -552,7 +624,7 @@ const buildAgentResponseMessage = (
   content: string,
   opts: {
     showViewReport?: boolean
-    cards?: GridCard[]
+    cards?: (GridCard | undefined)[]
     answerConfidence?: 'low' | 'medium' | 'high'
     citations?: CitationSource[]
     isStreaming?: boolean
@@ -613,9 +685,6 @@ const buildAgentResponseMessage = (
     ...(opts.transparency?.routingDecision
       ? { routingDecision: opts.transparency.routingDecision }
       : {}),
-    ...(opts.transparency?.routingReason
-      ? { routingReason: opts.transparency.routingReason }
-      : {}),
     ...(opts.transparency?.escalationReason
       ? { escalationReason: opts.transparency.escalationReason }
       : {}),
@@ -628,7 +697,21 @@ const buildAgentResponseMessage = (
     ...(opts.transparency?.citationsRemoved
       ? { citationsRemoved: opts.transparency.citationsRemoved }
       : {}),
+    // Retrieved-but-uncited documents for the "Gelesen, nicht zitiert"
+    // disclosure. Absent when everything retrieved was cited.
+    ...(opts.transparency?.readSources && opts.transparency.readSources.length > 0
+      ? { readSources: opts.transparency.readSources }
+      : {}),
     ...(opts.transparency?.researchTruncated ? { researchTruncated: true as const } : {}),
+    // The answer's structured anatomy — already sanitized at the wire boundary.
+    ...(opts.transparency?.answerMeta ? { answerMeta: opts.transparency.answerMeta } : {}),
+    // The backend's account of this turn's retrieval rounds — already
+    // sanitized at the wire boundary (which guarantees a non-empty array or
+    // nothing). Spread like every other extra so a turn without one stays
+    // byte-identical to a pre-ledger message.
+    ...(opts.transparency?.retrievalLedger
+      ? { retrievalLedger: opts.transparency.retrievalLedger }
+      : {}),
     // The CAUSE and the degradations ride alongside the flag, and are copied
     // independently of it: a run can be degraded without being truncated, and
     // gating them on the flag drops exactly the case the reader most needs.
@@ -658,7 +741,7 @@ export const createMessagesSlice: StateCreator<ChatStore, [["zustand/devtools", 
   // synchronously so `append` then a synchronous read still observes the text.
   let pendingDeltaText = ''
   let pendingDeltaMeta: {
-    cards?: GridCard[]
+    cards?: (GridCard | undefined)[]
     answerConfidence?: 'low' | 'medium' | 'high'
     citations?: CitationSource[]
   } = {}
@@ -1326,7 +1409,7 @@ export const createMessagesSlice: StateCreator<ChatStore, [["zustand/devtools", 
   addAgentResponse: (
     content: string,
     showViewReport?: boolean,
-    cards?: GridCard[],
+    cards?: (GridCard | undefined)[],
     answerConfidence?: 'low' | 'medium' | 'high',
     citations?: CitationSource[],
     transparency?: AnswerTransparency
@@ -1380,7 +1463,7 @@ export const createMessagesSlice: StateCreator<ChatStore, [["zustand/devtools", 
 
   appendAgentResponseDelta: (
     content: string,
-    cards?: GridCard[],
+    cards?: (GridCard | undefined)[],
     answerConfidence?: 'low' | 'medium' | 'high',
     citations?: CitationSource[]
   ) => {
@@ -1441,7 +1524,7 @@ export const createMessagesSlice: StateCreator<ChatStore, [["zustand/devtools", 
 
   finalizeAgentResponse: (
     content: string,
-    cards?: GridCard[],
+    cards?: (GridCard | undefined)[],
     answerConfidence?: 'low' | 'medium' | 'high',
     citations?: CitationSource[],
     transparency?: AnswerTransparency
@@ -1485,7 +1568,6 @@ export const createMessagesSlice: StateCreator<ChatStore, [["zustand/devtools", 
         ...(citations && citations.length > 0 ? { citations } : {}),
         // Transparency extras ride the terminal frame; attach only what's present.
         ...(transparency?.routingDecision ? { routingDecision: transparency.routingDecision } : {}),
-        ...(transparency?.routingReason ? { routingReason: transparency.routingReason } : {}),
         ...(transparency?.escalationReason ? { escalationReason: transparency.escalationReason } : {}),
         ...(transparency?.answerConfidenceCappedReason
           ? { answerConfidenceCappedReason: transparency.answerConfidenceCappedReason }
@@ -1494,7 +1576,11 @@ export const createMessagesSlice: StateCreator<ChatStore, [["zustand/devtools", 
           ? { answerConfidenceReason: transparency.answerConfidenceReason }
           : {}),
         ...(transparency?.citationsRemoved ? { citationsRemoved: transparency.citationsRemoved } : {}),
+        ...(transparency?.readSources && transparency.readSources.length > 0
+          ? { readSources: transparency.readSources }
+          : {}),
         ...(transparency?.researchTruncated ? { researchTruncated: true as const } : {}),
+        ...(transparency?.answerMeta ? { answerMeta: transparency.answerMeta } : {}),
         ...(transparency?.truncationReason ? { truncationReason: transparency.truncationReason } : {}),
         ...(transparency?.degradedReasons?.length
           ? { degradedReasons: transparency.degradedReasons }
@@ -1681,7 +1767,7 @@ export const createMessagesSlice: StateCreator<ChatStore, [["zustand/devtools", 
     content: string,
     showViewReport: boolean,
     meta: Partial<ChatMessage>,
-    cards?: GridCard[]
+    cards?: (GridCard | undefined)[]
   ): string => {
     const { currentConversation, conversations } = get()
     if (!currentConversation) return ''
@@ -1716,6 +1802,27 @@ export const createMessagesSlice: StateCreator<ChatStore, [["zustand/devtools", 
     )
 
     return messageId
+  },
+
+  adoptRunMessage: (message: ChatMessage) => {
+    const { currentConversation, conversations } = get()
+    if (!currentConversation) return
+    if (currentConversation.messages.some((existing) => existing.id === message.id)) return
+
+    const updatedConversation: Conversation = {
+      ...currentConversation,
+      messages: [...currentConversation.messages, message],
+      updatedAt: new Date(),
+    }
+
+    set(
+      {
+        currentConversation: updatedConversation,
+        conversations: updateConversationInList(conversations, updatedConversation),
+      },
+      false,
+      'adoptRunMessage'
+    )
   },
 
   patchConversationMessage: (
@@ -1998,6 +2105,54 @@ export const createMessagesSlice: StateCreator<ChatStore, [["zustand/devtools", 
       },
       false,
       'addDeepResearchBanner'
+    )
+  },
+
+  recordDeepResearchFiling: (jobId: string, filed: DeepResearchFiledDocument) => {
+    const { currentConversation, conversations } = get()
+
+    const next = withPatchedDeepResearchSuccessBanner(
+      conversations,
+      currentConversation,
+      jobId,
+      (data) =>
+        data.filedDocument?.documentId === filed.documentId
+          ? null
+          : // `filingFailed` is cleared, not merged. A document that exists is
+            // the whole of what the reader needs to know; leaving the
+            // retraction beside it would have the same banner deny and name the
+            // same file.
+            { ...data, filedDocument: filed, filingFailed: false }
+    )
+    if (!next.changed) return
+
+    set(
+      { currentConversation: next.currentConversation, conversations: next.conversations },
+      false,
+      'recordDeepResearchFiling'
+    )
+  },
+
+  recordDeepResearchFilingFailure: (jobId: string) => {
+    const { currentConversation, conversations } = get()
+
+    const next = withPatchedDeepResearchSuccessBanner(
+      conversations,
+      currentConversation,
+      jobId,
+      (data) =>
+        // A recorded document wins over a later failed attempt. The file is
+        // there; a re-read that could not file it again says nothing about
+        // that, and retracting a filing the reader can still open would be the
+        // one dishonesty worse than the silence this replaces.
+        data.filedDocument || data.filingFailed ? null : { ...data, filingFailed: true }
+    )
+    if (!next.changed) return
+
+    set(
+      { currentConversation: next.currentConversation, conversations: next.conversations },
+      false,
+      'recordDeepResearchFilingFailure'
     )
   },
 

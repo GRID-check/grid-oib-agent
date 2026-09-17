@@ -38,25 +38,25 @@ describe.skipIf(!url)('platform model defaults against live Postgres', () => {
     expect(await getPlatformModelDefaults()).toEqual({})
 
     await savePlatformModelDefaults({
-      defaults: { intent: 'vendor/fast', deep_research: 'vendor/deep' },
-      modelSnapshot: { intent: { id: 'vendor/fast' }, deep_research: { id: 'vendor/deep' } },
+      defaults: { shallow_research: 'vendor/fast', deep_research: 'vendor/deep' },
+      modelSnapshot: { shallow_research: { id: 'vendor/fast' }, deep_research: { id: 'vendor/deep' } },
       note: 'initial fleet default',
       ...actor,
     })
-    expect(await getPlatformModelDefaults()).toEqual({ intent: 'vendor/fast', deep_research: 'vendor/deep' })
+    expect(await getPlatformModelDefaults()).toEqual({ shallow_research: 'vendor/fast', deep_research: 'vendor/deep' })
 
-    // A save is the whole set: `intent` changes, `deep_research` is dropped.
+    // A save is the whole set: `shallow_research` changes, `deep_research` is dropped.
     await savePlatformModelDefaults({
-      defaults: { intent: 'vendor/faster' },
-      modelSnapshot: { intent: { id: 'vendor/faster' } },
+      defaults: { shallow_research: 'vendor/faster' },
+      modelSnapshot: { shallow_research: { id: 'vendor/faster' } },
       note: 'model bump',
       ...actor,
     })
-    expect(await getPlatformModelDefaults()).toEqual({ intent: 'vendor/faster' })
+    expect(await getPlatformModelDefaults()).toEqual({ shallow_research: 'vendor/faster' })
 
     const rows = await listPlatformModelDefaults()
     expect(rows).toHaveLength(1)
-    expect(rows[0]).toMatchObject({ agentGroup: 'intent', model: 'vendor/faster', note: 'model bump' })
+    expect(rows[0]).toMatchObject({ agentGroup: 'shallow_research', model: 'vendor/faster', note: 'model bump' })
 
     await savePlatformModelDefaults({ defaults: {}, modelSnapshot: {}, note: null, ...actor })
     expect(await getPlatformModelDefaults()).toEqual({})

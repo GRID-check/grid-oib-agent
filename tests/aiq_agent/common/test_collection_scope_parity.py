@@ -23,6 +23,8 @@ from pathlib import Path
 import pytest
 
 from aiq_agent.common.source_kinds import _LANE_KIND_PREFIXES
+from aiq_agent.common.source_kinds import AGENT_AUTHORED_LANE
+from aiq_agent.common.source_kinds import AGENT_AUTHORED_LANE_LABEL
 from aiq_agent.common.source_kinds import DEFAULT_SOURCE_KIND
 from aiq_agent.common.source_kinds import SOURCE_KINDS
 from aiq_agent.common.source_kinds import Shelf
@@ -97,6 +99,24 @@ def test_the_lane_kind_prefixes_match(mirror_source: str):
     assert block, "LANE_KIND_PREFIXES not found in the frontend mirror"
     mirrored = tuple(re.findall(r"\['([^']*)',\s*'([^']*)'\]", block.group(1)))
     assert mirrored == _LANE_KIND_PREFIXES
+
+
+def test_the_agent_authored_lane_matches(mirror_source: str):
+    """The lane key is a wire value and its label is what the chip shows.
+
+    Declared on both sides because neither runtime imports the other's; a lane
+    key that disagrees renders as an unknown sub-label, and a label that
+    disagrees tells the reader two different things about the same document
+    depending on which surface they are looking at.
+    """
+    key = re.search(r"AGENT_AUTHORED_LANE = '([^']+)'", mirror_source)
+    label = re.search(r"AGENT_AUTHORED_LANE_LABEL = '([^']+)'", mirror_source)
+    assert key and label, "the agent-authored lane was not found in the frontend mirror"
+    assert key.group(1) == AGENT_AUTHORED_LANE
+    assert label.group(1) == AGENT_AUTHORED_LANE_LABEL
+    # And the mirror's own lane→kind table places it in the office family
+    # without a row of its own: the ``buero`` prefix already covers it.
+    assert AGENT_AUTHORED_LANE.startswith("buero_")
 
 
 def test_the_lane_fallback_kinds_match(mirror_source: str):

@@ -1,0 +1,31 @@
+---
+features:
+  - >
+    „Mit … vergleichen" zeigt jetzt, was sich zwischen zwei Fassungen geändert
+    hat, statt beide Texte nur nebeneinanderzulegen: Neue Zeilen sind mit einem
+    Plus und einem durchgezogenen Strich markiert, entfernte mit einem Minus und
+    einem gestrichelten. Lange unveränderte Abschnitte werden zu einer gezählten
+    Lücke zusammengefasst.
+improvements:
+  - >
+    Die Zeilennummern beider Fassungen stehen nebeneinander. Wird oben etwas
+    eingefügt, laufen sie ab dieser Stelle sichtbar auseinander — damit ist
+    erkennbar, dass wirklich verglichen und nicht nur Zeile für Zeile
+    übereinandergelegt wird.
+  - >
+    Rot und Grün kommen dabei nicht vor. Farbe sagt in Piloti, woher etwas
+    stammt, und nicht, was damit passiert ist; der Unterschied wird über Strich,
+    Zeichen und Schriftfarbe getragen.
+  - >
+    Sind zwei Fassungen inhaltlich gleich — etwa nach einem erneuten Hochladen
+    derselben Datei —, steht das als Satz da, statt eine leere Liste zu zeigen.
+  - >
+    Schlägt etwas fehl, nennt die Fehlermeldung jetzt eine kurze Referenz für
+    den Support, die sich mit einem Klick kopieren lässt. Damit lässt sich ein
+    gemeldeter Fehler im Betrieb wiederfinden, statt nach dem Zeitpunkt suchen zu
+    müssen.
+fixes:
+  - >
+    Ein Budget für ein einzelnes Mitglied lässt sich nicht mehr auf eine Person
+    setzen, die der Organisation gar nicht angehört. Bisher wurde so ein Limit
+    gespeichert, in den Einstellungen angezeigt und hat nie gegriffen.

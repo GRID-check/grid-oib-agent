@@ -19,7 +19,7 @@
  * on a bare page, at full width — and "does this look right on its own" is a
  * different question from "does this look right wedged between two paragraphs,
  * under a lede, above a provenance footer, at the thread's real 680px column".
- * These four variants ask the second one:
+ * These variants ask the second one:
  *
  *   • `lede-card`    — a long answer (over the `LEDE_MIN_CHARS` threshold, so
  *                      the lede fires) with a `calculation` spliced in mid-answer
@@ -57,6 +57,22 @@
  *                      design — the card IS the lede), and the misuse beneath
  *                      it, the card placed after an opening paragraph so the
  *                      lede fires too and the ruling is stated twice.
+ *   • `anatomy`      — the envelope's NATIVE anatomy, flat: verdict masthead
+ *                      above the prose, callout anchored inside it by its
+ *                      `[[callout]]` marker, takeaways closing the answer.
+ *   • `feedback-open` — the provenance footer with the feedback footnote OPEN:
+ *                      the same answer at rest and after a down-vote whose
+ *                      reason is chosen, so the note is showing too. The footer
+ *                      is the only place where a 24px control row and a form
+ *                      share one wrapping row, and the open state had never been
+ *                      seen in it — only in the component's own gallery, where
+ *                      there is no row to break. It broke: `items-center`
+ *                      centred the copy actions against the form's height, so
+ *                      two icons floated mid-footer in an empty left half while
+ *                      the reason chips and the note hung off the row's right
+ *                      end. Read the two panels' top line: copy, export and the
+ *                      thumbs must sit on it identically, with the disclosure
+ *                      below on the answer's own left edge.
  *
  * Every fixture answer deliberately ends in a written "## Quellen" section, the
  * way a verified backend answer does: it must NOT render as a second source
@@ -84,6 +100,7 @@ import { FollowUpsRail } from '@/features/chat/components/FollowUpsRail'
 import type { ThinkingStep, CitationSource } from '@/features/chat/types'
 import type { GridCard } from '@/shared/cards/schemas'
 import type { MessageStages } from '@/lib/conversations/message-stages'
+import type { AnswerMeta } from '@/lib/conversations/message-answer-meta'
 
 const step: ThinkingStep = {
   id: 'kb',
@@ -169,9 +186,6 @@ const commonThinking = {
   userQuestion: question,
   enabledDataSources: ['OIB-Korpus', 'RIS', 'Projektdokumente'],
   messageFiles: [{ id: 'f1', fileName: 'Grundriss_EG.pdf' }],
-  routingDecision: 'shallow' as const,
-  routingReason:
-    'konkrete Frage zu OIB-Richtlinie 2 (Brandschutz), kein Bedarf für Tiefenrecherche',
 }
 
 /**
@@ -262,8 +276,18 @@ const AnswerTurn: FC<{
    * component reads it off the message, so a fixture is a message.
    */
   stages?: MessageStages
+  /** The envelope's native anatomy — rendered flat, never as cards. */
+  answerMeta?: AnswerMeta
+  /**
+   * The conversation the turn belongs to. Only the `feedback-open` variant sets
+   * it, and it is what makes that fixture real rather than staged: the footer's
+   * thumbs hydrate per conversation, so a conversation id is the ONLY way to
+   * put the real component into a voted state — no prop, no stubbed hook. It
+   * also turns on the .docx export action, which is the production footer.
+   */
+  conversationId?: string
   children?: ReactNode
-}> = ({ label, question, answer, cards, citations, confidenceReason, messageId, rail, stages, children }) => (
+}> = ({ label, question, answer, cards, citations, confidenceReason, messageId, rail, stages, answerMeta, conversationId, children }) => (
   <div className="flex flex-col gap-5 rounded-2xl border bg-background p-5">
     <div className="font-mono text-xs text-muted-foreground">{label}</div>
     {children}
@@ -287,11 +311,13 @@ const AnswerTurn: FC<{
         timestamp={new Date('2024-01-15T14:30:12')}
         cards={cards}
         citations={citations}
+        conversationId={conversationId}
         answerConfidence="high"
         answerConfidenceReason={confidenceReason}
         routingDecision="shallow"
         messageId={messageId}
         stages={stages}
+        answerMeta={answerMeta}
       />
       {rail && (
         <div className="w-[680px] max-w-full">
@@ -641,13 +667,154 @@ const takeawaysCard: GridCard = {
   ],
 } as GridCard
 
-const ANSWER_VARIANTS = ['lede-card', 'two-cards', 'follow-ups-rail', 'memory-chip', 'verdict-lede'] as const
+/* --- variant: anatomy ----------------------------------------------------- */
+
+const anatomyQuestion = 'Wie hoch muss das Geländer an der Dachterrasse sein?'
+
+/**
+ * The envelope's native anatomy, end to end: the verdict as the answer's
+ * masthead (flat, closed by one hairline — never a boxed card), the callout
+ * anchored INSIDE the prose by its own-line `[[callout]]` marker, and the
+ * takeaways closing the answer. The prose opens with its own answer sentence
+ * that qualifies the masthead's value instead of repeating it — the
+ * duplication rule the prompt's earned-when carries.
+ */
+const anatomyAnswer = `Maßgeblich ist die Absturzhöhe, nicht das Geschoß: gemessen wird von der Oberkante des begehbaren Belags bis zur tiefer liegenden angrenzenden Fläche — hier rund 13,2 m bis zum Gelände, also klar über der 12-m-Grenze [1].
+
+Die Füllung ist getrennt zu beurteilen. Öffnungen dürfen 12 cm nicht überschreiten, und zwischen 20 und 60 cm über dem Belag sind waagrechte Elemente unzulässig, weil sie als Aufstiegshilfe wirken [1].
+
+[[callout]]
+
+Für Wien verlangt § 109 BO zusätzlich die Darstellung der Verankerung im Einreichplan; die Ausführung selbst bleibt Sache der Detailplanung [2].
+
+${STAIR_SOURCES}`
+
+const anatomyMeta: AnswerMeta = {
+  v: 1,
+  summary:
+    'Für die Dachterrasse sind 1,20 m Umwehrungshöhe erforderlich, weil die Absturzhöhe mit rund 13,2 m über der 12-m-Grenze liegt; gemessen wird ab Oberkante des begehbaren Belags.',
+  verdict: {
+    value: '1,20 m',
+    subject: 'Erforderliche Höhe der Umwehrung',
+    reference: { document: 'OIB-Richtlinie 4', section: 'Pkt. 4.1', edition: 'Ausgabe Mai 2023' },
+  },
+  callout: {
+    kind: 'achtung',
+    text: 'Aufkantungen und Pflanztröge am Rand zählen zur Standfläche: die 1,20 m sind ab deren Oberkante zu messen.',
+  },
+  takeaways: [
+    {
+      text: 'Über 12 m Absturzhöhe sind 1,20 m Umwehrungshöhe erforderlich',
+      detail: 'Unter 12 m genügen 1,00 m; die Grenze entscheidet, nicht das Geschoß.',
+    },
+    { text: 'Öffnungen der Füllung höchstens 12 cm' },
+    { text: 'Keine waagrechten Elemente zwischen 20 und 60 cm über dem Belag' },
+  ],
+}
+
+/* --- variant: feedback-open ------------------------------------------------ */
+
+/**
+ * What the footer's thumbs are holding for each turn of the `feedback-open`
+ * fixture, keyed by conversation — the shape GET /api/feedback/answers returns.
+ *
+ * Keyed by conversation because that is how the real hook hydrates: one GET per
+ * conversation, so two conversations is what puts two copies of the REAL
+ * component on one page in two different states, with nothing stubbed but the
+ * network.
+ */
+const FEEDBACK_STATES: Record<string, { messageId: string; verdict: string; reason: string | null; comment: string | null }[]> = {
+  'conv-feedback-rest': [],
+  'conv-feedback-down': [
+    { messageId: 'msg-feedback-down', verdict: 'down', reason: 'inaccurate', comment: null },
+  ],
+}
+
+if (typeof window !== 'undefined') {
+  const real = window.fetch.bind(window)
+  window.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = String(input)
+    if (url.includes('/api/feedback/answers')) {
+      const conversationId = new URL(url, 'http://x').searchParams.get('conversationId') ?? ''
+      return new Response(JSON.stringify({ feedback: FEEDBACK_STATES[conversationId] ?? [] }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      })
+    }
+    return real(input, init)
+  }
+}
+
+const feedbackQuestion = 'Wie breit muss die Haupttreppe in einem Wohnhaus der Gebäudeklasse 4 sein?'
+
+const feedbackAnswer = `Die nutzbare **Laufbreite** der Haupttreppe muss mindestens **1,20 m** betragen. Gemessen wird zwischen den begrenzenden Bauteilen, Handläufe dürfen bis 10 cm je Seite einragen [1].
+
+Für Wien konkretisiert § 111 BO die Ausführung: die Breite ist über den gesamten Lauf einzuhalten, Einbauten und Verziehungen dürfen sie an keiner Stelle unterschreiten [2].
+
+${STAIR_SOURCES}`
+
+const ANSWER_VARIANTS = [
+  'feedback-open',
+  'lede-card',
+  'two-cards',
+  'follow-ups-rail',
+  'memory-chip',
+  'verdict-lede',
+  'anatomy',
+] as const
 type AnswerVariant = (typeof ANSWER_VARIANTS)[number]
 
 const isAnswerVariant = (value: string | null): value is AnswerVariant =>
   ANSWER_VARIANTS.includes(value as AnswerVariant)
 
 function AnswerLayer({ variant }: { variant: AnswerVariant }) {
+  if (variant === 'feedback-open') {
+    // The SAME footer twice: at rest, and after a down-vote with a reason
+    // chosen, so the note is open too — the tallest the footnote ever gets.
+    // The pair is the evidence, and the top line of the two footers is where to
+    // look: the copy actions and the thumbs must sit on it at the same height
+    // in both, with the reason chips and the note below, on the answer's left
+    // edge. They used to be one box in a centred row, which made the second
+    // footer as tall as the form, floated the copy actions halfway down its
+    // empty left half, and hung the chips and the note off the right end.
+    return (
+      <>
+        <AnswerTurn
+          label="↓ AT REST — the footnote is one 24px line: copy, export, the question, two thumbs"
+          question={feedbackQuestion}
+          answer={feedbackAnswer}
+          citations={stairCitations}
+          confidenceReason="Laufbreite direkt aus OIB-RL 4 und § 111 BO Wien belegt"
+          messageId="msg-feedback-rest"
+          conversationId="conv-feedback-rest"
+        />
+        <AnswerTurn
+          label="↓ NOT HELPFUL, REASON CHOSEN — the disclosure takes the next line, the row above it does not move"
+          question={feedbackQuestion}
+          answer={feedbackAnswer}
+          citations={stairCitations}
+          confidenceReason="Laufbreite direkt aus OIB-RL 4 und § 111 BO Wien belegt"
+          messageId="msg-feedback-down"
+          conversationId="conv-feedback-down"
+        />
+      </>
+    )
+  }
+
+  if (variant === 'anatomy') {
+    return (
+      <AnswerTurn
+        label="↓ NATIVE ANATOMY — verdict masthead above the prose, callout anchored by [[callout]], takeaways closing"
+        question={anatomyQuestion}
+        answer={anatomyAnswer}
+        citations={stairCitations}
+        confidenceReason="Absturzhöhe am Modell gemessen, Grenzwert direkt aus OIB-RL 4 belegt"
+        messageId="msg-anatomy"
+        answerMeta={anatomyMeta}
+      />
+    )
+  }
+
   if (variant === 'lede-card') {
     return (
       <AnswerTurn

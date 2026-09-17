@@ -96,6 +96,7 @@ import {
   useBimElementDetail,
   useBimElements,
   useBimModelSource,
+  useDocumentBimModel,
   useProjectBimModels,
 } from '../hooks/use-bim-model'
 import { useModelViewport } from '../hooks/use-model-viewport'
@@ -234,7 +235,27 @@ function visibilityActions(
 }
 
 export interface ModelStageProps {
-  projectId: string
+  /**
+   * The project the stage is opened from, or `null` in the org-wide Archiv.
+   *
+   * Nullable because an `.ifc` has to behave the same wherever it is opened,
+   * and the Archiv has no project to name. Almost nothing here needed one: the
+   * viewport, the storey rail, the element table, the Raumbuch and the revision
+   * timeline are all facts about the MODEL. Two things genuinely are project
+   * facts and say so when they are missing — the Prüfbuch, which checks the
+   * building against a Gebäudeklasse and a Hauptnutzung the project brief
+   * holds, and the ownership row, which is collaboration and is per-project by
+   * definition.
+   */
+  projectId: string | null
+  /**
+   * The document to resolve the model from when there is no project.
+   *
+   * With a project the rail lists everything in scope and `?model=` picks one
+   * out of it. Without one there is no list to pick from, so the Archiv names
+   * the document it opened and the stage resolves exactly that model.
+   */
+  documentId?: string
   /** Closes the stage — the caller drops `?model=` from the URL. */
   onClose: () => void
   /**
@@ -251,6 +272,7 @@ export interface ModelStageProps {
 
 export function ModelStage({
   projectId,
+  documentId,
   onClose,
   onModelRenamed,
   onModelDeleted,
@@ -378,7 +400,30 @@ export function ModelStage({
     [navigate, pushStep, view]
   )
 
-  const { data: models, isLoading, error, reload: reloadModels } = useProjectBimModels(projectId)
+  /**
+   * Exactly one of these does any work; the other is passed null and stays
+   * idle. Both are called unconditionally because hooks are — the same shape
+   * `IfcFilePreview` uses for the same reason.
+   */
+  const projectModels = useProjectBimModels(projectId)
+  const archivModel = useDocumentBimModel(projectId ? null : (documentId ?? null))
+  const {
+    data: models,
+    isLoading,
+    error,
+    reload: reloadModels,
+  } = useMemo(() => {
+    if (projectId) return projectModels
+    return {
+      // One model is still a list, so every reader below — the rail, the
+      // picker, `pickStageModel` — works unchanged rather than growing a
+      // second code path for the Archiv.
+      data: archivModel.data === null ? (archivModel.isLoading ? null : []) : [archivModel.data],
+      isLoading: archivModel.isLoading,
+      error: archivModel.error,
+      reload: archivModel.reload,
+    }
+  }, [projectId, projectModels, archivModel])
   const model = useMemo(() => pickStageModel(models ?? [], view.model), [models, view.model])
   /**
    * The link named a model this project does not have.
@@ -1110,7 +1155,10 @@ export function ModelStage({
                 the same one the file preview carries; only its trigger is
                 dressed for the viewport.
               */}
-              {model && (
+              {/* Collaboration is per-project by definition — there is nobody
+                  to be responsible for an org-wide Archiv file on behalf of a
+                  project that was never named. */}
+              {model && projectId && (
                 <ModelFileOwnership
                   projectId={projectId}
                   model={model}

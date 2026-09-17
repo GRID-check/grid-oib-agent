@@ -1,0 +1,14 @@
+---
+features:
+  - >
+    Automations now live in one Aufgaben list: one-shot delegations and
+    scheduled templates share the same rows, with the rhythm and the next
+    run shown inline, and every run opens in a detail view with its result.
+improvements:
+  - >
+    Task states stay live while the panel is open and speak planner words,
+    so finished work no longer looks like it is still running.
+fixes:
+  - >
+    Raw submission words no longer leak onto task rows, and scheduled
+    results link back to the task instead of getting lost in chat history.

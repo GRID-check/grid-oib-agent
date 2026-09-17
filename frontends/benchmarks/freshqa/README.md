@@ -34,13 +34,13 @@ The FreshQA evaluator uses an LLM judge. The default configs use **OpenAI GPT-4o
 
 ### Other API keys
 
-Set in `deploy/.env`: `NVIDIA_API_KEY` (agent), `TAVILY_API_KEY` (web search).
+Set in `deploy/.env`: `OPENROUTER_API_KEY` (agent), `TAVILY_API_KEY` (web search).
 
 ## Quick Start
 
 ```bash
-# Shallow research only
-dotenv -f deploy/.env run nat eval --config_file frontends/benchmarks/freshqa/configs/config_shallow_research_only.yml
+# Research only (no escalation to deep research)
+dotenv -f deploy/.env run nat eval --config_file frontends/benchmarks/freshqa/configs/config_research_only.yml
 
 # Full workflow (orchestration + research agents)
 dotenv -f deploy/.env run nat eval --config_file frontends/benchmarks/freshqa/configs/config_full_workflow.yml

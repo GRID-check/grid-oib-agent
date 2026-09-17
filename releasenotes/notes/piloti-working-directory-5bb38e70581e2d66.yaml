@@ -1,0 +1,17 @@
+---
+features:
+  - >
+    Piloti can now write a document instead of describing one. Ask for an
+    Aktenvermerk, a Protokoll, a Checkliste, a Flächenaufstellung or a
+    Konzeptentwurf, and the finished text is written into a working folder that
+    belongs to this conversation, with a card beside the answer naming what was
+    written.
+  - >
+    A follow-up like "kürze Punkt 3" changes that document in place instead of
+    producing a second version of it, so the conversation keeps working on one
+    draft rather than on a growing pile of near-copies.
+improvements:
+  - >
+    The working folder belongs to the conversation and nothing in it is filed,
+    indexed or quoted as a source. A draft becomes a project document only when
+    somebody takes it into the project.

@@ -49,7 +49,7 @@ tokenomics:
       # and "tavily_search" because the key is a substring of those names.
       "web_search":
         cost_per_call: 0.016
-      "paper_search":
+      "ris_search":
         cost_per_call: 0.0003
     # Fallback for any model not explicitly listed.
     # Set to null to raise an error on unknown models instead.

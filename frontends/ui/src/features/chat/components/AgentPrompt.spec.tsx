@@ -256,6 +256,24 @@ describe('AgentPrompt', () => {
     expect(screen.queryByText(/several minutes/i)).not.toBeInTheDocument()
   })
 
+  test('legacy envelope strips its feedback tail too', () => {
+    useChatStore.setState({ respondToInteractionFn: vi.fn() })
+
+    render(
+      <AgentPrompt
+        id="prompt-1"
+        type="approval"
+        content={
+          'Plan.\n\nReply **approve** to proceed, **reject** to cancel, or provide feedback to revise the plan.'
+        }
+      />
+    )
+
+    // The old strip regex ended at "to cancel", leaving ", or provide
+    // feedback to revise the plan." dangling in the bubble.
+    expect(screen.getByTestId('markdown')).not.toHaveTextContent(/provide feedback/i)
+  })
+
   test('tabs through plan approval actions in DOM order', async () => {
     const user = userEvent.setup()
     useChatStore.setState({ respondToInteractionFn: vi.fn() })
@@ -279,6 +297,83 @@ describe('AgentPrompt', () => {
     expect(rejectButton).toHaveFocus()
     await user.tab()
     expect(approveButton).toHaveFocus()
+  })
+})
+
+/**
+ * The current three-way envelope: approve / shallow / cancel.
+ *
+ * The backend's plan preview now offers the middle way by name — a quick
+ * shallow answer instead of the plan — and an explicit cancel. The component
+ * must render all three, send the exact wire keywords, and keep translating
+ * the answered bubble's echo back into human words.
+ */
+describe('AgentPrompt — three-way plan decision', () => {
+  const THREE_WAY_CONTENT =
+    '**Research Plan Preview**\n\n**Title:** Brandschutz in Wien\n\n**Sections:**\n  1. Einleitung\n\n---\n' +
+    'Reply **approve** to proceed, **shallow** for a quick answer instead, ' +
+    '**cancel** to dismiss, or provide feedback to revise the plan.'
+
+  beforeEach(() => {
+    useChatStore.setState({ respondToInteractionFn: null })
+  })
+
+  test('renders all three actions and sends the wire keyword for each', async () => {
+    const user = userEvent.setup()
+    const respond = vi.fn()
+    useChatStore.setState({ respondToInteractionFn: respond })
+
+    render(<AgentPrompt id="prompt-1" type="approval" content={THREE_WAY_CONTENT} />)
+
+    await user.click(screen.getByRole('button', { name: /cancel the research/i }))
+    await user.click(screen.getByRole('button', { name: /answer the question briefly/i }))
+    await user.click(screen.getByRole('button', { name: /approve plan/i }))
+
+    expect(respond.mock.calls.map((c) => c[0])).toEqual(['cancel', 'shallow', 'approve'])
+  })
+
+  test('shows the three-way instruction, not the legacy approve/reject one', () => {
+    useChatStore.setState({ respondToInteractionFn: vi.fn() })
+
+    render(<AgentPrompt id="prompt-1" type="approval" content={THREE_WAY_CONTENT} />)
+
+    expect(
+      screen.getByText('Start the research, have your question answered briefly instead, or cancel.')
+    ).toBeInTheDocument()
+    expect(screen.queryByText(/Choose "Approve"/)).not.toBeInTheDocument()
+  })
+
+  test('strips the whole envelope line and localizes the plan scaffolding', () => {
+    useChatStore.setState({ respondToInteractionFn: vi.fn() })
+
+    render(<AgentPrompt id="prompt-1" type="approval" content={THREE_WAY_CONTENT} />)
+
+    const markdown = screen.getByTestId('markdown')
+    expect(markdown).not.toHaveTextContent(/reply/i)
+    expect(markdown).not.toHaveTextContent(/provide feedback/i)
+    // English scaffolding replaced by dictionary copy; the plan's own words stay.
+    expect(markdown).not.toHaveTextContent('Research Plan Preview')
+    expect(markdown).toHaveTextContent('Research plan')
+    expect(markdown).toHaveTextContent('Brandschutz in Wien')
+  })
+
+  test.each([
+    ['approve', 'Research started'],
+    ['shallow', 'Quick answer requested'],
+    ['cancel', 'Research cancelled'],
+    ['reject', 'Plan rejected'],
+  ])('echoes the %s decision in human words, never the wire keyword', (keyword, label) => {
+    render(
+      <AgentPrompt
+        id="prompt-1"
+        type="approval"
+        content={THREE_WAY_CONTENT}
+        isResponded
+        response={keyword}
+      />
+    )
+
+    expect(screen.getByText(label)).toBeInTheDocument()
   })
 })
 

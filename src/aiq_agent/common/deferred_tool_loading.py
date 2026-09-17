@@ -2,7 +2,7 @@
 
 WHAT THIS BUYS, AND WHAT IT COSTS
 =================================
-Every research turn of the shallow agent ships the JSON schema of every bound
+Every research turn of Piloti ships the JSON schema of every bound
 tool. On the OIB surface ``ifc_query`` and ``ifc_measure`` alone are ~36 KB of
 that payload, and they ride on all five tool iterations whether or not the
 question is about the building at all.
@@ -15,7 +15,7 @@ route, no second turn. That last property is the whole reason this is
 acceptable here at all: this agent force-synthesizes at
 ``max_tool_iterations`` (5), so a discovery call would cost 20 % of everything
 it will ever do about the question — the same argument that keeps the
-client-side BM25 narrowing (``shallow_researcher/tool_search.py``) outside the
+client-side BM25 narrowing (``piloti/tool_search.py``) outside the
 tool loop.
 
 It is not free. The tool-search apparatus itself costs input tokens (measured:
@@ -131,13 +131,12 @@ simply pays today's token cost.
 
 The whole mechanism is scoped to the agent that has something to defer.
 ``deferred_tool_loading`` sits under ``shallow_research_agent`` in the YAML,
-``api_type: responses`` is on ``shallow_llm`` alone, and this module is imported
-only by that agent — so ``intent_classifier``, ``clarifier_llm``, ``summary_llm``
-and the ``deep_*`` roles never reach it. Keep it that way. Deferral pays only
-where a large tool surface meets a tight turn budget (~60 KB of BIM schemas on a
-5-iteration budget); an intent classifier has nothing worth deferring and would
-pay the ~620-token apparatus for nothing — and a cheap sub-50 model is the RIGHT
-choice for classification, so a floor applied there would be actively wrong.
+``api_type: responses`` is on ``research_llm`` alone, and this module is imported
+only by that agent — so ``clarifier_llm``, ``summary_llm`` and the ``deep_*``
+roles never reach it. Keep it that way. Deferral pays only where a large tool
+surface meets a tight turn budget (~60 KB of BIM schemas on a 5-iteration
+budget); a role with a handful of tools has nothing worth deferring and would
+pay the ~620-token apparatus for nothing.
 
 Structurally: the lists, the scores and the floor all live on the per-agent
 :class:`DeferredToolLoadingSettings`, never in module scope, so two agents can
@@ -425,7 +424,7 @@ class DeferredToolLoadingSettings(BaseModel):
 
     Absent from a workflow YAML this validates to ``enabled=False`` and every
     binding path below is byte-identical to the one the agent has always taken.
-    The Chat-Completions deployments (``config_grid_oib.yml`` against
+    Plain Chat-Completions deployments (a Kimi endpoint, say, against
     ``api.kimi.com``) have no such capability and must never be handed this.
     """
 
@@ -1220,7 +1219,7 @@ class DeferredToolBinding(Runnable):
     Only ``invoke``/``ainvoke`` are overridden, on purpose. ``Runnable``'s
     default ``astream`` yields one chunk from ``ainvoke``, so a caller that
     streams through this gets a correct answer delivered in a single chunk —
-    degraded latency, never wrong output. The shallow agent is ``ainvoke``-only,
+    degraded latency, never wrong output. Piloti is ``ainvoke``-only,
     so nothing streams through it today. A real ``astream`` is not a delegation
     one-liner and is deliberately not guessed at here: the fallback cannot be
     decided until the deferred stream has already failed, by which point chunks

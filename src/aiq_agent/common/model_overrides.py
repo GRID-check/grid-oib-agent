@@ -40,8 +40,63 @@ MODEL_OVERRIDES_HEADER = "x-grid-model-overrides"
 # best-effort — in both cases the backend can still resolve the org's active
 # overrides itself from the internal endpoint, keyed by the org id that already
 # flows on every request.
-_POSITIVE_TTL_SECONDS = 60.0
-_NEGATIVE_TTL_SECONDS = 30.0
+# Two tiers. The in-process memo (L1) keeps the hot path free of any network;
+# the shared tier (L2, Dragonfly, ADR-0020) is what an admin save reaches: the
+# BFF deletes `modelconfig:{org}` when a tenant saves or rolls back a config,
+# toggles ZDR, or the platform owner moves the defaults. L1 is short so that
+# deletion is visible fleet-wide within seconds rather than the minute the
+# per-replica memo alone allowed; a positive L2 entry is invalidated by writes,
+# never by time alone, so its TTL only bounds the damage when a delete is
+# missed. Errors are negative-cached in L1 for ~1s only, never written to L2:
+# a longer negative TTL would pin a transient BFF outage (including its ZDR
+# bit) across the fleet, while no negative cache at all would retry-thunder a
+# downed BFF on every turn.
+_POSITIVE_TTL_SECONDS = 10.0
+_NEGATIVE_TTL_SECONDS = 1.0
+# Bounds the write-after-delete race window: a fetch that started BEFORE an
+# admin save (reading the pre-save rows) can complete AFTER the BFF's delete
+# and re-populate L2 with the stale record, which then serves every replica
+# until this TTL expires. 60s caps that staleness; it cannot be zero because
+# L2 is also the cold-start path that keeps a fresh replica off the BFF.
+#
+# RESIDUAL RACE (accepted): delete-then-repopulate as above, plus a replica
+# whose L1 still holds the pre-save entry serves it for up to L1 10s after the
+# save regardless of L2. Worst case after an admin save is therefore ~L1 + L2
+# staleness on a replica that lost the race; the common case is seconds via
+# the delete. Direct-SQL or out-of-band writes skip the delete entirely and
+# always pay the full TTLs — see docs/architecture/org-model-configuration.md.
+_SHARED_TTL_SECONDS = 60.0
+
+# One in-flight resolution per org per replica. The negative TTL above is
+# deliberately ~1s so a transient BFF outage (and with it the org's ZDR bit)
+# never pins the fleet -- but a TTL that short is nearly no negative cache at
+# all under load: every concurrent turn for the org raced past the expired
+# entry and opened its own request, and each one costs the full request
+# timeout while the BFF is down. Coalescing them is what makes the fast
+# recovery affordable; the alternative, a longer TTL, buys it by pinning a
+# stale ZDR bit, which is the wrong currency.
+_inflight_lock = threading.Lock()
+_inflight_fetches: dict[str, threading.Lock] = {}
+
+
+def _org_fetch_lock(organization_id: str) -> threading.Lock:
+    with _inflight_lock:
+        lock = _inflight_fetches.get(organization_id)
+        if lock is None:
+            if len(_inflight_fetches) > 512:
+                for key, held in [(k, v) for k, v in _inflight_fetches.items() if not v.locked()]:
+                    del _inflight_fetches[key]
+                    del held
+            lock = threading.Lock()
+            _inflight_fetches[organization_id] = lock
+        return lock
+
+
+def shared_model_config_key(organization_id: str) -> str:
+    """The Dragonfly key the BFF invalidates; keep in step with `lib/model-config/service.ts`."""
+    return f"modelconfig:{organization_id}"
+
+
 _REQUEST_TIMEOUT_SECONDS = 3.0
 
 # Model ids are OpenRouter's `author/slug` (optional `:variant` suffix, e.g.
@@ -67,9 +122,16 @@ class AgentGroup(StrEnum):
     id sets in sync.
     """
 
-    INTENT = "intent"
     CLARIFIER = "clarifier"
-    SHALLOW_RESEARCH = "shallow_research"
+    # The member is RESEARCH because the agent is no longer "the shallow one";
+    # the VALUE stays "shallow_research" because it is a PERSISTED KEY. Every
+    # org that re-pointed this agent's model has that exact string in
+    # `platform_models.agent_group`, and the group already carries a separate
+    # display label (`agent-groups.ts`), so the rename costs the value nothing.
+    # Do not "finish" the rename by changing the string: it would orphan every
+    # live override silently, since an unknown group id is dropped by
+    # `sanitize_model_overrides` rather than reported.
+    RESEARCH = "shallow_research"
     DEEP_RESEARCH = "deep_research"
     DEEP_RESEARCH_ROUTER = "deep_research_router"
     MEMORY_REFLECTION = "memory_reflection"
@@ -149,6 +211,16 @@ def reset_overrides_cache() -> None:
         _overrides_cache.clear()
 
 
+def _has_internal_trust_channel() -> bool:
+    """Whether :func:`_fetch_org_config` can actually ASK the BFF.
+
+    Distinguishes its two ``({}, False)`` returns: "the BFF says this org is
+    unconfigured" (authoritative, cacheable) from "there is no internal token,
+    so we fell back to YAML without asking" (not an answer about the org).
+    """
+    return bool(os.environ.get("GRID_INTERNAL_API_TOKEN"))
+
+
 def _fetch_org_config(organization_id: str) -> tuple[dict[str, str], bool]:
     """One HTTP round-trip to the BFF's internal model-overrides endpoint.
 
@@ -159,7 +231,9 @@ def _fetch_org_config(organization_id: str) -> tuple[dict[str, str], bool]:
     """
     token = os.environ.get("GRID_INTERNAL_API_TOKEN")
     if not token:
-        # No internal-token trust channel — fall back to YAML defaults.
+        # No internal-token trust channel — fall back to YAML defaults. The
+        # ({}, False) success is kept L1-only by the caller (never written to
+        # L2), so an unconfigured backend cannot shadow a real config.
         return {}, False
 
     import httpx
@@ -180,30 +254,102 @@ def _fetch_org_config(organization_id: str) -> tuple[dict[str, str], bool]:
     return (sanitize_model_overrides(overrides) if overrides else {}), zdr_only
 
 
+def _read_shared(organization_id: str) -> tuple[dict[str, str], bool] | None:
+    """The org's config from the shared tier, or ``None`` on a miss or a bad value."""
+    from aiq_agent.common import cache as shared_cache
+
+    try:
+        value = shared_cache.get_json(shared_model_config_key(organization_id))
+    except Exception:  # noqa: BLE001 - the shared tier is a cache, never a dependency
+        return None
+    if not isinstance(value, dict):
+        return None
+    overrides = value.get("overrides")
+    zdr_only = value.get("zdr_only")
+    if not isinstance(overrides, dict) or not isinstance(zdr_only, bool):
+        return None
+    return sanitize_model_overrides(overrides), zdr_only
+
+
+def _write_shared(organization_id: str, overrides: dict[str, str], zdr_only: bool) -> None:
+    from aiq_agent.common import cache as shared_cache
+
+    try:
+        shared_cache.set_json(
+            shared_model_config_key(organization_id),
+            {"overrides": overrides, "zdr_only": zdr_only},
+            _SHARED_TTL_SECONDS,
+        )
+    except Exception:  # noqa: BLE001 - see _read_shared
+        logger.debug("Could not write org model config to the shared cache", exc_info=True)
+
+
 def _resolve_org_config(organization_id: str | None) -> _OverridesCacheEntry | None:
     """Cached resolution of an org's overrides + ZDR policy (shared hot path).
 
-    In-process TTL cache (60 s positive / 30 s negative) keeps the hot path
-    free of network calls; errors are negative-cached and fail OPEN (no
-    overrides, ZDR off) — model selection and privacy pinning must never take
-    chat down. Returns ``None`` only when no org id is available.
+    In-process memo first, then the shared tier, then one BFF round-trip (see
+    the tier comment at the TTL constants); errors are negative-cached
+    in-process and fail OPEN (no overrides, ZDR off) — model selection and
+    privacy pinning must never take chat down. Returns ``None`` only when no
+    org id is available.
     """
     if not organization_id:
         return None
+
+    from aiq_agent.common.profiler import annotate_current_span
 
     now = time.monotonic()
     with _overrides_cache_lock:
         entry = _overrides_cache.get(organization_id)
         if entry is not None and entry.expires_at > now:
+            annotate_current_span(cache_model_config="hit")
             return entry
 
-    try:
-        overrides, zdr_only = _fetch_org_config(organization_id)
-        ttl = _POSITIVE_TTL_SECONDS if (overrides or zdr_only) else _NEGATIVE_TTL_SECONDS
-    except Exception as exc:  # noqa: BLE001 - fail open by design
-        logger.warning("Org model-config resolution failed for org %s: %s", organization_id, type(exc).__name__)
-        overrides, zdr_only = {}, False
-        ttl = _NEGATIVE_TTL_SECONDS
+    # One resolution per org at a time (see `_org_fetch_lock`). Everything from
+    # here down either reads L2 or opens a BFF request, and N concurrent turns
+    # for one org need exactly one of those, not N.
+    with _org_fetch_lock(organization_id):
+        return _resolve_org_config_locked(organization_id)
+
+
+def _resolve_org_config_locked(organization_id: str) -> _OverridesCacheEntry:
+    from aiq_agent.common.profiler import annotate_current_span
+
+    now = time.monotonic()
+    # Re-check L1: whoever held the lock before us has just populated it, which
+    # is the whole point of coalescing.
+    with _overrides_cache_lock:
+        entry = _overrides_cache.get(organization_id)
+        if entry is not None and entry.expires_at > now:
+            annotate_current_span(cache_model_config="hit-coalesced")
+            return entry
+
+    shared = _read_shared(organization_id)
+    if shared is not None:
+        overrides, zdr_only = shared
+        ttl = _POSITIVE_TTL_SECONDS
+        annotate_current_span(cache_model_config="hit-shared")
+    else:
+        try:
+            overrides, zdr_only = _fetch_org_config(organization_id)
+            ttl = _POSITIVE_TTL_SECONDS
+            # ({}, False) means two different things, and only one of them is
+            # cacheable. Without a trust channel we never ASKED anyone, so
+            # writing it to L2 would let "no configuration" shadow a real one
+            # fleet-wide for the full shared TTL. With one, the BFF answered
+            # authoritatively that this org is unconfigured -- which is the
+            # DEFAULT state of most orgs, so refusing to cache it sent every
+            # replica back to the BFF every L1 TTL, for the majority case, and
+            # made the "L2 keeps a fresh replica off the BFF" claim above false
+            # exactly where it mattered most.
+            if overrides or zdr_only or _has_internal_trust_channel():
+                _write_shared(organization_id, overrides, zdr_only)
+            annotate_current_span(cache_model_config="miss")
+        except Exception as exc:  # noqa: BLE001 - fail open by design
+            logger.warning("Org model-config resolution failed for org %s: %s", organization_id, type(exc).__name__)
+            overrides, zdr_only = {}, False
+            ttl = _NEGATIVE_TTL_SECONDS
+            annotate_current_span(cache_model_config="error")
 
     entry = _OverridesCacheEntry(overrides, zdr_only, ttl)
     with _overrides_cache_lock:
@@ -404,8 +550,8 @@ def apply_zdr_routing(llm: object) -> object:
 def is_reasoning_incompatible_error(err: BaseException) -> bool:
     """True when a provider rejected the call because the model cannot disable reasoning.
 
-    An org override can point a ``reasoning_effort: none`` role (today: the
-    intent group) at a reasoning-mandatory model (e.g. ``x-ai/grok-4.5``);
+    An org override can point a ``reasoning_effort: none`` role at a
+    reasoning-mandatory model (e.g. ``x-ai/grok-4.5``);
     OpenRouter then 400s with "Reasoning is mandatory for this endpoint and
     cannot be disabled". Callers use this to fall back to the workflow-default
     model instead of failing the turn. Matched conservatively: the message must

@@ -22,14 +22,18 @@ logger = logging.getLogger(__name__)
 
 OIB_DIR = Path(os.environ.get("OIB_DOCUMENTS_DIR", "data/oib"))
 # Writable home for PDFs uploaded through the platform-admin UI. Kept separate
-# from OIB_DIR because deployments bind-mount the repo corpus read-only; this
-# directory lives on the persistent data volume instead.
+# from OIB_DIR because deployments bind-mount that directory read-only; this one
+# lives on the persistent data volume instead. Since the corpus left the
+# repository this is the path a running deployment actually fills.
 OIB_UPLOADS_DIR = Path(os.environ.get("OIB_UPLOADS_DIR", "data/oib_uploads"))
 REGISTRY_PATH = Path(os.environ.get("OIB_REGISTRY_PATH", "data/oib_registry.json"))
-# Persistent set of corpus basenames removed from the active corpus. Repo-shipped
-# PDFs live in git and cannot be physically deleted, so "delete" for them means
-# excluding them here: their chunks are dropped and discover_pdfs()/sync() skip
-# them forever, so a sync never re-ingests a document an admin removed.
+# Persistent set of corpus basenames removed from the active corpus. A file under
+# OIB_DIR is bind-mounted read-only, so "delete" for it means excluding it here:
+# its chunks are dropped and discover_pdfs()/sync() skip it forever, so a sync
+# never re-ingests a document an admin removed. (This began as a workaround for
+# a corpus committed to git, which could not be deleted at all. That corpus is
+# gone; the mechanism stays, because a read-only mount has the same problem and
+# existing deployments carry exclusion state.)
 EXCLUDED_PATH = Path(os.environ.get("OIB_EXCLUDED_PATH", "data/oib_excluded.json"))
 COLLECTION_NAME = os.environ.get("OIB_COLLECTION_NAME") or os.environ.get("COLLECTION_NAME") or "oib_knowledge"
 CHROMA_DIR = os.environ.get("AIQ_CHROMA_DIR", "/tmp/chroma_data")

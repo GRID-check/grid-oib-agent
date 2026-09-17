@@ -2,7 +2,15 @@
  * @vitest-environment node
  */
 import { describe, test, expect } from 'vitest'
-import { formatBytes, formatDurationShort, formatEur, formatTransferRate } from './format'
+import {
+  formatBytes,
+  formatCredits,
+  formatDurationElapsed,
+  formatDurationShort,
+  formatEur,
+  formatTokens,
+  formatTransferRate,
+} from './format'
 
 describe('formatEur', () => {
   test('formats German amounts with comma decimal and trailing symbol', () => {
@@ -20,6 +28,47 @@ describe('formatEur', () => {
 
   test('omitting the locale still returns a EUR string (runtime default)', () => {
     expect(formatEur(1)).toMatch(/€|EUR/)
+  })
+})
+
+describe('formatCredits', () => {
+  test('whole numbers with locale grouping once the value is worth counting', () => {
+    expect(formatCredits(1234.6, 'en-US')).toBe('1,235')
+    expect(formatCredits(1234.6, 'de')).toBe('1.235')
+  })
+
+  test('one decimal below ten, so a cheap call is not shown as nothing', () => {
+    expect(formatCredits(0.44, 'en-US')).toBe('0.4')
+    expect(formatCredits(9.96, 'en-US')).toBe('10')
+  })
+
+  test('non-finite input renders as zero', () => {
+    expect(formatCredits(Number.NaN, 'en-US')).toBe('0')
+  })
+})
+
+describe('formatTokens', () => {
+  test('exact below a thousand, compact above', () => {
+    expect(formatTokens(812, 'en-US')).toBe('812')
+    expect(formatTokens(1_234_567, 'en-US')).toBe('1.2M')
+    expect(formatTokens(48_200, 'de')).toBe('48.200')
+  })
+})
+
+describe('formatDurationElapsed', () => {
+  test('keeps the exact seconds — it states what happened, not an estimate', () => {
+    expect(formatDurationElapsed(12, 'en-US')).toBe('12 sec')
+    expect(formatDurationElapsed(41.4, 'en-US')).toBe('41 sec')
+  })
+
+  test('steps up to whole minutes, then to hours with one decimal', () => {
+    expect(formatDurationElapsed(102, 'en-US')).toBe('2 min')
+    expect(formatDurationElapsed(5400, 'en-US')).toBe('1.5 hr')
+    expect(formatDurationElapsed(12, 'de')).toBe('12 Sek.')
+  })
+
+  test('a nonsense duration reads as zero rather than NaN', () => {
+    expect(formatDurationElapsed(Number.NaN, 'en-US')).toBe('0 sec')
   })
 })
 

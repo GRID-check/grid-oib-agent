@@ -1,0 +1,328 @@
+{
+  "schema_version": 1,
+  "description": "Golden OIB retrieval set for broad/exact/paraphrased German queries (backlog item 12). File-level labels: each entry names the corpus FILES that answer it (real data/oib filenames, verified against the checkout — never invented). Cohorts: (a) overview — broad 'was weißt du über ...' questions with no usable lexical signal (the item-11 failure class); (b) exact-id — §-refs, RL designations, filenames; (c) paraphrase — the same intents in everyday wording. calibration_pending is true on every entry: file membership was read from the corpus layout, not yet reviewed by a second building-law reader.",
+  "cohorts": ["overview", "exact-id", "paraphrase"],
+  "entries": [
+    {
+      "id": "ov-rl2",
+      "cohort": "overview",
+      "question": "was weißt du über die oib 2",
+      "expected_files": [
+        "oib-rl_2_ausgabe_mai_2023.pdf",
+        "oib-rl_2_leitfaden_ausgabe_mai_2023.pdf",
+        "erlaeuterungen_oib-rl_2_ausgabe_mai_2023.pdf",
+        "oib-rl_2.1_ausgabe_mai_2023.pdf",
+        "oib-rl_2.2_ausgabe_mai_2023.pdf",
+        "oib-rl_2.3_ausgabe_mai_2023.pdf"
+      ],
+      "notes": "The item-11 exemplar, verbatim lowercase as users type it. Lowercase 'oib' yields zero exact terms (legal_terms.isupper) and the sparse survivors die at the DF ceiling / digit-only rule, so current retrieval reaches only the vector channel.",
+      "calibration_pending": true
+    },
+    {
+      "id": "ov-rl1",
+      "cohort": "overview",
+      "question": "was weißt du über die oib 1",
+      "expected_files": [
+        "oib-rl_1_ausgabe_mai_2023.pdf",
+        "oib-rl_1_leitfaden_ausgabe_mai_2023.pdf",
+        "erlaeuterungen_oib-rl_1_ausgabe_mai_2023.pdf"
+      ],
+      "notes": "Sibling of ov-rl2 for RL 1 (Standsicherheit), same broad shape.",
+      "calibration_pending": true
+    },
+    {
+      "id": "ov-rl3",
+      "cohort": "overview",
+      "question": "was weißt du über die oib 3",
+      "expected_files": [
+        "oib-rl_3_ausgabe_mai_2023.pdf",
+        "erlaeuterungen_oib-rl_3_ausgabe_mai_2023.pdf"
+      ],
+      "notes": "Sibling of ov-rl2 for RL 3 (Hygiene/Gesundheit/Umweltschutz), same broad shape.",
+      "calibration_pending": true
+    },
+    {
+      "id": "ov-rl4",
+      "cohort": "overview",
+      "question": "was weißt du über die oib 4",
+      "expected_files": [
+        "oib-rl_4_ausgabe_mai_2023.pdf",
+        "erlaeuterungen_oib-rl_4_ausgabe_mai_2023.pdf"
+      ],
+      "notes": "Sibling of ov-rl2 for RL 4 (Nutzungssicherheit/Barrierefreiheit), same broad shape.",
+      "calibration_pending": true
+    },
+    {
+      "id": "ov-rl5",
+      "cohort": "overview",
+      "question": "was weißt du über die oib 5",
+      "expected_files": [
+        "oib-rl_5_ausgabe_mai_2023.pdf",
+        "erlaeuterungen_oib-rl_5_ausgabe_mai_2023.pdf"
+      ],
+      "notes": "Sibling of ov-rl2 for RL 5 (Schallschutz), same broad shape.",
+      "calibration_pending": true
+    },
+    {
+      "id": "ov-rl6",
+      "cohort": "overview",
+      "question": "was weißt du über die oib 6",
+      "expected_files": [
+        "oib-rl_6_ausgabe_mai_2023.pdf",
+        "oib-rl_6-leitfaden_ausgabe_mai_2023.pdf",
+        "erlaeuterungen_oib-rl_6_ausgabe_mai_2023.pdf"
+      ],
+      "notes": "Sibling of ov-rl2 for RL 6 (Energieeinsparung/Wärmeschutz), same broad shape.",
+      "calibration_pending": true
+    },
+    {
+      "id": "ov-cross-rl",
+      "cohort": "overview",
+      "question": "was weißt du über die oib-richtlinien",
+      "expected_files": [
+        "oib-rl_1_ausgabe_mai_2023.pdf",
+        "oib-rl_2_ausgabe_mai_2023.pdf",
+        "oib-rl_3_ausgabe_mai_2023.pdf",
+        "oib-rl_4_ausgabe_mai_2023.pdf",
+        "oib-rl_5_ausgabe_mai_2023.pdf",
+        "oib-rl_6_ausgabe_mai_2023.pdf"
+      ],
+      "notes": "Cross-RL: no number at all. The plural 'oib-richtlinien' matches neither the OIB-Richtlinie singular token nor an ALLCAPS term, so no exact term fires.",
+      "calibration_pending": true
+    },
+    {
+      "id": "ov-which-wohngebaeude",
+      "cohort": "overview",
+      "question": "welche oib-richtlinien gibt es für wohngebäude",
+      "expected_files": [
+        "oib-rl_2_ausgabe_mai_2023.pdf",
+        "oib-rl_2.1_ausgabe_mai_2023.pdf",
+        "oib-rl_4_ausgabe_mai_2023.pdf",
+        "oib-rl_5_ausgabe_mai_2023.pdf"
+      ],
+      "notes": "Cross-RL overview with one content noun (Wohngebäude). Lowercase 'oib-richtlinien' (plural) yields no exact term; whatever sparse signal survives decides the ranking.",
+      "calibration_pending": true
+    },
+    {
+      "id": "ov-summarize-rl4",
+      "cohort": "overview",
+      "question": "fasse die oib 4 kurz zusammen",
+      "expected_files": [
+        "oib-rl_4_ausgabe_mai_2023.pdf",
+        "erlaeuterungen_oib-rl_4_ausgabe_mai_2023.pdf"
+      ],
+      "notes": "Summarization-style overview. 'fasse/zusammen' carry no corpus signal; bare lowercase 'oib 4' carries none either.",
+      "calibration_pending": true
+    },
+    {
+      "id": "ov-begriffe",
+      "cohort": "overview",
+      "question": "was steht in den begriffsbestimmungen",
+      "expected_files": [
+        "oib-rl_begriffsbestimmungen_ausgabe_mai_2023.pdf"
+      ],
+      "notes": "Overview of the Begriffsbestimmungen document. No RL number, no uppercase term; only the sparse channel can fire (if 'Begriffsbestimmung' survives the DF ceiling).",
+      "calibration_pending": true
+    },
+    {
+      "id": "ex-paragraph-rl2",
+      "cohort": "exact-id",
+      "question": "§ 5.1.1 OIB-RL 2 Gehweglänge",
+      "expected_files": [
+        "oib-rl_2_ausgabe_mai_2023.pdf"
+      ],
+      "notes": "Punkt 5.1.1 verified in fixtures/punkt_index.json (RL 2). The OIB uses 'Punkt', not '§' — users write § anyway (item 11). The § half matches no chunk text; the OIB-RL half must carry the recall.",
+      "calibration_pending": true
+    },
+    {
+      "id": "ex-paragraph-rl4",
+      "cohort": "exact-id",
+      "question": "§ 2.4.1 OIB-RL 4 Fluchtwegbreite",
+      "expected_files": [
+        "oib-rl_4_ausgabe_mai_2023.pdf"
+      ],
+      "notes": "Punkt 2.4.1 verified in fixtures/punkt_index.json (RL 4). Same loose-§ shape as ex-paragraph-rl2.",
+      "calibration_pending": true
+    },
+    {
+      "id": "ex-paragraph-rl6",
+      "cohort": "exact-id",
+      "question": "§ 3 OIB-RL 6",
+      "expected_files": [
+        "oib-rl_6_ausgabe_mai_2023.pdf"
+      ],
+      "notes": "Punkt 3 verified in fixtures/punkt_index.json (RL 6). Bare §-ref with no content noun.",
+      "calibration_pending": true
+    },
+    {
+      "id": "ex-rl2",
+      "cohort": "exact-id",
+      "question": "OIB-RL 2",
+      "expected_files": [
+        "oib-rl_2_ausgabe_mai_2023.pdf"
+      ],
+      "notes": "Uppercase designation. Yields the ALLCAPS exact term 'OIB-RL' — the case asymmetry against ov-rl2 ('oib 2' yields nothing) is the item-13 axis.",
+      "calibration_pending": true
+    },
+    {
+      "id": "ex-richtlinie-4",
+      "cohort": "exact-id",
+      "question": "OIB-Richtlinie 4",
+      "expected_files": [
+        "oib-rl_4_ausgabe_mai_2023.pdf"
+      ],
+      "notes": "Full-spelling designation. Yields the exact term 'OIB-Richtlinie 4' (case-insensitive name token + number).",
+      "calibration_pending": true
+    },
+    {
+      "id": "ex-subrl-21",
+      "cohort": "exact-id",
+      "question": "OIB-RL 2.1",
+      "expected_files": [
+        "oib-rl_2.1_ausgabe_mai_2023.pdf"
+      ],
+      "notes": "Sub-Richtlinie designation. Exact term 'OIB-RL'; the '2.1' number is lexical signal only if it survives selection (dotted numbers are not digit-only).",
+      "calibration_pending": true
+    },
+    {
+      "id": "ex-leitfaden-6",
+      "cohort": "exact-id",
+      "question": "Leitfaden zur OIB-Richtlinie 6",
+      "expected_files": [
+        "oib-rl_6-leitfaden_ausgabe_mai_2023.pdf"
+      ],
+      "notes": "Leitfaden request. Exact term 'OIB-Richtlinie 6'; 'Leitfaden' must separate the guide from the Richtlinie itself via the sparse channel.",
+      "calibration_pending": true
+    },
+    {
+      "id": "ex-filename-rl2",
+      "cohort": "exact-id",
+      "question": "oib-rl_2_ausgabe_mai_2023.pdf",
+      "expected_files": [
+        "oib-rl_2_ausgabe_mai_2023.pdf"
+      ],
+      "notes": "Literal filename as typed. Lowercase, so no exact term fires; the sparse channel sees only corpus-identity lexemes ('oib', 'ausgabe') and digits. Only the vector channel (filename is embedded text) can serve this in production — the deterministic channels honestly score ~0.",
+      "calibration_pending": true
+    },
+    {
+      "id": "ex-filename-rl5",
+      "cohort": "exact-id",
+      "question": "oib-rl_5_ausgabe_mai_2023.pdf",
+      "expected_files": [
+        "oib-rl_5_ausgabe_mai_2023.pdf"
+      ],
+      "notes": "Second filename probe, same expectation as ex-filename-rl2.",
+      "calibration_pending": true
+    },
+    {
+      "id": "ex-begriffe-gebaeudeklasse",
+      "cohort": "exact-id",
+      "question": "Begriffsbestimmungen Gebäudeklasse",
+      "expected_files": [
+        "oib-rl_begriffsbestimmungen_ausgabe_mai_2023.pdf"
+      ],
+      "notes": "Document designation + defined term. No exact term (mixed case); 'Gebäudeklasse'/'Begriffsbestimmung' must survive the DF ceiling for the sparse channel to rank the definitions document first.",
+      "calibration_pending": true
+    },
+    {
+      "id": "pa-brandschutz-wohnhaus",
+      "cohort": "paraphrase",
+      "question": "Brandschutz im Wohnhaus — was gilt?",
+      "expected_files": [
+        "oib-rl_2_ausgabe_mai_2023.pdf"
+      ],
+      "notes": "Everyday wording of the RL-2 overview intent (paraphrases ov-rl2). Content nouns 'Brandschutz'/'Wohnhaus' are the sparse channel's home ground.",
+      "calibration_pending": true
+    },
+    {
+      "id": "pa-fluchtweg-laenge",
+      "cohort": "paraphrase",
+      "question": "Wie lang darf der Fluchtweg bis ins Freie höchstens sein?",
+      "expected_files": [
+        "oib-rl_2_ausgabe_mai_2023.pdf"
+      ],
+      "notes": "Everyday wording of the Gehweglänge need (Punkt 5.1.1). Mirrors the existing Punkt-level golden need 'fluchtweg-gehweglaenge' at file granularity.",
+      "calibration_pending": true
+    },
+    {
+      "id": "pa-fluchtweg-breite",
+      "cohort": "paraphrase",
+      "question": "Wie breit muss ein Fluchtweg mindestens sein?",
+      "expected_files": [
+        "oib-rl_4_ausgabe_mai_2023.pdf"
+      ],
+      "notes": "Everyday wording of the Fluchtwegbreite need (Punkt 2.4.1). Mirrors the existing Punkt-level golden need 'fluchtwegbreite' at file granularity.",
+      "calibration_pending": true
+    },
+    {
+      "id": "pa-zweiter-fluchtweg",
+      "cohort": "paraphrase",
+      "question": "Brauche ich einen zweiten Fluchtweg aus meiner Wohnung?",
+      "expected_files": [
+        "oib-rl_2_ausgabe_mai_2023.pdf"
+      ],
+      "notes": "Everyday wording of the second-escape-route need (Punkt 5.1.4). First-person, no technical terms besides 'Fluchtweg'/'Wohnung'.",
+      "calibration_pending": true
+    },
+    {
+      "id": "pa-tragwerk",
+      "cohort": "paraphrase",
+      "question": "Was muss das Tragwerk eines Wohnhauses aushalten?",
+      "expected_files": [
+        "oib-rl_1_ausgabe_mai_2023.pdf"
+      ],
+      "notes": "Everyday wording of the RL-1 (Standsicherheit) intent.",
+      "calibration_pending": true
+    },
+    {
+      "id": "pa-trinkwasser",
+      "cohort": "paraphrase",
+      "question": "Darf man im Haus überall Trinkwasser aus der Leitung erwarten?",
+      "expected_files": [
+        "oib-rl_3_ausgabe_mai_2023.pdf"
+      ],
+      "notes": "Everyday wording of the RL-3 (Hygiene) intent. Only 'Trinkwasser' carries corpus signal.",
+      "calibration_pending": true
+    },
+    {
+      "id": "pa-barrierefrei-tuer",
+      "cohort": "paraphrase",
+      "question": "Wie breit muss eine barrierefreie Tür sein?",
+      "expected_files": [
+        "oib-rl_4_ausgabe_mai_2023.pdf"
+      ],
+      "notes": "Everyday wording of the RL-4 (Barrierefreiheit) intent.",
+      "calibration_pending": true
+    },
+    {
+      "id": "pa-schallschutz",
+      "cohort": "paraphrase",
+      "question": "Wie viel Schallschutz gibt es zwischen zwei Wohnungen?",
+      "expected_files": [
+        "oib-rl_5_ausgabe_mai_2023.pdf"
+      ],
+      "notes": "Everyday wording of the RL-5 (Schallschutz) intent.",
+      "calibration_pending": true
+    },
+    {
+      "id": "pa-u-wert",
+      "cohort": "paraphrase",
+      "question": "Welche U-Werte muss ein Neubau einhalten?",
+      "expected_files": [
+        "oib-rl_6_ausgabe_mai_2023.pdf"
+      ],
+      "notes": "Everyday wording of the RL-6 (Wärmeschutz) intent. 'U' is a single letter (dropped by the analyzer); 'Werte'/'Neubau' must carry it.",
+      "calibration_pending": true
+    },
+    {
+      "id": "pa-gebaeudeklasse",
+      "cohort": "paraphrase",
+      "question": "Was bedeutet Gebäudeklasse 4 für mein Haus?",
+      "expected_files": [
+        "oib-rl_2_ausgabe_mai_2023.pdf"
+      ],
+      "notes": "Everyday wording of the Gebäudeklasse need. 'Gebäudeklasse' is shared with the Begriffsbestimmungen; the RL-2 file states the class requirements, hence primary.",
+      "calibration_pending": true
+    }
+  ]
+}

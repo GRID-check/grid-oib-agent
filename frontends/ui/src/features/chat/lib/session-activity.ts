@@ -16,6 +16,25 @@ import type { ChatMessage, DeepResearchJobStatus } from '../types'
 /** Non-terminal deep research statuses that indicate an active server-side job */
 const ACTIVE_JOB_STATUSES: readonly DeepResearchJobStatus[] = ['submitted', 'running']
 
+/** Terminal deep research statuses: the run is over whatever the backend later claims. */
+const TERMINAL_JOB_STATUSES: readonly DeepResearchJobStatus[] = [
+  'success',
+  'failure',
+  'interrupted',
+]
+
+/**
+ * True for a settled run. The counterpart to the active check below: a job the
+ * backend once called terminal stays terminal even when a stale status poll
+ * later reports it `running` again (crashed runs do exactly this).
+ */
+export const isTerminalDeepResearchJobStatus = (
+  status: DeepResearchJobStatus | null | undefined
+): status is 'success' | 'failure' | 'interrupted' =>
+  status !== null &&
+  status !== undefined &&
+  (TERMINAL_JOB_STATUSES as readonly string[]).includes(status)
+
 /**
  * True when the user has never sent a typed chat message in this session.
  * Non-user message types (status, agent_response, etc.) do not count.
@@ -54,7 +73,8 @@ export const getLatestDeepResearchMessage = (messages: ChatMessage[]): ChatMessa
  */
 export const latestDeepResearchJobStatus = (
   messages: ChatMessage[]
-): DeepResearchJobStatus | null => getLatestDeepResearchMessage(messages)?.deepResearchJobStatus ?? null
+): DeepResearchJobStatus | null =>
+  getLatestDeepResearchMessage(messages)?.deepResearchJobStatus ?? null
 
 /**
  * Check if a conversation has an in-progress deep research job in its message history.
@@ -116,3 +136,57 @@ export const getPersistedActivityFlags = (
   hasActiveDeepResearch: hasActiveDeepResearchJob(messages),
   hasPendingHITL: pendingInteraction !== null,
 })
+
+/**
+ * Is a deep-research run carrying THIS conversation's turn right now?
+ *
+ * The three signals live in different places and two of them are GLOBAL, which
+ * is the trap: `isDeepResearchStreaming` and `deepResearchStatus` describe
+ * whichever run the panel is attached to, not the conversation you are asking
+ * about. Reading them unscoped let a run in one thread vouch for a stuck turn
+ * in another — and `attachToDeepResearchJob` sets `deepResearchStatus:
+ * 'running'` with no owner at all, so opening a run from the history would have
+ * vouched for every conversation at once. `deepResearchOwnerConversationId` is
+ * what makes them answerable, and `isSessionBusy` already reads them that way.
+ *
+ * A stream the client has LOST is not alive for this purpose. The research
+ * panel keeps `isDeepResearchStreaming` true through a dropped SSE connection
+ * on purpose — only the server's own verdict may mark a job failed — and it
+ * shows its own reconnect notice for that state. Treating it as liveness here
+ * would hand a permanently-open turn to anyone whose stream dropped.
+ *
+ * One caller today: the streaming watchdog, which decides whether a silent
+ * socket is a stalled turn or a long research run and so may only be answered
+ * about THIS conversation. It is deliberately not wired into the two busy
+ * checks beside it, which ask a wider question — `isSessionBusy` also counts
+ * shallow streaming, and `useIsCurrentSessionBusy` reads the deep-research
+ * signals unscoped ON PURPOSE, because an attached panel run
+ * (`attachToDeepResearchJob`, which owns no conversation) still occupies the
+ * surface it locks. Narrowing those two to this predicate would unlock file
+ * operations and session deletion during an attached run; that is a product
+ * decision, not a cleanup, and it does not belong in a watchdog fix.
+ */
+export const isDeepResearchLive = (
+  state: {
+    isDeepResearchStreaming?: boolean
+    deepResearchStatus?: DeepResearchJobStatus | null
+    deepResearchOwnerConversationId?: string | null
+    deepResearchConnectionLost?: boolean
+    currentConversation?: { id: string; messages: ChatMessage[] } | null
+  },
+  conversationId: string
+): boolean => {
+  const conversation = state.currentConversation
+  // The persisted half is already conversation-scoped: it is read off that
+  // conversation's own messages.
+  if (conversation?.id === conversationId && hasActiveDeepResearchJob(conversation.messages)) {
+    return true
+  }
+  if (state.deepResearchConnectionLost) return false
+  if (state.deepResearchOwnerConversationId !== conversationId) return false
+  return (
+    state.isDeepResearchStreaming === true ||
+    (state.deepResearchStatus != null &&
+      (ACTIVE_JOB_STATUSES as readonly string[]).includes(state.deepResearchStatus))
+  )
+}

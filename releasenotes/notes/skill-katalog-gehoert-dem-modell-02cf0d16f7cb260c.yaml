@@ -1,0 +1,8 @@
+---
+upgrade:
+  - >
+    Der Schalter „Agent darf selbst laden" im Skill-Editor ist entfallen.
+    Welche Skills Piloti in Betracht zieht, entscheidet Piloti — ein Kästchen,
+    das einen Skill aus dieser Auswahl streicht, war die letzte Stelle, an der
+    ein Mensch das vorweggenommen hat. Bereits gespeicherte Skills bleiben
+    unverändert und stehen ab sofort wieder zur Auswahl.

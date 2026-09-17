@@ -37,11 +37,21 @@ import {
   dispatchDocument,
 } from '@/lib/documents/service'
 import { assertWithinStorageQuota } from '@/lib/storage/service'
-import { admitOrDiscard } from '@/lib/storage/admission'
+import { admitOrDiscard, admitReplacementOrDiscard } from '@/lib/storage/admission'
+import { contentDigest } from '@/lib/documents/content-digest'
+import { documentNameKey } from '@/lib/documents/name-match'
 import { reconcileDocumentStatuses, type DocumentMetadata } from '@/lib/documents/reconcile-status'
-import type { DocumentListRow } from '@/lib/documents/repository'
+import { findLiveDocumentByFilename, type DocumentListRow } from '@/lib/documents/repository'
+import { deleteDocumentObjects } from '@/lib/documents/object-cleanup'
+import {
+  nextVersionNumber,
+  recordUploadedVersion,
+} from '@/lib/documents/lifecycle'
+import { versionedStorageKey } from '@/lib/documents/version-content'
+import { listDocumentVersionObjects } from '@/lib/documents/version-repository'
 import type { AuthorizedSession } from '@/lib/auth/types'
-import { deleteDocumentObjects, purgeCollectionChunks } from './cleanup'
+import { purgeCollectionChunks } from './cleanup'
+import { collectionFileRef } from '@/lib/documents/collection-file-ref'
 import {
   deleteSessionDocument as deleteSessionDocumentRow,
   findSessionDocument,
@@ -133,15 +143,39 @@ export async function uploadSessionDocument(
   // the tenant's bucket, so it must not be the way around the quota (ADR-0042).
   await assertWithinStorageQuota(session.organizationId, file.size)
 
-  const documentId = crypto.randomUUID()
   const collectionName = sessionCollectionName(conversationId)
-  const storageKey = buildSessionStorageKey(session.organizationId, conversationId, documentId, file.name)
+  // Same replace-on-re-upload rule as the project and Archiv paths, through the
+  // same helpers — see `uploadDocument`. A chat attachment is the same table
+  // with `scope = 'session'`, and the ingest pipeline replaces chunks by
+  // filename regardless of shelf, so dropping a corrected file into a chat a
+  // second time left the same paid-for ghost here: the first row listed and
+  // downloadable, its passages already replaced by the second's.
+  // One Unicode form, for the same reason and through the same helper as the
+  // project shelf: this is the same table and the same unique name, so a
+  // decomposed name off a Mac would put a second row here too. See
+  // `@/lib/documents/name-match`.
+  const filename = documentNameKey(file.name)
+  const superseded = await findLiveDocumentByFilename(session.organizationId, collectionName, filename)
+  const documentId = superseded?.id ?? crypto.randomUUID()
+  // A re-upload writes new bytes under a new `v<n>/` key, so the version it
+  // replaces keeps an object a reader can open (ADR-0054). Version 1 keeps
+  // today's key exactly.
+  const versionNumber = superseded
+    ? await nextVersionNumber(documentId, session.organizationId)
+    : 1
+  const storageKey = versionedStorageKey(
+    buildSessionStorageKey(session.organizationId, conversationId, documentId, filename),
+    versionNumber,
+  )
 
   // Same provisioning step as the other shelves (ADR-0043): a session
   // attachment shares the tenant's bucket, because it shares the tenant's bytes.
   const storageBucket = await ensureTenantBucketChecked(bucketAdminS3Client, session.organizationId)
 
   const bytes = Buffer.from(await file.arrayBuffer())
+  // The same digest the other two shelves record, from the same helper — see
+  // `@/lib/documents/content-digest` for why it is not written out here.
+  const contentHash = contentDigest(bytes)
 
   // The LAST thing before a single byte is written, and the reason it is here
   // rather than folded into the authorization above.
@@ -172,34 +206,55 @@ export async function uploadSessionDocument(
 
   // Same hard ceiling and the same compensating delete on refusal as the
   // project and Archiv paths (ADR-0042).
-  await admitOrDiscard(storageBucket, storageKey, {
-    id: documentId,
-    organizationId: session.organizationId,
-    // NULL, following the Archiv precedent: the shelf IS the conversation, and
-    // a project id here would put the row inside a project's estate while it is
-    // readable only by the people in one chat.
-    projectId: null,
-    scope: 'session',
-    conversationId,
-    folderId: null,
-    createdBy: session.userId,
-    filename: file.name,
-    storageKey,
-    storageBucket,
-    collectionName,
-    fileSize: file.size,
-    contentType: file.type || null,
-    status: 'uploaded',
-  })
+  if (superseded) {
+    // The row is already counted against the quota, so the charge is the delta.
+    await admitReplacementOrDiscard(storageBucket, storageKey, session.organizationId, documentId, {
+      storageKey,
+      storageBucket,
+      fileSize: file.size,
+      contentType: file.type || null,
+      contentHash,
+      folderId: null,
+      createdBy: session.userId,
+    })
+    // Nothing is discarded: the previous bytes are the previous VERSION's now
+    // (ADR-0054) and its row still names them. They go with the attachment.
+  } else {
+    await admitOrDiscard(storageBucket, storageKey, {
+      id: documentId,
+      organizationId: session.organizationId,
+      // NULL, following the Archiv precedent: the shelf IS the conversation, and
+      // a project id here would put the row inside a project's estate while it
+      // is readable only by the people in one chat.
+      projectId: null,
+      scope: 'session',
+      conversationId,
+      folderId: null,
+      createdBy: session.userId,
+      filename,
+      storageKey,
+      storageBucket,
+      collectionName,
+      fileSize: file.size,
+      contentType: file.type || null,
+      contentHash,
+      status: 'uploaded',
+    })
+  }
 
   // The whole point of Phase 2: a session upload now reaches the SAME dispatcher
   // the other shelves use, so an IFC dropped into a chat is parsed into a
   // building instead of being embedded as STEP noise.
+  // The version, through the same transition table every other shelf uses
+  // (ADR-0054): born `published` and born approved, because the person who
+  // attached it is the assertion.
+  await recordUploadedVersion(session, documentId, request)
+
   const { jobId, status } = await dispatchDocument({
     organizationId: session.organizationId,
     projectId: null,
     documentId,
-    filename: file.name,
+    filename,
     storageKey,
     storageBucket,
     collectionName,
@@ -212,11 +267,16 @@ export async function uploadSessionDocument(
     action: 'session.document.uploaded',
     targetType: 'document',
     targetId: documentId,
-    metadata: { conversationId, filename: file.name.slice(0, 200), fileSize: file.size },
+    metadata: {
+      conversationId,
+      filename: filename.slice(0, 200),
+      fileSize: file.size,
+      ...(superseded ? { replaced: true } : {}),
+    },
     request,
   })
 
-  return { documentId, jobId, status, filename: file.name, collectionName }
+  return { documentId, jobId, status, filename, collectionName }
 }
 
 /**
@@ -250,7 +310,18 @@ export async function deleteSessionDocument(
 
   await requireResourceAccess(session, 'conversation', doc.conversationId, 'collaborator')
 
-  const chunks = await purgeCollectionChunks(doc.collectionName, [doc.filename])
+  // `collectionFileRef` or nothing: a row that owns no chunks has none to purge,
+  // and purging by its filename would address whatever human document shares it.
+  const purgeRef = collectionFileRef(doc)
+  const chunks = await purgeCollectionChunks(doc.collectionName, purgeRef ? [purgeRef] : [])
+  // Every VERSION's objects, not only the live one (ADR-0054). Best-effort per
+  // version: the live object's result below is what decides whether the row may
+  // be deleted, and a superseded version's leftover is an orphan, not a leak of
+  // access the row was guarding.
+  for (const version of await listDocumentVersionObjects(documentId, session.organizationId)) {
+    if (version.storageKey === doc.storageKey) continue
+    await deleteDocumentObjects(version).catch(() => undefined)
+  }
   const objects = await deleteDocumentObjects(doc)
   if (!chunks.ok || !objects.ok) {
     // Reasons carry bucket names and upstream error text, so they go to the log

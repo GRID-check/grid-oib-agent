@@ -76,13 +76,13 @@ class TestEmitCardBody:
         reg.clear()
         token = set_card_registry(reg)
         try:
-            msg = _emit('{"type": "summary", "title": "Answer", "content": "Quick."}')
+            msg = _emit('{"type": "ifc_model_picker", "title": "Answer"}')
         finally:
             reset_card_registry(token)
         assert "will be shown" in msg
         cards = reg.snapshot()
         assert len(cards) == 1
-        assert cards[0]["type"] == "summary"
+        assert cards[0]["type"] == "ifc_model_picker"
 
     def test_invalid_json_registers_nothing(self):
         reg = get_or_create_card_registry("conv-emit-2")
@@ -108,13 +108,13 @@ class TestEmitCardBody:
 
     def test_no_active_registry_does_not_raise(self):
         # No set_card_registry -> get_card_registry() is None
-        msg = _emit('{"type": "summary", "title": "A"}')
+        msg = _emit('{"type": "ifc_model_picker", "title": "A"}')
         assert "no card channel" in msg
 
     @pytest.mark.parametrize(
         "card_json",
         [
-            '{"type": "summary", "title": "Egress widths"}',
+            '{"type": "ifc_model_picker", "title": "Egress widths"}',
             '{"type": "legal_basis", "law": "OIB-Richtlinie 2", "article": "2.1"}',
         ],
     )
@@ -208,6 +208,24 @@ class TestARefusedCardIsVisibleAfterTheTurn:
         assert "rejected" in records[0].getMessage()
 
     @pytest.mark.asyncio
+    async def test_a_validation_refusal_carries_no_link(self):
+        """Pydantic links to its error index from every message it renders.
+
+        The refusal is a tool result, and a URL in a tool result used to be
+        captured as a web source: the reader got a source card for
+        ``errors.pydantic.dev`` beside an answer nothing had searched the web
+        for. The model needs the field and the problem, never the link.
+        """
+        reg = get_or_create_card_registry("conv-refusal-5")
+        reg.clear()
+
+        msg = await self._emit_real(reg, {"type": "process_map", "title": "Bauverfahren"})
+
+        assert msg.startswith("Error: card of type 'process_map' failed validation:")
+        assert "http" not in msg
+        assert "For further information" not in msg
+
+    @pytest.mark.asyncio
     async def test_unparseable_json_logs_too(self, caplog):
         reg = get_or_create_card_registry("conv-refusal-2")
         reg.clear()
@@ -236,11 +254,11 @@ class TestARefusedCardIsVisibleAfterTheTurn:
         reg = get_or_create_card_registry("conv-refusal-4")
         reg.clear()
         with caplog.at_level(logging.INFO, logger="aiq_agent.cards.register"):
-            msg = await self._emit_real(reg, {"type": "summary", "title": "Treppe"})
+            msg = await self._emit_real(reg, {"type": "ifc_model_picker", "title": "Treppe"})
 
         assert not msg.startswith("Error")
         assert not [r for r in caplog.records if r.levelno >= logging.WARNING]
-        assert any("registered a 'summary' card" in r.getMessage() for r in caplog.records)
+        assert any("registered a 'ifc_model_picker' card" in r.getMessage() for r in caplog.records)
 
 
 class TestEmitCardPlacementMarker:
@@ -269,7 +287,7 @@ class TestEmitCardPlacementMarker:
     async def test_first_card_is_card_one(self):
         reg = get_or_create_card_registry("conv-marker-1")
         reg.clear()
-        msg = await self._emit_real(reg, {"type": "summary", "title": "Treppe"})
+        msg = await self._emit_real(reg, {"type": "ifc_model_picker", "title": "Treppe"})
         assert "[[card:1]]" in msg
         # The agent has to be told what to DO with it, not just handed it.
         assert "line of its own" in msg
@@ -278,8 +296,8 @@ class TestEmitCardPlacementMarker:
     async def test_marker_counts_with_the_registry(self):
         reg = get_or_create_card_registry("conv-marker-2")
         reg.clear()
-        first = await self._emit_real(reg, {"type": "summary", "title": "Eins"})
-        second = await self._emit_real(reg, {"type": "summary", "title": "Zwei"})
+        first = await self._emit_real(reg, {"type": "ifc_model_picker", "title": "Eins"})
+        second = await self._emit_real(reg, {"type": "ifc_model_picker", "title": "Zwei"})
         assert "[[card:1]]" in first
         assert "[[card:2]]" in second
         # The number IS the position in the array the frontend receives; the two
@@ -290,13 +308,45 @@ class TestEmitCardPlacementMarker:
     async def test_a_rejected_card_does_not_consume_a_number(self):
         reg = get_or_create_card_registry("conv-marker-3")
         reg.clear()
-        await self._emit_real(reg, {"type": "summary", "title": "Eins"})
-        rejected = await self._emit_real(reg, {"type": "summary"})
+        await self._emit_real(reg, {"type": "ifc_model_picker", "title": "Eins"})
+        rejected = await self._emit_real(reg, {"type": "ifc_model_picker"})
         assert rejected.startswith("Error")
-        assert "[[card:2]]" in await self._emit_real(reg, {"type": "summary", "title": "Zwei"})
+        assert "[[card:2]]" in await self._emit_real(reg, {"type": "ifc_model_picker", "title": "Zwei"})
 
-    def test_doctrine_tells_the_agent_where_to_put_the_marker(self):
+    @pytest.mark.asyncio
+    async def test_an_envelope_shape_is_refused_with_the_channel_that_takes_it(self):
+        """The redirect the doctrine used to carry up front, on the call that needs it.
+
+        A model that correctly recognised "this answer has a verdict" must not be
+        merely refused — it has the content, and it needs to be told where it
+        goes. The up-front paragraph is the answering prompt's now; this is the
+        tool's own statement, and it fires exactly when it is relevant.
+        """
+        reg = get_or_create_card_registry("conv-envelope-1")
+        reg.clear()
+        refusal = await self._emit_real(reg, {"type": "callout", "kind": "achtung", "text": "Frist läuft."})
+        assert "answer_json" in refusal
+        assert "is not emitted as a card" in refusal
+        assert reg.snapshot() == []
+
+    def test_the_marker_contract_is_paid_per_CALL_and_not_per_TURN(self):
+        """The doctrine no longer carries the placement paragraph; the return does.
+
+        It used to be stated twice: once up front in ``_CARD_DOCTRINE``, which
+        every turn pays whether or not it emits a card, and once in the success
+        message of every call, which only a turn that emitted one pays. The
+        answering prompt keeps the up-front sentence — placement is a fact about
+        the answer being written, and the post-hoc surface has no answer to place
+        a marker into — so the tool's own description does not restate it.
+
+        What the tool must still do is hand back a marker the agent knows what to
+        do with, which the three tests above assert on live returns.
+        """
         from aiq_agent.cards.register import _CARD_DOCTRINE
 
-        assert "[[card:" in _CARD_DOCTRINE
-        assert "line of its own" in _CARD_DOCTRINE
+        assert "[[card:" not in _CARD_DOCTRINE
+        assert "WHERE IT GOES" not in _CARD_DOCTRINE
+        # And the doctrine is still the whole of WHEN, WHICH and HOW WELL.
+        assert "WHEN TO EMIT ONE" in _CARD_DOCTRINE
+        assert "WHEN NOT TO" in _CARD_DOCTRINE
+        assert "Stations must CARRY something" in _CARD_DOCTRINE

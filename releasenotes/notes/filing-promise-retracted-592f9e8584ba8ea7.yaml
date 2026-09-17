@@ -1,0 +1,7 @@
+---
+fixes:
+  - >
+    When a deep-research run promised to file its report in the project and the
+    filing then failed, the banner said nothing at all — so the report looked
+    filed and „Berichte" was empty. It now takes the promise back in one quiet
+    line, and the report itself is still there in the research panel either way.

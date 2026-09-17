@@ -48,7 +48,7 @@ const VerdictCell: FC<{ value: string }> = ({ value }) => {
   const status = verdictStatus(value)
   if (!status) {
     return (
-      <span className="inline-flex items-center rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
+      <span className="card-meta inline-flex items-center rounded-full bg-muted px-2 py-0.5 text-muted-foreground">
         {value}
       </span>
     )
@@ -56,7 +56,7 @@ const VerdictCell: FC<{ value: string }> = ({ value }) => {
   const color = statusColor(status)
   return (
     <span
-      className="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium"
+      className="card-meta inline-flex items-center rounded-full px-2 py-0.5"
       style={{ color, backgroundColor: `color-mix(in oklch, ${color} 14%, transparent)` }}
       aria-label={statusLabel(status, t)}
     >
@@ -90,7 +90,9 @@ export const TypedTableCard: FC<TypedTableCardProps> = ({
       reference={reference}
     >
       <div className="w-full overflow-x-auto">
-        <table className="w-full min-w-max border-collapse text-xs">
+        {/* Body, not caption — see `ComparisonTableCard` for the argument.
+            A table's rows are rows of a list. */}
+        <table className="card-body w-full min-w-max border-collapse">
           <thead>
             <tr className="border-b">
               {columns.map((column, ci) => (

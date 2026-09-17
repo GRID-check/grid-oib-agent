@@ -18,6 +18,7 @@
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import {
+  Bandage,
   BookOpenCheck,
   Building2,
   Cpu,
@@ -43,6 +44,9 @@ export const PLATFORM_SECTIONS = [
   { key: 'models', href: '/app/platform/models', icon: Cpu },
   { key: 'retrieval', href: '/app/platform/retrieval', icon: SlidersHorizontal },
   { key: 'quality', href: '/app/platform/quality', icon: ShieldCheck },
+  // Right after quality, because it is what quality's signal FEEDS: the lesson
+  // register distilled from down-votes, framed as the bandage it is.
+  { key: 'lessons', href: '/app/platform/lessons', icon: Bandage },
   { key: 'cards', href: '/app/platform/cards', icon: LayoutGrid },
   { key: 'knowledge', href: '/app/platform/knowledge', icon: BookOpenCheck },
   { key: 'norms', href: '/app/platform/norms', icon: Scale },

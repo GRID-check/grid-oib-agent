@@ -1,0 +1,135 @@
+---
+/**
+ * The failure-learning loop: a report travels through scrubbing, distillation,
+ * audit and deduplication, becomes an active lesson, and rides back into every
+ * answer, which is where the next report comes from. The holdout group sits
+ * outside the loop on purpose.
+ */
+import FigureFrame from './FigureFrame.astro'
+
+interface Step {
+  label: string
+  sub: string
+}
+interface Props {
+  labels: {
+    /** Exactly six steps, walked clockwise from top-left. */
+    steps: Step[]
+    /** Label on the closing edge, e.g. "EVERY ANSWER CARRIES IT". */
+    loop: string
+    holdout: string
+    holdoutSub: string
+  }
+  kicker?: string
+  title?: string
+  caption?: string
+  alt: string
+}
+const { labels, kicker, title, caption, alt } = Astro.props
+
+const BW = 240
+const BH = 76
+const COLS = [80, 360, 640]
+const ROWS = [78, 320]
+const boxes = [
+  { x: COLS[0], y: ROWS[0] },
+  { x: COLS[1], y: ROWS[0] },
+  { x: COLS[2], y: ROWS[0] },
+  { x: COLS[2], y: ROWS[1] },
+  { x: COLS[1], y: ROWS[1] },
+  { x: COLS[0], y: ROWS[1] },
+]
+---
+
+<FigureFrame kicker={kicker} title={title} caption={caption} alt={alt}>
+  <svg viewBox="0 0 960 560" xmlns="http://www.w3.org/2000/svg">
+    <defs>
+      <marker
+        id="loop-arrow"
+        viewBox="0 0 8 8"
+        refX="7"
+        refY="4"
+        markerWidth="7"
+        markerHeight="7"
+        orient="auto-start-reverse"
+      >
+        <path d="M0 0 L8 4 L0 8 z" fill="var(--color-accent-700)"></path>
+      </marker>
+    </defs>
+
+    {
+      labels.steps.map((step, i) => (
+        <g>
+          <rect
+            class={`fp-stroke ${i === 5 ? 'fp-fill--tint' : 'fp-fill'}`}
+            x={boxes[i].x}
+            y={boxes[i].y}
+            width={BW}
+            height={BH}
+          />
+          <text class="fp-label--muted" x={boxes[i].x + 16} y={boxes[i].y + 24}>
+            {`0${i + 1}`}
+          </text>
+          <text class="fp-label" x={boxes[i].x + 16} y={boxes[i].y + 44}>
+            {step.label}
+          </text>
+          <text class="fp-label--muted" x={boxes[i].x + 16} y={boxes[i].y + 62}>
+            {step.sub}
+          </text>
+        </g>
+      ))
+    }
+
+    {/* Clockwise edges: across the top, down, back across the bottom, and up. */}
+    <line
+      class="fp-stroke"
+      marker-end="url(#loop-arrow)"
+      x1={COLS[0] + BW}
+      y1={ROWS[0] + BH / 2}
+      x2={COLS[1] - 10}
+      y2={ROWS[0] + BH / 2}></line>
+    <line
+      class="fp-stroke"
+      marker-end="url(#loop-arrow)"
+      x1={COLS[1] + BW}
+      y1={ROWS[0] + BH / 2}
+      x2={COLS[2] - 10}
+      y2={ROWS[0] + BH / 2}></line>
+    <line
+      class="fp-stroke"
+      marker-end="url(#loop-arrow)"
+      x1={COLS[2] + BW / 2}
+      y1={ROWS[0] + BH}
+      x2={COLS[2] + BW / 2}
+      y2={ROWS[1] - 10}></line>
+    <line
+      class="fp-stroke"
+      marker-end="url(#loop-arrow)"
+      x1={COLS[2]}
+      y1={ROWS[1] + BH / 2}
+      x2={COLS[1] + BW + 10}
+      y2={ROWS[1] + BH / 2}></line>
+    <line
+      class="fp-stroke"
+      marker-end="url(#loop-arrow)"
+      x1={COLS[1]}
+      y1={ROWS[1] + BH / 2}
+      x2={COLS[0] + BW + 10}
+      y2={ROWS[1] + BH / 2}></line>
+    <line
+      class="fp-stroke"
+      marker-end="url(#loop-arrow)"
+      x1={COLS[0] + BW / 2}
+      y1={ROWS[1]}
+      x2={COLS[0] + BW / 2}
+      y2={ROWS[0] + BH + 10}></line>
+    <text
+      class="fp-label--accent"
+      x={COLS[0] + BW / 2 + 14}
+      y={(ROWS[0] + BH + ROWS[1]) / 2 + 4}>{labels.loop}</text>
+
+    <rect class="fp-stroke fp-dash fp-fill" x="330" y="466" width="300" height="64"></rect>
+    <text class="fp-label" x="346" y="492">{labels.holdout}</text>
+    <text class="fp-label--muted" x="346" y="512">{labels.holdoutSub}</text>
+  </svg>
+</FigureFrame>

@@ -43,7 +43,14 @@ run. A green `task fe:types` is what tells you the build will typecheck.
 
 **`task db:test:rls` is a required merge check and is not part of `task
 verify`.** It needs PostgreSQL server binaries, so it runs separately. Run it
-whenever you touch the tenant boundary.
+whenever you touch the tenant boundary — and whenever you touch a claim that is
+really about SQL. The script (`scripts/rls-test-db.sh`) runs a fixed list of
+`*.integration.spec.ts` files, not a glob: tenant isolation, the two BIM query
+suites, and the memory service's "one fact, one live row" consolidation suite.
+A new database-backed spec has to be added to that list, or it only ever runs
+on a developer's machine. Each of those files also carries a
+`GRID_RLS_SUITE_REQUIRED` guard so the CI job fails if the database goes
+missing instead of skipping green.
 
 **Backend tests need `PYTHONPATH=src`.** Without it pytest resolves `aiq_agent`
 from whatever the venv has installed, possibly another worktree, and validates
@@ -65,14 +72,112 @@ by `fe:test:merge` for the coverage comment. Run in series on one runner, the
 tests were about 63% of the job's wall clock. Locally `task fe:verify` runs lint,
 types, tests and build in order instead.
 
-Two required checks are not in `task verify` at all: `db:test:rls` (it needs
-PostgreSQL server binaries) and the release-note gate (it needs the PR's base
-and head). Run the first by hand when you touch the tenant boundary; the second
-only exists on a PR.
+Three required checks are not in `task verify` at all: `db:test:rls` (it needs
+PostgreSQL server binaries), `pkg:test` (four minutes, on a directory most
+changes never touch — see below), and the release-note gate (it needs the PR's
+base and head). Run the first two by hand when you touch what they cover; the
+third only exists on a PR.
+
+## The standalone packages under `packages/`
+
+`packages/ifc-spatial` (TypeScript) and `packages/ifc-spatial-py` (Python) are
+two implementations of the same spatial surface over IFC (ADR-0045), and both
+sit **outside** the workspace they live next to: their own `package-lock.json`
+and `uv.lock`, their own toolchains. Nothing the frontend or backend tier
+installs can run them, which is how 830 tests behind a default-ON feature that
+renders OIB compliance verdicts ended up with no gate at all — no Taskfile
+target, no CI job, no pre-commit hook. The same shape as `sources/` before it.
+
+They now run as CI's `packages` job, behind a `packages/**` paths filter, and
+`CI OK` requires it. Locally:
+
+```bash
+task pkg:install    # both toolchains (`task setup` does this too now)
+task pkg:test       # both suites
+```
+
+`task verify` deliberately leaves them out. `pkg:test:py` is 636 tests in 3m55s
+(measured 2026-09-10) against its own IfcOpenShell/shapely environment; adding
+that to every local gate run is the fastest way to get people to stop running
+the gate. `pkg:test:ts` is ~10 seconds and runs **both** tsconfigs, the source
+one and `tsconfig.test.json` — a test file that no longer type-checks is how an
+operator contract silently stops being asserted.
 
 The single required status check is **CI OK**
 ([`ci.yml`](../../.github/workflows/ci.yml)), which passes only when every
 needed job succeeded or was skipped by the path filter.
+
+## The live turn-shape eval
+
+ADR-0052 deleted the intent router, so two things that used to be code are now
+Piloti's reading of its own prompt: a greeting or a question
+about the assistant answers without calling a search tool, and a commissioned
+report („erstelle mir einen vollständigen Prüfbericht …") escalates to deep
+research before it retrieves anything.
+[`tests/benchmarks/test_turn_shapes_live.py`](../../tests/benchmarks/test_turn_shapes_live.py)
+pins both, plus a control question that must still search. It runs the real
+agent on the real prompt against Piloti's own model through OpenRouter, with
+stub tools that record every call, so the assertion is on the trace rather
+than on the prose.
+
+It needs a model, so it is not in `task verify` and skips itself without
+`OPENROUTER_API_KEY` (the `live` marker in `pyproject.toml` names the class).
+Locally:
+
+```bash
+OPENROUTER_API_KEY=… task be:eval:turn-shapes
+```
+
+`GRID_DEFAULT_MODEL` moves the model under test, the same way it moves the
+config's boot floor. In CI,
+[`turn-shapes-live.yml`](../../.github/workflows/turn-shapes-live.yml) runs
+it weekly and on `workflow_dispatch`, never on a pull request, and fails
+rather than skips when the secret is missing. The assertions are strict: a
+transport failure gets one rerun, a behaviour miss does not. A red run means
+the prompt no longer holds the model on one of the two shapes; the ADR's
+"More Information" section says what to do about that.
+
+## The loop eval
+
+`task be:eval:loop` measures the **shape** of a chat turn rather than the
+correctness of its answer: how many retrieval rounds it took, whether the
+locator (`read_passage`) was used instead of a second search, whether the cited
+Punkt is the one the question is about, whether the Herleitung checkpoint came
+from the tool argument or from prose or from nowhere, and whether the research
+budget ran out. Twenty realistic German questions from a Wiener Planungsbüro
+live in [`tests/fixtures/herleitung/loop_eval_questions.yaml`](../../tests/fixtures/herleitung/loop_eval_questions.yaml)
+— every expected Punkt in it is read off the committed structural index rather
+than remembered — and [`scripts/loop_eval.py`](../../scripts/loop_eval.py) runs
+them, writes a CSV, and diffs two CSVs with `--compare`. **It cannot run in
+CI**, for the same reason `be:eval:retrieval` no longer does: it needs a
+reachable backend with the operator-provided, gitignored OIB corpus ingested,
+and every question costs real model calls. Run it on either side of a change to
+the answering loop and quote the delta in the PR; the CSV and comparison logic
+themselves are covered offline by
+[`tests/test_loop_eval.py`](../../tests/test_loop_eval.py).
+
+## Cross-service contract fixtures
+
+Where a wire format has a producer in one language and a consumer in another,
+the contract is a JSON fixture under `tests/fixtures/` that **both** suites read,
+never two assertions that each pin their own side. Two tests that agree with
+themselves prove nothing about a boundary: ADR-0046 records the internal-token
+header spelled one way by every caller and read the other way by the guard,
+which 403'd every scheduled run in a real deployment while both sides' tests
+stayed green.
+
+Two of these exist:
+
+| Fixture | Producer side | Consumer side |
+|---|---|---|
+| `grid_request_context.json` | `request-context.spec.ts` builds the headers | `test_project_context.py` parses them back |
+| `job_fire_headers.json` | `tests/lib/jobs/fire-headers.test.ts` fires a real submit and captures what went out | `test_fire_path_contract.py` asserts each backend-required set is a subset |
+
+Each is duplicated verbatim into `frontends/ui/tests/fixtures/`, because
+`frontends/ui/Dockerfile.typecheck`'s build context is scoped to `frontends/ui`
+and cannot `COPY` from outside it. **Copy the repo-root file over the twin when
+you change it** — `test_fire_path_contract.py` compares the two byte for byte,
+so drift fails a test rather than splitting the contract in half.
 
 ## Security and static analysis
 
@@ -83,22 +188,41 @@ Advanced Security licence and no SonarQube subscription.
 | Tool | Covers | Blocking |
 |---|---|---|
 | Semgrep | SAST for Python, TS/JS and Actions. Replaces CodeQL and Sonar's security rules | **Yes on a PR.** `semgrep ci` is diff-aware, so it blocks a *new* finding without failing on the existing backlog. Push and schedule runs stay advisory |
-| OSV-Scanner | Dependency CVEs from lockfiles. Replaces Sonar SCA | No, phase 1 |
-| pip-audit, bun audit, npm audit | Dependency advisories | **No.** Each step is `continue-on-error: true` *and* the command ends `\|\| true`, so findings only reach the log |
+| OSV-Scanner | Dependency CVEs from **every** lockfile in the tree — the two npm ones, `bun.lock`, and both `uv.lock`s. Replaces Sonar SCA, and as of Sep 2026 the `pip-audit`/`bun audit`/`npm audit` job too | No, phase 1 |
 | gitleaks | Secret scan over full history | Yes |
 | trivy (`image-scan`) | The digest-pinned observability and Langfuse images from `deploy/pulumi/src/config.ts` | Yes, on **fixable** HIGH and CRITICAL findings (it runs `--ignore-unfixed`) |
 
-The dependency audits being advisory is worth knowing before you rely on them: a
-vulnerable dependency passes CI today. Making them block means removing both the
-`continue-on-error` and the `|| true`, not just one.
+OSV-Scanner being advisory is worth knowing before you rely on it: a vulnerable
+dependency passes CI today. Making it block means removing its
+`continue-on-error`.
 
-Two things about the trivy job that are not obvious:
+There is deliberately **no** second dependency scanner. A `Dependency audit` job
+ran `pip-audit`, `bun audit` and `npm audit` until it was measured: it was the
+whole difference between a 2m36s Security run and a 9m53s one, and two of its
+three steps reported nothing (a registry 503 and a pip-audit abort), both
+swallowed by `|| true`, while OSV-Scanner found 23 advisories in the same commit
+in 4 seconds. `npm audit` and `bun audit` query
+the GitHub Advisory Database and pip-audit's PyPI service is fed by the PyPA
+one; OSV ingests both, so "complementary sources" was never true. The rationale
+sits in [`security.yml`](../../.github/workflows/security.yml) where the job
+used to be, so it is read before anyone adds it back.
+
+Three things about the trivy job that are not obvious:
 
 - It asserts the exact image count (five as of ADR-0044), so a new pin fails CI
   until it is added to the scan list rather than going unscanned forever.
 - The vulnerability database is downloaded once into a shared cache and the five
   scans reuse it with `--skip-db-update`. Five fresh `docker run --rm` pulls of
   `trivy-db` from GCR return 429 and fail the job with `failed=0`.
+- What trivy learns by *walking* the images is cached across runs
+  (`actions/cache`, keyed on the pin set and the trivy version). The
+  vulnerability database is not, and the split is the point: a digest cannot
+  change, but the advisories about it do, so only the immutable half is reused
+  and a CVE disclosed this morning is still caught on the next run. That half
+  was nearly the whole job — 199s of a 245s step went into walking the Langfuse
+  web image, 192s of it secret-scanning the npm cache and Next.js source maps
+  baked into that image. Restored, it is 0s with every scanner still on.
+  Moving a digest costs one full walk, once.
 
 Findings inside those upstream images that no digest bump can clear go in
 `.trivyignore.yaml` as time-boxed exceptions with a justification and an
@@ -133,10 +257,21 @@ past the viewport, and interactive elements under the 44px floor — the last
 measured including any `touch-target` catchment, so a control that widens its
 catchment correctly does not report. Add `-- <registry id>` for one surface.
 
+It needs a Chromium, which the repo does not ship (`playwright-core` has no
+browser). It looks in `CHROMIUM_PATH`, `PLAYWRIGHT_BROWSERS_PATH`,
+`/opt/pw-browsers` (present in the devcontainer and the CI image) and
+Playwright's own per-OS cache. That last one is where `npx playwright install
+chromium` installs, so on a bare machine that single command is enough — no
+`PLAYWRIGHT_BROWSERS_PATH` to set afterwards. The error names every path it
+tried. A target that fails to load is reported as a
+failure and exits non-zero — findings themselves do not, because `SMALL` is a
+prompt to read rather than a verdict.
+
 It is NOT part of `verify`, on purpose: the shape errors it exists for are held
-statically by `src/components/ui/mobile-affordances.spec.ts` and
-`touch-target.spec.ts`, and a browser pass over ~120 surfaces is a deliberate
-run rather than a per-commit tax. Reach for it when you build a user-visible
+statically by `frontends/ui/src/components/ui/mobile-affordances.spec.ts` and
+`frontends/ui/src/components/ui/touch-target.spec.ts`, and a browser pass over
+~120 surfaces is a deliberate run rather than a per-commit tax. Reach for it
+when you build a user-visible
 surface, and read `SMALL` as a prompt rather than a verdict — an inline target
 inside a sentence cannot reach 44px without stealing its neighbour's taps, which
 is why WCAG 2.5.8 exempts it.

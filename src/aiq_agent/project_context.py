@@ -14,6 +14,7 @@ the full header-inventory table and encodings). The two are pinned together
 by the cross-language contract fixture ``tests/fixtures/grid_request_context.json``::
 
     X-Grid-Project-Context: base64url(<project context string>)
+    X-Grid-Org-Instructions: base64url(<the office's standing instructions>)
 
 When a header is missing the system falls back to ``None``/defaults, and
 prompt templates skip the corresponding context block.
@@ -41,10 +42,87 @@ from typing import Any
 
 PROJECT_CONTEXT_HEADER = "x-grid-project-context"
 PROJECT_MEMORY_HEADER = "x-grid-project-memory"
+# The memory header carries the bounded digest (≤1800 chars) AND the block of
+# decisions the project made about the agent's proposals (≤900 chars), so the
+# cap is the sum with room for the separator — never a silent truncation of
+# the second block.
+MEMORY_HEADER_MAX_CHARS = 3000
+#: The office's own standing instructions for this turn, base64url-encoded like
+#: the two blocks above it (Node rejects newlines in a header value).
+#:
+#: Preferences on FORM, FOCUS and WORKFLOW — "Antworten kurz", "immer die
+#: Bauordnung zuerst", "Entwürfe in unsere Gliederung" — written by the
+#: organization and sent per turn. It is text the agent reads, never a decision
+#: it obeys: the prompt frames it below the rules it may not override, and an
+#: instruction can never supply a normative value (that comes from a document
+#: retrieved this turn, and from nowhere else).
+#:
+#: It replaced the two ways a skill used to be FORCED onto a turn (the fleet's
+#: ``delivery: standard`` tier and the request's ``skills`` array). A standing
+#: instruction is prompt text, cheap and always present; a skill is a working
+#: method the model picks out of its catalog when the question calls for one.
+ORG_INSTRUCTIONS_HEADER = "x-grid-org-instructions"
+
+#: Hard ceiling on the office block, applied HERE at decode rather than trusted
+#: from the sender: it lands in every turn's system prompt, so an unbounded
+#: value is unbounded cost on every question this organization ever asks (the
+#: repo rule for any prompt block built from rows — see ``AGENTS.md``). The
+#: same number is enforced BFF-side at the edit boundary; this one is the
+#: backstop for anything that reaches the tier another way.
+ORG_INSTRUCTIONS_MAX_CHARS = 1500
+
+#: What a cut block says about itself, in the English of the surrounding
+#: scaffolding. Present so the MODEL knows it is reading a fragment — an
+#: instruction that stops mid-sentence otherwise reads as a complete one.
+ORG_INSTRUCTIONS_TRUNCATED_MARKER = f"[Cut off at {ORG_INSTRUCTIONS_MAX_CHARS} characters — the rest was not sent.]"
+
 PROJECT_ID_HEADER = "x-grid-project-id"
 MEMORY_REFLECTION_FEATURE_HEADER = "x-grid-feature-memory-reflection"
 ORGANIZATION_ID_HEADER = "x-grid-organization-id"
 USER_ID_HEADER = "x-grid-user-id"
+
+#: What each project-scoped tool needs from the request context to run at all,
+#: keyed by the NAT function TYPE (`_type:` in the config — the stable identity;
+#: the name a config binds it under is the config's choice), as the headers
+#: that carry it. DECLARATIVE, so a test can check every entry path that binds
+#: a tool supplies what it needs: the chat path sets these on the WebSocket
+#: upgrade, the job worker injects them from the run's identity
+#: (`aiq_api.jobs.runner.WORKER_IDENTITY_HEADERS`). `remember` answered "no
+#: project in scope" on every deep-research run for weeks because this
+#: contract lived in two hand-maintained lists that nothing compared.
+TOOL_CONTEXT_REQUIREMENTS: dict[str, tuple[str, ...]] = {
+    "project_memory_remember": (PROJECT_ID_HEADER, ORGANIZATION_ID_HEADER),
+    # The four write-side workspace tools (`tools/files/`). Each proposes a
+    # change to a PROJECT's workspace — folders are project-scoped, and the
+    # reader's session applies the change against a project — so a run without
+    # the project header can only refuse, and refusing on every unattended run
+    # is the failure this table was written for.
+    "move_document": (PROJECT_ID_HEADER,),
+    "rename_document": (PROJECT_ID_HEADER,),
+    "create_folder": (PROJECT_ID_HEADER,),
+    "assign_document": (PROJECT_ID_HEADER,),
+    # Filing a draft into the project (`tools/documents/register.py`). The
+    # project header is what makes a filing ADDRESSABLE — a draft is filed INTO
+    # a project — so a run without it can only refuse.
+    #
+    # The signed envelope the tool ALSO needs is deliberately NOT declared here.
+    # This table lists what an entry path must SUPPLY, and the envelope is not
+    # supplyable: it is a per-turn credential the BFF mints from a live session,
+    # and a job worker synthesising one would be minting an identity rather than
+    # forwarding one. So the worker is allowed to bind the tool and the tool
+    # refuses the call, which is the honest shape — see the `_NO_ENVELOPE`
+    # refusal in `tools/documents/filing.py`.
+    "file_draft": (PROJECT_ID_HEADER,),
+    "submit_draft": (PROJECT_ID_HEADER,),
+    # Delegating work (`tools/tasks/register.py`). A task hangs off a PROJECT —
+    # `tasks.project_id` is NOT NULL and carries the tenant predicate — so a run
+    # without the project header can only refuse. The signed envelope it also
+    # needs is deliberately NOT declared here, for the reason stated above
+    # `file_draft`: this table lists what an entry path must SUPPLY, and an
+    # envelope is a per-turn credential a worker would have to MINT rather than
+    # forward.
+    "create_task": (PROJECT_ID_HEADER,),
+}
 
 # Consolidated signed context envelope (backlog T3-9 follow-up, 2026-07-16).
 # `X-Grid-Request-Context` carries base64url(JSON) of the SAME fields the
@@ -137,6 +215,25 @@ def normalize_project_context(value: str | None, *, max_chars: int = 4000) -> st
         value = value[:max_chars]
         value = value.rsplit("\n", 1)[0]
     return value
+
+
+def normalize_org_instructions(value: str | None) -> str | None:
+    """Bound the office's instruction block, marking it when it had to be cut.
+
+    Separate from :func:`normalize_project_context` because the two degrade
+    differently. Project context is a brief the renderer may quietly shorten at
+    a line break; an instruction block is a list of things somebody asked for,
+    and dropping the last two without saying so leaves the model reading a
+    complete-looking set that is not the set the office wrote.
+    """
+    if not value:
+        return None
+    text = value.strip()
+    if not text:
+        return None
+    if len(text) <= ORG_INSTRUCTIONS_MAX_CHARS:
+        return text
+    return f"{text[:ORG_INSTRUCTIONS_MAX_CHARS].rstrip()}\n{ORG_INSTRUCTIONS_TRUNCATED_MARKER}"
 
 
 def _read_header(name: str) -> str | None:
@@ -262,6 +359,17 @@ def _as_dict(value: Any) -> dict[str, Any] | None:
     return value if isinstance(value, dict) else None
 
 
+def _as_epoch_millis(value: Any) -> int | None:
+    """The envelope's ``issuedAt`` as an int, or ``None`` when it is not a number.
+
+    A bool is rejected explicitly: ``isinstance(True, int)`` is true in Python,
+    and ``issuedAt: true`` would otherwise become the timestamp 1.
+    """
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    return int(value)
+
+
 def _read_memory_reflection_flag() -> bool:
     """Fails closed: absent/anything-but-'true' header → False, so a missing
     header (older proxy, non-WS entrypoint) keeps the stage off rather than
@@ -289,11 +397,38 @@ class GridRequestContext:
     collection_scope_entries: list[Any] | None = None
     project_context: str | None = None
     project_memory: str | None = None
+    #: The organization's standing instructions for this turn, already bounded
+    #: (:data:`ORG_INSTRUCTIONS_MAX_CHARS`). Rendered as its own tenant-varying
+    #: prompt section; see :data:`ORG_INSTRUCTIONS_HEADER`.
+    org_instructions: str | None = None
     model_overrides: dict[str, str] | None = None
     budget: dict[str, Any] | None = None
     disabled_sources: list[str] | None = None
     memory_reflection_enabled: bool = False
     bundesland: str | None = None
+    #: The chat turn this request belongs to (ADR-0054). Envelope-only, like
+    #: `bundesland`: it is a field a BFF WRITE route authorizes on, so it may
+    #: never arrive as an unsigned header a caller could choose.
+    conversation_id: str | None = None
+    #: Epoch MILLISECONDS the envelope was minted. Inside the signed bytes, so
+    #: its age cannot be edited without breaking the signature. Parsed but NOT
+    #: enforced here: this tier has accepted envelopes without one since before
+    #: the field existed, and the window is the BFF verifier's to enforce
+    #: (`verifyGridRequestContextEnvelope`), which fails closed on it.
+    issued_at: int | None = None
+    #: The envelope EXACTLY as it arrived — the base64url header and its hex
+    #: signature, unparsed.
+    #:
+    #: Retained so a tool that calls back into the BFF can ECHO the signed bytes
+    #: rather than re-sign them. That distinction is the whole identity story of
+    #: ADR-0054 §4: the BFF minted this envelope from a real session, and the
+    #: internal document route reads the acting user out of it and files in that
+    #: person's pinned session. A Python tier that re-signed a payload of its own
+    #: would be choosing the user id — with a secret that authenticates the
+    #: SERVICE — which is precisely the wider principal the signature exists to
+    #: deny it. So: echo, never sign.
+    envelope_header: str | None = None
+    envelope_signature: str | None = None
 
     @classmethod
     def from_context(cls) -> "GridRequestContext":
@@ -325,7 +460,10 @@ class GridRequestContext:
             collection_scope=_scope_names(scope_entries),
             collection_scope_entries=scope_entries,
             project_context=normalize_project_context(_read_encoded_header(PROJECT_CONTEXT_HEADER)),
-            project_memory=normalize_project_context(_read_encoded_header(PROJECT_MEMORY_HEADER), max_chars=2000),
+            project_memory=normalize_project_context(
+                _read_encoded_header(PROJECT_MEMORY_HEADER), max_chars=MEMORY_HEADER_MAX_CHARS
+            ),
+            org_instructions=normalize_org_instructions(_read_encoded_header(ORG_INSTRUCTIONS_HEADER)),
             model_overrides=_as_str_dict(_read_json_header(MODEL_OVERRIDES_HEADER)),
             budget=_as_dict(_read_json_header(BUDGET_HEADER)),
             disabled_sources=_as_str_list(_read_json_header(DISABLED_SOURCES_HEADER)),
@@ -397,12 +535,20 @@ class GridRequestContext:
             collection_scope=_scope_names(scope_entries),
             collection_scope_entries=scope_entries,
             project_context=normalize_project_context(payload.get("projectContext"), max_chars=4000),
-            project_memory=normalize_project_context(payload.get("projectMemory"), max_chars=2000),
+            project_memory=normalize_project_context(payload.get("projectMemory"), max_chars=MEMORY_HEADER_MAX_CHARS),
+            org_instructions=normalize_org_instructions(payload.get("orgInstructions")),
             model_overrides=_as_str_dict(payload.get("modelOverrides")),
             budget=_as_dict(payload.get("budget")),
             disabled_sources=_as_str_list(payload.get("disabledSources")),
             memory_reflection_enabled=bool(payload.get("memoryReflectionEnabled", False)),
             bundesland=_normalize_bundesland(payload.get("bundesland")),
+            conversation_id=_normalize_raw_id(payload.get("conversationId")),
+            issued_at=_as_epoch_millis(payload.get("issuedAt")),
+            # The bytes as received, not re-encoded from `payload`: a re-encode
+            # would reorder keys, drop whitespace, and produce something the
+            # signature no longer covers.
+            envelope_header=header_value,
+            envelope_signature=sig,
         )
 
     @classmethod
@@ -465,6 +611,9 @@ class GridRequestContext:
             collection_scope_entries=scope_entries,
             project_context=text_field(PROJECT_CONTEXT_HEADER, 4000),
             project_memory=text_field(PROJECT_MEMORY_HEADER, 2000),
+            org_instructions=normalize_org_instructions(
+                _base64url_decode_text(raw(ORG_INSTRUCTIONS_HEADER) or "") or None
+            ),
             model_overrides=_as_str_dict(json_field(MODEL_OVERRIDES_HEADER)),
             budget=_as_dict(json_field(BUDGET_HEADER)),
             disabled_sources=_as_str_list(json_field(DISABLED_SOURCES_HEADER)),
@@ -513,6 +662,15 @@ def get_project_context_from_context() -> str | None:
     """
     ctx = GridRequestContext.from_context()
     return compose_project_context(ctx.project_context, ctx.project_memory)
+
+
+def get_org_instructions_from_context() -> str | None:
+    """Read the office's standing instructions (``X-Grid-Org-Instructions``).
+
+    Already bounded and marked when it was cut, so every caller renders the
+    same text and nothing downstream has to remember the cap.
+    """
+    return GridRequestContext.from_context().org_instructions
 
 
 def get_project_id_from_context() -> str | None:
@@ -572,6 +730,20 @@ def get_user_message_id_from_context() -> str | None:
     except Exception:
         logger.debug("Failed to read user message id from NAT context", exc_info=True)
         return None
+
+
+def get_request_envelope_from_context() -> tuple[str | None, str | None]:
+    """The signed envelope EXACTLY as it arrived: ``(header, signature)``.
+
+    For a tool that calls back into the BFF. It echoes these two strings and
+    signs nothing of its own — the BFF verifies them with the same secret and
+    reads the acting user out of the verified payload (ADR-0054 §4). Both are
+    ``None`` off an authenticated chat turn (a CLI run, an eval, a job worker),
+    which is a refusal at the tool and never a reason to fall back to the
+    individual headers: those are unsigned, so a caller could choose them.
+    """
+    ctx = GridRequestContext.from_context()
+    return ctx.envelope_header, ctx.envelope_signature
 
 
 def get_conversation_id_from_context() -> str | None:

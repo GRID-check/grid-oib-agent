@@ -27,17 +27,46 @@ describe('deriveExecutedSteps', () => {
   })
 
   test.each([
-    ['intent_classifier', 'thinking.stepName.understanding'],
-    ['depth_router', 'thinking.stepName.routing'],
     ['web_search_tool', 'thinking.stepName.webSearch'],
     ['tavily_search', 'thinking.stepName.webSearch'],
     ['ris_search', 'thinking.stepName.ris'],
     ['knowledge_retrieval', 'thinking.stepName.corpus'],
     ['shallow_research_agent', 'thinking.stepName.assistant'],
-    ['meta_chatter', 'thinking.stepName.assistant'],
     ['url_fetch', 'thinking.stepName.reading'],
+    // The working directory's four verbs, one chip between them: what a reader
+    // wants to know is that a draft was worked on, not how many times.
+    ['write_file', 'thinking.stepName.draft'],
+    ['read_file', 'thinking.stepName.draft'],
+    ['edit_file', 'thinking.stepName.draft'],
+    ['ls', 'thinking.stepName.draft'],
+    // Leaving the working directory is a different fact, and it must not be
+    // eaten by the `draft` rule — hence the order of the two.
+    ['file_draft', 'thinking.stepName.filing'],
+    ['submit_draft', 'thinking.stepName.filing'],
+    ['create_task', 'thinking.stepName.task'],
+    // The five file-operation tools propose and write nothing (ADR-0003).
+    ['move_document', 'thinking.stepName.fileProposal'],
+    ['rename_document', 'thinking.stepName.fileProposal'],
+    ['create_folder', 'thinking.stepName.fileProposal'],
+    ['assign_document', 'thinking.stepName.fileProposal'],
   ])('maps %s → %s', (functionName, expected) => {
     expect(deriveExecutedSteps([step({ functionName })], t)[0].label).toBe(expected)
+  })
+
+  test('renders the working directory once, however many files a turn touched', () => {
+    // A turn that reads its draft, edits it twice and lists the directory is
+    // ONE piece of work. Five chips would be a log stream, which is what the
+    // technical panel is for.
+    const chips = deriveExecutedSteps(
+      [
+        step({ functionName: 'read_file' }),
+        step({ functionName: 'edit_file' }),
+        step({ functionName: 'edit_file' }),
+        step({ functionName: 'ls' }),
+      ],
+      t,
+    )
+    expect(chips.map((chip) => chip.label)).toEqual(['thinking.stepName.draft'])
   })
 
   test('an unlabelled internal function gets no chip — it is not title-cased into work', () => {
@@ -70,13 +99,13 @@ describe('deriveExecutedSteps', () => {
   test('dedups a re-run tool into one chip and keeps run order', () => {
     const chips = deriveExecutedSteps(
       [
-        step({ id: '1', functionName: 'intent_classifier' }),
+        step({ id: '1', functionName: 'shallow_research_agent' }),
         step({ id: '2', functionName: 'web_search_tool' }),
         step({ id: '3', functionName: 'web_search_tool' }),
       ],
       t
     )
-    expect(chips.map((c) => c.key)).toEqual(['intent_classifier', 'web_search_tool'])
+    expect(chips.map((c) => c.key)).toEqual(['shallow_research_agent', 'web_search_tool'])
   })
 
   test('marks the in-progress step as running; a re-run refreshes the flag', () => {
@@ -258,5 +287,71 @@ describe('deriveExecutedSteps — turn status events', () => {
     )
     expect(chips.map((c) => c.key)).toEqual(['knowledge_search_tool'])
     expect(chips[0].label).toBe('thinking.stepName.corpus')
+  })
+
+  describe('one chip per kind of work, not per tool call', () => {
+    /**
+     * The stakeholder report was „AUSGEFÜHRT: Einordnung, Assistent,
+     * OIB-Wissen, OIB-Wissen, OIB-Wissen…" — a word repeated, which reads as a
+     * stutter rather than as three tools and tells the reader nothing the first
+     * chip had not. The cause was deduplicating on the internal tool NAME while
+     * labelling by rule: `ris_search_tool`, `ris_fetch_tool` and
+     * `ris_catalog_lookup_tool` are three names for one chip.
+     */
+    test('renders RIS once, however many RIS tools ran', () => {
+      const steps = [
+        step({ functionName: 'ris_search_tool' }),
+        step({ functionName: 'ris_fetch_tool' }),
+        step({ functionName: 'ris_catalog_lookup_tool' }),
+      ]
+
+      expect(deriveExecutedSteps(steps, t).map((chip) => chip.label)).toEqual([
+        'thinking.stepName.ris',
+      ])
+    })
+
+    test('renders the corpus once, however many retrieval tools ran', () => {
+      const steps = [
+        step({ functionName: 'knowledge_search' }),
+        step({ functionName: 'knowledge_search' }),
+        step({ functionName: 'corpus_retrieve' }),
+      ]
+
+      expect(deriveExecutedSteps(steps, t)).toHaveLength(1)
+    })
+
+    test('still shows different kinds of work as different chips', () => {
+      const steps = [
+        step({ functionName: 'shallow_research_agent' }),
+        step({ functionName: 'knowledge_search' }),
+        step({ functionName: 'ris_search_tool' }),
+        step({ functionName: 'web_search_tool' }),
+      ]
+
+      expect(deriveExecutedSteps(steps, t)).toHaveLength(4)
+    })
+
+    test('a later tool under one chip still clears the running flag', () => {
+      // Steps are newest last, so the completed fetch must un-run the chip the
+      // in-progress search raised — otherwise a finished turn keeps a spinner.
+      const steps = [
+        step({ functionName: 'ris_search_tool', isComplete: false }),
+        step({ functionName: 'ris_fetch_tool', isComplete: true }),
+      ]
+
+      const chips = deriveExecutedSteps(steps, t)
+
+      expect(chips).toHaveLength(1)
+      expect(chips[0]!.running).toBe(false)
+    })
+
+    test('and a later tool under one chip can raise it', () => {
+      const steps = [
+        step({ functionName: 'ris_search_tool', isComplete: true }),
+        step({ functionName: 'ris_fetch_tool', isComplete: false }),
+      ]
+
+      expect(deriveExecutedSteps(steps, t)[0]!.running).toBe(true)
+    })
   })
 })

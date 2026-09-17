@@ -90,6 +90,7 @@ The planner will use search tools to discover internal vs external and what info
 
 ## Research Loop
 - `run_research_batch` accepts at most {{ max_research_concurrency }} full ResearchQuery objects per call.
+- Every `run_research_batch` call carries a `conclusion` argument: ONE sentence on what the batches so far established and what this one still has to close. Leave it empty on the first batch. The reader sees it as the checkpoint above the round; it is not part of the report.
 - After the planner has returned the plan, submit all independent planned queries needed by answer_strategy.required_components in one call when they fit. If more than {{ max_research_concurrency }} are required, split them into the fewest ordered batches; do not create smaller curated waves.
 - Keep a submitted-query ledger using each ResearchQuery's exact `query` string. Before any later call, remove queries already submitted and successfully returned. Never repeat a covered query for extra depth.
 - `run_research_batch` returns a JSON array of successful `ResearchNotes` and persists those same notes as JSON files under `/shared/`; each note includes its own `evidence_judgment`.

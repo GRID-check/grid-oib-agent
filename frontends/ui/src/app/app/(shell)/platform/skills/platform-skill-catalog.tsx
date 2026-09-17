@@ -9,30 +9,24 @@
  * froze it there, so every improvement we shipped afterwards went to a skill
  * nobody was running. The body lives in this catalogue and only here.
  *
- * THREE states per row, and no two of them are the same question:
+ * TWO states per row, and they are not the same question:
  *
  *   published   Whether the skill is live at all. Ours. A draft is invisible
  *               fleet-wide, which is what makes this usable as a writing
  *               surface rather than a publish-on-save wire.
- *   delivery    Whether organizations CHOOSE it or simply run it. Ours.
- *               `offer` puts it on their Skills tab with a switch; `standard`
- *               is the house instruction — live for everyone, on nobody's tab,
- *               and not something a tenant can switch off or shadow.
- *   switched on Whether a given organization RUNS an OFFER. Theirs, on their
- *               own Skills tab. Nothing here can decide it, and a standard skill
- *               does not ask.
+ *   switched on Whether a given organization RUNS it. Theirs, on their own
+ *               Skills tab. Nothing here can decide it.
  *
- * Delivery is a row control rather than a field in the editor, deliberately.
- * The editor writes the DOCUMENT — the same agentskills.io document either way,
- * which is why it is the org authoring dialog (`SkillEditorDialog`) and not a
- * second editor that would rot. Delivery is not part of the document; it is who
- * the document is for, and imposing an instruction on every tenant deserves to
- * be its own act rather than a control someone tabs past while writing prose.
- * A new skill is therefore always born as an offer draft, and takes two
- * deliberate moves to become fleet standard.
+ * There used to be a third, `delivery`, choosing between offering a skill and
+ * imposing it on the whole fleet (`standard`). It is gone with migration 0088:
+ * a `standard` skill was FORCED onto every run, which is an instruction wearing
+ * a capability's clothes. What the platform wants applied to every turn belongs
+ * in the platform prompt; what a tenant wants applied belongs in that tenant's
+ * own instruction block. Publishing a skill offers it, and an organization
+ * decides.
  */
 
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { AlertCircle, Plus, Sparkles } from 'lucide-react'
 import { toast } from 'sonner'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
@@ -41,35 +35,38 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 import { EmptyState } from '@/components/ui/empty-state'
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Switch } from '@/components/ui/switch'
 import { useTranslations } from '@/i18n'
 import { cn } from '@/lib/utils'
 import {
+  createPlatformSkillCategory,
+  deletePlatformSkillCategory,
   deletePlatformSkill,
+  listPlatformSkillCategories,
   listPlatformSkills,
+  updatePlatformSkillCategory,
   updatePlatformSkill,
-  type PlatformSkillDelivery,
   type PlatformSkillItem,
+  type SkillCategoryListItem,
 } from '@/adapters/api/skills-client'
 import { PlatformSkillEditorDialog } from './platform-skill-editor-dialog'
+import { SkillCategoryManager } from '@/features/skills/components/skill-category-manager'
 
 export function PlatformSkillCatalog(): JSX.Element {
   const t = useTranslations('platform')
+  const tSkills = useTranslations('skills')
   const [skills, setSkills] = useState<PlatformSkillItem[] | null>(null)
+  const [categories, setCategories] = useState<SkillCategoryListItem[]>([])
+  /** A failed category read degrades the catalogue rather than failing it (see load). */
+  const [categoriesFailed, setCategoriesFailed] = useState(false)
   const [error, setError] = useState(false)
   const [editorOpen, setEditorOpen] = useState(false)
   const [editing, setEditing] = useState<PlatformSkillItem | null>(null)
   /** Fresh mount per open — the editor seeds its fields in state initialisers. */
   const [editorKey, setEditorKey] = useState(0)
   const [pending, setPending] = useState<string[]>([])
+  const [categoriesOpen, setCategoriesOpen] = useState(false)
   /**
    * The row a deletion is pending on.
    *
@@ -82,9 +79,19 @@ export function PlatformSkillCatalog(): JSX.Element {
 
   const load = useCallback(() => {
     setSkills(null)
+    setCategoriesFailed(false)
     setError(false)
+    // The categories are arrangement, not the catalogue: a category read that
+    // fails must not hide skills that loaded fine. Skills stay fatal; without
+    // categories the badges and the picker simply read unsorted, and the manager
+    // button hides itself rather than opening onto an error.
     listPlatformSkills()
-      .then(setSkills)
+      .then((rows) => {
+        setSkills(rows)
+        listPlatformSkillCategories()
+          .then(setCategories)
+          .catch(() => setCategoriesFailed(true))
+      })
       .catch(() => setError(true))
   }, [])
 
@@ -119,36 +126,6 @@ export function PlatformSkillCatalog(): JSX.Element {
     }
   }
 
-  /**
-   * Move a skill between the two deliveries.
-   *
-   * Not optimistic, unlike publishing. Publishing is one property of one row and
-   * cheap to undo; this changes who is running the instruction — promoting takes
-   * the choice away from every organization on the platform, including ones that
-   * had switched the skill off. Showing that as done before the server said so
-   * would be showing a fleet-wide state we do not yet know we have. The control
-   * disables while the write is in flight and the list re-reads on success.
-   */
-  const setDelivery = async (skill: PlatformSkillItem, delivery: PlatformSkillDelivery) => {
-    if (delivery === skill.delivery) return
-    setPending((current) => [...current, skill.id])
-    try {
-      await updatePlatformSkill(skill.id, { delivery })
-      setSkills(
-        (prev) => prev?.map((row) => (row.id === skill.id ? { ...row, delivery } : row)) ?? prev,
-      )
-      toast.success(
-        delivery === 'standard'
-          ? t('skills.deliveryNowStandard', { name: skill.name })
-          : t('skills.deliveryNowOffer', { name: skill.name }),
-      )
-    } catch {
-      toast.error(t('skills.saveError'))
-    } finally {
-      setPending((current) => current.filter((id) => id !== skill.id))
-    }
-  }
-
   const remove = async (skill: PlatformSkillItem) => {
     setConfirmDelete(null)
     setPending((current) => [...current, skill.id])
@@ -163,14 +140,35 @@ export function PlatformSkillCatalog(): JSX.Element {
     }
   }
 
+  const categoryName = useCallback(
+    (id: string | null): string | null =>
+      id ? (categories.find((category) => category.id === id)?.name ?? null) : null,
+    [categories],
+  )
+
+  const categoryCounts = useMemo(() => {
+    const counts: Record<string, number> = {}
+    for (const skill of skills ?? []) {
+      if (skill.categoryId) counts[skill.categoryId] = (counts[skill.categoryId] ?? 0) + 1
+    }
+    return counts
+  }, [skills])
+
   return (
     <section className="flex flex-col gap-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <p className="text-muted-foreground max-w-3xl text-sm">{t('skills.hint')}</p>
-        <Button size="sm" onClick={() => openEditor(null)}>
-          <Plus className="size-4" aria-hidden />
-          {t('skills.new')}
-        </Button>
+        <div className="flex items-center gap-2">
+          {!categoriesFailed && (
+            <Button size="sm" variant="outline" onClick={() => setCategoriesOpen(true)}>
+              {tSkills('toolbox.categories.button')}
+            </Button>
+          )}
+          <Button size="sm" onClick={() => openEditor(null)}>
+            <Plus className="size-4" aria-hidden />
+            {t('skills.new')}
+          </Button>
+        </div>
       </div>
 
       {skills === null && !error && (
@@ -215,7 +213,7 @@ export function PlatformSkillCatalog(): JSX.Element {
                   <div className="flex items-start justify-between gap-3">
                     <div
                       className={cn(
-                        'min-w-0 space-y-1 transition-opacity duration-200 ease-out motion-reduce:transition-none',
+                        'min-w-0 space-y-1 transition-opacity duration-quick ease-out motion-reduce:transition-none',
                         !skill.published && 'opacity-60',
                       )}
                     >
@@ -235,13 +233,11 @@ export function PlatformSkillCatalog(): JSX.Element {
                           draft is the state worth naming, because it is the one
                           where nobody else can see what you are looking at. */}
                       {!skill.published && <Badge variant="outline">{t('skills.draft')}</Badge>}
-                      {/* The same rule for delivery: "Offer" is the default and
-                          says nothing, "Standard" is the state that changed what
-                          the fleet is running and is worth reading at a glance.
-                          Only meaningful once published — an unpublished
-                          standard skill imposes on nobody yet. */}
-                      {skill.published && skill.delivery === 'standard' && (
-                        <Badge variant="secondary">{t('skills.standardBadge')}</Badge>
+                      {/* The category, and only when there is one: most rows
+                          start unsorted, and a badge every row carries tells
+                          you nothing anyway. */}
+                      {categoryName(skill.categoryId) && (
+                        <Badge variant="outline">{categoryName(skill.categoryId)}</Badge>
                       )}
                       <Switch
                         checked={skill.published}
@@ -252,24 +248,6 @@ export function PlatformSkillCatalog(): JSX.Element {
                     </div>
                   </div>
                   <div className="flex flex-wrap items-center gap-2">
-                    <Select
-                      value={skill.delivery}
-                      disabled={pending.includes(skill.id)}
-                      onValueChange={(next) => void setDelivery(skill, next as PlatformSkillDelivery)}
-                    >
-                      <SelectTrigger
-                        size="sm"
-                        className="w-auto"
-                        aria-label={t('skills.deliveryAria', { name: skill.name })}
-                        data-testid={`platform-skill-delivery-${skill.name}`}
-                      >
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="offer">{t('skills.deliveryOffer')}</SelectItem>
-                        <SelectItem value="standard">{t('skills.deliveryStandard')}</SelectItem>
-                      </SelectContent>
-                    </Select>
                     <Button size="sm" variant="outline" onClick={() => openEditor(skill)}>
                       {t('skills.edit')}
                     </Button>
@@ -309,10 +287,22 @@ export function PlatformSkillCatalog(): JSX.Element {
         open={editorOpen}
         onOpenChange={setEditorOpen}
         skill={editing}
+        categories={categories}
         onSaved={() => {
           setEditorOpen(false)
           load()
         }}
+      />
+
+      <SkillCategoryManager
+        open={categoriesOpen}
+        onOpenChange={setCategoriesOpen}
+        categories={categories}
+        counts={categoryCounts}
+        onCreate={async (input) => createPlatformSkillCategory(input)}
+        onRename={async (id, name) => updatePlatformSkillCategory(id, { name })}
+        onDelete={async (id) => deletePlatformSkillCategory(id)}
+        onChanged={load}
       />
     </section>
   )

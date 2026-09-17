@@ -97,8 +97,8 @@ That distinction is the design. Knowing there are 47 Bestandspläne for the
 Hoftrakt is worth its tokens on every turn; knowing *which* 47 is worth nothing
 until the agent is working with them, and costs 47 lines × ~5 prompt templates ×
 every turn, including chit-chat. The first version emitted a line per binding,
-which is the same unbounded growth `_available_documents_limit` in the chat
-researcher already exists to prevent.
+which is the same unbounded growth `_available_documents_limit` in Piloti
+already exists to prevent.
 
 A `MAX_SLOT_LINES` cap sits behind that as a backstop for an implausible number
 of buildings, and a truncation says so rather than shortening silently: an agent

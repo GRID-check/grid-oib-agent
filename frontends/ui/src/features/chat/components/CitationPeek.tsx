@@ -16,16 +16,15 @@
 'use client'
 
 import { type FC } from 'react'
-import { ExternalLink, FileSearch, Link2 } from 'lucide-react'
+import Link from 'next/link'
+import { Download, ExternalLink, FileSearch, FolderOpen, Link2 } from 'lucide-react'
 import { useTranslations } from '@/i18n'
 import { cn } from '@/lib/utils'
 import { SectionLabel } from '@/components/ui/section-label'
 import { SourceSignalChip } from '@/features/layout/components/SourceSignalChip'
-import {
-  citedPages,
-  refPage,
-  type CitationRef,
-} from '../lib/citations'
+import { documentPages, refPage, type CitationRef, type CitedDocument } from '../lib/citations'
+import type { Shelf } from '../lib/source-kinds'
+import { useChatStore } from '../store'
 import { CopySourceCitationButton } from './CopyCitation'
 import { CopyCitationLinkButton } from './CopyCitationLink'
 
@@ -37,6 +36,27 @@ interface CitationPeekProps {
   onOpen?: () => void
   /** Outbound link, for web/RIS sources. */
   url?: string
+  /**
+   * The source resolved to nothing openable — say so, in place of the control.
+   *
+   * The alternative is silence, which is what this used to be: the reader is
+   * looking at a citation and wants to know whether checking it is possible.
+   * "There is no way in from here" is an answer; a control that closes the
+   * popover and does nothing is not.
+   */
+  unavailable?: boolean
+  /**
+   * The document EXISTS but this app cannot draw its format — hand it over
+   * instead, and say which of the two is happening.
+   *
+   * A cited `.docx` used to arrive here as `unavailable`, which is a claim
+   * about the citation and was false: nothing was missing, the file was in the
+   * project's Dateiablage and the reader was entitled to it. Absent when the
+   * source is genuinely unreachable.
+   */
+  onDownload?: () => void
+  /** The download is being presigned — the control says so rather than repeating. */
+  downloadPending?: boolean
 }
 
 /**
@@ -84,12 +104,22 @@ const BindingStatusChip: FC<{ status?: string }> = ({ status }) => {
 const LocusLine: FC<{ citation: CitationRef }> = ({ citation }) => {
   const t = useTranslations('chat')
   const page = refPage(citation)
-  const pages = citedPages(citation.document)
+  const pages = documentPages(citation.document)
 
+  // A PUNKT IS A PLACE. It was nested inside "has a page", so a locus that knew
+  // its Punkt and not its page read „Gesamtes Dokument" — dropping the one
+  // identifier Austrian building law actually cites by, in favour of saying
+  // nothing. The chunker measures it against the corpus's contents pages
+  // precisely so it can be shown.
+  const punkt = citation.locus?.punkt?.trim()
   const text = citation.locus
     ? page != null
-      ? t('answerSources.page', { page })
-      : t('citationPeek.wholeDocument')
+      ? punkt
+        ? t('answerSources.punktPage', { punkt, page })
+        : t('answerSources.page', { page })
+      : punkt
+        ? t('answerSources.punkt', { punkt })
+        : t('citationPeek.wholeDocument')
     : pages.length === 1
       ? t('answerSources.page', { page: pages[0]! })
       : pages.length > 1
@@ -99,7 +129,60 @@ const LocusLine: FC<{ citation: CitationRef }> = ({ citation }) => {
   return <p className="text-xs tabular-nums text-muted-foreground">{text}</p>
 }
 
-export const CitationPeek: FC<CitationPeekProps> = ({ citation, snippet, onOpen, url }) => {
+/**
+ * The link to where the cited document LIVES in the app.
+ *
+ * The peek answers "what is this?"; the next question is often "where is it?"
+ * — to see the file beside its siblings, to replace it with a newer version,
+ * to check who filed it. Answering that used to mean closing the peek and
+ * navigating from memory. The project shelf lives in the project's files, the
+ * office archive at its own route; the base corpus and the session shelf have
+ * no page of their own, and a web source already carries its `url`, so for
+ * those there is nothing to offer and nothing is rendered.
+ *
+ * The project id comes off the chat store, which is how every other consumer
+ * of the store on this popover's path already reads it.
+ */
+const DocumentHomeLink: FC<{ shelf?: Shelf; tint: CitedDocument['tint'] }> = ({
+  shelf,
+  tint,
+}) => {
+  const t = useTranslations('chat')
+  const projectId = useChatStore((s) => s.projectId)
+
+  const target =
+    shelf === 'project' && projectId
+      ? {
+          href: `/app/projects/${encodeURIComponent(projectId)}/files`,
+          label: t('documentGrid.openInFiles'),
+        }
+      : shelf === 'archiv'
+        ? { href: '/app/archiv', label: t('documentGrid.openInArchive') }
+        : null
+  if (!target) return null
+
+  return (
+    <Link
+      href={target.href}
+      data-citation-home=""
+      className="inline-flex items-center gap-1 text-xs font-medium hover:underline"
+      style={{ color: `var(--source-${tint}-text, var(--foreground))` }}
+    >
+      <FolderOpen aria-hidden="true" className="size-3.5" />
+      {target.label}
+    </Link>
+  )
+}
+
+export const CitationPeek: FC<CitationPeekProps> = ({
+  citation,
+  snippet,
+  onOpen,
+  url,
+  unavailable,
+  onDownload,
+  downloadPending,
+}) => {
   const t = useTranslations('chat')
   const { document: doc } = citation
   const tint = doc.tint
@@ -160,6 +243,17 @@ export const CitationPeek: FC<CitationPeekProps> = ({ citation, snippet, onOpen,
         </div>
       )}
 
+      {/* WHY there is no viewer, before the control that works around it. Said
+          in the popover rather than left to the reader's inference: "this
+          format opens outside Piloti" is a fact about the file, and without it
+          a download button beside a document chip reads as an arbitrary second
+          choice. */}
+      {onDownload && !onOpen && (
+        <p className="text-xs leading-relaxed text-muted-foreground">
+          {t('citationPeek.noInlineViewer')}
+        </p>
+      )}
+
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1 border-t pt-2">
         {onOpen && (
           <button
@@ -175,6 +269,25 @@ export const CitationPeek: FC<CitationPeekProps> = ({ citation, snippet, onOpen,
             {t('citationPeek.openAtPage')}
           </button>
         )}
+        {onDownload && !onOpen && (
+          <button
+            type="button"
+            onClick={onDownload}
+            disabled={downloadPending}
+            data-citation-download=""
+            className="inline-flex items-center gap-1 text-xs font-medium hover:underline disabled:cursor-progress disabled:opacity-70"
+            style={{ color: `var(--source-${tint}-text, var(--foreground))` }}
+          >
+            <Download aria-hidden="true" className="size-3.5" />
+            {t(downloadPending ? 'citationPeek.downloading' : 'citationPeek.download')}
+          </button>
+        )}
+        {unavailable && !onOpen && !onDownload && (
+          <span className="text-muted-foreground inline-flex items-center gap-1 text-xs">
+            <FileSearch aria-hidden="true" className="size-3.5" />
+            {t('citationPeek.notOpenable')}
+          </span>
+        )}
         {url && (
           <a
             href={url}
@@ -187,6 +300,7 @@ export const CitationPeek: FC<CitationPeekProps> = ({ citation, snippet, onOpen,
             <ExternalLink aria-hidden="true" className="size-3" />
           </a>
         )}
+        <DocumentHomeLink shelf={doc.shelf} tint={tint} />
         <span className="flex-1" />
         <CopyCitationLinkButton citation={citation} icon={<Link2 className="size-3" />} />
         <CopySourceCitationButton citation={citation} />

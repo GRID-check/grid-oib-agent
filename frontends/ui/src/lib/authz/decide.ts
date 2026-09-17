@@ -268,6 +268,7 @@ async function decideSkillTier(
   if (SKILL_RESOURCES_PROVISIONED) {
     const granted = await checkResourcePermission({
       organizationMembershipId: authorized.organizationMembershipId,
+      organizationId: authorized.organizationId,
       permissionSlug: permission,
       resourceExternalId: resource.id,
       resourceTypeSlug: 'skill',

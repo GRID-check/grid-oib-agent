@@ -263,7 +263,6 @@ describe('NATWebSocketClient frame tolerance + transparency (WP-B)', () => {
           status: 'complete',
           content: 'here is your answer',
           routing_decision: 'deep',
-          routing_reason: 'The question needs a deep dive.',
           escalation_reason: 'The first answer was insufficient.',
           answer_confidence_capped_reason: 'ungrounded',
           answer_confidence_reason: 'Only one source found.',
@@ -278,7 +277,6 @@ describe('NATWebSocketClient frame tolerance + transparency (WP-B)', () => {
     const transparency = onResponse.mock.calls[0][8]
     expect(transparency).toEqual({
       routingDecision: 'deep',
-      routingReason: 'The question needs a deep dive.',
       escalationReason: 'The first answer was insufficient.',
       answerConfidenceCappedReason: 'ungrounded',
       answerConfidenceReason: 'Only one source found.',
@@ -526,6 +524,70 @@ describe('NATWebSocketClient — the ingest-only user_message payload', () => {
       source_preset: 'project',
     })
     expect(sentPayload(ws)).not.toHaveProperty('include_shelves')
+  })
+
+  test('a subject with an unpublished version says which version, and what state it is in', async () => {
+    const { client, ws } = await openClient()
+
+    client.sendMessage('Warum steht in Abschnitt 3 GK 4?', [], {
+      focusFileName: 'piloti/doc-9/befund.md',
+      focusShelf: 'project',
+      focusDocumentId: 'doc-9',
+      focusVersionId: 'ver-9',
+      focusVersionState: 'draft',
+    })
+
+    // Only a published version is indexed, so a draft has no chunks and the
+    // agent's focus filter falls open to the whole corpus. These three keys are
+    // what let the turn read the version's own bytes instead.
+    expect(sentPayload(ws)).toMatchObject({
+      focus_document_id: 'doc-9',
+      focus_version_id: 'ver-9',
+      focus_version_state: 'draft',
+    })
+  })
+
+  test('a subject with nothing unpublished adds no version keys', async () => {
+    const { client, ws } = await openClient()
+
+    client.sendMessage('Fass zusammen', [], {
+      focusFileName: 'plan.pdf',
+      focusShelf: 'project',
+      focusDocumentId: 'doc-1',
+    })
+
+    expect(sentPayload(ws)).not.toHaveProperty('focus_version_id')
+    expect(sentPayload(ws)).not.toHaveProperty('focus_version_state')
+  })
+
+  /**
+   * The key the composer stopped sending.
+   *
+   * `skills: ['name']` carried a `/name` invocation, and the backend lifted it
+   * onto `force_skills` — the turn then HAD to apply that skill. Removed with
+   * the platform's `standard` delivery tier (migration 0088), because a skill
+   * is a capability the model may reach for and forcing one is an instruction
+   * wearing a capability's clothes. The name now travels as the message TEXT
+   * and the model picks the skill out of its own catalog.
+   *
+   * Asserted at the WIRE and not only at the composer, because this is the
+   * boundary the backend reads: a caller that hands `sendMessage` an unknown
+   * option must not be able to put the field back on the envelope.
+   */
+  test('a slash-invoked message carries its skill as text and nothing structured', async () => {
+    const { client, ws } = await openClient()
+
+    client.sendMessage('/oib-brandschutz Stiegenhaus prüfen', ['source-1'], {
+      // Deliberately an option the type no longer has: a stray caller (or an
+      // older build sharing the bundle) must not be able to reintroduce it.
+      ...({ skills: ['oib-brandschutz'] } as Record<string, unknown>),
+    })
+
+    expect(sentPayload(ws)).toEqual({
+      query: '/oib-brandschutz Stiegenhaus prüfen',
+      data_sources: ['source-1'],
+    })
+    expect(sentPayload(ws)).not.toHaveProperty('skills')
   })
 
   test('an ordinary send is byte-for-byte what it always was — no new keys', async () => {

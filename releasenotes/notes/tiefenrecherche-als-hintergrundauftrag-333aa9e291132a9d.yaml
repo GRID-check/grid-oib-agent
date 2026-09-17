@@ -1,0 +1,8 @@
+---
+fixes:
+  - >
+    Eine Tiefenrecherche aus dem Chat läuft jetzt wirklich als
+    Hintergrundauftrag: Sie erscheint unter „Recherchen", Sie können den
+    Fortschritt verfolgen, und der fertige Bericht wird im Projekt abgelegt.
+    Bisher wurde sie im laufenden Chat-Zug abgearbeitet — ohne Auftrag, ohne
+    Fortschritt und ohne abgelegten Bericht.

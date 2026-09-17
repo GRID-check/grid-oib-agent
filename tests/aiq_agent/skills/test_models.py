@@ -11,7 +11,6 @@ from aiq_agent.skills.models import SkillValidationError
 from aiq_agent.skills.models import build_skill_from_payload
 from aiq_agent.skills.models import parse_skill_md
 from aiq_agent.skills.models import preferred_cards
-from aiq_agent.skills.models import skill_auto_invoke
 from aiq_agent.skills.models import skill_hidden
 from aiq_agent.skills.models import skill_title
 
@@ -23,7 +22,7 @@ description: >-
 license: Proprietary
 compatibility: R1 line and B2 zone
 metadata:
-  grid-agents: shallow_researcher
+  grid-agents: researcher
 ---
 
 # Prognose
@@ -42,7 +41,7 @@ def test_parse_valid_skill_md() -> None:
     assert len(skill.description) > 10
     assert skill.origin == "platform"
     assert skill.collection is None
-    assert skill.metadata == {"grid-agents": "shallow_researcher"}
+    assert skill.metadata == {"grid-agents": "researcher"}
     assert skill.compatibility == "R1 line and B2 zone"
     assert skill.license == "Proprietary"
     assert skill.body.startswith("# Prognose")
@@ -117,11 +116,11 @@ def test_grid_execution_is_ignored_not_rejected() -> None:
     """
     for value in ("chat", "deep-research", "browser", "gibt-es-nicht"):
         md = VALID_MD.replace(
-            "  grid-agents: shallow_researcher",
-            f"  grid-agents: shallow_researcher\n  grid-execution: {value}",
+            "  grid-agents: researcher",
+            f"  grid-agents: researcher\n  grid-execution: {value}",
         )
         skill = parse_skill_md(md)
-        assert skill.metadata == {"grid-agents": "shallow_researcher", "grid-execution": value}
+        assert skill.metadata == {"grid-agents": "researcher", "grid-execution": value}
 
 
 def test_grid_schedulable_is_ignored_not_rejected() -> None:
@@ -143,7 +142,7 @@ def test_metadata_must_map_strings_to_strings() -> None:
     with pytest.raises(SkillValidationError, match="metadata"):
         parse_skill_md(
             VALID_MD.replace(
-                "  grid-agents: shallow_researcher",
+                "  grid-agents: researcher",
                 "  grid-agents:\n    nested: yes",
             )
         )
@@ -166,14 +165,14 @@ def test_build_skill_from_payload_roundtrip() -> None:
             "name": "org-skill",
             "description": "Ein Org-Skill.",
             "body": "Body",
-            "metadata": {"grid-agents": "shallow_researcher"},
+            "metadata": {"grid-agents": "researcher"},
             "license": "MIT",
         },
         origin="org",
         collection=None,
     )
     assert skill.origin == "org"
-    assert skill.metadata == {"grid-agents": "shallow_researcher"}
+    assert skill.metadata == {"grid-agents": "researcher"}
 
 
 def test_build_skill_from_payload_rejects_garbage() -> None:
@@ -203,7 +202,7 @@ def test_reserved_key_registry() -> None:
 
 
 def _with_title(value: str) -> str:
-    return VALID_MD.replace("  grid-agents: shallow_researcher", f"  grid-title: {value}")
+    return VALID_MD.replace("  grid-agents: researcher", f"  grid-title: {value}")
 
 
 def test_grid_title_is_the_human_name() -> None:
@@ -234,12 +233,12 @@ def test_org_row_drops_a_bad_title_instead_of_dying() -> None:
             "name": "org-skill",
             "description": "Ein Org-Skill.",
             "body": "Body",
-            "metadata": {"grid-title": "B" * (MAX_TITLE_CHARS + 1), "grid-agents": "shallow_researcher"},
+            "metadata": {"grid-title": "B" * (MAX_TITLE_CHARS + 1), "grid-agents": "researcher"},
         },
         origin="org",
     )
     assert "grid-title" not in skill.metadata
-    assert skill.metadata["grid-agents"] == "shallow_researcher"
+    assert skill.metadata["grid-agents"] == "researcher"
     assert skill_title(skill) is None
 
 
@@ -257,7 +256,7 @@ def test_org_row_keeps_a_good_title() -> None:
 
 
 def _with_hidden(value: str) -> str:
-    return VALID_MD.replace("  grid-agents: shallow_researcher", f'  grid-hidden: "{value}"')
+    return VALID_MD.replace("  grid-agents: researcher", f'  grid-hidden: "{value}"')
 
 
 def test_unquoted_yaml_bool_metadata_is_coerced_to_a_string() -> None:
@@ -266,12 +265,11 @@ def test_unquoted_yaml_bool_metadata_is_coerced_to_a_string() -> None:
     Rejecting that spelling used to fail discovery of every builtin when one
     file used it. Coerce, then apply the same token rules as a quoted string.
     """
-    hidden = VALID_MD.replace("  grid-agents: shallow_researcher", "  grid-hidden: true")
+    hidden = VALID_MD.replace("  grid-agents: researcher", "  grid-hidden: true")
     assert skill_hidden(parse_skill_md(hidden).metadata) is True
     assert parse_skill_md(hidden).metadata["grid-hidden"] == "true"
 
-    off = VALID_MD.replace("  grid-agents: shallow_researcher", "  grid-auto-invoke: false")
-    assert skill_auto_invoke(parse_skill_md(off).metadata) is False
+    off = VALID_MD.replace("  grid-agents: researcher", "  grid-auto-invoke: false")
     assert parse_skill_md(off).metadata["grid-auto-invoke"] == "false"
 
 
@@ -307,12 +305,12 @@ def test_org_row_drops_a_bad_hidden_flag_instead_of_dying() -> None:
             "name": "org-skill",
             "description": "Ein Org-Skill.",
             "body": "Body",
-            "metadata": {"grid-hidden": "sometimes", "grid-agents": "shallow_researcher"},
+            "metadata": {"grid-hidden": "sometimes", "grid-agents": "researcher"},
         },
         origin="org",
     )
     assert "grid-hidden" not in skill.metadata
-    assert skill.metadata["grid-agents"] == "shallow_researcher"
+    assert skill.metadata["grid-agents"] == "researcher"
     assert skill_hidden(skill.metadata) is False
 
 
@@ -330,26 +328,24 @@ def test_org_row_keeps_a_truthy_hidden_flag() -> None:
 
 
 def _with_auto_invoke(value: str) -> str:
-    return VALID_MD.replace("  grid-agents: shallow_researcher", f'  grid-auto-invoke: "{value}"')
+    return VALID_MD.replace("  grid-agents: researcher", f'  grid-auto-invoke: "{value}"')
 
 
-def test_grid_auto_invoke_falsy_tokens_store_the_opt_out() -> None:
+# `grid-auto-invoke` is TOLERATED and no longer READ. Nothing decides anything
+# from it: the catalog lists every resolved skill, because a human bit that
+# deletes a row from the model's own inventory is the shape ADR-0060 removed.
+# These tests hold the toleration — an old document must keep parsing, and a
+# malformed value must keep being dropped rather than killing discovery.
+def test_grid_auto_invoke_falsy_tokens_are_kept_verbatim_and_read_by_nobody() -> None:
     for token in ("false", "0", "no", "FALSE", "  No  "):
         skill = parse_skill_md(_with_auto_invoke(token))
-        assert skill_auto_invoke(skill.metadata) is False, token
         assert skill.metadata["grid-auto-invoke"] == "false"
 
 
-def test_grid_auto_invoke_truthy_tokens_drop_the_key_and_read_on() -> None:
+def test_grid_auto_invoke_truthy_tokens_drop_the_key() -> None:
     for token in ("true", "1", "yes", ""):
         skill = parse_skill_md(_with_auto_invoke(token))
         assert "grid-auto-invoke" not in skill.metadata, token
-        assert skill_auto_invoke(skill.metadata) is True, token
-
-
-def test_absent_grid_auto_invoke_reads_on() -> None:
-    skill = parse_skill_md(VALID_MD)
-    assert skill_auto_invoke(skill.metadata) is True
 
 
 def test_garbage_grid_auto_invoke_is_a_strict_error_for_a_file_skill() -> None:
@@ -363,13 +359,12 @@ def test_org_row_drops_a_bad_auto_invoke_flag_instead_of_dying() -> None:
             "name": "org-skill",
             "description": "Ein Org-Skill.",
             "body": "Body",
-            "metadata": {"grid-auto-invoke": "sometimes", "grid-agents": "shallow_researcher"},
+            "metadata": {"grid-auto-invoke": "sometimes", "grid-agents": "researcher"},
         },
         origin="org",
     )
     assert "grid-auto-invoke" not in skill.metadata
-    assert skill.metadata["grid-agents"] == "shallow_researcher"
-    assert skill_auto_invoke(skill.metadata) is True
+    assert skill.metadata["grid-agents"] == "researcher"
 
 
 def test_org_row_keeps_a_falsy_auto_invoke_flag() -> None:
@@ -382,26 +377,26 @@ def test_org_row_keeps_a_falsy_auto_invoke_flag() -> None:
         },
         origin="org",
     )
-    assert skill_auto_invoke(skill.metadata) is False
+    assert skill.metadata["grid-auto-invoke"] == "false"
 
 
 def _with_cards(value: str) -> str:
-    return VALID_MD.replace("  grid-agents: shallow_researcher", f"  grid-cards: {value}")
+    return VALID_MD.replace("  grid-agents: researcher", f"  grid-cards: {value}")
 
 
 def test_grid_cards_accepts_known_card_types() -> None:
-    skill = parse_skill_md(_with_cards("summary, comparison_table"))
-    assert preferred_cards(skill.metadata) == ("summary", "comparison_table")
+    skill = parse_skill_md(_with_cards("legal_basis, comparison_table"))
+    assert preferred_cards(skill.metadata) == ("legal_basis", "comparison_table")
 
 
 def test_grid_cards_deduplicates_and_keeps_author_order() -> None:
-    skill = parse_skill_md(_with_cards("comparison_table,summary,comparison_table"))
-    assert preferred_cards(skill.metadata) == ("comparison_table", "summary")
+    skill = parse_skill_md(_with_cards("comparison_table,legal_basis,comparison_table"))
+    assert preferred_cards(skill.metadata) == ("comparison_table", "legal_basis")
 
 
 def test_unknown_card_type_is_a_strict_error_for_a_file_skill() -> None:
     with pytest.raises(SkillValidationError, match="grid-cards"):
-        parse_skill_md(_with_cards("summary, gibt_es_nicht"))
+        parse_skill_md(_with_cards("legal_basis, gibt_es_nicht"))
 
 
 def test_system_card_type_is_rejected_even_though_it_is_a_real_card() -> None:
@@ -418,11 +413,11 @@ def test_org_row_drops_unknown_card_types_instead_of_dying() -> None:
             "name": "org-skill",
             "description": "Ein Org-Skill.",
             "body": "Body",
-            "metadata": {"grid-cards": "summary, memory_proposal, gibt_es_nicht"},
+            "metadata": {"grid-cards": "legal_basis, memory_proposal, gibt_es_nicht"},
         },
         origin="org",
     )
-    assert skill.metadata["grid-cards"] == "summary"
+    assert skill.metadata["grid-cards"] == "legal_basis"
 
 
 def test_org_row_with_only_unknown_card_types_drops_the_key() -> None:

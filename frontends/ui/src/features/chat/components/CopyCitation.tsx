@@ -20,6 +20,7 @@
 import { type FC, useState } from 'react'
 import { Check, Copy, Quote } from 'lucide-react'
 import { toast } from 'sonner'
+import { AnimatePresence, motion, springSnap } from '@/components/motion'
 import { cn } from '@/lib/utils'
 import { SectionLabel } from '@/components/ui/section-label'
 import { useTranslations } from '@/i18n'
@@ -76,11 +77,23 @@ export const CopySourceCitationButton: FC<{ citation: CitationRef }> = ({ citati
         'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50'
       )}
     >
-      {copied ? (
-        <Check aria-hidden="true" className="size-3" />
-      ) : (
-        <Copy aria-hidden="true" className="size-3" />
-      )}
+      <AnimatePresence mode="popLayout" initial={false}>
+        <motion.span
+          key={copied ? 'check' : 'copy'}
+          initial={{ opacity: 0, scale: 0.6 }}
+          animate={{ opacity: 1, scale: 1 }}
+          exit={{ opacity: 0, scale: 0.6 }}
+          transition={springSnap}
+          className="inline-flex"
+          aria-hidden="true"
+        >
+          {copied ? (
+            <Check aria-hidden="true" className="size-3" />
+          ) : (
+            <Copy aria-hidden="true" className="size-3" />
+          )}
+        </motion.span>
+      </AnimatePresence>
       {copied ? t('answerSources.copied') : t('answerSources.copyCitation')}
     </button>
   )
@@ -92,7 +105,17 @@ export const CopyCitationsMenu: FC<{ citations: CitationRef[] }> = ({ citations 
   const [copied, setCopied] = useState(false)
 
   const handleCopy = async (format: CitationFormat): Promise<void> => {
-    const text = await renderCitations(citations, format, new Date())
+    // Inside the same failure path as the clipboard write: `renderCitations`
+    // lazily imports citation-js, and a chunk that fails to load (offline, a
+    // deploy in between) used to reject UNHANDLED — the menu just closed and
+    // nothing said why nothing was on the clipboard.
+    let text: string
+    try {
+      text = await renderCitations(citations, format, new Date())
+    } catch {
+      toast.error(t('answerSources.copyFailed'))
+      return
+    }
     await copyText(
       text,
       () => {
@@ -110,11 +133,23 @@ export const CopyCitationsMenu: FC<{ citations: CitationRef[] }> = ({ citations 
           type="button"
           className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-xs font-medium text-muted-foreground transition-[color,transform] duration-quick ease-out active:scale-95 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 touch-target motion-reduce:transition-none motion-reduce:active:scale-100"
         >
-          {copied ? (
-            <Check aria-hidden="true" className="size-3" />
-          ) : (
-            <Quote aria-hidden="true" className="size-3" />
-          )}
+          <AnimatePresence mode="popLayout" initial={false}>
+            <motion.span
+              key={copied ? 'check' : 'quote'}
+              initial={{ opacity: 0, scale: 0.6 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.6 }}
+              transition={springSnap}
+              className="inline-flex"
+              aria-hidden="true"
+            >
+              {copied ? (
+                <Check aria-hidden="true" className="size-3" />
+              ) : (
+                <Quote aria-hidden="true" className="size-3" />
+              )}
+            </motion.span>
+          </AnimatePresence>
           {t('answerSources.citeAll')}
         </button>
       </DropdownMenuTrigger>

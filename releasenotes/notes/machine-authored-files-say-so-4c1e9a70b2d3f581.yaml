@@ -1,0 +1,15 @@
+---
+fixes:
+  - >
+    A diagram filed into a project now says, inside the file, that Piloti drew
+    it. The SVG carries the line as the picture's own name, which is what a
+    browser shows on hover and a screen reader reads out, and the PDF carries it
+    in its document properties as well as under the drawing. Until now a filed
+    drawing that left the office arrived indistinguishable from one a person had
+    drawn.
+upgrade:
+  - >
+    Nothing Piloti writes can be filed unmarked any more: the filing service
+    reads the finished file and refuses one that does not say who wrote it.
+    Files already in a project are unchanged; file a drawing again to get a
+    marked copy.

@@ -1,0 +1,7 @@
+---
+fixes:
+  - >
+    Zitate aus einer gezielt aufgeschlagenen Fundstelle bleiben jetzt in der
+    Antwort erhalten. Bisher galt nur, was die Suche geliefert hatte; öffnete
+    Piloti eine Fundstelle direkt, fiel das Zitat darauf bei der Prüfung
+    heraus, und die Antwort stand ohne Beleg da.

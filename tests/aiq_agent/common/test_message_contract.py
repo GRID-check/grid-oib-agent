@@ -160,7 +160,7 @@ class TestContractEnforcementAtTheLLMChokepoint:
         assert type(enforce_chat_request_contract(llm)) is before
 
     def test_enforcement_preserves_isinstance_checks(self, strict_provider_llm):
-        """``intent_classifier`` branches on ``isinstance(llm, BaseChatModel)``."""
+        """``cards.generate`` branches on ``isinstance(llm, BaseChatModel)``."""
         from langchain_core.language_models import BaseChatModel
 
         assert isinstance(strict_provider_llm(), BaseChatModel)

@@ -27,7 +27,7 @@
  *      stay the loudest thing in the column.
  */
 
-import { Sparkles, X } from 'lucide-react'
+import { X } from 'lucide-react'
 
 import { AvatarStack, type AvatarStackPerson } from '@/components/ui/avatar-stack'
 import { Button } from '@/components/ui/button'
@@ -80,7 +80,6 @@ export function HandbackOffer({
 
       <span className="flex items-center gap-1">
         <Button variant="outline" size="sm" className="h-7 gap-1.5 text-xs" onClick={onAccept}>
-          <Sparkles className="size-3.5" aria-hidden />
           {t('mentions.handback.action')}
         </Button>
         <Button

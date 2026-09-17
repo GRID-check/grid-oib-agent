@@ -1,0 +1,39 @@
+---
+features:
+  - >
+    Jede Antwort lässt sich als Word-Dokument herunterladen — mit Frage,
+    Quellenverzeichnis, Prüfkarten und Vertrauenshinweis. Die neue Schaltfläche
+    sitzt neben den Kopieren-Schaltflächen unter der Antwort.
+improvements:
+  - >
+    Kopierte Antworten kommen jetzt formatiert an: Wer eine Antwort in Word,
+    Outlook oder Notion einfügt, erhält echte Tabellen, Überschriften und
+    Hervorhebungen statt roher Markdown-Zeichen. Als Textquelle bleibt das
+    Markdown erhalten.
+  - >
+    Der Chat nutzt die Breite des Fensters besser: Die Gesprächsspalte ist
+    deutlich breiter geworden, und Antworten füllen sie ganz aus, statt als
+    schmale Karte am linken Rand zu stehen. Die Kopfleiste darüber ist kleiner
+    und zurückhaltender gestaltet und wiederholt den Projektnamen nicht mehr —
+    den zeigen die Projektauswahl im Eingabefeld und die Navigation bereits.
+  - >
+    Tabellen in Antworten behalten ihre Spaltenausrichtung (Zahlenspalten
+    stehen rechtsbündig), Checklisten zeigen echte Häkchen statt
+    Aufzählungspunkte, und tief gegliederte Antworten behalten alle
+    Überschriftenebenen.
+fixes:
+  - >
+    Die Schaltflächen an Codeblöcken („Kopieren", „Alle anzeigen") erscheinen
+    jetzt auf Deutsch.
+  - >
+    Zeitstempel an Fehlermeldungen im Chat folgen jetzt der eingestellten
+    Sprache statt der Browser-Region.
+  - >
+    Wer mit einer chinesischen, japanischen oder koreanischen Eingabemethode
+    schreibt, kann Zeichen mit der Eingabetaste bestätigen, ohne dass die
+    Nachricht vorzeitig abgeschickt wird.
+other:
+  - >
+    Die Datenquellen-Auswahl im Eingabefeld ist vorerst ausgeblendet. Piloti
+    zieht automatisch alle verfügbaren Quellen heran; die Herleitung zeigt
+    weiterhin, welche tatsächlich verwendet wurden.

@@ -31,21 +31,44 @@
  * A row with no `detail` is NOT a button. An expander that opens onto nothing
  * teaches the reader the chevrons are decorative, and then they stop clicking
  * the ones that are not.
+ *
+ * SEMANTIC COLOR (the distillation marker — "keep this"). Sage wash (~7%
+ * project green via `SAGE_WASH`), a 2px green left rule, a dark-green eyebrow
+ * and a check glyph: hue + rule position + label/icon, never hue alone. The
+ * wash rides the eyebrow pill only — the rows stay full-ink `text-foreground`
+ * on the shell ground, because a wash behind running text is a fill, not a
+ * marker.
  */
 
 import { useState, type FC } from 'react'
-import { ChevronDown, Highlighter } from 'lucide-react'
+import { ChevronDown, CircleCheck } from 'lucide-react'
 import { Card } from '@/components/ui/card'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
-import { SectionLabel } from '@/components/ui/section-label'
 import { useTranslations } from '@/i18n'
 import { cn } from '@/lib/utils'
 import type { KeyTakeawayData } from '../schematics/types'
+import { CARD_SHELL } from './card-chrome'
 
 interface KeyTakeawaysCardProps {
   title?: string | null
   items: KeyTakeawayData[]
+  /**
+   * Render flat on the answer surface: the envelope's native `takeaways`
+   * field is the answer's own closing block, so it gets the eyebrow and the
+   * staircase but no ground and no frame. The framed default remains for
+   * stored threads whose takeaways arrived as a card.
+   */
+  flat?: boolean
 }
+
+/**
+ * The distillation wash: the project green at 7% in oklch, composited over
+ * whatever surface the register sits on. A whisper of sage behind the block —
+ * an arbitrary `color-mix` rather than `bg-success-subtle` on purpose: the
+ * subtle tint is the full-strength chip ground, far more than the ~5-8% this
+ * marker budgets, and no new token was needed for one wash.
+ */
+const SAGE_WASH = 'bg-[color-mix(in_oklch,var(--source-project)_7%,transparent)]'
 
 /** „01", „02" … — the ordinal in the gutter, so a rank is visible unread. */
 const ordinal = (index: number): string => String(index + 1).padStart(2, '0')
@@ -134,7 +157,7 @@ const TakeawayRow: FC<{ item: KeyTakeawayData; index: number }> = ({ item, index
         />
       </CollapsibleTrigger>
 
-      <CollapsibleContent className="animate-in fade-in-0 duration-base ease-out motion-reduce:animate-none">
+      <CollapsibleContent>
         {/* Indented to the takeaway's own text column and hung off a rule, so
             the detail reads as belonging to the row above rather than as a
             fifth takeaway. */}
@@ -146,7 +169,7 @@ const TakeawayRow: FC<{ item: KeyTakeawayData; index: number }> = ({ item, index
   )
 }
 
-export const KeyTakeawaysCard: FC<KeyTakeawaysCardProps> = ({ title, items }) => {
+export const KeyTakeawaysCard: FC<KeyTakeawaysCardProps> = ({ title, items, flat = false }) => {
   const t = useTranslations('chat')
   // An item with no `text` is skipped rather than rendered empty: every field
   // inside every array item reaches the renderer unvalidated (§0.5.1), and a
@@ -157,9 +180,18 @@ export const KeyTakeawaysCard: FC<KeyTakeawaysCardProps> = ({ title, items }) =>
 
   if (takeaways.length === 0) return null
 
-  return (
-    <Card className="gap-2 p-5 shadow-xs">
-      <SectionLabel icon={Highlighter}>{t('cards.keyTakeaways.eyebrow')}</SectionLabel>
+  const body = (
+    <>
+      {/* Hand-rolled rather than `SectionLabel`, for the same reason CalloutCard
+          names in its own body: this eyebrow carries the distillation ink (dark
+          green) where SectionLabel hard-codes the muted one — and the check
+          glyph is the icon half of the hue + rule + label/icon triple. The
+          sage wash rides this pill alone, never the rows below: the marker
+          marks the block's eyebrow, it never fills behind the running text. */}
+      <span className={cn('card-eyebrow inline-flex w-fit items-center gap-1.5 rounded-sm px-1.5 py-0.5 text-success', SAGE_WASH)}>
+        <CircleCheck className="size-3.5 shrink-0" aria-hidden />
+        {t('cards.keyTakeaways.eyebrow')}
+      </span>
       {title && <p className="card-title text-foreground">{title}</p>}
 
       {/* One continuous hairline down the gutter, and no rules between rows:
@@ -171,6 +203,16 @@ export const KeyTakeawaysCard: FC<KeyTakeawaysCardProps> = ({ title, items }) =>
           </li>
         ))}
       </ol>
-    </Card>
+    </>
   )
+
+  if (flat) {
+    return (
+      <div className="flex flex-col gap-2 border-l-2 border-l-success py-1 pl-4 pr-3">
+        {body}
+      </div>
+    )
+  }
+
+  return <Card className={cn(CARD_SHELL, 'gap-2 border-l-2 border-l-success p-5')}>{body}</Card>
 }

@@ -3,7 +3,7 @@ name: waermeschutz
 description: >
   U-Wert, HWB und Schall. Zuerst ob Neubau oder Bestand.
 metadata:
-  grid-agents: shallow_researcher,deep_researcher
+  grid-agents: researcher,deep_researcher
   grid-cards: thermal_envelope,energy_performance,acoustic_check,requirement_checklist,legal_basis
 ---
 

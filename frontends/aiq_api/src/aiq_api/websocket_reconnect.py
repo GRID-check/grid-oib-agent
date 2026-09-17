@@ -8,6 +8,8 @@ import logging
 import os
 import time
 import uuid
+from datetime import UTC
+from datetime import datetime
 from typing import Any
 from typing import Literal
 
@@ -423,6 +425,91 @@ class GridStageMessage(BaseModel):
         return data
 
 
+#: How often a running turn says it is still running, in seconds.
+#:
+#: Fast enough that a client can conclude something from three of them going
+#: missing, slow enough to be nothing on the wire. It travels ON the frame
+#: (``every_ms``) rather than being a number both tiers hold: a client that
+#: derives its deadline from a constant it keeps in its own source is predicting
+#: the server rather than observing it, and that prediction is exactly what this
+#: frame exists to replace.
+TURN_HEARTBEAT_SECONDS = 20.0
+
+
+class GridTurnHeartbeat(BaseModel):
+    """ "This turn is still running."
+
+    A synchronous turn can be legitimately silent on the socket for a very long
+    time — a single LLM call is allowed ``request_timeout: 600`` in
+    ``configs/config_oib_openrouter.yml``, and a deep-research turn that runs on
+    this socket (no job dispatcher configured) produces nothing on it for the
+    whole of its run. The client had no way to tell that from a backend that had
+    died with the socket still open, so it PREDICTED the server's own ceiling —
+    a copy of ``DEFAULT_MAX_RUN_SECONDS`` in the frontend, with nothing keeping
+    the two in step, and forty minutes of a locked composer whenever a turn
+    really was gone.
+
+    With this frame the client measures liveness instead. Beats arriving means
+    the server still owns the turn and its own deadline applies; beats stopping
+    means the turn is gone, and the client can say so in a minute rather than in
+    forty.
+
+    Grid-owned and ``grid_``-prefixed for the same reason as
+    :class:`GridStageMessage`: NAT resolves a frame's schema through a vendored
+    ``StrEnum`` that cannot gain a member without patching the dependency.
+
+    It is deliberately NOT a status line. It says nothing about what the turn is
+    doing — ``turn_status`` is that channel, and it is rightly silent through the
+    phases where nothing an architect would recognise is happening. This frame is
+    for the machine.
+    """
+
+    type: Literal["grid_turn_heartbeat"] = "grid_turn_heartbeat"
+    v: int = 1
+    conversation_id: str
+    #: The WS ``user_message`` id of the running turn, when there is one — the
+    #: same correlation key every other frame of the turn carries.
+    parent_id: str | None = None
+    #: The cadence the server intends to keep, in milliseconds. The client's
+    #: tolerance is a multiple of THIS, so changing the interval above needs no
+    #: matching change in the frontend.
+    every_ms: int
+    timestamp: str
+
+
+async def _beat_while_running(conversation_id: str | None, parent_id: str | None) -> None:
+    """Send a heartbeat for as long as this coroutine is not cancelled.
+
+    Sleeps FIRST, so a turn that answers in two seconds puts nothing extra on
+    the wire — the frame only has to exist for turns long enough to look dead.
+
+    Every send is guarded. A heartbeat is worth strictly less than the answer it
+    accompanies, and the failure it would most likely hit — no socket, because
+    the reader closed the tab — is not a failure at all. ``_registry.send``
+    returning ``False`` is normal and the loop keeps going: the client may
+    reconnect mid-turn, and it needs the beats that come after it does.
+    """
+    if not conversation_id:
+        return
+    every_ms = int(TURN_HEARTBEAT_SECONDS * 1000)
+    while True:
+        await asyncio.sleep(TURN_HEARTBEAT_SECONDS)
+        try:
+            await _registry.send(
+                conversation_id,
+                GridTurnHeartbeat(
+                    conversation_id=conversation_id,
+                    parent_id=parent_id,
+                    every_ms=every_ms,
+                    timestamp=datetime.now(UTC).isoformat(),
+                ),
+            )
+        except asyncio.CancelledError:
+            raise
+        except Exception:  # pragma: no cover - the turn must not care
+            logger.debug("Turn heartbeat failed for %s", conversation_id, exc_info=True)
+
+
 async def send_stage_frame(conversation_id: str, frame: dict[str, Any]) -> bool:
     """Put one post-answer stage frame on the conversation's socket.
 
@@ -475,10 +562,14 @@ def _chunk_finish_reason(value: Any) -> str | None:
 
 
 # Transparency extras (WP-A) lifted onto the terminal response the same way as
-# answer_confidence / deep_research_job_id. Each is surfaced only when present.
+# answer_confidence. Each is surfaced only when present.
 _TRANSPARENCY_EXTRA_FIELDS = (
     "routing_decision",
-    "routing_reason",
+    # The run this turn commissioned instead of answering itself — ADR-0062 —
+    # and the message that run narrates itself in. The client finds the block
+    # by them; there is no prose to parse any more.
+    "run_id",
+    "run_message_id",
     "escalation_reason",
     "answer_confidence_capped_reason",
     "answer_confidence_reason",
@@ -486,6 +577,15 @@ _TRANSPARENCY_EXTRA_FIELDS = (
     "research_truncated",
     "job_admission_rejected",
     "retry_after_seconds",
+    # Retrieved-but-uncited document identities, with no prose, for the
+    # read-but-uncited disclosure — same lift as ``sources``.
+    "read_sources",
+    # The answer's structured anatomy (verdict / takeaways / callout) — a
+    # native answer field, gated backend-side, rendered as answer typography.
+    "answer_meta",
+    # The backend's own account of this turn's retrieval rounds, for the
+    # Herleitung to read instead of reconstructing.
+    "retrieval_ledger",
 )
 
 # Agent Skills extra (the chat agent records which skills it force-activated
@@ -667,6 +767,65 @@ async def post_internal_conversation_message(
         return False
 
 
+async def post_internal_run_report(
+    *,
+    job_id: str,
+    text: str,
+    metadata: dict[str, Any] | None = None,
+) -> str | None:
+    """Write a finished run's answer INTO the run's own message. Fail-soft.
+
+    Returns the id of the message the report landed in, so the run's ledger can
+    name the same row (``result.reportMessageId``) without deriving it a second
+    time. ``""`` when the BFF accepted the write but named no message (an older
+    build); ``None`` for every reason to fall back, below.
+
+    A run is one message in the thread that commissioned it (ADR-0062): the BFF
+    mints that message when the run is submitted, and this fills it in. Keyed on
+    the BACKEND job id because that is the only id a worker holds — the message
+    id is derived from the ``task_runs`` id, which this service never sees.
+
+    Returns ``None`` for every reason a caller should fall back to writing an
+    ordinary turn instead, and they are not all failures: **404 is the answer for
+    a run that has no message** (an interactive deep-research job has no task row
+    at all; a run submitted before this shipped has no message). The caller's
+    fallback is today's question-and-answer pair, so a deploy in either order
+    still lands the report in front of the reader.
+
+    The write goes over the internal HTTP API with the service token, like every
+    other backend→BFF write: ``grid_app`` is single-writer and Python never
+    touches the database.
+    """
+    base_url = _internal_base_url()
+    headers = _internal_persist_headers()
+    if not base_url or headers is None:
+        logger.warning("Cannot write the run report for job %s: internal API not configured", job_id)
+        return None
+
+    url = f"{base_url.rstrip('/')}/api/internal/runs/by-job/{job_id}/report"
+    payload: dict[str, Any] = {"content": text, "metadata": metadata or {}}
+
+    try:
+        async with httpx.AsyncClient(timeout=_PERSIST_TIMEOUT_SECONDS) as client:
+            response = await client.post(url, json=payload, headers=headers)
+    except Exception:  # noqa: BLE001 — fail-soft by contract; callers must not break
+        logger.warning("Failed to write the run report for job %s", job_id, exc_info=True)
+        return None
+
+    if response.status_code == 404:
+        logger.debug("Job %s has no run message; the thread turn is written the old way", job_id)
+        return None
+    if response.status_code not in (200, 201):
+        logger.warning("Run report for job %s returned HTTP %s", job_id, response.status_code)
+        return None
+    logger.info("Wrote the report into the run message for job %s", job_id)
+    try:
+        message_id = response.json().get("messageId")
+    except Exception:  # noqa: BLE001 — the write happened; a missing id costs only the ledger's link
+        message_id = None
+    return message_id if isinstance(message_id, str) else ""
+
+
 async def persist_assistant_message(
     *,
     conversation_id: str,
@@ -674,12 +833,13 @@ async def persist_assistant_message(
     text: str,
     organization_id: str | None,
     cards: Any = None,
-    deep_research_job_id: Any = None,
     answer_confidence: Any = None,
     answer_confidence_reason: Any = None,
     answer_confidence_capped_reason: Any = None,
     sources: Any = None,
+    read_sources: Any = None,
     skills_activated: Any = None,
+    retrieval_ledger: Any = None,
 ) -> bool:
     """Persist a finished assistant turn to the BFF when the client is gone.
 
@@ -710,8 +870,6 @@ async def persist_assistant_message(
     metadata: dict[str, Any] = {}
     if cards:
         metadata["cards"] = cards
-    if deep_research_job_id:
-        metadata["deep_research_job_id"] = deep_research_job_id
     if answer_confidence:
         metadata["answer_confidence"] = answer_confidence
     if answer_confidence_reason:
@@ -720,8 +878,12 @@ async def persist_assistant_message(
         metadata["answer_confidence_capped_reason"] = answer_confidence_capped_reason
     if sources:
         metadata["sources"] = sources
+    if read_sources:
+        metadata["read_sources"] = read_sources
     if skills_activated:
         metadata["skills_activated"] = skills_activated
+    if retrieval_ledger:
+        metadata["retrieval_ledger"] = retrieval_ledger
 
     # The write itself belongs to the shared producer: base URL, service token,
     # organization precondition, wire shape and the never-raise contract all
@@ -1076,17 +1238,8 @@ class ReconnectableWebSocketMessageHandler(WebSocketMessageHandler):
             if cards is None and isinstance(data_model, BaseModel):
                 cards = data_model.model_extra.get("cards") if data_model.model_extra else None
 
-            # Pull the structured deep-research job id (if this turn dispatched an
-            # async job) so the frontend can open the research panel from a real
-            # field instead of regex-parsing the response prose.
-            deep_research_job_id = getattr(data_model, "deep_research_job_id", None)
-            if deep_research_job_id is None and isinstance(data_model, BaseModel):
-                deep_research_job_id = (
-                    data_model.model_extra.get("deep_research_job_id") if data_model.model_extra else None
-                )
-
             # Pull the model's guarded self-assessed answer confidence (present
-            # only on grounded shallow answers that emitted the marker) so the
+            # only on grounded chat answers that emitted the marker) so the
             # frontend can render the honest self-assessment chip.
             answer_confidence = getattr(data_model, "answer_confidence", None)
             if answer_confidence is None and isinstance(data_model, BaseModel):
@@ -1098,7 +1251,7 @@ class ReconnectableWebSocketMessageHandler(WebSocketMessageHandler):
 
             # Pull the transparency extras (WP-A) the same way (attr or pydantic
             # model_extra). Each rides the terminal-chunk extras lift set by the
-            # chat_researcher register and is surfaced only when present, never
+            # Piloti's conversation_register and is surfaced only when present, never
             # null-spammed. See docs/architecture/backend-deep-dive.md.
             transparency_extras = {
                 name: value
@@ -1138,12 +1291,6 @@ class ReconnectableWebSocketMessageHandler(WebSocketMessageHandler):
                         message.cards = cards
                     except Exception:
                         logger.warning("Could not attach cards to websocket message", exc_info=True)
-                # Attach the structured deep-research job id to the final message.
-                if message_type == WebSocketMessageType.RESPONSE_MESSAGE and deep_research_job_id:
-                    try:
-                        message.deep_research_job_id = deep_research_job_id
-                    except Exception:
-                        logger.warning("Could not attach deep_research_job_id to websocket message", exc_info=True)
                 # Attach the guarded self-assessed answer confidence, if present.
                 if message_type == WebSocketMessageType.RESPONSE_MESSAGE and answer_confidence:
                     try:
@@ -1283,12 +1430,13 @@ class ReconnectableWebSocketMessageHandler(WebSocketMessageHandler):
             content_obj = dump.get("content")
             text = content_obj.get("text") if isinstance(content_obj, dict) else None
             cards = dump.get("cards")
-            deep_research_job_id = dump.get("deep_research_job_id")
             answer_confidence = dump.get("answer_confidence")
             answer_confidence_reason = dump.get("answer_confidence_reason")
             answer_confidence_capped_reason = dump.get("answer_confidence_capped_reason")
             sources = dump.get("sources")
+            read_sources = dump.get("read_sources")
             skills_activated = dump.get("skills_activated")
+            retrieval_ledger = dump.get("retrieval_ledger")
 
             if not (text and text.strip()) and not cards:
                 return
@@ -1299,12 +1447,13 @@ class ReconnectableWebSocketMessageHandler(WebSocketMessageHandler):
                 text=text or "",
                 organization_id=_org_id_from_scope(getattr(self._socket, "scope", {}) or {}),
                 cards=cards,
-                deep_research_job_id=deep_research_job_id,
                 answer_confidence=answer_confidence,
                 answer_confidence_reason=answer_confidence_reason,
                 answer_confidence_capped_reason=answer_confidence_capped_reason,
                 sources=sources,
+                read_sources=read_sources,
                 skills_activated=skills_activated,
+                retrieval_ledger=retrieval_ledger,
             )
         except Exception:  # noqa: BLE001 — never let persistence crash the handler
             logger.warning("Unexpected error while persisting terminal message", exc_info=True)
@@ -1369,6 +1518,14 @@ class ReconnectableWebSocketMessageHandler(WebSocketMessageHandler):
         socket_scope = getattr(getattr(self, "_socket", None), "scope", {})
         current_user = self._authenticated_user or detect_internal_caller(dict(socket_scope.get("headers", [])))
         with user_context(current_user):
+            # Started before the workflow and stopped in the ``finally`` below,
+            # so it covers the phases the answer stream cannot: context loading
+            # before the graph starts, a tool call that takes ten minutes, and
+            # the whole of a deep-research turn that runs on this socket. A
+            # separate task on purpose — the beat has to keep going while the
+            # turn's own coroutine is inside a single long await, which is the
+            # silence the client cannot otherwise tell from a dead backend.
+            heartbeat = asyncio.create_task(_beat_while_running(conversation_id, user_message_id))
             try:
                 auth_callback = self._flow_handler.authenticate if self._flow_handler else None
                 async with self._session_manager.session(
@@ -1511,6 +1668,14 @@ class ReconnectableWebSocketMessageHandler(WebSocketMessageHandler):
                     )
                 except Exception:  # pragma: no cover - socket may already be closed
                     logger.warning("Failed to send workflow error frame", exc_info=True)
+            finally:
+                # The turn is over — by answer, by error, or by the client
+                # disconnecting — and a beat after that would tell the client a
+                # finished turn is still running. Awaited so the cancellation has
+                # actually landed before this frame returns.
+                heartbeat.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await heartbeat
 
 
 def install_reconnectable_handler() -> None:  # TODO: upstream to NAT

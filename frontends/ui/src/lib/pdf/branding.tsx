@@ -34,6 +34,40 @@ import { BRAND_MARK, PDF_PAGE, PDF_THEME, PDF_TYPE } from './theme'
 export interface CoverFact {
   label: string
   value: string
+  /**
+   * Set for a value that is TRANSCRIBED rather than read — a run id, a
+   * reference number. The design language's rule ("monospace for identifiers")
+   * exists because a proportional font makes `l`/`1` and `O`/`0` the reader's
+   * problem at exactly the moment they are copying the thing into a ticket.
+   */
+  mono?: boolean
+}
+
+/**
+ * The branded lines a generated document carries, already resolved and already
+ * in the reader's language.
+ *
+ * Structural on purpose: `lib/documents/branding.ts` owns the WORDS and the
+ * organization override that can change them, and its `DocumentBranding`
+ * satisfies this type without either module importing the other. That keeps the
+ * copy out of the renderer — which is the whole point of that module — without
+ * making a PDF component depend on the database read that resolves it.
+ *
+ * Optional as a whole, never in part. A document either carries branding or it
+ * does not: a browser export of prose the reader has already read is not a file
+ * Piloti filed on somebody's behalf, and stamping it would make the stamp mean
+ * nothing (the same argument `MarkdownPdfOptions.marking` makes for the
+ * marking).
+ */
+export interface DocumentChrome {
+  /** „Erstellt mit Piloti für …" — printed once, at the top of the cover body. */
+  headerLine: string
+  /** Two or three sentences: what this is, who drafted it, who carries it. */
+  prose: string
+  /** One sentence about what the document is not. */
+  disclaimer: string
+  /** The line that repeats at the foot of every page. */
+  footerLine: string
 }
 
 export interface CoverInfo {
@@ -41,6 +75,17 @@ export interface CoverInfo {
   title: string
   /** Project, date, and anything else the source of the document stated. */
   facts: CoverFact[]
+  /** The branding, when this document is one Piloti produced. */
+  chrome?: DocumentChrome
+  /**
+   * The AI marking, when the document is machine-authored.
+   *
+   * Above the facts and below the title band, because a reader who stops after
+   * the cover has still been told what they are holding — and because the facts
+   * are what the document CLAIMS, while this is a statement about how much of
+   * it to trust.
+   */
+  notice?: { title: string; body: string }
 }
 
 const styles = StyleSheet.create({
@@ -86,6 +131,26 @@ const styles = StyleSheet.create({
     paddingTop: 44,
     flexGrow: 1,
   },
+  // The marking. A ruled block rather than a filled one: the cover is already
+  // the loudest page in the document, and a second filled area competes with
+  // the title band instead of being read before the facts.
+  coverNotice: {
+    borderLeftWidth: 3,
+    borderLeftColor: PDF_THEME.ink,
+    paddingLeft: 10,
+    paddingVertical: 2,
+    marginBottom: 28,
+  },
+  coverNoticeTitle: {
+    fontSize: 10,
+    fontWeight: 'bold',
+    marginBottom: 2,
+  },
+  coverNoticeBody: {
+    fontSize: 9,
+    color: PDF_THEME.subtle,
+    lineHeight: 1.45,
+  },
   factRow: {
     flexDirection: 'row',
     borderBottomWidth: 1,
@@ -101,6 +166,39 @@ const styles = StyleSheet.create({
     flexGrow: 1,
     fontSize: PDF_TYPE.body,
     color: PDF_THEME.ink,
+  },
+  factValueMono: {
+    fontFamily: 'Courier',
+    fontSize: PDF_TYPE.body - 1,
+  },
+  // The branding header line. Above the marking and the facts, and set in the
+  // same subtle chrome type as the running header, because it answers the same
+  // question that header answers — what made this, and for whom.
+  coverHeaderLine: {
+    fontSize: PDF_TYPE.chrome,
+    color: PDF_THEME.subtle,
+    marginBottom: 22,
+  },
+  // The prose block. Under the facts rather than over them: the facts say what
+  // the document is ABOUT, and this says what the document IS — which is the
+  // sentence a reader wants last, on their way to deciding whether to forward
+  // it.
+  coverProse: {
+    marginTop: 26,
+    paddingTop: 12,
+    borderTopWidth: 1,
+    borderTopColor: PDF_THEME.hairline,
+  },
+  coverProseText: {
+    fontSize: PDF_TYPE.meta,
+    color: PDF_THEME.subtle,
+    lineHeight: 1.45,
+  },
+  coverDisclaimer: {
+    fontSize: PDF_TYPE.meta,
+    color: PDF_THEME.subtle,
+    lineHeight: 1.45,
+    marginTop: 6,
   },
   coverFooter: {
     position: 'absolute',
@@ -223,9 +321,13 @@ export const RunningHeader: React.FC<{ title: string }> = ({ title }) => (
  * dictionary and therefore cannot be the one English string in a German
  * document.
  */
-export const PageFooter: React.FC = () => (
+export const PageFooter: React.FC<{ line?: string }> = ({ line }) => (
   <View style={styles.footer} fixed>
     <BrandLockup size={8} color={PDF_THEME.subtle} />
+    {/* Between the mark and the numeral, because that is where a reader's eye
+        is not: the two ends of a footer are the two things they look for, and
+        „Entwurf, nicht freigegeben" is the thing they should meet on the way. */}
+    {line ? <Text style={styles.footerText}>{line}</Text> : null}
     <Text
       style={styles.pageNumber}
       render={({ pageNumber, totalPages }) => `${pageNumber} / ${totalPages}`}
@@ -254,12 +356,27 @@ export const CoverContent: React.FC<{ cover: CoverInfo }> = ({ cover }) => (
     </View>
 
     <View style={styles.coverBody}>
+      {cover.chrome ? <Text style={styles.coverHeaderLine}>{cover.chrome.headerLine}</Text> : null}
+      {cover.notice ? (
+        <View style={styles.coverNotice} wrap={false}>
+          <Text style={styles.coverNoticeTitle}>{cover.notice.title}</Text>
+          <Text style={styles.coverNoticeBody}>{cover.notice.body}</Text>
+        </View>
+      ) : null}
       {cover.facts.map((fact, index) => (
         <View key={index} style={styles.factRow}>
           <Text style={styles.factLabel}>{fact.label}</Text>
-          <Text style={styles.factValue}>{fact.value}</Text>
+          <Text style={[styles.factValue, ...(fact.mono ? [styles.factValueMono] : [])]}>
+            {fact.value}
+          </Text>
         </View>
       ))}
+      {cover.chrome ? (
+        <View style={styles.coverProse} wrap={false}>
+          <Text style={styles.coverProseText}>{cover.chrome.prose}</Text>
+          <Text style={styles.coverDisclaimer}>{cover.chrome.disclaimer}</Text>
+        </View>
+      ) : null}
     </View>
 
     {/* The glyph once more at the foot of the cover, with the accent rule

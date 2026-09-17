@@ -1,15 +1,7 @@
-/** Navigation shell: sidebar, topbar, user menu, and the History page. */
+/** Navigation shell: sidebar, org header, and the user menu. */
 export const nav = {
   projectNavigation: 'Project navigation',
   projectSections: 'Project sections',
-  /** The same rail, in org scope — above any single project. */
-  orgNavigation: 'Organization navigation',
-  orgSections: 'Organization sections',
-  /**
-   * Fallback for the org rail's back control, used only when the tab has no
-   * return trail to name the project the reader actually came from.
-   */
-  backToProjects: 'Back to projects',
   allProjects: 'Piloti — all projects',
   collapseSidebar: 'Collapse sidebar',
   expandSidebar: 'Expand sidebar',
@@ -29,36 +21,25 @@ export const nav = {
     files: 'Files',
     knowledge: 'Knowledge',
     research: 'Research',
+    /** Automation — Tasks and Skills as tabs inside one section. */
+    automation: 'Automation',
     skills: 'Skills',
     jobs: 'Jobs',
+    /** The tab that leads: work delegated to Piloti, one card per task (ADR-0051). */
+    tasks: 'Tasks',
     archiv: 'Archiv',
-    history: 'History',
     settings: 'Settings',
     // The intake wizard, labelled "Setup" in the product (⌘K palette only).
     intake: 'Setup',
   },
-  /** Org-scope group headings. Deliberately NOT shared with `sectionGroups`:
-   * the same word must not head two different sets of destinations. */
-  orgSectionGroups: {
-    work: 'Organization-wide',
-    account: 'Administration',
-  },
-  scope: {
-    /** Stated inside the org region, so the scope survives grayscale. */
-    orgEyebrow: 'Organization-wide — not this project',
-  },
   sectionGroups: {
     work: 'Work',
-    automate: 'Automate',
     org: 'Organization',
-    /** Org-scope rail: the organization, platform and account destinations. */
-    account: 'Administration',
   },
   sectionSubtitles: {
     files: 'Documents that ground Piloti’s answers in this project.',
-    history: 'Every conversation and deep-research run in this project.',
-    skills: 'Reusable instructions the organization writes once.',
-    jobs: 'Prompts this project runs on a timer.',
+    automation:
+      'What Piloti did while you were away, what it will do next, and the skills it does it with.',
     knowledge: 'What the knowledge base currently contains.',
     settings: 'Project profile, members, memory, and danger zone.',
     intake: 'Guided briefing for this project.',
@@ -101,50 +82,13 @@ export const nav = {
     viewAllProjects: 'View all projects',
     newProject: 'New project',
   },
-  orgTopbar: {
-    organization: 'Organization',
-  },
   userMenu: {
     label: 'User menu for {name}',
     defaultUser: 'Default User',
     authNotConfigured: 'Authentication not configured',
     profile: 'Profile',
-    archiv: 'Archiv',
     organization: 'Organization',
     platform: 'Platform',
     settings: 'Settings',
-  },
-  /** The project History page: conversations + research runs (FB-10). */
-  history: {
-    subtitle: 'Every conversation and deep-research run in this project.',
-    conversationsHeading: 'Conversations',
-    researchHeading: 'Deep research',
-    filterAll: 'All',
-    filterAria: 'Filter history by type',
-    typeConversation: 'Conversation',
-    tagFilterLabel: 'Topics:',
-    tagFilterAria: 'Filter conversations by topic',
-    tagFilterClear: 'Clear',
-    tags: {
-      brandschutz: 'Fire safety',
-      schallschutz: 'Sound insulation',
-      barrierefreiheit: 'Accessibility',
-      energie: 'Energy & thermal',
-      statik: 'Structural',
-      hygiene: 'Hygiene & environment',
-      nutzungssicherheit: 'Safety in use',
-      allgemein: 'General',
-    },
-    searchPlaceholder: 'Search history…',
-    searchAria: 'Search conversations by title',
-    untitledConversation: 'Untitled conversation',
-    openConversation: 'Open conversation "{title}" in chat',
-    emptyTitle: 'No conversations yet',
-    emptyDescription: 'Ask Piloti a question in chat — every conversation shows up here.',
-    emptyAction: 'Open chat',
-    noMatchesTitle: 'No matching conversations',
-    noMatchesDescription: 'Try a different search term.',
-    errorTitle: 'Conversations could not be loaded',
-    tryAgain: 'Try again',
   },
 }

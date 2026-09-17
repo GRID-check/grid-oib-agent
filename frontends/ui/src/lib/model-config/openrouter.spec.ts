@@ -45,7 +45,7 @@ const CATALOG: OpenRouterModel[] = [
 
 describe('validateModelForGroup', () => {
   const deepResearch = getAgentGroup('deep_research')!
-  const intent = getAgentGroup('intent')!
+  const followUps = getAgentGroup('follow_ups')!
 
   it('accepts a capable model for deep research', () => {
     expect(validateModelForGroup(model({}), deepResearch)).toEqual({ ok: true, reasons: [] })
@@ -64,13 +64,13 @@ describe('validateModelForGroup', () => {
   })
 
   it('rejects a model that cannot take text input', () => {
-    const result = validateModelForGroup(model({ inputModalities: ['image'] }), intent)
+    const result = validateModelForGroup(model({ inputModalities: ['image'] }), followUps)
     expect(result.ok).toBe(false)
     expect(result.reasons.join(' ')).toContain('text input')
   })
 
   it('small-context model is still fine for low-context groups', () => {
-    expect(validateModelForGroup(model({ contextLength: 32768 }), intent).ok).toBe(true)
+    expect(validateModelForGroup(model({ contextLength: 32768 }), followUps).ok).toBe(true)
   })
 
   it('ingest_vlm accepts a vision model and rejects a text-only one', () => {
@@ -89,42 +89,42 @@ describe('validateModelForGroup', () => {
   })
 })
 
-describe('reasoning-off enforcement (intent group runs reasoning_effort:none)', () => {
-  const intent = getAgentGroup('intent')!
+describe('reasoning-off enforcement (follow_ups group runs reasoning_effort:none)', () => {
+  const followUps = getAgentGroup('follow_ups')!
   const shallow = getAgentGroup('shallow_research')!
   const REASON = 'Modell erfordert Reasoning — für diese Aufgabe ist Reasoning deaktiviert'
 
-  it('non-reasoning model passes for the reasoning-off intent group', () => {
+  it('non-reasoning model passes for the reasoning-off follow_ups group', () => {
     const nonReasoning = model({ id: 'vendor/plain', supportedParameters: ['tools', 'temperature'] })
-    expect(validateModelForGroup(nonReasoning, intent).ok).toBe(true)
+    expect(validateModelForGroup(nonReasoning, followUps).ok).toBe(true)
   })
 
-  it('reasoning-mandatory family (denylisted, e.g. x-ai/grok-4) fails for intent but passes for shallow_research', () => {
+  it('reasoning-mandatory family (denylisted, e.g. x-ai/grok-4) fails for follow_ups but passes for shallow_research', () => {
     const grok = model({
       id: 'x-ai/grok-4.5',
       supportedParameters: ['tools', 'temperature', 'reasoning'],
     })
-    const forIntent = validateModelForGroup(grok, intent)
-    expect(forIntent.ok).toBe(false)
-    expect(forIntent.reasons).toContain(REASON)
+    const forFollowUps = validateModelForGroup(grok, followUps)
+    expect(forFollowUps.ok).toBe(false)
+    expect(forFollowUps.reasons).toContain(REASON)
 
     // shallow_research does not disable reasoning, so the same model is fine.
     expect(validateModelForGroup(grok, shallow).ok).toBe(true)
   })
 
-  it('OpenAI o-series (denylisted prefix) fails for the reasoning-off intent group', () => {
+  it('OpenAI o-series (denylisted prefix) fails for the reasoning-off follow_ups group', () => {
     const o3 = model({ id: 'openai/o3-mini', supportedParameters: ['tools', 'reasoning'] })
-    expect(validateModelForGroup(o3, intent).ok).toBe(false)
+    expect(validateModelForGroup(o3, followUps).ok).toBe(false)
   })
 
-  it('hybrid reasoning model (declares reasoning, not denylisted) now PASSES for intent', () => {
+  it('hybrid reasoning model (declares reasoning, not denylisted) now PASSES for follow_ups', () => {
     // The common modern case: the model advertises reasoning but accepts
-    // reasoning-off. We fail open, so it is selectable for the intent group.
+    // reasoning-off. We fail open, so it is selectable for the follow_ups group.
     const hybrid = model({
       id: 'anthropic/claude-sonnet-4.5',
       supportedParameters: ['tools', 'temperature', 'reasoning'],
     })
-    expect(validateModelForGroup(hybrid, intent).ok).toBe(true)
+    expect(validateModelForGroup(hybrid, followUps).ok).toBe(true)
   })
 
   it('deepseek chat (hybrid) passes, deepseek-r1 (reasoning-only, denylisted) fails', () => {
@@ -132,15 +132,15 @@ describe('reasoning-off enforcement (intent group runs reasoning_effort:none)', 
       id: 'deepseek/deepseek-v4-flash',
       supportedParameters: ['tools', 'temperature', 'reasoning'],
     })
-    expect(validateModelForGroup(chat, intent).ok).toBe(true)
+    expect(validateModelForGroup(chat, followUps).ok).toBe(true)
 
     const r1 = model({ id: 'deepseek/deepseek-r1', supportedParameters: ['tools', 'reasoning'] })
-    expect(validateModelForGroup(r1, intent).ok).toBe(false)
+    expect(validateModelForGroup(r1, followUps).ok).toBe(false)
   })
 
   it('a model that merely declares include_reasoning still passes (hybrid, not denylisted)', () => {
     const m = model({ id: 'vendor/reasoner', supportedParameters: ['tools', 'include_reasoning'] })
-    expect(validateModelForGroup(m, intent).ok).toBe(true)
+    expect(validateModelForGroup(m, followUps).ok).toBe(true)
   })
 })
 
@@ -154,9 +154,9 @@ describe('searchModelsForGroup', () => {
   })
 
   it('applies the text query', () => {
-    // 'no-tools' passes intent (no tool requirement, big context) but the
+    // 'no-tools' passes follow_ups (no tool requirement, big context) but the
     // query narrows the passing set to it alone.
-    expect(searchModelsForGroup(CATALOG, 'intent', 'no-tools').map((m) => m.id)).toEqual(['vendor/no-tools'])
+    expect(searchModelsForGroup(CATALOG, 'follow_ups', 'no-tools').map((m) => m.id)).toEqual(['vendor/no-tools'])
   })
 
   it('returns nothing for an unknown group', () => {
@@ -174,20 +174,20 @@ describe('validateOverrides', () => {
   it('rejects unknown groups, unknown models, and capability mismatches', () => {
     const result = validateOverrides(CATALOG, {
       bogus_group: 'vendor/full-model',
-      intent: 'vendor/not-in-catalog',
+      follow_ups: 'vendor/not-in-catalog',
       shallow_research: 'vendor/no-tools',
     })
     expect(result.ok).toBe(false)
     expect(result.errors.bogus_group).toContain('unknown agent group')
-    expect(result.errors.intent).toContain('not found')
+    expect(result.errors.follow_ups).toContain('not found')
     expect(result.errors.shallow_research).toContain('tools')
   })
 
-  it('rejects a reasoning-mandatory model for the reasoning-off intent group (save-path 422)', () => {
-    const result = validateOverrides(CATALOG, { intent: 'x-ai/grok-4.5' })
+  it('rejects a reasoning-mandatory model for the reasoning-off follow_ups group (save-path 422)', () => {
+    const result = validateOverrides(CATALOG, { follow_ups: 'x-ai/grok-4.5' })
     expect(result.ok).toBe(false)
-    expect(result.errors.intent).toContain('Reasoning deaktiviert')
-    expect(result.snapshot.intent).toBeUndefined()
+    expect(result.errors.follow_ups).toContain('Reasoning deaktiviert')
+    expect(result.snapshot.follow_ups).toBeUndefined()
   })
 
   it('accepts the same reasoning model for a group that keeps reasoning on', () => {

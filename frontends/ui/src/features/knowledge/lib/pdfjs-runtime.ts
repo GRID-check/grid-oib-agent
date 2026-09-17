@@ -20,6 +20,7 @@
  */
 
 import type * as PdfjsModule from 'pdfjs-dist'
+import type { PDFPageProxy } from 'pdfjs-dist'
 
 export type Pdfjs = typeof PdfjsModule
 
@@ -68,3 +69,56 @@ export const documentParameters = (url: string) => ({
   cMapPacked: true,
   standardFontDataUrl: `${ASSET_BASE}standard_fonts/`,
 })
+
+/**
+ * A rendered text layer, reduced to what the viewer still has to do to it.
+ *
+ * Handing back a handle rather than the pdf.js object keeps the component free
+ * of the runtime's types and gives the fake in `@/test-utils/pdfjs-fake` one
+ * small shape to stand in for.
+ */
+export interface TextLayerHandle {
+  /** Stop an in-flight render and empty the container. */
+  destroy: () => void
+}
+
+/**
+ * Lay the page's own text over its bitmap, as transparent, positioned runs.
+ *
+ * This is what makes a rendered page BEHAVE like a document: select a sentence,
+ * copy it into a mail to the Sachverständige, let the browser's own find pick it
+ * up. A canvas alone is a picture of a page — everything the reader tries to do
+ * with the text silently does nothing, which in a product whose whole promise is
+ * "check this yourself" is the wrong answer at exactly the moment they took us
+ * up on it.
+ *
+ * The viewport is deliberately taken at scale 1: every run pdf.js emits is
+ * positioned as a PERCENTAGE of the page box and sized from `--font-height`
+ * times `--total-scale-factor`, so the DOM it builds is scale-free and the
+ * viewer re-zooms it by writing one CSS variable rather than by re-reading the
+ * page. The only scale-sensitive part is the per-run horizontal stretch, and
+ * that is a ratio of two measurements at the same size, so it is scale-free too.
+ */
+export const renderTextLayer = async (
+  page: PDFPageProxy,
+  container: HTMLElement,
+): Promise<TextLayerHandle> => {
+  const pdfjs = await loadPdfjs()
+  const layer = new pdfjs.TextLayer({
+    textContentSource: page.streamTextContent(),
+    container,
+    viewport: page.getViewport({ scale: 1 }),
+  })
+  // Deliberately not awaited. The handle has to exist while the runs are still
+  // streaming in, or a page the reader scrolls straight past cannot be
+  // cancelled — the caller would hold nothing to cancel WITH until the render it
+  // no longer wants had finished. A cancelled render rejects; that is the
+  // teardown path, not a failure.
+  void layer.render().catch(() => {})
+  return {
+    destroy: () => {
+      layer.cancel()
+      container.replaceChildren()
+    },
+  }
+}

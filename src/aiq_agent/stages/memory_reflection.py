@@ -1,7 +1,7 @@
 """Memory reflection, declared as a post-answer stage.
 
 This is the migration of the bespoke block that used to sit inline in
-``chat_researcher/register.py`` (schedule + gate) and in
+``agents/piloti/conversation_register.py`` (schedule + gate) and in
 ``project_memory/reflection.schedule_memory_reflection`` (semaphore, pending cap,
 cost/profile tracking). **What it does is unchanged** — the same predicate, the
 same prompt, the same writes through the same token-guarded endpoint. What
@@ -44,7 +44,7 @@ from aiq_agent.stages.spec import TurnFacts
 logger = logging.getLogger(__name__)
 
 #: Canned error/empty answers that must never be reflected on. Moved verbatim
-#: from ``chat_researcher/register.py``.
+#: from the chat workflow's register.
 REFLECTION_NON_ANSWERS = (
     "No response generated.",
     "An error occurred",
@@ -52,9 +52,37 @@ REFLECTION_NON_ANSWERS = (
     "I searched the available sources but couldn't retrieve anything usable",
 )
 
-#: Intents with nothing durable to record: reflecting on them only risks
+#: Phrases that make the tail of an answer an insufficiency statement rather
+#: than a finding. Only the reflection gate reads them: escalation itself
+#: requires Piloti's explicit structured ask, because a substring match
+#: on German legal hedging false-positived on successful answers.
+_INSUFFICIENCY_PHRASES = (
+    "i don't have enough information",
+    "unable to find",
+    "need more research",
+    "keine ausreichenden informationen",
+    "nicht genügend informationen",
+    "konnte keine informationen",
+    "keine informationen gefunden",
+    "nicht finden",
+    "weitere recherche erforderlich",
+    "genauere prüfung erforderlich",
+)
+
+#: How much of the answer's tail is examined for them.
+_INSUFFICIENCY_TAIL_CHARS = 800
+
+
+def matches_escalation_keywords(content: str) -> bool:
+    """Whether the tail of an answer reads as an insufficiency statement."""
+    tail = content[-_INSUFFICIENCY_TAIL_CHARS:].lower()
+    return any(phrase in tail for phrase in _INSUFFICIENCY_PHRASES)
+
+
+#: Paths with nothing durable to record: a direct reply (greeting, shelf
+#: listing, off-topic decline) or an error. Reflecting on them only risks
 #: spurious writes.
-_SKIP_INTENTS = {"meta", "error", "out_of_scope"}
+_SKIP_ROUTES = {"meta", "error"}
 
 #: A generous bound, not a tuning knob. Reflection is one structured-output call
 #: over a turn that is already sliced to ~6k characters of prompt; 45s covers a
@@ -99,12 +127,10 @@ def _gate(facts: TurnFacts) -> GateDecision:
     opinion about its own answer. Each failed condition names itself, so the
     gate's own correctness is measurable rather than assumed.
     """
-    from aiq_agent.agents.chat_researcher.agent import matches_escalation_keywords
-
-    if facts.deep_research_job_id:
-        # The chat turn is only a stub; the report path reflects on the worker
-        # once the report exists.
-        return GateDecision.skip("deep_research_job")
+    if facts.run_id:
+        # The turn only commissioned the work; the run reflects on its own
+        # report, on the worker, once that report exists.
+        return GateDecision.skip("commissioned_run")
     if not facts.project_id:
         # The autonomous stage writes project-scoped memory ONLY (audit S1), so
         # an org-only conversation has nothing it may safely write.
@@ -121,16 +147,30 @@ def _gate(facts: TurnFacts) -> GateDecision:
         return GateDecision.skip("canned_non_answer")
     if matches_escalation_keywords(text):
         return GateDecision.skip("escalation")
-    if facts.intent in _SKIP_INTENTS:
-        return GateDecision.skip(f"intent_{facts.intent}")
+    if facts.routing_decision in _SKIP_ROUTES:
+        return GateDecision.skip(f"routing_{facts.routing_decision}")
     return GateDecision.proceed()
+
+
+def digest_with_turn_writes(memory_digest: str | None, written: tuple[str, ...]) -> str | None:
+    """The digest the agent saw, plus what the ``remember`` tool wrote after it.
+
+    Rendered in the digest's own line grammar, so the reflection prompt shows
+    them as existing memory and the "already in the digest" filter drops a
+    finding that restates one — the tool and the stage no longer write the
+    same fact twice within one turn.
+    """
+    if not written:
+        return memory_digest
+    lines = [f'- [this turn | recorded] "{content.replace(chr(34), chr(39))}"' for content in written]
+    return "\n".join(([memory_digest.rstrip()] if memory_digest else []) + lines)
 
 
 async def _handler(ctx: StageContext) -> dict[str, Any] | None:
     """One reflection pass. ``None`` when the turn established nothing durable —
     the common, correct outcome, recorded as ``empty`` rather than invented into
     a payload."""
-    from aiq_agent.agents.project_memory.reflection import run_memory_reflection
+    from aiq_agent.memory.reflection import run_memory_reflection
 
     facts = ctx.facts
     recorded = await run_memory_reflection(
@@ -140,7 +180,7 @@ async def _handler(ctx: StageContext) -> dict[str, Any] | None:
         project_id=facts.project_id,
         organization_id=facts.organization_id,
         conversation_id=facts.conversation_id,
-        memory_digest=facts.memory_digest,
+        memory_digest=digest_with_turn_writes(facts.memory_digest, facts.remembered_this_turn),
     )
     if not recorded:
         # `None` is `empty` — the common, correct outcome for a turn that

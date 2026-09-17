@@ -11,9 +11,15 @@ Cost source of truth is OpenRouter's usage accounting: every chat completion
 response carries a ``usage`` object including ``cost`` (USD),
 ``prompt_tokens_details.cached_tokens`` and
 ``completion_tokens_details.reasoning_tokens``; for streaming it arrives on
-the final SSE chunk. langchain-openai surfaces that object verbatim as
-``llm_output["token_usage"]``. The response/generation id is recorded so any
-row can be reconciled against ``GET /api/v1/generation?id=`` after the fact.
+the final SSE chunk (no request flag asks for it — OpenRouter's
+``usage: {include: true}`` is deprecated and always-on). langchain-openai
+surfaces that object verbatim as ``llm_output["token_usage"]`` — on the
+**chat-completions** path only. A role on ``api_type: responses`` gets a
+``ChatResult`` with no ``llm_output`` and a ``response_metadata`` that omits
+``usage``, so only LangChain's normalized ``usage_metadata`` survives: token
+counts including the cache-read bucket, and no ``cost``. Those rows carry
+``costSource: missing``, which is the honest reading, and are reconciled
+against ``GET /api/v1/generation?id=`` by the recorded generation id.
 
 Events are written to the auditable ``llm_usage_events`` ledger via the
 token-guarded internal BFF endpoint ``POST /api/internal/usage`` — the
@@ -36,6 +42,7 @@ import logging
 import os
 import urllib.error
 import urllib.request
+from concurrent.futures import Future
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 from contextvars import ContextVar
@@ -75,15 +82,22 @@ class BudgetExceededError(RuntimeError):
 
 @dataclass
 class BudgetSnapshot:
-    """Remaining budget (USD) for every scope that applies to this request.
+    """Remaining budget for every scope that applies to this request.
 
-    ``None`` means "no limit configured for that scope". Computed by the BFF
-    from the ledger + active budget policies at the WS upgrade / job submit.
+    Two families, one per billing unit (ADR-0053): USD of platform-billed cost
+    for an organization the platform bills, tokens for one on its own provider
+    key. ``None`` means "no limit configured for that scope and unit". Computed
+    by the BFF from the rollup + active budget policies at the WS upgrade /
+    job submit. The tracker meters both cost and tokens off the same usage
+    object, so it needs no pricing knowledge to enforce either.
     """
 
     remaining_org_usd: float | None = None
     remaining_user_usd: float | None = None
     remaining_project_usd: float | None = None
+    remaining_org_tokens: float | None = None
+    remaining_user_tokens: float | None = None
+    remaining_project_tokens: float | None = None
 
     @classmethod
     def from_header(cls, raw: str | None) -> BudgetSnapshot | None:
@@ -106,23 +120,35 @@ class BudgetSnapshot:
             remaining_org_usd=_num("remainingOrgUsd"),
             remaining_user_usd=_num("remainingUserUsd"),
             remaining_project_usd=_num("remainingProjectUsd"),
+            remaining_org_tokens=_num("remainingOrgTokens"),
+            remaining_user_tokens=_num("remainingUserTokens"),
+            remaining_project_tokens=_num("remainingProjectTokens"),
         )
 
-    def exhausted_scope(self, pending_cost_usd: float) -> str | None:
-        """The first scope whose remaining budget is used up, if any."""
-        for scope, remaining in (
-            ("organization", self.remaining_org_usd),
-            ("member", self.remaining_user_usd),
-            ("project", self.remaining_project_usd),
+    def exhausted_scope(self, pending_cost_usd: float, pending_tokens: int = 0) -> str | None:
+        """The first scope whose remaining budget is used up, in either unit."""
+        for scope, remaining_usd, remaining_tokens in (
+            ("organization", self.remaining_org_usd, self.remaining_org_tokens),
+            ("member", self.remaining_user_usd, self.remaining_user_tokens),
+            ("project", self.remaining_project_usd, self.remaining_project_tokens),
         ):
-            if remaining is not None and pending_cost_usd >= remaining:
+            if remaining_usd is not None and pending_cost_usd >= remaining_usd:
+                return scope
+            if remaining_tokens is not None and pending_tokens >= remaining_tokens:
                 return scope
         return None
 
 
+#: ``role`` for the calls that are not chat completions and therefore never
+#: reach the LangChain callback path. The reranker is the first: one
+#: frontier-model call per ``knowledge_search``, on the answer's critical path,
+#: which until now appeared on no ledger at all (ledger row 25).
+USAGE_ROLE_RERANK = "rerank"
+
+
 @dataclass
 class UsageEvent:
-    """One LLM generation, as recorded in the ``llm_usage_events`` ledger."""
+    """One model call, as recorded in the ``llm_usage_events`` ledger."""
 
     model: str | None
     requested_model: str | None
@@ -133,8 +159,12 @@ class UsageEvent:
     cached_tokens: int
     reasoning_tokens: int
     cost_usd: float
-    cost_source: str  # 'usage_field' | 'missing'
+    cost_source: str  # 'usage_field' | 'estimate' | 'missing'
     is_byok: bool | None
+    #: What the call was FOR, for the events that are not a chat completion by
+    #: an agent. ``None`` for those, which is every event the callback path
+    #: produces: their role is the agent group the turn already carries.
+    role: str | None = None
 
     def to_payload(self) -> dict[str, Any]:
         return {
@@ -149,6 +179,14 @@ class UsageEvent:
             "costUsd": self.cost_usd,
             "costSource": self.cost_source,
             "isByok": self.is_byok,
+            # `role` is deliberately NOT on the wire. The internal endpoint
+            # declares its fields (`app/api/internal/usage/route.ts`) and
+            # `test_payload_shape_matches_internal_endpoint` is the ratchet
+            # that keeps this dict equal to them; a key the route does not
+            # declare is dropped by zod, so sending it would buy nothing and
+            # cost the guarantee. The ledger's reserved `agent_group` column is
+            # where a role belongs, and wiring it is a BFF change: until then a
+            # rerank row is told apart by its `model`.
         }
 
 
@@ -157,6 +195,33 @@ def _as_int(value: Any) -> int:
         return int(value)
     except (TypeError, ValueError):
         return 0
+
+
+def _usage_from_langchain_metadata(usage_metadata: Any) -> dict[str, Any]:
+    """LangChain's normalized ``usage_metadata``, reshaped as a provider usage object.
+
+    The ONLY usage a Responses-API call carries. ``_construct_lc_result_from_responses_api``
+    returns a ``ChatResult`` with no ``llm_output`` at all and a
+    ``response_metadata`` that excludes ``usage``, so the provider object —
+    with ``cost`` and ``cache_discount`` on it — never reaches this process on
+    that path; what survives is this normalized view, in which OpenRouter's
+    ``input_tokens_details.cached_tokens`` has become ``input_token_details.cache_read``.
+    Reading only the three scalars, as this did before, is what silently
+    zeroed ``cachedTokens`` on every row written by an ``api_type: responses``
+    role. The cost stays absent and is reported as ``missing`` rather than
+    invented.
+    """
+    if not usage_metadata:
+        return {}
+    input_details = usage_metadata.get("input_token_details") or {}
+    output_details = usage_metadata.get("output_token_details") or {}
+    return {
+        "prompt_tokens": usage_metadata.get("input_tokens", 0),
+        "completion_tokens": usage_metadata.get("output_tokens", 0),
+        "total_tokens": usage_metadata.get("total_tokens", 0),
+        "prompt_tokens_details": {"cached_tokens": input_details.get("cache_read", 0)},
+        "completion_tokens_details": {"reasoning_tokens": output_details.get("reasoning", 0)},
+    }
 
 
 def extract_usage_event(response: Any) -> UsageEvent | None:
@@ -185,13 +250,7 @@ def extract_usage_event(response: Any) -> UsageEvent | None:
             usage = response_metadata.get("token_usage") or {}
         # usage_metadata is LangChain's normalized fallback (no cost field).
         if not usage:
-            usage_metadata = getattr(message, "usage_metadata", None) or {}
-            if usage_metadata:
-                usage = {
-                    "prompt_tokens": usage_metadata.get("input_tokens", 0),
-                    "completion_tokens": usage_metadata.get("output_tokens", 0),
-                    "total_tokens": usage_metadata.get("total_tokens", 0),
-                }
+            usage = _usage_from_langchain_metadata(getattr(message, "usage_metadata", None))
 
     if not usage:
         return None
@@ -248,6 +307,11 @@ class GridCostTracker(BaseCallbackHandler):
         self._pending: list[UsageEvent] = []
         self._events_recorded = 0
         self._turn_cost_usd = 0.0
+        #: Provenance tally per ``UsageEvent.cost_source``. The per-event split
+        #: stays in ``llm_usage_events``; this exists so the turn's rollup can
+        #: say whether its dollar number was reported, estimated, or a mix,
+        #: rather than re-inferring provenance from a positive cost.
+        self._cost_sources: dict[str, int] = {}
         # Token totals alongside the cost total. The ledger keeps the per-call
         # detail; these exist so an in-process caller that wraps a bounded piece
         # of work — a post-answer stage — can put what it spent on its own
@@ -255,6 +319,11 @@ class GridCostTracker(BaseCallbackHandler):
         # stage dimension.
         self._prompt_tokens = 0
         self._completion_tokens = 0
+        #: Prompt tokens the provider served from its cache. Summarised once at
+        #: the end of the turn — the per-call numbers are in the ledger, but
+        #: "did this turn's prefix stay cached across its iterations" is a
+        #: question about the turn, and nothing else answers it in the log.
+        self._cached_tokens = 0
         # Requested model per LLM run: deep research fires concurrent LLM
         # calls (possibly on different models), so a single shared slot would
         # attribute one call's usage to whichever model started last. Keyed by
@@ -268,15 +337,18 @@ class GridCostTracker(BaseCallbackHandler):
     def _check_budget(self) -> None:
         if self.budget is None:
             return
-        scope = self.budget.exhausted_scope(self._turn_cost_usd)
+        turn_tokens = self._prompt_tokens + self._completion_tokens
+        scope = self.budget.exhausted_scope(self._turn_cost_usd, turn_tokens)
         if scope is not None:
             logger.warning(
-                "Budget exhausted (scope=%s, org=%s, user=%s, project=%s, turn_cost=%.6f USD) — refusing LLM call",
+                "Budget exhausted (scope=%s, org=%s, user=%s, project=%s, turn_cost=%.6f USD, turn_tokens=%d)"
+                " — refusing LLM call",
                 scope,
                 self.organization_id,
                 self.user_id,
                 self.project_id,
                 self._turn_cost_usd,
+                turn_tokens,
             )
             raise BudgetExceededError(scope)
 
@@ -312,12 +384,26 @@ class GridCostTracker(BaseCallbackHandler):
         if event is None:
             return
         event.requested_model = requested or self._requested_model
+        self.record(event)
+
+    def record(self, event: UsageEvent) -> None:
+        """Put one event on the turn's ledger batch and its running totals.
+
+        The callback path reaches this through :meth:`on_llm_end`; a bespoke
+        call site that is not a chat completion — the cross-encoder reranker —
+        reaches it through :func:`record_usage_event`. One accumulator either
+        way, so a turn's cost is the whole turn's cost and the budget gate sees
+        every unit it is supposed to bound.
+        """
         with self._lock:
             self._pending.append(event)
             self._events_recorded += 1
             self._turn_cost_usd += event.cost_usd
             self._prompt_tokens += event.prompt_tokens
             self._completion_tokens += event.completion_tokens
+            self._cached_tokens += event.cached_tokens
+            source = event.cost_source
+            self._cost_sources[source] = self._cost_sources.get(source, 0) + 1
             should_flush = len(self._pending) >= _FLUSH_BATCH_SIZE
         if should_flush:
             self.flush(wait=False)
@@ -349,16 +435,65 @@ class GridCostTracker(BaseCallbackHandler):
         """Completion tokens (reasoning included) across every call tracked."""
         return self._completion_tokens
 
-    def flush(self, *, wait: bool) -> None:
+    @property
+    def cached_tokens(self) -> int:
+        """Prompt tokens read from the provider's prompt cache across this scope."""
+        return self._cached_tokens
+
+    def log_prompt_cache_summary(self) -> None:
+        """One INFO line per turn: how much of the input the provider had cached.
+
+        Counts only — no prompt text, no identity beyond the org already on
+        every other line of this module (ADR-0045). A turn that reports 0 cached
+        of a large input is the symptom indexed in
+        ``docs/contributing/gotchas.md``: the prefix is being re-read in full on
+        every iteration.
+        """
+        with self._lock:
+            prompt_tokens = self._prompt_tokens
+            cached = self._cached_tokens
+            calls = self._events_recorded
+        if prompt_tokens <= 0:
+            return
+        share = 100.0 * cached / prompt_tokens
+        logger.info(
+            "[PromptCache] %d call(s): %d/%d input tokens served from cache (%.1f%%), %d uncached",
+            calls,
+            cached,
+            prompt_tokens,
+            share,
+            prompt_tokens - cached,
+        )
+
+    @property
+    def cost_source(self) -> str | None:
+        """The turn's aggregated provenance: ``usage_field``, ``estimate``, ``mixed``, or ``None``.
+
+        ``mixed`` when the events disagree — a turn that mixes a provider
+        cost with an estimate must not claim either alone. ``None`` when
+        nothing was recorded, which the caller reads as "infer it yourself"
+        rather than as a fabricated provenance.
+        """
+        with self._lock:
+            sources = {source for source, count in self._cost_sources.items() if count}
+        if not sources:
+            return None
+        if len(sources) == 1:
+            return next(iter(sources))
+        return "mixed"
+
+    def flush(self, *, wait: bool) -> Future[None] | None:
         """Send pending events to the internal ledger endpoint.
 
-        ``wait=False`` hands the batch to the background worker (answer path);
-        ``wait=True`` posts inline (end of turn / job teardown).
+        ``wait=False`` hands the batch to the background worker (answer path)
+        and returns its future, so a caller that wants the post to have landed
+        can await it later; ``wait=True`` posts inline (end of turn / job
+        teardown) and returns ``None``. Nothing pending returns ``None``.
         """
         with self._lock:
             batch, self._pending = self._pending, []
         if not batch:
-            return
+            return None
         payload = {
             "organizationId": self.organization_id,
             "userId": self.user_id,
@@ -369,8 +504,8 @@ class GridCostTracker(BaseCallbackHandler):
         }
         if wait:
             _post_usage_events(payload)
-        else:
-            _flush_executor.submit(_post_usage_events, payload)
+            return None
+        return _flush_executor.submit(_post_usage_events, payload)
 
 
 def _post_usage_events(payload: dict[str, Any]) -> None:
@@ -418,6 +553,62 @@ except Exception:  # pragma: no cover - defensive against langchain-core API dri
     _CONFIGURE_HOOK_INSTALLED = False
 
 
+def record_usage_event(
+    *,
+    model: str | None,
+    role: str,
+    prompt_tokens: int,
+    completion_tokens: int = 0,
+    total_tokens: int | None = None,
+    cost_usd: float = 0.0,
+    cost_source: str = "estimate",
+    is_byok: bool | None = None,
+) -> bool:
+    """Record a model call that does NOT go through LangChain. ``True`` if it landed.
+
+    The tracker is installed for every chat completion by a hook on LangChain's
+    callback manager, which is exactly why the calls that are not chat
+    completions were free: the cross-encoder rerank is one frontier-model call
+    per ``knowledge_search``, made with `httpx` against a `/rerank` endpoint,
+    and it appeared on no ledger, in no budget, and under no org's own key
+    (ledger row 25).
+
+    Attribution is the ambient tracker's: organization, user, project and
+    conversation are the turn's, resolved once by :func:`track_llm_costs`. A
+    call made outside a turn (an ingest thread, a CLI run) has no tracker and
+    is not recorded — the same answer the callback path gives, and the reason
+    this returns a bool instead of raising.
+
+    ``cost_source`` defaults to ``estimate`` on purpose: a rerank endpoint that
+    reports no usage still costs money, and a row that says "estimate" is
+    honest about which number it is, where a zero would read as free.
+    """
+    tracker = grid_cost_tracker_var.get()
+    if tracker is None:
+        return False
+    try:
+        tracker.record(
+            UsageEvent(
+                model=model,
+                requested_model=model,
+                generation_id=None,
+                prompt_tokens=max(0, prompt_tokens),
+                completion_tokens=max(0, completion_tokens),
+                total_tokens=max(0, total_tokens if total_tokens is not None else prompt_tokens + completion_tokens),
+                cached_tokens=0,
+                reasoning_tokens=0,
+                cost_usd=max(0.0, cost_usd),
+                cost_source=cost_source,
+                is_byok=is_byok,
+                role=role,
+            )
+        )
+    except Exception:  # noqa: BLE001 - accounting must never take a search down
+        logger.warning("Could not record a %s usage event", role, exc_info=True)
+        return False
+    return True
+
+
 def _read_identity_from_context() -> dict[str, str | None]:
     from aiq_agent.project_context import _read_header
     from aiq_agent.project_context import get_conversation_id_from_context
@@ -459,12 +650,19 @@ def track_llm_costs(
     job_id: str | None = None,
     identity: dict[str, str | None] | None = None,
     budget: BudgetSnapshot | None = None,
+    inline_flush: bool = True,
 ):
     """Activate cost tracking for the enclosed request/turn.
 
     Identity and budget default to the live request headers. Yields the
     tracker (also for tests); pending events are flushed on exit. Never lets
     tracking setup/teardown failures break the answer path.
+
+    ``inline_flush=False`` leaves the final batch pending for the caller to
+    post once the answer is on the wire (``profiler.flush_after_answer``);
+    the chat turn uses it so the ledger POST no longer sits on the event loop
+    between the finished answer and its first delta. Every other caller keeps
+    the inline post, which is what a worker about to exit needs.
     """
     tracker: GridCostTracker | None = None
     token = None
@@ -490,6 +688,8 @@ def track_llm_costs(
         if token is not None:
             grid_cost_tracker_var.reset(token)
         if tracker is not None:
+            tracker.log_prompt_cache_summary()
+        if tracker is not None and inline_flush:
             try:
                 # Inline post at teardown: a wait=False flush would hand the
                 # final batch to the daemon executor, which a worker exiting

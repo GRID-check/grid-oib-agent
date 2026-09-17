@@ -13,10 +13,17 @@ const PILOTI: DraftMention = { targetId: AGENT_MENTION_ID, display: 'Piloti' }
 const line = () => screen.getByTestId('composer-addressee')
 
 describe('AddresseeIndicator — the composer says where the message goes', () => {
-  test('defaults to the agent, so "Piloti is next" is never an inference', () => {
+  test('says nothing in the default case — silence is what makes the rest legible', () => {
     render(<AddresseeIndicator mentions={[]} awaitingHuman={false} />)
-    expect(line()).toHaveTextContent('Goes to Piloti')
+    // The routing is unchanged and still reported as `agent`; what went is the
+    // sentence about it. A statement made on every thread forever is furniture,
+    // and it sat under a composer that has none left.
     expect(line()).toHaveAttribute('data-mode', 'agent')
+    // Nothing at all here: this render passes no `onMentionSomeone`, so not even
+    // the `@` offer is on the line (a solo thread grows no furniture, NF-8).
+    expect(line()).toBeEmptyDOMElement()
+    // Nothing to announce, so nothing announces itself.
+    expect(screen.queryByRole('status')).not.toBeInTheDocument()
   })
 
   test('names the tagged person, with their avatar', () => {
@@ -39,8 +46,11 @@ describe('AddresseeIndicator — the composer says where the message goes', () =
 
   test('an explicit @Piloti overrides the wait — that is the documented way back', () => {
     render(<AddresseeIndicator mentions={[PILOTI]} awaitingHuman />)
-    expect(line()).toHaveTextContent('Goes to Piloti')
+    // The routing still changes out of `thread`, which is the load-bearing part
+    // (MN-9.3). It simply no longer says so: the user typed the mention, so the
+    // line would be reading their own keystroke back to them.
     expect(line()).toHaveAttribute('data-mode', 'agent')
+    expect(line()).not.toHaveTextContent('everyone in the chat')
   })
 
   test('tagging a person AND the agent names both, because both are addressed (MN-1)', () => {

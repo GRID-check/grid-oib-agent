@@ -20,6 +20,7 @@ EXPECTED = {
     ("oib", "hygiene"),
     ("oib", "nutzungssicherheit"),
     ("oib", "waermeschutz"),
+    ("presentation", "diagrams"),
     ("research", "data-table-analysis"),
     ("research", "forecast-analysis"),
     ("research", "lightweight-calculation"),
@@ -87,7 +88,7 @@ def test_builtin_frontmatter_declares_only_its_audience() -> None:
     # is worth nothing if the chat agent cannot carry it — which is where the
     # questions it is about get asked.
     spatial = by_name["ifc-spatial-reasoning"]
-    assert "shallow_researcher" in spatial.metadata["grid-agents"]
+    assert "researcher" in spatial.metadata["grid-agents"]
 
     # Job playbooks are offers: on the Skills tab, chat-usable files start ON.
     # Genre methods stay machinery so a fire question still auto-loads.

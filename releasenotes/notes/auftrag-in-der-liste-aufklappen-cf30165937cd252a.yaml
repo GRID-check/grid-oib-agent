@@ -1,0 +1,8 @@
+---
+features:
+  - >
+    In der Aufträge-Liste öffnet ein Klick auf eine Zeile jetzt den Lauf
+    selbst: dieselben Runden, Quellen und Fundstellen wie im Verlauf, statt
+    einer zweiten Beschreibung derselben Zeile. Darunter steht weiterhin das
+    Ergebnis — und daneben neu der Weg in den Verlauf, wo ein laufender
+    Auftrag verfolgt und eine Rückfrage beantwortet wird.

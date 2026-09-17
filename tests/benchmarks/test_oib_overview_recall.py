@@ -1,0 +1,366 @@
+"""Golden file-level recall for broad OIB queries (backlog item 12).
+
+The ratchet items 13/14 are measured against: ~30 German golden questions in
+three cohorts (overview / exact-id / paraphrase), scored as recall@16
+(k = production top_k) + MRR against a deterministic in-memory fixture corpus.
+Offline, no network, no Chroma, no embedder, no PDF, no key — seconds in CI.
+
+BASELINE (recorded 2026-09-03):
+
+| cohort     | recall@16 | mrr   | empty | vector@16 |
+|------------|-----------|-------|-------|-----------|
+| overview   | 0.150     | 0.200 | 0.80  | 0.933     |
+| exact-id   | 0.700     | 0.367 | 0.20  | 1.000     |
+| paraphrase | 1.000     | 0.553 | 0.00  | 1.000     |
+
+The first three columns are the DETERMINISTIC channels; "empty" is the share of
+queries where neither fired. ``vector@16`` is the recorded vector channel alone.
+
+Read the two sides together or the table lies. Eight of the ten overview
+queries reach no deterministic channel, which reads as a broken cohort and is
+not one: the vector channel answers them, and answered them all along. The
+deterministic columns describe the two channels that barely participate here.
+
+That gap is why this file asserts a CEILING on overview ``recall@16`` and why
+``test_the_oib_n_questions_must_not_share_one_ranking`` exists. The harness
+module docstring records what it cost to learn.
+
+A lift on the deterministic side is therefore a claim, not a pass. It has to
+beat 0.933, and it has to answer six sibling questions differently.
+
+Import fallback as in the sibling benchmark tests: the suite is importable via
+``pip install -e frontends/benchmarks/oib_retrieval``, otherwise the src tree
+is prepended here so a fresh checkout runs without the editable install.
+``aiq_agent`` resolves via ``PYTHONPATH=src`` (set by ``Taskfile.yml`` — never
+invoke pytest here without it, or the assertions below validate whatever the
+venv installed instead of this worktree).
+"""
+
+import json
+import sys
+import time
+from pathlib import Path
+
+import pytest
+
+try:
+    from oib_retrieval_eval import overview
+except ImportError:
+    _SRC = Path(__file__).resolve().parents[2] / "frontends" / "benchmarks" / "oib_retrieval" / "src"
+    sys.path.insert(0, str(_SRC))
+    from oib_retrieval_eval import overview
+
+FIXTURES = Path(__file__).resolve().parents[2] / "frontends" / "benchmarks" / "oib_retrieval" / "fixtures"
+GOLDEN_PATH = FIXTURES / "oib_golden_overview.json"
+PUNKT_INDEX_PATH = FIXTURES / "punkt_index.json"
+
+#: The HEAD baseline the thresholds below are derived from. Re-record (code +
+#: table + module docstring) whenever a retrieval change moves the harness.
+BASELINE = {
+    "overview": {"recall": 0.150, "mrr": 0.200, "empty": 0.80},
+    "exact-id": {"recall": 0.700, "mrr": 0.367, "empty": 0.20},
+    "paraphrase": {"recall": 1.000, "mrr": 0.553, "empty": 0.00},
+}
+
+
+@pytest.fixture(scope="module")
+def entries() -> list[overview.GoldenEntry]:
+    return overview.load_golden(GOLDEN_PATH, known_files=frozenset(overview.FIXTURE_TEXTS))
+
+
+@pytest.fixture(scope="module")
+def docs() -> list[overview.FixtureDoc]:
+    return overview.fixture_docs()
+
+
+@pytest.fixture(scope="module")
+def index(docs):
+    return overview.build_index(docs)
+
+
+@pytest.fixture(scope="module")
+def report(entries) -> overview.Report:
+    started = time.perf_counter()
+    result = overview.run(entries)
+    result_elapsed = time.perf_counter() - started
+    # Printed so the CI log (and any failure below) carries the numbers, not
+    # just the verdict. pytest shows captured stdout for failed tests.
+    print("\n" + overview.format_report(result))
+    print(f"\n(harness ran {len(result.results)} queries in {result_elapsed:.1f}s)")
+    assert result_elapsed < 60, f"harness budget is 60s, took {result_elapsed:.1f}s"
+    return result
+
+
+def _cohort(report: overview.Report, label: str) -> overview.CohortScores:
+    return next(scores for scores in report.cohorts if scores.label == label)
+
+
+def _diff(report: overview.Report) -> str:
+    """The readable per-query diff every threshold failure reports."""
+    return "\n" + overview.format_report(report)
+
+
+# ---------------------------------------------------------------------------
+# The golden set's own invariants
+# ---------------------------------------------------------------------------
+
+
+def test_the_golden_set_has_thirty_entries_ten_per_cohort(entries):
+    by_cohort: dict[str, int] = {}
+    for entry in entries:
+        by_cohort[entry.cohort] = by_cohort.get(entry.cohort, 0) + 1
+    assert len(entries) == 30
+    # Exact counts, not ranges: adding a query is a deliberate instrument change
+    # (re-derive the baseline, update BASELINE above). A silent +/-1 that still
+    # passes ">= 8" would move every cohort mean without anyone noticing.
+    assert by_cohort == {"overview": 10, "exact-id": 10, "paraphrase": 10}
+
+
+def test_every_expected_file_is_a_real_oib_corpus_name(entries):
+    from aiq_agent.common.norm_registry import oib_doc_class
+
+    fixture_files = set(overview.FIXTURE_TEXTS)
+    assert len(fixture_files) == 39, "fixture must cover all 39 data/oib files"
+    for entry in entries:
+        for name in entry.expected:
+            assert name in fixture_files, entry.id
+            # Production's own filename classifier: a mistyped or invented name
+            # classifies as None (unknown), a genuine OIB-corpus name does not.
+            assert oib_doc_class(name) is not None, f"{entry.id}: {name!r} is not an OIB-corpus name"
+
+
+def test_the_normative_expected_files_resolve_against_the_punkt_index(entries):
+    """The 12 normative PDFs are the committed Punkt index's file set."""
+    payload = json.loads(PUNKT_INDEX_PATH.read_text(encoding="utf-8"))
+    indexed_files = {
+        punkt["file_name"] for rl, punkte in payload.items() if rl != "_unresolved" for punkt in punkte.values()
+    }
+    assert len(indexed_files) == 12
+    normative = {
+        name
+        for entry in entries
+        for name in entry.expected
+        if name.startswith("oib-rl_") and "begriff" not in name and "zitierte" not in name
+    }
+    assert normative, "the golden set must exercise the normative Richtlinien"
+    assert normative <= indexed_files, normative - indexed_files
+
+
+def test_no_expected_file_is_production_excluded(entries):
+    excluded = overview.production_excluded()
+    assert len(excluded) == 16, "production exclusion list changed shape — re-derive the baseline"
+    for entry in entries:
+        assert not (set(entry.expected) & excluded), entry.id
+
+
+def test_the_loader_rejects_a_duplicate_id(tmp_path):
+    payload = json.loads(GOLDEN_PATH.read_text(encoding="utf-8"))
+    payload["entries"].append(dict(payload["entries"][0]))
+    path = tmp_path / "dupe.json"
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    with pytest.raises(ValueError, match="duplicate"):
+        overview.load_golden(path)
+
+
+def test_the_loader_rejects_an_unknown_cohort_and_an_unknown_file(tmp_path):
+    payload = json.loads(GOLDEN_PATH.read_text(encoding="utf-8"))
+    payload["entries"][0]["cohort"] = "vibes"
+    path = tmp_path / "cohort.json"
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    with pytest.raises(ValueError, match="cohort"):
+        overview.load_golden(path)
+
+    payload["entries"][0]["cohort"] = "overview"
+    payload["entries"][0]["expected_files"] = ["oib-rl_99_ausgabe_mai_2023.pdf"]
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    with pytest.raises(ValueError, match="not in the fixture corpus"):
+        overview.load_golden(path, known_files=frozenset(overview.FIXTURE_TEXTS))
+
+
+def test_the_loader_rejects_an_expected_file_production_filters_out(tmp_path):
+    payload = json.loads(GOLDEN_PATH.read_text(encoding="utf-8"))
+    payload["entries"][0]["expected_files"] = ["aenderungen_oib-rl_2_ausgabe_mai_2023.pdf"]
+    path = tmp_path / "excluded.json"
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    with pytest.raises(ValueError, match="exclude_file_names"):
+        overview.load_golden(
+            path, known_files=frozenset(overview.FIXTURE_TEXTS) | {"aenderungen_oib-rl_2_ausgabe_mai_2023.pdf"}
+        )
+
+
+# ---------------------------------------------------------------------------
+# The item-11 mechanism, pinned at HEAD behaviour
+# ---------------------------------------------------------------------------
+
+
+def test_the_broad_overview_query_reaches_neither_deterministic_channel(index):
+    """The item-11 cause, still uncured: no deterministic channel serves
+    "was weißt du über die oib 2".
+
+    Both halves die for the SAME reason at two different layers — the token
+    that carries the intent is corpus-identity vocabulary. The sparse
+    survivors die at ``german_text``'s DF ceiling; the exact term ``OIB`` that
+    casefolding extracts (pinned in
+    ``tests/aiq_agent/common/test_legal_terms.py::TestCaseInsensitiveIdentifiers``)
+    dies at the same ceiling in ``hybrid.selective_terms``, because on this
+    corpus it filters nothing.
+
+    This is the query class a real fix has to serve. Until one lands, both
+    asserts hold, and a change that flips either without also lifting
+    ``ov-rl2`` above has moved a number rather than the retrieval.
+    """
+    assert overview.sparse_terms_for(index, "was weißt du über die oib 2") == []
+    assert (
+        overview.exact_files_for(overview.exact_terms_for("was weißt du über die oib 2"), overview.fixture_docs()) == []
+    )
+
+
+def test_the_precise_rewrite_of_the_same_intent_fires(index):
+    """The asymmetry item 11 describes: the retry wins because uppercase and
+    full-spelling terms exist — the broad turn has neither."""
+    assert overview.exact_terms_for("OIB-Richtlinie 2") == ["OIB-Richtlinie 2"]
+    assert overview.exact_terms_for("OIB-RL 2") == ["OIB-RL"]
+    assert overview.sparse_terms_for(index, "Brandschutz im Wohnhaus") != []
+
+
+# ---------------------------------------------------------------------------
+# The baseline gate: cohort floors/ceilings items 13/14 must beat
+# ---------------------------------------------------------------------------
+
+
+def test_the_cutoff_is_production_top_k(report):
+    assert report.k == 16, (
+        f"cutoff is {report.k}, not 16: production retuned top_k, so every threshold below "
+        "was derived at the wrong depth — re-derive BASELINE" + _diff(report)
+    )
+
+
+def test_overview_cohort_is_still_the_unsolved_cohort(report):
+    """The overview cohort is a CEILING, not a floor, and that is the point.
+
+    It is the open problem (item 11): 8 of 10 queries reach no deterministic
+    channel. A change that lifts these numbers has done something real and
+    this test goes red on purpose — raise it to a floor and re-record
+    BASELINE. A change that lifts them by widening a channel until it matches
+    most of the corpus has done nothing, and the ceiling is what catches that:
+    the near-no-op scores here precisely because recall alone cannot tell the
+    two apart, so the assert direction has to."""
+    scores = _cohort(report, "overview")
+    assert scores.recall <= 0.20, _diff(report)
+    assert scores.empty_share >= 0.70, _diff(report)
+
+
+def test_the_exemplar_overview_query_still_does_not_retrieve(report):
+    """The item-11 exemplar ("was weißt du über die oib 2") ranks nothing here.
+
+    It reads worse than it is. The vector channel retrieves this question at
+    0.83; what ranks nothing is the pair of deterministic channels. The one
+    release where this assert said 1.00 instead is the artefact the harness
+    module docstring records."""
+    by_id = {result.entry.id: result for result in report.results}
+    assert by_id["ov-rl2"].recall == 0.0, _diff(report)
+    assert by_id["ov-rl2"].ranked == ()
+
+
+def test_exact_id_cohort_recall_has_a_floor(report):
+    """Uppercase designations and §-refs with content nouns retrieve; literal
+    filenames (no deterministic channel serves them) and the bare short-form
+    §-ref honestly score 0 — the 0.70 mean encodes both."""
+    scores = _cohort(report, "exact-id")
+    assert scores.recall >= 0.60, _diff(report)
+    assert scores.mrr >= 0.30, _diff(report)
+    by_id = {result.entry.id: result for result in report.results}
+    assert by_id["ex-filename-rl2"].recall == 0.0, _diff(report)
+    assert by_id["ex-rl2"].recall == 1.0, _diff(report)
+
+
+def test_paraphrase_cohort_recall_has_a_floor(report):
+    """Everyday wordings carry content nouns, so the sparse channel serves all
+    ten — this floor guards the tuning work against regressions that trade
+    paraphrase recall for overview recall."""
+    scores = _cohort(report, "paraphrase")
+    assert scores.recall >= 0.90, _diff(report)
+    assert scores.mrr >= 0.45, _diff(report)
+
+
+# ---------------------------------------------------------------------------
+# The vector channel: recorded, and the reason the numbers above are not the
+# product's retrieval quality.
+# ---------------------------------------------------------------------------
+
+
+def test_the_vector_channel_is_recorded(report):
+    """The recording must exist, and must be of the model production runs.
+
+    Without it this harness scores two of three channels and the cohort table
+    reads as retrieval quality when it is not. A deleted or stale fixture
+    fails here rather than quietly removing the only channel that answers the
+    overview cohort."""
+    recorded = overview.load_recorded_vector()
+    assert recorded, "vector fixture missing — re-record with `task be:eval:record-vector`"
+    assert recorded["model"] == "openai/text-embedding-3-large", (
+        f"recorded with {recorded['model']!r}, which is not the deployed embedding model "
+        "(deploy/compose/docker-compose.coolify.yaml) — re-record"
+    )
+    assert len(recorded["rankings"]) == len(report.results)
+    assert recorded["corpus_fingerprint"]
+
+
+def test_the_vector_channel_is_what_answers_the_overview_cohort(report):
+    """The fact that reframes every number above it.
+
+    The vector channel answers the broad cohort the deterministic ones cannot
+    touch, measured with the production embedder over the real corpus. So a
+    change that moves `recall` here moves the weak channels, and calling that a
+    retrieval win means beating what the product already does without them.
+
+    Both bounds are asserted. A dropped vector floor is a real regression and
+    shows here first. A risen deterministic ceiling wants
+    `test_the_oib_n_questions_must_not_share_one_ranking` read before it is
+    believed."""
+    scores = _cohort(report, "overview")
+    assert scores.vector_recall >= 0.85, _diff(report)
+    assert scores.recall <= 0.20, _diff(report)
+    assert _cohort(report, "all").vector_recall >= 0.90, _diff(report)
+
+
+def test_the_oib_n_questions_must_not_share_one_ranking(report):
+    """Six questions naming six guidelines are six retrievals, so six rankings.
+
+    When they share ONE, whatever produced it returned the corpus instead of
+    searching it, and the cohort recall is only where each question's labels
+    fell in that fixed list. Recall cannot see the difference. This can, and
+    the harness module docstring records the release that needed it.
+
+    Vacuous today on the deterministic side, since those channels rank nothing
+    here. It goes live the moment one of them fires, which is exactly when it
+    is needed."""
+    siblings = [r for r in report.results if r.entry.id.startswith("ov-rl")]
+    assert len(siblings) >= 5, "the sibling set is what makes this test work"
+
+    ranked = [r.ranked for r in siblings if r.ranked]
+    if len(ranked) > 1:
+        assert len(set(ranked)) > 1, (
+            "every 'oib N' question produced the SAME deterministic ranking — the channel "
+            "returned the corpus rather than searching it" + _diff(report)
+        )
+
+    vector = [r.vector_ranked for r in siblings if r.vector_ranked]
+    assert len(set(vector)) == len(vector), (
+        "the vector channel returned identical rankings for different guidelines" + _diff(report)
+    )
+
+
+def test_overview_is_the_weakest_cohort(report):
+    """Ordering, not absolute values: whichever retrieval change lands next,
+    the broad cohort must not silently overtake the precise ones (that would
+    mean the labels stopped discriminating, not that retrieval got better)."""
+    recalls = {scores.label: scores.recall for scores in report.cohorts if scores.label != "all"}
+    assert recalls["overview"] < recalls["exact-id"], _diff(report)
+    assert recalls["overview"] < recalls["paraphrase"], _diff(report)
+
+
+def test_rankings_are_deterministic(entries):
+    first = [result.ranked for result in overview.run(entries).results]
+    second = [result.ranked for result in overview.run(entries).results]
+    assert first == second

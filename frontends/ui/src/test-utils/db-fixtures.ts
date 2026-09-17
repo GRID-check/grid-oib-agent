@@ -60,10 +60,17 @@ export const makeMemoryItem = (
   provenanceType: 'agent',
   sourceConversationId: null,
   supersedesId: null,
+  conflictsWithId: null,
   salience: 0.5,
   pinned: false,
   createdBy: null,
   lastReferencedAt: null,
+  // Recall bookkeeping and the semantic vector (migration 0069). Unembedded by
+  // default so a fixture exercises the lexical fallback unless a test opts in.
+  recallCount: 0,
+  embedding: null,
+  embeddingModel: null,
+  embeddedAt: null,
   createdAt: new Date('2026-07-01T00:00:00Z'),
   updatedAt: new Date('2026-07-01T00:00:00Z'),
   ...overrides,
@@ -80,6 +87,15 @@ export const makeDocument = (overrides: Partial<Document> = {}): Document => ({
   // ordinary project document.
   conversationId: null,
   createdBy: 'user-1',
+  // A person uploaded it, which is what every row means until a commissioned run
+  // writes one. `documents_authorship_requires_provenance` ties the other two to
+  // that choice, so an override that makes this anything but `user` has to set
+  // both of them or the fixture describes a row the database would reject
+  // (migration 0063).
+  authoredBy: 'user',
+  authoredByProducer: null,
+  authoredByRef: null,
+  authoredByRefKind: null,
   filename: 'plan.pdf',
   // Not renamed — what every document is until somebody renames it.
   displayName: null,
@@ -91,8 +107,16 @@ export const makeDocument = (overrides: Partial<Document> = {}): Document => ({
   collectionName: 'proj_abc',
   fileSize: 1024,
   contentType: 'application/pdf',
+  // Null is the honest default: only a folder upload records where a file came
+  // from, and the fixture is a single picked file.
+  originPath: null,
+  contentHash: null,
   status: 'completed',
-  deletedAt: null,
+  // Nothing published, and `active`, which is what a row written before
+  // migration 0082 means and what the backfill then gives it. A test that cares
+  // about the lifecycle sets both explicitly.
+  publishedVersionId: null,
+  lifecycle: 'active',
   createdAt: new Date('2026-01-01T00:00:00Z'),
   updatedAt: new Date('2026-01-02T00:00:00Z'),
   errorMessage: null,

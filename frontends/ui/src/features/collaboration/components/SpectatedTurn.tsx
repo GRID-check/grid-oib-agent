@@ -28,7 +28,6 @@
 
 import type { FC } from 'react'
 import type { PluggableList } from 'unified'
-import { Sparkles } from 'lucide-react'
 import { ChatThinking } from '@/features/chat/components/ChatThinking'
 import { MarkdownRenderer } from '@/shared/components/MarkdownRenderer'
 import { remarkCardMarkers } from '@/features/grid-cards/card-markers'
@@ -67,14 +66,13 @@ export const SpectatedTurn: FC<SpectatedTurnProps> = ({ turn, label, className }
       aria-live="off"
     >
       <div className="flex items-center gap-2">
-        <Sparkles className="text-muted-foreground size-3.5 shrink-0" aria-hidden="true" />
         <span
           className={cn(
             'text-foreground text-xs font-medium',
             // The shimmer says "still working". It stops the moment the terminal
             // frame lands, so the last second before the persisted answer swaps in
             // does not look like a stall.
-            !turn.done && 'animate-text-shimmer'
+            !turn.done && 'animate-text-shimmer motion-reduce:animate-none'
           )}
         >
           {label}
@@ -111,7 +109,7 @@ export const SpectatedTurn: FC<SpectatedTurnProps> = ({ turn, label, className }
           than as a finished — and oddly truncated — answer. */}
           {!turn.done && (
             <span
-              className="bg-foreground/70 ml-0.5 inline-block h-3.5 w-[2px] animate-pulse align-text-bottom"
+              className="bg-foreground/70 ml-0.5 inline-block h-3.5 w-[2px] animate-pulse align-text-bottom motion-reduce:animate-none"
               aria-hidden="true"
             />
           )}

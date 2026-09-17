@@ -10,9 +10,12 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
+from sources.knowledge_layer.src.llamaindex.hybrid import DEFAULT_DF_CEILING_MIN_TOTAL
+from sources.knowledge_layer.src.llamaindex.hybrid import DEFAULT_DF_CEILING_RATIO
 from sources.knowledge_layer.src.llamaindex.hybrid import RRF_K
 from sources.knowledge_layer.src.llamaindex.hybrid import fuse_with_ranks
 from sources.knowledge_layer.src.llamaindex.hybrid import reciprocal_rank_fusion
+from sources.knowledge_layer.src.llamaindex.hybrid import selective_terms
 
 
 def _chunk(chunk_id: str) -> SimpleNamespace:
@@ -119,3 +122,64 @@ def test_rrf_chunk_without_id_is_skipped() -> None:
     vector = [plain]
     fused = reciprocal_rank_fusion([vector])
     assert fused == []
+
+
+# ---------------------------------------------------------------------------
+# The document-frequency ceiling on the exact (`$contains`) channel.
+#
+# A `$contains` pass is a FILTER over the dense ranking, so a term on nearly
+# every chunk hands the vector channel back and RRF counts that same ranking
+# twice. `test_a_ubiquitous_term_is_an_echo_of_the_dense_channel` below is the
+# arithmetic that makes it a correctness rule rather than a tidiness one.
+# ---------------------------------------------------------------------------
+
+
+def test_a_selective_term_survives_the_ceiling() -> None:
+    assert selective_terms({"§ 3": 12}, 776) == ["§ 3"]
+
+
+def test_a_ubiquitous_term_is_dropped() -> None:
+    # Measured on this corpus: "OIB" is on 92.3% of pages and 39 of 39 documents.
+    assert selective_terms({"OIB": 730}, 776) == []
+
+
+def test_a_term_that_matches_nothing_is_dropped_before_it_costs_a_round_trip() -> None:
+    assert selective_terms({"DIE": 0}, 776) == []
+
+
+def test_the_ceiling_is_not_applied_to_a_collection_too_small_to_have_one() -> None:
+    # In a six-chunk project collection every real term looks ubiquitous.
+    assert selective_terms({"Fluchtweg": 5}, 6) == ["Fluchtweg"]
+
+
+def test_selective_terms_keeps_input_order_and_drops_only_the_noise() -> None:
+    assert selective_terms({"OIB": 730, "§ 3": 12, "ÖNORM": 40}, 776) == ["§ 3", "ÖNORM"]
+
+
+def test_the_ceiling_shares_german_texts_constants() -> None:
+    """One ceiling, one place to tune it: the exact channel and the sparse
+    channel must not drift into disagreeing about what counts as noise."""
+    from aiq_agent.common import german_text
+
+    assert DEFAULT_DF_CEILING_RATIO == german_text.DEFAULT_DF_CEILING_RATIO
+    assert DEFAULT_DF_CEILING_MIN_TOTAL == german_text.DEFAULT_DF_CEILING_MIN_TOTAL
+
+
+def test_a_ubiquitous_term_is_an_echo_of_the_dense_channel() -> None:
+    """Why the ceiling is not cosmetic, in RRF arithmetic.
+
+    A term matching most of the collection returns the dense ranking back, so
+    fusing it re-scores every chunk the dense channel already found while a
+    chunk only the German sparse channel found keeps its single contribution.
+    The lexical evidence then loses to an echo — and it loses to it no matter
+    how strong the lexical evidence is, because rank is all RRF sees.
+    """
+    dense = [_chunk("dense-top"), _chunk("dense-second")]
+    echo = [_chunk("dense-top"), _chunk("dense-second")]  # $contains removed nothing
+    sparse_only = [_chunk("lexical-hit")]
+
+    without_echo = reciprocal_rank_fusion([dense, sparse_only])
+    assert [c.chunk_id for c in without_echo][:2] == ["dense-top", "lexical-hit"]
+
+    with_echo = reciprocal_rank_fusion([dense, echo, sparse_only])
+    assert [c.chunk_id for c in with_echo][:2] == ["dense-top", "dense-second"]

@@ -68,7 +68,7 @@ describe('VectorMaintenance', () => {
 
   test('confirming POSTs to the reconcile endpoint and reports the counts as data', async () => {
     fetchMock.mockResolvedValueOnce(
-      jsonResponse({ collectionsScanned: 4, orphansFound: 2, orphansDeleted: 7, failures: [] }),
+      jsonResponse({ collectionsScanned: 4, orphansFound: 2, orphansDeleted: 7, summariesForgotten: 1, failures: [] }),
     )
     const user = userEvent.setup()
     render(<VectorMaintenance />)
@@ -85,7 +85,8 @@ describe('VectorMaintenance', () => {
     expect(within(result).getByText(/collections scanned/i).closest('tr')).toHaveTextContent('4')
     expect(within(result).getByText(/orphans found/i).closest('tr')).toHaveTextContent('2')
     expect(within(result).getByText(/chunks removed/i).closest('tr')).toHaveTextContent('7')
-    expect(rows).toHaveLength(4) // header + three measures
+    expect(within(result).getByText(/inventory entries forgotten/i).closest('tr')).toHaveTextContent('1')
+    expect(rows).toHaveLength(5) // header + four measures
 
     expect(within(result).getByText(/removed 7 orphaned chunk\(s\) across 4 collection\(s\)/i)).toBeInTheDocument()
     expect(toast.success).toHaveBeenCalled()
@@ -183,7 +184,7 @@ describe('VectorMaintenance', () => {
   test('a seeded last run renders without any request (dev preview seam)', () => {
     render(
       <VectorMaintenance
-        initialResult={{ collectionsScanned: 9, orphansFound: 1, orphansDeleted: 12, failures: [] }}
+        initialResult={{ collectionsScanned: 9, orphansFound: 1, orphansDeleted: 12, summariesForgotten: 0, failures: [] }}
       />,
     )
 

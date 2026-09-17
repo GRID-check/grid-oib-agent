@@ -1,42 +1,44 @@
 /**
- * Jobs — a prompt on a timer.
+ * Tasks with timing — a request, optionally on a timer, and the week it makes.
  *
- * A job fires its prompt into a fresh run the way a person opening a new chat
- * and typing would. A skill MAY be attached on top, exactly as typing `/name`
- * before the message would attach it — the empty state (no skill) is the
- * common case, and the copy below says so. The skill toolbox itself lives in
- * the `skills` namespace; nothing here is about authoring skills.
+ * A task fires its prompt into a fresh run the way a person opening a new
+ * chat and typing would — once, or on the rhythm from step 2. A skill is
+ * reached the same way it is in a chat: by typing `/name` into the request,
+ * which the model then chooses to use. Nothing here attaches one, and the
+ * skill toolbox itself lives in the `skills` namespace.
+ *
+ * Two things this namespace now owns that it did not: the TIMETABLE's copy,
+ * and a three-step WIZARD's. Both exist because a rhythm is the one thing in
+ * the product a person cannot check by looking at it — so the surface spends
+ * its words on making the commitment legible ("Every Monday at 06:00", the next
+ * three real dates) rather than on naming cron fields.
  */
 export const jobs = {
-  title: 'Jobs',
-  // One line: it sits in the tab's header BAR, next to the title. The long
-  // version of this explanation is the empty state, which has room for it.
-  subtitle:
-    'Prompts this project runs on a timer — as a chat or a report, optionally with a skill.',
-  backToList: 'Back to jobs',
-  loadError: 'The jobs could not be loaded.',
+  title: 'Tasks',
+  backToList: 'Back to list',
+  loadError: 'The tasks could not be loaded.',
   tryAgain: 'Try again',
 
   list: {
-    heading: 'Jobs',
+    heading: 'Tasks',
     empty: {
-      title: 'No jobs yet',
+      title: 'No tasks yet',
       description:
-        'A job is a prompt on a timer. Write the prompt once, choose whether it produces a chat or a report, and let it run — on demand or on a recurring schedule.',
-      action: 'New job',
+        'A task is a request with or without a rhythm. Write it once, say when it runs, and let Piloti research and file the report while you are somewhere else.',
+      action: 'New task',
     },
     manualOnly: 'Manual only',
-    // Terse on purpose: both sit on ONE footer line next to the history
-    // toggle, and the German equivalents overflow the card at grid width.
+    onceOn: 'Once on {time}',
+    onceDone: 'Done',
+    // Terse on purpose: both sit on ONE footer line of a card, and the German
+    // equivalents overflow it at grid width.
     nextRun: 'Next {time}',
     lastRun: 'Last {time}',
     neverRun: 'Never run',
-    disabled: 'Disabled',
-    enableAria: 'Enable job “{name}”',
-    disableAria: 'Disable job “{name}”',
-    toggleError: 'The job could not be updated.',
-    /** The job's own prompt, shown on the card so the row says what it sends. */
-    promptLabel: 'Prompt',
+    disabled: 'Paused',
+    enableAria: 'Resume task “{name}”',
+    disableAria: 'Pause task “{name}”',
+    toggleError: 'The task could not be updated.',
     withSkill: 'Skill: {name}',
     noSkill: 'No skill',
     output: {
@@ -45,142 +47,205 @@ export const jobs = {
     },
   },
 
+  card: {
+    openAria: 'Open task “{name}”',
+  },
+
   actions: {
     edit: 'Edit',
     runNow: 'Run now',
-    running: 'Running…',
     delete: 'Delete',
-    history: 'History',
+  },
+
+  /** The week grid. See `schedule-timetable.tsx` for why it exists at all. */
+  timetable: {
+    title: 'The week',
+    legend: 'Tasks on this grid',
+    thisWeek: 'This week',
+    today: 'Today',
+    previousWeek: 'Previous week',
+    nextWeek: 'Next week',
+    /** The band is cropped to the hours that carry something. */
+    showFullDay: 'Show all 24 hours',
+    showActiveHours: 'Show active hours only',
+    nothing: 'Nothing',
+    /** The marked break standing in for a long empty stretch of the day. */
+    gap: '{hours} h',
+    /** A cron the parser could not read — named, never silently left off. */
+    unplaceable: 'Not shown on the grid: {names}',
+    emptyNoSchedules: 'Nothing scheduled yet',
+    emptyNoSchedulesHint: 'Create a task with a rhythm and this week fills in.',
+    emptyThisWeek: 'Nothing fires this week',
   },
 
   schedule: {
-    presets: {
-      hourly: 'Every hour',
-      daily: 'Daily at 06:00',
-      weekly: 'Weekly, Monday 06:00',
-      monthly: 'Monthly, 1st at 06:00',
-      custom: 'Custom schedule',
+    /** How often — the four answers the wizard offers. */
+    frequency: {
+      hourly: 'Hourly',
+      daily: 'Daily',
+      weekly: 'Weekly',
+      monthly: 'Monthly',
     },
-    // Humanized summary shown on the list card, appended with the timezone.
-    summaryHourly: 'Hourly',
-    summaryDaily: 'Daily at 06:00',
-    summaryWeekly: 'Weekly on Monday at 06:00',
-    summaryMonthly: 'Monthly on the 1st at 06:00',
+    // The humanized sentence on a card and in the drawer, built from the cron.
+    summaryHourly: 'Hourly at :{minute}',
+    summaryDaily: 'Daily at {time}',
+    summaryWeekly: 'Every {weekday} at {time}',
+    /** Monday–Friday is a phrase people use; five names in a row is not. */
+    summaryWeekdays: 'Weekdays at {time}',
+    summaryMonthly: 'Monthly on the {day}. at {time}',
+    /** A cron the composer cannot express, shown verbatim rather than guessed at. */
     summaryCustom: 'Custom ({cron})',
     inTimezone: '{summary} · {timezone}',
   },
 
   run: {
-    submitted: 'Run started.',
-    submittedDetail: 'It is running now — follow it live from the run history.',
-    viewProgress: 'View progress',
-    skipped: 'Run skipped',
-    error: 'The run could not be started.',
-    disabled: 'Enable the job before running it.',
+    submitted: 'Started.',
+    submittedDetail: 'It is running now — follow it under Tasks.',
+    skipped: 'Skipped',
+    error: 'That could not be started.',
+    disabled: 'Resume the task before running it.',
   },
 
   deleteDialog: {
-    title: 'Delete job',
-    description: 'This permanently deletes “{name}” and its run history. This cannot be undone.',
-    confirm: 'Delete job',
+    title: 'Delete task',
+    description: 'This permanently deletes “{name}” and its history. This cannot be undone.',
+    confirm: 'Delete task',
     cancel: 'Cancel',
-    error: 'The job could not be deleted.',
+    error: 'The task could not be deleted.',
   },
 
   builder: {
-    createTitle: 'New job',
-    editTitle: 'Edit job',
-    createSubtitle:
-      'Write the prompt this job sends, choose what it produces, and set when it runs. The preview shows exactly what the agent receives.',
-    editSubtitle:
-      'Adjust the prompt, the output or the schedule. The preview shows exactly what the agent receives.',
+    /** The rail. Three steps, one required decision each — see the wizard's docstring. */
+    stepsLabel: 'Steps',
+    stepProgress: 'Step {current} of {total}',
+    steps: {
+      task: 'Task',
+      schedule: 'When',
+      review: 'Review',
+      taskTitle: 'What should Piloti do?',
+      taskHint:
+        'Write it exactly as you would type it into a new chat. Piloti starts with no other context.',
+      scheduleTitle: 'When should it run?',
+      scheduleHint:
+        'Once, recurring or on request — the next times are shown underneath, to check before you commit.',
+      reviewTitle: 'Ready',
+      reviewHint: 'This is what will happen. Nothing has been saved yet.',
+    },
+    next: 'Continue',
+    back: 'Back',
+    cancel: 'Cancel',
+    create: 'Create task',
+    save: 'Save task',
+    saving: 'Saving…',
 
-    detailsSection: 'Details',
     nameLabel: 'Name',
     namePlaceholder: 'e.g. Weekly OIB fire-safety scan',
+    nameHint: 'What this is called in the list. Left empty, the first line above is used.',
     nameRequired: 'A name is required.',
     nameTooLong: 'The name is too long (max 200 characters).',
 
-    promptSection: 'Prompt',
-    promptLabel: 'What this job asks',
+    promptLabel: 'The request',
     promptPlaceholder:
       'Check the current project documents for open fire-safety points and list every deviation with its OIB clause.',
-    promptHint:
-      'This is what fires. Write it exactly as you would type it into a new chat — the run starts with no other context.',
-    promptRequired: 'A prompt is required.',
-    promptTooLong: 'The prompt is too long (max 8000 characters).',
+    promptHint: 'This is what fires, word for word, every time.',
+    promptRequired: 'A request is required.',
+    promptTooLong: 'The request is too long (max 8000 characters).',
 
-    outputSection: 'Output',
-    outputLabel: 'What a run produces',
-    outputHint: 'This also decides which skills the job can attach.',
-    output: {
-      chatLabel: 'Chat',
-      chatHint: 'a chat you can open and continue',
-      deepResearchLabel: 'Deep research',
-      deepResearchHint: 'a report',
-    },
-
-    skillSection: 'Skill',
-    skillLabel: 'Attached skill',
-    skillOptional: 'Optional',
-    skillHint:
-      'A skill is added on top of the prompt, exactly as typing “/name” before the message would. Most jobs need none.',
-    skillNone: 'No skill',
-    skillNoneHint: 'The prompt runs on its own.',
-    skillPlaceholder: 'No skill',
-    skillsLoading: 'Loading skills…',
-    skillsError: 'The skills could not be loaded — the job can still be saved without one.',
-    skillsEmpty: 'No skill can run with this output kind.',
-    // Shown inline when switching the output kind drops the attached skill.
-    skillDetached: '“{name}” cannot run as {output}, so it was detached.',
+    /** Everything behind the one disclosure per step. */
+    advancedSources: 'Data sources',
+    advancedSchedule: 'Timezone and cron',
 
     sourcesSection: 'Data sources',
-    knowledgeAlways: 'Project documents & OIB knowledge base — always included in every run',
+    sourcesSummary: '{count} extra sources',
+    knowledgeAlways:
+      'Project documents, the OIB knowledge base and Austrian law (RIS) — always included in every run',
     additionalSourcesLabel: 'Additional sources',
     sourcesHint:
-      'Add sources beyond the knowledge base. Leave all unchecked to allow every available additional source.',
+      'Add sources beyond the knowledge base. Leave all unchecked to allow every available source.',
     sourcesAll: 'All available sources',
     sourcesLoading: 'Loading sources…',
-    sourcesError: 'Sources could not be loaded — the job will use all available sources.',
+    sourcesError: 'Sources could not be loaded — the task will use all available sources.',
 
-    scheduleSection: 'Schedule',
-    enableScheduleLabel: 'Run on a schedule',
-    enableScheduleHint: 'When off, the job only runs when you press “Run now”.',
-    presetLabel: 'Frequency',
+    scheduleSection: 'When',
+    cadence: {
+      label: 'When should this task run',
+      once: 'Once',
+      onceHint: 'On a date you choose. After that it is done.',
+      recurring: 'Recurring',
+      recurringHint: 'On a rhythm, again and again.',
+      manual: 'Manual only',
+      manualHint: 'Runs only when you press “Run now”.',
+    },
+    dueAtLabel: 'Due date',
+    dueAtHint: 'In your local time. The task runs exactly once.',
+    presetLabel: 'How often',
+    timeLabel: 'At',
+    minuteLabel: 'At minute',
+    minutePast: '{minute} past the hour',
+    weekdayLabel: 'On',
+    weekdayHint: 'Pick as many days as you need — Mon to Fri reads as “weekdays”.',
+    monthDayLabel: 'On the',
+    monthDayValue: '{day}.',
+    /**
+     * The next real fire times — the claim, made checkable.
+     *
+     * "Times", not "runs": a run that has not happened is not a run, and the
+     * word for the ones that HAVE is Tasks. Future and past need different
+     * nouns or the surface says the same word about two different things.
+     */
+    upcomingLabel: 'Next times',
+    upcomingNone: 'This never fires — it only runs when started by hand.',
+
+    customCronLabel: 'Write a cron expression',
+    customCronHint: 'For rhythms the four options above cannot express.',
     cronLabel: 'Cron expression',
     cronPlaceholder: '0 6 * * 1',
     cronHint: 'Five fields: minute hour day-of-month month day-of-week.',
     cronInvalid: 'Enter a valid 5-field cron expression.',
     timezoneLabel: 'Timezone',
+    timezoneHint: 'The task fires by the clock in this zone, daylight saving included.',
 
-    enabledLabel: 'Enabled',
-    enabledHint: 'A disabled job never fires on schedule and cannot be run manually.',
+    enabledLabel: 'Active',
+    enabledHint: 'A paused task never fires and cannot be run by hand.',
 
-    save: 'Save job',
-    saving: 'Saving…',
-    cancel: 'Cancel',
-    createSuccess: 'Job created.',
-    updateSuccess: 'Job saved.',
-    saveError: 'The job could not be saved.',
+    /**
+     * The review step's one sentence. A task always produces the same thing —
+     * a researched report, filed in the project — so the noun is part of the
+     * sentence rather than a slot the wizard once filled from a choice.
+     */
+    reviewSentence: 'Piloti researches a report {cadence} and files it in the project.',
+    reviewSentenceOnce: 'Piloti researches a report and files it in the project — once, on {dueAt}.',
+    reviewSentenceManual:
+      'Piloti researches a report and files it in the project, each time you start it by hand.',
+
+    createAndRun: 'Create and run now',
+    saveAndRun: 'Save and run now',
+    runNowFailed: 'The task is saved; the first run could not be started.',
+
+    createSuccess: 'Task created.',
+    updateSuccess: 'Task saved.',
+    saveError: 'The task could not be saved.',
 
     preview: {
       title: 'What the agent receives',
       subtitle:
-        'The exact text submitted when this job runs. The server builds this same prompt at fire time.',
-      empty: 'Write a prompt to see what the agent receives.',
+        'The exact text submitted. The server builds this same prompt at fire time.',
     },
   },
 
   history: {
-    title: 'Run history',
-    loading: 'Loading runs…',
-    loadError: 'The run history could not be loaded.',
-    empty: 'This job has not run yet.',
-    viewReport: 'View report',
-    /** A `chat` run landed in a conversation — the run's output IS that chat. */
+    title: 'Task history',
+    loading: 'Loading tasks…',
+    loadError: 'The history could not be loaded.',
+    empty: 'This task has not run yet.',
+    /**
+     * Both doors lead to the same place, the thread the run narrates itself in
+     * (ADR-0062) — the words differ because a live run is watched and a
+     * finished one is read. „View report" and „View thinking" went with the
+     * side panel that held them apart.
+     */
     openChat: 'Open chat',
     viewProgress: 'View progress',
-    viewThinking: 'View thinking',
     scheduler: 'Scheduler',
     trigger: {
       manual: 'Manual',

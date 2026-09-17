@@ -1,0 +1,12 @@
+---
+improvements:
+  - >
+    Eine Frage nach einer ganzen Richtlinie („Was weißt du über die OIB 2?“)
+    beantwortet Piloti jetzt in einem Suchlauf mit allen Teilen, die im Bestand
+    sind: je Teil der Geltungsbereich als zitierfähige Passage und darunter
+    dessen Gliederung. Bisher zeigte die Suche zwei Dokumente, und die übrigen
+    Teile wurden einzeln nachgeladen.
+  - >
+    In der Herleitung steht bei einer punktgenau gelesenen Stelle jetzt der
+    Punkt („Pkt. 3.5.2“) vor der Seite. In einer Richtlinie ist die Nummer die
+    Fundstelle, nach der gesucht wird.

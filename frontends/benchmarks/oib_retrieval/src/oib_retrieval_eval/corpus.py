@@ -85,6 +85,18 @@ def package_root() -> Path:
     return Path(__file__).resolve().parents[2]
 
 
+class CorpusMissingError(RuntimeError):
+    """The measurement needs the OIB PDFs and this checkout has none.
+
+    Its own type, not a ``FileNotFoundError``, because the two mean different things to
+    whoever ran the harness: a missing single PDF is a broken corpus, while an empty
+    ``data/oib`` is the normal state of a fresh clone. The corpus is operator-provided
+    and gitignored, so this is the expected outcome for most people who run this by
+    hand, and it deserves an instruction rather than a traceback. ``runner.main``
+    catches it and exits 1 with the message.
+    """
+
+
 def default_corpus_dir() -> Path:
     return repo_root() / "data" / "oib"
 

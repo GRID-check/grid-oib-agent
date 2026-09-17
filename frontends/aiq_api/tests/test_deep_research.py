@@ -30,6 +30,8 @@ Test coverage:
     TestJobReportResponse:
         - Response without report (has_report=False)
         - Response with report content
+        - Cards omitted (the field is optional, so pre-cards callers still construct)
+        - Response with the run's cards attached
 
     TestRegisterRoutes:
         - Routes not registered when Dask unavailable
@@ -181,6 +183,29 @@ class TestJobReportResponse:
 
         assert resp.has_report is True
         assert resp.report == "# Report\n\nContent here"
+
+    def test_cards_are_optional(self):
+        """`cards` is additive: a construction that predates it still validates.
+
+        The field carries an enhancement to the report, so it may not be the
+        reason a report fails to be returned — not on the way out of the handler
+        and not here either.
+        """
+        resp = JobReportResponse(job_id="123", has_report=True, report="# Report")
+
+        assert resp.cards is None
+
+    def test_with_cards(self):
+        """The cards ride as the runner persisted them — opaque dicts, unfiltered.
+
+        Deliberately NOT re-validated against the `GridCard` union: they went
+        through `validate_cards` before the runner wrote them, and a second pass
+        on the read path could only turn a finished report into an error.
+        """
+        cards = [{"type": "legal_basis", "title": "OIB-Richtlinie 2", "lane": "oib"}]
+        resp = JobReportResponse(job_id="123", has_report=True, report="# Report", cards=cards)
+
+        assert resp.cards == cards
 
 
 class TestRegisterRoutes:

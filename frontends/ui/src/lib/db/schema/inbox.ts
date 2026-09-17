@@ -60,6 +60,34 @@ export const INBOX_ITEM_TYPES = [
   'storage.quota_warning',
   /** Informational: you were named responsible for a resource (ADR-0047). */
   'document.assigned_to_you',
+  /**
+   * A background run the reader asked for has ended (ADR-0035 named "a failed
+   * workflow run" as the type the frame was built to carry). Operational, not
+   * collaboration: nobody is waiting on the reader, but work was done on their
+   * behalf while they were away, and until these existed a 03:00 run produced
+   * a report that nobody was told about.
+   */
+  'job.completed',
+  'job.failed',
+  /**
+   * Actionable: a run the reader asked for has stopped to ask them something
+   * (the ledger's `wartet`, ADR-0062). Resolved by the run moving on — the
+   * answer lands in the thread, and the ledger's next status settles the row.
+   */
+  'job.waiting',
+  /**
+   * Actionable: a version of a document is waiting for your Freigabe
+   * (ADR-0054). The FIRST actionable type outside mentions, and the reason the
+   * frame stayed generic — the row points at the document and anchors on the
+   * version, so a deep link lands on the fassung being judged rather than on the
+   * file's current bytes.
+   *
+   * Resolved by the decision itself (approve, request changes, reject), for
+   * every reviewer who was asked and not only the one who acted: once a decision
+   * is taken the question is settled for everybody, and a row nothing can
+   * resolve sits in a badge for good.
+   */
+  'document.review_requested',
 ] as const
 export type InboxItemType = (typeof INBOX_ITEM_TYPES)[number]
 
@@ -79,7 +107,7 @@ export type InboxItemType = (typeof INBOX_ITEM_TYPES)[number]
  * and an access resolver. That registry — not a cast, and not a branch inside
  * the read path — is what lets an org-scoped item exist.
  */
-export const INBOX_TARGET_TYPES = [...SHAREABLE_RESOURCE_TYPES, 'organization'] as const
+export const INBOX_TARGET_TYPES = [...SHAREABLE_RESOURCE_TYPES, 'organization', 'project'] as const
 export type InboxTargetType = (typeof INBOX_TARGET_TYPES)[number]
 
 export const inboxItems = pgTable(

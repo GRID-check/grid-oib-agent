@@ -49,9 +49,9 @@ _REQUEST_TIMEOUT_SECONDS = 5.0
 #: logged and ignored rather than silently narrowing a skill to nothing: a typo
 #: there would otherwise make a skill vanish with no diagnostic.
 #:
-#: Both names are DELIVERED, and they are delivered differently. The chat
-#: researcher resolves inside a live request and builds a ``SkillRuntime`` per
-#: turn (``shallow_researcher/register.py``). Deep research runs in a Dask worker
+#: Both names are DELIVERED, and they are delivered differently. Piloti
+#: resolves inside a live request and builds a ``SkillRuntime`` per
+#: turn (``piloti/register.py``). Deep research runs in a Dask worker
 #: with no request headers to read an organization off, so it resolves per RUN
 #: through :func:`resolve_served_skills`, keyed on an organization the job runner
 #: captured at submit time and put on the agent state — see
@@ -61,7 +61,41 @@ _REQUEST_TIMEOUT_SECONDS = 5.0
 #: one, which cost the product's longest answers its house voice in silence:
 #: naming an agent nothing resolves for is not a smaller mistake than naming an
 #: agent that does not exist, it is only a quieter one.
-KNOWN_AGENTS = frozenset({"shallow_researcher", "deep_researcher"})
+#:
+#: ``researcher`` and not ``piloti`` although the package was renamed to
+#: ``agents/piloti``: this string is stored in ``platform_skills.grid_agents``
+#: and hand-written into every skill's frontmatter, so it is a wire name.
+#: Moving it needs a migration and read-side aliases, the way ``0081`` and
+#: ``AGENT_ALIASES`` below did for the last one.
+KNOWN_AGENTS = frozenset({"researcher", "deep_researcher"})
+
+#: Retired ``grid-agents`` names and the agent each one now means.
+#:
+#: ``shallow_researcher`` was renamed to ``researcher``. Skill authors write
+#: this key by hand and ten past migrations seeded it, so rows carrying the old
+#: name outlive the rename: the forward migration
+#: (``frontends/ui/drizzle/0081_grid_agents_researcher_rename.sql``) rewrites the
+#: ones we can see, and this map covers everything else — a row written by an
+#: older BFF mid-deploy, a restored backup, an org skill somebody re-imports.
+#:
+#: An alias, and not merely a second member of ``KNOWN_AGENTS``, because the
+#: failure it prevents is silent in BOTH directions. Left out entirely, an
+#: allowlist of only unknown names reads as absent (see ``_agent_allows``) and
+#: every chat-only skill would quietly become available to deep research too.
+#: Added as a known name instead, ``{"shallow_researcher"}`` would be a known
+#: set that does not contain ``researcher``, and the skill would vanish from
+#: chat. Normalising is the only reading that keeps the author's intent.
+#:
+#: Mirrored in ``frontends/ui/src/lib/skills/service.ts::skillTargetsAgent`` and
+#: ``frontends/ui/src/features/skills/lib/agent-scope.ts``; the three are a
+#: contract set and ``test_resolver.py`` / ``service.spec.ts`` /
+#: ``agent-scope.spec.ts`` pin them against the same case.
+AGENT_ALIASES: dict[str, str] = {"shallow_researcher": "researcher"}
+
+
+def canonical_agent(name: str) -> str:
+    """The current name for ``name``, following one retired alias."""
+    return AGENT_ALIASES.get(name, name)
 
 
 def _cache_ttl_seconds() -> float:
@@ -100,13 +134,21 @@ def _is_curated(skill: Skill) -> bool:
 
 
 def _agent_allows(skill: Skill, agent: str | None) -> bool:
-    """Respect the ``grid-agents`` metadata: absent = all agents."""
+    """Respect the ``grid-agents`` metadata: absent = all agents.
+
+    Both sides go through :func:`canonical_agent`: the stored names because a
+    row may predate the ``shallow_researcher`` → ``researcher`` rename, and the
+    caller's ``agent`` because a mid-deploy caller may still be asking under the
+    old name. Normalising only one side reintroduces the failure the alias
+    exists to prevent, in the opposite direction.
+    """
     if agent is None:
         return True
     allowed = skill.metadata.get("grid-agents")
     if not allowed:
         return True
-    names = {name.strip() for name in allowed.split(",") if name.strip()}
+    agent = canonical_agent(agent)
+    names = {canonical_agent(name.strip()) for name in allowed.split(",") if name.strip()}
     unknown = names - KNOWN_AGENTS
     if unknown:
         logger.warning(
@@ -161,14 +203,13 @@ def _build_org_skills(payload: Any) -> list[Skill]:
             "compatibility": row.get("compatibility"),
             "allowed_tools": row.get("allowed_tools"),
         }
-        # `standard` is the platform's own fleet instruction, not an org row —
-        # the BFF marks it because only the BFF can see `platform_skills`, and
-        # the backend needs it to decide whether the skill is applied or merely
-        # offered. A row that omits the flag is an ordinary skill, which is the
-        # safe direction: forgetting it under-applies rather than imposing a
-        # tenant's instruction on a run that never agreed to it.
+        # A `standard` marker on the row is ignored: every resolved skill is an
+        # offer in the L1 catalog the model chooses from, and nothing forces one
+        # onto a turn. Standing instructions travel as prompt text (the platform
+        # prompt and the office's own instruction block), never as a skill the
+        # model is told to open.
         try:
-            skill = build_skill_from_payload(payload_flat, origin="org", standard=bool(row.get("standard")))
+            skill = build_skill_from_payload(payload_flat, origin="org")
         except SkillValidationError as exc:
             logger.warning("Dropping invalid org skill row: %s", exc)
             continue
@@ -225,12 +266,16 @@ class SkillResolver:
         return tuple(skill for skill in merged_by_name.values() if _skill_applies_to_agent(skill, self.agent))
 
     def _resolve_org_skills(self, organization_id: str) -> tuple[Skill, ...]:
+        from aiq_agent.common.profiler import annotate_current_span
+
         cache_key = f"skills:{organization_id}:{self.agent or '_all'}"
         cached = shared_cache.get_json(cache_key)
         if cached is not None and isinstance(cached, list):
             known = self._known_org_names(cached)
             if known is not None:
+                annotate_current_span(cache_skills="hit")
                 return self._org_skills_from_rows(cached, known)
+        annotate_current_span(cache_skills="miss")
         try:
             rows = self._fetch_org_skills(organization_id)
         except Exception as exc:  # noqa: BLE001 - fail open to builtins by design

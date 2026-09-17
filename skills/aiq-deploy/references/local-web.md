@@ -28,7 +28,7 @@ The local web script uses backend port `8000` and frontend port `3000`. If eithe
 ## Start
 
 ```bash
-./scripts/start_e2e.sh --config_file configs/config_web_default_llamaindex.yml
+./scripts/start_e2e.sh --config_file configs/config_oib_openrouter.yml
 ```
 
 The default local web path starts:

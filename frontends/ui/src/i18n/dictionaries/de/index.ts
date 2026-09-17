@@ -21,6 +21,8 @@ import { knowledge } from './knowledge'
 import { research } from './research'
 import { skills } from './skills'
 import { jobs } from './jobs'
+import { tasks } from './tasks'
+import { runs } from './runs'
 import { members } from './members'
 import { onboarding } from './onboarding'
 import { organization } from './organization'
@@ -29,6 +31,7 @@ import { presence } from './presence'
 import { shortcuts } from './shortcuts'
 import { legal } from './legal'
 import { answerExport } from './answer-export'
+import { diagrams } from './diagrams'
 import type { Dictionary } from '../index'
 
 export const de: Dictionary = {
@@ -49,10 +52,13 @@ export const de: Dictionary = {
   research,
   skills,
   jobs,
+  tasks,
+  runs,
   members,
   onboarding,
   organization,
   platform,
   legal,
   answerExport,
+  diagrams,
 }

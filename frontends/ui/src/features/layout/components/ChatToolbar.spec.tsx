@@ -41,36 +41,25 @@ vi.mock('@/features/collaboration/hooks/use-inbox', () => ({
   useInboxBadge: () => ({ pending: mockInboxPending, connected: true, refresh: vi.fn() }),
 }))
 
-// Mock the layout store — the component uses both the hook selector form and
-// useLayoutStore.getState() inside click handlers.
+// Mock the layout store. The toolbar reads exactly two things off it — the
+// sessions overlay and the mobile nav drawer. It held a third, the research
+// panel, until a run became a message in its own thread (ADR-0062).
 const mockToggleSessionsPanel = vi.fn()
-const mockCloseRightPanel = vi.fn()
-const mockOpenRightPanel = vi.fn()
 const mockSetMobileNavOpen = vi.fn()
-let mockRightPanel: string | null = null
-let mockResearchPanelTab = 'tasks'
 
 function getLayoutState() {
   return {
-    rightPanel: mockRightPanel,
-    researchPanelTab: mockResearchPanelTab,
     toggleSessionsPanel: mockToggleSessionsPanel,
-    closeRightPanel: mockCloseRightPanel,
-    openRightPanel: mockOpenRightPanel,
     setMobileNavOpen: mockSetMobileNavOpen,
   }
 }
 
-vi.mock('../store', () => {
-  const useLayoutStore = Object.assign(
-    vi.fn((selector?: (s: ReturnType<typeof getLayoutState>) => unknown) => {
-      const state = getLayoutState()
-      return selector ? selector(state) : state
-    }),
-    { getState: () => getLayoutState() }
-  )
-  return { useLayoutStore }
-})
+vi.mock('../store', () => ({
+  useLayoutStore: vi.fn((selector?: (s: ReturnType<typeof getLayoutState>) => unknown) => {
+    const state = getLayoutState()
+    return selector ? selector(state) : state
+  }),
+}))
 
 let mockIsAuthenticated = true
 
@@ -79,38 +68,28 @@ vi.mock('@/adapters/auth', () => ({
 }))
 
 let mockIsDeepResearchStreaming = false
-let mockDeepResearchJobId: string | null = null
-let mockIsLoadJobDataLoading = false
 let mockCurrentSessionId: string | null = 'session-1'
-const mockLoadResearchPanelTab = vi.fn()
 const mockUpdateConversationTitle = vi.fn()
 
 vi.mock('@/features/chat', () => ({
   useChatStore: (
     selector: (state: {
       isDeepResearchStreaming: boolean
-      deepResearchJobId: string | null
       currentConversation: { id: string } | null
       updateConversationTitle: (id: string, title: string) => void
     }) => unknown
   ) =>
     selector({
       isDeepResearchStreaming: mockIsDeepResearchStreaming,
-      deepResearchJobId: mockDeepResearchJobId,
       currentConversation: mockCurrentSessionId ? { id: mockCurrentSessionId } : null,
       updateConversationTitle: mockUpdateConversationTitle,
     }),
-  useLoadJobData: () => ({
-    loadResearchPanelTab: mockLoadResearchPanelTab,
-    isLoading: mockIsLoadJobDataLoading,
-  }),
 }))
 
 /**
  * Open the thread menu — the one place every non-primary header action lives.
- * The header shows only what is TRUE about the thread plus New chat; share,
- * rename and the research report are behind this trigger by design, so most
- * action tests start here.
+ * The header shows only what is TRUE about the thread plus New chat; share and
+ * rename are behind this trigger by design, so most action tests start here.
  */
 async function openThreadMenu(user: ReturnType<typeof userEvent.setup>): Promise<void> {
   await user.click(screen.getByTestId('thread-menu'))
@@ -139,144 +118,31 @@ describe('ChatToolbar', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mockIsAuthenticated = true
-    mockRightPanel = null
-    mockResearchPanelTab = 'tasks'
     mockIsDeepResearchStreaming = false
-    mockDeepResearchJobId = null
-    mockIsLoadJobDataLoading = false
     mockCurrentSessionId = 'session-1'
     mockSharingState = null
     mockInboxPending = 0
   })
 
-  describe('research toggle', () => {
-    // The toggle is RE-ENTRY to a report this thread already has — the answer card
-    // that produced it is the primary door — so its precondition is that a report
-    // exists. Every test below that is about the toggle's behaviour starts there.
-    beforeEach(() => {
-      mockDeepResearchJobId = 'job-123'
-    })
-
-    test('is offered in the thread menu once a report exists', async () => {
-      const user = userEvent.setup()
-      render(<ChatToolbar />)
-
-      await openThreadMenu(user)
-
-      expect(screen.getByTestId('research-panel-toggle')).toBeInTheDocument()
-    })
-
-    test('is absent on a thread that never ran deep research', () => {
-      mockDeepResearchJobId = null
-      mockCurrentSessionId = null // …and nothing else to put in the menu either
-
-      render(<ChatToolbar />)
-
-      // Not merely hidden in the menu: with no report, no rename and no sharing,
-      // there is nothing occasional to disclose, so the trigger itself is gone.
-      // A permanent "Research" button here was a door to an empty room.
-      expect(screen.queryByTestId('thread-menu')).not.toBeInTheDocument()
-      expect(screen.queryByTestId('research-panel-toggle')).not.toBeInTheDocument()
-    })
-
-    test('appears while a run is streaming, before any job id is known', async () => {
-      mockDeepResearchJobId = null
-      mockIsDeepResearchStreaming = true
-      const user = userEvent.setup()
-
-      render(<ChatToolbar />)
-      await openThreadMenu(user)
-
-      expect(screen.getByTestId('research-panel-toggle')).toBeInTheDocument()
-    })
-
-    test('stays while the panel is open, so it can close what it opened', async () => {
-      mockDeepResearchJobId = null
-      mockRightPanel = 'research'
-      const user = userEvent.setup()
-
-      render(<ChatToolbar />)
-      await openThreadMenu(user)
-
-      expect(screen.getByTestId('research-panel-toggle')).toBeInTheDocument()
-    })
-
-    test('opens the research panel when closed', async () => {
-      mockRightPanel = null
-      const user = userEvent.setup()
-
-      render(<ChatToolbar />)
-      await openThreadMenu(user)
-
-      await selectMenuItem(user, 'research-panel-toggle')
-
-      expect(mockOpenRightPanel).toHaveBeenCalledWith('research')
-    })
-
-    test('closes the research panel when open', async () => {
-      mockRightPanel = 'research'
-      const user = userEvent.setup()
-
-      render(<ChatToolbar />)
-      await openThreadMenu(user)
-
-      await selectMenuItem(user, 'research-panel-toggle')
-
-      expect(mockCloseRightPanel).toHaveBeenCalled()
-      expect(mockOpenRightPanel).not.toHaveBeenCalled()
-    })
-
-    test('reloads the active tab for the current job when opening', async () => {
-      mockRightPanel = null
-      mockDeepResearchJobId = 'job-123'
-      mockResearchPanelTab = 'thinking'
-      const user = userEvent.setup()
-
-      render(<ChatToolbar />)
-      await openThreadMenu(user)
-
-      await selectMenuItem(user, 'research-panel-toggle')
-
-      expect(mockLoadResearchPanelTab).toHaveBeenCalledWith('job-123', 'thinking')
-    })
-
-    test('does not reload job data while another load is in flight', async () => {
-      mockRightPanel = null
-      mockDeepResearchJobId = 'job-123'
-      mockIsLoadJobDataLoading = true
-      const user = userEvent.setup()
-
-      render(<ChatToolbar />)
-      await openThreadMenu(user)
-
-      await selectMenuItem(user, 'research-panel-toggle')
-
-      expect(mockOpenRightPanel).toHaveBeenCalledWith('research')
-      expect(mockLoadResearchPanelTab).not.toHaveBeenCalled()
-    })
-
-    test('is disabled when not authenticated', async () => {
-      mockIsAuthenticated = false
-      const user = userEvent.setup()
-
-      render(<ChatToolbar />)
-      await openThreadMenu(user)
-
-      expect(screen.getByTestId('research-panel-toggle')).toHaveAttribute('aria-disabled', 'true')
-    })
-
-    test('a live run is STATUS in the header, not a control', () => {
+  describe('research status', () => {
+    test('a live run is STATUS in the header, and the header offers nothing else', async () => {
       mockIsDeepResearchStreaming = true
       mockSharingState = SHARED_STATE
+      const user = userEvent.setup()
 
       render(<ChatToolbar conversationId="session-1" isCollaborationEnabled />)
 
       // The one piece of research the header carries in the open: the thread's own
       // banner scrolls away, so this is the persistent "still working" signal. It
-      // states — the way INTO the report is the menu item.
+      // states, and there is nothing left for it to act WITH — a run is read in
+      // the thread that commissioned it (ADR-0062), so the menu holds no way out
+      // to a side panel.
       const running = screen.getByTestId('research-running')
       expect(running).toBeInTheDocument()
       expect(running.querySelector('button')).toBeNull()
+
+      await openThreadMenu(user)
+      expect(screen.queryByTestId('research-panel-toggle')).not.toBeInTheDocument()
     })
 
     test('says nothing about research when nothing is running', () => {
@@ -287,10 +153,21 @@ describe('ChatToolbar', () => {
 
       expect(screen.queryByTestId('research-running')).not.toBeInTheDocument()
     })
+
+    test('a run alone puts no menu on the thread', () => {
+      mockIsDeepResearchStreaming = true
+      mockCurrentSessionId = null // …and nothing else to put in the menu either
+
+      render(<ChatToolbar />)
+
+      // With no rename and no sharing there is nothing occasional to disclose,
+      // so the trigger itself is gone. Research used to keep it alive on its own.
+      expect(screen.queryByTestId('thread-menu')).not.toBeInTheDocument()
+    })
   })
 
   describe('chat-started gating', () => {
-    test('hides New chat, Research and the breadcrumb before a chat has started', () => {
+    test('hides New chat, the thread menu and the breadcrumb before a chat has started', () => {
       render(
         <ChatToolbar
           sessionTitle="My Session"
@@ -313,7 +190,6 @@ describe('ChatToolbar', () => {
     })
 
     test('shows New chat, the thread menu and the breadcrumb once a chat has started', async () => {
-      mockDeepResearchJobId = 'job-123'
       const user = userEvent.setup()
       render(
         <ChatToolbar
@@ -324,11 +200,10 @@ describe('ChatToolbar', () => {
       )
 
       expect(screen.getByRole('button', { name: 'Create new session' })).toBeInTheDocument()
-      expect(screen.getByText('Wohnbau Favoriten')).toBeInTheDocument()
       expect(screen.getByText('My Session')).toBeInTheDocument()
 
       await openThreadMenu(user)
-      expect(screen.getByTestId('research-panel-toggle')).toBeInTheDocument()
+      expect(screen.getByTestId('rename-session')).toBeInTheDocument()
     })
   })
 
@@ -385,22 +260,11 @@ describe('ChatToolbar', () => {
       expect(screen.getByText('My Session')).toBeInTheDocument()
     })
 
-    test('renders "{project} / {session title}" when a project name is given', () => {
+    test('does not repeat the project name — the scope chip, rail and URL already carry it', () => {
       render(<ChatToolbar sessionTitle="My Session" projectName="Wohnbau Favoriten" />)
 
-      expect(screen.getByText('Wohnbau Favoriten')).toBeInTheDocument()
-      expect(screen.getByText('/')).toBeInTheDocument()
+      expect(screen.queryByText('Wohnbau Favoriten')).not.toBeInTheDocument()
       expect(screen.getByText('My Session')).toBeInTheDocument()
-    })
-
-    test('the project segment does not shrink — it truncates at its own cap or not at all', () => {
-      render(<ChatToolbar sessionTitle="My Session" projectName="Wohnbau Favoriten" />)
-
-      // Guards the regression this rule exists for: as a shrinkable flex child the
-      // project name collapsed to "Wohnb…" — an ellipsis naming nothing while still
-      // charging for its space and its separator. Only a screenshot shows the
-      // crowding; this pins the fix that a refactor would otherwise drop.
-      expect(screen.getByText('Wohnbau Favoriten')).toHaveClass('shrink-0')
     })
 
     test('clicking the title opens the editor — the shortcut, alongside the menu', async () => {
@@ -481,9 +345,9 @@ describe('ChatToolbar', () => {
 
     test('rename is not offered without an active session', async () => {
       mockCurrentSessionId = null
-      mockDeepResearchJobId = 'job-123' // keep the menu itself around
+      mockSharingState = SHARED_STATE // keep the menu itself around
       const user = userEvent.setup()
-      render(<ChatToolbar sessionTitle="My Session" />)
+      render(<ChatToolbar sessionTitle="My Session" conversationId="session-1" isCollaborationEnabled />)
 
       await openThreadMenu(user)
 
@@ -531,10 +395,7 @@ describe('ChatToolbar — sharing surfaces', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mockIsAuthenticated = true
-    mockRightPanel = null
     mockIsDeepResearchStreaming = false
-    mockDeepResearchJobId = null
-    mockIsLoadJobDataLoading = false
     mockCurrentSessionId = 'session-1'
     mockSharingState = null
   })
@@ -662,7 +523,6 @@ describe('ChatToolbar — sharing surfaces', () => {
 
   test('nothing is claimed about access before the server has answered', async () => {
     mockSharingState = null
-    mockDeepResearchJobId = 'job-123' // keep the menu itself around
     const user = userEvent.setup()
     render(<ChatToolbar sessionTitle="My Session" isCollaborationEnabled conversationId="session-1" />)
 

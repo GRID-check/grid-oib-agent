@@ -409,7 +409,21 @@ class TestLaneForHit:
 
     def test_project_collections(self):
         assert nr.lane_for_hit(collection="proj_123") == ("projekt", "Projektwissen")
-        assert nr.lane_for_hit(collection="s_session42") == ("projekt", "Projektwissen")
+        # A session attachment shares the project's colour and says whose it is.
+        assert nr.lane_for_hit(collection="s_session42") == ("projekt", "Private Sitzung")
+
+    def test_a_shelf_the_caller_knows_beats_the_collection_guess(self):
+        assert nr.lane_for_hit(collection="whatever", shelf="archiv") == ("buero", "Büroarchiv")
+
+    def test_the_default_class_never_relabels_a_users_document(self):
+        # Ingestion used to stamp "sonstiges" on every upload; on a user's own
+        # shelf that guess is not a decision, and the shelf wins.
+        assert nr.lane_for_hit(collection="proj_123", doc_class="sonstiges") == ("projekt", "Projektwissen")
+        assert nr.lane_for_hit(collection="archiv_org", doc_class="sonstiges") == ("buero", "Büroarchiv")
+        assert nr.lane_for_hit(collection="s_chat", doc_class="sonstiges") == ("projekt", "Private Sitzung")
+        # A base-corpus file nobody classified is still a base document.
+        assert nr.lane_for_hit(collection="oib_knowledge", doc_class="sonstiges") == ("baurecht_basis", "Basisdokument")
+        # A human-set class on a project file still wins (see the test above).
 
     def test_unknown_defaults_to_web(self):
         assert nr.lane_for_hit() == ("web", "Web")
@@ -442,6 +456,54 @@ class TestLaneForHit:
             "baurecht_oib",
             "OIB-Richtlinie",
         )
+
+
+class TestLaneForAgentAuthoredHit:
+    """Stated provenance outranks every other signal in the classifier.
+
+    A published Piloti document is filed on the project or the Büroarchiv shelf
+    like any other document, and ingest stamps it with a doc_class like any
+    other document. Both of those are how it would silently lose its author:
+    the shelf would make it Projektwissen, and the doc_class would file it in
+    the norm hierarchy under a label fallback that reads "Baurecht".
+    """
+
+    def test_provenance_gives_the_document_its_own_lane(self):
+        assert nr.lane_for_hit(authored_by="agent") == ("buero_piloti", "Piloti-Dokument")
+
+    def test_it_beats_the_project_shelf(self):
+        """The headline defect: on the project shelf it would wear the
+        Projektwissen chip, and nothing would say Piloti wrote it."""
+        assert nr.lane_for_hit(shelf="project", collection="proj_abc", authored_by="agent") == (
+            "buero_piloti",
+            "Piloti-Dokument",
+        )
+        # Same hit without the provenance — the shelf decides, exactly as before.
+        assert nr.lane_for_hit(shelf="project", collection="proj_abc") == ("projekt", "Projektwissen")
+
+    def test_it_beats_an_explicit_doc_class(self):
+        """doc_class is the first-priority signal for everything else, and its
+        label fallback is "Baurecht" — law blue for a document we wrote."""
+        assert nr.lane_for_hit(doc_class="gesetz", shelf="archiv", authored_by="agent") == (
+            "buero_piloti",
+            "Piloti-Dokument",
+        )
+
+    def test_the_lane_is_office_knowledge_not_law(self):
+        from aiq_agent.common.source_kinds import kind_for_lane
+
+        lane_key, _label = nr.lane_for_hit(authored_by="agent")
+        assert kind_for_lane(lane_key) == "buero"
+
+    def test_the_knowledge_hit_classifier_agrees(self):
+        assert nr.lane_for_knowledge_hit(shelf="project", authored_by="agent") == (
+            "buero_piloti",
+            "Piloti-Dokument",
+        )
+
+    def test_an_unmarked_hit_is_untouched(self):
+        for authored_by in (None, "", "human", "Marianne"):
+            assert nr.lane_for_hit(shelf="archiv", authored_by=authored_by) == ("buero", "Büroarchiv")
 
 
 class TestLaneForKnowledgeHit:
@@ -583,8 +645,21 @@ class TestParcelNote:
         assert note is not None
         assert "Bebauungsplan: bplan_7602.pdf" in note
         assert "Flächenwidmungsplan: fwp_wien.pdf" in note
-        assert "maßgebliche Quelle" in note
+        # The heading names what these documents govern; that is the whole claim.
+        assert "maßgeblich für Widmung, Bauklasse, Gebäudehöhe, Fluchtlinien" in note
         assert "gutachten.pdf" not in note
+
+    def test_the_note_is_the_file_list_and_not_the_doctrine(self):
+        """What to DO with a parcel document is standing doctrine and lives
+        above the KV-cache boundary (`prompts/piloti_static.md`). Repeating it
+        under the file list charged the same three sentences on every call of
+        every turn that had one (ADR-0060 amendment)."""
+        note = nr.parcel_note([{"file_name": "bplan_7602.pdf", "tags": ["Bebauungsplan"]}])
+
+        assert note is not None
+        assert "knowledge_search" not in note
+        assert "unzulässig" not in note
+        assert note.count("\n") == 1
 
     def test_corpus_collection_field_defaults_and_loads(self, tmp_path):
         import yaml
@@ -637,6 +712,16 @@ class TestGuessDisplayTitle:
     def test_edition_year_is_not_mistaken_for_the_number(self):
         assert nr.guess_display_title("oib-rl_6_ausgabe_mai_2023.pdf") == "OIB-Richtlinie 6, Ausgabe Mai 2023"
 
+    def test_an_edition_other_than_the_shipped_one_is_read_not_assumed(self):
+        # The parser used to know exactly one edition, so the next OIB release
+        # would have been labelled "Mai 2023" or refused outright.
+        assert nr.guess_display_title("oib-rl_2_ausgabe_maerz_2019.pdf") == "OIB-Richtlinie 2, Ausgabe März 2019"
+        assert nr.guess_display_title("oib-rl_4_ausgabe_april_2027.pdf") == "OIB-Richtlinie 4, Ausgabe April 2027"
+        assert nr.guess_display_title("oib-rl_4_ausgabe_2015.pdf") == "OIB-Richtlinie 4, Ausgabe 2015"
+        assert nr.guess_display_title("oib-rl_2_leitfaden_ausgabe_oktober_2027_rev.2.pdf") == (
+            "OIB-Richtlinie 2 – Leitfaden, Ausgabe Oktober 2027, Rev. 2"
+        )
+
     def test_non_oib_returns_none(self):
         assert nr.guess_display_title("Brandschutzkonzept_v3.pdf") is None
         assert nr.guess_display_title("") is None
@@ -644,7 +729,200 @@ class TestGuessDisplayTitle:
     def test_covers_every_real_corpus_file(self):
         """Every shipped OIB corpus PDF derives a confident (non-None) title."""
         corpus = Path("data/oib")
-        if not corpus.is_dir():
-            pytest.skip("corpus not present in this checkout")
-        for pdf in corpus.glob("*.pdf"):
+        # The directory is committed (it carries a README); the PDFs are
+        # operator-provided and gitignored. Guarding on the directory would let
+        # this pass vacuously in every fresh clone, asserting nothing at all.
+        pdfs = sorted(corpus.glob("*.pdf"))
+        if not pdfs:
+            pytest.skip("no OIB corpus in this checkout — see data/oib/README.md")
+        for pdf in pdfs:
             assert nr.guess_display_title(pdf.name), pdf.name
+
+
+class TestNormsDirResolution:
+    """The YAML seed must be found from any working directory of the checkout.
+
+    Every package suite that boots the registry (``frontends/aiq_api`` included)
+    used to see an empty registry when run from its own directory: the default
+    ``configs/norms`` is cwd-relative, and nothing said so. It failed four route
+    tests for weeks and read as a test bug.
+    """
+
+    def test_explicit_path_wins(self, tmp_path, monkeypatch):
+        monkeypatch.setenv(nr.ENV_NORMS_DIR, str(tmp_path / "env"))
+        assert nr._norms_dir(str(tmp_path / "explicit")) == tmp_path / "explicit"
+
+    def test_env_var_beats_the_default(self, tmp_path, monkeypatch):
+        monkeypatch.setenv(nr.ENV_NORMS_DIR, str(tmp_path / "env"))
+        assert nr._norms_dir(None) == tmp_path / "env"
+
+    def test_default_resolves_against_the_repo_root_from_another_cwd(self, tmp_path, monkeypatch):
+        monkeypatch.delenv(nr.ENV_NORMS_DIR, raising=False)
+        monkeypatch.chdir(tmp_path)
+        resolved = nr._norms_dir(None)
+        assert resolved.is_absolute()
+        assert (resolved / "at" / "registry.yml").is_file()
+        assert nr.registry_yaml_files(), "the seed must load from a foreign working directory"
+
+    def test_default_stays_relative_when_the_cwd_holds_the_seed(self, tmp_path, monkeypatch):
+        monkeypatch.delenv(nr.ENV_NORMS_DIR, raising=False)
+        (tmp_path / "configs" / "norms").mkdir(parents=True)
+        monkeypatch.chdir(tmp_path)
+        assert nr._norms_dir(None) == Path(nr.DEFAULT_NORMS_DIR)
+
+
+class TestOibFamilies:
+    """Which Richtlinien belong together, derived from what is INDEXED.
+
+    "OIB-Richtlinien 1–6" names no members, and OIB-RL 2 is four documents.
+    Membership is derived from the corpus's own filenames rather than listed
+    here, so a deployment without a 2.3 is never told it has one and a corpus
+    that grows a 2.4 needs no code change.
+    """
+
+    def test_a_richtlinie_with_parts_reports_all_of_them(self):
+        from aiq_agent.common.norm_registry import oib_families
+
+        families = oib_families(
+            [
+                "oib-rl_2_ausgabe_mai_2023.pdf",
+                "oib-rl_2.3_ausgabe_mai_2023.pdf",
+                "oib-rl_2.1_ausgabe_mai_2023.pdf",
+                "oib-rl_2.2_ausgabe_mai_2023.pdf",
+            ]
+        )
+
+        assert [(f.key, f.members) for f in families] == [("2", ("2", "2.1", "2.2", "2.3"))]
+        assert families[0].label == "OIB-Richtlinie 2"
+
+    def test_a_richtlinie_without_parts_is_still_a_family(self):
+        """One member is a fact about the corpus. It is a different statement
+        from "we do not know what parts it has"."""
+        from aiq_agent.common.norm_registry import oib_families
+
+        assert [f.members for f in oib_families(["oib-rl_3_ausgabe_mai_2023.pdf"])] == [("3",)]
+
+    def test_reading_aids_are_not_members(self):
+        """A Leitfaden, an Erläuterung and an Änderungsdokument are read WITH a
+        Richtlinie. Counting them as parts would let an overview answer look
+        complete for having opened an interpretation aid."""
+        from aiq_agent.common.norm_registry import oib_families
+        from aiq_agent.common.norm_registry import oib_family_member
+
+        assert oib_family_member("oib-rl_2_leitfaden_ausgabe_mai_2023.pdf") is None
+        assert oib_family_member("oib-rl_6-leitfaden_ausgabe_mai_2023.pdf") is None
+        assert oib_family_member("erlaeuterungen_oib-rl_2_ausgabe_mai_2023.pdf") is None
+        assert oib_family_member("aenderungen_oib-rl_2_ausgabe_mai_2023.pdf") is None
+        assert oib_family_member("oib-rl_begriffsbestimmungen_ausgabe_mai_2023.pdf") is None
+        assert oib_families(["oib-rl_2_leitfaden_ausgabe_mai_2023.pdf"]) == []
+
+    def test_a_project_file_is_not_a_member(self):
+        from aiq_agent.common.norm_registry import oib_family_member
+
+        assert oib_family_member("Brandschutzkonzept.pdf") is None
+
+    def test_two_editions_of_one_part_are_one_member(self):
+        """The family is about which requirements exist, not how many files
+        carry them."""
+        from aiq_agent.common.norm_registry import oib_families
+
+        families = oib_families(["oib-rl_2_ausgabe_mai_2023.pdf", "oib-rl_2_ausgabe_april_2019.pdf"])
+        assert [f.members for f in families] == [("2",)]
+
+    def test_members_sort_numerically_and_families_by_number(self):
+        """`2.10` after `2.9`, and family 10 after family 2 — both of which a
+        string sort gets backwards."""
+        from aiq_agent.common.norm_registry import oib_families
+
+        names = [f"oib-rl_2.{i}_x.pdf" for i in (10, 9, 2)] + ["oib-rl_10_x.pdf", "oib-rl_2_x.pdf"]
+        families = oib_families(names)
+
+        assert [f.key for f in families] == ["2", "10"]
+        assert families[0].members == ("2", "2.2", "2.9", "2.10")
+
+
+class TestFamilyQueryNumber:
+    """Which questions ask about a whole Richtlinie.
+
+    "Was weißt du über die OIB 2?" is a question about four documents, and
+    ranked passages answer it with the two that scored best. Detected here, the
+    retrieval layer answers it with every part the corpus holds in one round.
+    The detection has to be tight in one direction: a topic question that
+    happens to name the Richtlinie ("OIB 2 Fluchtweglänge GK 4") is an ordinary
+    search, and turning it into an overview would cost the reader the passage
+    they asked for.
+    """
+
+    @pytest.mark.parametrize(
+        "query",
+        [
+            "was weißt du über die oib 2",
+            "OIB 2",
+            "OIB-Richtlinie 2.1",
+            "worum geht es in der richtlinie 2",
+            "OIB 2 Ausgabe Mai 2023",
+            "Was weißt du über die OIB 2?",
+            "welche Punkte hat die OIB 2",
+            "OIB-RL 2 Überblick",
+            "gib mir eine Zusammenfassung der OIB 2",
+        ],
+    )
+    def test_a_question_about_the_richtlinie_itself_names_its_family(self, query):
+        from aiq_agent.common.norm_registry import family_query_number
+
+        assert family_query_number(query) == "2"
+
+    def test_a_part_number_resolves_to_its_family(self):
+        """A reader asking about 2.1 is inside a Richtlinie whose other parts
+        they are unlikely to know exist."""
+        from aiq_agent.common.norm_registry import family_query_number
+
+        assert family_query_number("OIB-Richtlinie 2.3") == "2"
+
+    def test_every_spelling_of_the_anchor_is_read(self):
+        from aiq_agent.common.norm_registry import family_query_number
+
+        assert family_query_number("oib rl 4 überblick") == "4"
+        assert family_query_number("OIB-RL 4") == "4"
+        assert family_query_number("richtlinie 4") == "4"
+        assert family_query_number("was regelt die RL 4") == "4"
+
+    @pytest.mark.parametrize(
+        "query",
+        [
+            "OIB 2 Fluchtweglänge GK 4",
+            "was sagt die OIB 2 zum Brandschutz",
+            "Fluchtwege im Wohnbau",
+            "OIB-RL 2 Pkt. 5.1",
+            "OIB 2 Punkt 3.5.2",
+            "OIB 2 Seite 12",
+            "§ 12 OIB 2",
+            "Tabelle 1b der OIB 2",
+            "oib-rl_2_ausgabe_mai_2023.pdf",
+            "OIB-Richtlinie 2 Anhang",
+            "",
+            "   ",
+        ],
+    )
+    def test_everything_else_stays_an_ordinary_search(self, query):
+        from aiq_agent.common.norm_registry import family_query_number
+
+        assert family_query_number(query) is None
+
+    def test_two_families_named_at_once_are_not_one_overview(self):
+        """ "Unterschied OIB 2 und OIB 3" is a comparison; a single family
+        overview cannot be both, and answering with one of them would be the
+        wrong document stated confidently."""
+        from aiq_agent.common.norm_registry import family_query_number
+
+        assert family_query_number("OIB 2 und OIB 3") is None
+
+    def test_the_detected_number_is_the_key_oib_families_groups_by(self):
+        """The contract between detection and resolution: what this returns is
+        what `oib_families` keys a family by, or the branch resolves nothing."""
+        from aiq_agent.common.norm_registry import family_query_number
+        from aiq_agent.common.norm_registry import oib_families
+
+        families = oib_families(["oib-rl_2_ausgabe_mai_2023.pdf", "oib-rl_2.3_ausgabe_mai_2023.pdf"])
+
+        assert [family.key for family in families] == [family_query_number("was weißt du über die OIB 2")]

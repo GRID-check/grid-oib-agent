@@ -1,4 +1,5 @@
 from .state import DeepResearchAgentState
+from .state import last_message_text
 from .subagent_contracts import AnswerComponent
 from .subagent_contracts import AnswerStrategy
 from .subagent_contracts import Constraint
@@ -28,4 +29,5 @@ __all__ = [
     "SourceRecommendation",
     "SourceRoutingPlan",
     "TaskAnalysis",
+    "last_message_text",
 ]

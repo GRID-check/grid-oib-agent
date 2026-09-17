@@ -1,0 +1,30 @@
+features:
+  - >
+    Nennt eine Antwort eine Datei beim Namen — „Beginnen Sie mit pd8280-2.pdf" —,
+    ist dieser Name jetzt anklickbar und öffnet das Dokument neben der Antwort.
+    Bisher war er reiner Text: Der Weg dorthin führte über die Dateien, das
+    Suchfeld und den abgetippten Namen.
+  - >
+    Verlinkt wird nur, was Sie tatsächlich haben. Ein Name, hinter dem in
+    Projektdateien, Büroarchiv und den Beilagen dieses Chats kein Dokument
+    steht, bleibt gewöhnlicher Text — ein Verweis, der ins Leere führt, wäre
+    schlechter als gar keiner.
+  - >
+    Beim Überfahren mit der Maus sagt der Name, wofür man sich entscheidet: aus
+    welchem Bestand die Datei stammt (Projekt, Büroarchiv oder Beilage in diesem
+    Chat), Format, Größe und Seitenzahl, die Kurzbeschreibung — und ob Piloti
+    das Dokument gelesen hat.
+  - >
+    Der Name ist auch in Tabellen anklickbar — etwa in der Zeile „Wichtigste
+    Datei" einer Vergleichstabelle, die genau dazu da ist, auf Unterlagen zu
+    verweisen.
+fixes:
+  - >
+    Eine Datei, die Sie in diesem Chat als Beilage hochgeladen haben, wird jetzt
+    auch dann gefunden, wenn die Antwort sie beim Namen nennt. Bisher kannte die
+    Auflösung nur Projektdateien und Büroarchiv.
+  - >
+    Schreibt eine Antwort einen Dateinamen anders groß als die Datei selbst,
+    wird sie trotzdem gefunden — sowohl beim Verweis im Text als auch in den
+    Dokumentkarten, wo dieselbe Datei bisher als nicht auffindbar angezeigt
+    wurde.

@@ -36,7 +36,65 @@ export const skills = {
       delete: 'Delete',
       viewBody: 'View instruction',
       enabledAria: 'Use the skill “{name}” in this organization',
+      openAria: 'Open the skill “{name}”',
     },
+    /** Filter the whole page by name or description. */
+    search: {
+      label: 'Search skills',
+      placeholder: 'Search skills…',
+      noMatches: 'No skills match “{query}”.',
+      showAll: 'Show everything',
+    },
+    /** Category subheadings inside each half of the page. */
+    category: {
+      unsortedHeading: 'Unsorted',
+    },
+    /** The org's own category arrangement — create, rename, remove. */
+    categories: {
+      button: 'Categories',
+      title: 'Arrange categories',
+      description:
+        'Categories group the Skills tab. Removing one never removes the skills on it — they fall back to unsorted.',
+      newPlaceholder: 'New category name…',
+      create: 'Add category',
+      nameLabel: 'Name',
+      descriptionLabel: 'Description (optional)',
+      save: 'Save',
+      cancel: 'Cancel',
+      rename: 'Rename',
+      renameAria: 'Rename category “{name}”',
+      delete: 'Remove category',
+      deleteAria: 'Remove category “{name}”',
+      count: '{count, plural, one {# skill} other {# skills}}',
+      deleteTitle: 'Remove the category “{name}”?',
+      deleteDescription:
+        '{count, plural, one {# skill stands on it and falls back to unsorted.} other {# skills stand on it and fall back to unsorted.}}',
+      deleteConfirm: 'Remove category',
+      empty: 'No categories yet — add one to start arranging.',
+      createError: 'The category could not be saved.',
+      deleteError: 'The category could not be removed.',
+    },
+  },
+
+  /** The skill drawer — the same card, opened up. */
+  drawer: {
+    close: 'Close details',
+    categoryLabel: 'Category',
+    unsorted: 'Unsorted',
+    statusLabel: 'Status',
+    statusOn: 'In play',
+    statusOff: 'Switched off',
+    originLabel: 'Maintained by',
+    switchAria: 'Use the skill “{name}” in this organization',
+    instructionHeading: 'Instruction',
+    detailHeading: 'About this skill',
+    originOrg: 'Written in this organization',
+    originPlatform: 'Curated by Piloti',
+    originClone: 'Cloned from “{name}”',
+    goneTitle: 'Not found',
+    gone: 'This skill is not on this page. The link may be stale, or the skill was deleted.',
+    /** The title while a deep link is still being checked — no finding yet. */
+    loadingTitle: 'Loading',
   },
 
   // What Piloti curates for every organization — the top of the page, because
@@ -56,15 +114,45 @@ export const skills = {
   },
 
   editor: {
+    /** The three questions the builder asks, in order. */
+    steps: {
+      label: 'Steps',
+      progress: 'Step {current} of {total}',
+      back: 'Back',
+      next: 'Next',
+      what: 'What it does',
+      instructions: 'Instructions',
+      check: 'Check',
+      whatTitle: 'What can this skill do?',
+      whatHint:
+        'These two lines are all an agent reads before deciding whether to load the skill. Everything else is only read once it has.',
+      instructionsTitle: 'What should it do?',
+      instructionsHint:
+        'The procedure, in the words you would use to brief a colleague. Loaded only when the agent reaches for the skill.',
+      checkTitle: 'Read it back',
+      checkHint:
+        'A reviewer reads the skill the way an agent will. Run it, then decide what its findings are worth.',
+      advanced: 'Advanced',
+    },
     review: {
       heading: 'Skill check',
       subtitle:
-        'A reviewer reads the skill the way an agent will and says what would stop it being picked. Advisory — it never blocks saving.',
+        'A reviewer reads the skill the way an agent will and says what would stop it being picked. Run it before saving; what it finds is yours to weigh.',
       action: 'Check this skill',
       running: 'Checking…',
       clean: 'Nothing to flag. The description says what the skill does and when to use it.',
       // Deliberately not "looks good": the reviewer did not run.
-      unavailable: 'The check could not run just now. Nothing was assessed — try again in a moment.',
+      unavailable: 'The check could not run just now. Nothing was assessed — you can still save.',
+      /** Under the disabled save, so the button is never a dead end. */
+      required: 'Run the check before saving.',
+      /** The button once a verdict exists: re-running IS the job by then. */
+      again: 'Check again',
+      /** Beside a field, how many findings it still carries. */
+      openCount: '{count, plural, one {# finding} other {# findings}}',
+      /** The verdict on screen is about text that has since changed. */
+      staleAction: 'The skill has changed since this check. Run it again to see where it stands.',
+      /** The verdict on screen is about text that has since changed. */
+      stale: 'The skill has changed since this check. Run it again.',
       fields: {
         name: 'Name',
         description: 'Description',
@@ -147,7 +235,7 @@ export const skills = {
       applied: 'Document applied.',
       ready: 'The document is valid. “Apply” writes it into the fields above.',
       unchanged: 'Unchanged — identical to the fields above.',
-      ignored: 'GRID cannot store these fields and drops them on apply: {keys}.',
+      ignored: 'Piloti cannot store these fields and drops them on apply: {keys}.',
       errors: {
         'missing-frontmatter':
           'The document does not start with a “---” block. A SKILL.md always opens with YAML frontmatter.',
@@ -166,9 +254,12 @@ export const skills = {
       noMatches: 'No card matches that search.',
       removeAria: 'Remove card type “{type}” from the preference',
     },
-    autoInvokeLabel: 'Agent may pick this',
-    autoInvokeHint:
-      'On: the agent sees the description every turn and may load the skill itself. Off: only a “/” invocation or a job attaches it.',
+    category: {
+      heading: 'Category',
+      hint: 'Where the toolbox groups it. Unsorted is a real answer.',
+      label: 'Category',
+      unsorted: 'Unsorted',
+    },
     hiddenLabel: 'Keep off the live line',
     hiddenHint:
       'After it runs, stay off the running one-liner. Still named under the answer.',
@@ -204,7 +295,11 @@ export const skills = {
     // The chip shown under the composer once a skill is invoked.
     invoked: {
       label: 'Skill',
-      hint: 'Its instructions load at the start of this turn.',
+      // Never „its instructions load". That was true when a named skill was
+      // FORCED onto the turn; since ADR-0060 the name is just text Piloti
+      // reads, and it decides. A chip that promises loading is the UI
+      // asserting an affordance the product no longer has.
+      hint: 'Piloti sees this name and decides whether to load the skill.',
       remove: 'Remove the {name} skill from this message',
     },
     // How an activated skill is reported on the answer.

@@ -67,6 +67,16 @@ tasks:
       # Delegate to the same per-tier task groups CI invokes, so there is one
       # definition of each tier's gate rather than a second list here that can
       # drift from the workflow (that drift is exactly what this file removes).
+      #
+      # `pkg:test` is deliberately NOT here, and the number is the reason:
+      # packages/ifc-spatial-py is 636 tests in 3m55s (measured 2026-09-10)
+      # against its own uv.lock and its own IfcOpenShell/shapely toolchain, on a
+      # directory most changes never touch. CI runs it behind a `packages/**`
+      # paths filter (ci.yml's `packages` job), which pays that cost only on the
+      # commits that earn it; making every local `task verify` pay it would be
+      # the fastest way to get people to stop running `task verify`. Run
+      # `task pkg:test` when you change `packages/`, the same discipline
+      # `db:test:rls` asks for at the tenant boundary.
       - task: lint:repo
       - task: be:verify
       - task: fe:verify
@@ -91,6 +101,11 @@ tasks:
 
   setup:
     desc: Install every toolchain this repo needs (backend venv + UI + web + infra)
+    env:
+      # Same reason as .github/actions/setup-python-env: nltk pathsec refuses
+      # hard-linked corpora, and SentenceSplitter (production + retrieval gate)
+      # opens them. Copy mode is the install, not a per-job workaround.
+      UV_LINK_MODE: copy
     cmds:
       - uv venv .venv
       - uv sync --group dev
@@ -103,6 +118,9 @@ tasks:
       # program's own TypeScript and Vitest were never fetched.
       - npm --prefix deploy/pulumi ci
       - npm --prefix deploy/pulumi/policy ci
+      # packages/ used to be skipped here too, so `task pkg:test` on a fresh
+      # clone failed at "vitest: not found" rather than at an assertion.
+      - task: pkg:install
       - task: agents:setup
 
   # ── agent skills (apm) ──────────────────────────────────────────────────────
@@ -125,9 +143,61 @@ tasks:
       - uvx --from apm-cli=={{.APM_VERSION}} apm install --frozen
 
   agents:audit:
-    desc: Scan installed agent skills for drift and hidden Unicode
+    desc: Fail when apm.lock.yaml is stale against skills/, or the deployed skills have drifted
     cmds:
-      - uvx --from apm-cli=={{.APM_VERSION}} apm audit
+      # THE GATE for `skills/`. Nothing else can be: `skills/` is the source and
+      # `.claude/`/`.agents/` are generated and gitignored, so a diff shows the
+      # edited skill and never the lockfile it invalidated. That is how
+      # apm.lock.yaml went stale against seven files while a perfectly good
+      # `apm audit` sat one command away — the same shape as the `sources/`
+      # suites before this branch: a check that exists, and no gate that runs it.
+      #
+      # Two different failures, so two checks:
+      #
+      # 1. `apm install --frozen` re-deploys from `skills/` and REWRITES the
+      #    lockfile's recorded hashes. If that rewrite changes the file, the
+      #    committed lockfile did not describe `skills/` — someone edited a
+      #    skill and never re-locked. The file on disk is now correct, so the
+      #    fix is to commit it. (`--frozen` only refuses when apm.yml and the
+      #    lockfile disagree about PACKAGES; it says nothing about content,
+      #    which is why this comparison and not its exit status is the signal.)
+      #
+      # 2. `apm audit` then compares the deployment against the lockfile — a
+      #    post-condition on step 1, confirming the install did what it said.
+      #    It cannot be run FIRST: a fresh checkout has no `.claude/` or
+      #    `.agents/` at all, so an audit before the install reports every file
+      #    missing. (A hand-edited file under `.claude/` is therefore repaired
+      #    by step 1 rather than reported by step 2 — correct, since those
+      #    directories are generated output, and worth knowing so nobody reads
+      #    a green run as proof nobody touched them.) The audit PRINTS its
+      #    verdict and EXITS 0 either way, so the status here comes from
+      #    matching its SUCCESS line. Matching the failure line instead would
+      #    mean a reworded apm release silently stops catching anything — the
+      #    same defect one level up. Its info-level "unusual characters"
+      #    findings are printed and not gated: this repo's prose is German and
+      #    legitimately full of non-ASCII.
+      - |
+        before=$(sha256sum apm.lock.yaml | cut -d' ' -f1)
+        uvx --from apm-cli=={{.APM_VERSION}} apm install --frozen
+        after=$(sha256sum apm.lock.yaml | cut -d' ' -f1)
+        if [ "$before" != "$after" ]; then
+          echo ''
+          echo 'task agents:audit: apm.lock.yaml was stale against skills/.'
+          echo 'It has just been rewritten to match. COMMIT apm.lock.yaml.'
+          exit 1
+        fi
+        report=$(uvx --from apm-cli=={{.APM_VERSION}} apm audit 2>&1) || true
+        printf '%s\n' "$report"
+        case "$report" in
+          *"No drift detected"*) ;;
+          *)
+            echo ''
+            echo 'task agents:audit: the deployed skills do not match apm.lock.yaml.'
+            echo 'Something edited .claude/ or .agents/ directly; those are generated.'
+            echo 'Fix the source under skills/, then re-run `task agents:setup`.'
+            exit 1
+            ;;
+        esac
 
   agents:update:
     desc: Refresh agent-skill pins in apm.yml, then review the diff before committing
@@ -180,11 +250,22 @@ tasks:
     desc: 'One shard of the UI suite, as a blob report (CI: SHARD=1/4 task fe:test:shard)'
     dir: '{{.UI}}'
     cmds:
-      # `--reporter=blob` writes .vitest-reports/ instead of printing a summary;
+      # `--reporter=blob` writes a blob instead of printing a summary;
       # fe:test:merge stitches the shards back into one run + one coverage set.
       # Coverage must be collected per shard — it cannot be recomputed at merge
       # time, because each shard only ever loaded its own slice of the app.
-      - bun run test:shard -- --shard={{.SHARD}}
+      #
+      # `--outputFile` is EXPLICIT rather than left to the reporter's default,
+      # and `test:merge` pins the same directory. Vitest moved that default
+      # from `.vitest-reports/` to `.vitest/blob/` in v5, which broke the
+      # round-trip silently: the shard wrote one place, ci.yml uploaded another,
+      # and `Frontend coverage` failed at the far end with an ENOENT naming a
+      # directory nothing in this repo mentions. Pinned here, a future move of
+      # the default cannot reach the workflow. The name carries the shard
+      # (`blob-1-6.json`) because all six artifacts are downloaded into one
+      # directory with `merge-multiple: true`, where a fixed name would
+      # overwrite five of them.
+      - bun run test:shard -- --shard={{.SHARD}} --outputFile=.vitest-reports/blob-{{.SHARD | replace "/" "-"}}.json
 
   fe:test:merge:
     desc: Merge sharded blob reports into one result + the coverage CI comments on
@@ -211,10 +292,18 @@ tasks:
     desc: 'Measure every /dev surface at a phone viewport (optional: -- <registry id>)'
     dir: '{{.UI}}'
     cmds:
-      # Reports overflow and sub-44px targets. NOT part of `verify`: the shape
-      # errors it exists for are held statically by `mobile-affordances.spec.ts`,
-      # and a browser measurement of ~120 surfaces is a deliberate run, not a
-      # per-commit tax. Reach for it when you build a user-visible surface.
+      # Reports overflow, scroll traps and sub-44px targets. NOT part of
+      # `verify`: the shape errors it exists for are held statically by
+      # `mobile-affordances.spec.ts`, and a browser measurement of ~120 surfaces
+      # is a deliberate run, not a per-commit tax. Reach for it when you build a
+      # user-visible surface.
+      #
+      # NEEDS A CHROMIUM. The repo pins `playwright-core`, which ships none, so
+      # this reads `CHROMIUM_PATH`, `PLAYWRIGHT_BROWSERS_PATH`, `/opt/pw-browsers`
+      # (devcontainer and CI image) and Playwright's own per-OS cache — which is
+      # where `npx playwright install chromium` puts it, so on a bare machine that
+      # one command is the whole story. The script says so itself rather than
+      # failing on a missing-executable stack trace.
       - bun run touch-audit -- {{.CLI_ARGS}}
 
   fe:provision:authz:
@@ -313,6 +402,97 @@ tasks:
     cmds:
       - '{{.PY}} -X faulthandler -m pytest tests/ -q'
 
+  be:test:sources:
+    desc: The sources/ package suites, which no CI job used to run
+    cmds:
+      # One pytest per package, not `pytest sources`, and the glob rather than a
+      # list so a new package is covered the day it lands.
+      #
+      # Every package ships a `tests/__init__.py`, so one run over all of them
+      # derives the module name `tests.conftest` for each and the second one
+      # aborts collection with "Plugin already registered under a different
+      # name". Splitting the invocation is what makes this suite runnable at
+      # all; merging it into one run needs those conftest names disambiguated
+      # first.
+      - 'for d in sources/*/tests; do "{{.PY}}" -X faulthandler -m pytest "$d" -q || exit 1; done'
+
+  prompts:pull:
+    desc: 'Refresh the bundled fallback prompt from Langfuse: task prompts:pull [-- --label <label>]'
+    env:
+      PYTHONPATH: src
+    cmds:
+      # Langfuse owns the platform prompt; this only ever READS it. The file it
+      # writes (`agents/piloti/prompts/piloti_static.md`) is the fallback a
+      # process renders when prompt management is off or Langfuse is
+      # unreachable, so it is allowed to lag and nothing gates on the diff.
+      # There is deliberately no push and no drift check.
+      - '{{.PY}} scripts/prompts_pull.py {{.CLI_ARGS}}'
+
+  be:eval:retrieval:
+    desc: 'Retrieval structure check — the Punkt arm''s citable-unit share (model-free, offline; NEEDS the operator corpus in data/oib)'
+    env:
+      PYTHONPATH: src:frontends/benchmarks/oib_retrieval/src
+    cmds:
+      # ADR-0058 rule 7 made measurable: a chunker or German-analyzer change
+      # that makes fewer Punkte survive as a citable unit fails here, on the
+      # real corpus, with no embedder and no key. Baseline is in the harness
+      # README; the threshold sits a few points under it so a measurement
+      # wobble is not a failure while a real regression is.
+      #
+      # NOT A CI GATE ANY MORE. It was one until 2026-09-09, when the corpus
+      # became operator-provided and gitignored (data/oib/README.md) and no CI
+      # checkout could hold the PDFs to measure. This is now an opt-in local
+      # tool: run it yourself before a chunker or German-analyzer change, and
+      # quote the number in the PR. Without a corpus it exits 1 saying so.
+      # What was lost and what would restore it: ADR-0058, "Update (2026-09-09)".
+      - '{{.PY}} -m oib_retrieval_eval.runner --structure-only --fail-below {{.RETRIEVAL_GATE_PCT | default "95"}}'
+
+  be:eval:overview:
+    desc: Overview/exact/paraphrase golden recall report — the item-12 ratchet (offline, prints cohort table + per-query diff)
+    env:
+      PYTHONPATH: src:frontends/benchmarks/oib_retrieval/src
+    cmds:
+      # Gating lives in tests/benchmarks/test_oib_overview_recall.py (CI runs it
+      # via be:test:ci); this task is the human entry point to the same numbers.
+      - '{{.PY}} -m oib_retrieval_eval.overview'
+
+  be:eval:record-vector:
+    desc: Re-record the vector channel for the overview golden set (needs the embeddings key; writes a fixture CI then reads offline)
+    env:
+      PYTHONPATH: src:frontends/benchmarks/oib_retrieval/src:sources/knowledge_layer/src
+    cmds:
+      # The recording is the only part of that harness that needs a model and a
+      # key. It is committed so `be:eval:overview` and CI stay offline; re-run
+      # this when AIQ_EMBED_MODEL, data/oib or the golden questions change.
+      - '{{.PY}} -m oib_retrieval_eval.record_vector'
+
+  be:eval:loop:
+    desc: 'Agentic-loop shape eval — rounds, locator use, checkpoint source, truncation (NEEDS a running backend with the corpus; set GRID_LOOP_EVAL_URL)'
+    cmds:
+      # Sibling of be:eval:retrieval and unrunnable in CI for the same reason:
+      # the corpus is operator-provided and gitignored, and every question here
+      # costs real model calls. What it measures is the SHAPE of a turn, not
+      # whether the right passage came back — that is be:eval:retrieval's job.
+      #
+      # Two runs and a diff:
+      #   GRID_LOOP_EVAL_URL=… task be:eval:loop -- --out /tmp/before.csv
+      #   …change the loop, redeploy…
+      #   GRID_LOOP_EVAL_URL=… task be:eval:loop -- --out /tmp/after.csv
+      #   task be:eval:loop -- --compare /tmp/before.csv /tmp/after.csv
+      # The compare mode needs no backend at all. Without a URL the run exits 2
+      # saying so rather than writing an empty CSV somebody later compares.
+      - '{{.PY}} scripts/loop_eval.py {{.CLI_ARGS}}'
+
+  be:eval:turn-shapes:
+    desc: ADR-0052 turn-shape eval against Piloti's live model (needs OPENROUTER_API_KEY; skips without it)
+    cmds:
+      # The two behaviours ADR-0052 moved from the router into the prompt — a
+      # greeting does not search, a commissioned report escalates before it
+      # retrieves — plus a control question that must still search. Real
+      # prompt, real model, stub tools that record the trace. `-rs` prints the
+      # skip reason, so a run without the key says so instead of going green.
+      - '{{.PY}} -X faulthandler -m pytest tests/benchmarks/test_turn_shapes_live.py -q -rs'
+
   be:test:ci:
     desc: Backend core suite with the coverage gate CI enforces
     cmds:
@@ -342,6 +522,10 @@ tasks:
       - task: be:lint
       - task: be:test:ci
       - task: be:test:api:ci
+      # sources/ used to be covered only by the push-stage pre-commit hook,
+      # which CI's repo-lint job skips — a stale test there stayed green
+      # through every gate. Now it is part of the tier.
+      - task: be:test:sources
 
   # ── infra (deploy/pulumi) ───────────────────────────────────────────────────
 
@@ -367,6 +551,55 @@ tasks:
     dir: deploy/pulumi
     cmds:
       - npm run preview
+
+  # ── standalone packages (packages/) ─────────────────────────────────────────
+  #
+  # Two implementations of the same spatial surface over IFC (ADR-0045), each
+  # OUTSIDE the workspace it sits next to: `ifc-spatial` has its own
+  # package-lock.json and is not in the UI's bun workspace; `ifc-spatial-py` has
+  # its own uv.lock and is not in the root uv workspace. That is why they get
+  # their own tasks instead of riding `fe:*` or `be:*` — neither toolchain can
+  # see them.
+  #
+  # Until now nothing ran either suite: no Taskfile target, no CI job, no
+  # pre-commit hook. 830 tests behind a default-ON feature that renders OIB
+  # compliance verdicts, and the only thing standing between a broken assertion
+  # and a customer was somebody remembering to run pytest by hand.
+
+  pkg:install:
+    desc: Install the standalone packages' own toolchains (own lockfiles, outside every workspace)
+    cmds:
+      # `ci`, not `install`: the lockfile is the contract here exactly as it is
+      # for the UI and for deploy/pulumi.
+      - npm --prefix packages/ifc-spatial ci
+      # The Python package builds its env on first `uv run`; syncing here means
+      # `pkg:test:py` measures the suite rather than the download.
+      - uv sync --project packages/ifc-spatial-py --all-extras
+
+  pkg:test:ts:
+    desc: 'packages/ifc-spatial: tests + typecheck (own lockfile, ~10s)'
+    cmds:
+      - npm --prefix packages/ifc-spatial test
+      # `typecheck` runs BOTH tsconfigs — the source one and tsconfig.test.json.
+      # A test file that no longer type-checks is how an operator contract
+      # silently stops being asserted.
+      - npm --prefix packages/ifc-spatial run typecheck
+
+  pkg:test:py:
+    desc: 'packages/ifc-spatial-py: pytest against its own uv.lock (636 tests, ~4 min)'
+    cmds:
+      # `--all-extras`, NOT `--extra dev`: pytest is the `dev` extra, and the
+      # suite also collects test_ids_export.py, which needs `ifctester` from the
+      # `ids` extra. Plain `uv run pytest` installs neither and collection dies.
+      # `--project` rather than a `dir:`, so the path in the failure output is
+      # the one you can paste back.
+      - uv run --project packages/ifc-spatial-py --all-extras pytest packages/ifc-spatial-py/tests -q
+
+  pkg:test:
+    desc: Both standalone package suites (packages/ifc-spatial + ifc-spatial-py)
+    cmds:
+      - task: pkg:test:ts
+      - task: pkg:test:py
 
   # ── repo-wide ───────────────────────────────────────────────────────────────
 
@@ -407,8 +640,12 @@ tasks:
       - '{{.RELNOTES}} publish {{.CLI_ARGS}}'
 
   lint:repo:
-    desc: pre-commit across the whole repo — the same scope CI lints
+    desc: pre-commit across the whole repo, plus the agent-skill lockfile — the same scope CI lints
     cmds:
       # From the venv, not PATH: `uv sync --group dev` installs pre-commit into
       # .venv and nothing puts it on PATH.
       - '{{.VENV_BIN}}/pre-commit{{.EXE}} run --all-files'
+      # `skills/` is source and `.claude/`/`.agents/` are generated and
+      # gitignored, so an edit to a skill that was never re-locked shows up
+      # here and nowhere else. See the task for what each half catches.
+      - task: agents:audit

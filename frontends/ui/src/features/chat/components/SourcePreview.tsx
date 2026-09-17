@@ -3,7 +3,14 @@
  * chip opens a preview of the source instead of doing nothing.
  *
  * Behavior by resolved target (see `resolveCitationTarget`):
- *  - `url`      — Web / RIS chips keep linking out to the real source.
+ *  - `url`      — Web chips keep linking out to the real source.
+ *  - `ris`      — an Austrian RIS source opens the in-app reader
+ *                 (`RisDocumentDialog`), with the authoritative RIS link kept in
+ *                 its header. It used to link out like any web source, which
+ *                 took the reader out of the answer to check it (#622).
+ *  - `download` — a stored document with no in-app viewer (.docx, .xlsx, .dwg).
+ *                 The file is offered and the reason is stated; it is NOT the
+ *                 same answer as `info` (#623).
  *  - `document` — knowledge-layer citations that resolve to a project upload
  *                 or a base-corpus PDF open the EXISTING PdfViewerDialog
  *                 (presigned preview URL for project docs, the corpus stream
@@ -22,15 +29,18 @@
 
 'use client'
 
-import { useEffect, useState, type CSSProperties, type FC, type ReactNode } from 'react'
-import { ChevronDown, ChevronUp, ExternalLink, FileSearch, Link2 } from 'lucide-react'
+import { useEffect, useRef, useState, type CSSProperties, type FC, type ReactNode } from 'react'
+import { ChevronDown, ChevronUp, Download, ExternalLink, FileSearch, Link2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
 import { useTranslations } from '@/i18n'
 import { documentFileUrl } from '@/lib/documents/urls'
+import { onDocumentsChanged, useDocumentsGeneration } from '@/lib/documents/document-changes'
+import { startDocumentDownload } from '@/lib/documents/download'
 import { SectionLabel } from '@/components/ui/section-label'
 import { Popover, PopoverAnchor, PopoverContent } from '@/components/ui/popover'
 import { PdfViewerDialog } from '@/features/knowledge/components/pdf-viewer-dialog'
+import { RisDocumentDialog } from '@/features/knowledge/components/ris-document-dialog'
 import {
   SourceSignalChip,
   SourceSignalChipLink,
@@ -42,11 +52,12 @@ import { useChatStore } from '../store'
 import { useHoverPopover } from '@/hooks/use-hover-popover'
 import { CitationPeek } from './CitationPeek'
 import { CopySourceCitationButton } from './CopyCitation'
+import { toQuoteList } from '../lib/source-citation'
 import { CopyCitationLinkButton } from './CopyCitationLink'
 import {
   buildCitationModel,
   citationNumbers,
-  citedLoci,
+  openAtLocus,
   resolveCitationTarget,
   type CitationLocus,
   type CitationRef,
@@ -81,6 +92,12 @@ export const resetSourcePreviewIndexCache = (): void => {
   indexCache.clear()
 }
 
+// A document uploaded DURING the conversation is one the answer can cite and
+// this index has never seen. Without this the chip offered no way in and no
+// reason until a reload — the #623 complaint, on the path its fix did not
+// reach.
+onDocumentsChanged(resetSourcePreviewIndexCache)
+
 const loadSourcePreviewIndex = (
   projectId: string | null,
   conversationId: string | null
@@ -104,9 +121,9 @@ const loadSourcePreviewIndex = (
       // matched nothing — and, before the shelf became part of a document's
       // identity, quietly opened the project's unrelated file of the same name.
       conversationId
-        ? fetch(
-            `/api/session/documents?conversationId=${encodeURIComponent(conversationId)}`
-          ).then((r) => (r.ok ? r.json() : null))
+        ? fetch(`/api/session/documents?conversationId=${encodeURIComponent(conversationId)}`).then(
+            (r) => (r.ok ? r.json() : null)
+          )
         : Promise.resolve(null),
       // The org Archiv (ADR-0024). Feature-gated, so a 403 here is normal and
       // simply yields no Archiv entries — never a failed index. Without this
@@ -179,6 +196,10 @@ export const useSourcePreviewIndex = (
   enabled: boolean
 ): SourcePreviewIndex | null => {
   const [index, setIndex] = useState<SourcePreviewIndex | null>(null)
+  // Reload after a document was added, renamed or deleted. Dropping the cache
+  // above invalidates the next MOUNT; this is what reaches the chips already on
+  // screen, which for a rename or a delete is all of them.
+  const generation = useDocumentsGeneration()
 
   useEffect(() => {
     if (!enabled) return
@@ -193,7 +214,7 @@ export const useSourcePreviewIndex = (
     return () => {
       cancelled = true
     }
-  }, [projectId, conversationId, enabled])
+  }, [projectId, conversationId, enabled, generation])
 
   return enabled ? index : null
 }
@@ -262,6 +283,14 @@ const cardButtonClasses =
 
 const faceClasses = (variant: CitationVariant): string =>
   variant === 'card' ? cardButtonClasses : cn(chipButtonClasses, 'max-w-56')
+
+/**
+ * The card face while nothing can be opened yet (the preview index is still
+ * loading): the same shape, none of the affordances. A hover tint and a press
+ * scale on a box with no handler behind it read as a broken button, which is
+ * exactly what the Herleitung's source chips looked like before resolution.
+ */
+const inertCardClasses = 'flex w-full gap-3 rounded-lg border bg-card p-3 text-left'
 
 /**
  * The card keeps the calm neutral card surface a long list needs and carries
@@ -371,7 +400,7 @@ const CitationFace: FC<CitationFaceProps> = ({
     <>
       {full && index && (
         <span
-          className="mt-0.5 flex h-5 min-w-5 shrink-0 items-center justify-center rounded-md border bg-muted px-1 font-mono text-xs tabular-nums text-muted-foreground"
+          className="bg-muted text-muted-foreground mt-0.5 flex h-5 min-w-5 shrink-0 items-center justify-center rounded-md border px-1 font-mono text-xs tabular-nums"
           aria-hidden="true"
         >
           {index}
@@ -380,7 +409,10 @@ const CitationFace: FC<CitationFaceProps> = ({
       <span className="flex min-w-0 flex-1 flex-col gap-1">
         <span className="flex items-center gap-2">
           {full && (
-            <span className="shrink-0" style={{ color: `var(--source-${signal}, var(--muted-foreground))` }}>
+            <span
+              className="shrink-0"
+              style={{ color: `var(--source-${signal}, var(--muted-foreground))` }}
+            >
               <Icon className="size-4" aria-hidden="true" />
             </span>
           )}
@@ -390,7 +422,7 @@ const CitationFace: FC<CitationFaceProps> = ({
             // OIB-Richtlinie 2.1, Ausgabe Mai 2023") and the distinguishing
             // part is usually at the END, so a single truncated line makes two
             // different Richtlinien read identically.
-            className="line-clamp-2 min-w-0 flex-1 text-sm font-semibold leading-snug text-foreground"
+            className="text-foreground line-clamp-2 min-w-0 flex-1 text-sm font-semibold leading-snug"
             // Storage identity belongs on the tooltip, never in the reading
             // line — a user must not have to read `oib-rl_2_….pdf` to know
             // which document a card stands for.
@@ -401,12 +433,12 @@ const CitationFace: FC<CitationFaceProps> = ({
           {trailing}
         </span>
         {showExcerpt && (
-          <span className="line-clamp-3 text-sm leading-relaxed text-muted-foreground">
+          <span className="text-muted-foreground line-clamp-3 text-sm leading-relaxed">
             {excerpt}
           </span>
         )}
         {showLocator && (
-          <span className="truncate break-all font-mono text-xs text-muted-foreground/80">
+          <span className="text-muted-foreground/80 truncate break-all font-mono text-xs">
             {locator}
           </span>
         )}
@@ -420,6 +452,63 @@ const CitationFace: FC<CitationFaceProps> = ({
 // ---------------------------------------------------------------------------
 
 type DocumentTarget = Extract<CitationTarget, { kind: 'document' }>
+type DownloadTarget = Extract<CitationTarget, { kind: 'download' }>
+type RisTarget = Extract<CitationTarget, { kind: 'ris' }>
+
+/**
+ * Hand a resolved-but-unrenderable document to the reader as a file.
+ *
+ * The mechanics are shared with the Files workspace (`lib/documents/download.ts`);
+ * this hook adds only the pending state and how a failure reads in a chat — a
+ * toast, where the Files pane shows an inline line.
+ *
+ * The target is nullable because the caller learns whether there IS one only
+ * after resolution, and a hook cannot be called conditionally. A null target
+ * yields a `download` that does nothing, which no caller renders a control for.
+ */
+export const useCitationDownload = (
+  target: DownloadTarget | null
+): { isDownloading: boolean; download: () => Promise<void> } => {
+  const t = useTranslations('chat')
+  const [isDownloading, setIsDownloading] = useState(false)
+
+  const download = async (): Promise<void> => {
+    if (!target) return
+    setIsDownloading(true)
+    try {
+      if (!(await startDocumentDownload(target.document.id, target.fileName))) {
+        toast.error(t('sourcePreview.loadFailed'))
+      }
+    } finally {
+      setIsDownloading(false)
+    }
+  }
+
+  return { isDownloading, download }
+}
+
+/**
+ * An image opens in the same dialog as a PDF but on a different path — it is
+ * navigated to by `next/image` at its presigned URL, where a PDF is fetched and
+ * parsed. One predicate, because the open path and the render path disagreeing
+ * about it is a viewer that presigns a URL nothing then loads.
+ */
+const isImageTarget = (target: DocumentTarget): boolean =>
+  target.document.type === 'stored' &&
+  (target.document.contentType ?? '').toLowerCase().startsWith('image/')
+
+/**
+ * The Fundstellen a viewer can actually be pointed at: the ones that name a
+ * page, in page order.
+ *
+ * Page order, not retrieval order — this is a way through the DOCUMENT, and a
+ * contents list that jumps 18 → 5 → 22 is a list of hits. Shared with the
+ * dialog because "does the rail carry the passage" decides whether the dialog
+ * also draws it above the document, and two copies of that answer would drift
+ * into showing it twice or not at all.
+ */
+const navigableLoci = (doc: CitedDocument): CitationLocus[] =>
+  doc.loci.filter((locus) => typeof locus.page === 'number').sort((a, b) => a.page! - b.page!)
 
 /** Tinted "Fundstelle" / cited-passage box shown above the document frame. */
 const CitedPassageBox: FC<{ snippet: string; signal: SourceTint }> = ({ snippet, signal }) => {
@@ -436,20 +525,13 @@ const CitedPassageBox: FC<{ snippet: string; signal: SourceTint }> = ({ snippet,
       >
         {t('sourcePreview.citedPassage')}
       </SectionLabel>
-      <p className="mt-1 max-h-24 overflow-y-auto whitespace-pre-wrap text-sm text-foreground">
+      <p className="text-foreground mt-1 max-h-24 overflow-y-auto whitespace-pre-wrap text-sm">
         {snippet}
       </p>
     </div>
   )
 }
 
-/**
- * Open/fetch state for a document target. Project uploads need a fresh
- * presigned preview URL per open (they expire); base-corpus PDFs stream from
- * the knowledge-base route PdfViewerDialog already builds from `fileName`.
- * The dialog only ever opens with a renderable source — a failed presign
- * surfaces as a toast, not a broken viewer.
- */
 /**
  * The Fundstellen rail — every place in this document the turn read, as a
  * table of contents you can walk.
@@ -472,6 +554,14 @@ const CitedPassageBox: FC<{ snippet: string; signal: SourceTint }> = ({ snippet,
  * found and the answer passed over is part of what the reader is checking, and
  * hiding it would make the document look thinner than the research was. The
  * `[N]` badge is what separates the two.
+ *
+ * It shows for ONE Fundstelle too, and that is deliberate. Withholding it there
+ * was reasoning about navigation — one entry is nowhere to go — but the rail is
+ * not only a way through the document, it is the standing answer to "which
+ * passage am I checking", which a reader deep on page 12 needs whether the
+ * document was read once or four times. Withholding it also made the dialog
+ * change shape between two citations that look identical from the chat, which
+ * reads as a glitch rather than as a statement about the document.
  */
 const LocusRail: FC<{
   document: CitedDocument
@@ -479,14 +569,10 @@ const LocusRail: FC<{
   onSelect: (locus: CitationLocus) => void
 }> = ({ document: doc, activeKey, onSelect }) => {
   const t = useTranslations('chat')
-  // Only loci that name a page are navigable — a whole-document hit has nowhere
-  // else to go. Page order, not retrieval order: this is a way through the
-  // DOCUMENT, and a contents list that jumps 18 → 5 → 22 is a list of hits.
-  const loci = doc.loci
-    .filter((locus) => typeof locus.page === 'number')
-    .sort((a, b) => a.page! - b.page!)
-  // One entry is not a navigation; the passage box below already names it.
-  if (loci.length < 2) return null
+  const loci = navigableLoci(doc)
+  // Nothing that names a page is nothing to point at: the passage box says what
+  // was read, and a rail of one unplaceable entry would say it again, emptier.
+  if (!loci.length) return null
 
   const activeIndex = loci.findIndex((locus) => locus.key === activeKey)
   const step = (delta: number): void => {
@@ -513,48 +599,62 @@ const LocusRail: FC<{
         <span className="flex-1" />
         {/* The stepper is for reading STRAIGHT THROUGH — the reader who wants
             the next passage rather than a particular one, and who should not
-            have to find it in the list to get there. */}
-        <span className="text-xs tabular-nums text-muted-foreground">
-          {t('citationPeek.lociPosition', {
-            index: activeIndex >= 0 ? activeIndex + 1 : 0,
-            count: loci.length,
-          })}
-        </span>
-        <button
-          type="button"
-          onClick={() => step(-1)}
-          disabled={activeIndex <= 0}
-          aria-label={t('citationPeek.previousLocus')}
-          className={stepperClasses}
-        >
-          <ChevronUp aria-hidden="true" className="size-3.5" />
-        </button>
-        <button
-          type="button"
-          onClick={() => step(1)}
-          disabled={activeIndex === loci.length - 1}
-          aria-label={t('citationPeek.nextLocus')}
-          className={stepperClasses}
-        >
-          <ChevronDown aria-hidden="true" className="size-3.5" />
-        </button>
+            have to find it in the list to get there. A single Fundstelle has no
+            through-line, so the controls for one would be three dead affordances
+            over the only entry. */}
+        {loci.length > 1 && (
+          <>
+            <span className="text-muted-foreground text-xs tabular-nums">
+              {t('citationPeek.lociPosition', {
+                index: activeIndex >= 0 ? activeIndex + 1 : 0,
+                count: loci.length,
+              })}
+            </span>
+            <button
+              type="button"
+              onClick={() => step(-1)}
+              disabled={activeIndex <= 0}
+              aria-label={t('citationPeek.previousLocus')}
+              className={stepperClasses}
+            >
+              <ChevronUp aria-hidden="true" className="size-3.5" />
+            </button>
+            <button
+              type="button"
+              onClick={() => step(1)}
+              disabled={activeIndex === loci.length - 1}
+              aria-label={t('citationPeek.nextLocus')}
+              className={stepperClasses}
+            >
+              <ChevronDown aria-hidden="true" className="size-3.5" />
+            </button>
+          </>
+        )}
       </div>
 
-      <ol className="flex min-h-0 gap-1.5 overflow-x-auto pb-1 md:flex-1 md:flex-col md:overflow-x-hidden md:overflow-y-auto md:pb-0">
+      <ol className="flex min-h-0 gap-1.5 overflow-x-auto pb-1 md:flex-1 md:flex-col md:overflow-y-auto md:overflow-x-hidden md:pb-0">
         {loci.map((locus) => {
           const isActive = locus.key === activeKey
           return (
             <li key={locus.key} className="w-52 shrink-0 md:w-full">
               <button
                 type="button"
+                // Follow the reading position. Stepping through a document read
+                // at nine places used to walk the mark off the bottom of the
+                // rail: the entry was current and out of sight, so the one
+                // control that says WHERE YOU ARE stopped saying it exactly when
+                // the list got long enough to need it. `nearest` scrolls only
+                // when it has to, and covers the sideways strip on a phone as
+                // well as the column beside the document.
+                ref={(node) => {
+                  if (isActive) node?.scrollIntoView({ block: 'nearest', inline: 'nearest' })
+                }}
                 onClick={() => onSelect(locus)}
                 aria-current={isActive ? 'true' : undefined}
                 className={cn(
-                  'w-full rounded-lg border px-2.5 py-2 text-left transition-colors duration-snap ease-out',
-                  'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50',
-                  isActive
-                    ? 'border-transparent'
-                    : 'border-border bg-card hover:bg-accent'
+                  'duration-snap w-full rounded-lg border px-2.5 py-2 text-left transition-colors ease-out',
+                  'focus-visible:ring-ring/50 focus-visible:outline-none focus-visible:ring-2',
+                  isActive ? 'border-transparent' : 'border-border bg-card hover:bg-accent'
                 )}
                 // The active entry wears the SOURCE's colour, the same tint the
                 // chip that opened this dialog wore — so "where am I" is
@@ -576,14 +676,25 @@ const LocusRail: FC<{
                   )}
                   <span className="flex-1" />
                   <span className="shrink-0 text-xs font-medium tabular-nums">
-                    {t('answerSources.page', { page: locus.page! })}
+                    {locus.punkt
+                      ? t('answerSources.punktPage', { punkt: locus.punkt, page: locus.page! })
+                      : t('answerSources.page', { page: locus.page! })}
                   </span>
                 </span>
                 {locus.snippet && (
                   <span
                     className={cn(
-                      'mt-1 line-clamp-2 text-xs leading-snug',
-                      isActive ? 'opacity-80' : 'text-muted-foreground'
+                      'mt-1 block text-xs leading-snug',
+                      // The one being read is the citation itself, so it is
+                      // shown whole — this rail replaced the band that used to
+                      // carry it above the document. The others stay two lines:
+                      // enough to recognise a passage, not enough to bury the
+                      // list under one long quotation. Narrow viewports keep the
+                      // clamp throughout, where the rail is a strip of cards and
+                      // a full quotation would take the screen.
+                      isActive
+                        ? 'line-clamp-3 opacity-80 md:line-clamp-none md:max-h-48 md:overflow-y-auto'
+                        : 'text-muted-foreground line-clamp-2'
                     )}
                   >
                     {locus.snippet}
@@ -602,6 +713,124 @@ const stepperClasses =
   'inline-flex size-5 items-center justify-center rounded-md border border-border text-muted-foreground ' +
   'transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 ' +
   'focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-40'
+
+/**
+ * The citation viewer: what a clicked citation opens onto.
+ *
+ * Three things, composed — the document itself, the Fundstellen rail beside it,
+ * and a header that names the source and copies a reference to exactly the
+ * passage on screen. It is a component rather than JSX inside the hook because
+ * this is the surface a reader judges the citation by: `/dev/pdf-passage` mounts
+ * this same composition, so the preview cannot drift from what ships.
+ *
+ * Stateless on purpose. Which locus is active is the hook's (or the preview's)
+ * to own; a dialog that kept its own copy would disagree with the deep link that
+ * opened it.
+ */
+export const CitationDocumentDialog: FC<{
+  target: DocumentTarget
+  /** The reference this dialog stands for, when the click carried one. */
+  citation?: CitationRef
+  activeLocus?: CitationLocus
+  onSelectLocus: (locus: CitationLocus) => void
+  /** Explicit source URL — a presigned preview, or a fixture in the preview route. */
+  src?: string
+  open: boolean
+  onOpenChange: (open: boolean) => void
+}> = ({ target, citation, activeLocus, onSelectLocus, src, open, onOpenChange }) => {
+  const t = useTranslations('chat')
+  // The provenance tint comes from the SOURCE, not from where the file happens
+  // to be stored: a chip and the dialog it opens must never disagree about what
+  // kind of source this is.
+  const headerSignal: SourceTint =
+    citation?.document.tint ?? (target.document.type === 'base' ? 'law' : 'project')
+  const page = activeLocus?.page ?? target.page
+  const passage = activeLocus?.snippet ?? target.snippet
+  // What the rail will show, decided here because it also decides whether the
+  // dialog draws the passage a second time above the document.
+  const railLoci = citation ? navigableLoci(citation.document) : []
+  // The rail is where the Fundstelle lives once it can hold it: beside the
+  // document, in the tint of its source, still there after the reader has
+  // scrolled. Now that the rail shows for one Fundstelle too, the band above
+  // the frame is the same words a second time, charging the document a band of
+  // its height for the repetition. It stays for the passage the rail cannot
+  // carry — a locus with no page, or a document-level snippet.
+  const passageInRail =
+    Boolean(activeLocus?.snippet) && railLoci.some((locus) => locus.key === activeLocus?.key)
+  // The reference the dialog is CURRENTLY showing — what its copy actions must
+  // describe, so a citation copied from page 18 does not say page 5.
+  const shown: CitationRef | undefined = citation && {
+    document: citation.document,
+    locus: activeLocus,
+  }
+
+  return (
+    <PdfViewerDialog
+      open={open}
+      onOpenChange={onOpenChange}
+      fileName={
+        target.document.type === 'base' ? target.document.fileName : target.document.filename
+      }
+      page={page ?? null}
+      title={target.title}
+      src={src}
+      isImage={isImageTarget(target)}
+      // The passage the retrieval actually read. The viewer finds it on the
+      // page and marks it, so the click lands on the SENTENCE rather than on a
+      // page the reader then has to search — and it wears this source's own
+      // tint, the same one the chip that opened the dialog wore.
+      highlight={passage}
+      highlightColor={`var(--source-${headerSignal})`}
+      // What the reader's OWN selection becomes on the clipboard. The viewer
+      // knows the words and the page; only this side knows the document they
+      // belong to, so the citation is built here — in the same Zitiertext form
+      // the answer's own "copy citation" produces, because a quotation pasted
+      // from the source and one pasted from the chat must not arrive in the
+      // reader's Stellungnahme looking like two different conventions.
+      quoteFormat={
+        citation &&
+        (({ text, page: quotedPage }) =>
+          toQuoteList(
+            [
+              {
+                document: citation.document,
+                locus: { key: 'selection', page: quotedPage, snippet: text, isCited: true },
+              },
+            ],
+            new Date()
+          ))
+      }
+      headerChip={
+        <SourceSignalChip signal={headerSignal}>
+          {t(
+            target.document.type === 'base'
+              ? 'sourcePreview.corpusDocument'
+              : 'sourcePreview.projectDocument'
+          )}
+        </SourceSignalChip>
+      }
+      headerActions={
+        shown && (
+          <span className="flex shrink-0 items-center gap-2">
+            <CopyCitationLinkButton citation={shown} icon={<Link2 className="size-3" />} />
+            <CopySourceCitationButton citation={shown} />
+          </span>
+        )
+      }
+      aside={
+        citation && (
+          <LocusRail
+            document={citation.document}
+            activeKey={activeLocus?.key}
+            onSelect={onSelectLocus}
+          />
+        )
+      }
+    >
+      {passage && !passageInRail && <CitedPassageBox snippet={passage} signal={headerSignal} />}
+    </PdfViewerDialog>
+  )
+}
 
 /**
  * Open/fetch state for a document target. Project uploads need a fresh
@@ -623,22 +852,32 @@ const useDocumentPreview = (target: DocumentTarget, citation?: CitationRef) => {
   // viewer still opens at the first cited passage, and the rail must say so.
   // Leaving it unset marked nothing, so the reader could not tell which of four
   // Fundstellen they were looking at.
-  const [activeLocus, setActiveLocus] = useState<CitationLocus | undefined>(
-    () => citation?.locus ?? (citation ? citedLoci(citation.document)[0] : undefined)
+  //
+  // Resolved through `openAtLocus`, the same rule the target used to pick its
+  // page: a reference bound to a page-less locus opens at a Fundstelle the
+  // document actually has. Picking the locus separately here is how the header
+  // and rail came to mark one place while the document showed another.
+  const [activeLocus, setActiveLocus] = useState<CitationLocus | undefined>(() =>
+    citation ? openAtLocus(citation.document, citation.locus) : undefined
   )
 
   // A deep link (or a second click on a different marker) can change which
   // locus this dialog should be showing while it is already mounted.
   useEffect(() => {
-    if (citation?.locus) setActiveLocus(citation.locus)
-  }, [citation?.locus])
+    if (citation?.locus) setActiveLocus(openAtLocus(citation.document, citation.locus))
+    // THE KEY, NOT THE OBJECT. `AgentResponse` rebuilds the whole citation model
+    // whenever the turn's citations change, so during a streaming turn every
+    // locus is a new object for the same reference — and depending on identity
+    // meant this effect fired on each rebuild and threw away the Fundstelle the
+    // reader had just chosen in the rail.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [citation?.locus?.key])
 
-  const isImage =
-    target.document.type === 'stored' &&
-    (target.document.contentType ?? '').toLowerCase().startsWith('image/')
+  const isImage = isImageTarget(target)
 
   const openPreview = async (locus?: CitationLocus): Promise<void> => {
-    if (locus) setActiveLocus(locus)
+    if (locus && citation) setActiveLocus(openAtLocus(citation.document, locus))
+    else if (locus) setActiveLocus(locus)
     if (target.document.type === 'base') {
       setIsOpen(true)
       return
@@ -667,64 +906,19 @@ const useDocumentPreview = (target: DocumentTarget, citation?: CitationRef) => {
       setIsResolving(false)
     }
   }
-  // The provenance tint comes from the SOURCE, not from where the file happens
-  // to be stored: a chip and the dialog it opens must never disagree about what
-  // kind of source this is.
-  const headerSignal: SourceTint =
-    citation?.document.tint ?? (target.document.type === 'base' ? 'law' : 'project')
-  const page = activeLocus?.page ?? target.page
-  // The reference the dialog is CURRENTLY showing — what its copy actions must
-  // describe, so a citation copied from page 18 does not say page 5.
-  const shown: CitationRef | undefined = citation && {
-    document: citation.document,
-    locus: activeLocus,
-  }
-
   const dialog = (
-    <PdfViewerDialog
+    <CitationDocumentDialog
+      target={target}
+      citation={citation}
+      activeLocus={activeLocus}
+      onSelectLocus={setActiveLocus}
+      src={src ?? undefined}
       open={isOpen}
       onOpenChange={(open) => {
         setIsOpen(open)
         if (!open) setSrc(null)
       }}
-      fileName={target.document.type === 'base' ? target.document.fileName : target.document.filename}
-      page={page ?? null}
-      title={target.title}
-      src={src ?? undefined}
-      isImage={isImage}
-      // The passage the retrieval actually read. The viewer finds it on the
-      // page and marks it, so the click lands on the SENTENCE rather than on a
-      // page the reader then has to search — and it wears this source's own
-      // tint, the same one the chip that opened the dialog wore.
-      highlight={activeLocus?.snippet ?? target.snippet}
-      highlightColor={`var(--source-${headerSignal})`}
-      headerChip={
-        <span className="flex items-center gap-2">
-          <SourceSignalChip signal={headerSignal}>
-            {t(
-              target.document.type === 'base'
-                ? 'sourcePreview.corpusDocument'
-                : 'sourcePreview.projectDocument'
-            )}
-          </SourceSignalChip>
-          {shown && <CopyCitationLinkButton citation={shown} icon={<Link2 className="size-3" />} />}
-          {shown && <CopySourceCitationButton citation={shown} />}
-        </span>
-      }
-      aside={
-        citation && (
-          <LocusRail
-            document={citation.document}
-            activeKey={activeLocus?.key}
-            onSelect={setActiveLocus}
-          />
-        )
-      }
-    >
-      {(activeLocus?.snippet ?? target.snippet) && (
-        <CitedPassageBox snippet={(activeLocus?.snippet ?? target.snippet)!} signal={headerSignal} />
-      )}
-    </PdfViewerDialog>
+    />
   )
 
   return { isResolving, openPreview, dialog, isOpen, setIsOpen }
@@ -819,6 +1013,224 @@ const DocumentPreviewChip: FC<{
   )
 }
 
+/**
+ * A cited document with no in-app viewer — offered as a file, with the reason.
+ *
+ * Same face as every other citation chip, because it is the same kind of thing:
+ * the reader must not have to learn that a `.docx` source is a different
+ * species of chip. What differs is the one control the popover holds — a
+ * download rather than an open — and the line above it saying why.
+ */
+const DownloadPreviewChip: FC<{
+  target: DownloadTarget
+  signal: SourceTint
+  label: string
+  authority?: string
+  className?: string
+  /** The marker(s) this source carries in the answer prose. */
+  index?: string
+  variant?: CitationVariant
+  /** The reference this chip stands for — powers the peek and "copy citation". */
+  citation?: CitationRef
+  trailing?: ReactNode
+  detail?: CitationDetail
+  kind: SourceKind
+  /** Fine authority tier, for the fallback popover. */
+  tier?: string
+  bindingNote?: string
+  meta?: string
+}> = ({
+  target,
+  signal,
+  label,
+  authority,
+  className,
+  index,
+  variant = 'chip',
+  citation,
+  trailing,
+  detail,
+  kind,
+  tier,
+  bindingNote,
+  meta,
+}) => {
+  const t = useTranslations('chat')
+  const { isDownloading, download } = useCitationDownload(target)
+  const peek = useHoverPopover()
+
+  // Without a reference there is no peek to fill, so the popover the info chip
+  // already draws is the right one; it gains the download and the reason.
+  if (!citation) {
+    return (
+      <InfoPreviewChip
+        target={{ kind: 'info', title: target.title, snippet: target.snippet }}
+        signal={signal}
+        label={label}
+        authority={authority}
+        tier={tier}
+        bindingNote={bindingNote}
+        kind={kind}
+        className={className}
+        index={index}
+        meta={meta}
+        variant={variant}
+        trailing={trailing}
+        detail={detail}
+        onDownload={() => void download()}
+        downloadPending={isDownloading}
+      />
+    )
+  }
+
+  return (
+    <Popover open={peek.open} onOpenChange={peek.onOpenChange}>
+      <PopoverAnchor asChild>
+        <button
+          type="button"
+          className={cn(faceClasses(variant), className)}
+          style={faceStyle(variant, signal)}
+          {...peek.triggerProps}
+          aria-label={t('sourcePreview.chipAria', { label })}
+          title={t('sourcePreview.chipAria', { label })}
+        >
+          <CitationFace
+            variant={variant}
+            signal={signal}
+            label={label}
+            authority={authority}
+            index={index}
+            citation={citation}
+            trailing={trailing}
+            detail={detail}
+          />
+        </button>
+      </PopoverAnchor>
+      <PopoverContent align="start" className="w-80 p-3" {...peek.contentProps}>
+        <CitationPeek
+          citation={citation}
+          snippet={target.snippet}
+          onDownload={() => void download()}
+          downloadPending={isDownloading}
+        />
+      </PopoverContent>
+    </Popover>
+  )
+}
+
+/**
+ * A RIS source, read inside Piloti.
+ *
+ * Behaves like the document chip and not like the web link it used to be:
+ * hovering answers "what is this?", clicking commits to the document. The
+ * outbound link is not lost — it moves into the dialog's header, where it is
+ * the authoritative publication rather than the only way in.
+ */
+const RisPreviewChip: FC<{
+  target: RisTarget
+  signal: SourceTint
+  label: string
+  authority?: string
+  className?: string
+  index?: string
+  variant?: CitationVariant
+  citation?: CitationRef
+  trailing?: ReactNode
+  detail?: CitationDetail
+}> = ({
+  target,
+  signal,
+  label,
+  authority,
+  className,
+  index,
+  variant = 'chip',
+  citation,
+  trailing,
+  detail,
+}) => {
+  const t = useTranslations('chat')
+  const [isOpen, setIsOpen] = useState(false)
+  const peek = useHoverPopover()
+
+  const open = (): void => {
+    peek.dismiss()
+    setIsOpen(true)
+  }
+
+  const dialog = (
+    <RisDocumentDialog
+      open={isOpen}
+      onOpenChange={setIsOpen}
+      url={target.url}
+      title={target.title}
+      highlight={target.snippet}
+      highlightColor={`var(--source-${signal})`}
+      headerChip={
+        <SourceSignalChip signal={signal}>{t('sourcePreview.risDocument')}</SourceSignalChip>
+      }
+      headerActions={
+        citation && (
+          <span className="flex shrink-0 items-center gap-2">
+            <CopyCitationLinkButton citation={citation} icon={<Link2 className="size-3" />} />
+            <CopySourceCitationButton citation={citation} />
+          </span>
+        )
+      }
+    />
+  )
+
+  const face = (
+    <button
+      type="button"
+      className={cn(faceClasses(variant), className)}
+      style={faceStyle(variant, signal)}
+      {...peek.triggerProps}
+      onClick={open}
+      aria-haspopup="dialog"
+      aria-label={t('sourcePreview.chipAria', { label })}
+      title={t('sourcePreview.chipAria', { label })}
+    >
+      <CitationFace
+        variant={variant}
+        signal={signal}
+        label={label}
+        authority={authority}
+        index={index}
+        citation={citation}
+        trailing={trailing}
+        detail={detail}
+      />
+    </button>
+  )
+
+  if (!citation) {
+    return (
+      <>
+        {face}
+        {dialog}
+      </>
+    )
+  }
+
+  return (
+    <>
+      <Popover open={peek.open} onOpenChange={peek.onOpenChange}>
+        <PopoverAnchor asChild>{face}</PopoverAnchor>
+        <PopoverContent align="start" className="w-80 p-3" {...peek.contentProps}>
+          <CitationPeek
+            citation={citation}
+            snippet={target.snippet}
+            onOpen={open}
+            url={target.url}
+          />
+        </PopoverContent>
+      </Popover>
+      {dialog}
+    </>
+  )
+}
+
 // ---------------------------------------------------------------------------
 // Info popover (title + origin + snippet — no resolvable document)
 // ---------------------------------------------------------------------------
@@ -853,6 +1265,13 @@ const InfoPreviewChip: FC<{
   citation?: CitationRef
   trailing?: ReactNode
   detail?: CitationDetail
+  /**
+   * The document exists but has no in-app viewer — hand it over instead.
+   * Set only by {@link DownloadPreviewChip}; a genuinely unresolvable source
+   * leaves it unset and keeps saying nothing can be opened.
+   */
+  onDownload?: () => void
+  downloadPending?: boolean
 }> = ({
   target,
   signal,
@@ -869,6 +1288,8 @@ const InfoPreviewChip: FC<{
   trailing,
   kind,
   detail,
+  onDownload,
+  downloadPending,
 }) => {
   const t = useTranslations('chat')
   const peek = useHoverPopover()
@@ -898,17 +1319,15 @@ const InfoPreviewChip: FC<{
       <PopoverContent align="start" className="w-80 space-y-2 p-3" {...peek.contentProps}>
         <div className="flex flex-wrap items-center gap-1.5">
           <SourceSignalChip signal={signal}>{t(`sourcePreview.kinds.${kind}`)}</SourceSignalChip>
-          {tier && (
-            <span className="text-xs font-medium text-muted-foreground">{tier}</span>
-          )}
+          {tier && <span className="text-muted-foreground text-xs font-medium">{tier}</span>}
         </div>
         {/* The written source list's payload, one click away: the citation
             number, the untruncated title and the locator. */}
-        <p className="break-words text-sm font-medium text-foreground">
-          {index && <span className="mr-1 text-muted-foreground">[{index}]</span>}
+        <p className="text-foreground break-words text-sm font-medium">
+          {index && <span className="text-muted-foreground mr-1">[{index}]</span>}
           {target.title}
         </p>
-        {meta && <p className="text-xs text-muted-foreground">{meta}</p>}
+        {meta && <p className="text-muted-foreground text-xs">{meta}</p>}
         {bindingNote && (
           <div
             className="rounded-md border-l-2 py-1.5 pl-2.5 pr-2"
@@ -923,12 +1342,30 @@ const InfoPreviewChip: FC<{
             >
               {t('sourcePreview.bindingLabel')}
             </SectionLabel>
-            <p className="mt-0.5 text-xs leading-relaxed text-foreground">{bindingNote}</p>
+            <p className="text-foreground mt-0.5 text-xs leading-relaxed">{bindingNote}</p>
           </div>
         )}
         {target.snippet && <CitedPassageBox snippet={target.snippet} signal={signal} />}
+        {/* Why there is no viewer, before the control that works around it. */}
+        {onDownload && (
+          <p className="text-muted-foreground text-xs leading-relaxed">
+            {t('citationPeek.noInlineViewer')}
+          </p>
+        )}
         <div className="flex items-center justify-between gap-2">
-          {url ? (
+          {onDownload ? (
+            <button
+              type="button"
+              onClick={onDownload}
+              disabled={downloadPending}
+              data-citation-download=""
+              className="inline-flex items-center gap-1 text-xs font-medium hover:underline disabled:cursor-progress disabled:opacity-70"
+              style={{ color: `var(--source-${signal}-text, var(--foreground))` }}
+            >
+              <Download aria-hidden="true" className="size-3" />
+              {t(downloadPending ? 'citationPeek.downloading' : 'citationPeek.download')}
+            </button>
+          ) : url ? (
             <a
               href={url}
               target="_blank"
@@ -1021,7 +1458,9 @@ export const SourcePreviewChip: FC<SourcePreviewChipProps> = ({
   // A chip stands for a DOCUMENT, so it names every marker that document
   // carries — "2, 7", not an arbitrary one of them. A chip narrowed to a locus
   // names only that locus's marker.
-  const numbers = locus ? [locus.number].filter((n): n is number => n != null) : citationNumbers(doc)
+  const numbers = locus
+    ? [locus.number].filter((n): n is number => n != null)
+    : citationNumbers(doc)
   const index = numbers.length > 0 ? numbers.join(', ') : undefined
   const shared = {
     signal: doc.tint,
@@ -1085,8 +1524,28 @@ export const SourcePreviewChip: FC<SourcePreviewChipProps> = ({
     )
   }
 
+  // RIS is read INSIDE Piloti now (#622) — the outbound link moves into the
+  // reader's header rather than being the only way in.
+  if (target.kind === 'ris') {
+    return <RisPreviewChip {...shared} target={target} />
+  }
+
   if (target.kind === 'document') {
     return <DocumentPreviewChip {...shared} target={target} />
+  }
+
+  // Resolved, and unrenderable. Not the same as unresolvable — see the
+  // `download` variant on `CitationTarget`.
+  if (target.kind === 'download') {
+    return (
+      <DownloadPreviewChip
+        {...shared}
+        target={target}
+        tier={doc.laneLabel}
+        bindingNote={doc.bindingNote}
+        meta={meta}
+      />
+    )
   }
 
   // Resolution is still in flight: this document MAY yet turn out to be
@@ -1118,7 +1577,7 @@ export const SourcePreviewChip: FC<SourcePreviewChipProps> = ({
 
   if (variant === 'card') {
     return (
-      <div className={cn(faceClasses(variant), 'cursor-default')} style={faceStyle(variant, doc.tint)}>
+      <div className={cn(inertCardClasses, className)} style={faceStyle(variant, doc.tint)}>
         <CitationFace {...shared} />
       </div>
     )
@@ -1227,6 +1686,9 @@ export const SourceDocumentDialog: FC<{
     baseCorpusFiles: previewIndex?.baseCorpusFiles,
   })
   const isDocument = target.kind === 'document'
+  const isRis = target.kind === 'ris'
+  const downloadTarget = target.kind === 'download' ? target : null
+  const { download } = useCitationDownload(downloadTarget)
   const { openPreview, dialog, isOpen } = useDocumentPreview(
     isDocument ? target : EMPTY_DOCUMENT_TARGET,
     citation
@@ -1241,14 +1703,57 @@ export const SourceDocumentDialog: FC<{
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isDocument])
 
+  // A `?cite=` link to a document with no in-app viewer hands over the FILE.
+  // It used to fall through to "nothing openable" and close silently — the same
+  // dead control #623 removed from the chip, left behind on the one path a
+  // reader arrives at from outside the conversation.
+  const downloadStartedRef = useRef(false)
   useEffect(() => {
+    if (!downloadTarget || downloadStartedRef.current) return
+    downloadStartedRef.current = true
+    void download().finally(onClose)
+  }, [downloadTarget, download, onClose])
+
+  useEffect(() => {
+    if (isRis || downloadTarget) return
     if (isDocument && previewIndex && !isOpen) return
     // Nothing openable and the index has answered: there is no viewer to show.
     if (previewIndex && !isDocument) onClose()
-  }, [previewIndex, isDocument, isOpen, onClose])
+  }, [previewIndex, isDocument, isRis, downloadTarget, isOpen, onClose])
 
+  // A RIS source opens its own reader — no stored-document index, no presign,
+  // and no page: the reader marks the passage in the text instead.
+  if (isRis && target.kind === 'ris') {
+    return (
+      <RisDocumentDialog
+        open
+        onOpenChange={(open) => {
+          if (!open) onClose()
+        }}
+        url={target.url}
+        title={target.title}
+        highlight={target.snippet}
+        highlightColor={`var(--source-${citation.document.tint})`}
+        headerChip={<RisHeaderChip signal={citation.document.tint} />}
+        headerActions={
+          <span className="flex shrink-0 items-center gap-2">
+            <CopyCitationLinkButton citation={citation} icon={<Link2 className="size-3" />} />
+            <CopySourceCitationButton citation={citation} />
+          </span>
+        }
+      />
+    )
+  }
+
+  if (downloadTarget) return null
   if (!isDocument) return null
   return <>{dialog}</>
+}
+
+/** The RIS provenance chip, so the reader's header matches the chip that opened it. */
+const RisHeaderChip: FC<{ signal: SourceTint }> = ({ signal }) => {
+  const t = useTranslations('chat')
+  return <SourceSignalChip signal={signal}>{t('sourcePreview.risDocument')}</SourceSignalChip>
 }
 
 /** Placeholder while a target has not resolved — never rendered. */

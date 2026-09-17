@@ -40,18 +40,19 @@ change. The one exception is adding a brand-new template, which needs a one-line
   Template". Note it does not document every template's variables (e.g.
   `source_router.j2`, `writer.j2`, `source_registry.j2`) — the `.j2` files are
   authoritative for the variables they actually use.
-- `docs/source/customization/swapping-models.md`: choosing hosted vs. self-hosted
-  NIMs and pointing config at them.
+- `docs/architecture/llm-providers.md`: what an `llms:` endpoint must support,
+  and how to point an entry at another OpenAI-compatible host.
 - `docs/source/customization/configuration-reference.md`: the `llms` section and
-  each agent's config fields (`deep_research_agent`, `clarifier_agent`, …).
+  each agent's config fields (`deep_research_agent`, the `clarifier:` block on
+  `chat_deepresearcher_agent`, …).
 - `src/aiq_agent/common/prompt_utils.py`: `load_prompt` and
   `render_prompt_template`.
 - `src/aiq_agent/common/llm_provider.py`: `LLMRole` and `LLMProvider.configure`,
   which bind a resolved LLM to an agent role (used by the deep research agent).
 - Templates to model on: `src/aiq_agent/agents/deep_researcher/prompts/*.j2`
   (orchestrator, planner, researcher, source_router, writer) and
-  `src/aiq_agent/agents/clarifier/prompts/*.j2`. Other agents have prompts too
-  (e.g. `shallow_researcher`, `chat_researcher`) — check
+  `src/aiq_agent/agents/piloti/prompts/*.j2` (`piloti.j2`, plus the
+  clarification step's two). Other agents have prompts too — check
   `src/aiq_agent/agents/*/prompts/`.
 
 Longer procedures live in this bundle:
@@ -88,9 +89,9 @@ uv run pytest tests/aiq_agent/agents/<agent>         # the agent's tests (a prom
 ```
 
 Expected: the agent loads its templates without a Jinja2 error and runs with the
-configured model. A bare `./scripts/start_cli.sh` uses the fixed default
-(`configs/config_cli_default.yml`), so pass `--config_file` to exercise your
-change. For a prompt-only edit (which often has no dedicated unit test), the
+configured model. A bare `./scripts/start_cli.sh` uses the one shipped config
+(`configs/config_oib_openrouter.yml`); pass `--config_file` to exercise a local
+copy with your change. For a prompt-only edit (which often has no dedicated unit test), the
 smoke run is the real check; a config/prompt-only change needs no Python lint.
 
 ## Common Mistakes

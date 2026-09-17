@@ -3,7 +3,7 @@ name: gebaeudeklasse
 description: >
   Die Gebäudeklasse, an der jede spätere OIB-Zahl hängt.
 metadata:
-  grid-agents: shallow_researcher,deep_researcher
+  grid-agents: researcher,deep_researcher
   grid-cards: condition_tree,building_section,legal_basis
 ---
 

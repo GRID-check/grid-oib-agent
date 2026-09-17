@@ -46,6 +46,7 @@ import { useTranslations, type Translator } from '@/i18n'
 import { SchematicCard, statusColor } from '../schematics/kit'
 import { cn } from '@/lib/utils'
 import { CARD_LIST_ROW } from './card-rows'
+import { CARD_NOTICE_LAW, CardDisclosurePanel } from './card-chrome'
 import type { ChangeConsequenceData, ChangeDirection, NormReferenceData } from '../schematics/types'
 
 interface ChangeImpactCardProps {
@@ -91,7 +92,7 @@ const directionLabel = (direction: ChangeDirection, t: Translator): string => {
 /** One derived count, drawn as `3 verschärft`. The number is computed here. */
 const Count: FC<{ count: number; label: string; tint: string }> = ({ count, label, tint }) => (
   <span className="inline-flex items-baseline gap-1 whitespace-nowrap">
-    <span className="font-mono text-[13px] font-semibold tabular-nums" style={{ color: tint }}>
+    <span className="font-mono card-figure-15" style={{ color: tint }}>
       {count}
     </span>
     <span className="text-[11px] text-muted-foreground">{label}</span>
@@ -153,8 +154,8 @@ const ConsequenceRow: FC<ConsequenceRowProps> = ({ consequence, open, onToggle, 
           />
         </CollapsibleTrigger>
 
-        <CollapsibleContent className="animate-in fade-in-0 duration-base ease-out motion-reduce:animate-none">
-          <div className="ml-6 mt-1.5 flex flex-col gap-2 rounded-md border border-dashed bg-muted/30 px-3 py-2.5">
+        <CollapsibleContent>
+          <div className={cn(CardDisclosurePanel, 'ml-6')}>
             <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1 text-xs">
               <span className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
                 {t('cards.changeImpact.before')}
@@ -176,10 +177,10 @@ const ConsequenceRow: FC<ConsequenceRowProps> = ({ consequence, open, onToggle, 
             </div>
 
             {consequence.detail && (
-              <p className="max-w-prose text-[13px] leading-snug text-foreground">{consequence.detail}</p>
+              <p className="card-body max-w-prose text-foreground">{consequence.detail}</p>
             )}
 
-            <div className="flex flex-wrap items-center gap-x-2 gap-y-1 rounded-md bg-source-law-tint px-3 py-2 text-xs text-source-law-text">
+            <div className={cn(CARD_NOTICE_LAW, 'flex flex-wrap items-center gap-x-2 gap-y-1')}>
               <Scale className="size-3.5 shrink-0" aria-hidden="true" />
               <span className="text-[11px] font-medium uppercase tracking-wider opacity-70">
                 {t('cards.changeImpact.basis')}

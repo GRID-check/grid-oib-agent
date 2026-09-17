@@ -1,0 +1,12 @@
+---
+improvements:
+  - >
+    Jede Datei, die Piloti erstellt, sagt jetzt im Dokument selbst, woher sie
+    kommt: eine Zeile oben nennt Piloti und Ihr Büro, eine Fußzeile auf jeder
+    Seite weist die Datei als Entwurf ohne Freigabe aus.
+  - >
+    Dazu stehen zwei Sätze auf jedem erstellten Bericht und jedem von Piloti
+    verfassten Dokument: dass Piloti den Inhalt verfasst hat und dass die
+    fachliche Verantwortung dafür bei der Person liegt, die ihn freigibt. Das
+    steht in der Datei und bleibt beim Weiterleiten, Drucken und Einreichen
+    erhalten.

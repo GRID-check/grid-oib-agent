@@ -1,0 +1,13 @@
+-- 0076: a refused supersede is a conflict the row remembers.
+--
+-- An agent finding that contradicts a note a person pinned, confirmed or wrote
+-- is inserted beside it rather than retiring it (`isAgentSupersedable`). The
+-- contradiction used to exist only as a `console.warn`: two live notes
+-- disagreed, both were eligible for the same digest, and nothing a person
+-- could open said so. The column names the note this one was not allowed to
+-- replace; the panel can show the pair and a person resolves it.
+--
+-- Nullable, no FK on purpose: the human note may be deleted later, and the
+-- record that a conflict was once refused should survive that, as
+-- `supersedes_id` does.
+ALTER TABLE "project_memory" ADD COLUMN IF NOT EXISTS "conflicts_with_id" uuid;

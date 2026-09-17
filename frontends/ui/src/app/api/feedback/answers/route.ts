@@ -9,6 +9,7 @@
  * conversation (client hydration).
  */
 
+import { after } from 'next/server'
 import { apiRoute, parseJsonBody, parseQuery } from '@/lib/api/handler'
 import { FEATURE_FLAGS, requireFeature } from '@/lib/authz/feature-flags'
 import {
@@ -16,6 +17,7 @@ import {
   retractAnswerFeedback,
   submitAnswerFeedback,
 } from '@/lib/feedback/service'
+import { kickLessonDistillation } from '@/lib/platform-lessons/service'
 import {
   conversationFeedbackQuerySchema,
   retractAnswerFeedbackQuerySchema,
@@ -37,7 +39,21 @@ export const POST = apiRoute(
     const gated = requireFeature(session, FEATURE_FLAGS.answerFeedback)
     if (gated) return gated
     const input = await parseJsonBody(request, upsertAnswerFeedbackSchema)
-    return submitAnswerFeedback(session, input)
+    const view = await submitAnswerFeedback(session, input)
+    if (input.verdict === 'down') {
+      // The platform-lessons pipeline (docs/architecture/platform-failure-
+      // learning.md): a down-vote is the failure signal, so it triggers
+      // distillation the moment it lands — after the response, off the request
+      // path, and fail-open (the kick never throws; anything it misses is
+      // picked up by the next kick or the dashboard's manual sweep).
+      try {
+        after(() => kickLessonDistillation())
+      } catch {
+        // `after` throws outside a Next request lifecycle (unit tests). The
+        // report is not lost — it stays unprocessed for the next sweep.
+      }
+    }
+    return view
   },
   { authz: { enforcedBy: 'submitAnswerFeedback (requireProjectAccess project:view)' } }
 )

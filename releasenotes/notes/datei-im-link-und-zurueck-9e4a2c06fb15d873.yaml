@@ -1,0 +1,11 @@
+---
+features:
+  - >
+    Eine geöffnete Datei steht jetzt in der Adresszeile: Der Link lässt sich
+    kopieren und weitergeben, und der Zurück-Button schließt die Vorschau,
+    statt die Dateiablage zu verlassen.
+fixes:
+  - >
+    Ein Klick auf eine Datei öffnet sie — immer. Bisher schloss ein Klick auf
+    die Datei, die gerade offen war, die Vorschau wieder; das tat sonst keine
+    Liste im Produkt. Geschlossen wird über das X, Escape oder den Hintergrund.

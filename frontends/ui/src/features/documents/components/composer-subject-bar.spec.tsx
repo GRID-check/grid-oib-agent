@@ -7,6 +7,11 @@
  * `focus_file_name`. The old guard ("fetch only when there is no title") meant
  * a subject restored with a title but no filename never looked the document up
  * at all.
+ *
+ * It also recovers the subject's OPEN VERSION — the one still being worked on,
+ * which retrieval cannot see because only a published version is indexed
+ * (ADR-0054). That is the one field no caller can carry and whose absence is
+ * itself an answer, which is why the guard is gone entirely.
  */
 
 import { render, screen, waitFor } from '@testing-library/react'
@@ -22,6 +27,7 @@ const STATUS_BODY = {
   filename: '220724_Aufsicht_1_100.pdf',
   displayName: 'Aufsicht 1:100',
   scope: 'project',
+  openVersion: null,
 }
 
 function renderBar(subject: ComposerSubject, onResolved = vi.fn()) {
@@ -72,6 +78,10 @@ describe('ComposerSubjectBar identity recovery', () => {
         title: 'Aufsicht 1:100',
         filename: '220724_Aufsicht_1_100.pdf',
         shelf: 'project',
+        // Reported even when there is none: `null` is the answer that clears a
+        // version id an earlier subject left on the store.
+        versionId: null,
+        versionState: null,
       })
     )
   })
@@ -89,7 +99,12 @@ describe('ComposerSubjectBar identity recovery', () => {
     expect(onResolved.mock.calls[0][0]).toMatchObject({ filename: '220724_Aufsicht_1_100.pdf' })
   })
 
-  test('does not look up a subject that is already complete', async () => {
+  test('still looks up a subject whose visible fields are all filled', async () => {
+    // There is no "already complete" any more, and there cannot be: the lookup
+    // also recovers the subject's OPEN VERSION, which no caller carries and
+    // whose ABSENCE is itself an answer. A guard on the visible fields would
+    // mean a document filed by this very conversation — title, filename and
+    // shelf all known — never reported the version the turn has to read.
     renderBar({
       resourceType: 'document',
       resourceId: 'doc-aufsicht',
@@ -99,7 +114,44 @@ describe('ComposerSubjectBar identity recovery', () => {
     })
 
     await screen.findByTestId('composer-subject-bar')
-    expect(fetch).not.toHaveBeenCalled()
+    expect(fetch).toHaveBeenCalledTimes(1)
+  })
+
+  test('reports the open version, so the turn can read what retrieval cannot', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          ...STATUS_BODY,
+          openVersion: { id: 'ver-9', state: 'in_review' },
+        }),
+      })
+    )
+    const onResolved = renderBar({ resourceType: 'document', resourceId: 'doc-aufsicht', title: null })
+
+    await waitFor(() => expect(onResolved).toHaveBeenCalled())
+    expect(onResolved.mock.calls[0][0]).toMatchObject({
+      versionId: 'ver-9',
+      versionState: 'in_review',
+    })
+  })
+
+  test('ignores a version state the lifecycle does not have', async () => {
+    // The same rule the shelf follows: an unknown value is dropped rather than
+    // passed through, so a newer BFF cannot put a string the agent's own mirror
+    // of the state list has never heard of onto the wire.
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({ ...STATUS_BODY, openVersion: { id: 'ver-9', state: 'invented' } }),
+      })
+    )
+    const onResolved = renderBar({ resourceType: 'document', resourceId: 'doc-aufsicht', title: null })
+
+    await waitFor(() => expect(onResolved).toHaveBeenCalled())
+    expect(onResolved.mock.calls[0][0].versionState).toBeNull()
   })
 
   test('looks a document up once, not once per composer re-render', async () => {

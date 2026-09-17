@@ -1,7 +1,7 @@
 # NAT function pattern
 
 Authoritative source: `docs/source/extending/adding-a-tool.md`. Model new tools
-on `sources/google_scholar_paper_search/` (has tests) or `sources/tavily_web_search/`
+on `sources/ris_adapter/` (client + cache + tests) or `sources/tavily_web_search/`
 (minimal).
 
 ## Package layout
@@ -115,7 +115,7 @@ functions:
     max_results: 10
 
   shallow_research_agent:
-    _type: shallow_research_agent
+    _type: research_agent
     llm: research_llm
     tools:
       - my_search

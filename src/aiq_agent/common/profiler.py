@@ -19,7 +19,7 @@ through the LangChain callback manager, so they carry no ``run_id``/
 ``parent_run_id`` of their own. ``current_span_var`` closes that gap — the id
 of the innermost open span, pushed/reset with the same ContextVar token idiom
 already used in this codebase for ``session_registry``/``card_registry``
-(see ``chat_researcher/register.py``) — so nesting is correct across
+(see ``agents/piloti/conversation_register.py``) — so nesting is correct across
 ``await`` boundaries without depending on LangChain/LangGraph callback
 internals. ``profiled_node()`` wraps each graph node with it; LLM/tool spans
 read it as their parent when they open.
@@ -27,6 +27,7 @@ read it as their parent when they open.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import os
@@ -34,6 +35,7 @@ import time
 import urllib.error
 import urllib.request
 import uuid
+from concurrent.futures import Future
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 from contextvars import ContextVar
@@ -43,6 +45,9 @@ from threading import Lock
 from typing import Any
 
 from langchain_core.callbacks import BaseCallbackHandler
+
+from aiq_agent.common.cache import cache_counters
+from aiq_agent.common.cache import count_cache_operations
 
 logger = logging.getLogger(__name__)
 
@@ -143,6 +148,16 @@ class AgentProfiler(BaseCallbackHandler):
             )
         return span_id
 
+    def annotate(self, span_id: str, facts: dict[str, Any]) -> None:
+        """Merge ``facts`` into an OPEN span's metadata; a closed span is left alone."""
+        with self._lock:
+            open_span = self._open.get(span_id)
+            if open_span is None:
+                return
+            if open_span.metadata is None:
+                open_span.metadata = {}
+            open_span.metadata.update(facts)
+
     def end_span(self, span_id: str, *, status: str = "ok", error: str | None = None) -> None:
         with self._lock:
             open_span = self._open.pop(span_id, None)
@@ -231,16 +246,18 @@ class AgentProfiler(BaseCallbackHandler):
     def spans_recorded(self) -> int:
         return self._spans_recorded
 
-    def flush(self, *, wait: bool) -> None:
+    def flush(self, *, wait: bool) -> Future[None] | None:
         """Send pending spans to the internal ledger endpoint.
 
         ``wait=False`` hands the batch to the background worker (answer
-        path); ``wait=True`` posts inline (end of turn / job teardown).
+        path) and returns its future, so a caller that wants the post to have
+        landed can await it later; ``wait=True`` posts inline (end of turn /
+        job teardown) and returns ``None``. Nothing pending returns ``None``.
         """
         with self._lock:
             batch, self._pending = self._pending, []
         if not batch:
-            return
+            return None
         payload = {
             "organizationId": self.organization_id,
             "conversationId": self.conversation_id,
@@ -250,8 +267,8 @@ class AgentProfiler(BaseCallbackHandler):
         }
         if wait:
             _post_profiler_spans(payload)
-        else:
-            _flush_executor.submit(_post_profiler_spans, payload)
+            return None
+        return _flush_executor.submit(_post_profiler_spans, payload)
 
 
 def _now_iso() -> str:
@@ -328,8 +345,15 @@ def profiled_node(name: str, fn: Any) -> Any:
         token = current_span_var.set(span_id)
         try:
             result = await fn(*args, **kwargs)
+        except (asyncio.CancelledError, GeneratorExit):
+            # Abandoned, not failed: a cancelled turn must not read as an error.
+            profiler.end_span(span_id, status="cancelled")
+            raise
         except Exception as exc:
             profiler.end_span(span_id, status="error", error=str(exc))
+            raise
+        except BaseException as exc:  # KeyboardInterrupt, SystemExit
+            profiler.end_span(span_id, status="error", error=type(exc).__name__)
             raise
         else:
             profiler.end_span(span_id, status="ok")
@@ -339,6 +363,66 @@ def profiled_node(name: str, fn: Any) -> Any:
 
     _wrapped.__name__ = getattr(fn, "__name__", name)
     return _wrapped
+
+
+@contextmanager
+def profiled_span(name: str, kind: SpanKind = "node"):
+    """Open one span around a block of turn work that is not a graph node.
+
+    The per-turn setup (context loads, the ingest hold, the admission wait)
+    used to run outside the profiler entirely, so the waterfall started at the
+    first LLM call and the seconds before it had no row. A no-op when no
+    profiler is active, so it is safe at every call site; the block's own
+    ``await``s are unaffected — only the span's parent is set for its duration.
+    """
+    profiler = agent_profiler_var.get()
+    if profiler is None:
+        yield
+        return
+    span_id = profiler.start_span(kind, name)
+    token = current_span_var.set(span_id)
+    try:
+        yield
+    except (asyncio.CancelledError, GeneratorExit):
+        # Abandoned, not failed: a cancelled turn, or a consumer that closed
+        # the generator driving this block, must not read as an error.
+        profiler.end_span(span_id, status="cancelled")
+        raise
+    except Exception as exc:
+        profiler.end_span(span_id, status="error", error=str(exc))
+        raise
+    except BaseException as exc:
+        # KeyboardInterrupt, SystemExit. Narrowing to `Exception` left every
+        # non-``Exception`` unwind with the span still in `_open`, so the
+        # waterfall silently lost the row instead of showing where the turn
+        # stopped -- which is exactly the turn somebody opens the waterfall for.
+        profiler.end_span(span_id, status="error", error=type(exc).__name__)
+        raise
+    else:
+        profiler.end_span(span_id, status="ok")
+    finally:
+        current_span_var.reset(token)
+
+
+def annotate_current_span(**facts: Any) -> None:
+    """Record facts on the innermost open span, e.g. ``cache_model_config="hit"``.
+
+    The TTL-cached readers on the turn's path (org model config, skills, the
+    norm store, retrieval and reasoning settings, the citation registry) were
+    silent about whether they hit: a warm turn and a cold one wrote the same
+    rows, so no percentile over the waterfall could be read. A no-op without an
+    active profiler, and never raises — the span is a record, not a dependency.
+    ContextVars travel into ``asyncio.to_thread``, so a reader running on a
+    worker thread still lands on the turn's span.
+    """
+    try:
+        profiler = agent_profiler_var.get()
+        span_id = current_span_var.get()
+        if profiler is None or span_id is None:
+            return
+        profiler.annotate(span_id, facts)
+    except Exception:  # noqa: BLE001 - observability must never take a turn down
+        logger.debug("Span annotation failed", exc_info=True)
 
 
 def _read_identity_from_context() -> dict[str, str | None]:
@@ -358,6 +442,7 @@ def track_agent_profile(
     job_id: str | None = None,
     identity: dict[str, str | None] | None = None,
     metadata: dict[str, Any] | None = None,
+    inline_flush: bool = True,
 ):
     """Activate span capture for the enclosed agent run.
 
@@ -373,6 +458,13 @@ def track_agent_profile(
     only known once the block is done — which is how a post-answer stage records
     the outcome it reached (``{"stage": …, "outcome": "timeout"}``) on the one
     span it emits.
+
+    ``inline_flush=True`` posts the final batch synchronously at teardown, the
+    right default for a job worker that may exit right after the block. The
+    chat turn passes ``False`` and flushes itself AFTER the answer is on the
+    wire (``flush_after_answer``): the same POST used to run on the event loop
+    between "answer final" and "first delta", where it cost the reader up to
+    the endpoint's timeout and stalled every other turn on the replica.
     """
     profiler: AgentProfiler | None = None
     profiler_token = None
@@ -394,24 +486,116 @@ def track_agent_profile(
     except Exception:
         logger.warning("Could not activate agent profiling", exc_info=True)
         profiler = None
+    # The shared cache counts inside this block, so the root span can say how
+    # much of the turn the cache answered (latency audit §4.4, option E7). The
+    # scope is a ContextVar, so two turns on one replica count separately; the
+    # teardown below runs INSIDE it, which is what lets it read the totals.
+    with count_cache_operations():
+        try:
+            yield profiler
+        except Exception as exc:
+            turn_failed = True
+            turn_error = str(exc)
+            raise
+        finally:
+            if span_token is not None:
+                current_span_var.reset(span_token)
+            if profiler_token is not None:
+                agent_profiler_var.reset(profiler_token)
+            _close_turn_span(
+                profiler,
+                root_span_id,
+                failed=turn_failed,
+                error=turn_error,
+                inline_flush=inline_flush,
+            )
+
+
+def _close_turn_span(
+    profiler: AgentProfiler | None,
+    root_span_id: str | None,
+    *,
+    failed: bool,
+    error: str | None,
+    inline_flush: bool,
+) -> None:
+    """Stamp the turn's cache counters on the root span, close it, and flush."""
+    if profiler is None or root_span_id is None:
+        return
+    counters = cache_counters()
+    # Silence rather than five zeros: a turn that never read the cache has
+    # nothing to say about it, and `annotate` merges into the caller's own
+    # metadata dict.
+    if counters:
+        profiler.annotate(root_span_id, counters.as_facts())
+    profiler.end_span(root_span_id, status="error" if failed else "ok", error=error)
+    if not inline_flush:
+        return
     try:
-        yield profiler
-    except Exception as exc:
-        turn_failed = True
-        turn_error = str(exc)
-        raise
-    finally:
-        if span_token is not None:
-            current_span_var.reset(span_token)
-        if profiler_token is not None:
-            agent_profiler_var.reset(profiler_token)
-        if profiler is not None and root_span_id is not None:
-            profiler.end_span(root_span_id, status="error" if turn_failed else "ok", error=turn_error)
-            try:
-                # Inline post at teardown, same rationale as
-                # cost_tracking.track_llm_costs: a wait=False flush would hand
-                # the final batch to the daemon executor, which a worker
-                # exiting right after this turn can strand.
-                profiler.flush(wait=True)
-            except Exception:
-                logger.warning("Failed to flush profiler spans at end of turn", exc_info=True)
+        # Inline post at teardown, same rationale as
+        # cost_tracking.track_llm_costs: a wait=False flush would hand
+        # the final batch to the daemon executor, which a worker
+        # exiting right after this turn can strand.
+        profiler.flush(wait=True)
+    except Exception:
+        logger.warning("Failed to flush profiler spans at end of turn", exc_info=True)
+
+
+async def flush_after_answer(*ledgers: Any, timeout_seconds: float | None = None) -> None:
+    """Post the turn's final batches once the answer is already on the wire.
+
+    Each ledger (an ``AgentProfiler``, a ``GridCostTracker``: anything with
+    ``flush(wait=...)``) is handed to its own background worker, and the posts
+    are then awaited off the event loop so the loop keeps serving other turns
+    while the BFF round-trips complete. Best-effort: a failed or slow post
+    logs and never raises, exactly like the inline flush it replaces. The
+    submit is unconditional and the wait is what is bounded, so a consumer
+    that closes the stream early still gets its batches posted by the worker.
+    """
+    futures = []
+    for ledger in ledgers:
+        if ledger is None:
+            continue
+        try:
+            future = ledger.flush(wait=False)
+        except Exception:
+            logger.warning("Failed to flush %s after the answer", type(ledger).__name__, exc_info=True)
+            continue
+        if future is not None:
+            futures.append(future)
+    # Per-turn usage rollup in dollars: the batches above are per CALL, with
+    # no turn id anywhere — per-turn waste is not a GROUP BY. The tracker's
+    # totals ride the trace metadata via usage_rollup (one record per turn,
+    # alongside the citation-health ledger pattern), so waste IS measurable
+    # per turn in Langfuse. Best-effort like everything else here; runs even
+    # when there was nothing left to flush (a spent tracker may already be
+    # empty) and never raises.
+    try:
+        from aiq_agent.observability.usage_rollup import record_usage_turn
+
+        profiler_like = next((entry for entry in ledgers if hasattr(entry, "turn_id")), None)
+        for ledger in ledgers:
+            if ledger is None or ledger is profiler_like:
+                continue
+            if not (hasattr(ledger, "turn_cost_usd") and hasattr(ledger, "events_recorded")):
+                continue
+            record_usage_turn(
+                tracker=ledger,
+                agent="chat",
+                turn_id=getattr(profiler_like, "turn_id", None) if profiler_like is not None else None,
+            )
+    except Exception:
+        logger.warning("Failed to record the turn usage rollup after the answer", exc_info=True)
+    if not futures:
+        return
+    budget = _REQUEST_TIMEOUT_SECONDS if timeout_seconds is None else timeout_seconds
+    try:
+        await asyncio.wait_for(
+            asyncio.gather(*(asyncio.wrap_future(future) for future in futures), return_exceptions=True),
+            timeout=budget,
+        )
+    except TimeoutError:
+        # The worker still holds the batch; only this turn stops waiting on it.
+        logger.warning("Ledger flush still pending after %.1fs; leaving it to the background worker", budget)
+    except Exception:
+        logger.warning("Ledger flush after the answer failed", exc_info=True)

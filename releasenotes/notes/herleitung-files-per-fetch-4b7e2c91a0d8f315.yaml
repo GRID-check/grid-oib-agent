@@ -1,0 +1,6 @@
+---
+features:
+  - >
+    When Piloti searches more than once, the Herleitung now shows each
+    conclusion with the files that fetch returned and the tools it used —
+    not one pile of sources at the end.

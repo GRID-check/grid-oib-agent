@@ -1,19 +1,19 @@
 'use client'
 
 /**
- * Dev preview for the Files browser. Two fixtures:
+ * Dev preview for the Files browser — the Finder-style drill-down that
+ * replaced the folder tree. Fixtures:
  *
- *  1. The default card grid (`FileBrowserPane`) — the shared raised FileCard in
- *     its home surface, with the folder quick-filter chip row.
- *  2. The folder-TREE composition — the same segmented `ToggleGroup` the
- *     workspace uses, the tree band wrapper (same responsive classes) around
- *     the real `FolderTreePane`, plus a standalone `FileSearchBar` with a live
- *     query so the enlarged clear (X) hit target is visible.
+ *  1. The default browser: breadcrumb path row ("All Files › …"), folder cards
+ *     beside file cards at the current level, the New-folder popover, and the
+ *     cards/list view toggle. Clicking a folder card drills in; the breadcrumb
+ *     walks back out.
+ *  2. A flat reference grid (no `folderNav`) — the Archiv's presentation.
+ *  3. A standalone `FileSearchBar` with a live query so the enlarged clear (X)
+ *     hit target is visible.
  *
- * The tree fixture is the evidence for the mobile touch-target work on the
- * folder tree, view toggle, filter chips, and search-bar clear button. A
- * module-scope fetch shim 404s thumbnails so the SVG sketch fallback renders.
- * 404s outside development.
+ * A module-scope fetch shim 404s thumbnails so the SVG sketch fallback
+ * renders. 404s outside development.
  *
  * `?variant=search-failed` renders the state a semantic search lands in when it
  * could not RUN. The hook fails open to an empty hit list so the pane cannot
@@ -29,12 +29,12 @@
  * deliberately not in upload order, so the shot also shows the ranking surviving
  * into a view whose default sort is newest-first.
  *
- * `?variant=folder-rename` and `?variant=folder-menu` render the two states the
- * folder tree only reaches through an interaction: a row turned into its own
- * name field, and the per-row ⋯ menu that gets it there. Both drive themselves —
- * the rename editor is internal component state, and the row controls are
- * hover-revealed on a pointer device, so a fixture that merely rendered the tree
- * would be a picture of neither.
+ * `?variant=folder-rename` and `?variant=folder-menu` render the two states a
+ * folder card only reaches through an interaction: its name swapped for an
+ * in-place editor, and the per-card ⋯ menu that gets it there. Both drive
+ * themselves — the rename editor is internal component state, and the card
+ * controls are hover-revealed on a pointer device, so a fixture that merely
+ * rendered the grid would be a picture of neither.
  *
  * `?variant=uploading` renders the moment right after a batch lands, which is
  * the one row where the cards are NOT all the same shape: a document that is
@@ -49,11 +49,12 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { notFound, useSearchParams } from 'next/navigation'
-import { FileBrowserPane } from '@/features/documents/components/file-browser-pane'
-import { FolderTreePane } from '@/features/documents/components/folder-tree-pane'
-import { FileSearchBar } from '@/features/documents/components/file-search-bar'
+import { FileBrowserPane, type FolderNavigation } from '@/features/documents/components/file-browser-pane'
+import { DocumentActionsTrigger, DocumentObjectMenu } from '@/features/documents/components/document-actions'
+import { FileSearchBar, FileSearchField } from '@/features/documents/components/file-search-bar'
+import { useFileSearch } from '@/features/documents/hooks/use-file-search'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
-import { LayoutGrid, ListTree } from 'lucide-react'
+import { LayoutGrid, List } from 'lucide-react'
 import type { FileItem, FolderItem } from '@/features/documents/components/project-file-workspace'
 
 function makeFile(id: string, filename: string, summary: string, extra: Record<string, unknown> = {}): FileItem {
@@ -77,11 +78,15 @@ function makeFile(id: string, filename: string, summary: string, extra: Record<s
 }
 
 const FILES: FileItem[] = [
+  // Filed documents — reachable by drilling into their folder, and countable
+  // on its card ("2 items" on Brandschutz).
   makeFile('p1', 'Brandschutzkonzept_Wohnbau-Nord.pdf', 'Brandschutzkonzept für den Wohnbau Nord (GK 4).', {
     fileSize: 3_800_000,
+    folderId: 'f-brand',
   }),
   makeFile('p2', 'Fluchtwegplan_EG-2OG.pdf', 'Fluchtwegplan für Erdgeschoss bis 2. Obergeschoss.', {
     fileSize: 1_200_000,
+    folderId: 'f-brand-plan',
   }),
   makeFile('p3', 'Grundriss_Regelgeschoss.dwg', 'CAD-Grundriss des Regelgeschosses.', {
     contentType: 'application/acad',
@@ -95,6 +100,7 @@ const FILES: FileItem[] = [
   }),
   makeFile('p5', 'Statik_Positionsplan.pdf', 'Positionsplan der Tragstruktur mit Lastannahmen.', {
     fileSize: 2_900_000,
+    folderId: 'f-statik',
   }),
   makeFile('p6', 'Energieausweis.pdf', 'Energieausweis mit Heizwärmebedarf und Effizienzklasse.', {
     status: 'processing',
@@ -105,6 +111,22 @@ const FILES: FileItem[] = [
   makeFile('p7', 'Baustellenfoto_Rohbau.jpg', 'Baustellenfoto des Rohbaus, Nordfassade.', {
     contentType: 'image/jpeg',
     fileSize: 5_300_000,
+  }),
+  // FORMAT BEATS THE NAME. „plan" matches anywhere in a filename, so these two
+  // used to draw a floor-plan card — outer walls, partitions and a door swing —
+  // over a Markdown note and a table. `Statik_Positionsplan.pdf` above is the
+  // control: it is a PDF, it really can be a drawing, and it still reads as one.
+  makeFile('p8', 'Projektplan_Sanierung.md', 'Ablauf der Sanierung in Phasen, mit offenen Punkten je Gewerk.', {
+    contentType: 'text/markdown',
+    fileSize: 31_000,
+    pageCount: null,
+    contentTypes: ['text'],
+  }),
+  makeFile('p9', 'Zeitplan_Gewerke.csv', 'Gewerke mit Start- und Endterminen je Bauabschnitt.', {
+    contentType: 'text/csv',
+    fileSize: 18_000,
+    pageCount: null,
+    contentTypes: ['table'],
   }),
 ]
 
@@ -158,8 +180,8 @@ const UPLOADING_FILES: FileItem[] = [
   }),
 ]
 
-// Root + nested folders so the tree renders indentation, expand rows, and the
-// per-row add-subfolder hit target.
+// Root + nested folders so the drill-down renders folder cards, counts, and a
+// multi-level breadcrumb once Brandschutz › Fluchtwege is entered.
 const FOLDERS: FolderItem[] = [
   { id: 'f-brand', parentId: null, name: 'Brandschutz', path: '/Brandschutz' },
   { id: 'f-brand-plan', parentId: 'f-brand', name: 'Fluchtwege', path: '/Brandschutz/Fluchtwege' },
@@ -215,7 +237,131 @@ export default function FileBrowserDevPage(): JSX.Element {
   if (variant === 'search-list') return <SearchInListViewFixture />
   if (variant === 'folder-rename') return <FolderCrudFixture mode="rename" />
   if (variant === 'folder-menu') return <FolderCrudFixture mode="menu" />
+  if (variant === 'folders-list') return <FoldersInListViewFixture />
+  if (variant === 'folder-drop') return <FolderDropTargetFixture />
+  if (variant === 'file-context') return <FileContextMenuFixture />
   return <FileBrowserFixtures />
+}
+
+/** Local folder-navigation state over the fixture's static folders. */
+function useFixtureFolderNav(): FolderNavigation & { currentFolderId: string | null } {
+  const [currentFolderId, setCurrentFolderId] = useState<string | null>(null)
+  return {
+    folders: FOLDERS,
+    currentFolderId,
+    onNavigate: setCurrentFolderId,
+    onCreateFolder: async () => false,
+    onRenameFolder: async () => true,
+    onDeleteFolder: async () => true,
+  }
+}
+
+/**
+ * A folder lit up as a drop target, mid-drag.
+ *
+ * The state only exists THROUGH a drag, so the fixture performs one rather than
+ * setting a flag: a `dragover` carrying our own folder MIME type, dispatched at
+ * a folder card after mount. Setting the highlight directly would be a picture
+ * of the state rather than the tile arriving in it, and it is the arriving that
+ * this pins — the target has to decide, during the drag and before the release,
+ * whether it can take what is over it.
+ *
+ * The shot is worth having because two surfaces used to answer this gesture at
+ * once. The workspace's upload overlay reacted to any drag with items on it, so
+ * dragging INSIDE the page covered the folder being aimed at in „Dateien hier
+ * ablegen". What this shows is one answer: the folder, ringed.
+ */
+function FolderDropTargetFixture(): JSX.Element {
+  const folderNav = useFixtureFolderNav()
+  const search = useFileSearch({ projectId: 'proj-demo' })
+
+  useEffect(() => {
+    const card = document.querySelector('[data-testid="folder-card-f-statik"]')
+    if (!card) return
+    const types = ['application/x-grid-folder-id', 'application/x-grid-folder-id:f-brand']
+    const event = new Event('dragover', { bubbles: true, cancelable: true })
+    // jsdom and the browser both refuse a constructed `DataTransfer` here, so
+    // the one fact the target reads is attached directly.
+    Object.defineProperty(event, 'dataTransfer', {
+      value: { types, getData: () => 'f-brand', dropEffect: 'none' },
+    })
+    const raf = window.requestAnimationFrame(() => card.dispatchEvent(event))
+    return () => window.cancelAnimationFrame(raf)
+  }, [])
+
+  return (
+    <main className="mx-auto flex max-w-5xl flex-col gap-8 p-6">
+      <div>
+        <h1 className="text-lg font-semibold">Files browser — a folder as a drop target</h1>
+        <p className="mt-1 text-sm text-muted-foreground">
+          „Brandschutz“ dragged over „Statik“. One answer to the gesture: the folder, ringed.
+        </p>
+      </div>
+      <div
+        className="flex h-[420px] flex-col overflow-hidden rounded-xl border"
+        data-testid="file-browser-folder-drop"
+      >
+        <div className="flex-1 overflow-y-auto">
+          <FileBrowserPane
+            files={[]}
+            searchFiles={FILES}
+            selectedFileId={null}
+            onSelectFile={() => {}}
+            isLoading={false}
+            search={search}
+            folderNav={folderNav}
+            onDropDocumentInFolder={() => {}}
+            onDropFolderInFolder={() => {}}
+          />
+        </div>
+      </div>
+    </main>
+  )
+}
+
+/**
+ * Folders in the DETAIL view — the one composition of this pane that had no
+ * shot at all.
+ *
+ * Every existing file-browser target photographs the card grid, or a search. The
+ * detail view's folder band was captured nowhere, which is how it came to be
+ * drawn in raw `amber-*` — a band of tinted rows above a neutral table, reading
+ * as a warning strip over a listing where nothing is wrong. The shot exists so
+ * the next change to either half is seen against the other.
+ */
+function FoldersInListViewFixture(): JSX.Element {
+  const [selected, setSelected] = useState<string | null>(null)
+  const folderNav = useFixtureFolderNav()
+  const search = useFileSearch({ projectId: 'proj-demo' })
+  const levelFiles = FILES.filter((f) => (f.folderId ?? null) === folderNav.currentFolderId)
+
+  return (
+    <main className="mx-auto flex max-w-5xl flex-col gap-8 p-6">
+      <div>
+        <h1 className="text-lg font-semibold">Files browser — folders in the detail view</h1>
+        <p className="mt-1 text-sm text-muted-foreground">
+          The level’s folders as rows above the sortable file table, at the root.
+        </p>
+      </div>
+      <div
+        className="flex h-[560px] flex-col overflow-hidden rounded-xl border"
+        data-testid="file-browser-folders-list"
+      >
+        <div className="flex-1 overflow-y-auto">
+          <FileBrowserPane
+            files={levelFiles}
+            searchFiles={FILES}
+            selectedFileId={selected}
+            onSelectFile={setSelected}
+            isLoading={false}
+            search={search}
+            view="list"
+            folderNav={folderNav}
+          />
+        </div>
+      </div>
+    </main>
+  )
 }
 
 /**
@@ -242,6 +388,7 @@ function useSelfDrivenSearch(testId: string, query: string): void {
 /** A ranked semantic answer, rendered in the view the reader actually chose. */
 function SearchInListViewFixture(): JSX.Element {
   const [selected, setSelected] = useState<string | null>(null)
+  const search = useFileSearch({ projectId: 'proj-demo' })
   useSelfDrivenSearch('file-browser-search-list', 'Fluchtwegbreite')
 
   return (
@@ -254,15 +401,79 @@ function SearchInListViewFixture(): JSX.Element {
         </p>
       </div>
 
-      <div className="h-[420px] overflow-hidden rounded-xl border" data-testid="file-browser-search-list">
+      {/* Mirrors ProjectFileWorkspace's composition: the field lives in the
+          header, one component above the pane it filters. */}
+      <div className="flex h-[460px] flex-col overflow-hidden rounded-xl border" data-testid="file-browser-search-list">
+        <div className="flex items-center justify-end border-b px-4 py-3">
+          <FileSearchField
+            className="w-72"
+            value={search.query}
+            onChange={search.setQuery}
+            onSubmit={search.run}
+            onClear={search.clear}
+            placeholder="Dateien durchsuchen"
+            searchLabel="Suche"
+            resetLabel="Suche zurücksetzen"
+          />
+        </div>
+        <div className="flex-1 overflow-y-auto">
+          <FileBrowserPane
+            files={FILES}
+            selectedFileId={selected}
+            onSelectFile={setSelected}
+            isLoading={false}
+            search={search}
+            view="list"
+          />
+        </div>
+      </div>
+    </main>
+  )
+}
+
+/**
+ * Right-click on a file card — Finder-shaped, same items as the ⋯.
+ */
+function FileContextMenuFixture(): JSX.Element {
+  const folderNav = useFixtureFolderNav()
+  const search = useFileSearch({ projectId: 'proj-demo' })
+  const [selected, setSelected] = useState<string | null>(null)
+  const driven = useRef(false)
+  useEffect(() => {
+    if (driven.current) return
+    driven.current = true
+    const card = document.querySelector('[data-testid="file-card"]')
+    card?.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, clientX: 120, clientY: 160 }))
+  }, [])
+  const levelFiles = FILES.filter((file) => (file.folderId ?? null) === folderNav.currentFolderId)
+  return (
+    <main className="mx-auto flex max-w-5xl flex-col gap-8 p-6">
+      <div>
+        <h1 className="text-lg font-semibold">Files browser — right-click a file</h1>
+        <p className="mt-1 text-sm text-muted-foreground">
+          Open, Ask about this, Download, Rename, Move, Delete. Same list as the ⋯.
+        </p>
+      </div>
+      <div className="h-[520px] overflow-hidden rounded-xl border" data-testid="file-browser-file-context">
         <FileBrowserPane
-          files={FILES}
+          files={levelFiles}
+          searchFiles={FILES}
           selectedFileId={selected}
           onSelectFile={setSelected}
           isLoading={false}
-          hasFolderSelected={false}
-          projectId="proj-demo"
-          view="list"
+          search={search}
+          folderNav={folderNav}
+          wrapFile={(file, card) => (
+            <DocumentObjectMenu
+              document={file}
+              scope="files"
+              folders={FOLDERS}
+              onOpen={() => setSelected(file.id)}
+            >
+              {card}
+            </DocumentObjectMenu>
+          )}
+          renderActions={() => <DocumentActionsTrigger />}
         />
       </div>
     </main>
@@ -270,19 +481,18 @@ function SearchInListViewFixture(): JSX.Element {
 }
 
 /**
- * The folder tree's two interaction-only states.
+ * The folder card's two interaction-only states.
  *
- * `mode="menu"` opens the ⋯ menu on a row — which is also the only way to SEE
- * the row controls on a pointer device, since they are hover-revealed
+ * `mode="menu"` opens the ⋯ menu on a card — which is also the only way to SEE
+ * the card controls on a pointer device, since they are hover-revealed
  * (`data-[state=open]:opacity-100` keeps the trigger lit while its menu is up).
- * `mode="rename"` goes one step further and picks Rename, so the row is
- * replaced in place by its own name field — same row, same indent, same width
- * as the folder it stands in for. The two cannot share a page: the rename input
- * commits on blur, so opening a menu anywhere else would end the rename.
+ * `mode="rename"` goes one step further and picks Rename, so the card's name is
+ * replaced in place by its own field. The two cannot share a page: the rename
+ * input commits on blur, so opening a menu anywhere else would end the rename.
  */
 function FolderCrudFixture({ mode }: { mode: 'menu' | 'rename' }): JSX.Element {
-  const [selectedFolderId, setSelectedFolderId] = useState<string | null>(null)
-  const noop = async () => true
+  const folderNav = useFixtureFolderNav()
+  const search = useFileSearch({ projectId: 'proj-demo' })
 
   // `reactStrictMode` runs an effect twice on mount, and Enter on the trigger
   // TOGGLES the menu — so an unguarded effect opened it and immediately shut it
@@ -313,7 +523,7 @@ function FolderCrudFixture({ mode }: { mode: 'menu' | 'rename' }): JSX.Element {
     <main className="mx-auto flex max-w-3xl flex-col gap-8 p-6">
       <div>
         <h1 className="text-lg font-semibold">
-          {mode === 'menu' ? 'Folder tree — the row’s own actions' : 'Folder tree — renaming in place'}
+          {mode === 'menu' ? 'Folder card — the card’s own actions' : 'Folder card — renaming in place'}
         </h1>
         <p className="mt-1 text-sm text-muted-foreground">
           {mode === 'menu'
@@ -322,15 +532,15 @@ function FolderCrudFixture({ mode }: { mode: 'menu' | 'rename' }): JSX.Element {
         </p>
       </div>
 
-      <div className="w-64 overflow-hidden rounded-xl border" data-testid="folder-crud-fixture">
-        <FolderTreePane
-          folders={FOLDERS}
-          selectedFolderId={selectedFolderId}
-          onSelectFolder={setSelectedFolderId}
-          onCreateFolder={async () => false}
-          onRenameFolder={noop}
-          onDeleteFolder={noop}
+      <div className="overflow-hidden rounded-xl border" data-testid="folder-crud-fixture">
+        <FileBrowserPane
+          files={[]}
+          searchFiles={FILES}
+          selectedFileId={null}
+          onSelectFile={() => {}}
           isLoading={false}
+          search={search}
+          folderNav={folderNav}
         />
       </div>
     </main>
@@ -346,22 +556,8 @@ function FolderCrudFixture({ mode }: { mode: 'menu' | 'rename' }): JSX.Element {
  */
 function SearchFailedFixture(): JSX.Element {
   const [selected, setSelected] = useState<string | null>(null)
-
-  useEffect(() => {
-    const input = document.querySelector<HTMLInputElement>('[data-testid="file-browser-search-failed"] input')
-    if (!input) return
-    // React tracks the input's value on the node, so a plain assignment is
-    // swallowed; going through the prototype setter is what makes `input` fire
-    // with the new value. Then SUBMIT the form — the run is a form submit
-    // (Enter or the Search button), not a keydown the pane listens for.
-    const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')?.set
-    setter?.call(input, 'Fluchtweg')
-    input.dispatchEvent(new Event('input', { bubbles: true }))
-    const submit = window.requestAnimationFrame(() => {
-      input.closest('form')?.requestSubmit()
-    })
-    return () => window.cancelAnimationFrame(submit)
-  }, [])
+  const search = useFileSearch({ projectId: 'proj-demo' })
+  useSelfDrivenSearch('file-browser-search-failed', 'Fluchtweg')
 
   return (
     <main className="mx-auto flex max-w-5xl flex-col gap-8 p-6">
@@ -372,15 +568,30 @@ function SearchFailedFixture(): JSX.Element {
         </p>
       </div>
 
-      <div className="h-[420px] overflow-hidden rounded-xl border" data-testid="file-browser-search-failed">
-        <FileBrowserPane
-          files={FILES}
-          selectedFileId={selected}
-          onSelectFile={setSelected}
-          isLoading={false}
-          hasFolderSelected={false}
-          projectId="proj-demo"
-        />
+      {/* Mirrors ProjectFileWorkspace's composition: the field lives in the
+          header, one component above the pane it filters. */}
+      <div className="flex h-[460px] flex-col overflow-hidden rounded-xl border" data-testid="file-browser-search-failed">
+        <div className="flex items-center justify-end border-b px-4 py-3">
+          <FileSearchField
+            className="w-72"
+            value={search.query}
+            onChange={search.setQuery}
+            onSubmit={search.run}
+            onClear={search.clear}
+            placeholder="Dateien durchsuchen"
+            searchLabel="Suche"
+            resetLabel="Suche zurücksetzen"
+          />
+        </div>
+        <div className="flex-1 overflow-y-auto">
+          <FileBrowserPane
+            files={FILES}
+            selectedFileId={selected}
+            onSelectFile={setSelected}
+            isLoading={false}
+            search={search}
+          />
+        </div>
       </div>
     </main>
   )
@@ -393,6 +604,7 @@ function SearchFailedFixture(): JSX.Element {
  */
 function JustUploadedFixture(): JSX.Element {
   const [selected, setSelected] = useState<string | null>(null)
+  const search = useFileSearch({ projectId: 'proj-demo' })
 
   return (
     <main className="mx-auto flex max-w-5xl flex-col gap-8 p-6">
@@ -409,8 +621,7 @@ function JustUploadedFixture(): JSX.Element {
           selectedFileId={selected}
           onSelectFile={setSelected}
           isLoading={false}
-          hasFolderSelected={false}
-          projectId="proj-demo"
+          search={search}
         />
       </div>
     </main>
@@ -418,34 +629,36 @@ function JustUploadedFixture(): JSX.Element {
 }
 
 function FileBrowserFixtures(): JSX.Element {
-  const [selected, setSelected] = useState<string | null>('p2')
-  const [selectedFolderId, setSelectedFolderId] = useState<string | null>(null)
-  const [view, setView] = useState<'cards' | 'tree'>('tree')
+  const [selected, setSelected] = useState<string | null>('p3')
+  const [view, setView] = useState<'cards' | 'list'>('cards')
+  const folderNav = useFixtureFolderNav()
+  const search = useFileSearch({ projectId: 'proj-demo' })
+  const flatSearch = useFileSearch({ projectId: 'proj-demo' })
   // A non-empty query so the search bar's clear (X) target renders in the shot.
-  const [treeSearch, setTreeSearch] = useState('Brandschutz')
+  const [barSearch, setBarSearch] = useState('Brandschutz')
 
-  const noopCreate = async () => false
+  const levelFiles = FILES.filter((f) => (f.folderId ?? null) === folderNav.currentFolderId)
 
   return (
     <main className="mx-auto flex max-w-5xl flex-col gap-8 p-6">
       <div>
-        <h1 className="text-lg font-semibold">Files browser — folder tree + touch targets</h1>
+        <h1 className="text-lg font-semibold">Files browser — folder drill-down</h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          Tree view, view toggle, folder chips and search-clear at their mobile tap sizes.
+          Breadcrumb path, folder cards beside the files, New-folder popover, and the cards/list toggle.
+          Click a folder card to enter it; the path walks back out.
         </p>
       </div>
 
-      {/* Folder-TREE composition — mirrors ProjectFileWorkspace's tree layout so
-          the folder rows, add-subfolder control, view toggle and tree band
-          height reflect the real workspace on mobile. */}
+      {/* The drill-down browser — mirrors ProjectFileWorkspace's composition:
+          view toggle and search field in the header band, the field's own
+          results rendered by the pane below it. */}
       <div className="flex h-[720px] flex-col overflow-hidden rounded-xl border">
-        {/* Action bar with the real card/tree view toggle. */}
-        <div className="flex items-center justify-end gap-4 border-b px-4 py-3">
+        <div className="flex flex-wrap items-center justify-end gap-2 border-b px-4 py-3">
           <ToggleGroup
             type="single"
             value={view}
             onValueChange={(value) => {
-              if (value === 'cards' || value === 'tree') setView(value)
+              if (value === 'cards' || value === 'list') setView(value)
             }}
             segmented
             size="icon-sm"
@@ -454,39 +667,44 @@ function FileBrowserFixtures(): JSX.Element {
             <ToggleGroupItem value="cards" aria-label="Kacheln" title="Kacheln">
               <LayoutGrid />
             </ToggleGroupItem>
-            <ToggleGroupItem value="tree" aria-label="Ordner" title="Ordner">
-              <ListTree />
+            <ToggleGroupItem value="list" aria-label="Liste" title="Liste">
+              <List />
             </ToggleGroupItem>
           </ToggleGroup>
+          <FileSearchField
+            className="w-64"
+            value={search.query}
+            onChange={search.setQuery}
+            onSubmit={search.run}
+            onClear={search.clear}
+            placeholder="Dateien durchsuchen"
+            searchLabel="Suche"
+            resetLabel="Suche zurücksetzen"
+          />
         </div>
-        {/* Stacks on mobile (tree band on top), splits on md+ — same as workspace. */}
-        <div className="flex flex-1 flex-col overflow-hidden md:flex-row">
-          <div className="max-h-72 w-full shrink-0 overflow-y-auto border-b md:max-h-none md:w-60 md:border-b-0 md:border-r">
-            <FolderTreePane
-              folders={FOLDERS}
-              selectedFolderId={selectedFolderId}
-              onSelectFolder={setSelectedFolderId}
-              onCreateFolder={noopCreate}
-              // Folders are full CRUD now; the fixture carries the row controls
-              // so the tree's hover state and its menu stay reviewable.
-              onRenameFolder={async () => true}
-              onDeleteFolder={async () => true}
-              isLoading={false}
-            />
-          </div>
-          <div className="flex-1 overflow-y-auto">
-            <FileBrowserPane
-              files={selectedFolderId ? FILES.filter((f) => f.folderId === selectedFolderId) : FILES}
-              selectedFileId={selected}
-              onSelectFile={setSelected}
-              isLoading={false}
-              hasFolderSelected={selectedFolderId !== null}
-              projectId="proj-demo"
-              folders={FOLDERS}
-              selectedFolderId={selectedFolderId}
-              onSelectFolder={setSelectedFolderId}
-            />
-          </div>
+        <div className="flex-1 overflow-y-auto">
+          <FileBrowserPane
+            files={levelFiles}
+            searchFiles={FILES}
+            selectedFileId={selected}
+            onSelectFile={setSelected}
+            isLoading={false}
+            search={search}
+            view={view}
+            onViewChange={setView}
+            folderNav={folderNav}
+            wrapFile={(file, card) => (
+              <DocumentObjectMenu
+                document={file}
+                scope="files"
+                folders={FOLDERS}
+                onOpen={() => setSelected(file.id)}
+              >
+                {card}
+              </DocumentObjectMenu>
+            )}
+            renderActions={() => <DocumentActionsTrigger />}
+          />
         </div>
       </div>
 
@@ -495,10 +713,10 @@ function FileBrowserFixtures(): JSX.Element {
         <h2 className="mb-2 text-sm font-medium text-muted-foreground">Suche — Löschen (X)</h2>
         <div className="overflow-hidden rounded-xl border">
           <FileSearchBar
-            value={treeSearch}
-            onChange={setTreeSearch}
+            value={barSearch}
+            onChange={setBarSearch}
             onSubmit={() => {}}
-            onClear={() => setTreeSearch('')}
+            onClear={() => setBarSearch('')}
             placeholder="Dokumente durchsuchen"
             searchLabel="Suche"
             resetLabel="Suche zurücksetzen"
@@ -508,21 +726,20 @@ function FileBrowserFixtures(): JSX.Element {
             semanticActive={false}
             bannerText=""
             resetSemanticLabel="Zurücksetzen"
-            onResetSemantic={() => setTreeSearch('')}
+            onResetSemantic={() => setBarSearch('')}
             bannerTestId="dev-semantic-banner"
           />
         </div>
       </div>
 
-      {/* Card grid in its home surface (unchanged reference fixture). */}
+      {/* Flat reference grid (no folderNav) — the Archiv's presentation. */}
       <div className="h-[820px] overflow-hidden rounded-xl border">
         <FileBrowserPane
           files={FILES}
           selectedFileId={selected}
           onSelectFile={setSelected}
           isLoading={false}
-          hasFolderSelected={false}
-          projectId="proj-demo"
+          search={flatSearch}
         />
       </div>
     </main>

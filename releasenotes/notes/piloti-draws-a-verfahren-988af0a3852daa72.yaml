@@ -1,0 +1,13 @@
+---
+features:
+  - >
+    Piloti can now draw a procedure. Where an answer turns on a sequence a
+    paragraph cannot hold — who hands what to whom, a step that sends you back
+    a stage, a Nachweis that two others wait on — it returns a drawing beside
+    the text, and one click files that drawing into the project as an SVG and
+    a PDF you can attach to an Einreichung.
+  - >
+    Drawings never carry a measurement. A Schnitt, a Treppe, a Fluchtweg or
+    ein Abstand still comes back as one of the fifteen technical schematics,
+    where Piloti supplies the values and the drawing is computed from them, so
+    the picture cannot disagree with its own numbers.

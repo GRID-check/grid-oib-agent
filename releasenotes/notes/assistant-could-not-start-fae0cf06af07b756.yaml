@@ -1,0 +1,5 @@
+---
+fixes:
+  - >
+    The assistant could not start, so questions went unanswered. It starts
+    again.

@@ -8,11 +8,15 @@ import type { GridCard } from '@/shared/cards/schemas'
 import type { CardDecision, CardInteractions } from '@/features/grid-cards/card-decision'
 import type { DraftMention } from '@/features/collaboration/lib/mention-text'
 import type { AnswerConfidenceCappedReason } from '@/lib/conversations/message-provenance'
+import type { AnswerMeta } from '@/lib/conversations/message-answer-meta'
+import type { RetrievalLedger } from '@/lib/conversations/message-retrieval-ledger'
+import type { RunLedger } from '@/lib/runs/run-ledger-types'
 import type { MessageStages } from '@/lib/conversations/message-stages'
 import type { StageFrame } from './stores/messages-store'
 import type { SourceSignal } from '@/features/layout/lib/source-presets'
 
 import type { Shelf, SourceKind } from './lib/source-kinds'
+import type { DocumentVersionState } from '@/lib/documents/lifecycle-types'
 
 /** Message role types */
 export type MessageRole = 'user' | 'assistant' | 'system'
@@ -48,6 +52,20 @@ export interface ComposerSubject {
    * Büro hits (#436).
    */
   shelf?: 'project' | 'archiv' | 'session'
+  /**
+   * The subject's OPEN version — the one still being worked on — when it has
+   * one, so the turn can read a document retrieval cannot see.
+   *
+   * Only a published version reaches the retrieval index (ADR-0054), so a
+   * draft, an in-review or a changes-requested document has no chunks and the
+   * focus filter falls open to the whole corpus. These two fields travel to the
+   * agent as ``focus_version_id`` / ``focus_version_state``; it reads the
+   * version's bytes into the conversation's working directory instead.
+   *
+   * Absent means "the live bytes are the published ones" and nothing changes.
+   */
+  versionId?: string | null
+  versionState?: DocumentVersionState | null
 }
 
 /** A queued composer prefill: the text plus any structured mentions it renders. */
@@ -101,6 +119,24 @@ export type ErrorCode =
   | 'system.unknown'
 
 /** Prompt types for agent prompts requiring user response */
+/**
+ * What happened when the client asked the server for a turn's finished answer.
+ *
+ * A boolean could not carry this, and the missing distinction was a bug: two
+ * different "false"s meant "the server has nothing" and "the answer is already
+ * on screen, someone else fetched it". Recovery runs from three places — on
+ * mount, on reconnect, and when the streaming watchdog gives up — and any two
+ * of them can be in flight at once, so the second one back would print
+ * „bitte erneut senden" underneath the answer the first had just recovered.
+ *
+ * - `recovered`  — the server had it and it is now in the conversation.
+ * - `superseded` — do not tell the reader anything: either the answer is
+ *                  already local, or a newer turn is streaming over it.
+ * - `nothing`    — no answer exists for this turn. This is the only outcome
+ *                  that earns the interrupted banner.
+ */
+export type RecoveryOutcome = 'recovered' | 'superseded' | 'nothing'
+
 export type PromptType = 'clarification' | 'approval' | 'choice' | 'text-input' | 'plan_approval'
 
 /**
@@ -123,17 +159,24 @@ export type HumanPromptInputType =
 /**
  * Transparency extras attached to an answer from the terminal system_response
  * frame (WP-A → WP-B wire contract). All optional; each renders its own bit of
- * UI (routing narration, capped-confidence note, citations-removed note) only
- * when present.
+ * UI (the "Hinweis" role tab, capped-confidence note, citations-removed note)
+ * only when present.
  */
 export interface AnswerTransparency {
+  /** Which path the turn turned out to take, observed after the answer. */
   routingDecision?: 'meta' | 'shallow' | 'deep' | 'error'
-  routingReason?: string
   escalationReason?: string
   answerConfidenceCappedReason?: AnswerConfidenceCappedReason
   /** The model's own one-clause justification for its self-assessment, shown verbatim in the chip tooltip. */
   answerConfidenceReason?: string
   citationsRemoved?: { count: number; reasons: string[] }
+  /**
+   * Retrieved-but-uncited documents for this answer (document key +
+   * lane/kind + page, no prose). Renders the collapsed "Gelesen, nicht
+   * zitiert" disclosure under the answer; absent when everything retrieved
+   * was cited.
+   */
+  readSources?: CitationSource[]
   /**
    * The turn's research was CUT OFF at its tool-iteration ceiling: the answer
    * rests on the evidence gathered up to that point, not on a finished search.
@@ -160,6 +203,18 @@ export interface AnswerTransparency {
   skillsActivated?: string[]
   /** The grid-hidden subset of skillsActivated — muted in the disclosure, never dropped. */
   skillsHidden?: string[]
+  /**
+   * The answer's structured anatomy (verdict / takeaways / callout) — native
+   * answer fields, gated backend-side and sanitized at the wire boundary,
+   * rendered in a fixed layout by AgentResponse. Never cards.
+   */
+  answerMeta?: AnswerMeta
+  /**
+   * The backend's own account of this turn's retrieval rounds — native answer
+   * fields, recorded backend-side and sanitized at the wire boundary. The
+   * Herleitung spine draws each round's fan from it (`roundFan`).
+   */
+  retrievalLedger?: RetrievalLedger
 }
 
 /** File card data for file messages */
@@ -211,6 +266,47 @@ export interface DeepResearchBannerData {
    * shallow→deep — `Eskaliert zur Tiefenrecherche: <reason>` per the contract.
    */
   escalationReason?: string
+  /**
+   * The document this run's report was filed as, once the BFF has reported one.
+   *
+   * Absent is the NORMAL, honest state, not a loading state: filing is skipped
+   * when the chat has no project, and for every run that finished before this
+   * feature existed. The banner therefore says nothing at all when this is
+   * missing — it must never offer to open a file that does not exist, and
+   * "maybe there is a document" is not a thing to render.
+   */
+  filedDocument?: DeepResearchFiledDocument
+  /**
+   * A filing this run's starting banner PROMISED, which then did not land.
+   *
+   * The one state `filedDocument` being absent used to swallow. Absence still
+   * means "nothing was ever promised" — no project, no attempt, an older run —
+   * and stays silent. This flag means the opposite: the disclosure
+   * („Der fertige Bericht wird in diesem Projekt unter ‚Berichte' abgelegt.")
+   * was shown, the run finished, and there is no file. That reader is going to
+   * go and look; the banner owes them the correction, in the same quiet
+   * register the promise was made in.
+   *
+   * Set from the report route's `filingFailed`, which is raised only when a
+   * project was resolved — the same condition under which the disclosure
+   * rendered. It carries no reason, deliberately: see `JobReportResponse`.
+   */
+  filingFailed?: boolean
+}
+
+/**
+ * A filed agent-authored report, as the report route reports it back.
+ *
+ * `alreadyFiled` is deliberately NOT carried here. It answers "did this call
+ * create the row", which is a question about the request, not about the
+ * document — the banner shows the same link whether the row was created by this
+ * fetch or by the one before it.
+ */
+export interface DeepResearchFiledDocument {
+  /** `documents.id` — what the `/files?doc=` deep link addresses. */
+  documentId: string
+  /** The generated filename, so the banner can name what now exists. */
+  filename: string
 }
 
 /** Individual chat message */
@@ -304,8 +400,13 @@ export interface ChatMessage {
   enabledDataSources?: string[]
   /** Files that were available when this message was sent (for display in thinking panel) */
   messageFiles?: Array<{ id: string; fileName: string }>
-  /** Grid cards rendered with this agent response */
-  cards?: GridCard[]
+  /** Grid cards rendered with this agent response.
+   *
+   * Positions are identity (`[[card:N]]` addresses N-1 here): a card the
+   * validator rejected leaves an `undefined` hole rather than renumbering the
+   * rest — see `validateGridCards`.
+   */
+  cards?: (GridCard | undefined)[]
   /**
    * The user's answer to each interactive card of this answer (`accepted`,
    * `dismissed`, …), keyed by `cardKey(card, index)`. Persisted alongside
@@ -360,12 +461,12 @@ export interface ChatMessage {
    */
   answerConfidenceReason?: string
   /**
-   * Which path the turn took after intent classification (meta/shallow/deep/
-   * error) — drives the "Warum dieser Weg?" narration in the Herleitung.
+   * Which path the turn turned out to take, observed after the answer rather
+   * than classified before it: `meta` is a direct reply (no source consulted,
+   * no self-assessment), `shallow` and `deep` are research, `error` a failed
+   * turn. Drives the answer's role tab — a `meta` reply reads as a "Hinweis".
    */
   routingDecision?: 'meta' | 'shallow' | 'deep' | 'error'
-  /** Human-readable "why" for the routing decision (verbatim from classifier). */
-  routingReason?: string
   /** Narration shown when the turn escalated shallow→deep this turn. */
   escalationReason?: string
   /**
@@ -374,6 +475,13 @@ export interface ChatMessage {
    * sources row when present.
    */
   citationsRemoved?: { count: number; reasons: string[] }
+  /**
+   * Retrieved-but-uncited documents for this answer (document key +
+   * lane/kind + page, no prose). Renders the collapsed "Gelesen, nicht
+   * zitiert" disclosure under the answer; absent when everything retrieved
+   * was cited.
+   */
+  readSources?: CitationSource[]
   /**
    * The turn's research was CUT OFF at its tool-iteration ceiling: the answer
    * rests on the evidence gathered up to that point, not on a finished search.
@@ -400,6 +508,37 @@ export interface ChatMessage {
   skillsActivated?: string[]
   /** The grid-hidden subset of skillsActivated — muted in the disclosure, never dropped. */
   skillsHidden?: string[]
+  /**
+   * The answer's structured anatomy (verdict / takeaways / callout) — native
+   * answer fields of this message, gated backend-side and sanitized on every
+   * write and read (`lib/conversations/message-answer-meta.ts`). Rendered in a
+   * fixed layout: verdict above the prose, callout and takeaways after it.
+   */
+  answerMeta?: AnswerMeta
+  /**
+   * The backend's own account of this turn's retrieval rounds, same sanitize
+   * contract as `answerMeta`. The Herleitung spine draws each round's fan from
+   * it; persisted with the message so reloads draw the same one.
+   */
+  retrievalLedger?: RetrievalLedger
+  /**
+   * The account of the RUN this message is (ADR-0062): the phases it walked,
+   * the steps it took and what it left behind.
+   *
+   * Present on exactly one message per run — the one `messages.run_id` names —
+   * and absent on every ordinary turn. Same sanitize contract as
+   * `retrievalLedger`: written bounded and re-bounded on read, because a run is
+   * narrated by a worker and stored as jsonb.
+   */
+  runLedger?: RunLedger
+  /**
+   * The run's title, for the block's header: the task's title or the question
+   * a deep-research run was asked. Set once by the BFF when the run's message
+   * is minted (`metadata.run_title`); absent on every ordinary turn and on a
+   * run minted before it was recorded, where the block shows its own word for
+   * an untitled run.
+   */
+  runTitle?: string
   /**
    * The WS turn id (`parent_id`) this answer belongs to
    * (`docs/architecture/post-answer-stages.md` §1.6, §4.1).
@@ -447,7 +586,14 @@ export interface ThinkingTraceLane {
   key: string
   label: string
   hitCount: number
-  sources: Array<{ name: string; detail?: string }>
+  sources: Array<{
+    name: string
+    title?: string
+    detail?: string
+    shelf?: Shelf
+    /** Retrieval round that produced this hit. Lets the spine split a merged tool step. */
+    round?: number
+  }>
   /**
    * Canonical coarse source kind (ADR-0026), as classified by the backend.
    * Optional: lanes persisted before the `## Trace-Lanes` block carried it have
@@ -486,6 +632,30 @@ export interface ThinkingStep {
    * stripping on localStorage prune so the sources fan-out remains after reload.
    */
   traceLanes?: ThinkingTraceLane[]
+  /**
+   * The turn event this step carried, hoisted: the stable key (`status.retrieval.withQuery`)
+   * and its interpolation values (the corpus, the query the model actually sent).
+   * The live line reads these out of `content`, which the storage prune blanks —
+   * so until this existed a reloaded thread, a colleague, or a second device had
+   * no record of what was searched. Same discipline as `traceLanes`: derived
+   * before the payload is dropped, newest renderable event of the slot wins.
+   */
+  turnEvent?: StoredTurnEvent
+}
+
+/** The one thing of a turn event worth keeping past the turn. */
+export interface StoredTurnEvent {
+  key: string
+  values?: Record<string, string>
+  /**
+   * The model's own words: the conclusion that caused this fetch. Same
+   * discipline as an escalation `reason` — not interpolated into the live
+   * line, attributed on the Herleitung spine. Absent when the model skipped
+   * Thought; the graph then keeps the layer without inventing a caption.
+   */
+  reason?: string
+  /** Tool basenames this round actually called. Architect-facing labels come from the dictionary. */
+  tools?: string[]
 }
 
 /** Conversation/Session */
@@ -575,6 +745,21 @@ export interface CitationSource {
   fileName?: string
   /** 1-based page from structured wire. */
   page?: number
+  /** The Punkt within the document ("3.5.2"), the citation form building law uses. */
+  punkt?: string
+  /** Retrieval score (cosine similarity) for this passage, when the wire carried one. */
+  score?: number
+  /**
+   * The retrieved PASSAGE — the words the answer read, as the backend captured
+   * them (`SourceEntry.chunk_text`, bounded on the wire).
+   *
+   * Distinct from `content`, which is a human-readable locator line, and it is
+   * the field every passage surface should read: the viewer's highlight, the
+   * Fundstelle rail, the "Zitierte Stelle" box, "Zitat kopieren". Deriving one
+   * out of `content` is the fallback for messages persisted before this field
+   * travelled — and it is only ever a locator, so it derives nothing.
+   */
+  snippet?: string
   /**
    * Coarse source kind (baurecht | buero | projekt | web) — the canonical
    * taxonomy that drives the chip color family (ADR-0026). Absent on older
@@ -633,6 +818,12 @@ export interface WireCitationSource {
   document_id?: string | null
   file_name?: string | null
   page?: number | null
+  /** The Punkt this passage belongs to ("3.5.2"), when the chunker established one. */
+  punkt?: string | null
+  /** Retrieval score (cosine similarity) the knowledge layer printed for this passage. */
+  score?: number | null
+  /** The retrieved passage text, bounded by the serializer. */
+  snippet?: string | null
   kind?: string | null
   /** Shelf the chunk came from: `archiv | project | session | base` (ADR-0047). */
   shelf?: string | null
@@ -879,7 +1070,7 @@ export interface ChatState {
   /** File artifacts for FilesTab (from artifact.update type: "file" events) */
   deepResearchFiles: DeepResearchFile[]
   /** Grid response cards attached to the final deep-research report */
-  deepResearchCards: GridCard[]
+  deepResearchCards: (GridCard | undefined)[]
   /** Whether the full stream data (artifacts, tool calls, etc.) has been loaded for current job */
   deepResearchStreamLoaded: boolean
   /** Live stream is open but has gone quiet (no events for a while) — UX-11a */
@@ -888,6 +1079,18 @@ export interface ChatState {
   deepResearchConnectionLost: boolean
   /** Transient reconnect handler registered by useDeepResearch (not persisted) */
   reconnectDeepResearchFn: (() => void) | null
+  /**
+   * Jobs this browser has terminally settled itself (dismissed from the
+   * history), jobId → terminal status. The backend's status/list endpoints can
+   * serve a stale `running` for a crashed run indefinitely — and the cancel
+   * endpoint can simultaneously report it terminal — so without this record
+   * every status refresh would flip a dismissed thread back to active and the
+   * purge would look like it did nothing. Automatic reconciliation (refresh,
+   * reconnect, banner cleanup) treats these as settled and never re-activates
+   * them; only an explicit re-attach overrides it. Persisted: the staleness
+   * survives reloads, so the record must too. Bounded (see the dismiss path).
+   */
+  resolvedDeepResearchJobs: Record<string, DeepResearchJobStatus>
 
   // Plan state (for chat/HITL restore flows)
   /** Messages for clarification questions, plan previews, and approvals. */
@@ -1013,7 +1216,7 @@ export interface ChatActions {
   addAgentResponse: (
     content: string,
     showViewReport?: boolean,
-    cards?: GridCard[],
+    cards?: (GridCard | undefined)[],
     answerConfidence?: 'low' | 'medium' | 'high',
     citations?: CitationSource[],
     transparency?: AnswerTransparency
@@ -1028,7 +1231,7 @@ export interface ChatActions {
    */
   appendAgentResponseDelta: (
     content: string,
-    cards?: GridCard[],
+    cards?: (GridCard | undefined)[],
     answerConfidence?: 'low' | 'medium' | 'high',
     citations?: CitationSource[]
   ) => void
@@ -1042,7 +1245,7 @@ export interface ChatActions {
    */
   finalizeAgentResponse: (
     content: string,
-    cards?: GridCard[],
+    cards?: (GridCard | undefined)[],
     answerConfidence?: 'low' | 'medium' | 'high',
     citations?: CitationSource[],
     transparency?: AnswerTransparency
@@ -1077,8 +1280,14 @@ export interface ChatActions {
     content: string,
     showViewReport: boolean,
     meta: Partial<ChatMessage>,
-    cards?: GridCard[]
+    cards?: (GridCard | undefined)[]
   ) => string
+  /**
+   * Put a run's own message into the open thread with the id the SERVER gave
+   * it (ADR-0062): the run's message already exists, so this adopts a row
+   * rather than minting a second block for one run. Idempotent by that id.
+   */
+  adoptRunMessage: (message: ChatMessage) => void
   /** Patch a specific message in a conversation */
   patchConversationMessage: (
     conversationId: string,
@@ -1127,6 +1336,38 @@ export interface ChatActions {
     escalationReason?: string
   ) => void
 
+  /**
+   * Record that a run's report was filed into the project, on that run's
+   * success banner.
+   *
+   * Separate from `addDeepResearchBanner` because the two facts arrive at
+   * different times and over different transports: the banner is written from
+   * the SSE stream the moment the run succeeds, and the filing is only known
+   * once the report route has been asked for the report (that GET is where the
+   * BFF observes completion and files the document). Folding it into the banner
+   * call would mean holding the banner back until a second request returns,
+   * which would delay the outcome the user is waiting for to decorate it.
+   *
+   * A no-op when no success banner for `jobId` exists — an attached run has no
+   * thread to write into.
+   */
+  recordDeepResearchFiling: (jobId: string, filed: DeepResearchFiledDocument) => void
+
+  /**
+   * Record that a filing this run's starting banner promised did NOT land.
+   *
+   * The counterpart to `recordDeepResearchFiling`, and it exists because the
+   * absence of a filing means two different things. The report route reports
+   * them apart — `filed` when the document exists, `filingFailed` when a
+   * project was resolved and the write still failed — and only the second one
+   * contradicts something the reader was already told.
+   *
+   * Never overrides a recorded document: see the action's own comment.
+   *
+   * A no-op when no success banner for `jobId` exists.
+   */
+  recordDeepResearchFilingFailure: (jobId: string) => void
+
   // Deep research SSE actions
 
   /** Start deep research streaming with a job ID and optional originating message ID */
@@ -1163,6 +1404,25 @@ export interface ChatActions {
    * the session previously had a completed report.
    */
   refreshDeepResearchSessionStatuses: () => Promise<void>
+  /**
+   * Dismiss one stuck deep-research run: cancel the backend job best-effort
+   * and always mark the thread terminal locally, so an abandoned run stops
+   * spinning and its row becomes actionable again. `conversationId` may be null for headless
+   * runs with no thread to write into. Idempotent — never appends a second
+   * terminal banner.
+   *
+   * A cancel that fails 400 with "Job not cancellable (status: …)" carries the
+   * backend's own terminal verdict for an already-finished run; the dismiss
+   * reconciles to that verdict (and records it, see `resolvedDeepResearchJobs`)
+   * instead of merely marking the thread stopped.
+   */
+  dismissDeepResearchJob: (conversationId: string | null, jobId: string) => Promise<void>
+  /**
+   * Dismiss every stuck deep-research run of the current user, across all
+   * projects (a stuck run anywhere blocks delete-all everywhere).
+   * @returns how many runs were dismissed.
+   */
+  purgeAbandonedDeepResearchJobs: () => Promise<number>
   /**
    * Add a citation from deep research (isCited=true for citation_use, false for
    * citation_source). Takes the backend citation wire whole and normalizes it
@@ -1238,13 +1498,15 @@ export interface ChatActions {
   /**
    * Refetch server-persisted history for a seemingly-interrupted turn and, if
    * the backend persisted the assistant reply while the client was disconnected,
-   * append it locally. Returns true when a reply was recovered (so the caller
-   * can skip the "response interrupted" banner).
+   * append it locally.
+   *
+   * Three outcomes rather than a boolean, because only ONE of them means the
+   * reader should be told their turn was interrupted. See {@link RecoveryOutcome}.
    */
   _recoverInterruptedAssistantMessage: (
     conversationId: string,
     afterUserMessageId: string
-  ) => Promise<boolean>
+  ) => Promise<RecoveryOutcome>
 
   // Session busy checks (for disabling UI controls)
 

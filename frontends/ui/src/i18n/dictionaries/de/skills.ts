@@ -36,7 +36,65 @@ export const skills: typeof en.skills = {
       delete: 'Löschen',
       viewBody: 'Anweisung ansehen',
       enabledAria: 'Skill „{name}“ in dieser Organisation verwenden',
+      openAria: 'Skill „{name}“ öffnen',
     },
+    /** Filtert die ganze Seite nach Name oder Beschreibung. */
+    search: {
+      label: 'Skills durchsuchen',
+      placeholder: 'Skills durchsuchen…',
+      noMatches: 'Kein Skill passt zu „{query}“.',
+      showAll: 'Alles zeigen',
+    },
+    /** Kategorie-Überschriften in beiden Hälften der Seite. */
+    category: {
+      unsortedHeading: 'Unsortiert',
+    },
+    /** Die eigene Kategorie-Ordnung — anlegen, umbenennen, entfernen. */
+    categories: {
+      button: 'Kategorien',
+      title: 'Kategorien ordnen',
+      description:
+        'Kategorien gruppieren den Skills-Tab. Eine entfernte Kategorie entfernt nie die Skills darauf — sie fallen zurück auf unsortiert.',
+      newPlaceholder: 'Neuer Kategoriename…',
+      create: 'Kategorie anlegen',
+      nameLabel: 'Name',
+      descriptionLabel: 'Beschreibung (optional)',
+      save: 'Speichern',
+      cancel: 'Abbrechen',
+      rename: 'Umbenennen',
+      renameAria: 'Kategorie „{name}“ umbenennen',
+      delete: 'Kategorie entfernen',
+      deleteAria: 'Kategorie „{name}“ entfernen',
+      count: '{count, plural, one {# Skill} other {# Skills}}',
+      deleteTitle: 'Kategorie „{name}“ entfernen?',
+      deleteDescription:
+        '{count, plural, one {# Skill steht darauf und fällt zurück auf unsortiert.} other {# Skills stehen darauf und fallen zurück auf unsortiert.}}',
+      deleteConfirm: 'Kategorie entfernen',
+      empty: 'Noch keine Kategorien — legen Sie eine an, um zu ordnen.',
+      createError: 'Die Kategorie konnte nicht gespeichert werden.',
+      deleteError: 'Die Kategorie konnte nicht entfernt werden.',
+    },
+  },
+
+  /** Die Skill-Schublade — dieselbe Karte, aufgeklappt. */
+  drawer: {
+    close: 'Details schließen',
+    categoryLabel: 'Kategorie',
+    unsorted: 'Unsortiert',
+    statusLabel: 'Status',
+    statusOn: 'In Verwendung',
+    statusOff: 'Ausgeschaltet',
+    originLabel: 'Gepflegt von',
+    switchAria: 'Skill „{name}“ in dieser Organisation verwenden',
+    instructionHeading: 'Anweisung',
+    detailHeading: 'Über diesen Skill',
+    originOrg: 'In dieser Organisation geschrieben',
+    originPlatform: 'Von Piloti kuratiert',
+    originClone: 'Geklont von „{name}“',
+      goneTitle: 'Nicht gefunden',
+      gone: 'Dieser Skill steht nicht auf dieser Seite. Der Link ist möglicherweise veraltet, oder der Skill wurde gelöscht.',
+      /** Die Überschrift, solange ein Deep Link noch geprüft wird — kein Befund. */
+      loadingTitle: 'Wird geladen',
   },
 
   curated: {
@@ -54,14 +112,39 @@ export const skills: typeof en.skills = {
   },
 
   editor: {
+    steps: {
+      label: 'Schritte',
+      progress: 'Schritt {current} von {total}',
+      back: 'Zurück',
+      next: 'Weiter',
+      what: 'Wofür',
+      instructions: 'Anweisungen',
+      check: 'Prüfen',
+      whatTitle: 'Was kann dieser Skill?',
+      whatHint:
+        'Diese zwei Zeilen sind alles, was ein Agent liest, bevor er entscheidet, ob er den Skill lädt. Der Rest wird erst danach gelesen.',
+      instructionsTitle: 'Was soll er tun?',
+      instructionsHint:
+        'Das Vorgehen, so wie Sie es einer Kollegin erklären würden. Wird erst geladen, wenn der Agent den Skill heranzieht.',
+      checkTitle: 'Gegenlesen',
+      checkHint:
+        'Eine Prüfinstanz liest den Skill so, wie ein Agent ihn liest. Führen Sie sie aus und entscheiden Sie dann, was die Befunde wert sind.',
+      advanced: 'Erweitert',
+    },
     review: {
       heading: 'Skill-Prüfung',
       subtitle:
-        'Eine Prüfinstanz liest den Skill so, wie ein Agent ihn liest, und nennt, was seiner Auswahl im Weg steht. Beratend – sie blockiert das Speichern nie.',
+        'Eine Prüfinstanz liest den Skill so, wie ein Agent ihn liest, und nennt, was seiner Auswahl im Weg steht. Vor dem Speichern auszuführen; wie Sie die Befunde gewichten, bleibt Ihnen überlassen.',
       action: 'Skill prüfen',
       running: 'Wird geprüft…',
       clean: 'Nichts zu beanstanden. Die Beschreibung sagt, was der Skill tut und wann er einzusetzen ist.',
-      unavailable: 'Die Prüfung konnte gerade nicht ausgeführt werden. Es wurde nichts bewertet – bitte gleich erneut versuchen.',
+      unavailable: 'Die Prüfung konnte gerade nicht ausgeführt werden. Es wurde nichts bewertet – Sie können trotzdem speichern.',
+      required: 'Bitte vor dem Speichern die Prüfung ausführen.',
+      again: 'Erneut prüfen',
+      openCount: '{count, plural, one {# Befund} other {# Befunde}}',
+      staleAction:
+        'Der Skill hat sich seit dieser Prüfung geändert. Prüfen Sie erneut, um zu sehen, wo er steht.',
+      stale: 'Der Skill hat sich seit dieser Prüfung geändert. Bitte erneut prüfen.',
       fields: {
         name: 'Name',
         description: 'Beschreibung',
@@ -147,7 +230,7 @@ export const skills: typeof en.skills = {
       ready: 'Das Dokument ist gültig. „Übernehmen“ schreibt es in die Felder oben.',
       unchanged: 'Unverändert – identisch mit den Feldern oben.',
       ignored:
-        'Diese Felder kann GRID nicht speichern und lässt sie beim Übernehmen weg: {keys}.',
+        'Diese Felder kann Piloti nicht speichern und lässt sie beim Übernehmen weg: {keys}.',
       errors: {
         'missing-frontmatter':
           'Das Dokument beginnt nicht mit einem „---“-Block. Ein SKILL.md startet immer mit YAML-Frontmatter.',
@@ -166,9 +249,12 @@ export const skills: typeof en.skills = {
       noMatches: 'Keine Karte passt zu dieser Suche.',
       removeAria: 'Kartentyp „{type}“ aus der Präferenz entfernen',
     },
-    autoInvokeLabel: 'Agent darf selbst laden',
-    autoInvokeHint:
-      'An: Der Agent sieht die Beschreibung in jeder Runde und darf den Skill selbst laden. Aus: Nur ein „/“-Aufruf oder ein Job hängt ihn an.',
+    category: {
+      heading: 'Kategorie',
+      hint: 'Wo die Werkstatt ihn einsortiert. Unsortiert ist eine echte Antwort.',
+      label: 'Kategorie',
+      unsorted: 'Unsortiert',
+    },
     hiddenLabel: 'In der Live-Zeile still',
     hiddenHint:
       'Nach dem Lauf nicht in der laufenden Zeile. Unter der Antwort wird er trotzdem genannt.',
@@ -201,7 +287,7 @@ export const skills: typeof en.skills = {
     },
     invoked: {
       label: 'Skill',
-      hint: 'Seine Anweisungen werden zu Beginn dieser Antwort geladen.',
+      hint: 'Piloti sieht diesen Namen und entscheidet, ob es den Skill lädt.',
       remove: 'Skill {name} aus dieser Nachricht entfernen',
     },
     activated: {

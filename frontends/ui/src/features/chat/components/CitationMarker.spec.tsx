@@ -19,10 +19,14 @@ vi.mock('@/features/layout/store', () => ({
   }),
 }))
 
+// Mutable, so one case can put the chat inside a project: the peek reads the
+// project id off the store, exactly as the marker's own resolver does.
+const chatStore = vi.hoisted(() => ({ projectId: null as string | null }))
+
 vi.mock('../store', () => ({
   useChatStore: vi.fn((selector?: (s: Record<string, unknown>) => unknown) => {
     const state = {
-      projectId: null,
+      projectId: chatStore.projectId,
       reportContent: '',
       deepResearchJobId: null,
       isDeepResearchStreaming: false,
@@ -39,17 +43,6 @@ vi.mock('@/adapters/api', () => ({ cancelJob: vi.fn() }))
 
 vi.mock('@/adapters/auth', () => ({ useAuth: () => ({ accessToken: null }) }))
 
-vi.mock('../hooks', () => ({
-  useLoadJobData: () => ({
-    loadReport: vi.fn(),
-    importJobStream: vi.fn(),
-    loadResearchPanelTab: vi.fn(),
-    isLoading: false,
-    error: null,
-    clearError: vi.fn(),
-  }),
-}))
-
 // NOT mocked: the real MarkdownRenderer, because the marker only exists
 // because of how it renders in-page anchors. Stubbing it would leave these
 // tests asserting against markup no reader ever sees.
@@ -65,7 +58,7 @@ const at = new Date('2026-07-28T12:00:00Z')
 
 const jsonResponse = (data: unknown) => ({ ok: true, json: async () => data })
 
-const fetchMock = vi.fn((input: RequestInfo | URL) => {
+const defaultFetch = (input: RequestInfo | URL) => {
   const url = String(input)
   if (url === '/api/knowledge-base') {
     return Promise.resolve(
@@ -73,7 +66,9 @@ const fetchMock = vi.fn((input: RequestInfo | URL) => {
     )
   }
   return Promise.resolve(jsonResponse({ documents: [] }))
-})
+}
+
+const fetchMock = vi.fn(defaultFetch)
 
 const locus = (page: number, number: number, passage?: string): CitationSource => ({
   id: `c${number}`,
@@ -111,6 +106,8 @@ describe('an inline citation marker', () => {
   beforeEach(() => {
     resetSourcePreviewIndexCache()
     fetchMock.mockClear()
+    fetchMock.mockImplementation(defaultFetch)
+    chatStore.projectId = null
     vi.stubGlobal('fetch', fetchMock)
   })
 
@@ -250,5 +247,123 @@ describe('an inline citation marker', () => {
     )
     const link = screen.getByRole('link', { name: 'the section' })
     expect(link).toHaveAttribute('href', '#some-heading')
+  })
+
+  /**
+   * A CONTROL THAT DOES NOTHING IS WORSE THAN NO CONTROL.
+   *
+   * „An dieser Stelle öffnen" used to be offered for every citation without an
+   * outbound URL, with no resolution attempted. On a source the viewer cannot
+   * render — a plan, a `.docx`, a citation whose shelf holds no such file — the
+   * click mounted the dialog, which resolved to `info`, closed itself and
+   * rendered nothing. The popover shut and nothing happened. Both directions
+   * are pinned here, because closing only one of them would trade a silent
+   * dead control for a silently missing live one.
+   */
+  describe('the open control is offered only when there is something to open', () => {
+    test('offers it for a base-corpus PDF the viewer can render', async () => {
+      const user = userEvent.setup()
+      renderAnswer()
+
+      await user.click(screen.getByRole('button', { name: /Source 1: OIB-Richtlinie 2\.1/i }))
+      const peek = await screen.findByRole('dialog')
+
+      expect(
+        await within(peek).findByText('Open at this passage', {}, { timeout: 5000 })
+      ).toBeInTheDocument()
+      expect(peek.querySelector('[data-citation-open]')).not.toBeNull()
+    })
+
+    test('says so instead when the cited file is in no shelf the reader can reach', async () => {
+      // The knowledge base answers with no such file, and there are no stored
+      // documents — the citation resolves to `info`, which is exactly the state
+      // that used to render a button that closed the popover and did nothing.
+      fetchMock.mockImplementation(() => Promise.resolve(jsonResponse({ files: [], documents: [] })))
+
+      const user = userEvent.setup()
+      renderAnswer()
+
+      await user.click(screen.getByRole('button', { name: /Source 1: OIB-Richtlinie 2\.1/i }))
+      const peek = await screen.findByRole('dialog')
+
+      expect(
+        await within(peek).findByText('Cannot be opened in Piloti', {}, { timeout: 5000 })
+      ).toBeInTheDocument()
+      expect(peek.querySelector('[data-citation-open]')).toBeNull()
+    })
+  })
+
+  /**
+   * "What is this?" is answered; "where does it live?" gets a link — but only
+   * for a document that HAS a home in the app. A project file's home is the
+   * project's files page, the office archive has its own route; the base
+   * corpus has neither, and offering a link there would open nothing.
+   */
+  describe('the link to the document\'s home shelf', () => {
+    const projectFile = 'brandschutzkonzept_ausgabe_2026.pdf'
+    const shelved = (shelf: 'project' | 'archiv'): CitationSource => ({
+      id: 'c9',
+      content: `[KB] ${projectFile}, p.3`,
+      citationKey: `${projectFile}, p.3`,
+      fileName: projectFile,
+      collection: 'project_docs',
+      title: 'Brandschutzkonzept',
+      origin: 'kb',
+      kind: 'projekt',
+      shelf,
+      page: 3,
+      number: 1,
+      isCited: true,
+      timestamp: at,
+    })
+    const answerWith = (source: CitationSource) =>
+      render(
+        <AgentResponse
+          content={[
+            'Das Konzept sieht zwei Fluchtwege vor [1].',
+            '',
+            '## Quellen',
+            `- [1] [KB] ${source.fileName}, p.3`,
+          ].join('\n')}
+          messageId="m4"
+          citations={[source]}
+          routingDecision="deep"
+        />
+      )
+
+    test('a project-shelf document links to the project files', async () => {
+      chatStore.projectId = 'p-42'
+      const user = userEvent.setup()
+      answerWith(shelved('project'))
+
+      await user.click(screen.getByRole('button', { name: /Source 1: Brandschutzkonzept/i }))
+      const peek = await screen.findByRole('dialog')
+
+      const link = within(peek).getByRole('link', { name: 'Open in project files' })
+      expect(link).toHaveAttribute('href', '/app/projects/p-42/files')
+    })
+
+    test('an archive document links to the office archive', async () => {
+      const user = userEvent.setup()
+      answerWith(shelved('archiv'))
+
+      await user.click(screen.getByRole('button', { name: /Source 1: Brandschutzkonzept/i }))
+      const peek = await screen.findByRole('dialog')
+
+      expect(within(peek).getByRole('link', { name: 'Open in archive' })).toHaveAttribute(
+        'href',
+        '/app/archiv'
+      )
+    })
+
+    test('a base-corpus document offers no such link', async () => {
+      const user = userEvent.setup()
+      renderAnswer()
+
+      await user.click(screen.getByRole('button', { name: /Source 1: OIB-Richtlinie 2\.1/i }))
+      const peek = await screen.findByRole('dialog')
+
+      expect(peek.querySelector('[data-citation-home]')).toBeNull()
+    })
   })
 })

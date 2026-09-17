@@ -612,3 +612,46 @@ describe('a model already in the session keeps the IFC ceiling', () => {
     expect(result.batchErrors[0].code).toBe('TOTAL_SIZE_EXCEEDED')
   })
 })
+
+describe('the batch caps are the session\'s, not the corpus\'s', () => {
+  const bigFile = (name: string, mb: number) =>
+    ({ name, size: mb * 1024 * 1024, type: 'application/pdf' }) as unknown as File
+
+  const context = (durableCorpus: boolean) => ({
+    existingFileCount: 0,
+    existingTotalSize: 0,
+    existingFileNames: new Set<string>(),
+    durableCorpus,
+  })
+
+  /**
+   * A folder drop of any real Einreichung is hundreds of megabytes, and the
+   * batch ceiling rejected it WHOLESALE — as a batch error, not a per-file one
+   * — in an organization with terabytes of quota left. The count cap had
+   * already been exempted for exactly this reason (#432); the size cap was
+   * left on by oversight, and it is the one that actually binds.
+   */
+  test('does not apply the 100 MB batch ceiling to a project or Archiv upload', () => {
+    const files = [bigFile('a.pdf', 40), bigFile('b.pdf', 40), bigFile('c.pdf', 40)]
+
+    const result = validateFileUpload(files, context(true))
+
+    expect(result.batchErrors.some((e) => e.code === 'TOTAL_SIZE_EXCEEDED')).toBe(false)
+  })
+
+  test('still applies it to a chat session, which has no quota behind it', () => {
+    const files = [bigFile('a.pdf', 40), bigFile('b.pdf', 40), bigFile('c.pdf', 40)]
+
+    const result = validateFileUpload(files, context(false))
+
+    expect(result.batchErrors.some((e) => e.code === 'TOTAL_SIZE_EXCEEDED')).toBe(true)
+  })
+
+  test('keeps the PER-FILE limit on both, because that is about the file', () => {
+    // A single file too large for the ingest pipeline is too large wherever it
+    // is filed — that limit says nothing about which shelf it lands on.
+    const result = validateFileUpload([bigFile('huge.pdf', 5000)], context(true))
+
+    expect(result.validFiles).toHaveLength(0)
+  })
+})

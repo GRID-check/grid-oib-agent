@@ -234,7 +234,7 @@ inbox row that calls a document “Chat ohne Titel.”
 
 The files work is the second consumer this document was waiting for
 ([spec](../superpowers/specs/2026-08-13-file-native-ownership-design.md),
-[ADR-0047](../adr/0047-assignment-is-not-access.md)). That change is not
+[ADR-0047](../adr/0059-assignment-is-not-access.md)). That change is not
 allowed to leave this §3 standing.
 
 One place the rule cannot reach, and you have to check by hand: the substrate has

@@ -37,6 +37,7 @@ import { ChevronDown, Hourglass, Scale } from 'lucide-react'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import { useTranslations, type Translator } from '@/i18n'
 import { SchematicCard } from '../schematics/kit'
+import { CARD_NOTICE_LAW, CardDisclosurePanel } from './card-chrome'
 import { cn } from '@/lib/utils'
 import type { DeadlineData, NormReferenceData } from '../schematics/types'
 
@@ -136,15 +137,15 @@ const Station: FC<StationProps> = ({ deadline, index, isLast, open, onToggle, t 
             )}
           </Shell>
 
-          <CollapsibleContent className="animate-in fade-in-0 duration-base ease-out motion-reduce:animate-none">
-            <div className="mt-1.5 flex flex-col gap-2 rounded-md border border-dashed bg-muted/30 px-3 py-2.5">
+          <CollapsibleContent>
+            <div className={CardDisclosurePanel}>
               {deadline.actor && <Fact label={t('cards.deadlineTimeline.actor')} value={deadline.actor} />}
               {deadline.consequence && (
                 <Fact label={t('cards.deadlineTimeline.consequence')} value={deadline.consequence} />
               )}
 
               {deadline.reference && (
-                <div className="flex flex-wrap items-center gap-x-2 gap-y-1 rounded-md bg-source-law-tint px-3 py-2 text-xs text-source-law-text">
+                <div className={cn(CARD_NOTICE_LAW, 'flex flex-wrap items-center gap-x-2 gap-y-1')}>
                   <Scale className="size-3.5 shrink-0" aria-hidden="true" />
                   <span className="text-[11px] font-medium uppercase tracking-wider opacity-70">
                     {t('cards.deadlineTimeline.basis')}

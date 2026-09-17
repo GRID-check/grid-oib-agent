@@ -151,8 +151,20 @@ describe.skipIf(!url)('tenant isolation against live Postgres', () => {
     const names = [...secured].map((row) => String(row.table_name))
     expect(names.length).toBeGreaterThanOrEqual(28)
 
+    // The one documented exception set: the lesson tables are secured AND
+    // deliberately unreadable for the tenant role (0068 revokes the platform
+    // helper's SELECT — see the migration's comment). Their posture has its
+    // own test below ('hides the lesson tables from tenants entirely'), which
+    // fails if the revoke disappears, so excluding them here does not leave
+    // them untested — it leaves them tested for the OPPOSITE claim.
+    const tenantInvisible = new Set([
+      'platform_lessons',
+      'platform_lesson_reports',
+      'platform_lesson_events',
+    ])
+
     const broken: Array<{ table: string; error: string }> = []
-    for (const table of names) {
+    for (const table of names.filter((name) => !tenantInvisible.has(name))) {
       try {
         await withTenant({ organizationId: ORG_A, userId: `user_${ORG_A}` }, () =>
           db.execute(sql.raw(`SELECT count(*) FROM "${table}"`))
@@ -336,6 +348,34 @@ describe.skipIf(!url)('tenant isolation against live Postgres', () => {
       )
     )
     expect(cause.message).toMatch(/permission denied/i)
+  })
+
+  /**
+   * The lesson tables are tighter than the platform-table norm: 0068 revokes
+   * even the tenant READ grant, because nothing tenant-facing queries them
+   * (the injected digest is built under the platform role) and a CANDIDATE
+   * lesson is exactly the text the auditor model flagged as possibly
+   * identifying. This test is what keeps that revoke from being "simplified"
+   * away as an inconsistency with the other platform_* tables.
+   */
+  it('hides the lesson tables from tenants entirely, in both directions', async () => {
+    for (const table of [
+      'platform_lessons',
+      'platform_lesson_reports',
+      'platform_lesson_events',
+    ] as const) {
+      const cause = await rejectionCause(() =>
+        withTenant({ organizationId: ORG_A }, () =>
+          db.execute(sql`select count(*) from ${sql.raw(table)}`)
+        )
+      )
+      expect(cause.message, `${table} must not be tenant-readable`).toMatch(/permission denied/i)
+    }
+    // The platform role still reads them — that is where the pipeline runs.
+    const rows = await withPlatformAccess('test: lesson register read', () =>
+      db.execute(sql`select count(*)::int as n from platform_lessons`)
+    )
+    expect([...rows][0]).toMatchObject({ n: 0 })
   })
 
   /**

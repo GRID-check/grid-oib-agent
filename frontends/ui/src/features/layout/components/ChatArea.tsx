@@ -21,9 +21,10 @@ import {
   useState,
   useMemo,
 } from 'react'
-import { ArrowDown, Boxes, FileText, Lock, Sparkles } from 'lucide-react'
+import { ArrowDown, FileText, Lock } from 'lucide-react'
 import { useShallow } from 'zustand/react/shallow'
 import { Button } from '@/components/ui/button'
+import { Skeleton } from '@/components/ui/skeleton'
 import {
   useChatStore,
   AgentPrompt,
@@ -43,6 +44,10 @@ import type { UserMessageAuthor } from '@/features/chat/components/UserMessage'
 // reason the collaboration imports above are: existing specs mock that barrel,
 // and a new export on it would have to be added to every one of those mocks.
 import { FollowUpsRail } from '@/features/chat/components/FollowUpsRail'
+import { offersAktenvermerk } from '@/features/chat/lib/aktenvermerk-chip'
+// Its own module rather than a barrel, for the reason FollowUpsRail is: the
+// specs that mock `@/features/chat` must not have to know about the run block.
+import { RunBlockMessage } from '@/features/runs/components/RunBlockMessage'
 import { AGENT_MENTION_ID } from '@/lib/mentions/types'
 import { cn } from '@/lib/utils'
 import { AwaitingBanner } from '@/features/collaboration/components/AwaitingBanner'
@@ -55,13 +60,19 @@ import { useSpectatedTurn } from '@/features/collaboration/hooks/use-spectated-t
 import { SpectatedTurn } from '@/features/collaboration/components/SpectatedTurn'
 import { TypingPresence } from '@/features/collaboration/components/TypingPresence'
 import { useAwaitingState } from '@/features/collaboration/hooks/use-sharing'
-import { AnimatePresence, motion, fadeRise, motionQuick } from '@/components/motion'
+import {
+  AnimatePresence,
+  motion,
+  fadeRise,
+  motionQuick,
+  motionSheetExit,
+} from '@/components/motion'
 import { useAuth } from '@/adapters/auth'
-import { useProjectBimModels } from '@/features/bim/hooks/use-bim-model'
 import { useReducedMotion } from '@/hooks/use-reduced-motion'
 import { SectionLabel } from '@/components/ui/section-label'
 import { useTranslations } from '@/i18n'
 import { useShowReasoningSkills } from '@/lib/user-preferences/use-show-reasoning-skills'
+import { WELCOME_OFFSET_FALLBACK } from '../hooks/use-composer-metrics'
 
 interface ChatAreaProps {
   /** Whether the user is authenticated */
@@ -123,6 +134,10 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
   )
 
   const respondToPrompt = useChatStore((s) => s.respondToPrompt)
+  // The project this thread is scoped to. Read here for one reason: the
+  // „Als Aktenvermerk schreiben" chip is only offered where a draft has
+  // somewhere to be filed (ledger 23).
+  const activeProjectId = useChatStore((s) => s.projectId)
   const setComposerPrefill = useChatStore((s) => s.setComposerPrefill)
   const getThinkingStepsForMessage = useChatStore((s) => s.getThinkingStepsForMessage)
   const dismissErrorCard = useChatStore((s) => s.dismissErrorCard)
@@ -537,11 +552,18 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
     const content = contentRef.current
     if (!content) return
     let raf = 0
-    const observer = new ResizeObserver(() => {
+    // Only GROWTH means "newer content below". The observer also fires when the
+    // list shrinks — collapsing a Herleitung or a code block above the viewport
+    // — and surfacing the jump button then claims an arrival that never was.
+    let lastHeight = content.getBoundingClientRect().height
+    const observer = new ResizeObserver((entries) => {
+      const height = entries[entries.length - 1]?.contentRect.height ?? lastHeight
+      const grew = height > lastHeight
+      lastHeight = height
       if (isAtBottomRef.current) {
         cancelAnimationFrame(raf)
         raf = requestAnimationFrame(() => scrollToBottom('auto'))
-      } else {
+      } else if (grew) {
         setShowScrollButton(true)
       }
     })
@@ -640,20 +662,31 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
     [retryLastUserMessage, dismissErrorCard]
   )
 
-  // TODO: Implement file retry/cancel/delete handlers when file upload is added
-  // For now, these are placeholders
-  const handleFileRetry = useCallback((_messageId: string) => {
-    // Will be implemented with file upload feature
-  }, [])
-
-  // Latency-gap typing indicator: while streaming, if the newest message is the
-  // just-sent user message with no thinking steps and no answer yet, show a
-  // small typing bubble so the send feels acknowledged before the first token.
+  // Latency-gap typing indicator, shown at the bottom of the thread while
+  // streaming and nothing has come back yet — two distinct gaps, both silent
+  // without this:
+  //
+  //   1. The just-sent user message, before its first thinking step or token.
+  //   2. A HITL prompt (clarification, a Folgewege choice, a plan decision)
+  //      the user just answered. `respondToPrompt` flips it to "received"
+  //      optimistically and `isStreaming` goes true the moment the reply is
+  //      sent, but that only says the answer LANDED — it says nothing about
+  //      Piloti having resumed. The Herleitung spinner for the turn, if any,
+  //      sits back at the TOP of the exchange (attached to the ORIGINAL user
+  //      message, not to whichever prompt is currently last), so on a
+  //      multi-round exchange it can be scrolled well out of view by the time
+  //      the reader answers the second or third question. Without a bottom
+  //      cue, an answered prompt just sits there looking finished — nothing
+  //      on screen says the turn is still going — until the next thing
+  //      eventually appears.
   const showTypingPlaceholder = useMemo(() => {
-    if (!isStreaming || !currentUserMessageId) return false
+    if (!isStreaming) return false
     const last = displayableMessages[displayableMessages.length - 1]
-    if (!last || last.id !== currentUserMessageId) return false
-    return getThinkingStepsForMessage(currentUserMessageId).length === 0
+    if (!last) return false
+    if (last.id === currentUserMessageId) {
+      return getThinkingStepsForMessage(currentUserMessageId).length === 0
+    }
+    return last.messageType === 'prompt' && !!last.isPromptResponded
   }, [isStreaming, currentUserMessageId, displayableMessages, getThinkingStepsForMessage])
 
   return (
@@ -680,7 +713,7 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
           {accessLost && (
             <div
               role="status"
-              className="text-muted-foreground mx-auto mt-3 w-full max-w-3xl px-4 text-sm"
+              className="text-muted-foreground mx-auto mt-3 w-full max-w-5xl px-4 text-sm sm:px-6"
             >
               {tCollaboration('thread.accessLost')}
             </div>
@@ -692,11 +725,43 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
             // holds for a first-time RECIPIENT of a shared thread: the conversation
             // is materialised empty and the server history lands a moment later, so
             // without the second clause a shared-thread invitee got a flash of the
-            // "private workspace" welcome before their colleague's messages snapped in.
+            // greeting before their colleague's messages snapped in.
             <MessageListSkeleton />
-          ) : isEmpty ? (
-            <WelcomeState isAuthenticated={isAuthenticated} onSignIn={onSignIn} />
           ) : (
+            <>
+            {/* The greeting LEAVES rather than disappearing. Sending the first
+                message swaps this whole plane in one commit — greeting out,
+                transcript in, composer down to the floor — and the reader is
+                looking straight at the greeting when it happens, because it is
+                what sits above the input they just typed into.
+
+                `mode="popLayout"` is what makes the two overlap: the outgoing
+                greeting is lifted out of the flow, so the transcript takes the
+                plane immediately instead of waiting behind a fade. It drifts
+                DOWN as it goes, with the composer, rather than up and away from
+                it — the whole empty-canvas group descends and dissolves while
+                the conversation arrives above it.
+
+                The offset it is bottom-aligned against is frozen for exactly
+                this reason (see `useComposerMetrics`): every number under it
+                changes in the same tick. */}
+            <AnimatePresence initial={false} mode="popLayout">
+              {isEmpty && (
+                <motion.div
+                  key="welcome"
+                  className="flex flex-1 flex-col"
+                  exit={{ opacity: 0, y: 16 }}
+                  transition={motionSheetExit}
+                >
+                  <WelcomeState
+                    isAuthenticated={isAuthenticated}
+                    onSignIn={onSignIn}
+                    inProject={Boolean(activeProjectId)}
+                  />
+                </motion.div>
+              )}
+            </AnimatePresence>
+            {!isEmpty && (
             // Bottom padding tracks the floating composer's REAL height (published
             // as --composer-h by MainLayout's ResizeObserver) plus a breathing gap,
             // so the last message/Herleitung never renders behind the composer no
@@ -707,7 +772,7 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
               // overlay the top of this scroll plane, so the first message never
               // renders behind them — a little extra on mobile where the pills sit
               // edge-to-edge over the full-width column.
-              className="mx-auto flex w-full max-w-3xl flex-col gap-4 px-4 pt-20 sm:pt-16"
+              className="mx-auto flex w-full max-w-5xl flex-col gap-4 px-4 pt-20 sm:px-6 sm:pt-14"
               style={{ paddingBottom: 'calc(var(--composer-h, 11rem) + 1.5rem)' }}
             >
               <AnimatePresence initial={false}>
@@ -764,6 +829,16 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
                       }
                     : undefined
 
+                  // Whether this turn earns the „Als Aktenvermerk schreiben"
+                  // chip — a walkthrough or a ruling, in a project, long enough
+                  // that the reader is already thinking about where to put it
+                  // (`features/chat/lib/aktenvermerk-chip`).
+                  const aktenvermerk = offersAktenvermerk({
+                    kind: agentMsg?.answerMeta?.kind,
+                    projectId: activeProjectId,
+                    body: agentMsg?.content,
+                  })
+
                   // The just-sent question's turn is the top-anchor target on send.
                   const isAnchorTarget = isUserMessage && message.id === currentUserMessageId
 
@@ -779,7 +854,7 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
                       id={`message-${message.id}`}
                       data-chat-anchor={isAnchorTarget ? 'true' : undefined}
                       className={cn(
-                        'flex scroll-mt-20 flex-col gap-4 sm:scroll-mt-16',
+                        'flex scroll-mt-20 flex-col gap-4 sm:scroll-mt-14',
                         // The arrival mark: says "this is the one" for a beat, then
                         // fades. A ring rather than a background, so it reads on the
                         // user bubble and the answer card alike.
@@ -790,7 +865,7 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
                       // Animate only genuinely new messages; hydrated ones render in place.
                       initial={hydratedIds.has(message.id) ? false : 'hidden'}
                       animate="visible"
-                      exit={{ opacity: 0, transition: { duration: 0.15, ease: 'easeOut' } }}
+                      exit={{ opacity: 0, transition: motionQuick }}
                       transition={motionQuick}
                     >
                       {/* Where the reader left off, in a shared thread (spec CC-19). */}
@@ -802,8 +877,8 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
                       <MessageRenderer
                         message={message}
                         conversationId={currentConversation?.id}
+                        projectId={activeProjectId}
                         onPromptRespond={handlePromptRespond}
-                        onFileRetry={handleFileRetry}
                         onErrorDismiss={dismissErrorCard}
                         onErrorRetry={handleErrorRetry}
                         showConfidenceChip={showConfidenceChip}
@@ -823,7 +898,7 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
                       right-aligned). Auto-expanded while the turn is live, it
                       collapses to a one-line bar once the answer lands. */}
                       {isUserMessage && hasThinkingSteps && (
-                        <div className="w-[680px] max-w-full">
+                        <div className="w-full">
                           <ChatThinking
                             steps={messageSteps}
                             isThinking={isStreaming && message.id === currentUserMessageId}
@@ -840,9 +915,8 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
                             citations={agentMsg?.citations}
                             choicePrompt={choicePrompt}
                             onChoiceRespond={handlePromptRespond}
-                            routingDecision={agentMsg?.routingDecision}
-                            routingReason={agentMsg?.routingReason}
                             escalationReason={agentMsg?.escalationReason}
+                            retrievalLedger={agentMsg?.retrievalLedger}
                           />
                         </div>
                       )}
@@ -850,7 +924,7 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
                       {/* The questions this answer made askable, BELOW the
                       answer and outside its surface — the product owner's
                       ruling, and §6 of docs/architecture/post-answer-stages.md.
-                      Same column, same left edge, same 680px as the answer and
+                      Same column, same edges, same full width as the answer and
                       the Herleitung; no new layout concept.
 
                       LAST in the message column on purpose. A stage delivers
@@ -861,9 +935,20 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
                       in the THREAD either, the answer no longer streaming, the
                       reader not already typing) is enforced where the frame
                       arrives, in `applyStageFrame`. */}
-                      {message.stages?.followUps && (
-                        <div className="w-[680px] max-w-full">
-                          <FollowUpsRail items={message.stages.followUps.items} />
+                      {/* One more chip beside them, decided in the browser: the
+                      offer to file this answer as an Aktenvermerk. It rides the
+                      rail rather than getting a surface of its own, because it
+                      is the same gesture the questions are (fill the composer,
+                      the reader presses send) and a second block under the
+                      answer would be a second thing to learn. `agentMsg` is
+                      only resolved once the turn has an answer, so the chip
+                      cannot appear mid-stream. */}
+                      {(message.stages?.followUps || aktenvermerk) && (
+                        <div className="w-full">
+                          <FollowUpsRail
+                            items={message.stages?.followUps?.items ?? []}
+                            offerAktenvermerk={aktenvermerk}
+                          />
                         </div>
                       )}
                     </motion.div>
@@ -978,6 +1063,8 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
               the turn ends. */}
               <div ref={anchorSpacerRef} aria-hidden="true" style={{ minHeight: 0 }} />
             </div>
+            )}
+            </>
           )}
         </div>
 
@@ -992,7 +1079,7 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
               initial={{ opacity: 0, y: 6 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: 6 }}
-              transition={{ duration: 0.15, ease: 'easeOut' }}
+              transition={motionQuick}
             >
               <button
                 type="button"
@@ -1017,10 +1104,9 @@ interface MessageRendererProps {
   message: ChatMessage
   /** Id of the conversation these messages belong to (for the memory chip). */
   conversationId?: string | null
+  /** The active project — the run block reads its live ledger through it. */
+  projectId?: string | null
   onPromptRespond: (promptId: string, response: string) => void
-  onFileRetry?: (messageId: string) => void
-  onFileCancel?: (messageId: string) => void
-  onFileDelete?: (messageId: string) => void
   onErrorDismiss?: (messageId: string) => void
   /** Resend the last user message + dismiss this error card (retry affordance). */
   onErrorRetry?: (messageId: string) => void
@@ -1046,10 +1132,8 @@ interface MessageRendererProps {
 const MessageRendererComponent: FC<MessageRendererProps> = ({
   message,
   conversationId,
+  projectId,
   onPromptRespond,
-  onFileRetry: _onFileRetry,
-  onFileCancel: _onFileCancel,
-  onFileDelete: _onFileDelete,
   onErrorDismiss,
   onErrorRetry,
   showConfidenceChip = true,
@@ -1060,6 +1144,7 @@ const MessageRendererComponent: FC<MessageRendererProps> = ({
   currentUserId,
   promptAddresseeName,
 }) => {
+  const tFileStatus = useTranslations('research')
   const messageType = message.messageType || (message.role === 'user' ? 'user' : 'assistant')
 
   switch (messageType) {
@@ -1100,16 +1185,14 @@ const MessageRendererComponent: FC<MessageRendererProps> = ({
         />
       )
 
-    case 'agent_response':
-      // Short answers from the agent displayed in the chat area
-      return (
+    case 'agent_response': {
+      // Short answers from the agent displayed in the chat area. Built once,
+      // here, because a RUN's message renders the same card beneath its block
+      // once the run has a report — and the prop mapping must exist in one place.
+      const answer = (
         <AgentResponse
           content={message.content}
           timestamp={message.timestamp}
-          showViewReport={message.showViewReport}
-          jobId={message.deepResearchJobId}
-          isDeepResearchActive={message.isDeepResearchActive}
-          deepResearchJobStatus={message.deepResearchJobStatus}
           cards={message.cards}
           citations={message.citations}
           conversationId={conversationId}
@@ -1120,10 +1203,12 @@ const MessageRendererComponent: FC<MessageRendererProps> = ({
           // reader said yes.
           cardInteractions={message.cardInteractions}
           stages={message.stages}
+          answerMeta={message.answerMeta}
           answerConfidence={message.answerConfidence}
           answerConfidenceCappedReason={message.answerConfidenceCappedReason}
           answerConfidenceReason={message.answerConfidenceReason}
           citationsRemoved={message.citationsRemoved}
+          readSources={message.readSources}
           researchTruncated={message.researchTruncated}
           truncationReason={message.truncationReason}
           degradedReasons={message.degradedReasons}
@@ -1137,13 +1222,45 @@ const MessageRendererComponent: FC<MessageRendererProps> = ({
           routingDecision={message.routingDecision}
         />
       )
+      // A message that carries a run ledger IS a run (ADR-0062): the block
+      // renders from the ledger, and the answer card above becomes the report
+      // beneath it once the run has one. Nothing else about the message
+      // changes — same row, same id, same deep-link target.
+      //
+      // The answer card is now the whole of it. The Python worker still stamps
+      // `deep_research_job_id` into every run message's metadata, and that used
+      // to reach `AgentResponse` as `jobId` and grow a "Bericht anzeigen"
+      // button on the finished block — a door that opened the legacy research
+      // panel OVER the run it belongs to. `AgentResponse` no longer takes those
+      // props, so the report is read where the reader already is. The banner
+      // below is the last surface that still opens the panel, and it is
+      // produced only for threads older than run messages.
+      if (message.runLedger) {
+        return <RunBlockMessage message={message} projectId={projectId} answer={answer} />
+      }
+      return answer
+    }
 
     case 'file':
-      // TODO: FileCard was removed in refactor - file display handled by FileSourceCard in panel
-      // File operation messages show upload/ingest status
+      // File operation messages show upload/ingest status. The wire status is
+      // never shown raw: anything this build cannot word falls back to
+      // "Available" rather than leaking `success`/`deleted` into the thread.
       if (!message.fileData) {
         return null
       }
+      // FileCard was removed in an earlier refactor — file display is handled
+      // by FileSourceCard in the panel; the thread keeps this status line.
+      const fileStatus = message.fileData.fileStatus
+      const fileStatusLabel =
+        fileStatus === 'uploading'
+          ? tFileStatus('fileSourceCard.statusUploading')
+          : fileStatus === 'ingesting'
+            ? tFileStatus('fileSourceCard.statusIngesting')
+            : fileStatus === 'success'
+              ? tFileStatus('fileSourceCard.statusAvailable')
+              : fileStatus === 'error'
+                ? tFileStatus('fileSourceCard.statusError')
+                : tFileStatus('fileSourceCard.statusAvailable')
       return (
         <div
           className="bg-muted shadow-xs flex items-center gap-2 rounded-xl px-4 py-2"
@@ -1151,7 +1268,7 @@ const MessageRendererComponent: FC<MessageRendererProps> = ({
         >
           <FileText className="text-muted-foreground size-4" aria-hidden="true" />
           <span className="text-muted-foreground text-sm">
-            {message.fileData.fileName} ({message.fileData.fileStatus})
+            {message.fileData.fileName} ({fileStatusLabel})
           </span>
         </div>
       )
@@ -1184,6 +1301,8 @@ const MessageRendererComponent: FC<MessageRendererProps> = ({
           toolCallCount={message.deepResearchBannerData.toolCallCount}
           timestamp={message.timestamp}
           escalationReason={message.deepResearchBannerData.escalationReason}
+          filedDocument={message.deepResearchBannerData.filedDocument}
+          filingFailed={message.deepResearchBannerData.filingFailed}
         />
       )
 
@@ -1217,6 +1336,7 @@ const areMessageRendererPropsEqual = (
   prev.message.content === next.message.content &&
   prev.message.isStreaming === next.message.isStreaming &&
   prev.conversationId === next.conversationId &&
+  prev.projectId === next.projectId &&
   prev.showConfidenceChip === next.showConfidenceChip &&
   prev.showAnswerFeedback === next.showAnswerFeedback &&
   prev.showReasoning === next.showReasoning &&
@@ -1232,8 +1352,7 @@ const areMessageRendererPropsEqual = (
   prev.author?.isYou === next.author?.isYou &&
   prev.onPromptRespond === next.onPromptRespond &&
   prev.onErrorDismiss === next.onErrorDismiss &&
-  prev.onErrorRetry === next.onErrorRetry &&
-  prev.onFileRetry === next.onFileRetry
+  prev.onErrorRetry === next.onErrorRetry
 
 const MessageRenderer = memo(MessageRendererComponent, areMessageRendererPropsEqual)
 MessageRenderer.displayName = 'MessageRenderer'
@@ -1289,7 +1408,6 @@ const TurnInFlightBanner: FC<{ label: string }> = ({ label }) => (
     role="status"
     data-testid="turn-in-flight"
   >
-    <Sparkles className="text-muted-foreground size-3.5 shrink-0" aria-hidden="true" />
     <span className="animate-text-shimmer text-foreground text-xs font-medium motion-reduce:animate-none">
       {label}
     </span>
@@ -1324,10 +1442,28 @@ const TypingIndicator: FC<{ status?: StatusType | null }> = ({ status }) => {
       role="status"
       aria-label={label}
     >
-      <span className="flex items-center gap-1" aria-hidden="true">
-        <span className="bg-muted-foreground/70 size-1.5 animate-pulse rounded-full [animation-delay:-0.3s] motion-reduce:animate-none" />
-        <span className="bg-muted-foreground/70 size-1.5 animate-pulse rounded-full [animation-delay:-0.15s] motion-reduce:animate-none" />
-        <span className="bg-muted-foreground/70 size-1.5 animate-pulse rounded-full motion-reduce:animate-none" />
+      <span className="flex items-center gap-1 motion-reduce:hidden" aria-hidden="true">
+        <motion.span
+          className="bg-muted-foreground/70 size-1.5 rounded-full"
+          initial={{ y: 0, opacity: 0.4 }}
+          animate={{ y: [0, -2, 0], opacity: [0.4, 1, 0.4] }}
+          transition={{ ...motionQuick, repeat: Infinity, delay: 0 }}
+        />
+        <motion.span
+          className="bg-muted-foreground/70 size-1.5 rounded-full"
+          initial={{ y: 0, opacity: 0.4 }}
+          animate={{ y: [0, -2, 0], opacity: [0.4, 1, 0.4] }}
+          transition={{ ...motionQuick, repeat: Infinity, delay: 0.12 }}
+        />
+        <motion.span
+          className="bg-muted-foreground/70 size-1.5 rounded-full"
+          initial={{ y: 0, opacity: 0.4 }}
+          animate={{ y: [0, -2, 0], opacity: [0.4, 1, 0.4] }}
+          transition={{ ...motionQuick, repeat: Infinity, delay: 0.24 }}
+        />
+      </span>
+      <span className="text-muted-foreground/70 hidden text-xs motion-reduce:inline" aria-hidden="true">
+        …
       </span>
       {/* Always word the wait (shimmering), and surface elapsed seconds once
           past a couple of seconds so a slow first token never feels stalled. */}
@@ -1352,7 +1488,7 @@ const MessageListSkeleton: FC = () => {
   const t = useTranslations('research')
   return (
     <div
-      className="mx-auto flex w-full max-w-3xl flex-col gap-4 px-4 pt-20 sm:pt-16"
+      className="mx-auto flex w-full max-w-5xl flex-col gap-4 px-4 pt-20 sm:px-6 sm:pt-14"
       style={{ paddingBottom: 'calc(var(--composer-h, 11rem) + 1.5rem)' }}
       role="status"
       aria-label={t('chatArea.loading')}
@@ -1360,15 +1496,20 @@ const MessageListSkeleton: FC = () => {
     >
       {/* user bubble (right) */}
       <div className="flex justify-end">
-        <div className="bg-muted h-10 w-1/2 animate-pulse rounded-2xl" />
+        <Skeleton className="h-10 w-1/2 rounded-lg" />
       </div>
-      {/* assistant bubble (left, taller) */}
+      {/* assistant answer card (left): a tab-width bar and a footer line around
+          the body, mirroring the answer card's shape rather than a bare slab */}
       <div className="flex justify-start">
-        <div className="bg-muted h-24 w-4/5 animate-pulse rounded-2xl" />
+        <div className="flex w-4/5 flex-col gap-2">
+          <Skeleton className="h-4 w-20 rounded-lg" />
+          <Skeleton className="h-24 w-full rounded-lg" />
+          <Skeleton className="h-3 w-1/3 rounded-lg" />
+        </div>
       </div>
       {/* user bubble (right) */}
       <div className="flex justify-end">
-        <div className="bg-muted h-10 w-1/3 animate-pulse rounded-2xl" />
+        <Skeleton className="h-10 w-1/3 rounded-lg" />
       </div>
     </div>
   )
@@ -1378,14 +1519,27 @@ const MessageListSkeleton: FC = () => {
  * Welcome state shown when no messages exist.
  *
  * Signed in: a time-of-day greeting (with the user's first name when known),
- * hero-sized per the click dummy, centered above the floating composer — the
- * source-preset shortcut chips render with the composer itself (InputArea).
- * Signed out: a compact sign-in prompt. Bottom padding keeps the centered
- * content clear of the floating composer.
+ * hero-sized per the click dummy, and nothing else unless the thread is about a
+ * named file. It used to carry a subtitle and a row of example questions too;
+ * both were addressed to a first-timer and were paid for by every user on every
+ * new thread forever. What replaces them is the composer itself, lifted off the
+ * floor to sit with the greeting as one group in the middle of the screen (see
+ * `useComposerMetrics`) — an empty canvas that offers the one thing there is to
+ * do, rather than explaining it.
+ *
+ * Signed out: a compact sign-in prompt. Bottom padding in both keeps the
+ * centered content clear of the floating composer, and is what the lift is
+ * calculated against — do not change one without the other.
  */
 interface WelcomeStateProps {
   isAuthenticated?: boolean
   onSignIn?: () => void
+  /**
+   * The canvas belongs to a project, so the one sentence about what Piloti can
+   * do with it is true here. Outside a project there is nowhere for a draft to
+   * be filed, and the sentence would be an offer the surface cannot keep.
+   */
+  inProject?: boolean
 }
 
 /** Time-of-day bucket for the greeting (morning / afternoon / evening). */
@@ -1395,50 +1549,22 @@ const greetingKeyForHour = (hour: number): 'morning' | 'afternoon' | 'evening' =
   return 'evening'
 }
 
-/**
- * Example Austrian Baurecht questions offered on the empty chat state. Clicking
- * one PREFILLS the composer (never auto-sends) via the store's composer-prefill
- * path — the same one used by `?ask=` deep links — so a blank canvas offers an
- * obvious first move instead of paralysis.
- */
-const EXAMPLE_QUESTION_KEYS = ['fluchtweg', 'barrierefreiheit', 'brandabschnitte'] as const
-
-/**
- * The two chips offered on top when this project has a readable IFC model.
- *
- * Chat is where a model is actually used, and until these existed nothing on
- * the empty canvas said the building could be asked anything at all: the three
- * questions above are about the OIB corpus, and an architect who has just
- * uploaded 150 MB of their own building had no reason to suspect the difference.
- *
- * Both are answerable against ANY single ready model — one is an exact count
- * (the promise retrieval cannot keep), the other is the requirement check's
- * "nicht entscheidbar" list (the promise the corpus alone cannot keep). Nothing
- * here needs two revisions or a property a given export may not carry, because
- * a suggested question that answers "there is only one revision" teaches the
- * opposite of what it is for.
- */
-const MODEL_QUESTION_KEYS = ['modelElements', 'modelRequirements'] as const
-
-const WelcomeState: FC<WelcomeStateProps> = ({ isAuthenticated = false, onSignIn }) => {
+const WelcomeState: FC<WelcomeStateProps> = ({
+  isAuthenticated = false,
+  onSignIn,
+  inProject = false,
+}) => {
   const t = useTranslations('research')
   const tChat = useTranslations('chat')
   const { user } = useAuth()
-  const setComposerPrefill = useChatStore((s) => s.setComposerPrefill)
   const composerSubject = useChatStore((s) => s.composerSubject)
   const tFiles = useTranslations('files')
-  // Only a project can have a model, so the global chat never asks. A failed
-  // or forbidden list (the `ifc-models` flag is off) leaves `data` null and the
-  // building chips simply do not appear — this is an offer, not a diagnostic.
-  const projectId = useChatStore((s) => s.projectId)
-  const { data: bimModels } = useProjectBimModels(projectId ?? null)
-  const hasReadyModel = (bimModels ?? []).some((model) => model.status === 'ready')
 
   if (!isAuthenticated) {
     return (
       <div
-        className="flex flex-1 items-center justify-center px-4 pt-20 sm:pt-16"
-        style={{ paddingBottom: 'calc(var(--composer-h, 11rem) + 1.5rem)' }}
+        className="flex flex-1 items-end justify-center px-4 pt-20 sm:pt-16"
+        style={{ paddingBottom: `var(--welcome-offset, ${WELCOME_OFFSET_FALLBACK})` }}
       >
         <div className="flex w-full max-w-md flex-col items-center gap-4 text-center">
           <div className="bg-muted text-brand flex size-12 items-center justify-center rounded-xl border">
@@ -1460,99 +1586,53 @@ const WelcomeState: FC<WelcomeStateProps> = ({ isAuthenticated = false, onSignIn
 
   return (
     <div
-      className="flex flex-1 flex-col items-center justify-center px-6 pt-20 sm:pt-16"
-      style={{ paddingBottom: 'calc(var(--composer-h, 11rem) + 1.5rem)' }}
+      // Bottom-aligned against the composer's ACTUAL top edge — its height plus
+      // however far it has been lifted off the floor, plus a gap, all published
+      // as one measured number (`--welcome-offset`). That leaves the greeting
+      // exactly one gap above the input by construction, whatever the lift
+      // turns out to be and whatever this column's own top padding is. Both of
+      // those defeated an earlier version that centred here and worked the
+      // clearance out arithmetically: it omitted the `pt-20`, and the composer
+      // landed on the greeting on a phone.
+      className="flex flex-1 flex-col items-center justify-end px-6 pt-20 sm:pt-16"
+      style={{ paddingBottom: `var(--welcome-offset, ${WELCOME_OFFSET_FALLBACK})` }}
     >
-      {/* "Privater Workspace" lock chip — h28, radius8, hairline, raised */}
-      <div className="bg-card shadow-xs mb-4 inline-flex h-7 items-center gap-[7px] rounded-md border px-[11px]">
-        <Lock className="text-subtle size-3 shrink-0" aria-hidden="true" />
-        <span className="text-muted-foreground text-xs font-medium">
-          {tChat('workspace.private')}
-        </span>
-      </div>
-
       {/* Hero greeting — the one larger moment in the app, and the only place
-          the ramp's 23px step is used (design language, "Type ramp"). */}
+          the ramp's 23px step is used (design language, "Type ramp"). The
+          project-grounded starters live in their own plan (categorized,
+          backend-driven) — until they land, the canvas stays quiet rather
+          than showing static examples. */}
       <h1 className="text-foreground text-center text-[23px] font-semibold tracking-tight">
         {heading}
       </h1>
 
-      {/* One-line subtitle under the greeting: tells a first-timer that answers
-          cite their sources (copy already in both locales — chat.greeting.subtitle). */}
-      <p className="text-muted-foreground mt-2 max-w-md text-center text-sm leading-relaxed">
-        {composerSubject
-          ? tFiles('assignment.welcomeAbout', {
-              name: composerSubject.title?.trim() || tFiles('assignment.thisFile'),
-            })
-          : tChat('greeting.subtitle')}
-      </p>
+      {/* The chat is about one file: say which. A named file is the state of
+          THIS canvas, and it is not recoverable from anything else on
+          screen. */}
+      {composerSubject && (
+        <p className="text-muted-foreground mt-2 max-w-md text-center text-sm leading-relaxed">
+          {tFiles('assignment.welcomeAbout', {
+            name: composerSubject.title?.trim() || tFiles('assignment.thisFile'),
+          })}
+        </p>
+      )}
 
-      {/* Example question chips — quiet bg-card hairline chips that prefill the
-          composer (do not auto-send), so the empty canvas offers a first move. */}
-      <div
-        className="mt-6 flex max-w-xl flex-wrap items-center justify-center gap-2"
-        role="group"
-        aria-label={tChat('examples.label')}
-      >
-        {/* The building first, when there is one. It is this project's own
-            content and the thing the corpus cannot answer, so it leads — and it
-            carries the model glyph, because "this asks your building" and "this
-            asks the Richtlinien" are two different offers that must not look
-            like one list. */}
-        {composerSubject &&
-          (['starterKeyPoints', 'starterOib'] as const).map((key) => {
-            const name = composerSubject.title?.trim() || tFiles('assignment.thisFile')
-            const question =
-              key === 'starterKeyPoints'
-                ? tFiles('assignment.starterKeyPointsNamed', { name })
-                : tFiles('assignment.starterOibNamed', { name })
-            return (
-              <button
-                key={key}
-                type="button"
-                onClick={() => setComposerPrefill(question, undefined, composerSubject)}
-                className="bg-card text-foreground/85 shadow-xs hover:bg-accent hover:text-foreground focus-visible:ring-ring/50 duration-quick pointer-coarse:h-11 inline-flex h-8 items-center gap-1.5 rounded-md border px-[13px] text-xs font-medium transition-colors ease-out focus-visible:outline-none focus-visible:ring-2 motion-reduce:transition-none"
-              >
-                <FileText
-                  className="size-3.5 shrink-0"
-                  style={{ color: 'var(--source-project)' }}
-                  aria-hidden="true"
-                />
-                {question}
-              </button>
-            )
-          })}
-        {!composerSubject &&
-          hasReadyModel &&
-          MODEL_QUESTION_KEYS.map((key) => {
-            const question = tChat(`examples.questions.${key}`)
-            return (
-              <button
-                key={key}
-                type="button"
-                onClick={() => setComposerPrefill(question)}
-                className="bg-card text-foreground/85 shadow-xs hover:bg-accent hover:text-foreground focus-visible:ring-ring/50 duration-quick pointer-coarse:h-11 inline-flex h-8 items-center gap-1.5 rounded-md border px-[13px] text-xs font-medium transition-colors ease-out focus-visible:outline-none focus-visible:ring-2 motion-reduce:transition-none"
-              >
-                <Boxes className="text-subtle size-3.5 shrink-0" aria-hidden="true" />
-                {question}
-              </button>
-            )
-          })}
-        {!composerSubject &&
-          EXAMPLE_QUESTION_KEYS.map((key) => {
-            const question = tChat(`examples.questions.${key}`)
-            return (
-              <button
-                key={key}
-                type="button"
-                onClick={() => setComposerPrefill(question)}
-                className="bg-card text-foreground/85 shadow-xs hover:bg-accent hover:text-foreground focus-visible:ring-ring/50 duration-quick pointer-coarse:h-11 inline-flex h-8 items-center rounded-md border px-[13px] text-xs font-medium transition-colors ease-out focus-visible:outline-none focus-visible:ring-2 motion-reduce:transition-none"
-              >
-                {question}
-              </button>
-            )
-          })}
-      </div>
+      {/* One sentence, and only in a project: that Piloti WRITES. The canvas is
+          otherwise deliberately quiet (the starters were cut for costing every
+          user on every new thread), and this earns its place because it is the
+          product's least discoverable capability — today it is found only by
+          someone who happens to phrase a request as a commission (ledger 23).
+          Below the file line, because a named subject is the state of THIS
+          canvas and this is a standing fact about the project.
+
+          Not shown when the thread is about one file: that reader has already
+          been told what this canvas is for, and two grey sentences under a
+          greeting is a paragraph. */}
+      {inProject && !composerSubject && (
+        <p className="text-muted-foreground mt-3 max-w-md text-center text-sm leading-relaxed">
+          {tChat('greeting.projectWrites')}
+        </p>
+      )}
     </div>
   )
 }

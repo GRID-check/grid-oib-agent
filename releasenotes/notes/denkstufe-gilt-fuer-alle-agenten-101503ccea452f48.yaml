@@ -1,0 +1,8 @@
+---
+fixes:
+  - >
+    Die Denkstufe unter Plattform → Modelle gilt jetzt für alle Agenten. Bisher
+    kam sie nur bei wenigen Nebenrollen an; Piloti, die Tiefenrecherche und die
+    Compliance-Prüfung dachten weiter mit dem Wert aus der Konfiguration, egal
+    was eingestellt war. Das Modell greift wie gehabt ab der nächsten neuen
+    Unterhaltung, die Denkstufe innerhalb einer Minute.

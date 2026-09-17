@@ -6,24 +6,25 @@ name: Docker Build
 # Build only, no push.
 #
 # Layer cache is READ-ONLY on purpose (`cache-from`, no `cache-to`). These runs
-# restore the entry publish-images.yml wrote on develop and deliberately write
-# nothing back, for two independent reasons:
+# restore the `buildcache` tag publish-images.yml pushes to GHCR on develop and
+# deliberately write nothing back:
 #
-#   Safety. GitHub scopes a pull_request run's caches to refs/pull/N/merge, a
-#   child ref, which develop/release/tag runs cannot read — while a PR CAN read
-#   its base branch. Writing back would be the direction that matters: with
-#   mode=max a PR that leaves the Dockerfile and lockfile untouched produces an
-#   identical BuildKit key for the dependency stage, so a poisoned layer would
-#   be imported wholesale by the next publish run and pushed to GHCR without
-#   ever appearing in a diff. Read-only keeps that door shut by construction
-#   rather than by trusting the ref scoping alone.
+#   Safety. This workflow holds `packages: read` and nothing else, so a PR run
+#   CANNOT write the cache. Writing back would be the direction that matters:
+#   with mode=max a PR that leaves the Dockerfile and lockfile untouched
+#   produces an identical BuildKit key for the dependency stage, so a poisoned
+#   layer written here would be imported wholesale by the next publish run and
+#   pushed to GHCR without ever appearing in a diff. The token's permission
+#   keeps that door shut by construction.
 #
-#   Quota. mode=max on these three images is an estimated 3-5 GB of the repo's
-#   10 GB cache budget. A per-PR write would allocate its own set per PR ref;
-#   two concurrent PRs would exceed the cap, and LRU evicts by last access —
-#   which preferentially deletes the develop entries (touched only on merge)
-#   in favour of PR entries (touched every push). That trades a warm publish
-#   path for a warm PR path, i.e. it slows down the pipeline that ships.
+#   (The cache moved from type=gha to GHCR because the three mode=max caches,
+#   an estimated 3-5 GB, were LRU-evicting each other — and the trivy, Astro
+#   and node/uv caches — out of the repo's 10 GB Actions cache budget, which
+#   made publishes cold and left them hanging for ages in "exporting to GitHub
+#   Actions cache". The registry has no such budget; see publish-images.yml.)
+#
+# A missing `buildcache` tag (first run, image renamed) is a warning and a cold
+# build, never a failure.
 #
 # Note the ceiling: `COPY . .` invalidates the app build step on any source
 # change, so this reliably saves the apt / uv sync / bun install / npm ci layers
@@ -34,14 +35,53 @@ on:
 
 permissions:
   contents: read
+  # Read-only pull of the GHCR `buildcache` tags publish-images.yml maintains.
+  packages: read
 
 concurrency:
   group: docker-build-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
+  # Which images this PR can actually affect. Without it every PR built all
+  # three: a README-only PR spent four minutes and three runners rebuilding the
+  # backend, frontend and web images it could not have changed (run 1008).
+  #
+  # The scopes are NARROWER than CI's test scopes and separate from them on
+  # purpose — a test file is not in the image — which is what the `*-image`
+  # family in .github/filters.yml is for. Job-level `if` rather than a
+  # workflow-level `paths:` filter, deliberately: a skipped job still posts its
+  # check (as skipped, which satisfies branch protection), while a filtered-out
+  # WORKFLOW posts nothing at all and a required check that never appears blocks
+  # the PR forever. CI relies on the same distinction.
+  #
+  # synchronize diffs this push only (same contract as ci.yml). Opened still
+  # diffs the whole PR against the base, so the first run builds every image
+  # the PR can touch.
+  changes:
+    name: Detect changes
+    runs-on: ubuntu-latest
+    outputs:
+      backend: ${{ steps.filter.outputs.backend_image }}
+      frontend: ${{ steps.filter.outputs.frontend_image }}
+      web: ${{ steps.filter.outputs.web_image }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+          ref: ${{ github.event.action == 'synchronize' && (github.event.pull_request.head.sha || github.sha) || github.sha }}
+      - uses: dorny/paths-filter@v4
+        id: filter
+        with:
+          filters: .github/filters.yml
+          token: ''
+          base: ${{ github.event.action == 'synchronize' && github.event.before || github.event.pull_request.base.sha || github.event.before }}
+
   backend:
     name: Build backend image
+    needs: changes
+    if: needs.changes.outputs.backend == 'true'
     runs-on: ubuntu-latest
     steps:
       # No persisted checkout token: images are pushed via docker/login-action
@@ -50,50 +90,72 @@ jobs:
         with:
           persist-credentials: false
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@v4
+      - name: Log in to GHCR (cache pull only)
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
       - name: Build (release target, no push)
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           file: deploy/Dockerfile
           target: release
           push: false
-          cache-from: type=gha,scope=backend
+          cache-from: type=registry,ref=ghcr.io/grid-check/grid-oib-backend:buildcache
           # The OIB knowledge base is volume-based (embedded live on first boot);
           # nothing knowledge-related is baked at build time.
 
   frontend:
     name: Build frontend image
+    needs: changes
+    if: needs.changes.outputs.frontend == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
         with:
           persist-credentials: false
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@v4
+      - name: Log in to GHCR (cache pull only)
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
       - name: Build (no push)
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: frontends/ui
           file: frontends/ui/deploy/Dockerfile
           push: false
-          cache-from: type=gha,scope=frontend
+          cache-from: type=registry,ref=ghcr.io/grid-check/grid-oib-frontend:buildcache
 
   web:
     name: Build web image (landing site)
+    needs: changes
+    if: needs.changes.outputs.web == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
         with:
           persist-credentials: false
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@v4
+      - name: Log in to GHCR (cache pull only)
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
       - name: Build (no push)
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: frontends/web
           file: frontends/web/Dockerfile
           push: false
-          cache-from: type=gha,scope=web
+          cache-from: type=registry,ref=ghcr.io/grid-check/grid-oib-web:buildcache
           # No build-args: the image is host-agnostic (the sign-in link
           # resolves PUBLIC_APP_URL at runtime; SEO metadata defaults to prod).

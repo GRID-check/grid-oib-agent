@@ -1,0 +1,12 @@
+---
+improvements:
+  - >
+    Ein Auftrag führt jetzt in den Verlauf, in dem er läuft. „Fortschritt
+    ansehen", „Bericht öffnen" und „Gedankengang ansehen" öffneten drei
+    verschiedene Ansichten desselben Laufs; es gibt nur noch eine Tür, und
+    dahinter steht der Lauf mit seinem Bericht in dem Chat, aus dem er
+    beauftragt wurde.
+  - >
+    Ein Lauf, zu dem kein Chat gehört, zeigt seinen Zustand jetzt ohne Link.
+    Bisher gab es dort eine Schaltfläche, die auf eine Seite führte, auf der
+    nichts zu sehen war.

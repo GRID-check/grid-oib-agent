@@ -20,6 +20,7 @@ import Link from 'next/link'
 import { ArrowRight, Boxes, Download, GitCompare, ShieldCheck, Table2 } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { EmptyState } from '@/components/ui/empty-state'
 import { Spinner } from '@/components/ui/spinner'
 import { useLocale, useTranslations } from '@/i18n'
 import type { BimComparison } from '@/lib/bim/compare'
@@ -140,7 +141,7 @@ function CardShell({
   children: React.ReactNode
 }): JSX.Element {
   return (
-    <section className="rounded-xl border bg-card p-4" aria-label={title}>
+    <section className="rounded-lg border bg-card p-5" aria-label={title}>
       <header className="mb-3 flex items-start justify-between gap-3">
         <div className="flex items-center gap-2">
           <Icon className="size-4 text-muted-foreground" aria-hidden="true" />
@@ -177,25 +178,27 @@ function NoModel({
   if (isLoading) {
     return (
       <div className="flex items-center justify-center rounded-lg border border-dashed p-6">
-        <Spinner className="size-4" />
+        <Spinner size="sm" />
       </div>
     )
   }
   return (
-    <p className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">
-      {error !== null
-        ? t('preview.loadFailed')
-        : ambiguous
-          ? // "Not in this project" would be false: it is in the project
-            // twice over, which is why nothing is drawn.
-            t('card.ambiguousModel')
-          : notReady === 'failed'
-            ? // The one of these the reader can do something about.
-              t('preview.extractionFailed')
-            : notReady === 'extracting'
-              ? t('preview.extracting')
-              : t('card.noModel')}
-    </p>
+    <EmptyState
+      title={
+        error !== null
+          ? t('preview.loadFailed')
+          : ambiguous
+            ? // "Not in this project" would be false: it is in the project
+              // twice over, which is why nothing is drawn.
+              t('card.ambiguousModel')
+            : notReady === 'failed'
+              ? // The one of these the reader can do something about.
+                t('preview.extractionFailed')
+              : notReady === 'extracting'
+                ? t('preview.extracting')
+                : t('card.noModel')
+      }
+    />
   )
 }
 
@@ -318,18 +321,18 @@ export function IfcScheduleCard({
       {!model ? (
         <NoModel isLoading={modelsLoading} error={modelsError} ambiguous={ambiguous} notReady={notReady} />
       ) : isLoading ? (
-        <Spinner className="size-4" />
+        <Spinner size="sm" />
       ) : error ? (
         <p className="text-sm text-destructive">{t('schedule.failed')}</p>
       ) : !schedule || schedule.totals.rooms === 0 ? (
         // "The query failed" and "this model has no rooms" are different
         // answers, and the model page has always distinguished them. The card
         // rendered the failure sentence for both.
-        <p className="text-muted-foreground text-sm">{t('schedule.empty')}</p>
+        <EmptyState title={t('schedule.empty')} />
       ) : storeys.length === 0 ? (
         // A storey the card named that this model does not have. Saying so
         // beats a table with headers, no rows and no explanation.
-        <p className="text-muted-foreground text-sm">{t('schedule.storeyEmpty', { storey: storey ?? '' })}</p>
+        <EmptyState title={t('schedule.storeyEmpty', { storey: storey ?? '' })} />
       ) : (
         <div className="space-y-3">
           <div className="overflow-x-auto">
@@ -489,16 +492,18 @@ export function IfcElementCard({
       {!model ? (
         <NoModel isLoading={modelsLoading} error={modelsError} ambiguous={ambiguous} notReady={notReady} />
       ) : isLoading ? (
-        <Spinner className="size-4" />
+        <Spinner size="sm" />
       ) : error ? (
         <p className="text-sm text-destructive">{t('properties.loadFailed')}</p>
       ) : !element ? (
-        <p className="text-sm text-muted-foreground">{t('element.notFound')}</p>
+        <EmptyState title={t('element.notFound')} />
       ) : (
         <div className="space-y-2 text-sm">
           <div className="flex flex-wrap items-center gap-2">
-            <Badge variant="secondary">{shortIfcType(element.ifcType)}</Badge>
-            {element.storeyName && <Badge variant="outline">{element.storeyName}</Badge>}
+            <span className="font-mono text-xs text-muted-foreground">{shortIfcType(element.ifcType)}</span>
+            {element.storeyName && (
+              <span className="font-mono text-xs text-muted-foreground">{element.storeyName}</span>
+            )}
             {element.typeName && <span className="text-muted-foreground">{element.typeName}</span>}
           </div>
           {element.materials.length > 0 && (
@@ -659,7 +664,7 @@ export function IfcComplianceCard({
       {!model ? (
         <NoModel isLoading={modelsLoading} error={modelsError} ambiguous={ambiguous} notReady={notReady} />
       ) : isLoading ? (
-        <Spinner className="size-4" />
+        <Spinner size="sm" />
       ) : error ? (
         <p className="text-sm text-destructive">{t('compliance.failed')}</p>
       ) : (
@@ -676,7 +681,7 @@ export function IfcComplianceCard({
             </p>
           )}
           {selected?.length === 0 ? (
-            <p className="text-sm text-muted-foreground">{t('compliance.card.none')}</p>
+            <EmptyState title={t('compliance.card.none')} />
           ) : (
             <ul className="space-y-1.5 text-sm">
               {(selected ?? []).map((rule) => (
@@ -866,9 +871,9 @@ export function IfcDiffCard({
         // matching both. The query is deliberately not sent, so the branch
         // below saw `comparison: null` and reported a broken comparison for
         // something that simply has nothing to compare.
-        <p className="text-muted-foreground text-sm">{t('compare.sameRevision')}</p>
+        <EmptyState title={t('compare.sameRevision')} />
       ) : isLoading ? (
-        <Spinner className="size-4" />
+        <Spinner size="sm" />
       ) : error || !comparison ? (
         <p className="text-sm text-destructive">{t('compare.failed')}</p>
       ) : (

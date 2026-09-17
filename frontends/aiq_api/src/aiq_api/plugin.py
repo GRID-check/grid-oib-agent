@@ -50,16 +50,21 @@ from .routes.config_info import add_config_info_routes
 from .routes.consistency_check import add_consistency_check_routes
 from .routes.document_search import add_document_search_routes
 from .routes.documents import add_document_routes
+from .routes.drafts import add_draft_routes
 from .routes.feedback_digest import add_feedback_digest_routes
 from .routes.generate_conversation_title import add_generate_conversation_title_routes
 from .routes.generate_summary import add_generate_summary_routes
 from .routes.ingest import add_ingest_routes
 from .routes.jobs import register_job_routes
+from .routes.lesson_distill import add_lesson_distill_routes
 from .routes.maintenance import add_maintenance_routes
 from .routes.norms import add_norm_routes
+from .routes.note_embeddings import add_note_embedding_routes
 from .routes.oib import add_oib_routes
+from .routes.ris import add_ris_routes
 from .routes.skill_review import add_skill_review_routes
 from .routes.skills import add_skill_routes
+from .startup_banner import log_boot_line
 from .websocket_reconnect import configure_websocket_auth
 from .websocket_reconnect import install_reconnectable_handler
 from .websocket_reconnect import send_stage_frame
@@ -214,6 +219,16 @@ class AIQAPIWorker(FastApiFrontEndPluginWorker):
 
         suppress_noisy_dependency_logs()
 
+        # What this process is, before it registers a single route (ledger item
+        # 1): the deployed commit and the effective value of the four gates, on
+        # one greppable line. A pilot report that arrives a week later is
+        # otherwise unanswerable — nobody could say which build ran, and three
+        # of the four gates default off, so "broken" and "never enabled" look
+        # the same from outside. Same line shape as the BFF's, deliberately;
+        # see startup_banner's module docstring, including why the flags this
+        # tier reports are its own rather than the frontend's.
+        log_boot_line()
+
         app = super().build_app()
 
         app.title = "AI-Q API"
@@ -228,10 +243,21 @@ class AIQAPIWorker(FastApiFrontEndPluginWorker):
         add_generate_conversation_title_routes(knowledge_router)
         add_consistency_check_routes(knowledge_router)
         add_feedback_digest_routes(knowledge_router)
+        add_lesson_distill_routes(knowledge_router)
+        add_note_embedding_routes(knowledge_router)
         add_ingest_routes(knowledge_router)
         add_oib_routes(knowledge_router)
         add_norm_routes(knowledge_router)
+        # A RIS document as text, so a RIS citation opens INSIDE Piloti rather
+        # than in a browser tab (#622). Same client, same allow-list, same cache
+        # as the agent's own ris_fetch_document.
+        add_ris_routes(knowledge_router)
         add_maintenance_routes(knowledge_router)
+        # The working directory's cleanup door. Internal-token only, like the
+        # maintenance purges: a conversation's drafts live in the LangGraph
+        # store, which the BFF cannot reach, so its conversation deletion calls
+        # this or the bytes outlive the conversation.
+        add_draft_routes(knowledge_router)
         # Internal skills submit route (Agent Skills, successor of the ADR-0023
         # workflows submit route): same router/middleware treatment as
         # maintenance, so it stays off the external allowlist.

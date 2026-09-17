@@ -1,0 +1,69 @@
+---
+title: Ein System, das aus Ihrem Frust lernt
+description: Aus einem Daumen nach unten wird eine anonymisierte Lektion, die jede künftige Antwort kennt. Wie diese Schleife funktioniert und warum wir sie ehrlich ein Pflaster nennen.
+pubDate: 2026-08-27
+draft: false
+translationSlug: a-system-that-learns-from-your-frustration
+---
+
+import LessonLoopFigure from '../../../components/blog/figures/LessonLoopFigure.astro'
+
+Unter jeder Piloti-Antwort sitzt ein Knopf, von dem wir hoffen, dass Sie ihn nie brauchen. Daumen nach unten. Schlechte Antwort. Bisher hat dieser Klick in den meisten Produkten eine Meldung abgelegt, und das war es. Vielleicht fühlte es sich kurz besser an. Geändert hat sich nichts.
+
+Das hat uns gestört. In unseren internen Arbeitsregeln steht ein Satz, den wir uns gegenseitig oft vorhalten: Wenn ein Mensch eingreifen muss, hat die Maschine versagt. Dann sollte diese Korrektur mehr wert sein als ein Balken in einem Dashboard, das freitags niemand öffnet.
+
+Also haben wir die Schleife gebaut. Ein Fehler, der einmal gemeldet wurde, soll kein zweites Mal passieren.
+
+<LessonLoopFigure
+  kicker="ABB. 01"
+  title="DIE LERNSCHLEIFE"
+  alt="Sechs Stationen im Kreis: Meldung, Anonymisierung, Destillation, Audit, Deduplizierung, aktive Lektion, die zurück in jede Antwort fließt"
+  caption="Eine Meldung durchläuft die Schleife ohne weiteres Zutun. Die Kontrollgruppe läuft absichtlich außerhalb: ein kleiner Teil der Gespräche bekommt keine Lektionen, damit messbar bleibt, ob sie wirken."
+  labels={{
+    steps: [
+      { label: 'MELDUNG', sub: 'KATEGORIE + EIN SATZ' },
+      { label: 'ANONYMISIERUNG', sub: 'NAMEN, PROJEKTE RAUS' },
+      { label: 'DESTILLATION', sub: 'DER FEHLER HINTER DEM FALL' },
+      { label: 'AUDIT', sub: 'ZWEITES MODELL, UNABHÄNGIG' },
+      { label: 'DEDUPLIZIERUNG', sub: '50 MELDUNGEN, EINE LEKTION' },
+      { label: 'LEKTION AKTIV', sub: 'PLATTFORMWEIT' },
+    ],
+    loop: 'JEDE ANTWORT TRÄGT SIE',
+    holdout: 'KONTROLLGRUPPE',
+    holdoutSub: 'GESPRÄCHE OHNE LEKTIONEN',
+  }}
+/>
+
+## Was nach dem Klick passiert
+
+Sie wählen eine Kategorie, schreiben, wenn Sie mögen, einen Satz dazu, und senden ab. Ab da läuft alles ohne Sie weiter.
+
+Zuerst wird die Meldung maschinell bereinigt. Namen, Adressen, Projektnummern, E-Mail-Adressen, alles, was Sie oder Ihr Projekt erkennbar machen könnte, fliegt raus, bevor irgendetwas anderes damit geschieht.
+
+Dann liest ein Modell die bereinigte Meldung und versucht, den allgemeinen Fehler hinter der konkreten Beschwerde zu finden. Also nicht "die Antwort zum Projekt X war falsch", sondern etwa: "Wenn eine Frage zwei Bundesländer berührt, dürfen deren Bauordnungen nicht vermischt werden." Kurz, allgemein, absichtlich langweilig. Eine gute Lektion enthält nichts mehr von dem Gespräch, aus dem sie stammt.
+
+Ein zweites, unabhängiges Modell prüft diesen Entwurf. Es bekommt Ihre ursprüngliche Meldung nie zu sehen, nur den Kandidaten, und es lehnt alles ab, was noch nach einem Einzelfall riecht.
+
+Zum Schluss wird die Lektion mit allen verglichen, die es schon gibt. Stolpern fünfzig Büros über dasselbe Verhalten, entsteht daraus eine Lektion mit einem Zähler auf fünfzig. Nicht fünfzig Lektionen.
+
+## Jede Antwort kennt sie
+
+Die aktiven Lektionen begleiten jede Antwort, die Piloti schreibt, für alle Organisationen auf der Plattform. Ihr Ärger in Wien verbessert eine Antwort in Vorarlberg. Niemand sieht Ihre Meldung. Alle profitieren von ihr.
+
+Wir finden das nur konsequent. Derselbe Fehler, zweimal gemacht, ist kein Versehen mehr. Er ist eine Entscheidung.
+
+## Warum wir es ein Pflaster nennen
+
+Jetzt der ehrliche Teil. Eine Lektion sagt dem System "sei hier vorsichtig". Die eigentliche Ursache behebt sie nicht. Die kann in einer Wissenslücke liegen, in einem fehlenden Dokument, in einer Schwäche des Modells. In der Plattform-Ansicht trägt deshalb jede Lektion sichtbar das Etikett einer symptomatischen Behandlung, mit einem eigenen Feld, das festhält, ob die Ursache gefunden und behoben wurde. Das Pflaster erspart dem nächsten Nutzer den Fehler. Die Akte schließt es nicht.
+
+Und wir messen, ob die Lektionen wirken, statt es zu glauben. Ein kleiner Teil der Gespräche läuft bewusst ohne sie, als Kontrollgruppe. Zähler halten fest, ob Antworten mit Lektion seltener einen Daumen nach unten bekommen als Antworten ohne. Eine Lektion, die nichts verbessert, fällt damit auf.
+
+Zwei weitere Automatismen halten die Schleife ehrlich. Eine Lektion, die im aktiven Zustand weiter neue Meldungen einsammelt, wird als nicht wirksam markiert, denn ein Pflaster, das die Blutung nicht stoppt, braucht einen Arzt und nicht mehr Verband. Und ist die Ursache hinter einer Lektion behoben und vergehen zwei Wochen ohne eine einzige Wiederholung, zieht das System die Lektion von selbst zurück. Das Pflaster kommt ab, wenn die Wunde geschlossen bleibt, und beide Schritte landen wie alles hier im Prüfprotokoll.
+
+## Was Ihr Projekt nie verlässt
+
+Ihre Meldung wird bereinigt, bevor ein Modell sie destilliert. Das Prüfmodell sieht nur den anonymen Entwurf. Die gespeicherte Lektion enthält keine Namen, keine Projekte, keine Zitate. Und jede Lektion hat eine lückenlose Geschichte: wann sie entstand, wie oft sie bestätigt wurde, wann sie zurückgezogen wurde. All das ist einsehbar, nichts davon passiert im Verborgenen.
+
+Wie die Antworten entstehen, an denen diese Schleife arbeitet, steht im Beitrag [Wie Piloti funktioniert](/blog/wie-piloti-funktioniert/).
+
+Wenn Sie also das nächste Mal eine Antwort ärgert: Klicken Sie den Knopf, schreiben Sie den Satz. Es kostet zehn Sekunden und ist der direkteste Weg, das Produkt besser zu machen. Frust ist wertvolles Material. Jetzt gibt es die Maschine, die ihn verwertet.

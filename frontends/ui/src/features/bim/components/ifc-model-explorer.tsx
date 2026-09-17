@@ -14,6 +14,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { AlertTriangle, Boxes, CheckCircle2, Info, Layers3, Ruler, XCircle } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { CountPill } from '@/components/ui/count-pill'
 import { Input } from '@/components/ui/input'
 import { Spinner } from '@/components/ui/spinner'
 import { useLocale, useTranslations } from '@/i18n'
@@ -320,9 +321,7 @@ export function IfcSpatialTree({
                   )}
                 </span>
                 {row.elementCount > 0 && (
-                  <Badge variant="secondary" className="tabular-nums">
-                    {row.elementCount}
-                  </Badge>
+                  <CountPill>{row.elementCount}</CountPill>
                 )}
               </button>
             </li>
@@ -435,9 +434,11 @@ export function IfcElementTable({
           onChange={(event) => setTypeFilter(event.target.value)}
           aria-label={t('elements.columns.type')}
           // A native `<select>`, so it carries none of what `ui/select.tsx` does
-          // for a phone: 32px tall, and `text-sm` is under the 16px iOS Safari
-          // needs to leave the page unzoomed when a field takes focus.
-          className="h-8 rounded-md border bg-background px-2 text-base pointer-coarse:h-11 sm:text-sm"
+          // for a phone: 32px tall, and under the 16px iOS Safari needs to leave
+          // the page unzoomed when a field takes focus. On the POINTER axis, not
+          // a breakpoint — a `sm:text-sm` override put a coarse-pointer tablet
+          // back at 14px, which is the zoom this was meant to prevent.
+          className="h-8 rounded-md border bg-background px-2 text-sm pointer-coarse:h-11 pointer-coarse:text-base"
         >
           <option value="">{t('elements.allTypes')}</option>
           {types.map((type) => (

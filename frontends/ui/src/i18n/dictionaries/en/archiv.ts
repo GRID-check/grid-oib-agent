@@ -40,6 +40,12 @@ export const archiv = {
       siteplan: 'Site plan',
       notice: 'Notice',
       photo: 'Photo',
+      // `model` was missing while `inferDocumentKind` had been returning it for
+      // every `.ifc` — the card printed the raw key. A building is not a
+      // document, and the label says so.
+      model: 'Building model',
+      sheet: 'Spreadsheet',
+      text: 'Notes',
       document: 'Document',
     },
   },
@@ -63,13 +69,17 @@ export const archiv = {
     reingestError: 'Indexing could not be restarted. Please try again.',
     menuLabel: 'File actions',
     download: 'Download',
+    open: 'Open',
+    ask: 'Ask about this',
+    copyOriginPath: 'Copy origin path',
+    move: 'Move to folder',
     rename: 'Rename…',
     delete: 'Delete…',
   },
   rename: {
     title: 'Rename document',
     description:
-      'Changes the name shown everywhere in Grid, including on citations. The file itself and everything indexed from it stay as they are.',
+      'Changes the name shown everywhere in Piloti, including on citations. The file itself and everything indexed from it stay as they are.',
     label: 'Name',
     hint: 'The file extension stays as it is.',
     save: 'Rename',

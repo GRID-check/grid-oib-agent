@@ -37,6 +37,7 @@ import { cpus } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { SCREENSHOT_TARGETS } from './registry.mjs'
+import { recordCaptured } from './manifest.mjs'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 const UI_ROOT = join(HERE, '..')
@@ -61,6 +62,31 @@ const THEME_SETTLE_MS = Number(process.env.SCREENSHOT_THEME_SETTLE_MS ?? 150)
 const NETWORK_IDLE_MS = Number(process.env.SCREENSHOT_NETWORK_IDLE_MS ?? 5000)
 /** Cap on the best-effort wait for a `waitFor` match to become *visible*. */
 const VISIBLE_MS = Number(process.env.SCREENSHOT_VISIBLE_MS ?? 3000)
+
+/**
+ * Stage pdf.js's runtime assets, the way `dev` and `build` do.
+ *
+ * The harness boots `next dev` DIRECTLY, so it skips the `dev:next` script that
+ * copies pdf.js's worker, cmaps and fonts into `public/pdfjs/` — and that
+ * directory is gitignored, so a clean checkout has none of it. The viewer's
+ * answer to a worker it cannot fetch is to fall back to the browser's own PDF
+ * frame, silently and correctly. Which means every PDF target quietly captured
+ * Chromium's built-in viewer instead of ours: a screenshot that is not of this
+ * product, committed as evidence for it. Cheap when already staged (the copier
+ * skips unchanged files), so it runs unconditionally.
+ */
+async function stagePdfjsAssets() {
+  await new Promise((resolve) => {
+    const child = spawn(process.execPath, [join(UI_ROOT, 'scripts', 'copy-pdfjs-assets.mjs')], {
+      cwd: UI_ROOT,
+      stdio: 'inherit',
+    })
+    // Best effort: a target that needs pdf.js will say so by falling back, and
+    // taking the whole run down over it would strand the targets that do not.
+    child.on('exit', resolve)
+    child.on('error', resolve)
+  })
+}
 
 /** The dev server this process owns, so a Ctrl-C takes it down with us. */
 let activeServer = null
@@ -346,6 +372,28 @@ async function captureVariant(browser, baseUrl, target, variant) {
     if (target.tabStops) {
       for (let i = 0; i < target.tabStops; i++) await page.keyboard.press('Tab')
     }
+    // Optional pointer rest: a REAL mouse move onto the element, held for the
+    // rest of the capture.
+    //
+    // Some of the product's answers to "what is this?" exist only under the
+    // pointer — the citation peek, the mention peek, the file-reference peek —
+    // and a dev page cannot fake one honestly. A synthesised `pointerover`
+    // fires the enter handler, but the cursor is still parked wherever
+    // Playwright left it, so the first real pointer event closes the panel
+    // again; the shot then lands on a page at rest and is committed as the
+    // "open" baseline, which is a screenshot that has silently stopped showing
+    // what it is named for. `page.hover` moves the actual cursor, and it stays
+    // there through the theme flip and both shots, which is exactly the state a
+    // reader is in when they look at one.
+    //
+    // On the mobile variant it is skipped: `hasTouch` viewports have no hover,
+    // and a target whose surface is hover-only should not claim `mobile: true`
+    // in the first place.
+    if (target.hover && !variant.isMobile) {
+      await page.hover(target.hover, { timeout: 10_000 }).catch(() => {
+        console.warn(`[screenshots] WARN ${target.id}: could not hover "${target.hover}"`)
+      })
+    }
     await settle(page, SETTLE_MS) // let fonts/animations settle
 
     for (const [i, theme] of THEMES.entries()) {
@@ -413,6 +461,7 @@ async function main() {
   }
 
   await mkdir(OUT_DIR, { recursive: true })
+  await stagePdfjsAssets()
 
   let server = null
   let baseUrl = process.env.BASE_URL || (await findRunningServer(targets[0].path))
@@ -453,6 +502,21 @@ async function main() {
   const elapsed = ((Date.now() - startedAt) / 1000).toFixed(1)
   console.log(`[screenshots] wrote ${results.length} file(s) in ${elapsed}s:`)
   for (const f of results.sort()) console.log(`  ${f}`)
+
+  // Record what was captured, so a route that moves afterwards makes the shots
+  // FAIL a test rather than merely go quietly out of date (`manifest.mjs`).
+  // Only targets whose every variant succeeded: a half-captured target must not
+  // be recorded as current. A `--mobile-only` run is deliberately not recorded
+  // either — it does not refresh the desktop shots the entry also stands for.
+  if (!mobileOnly) {
+    const failed = new Set(failures.map(({ job }) => job.target.id))
+    const captured = targets.filter((t) => !failed.has(t.id))
+    if (captured.length > 0) {
+      await recordCaptured(captured)
+      console.log(`[screenshots] manifest updated for ${captured.length} target(s)`)
+    }
+  }
+
   if (failures.length) {
     console.error(`[screenshots] ${failures.length} target(s) failed:`)
     for (const { job, err } of failures) {

@@ -68,6 +68,16 @@ export const NATMessageType = {
    * response path drops anything that arrives then.
    */
   STAGE: 'grid_stage_message',
+  /**
+   * "This turn is still running" (`websocket_reconnect.GridTurnHeartbeat`).
+   *
+   * Grid-owned and `grid_`-prefixed for the same reason as the stage frame. It
+   * carries no content and renders nothing: it exists so the client can tell a
+   * turn that is silent because it is thinking from one that is silent because
+   * its backend is gone — which the client used to answer by holding a copy of
+   * the server's own run ceiling and waiting it out.
+   */
+  TURN_HEARTBEAT: 'grid_turn_heartbeat',
 } as const
 
 /** NAT workflow schema types */
@@ -241,11 +251,88 @@ export const NATGenerateResponseContentSchema = z.object({
 
 /**
  * Wire cap for `answer_confidence_reason`, mirroring the backend's
- * `_CONFIDENCE_REASON_MAX_CHARS` (`shallow_researcher/markers.py`) and the
+ * `_CONFIDENCE_REASON_MAX_CHARS` (`researcher/markers.py`) and the
  * documented protocol limit (`docs/api/websocket-protocol.md`). A longer value
  * is a contract violation and degrades to "absent".
  */
 export const ANSWER_CONFIDENCE_REASON_MAX_CHARS = 300
+
+/** One structured source on the wire (`source_entry_to_wire` spelling). */
+const wireSourceSchema = z
+  .object({
+    content: z.string().optional(),
+    url: z.string().nullable().optional(),
+    title: z.string().nullable().optional(),
+    citation_key: z.string().nullable().optional(),
+    collection: z.string().nullable().optional(),
+    source_type: z.string().nullable().optional(),
+    tool: z.string().nullable().optional(),
+    origin: z.string().nullable().optional(),
+    // The [N] citation label this source carries in the answer prose, so
+    // the provenance block can render as the answer's numbered source
+    // list instead of duplicating a written one.
+    number: z.number().nullable().optional(),
+    file_name: z.string().nullable().optional(),
+    page: z.number().nullable().optional(),
+    punkt: z.string().nullable().optional(),
+    score: z.number().nullable().optional(),
+  })
+  .passthrough()
+
+/**
+ * Identity + placement of a read-but-uncited document, in the wire spelling.
+ *
+ * Deliberately NOT `.passthrough()` and deliberately narrow: a retrieved
+ * document the answer never cited carries no prose by construction (the
+ * backend drops every prose key), so `content`, `snippet`, `punkt` and `score`
+ * on this field are either a verbose producer or evidence text riding where
+ * only a locator belongs. The shared `wireSourceSchema` below is passthrough
+ * and keeps them for CITED sources; routing `read_sources` through it leaked
+ * them into the stored envelope and from there into surfaces that must name
+ * documents, never passages. The eleven fields kept are the document's
+ * identity and where it stands — everything the "Gelesen, nicht zitiert"
+ * disclosure renders, and nothing it must not.
+ */
+const wireReadSourceSchema = z.object({
+  document_id: z.string().nullable().optional(),
+  citation_key: z.string().nullable().optional(),
+  file_name: z.string().nullable().optional(),
+  page: z.number().nullable().optional(),
+  collection: z.string().nullable().optional(),
+  shelf: z.string().nullable().optional(),
+  kind: z.string().nullable().optional(),
+  lane: z.string().nullable().optional(),
+  lane_label: z.string().nullable().optional(),
+  title: z.string().nullable().optional(),
+  url: z.string().nullable().optional(),
+})
+
+/**
+ * A list of structured wire sources, tolerant per entry.
+ *
+ * Fail-open: PER-ENTRY tolerance — a single malformed source degrades to
+ * undefined and is dropped, while the remaining (valid) citations survive.
+ * The outer `.catch(undefined)` still guards against a non-array value.
+ * The per-entry `.catch(undefined)` holes are compacted out so consumers
+ * only see the well-formed entries.
+ */
+const tolerantWireSourceList = <Entry extends z.ZodTypeAny>(entrySchema: Entry) =>
+  z
+    .array(
+      // Per-entry tolerance: `.optional()` makes `undefined` a valid element
+      // output so `.catch(undefined)` can degrade a single malformed source to
+      // a hole (rather than needing a full object fallback), which the
+      // transform below compacts out.
+      entrySchema.optional().catch(undefined)
+    )
+    .optional()
+    .catch(undefined)
+    .transform((arr) => (arr ? arr.filter((entry) => entry != null) : arr))
+
+const wireSourcesField = tolerantWireSourceList(wireSourceSchema)
+
+/** Same tolerance as `sources`, but only identity + placement survive. */
+const wireReadSourcesField = tolerantWireSourceList(wireReadSourceSchema)
 
 /** System Response Message - final or streaming response */
 export const NATSystemResponseMessageSchema = z.object({
@@ -266,61 +353,36 @@ export const NATSystemResponseMessageSchema = z.object({
   ]),
   timestamp: z.string().optional(),
   cards: z.array(z.unknown()).optional(),
-  // Structured deep-research job id (present when the turn dispatched an async
-  // job). Preferred over regex-parsing the response prose.
-  deep_research_job_id: z.string().optional(),
+  // The run this turn commissioned instead of answering itself, and the message
+  // that run narrates itself in (ADR-0062). Present together; the frame's own
+  // content is then empty, because the run's BLOCK is the narration. They
+  // replace `deep_research_job_id`, which carried a job id the client had to
+  // hang a panel off and a prose stub it had to regex.
+  run_id: z.string().optional(),
+  run_message_id: z.string().optional(),
   // The model's guarded self-assessment of how well the answer is grounded in
   // its sources. Absent on error/escalation/marker-less turns → no chip. An
   // out-of-enum value degrades to `undefined` (no chip) via `.catch` rather than
   // failing the whole message parse and dropping the response text.
   answer_confidence: z.enum(['low', 'medium', 'high']).optional().catch(undefined),
   // Structured sources from the source registry (KB file/page/collection, RIS/web URLs).
-  // Fail-open: PER-ENTRY tolerance — a single malformed source degrades to
-  // undefined and is dropped, while the remaining (valid) citations survive.
-  // The outer `.catch(undefined)` still guards against a non-array `sources`.
-  sources: z
-    .array(
-      z
-        .object({
-          content: z.string().optional(),
-          url: z.string().nullable().optional(),
-          title: z.string().nullable().optional(),
-          citation_key: z.string().nullable().optional(),
-          collection: z.string().nullable().optional(),
-          source_type: z.string().nullable().optional(),
-          tool: z.string().nullable().optional(),
-          origin: z.string().nullable().optional(),
-          // The [N] citation label this source carries in the answer prose, so
-          // the provenance block can render as the answer's numbered source
-          // list instead of duplicating a written one.
-          number: z.number().nullable().optional(),
-          file_name: z.string().nullable().optional(),
-          page: z.number().nullable().optional(),
-        })
-        .passthrough()
-        // Per-entry tolerance: `.optional()` makes `undefined` a valid element
-        // output so `.catch(undefined)` can degrade a single malformed source to
-        // a hole (rather than needing a full object fallback), which the
-        // transform below compacts out.
-        .optional()
-        .catch(undefined)
-    )
-    .optional()
-    .catch(undefined)
-    // Compact out the per-entry `.catch(undefined)` holes so consumers only see
-    // the well-formed citations.
-    .transform((arr) => (arr ? arr.filter((entry) => entry != null) : arr)),
+  // Fail-open per entry — see `wireSourcesField`.
+  sources: wireSourcesField,
+  // Retrieved-but-uncited document identities (no prose) for the
+  // "Gelesen, nicht zitiert" disclosure. Identity + placement only — never
+  // the passthrough `sources` shape, so prose and scoring keys cannot ride
+  // along (see `wireReadSourceSchema`).
+  read_sources: wireReadSourcesField,
 
   // ── Transparency extras (WP-A → WP-B wire contract) ──────────────────────
   // All optional + per-field `.catch(undefined)`: one malformed extra degrades
   // to "absent" and NEVER kills the whole frame (the response text survives).
   // These ride the same terminal-chunk "extras lift" as answer_confidence /
-  // sources / deep_research_job_id.
+  // sources / run_id.
 
-  // Which path the turn took after intent classification.
+  // Which path the turn turned out to take, observed after the answer: `meta`
+  // is a direct reply with no source consulted and no self-assessment.
   routing_decision: z.enum(['meta', 'shallow', 'deep', 'error']).optional().catch(undefined),
-  // Human-readable "why" for the routing decision (verbatim from the classifier).
-  routing_reason: z.string().optional().catch(undefined),
   // Present only when a shallow→deep escalation happened this turn.
   escalation_reason: z.string().optional().catch(undefined),
   // Present only when the self-reported confidence was downgraded. Five causes:
@@ -391,6 +453,16 @@ export const NATSystemResponseMessageSchema = z.object({
   job_admission_rejected: z.literal(true).optional().catch(undefined),
   // Retry hint (seconds) — only alongside job_admission_rejected.
   retry_after_seconds: z.number().optional().catch(undefined),
+  // The answer's structured anatomy (verdict / takeaways / callout), already
+  // validated and GATED backend-side (`common/answer_envelope.py`) and
+  // sanitized again by `sanitizeAnswerMeta` before it is stored or rendered —
+  // so the wire schema stays a permissive record and the one bound lives in
+  // one place instead of two that drift.
+  answer_meta: z.record(z.unknown()).optional().catch(undefined),
+  // The backend's own account of this turn's retrieval rounds. Permissive
+  // here, bounded by `sanitizeRetrievalLedger` before anything stores or
+  // renders it — same split as `answer_meta`.
+  retrieval_ledger: z.array(z.unknown()).optional().catch(undefined),
 })
 
 /** Intermediate step content */
@@ -490,6 +562,23 @@ export const NATStageMessageSchema = z.object({
   timestamp: z.string().optional(),
 })
 
+/**
+ * The turn's liveness beat.
+ *
+ * `every_ms` is the server's stated cadence, and the client's tolerance is a
+ * multiple of it. That is the whole point of putting it on the frame: a client
+ * that kept the interval in its own source would be predicting the server
+ * again, which is the arrangement this frame replaces.
+ */
+export const NATTurnHeartbeatSchema = z.object({
+  type: z.literal(NATMessageType.TURN_HEARTBEAT),
+  v: z.number(),
+  conversation_id: z.string(),
+  parent_id: z.string().nullish(),
+  every_ms: z.number().int().positive(),
+  timestamp: z.string().optional(),
+})
+
 /** Error content */
 export const NATErrorContentSchema = z.object({
   code: z.string(),
@@ -515,6 +604,7 @@ export const NATIncomingMessageSchema = z.discriminatedUnion('type', [
   NATObservabilityTraceMessageSchema,
   NATErrorMessageSchema,
   NATStageMessageSchema,
+  NATTurnHeartbeatSchema,
 ])
 
 // ----------------------------------------------------------------------------

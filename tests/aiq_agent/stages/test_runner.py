@@ -187,7 +187,7 @@ class TestObservability:
     @pytest.mark.asyncio
     async def test_every_terminal_state_emits_a_span_carrying_its_outcome(self):
         _spec(lambda ctx: _returns(None), stage_id="ran")
-        _spec(lambda ctx: _returns(None), stage_id="declined", gate=lambda f: GateDecision.skip("intent_meta"))
+        _spec(lambda ctx: _returns(None), stage_id="declined", gate=lambda f: GateDecision.skip("routing_meta"))
         facts = _facts(enabled_stages=frozenset({"ran", "declined"}))
 
         with patch("aiq_agent.common.profiler._post_profiler_spans") as post:
@@ -208,7 +208,7 @@ class TestObservability:
         assert by_name["stage:declined"]["metadata"] == {
             "stage": "declined",
             "outcome": "skipped",
-            "reason": "intent_meta",
+            "reason": "routing_meta",
         }
 
     @pytest.mark.asyncio

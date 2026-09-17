@@ -61,7 +61,8 @@ the TTL-cleanup lock — is a cliff).
    turn, including chit-chat. `focus_shelf=base` still prints the full list, which
    is exactly the turn that has no retrieval. A search-first `available_documents`
    tool (recency/relevance ranking) remains the richer follow-up; note it would
-   need adding to `_INTERACTION_TOOL_BASENAMES` to survive the meta partition.
+   need adding to `_INTERACTION_TOOL_BASENAMES` to survive the meta partition
+   (the partition and that allowlist are gone since ADR-0052; every tool is bound on every turn).
 7. **No orchestrator-level context compaction** — summarization is wired only into
    the leaf researcher (`factory.py:363`), not orchestrator/planner/writer; ~80k-token
    contexts confirmed. The budget guard counts only output tokens and is off by
@@ -101,7 +102,7 @@ the TTL-cleanup lock — is a cliff).
 
 ## Landed in this PR
 - `idx_job_access_org`, `idx_job_events_created_at` in the authoritative runtime
-  schema-ensure (access.py / event_store.py) — see ADR-0027 for why they live there
+  schema-ensure (access.py / event_store.py) — see ADR-0056 for why they live there
   and not in the infra bootstraps.
 - `ingest_jobs` retention (dead `delete()` wired).
 - Deep-run checkpoint purge on completion (`runner._purge_deep_checkpoint`, now

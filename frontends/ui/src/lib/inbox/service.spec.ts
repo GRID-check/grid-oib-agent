@@ -4,6 +4,7 @@ vi.mock('@/lib/sharing/access', () => ({ resolveResourceAccess: vi.fn() }))
 vi.mock('@/lib/sharing/directory', () => ({ resolvePeople: vi.fn() }))
 vi.mock('@/lib/sharing/registry', () => ({ describeResource: vi.fn() }))
 vi.mock('@/lib/events/bus', () => ({ publishToUser: vi.fn().mockResolvedValue(undefined) }))
+vi.mock('@/lib/authz/projects', () => ({ requireProjectAccess: vi.fn() }))
 
 vi.mock('./repository', () => ({
   INBOX_LIST_LIMIT: 50,
@@ -30,6 +31,7 @@ import type { AuthorizedSession } from '@/lib/auth/types'
 import type { InboxItem, InboxItemType } from '@/lib/db/schema'
 import { getDb } from '@/lib/db'
 import { publishToUser } from '@/lib/events/bus'
+import { requireProjectAccess } from '@/lib/authz/projects'
 import { resolveResourceAccess } from '@/lib/sharing/access'
 import { resolvePeople } from '@/lib/sharing/directory'
 import { describeResource } from '@/lib/sharing/registry'
@@ -80,10 +82,25 @@ const ALL_TYPES = [
   'conversation.activity',
   'storage.quota_warning',
   'document.assigned_to_you',
+  'job.completed',
+  'job.failed',
+  'job.waiting',
+  'document.review_requested',
 ] as const satisfies readonly InboxItemType[]
 
 /** What a tenant WITHOUT collaboration may see: the operational types only. */
-const OPERATIONAL_TYPES = ['storage.quota_warning'] as const satisfies readonly InboxItemType[]
+const OPERATIONAL_TYPES = [
+  'storage.quota_warning',
+  'job.completed',
+  'job.failed',
+  // A run stopped to ask its requester something: the same operational class
+  // as a run that finished or failed, and invisible without the badge.
+  'job.waiting',
+  // A Freigabe is not a chat feature (ADR-0054): an office that never bought
+  // collaboration still has documents to approve, and gating the one review
+  // queue in the product would make it invisible for exactly them.
+  'document.review_requested',
+] as const satisfies readonly InboxItemType[]
 
 const at = new Date('2026-07-29T10:00:00.000Z')
 
@@ -129,6 +146,7 @@ beforeEach(() => {
   vi.mocked(repository.listInboxItems).mockResolvedValue([])
   vi.mocked(repository.countPendingInboxItems).mockResolvedValue(3)
   vi.mocked(resolveResourceAccess).mockResolvedValue(reachable)
+  vi.mocked(requireProjectAccess).mockResolvedValue({ role: 'project-viewer' } as never)
   vi.mocked(resolvePeople).mockResolvedValue(
     new Map([['user_2', { userId: 'user_2', email: 'anna@grid.test', name: 'Anna Berger', profilePictureUrl: null }]]),
   )
@@ -312,6 +330,52 @@ describe('listInbox — projection', () => {
     expect(items).toHaveLength(1)
     expect(items[0]).toMatchObject({ state: 'read', actionable: true })
     expect(items[0]!.href).not.toBeNull()
+  })
+})
+
+describe('listInbox — project href threads the delegated task', () => {
+  it('lands on the task detail when the payload names taskId', async () => {
+    vi.mocked(repository.listInboxItems).mockResolvedValue([
+      row({
+        id: 'job-done',
+        type: 'job.completed',
+        resourceType: 'project',
+        resourceId: 'proj_1',
+        anchorId: 'backend-job-1',
+        payload: { subject: 'Wochenbericht', taskId: 'task-1', filedDocumentId: 'doc-9' },
+      }),
+    ])
+
+    const { items } = await listInbox(session)
+
+    expect(items[0]!.href).toBe('/app/projects/proj_1/automation?tab=tasks&task=task-1')
+  })
+
+  it('falls back to the automation page when taskId is absent or blank', async () => {
+    vi.mocked(repository.listInboxItems).mockResolvedValue([
+      row({
+        id: 'job-no-task',
+        type: 'job.completed',
+        resourceType: 'project',
+        resourceId: 'proj_1',
+        anchorId: 'backend-job-1',
+        payload: { subject: 'Wochenbericht', taskId: null, filedDocumentId: null },
+      }),
+      row({
+        id: 'job-blank-task',
+        type: 'job.failed',
+        resourceType: 'project',
+        resourceId: 'proj_1',
+        anchorId: 'backend-job-2',
+        payload: { subject: 'Nachtlauf', taskId: '   ' },
+      }),
+    ])
+
+    const { items } = await listInbox(session)
+    const byId = new Map(items.map((item) => [item.id, item]))
+
+    expect(byId.get('job-no-task')!.href).toBe('/app/projects/proj_1/automation?tab=jobs')
+    expect(byId.get('job-blank-task')!.href).toBe('/app/projects/proj_1/automation?tab=jobs')
   })
 })
 

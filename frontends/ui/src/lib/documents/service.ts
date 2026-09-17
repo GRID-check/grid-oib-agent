@@ -9,65 +9,118 @@
  */
 
 import 'server-only'
-import { DeleteObjectCommand, GetObjectCommand, HeadObjectCommand, PutObjectCommand } from '@aws-sdk/client-s3'
+import {
+  DeleteObjectCommand,
+  GetObjectCommand,
+  HeadObjectCommand,
+  PutObjectCommand,
+} from '@aws-sdk/client-s3'
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner'
 import {
   s3Client,
   signingS3Client,
   bucketAdminS3Client,
+  buildImageStorageKey,
   buildStorageKey,
   buildThumbnailStorageKey,
 } from '@/lib/s3'
 import { ensureTenantBucketChecked, resolveDocumentBucket } from '@/lib/storage/bucket'
 import { requireProjectAccess } from '@/lib/authz/projects'
-import { canManageArchiv } from '@/lib/authz/organizations'
-import { requireResourceAccess } from '@/lib/sharing/access'
 import { ForbiddenError } from '@/lib/api/errors'
 import { recordAuditEvent } from '@/lib/audit/service'
 import { getBackendUrl } from '@/lib/backend-proxy'
 import { buildGridRequestContextWireHeaders } from '@/lib/request-context'
 import { findProjectInOrg } from '@/lib/projects/repository'
-import { ApiError, BadRequestError, ConflictError, NotFoundError, UpstreamError } from '@/lib/api/errors'
+import {
+  ApiError,
+  BadRequestError,
+  ConflictError,
+  NotFoundError,
+  UpstreamError,
+} from '@/lib/api/errors'
 import { ALLOWED_TAGS } from './tag-vocabulary'
+import { contentDigest } from './content-digest'
+import { documentStatusFacts } from './document-status'
+import { documentNameKey } from './name-match'
+import { normalizeDrawingStructured, type DrawingStructured } from './drawing-structured'
 import { getFileUploadConfigFromEnv } from '@/shared/config/file-upload'
 import { buildDocumentImageUrl, verifyDocumentImageUrl } from '@/lib/images/signed-image-url'
 import { isVlmConfigured } from '@/lib/documents/vlm-capability'
 import { assertWithinStorageQuota } from '@/lib/storage/service'
-import { admitOrDiscard } from '@/lib/storage/admission'
-import { FEATURE_FLAGS, isCollaborationEnabled, isFeatureEnabled, isIfcModelsEnabled } from '@/lib/authz/feature-flags'
-import { listResourceAssignments } from '@/lib/assignments/service'
+import { admitOrDiscard, admitReplacementOrDiscard } from '@/lib/storage/admission'
+import {
+  FEATURE_FLAGS,
+  isCollaborationEnabled,
+  isFeatureEnabled,
+  isIfcModelsEnabled,
+} from '@/lib/authz/feature-flags'
+import { listResourceAssignments, type AssignedPerson } from '@/lib/assignments/service'
 import { deleteAssignmentsForResource } from '@/lib/assignments/repository'
 import { purgeResourceCollaboration } from '@/lib/collaboration/cleanup'
 import type { AuthorizedSession } from '@/lib/auth/types'
-import type { Document } from '@/lib/db/schema'
+import type { Document, DocumentAuthor } from '@/lib/db/schema'
 import { reconcileDocumentStatuses, type DocumentMetadata } from './reconcile-status'
+import {
+  collectionDocumentsUrl,
+  collectionFileRef,
+  collectionFileUrl,
+  purgeIngestedChunks,
+} from './collection-file-ref'
 import {
   deleteProjectDocument,
   findDocumentInOrg,
   findFolderPathInProject,
   findStorageKeyByCollectionAndFilename,
+  findStorageKeyByIdAndCollection,
   listProjectDocuments,
   markDocumentIngestFailed,
   markDocumentProcessing,
   setDocumentDisplayName,
   setDocumentIngestJob,
+  findLiveDocumentByFilename,
   type DocumentListRow,
 } from './repository'
 import { documentDisplayName, validateDocumentName } from './display-name'
 import { deleteBimDerivedObjects, runBimExtraction } from '@/lib/bim/service'
+import { getAccessibleDocument } from './access'
+import { nextVersionNumber, recordUploadedVersion } from './lifecycle'
+import { versionedStorageKey } from './version-content'
+import { findOpenVersion, listDocumentVersionObjects } from './version-repository'
+import { deleteDocumentObjects } from './object-cleanup'
 import { isIfcFilename } from '@/lib/bim/types'
+import {
+  INLINE_PREVIEW_CONTENT_TYPES,
+  TEXT_PREVIEW_CONTENT_TYPES as SHARED_TEXT_PREVIEW_CONTENT_TYPES,
+} from './preview-types'
 
-const PREVIEW_CONTENT_TYPES = [
-  'application/pdf',
-  'image/png',
-  'image/jpeg',
-  'image/jpg',
-  'image/gif',
-  'image/webp',
-  'image/svg+xml',
-  'image/bmp',
-  'image/tiff',
-]
+const PREVIEW_CONTENT_TYPES: readonly string[] = INLINE_PREVIEW_CONTENT_TYPES
+
+/**
+ * Text-shaped documents the reader gets as TEXT rather than as a presigned URL.
+ *
+ * These are accepted at upload (`shared/config/file-upload.ts`) and had no
+ * viewer at all: a `.md` a colleague uploaded showed the same grey "download it
+ * to read it" mock as a `.dwg` we genuinely cannot render. They are separate
+ * from {@link PREVIEW_CONTENT_TYPES} because the answer is a different shape —
+ * the bytes come back through this origin as a string the pane renders, not as
+ * an object-store URL an iframe loads. The object store publishes no CORS
+ * policy, so a presigned URL is unreadable to a `fetch` anyway; that is the same
+ * constraint `streamDocumentFile` exists for.
+ *
+ * `text/html` is deliberately absent and must stay absent. These bytes are
+ * uploaded by users and would be returned same-origin.
+ */
+const TEXT_PREVIEW_CONTENT_TYPES: readonly string[] = SHARED_TEXT_PREVIEW_CONTENT_TYPES
+
+/**
+ * How much of a text document crosses the wire for a preview.
+ *
+ * A preview is a look at a file, not a delivery of it — the download button is
+ * two centimetres away and is the honest route to the whole thing. 256 KiB is
+ * some 4000 lines of prose, past the point where anyone is reading rather than
+ * searching, and it bounds a response that would otherwise be the upload limit.
+ */
+const TEXT_PREVIEW_MAX_BYTES = 256 * 1024
 
 /**
  * Content types the signed image route hands to the Next optimizer.
@@ -112,13 +165,19 @@ export const INGEST_DISPATCH_FAILED_MESSAGE = 'Ingestion could not be started'
  * cap the length, and never emit an empty name.
  */
 function sanitizeFilename(raw: string): string {
-  const cleaned = raw.replace(/[\r\n"]/g, '').trim().slice(0, 255)
+  const cleaned = raw
+    .replace(/[\r\n"]/g, '')
+    .trim()
+    .slice(0, 255)
   return cleaned || 'download'
 }
 
 /** RFC 5987 percent-encoding for the `filename*` parameter. */
 function encodeRfc5987(value: string): string {
-  return encodeURIComponent(value).replace(/['()*]/g, (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`)
+  return encodeURIComponent(value).replace(
+    /['()*]/g,
+    (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`
+  )
 }
 
 /**
@@ -131,86 +190,6 @@ function contentDisposition(type: 'attachment' | 'inline', rawFilename: string):
   return `${type}; filename="${asciiFallback}"; filename*=UTF-8''${encodeRfc5987(filename)}`
 }
 
-/**
- * Load a document (org-scoped in SQL) and enforce the access its OWN shelf
- * calls for, so the SAME item routes (download/preview/status/reingest/tags)
- * serve all three shelves:
- *
- *   - `project` → per-project FGA via `requireProjectAccess`.
- *   - `archiv`  → org-wide: any member reads, writes need `org:archiv:manage`.
- *   - `session` → as private as the chat it hangs off: `viewer` to read,
- *     `collaborator` to write, resolved on the conversation (ADR-0032).
- *
- * ## Why this switches on `scope` and not on `projectId`
- *
- * It used to read `doc.scope === 'archiv' || doc.projectId === null`, which was
- * correct while a null project could only mean the Archiv. A session document
- * also has a null project (ADR-0047 Phase 2), so that disjunction would have
- * handed every private chat attachment to the Archiv branch — where any member
- * of the organization may read it. The upload is private; the download would
- * not have been. A `switch` over the scope union is exhaustive, so a fourth
- * shelf cannot fall through to somebody else's rule: it fails to compile.
- *
- * Cross-tenant and no-access lookups both surface as 404. The `intent` maps to
- * `project:view` for reads and `project:documents:write` (accepting the legacy
- * `project:edit` umbrella) for writes — ADR-0038.
- */
-async function getAccessibleDocument(
-  session: AuthorizedSession,
-  documentId: string,
-  intent: 'read' | 'write' = 'read',
-): Promise<Document> {
-  const doc = await findDocumentInOrg(documentId, session.organizationId)
-  if (!doc) throw new NotFoundError()
-
-  switch (doc.scope) {
-    case 'archiv': {
-      // Org-scoped: findDocumentInOrg already confirmed the row belongs to the
-      // caller's org (so any member may read it). Only mutations need the
-      // manage permission.
-      if (intent === 'write' && !canManageArchiv(session)) throw new ForbiddenError()
-      return doc
-    }
-    case 'session': {
-      // A row that contradicts `documents_session_requires_conversation`
-      // (migration 0049) is not something to guess about — it is unattributable,
-      // so it is not found.
-      if (!doc.conversationId) throw new NotFoundError()
-      await requireResourceAccess(
-        session,
-        'conversation',
-        doc.conversationId,
-        intent === 'write' ? 'collaborator' : 'viewer',
-      )
-      return doc
-    }
-    case 'project': {
-      // A `project` row with no project is a corrupt row, not an org-wide one.
-      // The old disjunction quietly re-read it as an Archiv document and handed
-      // it to every member; there is nothing to authorize against, so it is not
-      // found.
-      if (doc.projectId === null) throw new NotFoundError()
-      await requireProjectAccess(
-        session,
-        doc.projectId,
-        intent === 'write' ? ['project:documents:write', 'project:edit'] : 'project:view',
-      )
-      return doc
-    }
-    default: {
-      // Two jobs. At COMPILE time the `never` annotation is the exhaustiveness
-      // check ADR-0047 decision 3 asks for: add a shelf to `DocumentScope` and
-      // this line stops type-checking until it has a rule here. At RUN time it
-      // catches what the type cannot — `scope` is a plain `text` column, so a
-      // row can hold a value no version of this code knows. There is no
-      // authorization rule to apply to such a row, and defaulting to another
-      // shelf's is how a private document becomes an org-wide one.
-      const unhandledScope: never = doc.scope
-      void unhandledScope
-      throw new NotFoundError()
-    }
-  }
-}
 
 /**
  * Dispatch a document to the backend ingest API and persist the outcome. The
@@ -222,6 +201,47 @@ async function getAccessibleDocument(
  *   - dispatch failed     → status failed   (markDocumentIngestFailed)
  *   - ok but no job id    → status left as-is ('uploaded' on first upload)
  */
+/**
+ * The two things only some dispatch callers know.
+ *
+ * One trailing bag rather than a seventh and eighth positional on a function
+ * that already takes six — and one bag rather than two parameters because they
+ * arrive together, from the one caller that has a version row in hand.
+ */
+export interface DispatchIngestExtras {
+  /**
+   * The `documents.filename` these bytes are known by — the retrieval index's
+   * join key. Omitted only where the ingested object is not the row's file.
+   */
+  fileName?: string | null
+  /** Set only for a published Piloti document. */
+  provenance?: AgentDocumentProvenance | null
+}
+
+/**
+ * What a published Piloti document carries into the retrieval index.
+ *
+ * The four keys are spelled here and parsed in
+ * `src/aiq_agent/common/provenance.py`; the pair is the whole contract, and a
+ * typo on either side is silent — a human document is what an unmarked chunk
+ * looks like. So the field names ARE the wire names (snake_case, unlike every
+ * other interface in this file) rather than being mapped at the fetch, which is
+ * where a rename would go unnoticed.
+ *
+ * `authored_by` is not optional and has one legal value: this type exists only
+ * for documents Piloti wrote, and an absent author is what every human document
+ * already sends.
+ */
+export interface AgentDocumentProvenance {
+  authored_by: 'agent'
+  /** The DISPLAY NAME of the person who approved it, never their user id. */
+  approved_by: string | null
+  /** ISO timestamp of that approval. */
+  approved_at: string | null
+  /** Which pipeline wrote the document — `documents.authored_by_producer`. */
+  producer: string | null
+}
+
 export async function dispatchIngest(
   documentId: string,
   collectionName: string,
@@ -245,13 +265,19 @@ export async function dispatchIngest(
    * a person reads, and a prefix match over it is the folder's whole subtree.
    */
   folderPath: string | null = null,
+  /** See {@link DispatchIngestExtras}. */
+  extras: DispatchIngestExtras = {}
 ): Promise<{ jobId: string | null; status: 'pending' | 'uploaded' | 'failed' }> {
   const bucket = resolveDocumentBucket(storageBucket)
   // The backend fetches the file itself, from inside the Docker network —
   // sign with the internal-endpoint client, not the browser-facing one.
-  const presignedUrl = await getSignedUrl(s3Client, new GetObjectCommand({ Bucket: bucket, Key: storageKey }), {
-    expiresIn: presignTtlSeconds(),
-  })
+  const presignedUrl = await getSignedUrl(
+    s3Client,
+    new GetObjectCommand({ Bucket: bucket, Key: storageKey }),
+    {
+      expiresIn: presignTtlSeconds(),
+    }
+  )
 
   // Presigned upload slot for the 200px JPEG thumbnail the ingest pipeline
   // generates. Null for a key with no directory segment: there is nowhere to
@@ -266,7 +292,7 @@ export async function dispatchIngest(
           Key: thumbnailUploadKey,
           ContentType: 'image/jpeg',
         }),
-        { expiresIn: 3600 },
+        { expiresIn: 3600 }
       )
     : null
 
@@ -284,6 +310,22 @@ export async function dispatchIngest(
         document_id: documentId,
         thumbnail_upload_url: thumbnailUploadUrl,
         folder_path: folderPath,
+        // The document's IDENTITY inside the collection, stated rather than
+        // left to be derived. Without it the backend reads the name off the
+        // presigned URL's last path segment, which is the OBJECT KEY's
+        // basename — and `storageKeySegment` has already flattened that
+        // (`piloti/<id>/x.md` becomes `piloti_<id>_x.md`, a name with a
+        // backslash or over 255 characters becomes a different one again). The
+        // chunks would then be filed under a string no purge ever asks for,
+        // because every purge addresses `documents.filename`. `null` keeps the
+        // old derivation for the one caller that genuinely ingests a different
+        // file than the row names — the IFC digest.
+        file_name: extras.fileName ?? null,
+        // Absent for every human document, and the Python side treats absent,
+        // null and a non-agent author identically (`parse_agent_provenance`).
+        // Spread so the four keys are the four keys, never a nested object the
+        // chunk metadata would have to be taught to flatten.
+        ...(extras.provenance ?? {}),
       }),
       signal: AbortSignal.timeout(BACKEND_FETCH_TIMEOUT_MS),
     })
@@ -323,10 +365,25 @@ export async function dispatchIngest(
 export async function listDocuments(
   session: AuthorizedSession,
   projectId: string,
-): Promise<Array<Omit<DocumentListRow, 'metadata'> & DocumentMetadata>> {
+  /**
+   * Narrowing options. `authoredBy` is pushed down to the query rather than
+   * filtered here: the „Von Piloti" chip asks for the small minority of rows a
+   * machine wrote, migration 0063 gave that predicate its own partial index,
+   * and filtering after the fact would read the whole project's corpus — plus
+   * reconcile and assignment-hydrate every row of it — to return a handful.
+   */
+  options: { authoredBy?: DocumentAuthor; includeArchived?: boolean } = {}
+): Promise<ListedDocument[]> {
   await requireProjectAccess(session, projectId, 'project:view')
 
-  const rows = await listProjectDocuments(projectId, session.organizationId)
+  // `limit` is deliberately not passed: the repository's own default is the
+  // cap, and a second copy of it here could drift from the real one.
+  const rows = await listProjectDocuments(projectId, session.organizationId, {
+    authoredBy: options.authoredBy,
+    // Archived documents have LEFT the working set, so they are absent unless
+    // the caller says otherwise (ADR-0054).
+    includeArchived: options.includeArchived,
+  })
 
   // Pending rows are lazily reconciled with the backend's ingestion state;
   // without this they would stay 'pending' forever (no completion callback).
@@ -341,10 +398,23 @@ export async function listDocuments(
   const grouped = await listResourceAssignments(
     session,
     'document',
-    listed.map((row) => row.id),
+    listed.map((row) => row.id)
   )
   return listed.map((row) => ({ ...row, assignees: grouped[row.id] ?? [] }))
 }
+
+/**
+ * One row of a document listing.
+ *
+ * `assignees` is part of it. It used to be added by the two `return`s below and
+ * left out of the signature, which type-checks (nothing rejects an extra
+ * property on a spread) and is a lie every caller then has to work around: the
+ * wire projection could not see the field it is required to serialize, and
+ * anything reading a listing had to re-widen the type to find the faces it
+ * renders.
+ */
+export type ListedDocument = Omit<DocumentListRow, 'metadata'> &
+  DocumentMetadata & { assignees: AssignedPerson[] }
 
 /**
  * A single hit from the backend's document-centric semantic search
@@ -409,19 +479,22 @@ export function deriveSearchTopK(topKFiles: number): number {
 export async function fetchSemanticHits(
   collectionName: string,
   query: string,
-  topKFiles: number,
+  topKFiles: number
 ): Promise<BackendSearchHit[]> {
   const scopeHeaders = buildGridRequestContextWireHeaders(
     { collectionScope: [collectionName] },
-    process.env.GRID_INTERNAL_API_TOKEN,
+    process.env.GRID_INTERNAL_API_TOKEN
   )
   try {
-    const res = await fetch(`${getBackendUrl()}/v1/collections/${encodeURIComponent(collectionName)}/search`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', ...scopeHeaders },
-      body: JSON.stringify({ query, top_k: deriveSearchTopK(topKFiles), top_k_files: topKFiles }),
-      signal: AbortSignal.timeout(BACKEND_FETCH_TIMEOUT_MS),
-    })
+    const res = await fetch(
+      `${getBackendUrl()}/v1/collections/${encodeURIComponent(collectionName)}/search`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...scopeHeaders },
+        body: JSON.stringify({ query, top_k: deriveSearchTopK(topKFiles), top_k_files: topKFiles }),
+        signal: AbortSignal.timeout(BACKEND_FETCH_TIMEOUT_MS),
+      }
+    )
     if (!res.ok) return []
     const body = await res.json().catch(() => ({}))
     return Array.isArray(body?.hits) ? (body.hits as BackendSearchHit[]) : []
@@ -439,13 +512,46 @@ export async function fetchSemanticHits(
  * snippet, page, and score. Hits with no matching row are dropped. When a
  * filename collides across rows the most-recent row (latest `createdAt`) wins,
  * so a re-uploaded document resolves to its current entry.
+ *
+ * ## Machine-authored rows are not candidates, and the collision rule is why
+ *
+ * A hit comes from the retrieval index, and nothing machine-authored is ever
+ * indexed — so every hit describes a document a person supplied. This join is
+ * what turns that hit back into a row, and it keys on FILENAME, which is not a
+ * safe identity across authorship.
+ *
+ * `generatedFilename` builds `slug(title)-YYYY-MM-DD.ext` from a title the
+ * MODEL wrote — a report's own H1, a diagram card's `title`. So a filed report
+ * whose title slugs to the stem of a real Gutachten, on the same day, collides.
+ * The tie-break then decides it, and it decides it the wrong way by
+ * construction: the agent row was written after the corpus it was written from,
+ * so it is always the most recent. The reader would get a search result labelled
+ * „Von Piloti erstellt" carrying a snippet and a page number lifted from
+ * somebody's actual Gutachten.
+ *
+ * No chunk was created for the agent row and no retrieval invariant was broken —
+ * the leak is in the join, not in the index, which is why the dispatch-site
+ * guard and the storage-key allow-list do not reach it. This is the third path
+ * by which a machine-authored row can reach a reader as evidence, and it is
+ * closed the same way as the other two: by asking the row, not by trusting the
+ * name.
  */
-export function joinHitsToFiles<T extends { filename: string; createdAt: Date | string }>(
-  hits: BackendSearchHit[],
-  files: T[],
-): Array<SearchedDocument<T>> {
+export function joinHitsToFiles<
+  T extends { filename: string; createdAt: Date | string; authoredBy: string },
+>(hits: BackendSearchHit[], files: T[]): Array<SearchedDocument<T>> {
   const byName = new Map<string, T>()
   for (const file of files) {
+    // Only a human-authored row may take a hit. A filename is not an identity
+    // across authorship: `generatedFilename` builds `slug(title)-DATE.ext` from a
+    // title the model wrote, so a collision with a real document is reachable by
+    // the model, and recency would then hand it that document's snippet and page
+    // under a „Von Piloti erstellt" label.
+    //
+    // `authoredBy` is required rather than optional on purpose. Both callers
+    // select it (`listProjectDocuments`, `listArchiv`); making it optional would
+    // mean a future caller that forgets the column fails OPEN at runtime instead
+    // of failing to compile.
+    if (file.authoredBy !== 'user') continue
     const existing = byName.get(file.filename)
     if (!existing || new Date(file.createdAt).getTime() > new Date(existing.createdAt).getTime()) {
       byName.set(file.filename, file)
@@ -472,7 +578,7 @@ export async function searchProjectDocuments(
   session: AuthorizedSession,
   projectId: string,
   query: string,
-  topK = 20,
+  topK = 20
 ): Promise<{ hits: Array<SearchedDocument<Awaited<ReturnType<typeof listDocuments>>[number]>> }> {
   // Authorization (project:view) + the canonical file rows come from the same
   // path the normal list uses, so a semantic result is always a real, visible
@@ -490,6 +596,45 @@ export interface UploadDocumentInput {
   projectId: string
   folderId: string | null
   file: File
+  /**
+   * Where the file sat before it was uploaded, when the browser knows — a
+   * folder upload reports `webkitRelativePath`. Absent for a picked file.
+   * Recorded once (migration 0072) and never rewritten; see the schema comment
+   * for why this is not Piloti's own folder path.
+   */
+  originPath?: string | null
+}
+
+/** Longest origin path recorded. Deep office trees exist; unbounded text does not belong in a row. */
+const ORIGIN_PATH_MAX_CHARS = 1024
+
+/**
+ * A browser-reported origin path, made safe to store and to show.
+ *
+ * This string is USER-CONTROLLED — it is whatever the operating system had in
+ * a folder name — and it is rendered back to other people in the same
+ * organization, so it is treated the way every other piece of uploaded text is:
+ * bounded, normalised, and stripped of the characters that would let it
+ * pretend to be something else.
+ *
+ * Backslashes become forward slashes so a Windows tree and a macOS one read
+ * alike. Leading slashes, `.` and `..` segments are dropped: this is a label,
+ * never a path anything resolves, and an absolute or climbing path in a label
+ * is only ever a way to mislead a reader about where a file came from. Control
+ * characters go for the same reason a filename's do.
+ */
+function sanitizeOriginPath(raw: string | null | undefined): string | null {
+  if (typeof raw !== 'string') return null
+  const segments = raw
+    .replace(/\\/g, '/')
+    // eslint-disable-next-line no-control-regex
+    .replace(/[\u0000-\u001f\u007f]/g, '')
+    .split('/')
+    .map((segment) => segment.trim())
+    .filter((segment) => segment !== '' && segment !== '.' && segment !== '..')
+  if (segments.length === 0) return null
+  const joined = segments.join('/')
+  return joined.slice(0, ORIGIN_PATH_MAX_CHARS) || null
 }
 
 export interface UploadDocumentResult {
@@ -523,7 +668,10 @@ function fileExtension(name: string): string {
  * and the client's accepted-types list are ONE truth. Fail-closed: an
  * unconfirmable capability excludes images (never a silent-failure upload).
  */
-export async function assertUploadTypeAllowed(session: AuthorizedSession, filename: string): Promise<void> {
+export async function assertUploadTypeAllowed(
+  session: AuthorizedSession,
+  filename: string
+): Promise<void> {
   const imageUploadEnabled = isFeatureEnabled(session, FEATURE_FLAGS.imageUpload)
   const ifcUploadEnabled = isIfcModelsEnabled(session)
   const vlmAvailable = await isVlmConfigured()
@@ -577,9 +725,10 @@ export function assertFileSizeAllowed(sizeBytes: number, filename?: string): voi
 export async function uploadDocument(
   session: AuthorizedSession,
   input: UploadDocumentInput,
-  request: Request,
+  request: Request
 ): Promise<UploadDocumentResult> {
   const { projectId, folderId, file } = input
+  const originPath = sanitizeOriginPath(input.originPath)
 
   await requireProjectAccess(session, projectId, ['project:documents:write', 'project:edit'])
   await assertUploadTypeAllowed(session, file.name)
@@ -598,9 +747,68 @@ export async function uploadDocument(
   const project = await findProjectInOrg(projectId, session.organizationId)
   if (!project) throw new NotFoundError('Project not found')
 
-  const documentId = crypto.randomUUID()
   const collectionName = project.collectionName
-  const storageKey = buildStorageKey(session.organizationId, projectId, documentId, file.name, folderPath)
+
+  /*
+   * A RE-UPLOAD REPLACES; IT DOES NOT ACCUMULATE.
+   *
+   * This used to mint a fresh id and insert unconditionally. There is no unique
+   * index on (collection, filename), so a second upload of the same name wrote
+   * a second row and a second stored object charged to the organization's
+   * quota — while the ingest pipeline's `_replace_previous_versions` deletes
+   * chunks BY FILENAME, so the newcomer's chunks replaced the incumbent's. The
+   * first row survived: listed, downloadable, cited by nothing, findable by
+   * nothing. A ghost, and a paid-for one.
+   *
+   * The backend already treats the filename as the document's identity. This
+   * makes the row agree: the SAME id is pointed at the new bytes, so every
+   * citation, chat subject and folder assignment that referenced the document
+   * keeps working, and re-dropping a corrected plan does what a person dropping
+   * it means by the gesture.
+   *
+   * Deliberately not a 409. Refusing the upload would be defensible if the two
+   * files were unrelated, but the pipeline downstream has already decided they
+   * are the same document, and a refusal leaves the reader with the OLD file
+   * and no way to say "no, this one".
+   */
+  /*
+   * The name, in ONE Unicode form.
+   *
+   * `file.name` is whatever the operating system that produced it uses, and
+   * macOS decomposes. Normalizing here — before the probe, before the storage
+   * key and before the row — is what makes the identity above hold for a büro
+   * that drags an Einreichung off a Mac: without it the probe misses, a second
+   * row appears under a name nobody can tell apart from the first, and the
+   * ingest pipeline replaces the chunks of the one it did not create.
+   * `findLiveDocumentByFilename` still looks for both forms, because rows
+   * written before this line exist. See `./name-match`.
+   */
+  const filename = documentNameKey(file.name)
+
+  const superseded = await findLiveDocumentByFilename(
+    session.organizationId,
+    collectionName,
+    filename
+  )
+  const documentId = superseded?.id ?? crypto.randomUUID()
+  /*
+   * A re-upload writes NEW bytes, so it needs a NEW key (ADR-0054).
+   *
+   * The id is deliberately kept — that is what makes citations, chat subjects
+   * and folder assignments survive a corrected plan — but the key used to be
+   * derived from the id alone, so the new bytes landed on top of the old ones
+   * and `discardSupersededObjects` tidied up what was left. That is versioning
+   * without the history. Version 1 keeps today's key exactly, so nothing that
+   * predates this moves; version N lands under `v<n>/`, and the previous
+   * version's row still names an object a reader can open.
+   */
+  const versionNumber = superseded
+    ? await nextVersionNumber(documentId, session.organizationId)
+    : 1
+  const storageKey = versionedStorageKey(
+    buildStorageKey(session.organizationId, projectId, documentId, filename, folderPath),
+    versionNumber
+  )
 
   // Create the organization's bucket if this is its first upload (ADR-0043).
   // A no-op — not even a round trip — when per-org buckets are off. Done before
@@ -609,13 +817,64 @@ export async function uploadDocument(
   const storageBucket = await ensureTenantBucketChecked(bucketAdminS3Client, session.organizationId)
 
   const bytes = Buffer.from(await file.arrayBuffer())
+  /*
+   * The digest, taken here because the bytes are already in hand.
+   *
+   * It is what makes a folder RE-upload cheap: the browser hashes only the
+   * files whose name and size already match something in the project, and sends
+   * the ones whose digest differs. Hashing on this side rather than trusting
+   * the client's is not a security stance — the client's digest is only ever
+   * compared, never stored — it is so that the recorded value describes the
+   * bytes this tier actually wrote.
+   *
+   * The value's shape — algorithm and all — lives in `./content-digest`,
+   * because the Archiv and a conversation's attachments write the same column
+   * and a digest only one of them changed would classify every file as changed.
+   */
+  const contentHash = contentDigest(bytes)
+
+  /*
+   * THE SAME BYTES, ALREADY HERE. Nothing to do.
+   *
+   * A folder re-sync is mostly this: a büro drops the project directory again
+   * to bring three corrected drawings in, and five hundred files that have not
+   * changed come along with them. The planner already skips the ones it can
+   * prove are identical — but it can only prove it where the row carries a
+   * digest, so a corpus that predates `content_hash`, a browser without
+   * `crypto.subtle`, and every non-secure context all fall through to here.
+   *
+   * This tier has the bytes and the row, so it can answer. Answering saves the
+   * object write, the quota round trip, and — the expensive one — a full
+   * re-ingest that would churn the chunks a citation already points at, for a
+   * file that did not change.
+   *
+   * Deliberately narrow. Only when the row has actually LANDED — a failed, a
+   * still-processing and an unrecognised status must all be allowed to retry,
+   * which is why the test is the status vocabulary's own `success` and not a
+   * list of spellings written out again here — and only when it is already
+   * filed where this upload would file it, because otherwise the re-file IS the
+   * gesture and skipping would drop it.
+   *
+   * No audit event either, and that is the point rather than an omission: the
+   * trail records who brought which file into which project, and this brought
+   * nothing.
+   */
+  if (
+    superseded &&
+    superseded.contentHash === contentHash &&
+    documentStatusFacts(superseded.status)?.variant === 'success' &&
+    (superseded.folderId ?? null) === (folderId ?? null)
+  ) {
+    return { documentId, jobId: null, status: 'uploaded', filename }
+  }
+
   await s3Client.send(
     new PutObjectCommand({
       Bucket: storageBucket,
       Key: storageKey,
       Body: bytes,
       ContentType: file.type || 'application/octet-stream',
-    }),
+    })
   )
 
   // The quota's HARD ceiling: the usage is re-read inside the same transaction
@@ -625,28 +884,58 @@ export async function uploadDocument(
   // The object is already written, so a refusal has to take it back — the row was
   // not inserted, so nothing else will ever reference those bytes and leaving
   // them would be an orphan that only a bucket-wide sweep could find.
-  await admitOrDiscard(storageBucket, storageKey, {
-    id: documentId,
-    organizationId: session.organizationId,
-    projectId,
-    folderId: folderId ?? null,
-    createdBy: session.userId,
-    filename: file.name,
-    storageKey,
-    // Recorded even when it IS the shared bucket, so only rows predating
-    // migration 0033 rely on the NULL-means-shared convention.
-    storageBucket,
-    collectionName,
-    fileSize: file.size,
-    contentType: file.type || null,
-    status: 'uploaded',
-  })
+  if (superseded) {
+    // The row already exists and is already counted against the quota, so the
+    // charge is the DELTA — see `replaceDocumentWithinQuota`. Charging the full
+    // size against a total that still includes the old one would refuse a
+    // corrected plan for space the correction itself frees.
+    await admitReplacementOrDiscard(storageBucket, storageKey, session.organizationId, documentId, {
+      storageKey,
+      storageBucket,
+      fileSize: file.size,
+      contentType: file.type || null,
+      contentHash,
+      folderId: folderId ?? null,
+      createdBy: session.userId,
+    })
+    // NOTHING is discarded here any more. The previous bytes are the previous
+    // VERSION's bytes now (ADR-0054), and a superseded version whose object was
+    // deleted is a row in the history that opens nothing. They go when the
+    // document is deleted — `deleteDocument` walks every version — or when a
+    // retention policy that does not exist yet says so.
+  } else {
+    await admitOrDiscard(storageBucket, storageKey, {
+      id: documentId,
+      organizationId: session.organizationId,
+      projectId,
+      folderId: folderId ?? null,
+      createdBy: session.userId,
+      filename,
+      storageKey,
+      // Recorded even when it IS the shared bucket, so only rows predating
+      // migration 0033 rely on the NULL-means-shared convention.
+      storageBucket,
+      collectionName,
+      fileSize: file.size,
+      contentType: file.type || null,
+      contentHash,
+      originPath,
+      status: 'uploaded',
+    })
+  }
+
+  // The version, recorded through the SAME transition table the agent's drafts
+  // walk (ADR-0054). Born `published` and born approved: the person who
+  // uploaded it is the assertion, so the `published requires an approver` CHECK
+  // is satisfied honestly rather than worked around, and no review round is
+  // invented for a gesture that never asked for one.
+  await recordUploadedVersion(session, documentId, request)
 
   const { jobId: ingestJobId, status: ingestStatus } = await dispatchDocument({
     organizationId: session.organizationId,
     projectId,
     documentId,
-    filename: file.name,
+    filename,
     storageKey,
     storageBucket,
     collectionName,
@@ -664,7 +953,14 @@ export async function uploadDocument(
     targetType: 'document',
     targetId: documentId,
     // Filename is user-controlled — cap it before it reaches the trail.
-    metadata: { projectId, filename: file.name.slice(0, 200), fileSize: file.size },
+    // `replaced` distinguishes a new document from new bytes under an existing
+    // id, which is the one thing the trail could no longer infer from the id.
+    metadata: {
+      projectId,
+      filename: filename.slice(0, 200),
+      fileSize: file.size,
+      ...(superseded ? { replaced: true } : {}),
+    },
     request,
   })
 
@@ -672,7 +968,7 @@ export async function uploadDocument(
     documentId,
     jobId: ingestJobId,
     status: ingestStatus,
-    filename: file.name,
+    filename,
   }
 }
 
@@ -694,11 +990,37 @@ export interface BeginModelExtractionInput {
 }
 
 /**
- * What a stored object needs before anything can be started for it. Identical
- * to {@link BeginModelExtractionInput} because the IFC branch is the one that
- * needs more: `dispatchIngest` uses a strict subset of these fields.
+ * What a stored object needs before anything can be started for it.
+ *
+ * `BeginModelExtractionInput` plus the one field only the ingest branch reads,
+ * because the IFC branch is otherwise the one that needs more: `dispatchIngest`
+ * uses a strict subset of these fields.
  */
-export type DispatchDocumentInput = BeginModelExtractionInput
+export interface DispatchDocumentInput extends BeginModelExtractionInput {
+  /**
+   * WHICH VERSION these bytes are — the half of the publish door the row cannot
+   * answer on its own (ADR-0054).
+   *
+   * A machine-authored document is refused unless this names the row's
+   * `published_version_id`, so a draft, an in-review version, an
+   * approved-but-unpublished one, a superseded one and a rejected one all fail
+   * the same check rather than each needing to be listed. Absent means "the
+   * caller is not dispatching a particular version", which is every human
+   * upload path and every re-index — and which an agent-authored row is refused
+   * for, exactly as it was before this door existed.
+   */
+  versionId?: string | null
+  /**
+   * The provenance a published Piloti document carries into every chunk
+   * (`docs/architecture/agent-document-provenance.md`).
+   *
+   * Never assembled here: this tier does not know who approved anything. It is
+   * built by the `ingestPublished` effect, which is the only caller that has a
+   * version row and a directory in hand, and travels verbatim onto the wire so
+   * the keys the Python side parses are the keys the BFF wrote.
+   */
+  provenance?: AgentDocumentProvenance | null
+}
 
 export interface DispatchDocumentResult {
   jobId: string | null
@@ -721,7 +1043,81 @@ export interface DispatchDocumentResult {
  * would have been the fourth copy. There is one copy now, so a caller cannot
  * forget the branch: it cannot see it.
  */
-export async function dispatchDocument(input: DispatchDocumentInput): Promise<DispatchDocumentResult> {
+/**
+ * Thrown when something tries to index a document a machine wrote and nobody
+ * published.
+ *
+ * Named and exported so a caller can tell this refusal apart from a backend
+ * failure: one is a bug in the caller, the other is an outage.
+ */
+export class AgentAuthoredDocumentNotIndexableError extends Error {
+  constructor(readonly documentId: string) {
+    super(
+      `document ${documentId} was written by a machine and is not a published version, so it must not be indexed`
+    )
+    this.name = 'AgentAuthoredDocumentNotIndexableError'
+  }
+}
+
+export async function dispatchDocument(
+  input: DispatchDocumentInput
+): Promise<DispatchDocumentResult> {
+  /**
+   * A document a machine wrote reaches the retrieval index in exactly ONE case,
+   * and it is checked HERE, at the one place every ingestion path funnels
+   * through, by READING THE ROW rather than by trusting the caller.
+   *
+   * ## The one case, and why it is a row invariant
+   *
+   * The rule used to be "human-authored, full stop". ADR-0054 widened it by one
+   * clause and no more: an agent-authored row passes when the dispatch names
+   * the version the row's `published_version_id` points at. Everything else a
+   * version can be — `draft`, `in_review`, `changes_requested`, `approved` but
+   * not yet published, `superseded`, `rejected` — fails the SAME comparison
+   * rather than being enumerated, so a later state cannot be forgotten here.
+   *
+   * The clause is worth exactly as much as what stands behind it, and what
+   * stands behind it is the database: `document_versions_published_is_approved`
+   * refuses a published row with no `approved_by`/`approved_at`, and
+   * `uniq_document_versions_published_per_document` refuses a second published
+   * version. So `published_version_id` names a version a PERSON approved, and
+   * "indexed ⟹ published ⟹ approved by a person" is a chain of constraints
+   * rather than a chain of call sites.
+   *
+   * The version id travels in the input because the row cannot supply it: the
+   * question is not "does this document have a published version" but "are
+   * these the published version's bytes". A re-index that enumerated documents
+   * and re-dispatched them names no version and is refused, which is what keeps
+   * „Projekt neu indizieren" from putting a superseded draft back in the index.
+   *
+   * The invariant used to live in `generated.ts`, which only proved that the
+   * FILING path does not ingest. That is a claim about one function; the claim
+   * the design actually makes is about the document. `reindexProject` — behind
+   * the „Projekt neu indizieren" button in Project Settings — enumerated every
+   * document in the project and re-dispatched it, and an agent-authored row
+   * passed its guard: `stored` is neither `pending` nor `processing`, and the
+   * row carries a real storage key and the project's own collection. One click
+   * put Piloti's own report into the corpus it retrieves from, whereupon the
+   * status became `completed` and the entire not-citable UI — which derives
+   * from `status`, not from `authoredBy` — went green.
+   *
+   * Reading the row costs one primary-key select on an operation that is about
+   * to make an HTTP call to the backend, and it buys an invariant no caller can
+   * forget and no caller can lie about. Passing authorship in the input would
+   * be cheaper and weaker: the next caller would simply be able to get it
+   * wrong, which is exactly what happened.
+   */
+  const row = await findDocumentInOrg(input.documentId, input.organizationId)
+  // An allow-list on a row that must EXIST. `if (row && …)` read a missing row
+  // as permission to ingest, which is the one default this guard was moved here
+  // to stop making: the argument for reading the row is "never trust the
+  // caller", and treating an absent row as `user` trusts the caller about the
+  // only thing left. No caller reaches this without having inserted first, so
+  // the refusal costs nothing today; it is what keeps the next one honest.
+  if (!row || !mayBeIndexed(row, input.versionId ?? null)) {
+    throw new AgentAuthoredDocumentNotIndexableError(input.documentId)
+  }
+
   if (isIfcFilename(input.filename)) {
     return beginModelExtraction(input)
   }
@@ -732,7 +1128,26 @@ export async function dispatchDocument(input: DispatchDocumentInput): Promise<Di
     input.organizationId,
     input.storageBucket,
     input.folderPath ?? null,
+    // The ROW's filename, not the caller's: the join key belongs to the row,
+    // and this is the same "never trust the caller" argument the guard above
+    // makes about authorship.
+    { fileName: row.filename, provenance: input.provenance ?? null }
   )
+}
+
+/**
+ * Whether this document, dispatched for this version, may be indexed.
+ *
+ * Split out of {@link dispatchDocument} so the rule is one expression a reader
+ * can hold: a person's document always, a machine's only as its own published
+ * version. `dispatch.spec.ts` walks every version state through it.
+ */
+function mayBeIndexed(
+  row: Pick<Document, 'authoredBy' | 'publishedVersionId'>,
+  versionId: string | null
+): boolean {
+  if (row.authoredBy === 'user') return true
+  return Boolean(row.publishedVersionId) && row.publishedVersionId === versionId
 }
 
 /**
@@ -756,7 +1171,7 @@ export async function dispatchDocument(input: DispatchDocumentInput): Promise<Di
  * failure than a lost upload.
  */
 export async function beginModelExtraction(
-  input: BeginModelExtractionInput,
+  input: BeginModelExtractionInput
 ): Promise<{ jobId: string | null; status: 'pending' | 'uploaded' | 'failed' | 'processing' }> {
   await markDocumentProcessing(input.documentId, input.organizationId)
 
@@ -767,6 +1182,13 @@ export async function beginModelExtraction(
     filename: input.filename,
     storageKey: input.storageKey,
     storageBucket: input.storageBucket,
+    // No `fileName`: what is ingested here is the Markdown DIGEST, not the
+    // model the row names, so the backend's own derivation from the presigned
+    // URL (`digest.md`) is what these chunks have always been filed under.
+    // Stating `input.filename` would rename them to `haus.ifc` and orphan every
+    // chunk already written under the old name. That the row's purge therefore
+    // addresses a name its chunks do not carry is a defect this change did not
+    // introduce and does not fix — see the note in the slice report.
     dispatchDigest: (digestStorageKey) =>
       dispatchIngest(
         input.documentId,
@@ -774,7 +1196,7 @@ export async function beginModelExtraction(
         digestStorageKey,
         input.organizationId,
         input.storageBucket,
-        input.folderPath ?? null,
+        input.folderPath ?? null
       ),
   })
     .then(async (outcome) => {
@@ -782,7 +1204,7 @@ export async function beginModelExtraction(
         await markDocumentIngestFailed(
           input.documentId,
           input.organizationId,
-          outcome.error ?? 'IFC extraction failed',
+          outcome.error ?? 'IFC extraction failed'
         )
       }
     })
@@ -793,7 +1215,7 @@ export async function beginModelExtraction(
       await markDocumentIngestFailed(
         input.documentId,
         input.organizationId,
-        'IFC extraction failed',
+        'IFC extraction failed'
       ).catch(() => undefined)
     })
 
@@ -811,7 +1233,7 @@ export async function beginModelExtraction(
  */
 async function resolveDocumentFolderPath(
   doc: Pick<Document, 'folderId' | 'projectId'>,
-  organizationId: string,
+  organizationId: string
 ): Promise<string | null> {
   if (!doc.folderId || !doc.projectId) return null
   return await findFolderPathInProject(doc.folderId, doc.projectId, organizationId)
@@ -831,7 +1253,7 @@ export interface ReingestDocumentResult {
  */
 export async function reingestDocument(
   session: AuthorizedSession,
-  documentId: string,
+  documentId: string
 ): Promise<ReingestDocumentResult> {
   const doc = await getAccessibleDocument(session, documentId, 'write')
 
@@ -884,11 +1306,23 @@ const REINDEX_CONCURRENCY = 4
  * Distinct from `reingestDocument`, which is a RETRY: that one refuses anything
  * whose status is not `failed`, because re-dispatching a healthy document is a
  * different and more dangerous operation. This is that operation, and the danger
- * is duplication — the ingest endpoint downloads and indexes, it does not replace,
- * so dispatching a document that already has chunks leaves BOTH sets in the
- * collection, both retrievable and both rendering as a valid citation.
+ * is duplication.
  *
- * So the delete is a PRECONDITION here, not a courtesy. `deleteDocument` swallows
+ * The ingest endpoint DOES replace now — `_replace_previous_versions`
+ * (`llamaindex/adapter.py`, since `166dd79`) deletes the collection's chunks for
+ * an incoming filename before writing new ones. This comment claimed the
+ * opposite until 2026-09; the behaviour was safe and the reasoning was not, which
+ * is the worse of the two to leave lying around.
+ *
+ * The delete stays a PRECONDITION rather than becoming redundant, for two
+ * reasons that outlive the backend's current behaviour. It matches on the
+ * NORMALISED filename only, so a document this project holds under a name the
+ * incoming batch does not repeat keeps its old chunks; and it is wrapped in a
+ * bare `except` that only logs, so a failed replacement never fails the ingest.
+ * Relying on it would make this function's guarantee depend on a best-effort
+ * step in another tier.
+ *
+ * `deleteDocument` swallows
  * a failed chunk-delete on purpose (the durable row and object cleanup matter more,
  * and leftover chunks get swept by the next reconcile). The same failure here means
  * the opposite: dispatching after it would create the duplicate this whole function
@@ -900,11 +1334,16 @@ const REINDEX_CONCURRENCY = 4
  */
 export async function reindexProject(
   session: AuthorizedSession,
-  projectId: string,
+  projectId: string
 ): Promise<ReindexProjectResult> {
   await requireProjectAccess(session, projectId, ['project:documents:write', 'project:edit'])
 
-  const rows = await listProjectDocuments(projectId, session.organizationId)
+  // `'user'` explicitly, not "everything": a machine-authored document must not
+  // be indexed (see `dispatchDocument`), and reaching the dispatcher's refusal
+  // would report a project-wide reindex as partially FAILED for rows that were
+  // never eligible. The dispatcher is the invariant; this is the caller not
+  // asking a question it already knows the answer to.
+  const rows = await listProjectDocuments(projectId, session.organizationId, { authoredBy: 'user' })
   const result: ReindexProjectResult = { projectId, queued: 0, skipped: 0, failed: [] }
 
   const redispatch = async (row: DocumentListRow): Promise<void> => {
@@ -917,17 +1356,26 @@ export async function reindexProject(
       return
     }
 
+    // Belt to the query's braces. The listing above already asks for `'user'`
+    // only, so this is never null in practice — but the delete below is the
+    // destructive half of this function, and "the caller filtered correctly" is
+    // the assumption every one of these leaks was built on. A row that somehow
+    // arrives here machine-authored is skipped, not reported failed: it was
+    // never eligible, exactly as the `'user'` filter above says.
+    const ref = collectionFileRef(doc)
+    if (!ref) {
+      result.skipped += 1
+      return
+    }
+
     // The bucket the object is ACTUALLY in — see `reingestDocument` for why
     // defaulting this breaks per-organization documents in two directions.
-    const response = await fetch(
-      `${getBackendUrl()}/v1/collections/${encodeURIComponent(doc.collectionName)}/documents`,
-      {
-        method: 'DELETE',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ file_ids: [doc.filename] }),
-        signal: AbortSignal.timeout(BACKEND_FETCH_TIMEOUT_MS),
-      },
-    )
+    const response = await fetch(collectionDocumentsUrl(getBackendUrl(), ref), {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ file_ids: [ref.filename] }),
+      signal: AbortSignal.timeout(BACKEND_FETCH_TIMEOUT_MS),
+    })
     if (!response.ok) {
       throw new Error(`chunk delete returned ${response.status}`)
     }
@@ -975,7 +1423,7 @@ export async function reindexProject(
 export async function updateDocumentTags(
   session: AuthorizedSession,
   documentId: string,
-  tags: string[],
+  tags: string[]
 ): Promise<{ id: string; tags: string[] }> {
   const doc = await getAccessibleDocument(session, documentId, 'write')
 
@@ -986,19 +1434,22 @@ export async function updateDocumentTags(
     })
   }
 
+  // The same gate as the read paths, on a WRITE. There is no backend summary row
+  // for a document a machine wrote (never ingested), so the honest answer is the
+  // 404 the backend itself gives for a non-colliding agent row — and the gate is
+  // what makes the COLLIDING one answer the same way instead of overwriting the
+  // controlled tags of the human document sharing the filename.
+  const ref = collectionFileRef(doc)
+  if (!ref) throw new NotFoundError()
+
   let res: Response
   try {
-    res = await fetch(
-      `${getBackendUrl()}/v1/collections/${encodeURIComponent(doc.collectionName)}/documents/${encodeURIComponent(
-        doc.filename,
-      )}/tags`,
-      {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ tags }),
-        signal: AbortSignal.timeout(BACKEND_FETCH_TIMEOUT_MS),
-      },
-    )
+    res = await fetch(collectionFileUrl(getBackendUrl(), ref, '/tags'), {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ tags }),
+      signal: AbortSignal.timeout(BACKEND_FETCH_TIMEOUT_MS),
+    })
   } catch {
     // Includes a TimeoutError abort — treat a hung backend like any other
     // transport failure rather than letting the request hang.
@@ -1048,7 +1499,7 @@ export async function renameDocument(
   session: AuthorizedSession,
   documentId: string,
   requestedName: string | null,
-  request: Request,
+  request: Request
 ): Promise<{ id: string; filename: string; displayName: string | null }> {
   const doc = await getAccessibleDocument(session, documentId, 'write')
 
@@ -1072,21 +1523,26 @@ export async function renameDocument(
   // the rename immediately, with no re-ingest (the retrieval layer prefers a
   // stored `display_title` over the derived filename default). Best-effort by
   // design — see the note above.
-  try {
-    await fetch(
-      `${getBackendUrl()}/v1/collections/${encodeURIComponent(doc.collectionName)}/documents/${encodeURIComponent(
-        doc.filename,
-      )}/display-title`,
-      {
+  //
+  // Gated on authorship like every other `(collection, filename)` call: a
+  // machine-authored row has no metadata row over there to mirror onto, and on a
+  // filename collision this PATCH would retitle the HUMAN document's citation
+  // chips — renaming one file would silently rename another. Skipping costs
+  // nothing that is not already accepted here: the mirror is best-effort, and
+  // the durable rename is the row written above.
+  const mirrorRef = collectionFileRef(doc)
+  if (mirrorRef) {
+    try {
+      await fetch(collectionFileUrl(getBackendUrl(), mirrorRef, '/display-title'), {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ display_title: displayName }),
         signal: AbortSignal.timeout(BACKEND_FETCH_TIMEOUT_MS),
-      },
-    )
-  } catch {
-    // ignore — the durable rename is the row above; the chip catches up on the
-    // next rename or the next re-ingestion.
+      })
+    } catch {
+      // ignore — the durable rename is the row above; the chip catches up on the
+      // next rename or the next re-ingestion.
+    }
   }
 
   // Data-provenance event: who called which file what. Both names are
@@ -1094,7 +1550,10 @@ export async function renameDocument(
   await recordAuditEvent({
     organizationId: session.organizationId,
     actor: { userId: session.userId, email: session.email },
-    action: doc.scope === 'archiv' || doc.projectId === null ? 'archiv.document.renamed' : 'document.renamed',
+    action:
+      doc.scope === 'archiv' || doc.projectId === null
+        ? 'archiv.document.renamed'
+        : 'document.renamed',
     targetType: 'document',
     targetId: documentId,
     metadata: {
@@ -1126,7 +1585,7 @@ export async function renameDocument(
 export async function deleteDocument(
   session: AuthorizedSession,
   documentId: string,
-  request: Request,
+  request: Request
 ): Promise<void> {
   const doc = await findDocumentInOrg(documentId, session.organizationId)
   if (!doc || doc.scope !== 'project' || doc.projectId === null) throw new NotFoundError()
@@ -1135,21 +1594,44 @@ export async function deleteDocument(
 
   await Promise.all([
     purgeResourceCollaboration('document', documentId).catch(() => undefined),
-    deleteAssignmentsForResource(session.organizationId, 'document', documentId).catch(() => undefined),
+    deleteAssignmentsForResource(session.organizationId, 'document', documentId).catch(
+      () => undefined
+    ),
   ])
 
   // Best-effort: remove the ingested chunks so a deleted document stops showing
   // up in retrieval. A backend hiccup must not block the durable SeaweedFS + DB
   // cleanup below, so failures here are swallowed.
-  try {
-    await fetch(`${getBackendUrl()}/v1/collections/${encodeURIComponent(doc.collectionName)}/documents`, {
-      method: 'DELETE',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ file_ids: [doc.filename] }),
-      signal: AbortSignal.timeout(BACKEND_FETCH_TIMEOUT_MS),
-    })
-  } catch {
-    // ignore — chunks may linger until the next collection reconcile/purge
+  //
+  // No ref → no chunks to purge, and this is where that mattered most. A
+  // machine-authored row was never dispatched to `/v1/ingest`, so `file_ids:
+  // [doc.filename]` names nothing of its own — and on the filename collision
+  // `generatedFilename` makes reachable, it names a HUMAN document's chunks and
+  // deletes them. That document keeps `status: 'completed'`, keeps its green
+  // „zitierbar“ badge and its Ask affordance, and answers nothing from then on:
+  // a silent, unlogged, unrecoverable content loss triggered by deleting an
+  // unrelated file. The purge is skipped rather than made conditional on the
+  // collision, because for an agent row it is ALWAYS wrong, collision or not.
+  const purgeRef = collectionFileRef(doc)
+  // `null`: nothing of its own to purge. `false`: the backend did not confirm,
+  // and the audit row says so — the platform vector reconcile is the sweep.
+  const chunksPurged = purgeRef
+    ? await purgeIngestedChunks(getBackendUrl(), purgeRef, BACKEND_FETCH_TIMEOUT_MS)
+    : null
+
+  /*
+   * Every VERSION's objects, not only the live one (ADR-0054).
+   *
+   * A document used to have one set of bytes, so one delete erased it. With a
+   * history it has several, each under its own `v<n>/` prefix, and a delete that
+   * removed only the published version would leave every superseded one in the
+   * bucket: invisible to the UI, still charged to the organization, and readable
+   * by anyone who can presign a key. Best-effort per version, for the reason the
+   * live-object delete below is: the row delete is the record of intent.
+   */
+  for (const version of await listDocumentVersionObjects(documentId, session.organizationId)) {
+    if (version.storageKey === doc.storageKey) continue
+    await deleteDocumentObjects(version).catch(() => undefined)
   }
 
   if (doc.storageKey) {
@@ -1187,7 +1669,12 @@ export async function deleteDocument(
     action: 'document.deleted',
     targetType: 'document',
     // Filename is user-controlled — cap it before it reaches the trail.
-    metadata: { projectId: doc.projectId, filename: doc.filename.slice(0, 200), collectionName: doc.collectionName },
+    metadata: {
+      projectId: doc.projectId,
+      filename: doc.filename.slice(0, 200),
+      collectionName: doc.collectionName,
+      chunksPurged,
+    },
     request,
   })
 }
@@ -1198,6 +1685,18 @@ export interface DocumentVisualDetail {
   drawingType: string
   scale: string
   text: string
+  /**
+   * Which depiction on the sheet this is. A sheet carrying a plan AND a section
+   * is indexed as one chunk per depiction, so the page number alone no longer
+   * identifies a row.
+   */
+  segment: number
+  /**
+   * The structured analysis behind the description — entities, compositions,
+   * quantities, provenance. `null` for chunks indexed before the structured
+   * schema, and for backends that do not produce one.
+   */
+  structured: DrawingStructured | null
 }
 
 /**
@@ -1209,18 +1708,24 @@ export interface DocumentVisualDetail {
  */
 export async function getDocumentVisualDetails(
   session: AuthorizedSession,
-  documentId: string,
+  documentId: string
 ): Promise<{ id: string; details: DocumentVisualDetail[] }> {
   const doc = await getAccessibleDocument(session, documentId, 'read')
 
+  // A machine-authored row has no visual chunks — nothing it wrote was ever
+  // ingested, so no page of it was ever described by the VLM. Asking anyway
+  // returns, on a filename collision, ANOTHER document's extracted page text
+  // rendered inside this row's detail panel. The empty list is the truth here,
+  // and it is the same thing this function already answers for a backend that
+  // has never heard of the file.
+  const ref = collectionFileRef(doc)
+  if (!ref) return { id: doc.id, details: [] }
+
   let res: Response
   try {
-    res = await fetch(
-      `${getBackendUrl()}/v1/collections/${encodeURIComponent(doc.collectionName)}/documents/${encodeURIComponent(
-        doc.filename,
-      )}/visual-details`,
-      { signal: AbortSignal.timeout(BACKEND_FETCH_TIMEOUT_MS) },
-    )
+    res = await fetch(collectionFileUrl(getBackendUrl(), ref, '/visual-details'), {
+      signal: AbortSignal.timeout(BACKEND_FETCH_TIMEOUT_MS),
+    })
   } catch {
     return { id: doc.id, details: [] }
   }
@@ -1235,6 +1740,8 @@ export async function getDocumentVisualDetails(
     drawingType: typeof d.drawing_type === 'string' ? d.drawing_type : '',
     scale: typeof d.scale === 'string' ? d.scale : '',
     text: typeof d.text === 'string' ? d.text : '',
+    segment: typeof d.segment === 'number' ? d.segment : 0,
+    structured: normalizeDrawingStructured(d.structured),
   }))
   return { id: doc.id, details }
 }
@@ -1242,8 +1749,13 @@ export async function getDocumentVisualDetails(
 /** Presign a browser-facing download URL for a document. */
 export async function getDocumentDownload(
   session: AuthorizedSession,
-  documentId: string,
-): Promise<{ downloadUrl: string; filename: string; contentType: string | null; fileSize: number | null }> {
+  documentId: string
+): Promise<{
+  downloadUrl: string
+  filename: string
+  contentType: string | null
+  fileSize: number | null
+}> {
   const doc = await getAccessibleDocument(session, documentId)
   if (!doc.storageKey) throw new NotFoundError('File not available')
 
@@ -1254,7 +1766,7 @@ export async function getDocumentDownload(
       Key: doc.storageKey,
       ResponseContentDisposition: contentDisposition('attachment', doc.filename),
     }),
-    { expiresIn: presignTtlSeconds() },
+    { expiresIn: presignTtlSeconds() }
   )
 
   return {
@@ -1271,14 +1783,16 @@ export async function getDocumentDownload(
  */
 export async function getDocumentPreview(
   session: AuthorizedSession,
-  documentId: string,
+  documentId: string
 ): Promise<{ url: string; contentType: string; filename: string; imageUrl: string | null }> {
   const doc = await getAccessibleDocument(session, documentId)
   if (!doc.storageKey) throw new NotFoundError('File not available')
 
   const contentType = doc.contentType || 'application/octet-stream'
   if (!PREVIEW_CONTENT_TYPES.includes(contentType)) {
-    throw new ApiError(415, 'UNSUPPORTED_MEDIA_TYPE', 'Preview not available for this file type', { contentType })
+    throw new ApiError(415, 'UNSUPPORTED_MEDIA_TYPE', 'Preview not available for this file type', {
+      contentType,
+    })
   }
 
   const url = await getSignedUrl(
@@ -1289,7 +1803,7 @@ export async function getDocumentPreview(
       ResponseContentDisposition: contentDisposition('inline', doc.filename),
       ResponseContentType: contentType,
     }),
-    { expiresIn: 3600 },
+    { expiresIn: 3600 }
   )
 
   // A same-origin, signature-authorized path for the raster image formats the
@@ -1334,7 +1848,7 @@ export async function getDocumentPreview(
  */
 export async function streamDocumentFile(
   session: AuthorizedSession,
-  documentId: string,
+  documentId: string
 ): Promise<Response> {
   const doc = await getAccessibleDocument(session, documentId)
   if (!doc.storageKey) throw new NotFoundError('File not available')
@@ -1352,7 +1866,7 @@ export async function streamDocumentFile(
       new GetObjectCommand({
         Bucket: resolveDocumentBucket(doc.storageBucket),
         Key: doc.storageKey,
-      }),
+      })
     )
     body = object.Body
   } catch {
@@ -1381,6 +1895,61 @@ export async function streamDocumentFile(
 }
 
 /**
+ * A text document's content, for the pane that renders it.
+ *
+ * Bounded by {@link TEXT_PREVIEW_MAX_BYTES} and decoded as UTF-8 with
+ * replacement characters rather than a throw: a Windows-authored `.csv` in
+ * cp1252 is common, and half a mojibake table still tells the reader which file
+ * they are looking at. `truncated` is part of the contract because a viewer that
+ * silently shows the first half of a document is worse than one that shows none
+ * of it — the reader would take the last line they see for the end of the file.
+ */
+export async function getDocumentTextPreview(
+  session: AuthorizedSession,
+  documentId: string
+): Promise<{ text: string; truncated: boolean; contentType: string; filename: string }> {
+  const doc = await getAccessibleDocument(session, documentId)
+  if (!doc.storageKey) throw new NotFoundError('File not available')
+
+  const contentType = doc.contentType || 'application/octet-stream'
+  if (!TEXT_PREVIEW_CONTENT_TYPES.includes(contentType)) {
+    throw new ApiError(415, 'UNSUPPORTED_MEDIA_TYPE', 'Not a text document', { contentType })
+  }
+
+  let bytes: Uint8Array
+  try {
+    const object = await s3Client.send(
+      new GetObjectCommand({
+        Bucket: resolveDocumentBucket(doc.storageBucket),
+        Key: doc.storageKey,
+        // One byte past the cap, so a file sitting exactly on it is not reported
+        // as truncated. Servers that ignore Range answer with the whole object,
+        // which the slice below bounds anyway.
+        Range: `bytes=0-${TEXT_PREVIEW_MAX_BYTES}`,
+      })
+    )
+    if (!object.Body) throw new NotFoundError('File not available')
+    bytes = await object.Body.transformToByteArray()
+  } catch {
+    throw new NotFoundError('File not available')
+  }
+
+  const truncated = bytes.byteLength > TEXT_PREVIEW_MAX_BYTES
+  const decoder = new TextDecoder('utf-8')
+  let text = decoder.decode(bytes.subarray(0, TEXT_PREVIEW_MAX_BYTES))
+  // A Range cut lands mid-codepoint as often as not, and the decoder turns the
+  // orphaned bytes into a replacement glyph at the very end of the text. Drop
+  // the trailing partial line instead: a half-written last row of a CSV reads
+  // as data, and the truncation notice below it is the honest statement.
+  if (truncated) {
+    const lastBreak = text.lastIndexOf('\n')
+    if (lastBreak > 0) text = text.slice(0, lastBreak)
+  }
+
+  return { text, truncated, contentType, filename: doc.filename }
+}
+
+/**
  * Browser-facing thumbnail URL (null when no thumbnail exists).
  *
  * Prefers the signed same-origin route so the card's 124px well gets an
@@ -1391,7 +1960,7 @@ export async function streamDocumentFile(
  */
 export async function getDocumentThumbnail(
   session: AuthorizedSession,
-  documentId: string,
+  documentId: string
 ): Promise<{ url: string | null }> {
   const doc = await getAccessibleDocument(session, documentId)
   if (!doc.storageKey) return { url: null }
@@ -1403,13 +1972,19 @@ export async function getDocumentThumbnail(
   // Returning it blindly sent Next's image optimizer to a 404 / empty body
   // ("isn't a valid image … received null") for every file that is citable
   // but has no thumbnail yet (#366, #395).
+  //
+  // Existence is not enough: a failed ingest render can leave a 0-byte object
+  // behind in the thumbnail slot, which passes HeadObject and then fails the
+  // optimizer's decode — the same error, recurring for the same documents
+  // across days. An empty object is no thumbnail.
   try {
-    await s3Client.send(
+    const head = await s3Client.send(
       new HeadObjectCommand({
         Bucket: resolveDocumentBucket(doc.storageBucket),
         Key: thumbnailKey,
-      }),
+      })
     )
+    if ((head?.ContentLength ?? 0) <= 0) return { url: null }
   } catch {
     return { url: null }
   }
@@ -1425,7 +2000,7 @@ export async function getDocumentThumbnail(
         Key: thumbnailKey,
         ResponseContentType: 'image/jpeg',
       }),
-      { expiresIn: 3600 },
+      { expiresIn: 3600 }
     )
     return { url }
   } catch {
@@ -1448,7 +2023,7 @@ export async function getDocumentThumbnail(
  */
 export async function streamDocumentImage(
   documentId: string,
-  params: URLSearchParams,
+  params: URLSearchParams
 ): Promise<Response> {
   const verified = verifyDocumentImageUrl(documentId, params)
   if (!verified.ok) {
@@ -1476,12 +2051,17 @@ export async function streamDocumentImage(
   let body
   try {
     const object = await s3Client.send(
-      new GetObjectCommand({ Bucket: resolveDocumentBucket(doc.storageBucket), Key: key }),
+      new GetObjectCommand({ Bucket: resolveDocumentBucket(doc.storageBucket), Key: key })
     )
+    // Mirror the mint-side guard: an object that truncated to 0 bytes between
+    // the HEAD check and this GET (or reached here on a directly-shared signed
+    // URL) decodes to nothing — serve the placeholder, not optimizer poison.
+    if ((object?.ContentLength ?? 0) <= 0) throw new NotFoundError('Image not available')
     body = object.Body
-  } catch {
+  } catch (error) {
     // A document with no generated thumbnail lands here; the card reads the 404
     // as "no thumbnail" and shows its warm placeholder.
+    if (error instanceof NotFoundError) throw error
     throw new NotFoundError('Image not available')
   }
   if (!body) throw new NotFoundError('Image not available')
@@ -1506,6 +2086,7 @@ export async function getDocumentStatus(session: AuthorizedSession, documentId: 
   // Pending rows are lazily reconciled with the backend's ingestion state;
   // without this they would stay 'pending' forever (no completion callback).
   const [reconciled] = await reconcileDocumentStatuses([doc], session.organizationId)
+  const openVersion = await findOpenVersion(reconciled.id, session.organizationId)
 
   return {
     id: reconciled.id,
@@ -1533,6 +2114,24 @@ export async function getDocumentStatus(session: AuthorizedSession, documentId: 
     chunkCount: reconciled.chunkCount,
     contentTypes: reconciled.contentTypes,
     tags: reconciled.tags,
+    // Whose hand wrote the bytes. Added because this payload is how the CHAT
+    // resolves a document into the peek pane, and a report Piloti wrote that
+    // opens beside the conversation without its „Von Piloti erstellt" byline is
+    // an agent-authored file presented as an uploaded one. PROVENANCE, never
+    // responsibility — the row's assignees are unaffected and still say
+    // `Unvergeben`.
+    authoredBy: reconciled.authoredBy,
+    // THE VERSION THE TURN WOULD HAVE TO READ AS BYTES.
+    //
+    // At most one version per document is still being worked on (the partial
+    // unique index behind `findOpenVersion`), and that is precisely the version
+    // retrieval cannot see: only a published version is dispatched to the index
+    // (ADR-0054), so a draft has no chunks and the focus filter falls open to
+    // the whole corpus. This payload is how the composer resolves its subject,
+    // so it is where the two facts the turn needs — WHICH version and what state
+    // it is in — belong. `null` means the live bytes are the published ones and
+    // nothing extra has to travel.
+    openVersion: openVersion ? { id: openVersion.id, state: openVersion.state } : null,
   }
 }
 
@@ -1550,10 +2149,70 @@ export async function getDocumentStatus(session: AuthorizedSession, documentId: 
  * SeaweedFS for the `view_knowledge_image` tool (ADR-0039), so this is
  * read-only metadata — it never returns the bytes themselves.
  */
+/**
+ * One presigned PUT slot for the `imageIndex`-th raster the ingest pipeline
+ * cut out of a document, plus the key it will land on.
+ *
+ * Issued per image, on request, rather than as a batch in the ingest body:
+ * how many rasters a PDF holds is unknown until extraction has run, most
+ * documents hold none, and every pre-issued URL is a live write credential
+ * that would ride along unused. The index is the only free variable —
+ * `buildImageStorageKey` builds the key from the document's OWN storage key
+ * and refuses an index at or past `MAX_STORED_IMAGES_PER_DOCUMENT`, which is
+ * how the per-document ceiling is enforced: the backend stops at the first
+ * refusal. Null when the document is unknown or the index is out of range.
+ */
+export async function presignDocumentImageUpload(
+  documentId: string,
+  collectionName: string,
+  imageIndex: number,
+  organizationId?: string
+): Promise<{ uploadUrl: string; storageKey: string } | null> {
+  const doc = await findStorageKeyByIdAndCollection(documentId, collectionName, organizationId)
+  if (!doc) return null
+  const storageKey = buildImageStorageKey(doc.storageKey, imageIndex)
+  if (!storageKey) return null
+  const uploadUrl = await getSignedUrl(
+    signingS3Client,
+    new PutObjectCommand({
+      Bucket: resolveDocumentBucket(doc.storageBucket),
+      Key: storageKey,
+      ContentType: 'image/jpeg',
+    }),
+    { expiresIn: 3600 }
+  )
+  return { uploadUrl, storageKey }
+}
+
+/**
+ * Where the `imageIndex`-th stored raster of a `(collection, filename)` pair
+ * lives — the read half of {@link presignDocumentImageUpload}, for the
+ * backend's `view_knowledge_image` tool. The key is built from the owning
+ * document's row, never taken from the caller, so a derived read can only ever
+ * name an object under that document's prefix. Null when the pair is unknown
+ * or the index is out of range; the tool degrades to a text answer.
+ */
+export async function findDocumentImageStorageKey(
+  collectionName: string,
+  filename: string,
+  imageIndex: number,
+  organizationId?: string
+): Promise<{ storageKey: string; storageBucket: string | null; contentType: string } | null> {
+  const doc = await findStorageKeyByCollectionAndFilename(collectionName, filename, organizationId)
+  if (!doc) return null
+  const storageKey = buildImageStorageKey(doc.storageKey, imageIndex)
+  if (!storageKey) return null
+  return { storageKey, storageBucket: doc.storageBucket, contentType: 'image/jpeg' }
+}
+
 export async function findDocumentStorageKey(
   collectionName: string,
   filename: string,
-  organizationId?: string,
-): Promise<{ storageKey: string; storageBucket: string | null; contentType: string | null } | null> {
+  organizationId?: string
+): Promise<{
+  storageKey: string
+  storageBucket: string | null
+  contentType: string | null
+} | null> {
   return findStorageKeyByCollectionAndFilename(collectionName, filename, organizationId)
 }

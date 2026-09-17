@@ -1,3 +1,5 @@
+import { isTaskThread } from '@/lib/tasks/task-thread'
+
 /**
  * Project-scoping rule for chat sessions (UX-8: cross-project bleed).
  *
@@ -46,4 +48,26 @@ export function conversationMatchesProject(
  */
 export function isJobConversation(conversation: { jobId?: string | null }): boolean {
   return Boolean(conversation.jobId)
+}
+
+/**
+ * The job-produced threads the personal list hides — every one EXCEPT a standing
+ * task's own thread (ADR-0062).
+ *
+ * The arithmetic above changed when a standing task stopped minting a
+ * conversation per fire. There is now exactly ONE thread per definition, every
+ * run appends a message to it, and it is a place the team goes back to: „was hat
+ * der Wochencheck diesen Monat gefunden" is answered by scrolling it. Hiding
+ * that is hiding the product.
+ *
+ * What stays hidden is the old shape — the per-fire conversations already in
+ * every deployment, which are exactly the 52-threads-a-year the rule was written
+ * for. `isTaskThread` tells them apart from the id alone, with no query, because
+ * a standing thread's id is derived from its definition's.
+ */
+export function isHiddenJobConversation(conversation: {
+  id?: string | null
+  jobId?: string | null
+}): boolean {
+  return isJobConversation(conversation) && !isTaskThread(conversation)
 }

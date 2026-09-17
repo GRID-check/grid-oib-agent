@@ -83,10 +83,15 @@ const ACTIVITY_RULES: Array<{ match: RegExp; key: LiveActivityKey }> = [
   { match: /ris[_-]?(search|catalog|fetch)/, key: 'searchingRis' },
   { match: /retriev|corpus|vector|embed|rag|index|lookup|qdrant/, key: 'searchingSources' },
   { match: /read|fetch|crawl|scrape|extract|parse|open[_-]?url|browse/, key: 'reading' },
-  // The shallow node doubles as the conversational assistant, so it must not
+  // The researcher doubles as the conversational assistant, so it must not
   // fall through to the `research` rule and call a greeting a Recherche. What
   // it is doing, from where the reader sits, is writing the answer.
-  { match: /shallow|meta_chatter/, key: 'composing' },
+  //
+  // `shallow` because that is still the wire name (`shallow_research_agent`),
+  // which is persisted per turn and therefore was NOT renamed with the agent.
+  // Anything matching `research` here would also match `deep_research_agent`,
+  // so this rule cannot be widened without ordering it against that one.
+  { match: /shallow/, key: 'composing' },
   { match: /depth|rout|plan|decompos|strateg/, key: 'planning' },
   { match: /research/, key: 'researching' },
   { match: /chatter|writ|report|compose|answer|respond|generat|synthes|summar|draft/, key: 'composing' },

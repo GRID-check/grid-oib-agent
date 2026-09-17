@@ -43,6 +43,7 @@ export type DeepResearchEventType =
   | 'tool.start'
   | 'tool.end'
   | 'artifact.update'
+  | 'run.ledger'
 
 /** Artifact types in artifact.update events */
 export type ArtifactType = 'todo' | 'citation_source' | 'citation_use' | 'file' | 'output'
@@ -254,12 +255,29 @@ export interface DeepResearchCallbacks {
   onHeartbeat?: (uptimeSeconds: number) => void
   /** Called on coarse deep-research phase transitions (planning/research/writing/…) */
   onPhase?: (phase: string, data?: Record<string, unknown>) => void
+  /**
+   * A `run.ledger` snapshot arrived: the run's WHOLE account of itself as of
+   * this moment (`docs/api/websocket-protocol.md`). Handed over unparsed — the
+   * consumer runs `sanitizeRunLedger` and REPLACES what it holds; it never folds
+   * a delta, because the fold lives on the producer's side and a second one
+   * here would be a second account of the same run.
+   */
+  onLedger?: (ledger: unknown) => void
   /** Called when job completes successfully */
   onComplete?: () => void
   /** Called on errors */
   onError?: (error: Error) => void
   /** Called when connection is lost */
   onDisconnect?: () => void
+  /**
+   * The browser is retrying a dropped connection, with the attempt number.
+   *
+   * EventSource reconnects on its own and says nothing, which is right for a
+   * stream nobody is watching and wrong for one a person IS watching: the view
+   * simply stops moving. A reader who is told „the line dropped, retrying" can
+   * wait; one who is told nothing assumes the work stopped.
+   */
+  onReconnecting?: (attempt: number) => void
 }
 
 // ============================================================
@@ -601,6 +619,21 @@ export const createDeepResearchClient = (options: DeepResearchStreamOptions): De
         break
       }
 
+      case 'run.ledger': {
+        // The ledger sits under `data` like every other event's payload, or flat
+        // when the producer wrote it without the envelope. Not validated here:
+        // `sanitizeRunLedger` is the one bound, and it runs where the ledger is
+        // stored, so the wire and the row are checked by the same function.
+        const ledgerWrapper = rawData as { data?: { ledger?: unknown }; ledger?: unknown }
+        const ledger = ledgerWrapper.data?.ledger ?? ledgerWrapper.ledger
+        if (ledger !== undefined) {
+          callbacks.onLedger?.(ledger)
+        } else if (process.env.NODE_ENV === 'development') {
+          console.warn('[SSE:run.ledger] Ignoring event without a ledger')
+        }
+        break
+      }
+
       default:
         // Unknown event type - log in dev
         if (process.env.NODE_ENV === 'development') {
@@ -647,6 +680,11 @@ export const createDeepResearchClient = (options: DeepResearchStreamOptions): De
       'tool.start',
       'tool.end',
       'artifact.update',
+      // `job.phase` had a `case` above and no listener here, so the named event
+      // the browser never subscribed to never reached the switch. The spec
+      // drives every listed type through a fake EventSource for that reason.
+      'job.phase',
+      'run.ledger',
     ]
 
     eventTypes.forEach((eventType) => {
@@ -677,6 +715,7 @@ export const createDeepResearchClient = (options: DeepResearchStreamOptions): De
         // Only escalate to an error after repeated consecutive failures.
         reconnectAttempts++
         if (reconnectAttempts <= MAX_RECONNECT_ATTEMPTS) {
+          callbacks.onReconnecting?.(reconnectAttempts)
           if (process.env.NODE_ENV === 'development') {
             console.warn(`[SSE] Reconnecting (attempt ${reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS})…`)
           }
@@ -804,12 +843,88 @@ export const getJobStatus = async (
   return response.json()
 }
 
-/** Get job report */
+/**
+ * The document a commissioned run's report was filed as.
+ *
+ * The BFF files the report where it OBSERVES the run finishing, which is this
+ * endpoint (`app/api/jobs/async/[...path]/route.ts`), and reports the result
+ * back as an additive `filed` object. It is optional in every direction: a
+ * chat outside a project sends no `projectId` and nothing is filed, an
+ * organization can withhold `project:documents:write`, a quota can refuse the
+ * bytes, and a report fetched from a build that predates the feature carries
+ * nothing at all.
+ */
+export interface JobReportFiling {
+  documentId: string
+  filename: string
+  /** False only on the fetch that created the row; true on every re-read. */
+  alreadyFiled: boolean
+}
+
+export interface JobReportResponse {
+  job_id: string
+  has_report: boolean
+  report: string | null
+  filed?: JobReportFiling
+  /**
+   * A filing was attempted for this report and did not land.
+   *
+   * Mutually exclusive with `filed`, and NOT the same as its absence. The BFF
+   * sets it only in the one state where a promise was made and broken: a
+   * project was resolved, so `deepResearch.starting.filingDisclosure` told the
+   * reader the report would land under „Berichte", and then it did not. No
+   * project, no report yet and no filing attempt all leave both keys absent,
+   * because in none of them was anything promised.
+   *
+   * No reason travels with it, by design — a refused quota, a withheld
+   * `project:documents:write` and a report too long to render are one fact to
+   * an architect: the document is not there. The reasons name buckets,
+   * permissions and limits, and those are in the server log an operator reads.
+   */
+  filingFailed?: boolean
+  /**
+   * The report's verified sources, each carrying the `[N]` the report cites it
+   * by. The live stream announces a source when a tool finds it, before
+   * verification has numbered anything, so a reader of the finished report
+   * had rows with no way to tell which one `[3]` was. Absent when the run
+   * recorded none, or on a body from before the field existed.
+   */
+  sources?: WireCitationSource[]
+}
+
+/**
+ * Narrow the additive `filed` object off an otherwise untyped response body.
+ *
+ * `response.json()` is `any` at the boundary and this repo forbids `any`, so
+ * the body is read as `unknown` and every field is checked before it is
+ * believed — the same posture `readReportMarkdown` takes on the server side of
+ * this same call. A malformed or absent `filed` yields `undefined`, which is
+ * exactly the state the UI already has to handle.
+ */
+function readReportFiling(body: unknown): JobReportFiling | undefined {
+  if (typeof body !== 'object' || body === null) return undefined
+  const filed = (body as { filed?: unknown }).filed
+  if (typeof filed !== 'object' || filed === null) return undefined
+  const { documentId, filename, alreadyFiled } = filed as Record<string, unknown>
+  if (typeof documentId !== 'string' || !documentId) return undefined
+  if (typeof filename !== 'string' || !filename) return undefined
+  return { documentId, filename, alreadyFiled: alreadyFiled === true }
+}
+
+/**
+ * Get job report.
+ *
+ * `projectId` is not decoration: the proxy resolves the caller's project from
+ * the query string, and without it the request is projectless and the report is
+ * never filed. Pass the chat's active project whenever there is one.
+ */
 export const getJobReport = async (
   jobId: string,
-  authToken?: string
-): Promise<{ job_id: string; has_report: boolean; report: string | null }> => {
-  const url = `${getDeepResearchBaseUrl()}/job/${jobId}/report`
+  authToken?: string,
+  options: { projectId?: string | null } = {}
+): Promise<JobReportResponse> => {
+  const query = options.projectId ? `?projectId=${encodeURIComponent(options.projectId)}` : ''
+  const url = `${getDeepResearchBaseUrl()}/job/${jobId}/report${query}`
   const headers: HeadersInit = {
     'Content-Type': 'application/json',
   }
@@ -824,7 +939,23 @@ export const getJobReport = async (
     await throwDeepResearchApiError(response, 'Failed to get job report')
   }
 
-  return response.json()
+  const body = (await response.json()) as JobReportResponse
+  // Rebuilt rather than passed through, so a malformed `filed` cannot survive
+  // the boundary wearing a type it does not satisfy. The rebuild is also why
+  // `filingFailed` has to be listed here: a key this function does not name is
+  // a key the caller never sees, whatever the server sent.
+  const filed = readReportFiling(body)
+  return {
+    job_id: body.job_id,
+    has_report: body.has_report,
+    report: body.report,
+    ...(filed ? { filed } : {}),
+    // `=== true` and not truthiness: this is a boolean on the wire, and a
+    // client that believed a string here would retract a promise the server
+    // never said was broken.
+    ...(body.filingFailed === true ? { filingFailed: true as const } : {}),
+    ...(Array.isArray(body.sources) && body.sources.length > 0 ? { sources: body.sources } : {}),
+  }
 }
 
 /** Cancel a running job */

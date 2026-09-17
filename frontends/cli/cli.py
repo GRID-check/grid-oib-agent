@@ -277,8 +277,8 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--config_file",
-        default="configs/config_cli_default.yml",
-        help="Path to NAT workflow config file (default: configs/config_cli_default.yml)",
+        default="configs/config_oib_openrouter.yml",
+        help="Path to NAT workflow config file (default: configs/config_oib_openrouter.yml)",
     )
     parser.add_argument(
         "--env_file",
@@ -428,6 +428,11 @@ def main() -> None:
                     "and restart the application.[/yellow]\n"
                 )
                 os._exit(1)
+    except ValueError:
+        # A removed provider (nim) or another fail-fast config error: boot must
+        # die loudly with the migration pointer, not limp on into a deep client
+        # failure. Anything else (unreadable file, bad YAML) stays fail-open.
+        raise
     except Exception as e:
         logger.debug(f"Failed to validate LLM config: {e}")
 

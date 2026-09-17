@@ -3,13 +3,11 @@ import {
   Archive,
   BookOpenCheck,
   ClipboardList,
-  Clock,
   Folder,
   Inbox,
   MessageSquare,
-  Repeat,
   Settings,
-  Sparkles,
+  Zap,
 } from 'lucide-react'
 
 /**
@@ -25,14 +23,19 @@ import {
  * ONE place, so the rail and the palette can never disagree again.
  *
  * One icon per destination. Rail order (top → bottom, Settings pinned
- * separately): Ask Piloti · Files · History · Jobs* · Skills* · Archiv* ·
- * Inbox*.
+ * separately): Ask Piloti · Files · Automation* · Archiv* · Inbox*.
  *
- * Ask Piloti is the primary job-to-be-done and leads. Files and History are
- * the other work surfaces. Jobs then Skills are setup you rarely open (Jobs is
- * project work; Skills is the org toolbox). Archiv then Inbox are
- * cross-project doorways; Inbox is last because the badge already draws the
- * eye. Settings stays pinned at the bottom.
+ * Ask Piloti is the primary job-to-be-done and leads; Files is the other work
+ * surface. History has no rail entry any more — the chat toolbar's history
+ * sheet is the record of the project's past. Automation is the THIRD work
+ * surface and sits in the same group as the other two: Tasks (what Piloti did
+ * while you were away), Zeitplan (what it will do, and when) and Skills (the
+ * org toolbox). It used to stand alone under an "Automatisieren" heading, which
+ * made a place people work every day read as a settings drawer — a group label
+ * over a single item is a category of one, and it cost the section a rail
+ * position it had earned. Archiv then Inbox are cross-project doorways; Inbox
+ * is last because the badge already draws the eye. Settings stays pinned at the
+ * bottom.
  *
  * There is deliberately no Model entry: an IFC is a file, it opens
  * from the Files grid, and a second rail item for one file type was a
@@ -43,18 +46,24 @@ import {
 
 export type ProjectSectionKey =
   | 'chat'
-  | 'skills'
-  | 'jobs'
+  | 'automation'
   | 'files'
   | 'knowledge'
-  | 'history'
   | 'archiv'
   | 'inbox'
   | 'intake'
   | 'settings'
 
-/** How the rail groups consecutive visible items. Palette-only destinations omit this. */
-export type ProjectNavGroup = 'work' | 'automate' | 'org'
+/**
+ * How the rail groups consecutive visible items. Palette-only destinations omit
+ * this.
+ *
+ * Two groups, not three: `work` is everything you do inside one project and
+ * `org` the doorways out of it. There was an `automate` group holding exactly
+ * one item — a heading whose only job was to separate Automation from the work
+ * it automates.
+ */
+export type ProjectNavGroup = 'work' | 'org'
 
 /** The feature flags that gate individual project sections. */
 export interface ProjectSectionFlags {
@@ -156,40 +165,21 @@ const PROJECT_SECTIONS: readonly ProjectSection[] = [
     shortcutKey: 'k',
   },
   {
-    key: 'history',
-    segment: 'history',
-    icon: Clock,
-    i18nKey: 'history',
-    inRail: true,
-    inPalette: true,
-    shortcutKey: 'h',
-    group: 'work',
-  },
-  {
-    // Jobs sit before Skills: a job is a prompt this project runs on a timer.
-    // Same `showSkills` gate — the two ship together, and a job builder whose
-    // skill picker resolves nothing is not worth having on its own.
-    key: 'jobs',
-    segment: 'jobs',
-    icon: Repeat,
-    i18nKey: 'jobs',
+    // Automation: Tasks, Zeitplan and Skills as tabs inside one section, in
+    // the `work` group beside Ask Piloti and Dateien because that is what it
+    // is — the surface where a project's delegated work is read and where the
+    // next week of it is set. Same `showSkills` gate as before: the three
+    // surfaces ship together, and a schedule wizard whose skill picker
+    // resolves nothing is not worth having on its own.
+    key: 'automation',
+    segment: 'automation',
+    icon: Zap,
+    i18nKey: 'automation',
     gate: 'showSkills',
     inRail: true,
     inPalette: true,
     shortcutKey: 'j',
-    group: 'automate',
-  },
-  {
-    // The org toolbox: reusable instructions written once, used from any project.
-    key: 'skills',
-    segment: 'skills',
-    icon: Sparkles,
-    i18nKey: 'skills',
-    gate: 'showSkills',
-    inRail: true,
-    inPalette: true,
-    shortcutKey: 'w',
-    group: 'automate',
+    group: 'work',
   },
   {
     // The org-wide Archiv (ADR-0024) keeps its org-scoped route; the entry is a

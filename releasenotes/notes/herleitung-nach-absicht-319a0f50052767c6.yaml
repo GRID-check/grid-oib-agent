@@ -1,0 +1,12 @@
+---
+improvements:
+  - >
+    Die Herleitung zeigt pro Schritt zuerst, was Piloti vorhatte, und darunter
+    jedes Dokument einmal, mit den Punkten oder Seiten, die dieser Schritt
+    darin gelesen hat. Fünf geöffnete Punkte einer Richtlinie sind jetzt eine
+    Karte mit fünf Adressen statt fünf gleich aussehender Karten.
+  - >
+    „bereits abgerufen" steht dort, wo dieselbe Stelle noch einmal geholt wurde
+    oder wo Piloti in eine schon aufgeschlagene Datei zurückgegangen ist. Dass
+    eine Suche ein Dokument nur gelistet hat, macht das spätere Aufschlagen
+    nicht mehr zur Wiederholung.

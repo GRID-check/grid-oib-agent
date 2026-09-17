@@ -9,6 +9,10 @@
 import { backoffWithJitter } from '@/shared/utils/backoff'
 import { trackAuthEvent } from '@/shared/utils/rum'
 import type { AnswerConfidenceCappedReason } from '@/lib/conversations/message-provenance'
+import type { AnswerMeta } from '@/lib/conversations/message-answer-meta'
+import { sanitizeAnswerMeta } from '@/lib/conversations/message-answer-meta'
+import type { RetrievalLedger } from '@/lib/conversations/message-retrieval-ledger'
+import { sanitizeRetrievalLedger } from '@/lib/conversations/message-retrieval-ledger'
 import { getWebSocketUrl } from './config'
 import {
   // NAT protocol types
@@ -34,10 +38,8 @@ export type ConnectionStatus = 'disconnected' | 'connecting' | 'connected' | 'er
  * `onResponse` signature does not grow another handful of positional params.
  */
 export interface ResponseTransparency {
-  /** Which path the turn took after intent classification. */
+  /** Which path the turn turned out to take, observed after the answer. */
   routingDecision?: 'meta' | 'shallow' | 'deep' | 'error'
-  /** Human-readable "why" for the routing decision (verbatim from classifier). */
-  routingReason?: string
   /** Present only when a shallow→deep escalation happened this turn. */
   escalationReason?: string
   /**
@@ -49,6 +51,12 @@ export interface ResponseTransparency {
   answerConfidenceReason?: string
   /** Present only when citation verification removed ≥1 citation. */
   citationsRemoved?: { count: number; reasons: string[] }
+  /**
+   * Retrieved-but-uncited document identities (no prose) for the
+   * "Gelesen, nicht zitiert" disclosure. Raw wire entries — the hook maps
+   * them through `citationsFromWireList` like `sources`.
+   */
+  readSources?: unknown[]
   /**
    * Skills whose instructions the agent LOADED this turn, in activation order.
    * Absent when none were — availability is not activation.
@@ -70,6 +78,18 @@ export interface ResponseTransparency {
   jobAdmissionRejected?: boolean
   /** Retry hint (seconds) — only alongside jobAdmissionRejected. */
   retryAfterSeconds?: number
+  /**
+   * The answer's structured anatomy (verdict / takeaways / callout), gated
+   * backend-side and sanitized HERE (`sanitizeAnswerMeta`) so everything
+   * downstream — store, persistence, renderer — sees one bounded shape.
+   */
+  answerMeta?: AnswerMeta
+  /**
+   * The backend's own account of this turn's retrieval rounds, sanitized HERE
+   * (`sanitizeRetrievalLedger`) so everything downstream sees one bounded
+   * shape. The Herleitung spine draws each round's fan from it.
+   */
+  retrievalLedger?: RetrievalLedger
 }
 
 /**
@@ -90,20 +110,25 @@ export interface ResponseTransparency {
  *     nothing throws, nothing closes the socket, and nothing is lost (the human's
  *     message is persisted by the BFF regardless).
  */
+/**
+ * There is deliberately NO `skills` field here.
+ *
+ * It used to carry the names a `/name` invocation resolved to, and the backend
+ * lifted them onto the agent state as `force_skills` — the turn then HAD to
+ * apply them. That is gone in both of its forms (the other was the platform's
+ * `delivery: 'standard'` tier, migration 0088): a skill is a capability the
+ * model may reach for, and forcing one is an instruction wearing a
+ * capability's clothes. Standing instructions live in the platform prompt and
+ * in the organization's own instruction block
+ * (`X-Grid-Org-Instructions`), and the `/` picker now only writes the skill's
+ * name into the message TEXT, where the model reads it and picks the skill out
+ * of its own catalog like any other mention.
+ */
 export interface SendMessageWireOptions {
   /** Deliver as context for the agent's history; it must generate nothing. */
   contextOnly?: boolean
   /** Display name of the human who wrote it, so the agent can attribute the turn. */
   authorName?: string | null
-  /**
-   * Skill names the user invoked with `/name` in the composer.
-   *
-   * Structured, never re-derived from the message text: the backend lifts this
-   * onto the agent state as `force_skills`, which names the skills that MUST be
-   * applied to this turn. Omitted entirely when nothing was invoked, so an
-   * ordinary message stays byte-for-byte the envelope it always was.
-   */
-  skills?: string[]
   /**
    * Filename of the file this turn is about. Retrieval prefers it; the
    * user does not have to type the name. Omitted when there is no subject.
@@ -114,6 +139,20 @@ export interface SendMessageWireOptions {
    * may keep (`shelves_for_turn`); the client never sends an expanded list.
    */
   focusShelf?: 'project' | 'archiv' | 'session' | null
+  /**
+   * The subject document's id, and — when it has one — the OPEN version the
+   * turn is about plus that version's editorial state.
+   *
+   * Only a published version reaches the retrieval index (ADR-0054), so for a
+   * draft, an in-review or a changes-requested subject there are no chunks to
+   * find and the agent's focus filter falls open to the whole corpus. Told
+   * which version the subject is, the turn reads its bytes into the
+   * conversation's working directory instead. Omitted entirely when the
+   * subject's live bytes are the published ones: then nothing changes.
+   */
+  focusDocumentId?: string | null
+  focusVersionId?: string | null
+  focusVersionState?: string | null
   /**
    * Composer shortcut chip (`law` / `project` / `office`). Intent only —
    * the backend expands it. A focused file's shelf wins over this.
@@ -128,6 +167,19 @@ export interface ConnectionChangeContext {
   intentional?: boolean
 }
 
+/**
+ * The run a turn commissioned instead of answering itself (ADR-0062).
+ *
+ * Both ids or neither: a run with no message is a run the reader cannot see,
+ * and the client would have nothing to show. The BFF minted the message before
+ * the worker was asked for anything, so by the time this reaches the client the
+ * message exists.
+ */
+export interface CommissionedRunRef {
+  runId: string
+  runMessageId: string
+}
+
 /** Callbacks for NAT WebSocket client */
 export interface NATWebSocketClientCallbacks {
   /** Called when a system response message arrives (final or streaming content) */
@@ -137,7 +189,7 @@ export interface NATWebSocketClientCallbacks {
     isFinal: boolean,
     parentId?: string,
     cards?: unknown[],
-    deepResearchJobId?: string,
+    commissionedRun?: CommissionedRunRef,
     answerConfidence?: 'low' | 'medium' | 'high',
     sources?: unknown[],
     transparency?: ResponseTransparency
@@ -160,6 +212,15 @@ export interface NATWebSocketClientCallbacks {
    * CONTAINS is the stage's own business and is validated downstream.
    */
   onStage?: (frame: NATStageMessage) => void
+  /**
+   * The running turn said it is still there (`grid_turn_heartbeat`).
+   *
+   * `everyMs` is the server's own stated cadence. The consumer's tolerance is a
+   * multiple of it, so the interval can be retuned on the backend without a
+   * matching constant in the frontend — which is the arrangement this frame
+   * exists to end.
+   */
+  onTurnHeartbeat?: (everyMs: number) => void
   /** Called when an error occurs */
   onError?: (error: NATErrorContent) => void
   /** Called when connection status changes */
@@ -451,12 +512,11 @@ export class NATWebSocketClient {
     const textContent = JSON.stringify({
       query: content,
       data_sources: enabledDataSources ?? [],
-      // Only when non-empty: the backend distinguishes "said nothing about
-      // skills" (undefined) from "explicitly no skills" ([]), exactly as it
-      // does for data_sources.
-      ...(options?.skills && options.skills.length > 0 ? { skills: options.skills } : {}),
       ...(options?.focusFileName?.trim() ? { focus_file_name: options.focusFileName.trim() } : {}),
       ...(options?.focusShelf ? { focus_shelf: options.focusShelf } : {}),
+      ...(options?.focusDocumentId ? { focus_document_id: options.focusDocumentId } : {}),
+      ...(options?.focusVersionId ? { focus_version_id: options.focusVersionId } : {}),
+      ...(options?.focusVersionState ? { focus_version_state: options.focusVersionState } : {}),
       ...(options?.sourcePreset ? { source_preset: options.sourcePreset } : {}),
       ...(options?.contextOnly ? { context_only: true } : {}),
       ...(options?.contextOnly && options.authorName ? { author_name: options.authorName } : {}),
@@ -657,11 +717,11 @@ export class NATWebSocketClient {
           // is optional; the hook renders only those that are present.
           const transparency: ResponseTransparency = {
             routingDecision: message.routing_decision,
-            routingReason: message.routing_reason,
             escalationReason: message.escalation_reason,
             answerConfidenceCappedReason: message.answer_confidence_capped_reason,
             answerConfidenceReason: message.answer_confidence_reason,
             citationsRemoved: message.citations_removed,
+            readSources: message.read_sources,
             researchTruncated: message.research_truncated,
             truncationReason: message.truncation_reason,
             degradedReasons: message.degraded_reasons,
@@ -669,6 +729,8 @@ export class NATWebSocketClient {
             skillsHidden: message.skills_hidden,
             jobAdmissionRejected: message.job_admission_rejected,
             retryAfterSeconds: message.retry_after_seconds,
+            answerMeta: sanitizeAnswerMeta(message.answer_meta) ?? undefined,
+            retrievalLedger: sanitizeRetrievalLedger(message.retrieval_ledger) ?? undefined,
           }
           this.options.callbacks.onResponse?.(
             content,
@@ -676,7 +738,9 @@ export class NATWebSocketClient {
             isFinal,
             message.parent_id,
             message.cards,
-            message.deep_research_job_id,
+            message.run_id && message.run_message_id
+              ? { runId: message.run_id, runMessageId: message.run_message_id }
+              : undefined,
             message.answer_confidence,
             message.sources,
             transparency
@@ -702,6 +766,13 @@ export class NATWebSocketClient {
             break
           }
           this.options.callbacks.onStage?.(message)
+          break
+        }
+
+        case NATMessageType.TURN_HEARTBEAT: {
+          // Nothing to render. The only thing that matters about this frame is
+          // that it arrived, and when.
+          this.options.callbacks.onTurnHeartbeat?.(message.every_ms)
           break
         }
 

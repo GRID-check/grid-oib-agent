@@ -1,0 +1,17 @@
+---
+features:
+  - >
+    Text-, Markdown- und CSV-Dateien lassen sich jetzt direkt in Piloti lesen.
+    Bisher zeigten genau diese Formate dieselbe graue Platzhalterseite wie ein
+    Dateityp, den wir gar nicht öffnen können. Eine Markdown-Checkliste
+    erscheint jetzt als Checkliste, eine CSV-Datei als Tabelle — auch
+    semikolongetrennte Exporte aus einem deutschen Excel.
+fixes:
+  - >
+    Von einer sehr langen Textdatei wird nur der Anfang angezeigt; dass es sich
+    um einen Ausschnitt handelt, steht jetzt unter dem Text. Ohne diesen Hinweis
+    liest sich die letzte sichtbare Zeile wie das Ende des Dokuments.
+  - >
+    BMP- und TIFF-Bilder meldeten „keine Vorschau verfügbar", obwohl der Server
+    sie ausgeliefert hätte. Die beiden Listen, die darüber entscheiden, waren
+    auseinandergelaufen.

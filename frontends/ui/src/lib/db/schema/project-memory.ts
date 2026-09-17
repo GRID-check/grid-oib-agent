@@ -1,4 +1,4 @@
-import { boolean, index, pgTable, real, text, timestamp, uuid } from 'drizzle-orm/pg-core'
+import { boolean, index, integer, pgTable, real, text, timestamp, uuid } from 'drizzle-orm/pg-core'
 import { relations } from 'drizzle-orm'
 import { projects } from './projects'
 
@@ -70,12 +70,36 @@ export const projectMemory = pgTable(
       .default('agent'),
     sourceConversationId: text('source_conversation_id'),
     supersedesId: uuid('supersedes_id'),
+    /**
+     * The live, human-curated note this one contradicts and was NOT allowed to
+     * retire (migration 0076). An agent finding may supersede an agent
+     * finding; a pinned, user-confirmed or user-written note it may only stand
+     * beside, and this is where "beside" is recorded so a panel can show the
+     * pair and a person can resolve it. Null for the ordinary note.
+     */
+    conflictsWithId: uuid('conflicts_with_id'),
     salience: real('salience').notNull().default(0.5),
     pinned: boolean('pinned').notNull().default(false),
     createdBy: text('created_by'),
     lastReferencedAt: timestamp('last_referenced_at', { withTimezone: true }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+    /**
+     * Semantic vector for this item's content, plus the fingerprint of the
+     * model that produced it (migration 0069). NULL means "not embedded yet" —
+     * and so does a fingerprint that no longer matches the deployment's
+     * embedder, because a vector is comparable only within one model.
+     * Consolidation and recall fall back to the lexical path when absent.
+     */
+    /**
+     * How often this item has been recalled into a prompt — the strength term
+     * `S` in the retention curve (`lib/knowledge/recall-scoring.ts`). Paired
+     * with `lastReferencedAt`, which existed but was never read.
+     */
+    recallCount: integer('recall_count').notNull().default(0),
+    embedding: real('embedding').array(),
+    embeddingModel: text('embedding_model'),
+    embeddedAt: timestamp('embedded_at', { withTimezone: true }),
   },
   (table) => ({
     projectIdx: index('idx_project_memory_project_id').on(table.projectId),
