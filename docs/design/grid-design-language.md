@@ -224,6 +224,48 @@ get the fifth hand-rolled copy of `rounded-b-[10px] bg-card shadow-xs`.
 The layer names carry weight in review. "Make it an atom" and "that belongs in
 the kit" are the two most common notes on a UI diff.
 
+## Overlays: pick by what the content IS
+
+The rule was already written, in two file headers nobody finds until they are
+already editing one (`components/ui/sheet.tsx`, `components/ui/page-sheet.tsx`).
+It lives here now, because the question it answers — "should this be a modal?" —
+arrives from outside the code, and the honest answer is that SIZE is not the
+criterion. All three of these are the same Radix Dialog underneath, so focus
+trapping, Escape and scroll locking are identical; what differs is intent.
+
+| Use | When the content is | Example |
+|---|---|---|
+| `Dialog` | One question with an answer — confirm, rename, a short form — or one artifact you look at with full attention. What is behind it does not matter while it is open. | `ConfirmDialog`, `skill-editor-dialog.tsx`, the PDF viewer |
+| `Sheet` (side) | The DETAIL of a row the reader just selected. The list stays put behind it and keeps updating. | `task-detail.tsx`, `schedule-detail.tsx`, `skill-detail.tsx` |
+| `PageSheet` | A whole PLACE, independent of wherever the reader is standing. Route-backed, reached from the org nav. | Postfach, Archiv, chat history |
+| `Popover` | A transient choice attached to the control that opened it. Never a panel with its own header and scroll region. | the `/` command picker, filter menus |
+| `Collapsible` | More of THIS row, in place. No scrim, nothing dimmed. | the wizard's „Erweitert", the document lifecycle panel |
+| No overlay | A multi-step flow that owns its section, or a second pane you read the first pane AGAINST. | `ScheduleWizard` inline in Tasks, the file peek |
+
+Two corollaries that are the whole reason the table exists:
+
+**An editor form is a `Dialog`, never a `Sheet`.** An edit is a question, and a
+question wants the page behind it to stop mattering. A `Sheet` full of fields
+with a Save footer is a form pretending to be a detail view, and it gets the
+one behaviour a form must not have: Escape and a scrim click discard the edit
+with nothing asked.
+
+**One viewer per kind of thing viewed.** Not "one viewer per surface that
+happens to show it". The same stored file opened from Files and from the Archiv
+must be the same component; two of them drift on the first change to either,
+and each looks locally correct while doing so.
+
+**Stacking.** One `Dialog` over one `Sheet` is fine — a confirm inside a detail
+drawer is the shape people expect. Two drawers is not: two stacked modal focus
+traps, and the reader cannot tell which list they are going back to.
+
+**Getting back out.** Every overlay closes on Escape, on its own X, and on a
+scrim click, and Escape does exactly ONE thing: close this overlay. An overlay
+whose state is worth sending to a colleague puts that state on the URL with
+`push`, so browser Back closes it. One whose state is not worth sharing stays
+off the URL entirely. `replaceState` is the option that looks like a compromise
+and is not: it produces a URL that promises a link and a Back button that lies.
+
 ## Component patterns
 
 **Project card** — "a project, listed" has ONE component: `ProjectCard`
@@ -303,7 +345,7 @@ Tabbed shells (Organisation, Platform) are **one place**, not a stack of submenu
 
 **Search** — `SearchField` (`components/ui/search-field.tsx`) is the one magnifier + input + clear control. Archiv composes it inside `FileSearchBar` (sticky band, run button, result banner). Files composes the bare `FileSearchField` in the page header instead — no sticky band, no run button (Enter alone commits the semantic search), no banner (the results are the report); `useFileSearch` owns the two-mode query state one level above both the field and `FileBrowserPane`. Admin lists compose `SearchField` inside `DataToolbar`. Do not hand-roll another `relative` + `Search` icon + `Input`.
 
-**Exclusive / multi filters** — `ToggleGroup` (`components/ui/toggle-group.tsx`). Segmented icon clusters (Files view switcher) use `segmented`. Inverted pills (folder / category chips) use `variant="inverted"`. Exclusive form choices with a description (job output) use `RadioGroup`, not a toggle row. A `segmented` cluster **hugs its segments** (`w-fit`) and scrolls rather than overflowing when they do not fit — `flex` alone is block-level, which left a tray stretched across a `max-w-3xl` column with a dead zone bolted to its right, and at phone width ran the last segment off the card where nobody could press it.
+**Exclusive / multi filters** — `ToggleGroup` (`components/ui/toggle-group.tsx`). Segmented icon clusters (Files view switcher) use `segmented`. Inverted pills (folder / category chips) use `variant="inverted"`. Exclusive form choices with a description (the wizard's cadence: einmal / wiederkehrend / nur manuell) use `RadioGroup`, not a toggle row. A `segmented` cluster **hugs its segments** (`w-fit`) and scrolls rather than overflowing when they do not fit — `flex` alone is block-level, which left a tray stretched across a `max-w-3xl` column with a dead zone bolted to its right, and at phone width ran the last segment off the card where nobody could press it.
 
 **Form field** — `Field` + `FieldLabel` + `FieldDescription` + `FieldError`. TanStack-backed forms wrap the same anatomy through `FieldShell`. Raw `<label>` next to an `Input` is a leftover.
 
