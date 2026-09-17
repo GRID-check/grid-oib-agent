@@ -1,3 +1,4 @@
+/** @jsxImportSource @/lib/pdf/pdf-jsx-runtime */
 /**
  * `Text`, with the WinAnsi transliteration already applied.
  *

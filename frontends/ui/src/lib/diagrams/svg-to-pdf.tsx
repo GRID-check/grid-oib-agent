@@ -1,3 +1,4 @@
+/** @jsxImportSource @/lib/pdf/pdf-jsx-runtime */
 /**
  * The same diagram, as a PDF, with no browser anywhere.
  *
