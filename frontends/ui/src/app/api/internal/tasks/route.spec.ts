@@ -312,6 +312,8 @@ describe('the research op — an escalated question becomes a run', () => {
       // would be a block written into a conversation nobody asked about.
       conversationId: 's_conv_1',
       question: RESEARCH.question,
+      // Absent here: this turn settled nothing with the person first.
+      context: null,
     })
     expect(delegateTask).not.toHaveBeenCalled()
   })
@@ -322,6 +324,14 @@ describe('the research op — an escalated question becomes a run', () => {
       (await call({ ...RESEARCH, projectId: '44444444-4444-4444-8444-444444444444' })).status,
     ).toBe(400)
     expect(commissionResearchRun).not.toHaveBeenCalled()
+  })
+
+  it('carries what the turn already settled with the person, when it has some', async () => {
+    await call({ ...RESEARCH, context: 'Frage: Welches Geschoss? Antwort: Erdgeschoss.' })
+
+    expect(vi.mocked(commissionResearchRun).mock.calls[0][1]).toMatchObject({
+      context: 'Frage: Welches Geschoss? Antwort: Erdgeschoss.',
+    })
   })
 
   it('refuses a question that says nothing', async () => {
