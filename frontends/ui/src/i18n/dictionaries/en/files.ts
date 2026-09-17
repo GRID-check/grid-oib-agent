@@ -38,7 +38,7 @@ export const files = {
     row: {
       queued: 'Waiting',
       uploading: 'Sending',
-      processing: 'Reading',
+      processing: 'Processing',
       ready: 'Citable',
       canceled: 'Canceled',
       failed: 'Failed',
@@ -482,7 +482,7 @@ export const files = {
     // differ only in which stage reported them.
     status: {
       failed: 'Failed',
-      processing: 'In progress',
+      processing: 'Processing',
       ready: 'Citable',
     },
     originLabel: 'Origin',

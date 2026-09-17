@@ -153,7 +153,7 @@ describe('ArchivWorkspace — permissions', () => {
 })
 
 /**
- * An Archiv upload has to stop saying "Wird gelesen…" on its own.
+ * An Archiv upload has to stop saying "Wird verarbeitet…" on its own.
  *
  * The Archiv asked for its list on mount and once more from `onComplete` —
  * which fires when the BYTES land, i.e. the moment extraction STARTS. An `.ifc`
@@ -302,7 +302,7 @@ describe('ArchivWorkspace — a settling document settles on screen', () => {
  * `useSettlingRefresh` serialises its OWN polls, so at most one poll is in
  * flight — but nothing coordinated that poll with a FOREGROUND load. A slow
  * poll carrying `processing` could land after a newer foreground load had
- * already brought back `ready`, putting the "Wird gelesen…" badge back on a
+ * already brought back `ready`, putting the "Wird verarbeitet…" badge back on a
  * document the user had just been told was citable — and, because the row read
  * as unsettled again, restarting the poll that was supposed to have stopped.
  */

@@ -1105,7 +1105,7 @@ describe('ProjectFileWorkspace — a settling document settles on screen', () =>
  * flight — but nothing coordinated that poll with a FOREGROUND load (mount,
  * upload settled, `onComplete`, retry). A slow poll carrying `processing` could
  * land after a newer foreground load had already brought back `ready`, putting
- * the "Wird gelesen…" badge back on a document the user had just been told was
+ * the "Wird verarbeitet…" badge back on a document the user had just been told was
  * citable — and, because the row read as unsettled again, restarting the poll
  * that was supposed to have stopped. The Archiv workspace carries the twin of
  * this test over its own loader.

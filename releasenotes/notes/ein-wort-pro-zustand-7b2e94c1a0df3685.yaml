@@ -1,0 +1,7 @@
+---
+fixes:
+  - >
+    Ein Dokument heißt jetzt überall gleich. „Zitierbar“ stand auf dem Chip und
+    „Zitierfähig“ im Filtermenü daneben — auf demselben Bildschirm, für denselben
+    Zustand. Auch der Zustand dazwischen hatte drei Namen („Wird gelesen“, „Wird
+    verarbeitet“, „In Arbeit“) und heißt jetzt überall „Wird verarbeitet“.
