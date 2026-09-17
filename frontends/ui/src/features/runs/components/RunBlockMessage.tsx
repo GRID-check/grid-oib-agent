@@ -22,11 +22,14 @@
  * `ChatArea`; a second copy here would drift on the first added prop.
  */
 
-import type { ReactNode } from 'react'
+import { useEffect, useRef, type ReactNode } from 'react'
+import { motion, motionEntrance, motionInstant } from '@/components/motion'
 import type { ChatMessage } from '@/features/chat/types'
+import { useReducedMotion } from '@/hooks/use-reduced-motion'
 import type { RunStatus } from '@/lib/runs/run-ledger-types'
 import { runDisplayStatus } from '@/lib/runs/run-vocabulary'
 import { useRunLedger } from '../hooks/use-run-ledger'
+import { landingDelays } from '../lib/choreography'
 import { RunBlock } from './RunBlock'
 
 /** The states in which the message's content is a report the reader may have. */
@@ -42,10 +45,21 @@ export interface RunBlockMessageProps {
 
 export function RunBlockMessage({ message, projectId, answer }: RunBlockMessageProps): JSX.Element | null {
   const { ledger, live } = useRunLedger({ message, projectId })
+  const reduced = useReducedMotion()
+  // A report that arrives while the reader is watching rises AFTER the block
+  // has finished saying how the run ended: the verdict first, the document
+  // second. A thread scrolled back to weeks later has both at once — nothing
+  // happened just now, so nothing should look as though it did.
+  const paintedRef = useRef(false)
+  useEffect(() => {
+    paintedRef.current = true
+  }, [])
+
   if (!ledger) return null
 
   const status = runDisplayStatus(ledger)
   const showAnswer = REPORT_STATUSES.has(status) && message.content.trim().length > 0
+  const rises = paintedRef.current && !reduced
 
   return (
     <div className="flex flex-col gap-3" data-testid="run-block-message" data-run-id={ledger.runId}>
@@ -55,7 +69,19 @@ export function RunBlockMessage({ message, projectId, answer }: RunBlockMessageP
         projectId={projectId ?? null}
         live={live}
       />
-      {showAnswer ? answer : null}
+      {showAnswer ? (
+        <motion.div
+          initial={rises ? { opacity: 0, y: 6 } : false}
+          animate={{
+            opacity: 1,
+            y: 0,
+            transition: rises ? { ...motionEntrance, delay: landingDelays(status).report } : motionInstant,
+          }}
+          data-testid="run-report"
+        >
+          {answer}
+        </motion.div>
+      ) : null}
     </div>
   )
 }

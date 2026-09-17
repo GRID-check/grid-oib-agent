@@ -1358,7 +1358,7 @@
     },
     "run-block": {
       "route": "src/app/dev/run-block/page.tsx",
-      "routeHash": "574dcedd8e12459c132e8dd953f576414cf93144b92c8cebaed52890198c4ba4",
+      "routeHash": "29ea4450404fa4535e7cfbfc73c81bd54aa38744d12a677dde17c56c55d5fd6a",
       "shots": [
         "run-block.light.png",
         "run-block.dark.png",
@@ -1366,9 +1366,19 @@
         "run-block.mobile.dark.png"
       ]
     },
+    "run-block-live": {
+      "route": "src/app/dev/run-block/page.tsx",
+      "routeHash": "29ea4450404fa4535e7cfbfc73c81bd54aa38744d12a677dde17c56c55d5fd6a",
+      "shots": [
+        "run-block-live.light.png",
+        "run-block-live.dark.png",
+        "run-block-live.mobile.light.png",
+        "run-block-live.mobile.dark.png"
+      ]
+    },
     "run-block-transition": {
       "route": "src/app/dev/run-block/page.tsx",
-      "routeHash": "574dcedd8e12459c132e8dd953f576414cf93144b92c8cebaed52890198c4ba4",
+      "routeHash": "29ea4450404fa4535e7cfbfc73c81bd54aa38744d12a677dde17c56c55d5fd6a",
       "shots": [
         "run-block-transition.light.png",
         "run-block-transition.dark.png",
@@ -1628,7 +1638,7 @@
     },
     "task-list": {
       "route": "src/app/dev/task-list/page.tsx",
-      "routeHash": "34fcb39d1f3f8b0b85a25272038c1058680b87cdb3aab02e2a5d47d4bfce9d08",
+      "routeHash": "aa2f4c12d27c19dc521d3e3ee891d3a5472e10b5a715174e6d30134035e8d8a3",
       "shots": [
         "task-list.light.png",
         "task-list.dark.png",

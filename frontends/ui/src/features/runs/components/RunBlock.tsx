@@ -32,7 +32,30 @@
  * No tool names — the ledger carries none, on purpose. No numbers in the header
  * except the two tallies and the clock. One ambient loop: the spinner. The
  * Herleitung bar runs a shimmer and a sweep beside its spinner; a thread with
- * three live runs in it cannot afford nine loops, so this block runs one.
+ * three live runs in it cannot afford nine loops, so this block runs one — and
+ * the rail's active ring is static for the same reason.
+ *
+ * ## How a change reads
+ *
+ * The block is replaced ledger by ledger, and every difference between two
+ * ledgers is one small fixed move, never decoration (design language, Motion
+ * vocabulary). What moves is what CHANGED; what was already on screen stays
+ * where it is:
+ *
+ * - Arrival: the turn's fade-and-rise, then the rail's swatches left to right.
+ * - A phase completes: its swatch fills and checks (`PhaseSwatch`), the
+ *   connector to the next phase fills (`PhaseRail`), and in the list the live
+ *   content folds while the one-line summary fades in over it; the next phase's
+ *   row rises in (`TimelineItem arrive`).
+ * - A round arrives: its row rises, the document chips cascade (capped), the
+ *   open points last.
+ * - The run lands: `landingDelays` queues the header glyph, the status word,
+ *   the fold, the footer and the report so they play in that order.
+ *
+ * Nothing replays: rows are keyed by phase and by step id, so a re-render is
+ * the same element with new props, and `AnimatePresence initial={false}` on
+ * every list means a block that mounts finished paints in one frame. Under
+ * reduced motion every one of these is the change with no motion.
  */
 
 'use client'
@@ -41,7 +64,18 @@ import { type FC, type ReactNode, useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import { CheckCircle2, ChevronDown, FileText, XCircle } from 'lucide-react'
 
-import { AnimatePresence, motion, motionBase, motionQuick } from '@/components/motion'
+import {
+  AnimatePresence,
+  fadeRise,
+  motion,
+  motionBase,
+  motionEntrance,
+  motionInstant,
+  motionQuick,
+  motionQuickExit,
+  staggerMaxSteps,
+  staggerStepSeconds,
+} from '@/components/motion'
 import { Button } from '@/components/ui/button'
 import { Collapsible, CollapsibleTrigger } from '@/components/ui/collapsible'
 import { PhaseRail, PhaseSwatch, type PhaseRailStep } from '@/components/ui/phase-rail'
@@ -50,6 +84,7 @@ import { AuthorityTag } from '@/features/chat/components/AuthorityTag'
 import { formatElapsed } from '@/features/chat/hooks/use-elapsed-seconds'
 import { documentFilesHref } from '@/features/documents/lib/document-question'
 import { SourceSignalChip } from '@/features/layout/components/SourceSignalChip'
+import { useReducedMotion } from '@/hooks/use-reduced-motion'
 import { useLocale, useTranslations, type Translator } from '@/i18n'
 import { formatDurationElapsed } from '@/lib/format'
 import {
@@ -74,6 +109,7 @@ import {
 } from '@/lib/runs/run-vocabulary'
 import { cn } from '@/lib/utils'
 import { useRunClock } from '../hooks/use-run-clock'
+import { landingDelays, type LandingDelays } from '../lib/choreography'
 import { docProvenance } from '../lib/doc-provenance'
 import { RunStatusGlyph } from './RunStatusGlyph'
 
@@ -172,7 +208,7 @@ function completedBeforeLabel(t: Translator, ledger: RunLedger, tallies: RunTall
  * places read. A re-read document says so in the chip instead of counting
  * again.
  */
-const DocChip: FC<{ doc: RunLedgerDoc }> = ({ doc }) => {
+const DocChip: FC<{ doc: RunLedgerDoc; reduced: boolean }> = ({ doc, reduced }) => {
   const t = useTranslations('runs')
   const { tint, authority } = docProvenance(doc)
   const name = doc.title ?? doc.name
@@ -180,7 +216,10 @@ const DocChip: FC<{ doc: RunLedgerDoc }> = ({ doc }) => {
   return (
     <SourceSignalChip
       signal={tint}
-      className={cn('max-w-full', doc.repeat && 'opacity-75')}
+      className={cn(
+        'max-w-full transition-opacity duration-quick ease-out motion-reduce:transition-none',
+        doc.repeat && 'opacity-75',
+      )}
       title={loci ? `${name} · ${loci}` : name}
     >
       {authority && (
@@ -190,21 +229,59 @@ const DocChip: FC<{ doc: RunLedgerDoc }> = ({ doc }) => {
       )}
       {name}
       {loci && <span className="opacity-70"> · {loci}</span>}
-      {doc.repeat && <span className="italic opacity-70"> · {t('step.repeat')}</span>}
+      {/* A mark that lands on a chip already on screen crossfades in; one the
+          chip mounted with is simply there. */}
+      <AnimatePresence initial={false}>
+        {doc.repeat && (
+          <motion.span
+            key="repeat"
+            className="italic"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 0.7 }}
+            exit={{ opacity: 0 }}
+            transition={reduced ? motionInstant : motionQuick}
+          >
+            {' · '}
+            {t('step.repeat')}
+          </motion.span>
+        )}
+      </AnimatePresence>
     </SourceSignalChip>
   )
 }
 
-/** One research round: its intent, the documents it reached, what stayed open. */
-const StepRow: FC<{ step: RunStep; index: number; numbered: boolean }> = ({
+/** A plain fade, for the chips and the line that follow a round's rise. */
+const FADE = { hidden: { opacity: 0 }, visible: { opacity: 1 } }
+
+/**
+ * One research round: its intent, the documents it reached, what stayed open.
+ *
+ * A round that arrives while the block is on screen rises in, and its chips
+ * cascade after it — capped at `staggerMaxSteps`, so a round with nine
+ * documents is not nine beats long — with the open points last, because they
+ * are the sentence the round ends on. Whether it arrives or was already there
+ * is decided by the presence that wraps the list, not here.
+ */
+const StepRow: FC<{ step: RunStep; index: number; numbered: boolean; reduced: boolean }> = ({
   step,
   index,
   numbered,
+  reduced,
 }) => {
   const t = useTranslations('runs')
   const intent = step.intent.trim() || t('step.fallback', { n: index + 1 })
+  const chipDelay = (position: number): number => Math.min(position, staggerMaxSteps) * staggerStepSeconds
+  const afterChips = (Math.min(step.docs.length, staggerMaxSteps) + 1) * staggerStepSeconds
+  const fadeAfter = (delay: number) => (reduced ? motionInstant : { ...motionQuick, delay })
   return (
-    <div className="flex flex-col gap-1.5" data-testid="run-step">
+    <motion.div
+      className="flex flex-col gap-1.5"
+      data-testid="run-step"
+      variants={fadeRise}
+      initial="hidden"
+      animate="visible"
+      transition={reduced ? motionInstant : motionEntrance}
+    >
       <p className="text-sm leading-snug text-foreground">
         {numbered && (
           <>
@@ -216,19 +293,30 @@ const StepRow: FC<{ step: RunStep; index: number; numbered: boolean }> = ({
       </p>
       {step.docs.length > 0 && (
         <div className="flex flex-wrap gap-1.5" role="list">
-          {step.docs.map((doc) => (
-            <span role="listitem" key={doc.name} className="inline-flex max-w-full">
-              <DocChip doc={doc} />
-            </span>
+          {step.docs.map((doc, position) => (
+            <motion.span
+              role="listitem"
+              key={doc.name}
+              className="inline-flex max-w-full"
+              variants={FADE}
+              transition={fadeAfter(chipDelay(position))}
+            >
+              <DocChip doc={doc} reduced={reduced} />
+            </motion.span>
           ))}
         </div>
       )}
       {step.openPoints && step.openPoints.length > 0 && (
-        <p className="text-xs leading-relaxed text-muted-foreground" data-testid="run-open-points">
+        <motion.p
+          className="text-xs leading-relaxed text-muted-foreground"
+          data-testid="run-open-points"
+          variants={FADE}
+          transition={fadeAfter(afterChips)}
+        >
           <span className="font-medium">{t('step.openPoints')}</span> {step.openPoints.join(' · ')}
-        </p>
+        </motion.p>
       )}
-    </div>
+    </motion.div>
   )
 }
 
@@ -255,6 +343,13 @@ function liveLine(t: Translator, phase: RunPhase): string | null {
   return null
 }
 
+/**
+ * One phase in the list. A done phase is one line; a live one is its label and
+ * its rounds. When a phase flips from live to done the two overlap for a
+ * moment: the line fades in above while the rounds fold away beneath it —
+ * height to zero through `AnimatePresence`, the one layout move the vocabulary
+ * allows, on the exit curve and one step shorter than an entrance.
+ */
 const PhaseRow: FC<{
   ledger: RunLedger
   phase: RunPhase
@@ -262,7 +357,9 @@ const PhaseRow: FC<{
   live: boolean
   now: number | null
   tallies: RunTallies
-}> = ({ ledger, phase, state, live, now, tallies }) => {
+  arrive: boolean
+  reduced: boolean
+}> = ({ ledger, phase, state, live, now, tallies, arrive, reduced }) => {
   const t = useTranslations('runs')
   const { locale } = useLocale()
   const label = t(`phase.${phase}`)
@@ -273,7 +370,13 @@ const PhaseRow: FC<{
     const line = doneLine(t, phase, tallies)
     const duration = phaseDurationMs(ledger, phase, now ?? 0)
     body = (
-      <p className="text-sm leading-snug text-foreground">
+      <motion.p
+        key="done"
+        className="text-sm leading-snug text-foreground"
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        transition={reduced ? motionInstant : motionQuick}
+      >
         <span className="font-medium">{label}</span>
         {line && (
           <>
@@ -289,30 +392,54 @@ const PhaseRow: FC<{
             </span>
           </>
         )}
-      </p>
+      </motion.p>
     )
   } else if (state === 'active') {
     const line = live ? liveLine(t, phase) : null
     body = (
-      <>
+      <motion.div
+        key="live"
+        className="flex flex-col gap-1.5 overflow-hidden"
+        data-testid="run-phase-live"
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        exit={{ height: 0, opacity: 0 }}
+        transition={reduced ? motionInstant : motionQuickExit}
+      >
         <p className="text-sm font-semibold leading-snug text-foreground">{label}</p>
-        {steps.map((step, index) => (
-          <StepRow key={step.id} step={step} index={index} numbered={phase === 'recherchieren'} />
-        ))}
+        {/* Rounds present when the list appeared are simply there; one that is
+            appended later rises in. Keyed by step id, so an appended round is
+            a new element and the rows above it are the same ones, re-rendered. */}
+        <AnimatePresence initial={false}>
+          {steps.map((step, index) => (
+            <StepRow
+              key={step.id}
+              step={step}
+              index={index}
+              numbered={phase === 'recherchieren'}
+              reduced={reduced}
+            />
+          ))}
+        </AnimatePresence>
         {line && steps.length === 0 && (
           <p className="text-sm leading-snug text-muted-foreground" data-testid="run-live-line">
             {line}
           </p>
         )}
-      </>
+      </motion.div>
     )
   } else {
     body = <p className="text-sm leading-snug text-muted-foreground">{label}</p>
   }
 
   return (
-    <TimelineItem marker={<PhaseSwatch state={state} pulse={false} />} data-phase={phase} data-state={state}>
-      {body}
+    <TimelineItem
+      marker={<PhaseSwatch state={state} />}
+      arrive={arrive}
+      data-phase={phase}
+      data-state={state}
+    >
+      <AnimatePresence initial={false}>{body}</AnimatePresence>
     </TimelineItem>
   )
 }
@@ -356,9 +483,30 @@ export function RunBlock({
   className,
 }: RunBlockProps): JSX.Element {
   const t = useTranslations('runs')
+  const reduced = useReducedMotion()
   const status = runDisplayStatus(ledger)
   const live = isLiveStatus(status)
   const now = useRunClock(live)
+  // What was on screen when the block first painted does not animate its own
+  // arrival — the block's fade-rise already carried it in. A phase row that
+  // shows up later is news, and rises on its own.
+  const paintedRef = useRef(false)
+  useEffect(() => {
+    paintedRef.current = true
+  }, [])
+
+  // The landing. A status that CHANGES while the block is on screen is a turn
+  // in the run's story, and its moves are queued so they read in order
+  // (`lib/choreography`). A block that mounts already finished shows its
+  // ending at once: there was no turn to watch, and a staged reveal of facts
+  // that were true before the reader arrived is theatre.
+  const landedFromRef = useRef(status)
+  const landingRef = useRef<LandingDelays | null>(null)
+  if (status !== landedFromRef.current) {
+    landedFromRef.current = status
+    landingRef.current = reduced ? null : landingDelays(status)
+  }
+  const landing = landingRef.current
   const tallies = runTallies(ledger)
   const statusWord = t(`status.${status}`)
   const name = title?.trim() || t('block.untitled')
@@ -373,8 +521,21 @@ export function RunBlock({
   useEffect(() => {
     if (live === prevLiveRef.current) return
     prevLiveRef.current = live
-    if (!live && !userToggledRef.current && autoOpenedRef.current) setOpen(false)
-    if (!live) autoOpenedRef.current = false
+    if (!live) {
+      const shouldFold = !userToggledRef.current && autoOpenedRef.current
+      autoOpenedRef.current = false
+      if (!shouldFold) return
+      // The body folds only after the header has said what happened — the
+      // rail's last check, the glyph, the word. Folding first would pull the
+      // reader's eye off the very phase that was finishing.
+      const after = landingRef.current?.fold
+      if (after === null || after === undefined) {
+        setOpen(false)
+        return
+      }
+      const timer = setTimeout(() => setOpen(false), after * 1000)
+      return () => clearTimeout(timer)
+    }
   }, [live])
   const prevStatusRef = useRef(status)
   useEffect(() => {
@@ -463,11 +624,38 @@ export function RunBlock({
               className="group flex min-h-12 min-w-0 flex-1 cursor-pointer items-center justify-between gap-3 rounded-2xl px-4 py-3 text-left outline-none transition-colors duration-snap ease-out focus-visible:ring-2 focus-visible:ring-ring/60 motion-reduce:transition-none"
             >
               <span className="flex min-w-0 flex-1 items-center gap-2" aria-live="polite">
-                <RunStatusGlyph status={status} spinnerLabel={statusWord} />
+                {/* Decorative: the status word is the next thing in the row,
+                    and it is inside the same live region. */}
+                <RunStatusGlyph status={status} delay={landing?.glyph ?? 0} />
                 <span className="min-w-0 truncate text-sm">
-                  <span className="font-semibold text-foreground" data-testid="run-status-word">
+                  {/* The word crossfades rather than cutting: it is the one
+                      place the block states what just happened, and a cut
+                      there is the only change a reader can miss entirely.
+                      The crossfade holds two words at once for a moment, so
+                      the SPOKEN word is a plain one beside it and the moving
+                      pair is hidden: a reader must never hear the run called
+                      two things in one breath. */}
+                  <span className="sr-only" data-testid="run-status-word">
                     {statusWord}
                   </span>
+                  <AnimatePresence mode="wait" initial={false}>
+                    <motion.span
+                      key={status}
+                      aria-hidden
+                      className="inline-block font-semibold text-foreground"
+                      initial={{ opacity: 0 }}
+                      animate={{
+                        opacity: 1,
+                        transition: reduced ? motionInstant : { ...motionQuick, delay: landing?.word ?? 0 },
+                      }}
+                      exit={{
+                        opacity: 0,
+                        transition: reduced ? motionInstant : { ...motionQuickExit, delay: landing?.word ?? 0 },
+                      }}
+                    >
+                      {statusWord}
+                    </motion.span>
+                  </AnimatePresence>
                   <Sep />
                   <span className="text-foreground" data-testid="run-title">
                     {name}
@@ -518,7 +706,9 @@ export function RunBlock({
               className="overflow-hidden"
             >
               <div className="flex flex-col gap-4 border-t border-border px-4 pb-4 pt-3" data-testid="run-body">
-                <PhaseRail steps={railSteps} label={t('rail.label')} pulse={live} />
+                {/* The swatches cascade in with the block itself; a rail the
+                    reader unfolded by hand is already on screen and just is. */}
+                <PhaseRail steps={railSteps} label={t('rail.label')} arrive={!userToggledRef.current} />
                 {/* Only the phases with something to say: done ones fold to a
                     line, the live one shows its work. The rail above already
                     names what is still to come, so listing the pending phases
@@ -533,6 +723,8 @@ export function RunBlock({
                       live={live}
                       now={now}
                       tallies={tallies}
+                      arrive={paintedRef.current}
+                      reduced={reduced}
                     />
                   ))}
                 </Timeline>
@@ -546,7 +738,14 @@ export function RunBlock({
           its reason behind a chevron would be a failure the reader has to go
           looking for. */}
       {showFooter && (
-        <div
+        <motion.div
+          key={`footer-${status}`}
+          initial={landing ? { opacity: 0, y: 4 } : false}
+          animate={{
+            opacity: 1,
+            y: 0,
+            transition: reduced || !landing ? motionInstant : { ...motionEntrance, delay: landing.footer },
+          }}
           className="flex flex-col gap-1.5 border-t border-border px-4 pb-3 pt-2.5"
           data-testid="run-footer"
         >
@@ -592,8 +791,9 @@ export function RunBlock({
             </p>
           )}
           {action && <span className="inline-flex sm:hidden">{action}</span>}
-        </div>
+        </motion.div>
       )}
+
     </section>
   )
 }

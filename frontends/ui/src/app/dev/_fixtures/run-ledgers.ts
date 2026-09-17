@@ -86,6 +86,46 @@ function researched(runId: string, start: Date, rounds: number): RunLedger {
   return ledger
 }
 
+/**
+ * The run's own life, frame by frame: what the ledger looks like at each step
+ * of a run that goes all the way. The motion preview walks this list on a
+ * timer, so the choreography can be watched rather than argued about — every
+ * frame is built by the same fold helpers the real thing uses, so nothing in
+ * it can be a shape the product cannot produce.
+ */
+export function runSequence(runId: string, start: Date): RunLedger[] {
+  const at = (s: number): Date => new Date(start.getTime() + s * 1000)
+  const frames: RunLedger[] = []
+  let ledger = emptyRunLedger(runId, start)
+  frames.push(ledger)
+  ledger = openPhase(ledger, 'planen', at(1))
+  frames.push(ledger)
+  ledger = appendStep(ledger, PLAN_STEP(at(2)), at(2))
+  ledger = closePhase(ledger, 'planen', at(12))
+  ledger = openPhase(ledger, 'recherchieren', at(12))
+  frames.push(ledger)
+  for (const step of ROUNDS(at)) {
+    ledger = appendStep(ledger, step, new Date(step.startedAt))
+    frames.push(ledger)
+  }
+  ledger = closePhase(ledger, 'recherchieren', at(120))
+  ledger = openPhase(ledger, 'pruefen', at(120))
+  frames.push(ledger)
+  ledger = closePhase(ledger, 'pruefen', at(145))
+  ledger = openPhase(ledger, 'schreiben', at(145))
+  frames.push(ledger)
+  ledger = closePhase(ledger, 'schreiben', at(186))
+  ledger = openPhase(ledger, 'abgelegt', at(186))
+  frames.push(ledger)
+  ledger = finishRun(
+    ledger,
+    { fileId: 'doc-brandschutz-fluchtwege', reportMessageId: 'm-report', filedAt: at(189).toISOString() },
+    at(189),
+  )
+  frames.push(ledger)
+  return frames
+}
+
 const NOW = Date.now()
 const secondsAgo = (s: number): Date => new Date(NOW - s * 1000)
 const MORNING = new Date('2026-09-16T07:41:00.000Z')

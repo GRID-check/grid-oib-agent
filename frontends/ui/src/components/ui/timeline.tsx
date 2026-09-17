@@ -16,8 +16,11 @@
  * agree on what "connected" looks like.
  */
 
-import type { ComponentProps, ReactNode } from 'react'
+'use client'
 
+import { useRef, type ComponentProps, type ReactNode } from 'react'
+
+import { useReducedMotion } from '@/hooks/use-reduced-motion'
 import { cn } from '@/lib/utils'
 
 /**
@@ -46,6 +49,12 @@ export interface TimelineItemProps extends Omit<ComponentProps<'li'>, 'children'
    * down the gutter's centre, so a marker wider than this is off the line.
    */
   gutter?: 'sm' | 'md'
+  /**
+   * The item is arriving in a list that is already on screen: it enters with
+   * the chat turn's fade-and-rise. Read once, at mount — a row that was there
+   * when the list appeared must not replay its entrance on a later re-render.
+   */
+  arrive?: boolean
   children: ReactNode
 }
 
@@ -59,15 +68,24 @@ const GUTTER: Record<NonNullable<TimelineItemProps['gutter']>, { col: string; li
 export function TimelineItem({
   marker,
   gutter = 'sm',
+  arrive = false,
   className,
   children,
   ...rest
 }: TimelineItemProps): JSX.Element {
   const size = GUTTER[gutter]
+  const reduced = useReducedMotion()
+  const arrivedRef = useRef(arrive)
   return (
     <li
       data-slot="timeline-item"
-      className={cn('group/timeline-item relative flex gap-2.5 pb-3 last:pb-0', className)}
+      className={cn(
+        'group/timeline-item relative flex gap-2.5 pb-3 last:pb-0',
+        arrivedRef.current &&
+          !reduced &&
+          'animate-in fade-in-0 slide-in-from-bottom-1 duration-base ease-entrance motion-reduce:animate-none',
+        className,
+      )}
       {...rest}
     >
       {/* The marker's row height is the first line of text, so the swatch sits

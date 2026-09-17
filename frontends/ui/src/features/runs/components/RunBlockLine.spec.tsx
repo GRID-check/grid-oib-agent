@@ -72,6 +72,13 @@ describe('RunBlockLine', () => {
     expect(screen.getByTestId('run-glyph-fehlgeschlagen')).toBeInTheDocument()
   })
 
+  it('takes tallies it is given, and reads without a title inside a surface that names the run', () => {
+    render(<RunBlockLine ledger={null} status="fertig" tallies={{ rounds: 3, docs: 9 }} />)
+    const line = screen.getByTestId('run-block-line')
+    // No ledger, no title: the word, then the tallies straight after it.
+    expect(line).toHaveTextContent(/^Done · 3 rounds · 9 documents$/)
+  })
+
   it('dates the row with a <time> that carries the instant', () => {
     render(<RunBlockLine ledger={researched()} title="A" at="2026-09-16T05:00:00.000Z" />)
     expect(screen.getByTestId('run-block-line').querySelector('time')).toHaveAttribute(

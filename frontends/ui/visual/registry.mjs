@@ -744,6 +744,14 @@ export const SCREENSHOT_TARGETS = [
     waitFor: '[data-testid="run-block-lines"]',
   },
   {
+    id: 'run-block-live',
+    mobile: true,
+    path: '/dev/run-block?variant=motion',
+    description:
+      'The run block mid-run, held at a known frame of the scripted sequence (`/dev/run-block?variant=motion` walks a ledger frame by frame). Evidence for the shape the reader watches while a run works: the rail with one phase live and the ones behind it checked, the rounds that have arrived with their documents, the open points. The sequence itself is watched in the browser — a still cannot show a check drawing in — so what this shot holds is the composition at the moment it is busiest.',
+    waitFor: '[data-motion-frame="3"]',
+  },
+  {
     id: 'run-block-transition',
     mobile: true,
     path: '/dev/run-block?variant=transition',

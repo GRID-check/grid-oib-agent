@@ -33,7 +33,6 @@
 
 import { readdir } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
-import { join } from 'node:path'
 import { describe, test, expect } from 'vitest'
 import { SCREENSHOT_TARGETS } from './registry.mjs'
 import {

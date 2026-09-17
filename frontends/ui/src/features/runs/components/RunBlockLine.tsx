@@ -24,7 +24,7 @@ import { ArrowRight } from 'lucide-react'
 import { TimeAgo } from '@/components/ui/time-ago'
 import { useLocale, useTranslations } from '@/i18n'
 import type { RunLedger, RunStatus } from '@/lib/runs/run-ledger-types'
-import { runDisplayStatus, runTallies } from '@/lib/runs/run-vocabulary'
+import { runDisplayStatus, runTallies, type RunTallies } from '@/lib/runs/run-vocabulary'
 import { cn } from '@/lib/utils'
 import { RunStatusGlyph } from './RunStatusGlyph'
 
@@ -33,7 +33,17 @@ export interface RunBlockLineProps {
   ledger: RunLedger | null
   /** Overrides the ledger's status; the word for a row without a ledger. */
   status?: RunStatus
-  title: string
+  /**
+   * Overrides the ledger's tallies; the numbers for a row without a ledger.
+   * The Aufträge index sends four facts per row rather than the ledger
+   * (`TaskRunSummary`), and this is how those facts reach the same line.
+   */
+  tallies?: RunTallies
+  /**
+   * The run's title. Omitted inside a surface that already names the run —
+   * the task card, whose heading IS the title — so it is not read twice.
+   */
+  title?: string
   /** The thread at the run: `?session=…&run=…#message-…` (`task-view.ts`). */
   href?: string
   /** When the row's state was last true — rendered relative after mount. */
@@ -49,12 +59,20 @@ const Sep: FC = () => (
   </span>
 )
 
-export function RunBlockLine({ ledger, status, title, href, at, className }: RunBlockLineProps): JSX.Element {
+export function RunBlockLine({
+  ledger,
+  status,
+  tallies: givenTallies,
+  title,
+  href,
+  at,
+  className,
+}: RunBlockLineProps): JSX.Element {
   const t = useTranslations('runs')
   const { locale } = useLocale()
   const shown: RunStatus = status ?? (ledger ? runDisplayStatus(ledger) : 'angelegt')
   const statusWord = t(`status.${shown}`)
-  const tallies = ledger ? runTallies(ledger) : { rounds: 0, docs: 0 }
+  const tallies = givenTallies ?? (ledger ? runTallies(ledger) : { rounds: 0, docs: 0 })
   const atIso = at instanceof Date ? at.toISOString() : at
 
   return (
@@ -63,7 +81,8 @@ export function RunBlockLine({ ledger, status, title, href, at, className }: Run
       data-status={shown}
       className={cn('flex min-h-11 min-w-0 items-center gap-2 text-sm', className)}
     >
-      <RunStatusGlyph status={shown} spinnerLabel={statusWord} size="sm" />
+      {/* Decorative: the status word is the very next thing in the row. */}
+      <RunStatusGlyph status={shown} size="sm" />
       {/* The title is the one clause that gives way; the word, the tallies and
           the time are short facts and stay whole, because a row that reads
           „vor 1…" has lost the thing the time was there for. The tallies step
@@ -72,8 +91,12 @@ export function RunBlockLine({ ledger, status, title, href, at, className }: Run
         <span className="shrink-0 font-semibold text-foreground" data-testid="run-line-status">
           {statusWord}
         </span>
-        <Sep />
-        <span className="min-w-0 truncate text-foreground">{title}</span>
+        {title && (
+          <>
+            <Sep />
+            <span className="min-w-0 truncate text-foreground">{title}</span>
+          </>
+        )}
         {(tallies.rounds > 0 || tallies.docs > 0) && (
           <span className="hidden shrink-0 text-muted-foreground sm:inline">
             <Sep />

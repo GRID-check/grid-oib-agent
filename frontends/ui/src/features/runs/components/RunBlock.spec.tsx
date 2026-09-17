@@ -10,7 +10,7 @@
  */
 
 import { describe, expect, it, vi } from 'vitest'
-import { fireEvent, render, screen, within } from '@/test-utils'
+import { fireEvent, render, screen, waitFor, within } from '@/test-utils'
 import {
   appendStep,
   closePhase,
@@ -203,29 +203,40 @@ describe('RunBlock — the fold', () => {
   // read off the trigger's own state rather than off the body's absence.
   const trigger = (word: RegExp): HTMLElement => screen.getByRole('button', { name: word })
 
+  /** Past every queued move of a landing, with room to spare. */
+  const LANDING_SETTLED_MS = 2000
+
   it('opens when the run starts waiting, even if the reader had folded it', () => {
     const live = researching()
     const { rerender } = render(<RunBlock ledger={live} title={TITLE} />)
     fireEvent.click(trigger(/Running/))
     expect(trigger(/Running/)).toHaveAttribute('data-state', 'closed')
     rerender(<RunBlock ledger={setRunStatus(live, 'wartet', at(50))} title={TITLE} />)
+    // A question opens the block at once: there is nothing to watch finish,
+    // and the sentence that says what to do is inside.
     expect(trigger(/Waiting/)).toHaveAttribute('data-state', 'open')
   })
 
-  it('folds on its own when a live run it opened lands', () => {
+  it('folds on its own when a live run it opened lands, once the header has spoken', async () => {
     const live = researching()
     const { rerender } = render(<RunBlock ledger={live} title={TITLE} />)
     expect(trigger(/Running/)).toHaveAttribute('data-state', 'open')
     rerender(<RunBlock ledger={finished('doc-1')} title={TITLE} />)
-    expect(trigger(/Done/)).toHaveAttribute('data-state', 'closed')
+    // The landing is queued: the rail's last check, the glyph and the word go
+    // first, and the body is still open while they do.
+    expect(trigger(/Done/)).toHaveAttribute('data-state', 'open')
+    await waitFor(() => expect(trigger(/Done/)).toHaveAttribute('data-state', 'closed'), {
+      timeout: LANDING_SETTLED_MS,
+    })
   })
 
-  it('leaves a block the reader opened by hand open when the run lands', () => {
+  it('leaves a block the reader opened by hand open when the run lands', async () => {
     const live = researching()
     const { rerender } = render(<RunBlock ledger={live} title={TITLE} />)
     fireEvent.click(trigger(/Running/))
     fireEvent.click(trigger(/Running/))
     rerender(<RunBlock ledger={finished('doc-1')} title={TITLE} />)
+    await new Promise((resolve) => setTimeout(resolve, LANDING_SETTLED_MS))
     expect(trigger(/Done/)).toHaveAttribute('data-state', 'open')
   })
 })

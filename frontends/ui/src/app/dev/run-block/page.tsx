@@ -23,7 +23,7 @@
  * is the German copy. 404s outside development (the `/dev` layout).
  */
 
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { notFound } from 'next/navigation'
 import { I18nProvider } from '@/i18n'
 import { UserMessage } from '@/features/chat/components/UserMessage'
@@ -38,6 +38,7 @@ import {
   RUN_LAEUFT,
   RUN_UNTERBROCHEN,
   RUN_WARTET,
+  runSequence,
 } from '../_fixtures/run-ledgers'
 
 const PROJECT = 'proj-stadthaus'
@@ -75,6 +76,59 @@ function Transition() {
   )
 }
 
+/** How long each frame of the scripted run holds before the next one lands. */
+const FRAME_MS = 1400
+
+/**
+ * The run as it actually happens: a ledger walked frame by frame on a timer,
+ * so the choreography can be WATCHED. Every frame comes from the same fold
+ * helpers the product uses, so nothing here is a shape a real run could not
+ * produce. The frame index is on the wrapper, which is how the screenshot
+ * harness holds the sequence still at a known moment.
+ */
+function Motion(): JSX.Element {
+  const frames = useMemo(() => runSequence('run-motion', new Date(Date.now() - 190 * 1000)), [])
+  const [frame, setFrame] = useState(0)
+  useEffect(() => {
+    if (frame >= frames.length - 1) return
+    const timer = setTimeout(() => setFrame((n) => n + 1), FRAME_MS)
+    return () => clearTimeout(timer)
+  }, [frame, frames.length])
+
+  const done = frame >= frames.length - 1
+  return (
+    <section className="flex w-[680px] max-w-full flex-col gap-3" data-motion-frame={frame}>
+      <h2 className="text-lg font-semibold text-foreground">Ein Lauf, von vorne bis zum Bericht</h2>
+      <p className="text-sm leading-relaxed text-muted-foreground">
+        Jede Phase, jede Runde, die Landung. Zu beurteilen: ob der Haken zieht und die Verbindungslinie
+        danach füllt; ob eine ankommende Runde steigt und ihre Chips nacheinander folgen; ob am Ende der
+        Reihe nach der letzte Haken, das Zeichen, das Wort, das Zuklappen und der Satz kommen — und der
+        Bericht zuletzt.
+      </p>
+      <RunBlock
+        key="motion"
+        ledger={frames[frame] ?? frames[0]}
+        title={TITLE}
+        projectId={PROJECT}
+        live={!done}
+      />
+      <div className="flex items-center gap-3">
+        <button
+          type="button"
+          onClick={() => setFrame(0)}
+          className="w-fit rounded-md bg-secondary px-3 py-1.5 text-sm font-medium text-foreground"
+          data-testid="run-motion-replay"
+        >
+          Nochmal abspielen
+        </button>
+        <span className="text-xs tabular-nums text-muted-foreground">
+          Bild {frame + 1} von {frames.length}
+        </span>
+      </div>
+    </section>
+  )
+}
+
 export default function RunBlockPreview(): JSX.Element {
   if (process.env.NODE_ENV !== 'development') notFound()
 
@@ -91,7 +145,9 @@ export default function RunBlockPreview(): JSX.Element {
         data-testid="run-block-preview"
         className="flex min-h-screen flex-col items-center gap-10 bg-background p-10"
       >
-        {variant === 'transition' ? (
+        {variant === 'motion' ? (
+          <Motion />
+        ) : variant === 'transition' ? (
           <Transition />
         ) : (
           <>
