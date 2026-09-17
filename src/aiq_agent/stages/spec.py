@@ -91,8 +91,9 @@ class TurnFacts:
     #: The research loop hit its tool-iteration ceiling: the turn ran out of
     #: budget before it ran out of question.
     research_truncated: bool = False
-    #: Set when the chat turn is only a stub for an async deep-research job.
-    deep_research_job_id: str | None = None
+    #: Set when the turn commissioned a run instead of answering itself
+    #: (ADR-0062): the ``task_runs`` row that now carries the work.
+    run_id: str | None = None
     #: Card types the model emitted in-turn, so a stage can decline to duplicate
     #: something the reader already has.
     emitted_card_types: frozenset[str] = frozenset()

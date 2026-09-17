@@ -47,7 +47,7 @@ is buffered; only delivery differs.
 - **Answer turns:** yield incremental **delta** chunks (`finish_reason=None`, no
   extras, contents concatenate to *exactly* the final text), then one
   **terminal** chunk — full content, `finish_reason="stop"`, extras
-  (`cards`/`sources`/`answer_confidence`/`deep_research_job_id`) on
+  (`cards`/`sources`/`answer_confidence`/`run_id`) on
   `model_extra`. The terminal is authoritative for persistence and for the
   single-consumer fold.
 - **Error / budget turns:** a single **terminal** chunk (short, fully known up

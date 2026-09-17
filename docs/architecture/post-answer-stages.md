@@ -140,7 +140,7 @@ needs the channel built. Section 4 builds it out of parts that already exist.
 the answer is fully built and before the deltas are yielded** (`register.py:1258`):
 
 ```
-if reflection_llm is not None and _reflection_flag_enabled and not deep_research_job_id:
+if reflection_llm is not None and _reflection_flag_enabled and not run_id:
     if _reflection_answer_is_substantive(result, answer_text):
         schedule_memory_reflection(llm=…, query=…, answer=…, project_id=…, …)
 ```
@@ -166,7 +166,7 @@ keeps it.
 `_reflection_answer_is_substantive` (`register.py:67-89`) skips:
 canned non-answers (`_REFLECTION_NON_ANSWERS`, `register.py:60-65`), escalation
 keywords, and `user_intent.intent in {meta, error, out_of_scope}`. The call site
-also skips deep-research job stubs (`not deep_research_job_id`) and requires a
+also skips a turn that only commissioned a run (`not run_id`) and requires a
 `project_id` (`reflection.py:420-422`).
 
 Deep-research jobs are covered separately on the worker
@@ -373,7 +373,7 @@ call site (`piloti/conversation_register.py`, from `turn.context` and
 ```
 conversation_id, ws_parent_id (the turn key), organization_id, project_id, user_id,
 query, answer, memory_digest, locale, bundesland,
-intent, routing_decision, research_truncated, deep_research_job_id,
+intent, routing_decision, research_truncated, run_id,
 emitted_card_types: frozenset[str], answer_confidence
 ```
 
@@ -1071,7 +1071,7 @@ each is a fact the backend already has:
 | `routing_decision not in {meta, error}` | `derive_routing_decision`, `register.py:295` | small talk and error turns have no subject to go deeper into — the existing `_FOLLOW_UPS_RULE` exception, now enforced |
 | `intent != "out_of_scope"` | `user_intent.intent` | an off-topic redirect must not be handed four ways to stay off topic |
 | `not research_truncated` | `register.py:301` | the turn ran out of budget before it ran out of question; offering four more is the wrong invitation, and the reader already gets the truncation note (`ResearchTruncatedNote`) |
-| `not deep_research_job_id` | `register.py:1183` | the chat turn is a stub; the report path is separate (§10) |
+| `not run_id` | `register.py:1183` | the turn only commissioned a run; the report path is separate (§10) |
 | `len(answer) >= 400` and answer is not a canned non-answer | `_REFLECTION_NON_ANSWERS`, `register.py:60-65` | a one-line factual answer has nothing to open up — the `_CARD_RESTRAINT` rule (`catalog.py:169-173`), enforced instead of suggested |
 | the answer does not already end in a question | cheap suffix check | "two questions competing for the same reply is how you get neither" (`catalog.py:137-140`) |
 

@@ -117,11 +117,14 @@ class ConversationState(BaseModel):
     # NOTE: plain types only (str | None) — a new pydantic TYPE would also need
     # registering in the checkpointer serde allowlist (aiq_agent/common/__init__.py).
     org_instructions: str | None = None
-    # Set when a deep-research run is dispatched as an async job. Carried as a
-    # STRUCTURED signal to the frontend (instead of the frontend regex-parsing
-    # the "Deep research job submitted. Job ID: ..." prose) so deep-research
-    # visibility no longer breaks on any wording change.
-    deep_research_job_id: str | None = None
+    # Set when this turn commissioned a run instead of answering itself
+    # (ADR-0062): the ``task_runs`` row and the message that run narrates itself
+    # in, both minted by the BFF before the worker was asked for anything.
+    # Structured, because the frontend scrolls to that message and renders the
+    # block from it — the prose stub and the job id it used to parse are gone,
+    # along with every wording change that could break them.
+    run_id: str | None = None
+    run_message_id: str | None = None
     # The model's own self-assessment of how well the shallow answer is grounded
     # in its sources, parsed from the trailing `[CONFIDENCE:...]` marker and
     # already passed through the deterministic overconfidence guard. Surfaced to
@@ -161,7 +164,7 @@ class ConversationState(BaseModel):
     # All optional/additive: absent means "unknown/not applicable". Lifted onto
     # the terminal ChatResponseChunk (``turn.streaming.STREAM_EXTRA_FIELDS``) and onto
     # the terminal system_response_message (websocket_reconnect), same path as
-    # ``answer_confidence``/``deep_research_job_id``. Never null-spammed.
+    # ``answer_confidence``/``run_id``. Never null-spammed.
     #
     # Which path the turn took, OBSERVED after the answer rather than decided
     # before it: ``meta`` when the agent neither consulted a source nor graded

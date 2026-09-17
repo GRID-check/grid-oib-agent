@@ -969,8 +969,8 @@ request got far enough to look healthy before the route guard refused it.
 `aiq_api/jobs/conversation_output.py` is the other half of the chat-output
 path. When the finished run has a `conversation_id`, `write_job_turn` posts the
 job's prompt as a `user` message and the report as an `agent_response`,
-carrying the cards and `deep_research_job_id` in metadata so the existing "view
-report" affordance lights up for free.
+carrying the cards in metadata. A run with a run message writes its report
+through the run report route instead, onto the block (ADR-0062).
 
 - **Python never touches Postgres.** `grid_app` is single-writer and the BFF
   owns it, so this goes over `POST /api/internal/conversations/{id}/messages`

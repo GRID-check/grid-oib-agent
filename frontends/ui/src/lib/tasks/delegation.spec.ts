@@ -431,6 +431,21 @@ describe('commissionResearchRun — an escalated question becomes a run', () => 
     })
   })
 
+  it('composes what the turn already settled below the question, and keeps it out of the title', async () => {
+    await commissionResearchRun(session, {
+      projectId: PROJECT,
+      conversationId: THREAD,
+      question: QUESTION,
+      context: 'Frage: Welches Geschoss? Antwort: Das Erdgeschoss.',
+    })
+
+    const inserted = vi.mocked(repository.insertRun).mock.calls[0][0]
+    expect(inserted.plan?.prompt).toBe(
+      `${QUESTION}\n\nWas in der Unterhaltung bereits geklärt wurde:\nFrage: Welches Geschoss? Antwort: Das Erdgeschoss.`,
+    )
+    expect(inserted.title).toBe('Gilt für das Atrium in Haus A OIB 2 oder OIB 2.3?')
+  })
+
   it('asks for the same permissions handing over a task asks for', async () => {
     await commissionResearchRun(session, { projectId: PROJECT, conversationId: THREAD, question: QUESTION })
     expect(requireProjectAccess).toHaveBeenCalledWith(session, PROJECT, [

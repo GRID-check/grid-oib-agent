@@ -124,8 +124,9 @@ class TestGate:
         assert decision.run is False
         assert decision.reason == "research_truncated"
 
-    def test_deep_research_stub_skipped(self):
-        assert _gate(deep_research_job_id="job_1").reason == "deep_research_job"
+    def test_a_turn_that_only_commissioned_a_run_is_skipped(self):
+        # The run reflects on its own report, on the worker, once it exists.
+        assert _gate(run_id="run_1").reason == "commissioned_run"
 
     def test_a_project_less_conversation_has_nothing_it_may_write(self):
         assert _gate(project_id=None).reason == "no_project"

@@ -167,7 +167,7 @@ class TestTheDoctrineReachesThePostHocPath:
         What this costs is real and is written down rather than glossed: a
         finished deep-research REPORT now carries no follow-up questions at all,
         because the post-answer stage's gate skips a turn with a
-        `deep_research_job_id` (§7.6). Covering the report path means a stage on
+        `run_id` (§7.6). Covering the report path means a stage on
         the job runner, which is separate work.
         """
         prompt = build_card_generation_prompt()

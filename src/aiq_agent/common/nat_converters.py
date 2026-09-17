@@ -1,7 +1,7 @@
 """Direct NAT type converters that preserve GRID-specific extra fields.
 
 The chat entrypoint attaches Grid ``cards`` (and the structured
-``deep_research_job_id``) as *extra* attributes on the ``ChatResponse`` it
+``run_id``) as *extra* attributes on the ``ChatResponse`` it
 returns (``ChatResponse`` is ``extra="allow"``). NAT's FastAPI worker, however,
 serves the ``CHAT_STREAM`` schema by converting that ``ChatResponse`` into a
 ``ChatResponseChunk`` before it ever reaches the WebSocket envelope.
@@ -9,7 +9,7 @@ serves the ``CHAT_STREAM`` schema by converting that ``ChatResponse`` into a
 NAT ships no *direct* ``ChatResponse -> ChatResponseChunk`` converter, so the
 ``GlobalTypeConverter`` falls back to an **indirect path through ``str``**
 (``ChatResponse -> str -> ChatResponseChunk``). That path keeps only the answer
-text — the ``cards`` / ``deep_research_job_id`` extras are silently dropped, so
+text — the ``cards`` / ``run_id`` extras are silently dropped, so
 the aiq_api WebSocket override (which reads ``data_model.cards``) never sees
 them and the frontend renders no cards.
 
@@ -30,7 +30,7 @@ logger = logging.getLogger(__name__)
 
 # Extra attributes we want to carry from a ChatResponse onto the derived
 # ChatResponseChunk so they survive NAT's CHAT_STREAM serialization.
-_PRESERVED_EXTRA_FIELDS = ("cards", "deep_research_job_id", "answer_confidence", "sources", "answer_meta")
+_PRESERVED_EXTRA_FIELDS = ("cards", "run_id", "run_message_id", "answer_confidence", "sources", "answer_meta")
 
 _registered = False
 
@@ -46,7 +46,7 @@ def _chat_response_to_chunk(data: ChatResponse) -> ChatResponseChunk:
     """Direct ChatResponse -> ChatResponseChunk conversion preserving extras.
 
     Produces the same text-bearing chunk NAT would, then copies any GRID extra
-    fields (``cards``, ``deep_research_job_id``, ``answer_confidence``) across so
+    fields (``cards``, ``run_id``, ``answer_confidence``) across so
     downstream WebSocket serialization can attach them to the response message.
     """
     chunk = ChatResponseChunk.create_streaming_chunk(

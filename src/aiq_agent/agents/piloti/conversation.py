@@ -43,6 +43,8 @@ from aiq_agent.common.turn_status import emit_escalation
 from aiq_agent.knowledge.inventory import set_listing_shelf
 from aiq_agent.knowledge.inventory import shelf_hint_from_query
 from aiq_agent.turn.api_seam import AuthError
+from aiq_agent.turn.commission import CommissionedRun
+from aiq_agent.turn.commission import CommissionRefused
 
 from .clarify import ClarifyFn
 from .history import trim_message_history
@@ -276,7 +278,7 @@ class ConversationGraph:
         clarifier_fn: ClarifyFn | None,
         *,
         max_history_tokens: int = 40000,
-        deep_research_job_submitter: Callable[[ConversationState], Awaitable[str]] | None = None,
+        commission_run_fn: Callable[[ConversationState], Awaitable[CommissionedRun]] | None = None,
         checkpointer: BaseCheckpointSaver | None = None,
         validate_deep_research_tools_fn: Callable[[list[str] | None], tuple[bool, str]] | None = None,
     ) -> None:
@@ -291,7 +293,7 @@ class ConversationGraph:
         self.deep_research_fn = deep_research_fn
         self.clarifier_fn = clarifier_fn
         self.max_history_tokens = max_history_tokens
-        self.deep_research_job_submitter = deep_research_job_submitter
+        self.commission_run_fn = commission_run_fn
         self.checkpointer = checkpointer
         self.validate_deep_research_tools_fn = validate_deep_research_tools_fn
         self._graph = self._build_graph()
@@ -380,24 +382,46 @@ class ConversationGraph:
                 update["already_read_digest"] = list(state.already_read_digest)
         return update
 
-    async def _submit_deep_job(self, state: ConversationState) -> dict[str, Any]:
-        assert self.deep_research_job_submitter is not None
+    async def _commission_run(self, state: ConversationState) -> dict[str, Any]:
+        """Hand the question to a run, and answer with nothing but where it is.
+
+        The turn used to answer „Deep research job submitted. Job ID: …", which
+        was the whole record of the work: a sentence. The run now has a row and
+        a message of its own in this thread (ADR-0062), and THAT message is the
+        narration — so this turn's answer is empty on purpose, and carries the
+        two ids the reader's client needs to show the block that just appeared.
+
+        A refusal never costs the reader their answer: everything except a full
+        queue falls back to running the research in process, which is the same
+        path a deployment with no worker takes. What is lost then is the block,
+        not the work.
+        """
+        assert self.commission_run_fn is not None
         try:
-            job_id = await self.deep_research_job_submitter(state)
+            run = await self.commission_run_fn(state)
         except JobAdmissionError as exc:
             # Queue full: answer with the friendly reason, marked as a
             # rejection notice (not a research answer) with the retry hint.
-            logger.info("Deep research submission refused by admission control: %s", exc)
+            logger.info("Research run refused by admission control: %s", exc)
             return {
                 "messages": [AIMessage(content=str(exc))],
                 "job_admission_rejected": True,
                 "retry_after_seconds": exc.retry_after_seconds,
             }
-        # The job id is a structured channel value so the frontend can open
-        # the research panel without regex-parsing this prose.
+        except CommissionRefused as refusal:
+            if refusal.reason == "busy":
+                logger.info("Research run refused by admission control: %s", refusal)
+                return {
+                    "messages": [AIMessage(content=str(refusal))],
+                    "job_admission_rejected": True,
+                    "retry_after_seconds": refusal.retry_after_seconds,
+                }
+            logger.info("Question could not be commissioned as a run (%s); researching in process", refusal.reason)
+            return await self._run_deep_inline(state)
         return {
-            "messages": [AIMessage(content=f"Deep research job submitted. Job ID: {job_id}")],
-            "deep_research_job_id": job_id,
+            "messages": [AIMessage(content="")],
+            "run_id": run.run_id,
+            "run_message_id": run.run_message_id,
         }
 
     async def _run_deep_inline(self, state: ConversationState) -> dict[str, Any]:
@@ -428,8 +452,8 @@ class ConversationGraph:
         return update
 
     async def _deep_research_node(self, state: ConversationState) -> dict[str, Any]:
-        if self.deep_research_job_submitter is not None:
-            return await self._submit_deep_job(state)
+        if self.commission_run_fn is not None:
+            return await self._commission_run(state)
         return await self._run_deep_inline(state)
 
     @staticmethod

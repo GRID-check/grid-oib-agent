@@ -326,7 +326,13 @@ Delivers final or streaming response text.
   status: "in_progress" | "complete" | "error",
   timestamp: "<ISO 8601>",
   cards?: [...],
-  deep_research_job_id?: string,
+  // The run this turn commissioned instead of answering itself (ADR-0062), and
+  // the message that run narrates itself in. Present together or not at all;
+  // the terminal frame's own content is EMPTY when they are, because the run's
+  // block is the narration. They replace `deep_research_job_id`, which carried
+  // a job id the client had to hang a panel off.
+  run_id?: string,
+  run_message_id?: string,
   answer_confidence?: "low" | "medium" | "high",
   // Optional one-clause justification the model appended to its confidence
   // marker (`[CONFIDENCE:high | <reason>]`), ≤300 chars, shown verbatim in the
@@ -418,7 +424,7 @@ interface RetrievalLedgerEntry {
 - **SystemResponseContent** (`{ text: string | null }`): Standard assistant response.
 - **GenerateResponse** (`{ output: string }`): Shallow/meta response format.
 
-The client extracts content in priority order: `output` → `text` → raw string. The `isFinal` flag is derived from `status === 'complete'`. Every structured extra is optional and fail-open when absent — `cards`, `deep_research_job_id`, `answer_confidence`, `answer_confidence_reason`, `sources`, `read_sources`, plus the transparency extras tabled below.
+The client extracts content in priority order: `output` → `text` → raw string. The `isFinal` flag is derived from `status === 'complete'`. Every structured extra is optional and fail-open when absent — `cards`, `run_id`, `run_message_id`, `answer_confidence`, `answer_confidence_reason`, `sources`, `read_sources`, plus the transparency extras tabled below.
 
 **Transparency extras** (terminal frame; all optional, fail-open per-field):
 

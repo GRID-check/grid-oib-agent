@@ -133,6 +133,45 @@ the database enforces that a `run_id` on a message names a `task_runs` row;
 review is the gate there, and the column is a plain text key on purpose, since
 the row can outlive the run's backend job id.
 
+## Addendum: an escalated question is a run too
+
+When this was first written, a chat question that escalated to deep research
+was the one piece of work that never became a run. The turn submitted the job
+itself, wrote „Deep research job submitted. Job ID: …" into the thread and
+carried the job id on `ConversationState` for the client to hang a panel off.
+That sentence was the entire record: the work could not be listed in Aufträge,
+stopped, filed, named or found again, because no row existed.
+
+It is now commissioned like any other run. The turn calls the BFF
+(`turn/commission.py` → `POST /api/internal/tasks`, `op: "research"`), which
+writes one `task_runs` row with **no definition behind it**, mints the run's
+message in the thread that asked, and submits the job with that run's id. The
+turn's own answer is empty and carries `run_id` / `run_message_id`; the block is
+the narration.
+
+Three decisions worth stating, because each one had an alternative:
+
+* **No definition.** A standing intent is something a person stated and expects
+  again. A question asked in passing is not that, so the row carries no
+  `definition_id` — the column is nullable for exactly this — and the run is its
+  own whole story.
+* **The same gate as handing over a task.** `project:edit` +
+  `project:documents:write`, as one shared constant (`COMMISSION_PERMISSIONS`).
+  Escalating spends the project's budget and adds to its record exactly as a
+  delegation does; a softer second answer here would be a way around the first.
+* **A refusal never costs the reader their answer.** An earlier note here said a
+  question outside a project simply would not escalate. That would have removed
+  deep research from org-level conversations, which no one asked for. Instead
+  every refusal except a full queue falls back to researching IN PROCESS — the
+  path a deployment with no worker already takes. What is lost is the block, not
+  the work. A full queue keeps its "try later" with the retry hint, because
+  starting minutes of work inside the request is the one case where falling back
+  is worse than waiting.
+
+What this deletes: `deep_research_job_id` on the state, on the two lift tables,
+on the websocket frame and in the persisted metadata; and the prose stub the
+client used to parse.
+
 ## More Information
 
 - The contract: `frontends/ui/src/lib/runs/run-ledger-types.ts`; the mirror:

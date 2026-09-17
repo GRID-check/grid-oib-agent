@@ -22,6 +22,17 @@ import { DELEGATABLE_TASK_KINDS } from '@/lib/db/schema'
 export const TASK_GOAL_MAX_CHARS = 500
 
 /**
+ * Bound on the context a commissioned research run is handed.
+ *
+ * A question is one sentence; what the turn already established with the person
+ * — the clarifier's answers, the shelf they named — is not, and losing it would
+ * make the run redo a conversation that already happened. Bounded well under
+ * the submit route's own prompt ceiling, because the question and its context
+ * are composed into ONE prompt.
+ */
+export const RESEARCH_CONTEXT_MAX_CHARS = 8_000
+
+/**
  * `POST /api/internal/tasks` — the ONE machine entry point for delegation.
  *
  * A discriminated union on `op` with two members: `create`, which states a
@@ -83,6 +94,12 @@ export const internalTaskRequestSchema = z.discriminatedUnion('op', [
        * question nobody typed this way would be a run about something else.
        */
       question: z.string().trim().min(1).max(TASK_GOAL_MAX_CHARS),
+      /**
+       * What the turn already established with the person, verbatim — the
+       * clarifier's questions and answers. Composed into the run's prompt
+       * below the question, never into the title.
+       */
+      context: z.string().trim().min(1).max(RESEARCH_CONTEXT_MAX_CHARS).optional(),
     })
     .strict(),
 ])

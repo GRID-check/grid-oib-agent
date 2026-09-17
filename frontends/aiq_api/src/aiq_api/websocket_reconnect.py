@@ -562,9 +562,14 @@ def _chunk_finish_reason(value: Any) -> str | None:
 
 
 # Transparency extras (WP-A) lifted onto the terminal response the same way as
-# answer_confidence / deep_research_job_id. Each is surfaced only when present.
+# answer_confidence. Each is surfaced only when present.
 _TRANSPARENCY_EXTRA_FIELDS = (
     "routing_decision",
+    # The run this turn commissioned instead of answering itself, and the
+    # message that run narrates itself in (ADR-0062). The client finds the block
+    # by them; there is no prose to parse any more.
+    "run_id",
+    "run_message_id",
     "escalation_reason",
     "answer_confidence_capped_reason",
     "answer_confidence_reason",
@@ -828,7 +833,6 @@ async def persist_assistant_message(
     text: str,
     organization_id: str | None,
     cards: Any = None,
-    deep_research_job_id: Any = None,
     answer_confidence: Any = None,
     answer_confidence_reason: Any = None,
     answer_confidence_capped_reason: Any = None,
@@ -866,8 +870,6 @@ async def persist_assistant_message(
     metadata: dict[str, Any] = {}
     if cards:
         metadata["cards"] = cards
-    if deep_research_job_id:
-        metadata["deep_research_job_id"] = deep_research_job_id
     if answer_confidence:
         metadata["answer_confidence"] = answer_confidence
     if answer_confidence_reason:
@@ -1236,15 +1238,6 @@ class ReconnectableWebSocketMessageHandler(WebSocketMessageHandler):
             if cards is None and isinstance(data_model, BaseModel):
                 cards = data_model.model_extra.get("cards") if data_model.model_extra else None
 
-            # Pull the structured deep-research job id (if this turn dispatched an
-            # async job) so the frontend can open the research panel from a real
-            # field instead of regex-parsing the response prose.
-            deep_research_job_id = getattr(data_model, "deep_research_job_id", None)
-            if deep_research_job_id is None and isinstance(data_model, BaseModel):
-                deep_research_job_id = (
-                    data_model.model_extra.get("deep_research_job_id") if data_model.model_extra else None
-                )
-
             # Pull the model's guarded self-assessed answer confidence (present
             # only on grounded chat answers that emitted the marker) so the
             # frontend can render the honest self-assessment chip.
@@ -1298,12 +1291,6 @@ class ReconnectableWebSocketMessageHandler(WebSocketMessageHandler):
                         message.cards = cards
                     except Exception:
                         logger.warning("Could not attach cards to websocket message", exc_info=True)
-                # Attach the structured deep-research job id to the final message.
-                if message_type == WebSocketMessageType.RESPONSE_MESSAGE and deep_research_job_id:
-                    try:
-                        message.deep_research_job_id = deep_research_job_id
-                    except Exception:
-                        logger.warning("Could not attach deep_research_job_id to websocket message", exc_info=True)
                 # Attach the guarded self-assessed answer confidence, if present.
                 if message_type == WebSocketMessageType.RESPONSE_MESSAGE and answer_confidence:
                     try:
@@ -1443,7 +1430,6 @@ class ReconnectableWebSocketMessageHandler(WebSocketMessageHandler):
             content_obj = dump.get("content")
             text = content_obj.get("text") if isinstance(content_obj, dict) else None
             cards = dump.get("cards")
-            deep_research_job_id = dump.get("deep_research_job_id")
             answer_confidence = dump.get("answer_confidence")
             answer_confidence_reason = dump.get("answer_confidence_reason")
             answer_confidence_capped_reason = dump.get("answer_confidence_capped_reason")
@@ -1461,7 +1447,6 @@ class ReconnectableWebSocketMessageHandler(WebSocketMessageHandler):
                 text=text or "",
                 organization_id=_org_id_from_scope(getattr(self._socket, "scope", {}) or {}),
                 cards=cards,
-                deep_research_job_id=deep_research_job_id,
                 answer_confidence=answer_confidence,
                 answer_confidence_reason=answer_confidence_reason,
                 answer_confidence_capped_reason=answer_confidence_capped_reason,

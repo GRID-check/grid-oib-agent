@@ -402,6 +402,12 @@ export interface CommissionResearchInput {
   conversationId: string
   /** The question as the turn restated it for the researcher. It IS the prompt. */
   question: string
+  /**
+   * What the commissioning turn already established with the person — the
+   * clarifier's exchange, verbatim. Composed BELOW the question, so the run
+   * starts where the conversation got to instead of asking it all again.
+   */
+  context?: string | null
 }
 
 /** Where the commissioned run narrates itself, for the turn that commissioned it. */
@@ -459,8 +465,9 @@ export async function commissionResearchRun(
     throw new UnprocessableError(`A question is at most ${TASK_GOAL_MAX_CHARS} characters`)
   }
 
+  const context = input.context?.trim()
   const plan: TaskPlan = {
-    prompt: question,
+    prompt: context ? `${question}\n\n${CONTEXT_HEADING}\n${context}` : question,
     skill: emptySkillSnapshot(),
     dataSources: null,
     goal: question,
@@ -510,6 +517,9 @@ export async function commissionResearchRun(
  * work. The question's own first sentence is that — no rewrite, because a
  * rewritten title is a second account of what was asked.
  */
+/** What the composed prompt calls the block of things already settled. */
+const CONTEXT_HEADING = 'Was in der Unterhaltung bereits geklärt wurde:'
+
 function researchTitle(question: string): string {
   const firstSentence = question.split(/(?<=[.?!])\s/)[0]?.trim() || question
   const shown = firstSentence.length > 0 ? firstSentence : question

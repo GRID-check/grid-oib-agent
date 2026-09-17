@@ -216,11 +216,12 @@ and users curate them on the project page. Itemized rows (`project_memory`) with
 provenance, confidence, and verification; a bounded digest is injected each turn.
 Written only through the internal single-writer API. → `docs/architecture/project-memory-design.md`.
 
-### 5.5 Deep research (async jobs)
-Deep research runs as a **Dask job** on the backend, streamed to the UI over SSE
-(the only surviving SSE path). Progress, thinking, citations, and the final
-report populate a research panel. The turn that dispatches a job returns a
-structured `deep_research_job_id` so the UI opens the panel reliably. These
+### 5.5 Deep research (a commissioned run)
+Deep research runs as a **backend job**, streamed to the UI over SSE (the only
+surviving SSE path). It is commissioned as a RUN: one `task_runs` row and one
+message in the thread that asked, carrying the ledger the run block renders
+(ADR-0062). The turn that commissions it answers with nothing but `run_id` and
+`run_message_id` — the block is the narration, and the report lands on it. These
 backend async jobs are not the BFF `jobs` schedule table — that naming
 collision is unpacked in §5.12.
 
