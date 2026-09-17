@@ -42,8 +42,16 @@
           "key": "features",
           "notes": [
             {
+              "en": "Neue Aufgaben liefern immer einen recherchierten Bericht, abgelegt im Projekt. Die Frage „Chat oder Bericht?“ ist verschwunden — „Chat“ hieß „es bleibt nichts liegen“, und dafür legt niemand eine Aufgabe an. Drei Schritte statt vier, und die Datenquellen stehen beim Auftrag. Bereits angelegte Aufgaben behalten ihre Ergebnisart.",
+              "de": "Neue Aufgaben liefern immer einen recherchierten Bericht, abgelegt im Projekt. Die Frage „Chat oder Bericht?“ ist verschwunden — „Chat“ hieß „es bleibt nichts liegen“, und dafür legt niemand eine Aufgabe an. Drei Schritte statt vier, und die Datenquellen stehen beim Auftrag. Bereits angelegte Aufgaben behalten ihre Ergebnisart."
+            },
+            {
               "en": "In der Aufträge-Liste öffnet ein Klick auf eine Zeile jetzt den Lauf selbst: dieselben Runden, Quellen und Fundstellen wie im Verlauf, statt einer zweiten Beschreibung derselben Zeile. Darunter steht weiterhin das Ergebnis — und daneben neu der Weg in den Verlauf, wo ein laufender Auftrag verfolgt und eine Rückfrage beantwortet wird.",
               "de": "In der Aufträge-Liste öffnet ein Klick auf eine Zeile jetzt den Lauf selbst: dieselben Runden, Quellen und Fundstellen wie im Verlauf, statt einer zweiten Beschreibung derselben Zeile. Darunter steht weiterhin das Ergebnis — und daneben neu der Weg in den Verlauf, wo ein laufender Auftrag verfolgt und eine Rückfrage beantwortet wird."
+            },
+            {
+              "en": "Eine geöffnete Datei steht jetzt in der Adresszeile: Der Link lässt sich kopieren und weitergeben, und der Zurück-Button schließt die Vorschau, statt die Dateiablage zu verlassen.",
+              "de": "Eine geöffnete Datei steht jetzt in der Adresszeile: Der Link lässt sich kopieren und weitergeben, und der Zurück-Button schließt die Vorschau, statt die Dateiablage zu verlassen."
             },
             {
               "en": "Recherchiert Piloti gründlich zu einer Frage, sehen Sie das jetzt als Auftrag im Verlauf: derselbe Block mit Phasen, Runden, Dokumenten und Laufzeit. Er steht auch in der Aufträge-Liste, lässt sich abbrechen, und der Bericht wird abgelegt. Vorher stand dort nur ein Satz.",
@@ -68,6 +76,36 @@
           ]
         },
         {
+          "key": "improvements",
+          "notes": [
+            {
+              "en": "Ein Auftrag führt jetzt in den Verlauf, in dem er läuft. „Fortschritt ansehen\", „Bericht öffnen\" und „Gedankengang ansehen\" öffneten drei verschiedene Ansichten desselben Laufs; es gibt nur noch eine Tür, und dahinter steht der Lauf mit seinem Bericht in dem Chat, aus dem er beauftragt wurde.",
+              "de": "Ein Auftrag führt jetzt in den Verlauf, in dem er läuft. „Fortschritt ansehen\", „Bericht öffnen\" und „Gedankengang ansehen\" öffneten drei verschiedene Ansichten desselben Laufs; es gibt nur noch eine Tür, und dahinter steht der Lauf mit seinem Bericht in dem Chat, aus dem er beauftragt wurde."
+            },
+            {
+              "en": "Ein Lauf, zu dem kein Chat gehört, zeigt seinen Zustand jetzt ohne Link. Bisher gab es dort eine Schaltfläche, die auf eine Seite führte, auf der nichts zu sehen war.",
+              "de": "Ein Lauf, zu dem kein Chat gehört, zeigt seinen Zustand jetzt ohne Link. Bisher gab es dort eine Schaltfläche, die auf eine Seite führte, auf der nichts zu sehen war."
+            }
+          ]
+        },
+        {
+          "key": "fixes",
+          "notes": [
+            {
+              "en": "Ein Klick auf eine Datei öffnet sie — immer. Bisher schloss ein Klick auf die Datei, die gerade offen war, die Vorschau wieder; das tat sonst keine Liste im Produkt. Geschlossen wird über das X, Escape oder den Hintergrund.",
+              "de": "Ein Klick auf eine Datei öffnet sie — immer. Bisher schloss ein Klick auf die Datei, die gerade offen war, die Vorschau wieder; das tat sonst keine Liste im Produkt. Geschlossen wird über das X, Escape oder den Hintergrund."
+            },
+            {
+              "en": "Ein Dokument heißt jetzt überall gleich. „Zitierbar“ stand auf dem Chip und „Zitierfähig“ im Filtermenü daneben — auf demselben Bildschirm, für denselben Zustand. Auch der Zustand dazwischen hatte drei Namen („Wird gelesen“, „Wird verarbeitet“, „In Arbeit“) und heißt jetzt überall „Wird verarbeitet“.",
+              "de": "Ein Dokument heißt jetzt überall gleich. „Zitierbar“ stand auf dem Chip und „Zitierfähig“ im Filtermenü daneben — auf demselben Bildschirm, für denselben Zustand. Auch der Zustand dazwischen hatte drei Namen („Wird gelesen“, „Wird verarbeitet“, „In Arbeit“) und heißt jetzt überall „Wird verarbeitet“."
+            },
+            {
+              "en": "Eine Aufgabe, die nur einmal läuft, trägt jetzt auf ihrer Karte dieselbe Farbe wie ihr Block im Stundenplan. Bisher bekam sie im Raster eine Farbe und auf der Karte keine — und weil die Farbe aus der Reihenfolge kommt, trug danach jede weitere Aufgabe auf der Karte die Farbe einer anderen.",
+              "de": "Eine Aufgabe, die nur einmal läuft, trägt jetzt auf ihrer Karte dieselbe Farbe wie ihr Block im Stundenplan. Bisher bekam sie im Raster eine Farbe und auf der Karte keine — und weil die Farbe aus der Reihenfolge kommt, trug danach jede weitere Aufgabe auf der Karte die Farbe einer anderen."
+            }
+          ]
+        },
+        {
           "key": "upgrade",
           "notes": [
             {
@@ -77,6 +115,10 @@
             {
               "en": "Die Skill-Prüfung ist jetzt ein Schritt: Sie führen sie aus, bevor Sie speichern können. Was sie findet, gewichten Sie selbst — Befunde blockieren das Speichern nicht, und wenn die Prüfung nicht erreichbar ist, können Sie trotzdem speichern.",
               "de": "Die Skill-Prüfung ist jetzt ein Schritt: Sie führen sie aus, bevor Sie speichern können. Was sie findet, gewichten Sie selbst — Befunde blockieren das Speichern nicht, und wenn die Prüfung nicht erreichbar ist, können Sie trotzdem speichern."
+            },
+            {
+              "en": "RIS ist jetzt immer dabei. Die österreichischen Rechtstexte stehen nicht mehr als Häkchen neben den Projektdokumenten, sondern gehören wie diese zu jedem Lauf — ein Auftrag mit abgeschaltetem RIS beantwortet nicht dieselbe Frage schneller, sondern eine andere mit denselben Worten. Wählbar bleibt allein die Websuche. Bestehende Aufträge nehmen RIS beim nächsten Lauf von selbst auf.",
+              "de": "RIS ist jetzt immer dabei. Die österreichischen Rechtstexte stehen nicht mehr als Häkchen neben den Projektdokumenten, sondern gehören wie diese zu jedem Lauf — ein Auftrag mit abgeschaltetem RIS beantwortet nicht dieselbe Frage schneller, sondern eine andere mit denselben Worten. Wählbar bleibt allein die Websuche. Bestehende Aufträge nehmen RIS beim nächsten Lauf von selbst auf."
             },
             {
               "en": "Der Schalter „Agent darf selbst laden\" im Skill-Editor ist entfallen. Welche Skills Piloti in Betracht zieht, entscheidet Piloti — ein Kästchen, das einen Skill aus dieser Auswahl streicht, war die letzte Stelle, an der ein Mensch das vorweggenommen hat. Bereits gespeicherte Skills bleiben unverändert und stehen ab sofort wieder zur Auswahl.",
