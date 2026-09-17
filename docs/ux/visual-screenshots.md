@@ -127,7 +127,7 @@ PNG, JPEG, GIF, WebP, SVG, MP4, MOV and WebM all work.
 | `task fe:screenshots` | `agent-browser screenshot` against a running dev server |
 | `visual/registry.mjs` targets | the `/dev/*` routes themselves; no second list to keep in sync |
 | Committed PNGs under `visual/screenshots/` | attachments on the PR |
-| `visual-coverage` workflow | CI's **Require a capture for user-visible changes**, which reads the PR BODY for the block rather than counting `.png` files in the diff |
+| `visual-coverage` workflow | the **Visual evidence** workflow, which reads the PR BODY for the block rather than counting `.png` files in the diff |
 | `screenshot-preview` workflow and its bot commits | nothing; nobody commits screenshots |
 | `visual/screenshots.manifest.json` staleness gate | nothing. A capture is taken against the branch under review, so it cannot go stale |
 | `task fe:touch-audit` | **nothing.** It imported the registry, so it went with it |
@@ -146,8 +146,10 @@ than this file for command detail; this page is the repo's policy, they are the
 tools' manuals.
 
 CI enforces this. A PR touching `components/`, `features/`, `app/` or a
-stylesheet fails **Require a capture for user-visible changes** unless its body
-carries a non-empty `before-and-after` block. If the change really moves no
+stylesheet fails the **Visual evidence** workflow unless its body carries a
+non-empty `before-and-after` block. That workflow also wakes on a description
+edit, so adding the block clears the check without needing another commit —
+which is the whole reason it is not a step inside `ci.yml`. If the change really moves no
 pixels, say so where the reviewer reads it — the reason is required:
 
 ```

@@ -459,33 +459,6 @@ jobs:
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: python3 ci/require_release_note.py "$BASE_SHA" "$HEAD_SHA"
 
-      # docs/ux/visual-screenshots.md: a change a reader can SEE ships with a
-      # capture of it, attached to this PR. This replaced `visual-coverage`,
-      # which only checked that a .png had appeared in the diff and could be
-      # satisfied by committing an image nobody opened. Nothing is committed
-      # now, so the evidence is read from the PR body, where the reviewer is.
-      #
-      # The body goes through a FILE rather than an env var or an inline
-      # expression: a PR description is attacker-controlled text that routinely
-      # contains quotes, backticks and $(…), and interpolating it into a shell
-      # command is a script injection.
-      #
-      # Two escape hatches, because one of them needs no repository setup: the
-      # `no-visual-evidence` LABEL (skips this step entirely, via the `if`), or
-      # `<!-- no-visual-evidence: why -->` in the PR body, which the script
-      # reads. Both demand a reason — a bare marker does not silence it, the
-      # same rule `visual-coverage` had for `// no-visual`. The label does not
-      # exist yet; create it if you prefer labels to markers.
-      - name: Require a capture for user-visible changes
-        if: github.event_name == 'pull_request' && !contains(github.event.pull_request.labels.*.name, 'no-visual-evidence')
-        env:
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
-          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-          PR_BODY: ${{ github.event.pull_request.body }}
-        run: |
-          printf '%s' "$PR_BODY" > "$RUNNER_TEMP/pr-body.md"
-          python3 ci/require_visual_evidence.py "$BASE_SHA" "$HEAD_SHA" "$RUNNER_TEMP/pr-body.md"
-
   ci-ok:
     name: CI OK
     if: always()
