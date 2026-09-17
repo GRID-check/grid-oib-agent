@@ -1,5 +1,5 @@
 /**
- * The four-step wizard — the rules it was rebuilt to, asserted.
+ * The three-step wizard — the rules it was rebuilt to, asserted.
  *
  * The page this replaced held sixteen controls with no stated order, and the
  * thing that made it hard was not any one field: it was having to hold all of
@@ -8,9 +8,14 @@
  *   - one required answer, on step 1, and it is the request;
  *   - the name proposes itself and is never overwritten;
  *   - everything optional is behind a disclosure, shut;
- *   - step 3 shows REAL fire times, so the cadence is checkable;
+ *   - step 2 shows REAL fire times, so the cadence is checkable;
  *   - going back loses nothing;
- *   - and the payload is composed from the four answers, once, at the end.
+ *   - and the payload is composed from the answers, once, at the end.
+ *
+ * There is no step asking what should come out. A task is always a researched
+ * report filed into the project, so the question had one honest answer and the
+ * other one — „Chat", i.e. leaves no deliverable — was the one thing a standing
+ * task is not for.
  */
 
 import { render, screen, waitFor, within } from '@/test-utils'
@@ -122,14 +127,23 @@ describe('step 1 — one required answer', () => {
 })
 
 describe('progressive disclosure', () => {
-  test('step 2 asks one question; the sources are folded away', async () => {
+  test('step 1 asks one question; the sources are folded away', async () => {
     const { user } = wizard()
     await user.type(screen.getByLabelText(/The request/), 'Brandschutz prüfen')
-    await user.click(next())
-    expect(screen.getByTestId('wizard-output-chat')).toBeInTheDocument()
     expect(screen.queryByText(/always included in every run/i)).not.toBeInTheDocument()
     await user.click(screen.getByTestId('wizard-advanced'))
     expect(screen.getByText(/always included in every run/i)).toBeInTheDocument()
+  })
+
+  // The step that asked it decided two facts under one label — which agent runs
+  // the task, and whether its result is filed — and only one of them was ever a
+  // real choice. Both answers now hold: deep research, filed.
+  test('never asks what should come out of it', async () => {
+    const { user } = wizard()
+    await user.type(screen.getByLabelText(/The request/), 'Brandschutz prüfen')
+    expect(screen.queryByTestId('wizard-output-chat')).not.toBeInTheDocument()
+    await user.click(next())
+    expect(screen.getByTestId('wizard-step-schedule')).toBeInTheDocument()
   })
 
   // A task names a playbook in its PROMPT, with the same `/` the chat composer
@@ -140,27 +154,24 @@ describe('progressive disclosure', () => {
   test('offers no way to attach a skill to the job', async () => {
     const { user } = wizard()
     await user.type(screen.getByLabelText(/The request/), 'Brandschutz prüfen')
-    await user.click(next())
     await user.click(screen.getByTestId('wizard-advanced'))
     expect(screen.queryByText(/Attached skill/)).not.toBeInTheDocument()
     expect(screen.queryByRole('combobox')).not.toBeInTheDocument()
   })
 
-  test('step 3 asks one question; the timezone and the cron are folded away', async () => {
+  test('step 2 asks one question; the timezone and the cron are folded away', async () => {
     const { user } = wizard()
     await user.type(screen.getByLabelText(/The request/), 'Brandschutz prüfen')
-    await user.click(next())
     await user.click(next())
     expect(screen.getByTestId('wizard-frequency-weekly')).toBeInTheDocument()
     expect(screen.queryByLabelText(/Cron expression/)).not.toBeInTheDocument()
   })
 })
 
-describe('step 3 — the cadence, made checkable', () => {
+describe('step 2 — the cadence, made checkable', () => {
   async function toSchedule() {
     const harness = wizard()
     await harness.user.type(screen.getByLabelText(/The request/), 'Brandschutz prüfen')
-    await harness.user.click(next())
     await harness.user.click(next())
     return harness
   }
@@ -216,10 +227,9 @@ describe('step 3 — the cadence, made checkable', () => {
   })
 })
 
-describe('step 4 — what will happen, then one button', () => {
+describe('step 3 — what will happen, then one button', () => {
   async function toReview(user: ReturnType<typeof userEvent.setup>) {
     await user.type(screen.getByLabelText(/The request/), 'Brandschutz prüfen')
-    await user.click(next())
     await user.click(next())
     await user.click(next())
   }
@@ -227,11 +237,15 @@ describe('step 4 — what will happen, then one button', () => {
   test('states the commitment as a sentence before anything is saved', async () => {
     const { user } = wizard()
     await toReview(user)
-    expect(screen.getByTestId('wizard-review-sentence')).toHaveTextContent(/Piloti produces/)
+    // The noun is part of the sentence now, not a slot filled from a choice:
+    // there is only ever one thing a task produces.
+    expect(screen.getByTestId('wizard-review-sentence')).toHaveTextContent(
+      /Piloti researches a report .* and files it in the project/,
+    )
     expect(createJob).not.toHaveBeenCalled()
   })
 
-  test('composes the payload from the four answers, once', async () => {
+  test('composes the payload from the answers, once', async () => {
     const { user, onSaved } = wizard()
     await toReview(user)
     await user.click(screen.getByRole('button', { name: /Create task/ }))
@@ -241,7 +255,6 @@ describe('step 4 — what will happen, then one button', () => {
       expect.objectContaining({
         name: 'Brandschutz prüfen',
         prompt: 'Brandschutz prüfen',
-        output: 'chat',
         // The default cadence, composed rather than typed: weekly, Monday 06:00.
         scheduleCron: '0 6 * * 1',
         // Explicit null is what DETACHES on a PATCH — never omitted.
@@ -255,7 +268,6 @@ describe('step 4 — what will happen, then one button', () => {
   test('sends the due date and no cron when the task runs once', async () => {
     const { user } = wizard()
     await user.type(screen.getByLabelText(/The request/), 'Brandschutz prüfen')
-    await user.click(next())
     await user.click(next())
     await user.click(screen.getByTestId('cadence-once'))
     await user.click(next())
@@ -310,7 +322,6 @@ describe('the rail', () => {
     const { user } = wizard()
     await user.type(screen.getByLabelText(/The request/), 'Brandschutz prüfen')
     await user.click(next())
-    await user.click(next())
     // Numbered: a circle in a rail has to say WHERE in the sequence it is, and
     // a step named after the field it holds is otherwise indistinguishable
     // from that field's own label to anything querying by accessible name.
@@ -320,7 +331,7 @@ describe('the rail', () => {
 
   test('does NOT offer a jump past a question nobody has answered', () => {
     wizard()
-    expect(screen.getByRole('button', { name: '4. Review' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: '3. Review' })).toBeDisabled()
   })
 
   test('Back on the first step is the only place leaving costs anything', async () => {

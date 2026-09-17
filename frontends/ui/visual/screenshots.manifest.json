@@ -1398,7 +1398,7 @@
     },
     "schedule-wizard": {
       "route": "src/app/dev/schedule-wizard/page.tsx",
-      "routeHash": "706c12046eb6e04d980654ac6fb5dc91537d32cfa9fe93a19e55e7d3e3b263b3",
+      "routeHash": "5921a8855792bce8715736541abc05f89a1b2fdad09e683e8131ffde3d9e2436",
       "shots": [
         "schedule-wizard.light.png",
         "schedule-wizard.dark.png",
@@ -1408,7 +1408,7 @@
     },
     "schedule-wizard-timing": {
       "route": "src/app/dev/schedule-wizard/page.tsx",
-      "routeHash": "706c12046eb6e04d980654ac6fb5dc91537d32cfa9fe93a19e55e7d3e3b263b3",
+      "routeHash": "5921a8855792bce8715736541abc05f89a1b2fdad09e683e8131ffde3d9e2436",
       "shots": [
         "schedule-wizard-timing.light.png",
         "schedule-wizard-timing.dark.png"

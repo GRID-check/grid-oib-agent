@@ -7,9 +7,8 @@
  * always called same-origin and return the camelCase JSON envelope the BFF
  * service layer produces.
  *
- * A **job is a prompt on a timer**: `prompt` is what it is, `output` is what a
- * run produces, and a skill MAY be attached on top — exactly as typing `/name`
- * before the message would attach it. The server owns validation (cron /
+ * A **job is a prompt on a timer**, and what it produces is always the same: a
+ * researched report, filed into the project. The server owns validation (cron /
  * min-interval, prompt length, name rules) and snapshot semantics; this client
  * only transports the documented shapes and surfaces the BFF error envelope
  * (`{ error, code }`).
@@ -99,7 +98,8 @@ export interface RunJobResult {
 export interface CreateJobInput {
   name: string
   prompt: string
-  output: JobOutput
+  // No `output`. A standing task is always a research run that files a report;
+  // the wire stopped carrying the choice with the wizard step that asked it.
   /** Omit (or null) for a job with no skill attached. */
   skillName?: string | null
   dataSources?: string[] | null

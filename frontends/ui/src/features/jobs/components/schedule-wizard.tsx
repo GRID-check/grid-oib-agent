@@ -1,7 +1,7 @@
 'use client'
 
 /**
- * The schedule wizard — four steps, one decision each.
+ * The schedule wizard — three steps, one decision each.
  *
  * What this replaced was one page holding six stacked cards: name, prompt,
  * output, data sources, cron, timezone, two switches, and a live preview
@@ -14,8 +14,8 @@
  * The rules this is built to, in the order they mattered:
  *
  *   1. **One required decision per step.** Step 1 asks what Piloti should do.
- *      Step 2 asks what should come out. Step 3 asks when. Step 4 asks nothing
- *      and shows what will happen. Nothing else is required anywhere.
+ *      Step 2 asks when. Step 3 asks nothing and shows what will happen.
+ *      Nothing else is required anywhere.
  *   2. **Everything optional is folded away.** The data sources, the
  *      timezone and the raw cron field live behind one "Erweitert" disclosure
  *      per step, shut by default. They are not hidden because they do not
@@ -24,10 +24,10 @@
  *      every reader the moment it takes to rule it out.
  *   3. **The form arrives half-answered.** The name proposes itself from the
  *      first line of the prompt, the timezone is the browser's, the schedule
- *      starts at weekly-Monday-06:00, the output at Chat. Endowed progress: a
+ *      starts at weekly-Monday-06:00. Endowed progress: a
  *      form that starts empty is a form you start; one that starts answered is
  *      one you finish.
- *   4. **The claim is made checkable.** Step 3 shows the next three real fire
+ *   4. **The claim is made checkable.** Step 2 shows the next three real fire
  *      times, computed by the library the scheduler itself advances rows with.
  *      A cron expression — or the sentence built from one — is something nobody
  *      can verify by reading it.
@@ -53,9 +53,7 @@ import {
   ChevronDown,
   FileText,
   Lock,
-  MessageSquare,
   Play,
-  ScrollText,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { z } from 'zod'
@@ -90,7 +88,6 @@ import {
   JobApiError,
   type CreateJobInput,
   type Job,
-  type JobOutput,
 } from '@/adapters/api/jobs-client'
 import { SkillPromptField } from '@/features/skills/components/SkillPromptField'
 import { capturePosthog } from '@/lib/analytics/posthog'
@@ -126,13 +123,20 @@ import type { ScheduleDraft } from '../lib/schedule-draft'
  */
 const ALWAYS_ON_IDS: readonly string[] = ['knowledge_layer', 'ris']
 
-/** The two output kinds, in the order they are offered. */
-const JOB_OUTPUTS: readonly JobOutput[] = ['chat', 'deep-research']
-
-const STEP_KEYS = ['task', 'output', 'schedule', 'review'] as const
+/**
+ * Three questions, not four.
+ *
+ * „Was soll dabei herauskommen? Chat oder Bericht?" used to be step 2. Since
+ * ADR-0062 both land in a thread, so the only difference the choice still
+ * carried was whether anything was FILED — and a standing task whose result is
+ * not a deliverable is a standing task nobody reads. It is always a research
+ * run that files a report; the data sources it used to hide moved up to the
+ * step that states the work.
+ */
+const STEP_KEYS = ['task', 'schedule', 'review'] as const
 type StepKey = (typeof STEP_KEYS)[number]
 
-/** How many upcoming fire times step 3 proves the schedule with. */
+/** How many upcoming fire times step 2 proves the schedule with. */
 const PREVIEW_COUNT = 3
 
 /** Longest name the wizard will propose from a prompt's first line. */
@@ -186,7 +190,6 @@ export function ScheduleWizard({
   const [furthest, setFurthest] = useState(0)
 
   // --- What comes out, and everything that follows from it -----------------
-  const [output, setOutput] = useState<JobOutput>(job?.output ?? 'chat')
   // --- Sources --------------------------------------------------------------
   const [sources, setSources] = useState<DataSourceFromAPI[] | null>(null)
   const [sourcesError, setSourcesError] = useState(false)
@@ -338,7 +341,6 @@ export function ScheduleWizard({
       const payload: CreateJobInput = {
         name: value.name.trim(),
         prompt: value.prompt.trim(),
-        output,
         // Always null. A task names a skill IN ITS PROMPT (`/name`, the chat
         // gesture), which the model reads and decides on. Explicit rather than
         // omitted because on PATCH that is what DETACHES a skill a previous
@@ -360,7 +362,6 @@ export function ScheduleWizard({
         // another inherits its measurements, or the series breaks at the
         // rewrite and nobody can tell whether the new flow does better.
         const analytics = {
-          output,
           additional_source_count: selectedSources.size,
           // Kept as it was named when the step was a switch, so the series
           // does not break at the rewrite: "is this task on a timer at all".
@@ -434,11 +435,6 @@ export function ScheduleWizard({
       else next.delete(id)
       return next
     })
-  }
-
-  const changeOutput = (next: JobOutput): void => {
-    if (next === output) return
-    setOutput(next)
   }
 
   return (
@@ -527,18 +523,73 @@ export function ScheduleWizard({
                 </form.AppField>
               )}
             </form.Subscribe>
-          </section>
-        )}
 
-        {step === 'output' && (
-          <OutputStep
-            output={output}
-            onOutputChange={changeOutput}
-            sources={additionalSources}
-            sourcesError={sourcesError}
-            selectedSources={selectedSources}
-            onToggleSource={toggleSource}
-          />
+            <Advanced
+              label={t('builder.advancedSources')}
+              summary={
+                selectedSources.size > 0
+                  ? t('builder.sourcesSummary', { count: selectedSources.size })
+                  : null
+              }
+            >
+              {/* No skill picker: a task that should run a playbook NAMES it in
+            the prompt above, with the same `/` a chat message uses. */}
+              <div>
+          {/* The knowledge layer is server-guaranteed on every run, so it is a
+              pinned row and never a checkbox — an unchecked box you cannot
+              uncheck is a lie about who is in control. */}
+          <div className="border-border bg-muted flex items-start gap-2.5 rounded-lg border px-2.5 py-2">
+            <Lock className="text-muted-foreground mt-0.5 size-4 shrink-0" aria-hidden />
+            <span className="text-foreground text-sm">{t('builder.knowledgeAlways')}</span>
+          </div>
+
+          <Field className="mt-3">
+            <FieldLabel>{t('builder.additionalSourcesLabel')}</FieldLabel>
+            <FieldDescription>{t('builder.sourcesHint')}</FieldDescription>
+          </Field>
+
+          {additionalSources === null && !sourcesError && (
+            <p className="text-muted-foreground flex min-h-9 items-center text-sm">
+              {t('builder.sourcesLoading')}
+            </p>
+          )}
+          {sourcesError && (
+            <p className="text-muted-foreground flex min-h-9 items-center text-sm">
+              {t('builder.sourcesError')}
+            </p>
+          )}
+          {additionalSources !== null && additionalSources.length > 0 && (
+            <div className="mt-2 space-y-2">
+              {additionalSources.map((source) => (
+                <Field
+                  key={source.id}
+                  orientation="horizontal"
+                  className="hover:border-border justify-start rounded-lg border border-transparent px-1 py-1.5 transition-colors duration-snap ease-out"
+                >
+                  <Checkbox
+                    id={`schedule-source-${source.id}`}
+                    checked={selectedSources.has(source.id)}
+                    onCheckedChange={(value) => toggleSource(source.id, value === true)}
+                    className="mt-0.5"
+                  />
+                  <div className="flex flex-col gap-0.5">
+                    <FieldLabel htmlFor={`schedule-source-${source.id}`} className="font-medium">
+                      {source.name}
+                    </FieldLabel>
+                    {source.description && (
+                      <FieldDescription>{source.description}</FieldDescription>
+                    )}
+                  </div>
+                </Field>
+              ))}
+              {selectedSources.size === 0 && (
+                <FieldDescription>{t('builder.sourcesAll')}</FieldDescription>
+              )}
+            </div>
+          )}
+        </div>
+            </Advanced>
+          </section>
         )}
 
         {step === 'schedule' && (
@@ -587,7 +638,6 @@ export function ScheduleWizard({
             {(values) => (
               <ReviewStep
                 values={values}
-                output={output}
                 sourceCount={selectedSources.size}
                 cadence={cadence}
                 effectiveCron={effectiveCron}
@@ -735,168 +785,6 @@ function WizardNav({
   )
 }
 
-/** Step 2 — what should come out. Two choices; everything else is folded away. */
-function OutputStep({
-  output,
-  onOutputChange,
-  sources,
-  sourcesError,
-  selectedSources,
-  onToggleSource,
-}: {
-  output: JobOutput
-  onOutputChange: (next: JobOutput) => void
-  sources: DataSourceFromAPI[] | null
-  sourcesError: boolean
-  selectedSources: Set<string>
-  onToggleSource: (id: string, checked: boolean) => void
-}): JSX.Element {
-  const t = useTranslations('jobs')
-  const outputLabel = (kind: JobOutput): string =>
-    kind === 'chat' ? t('builder.output.chatLabel') : t('builder.output.deepResearchLabel')
-
-  // What the folded section already holds, so nobody has to open it to find
-  // out whether they set something in there.
-  const advancedSummary = [
-    selectedSources.size > 0
-      ? t('builder.sourcesSummary', { count: selectedSources.size })
-      : null,
-  ]
-    .filter((part): part is string => part !== null)
-    .join(' · ')
-
-  return (
-    <section data-testid="wizard-step-output">
-      <StepHeading title={t('builder.steps.outputTitle')} hint={t('builder.steps.outputHint')} />
-
-      {/* Two cards rather than a select: the choice decides which agent runs
-          the schedule, and "Chat" and "Deep Research" mean nothing on their own
-          to somebody setting up their first one. The sentence is the control. */}
-      <div role="radiogroup" aria-label={t('builder.outputLabel')} className="grid gap-3 sm:grid-cols-2">
-        {JOB_OUTPUTS.map((kind) => {
-          const active = output === kind
-          const Icon = kind === 'chat' ? MessageSquare : ScrollText
-          return (
-            <button
-              key={kind}
-              type="button"
-              role="radio"
-              aria-checked={active}
-              onClick={() => onOutputChange(kind)}
-              data-testid={`wizard-output-${kind}`}
-              className={cn(
-                'focus-visible:ring-ring/60 flex flex-col items-start gap-2 rounded-xl border p-4 text-left',
-                'transition-colors duration-snap ease-out focus-visible:outline-none focus-visible:ring-2 motion-reduce:transition-none',
-                active
-                  ? 'border-primary bg-primary/5 ring-primary/15 ring-2'
-                  : 'border-border hover:border-foreground/30',
-              )}
-            >
-              <span
-                className={cn(
-                  'flex size-9 items-center justify-center rounded-lg',
-                  active ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground',
-                )}
-              >
-                <Icon className="size-4.5" aria-hidden />
-              </span>
-              <span className="text-foreground text-sm font-semibold">{outputLabel(kind)}</span>
-              <span className="text-muted-foreground text-sm leading-relaxed">
-                {kind === 'chat'
-                  ? t('builder.output.chatHint')
-                  : t('builder.output.deepResearchHint')}
-              </span>
-            </button>
-          )
-        })}
-      </div>
-
-      <Advanced label={t('builder.advancedOutput')} summary={advancedSummary || null}>
-        {/* No skill picker. A task that should run a playbook names it in its
-            PROMPT — the `/` menu on the first step, the same gesture and the
-            same mechanism as a chat message. The `<Select>` that used to sit
-            here attached one skill, or none, and `buildFirePrompt` then pasted
-            its whole body in front of the model: the last place in the product
-            where a person's choice, not the model's, decided that a skill ran.
-            ADR-0060 says nothing may do that, "not the request, not the
-            deployment, not a job", and the doc already claimed jobs did not —
-            this control was the code disagreeing with it. */}
-
-        <div>
-          {/* The knowledge layer is server-guaranteed on every run, so it is a
-              pinned row and never a checkbox — an unchecked box you cannot
-              uncheck is a lie about who is in control. */}
-          <div className="border-border bg-muted flex items-start gap-2.5 rounded-lg border px-2.5 py-2">
-            <Lock className="text-muted-foreground mt-0.5 size-4 shrink-0" aria-hidden />
-            <span className="text-foreground text-sm">{t('builder.knowledgeAlways')}</span>
-          </div>
-
-          <Field className="mt-3">
-            <FieldLabel>{t('builder.additionalSourcesLabel')}</FieldLabel>
-            <FieldDescription>{t('builder.sourcesHint')}</FieldDescription>
-          </Field>
-
-          {sources === null && !sourcesError && (
-            <p className="text-muted-foreground flex min-h-9 items-center text-sm">
-              {t('builder.sourcesLoading')}
-            </p>
-          )}
-          {sourcesError && (
-            <p className="text-muted-foreground flex min-h-9 items-center text-sm">
-              {t('builder.sourcesError')}
-            </p>
-          )}
-          {sources !== null && sources.length > 0 && (
-            <div className="mt-2 space-y-2">
-              {sources.map((source) => (
-                <Field
-                  key={source.id}
-                  orientation="horizontal"
-                  className="hover:border-border justify-start rounded-lg border border-transparent px-1 py-1.5 transition-colors duration-snap ease-out"
-                >
-                  <Checkbox
-                    id={`schedule-source-${source.id}`}
-                    checked={selectedSources.has(source.id)}
-                    onCheckedChange={(value) => onToggleSource(source.id, value === true)}
-                    className="mt-0.5"
-                  />
-                  <div className="flex flex-col gap-0.5">
-                    <FieldLabel htmlFor={`schedule-source-${source.id}`} className="font-medium">
-                      {source.name}
-                    </FieldLabel>
-                    {source.description && (
-                      <FieldDescription>{source.description}</FieldDescription>
-                    )}
-                  </div>
-                </Field>
-              ))}
-              {selectedSources.size === 0 && (
-                <FieldDescription>{t('builder.sourcesAll')}</FieldDescription>
-              )}
-            </div>
-          )}
-        </div>
-      </Advanced>
-    </section>
-  )
-}
-
-/**
- * Step 3 — when. One choice of three, then whatever that choice needs.
- *
- * The three are asked as chips rather than a switch because they are not two
- * things and an absence: "once, on Friday" is the shape a planning office asks
- * for most often, and while the question was "run on a schedule: yes/no" it was
- * the one shape that could not be said. Recurring leads because it is what this
- * section is mostly for.
- *
- * The preview underneath is the reason this step is worth a page of its own. A
- * schedule is the one thing in the section a person cannot check by looking at
- * it: „Monatlich am 1. um 06:00" is true until the month it is not, and
- * `0 6 1 * *` is true to nobody. Real dates, from the library the scheduler
- * itself advances rows with, turn the setting into something a reader can
- * confirm before they commit to it.
- */
 function ScheduleStep({
   cadence,
   onCadenceChange,
@@ -1310,7 +1198,6 @@ function UpcomingRuns({
  */
 function ReviewStep({
   values,
-  output,
   sourceCount,
   cadence,
   effectiveCron,
@@ -1321,7 +1208,6 @@ function ReviewStep({
   locale,
 }: {
   values: WizardValues
-  output: JobOutput
   sourceCount: number
   cadence: Cadence
   effectiveCron: string | null
@@ -1340,7 +1226,6 @@ function ReviewStep({
   // prompt, and that is now the honest answer rather than a stale one.
   const compiled = values.prompt.trim()
 
-  const outputNoun = t(`builder.output.${output === 'chat' ? 'chatNoun' : 'deepResearchNoun'}`)
   const rhythm = scheduleSummary(t, effectiveCron, timezone, locale, { withTimezone: false })
   const dueAtText = effectiveDueAt ? formatAbsoluteTime(effectiveDueAt.toISOString(), locale) : ''
 
@@ -1349,13 +1234,10 @@ function ReviewStep({
   // interpolating a cadence into a single frame produces neither.
   const summary =
     cadence === 'recurring'
-      ? t('builder.reviewSentence', {
-          cadence: rhythm.toLocaleLowerCase(locale),
-          output: outputNoun,
-        })
+      ? t('builder.reviewSentence', { cadence: rhythm.toLocaleLowerCase(locale) })
       : cadence === 'once'
-        ? t('builder.reviewSentenceOnce', { dueAt: dueAtText, output: outputNoun })
-        : t('builder.reviewSentenceManual', { output: outputNoun })
+        ? t('builder.reviewSentenceOnce', { dueAt: dueAtText })
+        : t('builder.reviewSentenceManual')
 
   const whenValue =
     cadence === 'recurring'
@@ -1375,7 +1257,6 @@ function ReviewStep({
       <dl className="border-border mt-4 divide-y rounded-lg border">
         <ReviewRow label={t('builder.nameLabel')} value={values.name.trim()} />
         <ReviewRow label={t('builder.scheduleSection')} value={whenValue} />
-        <ReviewRow label={t('builder.outputSection')} value={t(`list.output.${output}`)} />
         <ReviewRow
           label={t('builder.sourcesSection')}
           value={

@@ -179,7 +179,9 @@ export const createJobSchema = z
     name: jobNameSchema,
     prompt: jobPromptSchema,
     skillName: attachedSkillNameSchema,
-    output: jobOutputSchema,
+    // No `output`. A standing task is always a research run that files a
+    // report: „Chat" meant „leaves no deliverable", which is the one thing a
+    // task is for. See `createJob`.
     dataSources: dataSourcesSchema.nullish(),
     enabled: z.boolean().optional(),
     scheduleCron: z.string().trim().min(1).nullish(),
@@ -195,7 +197,6 @@ export const patchJobSchema = z
     name: jobNameSchema.optional(),
     prompt: jobPromptSchema.optional(),
     skillName: attachedSkillNameSchema,
-    output: jobOutputSchema.optional(),
     dataSources: dataSourcesSchema.nullish(),
     enabled: z.boolean().optional(),
     scheduleCron: z.string().trim().min(1).nullish(),

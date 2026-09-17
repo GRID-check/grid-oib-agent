@@ -639,9 +639,14 @@ way.
   origin}` copied at save time, so a run is a deterministic WYSIWYG copy that
   cannot drift when the skill is later edited — the workflows "compiled prompt"
   contract, mirrored as JSONB
-- `output` text NOT NULL — `chat` | `deep-research`, the **user's** choice on
-  the job; it picks the agent and decides whether the finished run becomes a
-  conversation or a report. Was `execution`, denormalized from the skill's
+- `output` text NOT NULL — `chat` | `deep-research`. It picks the agent and
+  decides whether the finished run becomes a conversation or a report. It was
+  the user's choice on the job; **nothing asks any more** — the wizard's step
+  „Was soll dabei herauskommen?" is gone and every job created since is
+  `deep-research`, because a standing task whose result is not a deliverable is
+  a standing task nobody reads. Rows written before that keep their value and
+  keep firing as what they are, which is why the column is still here and still
+  read at fire time. Was `execution`, denormalized from the skill's
   `grid-execution` metadata; same domain, same effect at fire time, only the
   source of the value moved
 - `data_sources` jsonb — `string[] | null`. User-selected entries are
@@ -769,8 +774,8 @@ Project jobs (`…/api/projects/[id]/jobs/…`, read = `project:view`, mutate/ru
 - `GET`/`POST /api/projects/{id}/jobs` — list / create. `prompt` is required
   (1–8000 chars); `skillName` is optional — when given it is resolved (org row
   first, builtin fallback; unknown name → 404) and snapshotted, and name +
-  snapshot are always written as a pair. `output` is a plain enum on the
-  request, not something derived from the skill. Validates the cron (5-field,
+  snapshot are always written as a pair. The request carries no `output`: the
+  service writes `deep-research` for every job it creates. Validates the cron (5-field,
   IANA timezone, minimum interval) and computes `next_run_at`. There is no
   longer any veto from the attached skill: whether something may run on a timer
   is a property of the job.

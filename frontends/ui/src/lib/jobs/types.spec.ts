@@ -12,7 +12,7 @@ import {
   RIS_SOURCE_ID,
 } from './types'
 
-const base = { name: 'Weekly run', prompt: 'Fasse die Woche zusammen.', output: 'chat' as const }
+const base = { name: 'Weekly run', prompt: 'Fasse die Woche zusammen.' as const }
 
 describe('createJobSchema', () => {
   it('accepts a plain prompt with no skill — a job need not have one', () => {
@@ -31,10 +31,13 @@ describe('createJobSchema', () => {
     ).toThrow()
   })
 
-  it('requires a valid output kind and rejects anything else', () => {
-    expect(createJobSchema.parse({ ...base, output: 'deep-research' }).output).toBe('deep-research')
-    expect(() => createJobSchema.parse({ ...base, output: 'deep_research' })).toThrow()
-    expect(() => createJobSchema.parse({ ...base, output: undefined })).toThrow()
+  // A standing task is always a research run that files a report, so there is
+  // no output to state. „Chat" meant „leaves no deliverable", which is the one
+  // thing a standing task is for; an older `chat` definition keeps its kind and
+  // keeps firing as one, but nothing new is created that way.
+  it('takes no output kind — the wire no longer carries one', () => {
+    expect(createJobSchema.parse({ ...base })).not.toHaveProperty('output')
+    expect(createJobSchema.parse({ ...base, output: 'chat' })).not.toHaveProperty('output')
   })
 
   it('accepts an attached skill name, or an explicit null for none', () => {

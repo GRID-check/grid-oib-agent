@@ -330,7 +330,12 @@ export async function createJob(
   const definition = await repository.insertDefinition({
     projectId,
     organizationId: session.organizationId,
-    kind: input.output,
+    // Always a research run. The wizard used to ask „Chat oder Bericht?", but
+    // since ADR-0062 both land in a thread and the only surviving difference
+    // was whether anything was FILED — and a standing task whose result is not
+    // a deliverable is a standing task nobody reads. An older `chat` definition
+    // keeps its kind and keeps firing as one; nothing new is created that way.
+    kind: 'deep-research',
     title: input.name,
     plan: {
       prompt: input.prompt,
