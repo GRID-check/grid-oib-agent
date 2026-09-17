@@ -1,0 +1,70 @@
+# Visual evidence — a change a reader can SEE ships with a capture of it,
+# attached to the pull request (docs/ux/visual-screenshots.md).
+#
+# This replaced `visual-coverage`, which asked whether a NEW .png had appeared
+# in the diff. That was satisfiable by committing an image nobody opened, and it
+# is unsatisfiable now that nothing is committed: the evidence lives in the PR
+# BODY, as the block `before-and-after` writes there.
+#
+# WHY THIS IS ITS OWN WORKFLOW AND NOT A STEP IN ci.yml — `edited`.
+# `before-and-after` writes the block to the PR description AFTER the code is
+# pushed, so the body changes with no new commit. `pull_request` defaults to
+# `opened, synchronize, reopened`, none of which fire on a description edit, and
+# ci.yml takes those defaults. A gate reading the body from inside ci.yml would
+# therefore go red on the push, stay red while the author added exactly the
+# evidence it asked for, and only clear on some later unrelated push — with an
+# empty commit as the obvious workaround, which the contributing rules forbid.
+# Listening for `edited` in ci.yml instead would re-run six test shards and
+# three image builds every time somebody fixed a typo in a description.
+#
+# So: one small job, in its own file, that also wakes on `edited`.
+
+name: Visual evidence
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, edited]
+    paths:
+      - 'frontends/ui/src/components/**'
+      - 'frontends/ui/src/features/**'
+      - 'frontends/ui/src/app/**'
+      - 'frontends/ui/src/styles/**'
+      - 'frontends/ui/src/**/*.css'
+      - 'ci/require_visual_evidence.py'
+
+concurrency:
+  group: visual-evidence-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: Require a capture for user-visible changes
+    runs-on: ubuntu-latest
+    # Escape hatch one of two: the label skips the job outright. The other is
+    # `<!-- no-visual-evidence: why -->` in the body, which the script reads —
+    # it needs no repository setup, and it records the reason where a reviewer
+    # sees it. Both demand a reason; a bare marker does not silence the check,
+    # which was `visual-coverage`'s rule for `// no-visual` too.
+    if: ${{ !contains(github.event.pull_request.labels.*.name, 'no-visual-evidence') }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # The check diffs against the merge base, so the base branch has to be
+          # here. A shallow-by-default checkout has neither side.
+          fetch-depth: 0
+
+      - name: Require a capture for user-visible changes
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_BODY: ${{ github.event.pull_request.body }}
+        # The body goes through a FILE rather than an inline expression: a PR
+        # description is attacker-controlled text that routinely contains
+        # quotes, backticks and $(…), and interpolating it into a shell command
+        # is a script injection.
+        run: |
+          printf '%s' "$PR_BODY" > "$RUNNER_TEMP/pr-body.md"
+          python3 ci/require_visual_evidence.py "$BASE_SHA" "$HEAD_SHA" "$RUNNER_TEMP/pr-body.md"
