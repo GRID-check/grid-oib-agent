@@ -37,6 +37,37 @@ frontend into `ImagePullBackOff`.
 - [ ] Confirm **CI OK** and **Security OK** are green on that same sha. Nothing
       re-checks them on a `prod` push — `ci.yml` does not run there.
 
+## 1b. Prove the prod deploy can still authenticate
+
+**This is what broke the 2026-09-17 promotion.** Every gate ahead of the apply —
+typecheck, `validate-crs.mjs`, the CrossGuard policy pack — builds its plan from
+stack config and never touches the cluster, so all three pass against a dead
+credential and the failure lands *after* the merge, at `pulumi up`:
+
+```
+error: configured Kubernetes cluster is unreachable: unable to load schema
+information from the API server: the server has asked for the client to
+provide credentials
+```
+
+That is a 401, not a network problem. The kubeconfig in the `grid-oib/prod` ESC
+environment was a Control-Center token, and those expire within two weeks
+([`kubernetes.md`](kubernetes.md) §2b). Prod deploys at promotion cadence, so
+the credential is dead more often than it is alive.
+
+- [ ] Open the stored kubeconfig and use it once before you merge —
+      `esc env open matthiasbigl/grid-oib/prod` for
+      `pulumiConfig.grid-oib:kubeconfig`, then `kubectl get ns` with it. A 401
+      here costs you a minute; a 401 after the merge leaves `prod` carrying a
+      promotion it has not deployed.
+- [ ] If it fails, mint the **non-expiring ServiceAccount token** from
+      `kubernetes.md` §2b and `esc env set … --secret` it. Do not re-download a
+      Control-Center kubeconfig: that is the same failure with a two-week fuse.
+- [ ] Check the stack has no **pending operations** from an interrupted update.
+      They surface as `Attempting to deploy or update resources with N pending
+      operations from previous deployment`, and a pending CREATE can only be
+      cleared by an **interactive** `pulumi refresh` — CI cannot do it.
+
 ## 2. Preflight the production database
 
 Six of the 28 migrations `RAISE EXCEPTION` rather than guess. Three of those
@@ -225,3 +256,7 @@ index rebuild) scale worse than linearly.
       `prod`, because the pin is bumped on the prod branch and never merged
       back. Either merge `prod` into `develop` after a promotion, or stop
       keeping a live value in a file only the other branch edits.
+- [ ] Nothing watches the prod kubeconfig's lifetime, and the first thing that
+      notices is a failed apply on an already-merged promotion. A non-expiring
+      ServiceAccount token removes the clock; until prod has one, §1b is the
+      check standing in for it.
