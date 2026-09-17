@@ -387,3 +387,28 @@ describe('RunBlock — stopping a run', () => {
     expect(screen.getAllByTestId('run-action-cancel').length).toBeGreaterThan(0)
   })
 })
+
+describe('RunBlock — when the live view loses its line', () => {
+  it('says the run goes on, while it is going', () => {
+    const { rerender } = render(
+      <RunBlock ledger={researching()} title={TITLE} live connection="reconnecting" />,
+    )
+    expect(screen.getByTestId('run-connection')).toHaveTextContent(
+      'The live view lost its connection and is reconnecting. The task is still running.',
+    )
+
+    rerender(<RunBlock ledger={researching()} title={TITLE} live connection="lost" />)
+    expect(screen.getByTestId('run-connection')).toHaveTextContent('reload to follow it again')
+    expect(screen.getByTestId('run-connection')).toHaveAttribute('data-connection', 'lost')
+  })
+
+  it('says nothing while the line is up, and nothing once the run is over', () => {
+    const { unmount } = render(<RunBlock ledger={researching()} title={TITLE} live connection="live" />)
+    expect(screen.queryByTestId('run-connection')).not.toBeInTheDocument()
+    unmount()
+
+    // A finished run's dead stream is not news: there is nothing left to watch.
+    render(<RunBlock ledger={finished('doc-9')} title={TITLE} connection="lost" />)
+    expect(screen.queryByTestId('run-connection')).not.toBeInTheDocument()
+  })
+})

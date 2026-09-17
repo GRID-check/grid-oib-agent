@@ -166,6 +166,20 @@ export default function RunBlockPreview(): JSX.Element {
             </Panel>
 
             <Panel
+              title="Läuft — die Live-Ansicht hat die Verbindung verloren"
+              note="Die Leitung ist abgerissen, der Auftrag nicht. Eine gedämpfte Zeile unter dem Block sagt beides — zuerst, dass weitergearbeitet wird. Schweigen an dieser Stelle läse sich als ein Lauf, der stehen geblieben ist."
+            >
+              <RunBlock
+                ledger={RUN_LAEUFT}
+                title={TITLE}
+                projectId={PROJECT}
+                live
+                connection="lost"
+                onCancel={() => {}}
+              />
+            </Panel>
+
+            <Panel
               title="Wartet auf Sie"
               note="Piloti hat eine Rückfrage. Der Block öffnet sich von selbst, „Antworten“ ist die eine Aktion rechts in der Kopfzeile (auf dem Telefon unter dem Satz), „Abbrechen“ steht leise daneben. Die Uhr läuft weiter: gewartet wird auf die Person, nicht auf Piloti."
             >

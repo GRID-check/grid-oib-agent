@@ -79,6 +79,10 @@ export const runs: typeof en.runs = {
     rejected: 'Zurückgeschickt: {reason}',
     rejectedAnon: 'Zurückgeschickt',
   },
+  connection: {
+    reconnecting: 'Die Live-Ansicht hat die Verbindung verloren und verbindet neu. Der Auftrag läuft weiter.',
+    lost: 'Die Live-Ansicht ist getrennt. Der Auftrag läuft weiter — zum Mitlesen neu laden.',
+  },
   rail: {
     label: 'Phasen',
     done: 'erledigt',

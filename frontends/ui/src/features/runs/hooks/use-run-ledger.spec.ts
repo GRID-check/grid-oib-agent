@@ -66,6 +66,54 @@ afterEach(() => {
 })
 
 describe('useRunLedger', () => {
+  it('says what the live view is doing, and stops saying it once the run is over', async () => {
+    const { result } = renderHook(() => useRunLedger({ message: { runLedger: ledger() }, projectId: 'p1' }))
+    await waitFor(() => expect(connected).toHaveLength(1))
+    expect(result.current.connection).toBe('live')
+
+    // EventSource retries on its own and says nothing; the block has to say it,
+    // or a reader watching a still picture concludes the work stopped.
+    act(() => {
+      callbacksOf().onReconnecting?.(1)
+    })
+    expect(result.current.connection).toBe('reconnecting')
+
+    act(() => {
+      callbacksOf().onError?.(new Error('gave up'))
+    })
+    expect(result.current.connection).toBe('lost')
+    expect(result.current.live).toBe(false)
+  })
+
+  it('has nothing to say about the line once the run is over', async () => {
+    const { result } = renderHook(() => useRunLedger({ message: { runLedger: ledger() }, projectId: 'p1' }))
+    await waitFor(() => expect(connected).toHaveLength(1))
+
+    act(() => {
+      callbacksOf().onLedger?.(ledger({ status: 'fertig', updatedAt: '2026-09-16T08:30:00.000Z' }))
+    })
+
+    expect(result.current.connection).toBeNull()
+    expect(result.current.live).toBe(false)
+  })
+
+  it('keeps the ledger it holds when a re-render hands it the same one again', () => {
+    // The chat store rebuilds the message object on every render, so `stored`
+    // arrives as a NEW object with identical facts. Taking it would set state
+    // on every render — a loop, not a refresh — and this is the assertion that
+    // says so, because the loop only shows up as a hung test.
+    const stored = ledger({ status: 'fertig' })
+    const { result, rerender } = renderHook(
+      ({ runLedger }) => useRunLedger({ message: { runLedger }, projectId: 'p1' }),
+      { initialProps: { runLedger: stored } },
+    )
+    const first = result.current.ledger
+
+    rerender({ runLedger: { ...stored } })
+
+    expect(result.current.ledger).toBe(first)
+  })
+
   it('shows the stored ledger and touches no network once the run is over', () => {
     const stored = ledger({ status: 'fertig', finishedAt: '2026-09-16T08:10:00.000Z' })
 
@@ -238,4 +286,6 @@ describe('useRunLedger', () => {
     expect(result.current.ledger).toEqual(stored)
     expect(result.current.cancel).not.toBeNull()
   })
+
+
 })

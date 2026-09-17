@@ -269,6 +269,15 @@ export interface DeepResearchCallbacks {
   onError?: (error: Error) => void
   /** Called when connection is lost */
   onDisconnect?: () => void
+  /**
+   * The browser is retrying a dropped connection, with the attempt number.
+   *
+   * EventSource reconnects on its own and says nothing, which is right for a
+   * stream nobody is watching and wrong for one a person IS watching: the view
+   * simply stops moving. A reader who is told „the line dropped, retrying" can
+   * wait; one who is told nothing assumes the work stopped.
+   */
+  onReconnecting?: (attempt: number) => void
 }
 
 // ============================================================
@@ -706,6 +715,7 @@ export const createDeepResearchClient = (options: DeepResearchStreamOptions): De
         // Only escalate to an error after repeated consecutive failures.
         reconnectAttempts++
         if (reconnectAttempts <= MAX_RECONNECT_ATTEMPTS) {
+          callbacks.onReconnecting?.(reconnectAttempts)
           if (process.env.NODE_ENV === 'development') {
             console.warn(`[SSE] Reconnecting (attempt ${reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS})…`)
           }

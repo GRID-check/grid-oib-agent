@@ -60,10 +60,22 @@ export interface UseRunLedgerInput {
   projectId?: string | null
 }
 
+/**
+ * What the run's own stream is doing, when there is one to watch.
+ *
+ * `null` means there is nothing to watch: the run is over, or it was never
+ * streamed. The other two are the honest states of a line that dropped while
+ * the run went on — and it DOES go on, which is the fact both of them exist to
+ * state. Silence here would read as a run that stopped.
+ */
+export type RunConnection = 'live' | 'reconnecting' | 'lost'
+
 export interface UseRunLedgerResult {
   ledger: RunLedger | null
   /** A stream is attached. Ambient motion only; the block's state comes from the ledger. */
   live: boolean
+  /** The stream's own state, or `null` when there is no stream to lose. */
+  connection: RunConnection | null
   /**
    * Stop the run, when there is one to stop. `null` while there is not — a
    * block with nothing running offers no way to stop it rather than a control
@@ -73,16 +85,25 @@ export interface UseRunLedgerResult {
   cancel: (() => Promise<void>) | null
 }
 
-/** `candidate` unless what is shown is newer. */
+/**
+ * `candidate` only when it is strictly NEWER than what is shown.
+ *
+ * Strictly, because the same instant is the same frame: the fold bumps
+ * `updatedAt` on every op, so two ledgers that agree on it agree on everything.
+ * Taking an equal one would swap in a new object for identical facts — and a
+ * caller that rebuilds the message on every render (the chat store does) would
+ * then set state on every render, which is a render loop, not a refresh.
+ */
 function notOlder(current: RunLedger | null, candidate: RunLedger): RunLedger {
   if (!current) return candidate
-  return candidate.updatedAt >= current.updatedAt ? candidate : current
+  return candidate.updatedAt > current.updatedAt ? candidate : current
 }
 
 export function useRunLedger({ message, projectId }: UseRunLedgerInput): UseRunLedgerResult {
   const stored = message.runLedger ?? null
   const [ledger, setLedger] = useState<RunLedger | null>(stored)
   const [live, setLive] = useState(false)
+  const [connection, setConnection] = useState<RunConnection | null>(null)
 
   // The store rebuilds the message object when the thread reloads; a newer
   // stored ledger (the terminal one, after a reload) wins over what the stream
@@ -104,6 +125,7 @@ export function useRunLedger({ message, projectId }: UseRunLedgerInput): UseRunL
       client?.disconnect()
       client = null
       setLive(false)
+      setConnection(null)
     }
 
     fetchRunView(projectId, runId)
@@ -126,13 +148,28 @@ export function useRunLedger({ message, projectId }: UseRunLedgerInput): UseRunL
               setLedger((current) => notOlder(current, next))
               if (isTerminalRunStatus(next.status)) close()
             },
-            onComplete: () => setLive(false),
-            onError: () => setLive(false),
-            onDisconnect: () => setLive(false),
+            // The run ended on the stream's own terms: there is nothing left
+            // to watch, so there is nothing to say about the connection.
+            onComplete: () => {
+              setLive(false)
+              setConnection(null)
+            },
+            // The line dropped while the run went on. Both say so; only the
+            // first one is still trying.
+            onReconnecting: () => setConnection('reconnecting'),
+            onError: () => {
+              setLive(false)
+              setConnection('lost')
+            },
+            onDisconnect: () => {
+              setLive(false)
+              setConnection('lost')
+            },
           },
         })
         client.connect()
         setLive(true)
+        setConnection('live')
       })
       .catch(() => {
         // Fail-open: the stored ledger stays on screen.
@@ -155,5 +192,11 @@ export function useRunLedger({ message, projectId }: UseRunLedgerInput): UseRunL
     }
   }, [runId, projectId])
 
-  return { ledger, live: live && !terminal, cancel: terminal || !runId || !projectId ? null : cancel }
+  return {
+    ledger,
+    live: live && !terminal,
+    // A run that has ended has nothing to reconnect to, whatever the socket did.
+    connection: terminal ? null : connection,
+    cancel: terminal || !runId || !projectId ? null : cancel,
+  }
 }

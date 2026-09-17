@@ -38,7 +38,6 @@ import {
   Square,
   X,
   XCircle,
-  ZoomIn,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { Alert, AlertDescription } from '@/components/ui/alert'

@@ -99,6 +99,15 @@ export const runs = {
     rejected: 'Sent back: {reason}',
     rejectedAnon: 'Sent back',
   },
+  /**
+   * The live view's own state, never the run's. Both sentences say the same
+   * thing first, because it is the thing a reader fears: the work is still
+   * going. Only the line into it broke.
+   */
+  connection: {
+    reconnecting: 'The live view lost its connection and is reconnecting. The task is still running.',
+    lost: 'The live view is disconnected. The task is still running — reload to follow it again.',
+  },
   rail: {
     label: 'Phases',
     /** Spoken state of a rail step, for readers who cannot see the swatch. */

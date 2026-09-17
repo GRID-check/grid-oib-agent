@@ -172,6 +172,13 @@ What this deletes: `deep_research_job_id` on the state, on the two lift tables,
 on the websocket frame and in the persisted metadata; and the prose stub the
 client used to parse.
 
+What it deliberately leaves: the deep-research banner, the research panel and
+the SSE store that feed them. Nothing PRODUCES them any more — no turn starts
+that stream — but threads from before this change still hold messages that do,
+and deleting the renderers would blank those threads rather than tidy them.
+They are legacy readers now, and retiring them is its own change, once no live
+conversation needs them.
+
 ## More Information
 
 - The contract: `frontends/ui/src/lib/runs/run-ledger-types.ts`; the mirror:

@@ -59,7 +59,7 @@ const answer = <div data-testid="agent-response">Der Bericht</div>
 
 describe('RunBlockMessage', () => {
   it('renders the block from the hook’s ledger with the message’s title', () => {
-    vi.mocked(useRunLedger).mockReturnValue({ ledger: ledger('laeuft'), live: true, cancel: null })
+    vi.mocked(useRunLedger).mockReturnValue({ ledger: ledger('laeuft'), live: true, cancel: null, connection: null })
 
     render(<RunBlockMessage message={message()} projectId="p1" answer={answer} />)
 
@@ -73,19 +73,19 @@ describe('RunBlockMessage', () => {
 
   it('hands the block the hook’s way to stop the run, and nothing when there is none', () => {
     const cancel = vi.fn()
-    vi.mocked(useRunLedger).mockReturnValue({ ledger: ledger('laeuft'), live: true, cancel })
+    vi.mocked(useRunLedger).mockReturnValue({ ledger: ledger('laeuft'), live: true, cancel, connection: 'live' })
 
     const { unmount } = render(<RunBlockMessage message={message()} projectId="p1" answer={answer} />)
     expect(screen.getByTestId('run-block')).toHaveAttribute('data-cancellable', 'true')
     unmount()
 
-    vi.mocked(useRunLedger).mockReturnValue({ ledger: ledger('fertig'), live: false, cancel: null })
+    vi.mocked(useRunLedger).mockReturnValue({ ledger: ledger('fertig'), live: false, cancel: null, connection: null })
     render(<RunBlockMessage message={message()} projectId="p1" answer={answer} />)
     expect(screen.getByTestId('run-block')).not.toHaveAttribute('data-cancellable')
   })
 
   it('keeps the report out of sight while the run is still going', () => {
-    vi.mocked(useRunLedger).mockReturnValue({ ledger: ledger('laeuft'), live: true, cancel: null })
+    vi.mocked(useRunLedger).mockReturnValue({ ledger: ledger('laeuft'), live: true, cancel: null, connection: null })
 
     render(<RunBlockMessage message={message({ content: 'Der Bericht' })} answer={answer} />)
 
@@ -93,7 +93,7 @@ describe('RunBlockMessage', () => {
   })
 
   it('renders the report beneath the block once the run is finished', () => {
-    vi.mocked(useRunLedger).mockReturnValue({ ledger: ledger('fertig'), live: false, cancel: null })
+    vi.mocked(useRunLedger).mockReturnValue({ ledger: ledger('fertig'), live: false, cancel: null, connection: null })
 
     render(<RunBlockMessage message={message({ content: 'Der Bericht' })} answer={answer} />)
 
@@ -103,7 +103,7 @@ describe('RunBlockMessage', () => {
   })
 
   it('renders the report of an interrupted run too — the block says one was written', () => {
-    vi.mocked(useRunLedger).mockReturnValue({ ledger: ledger('unterbrochen'), live: false, cancel: null })
+    vi.mocked(useRunLedger).mockReturnValue({ ledger: ledger('unterbrochen'), live: false, cancel: null, connection: null })
 
     render(<RunBlockMessage message={message({ content: 'Der Bericht' })} answer={answer} />)
 
@@ -111,7 +111,7 @@ describe('RunBlockMessage', () => {
   })
 
   it('shows no empty answer card for a finished run whose message has no content', () => {
-    vi.mocked(useRunLedger).mockReturnValue({ ledger: ledger('fertig'), live: false, cancel: null })
+    vi.mocked(useRunLedger).mockReturnValue({ ledger: ledger('fertig'), live: false, cancel: null, connection: null })
 
     render(<RunBlockMessage message={message({ content: '   ' })} answer={answer} />)
 

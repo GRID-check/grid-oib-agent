@@ -131,6 +131,13 @@ export interface RunBlockProps {
   review?: RunBlockReview | null
   /** A stream is attached. Affects nothing visible: state comes from the ledger. */
   live?: boolean
+  /**
+   * What the run's own stream is doing, when there is one (`useRunLedger`).
+   * `live` and absent say the same thing — nothing to report — and the other
+   * two put ONE muted line under the block: the live view broke, the run did
+   * not. Silence there would read as a run that stopped.
+   */
+  connection?: 'live' | 'reconnecting' | 'lost' | null
   /** Default: open while live, collapsed once terminal. */
   defaultOpen?: boolean
   /** wartet: focus the composer. */
@@ -487,6 +494,7 @@ export function RunBlock({
   onAnswer,
   onRetry,
   onCancel,
+  connection,
   reviewHref,
   reportHref,
   className,
@@ -604,6 +612,12 @@ export function RunBlock({
       </Button>
     ) : null
 
+  // Only while the run is going: a finished run's dead stream is not news.
+  const connectionLine =
+    live && (connection === 'reconnecting' || connection === 'lost')
+      ? t(`connection.${connection}`)
+      : null
+
   const sentence = statusSentence(t, status, ledger, filesToProject ?? !!projectId)
   const before =
     status === 'fehlgeschlagen' || status === 'abgebrochen'
@@ -623,7 +637,12 @@ export function RunBlock({
         ? t('review.rejected', { reason: review.reason })
         : t('review.rejectedAnon')
   const showFooter =
-    sentence !== null || reviewLine !== null || fileHref !== null || action !== null || stop !== null
+    sentence !== null ||
+    reviewLine !== null ||
+    fileHref !== null ||
+    action !== null ||
+    stop !== null ||
+    connectionLine !== null
 
   const railSteps: PhaseRailStep[] = RUN_PHASES.map((phase) => {
     const state = phaseState(ledger, phase)
@@ -792,6 +811,16 @@ export function RunBlock({
               data-testid="run-sentence"
             >
               {sentence}
+            </p>
+          )}
+          {connectionLine && (
+            <p
+              className="text-xs leading-relaxed text-muted-foreground"
+              role="status"
+              data-testid="run-connection"
+              data-connection={connection}
+            >
+              {connectionLine}
             </p>
           )}
           {before && (
