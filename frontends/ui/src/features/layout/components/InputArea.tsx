@@ -619,8 +619,6 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
 
   // Layout store — individual selectors for minimal re-render surface
   const knowledgeLayerAvailable = useLayoutStore((s) => s.knowledgeLayerAvailable)
-  const deepResearchIntent = useLayoutStore((s) => s.deepResearchIntent)
-  const setDeepResearchIntent = useLayoutStore((s) => s.setDeepResearchIntent)
   const applySourcePreset = useLayoutStore((s) => s.applySourcePreset)
   const projectId = useChatStore((s) => s.projectId)
 
@@ -1917,27 +1915,6 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
                   <SourceBasisPicker />
                 </PopoverContent>
               </Popover> */}
-
-              {/* Deep-Research intent pill — preference, NOT a hard trigger:
-              the agent auto-escalates on its own (spec §2.2(6)) */}
-              {/* Same rebuild as the scope chip beside it. Pressed is the `default`
-              (ink) variant and resting is `outline`, so "on" is the ink fill the
-              design language reserves for the action — no third hand-rolled
-              state, and the press response comes from the primitive. */}
-              <Button
-                type="button"
-                variant={deepResearchIntent ? 'default' : 'outline'}
-                size="sm"
-                aria-pressed={deepResearchIntent}
-                aria-label={tChat('composer.deepResearchAria')}
-                title={tChat('composer.deepResearchHint')}
-                disabled={cannotContribute}
-                onClick={() => setDeepResearchIntent(!deepResearchIntent)}
-                className={cn('shrink-0', !deepResearchIntent && 'text-muted-foreground')}
-              >
-                <ZoomIn className="size-3.5" aria-hidden="true" />
-                <span className="hidden sm:inline">{tChat('composer.deepResearch')}</span>
-              </Button>
 
               {/* Who this message goes to — ALWAYS, whenever collaboration exists at
               all. The point of it being unconditional: if it only appeared in the

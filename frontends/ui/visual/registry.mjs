@@ -291,7 +291,7 @@ export const SCREENSHOT_TARGETS = [
     mobile: true,
     path: '/dev/composer',
     description:
-      'The chat composer (real InputArea, backend-free) in its empty-thread state — textarea, scope/deep-research controls (the Datenbasis picker is withheld for now), attach + send — desktop + mobile.',
+      'The chat composer (real InputArea, backend-free) in its empty-thread state — textarea, the scope chip (the Datenbasis picker is withheld for now), attach + send — desktop + mobile. Nothing offers to choose deep research: Piloti decides whether a question needs a run.',
     waitFor: '[data-testid="composer-preview"]',
   },
   {

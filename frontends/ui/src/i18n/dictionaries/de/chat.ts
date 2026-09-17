@@ -95,10 +95,6 @@ export const chat: typeof en.chat = {
     placeholder: 'Fragen Sie Piloti zu diesem Projekt …',
     sources: 'Datengrundlage',
     sourcesAria: 'Datengrundlage – {enabled} von {total} Quellen aktiv. Öffnet die Datenquellen.',
-    deepResearch: 'Deep Research',
-    deepResearchAria: 'Deep-Research-Präferenz',
-    deepResearchHint:
-      'Präferenz vermerkt – Piloti eskaliert automatisch zu Deep Research, wenn eine Frage es erfordert.',
     scopeAria: 'Suchbereich: {project}',
     scopeFallback: 'Dieses Projekt',
     scopeCurrent: 'Aktuelles Projekt',

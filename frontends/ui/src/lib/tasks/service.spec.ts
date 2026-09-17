@@ -109,6 +109,25 @@ beforeEach(() => {
 })
 
 describe('completeRunForOutcome', () => {
+  it('files a run that has no definition behind it — an escalated question', async () => {
+    // The commissioned run of a chat escalation (ADR-0062): one row, no
+    // standing intent. Everything the outcome path needs is on the run itself,
+    // and the inbox row says so with a null job id rather than inventing one.
+    const escalated = { ...run, definitionId: null, conversationId: 's_conv', runMessageId: 'msg-1' } as TaskRun
+
+    const result = await completeRunForOutcome(escalated, { status: 'success', report: '# Bericht' })
+
+    expect(result.filed).toEqual({
+      documentId: 'doc-9',
+      filename: 'wochenbericht-brandschutz-2026-09-02.pdf',
+    })
+    expect(result.run.status).toBe('succeeded')
+
+    await recordRunOutcome(escalated, { status: 'success', report: '# Bericht' })
+    const emitted = vi.mocked(emitInboxItems).mock.calls.at(-1)?.[0]?.[0]
+    expect(emitted?.payload).toMatchObject({ jobId: null, runId: 'run-1', runMessageId: 'msg-1' })
+  })
+
   it('files a finished deep-research report as the requester and records where', async () => {
     const result = await completeRunForOutcome(run, { status: 'success', report: '# Bericht', cards: [{ type: 'legal_basis' }] })
 

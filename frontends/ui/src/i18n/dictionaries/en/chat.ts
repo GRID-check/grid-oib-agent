@@ -102,12 +102,6 @@ export const chat = {
     placeholder: 'Ask Piloti about this project …',
     sources: 'Data basis',
     sourcesAria: 'Data basis — {enabled} of {total} sources enabled. Opens the data sources panel.',
-    deepResearch: 'Deep Research',
-    deepResearchAria: 'Deep Research preference',
-    // Honest intent hint: the agent auto-escalates; the pill records a
-    // preference, it does not force a deep-research run.
-    deepResearchHint:
-      'Preference noted — Piloti escalates to Deep Research automatically when a question calls for it.',
     scopeAria: 'Search scope: {project}',
     scopeFallback: 'This project',
     scopeCurrent: 'Current project',

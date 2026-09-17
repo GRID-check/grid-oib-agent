@@ -27,7 +27,6 @@ describe('useLayoutStore', () => {
       knowledgeLayerAvailable: false,
       dataSourcesLoading: false,
       dataSourcesError: null,
-      deepResearchIntent: false,
       activeSourcePreset: null,
     })
   })
@@ -173,16 +172,6 @@ describe('useLayoutStore', () => {
       useLayoutStore.getState().setTheme('system')
 
       expect(useLayoutStore.getState().theme).toBe('system')
-    })
-  })
-
-  describe('setDeepResearchIntent', () => {
-    test('records the intent hint on and off', () => {
-      useLayoutStore.getState().setDeepResearchIntent(true)
-      expect(useLayoutStore.getState().deepResearchIntent).toBe(true)
-
-      useLayoutStore.getState().setDeepResearchIntent(false)
-      expect(useLayoutStore.getState().deepResearchIntent).toBe(false)
     })
   })
 
