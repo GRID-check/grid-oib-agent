@@ -78,6 +78,7 @@ import {
 } from '@/components/motion'
 import { Button } from '@/components/ui/button'
 import { Collapsible, CollapsibleTrigger } from '@/components/ui/collapsible'
+import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 import { PhaseRail, PhaseSwatch, type PhaseRailStep } from '@/components/ui/phase-rail'
 import { Timeline, TimelineItem } from '@/components/ui/timeline'
 import { AuthorityTag } from '@/features/chat/components/AuthorityTag'
@@ -136,6 +137,13 @@ export interface RunBlockProps {
   onAnswer?: () => void
   /** fehlgeschlagen / abgebrochen: offered only when provided. */
   onRetry?: () => void
+  /**
+   * Stop a run still going. Offered only while it IS going and only when a
+   * caller hands one in, so a block with nothing to stop shows no way to stop
+   * it rather than a control that refuses. Nothing here is optimistic: the
+   * block keeps saying what the ledger says until the fold says it stopped.
+   */
+  onCancel?: (() => void | Promise<void>) | null
   /** fertig & unreviewed: „Prüfen". */
   reviewHref?: string | null
   /** fertig & reviewed: „Bericht öffnen". */
@@ -478,6 +486,7 @@ export function RunBlock({
   defaultOpen,
   onAnswer,
   onRetry,
+  onCancel,
   reviewHref,
   reportHref,
   className,
@@ -577,6 +586,24 @@ export function RunBlock({
       </Button>
     ) : null
 
+  // The quiet way out, beside the one action rather than instead of it: a
+  // waiting run's „Antworten" is still what the reader came for, and stopping
+  // is the thing they do when they change their mind. Ghost, so it never
+  // competes; always in the same slot, so it is never hunted for.
+  const [confirmingCancel, setConfirmingCancel] = useState(false)
+  const stop: ReactNode =
+    onCancel && live ? (
+      <Button
+        size="sm"
+        variant="ghost"
+        className="text-muted-foreground"
+        onClick={() => setConfirmingCancel(true)}
+        data-testid="run-action-cancel"
+      >
+        {t('action.cancel')}
+      </Button>
+    ) : null
+
   const sentence = statusSentence(t, status, ledger, filesToProject ?? !!projectId)
   const before =
     status === 'fehlgeschlagen' || status === 'abgebrochen'
@@ -595,7 +622,8 @@ export function RunBlock({
       : review.reason
         ? t('review.rejected', { reason: review.reason })
         : t('review.rejectedAnon')
-  const showFooter = sentence !== null || reviewLine !== null || fileHref !== null || action !== null
+  const showFooter =
+    sentence !== null || reviewLine !== null || fileHref !== null || action !== null || stop !== null
 
   const railSteps: PhaseRailStep[] = RUN_PHASES.map((phase) => {
     const state = phaseState(ledger, phase)
@@ -689,7 +717,12 @@ export function RunBlock({
               </span>
             </button>
           </CollapsibleTrigger>
-          {action && <span className="hidden shrink-0 sm:inline-flex">{action}</span>}
+          {(stop || action) && (
+            <span className="hidden shrink-0 items-center gap-1 sm:inline-flex">
+              {stop}
+              {action}
+            </span>
+          )}
         </div>
 
         {/* The body grows out of the bar — height plus opacity, a user-initiated
@@ -790,10 +823,31 @@ export function RunBlock({
               <span>{reviewLine}</span>
             </p>
           )}
-          {action && <span className="inline-flex sm:hidden">{action}</span>}
+          {(stop || action) && (
+            <span className="inline-flex items-center gap-1 sm:hidden">
+              {stop}
+              {action}
+            </span>
+          )}
         </motion.div>
       )}
 
+      {/* Asked once, and phrased around what survives: the two rounds already
+          researched stay on screen, which is the fact that decides the answer.
+          Warning rather than destructive — a stopped run keeps its work. */}
+      {onCancel && (
+        <ConfirmDialog
+          open={confirmingCancel}
+          onOpenChange={setConfirmingCancel}
+          title={t('cancel.confirmTitle')}
+          description={t('cancel.confirmBody')}
+          confirmLabel={t('cancel.confirm')}
+          cancelLabel={t('cancel.keep')}
+          tone="warning"
+          onConfirm={onCancel}
+          confirmTestId="run-cancel-confirm"
+        />
+      )}
     </section>
   )
 }

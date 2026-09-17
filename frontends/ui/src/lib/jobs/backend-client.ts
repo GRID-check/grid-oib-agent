@@ -164,3 +164,55 @@ export async function submitJob(
     throw new JobSubmitError('malformed backend response', 502)
   }
 }
+
+/**
+ * A cancel the backend refused, with the status it answered.
+ *
+ * The two statuses a caller decides on: 400 is the backend's verdict that the
+ * job is already terminal (`Job not cancellable: <id> (status: …)`), and 404 is
+ * an unknown job or one the caller does not own — the backend answers both the
+ * same way on purpose. Everything else is the backend being unreachable.
+ */
+export class JobCancelError extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+  ) {
+    super(message)
+    this.name = 'JobCancelError'
+  }
+}
+
+/**
+ * Cancel one backend job: `POST /v1/jobs/async/job/{id}/cancel`, the call the
+ * browser already makes through `/api/jobs/async/[...path]` when it dismisses a
+ * deep-research thread (`cancelJob` in `adapters/api/deep-research-client.ts`).
+ * Same endpoint, same credential: the caller's WorkOS access token, because the
+ * backend enforces job ownership against the principal that submitted it
+ * (`authorize_job_access` in `aiq_api/jobs/access.py`), and the internal token
+ * would name nobody.
+ *
+ * Resolves on a 2xx and throws `JobCancelError` for everything else; a network
+ * failure is a 503.
+ */
+export async function cancelBackendJob(backendJobId: string, accessToken: string | null): Promise<void> {
+  let response: Response
+  try {
+    response = await fetch(
+      `${getBackendUrl()}/v1/jobs/async/job/${encodeURIComponent(backendJobId)}/cancel`,
+      {
+        method: 'POST',
+        headers: {
+          Accept: 'application/json',
+          ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
+        },
+      },
+    )
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'network error'
+    throw new JobCancelError(message, 503)
+  }
+  if (!response.ok) {
+    throw new JobCancelError(await readBody(response), response.status)
+  }
+}

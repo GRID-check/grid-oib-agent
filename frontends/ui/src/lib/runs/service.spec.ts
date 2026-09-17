@@ -25,6 +25,7 @@ vi.mock('@/lib/conversations/repository', () => ({
   writeMessageContent: vi.fn(),
 }))
 vi.mock('@/lib/authz/projects', () => ({ requireProjectAccess: vi.fn() }))
+vi.mock('@/lib/inbox/service', () => ({ emitInboxItems: vi.fn(), resolveInboxItemsFor: vi.fn() }))
 // Partial: the real slot helpers are what a route opens, and replacing the
 // module wholesale would test a service the app does not run.
 vi.mock('@/lib/db/tenant-context', async (importOriginal) => ({
@@ -32,9 +33,15 @@ vi.mock('@/lib/db/tenant-context', async (importOriginal) => ({
   withTenant: vi.fn(async (_scope: unknown, run: () => Promise<unknown>) => run()),
   withPlatformAccess: vi.fn(async (_why: string, run: () => Promise<unknown>) => run()),
 }))
+// Partial for the same reason: the error class is what the service narrows on.
+vi.mock('@/lib/jobs/backend-client', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/jobs/backend-client')>()),
+  cancelBackendJob: vi.fn(),
+}))
 
-import { BadRequestError, NotFoundError } from '@/lib/api/errors'
+import { BadRequestError, ConflictError, NotFoundError, UpstreamError } from '@/lib/api/errors'
 import type { AuthorizedSession } from '@/lib/auth/types'
+import { CHAT_PERMISSIONS } from '@/lib/authz/chat'
 import { requireProjectAccess } from '@/lib/authz/projects'
 import {
   findMessageInConversation,
@@ -44,10 +51,13 @@ import {
 } from '@/lib/conversations/repository'
 import type { Message, TaskRun } from '@/lib/db/schema'
 import { withTenant } from '@/lib/db/tenant-context'
+import { cancelBackendJob, JobCancelError } from '@/lib/jobs/backend-client'
+import { emitInboxItems, resolveInboxItemsFor } from '@/lib/inbox/service'
 import * as taskRepository from '@/lib/tasks/repository'
 import { emptyRunLedger } from './run-ledger'
 import {
   applyRunLedgerOp,
+  cancelRun,
   createRunMessage,
   findRunMessageByBackendJobId,
   getRunView,
@@ -64,6 +74,9 @@ const run = {
   id: RUN,
   organizationId: 'org_1',
   projectId: 'project-1',
+  definitionId: 'def-1',
+  requesterUserId: 'user_1',
+  title: 'Brandschutzkonzept — Fluchtwege',
   conversationId: CONVERSATION,
   runMessageId: runMessageId(RUN),
   backendJobId: 'job-9',
@@ -89,6 +102,7 @@ const session = {
   email: 'a@grid.test',
   role: 'admin',
   permissions: [],
+  accessToken: 'wos-token',
 } as unknown as AuthorizedSession
 
 const step = {
@@ -181,6 +195,60 @@ describe('applyRunLedgerOp', () => {
   it('enters the tenant the RUN names, never one the op could name', async () => {
     await applyRunLedgerOp(RUN, { op: 'append' }, T1)
     expect(withTenant).toHaveBeenCalledWith({ organizationId: 'org_1' }, expect.any(Function))
+  })
+
+  it('tells the requester once when the run turns to wartet, with the ids that land on the block', async () => {
+    await applyRunLedgerOp(RUN, { op: 'append', status: 'wartet' }, T1)
+
+    expect(emitInboxItems).toHaveBeenCalledTimes(1)
+    const [[[emission]]] = vi.mocked(emitInboxItems).mock.calls
+    expect(emission).toMatchObject({
+      organizationId: 'org_1',
+      recipientUserId: 'user_1',
+      type: 'job.waiting',
+      resourceType: 'project',
+      resourceId: 'project-1',
+      anchorId: RUN,
+      actorUserId: null,
+    })
+    expect(emission.payload).toMatchObject({
+      subject: 'Brandschutzkonzept — Fluchtwege',
+      runId: RUN,
+      taskId: RUN,
+      conversationId: CONVERSATION,
+      runMessageId: runMessageId(RUN),
+    })
+    expect(resolveInboxItemsFor).not.toHaveBeenCalled()
+
+    // A second flush that is still waiting says nothing new.
+    vi.mocked(findMessageInConversation).mockResolvedValue(
+      message({ run_ledger: { ...emptyRunLedger(RUN, T0), status: 'wartet' } }),
+    )
+    await applyRunLedgerOp(RUN, { op: 'append', status: 'wartet' }, T1)
+    expect(emitInboxItems).toHaveBeenCalledTimes(1)
+  })
+
+  it('settles the waiting row when the run moves on, so it never sits in the badge for good', async () => {
+    vi.mocked(findMessageInConversation).mockResolvedValue(
+      message({ run_ledger: { ...emptyRunLedger(RUN, T0), status: 'wartet' } }),
+    )
+    await applyRunLedgerOp(RUN, { op: 'append', status: 'laeuft' }, T1)
+
+    expect(emitInboxItems).not.toHaveBeenCalled()
+    expect(resolveInboxItemsFor).toHaveBeenCalledWith([
+      {
+        organizationId: 'org_1',
+        recipientUserId: 'user_1',
+        groupKey: expect.stringContaining('job.waiting'),
+      },
+    ])
+  })
+
+  it('writes the ledger even when the inbox refuses', async () => {
+    vi.mocked(emitInboxItems).mockRejectedValue(new Error('inbox down'))
+    const { ledger } = await applyRunLedgerOp(RUN, { op: 'append', status: 'wartet' }, T1)
+    expect(ledger.status).toBe('wartet')
+    expect(mergeMessageMetadata).toHaveBeenCalledTimes(1)
   })
 
   it('finishes with a result', async () => {
@@ -286,6 +354,82 @@ describe('getRunView', () => {
   it('refuses a run that is not in this project', async () => {
     vi.mocked(taskRepository.findRunInProject).mockResolvedValue(null)
     await expect(getRunView(session, 'project-1', RUN)).rejects.toBeInstanceOf(NotFoundError)
+  })
+})
+
+/**
+ * The cancel is the browser's existing job cancel reached by run id: same
+ * backend call, same credential, same permission. What is pinned here is that
+ * it refuses before it reaches the backend when there is nothing to stop, and
+ * that it writes nothing itself — the row and the ledger are the worker's to
+ * close.
+ */
+describe('cancelRun', () => {
+  it('gates on project:view and the chat permissions, then cancels the backend job as the caller', async () => {
+    await expect(cancelRun(session, 'project-1', RUN)).resolves.toMatchObject({
+      runId: RUN,
+      backendJobId: 'job-9',
+      status: 'running',
+      ledger: emptyRunLedger(RUN, T0),
+    })
+
+    expect(requireProjectAccess).toHaveBeenCalledWith(session, 'project-1', 'project:view')
+    expect(requireProjectAccess).toHaveBeenCalledWith(session, 'project-1', CHAT_PERMISSIONS)
+    expect(taskRepository.findRunInProject).toHaveBeenCalledWith(RUN, 'project-1', 'org_1')
+    expect(cancelBackendJob).toHaveBeenCalledWith('job-9', 'wos-token')
+    expect(mergeMessageMetadata).not.toHaveBeenCalled()
+    expect(writeMessageContent).not.toHaveBeenCalled()
+  })
+
+  it('refuses before the backend when the caller may not chat in the project', async () => {
+    // Once per call this test makes: `clearMocks` drops calls, not implementations.
+    vi.mocked(requireProjectAccess)
+      .mockResolvedValueOnce(undefined as never)
+      .mockRejectedValueOnce(new NotFoundError())
+
+    await expect(cancelRun(session, 'project-1', RUN)).rejects.toBeInstanceOf(NotFoundError)
+    expect(cancelBackendJob).not.toHaveBeenCalled()
+  })
+
+  it('refuses a run that is not in this project', async () => {
+    vi.mocked(taskRepository.findRunInProject).mockResolvedValue(null)
+
+    await expect(cancelRun(session, 'project-1', RUN)).rejects.toBeInstanceOf(NotFoundError)
+    expect(cancelBackendJob).not.toHaveBeenCalled()
+  })
+
+  it.each(['succeeded', 'failed', 'interrupted', 'skipped', 'error'])(
+    'refuses a run that has already ended (%s) without asking the backend',
+    async (status) => {
+      vi.mocked(taskRepository.findRunInProject).mockResolvedValue({ ...run, status } as TaskRun)
+
+      await expect(cancelRun(session, 'project-1', RUN)).rejects.toBeInstanceOf(ConflictError)
+      expect(cancelBackendJob).not.toHaveBeenCalled()
+    },
+  )
+
+  it('refuses a run that never reached the worker', async () => {
+    vi.mocked(taskRepository.findRunInProject).mockResolvedValue({
+      ...run,
+      status: 'queued',
+      backendJobId: null,
+    } as TaskRun)
+
+    await expect(cancelRun(session, 'project-1', RUN)).rejects.toBeInstanceOf(ConflictError)
+    expect(cancelBackendJob).not.toHaveBeenCalled()
+  })
+
+  it('reads the backend’s own verdict on a race as „already ended“, and its 404 as unknown', async () => {
+    vi.mocked(cancelBackendJob).mockRejectedValueOnce(
+      new JobCancelError('Job not cancellable: job-9 (status: success)', 400),
+    )
+    await expect(cancelRun(session, 'project-1', RUN)).rejects.toBeInstanceOf(ConflictError)
+
+    vi.mocked(cancelBackendJob).mockRejectedValueOnce(new JobCancelError('Job not found: job-9', 404))
+    await expect(cancelRun(session, 'project-1', RUN)).rejects.toBeInstanceOf(NotFoundError)
+
+    vi.mocked(cancelBackendJob).mockRejectedValueOnce(new JobCancelError('network down', 503))
+    await expect(cancelRun(session, 'project-1', RUN)).rejects.toBeInstanceOf(UpstreamError)
   })
 })
 

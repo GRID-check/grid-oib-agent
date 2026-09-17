@@ -44,7 +44,7 @@ export interface RunBlockMessageProps {
 }
 
 export function RunBlockMessage({ message, projectId, answer }: RunBlockMessageProps): JSX.Element | null {
-  const { ledger, live } = useRunLedger({ message, projectId })
+  const { ledger, live, cancel } = useRunLedger({ message, projectId })
   const reduced = useReducedMotion()
   // A report that arrives while the reader is watching rises AFTER the block
   // has finished saying how the run ended: the verdict first, the document
@@ -68,6 +68,7 @@ export function RunBlockMessage({ message, projectId, answer }: RunBlockMessageP
         title={message.runTitle ?? null}
         projectId={projectId ?? null}
         live={live}
+        onCancel={cancel}
       />
       {showAnswer ? (
         <motion.div

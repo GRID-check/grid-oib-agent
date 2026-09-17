@@ -334,3 +334,56 @@ describe('RunBlock — the sentence and the affordances', () => {
     expect(screen.queryByTestId('run-completed-before')).not.toBeInTheDocument()
   })
 })
+
+describe('RunBlock — stopping a run', () => {
+  it('offers the quiet stop only while the run is going, and only when a caller hands one in', () => {
+    const onCancel = vi.fn()
+    const { unmount } = render(<RunBlock ledger={researching()} title={TITLE} onCancel={onCancel} />)
+    expect(screen.getAllByTestId('run-action-cancel').length).toBeGreaterThan(0)
+    unmount()
+
+    render(<RunBlock ledger={finished('doc-9')} title={TITLE} onCancel={onCancel} />)
+    expect(screen.queryByTestId('run-action-cancel')).not.toBeInTheDocument()
+  })
+
+  it('shows no stop at all when no caller offers one', () => {
+    render(<RunBlock ledger={researching()} title={TITLE} />)
+    expect(screen.queryByTestId('run-action-cancel')).not.toBeInTheDocument()
+  })
+
+  it('asks before it stops, and stops only on the confirmation', async () => {
+    const onCancel = vi.fn()
+    render(<RunBlock ledger={researching()} title={TITLE} onCancel={onCancel} />)
+
+    fireEvent.click(screen.getAllByTestId('run-action-cancel')[0]!)
+    expect(onCancel).not.toHaveBeenCalled()
+    expect(await screen.findByText('Stop this task?')).toBeInTheDocument()
+    expect(screen.getByText(/stays in the block/)).toBeInTheDocument()
+
+    fireEvent.click(screen.getByTestId('run-cancel-confirm'))
+    await waitFor(() => expect(onCancel).toHaveBeenCalledTimes(1))
+  })
+
+  it('leaves the run alone when the reader keeps it running', async () => {
+    const onCancel = vi.fn()
+    render(<RunBlock ledger={researching()} title={TITLE} onCancel={onCancel} />)
+
+    fireEvent.click(screen.getAllByTestId('run-action-cancel')[0]!)
+    fireEvent.click(await screen.findByRole('button', { name: 'Keep running' }))
+    await waitFor(() => expect(screen.queryByText('Stop this task?')).not.toBeInTheDocument())
+    expect(onCancel).not.toHaveBeenCalled()
+  })
+
+  it('a waiting run keeps Answer as its action and offers the stop beside it', () => {
+    render(
+      <RunBlock
+        ledger={setRunStatus(researching(), 'wartet', at(50))}
+        title={TITLE}
+        onAnswer={() => {}}
+        onCancel={() => {}}
+      />,
+    )
+    expect(screen.getAllByTestId('run-action-answer').length).toBeGreaterThan(0)
+    expect(screen.getAllByTestId('run-action-cancel').length).toBeGreaterThan(0)
+  })
+})

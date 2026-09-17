@@ -160,14 +160,14 @@ export default function RunBlockPreview(): JSX.Element {
 
             <Panel
               title="Läuft — Recherchieren, dritte Runde"
-              note="Planen ist zu einer Zeile gefaltet; Recherchieren zeigt jede Runde mit dem Vorsatz des Läufers, den erreichten Dokumenten als „Belegt durch“-Chips (Familie nach Regal, OIB/RIS-Kennung nach Namen) und den offenen Punkten. Ein zweites Mal gelesenes Dokument sagt das im Chip, statt noch einmal gezählt zu werden. Kopfzeile: nur Phase, Runden, Dokumente und die Laufzeit."
+              note="Planen ist zu einer Zeile gefaltet; Recherchieren zeigt jede Runde mit dem Vorsatz des Läufers, den erreichten Dokumenten als „Belegt durch“-Chips (Familie nach Regal, OIB/RIS-Kennung nach Namen) und den offenen Punkten. Ein zweites Mal gelesenes Dokument sagt das im Chip, statt noch einmal gezählt zu werden. Kopfzeile: nur Phase, Runden, Dokumente und die Laufzeit, dazu „Abbrechen“ als leiser Ausweg — es fragt nach, bevor es beendet."
             >
-              <RunBlock ledger={RUN_LAEUFT} title={TITLE} projectId={PROJECT} live />
+              <RunBlock ledger={RUN_LAEUFT} title={TITLE} projectId={PROJECT} live onCancel={() => {}} />
             </Panel>
 
             <Panel
               title="Wartet auf Sie"
-              note="Piloti hat eine Rückfrage. Der Block öffnet sich von selbst, „Antworten“ ist die eine Aktion rechts in der Kopfzeile (auf dem Telefon unter dem Satz). Die Uhr läuft weiter: gewartet wird auf die Person, nicht auf Piloti."
+              note="Piloti hat eine Rückfrage. Der Block öffnet sich von selbst, „Antworten“ ist die eine Aktion rechts in der Kopfzeile (auf dem Telefon unter dem Satz), „Abbrechen“ steht leise daneben. Die Uhr läuft weiter: gewartet wird auf die Person, nicht auf Piloti."
             >
               <RunBlock
                 ledger={RUN_WARTET}
@@ -175,6 +175,7 @@ export default function RunBlockPreview(): JSX.Element {
                 projectId={PROJECT}
                 live
                 onAnswer={() => {}}
+                onCancel={() => {}}
               />
             </Panel>
 

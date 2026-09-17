@@ -7,7 +7,7 @@
 import { act, renderHook, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-vi.mock('@/lib/runs/run-view-client', () => ({ fetchRunView: vi.fn() }))
+vi.mock('@/lib/runs/run-view-client', () => ({ fetchRunView: vi.fn(), cancelRun: vi.fn() }))
 vi.mock('@/adapters/api/deep-research-client', () => ({ createDeepResearchClient: vi.fn() }))
 
 import {
@@ -16,7 +16,7 @@ import {
   type DeepResearchStreamOptions,
 } from '@/adapters/api/deep-research-client'
 import type { RunLedger, RunView } from '@/lib/runs/run-ledger-types'
-import { fetchRunView } from '@/lib/runs/run-view-client'
+import { cancelRun, fetchRunView } from '@/lib/runs/run-view-client'
 import { useRunLedger } from './use-run-ledger'
 
 const RUN = 'run-1'
@@ -196,5 +196,46 @@ describe('useRunLedger', () => {
 
     await waitFor(() => expect(connected).toHaveLength(2))
     expect(connected.map((entry) => entry.options.jobId).sort()).toEqual(['job-run-1', 'job-run-2'])
+  })
+
+  it('offers no way to stop a run that is over, or one it cannot reach', () => {
+    const done = renderHook(() =>
+      useRunLedger({ message: { runLedger: ledger({ status: 'fertig' }) }, projectId: 'p1' }),
+    )
+    expect(done.result.current.cancel).toBeNull()
+
+    const unreachable = renderHook(() => useRunLedger({ message: { runLedger: ledger() } }))
+    expect(unreachable.result.current.cancel).toBeNull()
+  })
+
+  it('stops the run through the read door and takes the ledger the cancel returns', async () => {
+    const stopped = ledger({ status: 'abgebrochen', updatedAt: '2026-09-16T08:02:00.000Z' })
+    vi.mocked(cancelRun).mockResolvedValue(view({ status: 'cancelled', ledger: stopped }))
+
+    const { result } = renderHook(() => useRunLedger({ message: { runLedger: ledger() }, projectId: 'p1' }))
+    await waitFor(() => expect(result.current.cancel).not.toBeNull())
+
+    await act(async () => {
+      await result.current.cancel?.()
+    })
+
+    expect(cancelRun).toHaveBeenCalledWith('p1', RUN)
+    expect(result.current.ledger).toEqual(stopped)
+    expect(result.current.cancel).toBeNull()
+  })
+
+  it('fails open when the stop is refused: the run goes on saying what the ledger says', async () => {
+    const stored = ledger()
+    vi.mocked(cancelRun).mockRejectedValue(new Error('conflict'))
+
+    const { result } = renderHook(() => useRunLedger({ message: { runLedger: stored }, projectId: 'p1' }))
+    await waitFor(() => expect(result.current.cancel).not.toBeNull())
+
+    await act(async () => {
+      await result.current.cancel?.()
+    })
+
+    expect(result.current.ledger).toEqual(stored)
+    expect(result.current.cancel).not.toBeNull()
   })
 })

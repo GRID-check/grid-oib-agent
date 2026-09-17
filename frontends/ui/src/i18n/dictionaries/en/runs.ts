@@ -77,6 +77,20 @@ export const runs = {
     openInProject: 'Show in project',
     retry: 'Start again',
     openInThread: 'Open in thread',
+    /** The quiet way out of a run still going. Never the loud one: see `cancel`. */
+    cancel: 'Stop',
+  },
+  /**
+   * Stopping a run. The confirmation says what survives, because the fear that
+   * stops a hand on this button is losing the two rounds already researched —
+   * and they are kept.
+   */
+  cancel: {
+    confirmTitle: 'Stop this task?',
+    confirmBody:
+      'Piloti stops where it is. What has been researched so far stays in the block; the report is not written.',
+    confirm: 'Stop task',
+    keep: 'Keep running',
   },
   /** What a reviewer said, under the result. The reason is theirs, verbatim. */
   review: {

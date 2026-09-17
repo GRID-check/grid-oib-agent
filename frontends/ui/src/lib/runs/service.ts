@@ -3,12 +3,13 @@
  * (ADR-0055, ADR-0062).
  *
  * A run is ONE assistant message in the conversation it was commissioned in.
- * This module owns four moves on that message and nothing else:
+ * This module owns five moves on that message and nothing else:
  *
  *   `createRunMessage`  — mint it, empty, at submit time;
  *   `applyRunLedgerOp`  — fold one op into `metadata.run_ledger`;
  *   `writeRunReport`    — fill in the finished answer, found by backend job id;
- *   `getRunView`        — read it back for a person, project-scoped.
+ *   `getRunView`        — read it back for a person, project-scoped;
+ *   `cancelRun`         — ask the backend to stop it, for a person, project-scoped.
  *
  * ## Identity comes from the row, never from the body
  *
@@ -33,8 +34,9 @@
 
 import 'server-only'
 import { v5 as uuidv5 } from 'uuid'
-import { BadRequestError, NotFoundError } from '@/lib/api/errors'
+import { BadRequestError, ConflictError, NotFoundError, UpstreamError } from '@/lib/api/errors'
 import type { AuthorizedSession } from '@/lib/auth/types'
+import { CHAT_PERMISSIONS } from '@/lib/authz/chat'
 import { requireProjectAccess } from '@/lib/authz/projects'
 import { normalizeAgentAnswerMetadata } from '@/lib/conversations/agent-answer-metadata'
 import {
@@ -43,9 +45,13 @@ import {
   mergeMessageMetadata,
   writeMessageContent,
 } from '@/lib/conversations/repository'
-import type { Message } from '@/lib/db/schema'
+import type { Message, TaskRun } from '@/lib/db/schema'
 import { withPlatformAccess, withTenant } from '@/lib/db/tenant-context'
+import { cancelBackendJob, JobCancelError } from '@/lib/jobs/backend-client'
+import { inboxGroupKey } from '@/lib/inbox/registry'
+import { emitInboxItems, resolveInboxItemsFor } from '@/lib/inbox/service'
 import * as taskRepository from '@/lib/tasks/repository'
+import { isActiveTaskRunStatus } from '@/lib/tasks/task-vocabulary'
 import {
   applyRunLedgerAppend,
   applyRunLedgerFinish,
@@ -54,6 +60,7 @@ import {
   sanitizeRunTitle,
 } from './run-ledger'
 import type { RunLedger, RunLedgerRequest, RunLedgerResponse, RunView } from './run-ledger-types'
+import { runDisplayStatus } from './run-vocabulary'
 
 /** Where the ledger lives on the message. Wire spelling, like `retrieval_ledger`. */
 export const RUN_LEDGER_METADATA_KEY = 'run_ledger'
@@ -201,8 +208,61 @@ export async function applyRunLedgerOp(
     // of the STORAGE rather than of the caller's good behaviour.
     const ledger = sanitizeRunLedger(next) ?? current
     await mergeMessageMetadata(conversationId, messageId, { [RUN_LEDGER_METADATA_KEY]: ledger })
+    await notifyWaiting(run, current, ledger)
     return { runId, ledger }
   })
+}
+
+/**
+ * Tell the requester when their run stops to ask them something, and settle
+ * that row when the run moves on.
+ *
+ * `wartet` is the one status with no column behind it: it exists only in the
+ * ledger, so this fold is the only place that sees a run enter or leave it.
+ * The row is `job.waiting`, actionable, anchored on the run — and resolved by
+ * the ledger's next status, which is what keeps an actionable row out of the
+ * badge for good. The payload carries the same ids the outcome rows carry, so
+ * the inbox lands the reader on the run block (`lib/inbox/targets.ts`).
+ *
+ * Fail-open: a flush is the worker's write, and the inbox must never turn it
+ * into a 500 — a missed notification costs a badge, a refused flush costs the
+ * ledger.
+ */
+async function notifyWaiting(run: TaskRun, before: RunLedger, after: RunLedger): Promise<void> {
+  const wasWaiting = runDisplayStatus(before) === 'wartet'
+  const isWaiting = runDisplayStatus(after) === 'wartet'
+  if (wasWaiting === isWaiting) return
+  const groupKey = inboxGroupKey('job.waiting', 'project', run.projectId, run.id)
+  try {
+    if (!isWaiting) {
+      await resolveInboxItemsFor([
+        { organizationId: run.organizationId, recipientUserId: run.requesterUserId, groupKey },
+      ])
+      return
+    }
+    await emitInboxItems([
+      {
+        organizationId: run.organizationId,
+        recipientUserId: run.requesterUserId,
+        type: 'job.waiting',
+        resourceType: 'project',
+        resourceId: run.projectId,
+        anchorId: run.id,
+        actorUserId: null,
+        groupKey,
+        payload: {
+          subject: run.title,
+          jobId: run.definitionId,
+          runId: run.id,
+          conversationId: run.conversationId,
+          runMessageId: run.runMessageId,
+          taskId: run.id,
+        },
+      },
+    ])
+  } catch (err) {
+    console.warn('[runs] could not update the waiting row for run', run.id, err)
+  }
 }
 
 /**
@@ -282,7 +342,11 @@ export async function getRunView(
   await requireProjectAccess(session, projectId, 'project:view')
   const run = await taskRepository.findRunInProject(runId, projectId, session.organizationId)
   if (!run) throw new NotFoundError('Unknown run')
+  return runView(run)
+}
 
+/** The view of a run already resolved inside the caller's project. */
+async function runView(run: TaskRun): Promise<RunView> {
   const message =
     run.conversationId && run.runMessageId
       ? await findMessageInConversation(run.conversationId, run.runMessageId)
@@ -297,4 +361,62 @@ export async function getRunView(
     // payload a renderer meets: the row may have been written by another build.
     ledger: message ? storedLedger(message) : null,
   }
+}
+
+/**
+ * Stop a run on a person's request: the write door of the run primitive that
+ * the block's „Abbrechen" presses (ADR-0055, ADR-0062).
+ *
+ * ## The same cancel, the same gate, behind the run's own id
+ *
+ * The browser has cancelled a deep-research job since before runs had
+ * messages: `POST /api/jobs/async/job/{jobId}/cancel`, which the proxy gates on
+ * the session plus `CHAT_PERMISSIONS` on the project in scope and forwards to
+ * the backend as the caller. This is that call reached by run id instead of
+ * job id — so the block, which holds only the run's message, does not have to
+ * learn the job store's key — and nothing about it is new: the same backend
+ * endpoint (`cancelBackendJob`), the same credential, and the same permission
+ * (`project:view` to read the run at all, `CHAT_PERMISSIONS` to act on the
+ * agent in the project, exactly as `buildCollectionScopeFromRequest` gates the
+ * proxy). The backend then enforces job ownership on top, which is why a run
+ * somebody else commissioned answers 404 rather than 403.
+ *
+ * ## Nothing is written here
+ *
+ * The row and the ledger stay as they are. The backend marks the job
+ * interrupted, the worker sees it and stops, the ledger's terminal flush
+ * arrives as `abgebrochen` through the same route every other flush uses, and
+ * the outcome callback closes the row. Writing „abgebrochen" here as well would
+ * be a second author of the run's status, and the two would disagree exactly
+ * when the cancel did not take.
+ *
+ * Refusals: 404 for a run outside the project, 409 for one that has already
+ * ended (by the row, or by the backend's own verdict when the two race) and for
+ * one that has no backend job — a run that never reached the worker has nothing
+ * to stop.
+ */
+export async function cancelRun(
+  session: AuthorizedSession,
+  projectId: string,
+  runId: string,
+): Promise<RunView> {
+  await requireProjectAccess(session, projectId, 'project:view')
+  await requireProjectAccess(session, projectId, CHAT_PERMISSIONS)
+  const run = await taskRepository.findRunInProject(runId, projectId, session.organizationId)
+  if (!run) throw new NotFoundError('Unknown run')
+  if (!isActiveTaskRunStatus(run.status)) throw new ConflictError('This run has already ended')
+  if (!run.backendJobId) throw new ConflictError('This run has no backend job to cancel')
+
+  try {
+    await cancelBackendJob(run.backendJobId, session.accessToken ?? null)
+  } catch (error) {
+    if (!(error instanceof JobCancelError)) throw error
+    // The backend's verdict on a race: the job finished between the row read
+    // and the cancel. Its 404 is „not yours or not there", and it says which
+    // to nobody on purpose.
+    if (error.status === 400) throw new ConflictError('This run has already ended')
+    if (error.status === 404) throw new NotFoundError('Unknown run')
+    throw new UpstreamError('The run could not be cancelled')
+  }
+  return runView(run)
 }

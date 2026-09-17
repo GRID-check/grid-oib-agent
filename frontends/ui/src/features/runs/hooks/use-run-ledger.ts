@@ -45,12 +45,12 @@
  * UTC-normalised by `sanitizeRunLedger`, so string comparison is the right one.
  */
 
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { createDeepResearchClient, type DeepResearchClient } from '@/adapters/api/deep-research-client'
 import type { ChatMessage } from '@/features/chat/types'
 import { sanitizeRunLedger } from '@/lib/runs/run-ledger'
 import { isTerminalRunStatus, type RunLedger } from '@/lib/runs/run-ledger-types'
-import { fetchRunView } from '@/lib/runs/run-view-client'
+import { cancelRun, fetchRunView } from '@/lib/runs/run-view-client'
 import { runDisplayStatus } from '@/lib/runs/run-vocabulary'
 
 export interface UseRunLedgerInput {
@@ -64,6 +64,13 @@ export interface UseRunLedgerResult {
   ledger: RunLedger | null
   /** A stream is attached. Ambient motion only; the block's state comes from the ledger. */
   live: boolean
+  /**
+   * Stop the run, when there is one to stop. `null` while there is not — a
+   * block with nothing running offers no way to stop it rather than a control
+   * that refuses. Optimistic about nothing: the ledger changes when the fold
+   * says the run was cancelled, never because the button was pressed.
+   */
+  cancel: (() => Promise<void>) | null
 }
 
 /** `candidate` unless what is shown is newer. */
@@ -137,5 +144,16 @@ export function useRunLedger({ message, projectId }: UseRunLedgerInput): UseRunL
     }
   }, [runId, projectId, terminal])
 
-  return { ledger, live: live && !terminal }
+  const cancel = useCallback(async (): Promise<void> => {
+    if (!runId || !projectId) return
+    try {
+      const view = await cancelRun(projectId, runId)
+      if (view.ledger) setLedger((current) => notOlder(current, view.ledger as RunLedger))
+    } catch {
+      // Fail-open, like every other reader here: the run goes on, the block
+      // keeps saying what the ledger says, and the person can try again.
+    }
+  }, [runId, projectId])
+
+  return { ledger, live: live && !terminal, cancel: terminal || !runId || !projectId ? null : cancel }
 }

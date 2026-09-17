@@ -64,6 +64,14 @@ export const runs: typeof en.runs = {
     openInProject: 'Im Projekt anzeigen',
     retry: 'Erneut starten',
     openInThread: 'Im Verlauf öffnen',
+    cancel: 'Abbrechen',
+  },
+  cancel: {
+    confirmTitle: 'Auftrag abbrechen?',
+    confirmBody:
+      'Piloti hört dort auf, wo es gerade ist. Was bis dahin recherchiert wurde, bleibt im Block stehen; der Bericht wird nicht mehr geschrieben.',
+    confirm: 'Auftrag abbrechen',
+    keep: 'Weiterlaufen lassen',
   },
   review: {
     accepted: 'Angenommen von {name}',

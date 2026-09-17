@@ -2,7 +2,7 @@
  * @vitest-environment node
  */
 import { describe, expect, it, vi } from 'vitest'
-import { fetchRunView, RunViewError, runViewPath } from './run-view-client'
+import { cancelRun, fetchRunView, runCancelPath, RunViewError, runViewPath } from './run-view-client'
 
 const view = {
   runId: 'run-1',
@@ -39,5 +39,28 @@ describe('fetchRunView', () => {
 
   it('rejects a body this build does not recognise rather than casting it', async () => {
     await expect(fetchRunView('p1', 'run-1', respond(200, { runId: 'run-1' }))).rejects.toThrow()
+  })
+})
+
+describe('cancelRun', () => {
+  it('posts to the run’s cancel door and parses the view it answers', async () => {
+    const run = respond(200, view)
+
+    const result = await cancelRun('p 1', 'run-1', run)
+
+    expect(run).toHaveBeenCalledWith(runCancelPath('p 1', 'run-1'), expect.objectContaining({ method: 'POST' }))
+    expect(run.mock.calls[0][0]).toBe('/api/projects/p%201/runs/run-1/cancel')
+    expect(result).toEqual(view)
+  })
+
+  it('throws a typed error carrying the status on a refusal', async () => {
+    await expect(cancelRun('p1', 'run-1', respond(409, { error: 'This run has already ended' }))).rejects.toMatchObject(
+      { status: 409 },
+    )
+    await expect(cancelRun('p1', 'run-1', respond(404, {}))).rejects.toBeInstanceOf(RunViewError)
+  })
+
+  it('rejects a body this build does not recognise rather than casting it', async () => {
+    await expect(cancelRun('p1', 'run-1', respond(200, { cancelled: true }))).rejects.toThrow()
   })
 })
