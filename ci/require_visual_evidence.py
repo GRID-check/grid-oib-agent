@@ -24,9 +24,13 @@ too: it is the capture TARGET, and a PR that only adds a preview has nothing to
 show a reviewer yet, and so are `app/api/**` and `route.ts` handlers, which sit
 under `app/` but return JSON rather than pixels.
 
-Escape hatch: the `no-visual-evidence` label, for a change under these paths
-that genuinely alters no pixels (a comment, a rename, a type). The workflow
-skips this script entirely when it is set.
+Escape hatch, for a change under these paths that genuinely alters no pixels (a
+comment, a rename, a type). Either works:
+
+  * the `no-visual-evidence` LABEL — the workflow skips this script entirely;
+  * `<!-- no-visual-evidence: why -->` in the PR BODY, which needs no repository
+    setup and records the reason where the reviewer reads it. The reason is
+    mandatory; a bare marker does not silence the check.
 
 Usage: require_visual_evidence.py <base-sha> <head-sha> <pr-body-file>
 """
@@ -40,6 +44,12 @@ from pathlib import Path
 
 MARKER_START = "<!-- before-and-after:start -->"
 MARKER_END = "<!-- before-and-after:end -->"
+
+# The opt-out marker, carried over from the `// no-visual: <reason>` comment the
+# deleted `visual-coverage` workflow used. A REASON is required: a bare marker
+# does not silence the check, which was that workflow's rule too, and is the
+# whole difference between an opt-out and a mute.
+OPT_OUT = re.compile(r"<!--\s*no-visual-evidence:\s*(?P<reason>[^>]*?)\s*-->", re.IGNORECASE)
 
 # Surfaces a reader can see.
 VISIBLE_PATTERNS = [
@@ -115,6 +125,12 @@ def main(argv: list[str]) -> int:
         return 0
 
     body = Path(argv[3]).read_text(encoding="utf-8") if Path(argv[3]).exists() else ""
+
+    opt_out = OPT_OUT.search(body)
+    if opt_out and opt_out.group("reason"):
+        print(f"Opted out of visual evidence: {opt_out.group('reason')}")
+        return 0
+
     if has_evidence(body):
         print(f"Visual evidence attached for {len(triggers)} changed surface file(s).")
         return 0
@@ -132,7 +148,9 @@ def main(argv: list[str]) -> int:
         "The full recipe — dark mode needs BOTH the media query and the .dark\n"
         "class — is in docs/ux/visual-screenshots.md.\n\n"
         "If this change genuinely alters no pixels (a comment, a rename, a type),\n"
-        "add the `no-visual-evidence` label to the PR.",
+        "add the `no-visual-evidence` label, or put this in the PR body — the\n"
+        "reason is required, a bare marker will not silence it:\n\n"
+        "    <!-- no-visual-evidence: comment-only edits, no rendered output changes -->",
         file=sys.stderr,
     )
     return 1
