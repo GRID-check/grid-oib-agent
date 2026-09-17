@@ -91,8 +91,8 @@ scoped `AGENTS.md` files point readers at them on purpose. Do not add it.
 
 **`create-verification-skill`** generates its harness into `.cursor/skills/`, a
 fourth harness path that `apm.yml` does not target, and this repo already proves
-behaviour through `task verify` and committed screenshots from
-`task fe:screenshots`.
+behaviour through `task verify` and captures attached to the pull request
+(`docs/ux/visual-screenshots.md`).
 
 A skill carrying `disable-model-invocation: true` never triggers by itself. Ask
 for it by name. That is deliberate for `interrogate` and `blast-radius`, which

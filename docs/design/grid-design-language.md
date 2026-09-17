@@ -180,9 +180,11 @@ not one, since a touch tablet past `md` drops to 14px and zooms as a phone would
 Enter does, and a field that matches strings turns off autocapitalize and
 autocorrect so the phone cannot edit a query on its way into a matcher.
 
-Measured, not eyeballed: `task fe:touch-audit`. Held statically by
-`frontends/ui/src/components/ui/touch-target.spec.ts` and
-`frontends/ui/src/components/ui/mobile-affordances.spec.ts`.
+Held statically by `frontends/ui/src/components/ui/touch-target.spec.ts` and
+`frontends/ui/src/components/ui/mobile-affordances.spec.ts`. The browser
+measurement that once backed these (`task fe:touch-audit`) went with the
+screenshot harness; capture a 390x844 viewport and look, until it is rewritten
+(`docs/contributing/testing-and-verification.md`).
 
 ## Component layers (atomic design)
 

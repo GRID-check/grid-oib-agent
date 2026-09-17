@@ -6,8 +6,8 @@
  * and the cited answer (AgentResponse, default "Ergebnis" card) — with fixture
  * data and no backend.
  *
- * The default target renders the two transition endpoints (visual/registry.mjs →
- * `chat-turn`), in light + dark, desktop + mobile:
+ * The default view renders the two transition endpoints, in light + dark,
+ * desktop + mobile:
  *   • LIVE      — isThinking, the Herleitung auto-EXPANDED (the streaming
  *                 reasoning graph is the spectacle), the answer still absent.
  *   • COMPLETED — the Herleitung auto-COLLAPSED to the one-line bar, the cited

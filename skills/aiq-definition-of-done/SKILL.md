@@ -39,7 +39,7 @@ baseline failure caused by a genuine product bug should be reported, not ignored
 | Frontend (`frontends/ui/`) | targeted `npx --no-install vitest run <specs>`, then the full suite; `npm run type-check` (no new errors vs. baseline); **`npm run lint` must exit clean — zero problems, not "no new ones"** (see §2a) |
 | WS/SSE protocol or any message schema | both sides: backend emitter tests AND frontend Zod/parser tests for the same field names |
 | LLM behavior (prompts, models, structured output) | a live smoke call against the configured provider (OpenRouter key in env) proving the contract parses — or an explicit note that live validation was not possible and why |
-| User-visible UI | a screenshot from the screenshot harness (`cd frontends/ui && npm run screenshots [-- <id>]`, output in `frontends/ui/visual/screenshots/`) — add a `/dev/*` preview route + a `visual/registry.mjs` target for the new surface; see `docs/ux/visual-screenshots.md`. **A NEW component without that evidence is not done** (the `visual-coverage` workflow nudges on the PR); opt genuinely non-visual components out with a `// no-visual: <reason>` marker. Quote the exact user-visible copy in the summary too. |
+| User-visible UI | a capture ATTACHED TO THE PR, never committed: add a `/dev/*` preview route for the new surface, capture it with the `agent-browser` skill against a running dev server, and publish it with the `before-and-after` skill (`gh --attach`, GitHub CLI 2.99+); see `docs/ux/visual-screenshots.md`. **A NEW component without that evidence is not done.** Quote the exact user-visible copy in the summary too. |
 | Anything long-running / a service | the actual logs showing the behavior, not an inference from code reading |
 | Anything a customer can notice (backend, API, UI, CLI) | a reno release note in the same change — `task release:note -- <slug>`, then `task release:lint`. The **Release note** CI job fails the PR without one; the `no-release-note` label is the only exemption and it claims no user can observe the change. See AGENTS.md, "Release notes are mandatory". |
 
@@ -208,7 +208,7 @@ explicit "not verified because …":
 - Revert-check: <"removed <fix>, N of M cases failed, restored" | why not possible>
 - Caller exists for every new symbol: <grep evidence | n/a — nothing new added>
 - Live/LLM validation: <what was called, result | n/a because …>
-- UI evidence: <screenshot path / quoted copy | n/a because …>
+- UI evidence: <PR attachment / quoted copy | n/a because …>
 - Docs updated: <files | none needed because …>
 - Independent verification: <who/what re-checked which claims>
 - Committed & pushed: <commit hashes, branch>
@@ -229,12 +229,14 @@ the detail — read the doc, don't guess.
   here; if `type-check` / `vitest` / generators fail with `ERR_MODULE_NOT_FOUND`,
   run `cd frontends/ui && npm install` first. The card generators also need it
   (`npm run generate:cards`).
-- **Screenshots + dark mode + dev previews.** The full playbook — dark mode is a
-  `.dark` class on `<html>` (not `data-theme`; `src/app/providers.tsx` +
-  `globals.css`), dev preview routes 404 outside development, fetch shims must be
-  installed at module scope (not a `useEffect`) or they lose the child-effect
-  race, thumbnails 404 to a deterministic SVG sketch, and Chromium is
-  pre-installed at `PLAYWRIGHT_BROWSERS_PATH` (never download it) — lives in
+- **Screenshots + dark mode + dev previews.** Capture with the `agent-browser`
+  skill and attach with `before-and-after`; commit no image files. Dark mode
+  needs BOTH `set media dark` and a `.dark` class on `<html>` (not `data-theme`;
+  `src/app/providers.tsx` + `globals.css`) — set one and you capture a
+  half-themed surface that reads as a component bug. Dev preview routes 404
+  outside development, fetch shims must be installed at module scope (not a
+  `useEffect`) or they lose the child-effect race, and thumbnails 404 to a
+  deterministic SVG sketch. The playbook lives in
   **`docs/ux/visual-screenshots.md`**. Read it before capturing UI evidence.
 - **Grid cards are generated backend→frontend.** Editing `src/aiq_agent/cards/models.py`
   is not enough: run `uv run python scripts/generate_card_schema.py` then

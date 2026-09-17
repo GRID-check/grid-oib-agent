@@ -3,7 +3,7 @@
 /**
  * Dev preview for the page sheet — the third overlay intent beside the modal
  * and the side sheet: a whole PLACE risen near-fullscreen over the current
- * page (visual/registry.mjs → `page-sheet`). Not linked anywhere and 404s
+ * page. Not linked anywhere and 404s
  * outside development.
  *
  * The stand-in page behind the sheet is deliberately busy: whether the scrim

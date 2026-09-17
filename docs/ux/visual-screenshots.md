@@ -1,273 +1,151 @@
-# Visual screenshots (UI evidence framework)
+# Visual screenshots (UI evidence)
 
-User-visible changes are "done" only with a screenshot as evidence (see the
-`aiq-definition-of-done` skill). This repo has a small, reproducible screenshot
-harness so that evidence is a committed artifact, not a one-off manual capture.
+A user-visible change is "done" only with visual evidence (see the
+`aiq-definition-of-done` skill). That evidence goes **in the pull request**, as
+an attachment. Nothing is committed to the repo.
 
-- **Harness:** `frontends/ui/visual/capture.mjs`
-- **Registry (what gets captured):** `frontends/ui/visual/registry.mjs`
-- **Output (committed PNGs):** `frontends/ui/visual/screenshots/<id>.<light|dark>.png`
-- **Run:** `cd frontends/ui && npm run screenshots` (optionally `-- <id>` to filter)
+- **Capture:** the `agent-browser` skill — a native CLI driving a real Chrome.
+- **Publish:** the `before-and-after` skill — formats the media and uploads it
+  with `gh --attach`.
+- **Targets:** the `/dev/*` preview routes under `frontends/ui/src/app/dev/`.
+- **Committed artifacts:** none. That is the point.
 
-## How it works
+Both skills are pinned in [`apm.yml`](../../apm.yml) and deployed by
+`task agents:setup`. `before-and-after` lands at `.claude/skills/skill/`, not
+`before-and-after/` — see the note in `apm.yml` for why.
 
-Each target points at a **self-contained `/dev/*` preview route** that renders a
-real component with fixture data and **no backend**. The harness runs the route
-under `next dev` (booting a server or reusing a running one), visits it once per
-viewport, and writes a retina PNG per theme. Because the preview routes are
-backend-free, the screenshots are reproducible in CI and locally.
+## Why it is not a harness any more
+
+The repo used to carry `frontends/ui/visual/`: a registry of 178 targets, a
+capture harness, and 620 committed PNGs. It was removed because of what it cost
+against what it bought.
+
+It bought less than it looked like. **Nothing compared anything** — there was no
+pixel diff anywhere in the repo, so the PNGs were never regression baselines.
+The `visual-coverage` workflow only checked that a *new* `.png` file appeared in
+a PR; it never opened one. Evidence reached reviewers as an `upload-artifact`
+ZIP they had to download and unzip. Two PNGs out of 620 were cited by a doc.
+
+It cost 620 files and 187 MB in the tree, and 348 MB of a 462 MB `.git` — 1303
+blob versions across 33 regeneration commits. PNGs do not delta-compress, so
+every regeneration stored every changed file in full, forever, in every clone.
+
+An attachment gives a reviewer the image inline, in the place they are already
+looking, and costs the repository nothing.
+
+> The 348 MB is still in history. Deleting the files stopped the growth; it did
+> not shrink existing clones. Only a history rewrite does that, and that is a
+> force-push and a re-clone for everybody — a deliberate, scheduled operation,
+> not something to slip into a feature branch.
+
+## Setup, once per machine
 
 ```bash
-cd frontends/ui
-npm run screenshots                       # boot next dev, capture every target
-npm run screenshots -- document-grid      # only the matching target id(s)
-BASE_URL=http://localhost:3000 npm run screenshots   # reuse a running server
-npm run screenshots -- composer --mobile  # also capture the mobile variant
-npm run screenshots -- --mobile-only      # capture ONLY the mobile variants
+npm install -g agent-browser
+agent-browser install          # downloads its own Chrome for Testing
 ```
 
-### Speed (and the fast inner loop)
+On Linux, `agent-browser install --with-deps` if the browser fails to launch.
+`gh` must be **2.99 or newer** — `--attach` does not exist before that.
 
-Startup — booting `next dev` and letting it compile the route on demand —
-dominates a small run, so the harness works to pay it once:
+```bash
+gh --version
+```
 
-- **An already-running `next dev` for this app is reused.** The harness reads
-  `.next/dev/lock` (Next records the live server there), checks the process is
-  alive and that the first target route answers `200` without a redirect, and
-  attaches to it. A server that gates `/dev/*` behind auth fails that probe and
-  is ignored rather than silently screenshotted as a sign-in page.
-- **`SCREENSHOT_KEEP_SERVER=1` leaves the harness's own server up** when it
-  finishes, so the next run attaches instead of booting. This is the loop you
-  want while iterating on one component:
+## Capture
 
-  ```bash
-  SCREENSHOT_KEEP_SERVER=1 npm run screenshots -- composer   # first run boots
-  npm run screenshots -- composer                            # reuses it
-  ```
+Start the dev server, then drive it. The preview routes render real components
+from fixtures, so nothing else needs to be running.
 
-  Take the server down with `kill $(node -p "require('./.next/dev/lock').pid")`
-  (or just let the next `--no-reuse` run replace it).
-- **From cold, routes are pre-compiled while Chromium launches** — the harness
-  fires a plain `fetch` at every distinct target path in parallel with
-  `chromium.launch()`, so the dev server's compile overlaps the browser boot
-  instead of stalling the first navigation of every route.
-- **Each page is loaded once per viewport, not once per theme.** Light and dark
-  come off the same load by flipping Playwright's `colorScheme` and the `.dark`
-  class, which halves the navigations.
-- **Targets are captured by a worker pool** (`SCREENSHOT_CONCURRENCY`, default
-  about half the cores).
+```bash
+cd frontends/ui && bun run dev        # or: npx next dev --turbopack -p 3311
+```
 
-| Env var | Default | Purpose |
-|---------|---------|---------|
-| `SCREENSHOT_CONCURRENCY` | `min(4, max(2, cores/2))` | Pages captured in parallel |
-| `SCREENSHOT_KEEP_SERVER` | unset | `1` leaves the dev server up for the next run |
-| `SCREENSHOT_NO_REUSE` | unset | `1` always boots a private server (what CI does not need, but useful when a stale server is misbehaving) |
-| `SCREENSHOT_NETWORK_IDLE_MS` | `5000` | Cap on the quiet-network wait per load |
-| `SCREENSHOT_SETTLE_MS` | `400` | Settle after the page is ready, before the first shot |
-| `SCREENSHOT_THEME_SETTLE_MS` | `150` | Settle after flipping the theme (repaint only) |
-| `BASE_URL` | unset | Capture against an explicit server, skipping detection entirely |
+Ask the agent-browser skill for its own command reference before you improvise —
+it is version-matched to the installed CLI, where these examples are not:
 
-### Mobile variant
+```bash
+agent-browser skills get core --full
+```
 
-Every desktop shot has an optional mobile twin, captured at a 390×844 phone
-viewport with `isMobile`/`hasTouch` (viewport meta + touch heuristics match a
-real device) and written as `<id>.mobile.<theme>.png`. It is produced when:
+The recipe that reproduces what the old harness produced per target:
 
-- the target opts in with `mobile: true` in the registry (captured on every run), or
-- you pass `--mobile` (adds the mobile variant to whatever targets you selected), or
-- you pass `--mobile-only` (captures the mobile variant and skips desktop).
+```bash
+agent-browser open http://localhost:3311/dev/cards
 
-Mobile is a first-class surface here — a change to any responsive layout is not
-done (see the aiq-definition-of-done skill) until its mobile twin has been reviewed
-in light and dark, the same bar as desktop.
+# desktop, light
+agent-browser set viewport 1200 900
+agent-browser screenshot --full before-cards.light.png
 
-## Adding a new screenshot target
+# desktop, dark — BOTH the media query and the class, see below
+agent-browser set media dark
+agent-browser eval "document.documentElement.classList.add('dark')"
+agent-browser screenshot --full before-cards.dark.png
 
-1. **Build a dev preview route** under `src/app/dev/<name>/page.tsx`:
-   - Mark it `'use client'` and call `notFound()` when `process.env.NODE_ENV !== 'development'` (dev previews must not exist in production).
-   - Render the **real** component with realistic fixture props.
-   - If the component fetches data, install a **fetch shim** (see gotchas) so it renders fully resolved without a backend.
-   - The card gallery `src/app/dev/cards/page.tsx` is the reference for a pure (fetch-free) preview; `src/app/dev/document-grid/page.tsx` is the reference for a preview that shims fetch.
-2. **Add the target** to `frontends/ui/visual/registry.mjs` with an `id`, `path`, `description`, and a `waitFor` selector that only appears once the surface has rendered (e.g. a `data-testid`).
-   - **Capturing a `:focus-visible` state?** Add `tabStops: <n>` — the harness presses Tab that many times before the shot so keyboard focus (and only keyboard focus) engages `:focus-visible`. The `focus-ring` target uses this to guard the rounded focus outline (Tab 1 is the layout's "Skip to content" link, Tab 2 the first control). Programmatic `.focus()` is deliberately not used because it doesn't reliably trigger `:focus-visible`.
-   - **Capturing something that only exists under the pointer?** Add `hover: '<selector>'` — the harness moves the real cursor onto that element and leaves it there for both shots. Use it for a peek, a tooltip, or any panel a hover opens: the `file-reference-peek` target is the reference. A synthesised `pointerover` from the dev page is not a substitute — it fires the enter handler, but the cursor is still parked where Playwright left it, so the first real pointer event closes the panel and the shot lands on a page at rest. Point `waitFor` at the *trigger*, not the panel: the panel is what the hover opens, and the wait runs first. The hover is skipped on the mobile variant, which has no pointer — a hover-only surface should not set `mobile: true`.
-3. **Run** `npm run screenshots -- <id>` and commit the resulting PNGs alongside the change.
-4. **PR preview (automatic):** when the PR diff adds a new target id to the
-   registry, the `screenshot-preview` workflow (`.github/workflows/screenshot-preview.yml`)
-   captures just those new ids (desktop + mobile, light + dark), uploads them as
-   the `screenshot-previews` artifact and links it from a **sticky PR comment**,
-   so reviewers get the rendered surface without checking out the branch.
-   The comment *links* the PNGs instead of embedding them because this
-   repository is **private**: GitHub renders comment images through an anonymous
-   proxy that 404s on every URL into a private repo, so inline previews are not
-   possible here (an earlier revision pushed the PNGs to a `screenshot-previews`
-   branch and referenced `raw.githubusercontent.com`; it could only ever have
-   rendered broken images). Committing the PNGs in step 3 remains the way
-   reviewers see them rendered, in the diff. The workflow is informational only
-   and never blocks the PR, and it runs for same-repo PRs only (fork tokens are
-   read-only and cannot receive comments).
+# phone
+agent-browser set viewport 390 844
+agent-browser screenshot before-cards.mobile.png
 
-## The registry gate (`visual/registry.spec.mjs`)
+agent-browser close --all
+```
 
-A unit test, not a workflow, so it runs in `task fe:test` and in `task verify`
-like everything else. It holds four things the harness previously left to
-convention:
+**Dark mode needs two things, not one.** The app keys off a `.dark` class as
+well as `prefers-color-scheme`. `set media dark` alone flips the media query and
+leaves the class behind, and you get a half-themed screenshot that looks like a
+bug in the component. Set both, in that order, and give the repaint a moment
+before capturing.
 
-1. **Every registry target has its PNGs committed** — two for a desktop-only
-   target, four when it sets `mobile: true`.
-2. **No PNG is orphaned.** An image whose target was renamed or deleted stays in
-   the repo forever, looking like the current state of something.
-3. **Every target's `/dev` route exists.**
-4. **No PNG is older than the preview it photographs.**
+**Capture `--full` for anything taller than the viewport.** Before/after pairs
+are laid out side by side, and equal-height full-page captures are what keeps
+their tops aligned.
 
-(4) is the one that actually went wrong: PR #631 and #634 both shipped with the
-harness unrun (bun was unavailable in that session), so the `sessions*` images
-stopped describing the surface and nothing said so.
+**The Next.js dev indicator is in the shot.** The floating badge in the bottom
+corner is dev-server chrome, not your component. Turn it off in
+`next.config.ts` (`devIndicators: false`) for a capture run, or crop it.
 
-**The mechanism is a checksum manifest**, `visual/screenshots.manifest.json`,
-written by `capture.mjs` after every successful run. Each entry records the
-SHA-256 of the target's `/dev` route source *as it was when the shot was taken*.
-Edit the preview and the hash no longer matches; the spec fails and names the
-command that fixes it.
+## Publish
 
-The two mechanisms it is deliberately **not**:
+Capture a *before* from the base branch and an *after* from yours, then hand
+both to the `before-and-after` skill. It writes one marked block into the PR
+description and replaces that block on later runs, leaving the rest of your
+prose alone.
 
-- **File mtimes.** A checkout writes every file at checkout time, so on a CI
-  runner every PNG and every route are the same age. The comparison is
-  meaningless exactly where it has to run.
-- **`git log` dates.** Re-capturing a PNG leaves it *modified*; `git log -1` on
-  it still answers with the commit before the re-capture. The gate would fail on
-  the branch that fixes the staleness and pass once it was committed — precisely
-  backwards. It also needs full history, which not every CI job checks out.
+The upload is `gh --attach`, which needs push access to the repository. The
+underlying call, if you are doing it by hand:
 
-Do not hand-edit the manifest; re-run the harness. A partial run
-(`npm run screenshots -- sessions`) merges into it and leaves every other entry
-alone, which is what you want — a capture of six targets must not claim the
-other hundred and sixty were re-shot.
+```bash
+gh pr comment 123 --attach './after.png#Cards gallery, dark'
+```
 
-**Where the harness cannot run, CI heals it.** `.github/workflows/screenshot-preview.yml`
-computes the pending set with `frontends/ui/visual/pending.mjs` — the same
-"missing PNG or route hash changed" definition the spec fails on — captures
-those targets on a same-repo PR, and commits the PNGs plus the regenerated
-manifest back to the branch as `github-actions[bot]`. A fork PR is skipped by
-the *whole* workflow — `detect` refuses to run when the head repository differs
-from this one, and `capture`, `commit` and `comment` all depend on it — so the
-artifact-and-comment path is same-repo only too. The `fe:test` registry gate
-then passes on the next run. That is deliberately NOT a way to skip the
-harness: the artifact and the diff both carry the real images, and the commit
-lands them where the gate can see them.
+Alt text goes after a `#`. The flag repeats, but not for the same file twice.
+PNG, JPEG, GIF, WebP, SVG, MP4, MOV and WebM all work.
 
-Scope, stated plainly: the route file is one input and the components it renders
-are others. Hashing the whole import graph would gate every target on every
-shared-atom edit and be ignored within a week. The route is what the harness
-loads and where a preview change lands, so it is the honest unit; the
-`visual-coverage` workflow below covers the other half (a new component arriving
-with no preview at all).
+## What is gone, and what replaced it
 
-The manifest was bootstrapped from the tip when the gate landed, so it stops the
-*next* drift rather than certifying every image already committed.
+| Was | Now |
+|---|---|
+| `task fe:screenshots` | `agent-browser screenshot` against a running dev server |
+| `visual/registry.mjs` targets | the `/dev/*` routes themselves; no second list to keep in sync |
+| Committed PNGs under `visual/screenshots/` | attachments on the PR |
+| `visual-coverage` workflow | reviewer judgement — the evidence is in the PR to look at |
+| `screenshot-preview` workflow and its bot commits | nothing; nobody commits screenshots |
+| `visual/screenshots.manifest.json` staleness gate | nothing. A capture is taken against the branch under review, so it cannot go stale |
+| `task fe:touch-audit` | **nothing.** It imported the registry, so it went with it |
 
-## Visual coverage gate (CI)
+That last row is a real loss, not a migration. `touch-audit.mjs` measured every
+`/dev` surface at a phone viewport and reported overflow, scroll traps and
+sub-44px targets — things a screenshot does not show you.
+`mobile-affordances.spec.ts` still holds the static half of that contract. If
+the browser measurement is wanted back, it wants writing again as a script that
+discovers routes from `src/app/dev/` rather than from a registry.
 
-A new **user-visible component** (`frontends/ui/src/features/**/components/**`,
-`frontends/ui/src/components/**` — excluding `components/ui` primitives and
-spec files) is expected to ship with visual evidence in the same PR: a
-`/dev/<name>` preview route + a registry target + committed PNGs. The
-`visual-coverage` workflow (`.github/workflows/visual-coverage.yml`) checks
-this on every PR that adds components:
+## Agents
 
-- **Phase 1 (current): comment-only.** If the PR adds a component but no new
-  registry target and no new `/dev/*` route, it posts a sticky nudge comment
-  listing the uncovered files. It never blocks the PR — flip it to a required
-  check once the noise is tuned (same phased rollout as Semgrep/OSV).
-- **Escape hatch:** a component that genuinely is not a user-visible surface
-  (internal wrapper, logic-only helper) opts out with a
-  `// no-visual: <reason>` marker comment in the file.
+Both skills carry their own instructions and fire on their own. Read them rather
+than this file for command detail; this page is the repo's policy, they are the
+tools' manuals.
 
-## Gotchas learned the hard way (keep these here, not in your head)
-
-- **Dark mode is a `.dark` class on `<html>`, not `data-theme`.** The token
-  stylesheet keys off `.dark` (`src/app/globals.css`: `@custom-variant dark
-  (&:is(.dark *))`); light is the default (no class). The theme is applied by a
-  `useThemeEffect` in `src/app/providers.tsx` that toggles that class (default
-  mode is `system`, which follows `prefers-color-scheme`). The harness therefore
-  sets **both** the Playwright `colorScheme` (so `system` resolves correctly)
-  **and** force-toggles `document.documentElement.classList.toggle('dark', …)`
-  after load for a deterministic result. To theme-check any component in a
-  browser console: `document.documentElement.classList.toggle('dark')`.
-- **Dev preview pages 404 outside development.** They call `notFound()` unless
-  `NODE_ENV === 'development'`, so they never ship. The harness runs `next dev`
-  (not a production build) for exactly this reason.
-- **Fetch shims must be installed at module scope, not in a `useEffect`.** React
-  runs a child's effects *before* the parent's, so a data-fetching child fires
-  its request before a parent effect could install a shim — the shim races and
-  loses. Install it at module top-level, guarded by
-  `typeof window !== 'undefined' && process.env.NODE_ENV === 'development'`, and
-  make it idempotent (a `window.__…Shim` flag). See
-  `src/app/dev/document-grid/page.tsx`.
-- **Thumbnails 404 → deterministic SVG sketch fallback.** The file cards fetch
-  `/api/documents/{id}/thumbnail`; when the shim returns 404 the content-aware
-  `DocumentKindThumbnail` sketch renders instead — backend-free and stable
-  across runs (no presigned-URL churn), which is exactly what you want for a
-  reproducible screenshot.
-- **Chromium is pre-installed; do not download it** — *in the dev container*.
-  There `PLAYWRIGHT_BROWSERS_PATH` points at `/opt/pw-browsers`
-  (`chromium-<rev>/chrome-linux/chrome`) and `PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1`
-  is set. The harness uses `playwright-core` and resolves that binary via
-  `executablePath`; override with `CHROMIUM_PATH` if resolution fails.
-  `--no-sandbox` is required in the container. **CI runners ship no such
-  browser**, so `.github/workflows/screenshot-preview.yml` runs
-  `npx playwright-core install chromium` once per lockfile (cached in
-  `~/.cache/ms-playwright`) and the harness falls back to Playwright's own path.
-- **Never stage CI output in a dot-directory.** `actions/upload-artifact@v4`
-  skips hidden paths unless `include-hidden-files: true`, and with
-  `if-no-files-found: ignore` it does so *silently*: the preview job copied four
-  PNGs into `.preview-out`, logged them, uploaded an empty artifact and every
-  preview comment then reported "produced no files". Stage into `preview-out`.
-- **Readiness is a gate with four parts, and dropping any one of them makes the
-  PNGs flaky.** `next dev` compiles routes lazily, so the first navigation to a
-  route is slow (generous 120s goto timeout), and waiting only for load fires
-  before the fixture fetch settles. After `domcontentloaded` the harness waits
-  for: the target's `waitFor` selector, a **bounded** `networkidle`
-  (`SCREENSHOT_NETWORK_IDLE_MS`, default 5s), fonts + in-flight images, and
-  **document height stability** (`scrollHeight` unchanged for three
-  double-`requestAnimationFrame`s), then `SCREENSHOT_SETTLE_MS`.
-  - The quiet-network wait is bounded rather than removed. Removing it entirely
-    is measurably wrong: `settings` then captured at 5120px, 4242px and 3446px
-    tall on three consecutive runs. Leaving it unbounded is what made the harness
-    slow: the React Flow previews keep the network busy for ~30s each, and those
-    three targets alone cost 390s of a 601s full run.
-  - Height stability catches the rest — React Flow sizes its canvas from
-    *measured* node bounds, which lands a few frames after the nodes mount.
-  - A `waitFor` selector that never matches logs a `WARN` and still captures;
-    check the log if a PNG looks empty.
-- **`deviceScaleFactor: 2`** gives retina-quality PNGs; drop it if diffs get
-  noisy.
-- **Pin a preview's language with `<I18nProvider initialLocale="de" fixedLocale>`;
-  `initialLocale` alone does not hold.** The provider reconciles the locale on
-  first mount against the viewer's saved preference and then their organization's
-  default (`src/i18n/context.tsx`), so a page passing only `initialLocale` renders
-  German or English depending on *whose* dev server captured it. `fixedLocale`
-  skips that reconciliation and exists for the `/dev/*` routes only — never for the
-  product, where following the user's preference is the point.
-- **A preview that DRIVES an interactive state must be idempotent, because
-  `reactStrictMode` mounts every effect twice.** The harness captures a page at
-  rest, so a state a reader has to click for (a switched `ConditionTreeCard`
-  branch, an opened `ReportOutline`) is produced by an effect in the preview
-  route that presses the control — the `/dev/citation-interaction` pattern. In
-  development React mounts, unmounts and remounts, so that effect runs twice: a
-  plain `.click()` on a toggle opens the panel and closes it again, and the
-  target is then captured at rest under the name of the driven state. Guard with
-  a **module-scope** flag (a `let`, or a `Set` keyed per block) — a flag inside
-  the effect cannot see the second mount, and one the cleanup resets cannot
-  either — and keep polling until the control REPORTS the state
-  (`aria-expanded === 'true'`), so a press that lands before hydration is
-  retried rather than mistaken for success.
-- **Never put `border-radius: inherit` in the global `:focus-visible` rule.** A
-  CSS `outline` already follows the focused element's *own* `border-radius` in
-  every browser we target, so it needs no help. `border-radius: inherit`
-  actively breaks it: it overrides the control's radius with its **parent's**
-  (usually `0`), so a `rounded-xl` input/select **squares off the moment it's
-  focused**. The `focus-ring` screenshot target exists to catch exactly this
-  regression — keep `src/app/globals.css` `:focus-visible` to `outline` +
-  `outline-offset` only.
+The one rule that is this repo's and not theirs: **do not commit image files as
+evidence.** If a capture belongs anywhere permanent, it belongs in a doc that
+explains it, and that is a deliberate decision to argue for in review — not the
+default, and never a gallery.

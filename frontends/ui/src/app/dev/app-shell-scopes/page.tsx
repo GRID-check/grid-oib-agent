@@ -2,7 +2,7 @@
 
 /**
  * App-shell scopes dev preview: the two chromes, side by side
- * (visual/registry.mjs → `app-shell-scopes`). Not linked anywhere and 404s
+ * . Not linked anywhere and 404s
  * outside development.
  *
  * Why it exists. Since the org-nav redesign the two scopes deliberately have
