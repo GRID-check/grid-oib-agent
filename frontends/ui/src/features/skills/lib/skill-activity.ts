@@ -74,9 +74,7 @@ export interface SkillActivity {
   title?: string
   description?: string
   origin?: string
-  forced?: boolean
   offeredCount?: number
-  forcedNames?: string[]
   bodyChars?: number
 }
 
@@ -121,9 +119,7 @@ const toActivity = (payload: StepEventPayload): SkillActivity | null => {
     ...(payload.title?.trim() ? { title: payload.title.trim() } : {}),
     ...(payload.description?.trim() ? { description: payload.description.trim() } : {}),
     ...(payload.origin?.trim() ? { origin: payload.origin.trim() } : {}),
-    ...(payload.forced !== undefined ? { forced: payload.forced } : {}),
     ...(payload.offered_count !== undefined ? { offeredCount: payload.offered_count } : {}),
-    ...(payload.forced_names !== undefined ? { forcedNames: payload.forced_names } : {}),
     ...(payload.body_chars !== undefined ? { bodyChars: payload.body_chars } : {}),
   }
 }

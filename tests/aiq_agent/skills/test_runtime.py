@@ -114,13 +114,13 @@ def test_prompt_block_lists_descriptions_only() -> None:
     assert "beta body" not in block
 
 
-def test_prompt_block_omits_skills_with_auto_invoke_off() -> None:
-    """Off means the model does not see it in the catalog.
+def test_a_stored_auto_invoke_off_no_longer_hides_a_skill() -> None:
+    """The catalog is the model's inventory, not a list a person edits.
 
-    A skill whose author turned auto-invoke off is still resolved and still
-    loadable through ``use_skill`` — a mention of it in the message text is how
-    it gets there. Listing it in L1 would be the model picking it unprompted,
-    which is the thing the switch forbids.
+    ``grid-auto-invoke: false`` used to cut a row out of L1. Its author-facing
+    switch is gone (ADR-0060: nothing but the model decides which skill runs),
+    so honouring the stored token would now hide a skill from every turn with
+    nobody able to bring it back. The key still parses; it decides nothing.
     """
     silent = Skill(
         name="einreichcheck",
@@ -132,41 +132,12 @@ def test_prompt_block_omits_skills_with_auto_invoke_off() -> None:
     runtime = SkillRuntime(skills=(S1, silent))
     block = runtime.prompt_block() or ""
     assert "`alpha`: Erster Skill." in block
-    assert "einreichcheck" not in block
-    # The tool is still wired: a name the model read in the question can load it.
+    assert "`einreichcheck`: Was diesem Bauansuchen noch fehlt." in block
     assert runtime.build_tools()
 
 
-def test_an_auto_invoke_off_skill_is_still_loadable_by_name() -> None:
-    """Out of the catalog is not out of reach.
-
-    The composer's ``/name`` puts the name in the message text, and the model
-    that reads it there can call ``use_skill`` for a skill L1 never listed.
-    """
-    silent = Skill(
-        name="einreichcheck",
-        description="Was diesem Bauansuchen noch fehlt.",
-        body="body",
-        metadata={"grid-auto-invoke": "false"},
-        origin="platform",
-    )
-    runtime = SkillRuntime(skills=(silent,))
-    assert runtime.prompt_block() is None
-    assert _use_skill(runtime).invoke({"skill_name": "einreichcheck"}) == "body"
-    assert runtime.activated == ("einreichcheck",)
-
-
-def test_prompt_block_is_none_when_every_skill_is_slash_only() -> None:
-    silent = Skill(
-        name="einreichcheck",
-        description="Was diesem Bauansuchen noch fehlt.",
-        body="body",
-        metadata={"grid-auto-invoke": "false"},
-        origin="platform",
-    )
-    runtime = SkillRuntime(skills=(silent,))
-    assert runtime.prompt_block() is None
-    assert runtime.build_tools()
+def test_prompt_block_is_none_only_when_there_are_no_skills_at_all() -> None:
+    assert SkillRuntime(skills=()).prompt_block() is None
 
 
 def test_only_a_delivered_body_counts_as_activated() -> None:

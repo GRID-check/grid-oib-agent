@@ -1884,9 +1884,10 @@ yet).
 
 Reusable instruction packages (`SKILL.md`, agentskills.io contract) that
 extend a research turn's procedure. A skill is an OFFER the model takes up:
-nothing can require one. The model picks from the L1 catalog unless the skill
-sets `grid-auto-invoke: false`, and `/name` in the composer inserts a mention
-into the message text rather than a force list on the wire. Delivery is
+nothing can require one. The model picks from the L1 catalog, which lists every
+resolved skill — nothing a person sets takes a row out of it — and `/name` in
+the composer inserts a mention into the message text rather than a force list on
+the wire. Delivery is
 **progressive disclosure**: L1 is a one-line-per-skill catalog in the system
 prompt (`## Available skills`), L2 is the full body, loaded only when the model
 calls the `use_skill` tool. Per-run `SkillRuntime` (ADR-0018 — never cached on

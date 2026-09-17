@@ -230,9 +230,6 @@ export const skills: typeof en.skills = {
       label: 'Kategorie',
       unsorted: 'Unsortiert',
     },
-    autoInvokeLabel: 'Agent darf selbst laden',
-    autoInvokeHint:
-      'An: Der Agent sieht die Beschreibung in jeder Runde und darf den Skill selbst laden. Aus: Nur ein „/“-Aufruf oder ein Job hängt ihn an.',
     hiddenLabel: 'In der Live-Zeile still',
     hiddenHint:
       'Nach dem Lauf nicht in der laufenden Zeile. Unter der Antwort wird er trotzdem genannt.',
@@ -265,7 +262,7 @@ export const skills: typeof en.skills = {
     },
     invoked: {
       label: 'Skill',
-      hint: 'Seine Anweisungen werden zu Beginn dieser Antwort geladen.',
+      hint: 'Piloti sieht diesen Namen und entscheidet, ob es den Skill lädt.',
       remove: 'Skill {name} aus dieser Nachricht entfernen',
     },
     activated: {

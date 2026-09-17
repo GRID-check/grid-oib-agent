@@ -865,7 +865,7 @@ export const SCREENSHOT_TARGETS = [
     mobile: true,
     path: '/dev/skill-composer',
     description:
-      'The composer half of Agent Skills (ADR-0045) — the `/` menu open on a typed fragment, with the invoked-skill chip below it. A row carries exactly the level-1 metadata the agent itself is given and nothing else: the token to type, with the matched fragment emphasised, and the sentence that says when to type it. The fixture matches the same fragment two ways, in the name and in the description only, which is the ranking the menu applies. The chip beneath states the CONSEQUENCE — these instructions will be loaded — because a `/token` in a sentence says nothing about what it does.',
+      'The composer half of Agent Skills (ADR-0045) — the `/` menu open on a typed fragment, with the invoked-skill chip below it. A row carries exactly the level-1 metadata the agent itself is given and nothing else: the token to type, with the matched fragment emphasised, and the sentence that says when to type it. The fixture matches the same fragment two ways, in the name and in the description only, which is the ranking the menu applies. The chip beneath restates that a skill is attached, and says what the token actually does: Piloti READS the name among the words and decides. It used to promise that the instructions would load, which was true while a named skill was forced onto the turn and false since ADR-0060 \u2014 a chip asserting an affordance the product no longer has, which the reader only discovers from an answer that ignored the skill they thought they had picked.',
     waitFor: '[data-testid="slash-command-picker"]',
   },
   {

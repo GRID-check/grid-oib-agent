@@ -47,7 +47,7 @@ validated strictly by `src/aiq_agent/skills/models.py`:
 | `name` | 1–64 chars, lowercase `a-z0-9` + hyphens; for filesystem skills it must equal the parent dir name |
 | `description` | 1–1024 chars, non-empty; the one-line L1 summary the model sees |
 | `body` | The full markdown instructions (L2), loaded only via the `use_skill` tool |
-| `metadata` | String-map; reserved GRID keys are validated — `grid-agents` (who may use it), `grid-cards` (preferred output card types), `grid-title`, `grid-hidden` (mute the live line), `grid-auto-invoke` (whether the model may pick it from L1; absent = on), `grid-catalog` (`curated` = offer, absent = machinery). Every other key is opaque |
+| `metadata` | String-map; reserved GRID keys are validated — `grid-agents` (who may use it), `grid-cards` (preferred output card types), `grid-title`, `grid-hidden` (mute the live line), `grid-catalog` (`curated` = offer, absent = machinery). Every other key is opaque |
 | `license` / `compatibility` / `allowed_tools` | Optional free-form strings |
 
 `Skill` carries one more field that is **not** frontmatter and cannot be written
@@ -398,12 +398,13 @@ skill onto a turn: not the request, not the deployment, not a job.
 
 Progressive disclosure has exactly two levels:
 
-- **L1 — the catalog.** One line per skill the model may pick
-  (`name: description`) under the system prompt's `## Available skills`
-  heading, and nothing else — there is no second, "active" block any more.
-  `grid-auto-invoke: false` omits a skill from L1; it stays resolved and stays
-  in the `/` picker, which reaches the model through the message text. Absent
-  means on. The block is pre-collated by the register layer
+- **L1 — the catalog.** One line per RESOLVED skill (`name: description`)
+  under the system prompt's `## Available skills` heading, and nothing else —
+  there is no second, "active" block any more, and nothing a person sets takes
+  a row out. `grid-auto-invoke: false` used to; its author-facing switch is
+  gone, so honouring the stored token would hide a skill from every turn with
+  nobody able to bring it back. The key still parses on an old document and
+  decides nothing. The block is pre-collated by the register layer
   (`piloti/register.py::_skills_block`, `deep_researcher/agent.py::_skills_block`)
   and renders via the runtime's `prompt_block()`; `None` renders no section.
 - **L2 — the body.** The model must call the `use_skill` tool to load a

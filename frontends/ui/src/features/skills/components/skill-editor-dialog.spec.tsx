@@ -103,38 +103,20 @@ describe('SkillEditorDialog — create', () => {
     expect(payload.body).toBe('Act as a fire-safety reviewer.')
     expect(payload.clonedFrom).toBeUndefined()
     // A new skill writes NO reserved metadata at all: both agents is the
-    // default (so no `grid-agents`), auto-invoke is on (so no
-    // `grid-auto-invoke`), hidden is off (so no `grid-hidden`), no card
-    // preference, and nothing about time or output — a skill does not know
-    // when a job runs.
+    // default (so no `grid-agents`), hidden is off (so no `grid-hidden`), no
+    // card preference, and nothing about time or output — a skill does not
+    // know when a job runs.
     expect(payload.metadata).toEqual({})
     expect(payload.enabled).toBe(true)
     expect(toast.success).toHaveBeenCalledWith('Skill created.')
   })
 
-  test('turning auto-invoke off writes grid-auto-invoke false and nothing else', async () => {
-    createSkillMock.mockResolvedValue(orgSkill)
+  // Which skills the model may pick is the model's business (ADR-0060). The
+  // switch that took one out of the catalog is gone, and the editor must not
+  // grow another way to write the key.
+  test('offers nothing that decides whether the model may pick the skill', () => {
     render(<SkillEditorDialog {...dialogProps} skill={null} />)
-
-    expect(screen.getByRole('switch', { name: 'Agent may pick this' })).toBeChecked()
-    fireEvent.click(screen.getByRole('switch', { name: 'Agent may pick this' }))
-
-    fireEvent.change(screen.getByLabelText(/^Name/), { target: { value: 'einreichcheck' } })
-    fireEvent.change(screen.getByLabelText(/^Description/), {
-      target: { value: 'Was diesem Bauansuchen noch fehlt.' },
-    })
-    fireEvent.change(screen.getByLabelText(/^Instruction/), {
-      target: { value: 'Walk the missing Unterlagen.' },
-    })
-
-    const saveButton = screen.getByRole('button', { name: 'Save skill' })
-    await waitFor(() => expect(saveButton).toBeEnabled())
-    fireEvent.click(saveButton)
-
-    await waitFor(() => expect(createSkillMock).toHaveBeenCalledTimes(1))
-    expect(createSkillMock.mock.calls[0][0].metadata).toEqual({
-      'grid-auto-invoke': 'false',
-    })
+    expect(screen.queryByRole('switch', { name: /may pick/i })).not.toBeInTheDocument()
   })
 
   test('turning hidden on writes grid-hidden true', async () => {
@@ -403,7 +385,7 @@ describe('SkillEditorDialog — edit', () => {
     expect(createSkillMock.mock.calls[0][0]).not.toHaveProperty('categoryId')
   })
 
-  test('prefills auto-invoke off and hidden on from reserved metadata', async () => {
+  test('carries a stored grid-auto-invoke through untouched, and shows no control for it', async () => {
     updateSkillMock.mockResolvedValue(orgSkill)
     render(
       <SkillEditorDialog
@@ -419,7 +401,7 @@ describe('SkillEditorDialog — edit', () => {
       />,
     )
 
-    expect(screen.getByRole('switch', { name: 'Agent may pick this' })).not.toBeChecked()
+    expect(screen.queryByRole('switch', { name: /may pick/i })).not.toBeInTheDocument()
     expect(screen.getByRole('switch', { name: 'Keep off the live line' })).toBeChecked()
 
     const saveButton = screen.getByRole('button', { name: 'Save skill' })

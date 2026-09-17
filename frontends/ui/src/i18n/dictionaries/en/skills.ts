@@ -230,9 +230,6 @@ export const skills = {
       label: 'Category',
       unsorted: 'Unsorted',
     },
-    autoInvokeLabel: 'Agent may pick this',
-    autoInvokeHint:
-      'On: the agent sees the description every turn and may load the skill itself. Off: only a “/” invocation or a job attaches it.',
     hiddenLabel: 'Keep off the live line',
     hiddenHint:
       'After it runs, stay off the running one-liner. Still named under the answer.',
@@ -268,7 +265,11 @@ export const skills = {
     // The chip shown under the composer once a skill is invoked.
     invoked: {
       label: 'Skill',
-      hint: 'Its instructions load at the start of this turn.',
+      // Never „its instructions load". That was true when a named skill was
+      // FORCED onto the turn; since ADR-0060 the name is just text Piloti
+      // reads, and it decides. A chip that promises loading is the UI
+      // asserting an affordance the product no longer has.
+      hint: 'Piloti sees this name and decides whether to load the skill.',
       remove: 'Remove the {name} skill from this message',
     },
     // How an activated skill is reported on the answer.

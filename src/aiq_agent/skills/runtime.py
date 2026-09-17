@@ -43,7 +43,6 @@ import logging
 
 from .models import Skill
 from .models import preferred_cards
-from .models import skill_auto_invoke
 
 logger = logging.getLogger(__name__)
 
@@ -165,20 +164,24 @@ class SkillRuntime:
     def prompt_block(self) -> str | None:
         """L1: the progressive-disclosure catalog section, or None when empty.
 
-        One line per skill the model may pick (name + description); the model
-        must opt IN via ``use_skill`` to see a body. Skills whose
-        ``grid-auto-invoke`` is off are omitted here — they remain resolved and
-        remain in the ``/`` picker, which inserts a mention into the message
-        text rather than reaching into this catalog.
+        One line per resolved skill (name + description); the model must opt IN
+        via ``use_skill`` to see a body.
+
+        EVERY resolved skill is listed. ``grid-auto-invoke`` used to cut rows
+        out of here, which made the catalog a thing a person edited rather than
+        the model's own inventory — the same shape ADR-0060 removed everywhere
+        else. Its author-facing switch is gone, so honouring a stored ``false``
+        would now hide a skill from every turn with nobody able to bring it
+        back. The key is still accepted on a document (an old row must not
+        start erroring); nothing reads it.
 
         ``None`` when nothing belongs in the catalog — callers then render no
         skills section at all.
         """
-        listed = [s for s in self._skills if skill_auto_invoke(s.metadata)]
-        if not listed:
+        if not self._skills:
             return None
         lines = [_L1_HEADING, _L1_DOCTRINE, ""]
-        lines.extend(f"- `{s.name}`: {s.description}" for s in listed)
+        lines.extend(f"- `{s.name}`: {s.description}" for s in self._skills)
         return "\n".join(lines)
 
     def build_tools(self) -> list[object]:
