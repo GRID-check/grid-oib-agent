@@ -1239,7 +1239,7 @@ export const SCREENSHOT_TARGETS = [
     mobile: true,
     path: '/dev/chat-toolbar',
     description:
-      'The floating chat toolbar in the 768px column it actually gets. The first row is a fresh, EMPTY chat: the right pill is absent because nothing in it is true yet, so the left one drops its frame too and the row goes quiet on both sides rather than reading as a toolbar with its right half missing. Then a started thread: left pill = orientation (history door + the thread\'s name) and takes all the elastic width; right pill = status, a hairline, then controls — information is never clickable and every control looks like one. Only New chat stays in the open; share, rename and the report are in the "…" menu. Three rows: a solo private thread (no collaboration furniture and no bare separator), a shared thread with long project + session names and three people, and a project-wide thread, where the rule REPLACES the faces: the audience there was never enumerated, so avatars would be a partial sample of it rather than a summary. Exactly one of the two forms, never both.',
+      'The floating chat toolbar in the 768px column it actually gets. The first row is a fresh, EMPTY chat: the right pill is absent because nothing in it is true yet, so the left one drops its frame too and the row goes quiet on both sides rather than reading as a toolbar with its right half missing. Then a started thread: left pill = orientation (history door + the thread\'s name) and takes all the elastic width; right pill = status, a hairline, then controls — information is never clickable and every control looks like one. Only New chat stays in the open; share and rename are in the "…" menu. Three rows: a solo private thread (no collaboration furniture and no bare separator), a shared thread with long project + session names and three people, and a project-wide thread, where the rule REPLACES the faces: the audience there was never enumerated, so avatars would be a partial sample of it rather than a summary. Exactly one of the two forms, never both.',
     waitFor: '[data-testid="chat-toolbar-preview"]',
   },
   {
@@ -1247,7 +1247,7 @@ export const SCREENSHOT_TARGETS = [
     mobile: true,
     path: '/dev/chat-toolbar?variant=running',
     description:
-      'The same three toolbars while deep research is in flight — the one research state that belongs in the open row, because it is STATUS and not a control: the thread\'s own progress banner scrolls away, so this is the persistent "still working" signal. Merely HAVING a finished report changes nothing here; that is a menu entry.',
+      'The same three toolbars while deep research is in flight — now the ONLY research state the toolbar has, and it belongs in the open row because it is STATUS and not a control: the thread\'s own progress banner scrolls away, so this is the persistent "still working" signal. There is no way out of the row: a run is read in the thread that commissioned it (ADR-0062), so a finished report adds nothing here and the menu holds only share and rename.',
     waitFor: '[data-testid="chat-toolbar-preview"]',
   },
   {

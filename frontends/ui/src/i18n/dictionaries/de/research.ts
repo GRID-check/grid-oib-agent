@@ -47,7 +47,6 @@ export const research: typeof en.research = {
     /** Trigger for the thread menu that holds every non-primary header action. */
     moreActions: 'Weitere Aktionen',
     renameSession: 'Chat umbenennen',
-    researchReport: 'Recherchebericht',
   },
 
   dataSources: {

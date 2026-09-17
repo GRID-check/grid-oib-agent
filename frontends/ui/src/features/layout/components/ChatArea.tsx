@@ -1193,10 +1193,6 @@ const MessageRendererComponent: FC<MessageRendererProps> = ({
         <AgentResponse
           content={message.content}
           timestamp={message.timestamp}
-          showViewReport={message.showViewReport}
-          jobId={message.deepResearchJobId}
-          isDeepResearchActive={message.isDeepResearchActive}
-          deepResearchJobStatus={message.deepResearchJobStatus}
           cards={message.cards}
           citations={message.citations}
           conversationId={conversationId}
@@ -1231,15 +1227,14 @@ const MessageRendererComponent: FC<MessageRendererProps> = ({
       // beneath it once the run has one. Nothing else about the message
       // changes — same row, same id, same deep-link target.
       //
-      // An escalated chat question now mints a run message like any other run,
-      // so this path no longer has a second rendering to fall back to.
-      // `DeepResearchBanner`, `ResearchPanel` and the store's
-      // `deepResearchJobId` slice are kept DELIBERATELY and not because
-      // anything new needs them: threads written before run messages existed
-      // still hold messages whose only account of a run is those surfaces, and
-      // deleting them would blank work a reader can still open. The retirement
-      // is recorded in ADR-0062; the `deepResearch*` props below are what the
-      // legacy messages carry.
+      // The answer card is now the whole of it. The Python worker still stamps
+      // `deep_research_job_id` into every run message's metadata, and that used
+      // to reach `AgentResponse` as `jobId` and grow a "Bericht anzeigen"
+      // button on the finished block — a door that opened the legacy research
+      // panel OVER the run it belongs to. `AgentResponse` no longer takes those
+      // props, so the report is read where the reader already is. The banner
+      // below is the last surface that still opens the panel, and it is
+      // produced only for threads older than run messages.
       if (message.runLedger) {
         return <RunBlockMessage message={message} projectId={projectId} answer={answer} />
       }

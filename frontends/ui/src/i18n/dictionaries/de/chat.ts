@@ -778,13 +778,6 @@ export const chat: typeof en.chat = {
     responseCancelled: 'Recherche abgebrochen',
     responseRejected: 'Plan abgelehnt',
   },
-  agentResponse: {
-    viewProgress: 'Fortschritt anzeigen',
-    viewReport: 'Bericht anzeigen',
-    loading: 'Wird geladen …',
-    loadingLabel: 'Wird geladen',
-    errorTitle: 'Fehler: {message}',
-  },
   // Die einzelne Aufklappung in der Antwortfußzeile für alles hinter der
   // Quellenzeile und den Kopieraktionen (Konfidenz, Merknotiz, Skills,
   // Prüfhinweise, Bewertung, Zeitstempel).

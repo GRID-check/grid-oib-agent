@@ -20,19 +20,8 @@ import { de, en } from '@/i18n/dictionaries'
 import { vi, describe, test, expect, beforeEach } from 'vitest'
 import { AgentResponse } from './AgentResponse'
 import { asStoreState, type DeepPartial, type StoreSelector } from '@/test-utils/store-fixtures'
-import type { LayoutStore } from '@/features/layout/types'
 import type { ChatStoreWithHydration } from '../store'
 import type { CitationSource } from '../types'
-
-vi.mock('@/features/layout/store', () => ({
-  useLayoutStore: vi.fn((selector?: StoreSelector<LayoutStore>) => {
-    const state: DeepPartial<LayoutStore> = {
-      openRightPanel: vi.fn(),
-      setResearchPanelTab: vi.fn(),
-    }
-    return selector ? selector(asStoreState<LayoutStore>(state)) : state
-  }),
-}))
 
 vi.mock('../store', () => ({
   useChatStore: vi.fn((selector?: StoreSelector<ChatStoreWithHydration>) => {
@@ -51,17 +40,6 @@ vi.mock('../store', () => ({
 
 vi.mock('@/adapters/api', () => ({ cancelJob: vi.fn() }))
 vi.mock('@/adapters/auth', () => ({ useAuth: () => ({ accessToken: null }) }))
-vi.mock('../hooks', () => ({
-  useLoadJobData: () => ({
-    loadReport: vi.fn(),
-    importJobStream: vi.fn(),
-    loadResearchPanelTab: vi.fn(),
-    isLoading: false,
-    error: null,
-    clearError: vi.fn(),
-  }),
-}))
-
 // The disclosure fetches descriptions on expand; a standard skill has none,
 // which is the shape this test wants anyway.
 const listInvocableSkills = vi.fn()

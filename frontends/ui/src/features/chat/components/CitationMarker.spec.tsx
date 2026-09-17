@@ -43,17 +43,6 @@ vi.mock('@/adapters/api', () => ({ cancelJob: vi.fn() }))
 
 vi.mock('@/adapters/auth', () => ({ useAuth: () => ({ accessToken: null }) }))
 
-vi.mock('../hooks', () => ({
-  useLoadJobData: () => ({
-    loadReport: vi.fn(),
-    importJobStream: vi.fn(),
-    loadResearchPanelTab: vi.fn(),
-    isLoading: false,
-    error: null,
-    clearError: vi.fn(),
-  }),
-}))
-
 // NOT mocked: the real MarkdownRenderer, because the marker only exists
 // because of how it renders in-page anchors. Stubbing it would leave these
 // tests asserting against markup no reader ever sees.

@@ -274,7 +274,7 @@
     },
     "chat-toolbar": {
       "route": "src/app/dev/chat-toolbar/page.tsx",
-      "routeHash": "ddb765d054a8714e368f87391fad9e7f5a014872e08e1472f850a12906c87285",
+      "routeHash": "4aa5c0dbd04aa842df3994874bad787b376ee09d01b494c54f30e0e6b0236b84",
       "shots": [
         "chat-toolbar.light.png",
         "chat-toolbar.dark.png",
@@ -284,7 +284,7 @@
     },
     "chat-toolbar-running": {
       "route": "src/app/dev/chat-toolbar/page.tsx",
-      "routeHash": "ddb765d054a8714e368f87391fad9e7f5a014872e08e1472f850a12906c87285",
+      "routeHash": "4aa5c0dbd04aa842df3994874bad787b376ee09d01b494c54f30e0e6b0236b84",
       "shots": [
         "chat-toolbar-running.light.png",
         "chat-toolbar-running.dark.png",

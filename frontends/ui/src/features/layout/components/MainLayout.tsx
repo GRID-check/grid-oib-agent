@@ -8,6 +8,15 @@
  * - ResearchPanel (right, pushes content when open)
  *
  * Handles auth state to show different UI for logged-in vs logged-out users.
+ *
+ * The research panel is kept and no longer opened from here. A run is one
+ * message in the thread that commissioned it (ADR-0062), so the toolbar, the
+ * answer card and the `?job=` deep link have all given up their doors to it,
+ * and `useDeepResearch()` is no longer mounted — nothing connects the SSE
+ * stream the panel's live tabs were fed by. The one door left is the legacy
+ * `DeepResearchBanner`, which only appears on threads written before run
+ * messages existed. The panel is still rendered and the width math still
+ * accounts for it, because retiring the panel itself is the next change.
  */
 
 'use client'
@@ -20,7 +29,7 @@ import { SessionsPanel } from './SessionsPanel'
 import { ChatArea } from './ChatArea'
 import { InputArea } from './InputArea'
 import { ResearchPanel } from './ResearchPanel'
-import { useChatStore, useDeepResearch, NoSourcesBanner } from '@/features/chat'
+import { useChatStore, NoSourcesBanner } from '@/features/chat'
 import {
   getLatestDeepResearchMessage,
   hasActiveDeepResearchJob,
@@ -144,9 +153,6 @@ export const MainLayout: FC<MainLayoutProps> = ({
   // Shared with the /dev preview route so the two cannot drift.
   const { composerRef, columnVars, composerStyle, composerMotion } =
     useComposerMetrics(messageCount === 0)
-
-  // Deep research SSE hook - manages connection when deep research starts
-  useDeepResearch()
 
   // Sync session state with URL query parameters
   const { updateSessionUrl, clearSessionUrl } = useSessionUrl({ isAuthenticated })
@@ -378,7 +384,9 @@ export const MainLayout: FC<MainLayoutProps> = ({
           </motion.div>
         </div>
 
-        {/* Research Panel (Right) - Pushes content, shares the width 50/50 */}
+        {/* Research Panel (Right) - Pushes content, shares the width 50/50.
+            Closed for every thread that is not a legacy one; see the note at
+            the top of the file. */}
         <ResearchPanel showSourceBadges={showSourceBadges} />
       </div>
 
