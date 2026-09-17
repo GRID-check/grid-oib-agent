@@ -40,6 +40,7 @@ import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import { useTranslations } from '@/i18n'
 import { listJobs, type Job } from '@/adapters/api/jobs-client'
 import type { ScheduleDraft } from '@/features/jobs/lib/schedule-draft'
+import { seriesColorsFor } from '@/features/jobs/lib/timetable'
 import { ScheduleCard } from '@/features/jobs/components/schedule-card'
 import { ScheduleDetail } from '@/features/jobs/components/schedule-detail'
 import { ScheduleTimetable } from '@/features/jobs/components/schedule-timetable'
@@ -431,22 +432,18 @@ export function TasksPanel({
 
   /**
    * The colour each scheduled task wears on the grid, so a card and its blocks
-   * are recognisably the same thing. Derived from the SAME ordering the
-   * timetable uses (id-sorted, placeable only), because two independent
-   * orderings is how a legend and a grid end up disagreeing.
+   * are recognisably the same thing. The SAME function the timetable calls, not
+   * a second copy of the rule: this used to be its own filter, and when the
+   * grid learned about one-shot tasks (`dueAt`) this one did not — so a
+   * one-shot got a block on the grid and no swatch on its card, and because the
+   * colour is an INDEX, every card after it in id order wore a different colour
+   * from its own block. A comment promising one ordering is not one ordering.
+   *
+   * A miss stays `undefined` rather than falling back: a manual task is not on
+   * the week, and a swatch for it would point at nothing.
    */
   const accentOf = useMemo(() => {
-    const placeable = jobs
-      .filter((job) => job.scheduleCron && job.enabled)
-      .slice()
-      .sort((a, b) => a.id.localeCompare(b.id))
-    const slots = new Map<string, string>()
-    placeable.forEach((job, index) => {
-      slots.set(
-        job.id,
-        index < SERIES_SLOT_COUNT ? `var(--grid-series-${index + 1})` : 'var(--grid-series-other)',
-      )
-    })
+    const slots = seriesColorsFor(jobs, SERIES_SLOT_COUNT)
     return (jobId: string): string | undefined => slots.get(jobId)
   }, [jobs])
 

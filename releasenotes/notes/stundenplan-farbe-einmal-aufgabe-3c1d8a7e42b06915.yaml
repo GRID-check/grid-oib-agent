@@ -1,0 +1,7 @@
+---
+fixes:
+  - >
+    Eine Aufgabe, die nur einmal läuft, trägt jetzt auf ihrer Karte dieselbe
+    Farbe wie ihr Block im Stundenplan. Bisher bekam sie im Raster eine Farbe
+    und auf der Karte keine — und weil die Farbe aus der Reihenfolge kommt, trug
+    danach jede weitere Aufgabe auf der Karte die Farbe einer anderen.

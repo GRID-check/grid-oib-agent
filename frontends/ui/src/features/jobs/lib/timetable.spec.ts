@@ -17,8 +17,10 @@ import {
   gapMinutes,
   hourMarks,
   minuteOfDay,
+  placeableSchedules,
   segmentIndexFor,
   segmentMinutes,
+  seriesColorsFor,
   startOfWeek,
 } from './timetable'
 import type { Occurrence } from './occurrences'
@@ -228,5 +230,63 @@ describe('hourMarks', () => {
 describe('minuteOfDay', () => {
   test('counts from local midnight', () => {
     expect(minuteOfDay(new Date(2026, 8, 14, 6, 30))).toBe(390)
+  })
+})
+
+/**
+ * Which tasks the week contains, and in what colour.
+ *
+ * The regression this pins: the grid and the list beside it each filtered for
+ * themselves, and when the grid learned about one-shot tasks the list did not.
+ * Because the colour is an INDEX into a stable order, one missing row does not
+ * just lose its own swatch — it shifts every colour after it, so cards and
+ * blocks stop naming the same thing. The fix is that there is one function; the
+ * test is that it answers for `dueAt` and that the index is stable.
+ */
+describe('placeableSchedules', () => {
+  const job = (
+    id: string,
+    over: Partial<{ scheduleCron: string | null; dueAt: string | null; enabled: boolean }> = {},
+  ) => ({ id, scheduleCron: null, dueAt: null, enabled: true, ...over })
+
+  test('a one-shot is on the week, exactly as a recurring task is', () => {
+    const once = job('b', { dueAt: '2026-10-02T07:00:00.000Z' })
+    const weekly = job('a', { scheduleCron: '0 6 * * 1' })
+    expect(placeableSchedules([once, weekly]).map((j) => j.id)).toEqual(['a', 'b'])
+  })
+
+  test('a manual task has nowhere to go, and a paused one is not going', () => {
+    const manual = job('a')
+    const paused = job('b', { scheduleCron: '0 6 * * 1', enabled: false })
+    expect(placeableSchedules([manual, paused])).toEqual([])
+  })
+
+  test('the order is the id, so a rename never moves a colour', () => {
+    const jobs = [job('c', { scheduleCron: '0 6 * * 1' }), job('a', { scheduleCron: '0 7 * * 1' })]
+    expect(placeableSchedules(jobs).map((j) => j.id)).toEqual(['a', 'c'])
+  })
+})
+
+describe('seriesColorsFor', () => {
+  const weekly = (id: string) => ({ id, scheduleCron: '0 6 * * 1', dueAt: null, enabled: true })
+
+  test('a one-shot takes a slot rather than shifting everyone else’s', () => {
+    // 'b' is the one-shot. Before the shared filter it was absent from the
+    // list's map, so 'c' took 'b''s colour on the cards and kept its own on the
+    // grid — two colours for one task, in two views of one set.
+    const colors = seriesColorsFor(
+      [weekly('a'), { id: 'b', scheduleCron: null, dueAt: '2026-10-02T07:00:00.000Z', enabled: true }, weekly('c')],
+      8,
+    )
+    expect(colors.get('a')).toBe('var(--grid-series-1)')
+    expect(colors.get('b')).toBe('var(--grid-series-2)')
+    expect(colors.get('c')).toBe('var(--grid-series-3)')
+  })
+
+  test('past the palette everything shares one tone, and a manual task has none', () => {
+    const many = Array.from({ length: 4 }, (_, i) => weekly(`job-${i}`))
+    const colors = seriesColorsFor([...many, { id: 'manual', scheduleCron: null, dueAt: null, enabled: true }], 3)
+    expect(colors.get('job-3')).toBe('var(--grid-series-other)')
+    expect(colors.has('manual')).toBe(false)
   })
 })

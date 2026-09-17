@@ -46,8 +46,10 @@ import {
   buildTimetable,
   gapMinutes,
   hourMarks,
+  placeableSchedules,
   segmentIndexFor,
   segmentMinutes,
+  seriesColorsFor,
   startOfWeek,
   BLOCK_MINUTES,
   type BandSegment,
@@ -96,36 +98,17 @@ export function ScheduleTimetable({
     [weekOffset],
   )
 
-  /**
-   * The tasks that can be PLACED, in a stable order.
-   *
-   * A task has a time if it recurs or if it is due once — both land in the
-   * week. Only a manual task has nowhere to go, because there is no time to
-   * draw it at.
-   *
-   * Sorted by id rather than by whatever order the list arrived in: the colour
-   * a task gets is its index here, and a colour that changes when an unrelated
-   * task is renamed is a colour nobody can learn.
-   */
-  const placeable = useMemo(
-    () =>
-      schedules
-        .filter((job) => (job.scheduleCron || job.dueAt) && job.enabled)
-        .slice()
-        .sort(byId),
-    [schedules],
-  )
+  // Which tasks land on the week, and in what colour, is one rule — shared with
+  // the list beside this grid so the swatch on a card and the block it names
+  // cannot be different colours (`lib/timetable.ts`).
+  const placeable = useMemo(() => placeableSchedules(schedules), [schedules])
 
   const colorOf = useMemo(() => {
-    const slots = new Map<string, string>()
-    placeable.forEach((job, index) => {
-      slots.set(
-        job.id,
-        index < SERIES_SLOT_COUNT ? `var(--grid-series-${index + 1})` : 'var(--grid-series-other)',
-      )
-    })
+    const slots = seriesColorsFor(schedules, SERIES_SLOT_COUNT)
+    // The grid draws only placeable tasks, so a miss here is a task it is not
+    // drawing; the shared „other" tone is the honest answer rather than a hole.
     return (jobId: string): string => slots.get(jobId) ?? 'var(--grid-series-other)'
-  }, [placeable])
+  }, [schedules])
 
   const nameOf = useMemo(() => {
     const names = new Map(schedules.map((job) => [job.id, job.name]))
@@ -340,10 +323,6 @@ function breaksFor(
     offset += BREAK_PX
   }
   return breaks
-}
-
-function byId(a: Job, b: Job): number {
-  return a.id.localeCompare(b.id)
 }
 
 interface ShapeProps {

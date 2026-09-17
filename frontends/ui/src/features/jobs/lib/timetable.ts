@@ -300,3 +300,59 @@ export function hourMarks(segment: BandSegment): number[] {
   for (let minute = segment.start; minute < segment.end; minute += 60) marks.push(minute)
   return marks
 }
+
+// ---------------------------------------------------------------------------
+// Which tasks the grid draws, and in what colour
+// ---------------------------------------------------------------------------
+
+/**
+ * The tasks that can be PLACED on the week, in a stable order.
+ *
+ * A task has a time if it recurs (`scheduleCron`) or if it is due once
+ * (`dueAt`); both land in the week. Only a manual task has nowhere to go,
+ * because there is no time to draw it at. A paused task is left out for the
+ * same reason: the grid states what WILL happen.
+ *
+ * Sorted by id rather than by whatever order the list arrived in, because the
+ * colour a task gets is its index here — and a colour that changes when an
+ * unrelated task is renamed is a colour nobody can learn.
+ *
+ * This lives here, called from both readers, because the two used to filter
+ * separately and drifted: the list kept `scheduleCron && enabled` when the grid
+ * gained `dueAt`, so a one-shot got a block on the grid and no swatch on its
+ * card — and, because the colour is an INDEX, every card after it in id order
+ * then wore a different colour from its own block. Two independent orderings is
+ * how a legend and a grid end up disagreeing, and the only fix that stays fixed
+ * is that there is one of them.
+ */
+export function placeableSchedules<T extends { id: string; scheduleCron: string | null; dueAt: string | null; enabled: boolean }>(
+  jobs: readonly T[],
+): T[] {
+  return jobs
+    .filter((job) => (job.scheduleCron !== null || job.dueAt !== null) && job.enabled)
+    .slice()
+    .sort((a, b) => a.id.localeCompare(b.id))
+}
+
+/**
+ * The colour each placeable task wears, by id.
+ *
+ * Returns the MAP rather than a lookup function, because the two readers want
+ * different things from a miss: the grid draws only placeable tasks and can
+ * fall back to the shared „other" tone, while a card for a manual task should
+ * carry no swatch at all — an accent on something the week does not contain
+ * would be a colour pointing at nothing.
+ */
+export function seriesColorsFor(
+  jobs: readonly { id: string; scheduleCron: string | null; dueAt: string | null; enabled: boolean }[],
+  slotCount: number,
+): Map<string, string> {
+  const slots = new Map<string, string>()
+  placeableSchedules(jobs).forEach((job, index) => {
+    slots.set(
+      job.id,
+      index < slotCount ? `var(--grid-series-${index + 1})` : 'var(--grid-series-other)',
+    )
+  })
+  return slots
+}
