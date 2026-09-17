@@ -175,7 +175,7 @@ export const jobs: typeof en.jobs = {
 
     sourcesSection: 'Datenquellen',
     sourcesSummary: '{count} zusätzliche Quellen',
-    knowledgeAlways: 'Projektdokumente & OIB-Wissensbasis — jedes Mal dabei',
+    knowledgeAlways: 'Projektdokumente, OIB-Wissensbasis & RIS-Rechtstexte — jedes Mal dabei',
     additionalSourcesLabel: 'Zusätzliche Quellen',
     sourcesHint:
       'Quellen über die Wissensbasis hinaus. Nichts angehakt heißt: alle verfügbaren Quellen sind erlaubt.',

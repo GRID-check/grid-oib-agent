@@ -1,0 +1,9 @@
+---
+upgrade:
+  - >
+    RIS ist jetzt immer dabei. Die österreichischen Rechtstexte stehen nicht
+    mehr als Häkchen neben den Projektdokumenten, sondern gehören wie diese
+    zu jedem Lauf — ein Auftrag mit abgeschaltetem RIS beantwortet nicht
+    dieselbe Frage schneller, sondern eine andere mit denselben Worten.
+    Wählbar bleibt allein die Websuche. Bestehende Aufträge nehmen RIS beim
+    nächsten Lauf von selbst auf.

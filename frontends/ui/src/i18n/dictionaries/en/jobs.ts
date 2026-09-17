@@ -184,7 +184,8 @@ export const jobs = {
 
     sourcesSection: 'Data sources',
     sourcesSummary: '{count} extra sources',
-    knowledgeAlways: 'Project documents & OIB knowledge base — always included in every run',
+    knowledgeAlways:
+      'Project documents, the OIB knowledge base and Austrian law (RIS) — always included in every run',
     additionalSourcesLabel: 'Additional sources',
     sourcesHint:
       'Add sources beyond the knowledge base. Leave all unchecked to allow every available source.',

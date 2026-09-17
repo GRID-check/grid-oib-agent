@@ -325,8 +325,11 @@ describe('createJob', () => {
     const insert = vi.mocked(repository.insertDefinition).mock.calls[0][0]
     expect(resolveSkillSnapshot).toHaveBeenCalledWith('einreichcheck', 'org_1')
     expect(insert.plan.skill).toEqual(skillSnapshot)
-    // knowledge_layer is always included; the stored list is "additional".
-    expect(insert.plan.dataSources).toEqual(['knowledge_layer', 'web'])
+    // The always-on sources are always included; the stored list is
+    // "additional". RIS joined the knowledge layer there: the law a project's
+    // documents are judged against is not a preference, and a run with it off
+    // answers a different question in the same words.
+    expect(insert.plan.dataSources).toEqual(['knowledge_layer', 'ris', 'web'])
   })
 })
 

@@ -116,8 +116,15 @@ import {
 } from '../lib/schedule'
 import type { ScheduleDraft } from '../lib/schedule-draft'
 
-/** The always-included knowledge source: a pinned row, never a checkbox. */
-const KNOWLEDGE_LAYER_ID = 'knowledge_layer'
+/**
+ * The sources every run gets: a pinned row, never checkboxes.
+ *
+ * Mirrors `ALWAYS_ON_SOURCE_IDS` on the server, which is what actually enforces
+ * it — this list only decides which rows the wizard withholds, so a checkbox is
+ * never offered for something the submit will turn on regardless. An unchecked
+ * box you cannot uncheck is a lie about who is in control.
+ */
+const ALWAYS_ON_IDS: readonly string[] = ['knowledge_layer', 'ris']
 
 /** The two output kinds, in the order they are offered. */
 const JOB_OUTPUTS: readonly JobOutput[] = ['chat', 'deep-research']
@@ -293,7 +300,7 @@ export function ScheduleWizard({
   }, [])
 
   const additionalSources = useMemo(
-    () => sources?.filter((source) => source.id !== KNOWLEDGE_LAYER_ID) ?? null,
+    () => sources?.filter((source) => !ALWAYS_ON_IDS.includes(source.id)) ?? null,
     [sources],
   )
 
