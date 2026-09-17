@@ -528,6 +528,9 @@ describe('fireJob', () => {
     expect(submitted.input).toContain('PREVIOUS_DECISIONS v1')
 
     const inserted = vi.mocked(repository.insertRun).mock.calls[0][0]
+    // The run's own id travels with the submission: without it the worker
+    // folds no ledger and the block in the thread never moves (ADR-0062).
+    expect(submitted.run_id).toBe(inserted.id)
     expect(inserted).toMatchObject({
       definitionId: DEFINITION,
       trigger: 'schedule',

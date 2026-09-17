@@ -51,6 +51,15 @@ export interface JobSubmitPayload {
    * the run row and the Python half can be built without another rename.
    */
   conversation_id?: string
+  /**
+   * The `task_runs` row this job IS (ADR-0062).
+   *
+   * Without it the worker wraps no ledger fold around its event store, so the
+   * run message is minted and then never moves: the block sits at „Wird
+   * gestartet" until the report lands. Absent only for a submit that has no run
+   * row behind it.
+   */
+  run_id?: string
   data_sources: string[] | null
   collection_scope: string[] | null
   project_context: string | null

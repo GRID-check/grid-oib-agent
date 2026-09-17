@@ -620,6 +620,9 @@ export async function submitAgentRun(spec: AgentRunSpec): Promise<SubmittedAgent
     skills: spec.skillSnapshot ? [spec.skillSnapshot.name] : [],
     output: spec.output,
     ...(conversationId ? { conversation_id: conversationId } : {}),
+    // The run this job is, so the worker folds its ledger onto the run's own
+    // message instead of narrating into the void (ADR-0062).
+    run_id: spec.runId,
     data_sources: withAlwaysOnKnowledge(spec.dataSources ?? null),
     collection_scope: collectionScope,
     project_context: projectContext,

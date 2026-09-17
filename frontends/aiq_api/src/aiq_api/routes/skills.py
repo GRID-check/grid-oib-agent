@@ -156,6 +156,15 @@ class SkillSubmitPayload(BaseModel):
             "Absent for deep-research jobs, and for any run whose conversation could not be created."
         ),
     )
+    run_id: str | None = Field(
+        None,
+        max_length=64,
+        description=(
+            "The `task_runs` row this job IS (ADR-0062). Carried into the worker so the run "
+            "flushes its ledger to its own message; a job submitted without one still narrates "
+            "itself on its event stream and writes nothing."
+        ),
+    )
     owner_email: str | None = Field(None, description="Skill owner's email (job ownership)")
     budget_header: str | None = Field(
         None,
@@ -320,6 +329,10 @@ def add_skill_routes(router: APIRouter) -> None:
                 # inherit one from. This is what lets the worker write the
                 # answer into a thread a human can open and continue.
                 conversation_id=body.conversation_id,
+                # And this is what lets it narrate itself there: without the run
+                # id the worker builds no `RunLedgerFold`, the block is minted
+                # and then never moves (`jobs/runner.py`).
+                run_id=body.run_id,
             )
         except JobAdmissionError as exc:
             raise HTTPException(429, str(exc), headers={"Retry-After": str(exc.retry_after_seconds)})
