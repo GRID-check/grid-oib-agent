@@ -2817,6 +2817,39 @@ describe('useChatStore', () => {
       ).toBe(true)
     })
 
+    test('dismiss reconciles to the verdict of an idempotent cancel success', async () => {
+      // #632: an idempotent backend answers 200 carrying the job's status
+      // instead of 400ing. A dismiss that learns `success` that way must
+      // settle the thread as success — not as the `interrupted` default —
+      // so the report stays reachable exactly as in the 400-verdict case.
+      mockDeepResearchApi.cancelJob.mockResolvedValue({ cancelled: true, status: 'success' })
+      const conv = createConversation('conv-idempotent', [
+        {
+          id: 'tracking-msg',
+          messageType: 'agent_response',
+          deepResearchJobId: 'job-idempotent',
+          deepResearchJobStatus: 'running',
+          isDeepResearchActive: true,
+        },
+      ])
+      seedLiveIdle()
+      useChatStore.setState({ currentUserId: 'user-1', currentConversation: conv, conversations: [conv] })
+
+      await useChatStore.getState().dismissDeepResearchJob('conv-idempotent', 'job-idempotent')
+
+      const messages = useChatStore.getState().conversations[0].messages
+      expect(messages.find((m) => m.id === 'tracking-msg')?.deepResearchJobStatus).toBe('success')
+      expect(
+        messages.some(
+          (m) =>
+            m.messageType === 'deep_research_banner' &&
+            m.deepResearchBannerData?.jobId === 'job-idempotent' &&
+            m.deepResearchBannerData?.bannerType === 'success'
+        )
+      ).toBe(true)
+      expect(useChatStore.getState().resolvedDeepResearchJobs['job-idempotent']).toBe('success')
+    })
+
     test('reconnect does not re-attach a resolved job', async () => {
       const conv = createConversation('conv-reconnect-resolved', [
         {

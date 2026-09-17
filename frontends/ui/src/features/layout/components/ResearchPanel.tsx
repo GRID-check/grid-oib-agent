@@ -121,6 +121,12 @@ export const ResearchPanel: FC<ResearchPanelProps> = memo(function ResearchPanel
   const handleStopResearch = useCallback(async () => {
     if (!deepResearchJobId) return
     const cancelledJobId = deepResearchJobId
+    // #632: the Stop confirmation dialog leaves a window between the press
+    // and the confirm in which the run can finish. This callback re-binds on
+    // every streaming-flag change, so a completion that lands while the
+    // dialog is open is observed here — cancelling a settled run is a
+    // backend no-op, so do not even send it.
+    if (!isDeepResearchStreaming) return
     try {
       await cancelJob(cancelledJobId, idToken || undefined)
 
@@ -160,7 +166,7 @@ export const ResearchPanel: FC<ResearchPanelProps> = memo(function ResearchPanel
         description: t('researchPanel.couldNotStopDesc'),
       })
     }
-  }, [deepResearchJobId, idToken, t])
+  }, [deepResearchJobId, isDeepResearchStreaming, idToken, t])
 
   const handleTabChange = useCallback(
     (value: string) => {

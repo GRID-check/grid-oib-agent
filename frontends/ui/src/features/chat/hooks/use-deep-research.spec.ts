@@ -487,6 +487,27 @@ describe('useDeepResearch', () => {
       expect(mockCancelJob).not.toHaveBeenCalled()
     })
 
+    test.each(['success', 'failure', 'interrupted'] as const)(
+      'does not send cancel when the terminal status already landed: %s',
+      async (status) => {
+        // #632: the terminal frame landed while a cancel press was still in
+        // flight (or after it). A cancel against a terminal job is a backend
+        // no-op, so the request must not go out at all.
+        mockStoreState.deepResearchJobId = 'job-456'
+        mockStoreState.isDeepResearchStreaming = true
+        mockStoreState.deepResearchStatus = status
+        mockCancelJob.mockResolvedValue({ cancelled: true, status })
+
+        const { result } = renderHook(() => useDeepResearch())
+
+        await act(async () => {
+          await result.current.cancelCurrentJob()
+        })
+
+        expect(mockCancelJob).not.toHaveBeenCalled()
+      }
+    )
+
     test('handles cancel errors gracefully', async () => {
       mockStoreState.deepResearchJobId = 'job-456'
       mockStoreState.isDeepResearchStreaming = true

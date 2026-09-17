@@ -285,12 +285,23 @@ class TestCancelRoute:
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize("terminal_status", ["success", "failure", "interrupted"])
-    async def test_cancel_terminal_job_rejected_with_400(self, cancel_app, terminal_status):
+    async def test_cancel_terminal_job_is_idempotent_success(self, cancel_app, db_url, terminal_status):
+        """#632: cancelling a terminal job is a no-op success carrying the verdict, not a 400.
+
+        The UI races completion with user cancel, session-delete and purge
+        cancels; a 400 here becomes an ERROR log per race on the BFF.
+        """
         app, job_store = cancel_app
         job_store.get_job.return_value = _job(terminal_status)
 
         with TestClient(app) as client:
             response = client.post("/v1/jobs/async/job/job-1/cancel")
 
-        assert response.status_code == 400
+        assert response.status_code == 200
+        body = response.json()
+        assert body["job_id"] == "job-1"
+        assert body["status"] == terminal_status
+        assert body["task_cancelled"] is False
+        # Nothing mutated: no status flip, so no cancellation event either.
         job_store.update_status.assert_not_awaited()
+        assert EventStore.get_events(db_url, "job-1") == []

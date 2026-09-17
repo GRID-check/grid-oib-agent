@@ -958,11 +958,36 @@ export const getJobReport = async (
   }
 }
 
+/** The outcome of a cancel request. */
+export interface CancelJobResult {
+  cancelled: boolean
+  /**
+   * The job's status as the cancel answered it: `interrupted` when this
+   * request stopped a live job, or the already-terminal verdict when the
+   * cancel landed after completion (idempotent cancel, #632). Null when the
+   * body carries no usable status — callers reconcile to a default then.
+   */
+  status: DeepResearchJobStatus | null
+}
+
+/**
+ * Narrow an untyped cancel body to a job status, or null.
+ *
+ * `response.json()` is `unknown` at the boundary and this repo forbids
+ * `any`, so the field is checked before it is believed — the same posture
+ * `readReportFiling` takes on the report call in this module.
+ */
+function readCancelJobStatus(body: unknown): DeepResearchJobStatus | null {
+  if (typeof body !== 'object' || body === null) return null
+  const status = (body as { status?: unknown }).status
+  if (typeof status !== 'string') return null
+  return VALID_JOB_STATUSES.has(status as DeepResearchJobStatus)
+    ? (status as DeepResearchJobStatus)
+    : null
+}
+
 /** Cancel a running job */
-export const cancelJob = async (
-  jobId: string,
-  authToken?: string
-): Promise<{ cancelled: boolean }> => {
+export const cancelJob = async (jobId: string, authToken?: string): Promise<CancelJobResult> => {
   const url = `${getDeepResearchBaseUrl()}/job/${jobId}/cancel`
   const headers: HeadersInit = {
     'Content-Type': 'application/json',
@@ -981,7 +1006,8 @@ export const cancelJob = async (
     await throwDeepResearchApiError(response, 'Failed to cancel job')
   }
 
-  return response.json()
+  const body: unknown = await response.json()
+  return { cancelled: true, status: readCancelJobStatus(body) }
 }
 
 /** Job state/artifacts response */

@@ -768,9 +768,12 @@ async def register_job_routes(app: FastAPI, builder: WorkflowBuilder, worker: Fa
         "/v1/jobs/async/job/{job_id}/cancel",
         tags=["async jobs"],
         summary="Cancel a submitted or running job",
-        description="Request cancellation of a submitted or running job. The job status will be set to INTERRUPTED.",
+        description=(
+            "Request cancellation of a submitted or running job. The job status will be set to INTERRUPTED. "
+            "Cancelling an already-terminal job is an idempotent no-op success returning its status, "
+            "not an error: the UI races completion with user cancel, session-delete and purge cancels."
+        ),
         responses={
-            400: {"description": "Job is not in a cancellable (SUBMITTED or RUNNING) state"},
             404: {"description": "Job not found"},
         },
     )
@@ -783,7 +786,15 @@ async def register_job_routes(app: FastAPI, builder: WorkflowBuilder, worker: Fa
         # transition would otherwise be un-cancellable while still consuming
         # admission-control quota (count_active_jobs counts non-terminal jobs).
         if job.status not in (JobStatus.RUNNING.value, JobStatus.SUBMITTED.value):
-            raise HTTPException(400, f"Job not cancellable: {job_id} (status: {job.status})")
+            # Idempotent cancel (#632): a cancel that lands after the job
+            # reached a terminal state is a no-op success carrying the verdict,
+            # not an error. The UI races completion with user cancel,
+            # session-delete and purge cancels, and a 400 here becomes an ERROR
+            # log per race on the BFF. The desired end-state ("this job runs no
+            # more") already holds, so nothing is mutated: no status write, no
+            # event, no queue or Dask touch.
+            logger.info("Cancel no-op for already-terminal job %s (status: %s)", job_id, job.status)
+            return {"job_id": job_id, "status": job.status, "task_cancelled": False}
 
         await job_store.update_status(job_id, JobStatus.INTERRUPTED, error="cancelled by user")
 

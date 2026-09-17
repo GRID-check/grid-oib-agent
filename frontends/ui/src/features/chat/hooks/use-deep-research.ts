@@ -24,6 +24,7 @@ import { useChatStore } from '../store'
 import { useAuth } from '@/adapters/auth'
 import { useLayoutStore } from '@/features/layout/store'
 import { isDeepResearchReplayCompleteMode } from '../lib/transport-auth-signals'
+import { isTerminalDeepResearchJobStatus } from '../lib/session-activity'
 import { normalizeDeepResearchTodos } from '../lib/deep-research-todos'
 import { dedupeBufferedCitations } from '../lib/wire-citation'
 import type { WireCitationSource } from '../types'
@@ -728,6 +729,11 @@ export const useDeepResearch = (): UseDeepResearchReturn => {
   const cancelCurrentJob = useCallback(async () => {
     if (!deepResearchJobId) return
     const cancelledJobId = deepResearchJobId
+    // #632: the terminal frame may already have landed while the streaming
+    // flags have not settled yet — or this is a second press after it. A
+    // cancel against a terminal job is a backend no-op, so do not even send
+    // it; the SSE outcome path owns the cleanup from here.
+    if (isTerminalDeepResearchJobStatus(deepResearchStatus)) return
 
     try {
       await cancelJob(cancelledJobId, idToken || undefined)
@@ -775,7 +781,7 @@ export const useDeepResearch = (): UseDeepResearchReturn => {
     } catch (error) {
       console.error('Failed to cancel job:', error)
     }
-  }, [deepResearchJobId, idToken, patchConversationMessage, addDeepResearchBanner, stopAllDeepResearchSpinners, completeDeepResearch, setStreaming, setStreamLoaded])
+  }, [deepResearchJobId, deepResearchStatus, idToken, patchConversationMessage, addDeepResearchBanner, stopAllDeepResearchSpinners, completeDeepResearch, setStreaming, setStreamLoaded])
 
   /**
    * Auto-connect when job ID changes

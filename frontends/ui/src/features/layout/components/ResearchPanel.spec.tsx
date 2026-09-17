@@ -314,6 +314,31 @@ describe('ResearchPanel', () => {
 
       expect(cancelJob).not.toHaveBeenCalled()
     })
+
+    test('confirming after the run finished does not send a cancel', async () => {
+      // #632: the run finishes in the window between opening the Stop
+      // confirmation dialog and confirming. Cancelling a settled run is a
+      // backend no-op, so the request must not go out at all.
+      const user = userEvent.setup()
+      const { cancelJob } = await import('@/adapters/api')
+      mockIsDeepResearchStreaming = true
+      mockDeepResearchJobId = 'job-123'
+
+      const { rerender } = render(<ResearchPanel />)
+
+      await user.click(screen.getByTestId('research-panel-stop'))
+      expect(screen.getByText('Stop research?')).toBeInTheDocument()
+
+      // The run finishes while the confirmation dialog is open. In
+      // production the store subscription re-renders the panel, rebinding
+      // the confirm handler; here the store is selector-only, so the prop
+      // change below stands in for that re-render (the panel is memo).
+      mockIsDeepResearchStreaming = false
+      rerender(<ResearchPanel showSourceBadges={false} />)
+
+      await user.click(screen.getByTestId('stop-research-confirm'))
+      expect(cancelJob).not.toHaveBeenCalled()
+    })
   })
 
   describe('children rendering', () => {

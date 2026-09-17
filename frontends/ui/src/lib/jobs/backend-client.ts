@@ -178,7 +178,9 @@ export async function submitJob(
  * A cancel the backend refused, with the status it answered.
  *
  * The two statuses a caller decides on: 400 is the backend's verdict that the
- * job is already terminal (`Job not cancellable: <id> (status: …)`), and 404 is
+ * job is already terminal (`Job not cancellable: <id> (status: …)`) — sent
+ * only by backends predating the idempotent cancel (#632), kept for the
+ * mixed-version window while the tiers roll out separately — and 404 is
  * an unknown job or one the caller does not own — the backend answers both the
  * same way on purpose. Everything else is the backend being unreachable.
  */
