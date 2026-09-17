@@ -34,7 +34,6 @@ import {
   CircleDot,
   FileText,
   MessageSquare,
-  ScrollText,
   XCircle,
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
@@ -116,12 +115,16 @@ const REVIEW_ICON: Record<'accepted' | 'rejected', LucideIcon> = {
   rejected: XCircle,
 }
 
-/** One icon per place a result can live, so the affordance is recognisable. */
-const RESULT_ICON: Record<'document' | 'conversation' | 'report' | 'thinking', LucideIcon> = {
+/**
+ * One icon per place a result can live, so the affordance is recognisable.
+ *
+ * Two, since a run's report and its thinking stopped being places of their own:
+ * both were the side panel behind `?job=`, and both are now the run's message
+ * in its thread (ADR-0062), which is the conversation.
+ */
+const RESULT_ICON: Record<'document' | 'conversation', LucideIcon> = {
   document: FileText,
   conversation: MessageSquare,
-  report: ScrollText,
-  thinking: ScrollText,
 }
 
 export interface TaskCardProps {

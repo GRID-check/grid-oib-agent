@@ -238,11 +238,14 @@ export const jobs = {
     loading: 'Loading tasks…',
     loadError: 'The history could not be loaded.',
     empty: 'This task has not run yet.',
-    viewReport: 'View report',
-    /** A `chat` run landed in a conversation — the run's output IS that chat. */
+    /**
+     * Both doors lead to the same place, the thread the run narrates itself in
+     * (ADR-0062) — the words differ because a live run is watched and a
+     * finished one is read. „View report" and „View thinking" went with the
+     * side panel that held them apart.
+     */
     openChat: 'Open chat',
     viewProgress: 'View progress',
-    viewThinking: 'View thinking',
     scheduler: 'Scheduler',
     trigger: {
       manual: 'Manual',

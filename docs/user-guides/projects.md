@@ -145,13 +145,14 @@ empty; the real status and error are in the job's run history. A
 **Following a run.** Starting a run — with **Run now** or on its schedule —
 produces a real research job, and the run history shows what that job is doing:
 *Queued*, *Running*, *Completed*, *Failed* or *Cancelled*, refreshed while the
-run is active. Each row links to the matching view: **View progress** opens the
-research panel and follows the run live (its tasks tick off as it works, and the
-panel's **Stop researching** button cancels it), **View report** opens a
-finished run's report, and **View thinking** opens a failed run's trace. **Run
-now** opens the history straight away and its confirmation offers *View
-progress*, so a started run is never invisible. The same links appear on the
-**History** page, which lists every research run in the project.
+run is active. Each row opens the thread the run writes itself into —
+**View progress** while it is still working, **Open chat** once it is not. One
+destination, because the run's progress, its report and, when it broke, what it
+tried are one message in that thread. **Run now** opens the history straight
+away and its confirmation offers *View progress*, so a started run is never
+invisible. A run that names no conversation — a headless or CLI job — states its
+status without a link, because there is no thread to open. The same links appear
+on the chat history sheet, which lists every research run in the project.
 
 Schedules are validated server-side: 5-field cron, per-job IANA timezone, and a
 minimum cadence of `GRID_SKILL_MIN_INTERVAL_MINUTES` (default 15 minutes). Any

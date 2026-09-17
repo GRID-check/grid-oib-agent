@@ -219,10 +219,8 @@ export const jobs: typeof en.jobs = {
     loading: 'Tasks werden geladen…',
     loadError: 'Der Verlauf konnte nicht geladen werden.',
     empty: 'Diese Aufgabe ist noch nie gelaufen.',
-    viewReport: 'Bericht ansehen',
     openChat: 'Chat öffnen',
     viewProgress: 'Fortschritt ansehen',
-    viewThinking: 'Gedankengang ansehen',
     scheduler: 'Zeitplaner',
     trigger: {
       manual: 'Manuell',

@@ -85,12 +85,30 @@ describe('what the drawer says a task became', () => {
     )
   })
 
-  test('a research run that filed nothing still opens its report', () => {
-    drawer({ task: task({ kind: 'deep-research', backendJobId: 'bj-1' }) })
+  test('a research run that filed nothing opens its own message in the thread', () => {
+    drawer({
+      task: task({
+        kind: 'deep-research',
+        backendJobId: 'bj-1',
+        conversationId: 'conv-1',
+        runMessageId: 'msg-1',
+      }),
+    })
     expect(screen.getByTestId('task-detail-result')).toHaveAttribute(
       'href',
-      '/app/projects/p1/chat?job=bj-1',
+      '/app/projects/p1/chat?session=conv-1&run=task-1#message-msg-1',
     )
+  })
+
+  /**
+   * The report used to be its own destination, `?job=<backendJobId>`, read by
+   * the deep-research side panel. With the panel gone that URL lands on the
+   * chat page and does nothing, so a run that filed no document and has no
+   * thread offers no button rather than a link that goes nowhere.
+   */
+  test('a backend job id alone is not a destination any more', () => {
+    drawer({ task: task({ kind: 'deep-research', backendJobId: 'bj-1' }) })
+    expect(screen.queryByTestId('task-detail-result')).not.toBeInTheDocument()
   })
 
   test('a task with nowhere to point offers nothing rather than a dead link', () => {

@@ -1177,10 +1177,16 @@ the history joins its rows against
 History page uses — and shows `Queued / Running / Completed / Failed /
 Cancelled`, repeating every 10 s while a run is still active. Best-effort:
 without the join (backend unreachable, run outside the lookup window) the row
-falls back to its submission badge. The row's action follows that status
-(running → `?job=<id>&tab=tasks`, completed → `?job=<id>`, failed/cancelled →
-`?job=<id>&tab=thinking`), and "Run now" opens the history and offers a *View
-progress* action into the live job.
+falls back to its submission badge. The row's action no longer follows that
+status — every row opens the thread the run narrates itself in
+(`?session=<conversationId>&run=<runId>`, ADR-0062), and the status only picks
+the words: *View progress* while the run is live, *Open chat* once it is not.
+The `?job=<id>` URLs the action used to build (with `&tab=tasks` while running
+and `&tab=thinking` on a failure) were read by the deep-research side panel and
+by nothing else, so they went with it; a run whose conversation the list cannot
+name now gets no link at all rather than one that lands on the chat page and
+silently does nothing. "Run now" opens the history and offers that same *View
+progress* action.
 
 A **deep-research** run has no owning conversation, so the research panel
 attaches to the job without writing banners or error cards into whatever chat

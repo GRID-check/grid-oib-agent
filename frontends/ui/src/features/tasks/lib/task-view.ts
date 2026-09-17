@@ -45,13 +45,17 @@ export interface TaskWireRow {
    */
   runMessageId: string | null
   /**
-   * The backend async-job id — the handle on the run's own report and its
-   * thinking. Null for a task whose submission never reached the agent.
+   * The backend async-job id — the id the agent's job store knows this run by.
+   * Null for a task whose submission never reached the agent.
    *
-   * Sent because it is the only way to open the REPORT of a task that filed
-   * nothing and minted no conversation, which used to be a dead end: the row
-   * said „Fertig" and offered nowhere to go. It is an opaque id that already
-   * appears in URLs the run history builds, so shipping it widens nothing.
+   * It was sent so „Bericht öffnen" could be built from it for a run that filed
+   * nothing and minted no conversation. That link was `?job=<id>`, whose only
+   * reader was the deep-research side panel, and a run now tells its own story
+   * in its own message (ADR-0062) — so no destination on this surface is built
+   * from this field any more. It stays on the wire because it is how a run is
+   * named outside this tier (the worker reports an outcome by it); the
+   * projection that fills it, `lib/tasks/list-projection.ts`, is where to drop
+   * it when nothing needs the handle either.
    */
   backendJobId: string | null
   /**
@@ -119,26 +123,26 @@ export function isActiveTask(task: TaskWireRow): boolean {
 /**
  * Where this task's result IS, as one destination.
  *
- * Three places a result can live, in the order a person wants them:
+ * Two places a result can live, in the order a person wants them:
  *
  *   1. the **document** it was filed as, which is the durable artefact and the
  *      thing the rest of the product treats as real;
  *   2. the **conversation** the run was commissioned in, opened at the run's own
- *      message, which can be read and continued;
- *   3. the run's own **report**, reached by backend job id.
+ *      message — which since ADR-0062 holds the report, the account of the work
+ *      and the failure alike, and can be read and continued.
  *
- * (3) is the one the surface used to be missing, and its absence is why a
- * finished research task could say „Fertig" and offer nowhere to go — the exact
- * dead end that made the list feel like a log rather than a place. A failed run
- * goes to its THINKING instead: there is no report to read, and the question a
- * person has about a failure is what it tried.
+ * There was a third, the run's report by backend job id (`?job=…`), with
+ * `&tab=thinking` for a failure and `&tab=tasks` while the work was still
+ * going. That URL had exactly one reader, the deep-research side panel, and
+ * with the panel gone it lands on the chat page and silently does nothing — a
+ * link that looks alive and is not, which is worse than none. The run's message
+ * replaces all three: it IS the report when the run filed nothing, and it is
+ * what it tried when the run broke.
  *
- * Null only when the task genuinely has nowhere to point: a submission that
- * never reached the agent, or one still queued.
+ * Null when the task genuinely has nowhere to point — no filed document and no
+ * thread. Honest, and no worse than a link to nothing.
  */
-export type TaskResultTarget =
-  | { kind: 'document' | 'conversation' | 'report' | 'thinking'; href: string }
-  | null
+export type TaskResultTarget = { kind: 'document' | 'conversation'; href: string } | null
 
 /**
  * The query (and anchor) that opens a task's thread AT its run.
@@ -180,21 +184,10 @@ export function taskResultTarget(projectId: string, task: TaskWireRow): TaskResu
       href: `/app/projects/${project}/files?doc=${encodeURIComponent(task.filedDocumentId)}`,
     }
   }
-  if (task.conversationId) {
-    return {
-      kind: 'conversation',
-      href: `/app/projects/${project}/chat?${conversationQuery(task)}`,
-    }
-  }
-  if (!task.backendJobId) return null
-  const job = encodeURIComponent(task.backendJobId)
-  if (BROKEN_STATUSES.has(task.status)) {
-    return { kind: 'thinking', href: `/app/projects/${project}/chat?job=${job}&tab=thinking` }
-  }
-  if (isActiveTask(task)) {
-    return { kind: 'report', href: `/app/projects/${project}/chat?job=${job}&tab=tasks` }
-  }
-  return { kind: 'report', href: `/app/projects/${project}/chat?job=${job}` }
+  // The thread AT the run, from the one builder that knows that shape, so the
+  // result link and „Im Verlauf öffnen" can never point at different messages.
+  const thread = taskThreadHref(projectId, task)
+  return thread ? { kind: 'conversation', href: thread } : null
 }
 
 /**

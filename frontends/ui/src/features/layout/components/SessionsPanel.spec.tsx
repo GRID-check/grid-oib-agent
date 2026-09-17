@@ -865,7 +865,7 @@ describe('SessionsPanel - Deep Research section (FB-10)', () => {
     )
   })
 
-  test('shows runs by default: session-title label, untitled fallback, and deep-link hrefs', async () => {
+  test('shows runs by default: session-title label, untitled fallback, and thread hrefs', async () => {
     mockListResearchRuns.mockResolvedValue({
       jobs: [
         makeRun({ job_id: 'job-completed', status: 'completed', conversation_id: 'conv-1' }),
@@ -879,26 +879,33 @@ describe('SessionsPanel - Deep Research section (FB-10)', () => {
     // Always open — with the History page gone this sheet is the one record,
     // so the runs are visible without a click.
 
-    // Completed run inherits its originating session's title and links to the report.
+    // A run inherits its originating session's title and opens THAT thread,
+    // where the run narrates itself in one message (ADR-0062).
     const completed = await screen.findByRole('link', {
       name: /Open deep research run: Fire safety review/i,
     })
-    expect(completed.getAttribute('href')).toBe('/app/projects/p1/chat?job=job-completed')
+    expect(completed.getAttribute('href')).toBe('/app/projects/p1/chat?session=conv-1')
 
-    // Failed run with no local session falls back to the shared untitled label
-    // and deep-links to the thinking tab.
-    const failed = screen.getByRole('link', {
-      name: /Open deep research run: Deep research run/i,
-    })
-    expect(failed.getAttribute('href')).toBe('/app/projects/p1/chat?job=job-failed&tab=thinking')
+    // A run that names no conversation — headless, or from the CLI — has no
+    // thread to open. It keeps the shared untitled label and offers NO link:
+    // the `?job=…&tab=thinking` URL it used to get was read by the research
+    // panel alone, so with the panel gone it would land on the chat page and
+    // silently do nothing.
+    expect(screen.getByText('Deep research run')).toBeInTheDocument()
+    expect(
+      screen.queryByRole('link', { name: /Open deep research run: Deep research run/i })
+    ).not.toBeInTheDocument()
   })
 
   test('a run states its status in words, not only in its icon', async () => {
     mockListResearchRuns.mockResolvedValue({
       jobs: [
         makeRun({ job_id: 'job-ok', status: 'completed', conversation_id: 'conv-1' }),
-        makeRun({ job_id: 'job-bad', status: 'failed', conversation_id: null }),
-        makeRun({ job_id: 'job-live', status: 'running', conversation_id: null }),
+        // Threads of their own, so the failed row is a LINK and its accessible
+        // name can be asserted below — a run with no conversation renders no
+        // link at all, which the deep-link test above covers.
+        makeRun({ job_id: 'job-bad', status: 'failed', conversation_id: 'conv-2' }),
+        makeRun({ job_id: 'job-live', status: 'running', conversation_id: 'conv-3' }),
       ],
       total: 3,
     })
@@ -1041,7 +1048,13 @@ describe('SessionsPanel - Deep Research section (FB-10)', () => {
     )
 
     // Now the original fetch resolves; the result must land in the section.
-    resolveRuns({ jobs: [makeRun({ job_id: 'job-1' }), makeRun({ job_id: 'job-2' })], total: 2 })
+    resolveRuns({
+      jobs: [
+        makeRun({ job_id: 'job-1', conversation_id: 'conv-1' }),
+        makeRun({ job_id: 'job-2', conversation_id: 'conv-2' }),
+      ],
+      total: 2,
+    })
 
     expect(
       await screen.findAllByRole('link', { name: /open deep research run/i })
