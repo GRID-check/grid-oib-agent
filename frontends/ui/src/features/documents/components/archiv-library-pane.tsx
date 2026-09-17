@@ -326,7 +326,7 @@ export function ArchivLibraryPane({
                   <ArchivDocumentCard
                     file={hit}
                     isSelected={selectedFileId === hit.id}
-                    onSelect={() => onSelectFile(selectedFileId === hit.id ? null : hit.id)}
+                    onSelect={() => onSelectFile(hit.id)}
                     locale={locale}
                     match={{ snippet: hit.snippet, page: hit.page, score: hit.score }}
                     actions={renderActions?.(hit)}
@@ -361,7 +361,7 @@ export function ArchivLibraryPane({
                   <ArchivDocumentCard
                     file={file}
                     isSelected={selectedFileId === file.id}
-                    onSelect={() => onSelectFile(selectedFileId === file.id ? null : file.id)}
+                    onSelect={() => onSelectFile(file.id)}
                     locale={locale}
                     actions={renderActions?.(file)}
                   />

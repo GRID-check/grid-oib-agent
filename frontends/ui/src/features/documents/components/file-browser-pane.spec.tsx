@@ -123,11 +123,15 @@ describe('FileBrowserPane — card grid', () => {
     expect(screen.getByText('Failed')).toBeInTheDocument()
   })
 
-  it('marks the selected card with aria-pressed', () => {
+  // `aria-current`, not `aria-pressed`: the card opens the file, it does not
+  // toggle. It used to close the preview when you clicked the row you were
+  // already looking at — the one surface in the product that did.
+  it('marks the card the preview is showing with aria-current', () => {
     renderPane({ selectedFileId: 'f1' })
     const cards = screen.getAllByTestId('file-card')
     const selected = cards.find((c) => within(c).queryByText('site-plan.pdf'))!
-    expect(selected).toHaveAttribute('aria-pressed', 'true')
+    expect(selected).toHaveAttribute('aria-current', 'true')
+    expect(selected).not.toHaveAttribute('aria-pressed')
   })
 
   it('renders the upload card as the last tile of the grid', () => {

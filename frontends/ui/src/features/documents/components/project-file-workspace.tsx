@@ -789,6 +789,20 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName, s
     [folders, projectId, loadFolders, t]
   )
 
+  /**
+   * Open a file's preview, and say so on the URL.
+   *
+   * `?doc=` was read-only here: the deep link worked if somebody handed you
+   * one, and opening a file produced nothing you could hand back. So the one
+   * thing a reader wants from a file they are reading — "look at this" — was
+   * the one thing this surface could not give them, and browser Back walked
+   * out of Files instead of closing the preview.
+   *
+   * `push`, not `replace`, and for the reason `openModel` above is a push: on a
+   * phone, back is the primary way anyone dismisses a full-screen overlay.
+   * Closing REPLACES the parameter away (below), so shutting the preview does
+   * not leave an entry that back would re-open.
+   */
   const handleSelectFile = useCallback(
     (id: string | null) => {
       if (id === null) {
@@ -837,12 +851,24 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName, s
         onTagsUpdated: handleTagsUpdated,
         onLifecycleChanged: handleLifecycleChanged,
       })
+      // Not when we are answering a `?doc=` that is already there: that path
+      // arrives FROM the URL, and pushing it again is a history entry whose
+      // back takes you to the same screen.
+      if (docParam !== id) {
+        const params = new URLSearchParams(searchParams?.toString() ?? '')
+        params.set('doc', id)
+        router.push(`${pathname ?? ''}?${params.toString()}`, { scroll: false })
+      }
     },
     [
       files,
       showModels,
       previewFirst,
       openModel,
+      docParam,
+      pathname,
+      router,
+      searchParams,
       projectId,
       projectName,
       canCollaborate,
@@ -864,6 +890,25 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName, s
       handleSelectFile(docParam)
     }
   }, [docParam, files, handleSelectFile])
+
+  /**
+   * The preview closed — by its X, by Escape, by the scrim — so the parameter
+   * goes with it.
+   *
+   * Driven off the store rather than off the close handler, because there are
+   * four ways to shut that overlay and only one of them comes back through
+   * here. A `?doc=` left on a page whose preview is shut is a link that
+   * promises a document and delivers a file list.
+   */
+  const previewFileId = useFilePreviewStore((state) => state.file?.id ?? null)
+  useEffect(() => {
+    if (previewFileId !== null || !docParam) return
+    const params = new URLSearchParams(searchParams?.toString() ?? '')
+    params.delete('doc')
+    const query = params.toString()
+    const path = pathname ?? ''
+    router.replace(query ? `${path}?${query}` : path, { scroll: false })
+  }, [previewFileId, docParam, pathname, router, searchParams])
 
   // This session's own uploads for this project's corpus — every phase, so the
   // tray can carry a batch all the way from queued to its "added" summary
