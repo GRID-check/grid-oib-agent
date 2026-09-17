@@ -114,6 +114,7 @@ Index: [`contributing/README.md`](contributing/README.md).
 | [Kubernetes](deployment/kubernetes.md) | The Pulumi stack |
 | [Coolify](deployment/coolify.md) | The Coolify deployment path |
 | [CD](deployment/cd.md) | Continuous delivery |
+| [Promoting develop to prod](deployment/promoting-develop-to-prod.md) | The promotion checklist, including what a long gap adds to it |
 | [Startup Flow](deployment/startup-flow.md) | Boot sequence: PostgreSQL init, SeaweedFS, Dask, uvicorn, gateway |
 | [Security Config](deployment/security-config.md) | Auth configuration, storage credentials, key management |
 | [WorkOS Provisioning](deployment/workos-provisioning.md) | Applying the authorization catalog |

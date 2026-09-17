@@ -1372,7 +1372,8 @@ tab with full logs and diffs regardless of where the CLI ran. Manual
 (no images exist for other branches) and accepts an optional **`imageTag`
 input** — the supported rollback path, which pins **all three** services to
 the supplied tag through the identical gates, after verifying the tag is
-published for all three images. Prod is promoted manually.
+published for all three images. Prod is promoted manually — checklist in
+[`promoting-develop-to-prod.md`](promoting-develop-to-prod.md).
 
 **Pulumi stack config is file-based for plaintext, ESC-based for secrets — the
 configured stack file must be committed.** `Pulumi.dev.yaml` holds the

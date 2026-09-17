@@ -141,6 +141,15 @@ rollback dispatches (operator-supplied `imageTag`) still pin **all three**
 services to that tag, after the workflow verifies the tag is published for
 every image — see "Rolling back".
 
+## Promoting to prod
+
+The prod half of the diagram is manual: merge `develop` into `prod`, bump
+`grid-oib:imageTag` to a develop sha that has **all three** images, merge, and
+approve the `production` environment. When the two branches have drifted for
+weeks, the migrations, the retrieval index and the WorkOS catalog need work
+before that door opens — the checklist is
+[`promoting-develop-to-prod.md`](promoting-develop-to-prod.md).
+
 ## Rolling back
 Deploys pin rebuilt services to immutable `sha-<40-hex>` image tags (non-rebuilt
 services keep their current image), so a rollback is a deploy of an older tag —
