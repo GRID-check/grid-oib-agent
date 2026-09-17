@@ -32,6 +32,61 @@
   },
   "releases": [
     {
+      "id": "2026-09-17",
+      "kind": "date",
+      "version": null,
+      "date": "2026-09-17",
+      "summary": null,
+      "sections": [
+        {
+          "key": "features",
+          "notes": [
+            {
+              "en": "In der Aufträge-Liste öffnet ein Klick auf eine Zeile jetzt den Lauf selbst: dieselben Runden, Quellen und Fundstellen wie im Verlauf, statt einer zweiten Beschreibung derselben Zeile. Darunter steht weiterhin das Ergebnis — und daneben neu der Weg in den Verlauf, wo ein laufender Auftrag verfolgt und eine Rückfrage beantwortet wird.",
+              "de": "In der Aufträge-Liste öffnet ein Klick auf eine Zeile jetzt den Lauf selbst: dieselben Runden, Quellen und Fundstellen wie im Verlauf, statt einer zweiten Beschreibung derselben Zeile. Darunter steht weiterhin das Ergebnis — und daneben neu der Weg in den Verlauf, wo ein laufender Auftrag verfolgt und eine Rückfrage beantwortet wird."
+            },
+            {
+              "en": "Recherchiert Piloti gründlich zu einer Frage, sehen Sie das jetzt als Auftrag im Verlauf: derselbe Block mit Phasen, Runden, Dokumenten und Laufzeit. Er steht auch in der Aufträge-Liste, lässt sich abbrechen, und der Bericht wird abgelegt. Vorher stand dort nur ein Satz.",
+              "de": "Recherchiert Piloti gründlich zu einer Frage, sehen Sie das jetzt als Auftrag im Verlauf: derselbe Block mit Phasen, Runden, Dokumenten und Laufzeit. Er steht auch in der Aufträge-Liste, lässt sich abbrechen, und der Bericht wird abgelegt. Vorher stand dort nur ein Satz."
+            },
+            {
+              "en": "Was im Gespräch schon geklärt wurde — etwa Ihre Antworten auf Pilotis Rückfragen — geht in die Recherche mit ein, statt noch einmal gefragt zu werden.",
+              "de": "Was im Gespräch schon geklärt wurde — etwa Ihre Antworten auf Pilotis Rückfragen — geht in die Recherche mit ein, statt noch einmal gefragt zu werden."
+            },
+            {
+              "en": "Einen laufenden Auftrag können Sie jetzt im Block selbst beenden: „Abbrechen“ steht neben der Kopfzeile, solange der Auftrag läuft oder auf Sie wartet. Vorher wird gefragt — und die Rückfrage sagt, was bleibt: Was bis dahin recherchiert wurde, steht weiter im Block; nur der Bericht wird nicht mehr geschrieben.",
+              "de": "Einen laufenden Auftrag können Sie jetzt im Block selbst beenden: „Abbrechen“ steht neben der Kopfzeile, solange der Auftrag läuft oder auf Sie wartet. Vorher wird gefragt — und die Rückfrage sagt, was bleibt: Was bis dahin recherchiert wurde, steht weiter im Block; nur der Bericht wird nicht mehr geschrieben."
+            },
+            {
+              "en": "Der Skill-Editor ist ein Assistent in drei Schritten geworden, wie der Aufgaben-Assistent: zuerst Name und Beschreibung — die zwei Zeilen, die Piloti vor jeder Entscheidung liest —, dann die Anweisungen, dann die Prüfung. Alles, was die wenigsten brauchen, liegt hinter einem „Erweitert\" im letzten Schritt.",
+              "de": "Der Skill-Editor ist ein Assistent in drei Schritten geworden, wie der Aufgaben-Assistent: zuerst Name und Beschreibung — die zwei Zeilen, die Piloti vor jeder Entscheidung liest —, dann die Anweisungen, dann die Prüfung. Alles, was die wenigsten brauchen, liegt hinter einem „Erweitert\" im letzten Schritt."
+            },
+            {
+              "en": "Die Befunde der Skill-Prüfung stehen jetzt unter dem Feld, um das es geht, und die Schrittleiste zeigt, wo noch etwas offen ist. Nach einer Überarbeitung führt „Erneut prüfen\" die Prüfung auf dem geänderten Stand aus; ein Befund zu einem Text, der sich inzwischen geändert hat, wird als veraltet gekennzeichnet statt weiter als aktuell zu gelten.",
+              "de": "Die Befunde der Skill-Prüfung stehen jetzt unter dem Feld, um das es geht, und die Schrittleiste zeigt, wo noch etwas offen ist. Nach einer Überarbeitung führt „Erneut prüfen\" die Prüfung auf dem geänderten Stand aus; ein Befund zu einem Text, der sich inzwischen geändert hat, wird als veraltet gekennzeichnet statt weiter als aktuell zu gelten."
+            }
+          ]
+        },
+        {
+          "key": "upgrade",
+          "notes": [
+            {
+              "en": "Ein Auftrag hängt keinen Skill mehr an. Stattdessen nennen Sie ihn im Auftragstext selbst — das Eingabefeld im Assistenten ist jetzt das Chat-Eingabefeld, mit demselben „/\"-Menü. Piloti liest den Namen und entscheidet, wie im Gespräch auch. Bestehende Zeitpläne laufen unverändert weiter.",
+              "de": "Ein Auftrag hängt keinen Skill mehr an. Stattdessen nennen Sie ihn im Auftragstext selbst — das Eingabefeld im Assistenten ist jetzt das Chat-Eingabefeld, mit demselben „/\"-Menü. Piloti liest den Namen und entscheidet, wie im Gespräch auch. Bestehende Zeitpläne laufen unverändert weiter."
+            },
+            {
+              "en": "Die Skill-Prüfung ist jetzt ein Schritt: Sie führen sie aus, bevor Sie speichern können. Was sie findet, gewichten Sie selbst — Befunde blockieren das Speichern nicht, und wenn die Prüfung nicht erreichbar ist, können Sie trotzdem speichern.",
+              "de": "Die Skill-Prüfung ist jetzt ein Schritt: Sie führen sie aus, bevor Sie speichern können. Was sie findet, gewichten Sie selbst — Befunde blockieren das Speichern nicht, und wenn die Prüfung nicht erreichbar ist, können Sie trotzdem speichern."
+            },
+            {
+              "en": "Der Schalter „Agent darf selbst laden\" im Skill-Editor ist entfallen. Welche Skills Piloti in Betracht zieht, entscheidet Piloti — ein Kästchen, das einen Skill aus dieser Auswahl streicht, war die letzte Stelle, an der ein Mensch das vorweggenommen hat. Bereits gespeicherte Skills bleiben unverändert und stehen ab sofort wieder zur Auswahl.",
+              "de": "Der Schalter „Agent darf selbst laden\" im Skill-Editor ist entfallen. Welche Skills Piloti in Betracht zieht, entscheidet Piloti — ein Kästchen, das einen Skill aus dieser Auswahl streicht, war die letzte Stelle, an der ein Mensch das vorweggenommen hat. Bereits gespeicherte Skills bleiben unverändert und stehen ab sofort wieder zur Auswahl."
+            }
+          ]
+        }
+      ]
+    },
+    {
       "id": "2026-09-16",
       "kind": "date",
       "version": null,
@@ -41,6 +96,22 @@
         {
           "key": "features",
           "notes": [
+            {
+              "en": "Ein Auftrag, den Sie Piloti übergeben, erscheint jetzt als ein Block direkt im Verlauf, in dem Sie ihn erteilt haben: Titel, Stand (Läuft, Wartet auf Sie, Fertig, …), die Phasen Planen · Recherchieren · Prüfen · Schreiben · Abgelegt und die Laufzeit. Der Block aktualisiert sich, solange der Auftrag läuft; der fertige Bericht steht darunter, mit Quellen und Herleitung.",
+              "de": "Ein Auftrag, den Sie Piloti übergeben, erscheint jetzt als ein Block direkt im Verlauf, in dem Sie ihn erteilt haben: Titel, Stand (Läuft, Wartet auf Sie, Fertig, …), die Phasen Planen · Recherchieren · Prüfen · Schreiben · Abgelegt und die Laufzeit. Der Block aktualisiert sich, solange der Auftrag läuft; der fertige Bericht steht darunter, mit Quellen und Herleitung."
+            },
+            {
+              "en": "In der Aufträge-Liste zeigt eine laufende Karte in einer Zeile, was der Auftrag gerade tut, etwa „Recherchieren · 3 Runden · 9 Dokumente“.",
+              "de": "In der Aufträge-Liste zeigt eine laufende Karte in einer Zeile, was der Auftrag gerade tut, etwa „Recherchieren · 3 Runden · 9 Dokumente“."
+            },
+            {
+              "en": "Ein Auftrag läuft jetzt in der Unterhaltung, in der er erteilt wurde. Wer eine Tiefenrecherche startet oder eine Aufgabe übergibt, findet Fortschritt und Bericht als eine Nachricht im eigenen Verlauf statt in einer separaten Unterhaltung. Ein wiederkehrender Auftrag bekommt eine eigene Unterhaltung „Aufgabe: …“, in der jede Ausführung unter der vorigen erscheint.",
+              "de": "Ein Auftrag läuft jetzt in der Unterhaltung, in der er erteilt wurde. Wer eine Tiefenrecherche startet oder eine Aufgabe übergibt, findet Fortschritt und Bericht als eine Nachricht im eigenen Verlauf statt in einer separaten Unterhaltung. Ein wiederkehrender Auftrag bekommt eine eigene Unterhaltung „Aufgabe: …“, in der jede Ausführung unter der vorigen erscheint."
+            },
+            {
+              "en": "Was ein Auftrag getan hat, bleibt beim Bericht: die Phasen, die Absicht jeder Recherche-Runde und die dabei aufgeschlagenen Dokumente werden mit der Nachricht aufbewahrt und verfallen nicht mehr nach 24 Stunden.",
+              "de": "Was ein Auftrag getan hat, bleibt beim Bericht: die Phasen, die Absicht jeder Recherche-Runde und die dabei aufgeschlagenen Dokumente werden mit der Nachricht aufbewahrt und verfallen nicht mehr nach 24 Stunden."
+            },
             {
               "en": "The Automation section now has two tabs: Tasks and Skills. A task can carry its own schedule, and the week timetable is a view inside Tasks rather than a place of its own — old Zeitplan links keep working.",
               "de": "The Automation section now has two tabs: Tasks and Skills. A task can carry its own schedule, and the week timetable is a view inside Tasks rather than a place of its own — old Zeitplan links keep working."
@@ -87,6 +158,10 @@
               "de": "Finishing a new task now offers \"Create and run now\", so you can see the first result immediately instead of waiting for the next scheduled time to find out whether the request says what you meant."
             },
             {
+              "en": "Die Tiefenrecherche legt ihre Herleitung so offen wie Piloti im Chat: pro Runde, was sie klären wollte und welche Fundstellen sie dafür aufgeschlagen hat. Eine Stelle, die schon gelesen wurde, wird nicht erneut abgerufen, sondern aus der Runde davor beantwortet.",
+              "de": "Die Tiefenrecherche legt ihre Herleitung so offen wie Piloti im Chat: pro Runde, was sie klären wollte und welche Fundstellen sie dafür aufgeschlagen hat. Eine Stelle, die schon gelesen wurde, wird nicht erneut abgerufen, sondern aus der Runde davor beantwortet."
+            },
+            {
               "en": "Eine Frage nach einer ganzen Richtlinie („Was weißt du über die OIB 2?“) beantwortet Piloti jetzt in einem Suchlauf mit allen Teilen, die im Bestand sind: je Teil der Geltungsbereich als zitierfähige Passage und darunter dessen Gliederung. Bisher zeigte die Suche zwei Dokumente, und die übrigen Teile wurden einzeln nachgeladen.",
               "de": "Eine Frage nach einer ganzen Richtlinie („Was weißt du über die OIB 2?“) beantwortet Piloti jetzt in einem Suchlauf mit allen Teilen, die im Bestand sind: je Teil der Geltungsbereich als zitierfähige Passage und darunter dessen Gliederung. Bisher zeigte die Suche zwei Dokumente, und die übrigen Teile wurden einzeln nachgeladen."
             },
@@ -99,6 +174,10 @@
         {
           "key": "fixes",
           "notes": [
+            {
+              "en": "Die Denkstufe unter Plattform → Modelle gilt jetzt für alle Agenten. Bisher kam sie nur bei wenigen Nebenrollen an; Piloti, die Tiefenrecherche und die Compliance-Prüfung dachten weiter mit dem Wert aus der Konfiguration, egal was eingestellt war. Das Modell greift wie gehabt ab der nächsten neuen Unterhaltung, die Denkstufe innerhalb einer Minute.",
+              "de": "Die Denkstufe unter Plattform → Modelle gilt jetzt für alle Agenten. Bisher kam sie nur bei wenigen Nebenrollen an; Piloti, die Tiefenrecherche und die Compliance-Prüfung dachten weiter mit dem Wert aus der Konfiguration, egal was eingestellt war. Das Modell greift wie gehabt ab der nächsten neuen Unterhaltung, die Denkstufe innerhalb einer Minute."
+            },
             {
               "en": "Ein Werkzeugaufruf, der fehlschlägt, taucht nicht mehr als Quelle in der Herleitung auf. Bisher landete die Fehlermeldung selbst in der Quellenliste, samt der Adresse, auf die sie verwies, und Piloti las den Fehlschlag als Fließtext statt als kurzen Hinweis, mit dem es den Aufruf korrigieren kann.",
               "de": "Ein Werkzeugaufruf, der fehlschlägt, taucht nicht mehr als Quelle in der Herleitung auf. Bisher landete die Fehlermeldung selbst in der Quellenliste, samt der Adresse, auf die sie verwies, und Piloti las den Fehlschlag als Fließtext statt als kurzen Hinweis, mit dem es den Aufruf korrigieren kann."
