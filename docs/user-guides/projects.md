@@ -112,35 +112,33 @@ Source: `frontends/ui/src/features/skills/`, service in
 
 The **Jobs** tab (`/app/projects/{id}/jobs`) is where a prompt is put on a
 timer. **A job is a prompt** — the question you would have typed into a new
-chat — that runs on demand or on a schedule. A skill may be **attached** on
-top, exactly as typing `/name` before that message would attach it, but a job
-does not need one: "check the current OIB-RL 6 requirements for this project
-every Monday" is a complete job with no skill involved.
+chat — that runs on demand or on a schedule. Nothing else is required: "check
+the current OIB-RL 6 requirements for this project every Monday" is a complete
+job.
 
 Managing jobs needs `project:skills:manage`; anyone with `project:view` can
 read them and their history. Each job has:
 
 - a **prompt** (required),
-- an optional **skill**, chosen from the toolbox. Choosing one copies it into
-  the job at save time, so editing the skill afterwards never silently changes
-  what an already-scheduled job sends,
-- an **output**: a **chat** (a conversation you can open and keep typing into)
-  or a **deep-research report**. This is your choice on the job, not something
-  the skill decides. It also decides which skills can be attached, since the
-  two agents can run different procedures,
-- an optional **schedule**: 5-field cron in a timezone you pick.
+- an optional **schedule**: 5-field cron in a timezone you pick, or a single due
+  date, or neither — then it runs only when you press **Run now**.
 
-The builder shows the form on the left and a live *what the agent receives*
-preview on the right, so what you approve is exactly what gets submitted —
-prompt first, then the attached skill's instructions when there is one.
+There is no output choice and no skill picker. Every task you create now
+researches and files a report into the project; a task that should follow a
+playbook names it in the prompt with `/name`, the same way you would in a chat,
+and the model reads the name and decides. Tasks created before this keep the
+output they were saved with and keep running as what they are.
 
-**Where a chat job's answer lands.** A job with **chat** output writes its
-question and answer into a real conversation in this project, titled with the
-job's name and visible to everyone with project access — it appears alongside
-the project's other conversations, and you can open it and keep talking. If a
-run fails or is cancelled, the thread says so in one line instead of sitting
-empty; the real status and error are in the job's run history. A
-**deep-research** job produces a report instead, with no thread.
+The builder asks one thing per step — **Auftrag**, **Wann**, **Prüfen** — and
+the last step states in one sentence what it is about to commit to, with the
+exact text that will be fired folded underneath it.
+
+**Where a run's answer lands.** A run writes itself into the thread that
+commissioned it, as one message: its progress while it works, its report when it
+finishes, and what it tried when it broke. A standing task owns one thread and
+each firing appends to it. The report is also filed into the project as a
+document, so it survives the thread. If a run fails or is cancelled, the message
+says so; the status and the sanitized error are also in the task's run history.
 
 **Following a run.** Starting a run — with **Run now** or on its schedule —
 produces a real research job, and the run history shows what that job is doing:

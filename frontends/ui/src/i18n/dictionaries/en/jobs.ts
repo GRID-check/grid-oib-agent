@@ -24,7 +24,7 @@ export const jobs = {
     empty: {
       title: 'No tasks yet',
       description:
-        'A task is a request with or without a rhythm. Write it once, choose whether it produces a chat or a report, and let Piloti work while you are somewhere else.',
+        'A task is a request with or without a rhythm. Write it once, say when it runs, and let Piloti research and file the report while you are somewhere else.',
       action: 'New task',
     },
     manualOnly: 'Manual only',

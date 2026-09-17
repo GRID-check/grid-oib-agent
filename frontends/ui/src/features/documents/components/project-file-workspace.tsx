@@ -790,18 +790,12 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName, s
   )
 
   /**
-   * Open a file's preview, and say so on the URL.
+   * Open a file's preview.
    *
-   * `?doc=` was read-only here: the deep link worked if somebody handed you
-   * one, and opening a file produced nothing you could hand back. So the one
-   * thing a reader wants from a file they are reading — "look at this" — was
-   * the one thing this surface could not give them, and browser Back walked
-   * out of Files instead of closing the preview.
-   *
-   * `push`, not `replace`, and for the reason `openModel` above is a push: on a
-   * phone, back is the primary way anyone dismisses a full-screen overlay.
-   * Closing REPLACES the parameter away (below), so shutting the preview does
-   * not leave an entry that back would re-open.
+   * It does NOT touch the URL. `?doc=` has one writer — the reconciler below —
+   * because the preview can also be opened from a link and shut by three
+   * controls this function never hears about, and a second writer here is what
+   * made the two disagree.
    */
   const handleSelectFile = useCallback(
     (id: string | null) => {
@@ -851,24 +845,12 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName, s
         onTagsUpdated: handleTagsUpdated,
         onLifecycleChanged: handleLifecycleChanged,
       })
-      // Not when we are answering a `?doc=` that is already there: that path
-      // arrives FROM the URL, and pushing it again is a history entry whose
-      // back takes you to the same screen.
-      if (docParam !== id) {
-        const params = new URLSearchParams(searchParams?.toString() ?? '')
-        params.set('doc', id)
-        router.push(`${pathname ?? ''}?${params.toString()}`, { scroll: false })
-      }
     },
     [
       files,
       showModels,
       previewFirst,
       openModel,
-      docParam,
-      pathname,
-      router,
-      searchParams,
       projectId,
       projectName,
       canCollaborate,
@@ -883,32 +865,74 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName, s
     ],
   )
 
-  useEffect(() => {
-    if (!docParam || files.length === 0) return
-    if (useFilePreviewStore.getState().file?.id === docParam) return
-    if (files.some((file) => file.id === docParam)) {
-      handleSelectFile(docParam)
-    }
-  }, [docParam, files, handleSelectFile])
+  const previewFileId = useFilePreviewStore((state) => state.file?.id ?? null)
+  const previousDocRef = useRef<string | null>(null)
+  const previousPreviewRef = useRef<string | null>(null)
 
   /**
-   * The preview closed — by its X, by Escape, by the scrim — so the parameter
-   * goes with it.
+   * Keep `?doc=` and the open preview saying the same thing, in both
+   * directions.
    *
-   * Driven off the store rather than off the close handler, because there are
-   * four ways to shut that overlay and only one of them comes back through
-   * here. A `?doc=` left on a page whose preview is shut is a link that
-   * promises a document and delivers a file list.
+   * This was two effects pulling one way each, and the transition neither of
+   * them owned was the one the change exists for: the opener returned when
+   * `?doc=` was absent, the closer returned while the preview was still up, so
+   * pressing Back dropped the parameter and left the file open. Back did
+   * nothing.
+   *
+   * One effect, and the rule is WHICH SIDE MOVED. The snapshot alone cannot
+   * tell a Back from a `router.push` that has not landed yet — in both, the URL
+   * names no file while the preview shows one — so the effect compares each
+   * side against what it was, and the side that changed is the cause. The other
+   * follows it. When the preview moved, the URL is rewritten: opening pushes
+   * (on a phone, back is how anyone dismisses a full-screen overlay) and
+   * closing replaces, so shutting the preview leaves no entry back would
+   * re-open. When the URL moved, the preview is opened or shut to match, and
+   * the row highlight goes with it — a card wearing `aria-current` under a
+   * closed preview points at nothing.
    */
-  const previewFileId = useFilePreviewStore((state) => state.file?.id ?? null)
   useEffect(() => {
-    if (previewFileId !== null || !docParam) return
-    const params = new URLSearchParams(searchParams?.toString() ?? '')
-    params.delete('doc')
-    const query = params.toString()
-    const path = pathname ?? ''
-    router.replace(query ? `${path}?${query}` : path, { scroll: false })
-  }, [previewFileId, docParam, pathname, router, searchParams])
+    const wanted = docParam ?? null
+    const urlMoved = previousDocRef.current !== wanted
+    const previewMoved = previousPreviewRef.current !== previewFileId
+    previousPreviewRef.current = previewFileId
+
+    if (wanted === previewFileId) {
+      previousDocRef.current = wanted
+      return
+    }
+
+    if (previewMoved) {
+      previousDocRef.current = wanted
+      const params = new URLSearchParams(searchParams?.toString() ?? '')
+      const path = pathname ?? ''
+      if (previewFileId === null) {
+        setSelectedFileId(null)
+        params.delete('doc')
+        const query = params.toString()
+        router.replace(query ? `${path}?${query}` : path, { scroll: false })
+      } else {
+        params.set('doc', previewFileId)
+        router.push(`${path}?${params.toString()}`, { scroll: false })
+      }
+      return
+    }
+
+    if (!urlMoved) return
+
+    if (wanted === null) {
+      previousDocRef.current = wanted
+      setSelectedFileId(null)
+      useFilePreviewStore.getState().close()
+      return
+    }
+
+    // A link, or Back onto an entry that names a file. The rows may still be
+    // loading, and then this is NOT yet handled: `previousDocRef` is left
+    // behind on purpose so the render that has them still counts as a move.
+    if (!files.some((file) => file.id === wanted)) return
+    previousDocRef.current = wanted
+    handleSelectFile(wanted)
+  }, [docParam, previewFileId, files, handleSelectFile, pathname, router, searchParams])
 
   // This session's own uploads for this project's corpus — every phase, so the
   // tray can carry a batch all the way from queued to its "added" summary

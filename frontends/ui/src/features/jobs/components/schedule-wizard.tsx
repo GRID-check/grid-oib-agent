@@ -136,6 +136,18 @@ const ALWAYS_ON_IDS: readonly string[] = ['knowledge_layer', 'ris']
 const STEP_KEYS = ['task', 'schedule', 'review'] as const
 type StepKey = (typeof STEP_KEYS)[number]
 
+/**
+ * Where a schedule error is shown, derived rather than counted.
+ *
+ * It was the literal `2`, which was the schedule step while there were four of
+ * them. Dropping the output step moved the schedule to 1 and left `2` pointing
+ * at the review — so an invalid cron, or the server refusing the interval, sent
+ * the reader to a step that does not render `scheduleError` and said nothing at
+ * all. An error a reader cannot see is an error they cannot fix, which is the
+ * thing the code around it claims to prevent.
+ */
+const SCHEDULE_STEP = STEP_KEYS.indexOf('schedule')
+
 /** How many upcoming fire times step 2 proves the schedule with. */
 const PREVIEW_COUNT = 3
 
@@ -334,7 +346,7 @@ export function ScheduleWizard({
       // authoritative validation (parseability, minimum interval).
       if (effectiveCron && !isPlausibleCron(effectiveCron)) {
         setScheduleError(t('builder.cronInvalid'))
-        setStepIndex(2)
+        setStepIndex(SCHEDULE_STEP)
         return
       }
 
@@ -391,7 +403,7 @@ export function ScheduleWizard({
           const message = err.serverMessage ?? t('builder.saveError')
           if (cadence !== 'manual') {
             setScheduleError(message)
-            setStepIndex(2)
+            setStepIndex(SCHEDULE_STEP)
           } else {
             setFormError(message)
           }

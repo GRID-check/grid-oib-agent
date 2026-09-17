@@ -302,6 +302,25 @@ describe('step 3 — what will happen, then one button', () => {
     expect(runJob).not.toHaveBeenCalled()
   })
 
+  // The step that owns the error is where the reader is put, and it is found by
+  // NAME rather than counted. It used to be the literal index 2, which was the
+  // schedule step while there were four of them; dropping the output step moved
+  // the schedule to 1 and left 2 pointing at the review, which renders no
+  // schedule error at all — so a refused interval sent the reader to a screen
+  // that said nothing and offered nothing to change.
+  test('a refused schedule sends the reader back to the schedule, with the reason', async () => {
+    const { JobApiError } = await import('@/adapters/api/jobs-client')
+    createJob.mockRejectedValueOnce(
+      new JobApiError('Failed to create job: 422', 422, 'UNPROCESSABLE', 'Minimum interval is 1 hour.')
+    )
+    const { user } = wizard()
+    await toReview(user)
+    await user.click(screen.getByRole('button', { name: /^Create task$/ }))
+
+    await waitFor(() => expect(screen.getByTestId('wizard-step-schedule')).toBeInTheDocument())
+    expect(screen.getByText('Minimum interval is 1 hour.')).toBeInTheDocument()
+  })
+
   test('a failed first run leaves the save reported as the success it was', async () => {
     // The task IS in the list by then. Reporting "could not be saved" over a
     // task somebody can see would be the most confusing thing this flow could

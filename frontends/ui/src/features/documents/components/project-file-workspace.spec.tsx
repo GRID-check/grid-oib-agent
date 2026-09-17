@@ -1550,3 +1550,111 @@ describe('ProjectFileWorkspace — folders are addressable', () => {
     expect(screen.queryByTestId('folder-back')).not.toBeInTheDocument()
   })
 })
+
+/**
+ * `?doc=` and the open preview, in both directions.
+ *
+ * The regression these exist for: the URL and the preview each had an effect
+ * pulling ONE way — one only ever opened, the other only ever dropped the
+ * parameter — so the transition nobody owned was the reader pressing Back. The
+ * parameter went and the file stayed open, which is precisely the gesture the
+ * parameter was added to serve.
+ */
+describe('ProjectFileWorkspace — the open file is on the URL', () => {
+  const doc: DocumentWireRow = {
+    id: 'doc-eg',
+    filename: 'EG.pdf',
+    displayName: null,
+    fileSize: 10,
+    contentType: 'application/pdf',
+    status: 'ready',
+    folderId: null,
+    createdAt: '2026-06-14T09:00:00.000Z',
+    errorMessage: null,
+    summary: null,
+    pageCount: null,
+    chunkCount: null,
+    contentTypes: null,
+    tags: null,
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    resetPreviewStore()
+    searchParams = new URLSearchParams()
+  })
+
+  function renderAt(query = '') {
+    searchParams = new URLSearchParams(query)
+    return renderWorkspace(
+      <ProjectFileWorkspace
+        projectId="proj-1"
+        projectName="Test"
+        collectionName="test-coll"
+        initialFiles={[doc]}
+      />,
+    )
+  }
+
+  it('names the file it opened, so the link can be handed to somebody', async () => {
+    renderAt()
+    fireEvent.click(await findFileButton(/EG\.pdf/))
+
+    await waitFor(() => expect(routerPush).toHaveBeenCalled())
+    const href = String(routerPush.mock.calls.at(-1)?.[0])
+    expect(new URLSearchParams(href.split('?')[1]).get('doc')).toBe('doc-eg')
+    // A push and not a replace: on a phone, back is how anyone dismisses a
+    // full-screen overlay, so opening has to leave an entry to go back to.
+    expect(routerReplace).not.toHaveBeenCalled()
+  })
+
+  it('opens the file a link names', async () => {
+    renderAt('doc=doc-eg')
+    await waitFor(() => expect(useFilePreviewStore.getState().file?.id).toBe('doc-eg'))
+    // Answering the URL must not push it again: that is a history entry whose
+    // back takes you to the screen you are already on.
+    expect(routerPush).not.toHaveBeenCalled()
+  })
+
+  it('closes the preview when the reader goes back', async () => {
+    const { rerender } = renderAt('doc=doc-eg')
+    await waitFor(() => expect(useFilePreviewStore.getState().file?.id).toBe('doc-eg'))
+
+    // Back: the entry without the parameter. Nothing else changes — this is the
+    // case the two one-way effects both declined to handle.
+    searchParams = new URLSearchParams()
+    rerender(
+      <>
+        <ProjectFileWorkspace
+          projectId="proj-1"
+          projectName="Test"
+          collectionName="test-coll"
+          initialFiles={[doc]}
+        />
+        <FilePreviewHost />
+      </>,
+    )
+
+    await waitFor(() => expect(useFilePreviewStore.getState().file).toBeNull())
+  })
+
+  it('drops the parameter when the preview is closed by its own control', async () => {
+    // Opened from the URL, because the mock router does not feed a `push` back
+    // into `useSearchParams` — and the parameter has to really be there for
+    // dropping it to mean anything.
+    renderAt('doc=doc-eg')
+    await waitFor(() => expect(useFilePreviewStore.getState().file?.id).toBe('doc-eg'))
+
+    // The X, Escape and the scrim all land here — the store is the one thing
+    // all three of them touch, and the only one this workspace can observe.
+    useFilePreviewStore.getState().close()
+
+    await waitFor(() => expect(routerReplace).toHaveBeenCalled())
+    const href = String(routerReplace.mock.calls.at(-1)?.[0])
+    expect(href).not.toContain('doc=')
+    // …and the row stops claiming to be the one on screen.
+    await waitFor(() =>
+      expect(screen.getByTestId('file-card').querySelector('[aria-current="true"]')).toBeNull(),
+    )
+  })
+})

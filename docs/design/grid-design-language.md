@@ -260,11 +260,24 @@ drawer is the shape people expect. Two drawers is not: two stacked modal focus
 traps, and the reader cannot tell which list they are going back to.
 
 **Getting back out.** Every overlay closes on Escape, on its own X, and on a
-scrim click, and Escape does exactly ONE thing: close this overlay. An overlay
-whose state is worth sending to a colleague puts that state on the URL with
-`push`, so browser Back closes it. One whose state is not worth sharing stays
-off the URL entirely. `replaceState` is the option that looks like a compromise
-and is not: it produces a URL that promises a link and a Back button that lies.
+scrim click, and Escape does exactly ONE thing: close this overlay.
+
+The one exception is the reason editor forms are `Dialog`s at all: **an editor
+with unsaved changes does not close on any of the three.** All of them route
+through the same discard confirmation, because a form that throws work away on
+a stray Escape has the failure the rule above was written to prevent, and it has
+it whichever gesture triggers it. A clean editor — nothing typed, or everything
+saved — closes like any other overlay; the confirmation is about the unsaved
+edit, not about the form.
+
+An overlay whose state is worth sending to a colleague puts that state on the
+URL with `push`, so browser Back closes it. One whose state is not worth sharing
+stays off the URL entirely. `replaceState` is the option that looks like a
+compromise and is not: it produces a URL that promises a link and a Back button
+that lies. When the URL carries the state, ONE place owns writing it: the
+overlay opening pushes, the overlay closing replaces, and the reader's own
+navigation is followed rather than fought. Two effects each pulling one way is
+how Back ends up doing nothing.
 
 ## Component patterns
 

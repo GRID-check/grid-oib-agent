@@ -27,7 +27,7 @@ export const jobs: typeof en.jobs = {
     empty: {
       title: 'Noch keine Aufgaben',
       description:
-        'Eine Aufgabe ist ein Auftrag mit oder ohne Rhythmus. Einmal schreiben, festlegen, ob ein Chat oder ein Bericht herauskommt — und Piloti arbeitet, während Sie woanders sind.',
+        'Eine Aufgabe ist ein Auftrag mit oder ohne Rhythmus. Einmal schreiben, festlegen, wann sie läuft — und Piloti recherchiert und legt den Bericht ab, während Sie woanders sind.',
       action: 'Neue Aufgabe',
     },
     manualOnly: 'Nur manuell',

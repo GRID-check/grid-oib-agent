@@ -1,9 +1,8 @@
 ---
 features:
   - >
-    Eine Aufgabe liefert jetzt immer einen recherchierten Bericht, abgelegt im
-    Projekt. Die Frage „Chat oder Bericht?“ ist aus dem Assistenten
-    verschwunden — „Chat“ hieß „es bleibt nichts liegen“, und dafür legt
-    niemand eine wiederkehrende Aufgabe an. Drei Schritte statt vier: Auftrag,
-    Wann, Prüfen. Die Datenquellen stehen jetzt beim Auftrag. Bestehende
-    Aufgaben laufen unverändert weiter.
+    Neue Aufgaben liefern immer einen recherchierten Bericht, abgelegt im
+    Projekt. Die Frage „Chat oder Bericht?“ ist verschwunden — „Chat“ hieß „es
+    bleibt nichts liegen“, und dafür legt niemand eine Aufgabe an. Drei Schritte
+    statt vier, und die Datenquellen stehen beim Auftrag. Bereits angelegte
+    Aufgaben behalten ihre Ergebnisart.
