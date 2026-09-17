@@ -1358,7 +1358,7 @@
     },
     "run-block": {
       "route": "src/app/dev/run-block/page.tsx",
-      "routeHash": "bbc95e1f34fc3243bb9215780a2ed772faeb4e961a5f42b1d42b7eb204ad03d8",
+      "routeHash": "ded756e682a7966a42b9ebe5167f7653f25a47b2f40422e73701c60a2b9f3e37",
       "shots": [
         "run-block.light.png",
         "run-block.dark.png",
@@ -1368,7 +1368,7 @@
     },
     "run-block-live": {
       "route": "src/app/dev/run-block/page.tsx",
-      "routeHash": "bbc95e1f34fc3243bb9215780a2ed772faeb4e961a5f42b1d42b7eb204ad03d8",
+      "routeHash": "ded756e682a7966a42b9ebe5167f7653f25a47b2f40422e73701c60a2b9f3e37",
       "shots": [
         "run-block-live.light.png",
         "run-block-live.dark.png",
@@ -1378,7 +1378,7 @@
     },
     "run-block-transition": {
       "route": "src/app/dev/run-block/page.tsx",
-      "routeHash": "bbc95e1f34fc3243bb9215780a2ed772faeb4e961a5f42b1d42b7eb204ad03d8",
+      "routeHash": "ded756e682a7966a42b9ebe5167f7653f25a47b2f40422e73701c60a2b9f3e37",
       "shots": [
         "run-block-transition.light.png",
         "run-block-transition.dark.png",

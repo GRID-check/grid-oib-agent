@@ -3,8 +3,9 @@
 **Status:** Implemented (2026-09). ADR-0062 decides the model; this is the
 design of what the reader sees of it.
 **Related:** `frontends/ui/src/features/runs/components/RunBlock.tsx`,
-`.../RunBlockLine.tsx`, `.../RunBlockMessage.tsx`, `lib/choreography.ts`;
-evidence at `/dev/run-block`, `?variant=transition`, `?variant=motion`.
+`.../RunBlockLine.tsx`, `.../RunBlockMessage.tsx`, `lib/choreography.ts`,
+`frontends/ui/src/components/ui/stage-track.tsx`; evidence at `/dev/run-block`,
+`?variant=transition`, `?variant=motion`.
 
 ## What it replaces, and why
 
@@ -20,13 +21,42 @@ from ONE input: the run's ledger.
 
 ## The grammar it borrows
 
-Nothing here is a new material. The header is the Herleitung bar's (`ChatThinking`):
-a glyph in a fixed slot, the bold status word, the muted summary, the elapsed
-pill, the rotating chevron, and a body that grows out of the bar. The document
-chips are the „Belegt durch" chips (`SourceSignalChip` + `AuthorityTag`), painted
-by the shelf the ledger stated. The phase swatches are the product's status
-swatch. The two atoms the kit lacked — a phase rail and a timeline — were added
-to `components/ui/`, not hand-rolled inside the organism.
+Nothing here is a new material, and the surface it borrows from is the document
+lifecycle panel — the one place in this product that had already solved „where
+does this stand".
+
+- **A stand**: the title, the elapsed time, a thin track of the five phases, and
+  ONE muted line naming where the run is. Exactly the panel's badge-over-track-
+  over-sentence, in the same order.
+- **The track** is the shared atom, `components/ui/stage-track.tsx`, lifted out
+  of `document-lifecycle-stand.tsx` when this block needed the same shape. Two
+  surfaces showing the same thing compose the same atom, or they drift on the
+  first token retune.
+- **The body** is `ItemList` + `Item`: one block with hairlines between its
+  rows, which is what a list of rounds is — the same three atoms
+  `document-version-list.tsx` composes, and for the same stated reason (three
+  bordered boxes read as three cards rather than as one history).
+- **The phase acts** are `dt`/`dd` rows at the version history's own weight: the
+  same kind of fact („eingereicht von X am Y") in another vocabulary.
+- **The reviewer's words** are quoted with a `border-l-2`, the adjunct a version
+  row already renders under itself.
+- **The document chips** stay the „Belegt durch" chips (`SourceSignalChip` +
+  `AuthorityTag`), painted by the shelf the ledger stated: provenance is the one
+  thing the design language spends colour on, and which documents a run read is
+  its whole claim to being checkable.
+
+## What „stripped down" removed
+
+The first version said the state four ways before the reader reached the work: a
+glyph, a bold word in the header, a phase summary beside it, and a sentence in
+the footer. A state said four times stops reading as one fact.
+
+Now it is said once, in the status line, and shown once, in the track. The
+labelled phase rail is gone (the track carries position, the line carries the
+name), the per-phase timeline is gone (finished phases are acts, the live one is
+a line), the footer sentence is gone (it IS the status line), and the header's
+summary is gone with it. What is left of the chrome is a glyph, a title, a
+clock, a chevron and one action.
 
 ## What it refuses to show
 
@@ -41,15 +71,25 @@ to `components/ui/`, not hand-rolled inside the organism.
 
 ## The seven states
 
-| State | What the header says | What the footer owes the reader |
+The status line is the whole of it: the word, then the one fact the state owes
+the reader. While the run is going it leads with the PHASE instead of with
+„Läuft", because the phase is the informative half and „läuft" is already said by
+the turning glyph.
+
+| State | The status line | The track |
 |---|---|---|
-| `angelegt` | Wird gestartet | where the result will be filed |
-| `laeuft` | Läuft · phase · tallies | nothing — the list IS the account |
-| `wartet` | Wartet auf Sie | the question, and where to answer it. The block opens itself |
-| `fertig` | Fertig · tallies | where the report is, the way to it, who accepted it |
-| `fehlgeschlagen` | Fehlgeschlagen | the reason, in one quiet red line, and what was done by then |
-| `abgebrochen` | Abgebrochen | stopped at your request, and what was done by then |
-| `unterbrochen` | Unterbrochen | the research was cut short; the report is written from what was there |
+| `angelegt` | Wird gestartet · Ergebnis kommt ins Projekt | empty, ink |
+| `laeuft` | Recherchieren · 3 Runden · 9 Dokumente | walked segments ink, the live one at half weight |
+| `wartet` | Wartet auf Sie · Antworten Sie unten im Verlauf | unchanged; the block opens itself |
+| `fertig` | Fertig · Bericht abgelegt in Projekt › Berichte | full, settled |
+| `fehlgeschlagen` | Fehlgeschlagen: `<reason>` | stops short: the next segment is a dashed outline, in the error register |
+| `abgebrochen` | Abgebrochen · auf Ihren Wunsch beendet | quiet: nothing is broken |
+| `unterbrochen` | Unterbrochen · Bericht aus dem Vorhandenen geschrieben | settled — there IS a report, only a narrower one |
+
+The failure's reason is in the LINE and not behind the chevron: a failure the
+reader has to go looking for is a failure nobody reads. So is the way to a filed
+report — when nothing else fits the state, „Im Projekt anzeigen" is the stand's
+one action, because the line has just said where the report is.
 
 `completedBefore` — „Bis dahin: Planen, Recherchieren (2 Runden, 6 Dokumente)" —
 is the difference between „failed" and something a person can act on: it is what
@@ -61,14 +101,13 @@ The block is replaced ledger by ledger, and every difference between two ledgers
 is one small fixed move, never decoration. What moves is what CHANGED; what was
 already on screen stays where it is:
 
-- **Arrival** — the turn's fade-and-rise, then the rail's swatches left to right.
-- **A phase completes** — its swatch fills and checks, the connector to the next
-  phase fills, and in the list the live content folds while the one-line summary
-  fades in over it; the next phase's row rises in.
+- **Arrival** — the turn's fade-and-rise.
+- **A phase completes** — its segment fills, as a colour transition on the
+  track, and the line under it names the next phase.
 - **A round arrives** — its row rises, the document chips cascade (capped, so a
   round with nine documents is not nine beats long), the open points last.
-- **The run lands** — `landingDelays` queues the header glyph, the status word,
-  the fold, the footer and the report so they play in that order. Every offset is
+- **The run lands** — `landingDelays` queues the glyph, the status line, the
+  fold, the closing rows and the report so they play in that order. Every offset is
   summed from the motion kit's own constants, so the ORDER survives a retune of
   any single duration.
 
@@ -78,7 +117,7 @@ means a block that mounts finished paints in one frame — a staged reveal of fa
 that were true before the reader arrived is theatre. Under reduced motion every
 one of these is the change with no motion.
 
-The status word crossfades rather than cutting, because it is the one place the
+The status line crossfades rather than cutting, because it is the one place the
 block states what just happened. The crossfade holds two words at once for a
 moment, so the SPOKEN word is a plain `sr-only` copy beside it and the moving
 pair is `aria-hidden`: a reader must never hear the run called two things in one

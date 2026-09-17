@@ -43,6 +43,7 @@
  * somebody who cannot tell the two tints apart.
  */
 
+import { StageTrack } from '@/components/ui/stage-track'
 import { useTranslations } from '@/i18n'
 import { cn } from '@/lib/utils'
 import type { DocumentVersionView } from '@/lib/documents/lifecycle-types'
@@ -50,32 +51,7 @@ import {
   LIFECYCLE_STAGES,
   lifecycleProgress,
   lifecycleWaiting,
-  type LifecycleProgress,
-  type LifecycleTone,
 } from '../lib/document-lifecycle'
-
-/**
- * The walked segments' fill, by what has happened to the version.
- *
- * Three values, and the neutral one is the common case. `signal-error` rather
- * than a second hue for `stopped`: the palette has exactly one chroma family
- * that is not a provenance source (`--signal-error`), and „zurückgewiesen" is
- * the one editorial fact it fits.
- */
-const TRACK_TINT: Record<LifecycleTone, string> = {
-  moving: 'bg-foreground',
-  settled: 'bg-[var(--text-color-feedback-success)]',
-  stopped: 'bg-[var(--signal-error)]',
-  retired: 'bg-muted-foreground/50',
-}
-
-/** The stop's outline, matched to the tint so the halt reads as one mark. */
-const STOP_OUTLINE: Record<LifecycleTone, string> = {
-  moving: 'border-muted-foreground/70',
-  settled: 'border-muted-foreground/70',
-  stopped: 'border-[var(--signal-error)]',
-  retired: 'border-muted-foreground/50',
-}
 
 export interface DocumentLifecycleStandProps {
   version: Pick<DocumentVersionView, 'state' | 'submittedBy'> | null
@@ -97,57 +73,18 @@ export function DocumentLifecycleStand({
 
   return (
     <div className={cn('space-y-1.5', className)} data-testid="document-lifecycle-stand">
-      <LifecycleTrack progress={progress} />
+      <StageTrack
+        stages={LIFECYCLE_STAGES}
+        reached={progress.reached}
+        halted={progress.halted}
+        tone={progress.tone}
+        data-testid="document-lifecycle-track"
+      />
       <p className="text-muted-foreground text-xs" data-testid="document-review-waiting">
         {waiting.submitterUserId
           ? t(`lifecycle.waiting.${waiting.key}`, { name: nameOf(waiting.submitterUserId) })
           : t(`lifecycle.waiting.${waiting.key}`)}
       </p>
-    </div>
-  )
-}
-
-/**
- * Four segments. Filled ones are behind the document; the first empty one is
- * where it goes next, and it is dashed when the document is not going there —
- * a refusal or a request for changes stopped the walk, and a plain empty
- * segment would read as „still on its way".
- *
- * An archived document's whole track is quiet: it has left the working set, and
- * which segment it reached on the way out is not the question a reader who
- * found it anyway is asking.
- */
-function LifecycleTrack({ progress }: { progress: LifecycleProgress }): JSX.Element {
-  const { reached, halted, tone } = progress
-  return (
-    <div
-      aria-hidden
-      className="flex items-center gap-1"
-      data-testid="document-lifecycle-track"
-      data-reached={reached}
-      data-halted={halted || undefined}
-      data-tone={tone}
-    >
-      {LIFECYCLE_STAGES.map((stage, index) => {
-        const done = index < reached
-        const next = index === reached
-        return (
-          <span
-            key={stage}
-            data-stage={stage}
-            data-done={done || undefined}
-            className={cn(
-              'h-1 flex-1 rounded-full',
-              done && TRACK_TINT[tone],
-              !done && 'bg-border',
-              // The stop: the segment the version is NOT walking into is drawn
-              // as an outline rather than as a fill, so „angehalten" is visible
-              // without depending on the tint and survives a monochrome print.
-              !done && next && halted && cn('border border-dashed bg-transparent', STOP_OUTLINE[tone]),
-            )}
-          />
-        )
-      })}
     </div>
   )
 }

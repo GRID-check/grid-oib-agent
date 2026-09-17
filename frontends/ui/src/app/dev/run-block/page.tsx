@@ -4,14 +4,13 @@
  * Dev preview — the Laufblock, in every state a run is shown in.
  *
  * The block is the ONE element a run is, in the thread that commissioned it,
- * and the seven states are the same block with different words in the header
- * and a different sentence below the list. What the shot is for: whether the
- * header reads as a bar of the Herleitung's family (glyph, bold word, muted
- * summary, elapsed, chevron); whether the phase rail says where the run is
- * without being read; whether the live phase reads as an analyst at work and
- * not as a log; whether a failed run states its reason and what is already
- * there in ONE quiet red line; and whether the collapsed block is small enough
- * to sit above the report it produced.
+ * and the seven states are the same block with a different track and a
+ * different line. What the shot is for: whether the stand reads like the
+ * document panel's (title, elapsed, track, one muted line); whether the track
+ * says where the run is without being read; whether the rounds read as an
+ * analyst's work rather than as a log; whether a failed run states its reason
+ * in the line itself rather than behind the chevron; and whether the collapsed
+ * block is small enough to sit above the report it produced.
  *
  * `?variant=transition` captures the handover alone: the person's message,
  * the task-created card that acknowledges it, and the block in `angelegt`
@@ -153,14 +152,14 @@ export default function RunBlockPreview(): JSX.Element {
           <>
             <Panel
               title="Wird gestartet"
-              note="Die ersten Sekunden nach der Übergabe: alle fünf Phasen ausstehend, der Satz darunter nennt, wohin das Ergebnis kommt. Der Spinner ist die einzige Bewegung im Block."
+              note="Die ersten Sekunden nach der Übergabe: die Spur noch leer, die Zeile darunter nennt den Stand und wohin das Ergebnis kommt. Der Spinner ist die einzige Bewegung im Block."
             >
               <RunBlock ledger={RUN_ANGELEGT} title={TITLE} projectId={PROJECT} live />
             </Panel>
 
             <Panel
               title="Läuft — Recherchieren, dritte Runde"
-              note="Planen ist zu einer Zeile gefaltet; Recherchieren zeigt jede Runde mit dem Vorsatz des Läufers, den erreichten Dokumenten als „Belegt durch“-Chips (Familie nach Regal, OIB/RIS-Kennung nach Namen) und den offenen Punkten. Ein zweites Mal gelesenes Dokument sagt das im Chip, statt noch einmal gezählt zu werden. Kopfzeile: nur Phase, Runden, Dokumente und die Laufzeit, dazu „Abbrechen“ als leiser Ausweg — es fragt nach, bevor es beendet."
+              note="Der Stand: Titel, Laufzeit, die Spur, und eine Zeile, die die laufende Phase und die Zahlen nennt. Darunter jede Runde als eigene Zeile mit dem Vorsatz des Läufers, den erreichten Dokumenten als „Belegt durch“-Chips (Familie nach Regal, OIB/RIS-Kennung nach Namen) und den offenen Punkten; ein zweites Mal gelesenes Dokument sagt das im Chip, statt noch einmal gezählt zu werden. Abgeschlossene Phasen stehen als Akte darunter — dieselbe Form wie die Versionshistorie eines Dokuments. „Abbrechen“ ist der leise Ausweg und fragt nach, bevor es beendet."
             >
               <RunBlock ledger={RUN_LAEUFT} title={TITLE} projectId={PROJECT} live onCancel={() => {}} />
             </Panel>
@@ -181,7 +180,7 @@ export default function RunBlockPreview(): JSX.Element {
 
             <Panel
               title="Wartet auf Sie"
-              note="Piloti hat eine Rückfrage. Der Block öffnet sich von selbst, „Antworten“ ist die eine Aktion rechts in der Kopfzeile (auf dem Telefon unter dem Satz), „Abbrechen“ steht leise daneben. Die Uhr läuft weiter: gewartet wird auf die Person, nicht auf Piloti."
+              note="Piloti hat eine Rückfrage. Der Block öffnet sich von selbst, die Zeile sagt, wo geantwortet wird, „Antworten“ ist die eine Aktion im Stand und „Abbrechen“ steht leise daneben. Die Uhr läuft weiter: gewartet wird auf die Person, nicht auf Piloti."
             >
               <RunBlock
                 ledger={RUN_WARTET}
@@ -195,7 +194,7 @@ export default function RunBlockPreview(): JSX.Element {
 
             <Panel
               title="Fertig, aufgeklappt — mit Datei und Freigabe"
-              note="Alle Phasen gefaltet, jede mit ihrer Dauer. Darunter: wo der Bericht liegt, der Weg dorthin, und wer ihn angenommen hat. „Bericht öffnen“ ist die Aktion, weil schon beurteilt wurde."
+              note="Die Spur ist voll und grün, die Zeile sagt in vier Wörtern, wo der Bericht liegt. Darunter die Akte jeder Phase mit ihrer Dauer und, in den Worten der Prüferin, wer ihn angenommen hat. „Bericht öffnen“ ist die Aktion, weil schon beurteilt wurde."
             >
               <RunBlock
                 ledger={RUN_FERTIG}
@@ -209,7 +208,7 @@ export default function RunBlockPreview(): JSX.Element {
 
             <Panel
               title="Fertig, zusammengeklappt — zurückgeschickt"
-              note="Die Form, in der ein fertiger Lauf über seinem Bericht sitzt: eine Kopfzeile, ein Satz, die Begründung der Prüferin in ihren eigenen Worten. Der Bericht selbst steht als Antwortkarte darunter (hier nicht gezeigt)."
+              note="Die Form, in der ein fertiger Lauf über seinem Bericht sitzt: Titel, Spur, eine Zeile. Drei Zeilen hoch, damit der Bericht darunter die Seite bekommt. Der Bericht selbst steht als Antwortkarte darunter (hier nicht gezeigt)."
             >
               <RunBlock
                 ledger={RUN_FERTIG}
@@ -226,14 +225,14 @@ export default function RunBlockPreview(): JSX.Element {
 
             <Panel
               title="Fehlgeschlagen"
-              note="Eine gedämpft rote Zeile mit dem Grund, darunter was bis dahin fertig war — damit niemand die Recherche ein zweites Mal beauftragt. Der Ring auf „Prüfen“ ohne Puls: die Phase, in der es aufhörte. „Erneut starten“ nur, weil der Aufruf es anbietet."
+              note="Der Grund steht in der Statuszeile selbst, rot gedämpft — ein Fehlschlag, den man erst aufklappen muss, wird nicht gelesen. Die Spur hält an: das nächste Segment ist gestrichelt statt gefüllt, in derselben Farbe. Was bis dahin fertig war, steht im Block, damit niemand die Recherche ein zweites Mal beauftragt."
             >
               <RunBlock ledger={RUN_FEHLGESCHLAGEN} title={TITLE} projectId={PROJECT} onRetry={() => {}} />
             </Panel>
 
             <Panel
               title="Abgebrochen"
-              note="Auf Wunsch der Person beendet, nach der ersten Runde. Kein Rot: nichts ist kaputt."
+              note="Auf Wunsch der Person beendet, nach der ersten Runde. Kein Rot: nichts ist kaputt — die Spur wird still, nicht rot."
             >
               <RunBlock
                 ledger={RUN_ABGEBROCHEN}
@@ -244,7 +243,7 @@ export default function RunBlockPreview(): JSX.Element {
 
             <Panel
               title="Unterbrochen"
-              note="Die Recherche wurde abgebrochen, der Bericht aus dem Vorhandenen geschrieben und abgelegt. Warnfarbe, nicht Fehlerfarbe: es gibt ein Ergebnis, nur ein schmaleres."
+              note="Die Recherche wurde abgebrochen, der Bericht aus dem Vorhandenen geschrieben und abgelegt. Die Spur ist grün, weil es ein Ergebnis gibt; die Zeile sagt, dass es ein schmaleres ist."
             >
               <RunBlock
                 ledger={RUN_UNTERBROCHEN}

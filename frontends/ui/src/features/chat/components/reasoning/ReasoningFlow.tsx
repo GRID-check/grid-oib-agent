@@ -172,15 +172,19 @@ import { stepNameLabel } from '../../lib/executed-steps'
 import { retrievalRounds, roundFan, type FanCard } from '../../lib/retrieval-rounds'
 import type { RetrievalLedger } from '@/lib/conversations/message-retrieval-ledger'
 import type { ChoicePrompt } from './citations'
-import { TIMELINE_STROKE } from '@/components/ui/timeline'
 
 /** Hidden connection handle (edges anchor to it; the dot itself is invisible). */
 const H = { opacity: 0, width: 1, height: 1, minWidth: 0, minHeight: 0, border: 'none', background: 'transparent' } as const
 /**
- * The edge ink is the kit's timeline stroke: the run block's phase list draws
- * its connector in the same mix, so "connected" looks the same on both.
+ * The edge ink: foreground at 18%, mixed rather than a token so it sits on any
+ * surface (muted, card, popover) in both themes without a second variable.
+ *
+ * It lived in `components/ui/timeline.tsx` while the run block drew a connected
+ * phase list with the same mix. That list is now hairline-separated rows
+ * (`ItemList`), so the graph is the only surface left that strokes an edge, and
+ * the constant lives where it is used.
  */
-const EDGE_STROKE = TIMELINE_STROKE
+const EDGE_STROKE = 'color-mix(in oklch, var(--foreground) 18%, transparent)'
 
 /** One anchor point on a banner edge: a handle id + its x offset within the node. */
 type HandleSpec = { id: string; left: string }

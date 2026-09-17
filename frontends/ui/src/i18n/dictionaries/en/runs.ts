@@ -31,17 +31,20 @@ export const runs = {
     abgebrochen: 'Cancelled',
     unterbrochen: 'Interrupted',
   },
-  /** The sentence each status owes the reader, under the phase list. */
-  sentence: {
-    angelegt: 'Piloti is taking on the task.',
-    angelegtFiling:
-      'Piloti is taking on the task. The result will be filed in the project under “Reports”.',
-    wartet: 'Piloti has a question. Answer below in the thread.',
-    fertigFiled: 'Report filed in Project › Reports.',
-    fertigInline: 'The report is here in the thread.',
+  /**
+   * The second clause of the status line — the one fact the state owes the
+   * reader after its own word. The word itself is `status.*`, said once.
+   */
+  line: {
+    /** angelegt, inside a project: where the result will end up. */
+    filing: 'result goes to the project',
+    wartet: 'answer below in the thread',
+    fertigFiled: 'report filed in Project › Reports',
+    fertigInline: 'the report is here in the thread',
+    /** Leads with the word itself, because the reason has to follow it. */
     fehlgeschlagen: 'Failed: {reason}',
-    abgebrochen: 'Stopped at your request.',
-    unterbrochen: 'The research was cut short; the report is written from what was there.',
+    abgebrochen: 'stopped at your request',
+    unterbrochen: 'report written from what was there',
   },
   /** What was already done when the run stopped. */
   completedBefore: 'Done so far: {phases}',
@@ -67,8 +70,6 @@ export const runs = {
     rounds: '{count, plural, one {# round} other {# rounds}}',
     docs: '{count, plural, one {# document} other {# documents}}',
   },
-  /** The header summary while live; the tallies drop out when they are zero. */
-  summary: '{phase} · {rounds} · {docs}',
   /** The one action that fits the state, at the right end of the header. */
   action: {
     answer: 'Answer',
@@ -107,13 +108,6 @@ export const runs = {
   connection: {
     reconnecting: 'The live view lost its connection and is reconnecting. The task is still running.',
     lost: 'The live view is disconnected. The task is still running — reload to follow it again.',
-  },
-  rail: {
-    label: 'Phases',
-    /** Spoken state of a rail step, for readers who cannot see the swatch. */
-    done: 'done',
-    active: 'in progress',
-    pending: 'pending',
   },
   block: {
     aria: 'Task {title}: {status}',

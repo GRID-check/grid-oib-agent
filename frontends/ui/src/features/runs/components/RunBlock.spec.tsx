@@ -75,7 +75,7 @@ function failed(): RunLedger {
 
 const TITLE = 'Brandschutzkonzept — Fluchtwege'
 
-describe('RunBlock — the header', () => {
+describe('RunBlock — the stand', () => {
   it.each([
     ['angelegt', emptyRunLedger('run-0', T0), 'Starting'],
     ['laeuft', researching(), 'Running'],
@@ -84,10 +84,13 @@ describe('RunBlock — the header', () => {
     ['fehlgeschlagen', failed(), 'Failed'],
     ['abgebrochen', setRunStatus(researching(), 'abgebrochen', at(50)), 'Cancelled'],
     ['unterbrochen', setRunStatus(finished('doc-1'), 'unterbrochen', at(100)), 'Interrupted'],
-  ] as const)('%s: the bold word and its glyph', (status, ledger, word) => {
+  ] as const)('%s: the spoken word, the glyph and the title', (status, ledger, word) => {
     render(<RunBlock ledger={ledger} title={TITLE} />)
     const block = screen.getByTestId('run-block')
     expect(block).toHaveAttribute('data-status', status)
+    // The word is SPOKEN once and shown once — in the status line, which for a
+    // live run leads with the phase instead. A reader who cannot see the glyph
+    // would otherwise never hear „Running".
     expect(screen.getByTestId('run-status-word')).toHaveTextContent(word)
     expect(screen.getByTestId(`run-glyph-${status}`)).toBeInTheDocument()
     expect(screen.getByTestId('run-title')).toHaveTextContent(TITLE)
@@ -98,22 +101,18 @@ describe('RunBlock — the header', () => {
     expect(screen.getByTestId('run-title')).toHaveTextContent('Task')
   })
 
-  it('summarises a live run as rounds · documents while open, and names the phase once folded', () => {
-    // Open, the rail below carries the phase; folded, the header is all there is.
-    render(<RunBlock ledger={researching()} title={TITLE} defaultOpen={false} />)
-    expect(screen.getByTestId('run-summary')).toHaveTextContent('Researching · 2 rounds · 3 documents')
-  })
-
-  it('leaves the phase to the rail while the block is open', () => {
+  it('leads the line with the phase while the run is going, and with the tallies behind it', () => {
     render(<RunBlock ledger={researching()} title={TITLE} />)
-    expect(screen.getByTestId('run-summary')).toHaveTextContent('2 rounds · 3 documents')
-    expect(screen.getByTestId('run-summary')).not.toHaveTextContent('Researching')
+    expect(screen.getByTestId('run-status-line')).toHaveTextContent(
+      'Researching · 2 rounds · 3 documents',
+    )
   })
 
-  it('drops the phase from the summary once the run is terminal and keeps the tallies', () => {
+  it('leads the line with the word once the run is over, and says what to do next', () => {
     render(<RunBlock ledger={finished('doc-1')} title={TITLE} />)
-    expect(screen.getByTestId('run-summary')).toHaveTextContent('2 rounds · 3 documents')
-    expect(screen.getByTestId('run-summary')).not.toHaveTextContent('Researching')
+    expect(screen.getByTestId('run-status-line')).toHaveTextContent(
+      'Done · report filed in Project › Reports',
+    )
   })
 
   it('shows the total duration of a finished run from its own instants', () => {
@@ -122,37 +121,42 @@ describe('RunBlock — the header', () => {
   })
 })
 
-describe('RunBlock — the rail and the phase list', () => {
-  it('is open while live and marks done, active and pending phases', () => {
+describe('RunBlock — the track', () => {
+  it('fills the phases behind the run and marks the one it is in', () => {
     render(<RunBlock ledger={researching()} title={TITLE} />)
-    const rail = screen.getByRole('list', { name: 'Phases' })
-    const items = within(rail).getAllByRole('listitem')
-    expect(items.map((item) => item.getAttribute('data-state'))).toEqual([
-      'done',
-      'active',
-      'pending',
-      'pending',
-      'pending',
-    ])
-    expect(items[1]).toHaveAttribute('aria-current', 'step')
+    const track = screen.getByTestId('run-track')
+    // Planen done, Recherchieren under way, three to go.
+    expect(track).toHaveAttribute('data-reached', '1')
+    expect(track).toHaveAttribute('data-active', 'true')
+    expect(track).toHaveAttribute('data-tone', 'moving')
+    expect(track.querySelectorAll('span')).toHaveLength(5)
+    expect(track.querySelector('[data-stage="planen"]')).toHaveAttribute('data-done', 'true')
+    expect(track.querySelector('[data-stage="recherchieren"]')).not.toHaveAttribute('data-done')
   })
 
-  it('lists only the phases with something to say; the rail names the pending ones', () => {
-    render(<RunBlock ledger={researching()} title={TITLE} />)
-    const body = screen.getByTestId('run-body')
-    expect(body.querySelector('[data-phase="planen"]')).not.toBeNull()
-    expect(body.querySelector('[data-phase="recherchieren"]')).not.toBeNull()
-    expect(body.querySelector('[data-phase="pruefen"]')).toBeNull()
-    expect(body.querySelector('[data-phase="abgelegt"]')).toBeNull()
+  it('takes a register only once something has been asserted', () => {
+    const { rerender } = render(<RunBlock ledger={finished('doc-1')} title={TITLE} />)
+    expect(screen.getByTestId('run-track')).toHaveAttribute('data-tone', 'settled')
+
+    rerender(<RunBlock ledger={failed()} title={TITLE} />)
+    expect(screen.getByTestId('run-track')).toHaveAttribute('data-tone', 'stopped')
+    // The walk stopped short: the segment ahead is an outline, not a fill.
+    expect(screen.getByTestId('run-track')).toHaveAttribute('data-halted', 'true')
+
+    rerender(<RunBlock ledger={setRunStatus(researching(), 'abgebrochen', at(50))} title={TITLE} />)
+    expect(screen.getByTestId('run-track')).toHaveAttribute('data-tone', 'retired')
   })
 
-  it('folds a done phase to one line with its duration', () => {
-    render(<RunBlock ledger={researching()} title={TITLE} />)
-    const planen = screen.getByTestId('run-body').querySelector('[data-phase="planen"]')
-    expect(planen).toHaveAttribute('data-state', 'done')
-    expect(planen).toHaveTextContent('Planning · Research plan drawn up · 12 sec')
+  it('has nothing left to walk into once the run is filed', () => {
+    render(<RunBlock ledger={finished('doc-1')} title={TITLE} />)
+    const track = screen.getByTestId('run-track')
+    expect(track).toHaveAttribute('data-reached', '5')
+    expect(track).not.toHaveAttribute('data-halted')
+    expect(track).not.toHaveAttribute('data-active')
   })
+})
 
+describe('RunBlock — the body', () => {
   it('shows every research round with its intent, its documents and the open points', () => {
     render(<RunBlock ledger={researching()} title={TITLE} />)
     const steps = screen.getAllByTestId('run-step')
@@ -171,18 +175,35 @@ describe('RunBlock — the rail and the phase list', () => {
     expect(within(first!).getByText('RIS')).toBeInTheDocument()
   })
 
+  it('reports a finished phase as one act with its duration', () => {
+    render(<RunBlock ledger={researching()} title={TITLE} />)
+    const acts = screen.getByTestId('run-phase-acts')
+    // `dt` and `dd` are laid out with a gap, so the text runs together — the
+    // same shape the document history's acts have.
+    expect(acts.querySelector('[data-phase="planen"]')).toHaveTextContent(
+      /Planning\s*Research plan drawn up · 12 sec/,
+    )
+    // Recherchieren's account is the list of rounds above; repeating its tally
+    // here would be the same number twice on one screen.
+    expect(acts.querySelector('[data-phase="recherchieren"]')).toBeNull()
+    // Nothing is claimed about phases the run has not reached.
+    expect(acts.querySelector('[data-phase="pruefen"]')).toBeNull()
+    expect(acts.querySelector('[data-phase="abgelegt"]')).toBeNull()
+  })
+
   it('says what the checking phase is doing while it is live', () => {
     let ledger = closePhase(researching(), 'recherchieren', at(60))
     ledger = openPhase(ledger, 'pruefen', at(60))
     render(<RunBlock ledger={ledger} title={TITLE} />)
-    expect(screen.getByTestId('run-live-line')).toHaveTextContent('Checking citations against the sources')
+    expect(screen.getByTestId('run-phase-acts').querySelector('[data-phase="pruefen"]')).toHaveTextContent(
+      'Checking citations against the sources',
+    )
   })
 
   it('does not claim a stopped run is still checking', () => {
     render(<RunBlock ledger={failed()} title={TITLE} defaultOpen />)
-    expect(screen.queryByTestId('run-live-line')).not.toBeInTheDocument()
-    const rail = screen.getByRole('list', { name: 'Phases' })
-    expect(within(rail).getAllByRole('listitem')[2]).toHaveAttribute('data-state', 'active')
+    const acts = screen.getByTestId('run-phase-acts')
+    expect(acts.querySelector('[data-phase="pruefen"]')).toBeNull()
   })
 })
 
@@ -190,7 +211,7 @@ describe('RunBlock — the fold', () => {
   it('is collapsed by default once terminal, and the reader can open it', () => {
     render(<RunBlock ledger={finished('doc-1')} title={TITLE} />)
     expect(screen.queryByTestId('run-body')).not.toBeInTheDocument()
-    fireEvent.click(screen.getByRole('button', { name: /Done/ }))
+    fireEvent.click(screen.getByRole('button', { name: new RegExp(TITLE) }))
     expect(screen.getByTestId('run-body')).toBeInTheDocument()
   })
 
@@ -201,7 +222,7 @@ describe('RunBlock — the fold', () => {
 
   // A closing body stays mounted through its exit animation, so "folded" is
   // read off the trigger's own state rather than off the body's absence.
-  const trigger = (word: RegExp): HTMLElement => screen.getByRole('button', { name: word })
+  const trigger = (): HTMLElement => screen.getByRole('button', { name: new RegExp(TITLE) })
 
   /** Past every queued move of a landing, with room to spare. */
   const LANDING_SETTLED_MS = 2000
@@ -209,23 +230,23 @@ describe('RunBlock — the fold', () => {
   it('opens when the run starts waiting, even if the reader had folded it', () => {
     const live = researching()
     const { rerender } = render(<RunBlock ledger={live} title={TITLE} />)
-    fireEvent.click(trigger(/Running/))
-    expect(trigger(/Running/)).toHaveAttribute('data-state', 'closed')
+    fireEvent.click(trigger())
+    expect(trigger()).toHaveAttribute('data-state', 'closed')
     rerender(<RunBlock ledger={setRunStatus(live, 'wartet', at(50))} title={TITLE} />)
     // A question opens the block at once: there is nothing to watch finish,
-    // and the sentence that says what to do is inside.
-    expect(trigger(/Waiting/)).toHaveAttribute('data-state', 'open')
+    // and the round that asked it is inside.
+    expect(trigger()).toHaveAttribute('data-state', 'open')
   })
 
-  it('folds on its own when a live run it opened lands, once the header has spoken', async () => {
+  it('folds on its own when a live run it opened lands, once the stand has spoken', async () => {
     const live = researching()
     const { rerender } = render(<RunBlock ledger={live} title={TITLE} />)
-    expect(trigger(/Running/)).toHaveAttribute('data-state', 'open')
+    expect(trigger()).toHaveAttribute('data-state', 'open')
     rerender(<RunBlock ledger={finished('doc-1')} title={TITLE} />)
-    // The landing is queued: the rail's last check, the glyph and the word go
-    // first, and the body is still open while they do.
-    expect(trigger(/Done/)).toHaveAttribute('data-state', 'open')
-    await waitFor(() => expect(trigger(/Done/)).toHaveAttribute('data-state', 'closed'), {
+    // The landing is queued: the track's last segment, the glyph and the line
+    // go first, and the body is still open while they do.
+    expect(trigger()).toHaveAttribute('data-state', 'open')
+    await waitFor(() => expect(trigger()).toHaveAttribute('data-state', 'closed'), {
       timeout: LANDING_SETTLED_MS,
     })
   })
@@ -233,50 +254,67 @@ describe('RunBlock — the fold', () => {
   it('leaves a block the reader opened by hand open when the run lands', async () => {
     const live = researching()
     const { rerender } = render(<RunBlock ledger={live} title={TITLE} />)
-    fireEvent.click(trigger(/Running/))
-    fireEvent.click(trigger(/Running/))
+    fireEvent.click(trigger())
+    fireEvent.click(trigger())
     rerender(<RunBlock ledger={finished('doc-1')} title={TITLE} />)
     await new Promise((resolve) => setTimeout(resolve, LANDING_SETTLED_MS))
-    expect(trigger(/Done/)).toHaveAttribute('data-state', 'open')
+    expect(trigger()).toHaveAttribute('data-state', 'open')
   })
 })
 
-describe('RunBlock — the sentence and the affordances', () => {
+describe('RunBlock — the line and the affordances', () => {
   it('names the filing destination while starting, when the run files to a project', () => {
     render(<RunBlock ledger={emptyRunLedger('run-0', T0)} title={TITLE} projectId="p1" />)
-    expect(screen.getByTestId('run-sentence')).toHaveTextContent('filed in the project under “Reports”')
+    expect(screen.getByTestId('run-status-line')).toHaveTextContent(
+      'Starting · result goes to the project',
+    )
   })
 
   it('says only that the task was taken on when nothing will be filed', () => {
     render(<RunBlock ledger={emptyRunLedger('run-0', T0)} title={TITLE} />)
-    expect(screen.getByTestId('run-sentence')).toHaveTextContent('Piloti is taking on the task.')
-    expect(screen.getByTestId('run-sentence')).not.toHaveTextContent('filed')
+    const line = screen.getByTestId('run-status-line')
+    expect(line).toHaveTextContent('Starting')
+    expect(line).not.toHaveTextContent('project')
   })
 
-  it('has no footer while running', () => {
+  it('has no closing rows while running', () => {
     render(<RunBlock ledger={researching()} title={TITLE} />)
     expect(screen.queryByTestId('run-footer')).not.toBeInTheDocument()
   })
 
-  it('waiting: the sentence, and Answer when the composer can be focused', () => {
+  it('waiting: the line says where to answer, and Answer focuses the composer', () => {
     const onAnswer = vi.fn()
     render(<RunBlock ledger={setRunStatus(researching(), 'wartet', at(50))} title={TITLE} onAnswer={onAnswer} />)
-    expect(screen.getByTestId('run-sentence')).toHaveTextContent('Piloti has a question.')
+    expect(screen.getByTestId('run-status-line')).toHaveTextContent(
+      'Waiting for you · answer below in the thread',
+    )
     fireEvent.click(screen.getAllByTestId('run-action-answer')[0]!)
     expect(onAnswer).toHaveBeenCalledTimes(1)
   })
 
-  it('done with a file: the filing sentence, the project link, and Review while unreviewed', () => {
+  it('done with a file: the line names where it was filed, and Review is the action while unreviewed', () => {
     render(<RunBlock ledger={finished('doc-9')} title={TITLE} projectId="p1" reviewHref="/review" />)
-    expect(screen.getByTestId('run-sentence')).toHaveTextContent('Report filed in Project › Reports.')
-    expect(screen.getByTestId('run-file-link')).toHaveAttribute('href', '/app/projects/p1/files?doc=doc-9')
+    expect(screen.getByTestId('run-status-line')).toHaveTextContent(
+      'Done · report filed in Project › Reports',
+    )
     expect(screen.getAllByTestId('run-action-review')[0]).toHaveAttribute('href', '/review')
     expect(screen.queryByTestId('run-action-open-report')).not.toBeInTheDocument()
   })
 
+  it('done with a file and nothing else to offer: the way to the report IS the action', () => {
+    // Never behind the chevron: the line has just said where the report is.
+    render(<RunBlock ledger={finished('doc-9')} title={TITLE} projectId="p1" />)
+    expect(screen.getByTestId('run-file-link')).toHaveAttribute(
+      'href',
+      '/app/projects/p1/files?doc=doc-9',
+    )
+  })
+
   it('done inline: says the report is in the thread and offers no project link', () => {
     render(<RunBlock ledger={finished()} title={TITLE} projectId="p1" />)
-    expect(screen.getByTestId('run-sentence')).toHaveTextContent('The report is here in the thread.')
+    expect(screen.getByTestId('run-status-line')).toHaveTextContent(
+      'Done · the report is here in the thread',
+    )
     expect(screen.queryByTestId('run-file-link')).not.toBeInTheDocument()
   })
 
@@ -285,6 +323,7 @@ describe('RunBlock — the sentence and the affordances', () => {
       <RunBlock
         ledger={finished('doc-9')}
         title={TITLE}
+        defaultOpen
         review={{ decision: 'accepted', by: 'Anna Berger' }}
         reviewHref="/review"
         reportHref="/report"
@@ -300,6 +339,7 @@ describe('RunBlock — the sentence and the affordances', () => {
       <RunBlock
         ledger={finished('doc-9')}
         title={TITLE}
+        defaultOpen
         review={{ decision: 'rejected', reason: 'OIB 2.3 gilt hier, nicht 2.' }}
       />,
     )
@@ -307,10 +347,14 @@ describe('RunBlock — the sentence and the affordances', () => {
     expect(screen.getByTestId('run-review')).toHaveAttribute('data-decision', 'rejected')
   })
 
-  it('failed: the reason, what was done by then with the research tallies, and Retry only when offered', () => {
+  it('failed: the reason is in the line, what was done by then is in the body, Retry only when offered', () => {
     const onRetry = vi.fn()
-    const { unmount } = render(<RunBlock ledger={failed()} title={TITLE} onRetry={onRetry} />)
-    expect(screen.getByTestId('run-sentence')).toHaveTextContent('Failed: Das Budget war aufgebraucht.')
+    const { unmount } = render(<RunBlock ledger={failed()} title={TITLE} defaultOpen onRetry={onRetry} />)
+    // The reason never hides behind the chevron: a failure the reader has to go
+    // looking for is a failure nobody reads.
+    expect(screen.getByTestId('run-status-line')).toHaveTextContent(
+      'Failed: Das Budget war aufgebraucht.',
+    )
     expect(screen.getByTestId('run-completed-before')).toHaveTextContent(
       'Done so far: Planning, Researching (2 rounds, 3 documents)',
     )
@@ -323,14 +367,22 @@ describe('RunBlock — the sentence and the affordances', () => {
   })
 
   it('cancelled: stopped at your request, and what was done by then', () => {
-    render(<RunBlock ledger={setRunStatus(researching(), 'abgebrochen', at(50))} title={TITLE} />)
-    expect(screen.getByTestId('run-sentence')).toHaveTextContent('Stopped at your request.')
+    render(
+      <RunBlock
+        ledger={setRunStatus(researching(), 'abgebrochen', at(50))}
+        title={TITLE}
+        defaultOpen
+      />,
+    )
+    expect(screen.getByTestId('run-status-line')).toHaveTextContent(
+      'Cancelled · stopped at your request',
+    )
     expect(screen.getByTestId('run-completed-before')).toHaveTextContent('Done so far: Planning')
   })
 
   it('interrupted: says the report was written from what was there', () => {
     render(<RunBlock ledger={setRunStatus(finished('doc-1'), 'unterbrochen', at(100))} title={TITLE} />)
-    expect(screen.getByTestId('run-sentence')).toHaveTextContent('written from what was there')
+    expect(screen.getByTestId('run-status-line')).toHaveTextContent('written from what was there')
     expect(screen.queryByTestId('run-completed-before')).not.toBeInTheDocument()
   })
 })

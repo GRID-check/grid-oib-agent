@@ -2,13 +2,11 @@
  * RunBlock — the Laufblock: one element for everything a run is, in the thread
  * that commissioned it.
  *
- * A header bar with the state, the result's title, the elapsed time and the
- * ONE action that fits now; under it the five-phase rail and the phases as a
- * list, where a finished phase folds to one line and the live one shows what
- * the run is doing in the runner's own words; under that the sentence the
- * state owes the reader, with the file affordance and the reviewer's verdict
- * once there are any. Seven states, one block: angelegt, läuft, wartet, fertig,
- * fehlgeschlagen, abgebrochen, unterbrochen.
+ * A stand at the top — the result's title, the elapsed time, a thin track of
+ * the five phases and ONE line saying where the run is — and, behind the
+ * chevron, the rounds it did as a hairline-separated list, the phases it
+ * finished as acts, and the reviewer's words. Seven states, one block:
+ * angelegt, läuft, wartet, fertig, fehlgeschlagen, abgebrochen, unterbrochen.
  *
  * ## One truth
  *
@@ -20,20 +18,28 @@
  *
  * ## The grammar it borrows
  *
- * The header is the Herleitung bar's (`ChatThinking`): a glyph in a fixed slot,
- * the bold word, the muted summary, the elapsed pill, the rotating chevron, and
- * a body that grows out of the bar. The document chips are the „Belegt durch"
- * chips (`SourceSignalChip` + `AuthorityTag`), painted by the shelf the ledger
- * stated. The phase swatches are the product's status swatch. Nothing here is
- * a new material.
+ * The document lifecycle's stand, which is the surface in this product that had
+ * already solved „where does this stand": a track whose walked segments are
+ * filled, the state NAMED in one muted line under it, and the history below as
+ * `Item` rows with hairlines rather than as stacked cards (`ItemList`, the same
+ * atoms `document-version-list.tsx` composes). The track itself is the shared
+ * atom, `components/ui/stage-track.tsx`, lifted out of that stand when this
+ * block needed the same shape — two surfaces showing the same thing compose the
+ * same atom, or they drift on the first token retune.
+ *
+ * The document chips stay the „Belegt durch" chips (`SourceSignalChip` +
+ * `AuthorityTag`), painted by the shelf the ledger stated: provenance is the
+ * one thing the design language spends colour on, and which documents a run
+ * read is its whole claim to being checkable.
  *
  * ## What it refuses to show
  *
- * No tool names — the ledger carries none, on purpose. No numbers in the header
- * except the two tallies and the clock. One ambient loop: the spinner. The
- * Herleitung bar runs a shimmer and a sweep beside its spinner; a thread with
- * three live runs in it cannot afford nine loops, so this block runs one — and
- * the rail's active ring is static for the same reason.
+ * No tool names — the ledger carries none, on purpose. No identifiers. No
+ * numbers except the two tallies and the clock. One ambient loop: the glyph.
+ * And no second account of the state — the word appears in the status line and
+ * nowhere else, because a state said twice stops reading as one fact. That is
+ * what „stripped down" bought: the old header said it four ways (glyph, bold
+ * word, phase summary, footer sentence) before the reader got to the work.
  *
  * ## How a change reads
  *
@@ -42,20 +48,18 @@
  * vocabulary). What moves is what CHANGED; what was already on screen stays
  * where it is:
  *
- * - Arrival: the turn's fade-and-rise, then the rail's swatches left to right.
- * - A phase completes: its swatch fills and checks (`PhaseSwatch`), the
- *   connector to the next phase fills (`PhaseRail`), and in the list the live
- *   content folds while the one-line summary fades in over it; the next phase's
- *   row rises in (`TimelineItem arrive`).
+ * - Arrival: the turn's fade-and-rise.
+ * - A phase completes: its segment fills — a colour transition on the track —
+ *   and the line under it names the next one.
  * - A round arrives: its row rises, the document chips cascade (capped), the
  *   open points last.
- * - The run lands: `landingDelays` queues the header glyph, the status word,
- *   the fold, the footer and the report so they play in that order.
+ * - The run lands: `landingDelays` queues the glyph, the status line, the fold
+ *   and the closing rows so they play in that order.
  *
- * Nothing replays: rows are keyed by phase and by step id, so a re-render is
- * the same element with new props, and `AnimatePresence initial={false}` on
- * every list means a block that mounts finished paints in one frame. Under
- * reduced motion every one of these is the change with no motion.
+ * Nothing replays: rows are keyed by step id, so a re-render is the same
+ * element with new props, and `AnimatePresence initial={false}` on every list
+ * means a block that mounts finished paints in one frame. Under reduced motion
+ * every one of these is the change with no motion.
  */
 
 'use client'
@@ -79,8 +83,8 @@ import {
 import { Button } from '@/components/ui/button'
 import { Collapsible, CollapsibleTrigger } from '@/components/ui/collapsible'
 import { ConfirmDialog } from '@/components/ui/confirm-dialog'
-import { PhaseRail, PhaseSwatch, type PhaseRailStep } from '@/components/ui/phase-rail'
-import { Timeline, TimelineItem } from '@/components/ui/timeline'
+import { Item, ItemList } from '@/components/ui/item'
+import { StageTrack, type StageTrackTone } from '@/components/ui/stage-track'
 import { AuthorityTag } from '@/features/chat/components/AuthorityTag'
 import { formatElapsed } from '@/features/chat/hooks/use-elapsed-seconds'
 import { documentFilesHref } from '@/features/documents/lib/document-question'
@@ -97,6 +101,7 @@ import {
   type RunStep,
 } from '@/lib/runs/run-ledger-types'
 import {
+  activePhase,
   completedBefore,
   elapsedMs,
   isLiveStatus,
@@ -105,7 +110,6 @@ import {
   runDisplayStatus,
   runTallies,
   stepsInPhase,
-  type PhaseState,
   type RunTallies,
 } from '@/lib/runs/run-vocabulary'
 import { cn } from '@/lib/utils'
@@ -126,7 +130,7 @@ export interface RunBlockProps {
   title?: string | null
   /** Enables „Im Projekt anzeigen" on a filed result. */
   projectId?: string | null
-  /** The angelegt sentence names the filing destination. Defaults to `!!projectId`. */
+  /** The angelegt line names the filing destination. Defaults to `!!projectId`. */
   filesToProject?: boolean
   review?: RunBlockReview | null
   /** A stream is attached. Affects nothing visible: state comes from the ledger. */
@@ -134,8 +138,8 @@ export interface RunBlockProps {
   /**
    * What the run's own stream is doing, when there is one (`useRunLedger`).
    * `live` and absent say the same thing — nothing to report — and the other
-   * two put ONE muted line under the block: the live view broke, the run did
-   * not. Silence there would read as a run that stopped.
+   * two put ONE muted line in the block: the live view broke, the run did not.
+   * Silence there would read as a run that stopped.
    */
   connection?: 'live' | 'reconnecting' | 'lost' | null
   /** Default: open while live, collapsed once terminal. */
@@ -175,30 +179,48 @@ function talliesLabel(t: Translator, tallies: RunTallies): string {
     .join(' · ')
 }
 
+/** The clauses of one line, empty ones dropped. */
+function clauses(...parts: (string | null)[]): string {
+  return parts.filter((part): part is string => !!part).join(' · ')
+}
+
 /**
- * The header's muted summary. Live and FOLDED: the phase and the tallies, since
- * the rail that would name the phase is out of sight. Live and open: the
- * tallies alone, because the rail right below carries the phase and a header
- * that repeats it only costs the title its room. Terminal: the tallies alone,
- * because the state word already says where it ended.
+ * The ONE line that says where the run stands — the stand's own sentence, under
+ * the track, exactly where the document lifecycle puts „was fehlt noch".
+ *
+ * While the run is going it leads with the PHASE rather than with „Läuft",
+ * because the phase is the informative half and „läuft" is already said by the
+ * turning glyph beside the title. A terminal state leads with its word and adds
+ * the one fact the reader needs next: where the report is, why it stopped.
  */
-function summaryLabel(
+function statusLine(
   t: Translator,
   ledger: RunLedger,
-  live: boolean,
+  status: RunStatus,
   tallies: RunTallies,
-  showPhase: boolean,
+  filesToProject: boolean,
 ): string {
-  const phase = ledger.phases.length > 0 ? ledger.phases[ledger.phases.length - 1]?.phase : undefined
-  const phaseLabel = live && showPhase && phase ? t(`phase.${phase}`) : null
-  if (phaseLabel && tallies.rounds > 0 && tallies.docs > 0) {
-    return t('summary', {
-      phase: phaseLabel,
-      rounds: t('tallies.rounds', { count: tallies.rounds }),
-      docs: t('tallies.docs', { count: tallies.docs }),
-    })
+  switch (status) {
+    case 'angelegt':
+      return clauses(t('status.angelegt'), filesToProject ? t('line.filing') : null)
+    case 'laeuft': {
+      const phase = activePhase(ledger)
+      return clauses(phase ? t(`phase.${phase}`) : t('status.laeuft'), talliesLabel(t, tallies) || null)
+    }
+    case 'wartet':
+      return clauses(t('status.wartet'), t('line.wartet'))
+    case 'fertig':
+      return clauses(
+        t('status.fertig'),
+        ledger.result?.fileId ? t('line.fertigFiled') : t('line.fertigInline'),
+      )
+    case 'fehlgeschlagen':
+      return t('line.fehlgeschlagen', { reason: ledger.error?.reason ?? '' })
+    case 'abgebrochen':
+      return clauses(t('status.abgebrochen'), t('line.abgebrochen'))
+    case 'unterbrochen':
+      return clauses(t('status.unterbrochen'), t('line.unterbrochen'))
   }
-  return [phaseLabel, talliesLabel(t, tallies)].filter(Boolean).join(' · ')
 }
 
 /** „Bis dahin: Planen, Recherchieren (2 Runden, 6 Dokumente)". */
@@ -215,6 +237,29 @@ function completedBeforeLabel(t: Translator, ledger: RunLedger, tallies: RunTall
     })
   })
   return t('completedBefore', { phases: named.join(', ') })
+}
+
+/**
+ * What the walked segments are coloured by — the lifecycle stand's own rule:
+ * ink while nothing has been asserted, a register once something has.
+ *
+ * `unterbrochen` is `settled` and not a third colour: there IS a report, only a
+ * narrower one, and the line under the track is what says so. The palette holds
+ * no further chroma family that is not a provenance source, and borrowing the
+ * Büroarchiv gold for it would put an archive collision back as a colour.
+ */
+function trackTone(status: RunStatus): StageTrackTone {
+  switch (status) {
+    case 'fertig':
+    case 'unterbrochen':
+      return 'settled'
+    case 'fehlgeschlagen':
+      return 'stopped'
+    case 'abgebrochen':
+      return 'retired'
+    default:
+      return 'moving'
+  }
 }
 
 /**
@@ -269,18 +314,17 @@ const DocChip: FC<{ doc: RunLedgerDoc; reduced: boolean }> = ({ doc, reduced }) 
 const FADE = { hidden: { opacity: 0 }, visible: { opacity: 1 } }
 
 /**
- * One research round: its intent, the documents it reached, what stayed open.
+ * One research round, as a row of the list: its intent, the documents it
+ * reached, what stayed open.
  *
  * A round that arrives while the block is on screen rises in, and its chips
  * cascade after it — capped at `staggerMaxSteps`, so a round with nine
  * documents is not nine beats long — with the open points last, because they
- * are the sentence the round ends on. Whether it arrives or was already there
- * is decided by the presence that wraps the list, not here.
+ * are the sentence the round ends on.
  */
-const StepRow: FC<{ step: RunStep; index: number; numbered: boolean; reduced: boolean }> = ({
+const RoundRow: FC<{ step: RunStep; index: number; reduced: boolean }> = ({
   step,
   index,
-  numbered,
   reduced,
 }) => {
   const t = useTranslations('runs')
@@ -289,49 +333,46 @@ const StepRow: FC<{ step: RunStep; index: number; numbered: boolean; reduced: bo
   const afterChips = (Math.min(step.docs.length, staggerMaxSteps) + 1) * staggerStepSeconds
   const fadeAfter = (delay: number) => (reduced ? motionInstant : { ...motionQuick, delay })
   return (
-    <motion.div
-      className="flex flex-col gap-1.5"
-      data-testid="run-step"
-      variants={fadeRise}
-      initial="hidden"
-      animate="visible"
-      transition={reduced ? motionInstant : motionEntrance}
-    >
-      <p className="text-sm leading-snug text-foreground">
-        {numbered && (
-          <>
-            <span className="font-medium">{t('step.round', { n: index + 1 })}</span>
-            <Sep />
-          </>
+    <Item as="li" className="flex-col items-stretch gap-1 px-3 py-2 hover:bg-transparent" asChild>
+      <motion.li
+        data-testid="run-step"
+        variants={fadeRise}
+        initial="hidden"
+        animate="visible"
+        transition={reduced ? motionInstant : motionEntrance}
+      >
+        <p className="text-xs leading-snug text-foreground">
+          <span className="font-medium tabular-nums">{t('step.round', { n: index + 1 })}</span>
+          <Sep />
+          {intent}
+        </p>
+        {step.docs.length > 0 && (
+          <div className="flex flex-wrap gap-1" role="list">
+            {step.docs.map((doc, position) => (
+              <motion.span
+                role="listitem"
+                key={doc.name}
+                className="inline-flex max-w-full"
+                variants={FADE}
+                transition={fadeAfter(chipDelay(position))}
+              >
+                <DocChip doc={doc} reduced={reduced} />
+              </motion.span>
+            ))}
+          </div>
         )}
-        {intent}
-      </p>
-      {step.docs.length > 0 && (
-        <div className="flex flex-wrap gap-1.5" role="list">
-          {step.docs.map((doc, position) => (
-            <motion.span
-              role="listitem"
-              key={doc.name}
-              className="inline-flex max-w-full"
-              variants={FADE}
-              transition={fadeAfter(chipDelay(position))}
-            >
-              <DocChip doc={doc} reduced={reduced} />
-            </motion.span>
-          ))}
-        </div>
-      )}
-      {step.openPoints && step.openPoints.length > 0 && (
-        <motion.p
-          className="text-xs leading-relaxed text-muted-foreground"
-          data-testid="run-open-points"
-          variants={FADE}
-          transition={fadeAfter(afterChips)}
-        >
-          <span className="font-medium">{t('step.openPoints')}</span> {step.openPoints.join(' · ')}
-        </motion.p>
-      )}
-    </motion.div>
+        {step.openPoints && step.openPoints.length > 0 && (
+          <motion.p
+            className="text-[11px] leading-relaxed text-muted-foreground"
+            data-testid="run-open-points"
+            variants={FADE}
+            transition={fadeAfter(afterChips)}
+          >
+            <span className="font-medium">{t('step.openPoints')}</span> {step.openPoints.join(' · ')}
+          </motion.p>
+        )}
+      </motion.li>
+    </Item>
   )
 }
 
@@ -351,7 +392,7 @@ function doneLine(t: Translator, phase: RunPhase, tallies: RunTallies): string |
   }
 }
 
-/** The live line of an active phase that has no steps to show for itself. */
+/** The live line of an active phase that has no rounds to show for itself. */
 function liveLine(t: Translator, phase: RunPhase): string | null {
   if (phase === 'pruefen') return t('phaseLine.pruefenLive')
   if (phase === 'schreiben') return t('phaseLine.schreibenLive')
@@ -359,129 +400,60 @@ function liveLine(t: Translator, phase: RunPhase): string | null {
 }
 
 /**
- * One phase in the list. A done phase is one line; a live one is its label and
- * its rounds. When a phase flips from live to done the two overlap for a
- * moment: the line fades in above while the rounds fold away beneath it —
- * height to zero through `AnimatePresence`, the one layout move the vocabulary
- * allows, on the exit curve and one step shorter than an entrance.
+ * What each phase did, as acts: the phase, what it produced, how long it took.
+ *
+ * `dt`/`dd` rows at the document history's own weight — this is the same kind
+ * of fact („eingereicht von X am Y") in another vocabulary, and writing it as a
+ * second kind of list would make two shapes for one idea. Recherchieren is
+ * skipped when it has rounds: the list above IS its account, and repeating the
+ * tally here would be the same number twice on one screen.
  */
-const PhaseRow: FC<{
+const PhaseActs: FC<{
   ledger: RunLedger
-  phase: RunPhase
-  state: PhaseState
   live: boolean
   now: number | null
   tallies: RunTallies
-  arrive: boolean
-  reduced: boolean
-}> = ({ ledger, phase, state, live, now, tallies, arrive, reduced }) => {
+}> = ({ ledger, live, now, tallies }) => {
   const t = useTranslations('runs')
   const { locale } = useLocale()
-  const label = t(`phase.${phase}`)
-  const steps = stepsInPhase(ledger, phase)
-
-  let body: ReactNode = null
-  if (state === 'done') {
+  const rows = RUN_PHASES.flatMap((phase) => {
+    const state = phaseState(ledger, phase)
+    if (state === 'pending') return []
+    if (phase === 'recherchieren' && stepsInPhase(ledger, phase).length > 0) return []
+    if (state === 'active') {
+      const line = live ? liveLine(t, phase) : null
+      return line ? [{ phase, line, duration: null as number | null }] : []
+    }
     const line = doneLine(t, phase, tallies)
     const duration = phaseDurationMs(ledger, phase, now ?? 0)
-    body = (
-      <motion.p
-        key="done"
-        className="text-sm leading-snug text-foreground"
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        transition={reduced ? motionInstant : motionQuick}
-      >
-        <span className="font-medium">{label}</span>
-        {line && (
-          <>
-            <Sep />
-            <span className="text-muted-foreground">{line}</span>
-          </>
-        )}
-        {duration !== null && (
-          <>
-            <Sep />
-            <span className="whitespace-nowrap tabular-nums text-muted-foreground">
-              {formatDurationElapsed(duration / 1000, locale)}
-            </span>
-          </>
-        )}
-      </motion.p>
-    )
-  } else if (state === 'active') {
-    const line = live ? liveLine(t, phase) : null
-    body = (
-      <motion.div
-        key="live"
-        className="flex flex-col gap-1.5 overflow-hidden"
-        data-testid="run-phase-live"
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        exit={{ height: 0, opacity: 0 }}
-        transition={reduced ? motionInstant : motionQuickExit}
-      >
-        <p className="text-sm font-semibold leading-snug text-foreground">{label}</p>
-        {/* Rounds present when the list appeared are simply there; one that is
-            appended later rises in. Keyed by step id, so an appended round is
-            a new element and the rows above it are the same ones, re-rendered. */}
-        <AnimatePresence initial={false}>
-          {steps.map((step, index) => (
-            <StepRow
-              key={step.id}
-              step={step}
-              index={index}
-              numbered={phase === 'recherchieren'}
-              reduced={reduced}
-            />
-          ))}
-        </AnimatePresence>
-        {line && steps.length === 0 && (
-          <p className="text-sm leading-snug text-muted-foreground" data-testid="run-live-line">
-            {line}
-          </p>
-        )}
-      </motion.div>
-    )
-  } else {
-    body = <p className="text-sm leading-snug text-muted-foreground">{label}</p>
-  }
-
+    if (!line && duration === null) return []
+    return [{ phase, line, duration }]
+  })
+  if (rows.length === 0) return null
   return (
-    <TimelineItem
-      marker={<PhaseSwatch state={state} />}
-      arrive={arrive}
-      data-phase={phase}
-      data-state={state}
-    >
-      <AnimatePresence initial={false}>{body}</AnimatePresence>
-    </TimelineItem>
+    <dl className="flex flex-col gap-0.5 border-t border-border px-3 py-2" data-testid="run-phase-acts">
+      {rows.map(({ phase, line, duration }) => (
+        <div
+          key={phase}
+          className="flex gap-1.5 text-[11px] text-muted-foreground"
+          data-phase={phase}
+        >
+          <dt className="shrink-0 font-medium">{t(`phase.${phase}`)}</dt>
+          <dd className="min-w-0 truncate">
+            {line}
+            {duration !== null && (
+              <>
+                {line && <Sep />}
+                <span className="whitespace-nowrap tabular-nums">
+                  {formatDurationElapsed(duration / 1000, locale)}
+                </span>
+              </>
+            )}
+          </dd>
+        </div>
+      ))}
+    </dl>
   )
-}
-
-/** Which of the three sentences a terminal or waiting state owes. */
-function statusSentence(
-  t: Translator,
-  status: RunStatus,
-  ledger: RunLedger,
-  filesToProject: boolean,
-): string | null {
-  switch (status) {
-    case 'angelegt':
-      return filesToProject ? t('sentence.angelegtFiling') : t('sentence.angelegt')
-    case 'wartet':
-      return t('sentence.wartet')
-    case 'fertig':
-      return ledger.result?.fileId ? t('sentence.fertigFiled') : t('sentence.fertigInline')
-    case 'fehlgeschlagen':
-      return t('sentence.fehlgeschlagen', { reason: ledger.error?.reason ?? '' })
-    case 'abgebrochen':
-      return t('sentence.abgebrochen')
-    case 'unterbrochen':
-      return t('sentence.unterbrochen')
-    case 'laeuft':
-      return null
-  }
 }
 
 export function RunBlock({
@@ -497,6 +469,7 @@ export function RunBlock({
   connection,
   reviewHref,
   reportHref,
+  live: streaming,
   className,
 }: RunBlockProps): JSX.Element {
   const t = useTranslations('runs')
@@ -504,13 +477,6 @@ export function RunBlock({
   const status = runDisplayStatus(ledger)
   const live = isLiveStatus(status)
   const now = useRunClock(live)
-  // What was on screen when the block first painted does not animate its own
-  // arrival — the block's fade-rise already carried it in. A phase row that
-  // shows up later is news, and rises on its own.
-  const paintedRef = useRef(false)
-  useEffect(() => {
-    paintedRef.current = true
-  }, [])
 
   // The landing. A status that CHANGES while the block is on screen is a turn
   // in the run's story, and its moves are queued so they read in order
@@ -530,7 +496,8 @@ export function RunBlock({
 
   // Open-state policy, the Herleitung bar's: open while live, folded once
   // terminal; the reader's own toggle wins over both; entering `wartet` always
-  // opens, because the sentence that tells the reader what to do lives inside.
+  // opens, because the stand says a question is waiting and the body is where
+  // the round that asked it sits.
   const [open, setOpen] = useState<boolean>(status === 'wartet' || (defaultOpen ?? live))
   const userToggledRef = useRef(false)
   const autoOpenedRef = useRef(defaultOpen ?? live)
@@ -542,8 +509,8 @@ export function RunBlock({
       const shouldFold = !userToggledRef.current && autoOpenedRef.current
       autoOpenedRef.current = false
       if (!shouldFold) return
-      // The body folds only after the header has said what happened — the
-      // rail's last check, the glyph, the word. Folding first would pull the
+      // The body folds only after the stand has said what happened — the
+      // track's last segment, the glyph, the line. Folding first would pull the
       // reader's eye off the very phase that was finishing.
       const after = landingRef.current?.fold
       if (after === null || after === undefined) {
@@ -570,41 +537,75 @@ export function RunBlock({
   const elapsedSeconds =
     ledger.finishedAt || now !== null ? Math.floor(elapsedMs(ledger, now ?? 0) / 1000) : 0
   const elapsed = elapsedSeconds > 0 ? formatElapsed(elapsedSeconds) : null
-  const summary = summaryLabel(t, ledger, live, tallies, !open)
 
-  // The ONE action that fits the state. Rendered once — at the header's right
-  // end from `sm` up, in the footer below it on a phone.
+  // The ONE action that fits the state, and the quiet way out beside it — both
+  // at the document panel's own button weight (`h-7 text-xs`), so neither
+  // shouts across a thread.
   const reviewed = !!review
+  const fileHref =
+    status === 'fertig' && projectId && ledger.result?.fileId
+      ? documentFilesHref(projectId, ledger.result.fileId)
+      : null
   const action: ReactNode =
     status === 'wartet' && onAnswer ? (
-      <Button size="sm" variant="secondary" onClick={onAnswer} data-testid="run-action-answer">
+      <Button
+        size="sm"
+        variant="secondary"
+        className="h-7 px-2 text-xs"
+        onClick={onAnswer}
+        data-testid="run-action-answer"
+      >
         {t('action.answer')}
       </Button>
     ) : status === 'fertig' && !reviewed && reviewHref ? (
-      <Button size="sm" variant="secondary" asChild data-testid="run-action-review">
+      <Button
+        size="sm"
+        variant="secondary"
+        className="h-7 px-2 text-xs"
+        asChild
+        data-testid="run-action-review"
+      >
         <Link href={reviewHref}>{t('action.review')}</Link>
       </Button>
     ) : status === 'fertig' && reviewed && reportHref ? (
-      <Button size="sm" variant="secondary" asChild data-testid="run-action-open-report">
+      <Button
+        size="sm"
+        variant="secondary"
+        className="h-7 px-2 text-xs"
+        asChild
+        data-testid="run-action-open-report"
+      >
         <Link href={reportHref}>{t('action.openReport')}</Link>
       </Button>
     ) : (status === 'fehlgeschlagen' || status === 'abgebrochen') && onRetry ? (
-      <Button size="sm" variant="secondary" onClick={onRetry} data-testid="run-action-retry">
+      <Button
+        size="sm"
+        variant="ghost"
+        className="h-7 px-2 text-xs"
+        onClick={onRetry}
+        data-testid="run-action-retry"
+      >
         {t('action.retry')}
+      </Button>
+    ) : fileHref ? (
+      // Nothing else fits and the report was filed: the way to it belongs in
+      // the stand rather than behind the chevron, because the line above has
+      // just said where it is.
+      <Button size="sm" variant="ghost" className="h-7 gap-1.5 px-2 text-xs" asChild>
+        <Link href={fileHref} data-testid="run-file-link">
+          <FileText className="size-3.5" aria-hidden />
+          {t('action.openInProject')}
+        </Link>
       </Button>
     ) : null
 
-  // The quiet way out, beside the one action rather than instead of it: a
-  // waiting run's „Antworten" is still what the reader came for, and stopping
-  // is the thing they do when they change their mind. Ghost, so it never
-  // competes; always in the same slot, so it is never hunted for.
   const [confirmingCancel, setConfirmingCancel] = useState(false)
   const stop: ReactNode =
     onCancel && live ? (
       <Button
         size="sm"
         variant="ghost"
-        className="text-muted-foreground"
+        className="h-7 px-2 text-xs text-muted-foreground"
         onClick={() => setConfirmingCancel(true)}
         data-testid="run-action-cancel"
       >
@@ -614,18 +615,14 @@ export function RunBlock({
 
   // Only while the run is going: a finished run's dead stream is not news.
   const connectionLine =
-    live && (connection === 'reconnecting' || connection === 'lost')
+    streaming && (connection === 'reconnecting' || connection === 'lost')
       ? t(`connection.${connection}`)
       : null
 
-  const sentence = statusSentence(t, status, ledger, filesToProject ?? !!projectId)
+  const line = statusLine(t, ledger, status, tallies, filesToProject ?? !!projectId)
   const before =
     status === 'fehlgeschlagen' || status === 'abgebrochen'
       ? completedBeforeLabel(t, ledger, tallies)
-      : null
-  const fileHref =
-    status === 'fertig' && projectId && ledger.result?.fileId
-      ? documentFilesHref(projectId, ledger.result.fileId)
       : null
   const reviewLine = !review
     ? null
@@ -636,18 +633,11 @@ export function RunBlock({
       : review.reason
         ? t('review.rejected', { reason: review.reason })
         : t('review.rejectedAnon')
-  const showFooter =
-    sentence !== null ||
-    reviewLine !== null ||
-    fileHref !== null ||
-    action !== null ||
-    stop !== null ||
-    connectionLine !== null
 
-  const railSteps: PhaseRailStep[] = RUN_PHASES.map((phase) => {
-    const state = phaseState(ledger, phase)
-    return { key: phase, label: t(`phase.${phase}`), state, stateLabel: t(`rail.${state}`) }
-  })
+  const rounds = stepsInPhase(ledger, 'recherchieren')
+  const reached = RUN_PHASES.filter((phase) => phaseState(ledger, phase) === 'done').length
+  const halted = !live && status !== 'fertig' && reached < RUN_PHASES.length
+  const closing = before !== null || reviewLine !== null || connectionLine !== null
 
   return (
     <section
@@ -655,99 +645,106 @@ export function RunBlock({
       data-testid="run-block"
       data-status={status}
       className={cn(
-        'animate-in fade-in-0 slide-in-from-bottom-1 w-full rounded-2xl bg-muted shadow-xs duration-base ease-entrance motion-reduce:animate-none',
+        'animate-in fade-in-0 slide-in-from-bottom-1 w-full overflow-hidden rounded-xl border border-border bg-card duration-base ease-entrance motion-reduce:animate-none',
         className,
       )}
     >
       <Collapsible open={open} onOpenChange={handleOpenChange}>
-        <div className="flex items-center gap-1 sm:pr-2">
-          <CollapsibleTrigger asChild>
-            {/* No aria-label: it would override the visible content, which is
-                exactly what a non-sighted reader needs — the status word and
-                the title. The toggle's purpose is stated visually-hidden at
-                the end instead. */}
-            <button
-              type="button"
-              className="group flex min-h-12 min-w-0 flex-1 cursor-pointer items-center justify-between gap-3 rounded-2xl px-4 py-3 text-left outline-none transition-colors duration-snap ease-out focus-visible:ring-2 focus-visible:ring-ring/60 motion-reduce:transition-none"
-            >
-              <span className="flex min-w-0 flex-1 items-center gap-2" aria-live="polite">
-                {/* Decorative: the status word is the next thing in the row,
-                    and it is inside the same live region. */}
-                <RunStatusGlyph status={status} delay={landing?.glyph ?? 0} />
-                <span className="min-w-0 truncate text-sm">
-                  {/* The word crossfades rather than cutting: it is the one
-                      place the block states what just happened, and a cut
-                      there is the only change a reader can miss entirely.
-                      The crossfade holds two words at once for a moment, so
-                      the SPOKEN word is a plain one beside it and the moving
-                      pair is hidden: a reader must never hear the run called
-                      two things in one breath. */}
-                  <span className="sr-only" data-testid="run-status-word">
-                    {statusWord}
-                  </span>
-                  <AnimatePresence mode="wait" initial={false}>
-                    <motion.span
-                      key={status}
-                      aria-hidden
-                      className="inline-block font-semibold text-foreground"
-                      initial={{ opacity: 0 }}
-                      animate={{
-                        opacity: 1,
-                        transition: reduced ? motionInstant : { ...motionQuick, delay: landing?.word ?? 0 },
-                      }}
-                      exit={{
-                        opacity: 0,
-                        transition: reduced ? motionInstant : { ...motionQuickExit, delay: landing?.word ?? 0 },
-                      }}
-                    >
-                      {statusWord}
-                    </motion.span>
-                  </AnimatePresence>
-                  <Sep />
-                  <span className="text-foreground" data-testid="run-title">
-                    {name}
-                  </span>
+        {/* The stand: what it is, how long it has taken, where it stands — in
+            that order, top to bottom, the way the document panel puts its badge
+            over its track over its sentence. */}
+        <div className="flex flex-col gap-2 px-3 py-2.5" data-testid="run-stand">
+          {/* WRAPS. „Abbrechen" beside „Antworten" is the widest the stand ever
+              gets, and at a phone's 390px it took the title down to three
+              characters. Wrapping puts the clock and the buttons on their own
+              line there and changes nothing where the row already fits. */}
+          <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
+            <CollapsibleTrigger asChild>
+              {/* No aria-label: it would override the visible content, which is
+                  the title — and the state is on the section's own label. */}
+              <button
+                type="button"
+                className="group flex min-w-0 flex-1 basis-40 cursor-pointer items-center gap-2 rounded-md text-left outline-none transition-colors duration-snap ease-out focus-visible:ring-2 focus-visible:ring-ring/60 motion-reduce:transition-none"
+              >
+                <RunStatusGlyph status={status} size="sm" delay={landing?.glyph ?? 0} />
+                <span
+                  className="min-w-0 flex-1 truncate text-xs font-medium text-foreground"
+                  data-testid="run-title"
+                >
+                  {name}
                 </span>
-              </span>
-
-              {/* The title wins: the summary shrinks eight times as readily
-                  and truncates first; the title gives up characters only
-                  once the summary is nearly gone. */}
-              <span className="flex min-w-0 shrink-[8] items-center gap-2">
-                {summary && (
-                  <span
-                    className="hidden min-w-0 truncate text-xs text-muted-foreground sm:inline"
-                    data-testid="run-summary"
-                  >
-                    {summary}
-                  </span>
-                )}
-                {elapsed && (
-                  <span
-                    className="rounded-md bg-secondary px-2 py-0.5 text-xs font-medium tabular-nums text-muted-foreground"
-                    aria-label={t('block.elapsedAria', { elapsed })}
-                    data-testid="run-elapsed"
-                  >
-                    {elapsed}
-                  </span>
-                )}
-                <ChevronDown className="size-4 text-muted-foreground transition-transform duration-quick ease-out group-data-[state=open]:rotate-180 motion-reduce:transition-none" />
+                <ChevronDown className="size-3.5 shrink-0 text-muted-foreground transition-transform duration-quick ease-out group-data-[state=open]:rotate-180 motion-reduce:transition-none" />
                 <span className="sr-only">{t('block.toggle')}</span>
-              </span>
-            </button>
-          </CollapsibleTrigger>
-          {(stop || action) && (
-            <span className="hidden shrink-0 items-center gap-1 sm:inline-flex">
+              </button>
+            </CollapsibleTrigger>
+            <span className="ml-auto flex shrink-0 items-center gap-1">
+              {elapsed && (
+                <span
+                  className="tabular-nums text-[11px] text-muted-foreground"
+                  aria-label={t('block.elapsedAria', { elapsed })}
+                  data-testid="run-elapsed"
+                >
+                  {elapsed}
+                </span>
+              )}
               {stop}
               {action}
             </span>
-          )}
+          </div>
+
+          {/* Five segments, no labels: the line below names the one the run is
+              in, so the track reads as a position rather than as a legend. */}
+          <StageTrack
+            stages={RUN_PHASES}
+            reached={reached}
+            active={live}
+            halted={halted}
+            tone={trackTone(status)}
+            className="[&>span]:transition-colors [&>span]:duration-base [&>span]:ease-out motion-reduce:[&>span]:transition-none"
+            data-testid="run-track"
+          />
+
+          {/* The one line that says where it stands. The spoken status word is a
+              plain copy beside it: the visible line leads with the phase while
+              the run is going, and a reader who cannot see the glyph would
+              otherwise never hear „Läuft". */}
+          <p
+            className={cn(
+              'text-xs leading-relaxed',
+              status === 'fehlgeschlagen' ? 'text-error' : 'text-muted-foreground',
+            )}
+            role={live ? 'status' : undefined}
+            data-testid="run-status-line"
+          >
+            <span className="sr-only" data-testid="run-status-word">
+              {statusWord}
+            </span>
+            <AnimatePresence mode="wait" initial={false}>
+              <motion.span
+                key={status}
+                aria-hidden
+                className="inline-block"
+                initial={{ opacity: 0 }}
+                animate={{
+                  opacity: 1,
+                  transition: reduced ? motionInstant : { ...motionQuick, delay: landing?.word ?? 0 },
+                }}
+                exit={{
+                  opacity: 0,
+                  transition: reduced
+                    ? motionInstant
+                    : { ...motionQuickExit, delay: landing?.word ?? 0 },
+                }}
+              >
+                {line}
+              </motion.span>
+            </AnimatePresence>
+          </p>
         </div>
 
-        {/* The body grows out of the bar — height plus opacity, a user-initiated
-            expand, the same instrument the Herleitung bar uses and for the same
-            reason. `initial={false}` so a block that mounts open does not
-            animate its way there. */}
+        {/* The body grows out of the stand — height plus opacity, a
+            user-initiated expand. `initial={false}` so a block that mounts open
+            does not animate its way there. */}
         <AnimatePresence initial={false}>
           {open && (
             <motion.div
@@ -756,112 +753,78 @@ export function RunBlock({
               animate={{ height: 'auto', opacity: 1, transition: motionBase }}
               exit={{ height: 0, opacity: 0, transition: motionQuick }}
               className="overflow-hidden"
+              data-testid="run-body"
             >
-              <div className="flex flex-col gap-4 border-t border-border px-4 pb-4 pt-3" data-testid="run-body">
-                {/* The swatches cascade in with the block itself; a rail the
-                    reader unfolded by hand is already on screen and just is. */}
-                <PhaseRail steps={railSteps} label={t('rail.label')} arrive={!userToggledRef.current} />
-                {/* Only the phases with something to say: done ones fold to a
-                    line, the live one shows its work. The rail above already
-                    names what is still to come, so listing the pending phases
-                    a second time would be the rail repeated in another shape. */}
-                <Timeline>
-                  {RUN_PHASES.filter((phase) => phaseState(ledger, phase) !== 'pending').map((phase) => (
-                    <PhaseRow
-                      key={phase}
-                      ledger={ledger}
-                      phase={phase}
-                      state={phaseState(ledger, phase)}
-                      live={live}
-                      now={now}
-                      tallies={tallies}
-                      arrive={paintedRef.current}
-                      reduced={reduced}
-                    />
-                  ))}
-                </Timeline>
-              </div>
+              {/* The rounds: one hairline-separated row each, the history's own
+                  shape. Keyed by step id, so an appended round is a new element
+                  and the rows above it are the same ones, re-rendered. */}
+              {rounds.length > 0 && (
+                <ItemList as="ol" className="rounded-none border-0 border-t border-border">
+                  <AnimatePresence initial={false}>
+                    {rounds.map((step, index) => (
+                      <RoundRow key={step.id} step={step} index={index} reduced={reduced} />
+                    ))}
+                  </AnimatePresence>
+                </ItemList>
+              )}
+
+              <PhaseActs ledger={ledger} live={live} now={now} tallies={tallies} />
+
+              {closing && (
+                <motion.div
+                  key={`closing-${status}`}
+                  initial={landing ? { opacity: 0, y: 4 } : false}
+                  animate={{
+                    opacity: 1,
+                    y: 0,
+                    transition:
+                      reduced || !landing ? motionInstant : { ...motionEntrance, delay: landing.footer },
+                  }}
+                  className="flex flex-col gap-1.5 border-t border-border px-3 py-2"
+                  data-testid="run-footer"
+                >
+                  {before && (
+                    <p
+                      className="text-[11px] leading-relaxed text-muted-foreground"
+                      data-testid="run-completed-before"
+                    >
+                      {before}
+                    </p>
+                  )}
+                  {reviewLine && review && (
+                    /* The reviewer's words, quoted on the run they are about —
+                       the same adjunct a version row renders under itself. */
+                    <p
+                      className="flex items-start gap-1.5 border-l-2 pl-2 text-[11px] leading-[1.5] text-foreground"
+                      data-testid="run-review"
+                      data-decision={review.decision}
+                    >
+                      {review.decision === 'accepted' ? (
+                        <CheckCircle2 className="mt-0.5 size-3 shrink-0 text-success" aria-hidden />
+                      ) : (
+                        <XCircle className="mt-0.5 size-3 shrink-0 text-error" aria-hidden />
+                      )}
+                      <span>{reviewLine}</span>
+                    </p>
+                  )}
+                  {connectionLine && (
+                    <p
+                      className="text-[11px] leading-relaxed text-muted-foreground"
+                      role="status"
+                      data-testid="run-connection"
+                      data-connection={connection}
+                    >
+                      {connectionLine}
+                    </p>
+                  )}
+                </motion.div>
+              )}
             </motion.div>
           )}
         </AnimatePresence>
       </Collapsible>
 
-      {/* The sentence the state owes, outside the fold: a failed run that hid
-          its reason behind a chevron would be a failure the reader has to go
-          looking for. */}
-      {showFooter && (
-        <motion.div
-          key={`footer-${status}`}
-          initial={landing ? { opacity: 0, y: 4 } : false}
-          animate={{
-            opacity: 1,
-            y: 0,
-            transition: reduced || !landing ? motionInstant : { ...motionEntrance, delay: landing.footer },
-          }}
-          className="flex flex-col gap-1.5 border-t border-border px-4 pb-3 pt-2.5"
-          data-testid="run-footer"
-        >
-          {sentence && (
-            <p
-              className={cn(
-                'text-sm leading-relaxed',
-                status === 'fehlgeschlagen' ? 'text-error' : 'text-muted-foreground',
-              )}
-              role={live ? 'status' : undefined}
-              data-testid="run-sentence"
-            >
-              {sentence}
-            </p>
-          )}
-          {connectionLine && (
-            <p
-              className="text-xs leading-relaxed text-muted-foreground"
-              role="status"
-              data-testid="run-connection"
-              data-connection={connection}
-            >
-              {connectionLine}
-            </p>
-          )}
-          {before && (
-            <p className="text-xs leading-relaxed text-muted-foreground" data-testid="run-completed-before">
-              {before}
-            </p>
-          )}
-          {fileHref && (
-            <Link
-              href={fileHref}
-              className="inline-flex w-fit items-center gap-1.5 text-sm font-medium text-primary hover:underline"
-              data-testid="run-file-link"
-            >
-              <FileText className="size-3.5" aria-hidden />
-              {t('action.openInProject')}
-            </Link>
-          )}
-          {reviewLine && review && (
-            <p
-              className="flex items-start gap-1.5 text-xs leading-relaxed text-muted-foreground"
-              data-testid="run-review"
-              data-decision={review.decision}
-            >
-              {review.decision === 'accepted' ? (
-                <CheckCircle2 className="mt-0.5 size-3.5 shrink-0 text-success" aria-hidden />
-              ) : (
-                <XCircle className="mt-0.5 size-3.5 shrink-0 text-error" aria-hidden />
-              )}
-              <span>{reviewLine}</span>
-            </p>
-          )}
-          {(stop || action) && (
-            <span className="inline-flex items-center gap-1 sm:hidden">
-              {stop}
-              {action}
-            </span>
-          )}
-        </motion.div>
-      )}
-
-      {/* Asked once, and phrased around what survives: the two rounds already
+      {/* Asked once, and phrased around what survives: the rounds already
           researched stay on screen, which is the fact that decides the answer.
           Warning rather than destructive — a stopped run keeps its work. */}
       {onCancel && (

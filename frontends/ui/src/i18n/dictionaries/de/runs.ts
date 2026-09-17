@@ -26,16 +26,14 @@ export const runs: typeof en.runs = {
     abgebrochen: 'Abgebrochen',
     unterbrochen: 'Unterbrochen',
   },
-  sentence: {
-    angelegt: 'Piloti übernimmt den Auftrag.',
-    angelegtFiling:
-      'Piloti übernimmt den Auftrag. Das Ergebnis wird im Projekt unter „Berichte“ abgelegt.',
-    wartet: 'Piloti hat eine Rückfrage. Antworten Sie unten im Verlauf.',
-    fertigFiled: 'Bericht abgelegt in Projekt › Berichte.',
-    fertigInline: 'Der Bericht liegt hier im Verlauf.',
+  line: {
+    filing: 'Ergebnis kommt ins Projekt',
+    wartet: 'Antworten Sie unten im Verlauf',
+    fertigFiled: 'Bericht abgelegt in Projekt › Berichte',
+    fertigInline: 'Der Bericht liegt hier im Verlauf',
     fehlgeschlagen: 'Fehlgeschlagen: {reason}',
-    abgebrochen: 'Auf Ihren Wunsch beendet.',
-    unterbrochen: 'Die Recherche wurde abgebrochen; der Bericht ist aus dem Vorhandenen geschrieben.',
+    abgebrochen: 'auf Ihren Wunsch beendet',
+    unterbrochen: 'Bericht aus dem Vorhandenen geschrieben',
   },
   completedBefore: 'Bis dahin: {phases}',
   completedBeforeTallies: '{phase} ({rounds}, {docs})',
@@ -56,7 +54,6 @@ export const runs: typeof en.runs = {
     rounds: '{count, plural, one {# Runde} other {# Runden}}',
     docs: '{count, plural, one {# Dokument} other {# Dokumente}}',
   },
-  summary: '{phase} · {rounds} · {docs}',
   action: {
     answer: 'Antworten',
     review: 'Prüfen',
@@ -82,12 +79,6 @@ export const runs: typeof en.runs = {
   connection: {
     reconnecting: 'Die Live-Ansicht hat die Verbindung verloren und verbindet neu. Der Auftrag läuft weiter.',
     lost: 'Die Live-Ansicht ist getrennt. Der Auftrag läuft weiter — zum Mitlesen neu laden.',
-  },
-  rail: {
-    label: 'Phasen',
-    done: 'erledigt',
-    active: 'läuft',
-    pending: 'ausstehend',
   },
   block: {
     aria: 'Auftrag {title}: {status}',
