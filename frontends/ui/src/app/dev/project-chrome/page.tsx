@@ -4,8 +4,8 @@
  * A client component only because `SearchField` is a controlled input and this
  * fixture hands it a no-op `onChange`. As a server component the page threw
  * "Event handlers cannot be passed to Client Component props" and returned 500,
- * so the `project-chrome` target in `visual/registry.mjs` — declared with
- * `mobile: true` — has never produced a screenshot.
+ * so this preview could not be captured at all until it became a client
+ * component.
  */
 
 /**

@@ -3,7 +3,7 @@
 /**
  * App-rail dev preview: renders the REAL `AppSidebar` on its own, in both the
  * expanded and the COLLAPSED (icon) state, so the rail itself can be reviewed
- * and screenshotted (visual/registry.mjs → `app-rail*`). Not linked anywhere
+ * and screenshotted. Not linked anywhere
  * and 404s outside development.
  *
  * Why this exists. The rail was only ever captured incidentally, as the

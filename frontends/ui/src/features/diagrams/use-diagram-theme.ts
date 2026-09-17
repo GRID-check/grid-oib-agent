@@ -16,10 +16,10 @@
  *
  *   - **The class itself** (`MutationObserver`). The one that always tells the
  *     truth, and the only one that catches a change made out of band — which
- *     includes `visual/capture.mjs`, whose light and dark screenshots come off
- *     ONE page load by toggling this class. That makes the dark screenshot of a
- *     diagram a real test that the redraw lands, rather than a picture of the
- *     light render on a dark page.
+ *     includes a screenshot run toggling this class to capture dark off the
+ *     same page load (`docs/ux/visual-screenshots.md`). That makes the dark
+ *     capture of a diagram a real test that the redraw lands, rather than a
+ *     picture of the light render on a dark page.
  *   - **The media query**, for `system`, where nothing in React changes at all.
  *   - **The store**, for an explicit light/dark choice.
  *

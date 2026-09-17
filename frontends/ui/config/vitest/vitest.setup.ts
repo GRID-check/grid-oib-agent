@@ -70,7 +70,7 @@ vi.mock('next/headers', () => ({
 // stay visibility:hidden until a real ResizeObserver measures them). For unit
 // tests we render each node through its `nodeTypes` component in plain DOM, so
 // node CONTENT and logic are assertable; the real graph rendering is covered by
-// the visual screenshot harness (visual/registry.mjs → `herleitung`).
+// a capture of the `/dev/herleitung` preview.
 vi.mock('@xyflow/react', async () => {
   const { createElement, Fragment } = await import('react')
   return {

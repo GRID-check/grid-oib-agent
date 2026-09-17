@@ -11,11 +11,10 @@
  * jsdom has no layout engine and no container queries, so what is asserted here
  * is the CLASS SET — the same way `file-preview-pane.spec.tsx` asserts the
  * summary's `line-clamp-5`. That is a weaker claim than "it looks right", and
- * it is the half a unit test can hold: the rendered proof is
- * `visual/screenshots/file-preview-review.mobile.{light,dark}.png`, captured at
- * 390×844 from `/dev/file-preview?variant=review`. Each guards the other — the
- * classes catch a silent deletion, the shot catches a class set that is present
- * and wrong.
+ * it is the half a unit test can hold: the rendered proof is a capture at
+ * 390×844 of `/dev/file-preview?variant=review`, attached to the PR that
+ * changes it. Each guards the other — the classes catch a silent deletion, the
+ * shot catches a class set that is present and wrong.
  */
 
 import { describe, expect, it, vi } from 'vitest'

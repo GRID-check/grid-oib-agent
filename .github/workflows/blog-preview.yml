@@ -10,7 +10,7 @@
 #
 # Informational only: a harness failure must never block the PR.
 #
-# Job split mirrors screenshot-preview.yml: the job that executes PR-controlled
+# Job split is deliberate: the job that executes PR-controlled
 # code (npm install, the site's own build and server) runs with a read-only token
 # and no persisted credential; the commenting job checks out nothing, runs no PR
 # code, and is the only one holding write scope.

@@ -16,8 +16,8 @@
  *
  * So these assert the wiring rather than the pixels: the utility exists and is
  * scoped to coarse pointers, every use of it resolves, and the shared control
- * primitives each still carry a coarse-pointer affordance. Pixel evidence is
- * the screenshot harness's job (`visual/screenshots/*.mobile.*.png`).
+ * primitives each still carry a coarse-pointer affordance. Pixel evidence is a
+ * phone-viewport capture attached to the PR (`docs/ux/visual-screenshots.md`).
  */
 
 import { describe, expect, it } from 'vitest'

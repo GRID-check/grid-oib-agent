@@ -236,51 +236,45 @@ are no longer reported on new code.
 
 ## Visual evidence
 
-A user-visible UI change is done only with a committed screenshot. The harness
-is a registry (`frontends/ui/visual/registry.mjs`) of `/dev/*` preview routes
-that render real components against fixture data with no backend, captured in
-light and dark by `task fe:screenshots`.
+A user-visible UI change is done only with visual evidence, and that evidence
+goes **in the pull request as an attachment**. No image files are committed.
 
-Build a user-visible surface, add a `/dev/<name>` preview route and a registry
-target, and commit the PNGs. The `visual-coverage` workflow comments when a PR
-adds a component without that evidence; opt a non-visual component out with a
-`// no-visual: <reason>` marker. Full playbook, including the `.dark` class,
-module-scope fetch shims and the pre-installed Chromium:
+Build a user-visible surface, add a `/dev/<name>` preview route that renders it
+against fixture data with no backend, capture it with the `agent-browser` skill
+against a running dev server, and attach it with the `before-and-after` skill
+(`gh --attach`, GitHub CLI 2.99+). Full playbook, including the two-part dark
+mode and the dev-indicator badge that lands in your shot:
 [`../ux/visual-screenshots.md`](../ux/visual-screenshots.md).
+
+There is no coverage workflow and no committed gallery. Both were removed: the
+gallery was 348 MB of git history that nothing ever compared, and the workflow
+only checked that a PNG file had appeared, never what was in it. A reviewer
+looking at an attachment is the check.
 
 ## Mobile evidence
 
-`task fe:touch-audit` loads the same registry at 390×844 with touch emulation
-and reports what a screenshot cannot: regions whose `touch-action` refuses the
-vertical pan (a finger lands and the page does not move), boxes that stick out
-past the viewport, and interactive elements under the 44px floor — the last
-measured including any `touch-target` catchment, so a control that widens its
-catchment correctly does not report. Add `-- <registry id>` for one surface.
+Held statically, by `frontends/ui/src/components/ui/mobile-affordances.spec.ts`
+and `frontends/ui/src/components/ui/touch-target.spec.ts`. Capture a 390x844
+viewport alongside the desktop shot when you ship a surface — the playbook above
+has the command.
 
-It needs a Chromium, which the repo does not ship (`playwright-core` has no
-browser). It looks in `CHROMIUM_PATH`, `PLAYWRIGHT_BROWSERS_PATH`,
-`/opt/pw-browsers` (present in the devcontainer and the CI image) and
-Playwright's own per-OS cache. That last one is where `npx playwright install
-chromium` installs, so on a bare machine that single command is enough — no
-`PLAYWRIGHT_BROWSERS_PATH` to set afterwards. The error names every path it
-tried. A target that fails to load is reported as a
-failure and exits non-zero — findings themselves do not, because `SMALL` is a
-prompt to read rather than a verdict.
+**The browser measurement is gone.** `task fe:touch-audit` loaded the screenshot
+registry at a phone viewport and reported what neither a spec nor a screenshot
+can: regions whose `touch-action` refuses the vertical pan (a finger lands and
+the page does not move), boxes that stick out past the viewport, and interactive
+elements under the 44px floor, measured including any `touch-target` catchment.
+It imported `SCREENSHOT_TARGETS`, so it could not outlive the registry that was
+deleted with the harness.
 
-It is NOT part of `verify`, on purpose: the shape errors it exists for are held
-statically by `frontends/ui/src/components/ui/mobile-affordances.spec.ts` and
-`frontends/ui/src/components/ui/touch-target.spec.ts`, and a browser pass over
-~120 surfaces is a deliberate run rather than a per-commit tax. Reach for it
-when you build a user-visible
-surface, and read `SMALL` as a prompt rather than a verdict — an inline target
-inside a sentence cannot reach 44px without stealing its neighbour's taps, which
-is why WCAG 2.5.8 exempts it.
-
-Both of the worst defects it has found were invisible to review, to the type
-checker and to a desktop screenshot: a reasoning graph that swallowed every
-swipe because a library stylesheet claimed a gesture the graph had turned off,
-and a file list whose `truncate` never fired because auto table layout sized the
-column to the filename. Neither looked wrong. Both were measured.
+That is a real loss, recorded here rather than quietly dropped. Both of the
+worst defects it ever found were invisible to review, to the type checker and to
+a desktop screenshot: a reasoning graph that swallowed every swipe because a
+library stylesheet claimed a gesture the graph had turned off, and a file list
+whose `truncate` never fired because auto table layout sized the column to the
+filename. Neither looked wrong; both were measured. Bringing it back means
+writing it again against `src/app/dev/` rather than against a registry — and it
+should not be part of `verify` when it returns, because a browser pass over ~120
+surfaces is a deliberate run rather than a per-commit tax.
 
 ## Before opening a PR
 

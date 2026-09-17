@@ -795,8 +795,8 @@ without re-plumbing generation or transport.
    dispatcher (interactive cards get `messageId={messageId} cardKey={key}`).
    Type it with the [`card-*` ramp](#type-sizes-six-classes-and-lint-per-card)
    and add the file to `CARDS_ON_THE_TYPE_RAMP` in `eslint.config.mjs`.
-5. Add a fixture to the `/dev/cards` gallery and a `visual/registry.mjs` target,
-   then capture screenshot evidence (`npm run screenshots`).
+5. Add a fixture to the `/dev/cards` gallery, then capture it and attach the
+   capture to the PR (`docs/ux/visual-screenshots.md`).
 6. **Give it a trigger in the doctrine** (`render_card_doctrine` in
    `cards/catalog.py`) — which question calls for it, in the same
    "trigger → card" form as the rest. A type that is only listed in the index is
@@ -890,8 +890,9 @@ card type = define the Pydantic model (`cards/models.py`), regenerate the schema
 wire the `GridCards` dispatcher. A dev-only gallery at `/dev/cards`
 (`src/app/dev/cards/page.tsx`, 404 outside development) renders every card type
 with realistic fixtures for visual review; `/dev/document-grid` previews the
-backend-free `document_grid` surfacing card. Both are captured by the screenshot
-harness (`npm run screenshots`, see `docs/ux/visual-screenshots.md`).
+backend-free `document_grid` surfacing card. Capture either with the
+`agent-browser` skill and attach it to the PR that changes it — no image files
+are committed (see `docs/ux/visual-screenshots.md`).
 For a system card emitted by a tool (`document_grid`), that tool must be added to
 the agent's `tools:` list in the config (both `shallow_research_agent` and
 `deep_research_agent` bind it) and its `_type` registered — see `surface_documents`
