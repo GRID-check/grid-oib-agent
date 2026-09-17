@@ -17,11 +17,6 @@ repos:
       - id: check-merge-conflict
       - id: check-added-large-files
         args: [--maxkb=1024]
-        # Committed UI evidence (AGENTS.md: a user-visible change is only
-        # "done" with a screenshot). Full-page retina captures of a long
-        # surface routinely exceed 1 MB — the tracked gallery shots are ~3 MB —
-        # so the cap would block exactly the artifacts the repo requires.
-        exclude: ^frontends/ui/visual/screenshots/.*\.png$
       - id: check-yaml
         exclude: ^deploy/helm/helm-charts-k8s/.*/templates/.*\.ya?ml$
       - id: end-of-file-fixer
@@ -59,22 +54,13 @@ repos:
         # the next recording — and JSON cannot carry the inline
         # `pragma: allowlist secret` comment that would be the other way out.
         #
-        # screenshots.manifest.json is the same case a third time: every
-        # `routeHash` is the SHA-256 of a `/dev` preview's SOURCE FILE — hex by
-        # construction, secret by none, and the whole point of it is to be
-        # public (`visual/registry.spec.mjs` fails when one stops matching the
-        # file on disk). `visual/capture.mjs` rewrites the entry for every
-        # target it captures, so a baseline entry would pin a hash to a line
-        # number that moves on the next run, and JSON cannot carry the inline
-        # `pragma: allowlist secret` comment that would be the other way out.
-        #
         # aspire-dashboard.pin is a public image reference
         # (`mcr.microsoft.com/dotnet/aspire-dashboard@sha256:…`). The digest is
         # hex by construction and a secret by none; the file is one line so
         # detect-secrets sees a high-entropy blob with no surrounding code.
         # Excluded rather than baselined for the same line-number reason as
         # the lockfiles above. gitleaks in security.yml still sees it.
-        exclude: (^skills/[^/]+/skill\.oms\.sig$|^frontends/ui/pnpm-lock\.yaml$|^tests/fixtures/collection_scope/scope_header\.json$|^apm\.lock\.yaml$|^frontends/benchmarks/oib_retrieval/fixtures/vector_channel_recorded\.json$|^frontends/ui/visual/screenshots\.manifest\.json$|^deploy/pulumi/aspire-dashboard\.pin$)
+        exclude: (^skills/[^/]+/skill\.oms\.sig$|^frontends/ui/pnpm-lock\.yaml$|^tests/fixtures/collection_scope/scope_header\.json$|^apm\.lock\.yaml$|^frontends/benchmarks/oib_retrieval/fixtures/vector_channel_recorded\.json$|^deploy/pulumi/aspire-dashboard\.pin$)
         # REGENERATING THE BASELINE — keep the --exclude-lines flag, or CI starts
         # failing again a few commits later:
         #
