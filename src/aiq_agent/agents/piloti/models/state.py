@@ -61,6 +61,18 @@ class ResearchAgentState(BaseModel):
     #: inventory block can say a file is coming, rather than letting a
     #: just-attached plan look exactly like a file that does not exist.
     in_flight_documents: list[str] | None = None
+    #: Whether this tenant may be offered a deep-research hand-off. Read by the
+    #: prompt renderer, which tells the model so in one line: a capability the
+    #: model is told about is one it can decline out loud, where an absent one
+    #: is a promise it makes and something downstream breaks — the same argument
+    #: `TurnConfig.disabled_sources` makes about refusing a tool call rather
+    #: than unbinding the tool.
+    #:
+    #: It varies per ORG, so the line it renders sits below the KV-cache
+    #: boundary with the other per-tenant blocks; it is one sentence, and the
+    #: alternative (narrowing the static contract per tenant) would shard the
+    #: prompt cache on a workload that is ~99 % input tokens.
+    deep_research_allowed: bool = True
     collection_name: str | None = None
     #: Tool-calling ROUNDS this turn has spent — LLM decisions that emitted tool
     #: calls — against ``max_tool_iterations``. The NAME says iterations and is

@@ -84,6 +84,23 @@ NO_SOURCES_MESSAGE = (
 # Changing the wording is a copy change with a release note, not a rename.
 LEGACY_ESCALATION_REASON = "Shallow agent emitted insufficiency marker"
 
+DEEP_RESEARCH_UNAVAILABLE_NOTE = (
+    "Hinweis: Eine Tiefenrecherche steht in diesem Arbeitsbereich derzeit nicht zur Verfügung. "
+    "Ich habe die Frage direkt beantwortet, so weit die vorliegenden Quellen tragen. "
+    "Grenzen Sie die Frage gern enger ein, dann komme ich näher heran."
+)
+"""Appended when Piloti asks to escalate and the tenant has no deep research.
+
+German for the same reason as :data:`PLAN_CANCELLED_MESSAGE`: it reaches the
+reader verbatim. It exists because the ask and the ANSWER are one message. A
+turn that asks to escalate writes either a partial answer (the insufficiency
+case) or a single sentence naming what it will research (the commissioned
+case), and suppressing the route silently would leave the second one as a
+promise nothing keeps. The prompt already tells the model the capability is
+absent, so this is the line for the turn where it asked anyway — not the
+normal path.
+"""
+
 #: State fields that survive the turn boundary. Everything else is reset on
 #: every ``run()`` so nothing from a previous turn's checkpoint — a stale job
 #: id, a prior self-assessment, last turn's routing — can leak onto this one.
@@ -177,18 +194,39 @@ def _stripped(content: str) -> str:
     return clean
 
 
-def _finalize_answer(message: BaseMessage, result: ResearchAgentState) -> dict[str, Any]:
+def _finalize_answer(
+    message: BaseMessage, result: ResearchAgentState, *, deep_research_allowed: bool = True
+) -> dict[str, Any]:
     """The node update for a finished research turn, from its answer message and
     the structured signals Piloti extracted in its own ``run()``.
 
     Those signals are authoritative; non-string content passes through
     untouched with no signal at all.
+
+    ``deep_research_allowed=False`` turns an ask into a plain answer here, at
+    the point where the two updates diverge, rather than at the routing edge.
+    The edge is too late: by then ``_escalation_update`` has already dropped
+    everything the answer knew about itself and replaced the message with the
+    ask, so suppressing the route there ends the turn on a promise instead of
+    an answer.
     """
     content = message.content
     if not isinstance(content, str):
         return {"messages": [message]}
     clean_content = _stripped(content)
     escalating = bool(result.escalation_requested)
+    if escalating and not deep_research_allowed:
+        logger.info("Escalation refused: deep research is not enabled for this tenant")
+        escalating = False
+        # The ask and the answer are the same message, so the note goes with
+        # whatever the model wrote. Empty content is the commissioned case
+        # taken to its limit — a hand-off with nothing but the hand-off — and
+        # there the note IS the answer.
+        clean_content = (
+            f"{clean_content.rstrip()}\n\n{DEEP_RESEARCH_UNAVAILABLE_NOTE}"
+            if clean_content.strip()
+            else DEEP_RESEARCH_UNAVAILABLE_NOTE
+        )
     if not clean_content.strip() and not escalating:
         # An empty answer is a generation failure, not an escalation signal.
         logger.error("Research produced an empty answer")
@@ -341,6 +379,11 @@ class ConversationGraph:
             org_instructions=state.org_instructions,
             focus_file_name=state.focus_file_name,
             focus_shelf=state.focus_shelf,
+            # Told to the model so it writes an answer instead of a hand-off
+            # sentence. `_finalize_answer` still refuses the escalation if it
+            # asks anyway: the prompt is the fix, this is the layer that holds
+            # when the model does not read it.
+            deep_research_allowed=state.deep_research_allowed,
         )
 
     async def _run_research(self, research_state: ResearchAgentState) -> ResearchAgentState | dict[str, Any]:
@@ -373,7 +416,7 @@ class ConversationGraph:
         message = _answer_message(result.messages[len(trimmed) :])
         if message is None:
             return {"messages": []}
-        update = _finalize_answer(message, result)
+        update = _finalize_answer(message, result, deep_research_allowed=state.deep_research_allowed)
         if isinstance(result, ResearchAgentState) and not update.get("already_read_digest"):
             # A result that carries no digest (a mocked research_fn, an older
             # caller) must not wipe the checkpointed lines: the digest only
@@ -458,6 +501,16 @@ class ConversationGraph:
 
     @staticmethod
     def _should_escalate(state: ConversationState) -> str:
+        # The tenant has no deep research. `_finalize_answer` has already turned
+        # this turn's ask into an answer, so nothing should arrive here with the
+        # bit set — which is exactly why the check is here as well. This edge is
+        # the only way into the clarifier, and the clarifier is what puts a plan
+        # in front of a reader whose approval the job queue would then refuse.
+        # A second writer of `escalate_to_deep` (a caller seeding state, a path
+        # added later) must not be able to reopen that door.
+        if not state.deep_research_allowed:
+            logger.info("Escalation suppressed: deep research is not enabled for this tenant")
+            return "END"
         # The user rejected a research plan in this conversation. Escalating
         # would put a THIRD plan in front of them — and on the rejection turn
         # itself it would be a cycle: clarifier -> shallow -> clarifier.

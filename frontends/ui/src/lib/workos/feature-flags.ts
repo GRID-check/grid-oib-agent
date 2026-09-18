@@ -12,7 +12,7 @@
 
 import { getWorkOS } from './client'
 import { getCached, invalidateCached } from '@/lib/cache'
-import { enforcementOn } from '@/lib/authz/feature-flags'
+import { FEATURE_FLAGS, enforcementOn } from '@/lib/authz/feature-flags'
 
 /** Slug of the flag gating the async post-answer memory-reflection stage. */
 export const MEMORY_REFLECTION_FLAG = 'memory-reflection'
@@ -44,6 +44,14 @@ export const SKILLS_FLAG = 'skills'
  * `settings.webSearchEnabled` toggle.
  */
 export const WEB_SEARCH_FLAG = 'web-search'
+
+/**
+ * Slug of the flag gating deep research. Taken from the registry rather than
+ * re-spelled, because this one is now read on TWO paths that must agree: the
+ * session gate on `POST /api/jobs/async/submit`, and the session-less per-turn
+ * read below that tells the agent tier whether it may offer the run at all.
+ */
+export const DEEP_RESEARCH_FLAG = FEATURE_FLAGS.deepResearch
 
 const CACHE_TTL_MS = 30_000
 
@@ -176,6 +184,34 @@ export async function isMemoryReflectionEnabled(
   const stage = POST_ANSWER_STAGE_FLAGS.find((entry) => entry.flag === MEMORY_REFLECTION_FLAG)
   if (!stage) return false
   return isPostAnswerStageEnabled(stage, organizationId)
+}
+
+/**
+ * Whether deep research is available to this org, resolved WITHOUT a session.
+ *
+ * The session-bearing half of this decision is `requireFeature(session,
+ * FEATURE_FLAGS.deepResearch)` on `POST /api/jobs/async/submit`, which refuses
+ * the job. That gate is necessary and was never sufficient: it closes the queue
+ * and nothing upstream of it knows the flag, so the agent still escalated, the
+ * clarifier still put a plan in front of the reader, and the approval button
+ * answered 403. This is what the agent tier reads per turn (`GET
+ * /api/internal/stages`) so it can decline to OFFER the run.
+ *
+ * Fail-open with enforcement off, exactly like `isFeatureEnabled`: the two
+ * halves must reach the same verdict, and a deployment that does not enforce
+ * flags has deep research for everyone.
+ */
+export async function isDeepResearchEnabledForOrg(
+  organizationId: string | null | undefined,
+): Promise<boolean> {
+  if (!enforcementOn()) return true
+  // No organization is not a tenant with the flag switched off: it is an
+  // anonymous deployment (REQUIRE_AUTH=false) or a break-glass session, and
+  // `POST /api/jobs/async/submit` skips its own gate for exactly that case.
+  // Denying here would make the two halves disagree and withdraw deep research
+  // from a deployment that has no per-org flags to read in the first place.
+  if (!organizationId) return true
+  return isOrgFeatureEnabled(DEEP_RESEARCH_FLAG, organizationId)
 }
 
 /** Test hook: clear a specific org's flag cache entry. */
