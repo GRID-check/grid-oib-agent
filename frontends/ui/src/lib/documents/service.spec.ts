@@ -1401,7 +1401,8 @@ describe('the authorship gate on the (collection, filename) join', () => {
       const result = await getDocumentVisualDetails(session, 'doc-1')
 
       // A chunk indexed before the structured schema carries no `structured`
-      // payload, and the mapper defaults rather than dropping the row.
+      // payload and no `segment_count`, and the mapper defaults rather than
+      // dropping the row.
       expect(result.details).toEqual([
         {
           page: 3,
@@ -1410,6 +1411,7 @@ describe('the authorship gate on the (collection, filename) join', () => {
           scale: '',
           text: 'Schnitt A-A',
           segment: 0,
+          segmentCount: 1,
           structured: null,
         },
       ])
