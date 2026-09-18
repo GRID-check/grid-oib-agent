@@ -53,6 +53,14 @@ export const WEB_SEARCH_FLAG = 'web-search'
  */
 export const DEEP_RESEARCH_FLAG = FEATURE_FLAGS.deepResearch
 
+/**
+ * Slug of the flag gating delegated tasks and schedules. Read session-lessly
+ * for the same reason as the one above: the agent's `create_task` reaches the
+ * BFF with a signed envelope, not a session, and the model has to be told
+ * before it offers the hand-off.
+ */
+export const TASK_AUTOMATION_FLAG = FEATURE_FLAGS.taskAutomation
+
 const CACHE_TTL_MS = 30_000
 
 async function enabledSlugsForOrg(organizationId: string): Promise<Set<string>> {
@@ -212,6 +220,24 @@ export async function isDeepResearchEnabledForOrg(
   // from a deployment that has no per-org flags to read in the first place.
   if (!organizationId) return true
   return isOrgFeatureEnabled(DEEP_RESEARCH_FLAG, organizationId)
+}
+
+/**
+ * Whether this org may create delegated tasks and schedules, WITHOUT a session.
+ *
+ * Same two-halves shape as {@link isDeepResearchEnabledForOrg}, and the same
+ * reason for each half: the agent tier reads this per turn so it can decline to
+ * OFFER a hand-off, and `POST /api/internal/tasks` re-reads it so a turn that
+ * offers one anyway still creates nothing.
+ */
+export async function isTaskAutomationEnabledForOrg(
+  organizationId: string | null | undefined,
+): Promise<boolean> {
+  if (!enforcementOn()) return true
+  // See `isDeepResearchEnabledForOrg`: no organization is an anonymous or
+  // break-glass caller, not a tenant with the flag switched off.
+  if (!organizationId) return true
+  return isOrgFeatureEnabled(TASK_AUTOMATION_FLAG, organizationId)
 }
 
 /** Test hook: clear a specific org's flag cache entry. */

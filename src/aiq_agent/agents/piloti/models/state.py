@@ -73,6 +73,12 @@ class ResearchAgentState(BaseModel):
     #: alternative (narrowing the static contract per tenant) would shard the
     #: prompt cache on a workload that is ~99 % input tokens.
     deep_research_allowed: bool = True
+    #: Whether this tenant may have work handed over (`create_task`). Read by
+    #: the prompt renderer for the same reason and in the same shape as the
+    #: field above: the tool stays BOUND and the call is refused at the BFF, so
+    #: the tool payload — and the prompt-cache shard keyed on it — is identical
+    #: for every tenant. What changes per org is one sentence of prose.
+    tasks_allowed: bool = True
     collection_name: str | None = None
     #: Tool-calling ROUNDS this turn has spent — LLM decisions that emitted tool
     #: calls — against ``max_tool_iterations``. The NAME says iterations and is

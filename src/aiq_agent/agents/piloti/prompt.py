@@ -281,6 +281,10 @@ def render_system_prompt(
         # where a field removed per org is a cache shard on a workload that is
         # ~99 % input tokens.
         deep_research_enabled=state.deep_research_allowed,
+        # Same shape, different flag. `create_task` stays bound either way: the
+        # BFF refuses the call and returns a sentence the tool relays, so a
+        # model that asks anyway is answered rather than left guessing.
+        tasks_enabled=state.tasks_allowed,
         user_info=state.user_info,
         current_datetime=datetime.now().strftime("%Y-%m-%d"),
         available_documents=documents,

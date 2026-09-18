@@ -57,6 +57,8 @@ class ConversationState(BaseModel):
         deep_research_allowed: Whether the tenant may be offered a deep-research
             run at all (the `deep-research` flag, resolved per turn). False
             withdraws the hand-off before it is proposed.
+        tasks_allowed: Whether the tenant may have work handed over via
+            `create_task` (the `task-automation` flag, resolved per turn).
     """
 
     messages: Annotated[list[AnyMessage], add_messages]
@@ -111,6 +113,12 @@ class ConversationState(BaseModel):
     # reach the tab that is already open, which is the whole reason the flag is
     # read per turn rather than at the socket upgrade.
     deep_research_allowed: bool = True
+    # PER TURN, and a SEPARATE capability from the one above. Deep research is
+    # a long answer in this thread; a task is work that outlives the turn, costs
+    # the requester's budget and runs under their permissions. An org may be
+    # allowed one and not the other, which is why `task-automation` is its own
+    # WorkOS flag rather than a second reading of `deep-research` or of `skills`.
+    tasks_allowed: bool = True
     project_context: str | None = None
     # The bounded PLATFORM_LESSONS digest — anonymized failure patterns
     # distilled from user down-votes across the whole platform
