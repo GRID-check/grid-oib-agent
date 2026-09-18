@@ -117,6 +117,7 @@ Index: [`contributing/README.md`](contributing/README.md).
 | [Startup Flow](deployment/startup-flow.md) | Boot sequence: PostgreSQL init, SeaweedFS, Dask, uvicorn, gateway |
 | [Security Config](deployment/security-config.md) | Auth configuration, storage credentials, key management |
 | [WorkOS Provisioning](deployment/workos-provisioning.md) | Applying the authorization catalog |
+| [Cloudflare Cutover](deployment/cloudflare-cutover.md) | piloti.at apex→dev redirect diagnosis, old-zone rule removal, nameserver cutover runbook |
 
 ## API reference
 
