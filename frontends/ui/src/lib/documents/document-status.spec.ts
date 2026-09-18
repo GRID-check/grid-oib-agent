@@ -156,6 +156,11 @@ const OPAQUE_STATUS_WRITES: Readonly<Record<string, string>> = {
   'src/lib/documents/service.ts: ingestStatus': "the dispatcher's job status, returned to the caller",
   'src/lib/documents/service.ts: doc.status': 'the row being read back, returned to the caller',
   'src/lib/documents/service.ts: reconciled.status': 'a reconciled status, returned to the caller',
+  // The heal-and-refuse 409: the healed resolution echoed in the error payload,
+  // returned to the caller. The column write is the `setDocumentReconciledStatus`
+  // call two lines above it, which takes the whole resolution object.
+  'src/lib/documents/service.ts: knowledge.resolution.status':
+    'the healed resolution echoed in the 409, returned to the caller',
   // The wire projection: the row's own status copied into the JSON the browser
   // reads. It writes a response body, never the column.
   'src/lib/documents/list-projection.ts: row.status': 'a row being serialized, not a write',
