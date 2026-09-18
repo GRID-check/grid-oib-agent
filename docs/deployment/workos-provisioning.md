@@ -505,7 +505,29 @@ Three things follow, and each has cost somebody an afternoon:
 ## Replay into a fresh environment
 
 > Steps 1–5 were run against **Production on 2026-07-31** via the WorkOS
-> management API and verified role-by-role. Steps 6–9 remain open there.
+> management API and verified role-by-role.
+>
+> **Re-verified in BOTH environments on 2026-09-18**, against
+> `lib/authz/catalog.ts` rather than by eye: all 3 catalog resource types, all
+> 33 permissions, and all 13 roles exist in each, and every role's permission
+> set matches the catalog exactly — including the two GRID Platform
+> organization-scoped roles, which the environment-wide role listing does not
+> return and which therefore have to be asked for per organization.
+> Nothing had to be created. Step 6 (feature flags) is now done in both; §6
+> carries its state.
+>
+> Two things the diff surfaced that are NOT drift from the catalog and are
+> worth knowing before the next person re-runs it:
+>
+> - **Legacy `workflow` resource type**, with `workflow:view|run|manage`,
+>   `project:workflows:manage` and three `workflow-*` roles, exists in both
+>   environments and is in no catalog. It is ADR-0023, superseded by Agent
+>   Skills; `provision:authz` does not delete, so it stays until somebody
+>   removes it deliberately.
+> - **`multipleRolesEnabled` differs**: `true` in Staging, `false` in
+>   Production. A user can hold several organization roles at once in one
+>   environment and not the other, which is a real difference in what the two
+>   environments can express, not a cosmetic one.
 
 1. **Dashboard** (still manual — the SDK cannot create resource types): create
    the resource types from §0 — `project` (parent `organization`), then
