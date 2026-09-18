@@ -215,6 +215,7 @@ class TestReapStaleJobsOnce:
 async def cancel_app(db_url, monkeypatch):
     """Minimal app with the async job routes and a controllable job store."""
     import aiq_api.routes.jobs as jobs_routes
+    from aiq_api.jobs import runner
 
     monkeypatch.setattr(jobs_routes, "_start_periodic_cleanup", MagicMock())
 
@@ -228,6 +229,8 @@ async def cancel_app(db_url, monkeypatch):
         "require_verified_principal",
         lambda: Principal(type="jwt", sub="user-1", email="user@example.com"),
     )
+    # Conditional cancel write wins by default; the race test flips it to False.
+    monkeypatch.setattr(runner, "_update_status_if_not_terminal", AsyncMock(return_value=True))
 
     job_store = SimpleNamespace(get_job=AsyncMock(), update_status=AsyncMock())
     worker = SimpleNamespace(
@@ -253,6 +256,7 @@ def _job(status: str) -> SimpleNamespace:
 class TestCancelRoute:
     @pytest.mark.asyncio
     async def test_cancel_submitted_job_is_allowed(self, cancel_app, db_url):
+        from aiq_api.jobs import runner
         from nat.front_ends.fastapi.async_jobs.job_store import JobStatus
 
         app, job_store = cancel_app
@@ -264,7 +268,9 @@ class TestCancelRoute:
         assert response.status_code == 200
         body = response.json()
         assert body["status"] == "interrupted"
-        job_store.update_status.assert_awaited_once_with("job-1", JobStatus.INTERRUPTED, error="cancelled by user")
+        conditional_write = runner._update_status_if_not_terminal
+        conditional_write.assert_awaited_once_with(job_store, "job-1", JobStatus.INTERRUPTED, error="cancelled by user")
+        job_store.update_status.assert_not_awaited()
 
         events = EventStore.get_events(db_url, "job-1")
         assert [event["type"] for event in events] == ["job.cancellation_requested"]
@@ -272,6 +278,7 @@ class TestCancelRoute:
 
     @pytest.mark.asyncio
     async def test_cancel_running_job_is_allowed(self, cancel_app):
+        from aiq_api.jobs import runner
         from nat.front_ends.fastapi.async_jobs.job_store import JobStatus
 
         app, job_store = cancel_app
@@ -281,16 +288,61 @@ class TestCancelRoute:
             response = client.post("/v1/jobs/async/job/job-1/cancel")
 
         assert response.status_code == 200
-        job_store.update_status.assert_awaited_once_with("job-1", JobStatus.INTERRUPTED, error="cancelled by user")
+        conditional_write = runner._update_status_if_not_terminal
+        conditional_write.assert_awaited_once_with(job_store, "job-1", JobStatus.INTERRUPTED, error="cancelled by user")
+        job_store.update_status.assert_not_awaited()
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize("terminal_status", ["success", "failure", "interrupted"])
-    async def test_cancel_terminal_job_rejected_with_400(self, cancel_app, terminal_status):
+    async def test_cancel_terminal_job_is_idempotent_success(self, cancel_app, db_url, terminal_status):
+        """#632: cancelling a terminal job is a no-op success carrying the verdict, not a 400.
+
+        The UI races completion with user cancel, session-delete and purge
+        cancels; a 400 here becomes an ERROR log per race on the BFF.
+        """
+        from aiq_api.jobs import runner
+
         app, job_store = cancel_app
         job_store.get_job.return_value = _job(terminal_status)
 
         with TestClient(app) as client:
             response = client.post("/v1/jobs/async/job/job-1/cancel")
 
-        assert response.status_code == 400
+        assert response.status_code == 200
+        body = response.json()
+        assert body["job_id"] == "job-1"
+        assert body["status"] == terminal_status
+        assert body["task_cancelled"] is False
+        # Nothing mutated: no status flip, so no cancellation event either.
+        runner._update_status_if_not_terminal.assert_not_awaited()
         job_store.update_status.assert_not_awaited()
+        assert EventStore.get_events(db_url, "job-1") == []
+
+    @pytest.mark.asyncio
+    async def test_cancel_losing_race_keeps_terminal_verdict(self, cancel_app, db_url, monkeypatch):
+        """Cancel reads RUNNING but the worker finalizes to SUCCESS before the write.
+
+        The conditional write loses, so the cancel must return the terminal
+        verdict without flipping it to INTERRUPTED, emitting an event, or
+        touching the queue/Dask task.
+        """
+        import aiq_api.routes.jobs as jobs_routes
+        from aiq_api.jobs import runner
+
+        app, job_store = cancel_app
+        job_store.get_job.side_effect = [_job("running"), _job("success")]
+        monkeypatch.setattr(runner, "_update_status_if_not_terminal", AsyncMock(return_value=False))
+        cancel_dask = AsyncMock(return_value=True)
+        monkeypatch.setattr(jobs_routes, "_cancel_dask_task", cancel_dask)
+
+        with TestClient(app) as client:
+            response = client.post("/v1/jobs/async/job/job-1/cancel")
+
+        assert response.status_code == 200
+        body = response.json()
+        assert body["job_id"] == "job-1"
+        assert body["status"] == "success"
+        assert body["task_cancelled"] is False
+        job_store.update_status.assert_not_awaited()
+        cancel_dask.assert_not_awaited()
+        assert EventStore.get_events(db_url, "job-1") == []

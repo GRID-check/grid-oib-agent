@@ -171,6 +171,108 @@ describe('ThumbnailWithFallback', () => {
     expect(screen.queryByTestId('thumbnail-skeleton')).not.toBeInTheDocument()
     expect(hits).not.toHaveBeenCalled()
   })
+
+  it('re-resolves a cached thumbnail URL whose window has rolled over (#366)', async () => {
+    // The module cache outlives the 1-2h signature window across SPA
+    // navigations. Replaying the dead URL into the optimizer meets an expired
+    // signature, whose 403 JSON the optimizer logs as "isn't a valid image …
+    // received null" — so a mount past `expiresAtMs` must ask again.
+    const staleExp = Math.floor(Date.now() / 1000) - 7200
+    const freshExp = Math.floor(Date.now() / 1000) + 7200
+    let hits = 0
+    server.use(
+      http.get('/api/documents/:id/thumbnail', () => {
+        hits += 1
+        return hits === 1
+          ? HttpResponse.json({
+              url: `/api/documents/e9/image?org=o&v=thumb&exp=${staleExp}&sig=stale`,
+              expiresAtMs: staleExp * 1000,
+            })
+          : HttpResponse.json({
+              url: `/api/documents/e9/image?org=o&v=thumb&exp=${freshExp}&sig=fresh`,
+              expiresAtMs: freshExp * 1000,
+            })
+      })
+    )
+
+    const f = file('e9', 'Foto.png', 'image/png')
+    const first = render(<ThumbnailWithFallback file={f} />)
+    await waitFor(() => expect(first.container.querySelector('img')).toBeInTheDocument())
+    expect(hits).toBe(1)
+    first.unmount()
+
+    // A later mount (e.g. navigating back to Files) with the stale URL still
+    // cached: it must re-ask rather than replay the dead URL.
+    const second = render(<ThumbnailWithFallback file={f} />)
+    await waitFor(() => expect(hits).toBe(2))
+    await waitFor(() => expect(second.container.querySelector('img')).toBeInTheDocument())
+    expect(second.container.querySelector('img')).toHaveAttribute(
+      'src',
+      expect.stringContaining('fresh')
+    )
+  })
+
+  it('keeps serving a fresh cached URL without re-asking', async () => {
+    // The counterpart: expiry-awareness must not turn the de-dup cache into a
+    // fetch on every mount.
+    const hits = vi.fn()
+    server.use(
+      http.get('/api/documents/:id/thumbnail', () => {
+        hits()
+        return HttpResponse.json({
+          url: '/api/documents/eA/image?org=o&v=thumb&exp=9999999999&sig=fresh',
+          expiresAtMs: Date.now() + 2 * 3600_000,
+        })
+      })
+    )
+
+    const f = file('eA', 'Foto.png', 'image/png')
+    const first = render(<ThumbnailWithFallback file={f} />)
+    await waitFor(() => expect(first.container.querySelector('img')).toBeInTheDocument())
+    first.unmount()
+
+    const second = render(<ThumbnailWithFallback file={f} />)
+    await waitFor(() => expect(second.container.querySelector('img')).toBeInTheDocument())
+    // Let a stray refetch land if one was fired: the assertion below must pin
+    // one fetch, not merely not-yet-two.
+    await new Promise((resolve) => setTimeout(resolve, 50))
+    expect(hits).toHaveBeenCalledTimes(1)
+  })
+
+  it('refreshes a mounted thumbnail before its URL expires (#366)', async () => {
+    let hits = 0
+    server.use(
+      http.get('/api/documents/:id/thumbnail', () => {
+        hits += 1
+        if (hits === 1) {
+          return HttpResponse.json({
+            url: '/api/documents/eB/image?org=o&v=thumb&exp=1&sig=first',
+            expiresAtMs: Date.now() + 70_000,
+          })
+        }
+        return HttpResponse.json({
+          url: '/api/documents/eB/image?org=o&v=thumb&exp=2&sig=second',
+          expiresAtMs: Date.now() + 2 * 3600_000,
+        })
+      })
+    )
+
+    const setTimeoutSpy = vi.spyOn(globalThis, 'setTimeout')
+    const rendered = render(<ThumbnailWithFallback file={file('eB', 'Foto.png', 'image/png')} />)
+    try {
+      await waitFor(() => expect(rendered.container.querySelector('img')).toBeInTheDocument())
+      expect(hits).toBe(1)
+
+      // The refresh is scheduled 60s before expiry: a 70s expiry schedules
+      // ~10s out. Pin the scheduling (not the 10s wait) so the suite stays
+      // fast; the firing path is the same loadThumbnail the remount test pins.
+      const refreshCall = setTimeoutSpy.mock.calls.find(([, delay]) => typeof delay === 'number' && delay > 5_000 && delay < 15_000)
+      expect(refreshCall).toBeDefined()
+    } finally {
+      setTimeoutSpy.mockRestore()
+      rendered.unmount()
+    }
+  })
 })
 
 /**

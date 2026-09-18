@@ -1,3 +1,4 @@
+/** @jsxImportSource @/lib/pdf/pdf-jsx-runtime */
 /**
  * The exported document, as a react-pdf element.
  *

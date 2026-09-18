@@ -94,6 +94,38 @@ const NOT_AN_ERROR = [
     reason: 'expected-404',
     match: /status: 404,\s+code: 'NOT_FOUND'/,
   },
+  {
+    // A client that went away mid-render. `renderToPipeableStream().pipe()`
+    // (React Flight for the RSC payload AND React Fizz for the HTML — both
+    // throw this exact string when the piped-to destination closes first)
+    // reports it through the render's `onError`, and Next logs it with a
+    // digest like any render failure (issue #578, x20 with one digest).
+    //
+    // The digest is stable because Next hashes message + stack, and the stack
+    // here is always the same React-internal frames — which is also what
+    // `at ignore-listed frames` proves: every frame resolved into
+    // `node_modules`, so no application code is anywhere on it. A render that
+    // fails IN the application keeps its app frames and keeps its ERROR.
+    //
+    // The other streaming paths cannot produce this shape: the SSE and
+    // document file/image proxies return Web `Response` bodies, which Next
+    // pipes in `pipeToNodeResponse` (client aborts arrive as `AbortError` and
+    // are swallowed there by design), and the PDF route buffers the whole
+    // file before responding. What is left is an App Router page render whose
+    // destination — the response the browser stopped reading (navigate away,
+    // closed tab, aborted prefetch) or a connection torn down under it
+    // (rolling-update drain) — closed before React finished.
+    //
+    // WARN, not dropped: the record stays in the dashboard in full, and
+    // volume is the signal — a steady trickle is users navigating, a spike
+    // is a deploy draining in-flight renders or a page that never finishes.
+    // Deliberately narrow: only the "closed early" message (a destination
+    // that went away) paired with the all-internals marker. "The destination
+    // stream ERRORED while writing data" is a write failure, which can be a
+    // real fault, and stays ERROR.
+    reason: 'client-abort-mid-render',
+    match: /The destination stream closed early\.[\s\S]*at ignore-listed frames/,
+  },
 ]
 
 /**

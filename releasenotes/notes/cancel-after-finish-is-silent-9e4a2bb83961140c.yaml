@@ -1,0 +1,8 @@
+---
+fixes:
+  - >
+    Eine Recherche anzuhalten, nachdem sie bereits fertig war, meldete
+    fälschlich einen Fehler („could not stop"). Der Abbruch eines bereits
+    beendeten Laufs ist jetzt ein stiller No-op — egal ob er per Stopp-Dialog,
+    beim Löschen eines Chats oder beim Aufräumen abgebrochener Läufe
+    ausgelöst wurde.

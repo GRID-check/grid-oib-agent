@@ -119,6 +119,50 @@ describe('classifyConsoleRecord', () => {
       expect(classifyConsoleRecord('error', `⨯ f: boom {\n${envelope}\n}`), envelope).toEqual(ERROR)
     }
   })
+
+  it('records a client-aborted render at WARN (issue #578)', async () => {
+    const { classifyConsoleRecord } = await freshModule()
+    // Verbatim shape from the issue: React's pipeable reports the destination
+    // that closed first through the render's onError, and Next logs it with a
+    // digest. Every frame is React/node internals, so Next prints the
+    // ignore-listed marker instead of a stack — which is what proves no
+    // application code is on it.
+    const body =
+      '⨯ Error: The destination stream closed early.\n' +
+      '    at ignore-listed frames {\n' +
+      "  digest: '1392313014'\n" +
+      '}'
+    expect(classifyConsoleRecord('error', body)).toEqual({
+      ...WARN,
+      attributes: { 'grid.severity.reclassified': 'client-abort-mid-render' },
+    })
+  })
+
+  it('leaves neighbouring stream failures at ERROR', async () => {
+    const { classifyConsoleRecord } = await freshModule()
+    // The reclassification is the pair (React's exact "closed early" message,
+    // all-internals marker). Each half on its own is a different signal: a
+    // destination that ERRORED is a write failure that can be a real fault,
+    // an all-internals stack under another message is an unknown framework
+    // failure, and the message without the marker never passed through
+    // Next's error formatter at all.
+    for (const body of [
+      '⨯ Error: The destination stream errored while writing data.\n' +
+        '    at ignore-listed frames {\n' +
+        "  digest: '1392313014'\n" +
+        '}',
+      '⨯ Error: Something else entirely went wrong.\n' +
+        '    at ignore-listed frames {\n' +
+        "  digest: '1392313014'\n" +
+        '}',
+      'Error: The destination stream closed early.',
+      'TypeError: cannot read properties of undefined (reading ice) {\n' +
+        "  digest: '1392313014'\n" +
+        '}',
+    ]) {
+      expect(classifyConsoleRecord('error', body), body).toEqual(ERROR)
+    }
+  })
 })
 
 describe('initOtelLogs', () => {
@@ -222,6 +266,40 @@ describe('initOtelLogs', () => {
         undefined,
       ])
       expect(passthrough).toHaveBeenCalledTimes(3)
+    } finally {
+      console.error = origError
+    }
+  })
+
+  it('emits WARN through the patched console for a client-aborted render (issue #578)', async () => {
+    // The JOIN the pure-function tests cannot see: the record the bridge
+    // hands the SDK for the exact issue body must carry the reclassified
+    // severity, or the issue files again.
+    const { logs } = await import('@opentelemetry/api-logs')
+    logs.disable()
+    vi.stubEnv('OTEL_EXPORTER_OTLP_ENDPOINT', 'http://127.0.0.1:1/v1/logs')
+    const { initOtelLogs } = await freshModule()
+
+    const passthrough = vi.fn()
+    const origError = console.error
+    console.error = passthrough
+    try {
+      expect(initOtelLogs()).toBe(true)
+      const emit = vi.spyOn(logs.getLogger('grid-console'), 'emit')
+
+      console.error(
+        '⨯ Error: The destination stream closed early.\n' +
+          '    at ignore-listed frames {\n' +
+          "  digest: '1392313014'\n" +
+          '}'
+      )
+
+      expect(emit).toHaveBeenCalledTimes(1)
+      expect(emit.mock.calls[0][0].severityNumber).toBe(13)
+      expect(emit.mock.calls[0][0].attributes).toEqual({
+        'grid.severity.reclassified': 'client-abort-mid-render',
+      })
+      expect(passthrough).toHaveBeenCalledTimes(1)
     } finally {
       console.error = origError
     }

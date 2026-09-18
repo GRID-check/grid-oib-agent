@@ -58,7 +58,8 @@ class FakeOpenRouterLLM:
     ``_get_request_payload`` mirrors langchain-openai's real behaviour for the
     shapes this module produces: top-level chat-shaped function tools are
     flattened, everything else (our namespace, the tool_search tool) is passed
-    through verbatim.
+    through verbatim. ``_get_invocation_params`` mirrors what the NAT callback
+    reads (``invocation_params["tools"]``).
     """
 
     def __init__(
@@ -75,13 +76,21 @@ class FakeOpenRouterLLM:
         self.bind_tools_calls: list = []
         self.root_async_client = SimpleNamespace()
 
+    def model_copy(self):
+        import copy as _copy
+
+        return _copy.copy(self)
+
+    def _get_invocation_params(self, stop=None, **kwargs):
+        return {"model": self.model_name, **kwargs}
+
     def bind_tools(self, tools, **kwargs):
         self.bind_tools_calls.append(list(tools))
-        return SimpleNamespace(kind="plain_binding", tools=list(tools), kwargs=kwargs)
+        return SimpleNamespace(kind="plain_binding", bound=self, tools=list(tools), kwargs=kwargs)
 
     def bind(self, **kwargs):
         self.bound = kwargs
-        return SimpleNamespace(kind="deferred_binding", **kwargs)
+        return SimpleNamespace(kind="deferred_binding", bound=self, kwargs=dict(kwargs), **kwargs)
 
     def _get_request_payload(self, input_, *, stop=None, **kwargs):
         payload = {"model": "openai/gpt-5.6-luna", "input": "ping", **kwargs}
@@ -277,11 +286,36 @@ def test_an_enabled_openrouter_llm_gets_the_deferred_payload():
     llm = FakeOpenRouterLLM()
     bound = bind_tools_deferred(llm, TOOLS, settings=ON, parallel_tool_calls=True)
     assert isinstance(bound, DeferredToolBinding)
-    assert [t["type"] for t in llm.bound["tools"]] == ["tool_search", "namespace"]
-    assert llm.bound["parallel_tool_calls"] is True
+    assert [t["type"] for t in bound.deferred.tools] == ["tool_search", "namespace"]
+    assert bound.deferred.kwargs["parallel_tool_calls"] is True
     # The fallback is built too — an unusable deferred path must never leave the
     # agent with no binding at all.
     assert bound.fallback.kind == "plain_binding"
+
+
+def test_the_tracing_view_holds_function_schemas_while_the_wire_defers():
+    """The NAT callback builds ToolSchema from invocation_params["tools"].
+
+    Handing it the deferred apparatus ({"type": "tool_search"} with no name)
+    crashes older NAT with KeyError: name (x28, issue #635) and mints a bogus
+    entry on newer NAT. The tracing view must hold valid function schemas while
+    the wire still carries tool_search + namespace.
+    """
+    from nat.data_models.intermediate_step import ToolSchema
+
+    llm = FakeOpenRouterLLM()
+    bound = bind_tools_deferred(llm, TOOLS, settings=ON, parallel_tool_calls=True)
+    assert isinstance(bound, DeferredToolBinding)
+
+    deferred_llm = bound.deferred.bound
+    tracing = deferred_llm._get_invocation_params(stop=None, **bound.deferred.kwargs)
+    tracing_tools = tracing["tools"]
+    assert not any(t.get("type") == "tool_search" for t in tracing_tools)
+    for entry in tracing_tools:
+        ToolSchema(**entry)
+
+    wire = deferred_llm._get_request_payload(["ping"], stop=None, **bound.deferred.kwargs)
+    assert [t["type"] for t in wire["tools"]] == ["tool_search", "namespace"]
 
 
 def test_a_payload_that_would_not_defer_falls_back_instead_of_raising(caplog):

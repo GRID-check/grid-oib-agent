@@ -519,7 +519,19 @@ export const POST = tenantSlotRoute(async function POST(
     // Handle error responses
     if (!response.ok) {
       const errorText = await response.text()
-      console.error('[Deep Research API] Backend error:', response.status, errorText)
+      // #632: cancel-after-terminal race against a backend that still 400s
+      // it (idempotent cancel shipped separately, and the two tiers deploy
+      // separately). The client parses this via
+      // `readTerminalVerdictFromCancelError` and treats it as a verdict, not
+      // a failure — warn so err2issue stops filing an ERROR per raced
+      // cancel. Backends with the idempotent cancel answer 200 and never
+      // reach this branch.
+      const isCancelPath = path.length === 3 && path[0] === 'job' && path[2] === 'cancel'
+      if (isCancelPath && response.status === 400 && errorText.includes('Job not cancellable')) {
+        console.warn('[Deep Research API] Cancel race: job already terminal:', errorText.slice(0, 200))
+      } else {
+        console.error('[Deep Research API] Backend error:', response.status, errorText)
+      }
 
       return backendErrorEnvelope(response.status, errorText)
     }

@@ -30,6 +30,33 @@ const SOURCE_TINT: Record<'projekt' | 'buero', CSSProperties> = {
 type ThumbState = 'loading' | 'ready' | 'none' | 'error'
 
 /**
+ * A resolved thumbnail URL plus when it stops authorizing. `expiresAtMs` is
+ * null when the response carried no expiry — the presigned object-store
+ * fallback before it reported one, and older test doubles.
+ */
+interface ThumbnailResolution {
+  url: string | null
+  expiresAtMs: number | null
+}
+
+/**
+ * Refresh a signed thumbnail URL this far before its `exp` passes, so the
+ * optimizer never receives a URL the route must refuse: a stale replay meets
+ * an expired signature, and the route's answer used to log #366's "isn't a
+ * valid image … received null".
+ */
+const THUMBNAIL_REFRESH_MARGIN_MS = 60_000
+
+/** Whether a cached resolution may still be handed to `next/image`. */
+function thumbnailFreshAt(resolution: ThumbnailResolution, nowMs: number): boolean {
+  return (
+    resolution.url === null ||
+    resolution.expiresAtMs === null ||
+    resolution.expiresAtMs - THUMBNAIL_REFRESH_MARGIN_MS > nowMs
+  )
+}
+
+/**
  * Module-level de-dup cache — one thumbnail resolution per file id for the page
  * lifetime, mirroring the `indexCache` pattern in `use-surfaced-documents`. It
  * stops the request thrashing when a card's file object is remapped each render.
@@ -37,7 +64,7 @@ type ThumbState = 'loading' | 'ready' | 'none' | 'error'
  * resolved "no thumbnail" (null url) stays cached — unless the document was
  * still being read when we asked (see {@link loadThumbnail}).
  */
-const thumbnailCache = new Map<string, Promise<string | null>>()
+const thumbnailCache = new Map<string, Promise<ThumbnailResolution>>()
 
 /** Test hook — clears the module cache between specs. */
 export const resetThumbnailCache = (): void => {
@@ -57,9 +84,23 @@ export const resetThumbnailCache = (): void => {
  * preview after a reload. Such a miss is evicted so the re-ask that follows the
  * status transition actually reaches the route.
  */
-function loadThumbnail(fileId: string, provisional = false): Promise<string | null> {
+function loadThumbnail(fileId: string, provisional = false): Promise<ThumbnailResolution> {
   const existing = thumbnailCache.get(fileId)
-  if (existing) return existing
+  if (existing) {
+    // The module cache outlives the token: an SPA navigation remounts the
+    // card without clearing it, so a URL minted hours ago would replay into
+    // the optimizer and fail on its expired signature. Await the cached
+    // answer and re-resolve past its window instead of replaying it.
+    return existing.then((resolution) => {
+      if (thumbnailFreshAt(resolution, Date.now())) return resolution
+      // A concurrent mount may already be re-resolving; join its fetch rather
+      // than firing a second one for the same file.
+      const current = thumbnailCache.get(fileId)
+      if (current !== undefined && current !== existing) return current
+      thumbnailCache.delete(fileId)
+      return loadThumbnail(fileId, provisional)
+    })
+  }
   const promise = fetch(`/api/documents/${fileId}/thumbnail`)
     .then((r) => {
       if (!r.ok) {
@@ -68,10 +109,12 @@ function loadThumbnail(fileId: string, provisional = false): Promise<string | nu
       }
       return r.json()
     })
-    .then((data) => (data && typeof data.url === 'string' ? data.url : null))
-    .then((url) => {
+    .then((data): ThumbnailResolution => {
+      const url = data && typeof data.url === 'string' ? data.url : null
+      const expiresAtMs = data && typeof data.expiresAtMs === 'number' ? data.expiresAtMs : null
+      const resolution = { url, expiresAtMs }
       if (url === null && provisional) thumbnailCache.delete(fileId)
-      return url
+      return resolution
     })
   // Evict a rejected resolution so a later mount can retry (successes stay cached).
   promise.catch(() => thumbnailCache.delete(fileId))
@@ -101,22 +144,40 @@ export function ThumbnailWithFallback({ file }: { file: FileItem }) {
       return
     }
     let cancelled = false
+    let refreshTimer: ReturnType<typeof setTimeout> | null = null
     setState('loading')
-    loadThumbnail(file.id, isSettlingStatus(file.status))
-      .then((url) => {
-        if (cancelled) return
-        if (url) {
-          setImgUrl(url)
-          setState('ready')
-        } else {
-          setState('none')
-        }
-      })
-      .catch(() => {
-        if (!cancelled) setState('error')
-      })
+    const resolveAndSchedule = (provisional: boolean): void => {
+      loadThumbnail(file.id, provisional)
+        .then(({ url, expiresAtMs }) => {
+          if (cancelled) return
+          if (url) {
+            setImgUrl(url)
+            setState('ready')
+            // A mounted card outlives the 1–2h signature window: without a
+            // refresh the optimizer's first request past expiry meets a
+            // 200 placeholder (not an error), so `onError` never fires and
+            // the card shows the placeholder until remount (#366).
+            if (expiresAtMs !== null) {
+              const delayMs = expiresAtMs - THUMBNAIL_REFRESH_MARGIN_MS - Date.now()
+              if (delayMs > 0) {
+                refreshTimer = setTimeout(() => {
+                  thumbnailCache.delete(file.id)
+                  if (!cancelled) resolveAndSchedule(false)
+                }, delayMs)
+              }
+            }
+          } else {
+            setState('none')
+          }
+        })
+        .catch(() => {
+          if (!cancelled) setState('error')
+        })
+    }
+    resolveAndSchedule(isSettlingStatus(file.status))
     return () => {
       cancelled = true
+      if (refreshTimer) clearTimeout(refreshTimer)
     }
     // `file.status` is a dependency, not noise: it is the signal that a document
     // which had no preview when the page loaded has finished being read, and so

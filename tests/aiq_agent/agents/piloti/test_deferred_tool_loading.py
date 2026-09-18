@@ -58,12 +58,20 @@ class FakeOpenRouterLLM:
         self.model_name = model_name
         self.bind_calls: list[dict] = []
 
+    def model_copy(self):
+        import copy as _copy
+
+        return _copy.copy(self)
+
+    def _get_invocation_params(self, stop=None, **kwargs):
+        return {"model": self.model_name, **kwargs}
+
     def bind_tools(self, tools, **kwargs):
-        return SimpleNamespace(kind="plain_binding", tools=list(tools))
+        return SimpleNamespace(kind="plain_binding", bound=self, tools=list(tools), kwargs=kwargs)
 
     def bind(self, **kwargs):
         self.bind_calls.append(kwargs)
-        return SimpleNamespace(kind="deferred_binding", **kwargs)
+        return SimpleNamespace(kind="deferred_binding", bound=self, kwargs=dict(kwargs), **kwargs)
 
     def _get_request_payload(self, input_, *, stop=None, **kwargs):
         return {"model": "openai/gpt-5.6-luna", "input": "ping", **kwargs}

@@ -103,3 +103,27 @@ export const readTerminalVerdictFromCancelError = (
   }
   return null
 }
+
+/**
+ * Read the terminal verdict off an idempotent cancel RESULT.
+ *
+ * The counterpart to `readTerminalVerdictFromCancelError` for backends with
+ * the idempotent cancel (#632): cancelling an already-terminal job answers
+ * 200 carrying the job's status instead of 400ing. A dismiss that learns it
+ * reconciles to it the same way — a run the backend calls `success` settles
+ * as success, not as the `interrupted` a blind default would record.
+ *
+ * Returns null when the result carries no terminal verdict (a live cancel
+ * that has not settled yet, a malformed body, or a status that is not
+ * terminal).
+ */
+export const readTerminalVerdictFromCancelResult = (
+  result: unknown
+): DeepResearchTerminalVerdict | null => {
+  if (typeof result !== 'object' || result === null) return null
+  const status = (result as { status?: unknown }).status
+  if (status === 'success' || status === 'failure' || status === 'interrupted') {
+    return status
+  }
+  return null
+}

@@ -3,8 +3,14 @@
  */
 /**
  * The signed image route is the ONLY document route that serves bytes without a
- * session, so these tests are the gate on that decision: an unsigned, forged,
- * cross-tenant or non-image request must not get bytes back.
+ * session, so these tests are the gate on that decision — with one twist: the
+ * route never refuses with an error status. Its only consumer is the Next
+ * image optimizer, whose internal fetch ignores status codes and sniffs every
+ * non-empty body as image bytes, so a 403/404 JSON envelope became "isn't a
+ * valid image … received null" (#366). Every failure therefore deflects to a
+ * static placeholder image (200); the gate below asserts the deflection carries
+ * no tenant bytes, and that an unsigned, forged, cross-tenant or non-image
+ * request still never reaches the object store.
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -42,6 +48,7 @@ vi.mock('@aws-sdk/s3-request-presigner', () => ({
 import { GET } from './route'
 import { s3Client } from '@/lib/s3'
 import { buildDocumentImageUrl } from '@/lib/images/signed-image-url'
+import { fallbackImageBytes } from '@/lib/images/image-fallback'
 import type { getDb as getDbType } from '@/lib/db'
 
 const ORG = 'org-1'
@@ -85,6 +92,17 @@ function signedQuery(documentId = DOC, variant: 'original' | 'thumb' = 'original
   return url.slice(url.indexOf('?'))
 }
 
+/**
+ * The deflection contract: a 200 carrying exactly the static placeholder
+ * bytes — sniffable by the optimizer, and provably not tenant content.
+ */
+async function expectPlaceholder(response: Response): Promise<void> {
+  expect(response.status).toBe(200)
+  expect(response.headers.get('Content-Type')).toBe('image/png')
+  expect(response.headers.get('X-Content-Type-Options')).toBe('nosniff')
+  expect(new Uint8Array(await response.arrayBuffer())).toEqual(fallbackImageBytes())
+}
+
 describe('GET /api/documents/[id]/image', () => {
   beforeEach(() => {
     vi.stubEnv('GRID_INTERNAL_API_TOKEN', 'test-signing-secret')
@@ -111,50 +129,68 @@ describe('GET /api/documents/[id]/image', () => {
     expect(response.headers.get('X-Content-Type-Options')).toBe('nosniff')
   })
 
-  it('refuses an unsigned request', async () => {
+  it('deflects an unsigned request to the placeholder instead of a 403', async () => {
+    // The optimizer cannot ingest an error body (see the module comment), so
+    // every refusal is a 200 with static bytes — and still never touches the
+    // object store, so no tenant bytes can leak through this path.
     await stubDocument(imageRow)
 
     const response = await call('')
 
-    expect(response.status).toBe(403)
+    await expectPlaceholder(response)
     expect(s3Client.send).not.toHaveBeenCalled()
   })
 
-  it('refuses a forged signature', async () => {
+  it('deflects a forged signature to the placeholder', async () => {
     await stubDocument(imageRow)
 
     const response = await call(signedQuery().replace(/sig=[0-9a-f]+/, 'sig=' + 'a'.repeat(64)))
 
-    expect(response.status).toBe(403)
+    await expectPlaceholder(response)
     expect(s3Client.send).not.toHaveBeenCalled()
   })
 
-  it('refuses a signature minted for a different document', async () => {
+  it('deflects a signature minted for a different document to the placeholder', async () => {
     await stubDocument(imageRow)
 
     // A token the caller legitimately holds for doc-2, replayed against doc-1.
     const response = await call(signedQuery('doc-2'))
 
-    expect(response.status).toBe(403)
+    await expectPlaceholder(response)
     expect(s3Client.send).not.toHaveBeenCalled()
   })
 
-  it('refuses a signature whose org claim was tampered with', async () => {
+  it('deflects a signature whose org claim was tampered with to the placeholder', async () => {
     await stubDocument(imageRow)
 
     const response = await call(signedQuery().replace(/org=[^&]+/, 'org=org-2'))
 
-    expect(response.status).toBe(403)
+    await expectPlaceholder(response)
+    expect(s3Client.send).not.toHaveBeenCalled()
+  })
+
+  it('deflects an expired signature to the placeholder instead of a 403 (#366)', async () => {
+    // The proven replay: tabs outlive the 1–2h token window (production saw
+    // fetches hours to days past `exp`), and the 403 JSON those met became
+    // "isn't a valid image … received null" on every render.
+    await stubDocument(imageRow)
+    const stale = buildDocumentImageUrl(ORG, DOC, 'thumb', Date.now() - 3 * 3600_000)
+    if (!stale) throw new Error('signing unexpectedly disabled')
+
+    const response = await call(stale.slice(stale.indexOf('?')))
+
+    await expectPlaceholder(response)
     expect(s3Client.send).not.toHaveBeenCalled()
   })
 
   it('scopes the row lookup to the SIGNED org, not the requested one', async () => {
     // The document exists, but not in the org the token was minted for: the
-    // tenancy filter in the query returns nothing and the route 404s.
+    // tenancy filter in the query returns nothing, which deflects rather than
+    // 404s — the lookup still ran inside the signed org's scope.
     await stubDocument(null)
     const response = await call(signedQuery())
 
-    expect(response.status).toBe(404)
+    await expectPlaceholder(response)
   })
 
   it('does not serve a non-image document even with a valid signature', async () => {
@@ -164,7 +200,7 @@ describe('GET /api/documents/[id]/image', () => {
 
     const response = await call(signedQuery())
 
-    expect(response.status).toBe(404)
+    await expectPlaceholder(response)
     expect(s3Client.send).not.toHaveBeenCalled()
   })
 
@@ -185,16 +221,18 @@ describe('GET /api/documents/[id]/image', () => {
     expect(command.input.Key).toBe(`org/${ORG}/project/proj-1/doc/${DOC}/_thumb.jpg`)
   })
 
-  it('404s when the thumbnail object was never generated', async () => {
+  it('deflects a missing thumbnail object to the placeholder', async () => {
+    // A publish or delete racing the card render: the mint-side HEAD passed,
+    // but the object is gone by the time the optimizer fetches.
     await stubDocument(imageRow)
     vi.mocked(s3Client.send).mockRejectedValue(new Error('NoSuchKey'))
 
     const response = await call(signedQuery(DOC, 'thumb'))
 
-    expect(response.status).toBe(404)
+    await expectPlaceholder(response)
   })
 
-  it('404s when the thumbnail object is empty (#366)', async () => {
+  it('deflects an empty thumbnail object to the placeholder (#366)', async () => {
     // A failed ingest render can leave a 0-byte object in the slot: it exists,
     // so it is not a NoSuchKey, but it decodes to nothing.
     await stubDocument(imageRow)
@@ -202,17 +240,51 @@ describe('GET /api/documents/[id]/image', () => {
 
     const response = await call(signedQuery(DOC, 'thumb'))
 
-    expect(response.status).toBe(404)
+    await expectPlaceholder(response)
   })
 
-  it('is disabled rather than open when no signing secret is configured', async () => {
+  it('streams the bytes when the gateway omits ContentLength (#366)', async () => {
+    // The emptiness guard used to read a missing header as a missing object
+    // (`?? 0`), deflecting a perfectly good thumbnail. Decide from the bytes.
+    await stubDocument(imageRow)
+    const jpeg = new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10])
+    vi.mocked(s3Client.send).mockResolvedValue({
+      Body: {
+        transformToWebStream: () =>
+          new ReadableStream({ start: (controller) => controller.enqueue(jpeg) }),
+        transformToByteArray: () => Promise.resolve(jpeg),
+      },
+    } as never)
+
+    const response = await call(signedQuery(DOC, 'thumb'))
+
+    expect(response.status).toBe(200)
+    expect(response.headers.get('Content-Type')).toBe('image/jpeg')
+    expect(new Uint8Array(await response.arrayBuffer())).toEqual(jpeg)
+  })
+
+  it('deflects an unreadable body without ContentLength to the placeholder', async () => {
+    await stubDocument(imageRow)
+    vi.mocked(s3Client.send).mockResolvedValue({
+      Body: {
+        transformToWebStream: () => new ReadableStream(),
+        transformToByteArray: () => Promise.resolve(new Uint8Array(0)),
+      },
+    } as never)
+
+    const response = await call(signedQuery(DOC, 'thumb'))
+
+    await expectPlaceholder(response)
+  })
+
+  it('deflects to the placeholder rather than going open when no signing secret is configured', async () => {
     const query = signedQuery()
     vi.stubEnv('GRID_INTERNAL_API_TOKEN', '')
     await stubDocument(imageRow)
 
     const response = await call(query)
 
-    expect(response.status).toBe(503)
+    await expectPlaceholder(response)
     expect(s3Client.send).not.toHaveBeenCalled()
   })
 })

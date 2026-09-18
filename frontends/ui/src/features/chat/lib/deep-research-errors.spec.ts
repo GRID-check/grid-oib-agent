@@ -7,6 +7,7 @@ import {
   getDeepResearchJobLoadFailureKind,
   isUnavailableDeepResearchJobError,
   readTerminalVerdictFromCancelError,
+  readTerminalVerdictFromCancelResult,
 } from './deep-research-errors'
 
 describe('deep research error classification', () => {
@@ -102,5 +103,28 @@ describe('readTerminalVerdictFromCancelError', () => {
     'Failed to cancel job: 400 - {"detail":"cannot cancel job 45cf6ac7"}',
   ])('returns null without a terminal verdict: %s', (message) => {
     expect(readTerminalVerdictFromCancelError(new Error(message))).toBeNull()
+  })
+})
+
+describe('readTerminalVerdictFromCancelResult', () => {
+  test.each([
+    ['success', 'success'],
+    ['failure', 'failure'],
+    ['interrupted', 'interrupted'],
+  ] as const)('reads the verdict off an idempotent cancel result: %s', (status, expected) => {
+    expect(readTerminalVerdictFromCancelResult({ cancelled: true, status })).toBe(expected)
+  })
+
+  test.each([
+    { cancelled: true, status: 'running' },
+    { cancelled: true, status: 'submitted' },
+    { cancelled: true, status: 'bogus' },
+    { cancelled: true },
+    { cancelled: true, status: null },
+    null,
+    undefined,
+    'success',
+  ])('returns null without a terminal verdict: %s', (result) => {
+    expect(readTerminalVerdictFromCancelResult(result)).toBeNull()
   })
 })

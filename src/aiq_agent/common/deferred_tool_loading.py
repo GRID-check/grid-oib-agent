@@ -170,6 +170,7 @@ life of the process over a blip.
 from __future__ import annotations
 
 import asyncio
+import copy
 import fnmatch
 import json
 import logging
@@ -1288,6 +1289,38 @@ class DeferredToolBinding(Runnable):
             return await self.fallback.ainvoke(input, config, **kwargs)
 
 
+def _tracing_tools_from_fallback(fallback: Any, tools: Sequence[Any]) -> list[dict[str, Any]] | None:
+    """Full function schemas for LangChain tracing, never the deferred apparatus.
+
+    NAT's ``_extract_tools_schema`` builds ``ToolSchema`` entries from
+    ``invocation_params["tools"]``. The deferred payload (``tool_search`` +
+    ``namespace``) carries no ``name`` and is not a function, so handing it to
+    the callback crashes older NAT with ``KeyError: name`` and, on newer NAT,
+    logs an error plus mints a bogus ``piloti`` function from the namespace.
+    The callback must see the ordinary function schemas instead, while the wire
+    still carries the deferred shape. This returns those schemas as dicts, or
+    None when they cannot be recovered (the caller then binds in full, which is
+    always safe).
+    """
+    kwargs = getattr(fallback, "kwargs", None)
+    if isinstance(kwargs, dict):
+        candidate = kwargs.get("tools")
+        if isinstance(candidate, list) and candidate and all(isinstance(t, dict) for t in candidate):
+            return [dict(t) for t in candidate]
+    holder = getattr(fallback, "tools", None)
+    if isinstance(holder, list) and holder and all(isinstance(t, dict) for t in holder):
+        return [dict(t) for t in holder]
+    try:
+        from langchain_core.utils.function_calling import convert_to_openai_tool
+
+        formatted = [convert_to_openai_tool(t) for t in tools]
+        if formatted and all(isinstance(t, dict) for t in formatted):
+            return [dict(t) for t in formatted]
+    except Exception:
+        return None
+    return None
+
+
 def bind_tools_deferred(
     llm: Any,
     tools: Sequence[Any],
@@ -1355,6 +1388,33 @@ def bind_tools_deferred(
         settings.namespace,
         len(json.dumps(payload[1]["tools"])),
     )
-    deferred = llm.bind(tools=payload, **bind_kwargs)
+    try:
+        full_tools = _tracing_tools_from_fallback(fallback, tools)
+        if not full_tools:
+            raise DeferredToolLoadingError("no full function schemas available for tracing")
+        if hasattr(llm, "model_copy"):
+            llm_for_deferred = llm.model_copy()
+        else:
+            llm_for_deferred = copy.copy(llm)
+        orig_get_invocation_params = llm_for_deferred._get_invocation_params
+
+        def _invocation_params_with_full_tools(stop: Any = None, **kwargs: Any) -> dict[str, Any]:
+            kwargs["tools"] = full_tools
+            return orig_get_invocation_params(stop=stop, **kwargs)
+
+        object.__setattr__(llm_for_deferred, "_get_invocation_params", _invocation_params_with_full_tools)
+        deferred = llm_for_deferred.bind(tools=payload, **bind_kwargs)
+        tracing_view = llm_for_deferred._get_invocation_params(stop=None, tools=payload, **bind_kwargs)
+        tracing_tools = tracing_view.get("tools", [])
+        if any(isinstance(t, dict) and t.get("type") == TOOL_SEARCH_TOOL["type"] for t in tracing_tools):
+            raise DeferredToolLoadingError("tracing view still carries the tool_search apparatus")
+    except Exception as exc:  # noqa: BLE001 - full schemas are always safe
+        logger.error(
+            "[DeferredToolLoading] could not isolate tracing from the deferred payload: %s. "
+            "Binding the full tool schemas instead.",
+            exc,
+            exc_info=True,
+        )
+        return fallback
     names = ", ".join(sorted(n for n in (tool_payload_name(t) for t in tools) if n))
     return DeferredToolBinding(deferred, fallback, description=names, model_id=llm_model_id(llm))

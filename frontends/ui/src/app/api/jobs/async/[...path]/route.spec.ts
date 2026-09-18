@@ -729,3 +729,103 @@ describe('/api/jobs/async/[...path] proxy — filing a commissioned report', () 
     expect(fileResearchReport).not.toHaveBeenCalled()
   })
 })
+
+/**
+ * #632: a cancel that lands after the job finished is a verdict, not a
+ * failure. The backend used to answer that race with 400 "Job not
+ * cancellable" (newer backends answer 200 idempotently); the BFF must not
+ * log it as an error either way, while still propagating the status so the
+ * client can reconcile to the verdict.
+ */
+describe('/api/jobs/async/[...path] proxy — POST cancel-after-terminal race', () => {
+  let fetchSpy: ReturnType<typeof vi.spyOn>
+  let warnSpy: ReturnType<typeof vi.spyOn>
+  let errorSpy: ReturnType<typeof vi.spyOn>
+
+  const terminalCancelBody = '{"detail":"Job not cancellable: job-1 (status: success)"}'
+
+  beforeEach(() => {
+    // Anonymous mode so the proxy never resolves a WorkOS session / DB.
+    delete process.env.REQUIRE_AUTH
+    fetchSpy = vi.spyOn(globalThis, 'fetch')
+    warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    vi.spyOn(console, 'log').mockImplementation(() => undefined)
+  })
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+    if (originalRequireAuth === undefined) {
+      delete process.env.REQUIRE_AUTH
+    } else {
+      process.env.REQUIRE_AUTH = originalRequireAuth
+    }
+  })
+
+  it('warns (not errors) on a terminal-cancel 400 but still propagates it', async () => {
+    fetchSpy.mockResolvedValue(
+      new Response(terminalCancelBody, {
+        status: 400,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    )
+
+    const res = await POST(
+      postRequest('https://grid.example/api/jobs/async/job/job-1/cancel'),
+      postParams(['job', 'job-1', 'cancel'])
+    )
+
+    expect(res.status).toBe(400)
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining('Cancel race'),
+      expect.stringContaining('Job not cancellable')
+    )
+    expect(errorSpy).not.toHaveBeenCalled()
+  })
+
+  it('still errors on a cancel 400 that is not the terminal race', async () => {
+    fetchSpy.mockResolvedValue(
+      new Response('{"detail":"unknown agent type"}', {
+        status: 400,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    )
+
+    const res = await POST(
+      postRequest('https://grid.example/api/jobs/async/job/job-1/cancel'),
+      postParams(['job', 'job-1', 'cancel'])
+    )
+
+    expect(res.status).toBe(400)
+    expect(errorSpy).toHaveBeenCalledWith(
+      '[Deep Research API] Backend error:',
+      400,
+      expect.any(String)
+    )
+    expect(warnSpy).not.toHaveBeenCalledWith(
+      expect.stringContaining('Cancel race'),
+      expect.any(String)
+    )
+  })
+
+  it('still errors on a non-cancel 400', async () => {
+    fetchSpy.mockResolvedValue(
+      new Response(terminalCancelBody, {
+        status: 400,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    )
+
+    const res = await POST(
+      postRequest('https://grid.example/api/jobs/async/submit', { agent_type: 'deep_research' }),
+      postParams(['submit'])
+    )
+
+    expect(res.status).toBe(400)
+    expect(errorSpy).toHaveBeenCalled()
+    expect(warnSpy).not.toHaveBeenCalledWith(
+      expect.stringContaining('Cancel race'),
+      expect.any(String)
+    )
+  })
+})

@@ -1,3 +1,4 @@
+/** @jsxImportSource @/lib/pdf/pdf-jsx-runtime */
 /**
  * {@link DocBlock}s to a PDF, with `@react-pdf/renderer`.
  *

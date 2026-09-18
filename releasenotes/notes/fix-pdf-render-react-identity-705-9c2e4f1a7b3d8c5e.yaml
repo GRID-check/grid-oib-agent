@@ -1,0 +1,6 @@
+---
+fixes:
+  - >
+    PDF export of reports and diagrams works again, including reports with
+    findings cards. Downloads and filed report documents render instead of
+    failing.

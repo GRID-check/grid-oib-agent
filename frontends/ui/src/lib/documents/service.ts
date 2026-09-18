@@ -26,7 +26,6 @@ import {
 } from '@/lib/s3'
 import { ensureTenantBucketChecked, resolveDocumentBucket } from '@/lib/storage/bucket'
 import { requireProjectAccess } from '@/lib/authz/projects'
-import { ForbiddenError } from '@/lib/api/errors'
 import { recordAuditEvent } from '@/lib/audit/service'
 import { getBackendUrl } from '@/lib/backend-proxy'
 import { buildGridRequestContextWireHeaders } from '@/lib/request-context'
@@ -45,7 +44,8 @@ import { IN_FLIGHT_DOCUMENT_STATUSES } from './document-status'
 import { documentNameKey } from './name-match'
 import { normalizeDrawingStructured, type DrawingStructured } from './drawing-structured'
 import { getFileUploadConfigFromEnv } from '@/shared/config/file-upload'
-import { buildDocumentImageUrl, verifyDocumentImageUrl } from '@/lib/images/signed-image-url'
+import { buildDocumentImageUrl, imageUrlExpiry, verifyDocumentImageUrl } from '@/lib/images/signed-image-url'
+import { fallbackImageResponse } from '@/lib/images/image-fallback'
 import { isVlmConfigured } from '@/lib/documents/vlm-capability'
 import { assertWithinStorageQuota } from '@/lib/storage/service'
 import { admitOrDiscard, admitReplacementOrDiscard } from '@/lib/storage/admission'
@@ -144,6 +144,14 @@ const OPTIMIZABLE_IMAGE_CONTENT_TYPES = [
 ]
 
 const presignTtlSeconds = (): number => Number(process.env.SEAWEED_PRESIGNED_URL_TTL_SECONDS || 600)
+
+/**
+ * TTL of the presigned object-store URL `getDocumentThumbnail` falls back to
+ * when URL signing is unavailable, in seconds. Stated once because
+ * `expiresAtMs` re-states it in millis beside the URL — a second literal here
+ * would let the two drift until the card refreshes an hour past the link.
+ */
+const THUMBNAIL_PRESIGN_TTL_SECONDS = 3600
 
 /**
  * Bound every server-side call to the Python backend: an unreachable backend
@@ -2008,16 +2016,23 @@ export async function getDocumentTextPreview(
  * signing is unavailable. The ingest pipeline already writes a 200px JPEG here,
  * so the win is a format change (WebP/AVIF) rather than a resize — small, but it
  * keeps every document image on one path instead of leaving this one special.
+ *
+ * `expiresAtMs` is when the URL stops authorizing (null when there is no URL,
+ * or when the fallback presign below could not report one). The card's module
+ * cache outlives the 1–2h signature window across SPA navigations, so without
+ * it every remount replays a dead URL into the optimizer, which logs #366's
+ * "isn't a valid image … received null" for what is just a stale token. The
+ * card re-resolves past that instant instead of replaying.
  */
 export async function getDocumentThumbnail(
   session: AuthorizedSession,
   documentId: string
-): Promise<{ url: string | null }> {
+): Promise<{ url: string | null; expiresAtMs: number | null }> {
   const doc = await getAccessibleDocument(session, documentId)
-  if (!doc.storageKey) return { url: null }
+  if (!doc.storageKey) return { url: null, expiresAtMs: null }
 
   const thumbnailKey = buildThumbnailStorageKey(doc.storageKey)
-  if (!thumbnailKey) return { url: null }
+  if (!thumbnailKey) return { url: null, expiresAtMs: null }
 
   // The signed same-origin URL is only useful if the JPEG actually exists.
   // Returning it blindly sent Next's image optimizer to a 404 / empty body
@@ -2035,13 +2050,16 @@ export async function getDocumentThumbnail(
         Key: thumbnailKey,
       })
     )
-    if ((head?.ContentLength ?? 0) <= 0) return { url: null }
+    if ((head?.ContentLength ?? 0) <= 0) return { url: null, expiresAtMs: null }
   } catch {
-    return { url: null }
+    return { url: null, expiresAtMs: null }
   }
 
-  const signedUrl = buildDocumentImageUrl(session.organizationId, documentId, 'thumb')
-  if (signedUrl) return { url: signedUrl }
+  // One clock reading for both halves: the expiry must describe the URL that
+  // was actually minted, not the next bucket.
+  const nowMs = Date.now()
+  const signedUrl = buildDocumentImageUrl(session.organizationId, documentId, 'thumb', nowMs)
+  if (signedUrl) return { url: signedUrl, expiresAtMs: imageUrlExpiry(nowMs) * 1000 }
 
   try {
     const url = await getSignedUrl(
@@ -2051,11 +2069,14 @@ export async function getDocumentThumbnail(
         Key: thumbnailKey,
         ResponseContentType: 'image/jpeg',
       }),
-      { expiresIn: 3600 }
+      { expiresIn: THUMBNAIL_PRESIGN_TTL_SECONDS }
     )
-    return { url }
+    // The presigned fallback carries its own TTL; reporting it lets the card
+    // refresh before the browser meets an expired link, exactly as for signed
+    // URLs above.
+    return { url, expiresAtMs: nowMs + THUMBNAIL_PRESIGN_TTL_SECONDS * 1000 }
   } catch {
-    return { url: null }
+    return { url: null, expiresAtMs: null }
   }
 }
 
@@ -2071,6 +2092,16 @@ export async function getDocumentThumbnail(
  * full-size original when it was issued for a thumbnail. The org id is taken
  * from the signed claims rather than the caller, so the row lookup stays
  * tenant-scoped exactly as the session path is.
+ *
+ * Every failure deflects to the static placeholder (`image-fallback.ts`) with
+ * a 200 instead of refusing with a 403/404/503. That is not kindness, it is
+ * the only contract the optimizer honors: its internal fetch ignores status
+ * codes and sniffs every non-empty body as image bytes, so a JSON error
+ * envelope became "isn't a valid image … received null" on every surface
+ * rendering that thumbnail (#366 — including long-expired signatures replayed
+ * by tabs that outlived the 1–2h window, which no mint-side guard can cover).
+ * All deflections answer identically, so a forged token learns nothing, and
+ * the bytes are static, so no tenant content can leak through this path.
  */
 export async function streamDocumentImage(
   documentId: string,
@@ -2078,56 +2109,118 @@ export async function streamDocumentImage(
 ): Promise<Response> {
   const verified = verifyDocumentImageUrl(documentId, params)
   if (!verified.ok) {
-    if (verified.reason === 'disabled') {
-      throw new ApiError(503, 'IMAGE_URLS_DISABLED', 'Signed image URLs are not configured')
-    }
-    // Expired, malformed and forged are one answer to the caller on purpose:
-    // distinguishing them tells an attacker which half of the token to work on.
-    throw new ForbiddenError('Invalid or expired image URL')
+    // Expired, malformed, forged and disabled are one answer on purpose:
+    // distinguishing them tells an attacker which half of the token to work
+    // on, and the optimizer cannot tell them apart anyway.
+    return serveImageFallback(documentId, `image-url-${verified.reason}`)
   }
 
   const { organizationId, variant } = verified.claims
   const doc = await findDocumentInOrg(documentId, organizationId)
-  if (!doc?.storageKey) throw new NotFoundError()
+  if (!doc?.storageKey) return serveImageFallback(documentId, 'unknown-document')
 
   const contentType = variant === 'thumb' ? 'image/jpeg' : doc.contentType || ''
   // Belt and braces over the signing-side check: this route serves images and
   // nothing else, so a token minted against a row that later changed type
   // cannot turn into a download channel for an arbitrary upload.
-  if (!contentType.startsWith('image/')) throw new NotFoundError()
+  if (!contentType.startsWith('image/')) {
+    return serveImageFallback(documentId, 'non-image-content-type')
+  }
 
   const key = variant === 'thumb' ? buildThumbnailStorageKey(doc.storageKey) : doc.storageKey
-  if (!key) throw new NotFoundError('Image not available')
+  if (!key) return serveImageFallback(documentId, 'no-image-key')
 
-  let body
+  let object
   try {
-    const object = await s3Client.send(
+    object = await s3Client.send(
       new GetObjectCommand({ Bucket: resolveDocumentBucket(doc.storageBucket), Key: key })
     )
-    // Mirror the mint-side guard: an object that truncated to 0 bytes between
-    // the HEAD check and this GET (or reached here on a directly-shared signed
-    // URL) decodes to nothing — serve the placeholder, not optimizer poison.
-    if ((object?.ContentLength ?? 0) <= 0) throw new NotFoundError('Image not available')
-    body = object.Body
-  } catch (error) {
-    // A document with no generated thumbnail lands here; the card reads the 404
-    // as "no thumbnail" and shows its warm placeholder.
-    if (error instanceof NotFoundError) throw error
-    throw new NotFoundError('Image not available')
+  } catch {
+    // A document with no generated thumbnail lands here — deleted or
+    // re-published between the mint and this fetch, or a directly-shared
+    // signed URL outliving its object.
+    return serveImageFallback(documentId, 'missing-object')
   }
-  if (!body) throw new NotFoundError('Image not available')
 
-  return new Response(body.transformToWebStream(), {
+  // A numeric ContentLength still reads the bytes before answering: the
+  // header only says the object STARTED non-empty, while the body stream can
+  // fail or truncate during consumption — which the optimizer would surface
+  // as "isn't a valid image". Buffering here is bounded by the upload
+  // ceiling no legitimate image can exceed, so a failing or empty body
+  // deflects to the placeholder instead of a truncated response.
+  //
+  // The buffer API is probed, not assumed: `transformToByteArray` exists on
+  // real SDK bodies, but a body carrying only the streaming shape must still
+  // serve — calling a missing method throws synchronously (no `.catch` can
+  // catch a call that never happens) and turned every such response into a
+  // 500. Without the buffer API there is nothing to verify mid-consumption
+  // against, so those bodies stream exactly as they did before buffering.
+  if (typeof object?.ContentLength === 'number') {
+    if (object.ContentLength <= 0 || !object.Body) {
+      return serveImageFallback(documentId, 'empty-object')
+    }
+    const body = object.Body
+    if (typeof body.transformToByteArray === 'function') {
+      const { maxFileSize } = getFileUploadConfigFromEnv(process.env)
+      if (object.ContentLength > maxFileSize) {
+        return serveImageFallback(documentId, 'oversize-object')
+      }
+      const buffered = await body.transformToByteArray().catch(() => null)
+      if (!buffered || buffered.byteLength === 0) {
+        return serveImageFallback(documentId, 'unreadable-object')
+      }
+      // Copied: the SDK may hand back a view over a shared pool, and the
+      // response takes ownership of what it is given.
+      return tenantImageResponse(Buffer.from(buffered), contentType)
+    }
+    if (typeof body.transformToWebStream === 'function') {
+      return tenantImageResponse(body.transformToWebStream(), contentType)
+    }
+    return serveImageFallback(documentId, 'unreadable-object')
+  }
+
+  // No ContentLength on the response — some gateways omit it — so decide from
+  // the bytes rather than the header: a present object with an unknown length
+  // is not a missing one. Buffering is bounded to this ambiguous branch only;
+  // the common path above still streams.
+  const bytes =
+    object?.Body && typeof object.Body.transformToByteArray === 'function'
+      ? await object.Body.transformToByteArray().catch(() => null)
+      : null
+  if (!bytes || bytes.byteLength === 0) return serveImageFallback(documentId, 'empty-object')
+  // Copied: the SDK may hand back a view over a shared pool, and the response
+  // takes ownership of what it is given.
+  return tenantImageResponse(Buffer.from(bytes), contentType)
+}
+
+/**
+ * Tenant image bytes as a response. Private: the bytes belong to one org, and
+ * the optimizer keeps its own server-side cache regardless. Bounded by the
+ * signature's own lifetime.
+ */
+function tenantImageResponse(body: BodyInit, contentType: string): Response {
+  return new Response(body, {
     status: 200,
     headers: {
       'Content-Type': contentType,
       'Content-Disposition': 'inline',
-      // Private: the bytes are tenant data, and the optimizer keeps its own
-      // server-side cache regardless. Bounded by the signature's own lifetime.
       'Cache-Control': 'private, max-age=3600',
       'X-Content-Type-Options': 'nosniff',
     },
   })
+}
+
+/**
+ * Deflect a failed image serve to the static placeholder. `warn`, not `error`:
+ * every case here is expected in normal operation (a tab outliving the token
+ * window, a publish racing a card render), and `error` is what files the
+ * err2issue noise this deflection exists to end. The reason keeps the signal
+ * for the next investigation; the document id correlates it. Never the query —
+ * it carries the signature.
+ */
+function serveImageFallback(documentId: string, reason: string): Response {
+  console.warn(`[document-image] serving placeholder for ${documentId} (${reason})`)
+  return fallbackImageResponse()
 }
 
 /** Read one document's status, lazily reconciled with the backend. */

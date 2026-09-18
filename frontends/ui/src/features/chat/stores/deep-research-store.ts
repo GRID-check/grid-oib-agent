@@ -24,6 +24,7 @@ import {
 import {
   isUnavailableDeepResearchJobError,
   readTerminalVerdictFromCancelError,
+  readTerminalVerdictFromCancelResult,
 } from '../lib/deep-research-errors'
 import { getLatestDeepResearchMessage, hasActiveDeepResearchJob, isTerminalDeepResearchJobStatus } from '../lib/session-activity'
 import { patchConversationMessageById } from './sessions-store'
@@ -1270,8 +1271,9 @@ export const createDeepResearchSlice: StateCreator<ChatStore, [["zustand/devtool
 
   dismissDeepResearchJob: async (conversationId: string | null, jobId: string) => {
     // Best-effort first: an abandoned run's backend job is often already gone
-    // — and a cancel against an already-terminal job fails 400 carrying the
-    // backend's own verdict ("Job not cancellable: <id> (status: <verdict>)").
+    // — and a cancel against an already-terminal job carries the backend's
+    // own verdict, 200 with the status on an idempotent backend (#632) or
+    // 400 "Job not cancellable: <id> (status: <verdict>)" on an older one.
     // That verdict is fresher than whatever the status/list endpoints serve
     // for the same crashed run, so a dismiss that learns it reconciles to it
     // instead of merely marking the thread stopped and hoping the next poll
@@ -1279,7 +1281,8 @@ export const createDeepResearchSlice: StateCreator<ChatStore, [["zustand/devtool
     let verdict: DeepResearchJobStatus = 'interrupted'
     try {
       const { cancelJob } = await import('@/adapters/api/deep-research-client')
-      await cancelJob(jobId)
+      const result = await cancelJob(jobId)
+      verdict = readTerminalVerdictFromCancelResult(result) ?? 'interrupted'
     } catch (error) {
       const terminal = readTerminalVerdictFromCancelError(error)
       if (terminal) verdict = terminal

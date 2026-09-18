@@ -1,3 +1,4 @@
+/** @jsxImportSource @/lib/pdf/pdf-jsx-runtime */
 /**
  * The chrome around an exported document: the mark, the cover, the running
  * header and the page footer.
