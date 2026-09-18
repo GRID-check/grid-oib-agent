@@ -1735,6 +1735,13 @@ export interface DocumentVisualDetail {
    */
   segment: number
   /**
+   * How many depictions share this chunk's sheet. A sheet carrying two floor
+   * plans side by side is indexed one chunk per depiction, so the preview
+   * reads this to say which of the sheet's depictions a row is. `1` for
+   * chunks indexed before per-segment chunking recorded it.
+   */
+  segmentCount: number
+  /**
    * The structured analysis behind the description — entities, compositions,
    * quantities, provenance. `null` for chunks indexed before the structured
    * schema, and for backends that do not produce one.
@@ -1784,6 +1791,7 @@ export async function getDocumentVisualDetails(
     scale: typeof d.scale === 'string' ? d.scale : '',
     text: typeof d.text === 'string' ? d.text : '',
     segment: typeof d.segment === 'number' ? d.segment : 0,
+    segmentCount: typeof d.segment_count === 'number' ? d.segment_count : 1,
     structured: normalizeDrawingStructured(d.structured),
   }))
   return { id: doc.id, details }

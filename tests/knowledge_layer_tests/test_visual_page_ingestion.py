@@ -358,6 +358,24 @@ class TestRenderVisualPagesNoVlm:
 
         assert len(out) == 2
 
+    def test_render_cap_says_which_pages_it_drops(self, monkeypatch, caplog):
+        # Issue #437: a plan set past the cap indexed its later sheets as
+        # text only while reporting nothing. The cap stays; the silence goes.
+        import logging
+
+        from knowledge_layer.llamaindex import processing as _processing
+
+        pages = [_FakePage("", n_paths=1000) for _ in range(5)]
+        _install_fake_pdf(monkeypatch, pages)
+
+        with caplog.at_level(logging.WARNING, logger="knowledge_layer.llamaindex.processing"):
+            out = _processing.render_visual_pages_no_vlm("plan-set.pdf", max_pages=2)
+
+        assert len(out) == 2
+        assert any(
+            "render cap (2)" in record.getMessage() and "text only" in record.getMessage() for record in caplog.records
+        )
+
 
 # =============================================================================
 # _run_ingestion drawing branch (heavy collaborators mocked)
@@ -543,6 +561,55 @@ class TestRunIngestionDrawingBranch:
 
         monkeypatch.setattr(ingestor, "_get_chroma_client", boom)
         assert ingestor.get_document_visual_details("coll", "plan.pdf") == []
+
+    def test_visual_details_carries_how_many_depictions_share_the_sheet(self, monkeypatch, ingestor):
+        """Issue #440: the backend knows `segment_count` per chunk but dropped
+        it, so the preview could not say which of a sheet's depictions a row
+        is. Rows without the key (pre-segment chunks) read as a single one."""
+
+        class _FakeCollection:
+            def get(self, where, include):
+                assert where == {"file_name": "plan.pdf"}
+                return {
+                    "documents": [
+                        "[DRAWING from page 1]\n\nFloor plan 1 of 2 — EG.",
+                        "[DRAWING from page 1]\n\nFloor plan 2 of 2 — OG.",
+                        "[DRAWING from page 2]\n\nZEICHNUNGSTYP: schnitt",
+                    ],
+                    "metadatas": [
+                        {
+                            "content_type": "drawing",
+                            "page_label": "1",
+                            "drawing_type": "floor_plan",
+                            "drawing_scale": "1:100",
+                            "segment_index": 0,
+                            "segment_count": 2,
+                        },
+                        {
+                            "content_type": "drawing",
+                            "page_label": "1",
+                            "drawing_type": "floor_plan",
+                            "drawing_scale": "1:100",
+                            "segment_index": 1,
+                            "segment_count": 2,
+                        },
+                        {"content_type": "drawing", "page_label": "2", "drawing_type": "schnitt"},
+                    ],
+                }
+
+        class _FakeClient:
+            def get_collection(self, name):
+                return _FakeCollection()
+
+        monkeypatch.setattr(ingestor, "_get_chroma_client", lambda: _FakeClient())
+
+        details = ingestor.get_document_visual_details("coll", "plan.pdf")
+
+        assert [(d["page"], d["segment"], d["segment_count"]) for d in details] == [
+            (1, 0, 2),
+            (1, 1, 2),
+            (2, 0, 1),
+        ]
 
     def test_org_byok_and_model_override_reach_the_vlm(self, tmp_path, monkeypatch, ingestor, summary_db):
         """The org id captured at /v1/ingest drives the VLM the same way the

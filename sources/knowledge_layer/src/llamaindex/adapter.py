@@ -3027,11 +3027,13 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
         when the document has no visual chunks.
 
         Each item: ``{page, content_type, drawing_type, scale, text, segment,
-        structured}`` where ``text`` is the caption body (the ``[DRAWING from
-        page N]`` prefix stripped), ``segment`` is the drawing's index on its
-        sheet (0 for v1 chunks and non-drawings), and ``structured`` is the
-        parsed v2 ``drawing_data`` payload (``None`` for v1 chunks and
-        non-drawings). Sorted by page, then content type, then segment.
+        segment_count, structured}`` where ``text`` is the caption body (the
+        ``[DRAWING from page N]`` prefix stripped), ``segment`` is the drawing's
+        index on its sheet (0 for v1 chunks and non-drawings), ``segment_count``
+        is how many depictions share that sheet (1 for the same legacy rows),
+        and ``structured`` is the parsed v2 ``drawing_data`` payload (``None``
+        for v1 chunks and non-drawings). Sorted by page, then content type,
+        then segment.
         """
         try:
             client = self._get_chroma_client()
@@ -3060,6 +3062,10 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                 segment = int(meta.get("segment_index") or 0)
             except (TypeError, ValueError):
                 segment = 0
+            try:
+                segment_count = max(1, int(meta.get("segment_count") or 1))
+            except (TypeError, ValueError):
+                segment_count = 1
             # The v2 structured payload rides along parsed, so the FE never
             # has to know it is stored as a JSON string in Chroma metadata.
             structured = None
@@ -3077,6 +3083,7 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                     "scale": meta.get("drawing_scale") or "",
                     "text": body.strip(),
                     "segment": segment,
+                    "segment_count": segment_count,
                     "structured": structured,
                 }
             )
