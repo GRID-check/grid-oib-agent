@@ -82,3 +82,59 @@ class TestResolveEnabledStages:
         with patch("urllib.request.urlopen", side_effect=OSError("connection refused")):
             resolved = await flags.resolve_enabled_stages(organization_id="org_1", memory_reflection_enabled=False)
         assert resolved == frozenset()
+
+
+class TestFetchTurnFlags:
+    """The capability half of the same call.
+
+    It rides the stages endpoint rather than one of its own because both are
+    answered per turn, in the same gather, under the same 1.5s budget.
+    """
+
+    def test_reads_the_deep_research_feature(self):
+        with patch("urllib.request.urlopen", return_value=_body({"enabled": [], "features": {"deepResearch": False}})):
+            assert flags.fetch_turn_flags(organization_id="org_1").deep_research_allowed is False
+
+    def test_an_enabled_feature_reads_as_allowed(self):
+        with patch("urllib.request.urlopen", return_value=_body({"enabled": [], "features": {"deepResearch": True}})):
+            assert flags.fetch_turn_flags(organization_id="org_1").deep_research_allowed is True
+
+    def test_an_older_bff_without_features_keeps_deep_research(self):
+        """A mixed deployment must behave as it did before the field existed —
+        withdrawal is a decision somebody made in WorkOS, not a missing key."""
+        with patch("urllib.request.urlopen", return_value=_body({"enabled": ["memory_reflection"]})):
+            resolved = flags.fetch_turn_flags(organization_id="org_1")
+        assert resolved.deep_research_allowed is True
+        assert resolved.enabled_stages == frozenset({"memory_reflection"})
+
+    @pytest.mark.parametrize("features", [None, {}, {"deepResearch": None}, "nonsense"])
+    def test_only_an_explicit_false_withdraws_it(self, features):
+        with patch("urllib.request.urlopen", return_value=_body({"enabled": [], "features": features})):
+            assert flags.fetch_turn_flags(organization_id="org_1").deep_research_allowed is True
+
+    def test_both_halves_come_from_one_request(self):
+        with patch("urllib.request.urlopen", return_value=_body({"enabled": [], "features": {}})) as urlopen:
+            flags.fetch_turn_flags(organization_id="org_1")
+        assert urlopen.call_count == 1
+
+
+class TestResolveTurnFlags:
+    @pytest.mark.asyncio
+    async def test_a_bff_failure_never_withdraws_deep_research(self):
+        """The one that matters: a blip must not look like a withdrawn flag."""
+        with patch("urllib.request.urlopen", side_effect=OSError("connection refused")):
+            resolved = await flags.resolve_turn_flags(organization_id="org_1", memory_reflection_enabled=False)
+        assert resolved.deep_research_allowed is True
+
+    @pytest.mark.asyncio
+    async def test_a_malformed_body_never_withdraws_deep_research(self):
+        with patch("urllib.request.urlopen", return_value=_body({"stages": []})):
+            resolved = await flags.resolve_turn_flags(organization_id="org_1", memory_reflection_enabled=True)
+        assert resolved.deep_research_allowed is True
+        assert "memory_reflection" in resolved.enabled_stages
+
+    @pytest.mark.asyncio
+    async def test_the_live_withdrawal_reaches_this_turn(self):
+        with patch("urllib.request.urlopen", return_value=_body({"enabled": [], "features": {"deepResearch": False}})):
+            resolved = await flags.resolve_turn_flags(organization_id="org_1", memory_reflection_enabled=True)
+        assert resolved.deep_research_allowed is False
