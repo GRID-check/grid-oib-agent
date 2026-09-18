@@ -74,6 +74,7 @@ class TurnFlags:
     #: reasoning as :attr:`deep_research_allowed`.
     tasks_allowed: bool = True
 
+
 #: The evaluation runs on the per-turn critical path, in the same gather as the
 #: live memory-digest fetch, so a slow BFF must never stall the turn. On timeout
 #: the caller keeps the connection-time value.

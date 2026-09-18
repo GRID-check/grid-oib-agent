@@ -79,6 +79,12 @@ class ResearchAgentState(BaseModel):
     #: the tool payload — and the prompt-cache shard keyed on it — is identical
     #: for every tenant. What changes per org is one sentence of prose.
     tasks_allowed: bool = True
+    #: The answer envelope declared ``kind: "handoff"``: the prose is the
+    #: hand-off sentence, not an answer. Read only when an escalation is
+    #: REFUSED, to decide whether the unavailability note replaces the content
+    #: or is appended to it. It is the envelope's own word, because the two
+    #: escalating shapes are indistinguishable from the prose alone.
+    answer_is_handoff: bool = False
     collection_name: str | None = None
     #: Tool-calling ROUNDS this turn has spent — LLM decisions that emitted tool
     #: calls — against ``max_tool_iterations``. The NAME says iterations and is

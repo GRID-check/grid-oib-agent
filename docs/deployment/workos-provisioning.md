@@ -329,7 +329,7 @@ delivered in the AuthKit JWT `feature_flags` claim (registry:
 | Flag slug | Gates |
 |---|---|
 | `runtime-model-config` | Runtime AI model configuration (org page card + all 4 API routes) |
-| `deep-research` | Deep-research job submission (`POST /api/jobs/async/submit`) — and only that. Nothing upstream reads the flag, so with it off the researcher still escalates and the plan-approval card still offers **Recherche starten**, which then answers 403 (see the known gap below). **OFF for all organizations in Production since 2026-09-18**; ON in Staging |
+| `deep-research` | Deep-research runs, on all three paths that reach one: job submission (`POST /api/jobs/async/submit`), the commissioned run (`POST /api/internal/tasks`, op `research`), and — since the agent reads it per turn — whether a run is OFFERED at all, so the escalation and its plan-approval card never appear for a tenant without it. **OFF for all organizations in Production since 2026-09-18**; ON in Staging |
 | `byok-llm` | BYOK LLM credentials (ADR-0022): org page card, all `/api/organization/llm-credentials` routes, and the internal resolution endpoint (under enforcement) |
 | `web-search` | Platform-layer web-search gate (ADR-0022). Evaluated live per org at the WS upgrade (like `memory-reflection`), combined with the tenant's own `settings.webSearchEnabled` toggle |
 | `source-origin-badges` | [KB]/[RIS]/[Web] origin badges in report source lists (FB-2). Server-computed in the chat route, prop-drilled to ReportTab; off → plain token-stripped source text |
@@ -464,16 +464,36 @@ Two env keys stay `"true"` in the Production stack and are *not* leftovers:
 - `grid-oib:collaborationEnabled` is inert under enforcement, kept truthful in
   case enforcement is ever lifted.
 
-##### Known gap: `deep-research` off does not hide the affordance
+##### How a withdrawn capability reaches the agent
 
-`FEATURE_FLAGS.deepResearch` is read in exactly one place — the `submit` branch
-of `app/api/jobs/async/[...path]/route.ts`. Nothing upstream of it knows the
-flag. The researcher still escalates, still writes the plan-approval envelope,
-and `AgentPrompt` still renders **Recherche starten**, which then answers 403.
-The flag closes the job queue; it does not stop the product offering the run.
-Withdrawing deep research from *readers* needs the escalation path to learn the
-flag too — the agent tier already reads per-org flags per turn via
-`GET /api/internal/stages`, and that is the seam to reuse.
+`deep-research` and `task-automation` are not gates the job queue applies after
+the fact. Both are resolved PER TURN by the agent tier, on
+`GET /api/internal/stages` (`features.deepResearch`, `features.tasks`), and read
+in two places: the prompt tells the model the capability is absent, and the
+conversation graph refuses the escalation even when the model asks anyway. So a
+tenant without deep research is never shown a plan, and one without tasks is
+never told an Auftrag was created.
+
+That is what the flags did NOT do before. Each was read at exactly one route —
+`POST /api/jobs/async/submit` for deep research, nothing at all for tasks — so
+the agent went on escalating into a queue that would refuse it, and the reader
+met the refusal only after approving a plan for it. A flag that closes a queue
+is not a flag that withdraws a feature.
+
+Three things follow, and each has cost somebody an afternoon:
+
+- **The routes still check.** `POST /api/internal/tasks` refuses both ops and
+  `submit` re-checks with the reader's own session. The agent-side read is what
+  stops the OFFER; it is not the authority, and a capability withdrawn
+  mid-conversation is caught there.
+- **A refused commission is never retried in process.** `CommissionRefused`
+  with reason `forbidden` answers with the unavailability note. The inline
+  fallback exists for a deployment with no worker, and running it on a
+  capability refusal would do the very thing the route just refused.
+- **Every failure path leaves the capability ALLOWED** — an unreachable BFF, a
+  timeout, an older BFF that sends no `features`, a turn with no organization.
+  Withdrawal is a decision somebody made in WorkOS; it is never the shape of a
+  blip. The route behind it is what fails closed.
 
 ## Replay into a fresh environment
 
