@@ -60,7 +60,7 @@
  */
 
 import { readFileSync, readdirSync } from 'node:fs'
-import { join, relative } from 'node:path'
+import { join, relative, sep } from 'node:path'
 import ts from 'typescript'
 import { describe, expect, it } from 'vitest'
 import { de } from '@/i18n/dictionaries/de'
@@ -95,6 +95,17 @@ function sourceFiles(dir: string, found: string[] = []): string[] {
 interface LiteralWrite {
   value: string
   where: string
+}
+
+/**
+ * `relative()` yields `\`-separated paths on Windows while every constant in
+ * this file is written with `/`. Without normalising, the guard compares two
+ * spellings of the same file, matches nothing, and goes fully red on a
+ * Windows checkout — which is exactly how it was found: four failures, one
+ * separator.
+ */
+function toPosix(path: string): string {
+  return path.split(sep).join('/')
 }
 
 /**
@@ -226,7 +237,7 @@ function scanWriters(): Scan {
   for (const dir of WRITER_DIRS) {
     for (const file of sourceFiles(join(process.cwd(), dir))) {
       const source = readFileSync(file, 'utf8')
-      const relativePath = relative(process.cwd(), file)
+      const relativePath = toPosix(relative(process.cwd(), file))
       const tree = ts.createSourceFile(file, source, ts.ScriptTarget.Latest, true)
       const at = (node: ts.Node) => `${relativePath}:${
         tree.getLineAndCharacterOfPosition(node.getStart(tree)).line + 1
@@ -383,7 +394,7 @@ function everySourceFile(dir: string, found: string[] = []): string[] {
 describe('the scan looks where the writing happens', () => {
   const tableWriters = everySourceFile(join(process.cwd(), 'src'))
     .filter((file) => TABLE_WRITE_RE.test(readFileSync(file, 'utf8')))
-    .map((file) => relative(process.cwd(), file))
+    .map((file) => toPosix(relative(process.cwd(), file)))
     .sort()
 
   it('finds the table writers at all', () => {
