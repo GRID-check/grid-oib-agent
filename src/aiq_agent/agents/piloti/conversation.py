@@ -218,14 +218,22 @@ def _finalize_answer(
     if escalating and not deep_research_allowed:
         logger.info("Escalation refused: deep research is not enabled for this tenant")
         escalating = False
-        # The ask and the answer are the same message, so the note goes with
-        # whatever the model wrote. Empty content is the commissioned case
-        # taken to its limit — a hand-off with nothing but the hand-off — and
-        # there the note IS the answer.
+        # The ask and the answer are the same message, and the envelope says
+        # which of the two shapes this one is. A `handoff` answer is one
+        # sentence naming what will be researched — appending the note to it
+        # would ship „Dafür starte ich eine Tiefenrecherche" and the
+        # contradiction underneath, so it is REPLACED. An insufficiency
+        # escalation carries the model's best partial answer, which the reader
+        # should keep, so there the note is appended.
+        #
+        # The envelope's own word, never the prose: the two shapes are not
+        # distinguishable by matching on text, and a matcher would decide a
+        # reader's answer by regex.
+        handoff_only = result.answer_is_handoff or not clean_content.strip()
         clean_content = (
-            f"{clean_content.rstrip()}\n\n{DEEP_RESEARCH_UNAVAILABLE_NOTE}"
-            if clean_content.strip()
-            else DEEP_RESEARCH_UNAVAILABLE_NOTE
+            DEEP_RESEARCH_UNAVAILABLE_NOTE
+            if handoff_only
+            else f"{clean_content.rstrip()}\n\n{DEEP_RESEARCH_UNAVAILABLE_NOTE}"
         )
     if not clean_content.strip() and not escalating:
         # An empty answer is a generation failure, not an escalation signal.
@@ -235,6 +243,20 @@ def _finalize_answer(
     if escalating:
         return _escalation_update(updated, result)
     return _answer_update(updated, result)
+
+
+def _answer_only(text: str) -> dict[str, Any]:
+    """A turn that ends with one sentence and no research behind it.
+
+    ``routing_decision`` is "meta" rather than "error": nothing failed, the
+    capability is simply absent, and an error turn would invite the reader to
+    retry something that cannot succeed.
+    """
+    return {
+        "messages": [AIMessage(content=text)],
+        "routing_decision": "meta",
+        "escalate_to_deep": False,
+    }
 
 
 def _answer_message(new_messages: list[BaseMessage]) -> BaseMessage | None:
@@ -436,9 +458,18 @@ class ConversationGraph:
         two ids the reader's client needs to show the block that just appeared.
 
         A refusal never costs the reader their answer: everything except a full
-        queue falls back to running the research in process, which is the same
-        path a deployment with no worker takes. What is lost then is the block,
-        not the work.
+        queue and a REFUSED CAPABILITY falls back to running the research in
+        process, which is the same path a deployment with no worker takes. What
+        is lost then is the block, not the work.
+
+        Those two exceptions are not the same kind of thing. A full queue is a
+        `retry later`. A ``forbidden`` is the tenant not having deep research at
+        all, and the inline fallback would answer it by running deep research
+        anyway — in process, with no second check, straight past the gate the
+        route just applied. `_finalize_answer` normally stops a turn long before
+        it reaches here, so this path is what remains when the capability was
+        withdrawn mid-conversation or a flag lookup failed open; either way the
+        route's `no` is the authoritative one.
         """
         assert self.commission_run_fn is not None
         try:
@@ -460,6 +491,11 @@ class ConversationGraph:
                     "job_admission_rejected": True,
                     "retry_after_seconds": refusal.retry_after_seconds,
                 }
+            if refusal.reason == "forbidden":
+                # A capability denial, not a transport failure. Falling back
+                # would run the very thing the route refused.
+                logger.info("Research run refused as a capability the tenant does not have: %s", refusal)
+                return _answer_only(DEEP_RESEARCH_UNAVAILABLE_NOTE)
             logger.info("Question could not be commissioned as a run (%s); researching in process", refusal.reason)
             return await self._run_deep_inline(state)
         return {

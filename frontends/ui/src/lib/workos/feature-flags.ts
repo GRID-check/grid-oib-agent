@@ -66,7 +66,14 @@ const CACHE_TTL_MS = 30_000
 async function enabledSlugsForOrg(organizationId: string): Promise<Set<string>> {
   const slugs = await getCached(`flags:${organizationId}`, CACHE_TTL_MS, async () => {
     const list = await getWorkOS().featureFlags.listOrganizationFeatureFlags({ organizationId })
-    return (list.data ?? []).map((flag) => flag.slug)
+    // EVERY page, not the first. The endpoint defaults to 10 flags and this
+    // reader treats "absent from the set" as "off", so a one-page read silently
+    // disables whatever sorts past the tenth — which is not a hypothetical: an
+    // organization here is served more than ten. `autoPagination` follows the
+    // cursor for us, and deliberately gets NO `limit`: the SDK short-circuits to
+    // the first page when the first request carried one.
+    const flags = await list.autoPagination()
+    return flags.map((flag) => flag.slug)
   })
   return new Set(slugs)
 }

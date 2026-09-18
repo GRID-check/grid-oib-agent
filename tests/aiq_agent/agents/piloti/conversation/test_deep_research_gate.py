@@ -23,6 +23,11 @@ from aiq_agent.agents.piloti.conversation import ConversationGraph
 from aiq_agent.agents.piloti.conversation import _finalize_answer
 from aiq_agent.agents.piloti.models import ConversationState
 from aiq_agent.agents.piloti.models import ResearchAgentState
+from aiq_agent.turn.commission import CommissionRefused
+
+
+async def _unused_research(_state):  # pragma: no cover - the commission path never reaches it
+    raise AssertionError("the answering agent must not run on the commission path")
 
 
 def _signals(**fields) -> ResearchAgentState:
@@ -41,15 +46,29 @@ class TestFinalizeAnswerWithoutDeepResearch:
         )
 
         assert update["escalate_to_deep"] is False
+        # `kind` is not "handoff" here, so the answer survives and the note is
+        # appended to it rather than replacing it.
         assert update["messages"][0].content.startswith("Nach OIB 2 gilt X [1].")
         assert DEEP_RESEARCH_UNAVAILABLE_NOTE in update["messages"][0].content
         # It is an ANSWER now, so it carries what an answer carries.
         assert "answer_confidence" in update
 
-    def test_a_bare_hand_off_sentence_becomes_the_note_rather_than_a_promise(self):
-        """The commissioned case taken to its limit: the model wrote nothing but
-        the hand-off. Left alone this turn ends on 'Dafür starte ich eine
-        Tiefenrecherche' with nothing behind it."""
+    def test_a_hand_off_sentence_is_replaced_rather_than_contradicted(self):
+        """The commissioned case. The envelope says `kind: "handoff"`, so the
+        prose is the hand-off and nothing else — appending the note to it would
+        ship the promise AND its retraction in one message."""
+        update = _finalize_answer(
+            AIMessage(content="Dafür starte ich eine Tiefenrecherche zu den Brandschutzanforderungen."),
+            _signals(answer_is_handoff=True),
+            deep_research_allowed=False,
+        )
+
+        assert update["messages"][0].content == DEEP_RESEARCH_UNAVAILABLE_NOTE
+        assert "Tiefenrecherche zu den Brandschutz" not in update["messages"][0].content
+        assert update["escalate_to_deep"] is False
+
+    def test_an_empty_hand_off_becomes_the_note(self):
+        """The same case taken to its limit: a hand-off with nothing in it."""
         update = _finalize_answer(AIMessage(content="   "), _signals(), deep_research_allowed=False)
 
         assert update["escalate_to_deep"] is False
@@ -149,10 +168,55 @@ class TestEndToEnd:
     @pytest.mark.asyncio
     async def test_the_flag_still_reaches_deep_research(self, deep_fn):
         seen: dict = {}
-        result = await self._run(
-            self._research_asking_to_escalate("Partial.", seen), deep_fn, "gate-2", allowed=True
-        )
+        result = await self._run(self._research_asking_to_escalate("Partial.", seen), deep_fn, "gate-2", allowed=True)
 
         assert deep_fn.ran is True
         assert result.messages[-1].content == "Deep report."
         assert seen["deep_research_allowed"] is True
+
+
+class TestCommissionRefusal:
+    """A refused commission must not be answered by doing it anyway."""
+
+    @staticmethod
+    def _graph(refusal: CommissionRefused, deep_fn):
+        async def commission(_state):
+            raise refusal
+
+        return ConversationGraph(
+            research_fn=_unused_research,
+            deep_research_fn=deep_fn,
+            clarifier_fn=None,
+            commission_run_fn=commission,
+        )
+
+    @pytest.fixture
+    def deep_fn(self):
+        async def deep(state):
+            deep.ran = True
+            return DeepResearchAgentState(messages=list(state.messages) + [AIMessage(content="Deep report.")])
+
+        deep.ran = False
+        return deep
+
+    @pytest.mark.asyncio
+    async def test_forbidden_never_falls_back_to_running_it_in_process(self, deep_fn):
+        """The bypass this closes: the route refuses the run as a capability the
+        tenant does not have, and the inline fallback ran it anyway — in
+        process, with no second check."""
+        graph = self._graph(CommissionRefused("forbidden", "not for this tenant"), deep_fn)
+
+        update = await graph._commission_run(ConversationState(messages=[HumanMessage(content="Bericht?")]))
+
+        assert deep_fn.ran is False, "a forbidden commission was answered by running deep research"
+        assert update["messages"][0].content == DEEP_RESEARCH_UNAVAILABLE_NOTE
+        assert update["routing_decision"] == "meta"
+
+    @pytest.mark.asyncio
+    async def test_a_transport_failure_still_falls_back(self, deep_fn):
+        """The fallback is kept for what it was for: no worker, not no right."""
+        graph = self._graph(CommissionRefused("unreachable", "the task API did not answer"), deep_fn)
+
+        await graph._commission_run(ConversationState(messages=[HumanMessage(content="Bericht?")]))
+
+        assert deep_fn.ran is True
