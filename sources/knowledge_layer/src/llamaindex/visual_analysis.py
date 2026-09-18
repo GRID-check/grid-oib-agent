@@ -86,12 +86,15 @@ Design decisions that are easy to get wrong later:
 from __future__ import annotations
 
 import json
+import logging
 import re
 from typing import Any
 
 from knowledge_layer.llamaindex.visual_domains import Domain
 from knowledge_layer.llamaindex.visual_domains import DomainRegistry
 from knowledge_layer.llamaindex.visual_domains import resolve_registry
+
+logger = logging.getLogger(__name__)
 
 #: Bump when the kernel schema changes shape. Part of the VLM cache identity so
 #: a schema change never serves output produced under the previous schema.
@@ -372,6 +375,11 @@ after it, and no markdown fences.
 Rules:
 - One entry in "segments" per depiction. If the image shows only one thing, \
 return exactly one segment.
+- Repeated depictions of the same kind side by side are SEPARATE segments. \
+Two floor plans next to each other are two segments, even when both are \
+"floor_plan" — never merge them into one. Give each its own title, scale, \
+summary and bbox. When in doubt whether two regions are one depiction or \
+two, split them: an extra segment is cheap, a merged one loses a drawing.
 - Choose the "domain" that fits each depiction, and take its "segment_type" and \
 its entity "category" values from THAT domain's vocabulary below. Different \
 segments of the same image may use different domains.
@@ -632,6 +640,15 @@ def parse_visual_analysis(reply: str | None, registry: DomainRegistry | None = N
     raw_segments = raw.get("segments")
     segments: list[dict[str, Any]] = []
     if isinstance(raw_segments, list):
+        if len(raw_segments) > _MAX_SEGMENTS:
+            # Said out loud rather than inferred from a short chunk list: a
+            # sheet with more depictions than the cap keeps its first twelve
+            # and silently loses the rest otherwise.
+            logger.warning(
+                "Visual analysis holds %d segments, keeping %d; excess depictions are not indexed",
+                len(raw_segments),
+                _MAX_SEGMENTS,
+            )
         for item in raw_segments[:_MAX_SEGMENTS]:
             segment = _normalise_segment(item, registry)
             if segment:
@@ -726,7 +743,12 @@ def legacy_fields(analysis: dict[str, Any]) -> dict[str, str]:
 # ---------------------------------------------------------------------------
 
 
-def render_segment_text(segment: dict[str, Any], registry: DomainRegistry | None = None) -> str:
+def render_segment_text(
+    segment: dict[str, Any],
+    registry: DomainRegistry | None = None,
+    *,
+    position: tuple[int, int] | None = None,
+) -> str:
     """Render ONE segment as structured text — the chunk body.
 
     The renderer decides what retrieval sees, so it states every populated
@@ -735,6 +757,12 @@ def render_segment_text(segment: dict[str, Any], registry: DomainRegistry | None
     own words without touching this function. The labels are English (business
     logic); the VALUES stay in the document's language, which is what a German
     query has to match.
+
+    ``position`` is the ``(n, total)`` ordinal among the sheet's segments of
+    the SAME type, set by :func:`segment_payloads` when a type repeats — two
+    floor plans side by side read "Floor plan 1 of 2" and "Floor plan 2 of 2",
+    so the chunks stay addressable even when the model gave both the same
+    title. ``None`` leaves the header untouched.
     """
     registry = registry or resolve_registry()
     domain = registry.get(segment.get("domain"))
@@ -742,6 +770,8 @@ def render_segment_text(segment: dict[str, Any], registry: DomainRegistry | None
 
     lines: list[str] = []
     header = segment["segment_type"].replace("_", " ").capitalize()
+    if position is not None:
+        header += f" {position[0]} of {position[1]}"
     if segment.get("title"):
         header += f" — {segment['title']}"
     if segment.get("scale"):
@@ -871,13 +901,28 @@ def segment_payloads(analysis: dict[str, Any], registry: DomainRegistry | None =
     The document-level text rides on the FIRST segment only — repeating the
     title block on every chunk would let a project-name query retrieve five
     near-identical chunks from one sheet.
+
+    A segment type that repeats on the sheet (two floor plans side by side)
+    carries its per-type ordinal into the header — "Floor plan 1 of 2" — so
+    the two chunks are distinguishable in retrieval even when the model gave
+    both the same title. A type that occurs once renders exactly as before.
     """
     registry = registry or resolve_registry()
     document = analysis.get("document") or {}
     segments = analysis.get("segments") or []
+    totals: dict[str, int] = {}
+    for segment in segments:
+        segment_key = str(segment.get("segment_type") or "")
+        totals[segment_key] = totals.get(segment_key, 0) + 1
+    seen: dict[str, int] = {}
     payloads: list[dict[str, Any]] = []
     for index, segment in enumerate(segments):
-        text = render_segment_text(segment, registry)
+        segment_key = str(segment.get("segment_type") or "")
+        position: tuple[int, int] | None = None
+        if totals.get(segment_key, 0) > 1:
+            seen[segment_key] = seen.get(segment_key, 0) + 1
+            position = (seen[segment_key], totals[segment_key])
+        text = render_segment_text(segment, registry, position=position)
         if index == 0:
             lead = [part for part in (document.get("summary"), render_document_text(document)) if part]
             if lead:

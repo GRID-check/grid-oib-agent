@@ -223,6 +223,15 @@ class TestJsonSchema:
         # It must stay affordable to send with every image.
         assert len(prompt) < 12000
 
+    def test_the_prompt_names_side_by_side_repeats_as_separate_segments(self, registry):
+        # Issue #440: two floor plans next to each other must be read as two
+        # segments, even though both are "floor_plan". The prompt never named
+        # that case, so a merge was the model's reasonable reading of it.
+        prompt = va.build_prompt(registry)
+        assert "side by side" in prompt
+        assert "Two floor plans" in prompt
+        assert "never merge them" in prompt
+
 
 class TestParsing:
     def test_parses_a_mixed_sheet_into_per_domain_segments(self, registry):
@@ -320,6 +329,18 @@ class TestParsing:
         )
         assert len(analysis["segments"]) == va._MAX_SEGMENTS
 
+    def test_truncating_a_runaway_reply_says_so(self, registry, caplog):
+        # Issue #437: a sheet with more depictions than the cap kept its first
+        # twelve and silently lost the rest. The cap stays; the silence goes.
+        import logging
+
+        segments = [{"domain": "general", "segment_type": "photo", "summary": f"p{i}"} for i in range(15)]
+        with caplog.at_level(logging.WARNING, logger="knowledge_layer.llamaindex.visual_analysis"):
+            analysis = va.parse_visual_analysis(_reply(segments), registry)
+        assert analysis is not None
+        assert len(analysis["segments"]) == va._MAX_SEGMENTS
+        assert any("not indexed" in record.getMessage() for record in caplog.records)
+
     def test_returns_none_when_there_is_nothing_usable(self, registry):
         for reply in (None, "", "ZEICHNUNGSTYP: schnitt", '{"segments": []}', '{"segments": "broken"'):
             assert va.parse_visual_analysis(reply, registry) is None
@@ -392,6 +413,51 @@ class TestSegmentPayloads:
         assert data["registry"] == registry.fingerprint
         assert data["segment"]["domain"] == "general"
         assert data["document"]["title"] == "Wohnbau Nord"
+
+
+def _two_floor_plans_reply() -> str:
+    """One sheet, two floor plans side by side plus a section — issue #440."""
+    return _reply(
+        [
+            {"domain": "architecture", "segment_type": "floor_plan", "title": "EG", "summary": "Erdgeschoss."},
+            {"domain": "architecture", "segment_type": "floor_plan", "title": "OG", "summary": "Obergeschoss."},
+            {"domain": "architecture", "segment_type": "section", "summary": "Schnitt."},
+        ]
+    )
+
+
+class TestRepeatedSegmentOrdinals:
+    """A repeated type stays addressable: two floor plans side by side read
+    "Floor plan 1 of 2" and "Floor plan 2 of 2", so the chunks are
+    distinguishable in retrieval even when the model gave both the same
+    title. A type that occurs once renders exactly as before."""
+
+    def test_repeated_types_carry_per_type_ordinals(self, registry):
+        payloads = va.segment_payloads(va.parse_visual_analysis(_two_floor_plans_reply(), registry), registry)
+
+        assert [p["drawing_type"] for p in payloads] == ["floor_plan", "floor_plan", "section"]
+        assert payloads[0]["text"].splitlines()[0] == "Floor plan 1 of 2 — EG"
+        assert payloads[1]["text"].splitlines()[0] == "Floor plan 2 of 2 — OG"
+        assert payloads[2]["text"].splitlines()[0] == "Section"
+        assert [p["segment_index"] for p in payloads] == [0, 1, 2]
+        assert all(p["segment_count"] == 3 for p in payloads)
+
+    def test_identical_titles_stay_distinguishable(self, registry):
+        reply = _reply(
+            [
+                {"domain": "architecture", "segment_type": "floor_plan", "title": "Grundriss", "summary": "Links."},
+                {"domain": "architecture", "segment_type": "floor_plan", "title": "Grundriss", "summary": "Rechts."},
+            ]
+        )
+        payloads = va.segment_payloads(va.parse_visual_analysis(reply, registry), registry)
+
+        headers = [p["text"].splitlines()[0] for p in payloads]
+        assert headers == ["Floor plan 1 of 2 — Grundriss", "Floor plan 2 of 2 — Grundriss"]
+
+    def test_render_without_position_is_unchanged(self, registry):
+        analysis = va.parse_visual_analysis(_two_floor_plans_reply(), registry)
+
+        assert va.render_segment_text(analysis["segments"][0], registry).splitlines()[0] == "Floor plan — EG"
 
 
 class TestLegacyFields:
