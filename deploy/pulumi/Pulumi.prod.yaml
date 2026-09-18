@@ -87,7 +87,7 @@ config:
   # dynamically from the merge commit — prod merge shas never have GHCR images;
 
   # only develop tips do.
-  grid-oib:imageTag: sha-e70a14d6180023c07c494b743c68fff4e9034c44
+  grid-oib:imageTag: sha-6013dca8ee3ce30e8b964bf3f429982f831aa771
   # ── Storage (provider CSI, NVMe/TCP) ──
 
   # Classes offered by the provider (see `kubectl get storageclass`):
@@ -291,15 +291,33 @@ config:
 
   grid-oib:requireAuth: "true"
   grid-oib:workosClientId: client_01KEF0YGXCZ6QCJGGBWD7Z266J # pragma: allowlist secret (public OAuth client id)
-  grid-oib:enforceFeatureFlags: "false"
-  # Agent Skills + Jobs (ADR-0046) stay dark in prod until they have run in
-
-  # staging. Flip to "true" to show the Skills and Jobs tabs and bring the job
-
-  # scheduler up.
+  # ON since 2026-09-18: WorkOS is this environment's control plane for
+  # features, per organization, without a redeploy. Two consequences, both
+  # deliberate — docs/deployment/workos-provisioning.md §6 has the detail.
+  #
+  #   - Every gate below that has a WorkOS half is now inert here.
+  #     `isFeatureEnabled` no longer fails open, and the dark-launch gates
+  #     (`isSkillsEnabled`, `isCollaborationEnabled`) and the default-ON gates
+  #     (`isIfcModelsEnabled`, `isAgentAuthoredDocumentsEnabled`) read the flag
+  #     rather than their env var.
+  #   - A registry flag ABSENT from WorkOS fails closed for every organization.
+  #     All 20 in `lib/authz/feature-flags.ts` exist there as of 2026-09-18, and
+  #     each is targeted to match what prod served before the flip, except the
+  #     four switched off on purpose: `deep-research`, `skills`, `task-automation`
+  #     and the already dark `project-knowledge-page`. Adding a flag to the registry without
+  #     creating it in WorkOS now ships a feature that is off everywhere and
+  #     says nothing about why.
+  grid-oib:enforceFeatureFlags: "true"
+  # Deliberately still "true" under enforcement. It no longer decides whether
+  # the Automation section is visible — the per-org `skills` flag does, and that
+  # is OFF for every organization — only whether the `skill-scheduler`
+  # Deployment exists at all (`src/app/workers.ts:206`). Keeping it up means
+  # re-enabling Automation for one organization is a WorkOS toggle rather than a
+  # redeploy, and the scheduler's own per-org flag check keeps schedules paused
+  # meanwhile.
   grid-oib:skillsEnabled: "true"
-  # Collaboration (ADR-0032…0035) stays dark in prod until it has run in staging.
-
+  # Same shape: inert under enforcement, kept "true" so the env half stays
+  # truthful if enforcement is ever lifted. `collaboration` is ON for all orgs.
   grid-oib:collaborationEnabled: "true"
   # ── Observability / OTel Collector + Aspire dashboard (ADR-0029) ──
 

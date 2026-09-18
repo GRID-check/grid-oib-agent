@@ -38,7 +38,7 @@ Cards in group 1 and group 2 render an identical silhouette — `rounded-lg bord
 
 `document_checklist`, `deadline_timeline` and `change_impact` landed in commit `67c2ee03` (2026-08-19). They are **well-built** — derived tallies, honest unknown states, no fabricated fields — and they are, at a glance, **the same card three times**: a left rail with a small round node, a 13.5px label, a 13.5px semibold second line, a status chip right-aligned, a chevron, an identical dashed-bordered disclosure panel, an identical footer.
 
-Seen in `visual/screenshots/cards-gallery.light.png`, the three stack into one undifferentiated column. Two older cards — `process_map` (ProcessMapCard.tsx:117–213) and `condition_tree` (ConditionTreeCard.tsx:123–273) — use the same silhouette, so **five cards now share one interaction shape.**
+Seen in a capture of `/dev/cards`, the three stack into one undifferentiated column. Two older cards — `process_map` (ProcessMapCard.tsx:117–213) and `condition_tree` (ConditionTreeCard.tsx:123–273) — use the same silhouette, so **five cards now share one interaction shape.**
 
 This is the charter's central evidence. The sameness is not legacy debt in old cards; it is what a competent implementer produces *today*, because the shared pattern is the path of least resistance and nothing tells them what should differ. **A charter that only fixes existing cards fixes nothing. The rules in §A are what stop the sixth card from being the same card again.**
 
@@ -455,7 +455,7 @@ All three landed in commit `67c2ee03`. **They are well-built**: derived tallies 
 
 ### B3. The schematics — honest judgement
 
-**Eleven are genuinely good and need nothing but the shell and token pass.** Saying so plainly is part of the job; manufacturing work here would cost the schematics the quality they already have. Verified by reading the code and by looking at `visual/screenshots/cards-gallery.{light,dark}.png` and `.mobile.*`.
+**Eleven are genuinely good and need nothing but the shell and token pass.** Saying so plainly is part of the job; manufacturing work here would cost the schematics the quality they already have. Verified by reading the code and by looking at `/dev/cards` in both themes, desktop and mobile.
 
 | Card | Verdict | Raise | Effort |
 |---|---|---|---|
@@ -487,7 +487,7 @@ Axis: **(visual poverty today) × (how often the model emits it)**. Frequency is
 
 > **Since this was written:** `follow_ups` is retired — the model emits none, and the post-answer STAGE produces the questions instead, rendered below the answer rather than inside it (`docs/architecture/post-answer-stages.md` §7.10). The ranking below is left as the record of a decision already taken and shipped; `FollowUpsCard.tsx` still draws every stored card and the rail, so §B1's flat register is still what a reader sees. a schematic fires only when the question names its geometry; IFC cards fire only with a model loaded.
 
-Poverty was assessed by reading the JSX **and by looking at the captured gallery** (`visual/screenshots/cards-gallery.{light,dark}.png`, desktop and mobile) — the three-newest-cards finding in §0.2 came from looking, not from reading.
+Poverty was assessed by reading the JSX **and by looking at the rendered gallery** (`/dev/cards` in both themes, desktop and mobile) — the three-newest-cards finding in §0.2 came from looking, not from reading.
 
 | # | Card | Why here | Effort |
 |---|---|---|---|
@@ -569,7 +569,7 @@ A charting library would import a visual language that is not this one, arriving
 Two families exist. Sans is prose. **Mono means "a number or an identifier you could go and check"** — which is why it appears on § references, measured values and tolerance bands and on nothing else. Spending it on a heading costs the product its one typographic signal.
 
 **12. Do not claim CI will catch it.**
-There is no visual-regression diffing, no render-time budget and no bundle-size budget (§0.5.6, §0.5.7), and only six `jsx-a11y` rules (§0.5.9). A card is verified by a human looking at `npm run screenshots` output in both themes at both widths, and by hand-written `getByRole` assertions for anything keyboard-operable. **Write the assertions; nothing else will.**
+There is no visual-regression diffing, no render-time budget and no bundle-size budget (§0.5.6, §0.5.7), and only six `jsx-a11y` rules (§0.5.9). A card is verified by a human looking at a capture of `/dev/cards` in both themes at both widths, and by hand-written `getByRole` assertions for anything keyboard-operable. **Write the assertions; nothing else will.**
 
 ---
 

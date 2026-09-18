@@ -1,5 +1,5 @@
 lockfile_version: '1'
-generated_at: '2026-09-10T15:14:32.658046+00:00'
+generated_at: '2026-09-17T15:49:04.461395+00:00'
 apm_version: 0.28.0
 dependencies:
 - repo_url: _local/aiq-add-data-source
@@ -82,8 +82,8 @@ dependencies:
   - .claude/skills/aiq-definition-of-done
   - .claude/skills/aiq-definition-of-done/SKILL.md
   deployed_file_hashes:
-    .agents/skills/aiq-definition-of-done/SKILL.md: sha256:2722398bcbfa1a20f219fa975dfc0349ebe0f19edece4d6353c14fe465600013
-    .claude/skills/aiq-definition-of-done/SKILL.md: sha256:2722398bcbfa1a20f219fa975dfc0349ebe0f19edece4d6353c14fe465600013
+    .agents/skills/aiq-definition-of-done/SKILL.md: sha256:ba0131e5aeae980f927f88d6133e2c1a0f7e22027a0dccf831608f24f21d317b
+    .claude/skills/aiq-definition-of-done/SKILL.md: sha256:ba0131e5aeae980f927f88d6133e2c1a0f7e22027a0dccf831608f24f21d317b
   source: local
   local_path: ./skills/aiq-definition-of-done
 - repo_url: _local/aiq-deploy
@@ -622,7 +622,65 @@ dependencies:
     .claude/skills/writing-for-agents/SKILL.md: sha256:551adca942227b44192edba88acd4e8db911f0121ce58ad16944ccf6a896a74a
     .claude/skills/writing-for-agents/agents/openai.yaml: sha256:eacb24b2a618cfb81dacb0416f4fdd75ddf3a8060f8ddb99aae1b1e301907e4b
   content_hash: sha256:8365ebe1d0c343d3d46970526f30fcf7c5e0c5e49fd39a3c882977024626ff3c
+- repo_url: vercel-labs/agent-browser
+  name: agent-browser
+  host: github.com
+  resolved_commit: aff6125c023b810ea3f2e5deec5379e9a4270bdc
+  resolved_ref: aff6125c023b810ea3f2e5deec5379e9a4270bdc
+  version: unknown
+  virtual_path: skills/agent-browser
+  is_virtual: true
+  package_type: claude_skill
+  deployed_files:
+  - .agents/skills/agent-browser
+  - .agents/skills/agent-browser/SKILL.md
+  - .claude/skills/agent-browser
+  - .claude/skills/agent-browser/SKILL.md
+  deployed_file_hashes:
+    .agents/skills/agent-browser/SKILL.md: sha256:3a7520e64de2dfaa516b6721c001e84e06e3c06a187b82af029ae721540ebfac
+    .claude/skills/agent-browser/SKILL.md: sha256:3a7520e64de2dfaa516b6721c001e84e06e3c06a187b82af029ae721540ebfac
+  content_hash: sha256:dd491d53824ad9286ec950aee667098446332429a6d41fe28b4ba11f1959264c
+- repo_url: vercel-labs/before-and-after
+  name: before-and-after
+  host: github.com
+  resolved_commit: 8306d34f459b6704e08e6adb5829fcddb0dc3557
+  resolved_ref: 8306d34f459b6704e08e6adb5829fcddb0dc3557
+  version: unknown
+  virtual_path: skill
+  is_virtual: true
+  package_type: claude_skill
+  deployed_files:
+  - .agents/skills/skill
+  - .agents/skills/skill/SKILL.md
+  - .agents/skills/skill/scripts/format.mjs
+  - .claude/skills/skill
+  - .claude/skills/skill/SKILL.md
+  - .claude/skills/skill/scripts/format.mjs
+  deployed_file_hashes:
+    .agents/skills/skill/SKILL.md: sha256:324c12c490fbf13d098c2204487d75302e8aa55b578986019ac1c02d5c3e0d1c
+    .agents/skills/skill/scripts/format.mjs: sha256:573f4c0e66e4d7010fdcd928dcca10915460a17e4df489d443be0812477dba59
+    .claude/skills/skill/SKILL.md: sha256:324c12c490fbf13d098c2204487d75302e8aa55b578986019ac1c02d5c3e0d1c
+    .claude/skills/skill/scripts/format.mjs: sha256:573f4c0e66e4d7010fdcd928dcca10915460a17e4df489d443be0812477dba59
+  content_hash: sha256:9d5d920c2c911797fec38b46cfccf268b4c4988a0ac065fa51d9f7b3bd3c6863
 deployments:
+- kind: project-relative
+  target: agent-skills
+  value: .agents/skills/agent-browser
+  runtime: null
+  scope: project
+  owners:
+  - vercel-labs/agent-browser/skills/agent-browser
+  active_owner: vercel-labs/agent-browser/skills/agent-browser
+  content_hash: null
+- kind: project-relative
+  target: agent-skills
+  value: .agents/skills/agent-browser/SKILL.md
+  runtime: null
+  scope: project
+  owners:
+  - vercel-labs/agent-browser/skills/agent-browser
+  active_owner: vercel-labs/agent-browser/skills/agent-browser
+  content_hash: sha256:3a7520e64de2dfaa516b6721c001e84e06e3c06a187b82af029ae721540ebfac
 - kind: project-relative
   target: agent-skills
   value: .agents/skills/aiq-add-data-source
@@ -757,7 +815,7 @@ deployments:
   owners:
   - ./skills/aiq-definition-of-done
   active_owner: ./skills/aiq-definition-of-done
-  content_hash: sha256:2722398bcbfa1a20f219fa975dfc0349ebe0f19edece4d6353c14fe465600013
+  content_hash: sha256:ba0131e5aeae980f927f88d6133e2c1a0f7e22027a0dccf831608f24f21d317b
 - kind: project-relative
   target: agent-skills
   value: .agents/skills/aiq-deploy
@@ -1381,6 +1439,33 @@ deployments:
   content_hash: sha256:6b359783c5c9be87860d0999321e864940ff17729b9f9a27f38abae449640022
 - kind: project-relative
   target: agent-skills
+  value: .agents/skills/skill
+  runtime: null
+  scope: project
+  owners:
+  - vercel-labs/before-and-after/skill
+  active_owner: vercel-labs/before-and-after/skill
+  content_hash: null
+- kind: project-relative
+  target: agent-skills
+  value: .agents/skills/skill/SKILL.md
+  runtime: null
+  scope: project
+  owners:
+  - vercel-labs/before-and-after/skill
+  active_owner: vercel-labs/before-and-after/skill
+  content_hash: sha256:324c12c490fbf13d098c2204487d75302e8aa55b578986019ac1c02d5c3e0d1c
+- kind: project-relative
+  target: agent-skills
+  value: .agents/skills/skill/scripts/format.mjs
+  runtime: null
+  scope: project
+  owners:
+  - vercel-labs/before-and-after/skill
+  active_owner: vercel-labs/before-and-after/skill
+  content_hash: sha256:573f4c0e66e4d7010fdcd928dcca10915460a17e4df489d443be0812477dba59
+- kind: project-relative
+  target: agent-skills
   value: .agents/skills/technical-writing
   runtime: null
   scope: project
@@ -1606,6 +1691,24 @@ deployments:
   content_hash: sha256:eacb24b2a618cfb81dacb0416f4fdd75ddf3a8060f8ddb99aae1b1e301907e4b
 - kind: project-relative
   target: claude
+  value: .claude/skills/agent-browser
+  runtime: null
+  scope: project
+  owners:
+  - vercel-labs/agent-browser/skills/agent-browser
+  active_owner: vercel-labs/agent-browser/skills/agent-browser
+  content_hash: null
+- kind: project-relative
+  target: claude
+  value: .claude/skills/agent-browser/SKILL.md
+  runtime: null
+  scope: project
+  owners:
+  - vercel-labs/agent-browser/skills/agent-browser
+  active_owner: vercel-labs/agent-browser/skills/agent-browser
+  content_hash: sha256:3a7520e64de2dfaa516b6721c001e84e06e3c06a187b82af029ae721540ebfac
+- kind: project-relative
+  target: claude
   value: .claude/skills/aiq-add-data-source
   runtime: null
   scope: project
@@ -1738,7 +1841,7 @@ deployments:
   owners:
   - ./skills/aiq-definition-of-done
   active_owner: ./skills/aiq-definition-of-done
-  content_hash: sha256:2722398bcbfa1a20f219fa975dfc0349ebe0f19edece4d6353c14fe465600013
+  content_hash: sha256:ba0131e5aeae980f927f88d6133e2c1a0f7e22027a0dccf831608f24f21d317b
 - kind: project-relative
   target: claude
   value: .claude/skills/aiq-deploy
@@ -2360,6 +2463,33 @@ deployments:
   - cursor/plugins/pstack/skills/principle-model-the-domain
   active_owner: cursor/plugins/pstack/skills/principle-model-the-domain
   content_hash: sha256:6b359783c5c9be87860d0999321e864940ff17729b9f9a27f38abae449640022
+- kind: project-relative
+  target: claude
+  value: .claude/skills/skill
+  runtime: null
+  scope: project
+  owners:
+  - vercel-labs/before-and-after/skill
+  active_owner: vercel-labs/before-and-after/skill
+  content_hash: null
+- kind: project-relative
+  target: claude
+  value: .claude/skills/skill/SKILL.md
+  runtime: null
+  scope: project
+  owners:
+  - vercel-labs/before-and-after/skill
+  active_owner: vercel-labs/before-and-after/skill
+  content_hash: sha256:324c12c490fbf13d098c2204487d75302e8aa55b578986019ac1c02d5c3e0d1c
+- kind: project-relative
+  target: claude
+  value: .claude/skills/skill/scripts/format.mjs
+  runtime: null
+  scope: project
+  owners:
+  - vercel-labs/before-and-after/skill
+  active_owner: vercel-labs/before-and-after/skill
+  content_hash: sha256:573f4c0e66e4d7010fdcd928dcca10915460a17e4df489d443be0812477dba59
 - kind: project-relative
   target: claude
   value: .claude/skills/technical-writing

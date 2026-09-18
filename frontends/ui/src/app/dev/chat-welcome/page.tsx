@@ -4,8 +4,7 @@
  * Chat welcome-state dev preview: the authenticated empty canvas as a user
  * actually meets it — the REAL `ChatArea` welcome state AND the REAL composer
  * beneath it, rendered backend-free so the surface can be reviewed and
- * screenshotted at desktop + mobile (visual/registry.mjs → `chat-welcome`) in
- * light + dark.
+ * screenshotted at desktop + mobile, in light + dark.
  *
  * The composer is the reason this route exists in this shape. It used to render
  * `ChatArea` alone, which was enough while the canvas was a greeting, a subtitle

@@ -180,6 +180,7 @@ def assemble_result(
         "answer_citation_fallback_used": final.citation_fallback_used,
         "answer_quotes_verified": final.quotes_verified,
         "escalation_requested": final.escalation_requested,
+        "answer_is_handoff": final.answer_is_handoff,
         "answer_confidence_marker": final.confidence_marker,
         "answer_confidence_marker_reason": final.confidence_marker_reason,
         "answer_escalation_reason": final.escalation_reason,

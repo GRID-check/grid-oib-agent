@@ -140,7 +140,7 @@ documented `text-xl` title-size question becomes a single knob.
   failures below were invisible to it.
 - **[done] M · The three mobile failures a size audit cannot see** — a second
   pass over the customer-facing surfaces (chat, projects, Archiv, Postfach,
-  files; not Plattform) at 390×844, with `visual/touch-audit.mjs` — the harness
+  files; not Plattform) at 390×844, with `visual/touch-audit.mjs` (since deleted) — the harness
   that pass produced, and the reason the numbers here are measured rather than
   read off the markup.
 
@@ -174,7 +174,7 @@ documented `text-xl` title-size question becomes a single knob.
 
   Ratcheted by `frontends/ui/src/components/ui/mobile-affordances.spec.ts` (hover reveals need
   a touch escape; hand-written fields need the 16px floor; the shared molecules
-  declare their `enterKeyHint`) and by `task fe:touch-audit`, which is the
+  declare their `enterKeyHint`) and by `task fe:touch-audit` (since deleted), which was the
   measurement half and is deliberately not in `verify`.
 - **[done] M · The Herleitung ate the scroll** — reported from a phone, and the
   worst of the lot: a drag anywhere on the reasoning graph moved nothing, so the

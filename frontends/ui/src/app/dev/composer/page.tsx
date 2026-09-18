@@ -6,7 +6,7 @@
  * AppConfig satisfies `useAppConfig`. It renders the empty-thread state (source
  * preset chips under the field) at desktop + mobile widths so the composer — the
  * counterpart to the answer card — can be reviewed and screenshotted
- * (visual/registry.mjs → `composer`) in light + dark. Not linked anywhere and
+ * in light + dark. Not linked anywhere and
  * 404s outside development.
  *
  * The third block is the READ-ONLY composer a viewer of a shared thread gets. It

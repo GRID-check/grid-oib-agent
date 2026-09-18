@@ -61,6 +61,30 @@ class ResearchAgentState(BaseModel):
     #: inventory block can say a file is coming, rather than letting a
     #: just-attached plan look exactly like a file that does not exist.
     in_flight_documents: list[str] | None = None
+    #: Whether this tenant may be offered a deep-research hand-off. Read by the
+    #: prompt renderer, which tells the model so in one line: a capability the
+    #: model is told about is one it can decline out loud, where an absent one
+    #: is a promise it makes and something downstream breaks — the same argument
+    #: `TurnConfig.disabled_sources` makes about refusing a tool call rather
+    #: than unbinding the tool.
+    #:
+    #: It varies per ORG, so the line it renders sits below the KV-cache
+    #: boundary with the other per-tenant blocks; it is one sentence, and the
+    #: alternative (narrowing the static contract per tenant) would shard the
+    #: prompt cache on a workload that is ~99 % input tokens.
+    deep_research_allowed: bool = True
+    #: Whether this tenant may have work handed over (`create_task`). Read by
+    #: the prompt renderer for the same reason and in the same shape as the
+    #: field above: the tool stays BOUND and the call is refused at the BFF, so
+    #: the tool payload — and the prompt-cache shard keyed on it — is identical
+    #: for every tenant. What changes per org is one sentence of prose.
+    tasks_allowed: bool = True
+    #: The answer envelope declared ``kind: "handoff"``: the prose is the
+    #: hand-off sentence, not an answer. Read only when an escalation is
+    #: REFUSED, to decide whether the unavailability note replaces the content
+    #: or is appended to it. It is the envelope's own word, because the two
+    #: escalating shapes are indistinguishable from the prose alone.
+    answer_is_handoff: bool = False
     collection_name: str | None = None
     #: Tool-calling ROUNDS this turn has spent — LLM decisions that emitted tool
     #: calls — against ``max_tool_iterations``. The NAME says iterations and is

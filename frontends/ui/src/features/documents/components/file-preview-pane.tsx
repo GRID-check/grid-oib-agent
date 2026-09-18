@@ -167,6 +167,12 @@ interface VisualDetail {
   text: string
   /** Which drawing on the sheet — a sheet is indexed one chunk per drawing. */
   segment?: number
+  /**
+   * How many drawings share this chunk's sheet. Optional because chunks
+   * indexed before per-segment chunking recorded it carry none; absent reads
+   * as a single depiction and renders no position.
+   */
+  segmentCount?: number
   /** The structured analysis behind the description; absent on older chunks. */
   structured?: DrawingStructured | null
 }
@@ -1142,6 +1148,17 @@ export function FilePreviewPane({
                                 <span>{t('preview.visualDetails.page', { page: d.page })}</span>
                                 {d.drawingType && (
                                   <span className="text-muted-foreground">· {d.drawingType}</span>
+                                )}
+                                {/* Which of the sheet's depictions this row is.
+                                    Language-neutral by construction (`2/3` needs
+                                    no dictionary): a sheet carrying two floor
+                                    plans side by side indexes as two rows, and
+                                    without the position they read as one
+                                    drawing stated twice. */}
+                                {d.segmentCount != null && d.segmentCount > 1 && (
+                                  <span className="text-muted-foreground tabular-nums">
+                                    · {(d.segment ?? 0) + 1}/{d.segmentCount}
+                                  </span>
                                 )}
                                 {d.scale && d.scale.toLowerCase() !== 'unbekannt' && (
                                   <span className="text-muted-foreground">

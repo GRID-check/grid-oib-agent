@@ -75,6 +75,46 @@ dependencies:
     - cursor/plugins/pstack/skills/interrogate#bdf7aa355337897f167153e05069aca505dae17c
     - cursor/plugins/pstack/skills/blast-radius#bdf7aa355337897f167153e05069aca505dae17c
     - cursor/plugins/pstack/skills/principle-model-the-domain#bdf7aa355337897f167153e05069aca505dae17c
+
+    # UI evidence. These two replace the `frontends/ui/visual/` harness: one
+    # drives a real browser, the other puts what it captured in the PR.
+    #
+    # `agent-browser` is a native CLI, NOT an npm library the repo imports — it
+    # is installed per machine (`npm i -g agent-browser && agent-browser
+    # install`), and the skill is the instruction sheet for it. Its `--full`,
+    # `set viewport`, `set media dark` and `eval` cover what `capture.mjs` did
+    # per target, and `skills get core --full` carries the version-matched
+    # command reference, so this pin ages with the CLI rather than against it.
+    #
+    # `before-and-after` owns only the GitHub half: it formats media into one
+    # marked block and publishes it with `gh --attach` (GitHub CLI 2.99+). That
+    # is the whole reason the PNGs stop being committed — the evidence lands in
+    # the PR body, where a reviewer already is, instead of in everyone's clone.
+    # It does not capture anything itself; it expects agent-browser above.
+    # KNOWN WART, deliberately accepted: `before-and-after` ships its skill in a
+    # directory called `skill/`, and apm names a deployed skill after that
+    # DIRECTORY rather than the `name:` in its frontmatter, so it lands at
+    # `.claude/skills/skill/` and harnesses offer it as "skill".
+    #
+    # The object form below takes an `alias:` that fixes the directory (`name:`
+    # is rejected outright), and it is NOT used here because `apm install` and
+    # `apm audit` disagree about it: install honours the alias, the audit replay
+    # ignores it, and `task agents:audit` then reports permanent drift — four
+    # files orphaned, four unintegrated — on every run, red forever. Confirmed
+    # on 0.28.0 and still true on 0.31.0. It is the same install-vs-replay
+    # divergence the `targets:` block above is pinned for.
+    #
+    #   - git: vercel-labs/before-and-after
+    #     path: skill
+    #     ref: 8306d34f459b6704e08e6adb5829fcddb0dc3557
+    #     alias: before-and-after
+    #
+    # A working gate beats a tidy name, so the string form stays until apm
+    # teaches its audit replay about aliases. The skill still TRIGGERS correctly
+    # — matching is on the frontmatter description, not the directory — so what
+    # the wart costs is the name you would type to invoke it by hand.
+    - vercel-labs/agent-browser/skills/agent-browser#aff6125c023b810ea3f2e5deec5379e9a4270bdc
+    - vercel-labs/before-and-after/skill#8306d34f459b6704e08e6adb5829fcddb0dc3557
   mcp: []
 
 includes: auto

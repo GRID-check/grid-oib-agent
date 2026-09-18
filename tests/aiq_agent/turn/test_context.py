@@ -10,6 +10,7 @@ import pytest
 
 from aiq_agent.project_context import GridRequestContext
 from aiq_agent.stages import TurnFacts
+from aiq_agent.stages.flags import TurnFlags
 from aiq_agent.turn import context as context_mod
 from aiq_agent.turn.context import load_turn_context
 from aiq_agent.turn.context import thread_id_for_turn
@@ -24,7 +25,13 @@ def _request(**fields) -> GridRequestContext:
 @pytest.fixture
 def stubs(monkeypatch):
     """The three round-trips, replaced by stubs a test can shape."""
-    calls: dict[str, object] = {"lessons": "LESSONS", "digest": "LIVE", "stages": frozenset({"follow_ups"})}
+    calls: dict[str, object] = {
+        "lessons": "LESSONS",
+        "digest": "LIVE",
+        "stages": frozenset({"follow_ups"}),
+        "deep_research_allowed": True,
+        "tasks_allowed": True,
+    }
 
     def lessons(_conversation_id):
         return calls["lessons"]
@@ -36,13 +43,17 @@ def stubs(monkeypatch):
             raise value
         return value
 
-    async def stages(*, organization_id, memory_reflection_enabled):
+    async def turn_flags(*, organization_id, memory_reflection_enabled):
         calls["stages_args"] = (organization_id, memory_reflection_enabled)
-        return calls["stages"]
+        return TurnFlags(
+            enabled_stages=calls["stages"],
+            deep_research_allowed=calls["deep_research_allowed"],
+            tasks_allowed=calls["tasks_allowed"],
+        )
 
     monkeypatch.setattr(context_mod, "get_platform_lessons_digest", lessons)
     monkeypatch.setattr(context_mod, "fetch_memory_digest", digest)
-    monkeypatch.setattr(context_mod, "resolve_enabled_stages", stages)
+    monkeypatch.setattr(context_mod, "resolve_turn_flags", turn_flags)
     monkeypatch.setattr(context_mod, "get_user_message_id_from_context", lambda: "msg-1")
     return calls
 
@@ -112,12 +123,67 @@ class TestLoadTurnContext:
         assert "digest_args" not in stubs
         assert context.project_context == "FROZEN"
 
-    async def test_stage_flags_are_not_resolved_when_no_stage_has_a_model(self, stubs):
+    async def test_no_stage_has_a_model_but_the_capability_half_is_still_resolved(self, stubs):
+        """The round-trip used to be skipped here, when its only answer was the
+        stage set. It now also carries whether deep research may be OFFERED,
+        which is per-org and decides something on every turn — so the call is
+        made and only the stage half is discarded."""
+        stubs["deep_research_allowed"] = False
+
         context = await load_turn_context(
             _request(organization_id="org"), conversation_id="c1", query_text="q", resolve_stages=False
         )
+
+        assert stubs["stages_args"] == ("org", False)
+        assert context.stage_facts.enabled_stages == frozenset()
+        assert context.deep_research_allowed is False
+
+    async def test_no_organization_resolves_nothing_and_keeps_the_permissive_defaults(self, stubs):
+        """Without a tenant there is nothing to evaluate against: the BFF would
+        answer with the same defaults, so the turn does not pay for the ask."""
+        context = await load_turn_context(
+            _request(project_id="p1"), conversation_id="c1", query_text="q", resolve_stages=True
+        )
+
         assert "stages_args" not in stubs
         assert context.stage_facts.enabled_stages == frozenset()
+        assert context.deep_research_allowed is True
+
+    async def test_a_withdrawn_flag_reaches_the_turn(self, stubs):
+        stubs["deep_research_allowed"] = False
+
+        context = await load_turn_context(
+            _request(organization_id="org"), conversation_id="c1", query_text="q", resolve_stages=True
+        )
+
+        assert context.deep_research_allowed is False
+
+    async def test_the_two_capabilities_are_withdrawn_independently(self, stubs):
+        """Skills stay in chat and tasks do not: the product asked for exactly
+        this split, so the two flags must not collapse into one."""
+        stubs["tasks_allowed"] = False
+
+        context = await load_turn_context(
+            _request(organization_id="org"), conversation_id="c1", query_text="q", resolve_stages=True
+        )
+
+        assert context.tasks_allowed is False
+        assert context.deep_research_allowed is True
+
+    async def test_a_failed_context_load_leaves_deep_research_allowed(self, stubs):
+        """The whole-context fail-open must not withdraw a capability: a dead
+        branch costs the live context, never the reader's deep research."""
+        stubs["digest"] = TypeError("a bug, not a transport failure")
+
+        context = await load_turn_context(
+            _request(project_id="p1", organization_id="org"),
+            conversation_id="c1",
+            query_text="q",
+            resolve_stages=True,
+        )
+
+        assert context.project_context is None
+        assert context.deep_research_allowed is True
 
     async def test_the_three_round_trips_overlap(self, monkeypatch):
         """Gathered, not sequential: three 50 ms waits take ~50 ms, not ~150."""
@@ -128,15 +194,22 @@ class TestLoadTurnContext:
         def slow_digest(**_kw):
             time.sleep(0.05)
 
-        async def slow_stages(**_kw):
+        async def slow_flags(**_kw):
             await asyncio.sleep(0.05)
-            return frozenset()
+            return TurnFlags(enabled_stages=frozenset())
 
         monkeypatch.setattr(context_mod, "get_platform_lessons_digest", slow_lessons)
         monkeypatch.setattr(context_mod, "fetch_memory_digest", slow_digest)
-        monkeypatch.setattr(context_mod, "resolve_enabled_stages", slow_stages)
+        monkeypatch.setattr(context_mod, "resolve_turn_flags", slow_flags)
         started = time.perf_counter()
-        await load_turn_context(_request(project_id="p1"), conversation_id="c1", query_text="q", resolve_stages=True)
+        # An organization, so the flag round-trip actually runs and there are
+        # three waits to overlap rather than two.
+        await load_turn_context(
+            _request(project_id="p1", organization_id="org"),
+            conversation_id="c1",
+            query_text="q",
+            resolve_stages=True,
+        )
         assert time.perf_counter() - started < 0.12
 
 

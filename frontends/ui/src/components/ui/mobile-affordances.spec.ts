@@ -8,9 +8,11 @@
  * Herleitung, the disclosure under a card. None of them was reachable by a
  * spec that reads the primitives, so none of them was ever checked.
  *
- * Pixels still belong to the browser — `visual/touch-audit.mjs` measures those,
- * and it is what produced the numbers in this pass. What can be held HERE is the
- * two failure modes that are visible in the source and invisible on a desktop:
+ * Pixels still belong to the browser. The audit that measured them
+ * (`visual/touch-audit.mjs`) produced the numbers in this pass and has since
+ * been deleted with the screenshot harness, so this spec is now the whole
+ * automated claim. What can be held HERE is the two failure modes that are
+ * visible in the source and invisible on a desktop:
  *
  *  1. A control revealed by hover, with no other way in. On a mouse it is a
  *     tasteful reveal; on a phone there is no hover event to spend, so the

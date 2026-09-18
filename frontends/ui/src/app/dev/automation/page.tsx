@@ -2,7 +2,7 @@
 
 /**
  * Dev preview for the merged Automation section — Tasks and Skills as tabs
- * inside one project section (visual/registry.mjs → `automation-panel`). Not
+ * inside one project section. Not
  * linked anywhere and 404s outside development.
  *
  * The two panels have their own richer previews (`/dev/task-list`,

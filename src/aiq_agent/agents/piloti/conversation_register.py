@@ -237,6 +237,8 @@ def _turn_state(
         project_context=context.project_context,
         platform_lessons=context.platform_lessons,
         org_instructions=context.org_instructions,
+        deep_research_allowed=context.deep_research_allowed,
+        tasks_allowed=context.tasks_allowed,
     )
 
 

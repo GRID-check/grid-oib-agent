@@ -109,6 +109,6 @@ bit denser.
 ## Visual evidence
 
 `/dev/projects-home` renders the real `ProjectsGrid` over fixture data at nine
-projects (`?variant=fresh` for a viewer with no activity anywhere), and
-`visual/registry.mjs` captures both. Screenshots land in
-`visual/screenshots/projects-home*.png`. See `docs/ux/visual-screenshots.md`.
+projects (`?variant=fresh` for a viewer with no activity anywhere). Capture both
+and attach them to the PR that changes either — see
+`docs/ux/visual-screenshots.md`.

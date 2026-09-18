@@ -202,5 +202,4 @@ subject. The pill says how long the work took, not how long the reader took.
 the thread sees it, and `?variant=motion` walks a real ledger frame by frame
 through the same fold helpers production uses, so the choreography can be watched
 rather than argued about. `/dev/task-detail` is the block inside the Aufträge
-drawer and `?state=legacy` is the drawer with no run to read. All are captured in
-`visual/screenshots/`.
+drawer and `?state=legacy` is the drawer with no run to read.

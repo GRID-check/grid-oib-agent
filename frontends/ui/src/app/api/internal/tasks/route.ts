@@ -32,8 +32,12 @@
  * loop ADR-0051 exists to open.
  */
 
-import { ConflictError } from '@/lib/api/errors'
+import { ConflictError, ForbiddenError } from '@/lib/api/errors'
 import { internalApiRoute, parseJsonBody } from '@/lib/api/handler'
+import {
+  isDeepResearchEnabledForOrg,
+  isTaskAutomationEnabledForOrg,
+} from '@/lib/workos/feature-flags'
 import {
   requireEnvelopeProject,
   requirePinnedSession,
@@ -54,6 +58,30 @@ export const POST = internalApiRoute(
     // replayed envelope pointed at a second project would be work nobody asked
     // for, attributed to somebody who did not ask for it.
     requireEnvelopeProject(context, body.projectId)
+
+    // The capability gate, and the reason it is HERE rather than only on the
+    // session route: this is the door the AGENT comes through. It arrives with a
+    // signed envelope and no session, so `requireFeature` cannot see it — which
+    // is how a tenant could have the Automation section hidden and still get
+    // work queued by asking for it in chat.
+    //
+    // Both ops, because they withdraw different things. `research` is the same
+    // capability `POST /api/jobs/async/submit` gates, reached by another path; a
+    // delegated task is `task-automation`. The message is German and a full
+    // sentence on purpose: `create_task` relays the envelope's `error` verbatim
+    // to the model, which relays it to the reader.
+    const allowed =
+      body.op === 'research'
+        ? await isDeepResearchEnabledForOrg(context.organizationId)
+        : await isTaskAutomationEnabledForOrg(context.organizationId)
+    if (!allowed) {
+      throw new ForbiddenError(
+        body.op === 'research'
+          ? 'Eine Tiefenrecherche steht in diesem Arbeitsbereich nicht zur Verfügung.'
+          : 'Aufträge und Zeitpläne stehen in diesem Arbeitsbereich nicht zur Verfügung. ' +
+            'Die Frage lässt sich nur direkt im Chat beantworten.',
+      )
+    }
 
     if (body.op === 'research') {
       // A run is one message in the THREAD that commissioned it. An escalation

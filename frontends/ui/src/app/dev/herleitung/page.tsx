@@ -3,7 +3,7 @@
 /**
  * Herleitung dev preview: renders the REAL ChatThinking (reasoning trace)
  * expanded, with fixture steps/sources/citations, so the redesigned graph can be
- * reviewed and screenshotted (visual/registry.mjs → `herleitung`). Not linked
+ * reviewed and screenshotted. Not linked
  * anywhere and 404s outside development.
  *
  * The desktop instance is wrapped in the SAME `w-[680px] max-w-full` box the

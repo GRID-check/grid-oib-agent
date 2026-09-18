@@ -40,6 +40,7 @@ import {
 import { ALLOWED_TAGS } from './tag-vocabulary'
 import { contentDigest } from './content-digest'
 import { documentStatusFacts } from './document-status'
+import { IN_FLIGHT_DOCUMENT_STATUSES } from './document-status'
 import { documentNameKey } from './name-match'
 import { normalizeDrawingStructured, type DrawingStructured } from './drawing-structured'
 import { getFileUploadConfigFromEnv } from '@/shared/config/file-upload'
@@ -59,7 +60,7 @@ import { deleteAssignmentsForResource } from '@/lib/assignments/repository'
 import { purgeResourceCollaboration } from '@/lib/collaboration/cleanup'
 import type { AuthorizedSession } from '@/lib/auth/types'
 import type { Document, DocumentAuthor } from '@/lib/db/schema'
-import { reconcileDocumentStatuses, type DocumentMetadata } from './reconcile-status'
+import { reconcileDocumentStatuses, describeBackendIngestState, type DocumentMetadata } from './reconcile-status'
 import {
   collectionDocumentsUrl,
   collectionFileRef,
@@ -77,6 +78,7 @@ import {
   markDocumentProcessing,
   setDocumentDisplayName,
   setDocumentIngestJob,
+  setDocumentReconciledStatus,
   findLiveDocumentByFilename,
   type DocumentListRow,
 } from './repository'
@@ -204,10 +206,14 @@ function contentDisposition(type: 'attachment' | 'inline', rawFilename: string):
  * upload and re-ingest paths share this so the success path (status pending +
  * jobId) and the failure path (status failed + errorMessage) stay identical.
  *
- * Best-effort: the file is already durable in SeaweedFS + Postgres. Three outcomes:
+ * Best-effort: the file is already durable in SeaweedFS + Postgres. Two outcomes:
  *   - a job id came back  → status pending  (setDocumentIngestJob)
- *   - dispatch failed     → status failed   (markDocumentIngestFailed)
- *   - ok but no job id    → status left as-is ('uploaded' on first upload)
+ *   - anything else        → status failed   (markDocumentIngestFailed)
+ *
+ * The third shape the old code allowed — OK without a job id, row left at its
+ * 'uploaded' birth status — is gone on purpose: the backend answers 202 with a
+ * `job_id` on every success, so that shape was never a quieter success, and
+ * the birth status renders as a green "Ready" the document has not earned.
  */
 /**
  * The two things only some dispatch callers know.
@@ -275,7 +281,7 @@ export async function dispatchIngest(
   folderPath: string | null = null,
   /** See {@link DispatchIngestExtras}. */
   extras: DispatchIngestExtras = {}
-): Promise<{ jobId: string | null; status: 'pending' | 'uploaded' | 'failed' }> {
+): Promise<{ jobId: string | null; status: 'pending' | 'failed' }> {
   const bucket = resolveDocumentBucket(storageBucket)
   // The backend fetches the file itself, from inside the Docker network —
   // sign with the internal-endpoint client, not the browser-facing one.
@@ -305,7 +311,6 @@ export async function dispatchIngest(
     : null
 
   let ingestJobId: string | null = null
-  let ingestFailed = false
   try {
     const ingestRes = await fetch(`${getBackendUrl()}/v1/ingest`, {
       method: 'POST',
@@ -341,26 +346,25 @@ export async function dispatchIngest(
     if (ingestRes.ok) {
       const ingestResult = await ingestRes.json()
       ingestJobId = ingestResult.job_id ?? null
-    } else {
-      ingestFailed = true
     }
   } catch {
     // Dispatch never reached the backend — the document is in SeaweedFS + DB but
     // has no ingest job, so it can never be reconciled to a truthful status.
-    ingestFailed = true
+    // `ingestJobId` stays null and the shared failed path below applies.
   }
 
   if (ingestJobId) {
     await setDocumentIngestJob(documentId, organizationId, ingestJobId)
     return { jobId: ingestJobId, status: 'pending' }
   }
-  if (ingestFailed) {
-    // Persist 'failed' so status reads stop rendering an unsearchable document
-    // as a green "Ready" (it would otherwise sit at 'uploaded' forever).
-    await markDocumentIngestFailed(documentId, organizationId, INGEST_DISPATCH_FAILED_MESSAGE)
-    return { jobId: null, status: 'failed' }
-  }
-  return { jobId: null, status: 'uploaded' }
+  // No job id, failed or not. The backend answers 202 with a `job_id` on every
+  // success (`aiq_api/routes/ingest.py`), so an OK response without one is not
+  // a quieter success — it is a response this caller does not understand, and
+  // leaving the row at its birth status ('uploaded', which the badge renders
+  // green "Ready") would promise citations for a document nothing ever
+  // indexed. Failed with retry offered is the honest state either way.
+  await markDocumentIngestFailed(documentId, organizationId, INGEST_DISPATCH_FAILED_MESSAGE)
+  return { jobId: null, status: 'failed' }
 }
 
 /**
@@ -651,8 +655,8 @@ export interface UploadDocumentResult {
   /**
    * `processing` is the IFC path: extraction runs in this process and there is
    * no backend job to report yet, but the document is genuinely being worked on
-   * — reporting `uploaded` would render a green "Ready" for a model that cannot
-   * be opened.
+   * — reporting the `uploaded` birth status would hide that work behind a
+   * terminal "Abgelegt" badge for a model that is about to become openable.
    */
   status: 'pending' | 'uploaded' | 'failed' | 'processing'
   filename: string
@@ -1265,10 +1269,49 @@ export async function reingestDocument(
 ): Promise<ReingestDocumentResult> {
   const doc = await getAccessibleDocument(session, documentId, 'write')
 
-  if (doc.status !== 'failed') {
-    throw new ConflictError('Only failed documents can be re-ingested', { status: doc.status })
-  }
   if (!doc.storageKey) throw new NotFoundError('File not available')
+
+  if (doc.status !== 'failed' && doc.status !== 'uploaded' && !IN_FLIGHT_DOCUMENT_STATUSES.has(doc.status)) {
+    throw new ConflictError('Only failed, stuck, or never-indexed documents can be re-ingested', {
+      status: doc.status,
+    })
+  }
+
+  if (doc.status !== 'failed' && doc.status !== 'uploaded') {
+    // In flight: retry only what the backend has LOST. A row can sit at
+    // `processing` forever — a backend restart wipes the in-memory job
+    // registry, a detached IFC extraction dies with the process — while the
+    // old guard answered every one of those with 409 and the user's only way
+    // out was delete + re-upload under a NEW id, breaking every citation,
+    // chat subject and assignment pointing at the old one. Retrying keeps the
+    // id, so nothing pointing at the document breaks.
+    //
+    // The check is live backend state, not a timer: a row is retryable when
+    // the backend knows neither a job nor a file for it. A job that is
+    // genuinely running refuses with 409 rather than doubling VLM work and
+    // churning the chunks citations point at.
+    const knowledge = await describeBackendIngestState({
+      metadata: doc.metadata,
+      collectionName: doc.collectionName,
+      filename: doc.filename,
+      authoredBy: doc.authoredBy,
+      publishedVersionId: doc.publishedVersionId,
+    })
+    if (knowledge.state === 'in-progress') {
+      throw new ConflictError('Ingestion is still running for this document', { status: doc.status })
+    }
+    if (knowledge.state === 'unreachable') {
+      throw new UpstreamError('The ingestion backend could not be reached, so a retry cannot be verified as safe')
+    }
+    if (knowledge.state === 'terminal') {
+      // Finished behind the row's back (no listing read reconciled it yet).
+      // Heal the row instead of re-dispatching a finished document.
+      await setDocumentReconciledStatus(doc.id, session.organizationId, knowledge.resolution)
+      throw new ConflictError(`Ingestion already ${knowledge.resolution.status} for this document`, {
+        status: knowledge.resolution.status,
+      })
+    }
+  }
 
   // The bucket the object is ACTUALLY in — `doc.storageBucket`, not the bucket
   // a new upload would go to. Both presigned URLs the dispatch mints name it:
@@ -1700,6 +1743,13 @@ export interface DocumentVisualDetail {
    */
   segment: number
   /**
+   * How many depictions share this chunk's sheet. A sheet carrying two floor
+   * plans side by side is indexed one chunk per depiction, so the preview
+   * reads this to say which of the sheet's depictions a row is. `1` for
+   * chunks indexed before per-segment chunking recorded it.
+   */
+  segmentCount: number
+  /**
    * The structured analysis behind the description — entities, compositions,
    * quantities, provenance. `null` for chunks indexed before the structured
    * schema, and for backends that do not produce one.
@@ -1749,6 +1799,7 @@ export async function getDocumentVisualDetails(
     scale: typeof d.scale === 'string' ? d.scale : '',
     text: typeof d.text === 'string' ? d.text : '',
     segment: typeof d.segment === 'number' ? d.segment : 0,
+    segmentCount: typeof d.segment_count === 'number' ? d.segment_count : 1,
     structured: normalizeDrawingStructured(d.structured),
   }))
   return { id: doc.id, details }

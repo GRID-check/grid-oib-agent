@@ -65,8 +65,8 @@ describe('when the reader flips the theme', () => {
    * STORE one, because happy-dom's `MutationObserver` is a stub that delivers
    * no attribute records at all (it has no `takeRecords`), so the observer
    * route cannot be exercised in this environment. It is exercised for real by
-   * `visual/capture.mjs`, which shoots both themes off one page load by
-   * toggling exactly this class — the dark screenshot IS that test.
+   * a screenshot run that toggles exactly this class to take both themes off
+   * one page load — the dark capture IS that test.
    */
   const flipToDark = (): void => {
     act(() => {

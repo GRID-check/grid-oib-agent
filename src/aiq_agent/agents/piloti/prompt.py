@@ -274,6 +274,17 @@ def render_system_prompt(
         # Everything else it used to say is in `write_file`, `edit_file`,
         # `file_draft` and `submit_draft` (ADR-0060 (d)).
         drafting_enabled=any(tool.get("name") == "write_file" for tool in tools_info),
+        # Per TENANT, so it renders below the KV-cache boundary with the other
+        # per-tenant blocks rather than narrowing the static contract. The
+        # envelope's `escalate_to_deep` stays in the schema either way: a field
+        # described and then refused is one the model can decline out loud,
+        # where a field removed per org is a cache shard on a workload that is
+        # ~99 % input tokens.
+        deep_research_enabled=state.deep_research_allowed,
+        # Same shape, different flag. `create_task` stays bound either way: the
+        # BFF refuses the call and returns a sentence the tool relays, so a
+        # model that asks anyway is answered rather than left guessing.
+        tasks_enabled=state.tasks_allowed,
         user_info=state.user_info,
         current_datetime=datetime.now().strftime("%Y-%m-%d"),
         available_documents=documents,

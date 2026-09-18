@@ -5,6 +5,19 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const listOrganizationFeatureFlags = vi.fn()
 
+/**
+ * The SDK returns an `AutoPaginatable`, not a plain list: `data` is the FIRST
+ * page (10 flags by default) and `autoPagination()` follows the cursor. The
+ * double mirrors both, so a reader that only maps `data` fails here instead of
+ * in production, where it silently reports every flag past the tenth as off.
+ */
+function paginated(...pages: { slug: string }[][]) {
+  return {
+    data: pages[0] ?? [],
+    autoPagination: async () => pages.flat(),
+  }
+}
+
 vi.mock('./client', () => ({
   getWorkOS: () => ({ featureFlags: { listOrganizationFeatureFlags } }),
 }))
@@ -30,13 +43,34 @@ afterEach(() => {
 
 describe('isOrgFeatureEnabled', () => {
   it('is true when the slug is among the org’s enabled flags', async () => {
-    listOrganizationFeatureFlags.mockResolvedValue({ data: [{ slug: MEMORY_REFLECTION_FLAG }, { slug: 'other' }] })
+    listOrganizationFeatureFlags.mockResolvedValue(paginated([{ slug: MEMORY_REFLECTION_FLAG }, { slug: 'other' }]))
     await expect(isOrgFeatureEnabled(MEMORY_REFLECTION_FLAG, 'org-1')).resolves.toBe(true)
     expect(listOrganizationFeatureFlags).toHaveBeenCalledWith({ organizationId: 'org-1' })
   })
 
+  it('reads past the first page, because the endpoint returns ten at a time', async () => {
+    // The defect: `data` alone is one page. Production serves an organization
+    // more than ten flags, and a reader that stops at the first page reports
+    // whatever sorts after it as OFF — silently, and per organization.
+    listOrganizationFeatureFlags.mockResolvedValue(
+      paginated(Array.from({ length: 10 }, (_, i) => ({ slug: `filler-${i}` })), [
+        { slug: MEMORY_REFLECTION_FLAG },
+      ]),
+    )
+
+    await expect(isOrgFeatureEnabled(MEMORY_REFLECTION_FLAG, 'org-1')).resolves.toBe(true)
+  })
+
+  it('asks for no explicit limit, or the SDK short-circuits to one page', async () => {
+    listOrganizationFeatureFlags.mockResolvedValue(paginated([{ slug: MEMORY_REFLECTION_FLAG }]))
+
+    await isOrgFeatureEnabled(MEMORY_REFLECTION_FLAG, 'org-1')
+
+    expect(listOrganizationFeatureFlags).toHaveBeenCalledWith({ organizationId: 'org-1' })
+  })
+
   it('is false when the slug is not enabled for the org', async () => {
-    listOrganizationFeatureFlags.mockResolvedValue({ data: [{ slug: 'other' }] })
+    listOrganizationFeatureFlags.mockResolvedValue(paginated([{ slug: 'other' }]))
     await expect(isOrgFeatureEnabled(MEMORY_REFLECTION_FLAG, 'org-1')).resolves.toBe(false)
   })
 
@@ -58,7 +92,7 @@ describe('isOrgFeatureEnabled', () => {
   })
 
   it('caches per org (no second WorkOS call within the TTL)', async () => {
-    listOrganizationFeatureFlags.mockResolvedValue({ data: [{ slug: MEMORY_REFLECTION_FLAG }] })
+    listOrganizationFeatureFlags.mockResolvedValue(paginated([{ slug: MEMORY_REFLECTION_FLAG }]))
     await isOrgFeatureEnabled(MEMORY_REFLECTION_FLAG, 'org-1')
     await isOrgFeatureEnabled(MEMORY_REFLECTION_FLAG, 'org-1')
     expect(listOrganizationFeatureFlags).toHaveBeenCalledTimes(1)
@@ -86,13 +120,13 @@ describe('isMemoryReflectionEnabled', () => {
 
   it('follows the per-org WorkOS flag when enforcement is on', async () => {
     vi.stubEnv('GRID_ENFORCE_FEATURE_FLAGS', 'true')
-    listOrganizationFeatureFlags.mockResolvedValue({ data: [{ slug: MEMORY_REFLECTION_FLAG }] })
+    listOrganizationFeatureFlags.mockResolvedValue(paginated([{ slug: MEMORY_REFLECTION_FLAG }]))
     await expect(isMemoryReflectionEnabled('org-1')).resolves.toBe(true)
   })
 
   it('fails closed when enforcement is on and the org lacks the flag', async () => {
     vi.stubEnv('GRID_ENFORCE_FEATURE_FLAGS', 'true')
-    listOrganizationFeatureFlags.mockResolvedValue({ data: [{ slug: 'other' }] })
+    listOrganizationFeatureFlags.mockResolvedValue(paginated([{ slug: 'other' }]))
     await expect(isMemoryReflectionEnabled('org-1')).resolves.toBe(false)
   })
 
@@ -112,13 +146,13 @@ describe('enabledPostAnswerStages', () => {
 
   it('lists a stage whose flag is on for the org', async () => {
     vi.stubEnv('GRID_ENFORCE_FEATURE_FLAGS', 'true')
-    listOrganizationFeatureFlags.mockResolvedValue({ data: [{ slug: MEMORY_REFLECTION_FLAG }] })
+    listOrganizationFeatureFlags.mockResolvedValue(paginated([{ slug: MEMORY_REFLECTION_FLAG }]))
     await expect(enabledPostAnswerStages('org-1')).resolves.toEqual(['memory_reflection'])
   })
 
   it('omits a stage whose flag is off — the kill switch, per turn', async () => {
     vi.stubEnv('GRID_ENFORCE_FEATURE_FLAGS', 'true')
-    listOrganizationFeatureFlags.mockResolvedValue({ data: [{ slug: 'other' }] })
+    listOrganizationFeatureFlags.mockResolvedValue(paginated([{ slug: 'other' }]))
     await expect(enabledPostAnswerStages('org-1')).resolves.toEqual([])
   })
 
@@ -149,7 +183,7 @@ describe('enabledPostAnswerStages', () => {
 
   it('agrees with isMemoryReflectionEnabled — one source of truth', async () => {
     vi.stubEnv('GRID_ENFORCE_FEATURE_FLAGS', 'true')
-    listOrganizationFeatureFlags.mockResolvedValue({ data: [{ slug: 'other' }] })
+    listOrganizationFeatureFlags.mockResolvedValue(paginated([{ slug: 'other' }]))
     const [viaStages, viaLegacy] = [await enabledPostAnswerStages('org-1'), await isMemoryReflectionEnabled('org-1')]
     expect(viaStages.includes('memory_reflection')).toBe(viaLegacy)
   })

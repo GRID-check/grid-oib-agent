@@ -329,9 +329,9 @@ export const PdfDocumentView: FC<PdfDocumentViewProps> = ({
     // top of the frame: the reader clicked a citation and arrived at blank
     // paper. Rects plus the current `scrollTop` are the same measurement no
     // matter what is above the frame, and stay correct mid-animation because
-    // both are read in the same instant. (`visual/screenshots/
-    // citation-viewer.mobile.*` is the evidence; jsdom lays nothing out, so no
-    // unit test can hold this.)
+    // both are read in the same instant. (A phone-viewport capture of the
+    // citation viewer is the evidence; jsdom lays nothing out, so no unit test
+    // can hold this.)
     const pageTop =
       pageNode.getBoundingClientRect().top - frame.getBoundingClientRect().top + frame.scrollTop
     const top = pageTop + bounds.y * scale - frame.clientHeight * PASSAGE_SCROLL_OFFSET
