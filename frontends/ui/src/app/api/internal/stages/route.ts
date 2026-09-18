@@ -1,6 +1,10 @@
 import { z } from 'zod'
 import { internalApiRoute, parseQuery } from '@/lib/api/handler'
-import { enabledPostAnswerStages, isDeepResearchEnabledForOrg } from '@/lib/workos/feature-flags'
+import {
+  enabledPostAnswerStages,
+  isDeepResearchEnabledForOrg,
+  isTaskAutomationEnabledForOrg,
+} from '@/lib/workos/feature-flags'
 
 /**
  * INTERNAL service endpoint — the per-TURN read of what a tenant's turn may do:
@@ -22,7 +26,9 @@ import { enabledPostAnswerStages, isDeepResearchEnabledForOrg } from '@/lib/work
  * budget to be spent and nothing else. `deepResearch` is the first entry: the
  * flag gating `POST /api/jobs/async/submit` closed the job queue while the
  * agent went on escalating into it, so the run was refused only after the
- * reader had approved a plan for it.
+ * reader had approved a plan for it. `tasks` is the same defect one door along:
+ * the Automation section can be hidden and `create_task` still hands work over
+ * from a chat turn.
  *
  * Reads feature flags and environment only — no tenant data — so it opens no
  * database scope. Token-guarded like every other internal route.
@@ -39,11 +45,12 @@ export const GET = internalApiRoute(
   'post-answer-stages',
   async ({ request }) => {
     const { organizationId } = parseQuery(request, querySchema)
-    const [enabled, deepResearch] = await Promise.all([
+    const [enabled, deepResearch, tasks] = await Promise.all([
       enabledPostAnswerStages(organizationId),
       isDeepResearchEnabledForOrg(organizationId),
+      isTaskAutomationEnabledForOrg(organizationId),
     ])
-    return { enabled, features: { deepResearch } }
+    return { enabled, features: { deepResearch, tasks } }
   },
   // `?organizationId` names the tenant the flags are evaluated for. No query
   // runs, so no scope is opened; a query added here later would throw rather

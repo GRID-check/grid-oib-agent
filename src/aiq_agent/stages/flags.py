@@ -66,6 +66,13 @@ class TurnFlags:
     #: Withdrawal is a decision somebody made in WorkOS; it is never the shape
     #: of a timeout.
     deep_research_allowed: bool = True
+    #: Whether this tenant may have work HANDED OVER — the `create_task` tool
+    #: and the schedules behind it. Its own flag rather than a second reading of
+    #: the one above, because the two withdraw different things: an org may
+    #: still get a deep-research answer in the thread and not be allowed to
+    #: queue work that outlives the turn. Same True-on-every-failure-path
+    #: reasoning as :attr:`deep_research_allowed`.
+    tasks_allowed: bool = True
 
 #: The evaluation runs on the per-turn critical path, in the same gather as the
 #: live memory-digest fetch, so a slow BFF must never stall the turn. On timeout
@@ -122,13 +129,13 @@ def fetch_turn_flags(*, organization_id: str | None) -> TurnFlags:
     enabled = body.get("enabled")
     if not isinstance(enabled, list):
         raise ValueError("the internal stages endpoint returned no 'enabled' list")
-    features = body.get("features")
-    allowed = features.get("deepResearch") if isinstance(features, dict) else None
+    features = body.get("features") if isinstance(body.get("features"), dict) else {}
     return TurnFlags(
         enabled_stages=frozenset(item for item in enabled if isinstance(item, str) and item),
-        # Only an explicit False withdraws it. Anything else — absent, null, a
-        # string from a future schema — is the older-BFF case above.
-        deep_research_allowed=allowed is not False,
+        # Only an explicit False withdraws a capability. Anything else — absent,
+        # null, a string from a future schema — is the older-BFF case above.
+        deep_research_allowed=features.get("deepResearch") is not False,
+        tasks_allowed=features.get("tasks") is not False,
     )
 
 
@@ -149,6 +156,7 @@ async def resolve_turn_flags(*, organization_id: str | None, memory_reflection_e
         return TurnFlags(
             enabled_stages=legacy_enabled_stages(memory_reflection_enabled=memory_reflection_enabled),
             deep_research_allowed=True,
+            tasks_allowed=True,
         )
 
 
