@@ -39,6 +39,19 @@
       "summary": null,
       "sections": [
         {
+          "key": "fixes",
+          "notes": [
+            {
+              "en": "A document stuck on \"processing\" after an ingestion job was lost can now be retried from its menu instead of deleted and re-uploaded. The retry keeps the document, so sources, chat references and assignments survive, and it refuses while ingestion is genuinely still running.",
+              "de": "A document stuck on \"processing\" after an ingestion job was lost can now be retried from its menu instead of deleted and re-uploaded. The retry keeps the document, so sources, chat references and assignments survive, and it refuses while ingestion is genuinely still running."
+            },
+            {
+              "en": "A document whose indexing never started no longer wears a green \"citable\" badge. It now reports a failure with a retry, or a neutral stored state for rows filed before this change.",
+              "de": "A document whose indexing never started no longer wears a green \"citable\" badge. It now reports a failure with a retry, or a neutral stored state for rows filed before this change."
+            }
+          ]
+        },
+        {
           "key": "deprecations",
           "notes": [
             {
