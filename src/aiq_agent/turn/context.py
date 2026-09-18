@@ -21,7 +21,8 @@ from aiq_agent.project_context import GridRequestContext
 from aiq_agent.project_context import compose_project_context
 from aiq_agent.project_context import get_user_message_id_from_context
 from aiq_agent.stages import TurnFacts
-from aiq_agent.stages.flags import resolve_enabled_stages
+from aiq_agent.stages.flags import TurnFlags
+from aiq_agent.stages.flags import resolve_turn_flags
 
 logger = logging.getLogger(__name__)
 
@@ -43,6 +44,11 @@ class TurnContext:
     #: The request-scoped half of the post-answer stages' facts, captured while
     #: the request context is live — the stage tasks run after it is gone.
     stage_facts: TurnFacts
+    #: Whether this turn may OFFER a deep-research run. False withdraws the
+    #: hand-off before it is proposed, so the reader is never shown a plan whose
+    #: approval the job queue would refuse. True on every failure path: see
+    #: :class:`aiq_agent.stages.flags.TurnFlags`.
+    deep_research_allowed: bool = True
 
 
 def thread_id_for_turn(conversation_id: str | None) -> str:
@@ -103,21 +109,32 @@ async def _live_memory_digest(request: GridRequestContext, query_text: str) -> s
         return request.project_memory
 
 
-async def _enabled_stages(request: GridRequestContext, resolve: bool) -> frozenset[str]:
-    """Which post-answer stages are on, decided per TURN, not per socket.
+async def _turn_flags(request: GridRequestContext, resolve_stages: bool) -> TurnFlags:
+    """What this turn may do, decided per TURN, not per socket.
 
     The feature header is written once at the WS upgrade and frozen, so an
-    operator switching a stage off never reached an already-open tab — the
-    opposite of what a kill switch is for. Skipped entirely when no stage has
-    a model to run on: the flag would decide nothing, and a deployment that
-    compiled the stages out must not pay a round-trip per turn for the privilege.
+    operator switching something off never reached an already-open tab — the
+    opposite of what a kill switch is for.
+
+    The round-trip is now skipped only when there is NO ORGANIZATION to evaluate
+    against. It used to be skipped whenever no stage had a model to run on,
+    because the answer could then change nothing; that stopped being true when
+    the same call started carrying whether deep research may be offered, which
+    is per-org and decides something on every turn. Without an organization both
+    answers are the permissive defaults anyway — the BFF resolves an absent
+    tenant the same way — so nothing is bought by asking.
     """
-    if not resolve:
-        return frozenset()
-    return await resolve_enabled_stages(
+    if not request.organization_id:
+        return TurnFlags(enabled_stages=frozenset())
+    flags = await resolve_turn_flags(
         organization_id=request.organization_id,
         memory_reflection_enabled=request.memory_reflection_enabled,
     )
+    if resolve_stages:
+        return flags
+    # No stage has a model to run on, so the stage half of the answer decides
+    # nothing; the deep-research half still does.
+    return TurnFlags(enabled_stages=frozenset(), deep_research_allowed=flags.deep_research_allowed)
 
 
 async def _platform_lessons(conversation_id: str | None) -> str | None:
@@ -142,15 +159,16 @@ async def _load_turn_context(
     query_text: str,
     resolve_stages: bool,
 ) -> TurnContext:
-    platform_lessons, memory_digest, enabled_stages = await asyncio.gather(
+    platform_lessons, memory_digest, turn_flags = await asyncio.gather(
         _platform_lessons(conversation_id),
         _live_memory_digest(request, query_text),
-        _enabled_stages(request, resolve_stages),
+        _turn_flags(request, resolve_stages),
     )
     return TurnContext(
         project_context=compose_project_context(request.project_context, memory_digest),
         platform_lessons=platform_lessons,
         org_instructions=request.org_instructions,
+        deep_research_allowed=turn_flags.deep_research_allowed,
         stage_facts=TurnFacts(
             conversation_id=conversation_id,
             ws_parent_id=get_user_message_id_from_context(),
@@ -160,7 +178,7 @@ async def _load_turn_context(
             # Reflect against the digest the agent actually saw this turn.
             memory_digest=memory_digest,
             bundesland=request.bundesland,
-            enabled_stages=enabled_stages,
+            enabled_stages=turn_flags.enabled_stages,
         ),
     )
 
