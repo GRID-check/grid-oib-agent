@@ -466,6 +466,18 @@ describe('stored is terminal and neutral', () => {
   })
 })
 
+describe('uploaded is terminal and neutral', () => {
+  it('never promised quotability', () => {
+    // Every row's birth status: the bytes are stored but nothing was ever
+    // indexed. It sat in the Indexed family and rendered a green "Zitierbar"
+    // for documents no retrieval path could cite.
+    expect(DOCUMENT_STATUS_FACTS.uploaded.variant).toBe('secondary')
+    expect(DOCUMENT_STATUS_FACTS.uploaded.phase).toBe('terminal')
+    expect(DOCUMENT_STATUS_FACTS.uploaded.labelKey).toBe('status.stored')
+    expect(IN_FLIGHT_DOCUMENT_STATUSES.has('uploaded')).toBe(false)
+  })
+})
+
 describe('the declaration answers about values, not about prototypes', () => {
   it('does not mistake an Object.prototype key for a status', () => {
     // The lookup key comes from a text column, so `constructor` and `toString`

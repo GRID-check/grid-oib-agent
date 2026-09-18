@@ -425,6 +425,29 @@ describe('uploadDocument ingest dispatch', () => {
     )
     expect(setDocumentIngestJob).not.toHaveBeenCalled()
   })
+
+  it('dispatch OK without a job id: persists failed, never a green birth status', async () => {
+    // The backend answers 202 with a `job_id` on every success, so an OK
+    // response without one is not a quieter success. The old code left the
+    // row at its 'uploaded' birth status, which the badge rendered as a green
+    // "Ready" for a document nothing ever indexed.
+    mockFetch.mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: () => Promise.resolve({}),
+    })
+
+    const result = await uploadDocument(session, makeInput(), new Request('http://x'))
+
+    expect(result.status).toBe('failed')
+    expect(result.jobId).toBeNull()
+    expect(markDocumentIngestFailed).toHaveBeenCalledWith(
+      result.documentId,
+      'org-1',
+      INGEST_DISPATCH_FAILED_MESSAGE
+    )
+    expect(setDocumentIngestJob).not.toHaveBeenCalled()
+  })
 })
 
 describe('uploadDocument ingest dispatch — backend fetch is time-bounded', () => {
