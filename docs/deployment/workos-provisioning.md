@@ -390,9 +390,16 @@ free-text check has been smoke-tested against a configured LLM.
 
 #### Production enforces flags (since 2026-09-18)
 
-`grid-oib:enforceFeatureFlags` is **`true`** in Production. WorkOS is that
-environment's control plane for features now: per organization, per flag, no
-redeploy. Staging is still `false`.
+`grid-oib:enforceFeatureFlags` is **`true`** in BOTH environments. WorkOS is the
+control plane for features now: per organization, per flag, no redeploy.
+
+Staging followed on the same day, and not as tidiness. With enforcement off
+there it rehearsed a different code path from the one Production runs:
+`isFeatureEnabled` fell open, the per-turn capability resolution never ran, and
+a registry flag missing from WorkOS was invisible until Production failed it
+closed. All 20 registry flags are ON for ALL organizations in Staging, so the
+flip was behaviour-preserving there except for `project-knowledge-page`, which
+had no env opt-in and is now visible — which is what that environment is for.
 
 Two things follow, and both bite the next person who adds a feature:
 
