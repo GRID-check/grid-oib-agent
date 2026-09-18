@@ -20,7 +20,7 @@ import {
   Eye,
 } from 'lucide-react'
 import type { ActionMenuEntry } from '@/components/ui/action-menu'
-import { isFailedStatus } from '../document-status'
+import { isFailedStatus, isSettlingStatus } from '../document-status'
 import { sortedFolderDestinations, type PathFolder } from '../../lib/folder-path-label'
 import type { ActionableDocument } from './use-document-actions'
 
@@ -103,7 +103,19 @@ export function documentActionEntries({
     if (kind === 'copyOriginPath') {
       return Boolean(document.originPath && onCopyOriginPath)
     }
-    if (kind === 'reingest') return canManage && isFailedStatus(document.status)
+    // Failed, still settling, or stranded at the `uploaded` birth status: the
+    // backend decides at click time whether a retry is safe (a genuinely
+    // running job refuses with 409), so the menu does not have to tell a
+    // stuck `processing` row from a busy one — offering everywhere a retry
+    // could help, and letting the guard sort it out, is what ends the
+    // delete-and-re-upload era for lost ingestions.
+    if (kind === 'reingest')
+      return (
+        canManage &&
+        (isFailedStatus(document.status) ||
+          isSettlingStatus(document.status) ||
+          document.status === 'uploaded')
+      )
     if (kind === 'move') return canManage && Boolean(folders && folders.length > 0)
     return canManage
   }

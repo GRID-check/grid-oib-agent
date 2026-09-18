@@ -99,10 +99,12 @@ vi.mock('./repository', () => ({
   listProjectDocuments: vi.fn(),
   deleteProjectDocument: vi.fn().mockResolvedValue(undefined),
   setDocumentDisplayName: vi.fn().mockResolvedValue(undefined),
+  setDocumentReconciledStatus: vi.fn().mockResolvedValue(undefined),
 }))
 
 vi.mock('./reconcile-status', () => ({
   reconcileDocumentStatuses: vi.fn(),
+  describeBackendIngestState: vi.fn(),
 }))
 
 import { findProjectInOrg } from '@/lib/projects/repository'
@@ -118,6 +120,7 @@ import {
   listProjectDocuments,
   deleteProjectDocument,
   setDocumentDisplayName,
+  setDocumentReconciledStatus,
 } from './repository'
 import {
   listDocuments,
@@ -141,12 +144,13 @@ import {
 } from './service'
 import {
   reconcileDocumentStatuses,
+  describeBackendIngestState,
   type DocumentMetadata,
   type ReconcilableDocument,
 } from './reconcile-status'
 import type { DocumentListRow } from './repository'
 import { isVlmConfigured } from '@/lib/documents/vlm-capability'
-import { BadRequestError, ConflictError, ForbiddenError, NotFoundError } from '@/lib/api/errors'
+import { BadRequestError, ConflictError, ForbiddenError, NotFoundError, UpstreamError } from '@/lib/api/errors'
 import { makeDocument, makeProject } from '@/test-utils/db-fixtures'
 import { s3Client, bucketAdminS3Client } from '@/lib/s3'
 import { __resetBucketCache, tenantBucketName } from '@/lib/storage/bucket'
@@ -955,6 +959,90 @@ describe('reingestDocument', () => {
     await expect(reingestDocument(session, 'doc-99')).rejects.toBeInstanceOf(ConflictError)
     expect(mockFetch).not.toHaveBeenCalled()
     expect(setDocumentIngestJob).not.toHaveBeenCalled()
+  })
+
+  it('retries a stuck processing row the backend has lost, keeping the id', async () => {
+    // A backend restart wiped the job registry and the file never landed: the
+    // row says `processing`, the backend knows nothing. The retry re-dispatches
+    // under the SAME id, so citations, chat subjects and assignments survive —
+    // the old answer here was 409 and delete + re-upload under a new id.
+    vi.mocked(findDocumentInOrg).mockResolvedValue(
+      makeDocument({ id: 'doc-99', status: 'processing', storageKey: 'org/proj/doc/file.pdf' })
+    )
+    vi.mocked(describeBackendIngestState).mockResolvedValue({ state: 'absent' })
+    mockFetch.mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: () => Promise.resolve({ job_id: 'job-78' }),
+    })
+
+    const result = await reingestDocument(session, 'doc-99')
+
+    expect(result).toEqual({ id: 'doc-99', status: 'pending', jobId: 'job-78' })
+    expect(setDocumentIngestJob).toHaveBeenCalledWith('doc-99', 'org-1', 'job-78')
+  })
+
+  it('refuses while the backend is genuinely still working (409, no double dispatch)', async () => {
+    vi.mocked(findDocumentInOrg).mockResolvedValue(
+      makeDocument({ id: 'doc-99', status: 'processing', storageKey: 'org/proj/doc/file.pdf' })
+    )
+    vi.mocked(describeBackendIngestState).mockResolvedValue({ state: 'in-progress' })
+
+    await expect(reingestDocument(session, 'doc-99')).rejects.toBeInstanceOf(ConflictError)
+    expect(mockFetch).not.toHaveBeenCalled()
+    expect(setDocumentIngestJob).not.toHaveBeenCalled()
+  })
+
+  it('heals the row instead of retrying when the backend already finished', async () => {
+    // No listing read reconciled the terminal state yet. Re-dispatching now
+    // would churn the chunks citations point at, so the row is written back
+    // and the retry refused.
+    vi.mocked(findDocumentInOrg).mockResolvedValue(
+      makeDocument({ id: 'doc-99', status: 'processing', storageKey: 'org/proj/doc/file.pdf' })
+    )
+    vi.mocked(describeBackendIngestState).mockResolvedValue({
+      state: 'terminal',
+      resolution: { status: 'completed', errorMessage: null },
+    })
+
+    await expect(reingestDocument(session, 'doc-99')).rejects.toBeInstanceOf(ConflictError)
+    expect(setDocumentReconciledStatus).toHaveBeenCalledWith(
+      'doc-99',
+      'org-1',
+      { status: 'completed', errorMessage: null }
+    )
+    expect(mockFetch).not.toHaveBeenCalled()
+    expect(setDocumentIngestJob).not.toHaveBeenCalled()
+  })
+
+  it('refuses when the backend cannot be asked (fail-closed, row untouched)', async () => {
+    vi.mocked(findDocumentInOrg).mockResolvedValue(
+      makeDocument({ id: 'doc-99', status: 'processing', storageKey: 'org/proj/doc/file.pdf' })
+    )
+    vi.mocked(describeBackendIngestState).mockResolvedValue({ state: 'unreachable' })
+
+    await expect(reingestDocument(session, 'doc-99')).rejects.toBeInstanceOf(UpstreamError)
+    expect(mockFetch).not.toHaveBeenCalled()
+    expect(setDocumentIngestJob).not.toHaveBeenCalled()
+    expect(markDocumentIngestFailed).not.toHaveBeenCalled()
+  })
+
+  it('retries a row stranded at the uploaded birth status without asking the backend', async () => {
+    // Nothing was ever dispatched for it, so there is nothing running to
+    // double and nothing to ask about — straight to re-dispatch.
+    vi.mocked(findDocumentInOrg).mockResolvedValue(
+      makeDocument({ id: 'doc-99', status: 'uploaded', storageKey: 'org/proj/doc/file.pdf' })
+    )
+    mockFetch.mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: () => Promise.resolve({ job_id: 'job-79' }),
+    })
+
+    const result = await reingestDocument(session, 'doc-99')
+
+    expect(result).toEqual({ id: 'doc-99', status: 'pending', jobId: 'job-79' })
+    expect(describeBackendIngestState).not.toHaveBeenCalled()
   })
 
   it('dispatch failure re-marks the document failed', async () => {
