@@ -516,18 +516,30 @@ Three things follow, and each has cost somebody an afternoon:
 > Nothing had to be created. Step 6 (feature flags) is now done in both; §6
 > carries its state.
 >
-> Two things the diff surfaced that are NOT drift from the catalog and are
-> worth knowing before the next person re-runs it:
+> The diff also surfaced drift in the other direction — things WorkOS held that
+> the catalog does not — and it was cleaned out the same day, so both
+> environments now match the catalog exactly, with nothing extra:
 >
-> - **Legacy `workflow` resource type**, with `workflow:view|run|manage`,
->   `project:workflows:manage` and three `workflow-*` roles, exists in both
->   environments and is in no catalog. It is ADR-0023, superseded by Agent
->   Skills; `provision:authz` does not delete, so it stays until somebody
->   removes it deliberately.
-> - **`multipleRolesEnabled` differs**: `true` in Staging, `false` in
->   Production. A user can hold several organization roles at once in one
->   environment and not the other, which is a real difference in what the two
->   environments can express, not a cosmetic one.
+> - **The legacy `workflow` tier is gone.** ADR-0023's resource type, its
+>   `workflow:view|run|manage` and `project:workflows:manage` permissions, and
+>   its three `workflow-*` roles were deleted from both environments. It was
+>   superseded by Agent Skills, no code has read any of it since, and every one
+>   of the six roles had a membership count of zero — all four facts checked
+>   before anything was deleted, because `provision:authz` does not delete and
+>   therefore nothing else would have caught a mistake here. The legacy
+>   `workflows` FEATURE FLAG, which was likewise in no registry, went with it.
+> - **`multipleRolesEnabled` is `false` in both.** Staging was `true`. The
+>   session model carries ONE `role` plus a `permissions` array and authorizes
+>   on the permissions, so a second role would have unioned its permissions in
+>   while leaving `role` ambiguous — and the catalog's organization roles are
+>   written as exclusive personas („…and nothing else"). Staging was brought to
+>   Production's setting rather than the reverse, for the same reason
+>   enforcement was: Staging rehearses Production, so a capability Production
+>   does not have is not one Staging should be testing with.
+>
+> What a clean environment now looks like, and what the next diff should find:
+> 3 resource types (`organization` → `project` → `skill`), 33 permissions (27
+> custom plus 6 WorkOS-managed widget ones), 13 roles, and no others.
 
 1. **Dashboard** (still manual — the SDK cannot create resource types): create
    the resource types from §0 — `project` (parent `organization`), then
