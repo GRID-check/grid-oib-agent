@@ -85,6 +85,12 @@ class FinalAnswer:
     unverified_quote_count: int = 0
     normative_claim_uncited: bool = False
     escalation_requested: bool | None = None
+    #: The envelope said ``kind: "handoff"`` — the answer IS the hand-off and
+    #: nothing else. The prompt makes the two escalating shapes different:
+    #: an insufficiency escalation still writes its best partial answer, a
+    #: commissioned hand-off writes one sentence naming what will be researched.
+    #: Only the envelope can tell them apart; the prose cannot be matched on.
+    answer_is_handoff: bool = False
     confidence_marker: str | None = None
     confidence_marker_reason: str | None = None
     escalation_reason: str | None = None
@@ -680,6 +686,7 @@ async def finalize_answer(
         unverified_quote_count=len(grounding.unverified_quotes),
         normative_claim_uncited=_normative_claim_uncited(content, grounding),
         escalation_requested=extracted.escalation_requested,
+        answer_is_handoff=bool(extracted.meta is not None and extracted.meta.kind == "handoff"),
         confidence_marker=extracted.confidence,
         confidence_marker_reason=extracted.confidence_reason,
         escalation_reason=extracted.escalation_reason,
