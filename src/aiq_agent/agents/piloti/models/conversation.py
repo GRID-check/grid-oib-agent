@@ -54,6 +54,9 @@ class ConversationState(BaseModel):
         deep_research_declined: Sticky per-conversation flag set when the user
             rejects or cancels a research plan; suppresses the deep route
             thereafter.
+        deep_research_allowed: Whether the tenant may be offered a deep-research
+            run at all (the `deep-research` flag, resolved per turn). False
+            withdraws the hand-off before it is proposed.
     """
 
     messages: Annotated[list[AnyMessage], add_messages]
@@ -98,6 +101,16 @@ class ConversationState(BaseModel):
     # A new conversation is a new thread and therefore a clean slate — that is
     # the deliberate way back to deep research.
     deep_research_declined: bool | None = None
+    # PER TURN, and the opposite kind of fact from the field above it. That one
+    # is the reader's standing preference; this one is whether the tenant has
+    # the capability at all — the `deep-research` WorkOS flag, resolved for this
+    # turn by the register layer and fail-open to True.
+    #
+    # It is turn-scoped on purpose (absent from CONVERSATION_SCOPED_FIELDS, so
+    # `run()` resets it every turn): an operator who withdraws the flag must
+    # reach the tab that is already open, which is the whole reason the flag is
+    # read per turn rather than at the socket upgrade.
+    deep_research_allowed: bool = True
     project_context: str | None = None
     # The bounded PLATFORM_LESSONS digest — anonymized failure patterns
     # distilled from user down-votes across the whole platform
