@@ -52,13 +52,14 @@ export interface DocumentStatusFacts {
  * Every status this codebase is known to render or write, and what it means.
  *
  * Grouped by family rather than alphabetically, because the grouping is the
- * point: five spellings of "indexed" exist because five writers arrived at the
+ * point: four spellings of "indexed" exist because four writers arrived at the
  * question separately, and seeing them stacked is what makes that visible.
+ * (`uploaded` used to be the fifth; it now sits with `stored`, because a row
+ * that was never indexed is not an indexing success.)
  */
 export const DOCUMENT_STATUS_FACTS = {
-  // --- Indexed: Piloti can quote it. Five spellings, one meaning. -----------
+  // --- Indexed: Piloti can quote it. Four spellings, one meaning. ------------
   ready: { variant: 'success', phase: 'terminal', labelKey: 'status.ready' },
-  uploaded: { variant: 'success', phase: 'terminal', labelKey: 'status.ready' },
   ingested: { variant: 'success', phase: 'terminal', labelKey: 'status.ready' },
   success: { variant: 'success', phase: 'terminal', labelKey: 'status.ready' },
   /** What `reconcile-status.ts` actually writes when ingestion finishes. */
@@ -96,6 +97,20 @@ export const DOCUMENT_STATUS_FACTS = {
    * and the card spins forever on a row that is already at rest.
    */
   stored: { variant: 'secondary', phase: 'terminal', labelKey: 'status.stored' },
+  /**
+   * Every row's birth status, and nothing else's. The upload path inserts the
+   * row as `uploaded` before dispatching, so a listing read in that millisecond
+   * window meets it — and rows stranded here by the old dispatch (OK without a
+   * job id, status left as-is) still exist in the wild.
+   *
+   * NEUTRAL on purpose, for the same reason as `stored`: the bytes are here
+   * but nothing was ever indexed, so green "Zitierbar" would promise a
+   * citation the retrieval path cannot make. It used to sit in the Indexed
+   * family above, which is exactly how an unsearchable document wore a green
+   * "Ready" forever. Terminal, so nothing polls it: there is no job to ask
+   * about. Retry remains possible through the re-ingest action.
+   */
+  uploaded: { variant: 'secondary', phase: 'terminal', labelKey: 'status.stored' },
 } as const satisfies Record<string, DocumentStatusFacts>
 
 /** The declared vocabulary as a type — `keyof`, so it cannot drift from the data. */

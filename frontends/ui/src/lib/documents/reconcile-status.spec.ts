@@ -13,6 +13,7 @@ import {
   reconcileDocumentStatuses,
   extractIngestJobId,
   clearCollectionFilesCache,
+  describeBackendIngestState,
   type ReconcilableDocument,
 } from './reconcile-status'
 
@@ -571,5 +572,80 @@ describe('extractIngestJobId', () => {
     expect(extractIngestJobId({})).toBeNull()
     expect(extractIngestJobId({ ingestJobId: 42 })).toBeNull()
     expect(extractIngestJobId('job-9')).toBeNull()
+  })
+})
+
+describe('describeBackendIngestState', () => {
+  beforeEach(() => {
+    vi.stubGlobal('fetch', mockFetch)
+    mockFetch.mockReset()
+    clearCollectionFilesCache()
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    vi.clearAllMocks()
+  })
+
+  const routeBackend = (jobs: Record<string, unknown> | null, files: unknown[] | null) => {
+    mockFetch.mockImplementation((url: unknown) => {
+      if (String(url).includes('/v1/documents/status/batch')) {
+        if (jobs === null) return Promise.reject(new Error('backend down'))
+        return Promise.resolve(batchResponse(jobs))
+      }
+      if (files === null) return Promise.resolve({ ok: false, status: 404, json: () => Promise.resolve(null) })
+      return Promise.resolve(collectionResponse(files))
+    })
+  }
+
+  it('reports in-progress while the job is running, without touching the file list', async () => {
+    routeBackend({ 'job-1': { status: 'running' } }, [])
+
+    const knowledge = await describeBackendIngestState(makeRow({ status: 'processing' }))
+
+    expect(knowledge).toEqual({ state: 'in-progress' })
+    expect(mockFetch.mock.calls.some(([url]) => String(url).includes('/v1/collections/'))).toBe(false)
+  })
+
+  it('reports absent when the backend forgot the job and holds no file', async () => {
+    // A restart wiped the in-memory job registry and the file never landed:
+    // the row's `processing` badge is a memory of work that exists nowhere.
+    routeBackend({}, [])
+
+    const knowledge = await describeBackendIngestState(makeRow({ status: 'processing' }))
+
+    expect(knowledge).toEqual({ state: 'absent' })
+  })
+
+  it('reports terminal when the work landed behind the row back', async () => {
+    routeBackend({}, [{ file_name: 'plan.pdf', status: 'success' }])
+
+    const knowledge = await describeBackendIngestState(makeRow({ status: 'processing' }))
+
+    expect(knowledge).toEqual({ state: 'terminal', resolution: { status: 'completed', errorMessage: null } })
+  })
+
+  it('reports in-progress when a file under this name is mid-flight', async () => {
+    routeBackend({}, [{ file_name: 'plan.pdf', status: 'pending' }])
+
+    const knowledge = await describeBackendIngestState(makeRow({ status: 'processing', metadata: null }))
+
+    expect(knowledge).toEqual({ state: 'in-progress' })
+  })
+
+  it('reports unreachable when the backend cannot be asked, and refuses to guess', async () => {
+    routeBackend(null, [])
+
+    const knowledge = await describeBackendIngestState(makeRow({ status: 'processing' }))
+
+    expect(knowledge).toEqual({ state: 'unreachable' })
+  })
+
+  it('reports unreachable when the collection list is gone', async () => {
+    routeBackend({}, null)
+
+    const knowledge = await describeBackendIngestState(makeRow({ status: 'processing', metadata: null }))
+
+    expect(knowledge).toEqual({ state: 'unreachable' })
   })
 })

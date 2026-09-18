@@ -1,9 +1,10 @@
 /**
  * What a document menu offers — independent of whether it opens from ⋯ or a
  * right-click. The renderer is tested in action-menu.spec; this file pins the
- * heuristics: a viewer who may not mutate sees nothing that mutates, a failed
- * document is the only one that offers retry, and an empty move submenu is
- * not a submenu.
+ * heuristics: a viewer who may not mutate sees nothing that mutates, retry is
+ * offered wherever it could help (failed, still settling, or stranded at the
+ * birth status — the backend refuses a genuinely running job), and an empty
+ * move submenu is not a submenu.
  */
 
 import { describe, expect, it, vi } from 'vitest'
@@ -75,6 +76,18 @@ describe('documentActionEntries', () => {
     expect(ids({ ...DOCUMENT, status: 'failed' })).toContain('reingest')
     expect(ids(DOCUMENT)).not.toContain('reingest')
     expect(ids({ ...DOCUMENT, status: 'failed' }, { canManage: false })).not.toContain('reingest')
+  })
+
+  it('offers retry on a still-settling row the backend may have lost', () => {
+    // A `processing` row whose job vanished is indistinguishable in the menu
+    // from one that is busy; the backend refuses the busy one with 409, so
+    // the menu offers everywhere a retry could help.
+    expect(ids({ ...DOCUMENT, status: 'processing' })).toContain('reingest')
+    expect(ids({ ...DOCUMENT, status: 'pending' })).toContain('reingest')
+    expect(ids({ ...DOCUMENT, status: 'uploaded' })).toContain('reingest')
+    expect(ids({ ...DOCUMENT, status: 'processing' }, { canManage: false })).not.toContain(
+      'reingest'
+    )
   })
 
   it('does not offer move when there is nowhere to move it to', () => {

@@ -60,7 +60,7 @@
  */
 
 import { readFileSync, readdirSync } from 'node:fs'
-import { join, relative } from 'node:path'
+import { join, relative, sep } from 'node:path'
 import ts from 'typescript'
 import { describe, expect, it } from 'vitest'
 import { de } from '@/i18n/dictionaries/de'
@@ -95,6 +95,17 @@ function sourceFiles(dir: string, found: string[] = []): string[] {
 interface LiteralWrite {
   value: string
   where: string
+}
+
+/**
+ * `relative()` yields `\`-separated paths on Windows while every constant in
+ * this file is written with `/`. Without normalising, the guard compares two
+ * spellings of the same file, matches nothing, and goes fully red on a
+ * Windows checkout — which is exactly how it was found: four failures, one
+ * separator.
+ */
+function toPosix(path: string): string {
+  return path.split(sep).join('/')
 }
 
 /**
@@ -145,6 +156,11 @@ const OPAQUE_STATUS_WRITES: Readonly<Record<string, string>> = {
   'src/lib/documents/service.ts: ingestStatus': "the dispatcher's job status, returned to the caller",
   'src/lib/documents/service.ts: doc.status': 'the row being read back, returned to the caller',
   'src/lib/documents/service.ts: reconciled.status': 'a reconciled status, returned to the caller',
+  // The heal-and-refuse 409: the healed resolution echoed in the error payload,
+  // returned to the caller. The column write is the `setDocumentReconciledStatus`
+  // call two lines above it, which takes the whole resolution object.
+  'src/lib/documents/service.ts: knowledge.resolution.status':
+    'the healed resolution echoed in the 409, returned to the caller',
   // The wire projection: the row's own status copied into the JSON the browser
   // reads. It writes a response body, never the column.
   'src/lib/documents/list-projection.ts: row.status': 'a row being serialized, not a write',
@@ -226,7 +242,7 @@ function scanWriters(): Scan {
   for (const dir of WRITER_DIRS) {
     for (const file of sourceFiles(join(process.cwd(), dir))) {
       const source = readFileSync(file, 'utf8')
-      const relativePath = relative(process.cwd(), file)
+      const relativePath = toPosix(relative(process.cwd(), file))
       const tree = ts.createSourceFile(file, source, ts.ScriptTarget.Latest, true)
       const at = (node: ts.Node) => `${relativePath}:${
         tree.getLineAndCharacterOfPosition(node.getStart(tree)).line + 1
@@ -383,7 +399,7 @@ function everySourceFile(dir: string, found: string[] = []): string[] {
 describe('the scan looks where the writing happens', () => {
   const tableWriters = everySourceFile(join(process.cwd(), 'src'))
     .filter((file) => TABLE_WRITE_RE.test(readFileSync(file, 'utf8')))
-    .map((file) => relative(process.cwd(), file))
+    .map((file) => toPosix(relative(process.cwd(), file)))
     .sort()
 
   it('finds the table writers at all', () => {
@@ -452,6 +468,18 @@ describe('stored is terminal and neutral', () => {
       'processing',
       'uploading',
     ])
+  })
+})
+
+describe('uploaded is terminal and neutral', () => {
+  it('never promised quotability', () => {
+    // Every row's birth status: the bytes are stored but nothing was ever
+    // indexed. It sat in the Indexed family and rendered a green "Zitierbar"
+    // for documents no retrieval path could cite.
+    expect(DOCUMENT_STATUS_FACTS.uploaded.variant).toBe('secondary')
+    expect(DOCUMENT_STATUS_FACTS.uploaded.phase).toBe('terminal')
+    expect(DOCUMENT_STATUS_FACTS.uploaded.labelKey).toBe('status.stored')
+    expect(IN_FLIGHT_DOCUMENT_STATUSES.has('uploaded')).toBe(false)
   })
 })
 
