@@ -2097,30 +2097,45 @@ export async function streamDocumentImage(
   // as "isn't a valid image". Buffering here is bounded by the upload
   // ceiling no legitimate image can exceed, so a failing or empty body
   // deflects to the placeholder instead of a truncated response.
+  //
+  // The buffer API is probed, not assumed: `transformToByteArray` exists on
+  // real SDK bodies, but a body carrying only the streaming shape must still
+  // serve — calling a missing method throws synchronously (no `.catch` can
+  // catch a call that never happens) and turned every such response into a
+  // 500. Without the buffer API there is nothing to verify mid-consumption
+  // against, so those bodies stream exactly as they did before buffering.
   if (typeof object?.ContentLength === 'number') {
     if (object.ContentLength <= 0 || !object.Body) {
       return serveImageFallback(documentId, 'empty-object')
     }
-    const { maxFileSize } = getFileUploadConfigFromEnv(process.env)
-    if (object.ContentLength > maxFileSize) {
-      return serveImageFallback(documentId, 'oversize-object')
+    const body = object.Body
+    if (typeof body.transformToByteArray === 'function') {
+      const { maxFileSize } = getFileUploadConfigFromEnv(process.env)
+      if (object.ContentLength > maxFileSize) {
+        return serveImageFallback(documentId, 'oversize-object')
+      }
+      const buffered = await body.transformToByteArray().catch(() => null)
+      if (!buffered || buffered.byteLength === 0) {
+        return serveImageFallback(documentId, 'unreadable-object')
+      }
+      // Copied: the SDK may hand back a view over a shared pool, and the
+      // response takes ownership of what it is given.
+      return tenantImageResponse(Buffer.from(buffered), contentType)
     }
-    const buffered = await object.Body.transformToByteArray().catch(() => null)
-    if (!buffered || buffered.byteLength === 0) {
-      return serveImageFallback(documentId, 'unreadable-object')
+    if (typeof body.transformToWebStream === 'function') {
+      return tenantImageResponse(body.transformToWebStream(), contentType)
     }
-    // Copied: the SDK may hand back a view over a shared pool, and the
-    // response takes ownership of what it is given.
-    return tenantImageResponse(Buffer.from(buffered), contentType)
+    return serveImageFallback(documentId, 'unreadable-object')
   }
 
   // No ContentLength on the response — some gateways omit it — so decide from
   // the bytes rather than the header: a present object with an unknown length
   // is not a missing one. Buffering is bounded to this ambiguous branch only;
   // the common path above still streams.
-  const bytes = object?.Body
-    ? await object.Body.transformToByteArray().catch(() => null)
-    : null
+  const bytes =
+    object?.Body && typeof object.Body.transformToByteArray === 'function'
+      ? await object.Body.transformToByteArray().catch(() => null)
+      : null
   if (!bytes || bytes.byteLength === 0) return serveImageFallback(documentId, 'empty-object')
   // Copied: the SDK may hand back a view over a shared pool, and the response
   // takes ownership of what it is given.
