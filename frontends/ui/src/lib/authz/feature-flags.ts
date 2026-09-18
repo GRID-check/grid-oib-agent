@@ -24,6 +24,25 @@ export const FEATURE_FLAGS = {
   modelConfiguration: 'runtime-model-config',
   /** Deep research agent mode — the expensive long-running workflow. */
   deepResearch: 'deep-research',
+  /**
+   * Delegated tasks and their schedules (ADR-0051/0054): work a chat turn hands
+   * over instead of answering, plus the recurring `cadence` form.
+   *
+   * Deliberately NOT part of `skills`, although the two shipped together and the
+   * Automation section shows both. They are not one feature. A skill is a
+   * published instruction the agent may follow inside a turn; a task is a unit
+   * of work that OUTLIVES the turn, costs the requester's budget and runs under
+   * their permissions. An organization can reasonably have the toolbox and not
+   * the right to queue work against it — which is exactly the shape the product
+   * wanted: the skills we publish stay usable in chat, the Automation tab and
+   * everything that queues work do not.
+   *
+   * It is also the second door into the workflow `deep-research` closes, since
+   * a task's agent type may be `researcher` or `deep_researcher`. Gating the
+   * escalation and leaving this open would withdraw deep research from the chat
+   * turn and leave it reachable by asking for it as a task.
+   */
+  taskAutomation: 'task-automation',
   /** Command palette + global keyboard shortcuts (workspace polish). */
   keyboardShortcuts: 'keyboard-shortcuts',
   /** Project-level knowledge-base transparency page (nav section). */
@@ -338,6 +357,28 @@ export function requireSkillsEnabled(session: Pick<GridSession, 'featureFlags'>)
     { error: 'feature-disabled', feature: FEATURE_FLAGS.skills },
     { status: 403 }
   )
+}
+
+/**
+ * Whether this session may create delegated tasks and schedules.
+ *
+ * A standard fail-open flag, the same shape as `deepResearch` and deliberately
+ * not the dark-launch shape `isSkillsEnabled` uses: tasks shipped and were
+ * available to every organization, so withdrawing them is a decision an
+ * operator makes in WorkOS, not a default a deployment inherits.
+ */
+export function isTaskAutomationEnabled(session: Pick<GridSession, 'featureFlags'>): boolean {
+  return isFeatureEnabled(session, FEATURE_FLAGS.taskAutomation)
+}
+
+/**
+ * Route guard for delegated tasks: stable-coded 403 when off, null when allowed.
+ * Usage: `const gated = requireTaskAutomationEnabled(session); if (gated) return gated`
+ */
+export function requireTaskAutomationEnabled(
+  session: Pick<GridSession, 'featureFlags'>
+): Response | null {
+  return requireFeature(session, FEATURE_FLAGS.taskAutomation)
 }
 
 /**

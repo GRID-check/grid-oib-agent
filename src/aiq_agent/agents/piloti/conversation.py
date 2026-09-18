@@ -384,6 +384,7 @@ class ConversationGraph:
             # asks anyway: the prompt is the fix, this is the layer that holds
             # when the model does not read it.
             deep_research_allowed=state.deep_research_allowed,
+            tasks_allowed=state.tasks_allowed,
         )
 
     async def _run_research(self, research_state: ResearchAgentState) -> ResearchAgentState | dict[str, Any]:

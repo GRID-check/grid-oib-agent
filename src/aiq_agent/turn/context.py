@@ -49,6 +49,9 @@ class TurnContext:
     #: approval the job queue would refuse. True on every failure path: see
     #: :class:`aiq_agent.stages.flags.TurnFlags`.
     deep_research_allowed: bool = True
+    #: Whether this turn may hand work over (`create_task`). Its own flag, see
+    #: :class:`aiq_agent.stages.flags.TurnFlags`.
+    tasks_allowed: bool = True
 
 
 def thread_id_for_turn(conversation_id: str | None) -> str:
@@ -134,7 +137,11 @@ async def _turn_flags(request: GridRequestContext, resolve_stages: bool) -> Turn
         return flags
     # No stage has a model to run on, so the stage half of the answer decides
     # nothing; the deep-research half still does.
-    return TurnFlags(enabled_stages=frozenset(), deep_research_allowed=flags.deep_research_allowed)
+    return TurnFlags(
+        enabled_stages=frozenset(),
+        deep_research_allowed=flags.deep_research_allowed,
+        tasks_allowed=flags.tasks_allowed,
+    )
 
 
 async def _platform_lessons(conversation_id: str | None) -> str | None:
@@ -169,6 +176,7 @@ async def _load_turn_context(
         platform_lessons=platform_lessons,
         org_instructions=request.org_instructions,
         deep_research_allowed=turn_flags.deep_research_allowed,
+        tasks_allowed=turn_flags.tasks_allowed,
         stage_facts=TurnFacts(
             conversation_id=conversation_id,
             ws_parent_id=get_user_message_id_from_context(),

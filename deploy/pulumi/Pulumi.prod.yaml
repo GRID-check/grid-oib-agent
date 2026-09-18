@@ -301,10 +301,10 @@ config:
   #     (`isIfcModelsEnabled`, `isAgentAuthoredDocumentsEnabled`) read the flag
   #     rather than their env var.
   #   - A registry flag ABSENT from WorkOS fails closed for every organization.
-  #     All 19 in `lib/authz/feature-flags.ts` exist there as of 2026-09-18, and
+  #     All 20 in `lib/authz/feature-flags.ts` exist there as of 2026-09-18, and
   #     each is targeted to match what prod served before the flip, except the
-  #     three switched off on purpose: `deep-research`, `skills` and the already
-  #     dark `project-knowledge-page`. Adding a flag to the registry without
+  #     four switched off on purpose: `deep-research`, `skills`, `task-automation`
+  #     and the already dark `project-knowledge-page`. Adding a flag to the registry without
   #     creating it in WorkOS now ships a feature that is off everywhere and
   #     says nothing about why.
   grid-oib:enforceFeatureFlags: "true"

@@ -30,6 +30,7 @@ def stubs(monkeypatch):
         "digest": "LIVE",
         "stages": frozenset({"follow_ups"}),
         "deep_research_allowed": True,
+        "tasks_allowed": True,
     }
 
     def lessons(_conversation_id):
@@ -47,6 +48,7 @@ def stubs(monkeypatch):
         return TurnFlags(
             enabled_stages=calls["stages"],
             deep_research_allowed=calls["deep_research_allowed"],
+            tasks_allowed=calls["tasks_allowed"],
         )
 
     monkeypatch.setattr(context_mod, "get_platform_lessons_digest", lessons)
@@ -155,6 +157,18 @@ class TestLoadTurnContext:
         )
 
         assert context.deep_research_allowed is False
+
+    async def test_the_two_capabilities_are_withdrawn_independently(self, stubs):
+        """Skills stay in chat and tasks do not: the product asked for exactly
+        this split, so the two flags must not collapse into one."""
+        stubs["tasks_allowed"] = False
+
+        context = await load_turn_context(
+            _request(organization_id="org"), conversation_id="c1", query_text="q", resolve_stages=True
+        )
+
+        assert context.tasks_allowed is False
+        assert context.deep_research_allowed is True
 
     async def test_a_failed_context_load_leaves_deep_research_allowed(self, stubs):
         """The whole-context fail-open must not withdraw a capability: a dead

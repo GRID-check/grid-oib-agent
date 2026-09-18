@@ -112,6 +112,19 @@ class TestFetchTurnFlags:
         with patch("urllib.request.urlopen", return_value=_body({"enabled": [], "features": features})):
             assert flags.fetch_turn_flags(organization_id="org_1").deep_research_allowed is True
 
+    def test_the_two_capabilities_are_read_independently(self):
+        """`task-automation` is its own flag. An org may keep deep research and
+        lose the right to queue work, or the reverse."""
+        payload = {"enabled": [], "features": {"deepResearch": True, "tasks": False}}
+        with patch("urllib.request.urlopen", return_value=_body(payload)):
+            resolved = flags.fetch_turn_flags(organization_id="org_1")
+        assert resolved.deep_research_allowed is True
+        assert resolved.tasks_allowed is False
+
+    def test_an_older_bff_keeps_tasks_too(self):
+        with patch("urllib.request.urlopen", return_value=_body({"enabled": []})):
+            assert flags.fetch_turn_flags(organization_id="org_1").tasks_allowed is True
+
     def test_both_halves_come_from_one_request(self):
         with patch("urllib.request.urlopen", return_value=_body({"enabled": [], "features": {}})) as urlopen:
             flags.fetch_turn_flags(organization_id="org_1")
@@ -125,6 +138,12 @@ class TestResolveTurnFlags:
         with patch("urllib.request.urlopen", side_effect=OSError("connection refused")):
             resolved = await flags.resolve_turn_flags(organization_id="org_1", memory_reflection_enabled=False)
         assert resolved.deep_research_allowed is True
+
+    @pytest.mark.asyncio
+    async def test_a_bff_failure_never_withdraws_tasks(self):
+        with patch("urllib.request.urlopen", side_effect=OSError("connection refused")):
+            resolved = await flags.resolve_turn_flags(organization_id="org_1", memory_reflection_enabled=False)
+        assert resolved.tasks_allowed is True
 
     @pytest.mark.asyncio
     async def test_a_malformed_body_never_withdraws_deep_research(self):
