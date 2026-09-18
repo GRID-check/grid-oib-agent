@@ -21,6 +21,7 @@ from langchain_core.messages import AIMessage
 from langchain_core.messages import HumanMessage
 
 from aiq_agent.agents.piloti.conversation import ANSWER_LIFTS
+from aiq_agent.agents.piloti.conversation import DEEP_RESEARCH_UNAVAILABLE_NOTE
 from aiq_agent.agents.piloti.conversation import ConversationGraph
 from aiq_agent.agents.piloti.conversation import _finalize_answer
 from aiq_agent.agents.piloti.ledger import citations_removed_summary
@@ -392,14 +393,18 @@ class TestJobAdmissionRejectedPropagation:
 class TestARefusedCommissionStillAnswers:
     """A question that cannot become a run is still researched.
 
-    Every refusal except a full queue falls back to the in-process path — the
-    same one a deployment with no worker takes. What is lost is the block in
-    the thread, never the work: a reader who asked something hard and got a
-    sentence about permissions instead of an answer is the failure this avoids.
+    A refusal that says the run could not be PLACED — no project, no envelope,
+    the task API unreachable — falls back to the in-process path, the same one
+    a deployment with no worker takes. What is lost is the block in the thread,
+    never the work: a reader who asked something hard and got a sentence about
+    plumbing instead of an answer is the failure this avoids.
+
+    ``forbidden`` is the one refusal that does NOT mean that, and it is tested
+    separately below.
     """
 
     @pytest.mark.asyncio
-    @pytest.mark.parametrize("reason", ["no_project", "no_envelope", "forbidden", "unreachable"])
+    @pytest.mark.parametrize("reason", ["no_project", "no_envelope", "unreachable"])
     async def test_a_refusal_falls_back_to_research_in_process(self, reason):
         async def refusing(state):
             raise CommissionRefused(reason, "nope")
@@ -411,6 +416,33 @@ class TestARefusedCommissionStillAnswers:
         assert result.messages[-1].content == "Deep report."
         assert result.run_id is None
         assert result.job_admission_rejected is None
+
+    @pytest.mark.asyncio
+    async def test_forbidden_is_a_capability_denial_and_never_falls_back(self):
+        """The one refusal the fallback must not answer by doing it anyway.
+
+        `forbidden` is the tenant not having deep research at all — the same
+        `deep-research` flag `POST /api/jobs/async/submit` gates, reached by the
+        commission path. Researching in process would run, with no second
+        check, exactly what the route just refused. So it ends the turn with the
+        unavailability note instead. The gate itself is covered in
+        `test_deep_research_gate.py`; this case exists because the fallback
+        above used to swallow it.
+        """
+
+        async def forbidden(state):
+            raise CommissionRefused("forbidden", "not for this tenant")
+
+        agent = _agent(_research_fn("Teilantwort.", escalating=True), commissioner=forbidden)
+
+        result = await agent.run(ConversationState(messages=[HumanMessage(content="Deep question")]), thread_id="t")
+
+        assert result.messages[-1].content != "Deep report.", "a forbidden commission ran deep research anyway"
+        assert DEEP_RESEARCH_UNAVAILABLE_NOTE in result.messages[-1].content
+        assert result.run_id is None
+        assert result.job_admission_rejected is None
+        # Nothing failed — the capability is absent — so it is not an error turn.
+        assert result.routing_decision == "meta"
 
     @pytest.mark.asyncio
     async def test_a_full_queue_is_told_to_the_reader_with_its_retry_hint(self):
