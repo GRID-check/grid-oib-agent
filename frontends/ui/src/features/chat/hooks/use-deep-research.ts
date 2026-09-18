@@ -25,6 +25,7 @@ import { useAuth } from '@/adapters/auth'
 import { useLayoutStore } from '@/features/layout/store'
 import { isDeepResearchReplayCompleteMode } from '../lib/transport-auth-signals'
 import { isTerminalDeepResearchJobStatus } from '../lib/session-activity'
+import { readTerminalVerdictFromCancelResult } from '../lib/deep-research-errors'
 import { normalizeDeepResearchTodos } from '../lib/deep-research-todos'
 import { dedupeBufferedCitations } from '../lib/wire-citation'
 import type { WireCitationSource } from '../types'
@@ -727,20 +728,27 @@ export const useDeepResearch = (): UseDeepResearchReturn => {
    * Cancel the current job (useful for hung jobs)
    */
   const cancelCurrentJob = useCallback(async () => {
-    if (!deepResearchJobId) return
-    const cancelledJobId = deepResearchJobId
+    const { deepResearchJobId: cancelledJobId, deepResearchStatus: currentStatus } =
+      useChatStore.getState()
+    if (!cancelledJobId) return
     // #632: the terminal frame may already have landed while the streaming
     // flags have not settled yet — or this is a second press after it. A
     // cancel against a terminal job is a backend no-op, so do not even send
-    // it; the SSE outcome path owns the cleanup from here.
-    if (isTerminalDeepResearchJobStatus(deepResearchStatus)) return
+    // it; the SSE outcome path owns the cleanup from here. Read fresh from
+    // the store: the closure may still hold the pre-terminal render.
+    if (isTerminalDeepResearchJobStatus(currentStatus)) return
 
     try {
-      await cancelJob(cancelledJobId, idToken || undefined)
+      const result = await cancelJob(cancelledJobId, idToken || undefined)
+      // The cancel carries the backend's own verdict when it lands after
+      // completion (idempotent cancel, #632). Reconcile to it so a terminal
+      // response with no SSE event does not settle as a false `interrupted`.
+      const verdict = readTerminalVerdictFromCancelResult(result) ?? 'interrupted'
+      const fallbackBanner = verdict === 'success' ? 'success' : verdict === 'failure' ? 'failure' : 'cancelled'
       setIsTimedOut(false)
 
       // Fallback: if the SSE stream is broken or stalled and never delivers
-      // the job.status: "interrupted" event, clean up locally after a short
+      // the job.status event, clean up locally after a short
       // grace period so the UI doesn't stay stuck in "streaming" state.
       // If the SSE event arrives in time, onJobStatus clears this timer.
       if (cancelFallbackRef.current) clearTimeout(cancelFallbackRef.current)
@@ -761,7 +769,7 @@ export const useDeepResearch = (): UseDeepResearchReturn => {
         if (ownerConvId && messageId) {
           patchConversationMessage(ownerConvId, messageId, {
             content: '',
-            deepResearchJobStatus: 'interrupted',
+            deepResearchJobStatus: verdict,
             isDeepResearchActive: false,
             showViewReport: hasReport,
           })
@@ -769,7 +777,7 @@ export const useDeepResearch = (): UseDeepResearchReturn => {
         // Attached runs (no owning conversation) get no thread banner — it
         // would land in an unrelated conversation.
         if (ownerConvId) {
-          addDeepResearchBanner('cancelled', cancelledJobId, ownerConvId)
+          addDeepResearchBanner(fallbackBanner, cancelledJobId, ownerConvId)
         }
         stopAllDeepResearchSpinners()
         clientRef.current?.disconnect()
@@ -781,7 +789,7 @@ export const useDeepResearch = (): UseDeepResearchReturn => {
     } catch (error) {
       console.error('Failed to cancel job:', error)
     }
-  }, [deepResearchJobId, deepResearchStatus, idToken, patchConversationMessage, addDeepResearchBanner, stopAllDeepResearchSpinners, completeDeepResearch, setStreaming, setStreamLoaded])
+  }, [idToken, patchConversationMessage, addDeepResearchBanner, stopAllDeepResearchSpinners, completeDeepResearch, setStreaming, setStreamLoaded])
 
   /**
    * Auto-connect when job ID changes

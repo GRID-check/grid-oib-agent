@@ -144,22 +144,40 @@ export function ThumbnailWithFallback({ file }: { file: FileItem }) {
       return
     }
     let cancelled = false
+    let refreshTimer: ReturnType<typeof setTimeout> | null = null
     setState('loading')
-    loadThumbnail(file.id, isSettlingStatus(file.status))
-      .then(({ url }) => {
-        if (cancelled) return
-        if (url) {
-          setImgUrl(url)
-          setState('ready')
-        } else {
-          setState('none')
-        }
-      })
-      .catch(() => {
-        if (!cancelled) setState('error')
-      })
+    const resolveAndSchedule = (provisional: boolean): void => {
+      loadThumbnail(file.id, provisional)
+        .then(({ url, expiresAtMs }) => {
+          if (cancelled) return
+          if (url) {
+            setImgUrl(url)
+            setState('ready')
+            // A mounted card outlives the 1–2h signature window: without a
+            // refresh the optimizer's first request past expiry meets a
+            // 200 placeholder (not an error), so `onError` never fires and
+            // the card shows the placeholder until remount (#366).
+            if (expiresAtMs !== null) {
+              const delayMs = expiresAtMs - THUMBNAIL_REFRESH_MARGIN_MS - Date.now()
+              if (delayMs > 0) {
+                refreshTimer = setTimeout(() => {
+                  thumbnailCache.delete(file.id)
+                  if (!cancelled) resolveAndSchedule(false)
+                }, delayMs)
+              }
+            }
+          } else {
+            setState('none')
+          }
+        })
+        .catch(() => {
+          if (!cancelled) setState('error')
+        })
+    }
+    resolveAndSchedule(isSettlingStatus(file.status))
     return () => {
       cancelled = true
+      if (refreshTimer) clearTimeout(refreshTimer)
     }
     // `file.status` is a dependency, not noise: it is the signal that a document
     // which had no preview when the page loaded has finished being read, and so

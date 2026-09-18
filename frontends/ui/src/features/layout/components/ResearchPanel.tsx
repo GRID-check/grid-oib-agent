@@ -19,6 +19,7 @@ import { motion, springDrawer } from '@/components/motion'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { cancelJob } from '@/adapters/api'
+import { readTerminalVerdictFromCancelResult } from '@/features/chat/lib/deep-research-errors'
 import { useChatStore, useLoadJobData } from '@/features/chat'
 import { useAuth } from '@/adapters/auth'
 import { useIsMobile } from '@/hooks/use-is-mobile'
@@ -128,11 +129,16 @@ export const ResearchPanel: FC<ResearchPanelProps> = memo(function ResearchPanel
     // backend no-op, so do not even send it.
     if (!isDeepResearchStreaming) return
     try {
-      await cancelJob(cancelledJobId, idToken || undefined)
+      const result = await cancelJob(cancelledJobId, idToken || undefined)
+      // The cancel carries the backend's own verdict when it lands after
+      // completion (idempotent cancel, #632). A terminal response with no
+      // SSE event must settle to that verdict, not to a blind `interrupted`.
+      const verdict = readTerminalVerdictFromCancelResult(result) ?? 'interrupted'
+      const fallbackBanner = verdict === 'success' ? 'success' : verdict === 'failure' ? 'failure' : 'cancelled'
 
       // Fallback: if the SSE stream is broken or stalled and the
       // useDeepResearch hook's onJobStatus never receives the
-      // "interrupted" event, clean up locally after a grace period.
+      // terminal event, clean up locally after a grace period.
       // This is a safety net in addition to the hook's own fallback.
       if (cancelFallbackRef.current) clearTimeout(cancelFallbackRef.current)
       cancelFallbackRef.current = setTimeout(() => {
@@ -151,12 +157,12 @@ export const ResearchPanel: FC<ResearchPanelProps> = memo(function ResearchPanel
         if (ownerConvId && messageId) {
           state.patchConversationMessage(ownerConvId, messageId, {
             content: '',
-            deepResearchJobStatus: 'interrupted',
+            deepResearchJobStatus: verdict,
             isDeepResearchActive: false,
             showViewReport: hasReport,
           })
         }
-        state.addDeepResearchBanner('cancelled', cancelledJobId, ownerConvId || undefined)
+        state.addDeepResearchBanner(fallbackBanner, cancelledJobId, ownerConvId || undefined)
         state.completeDeepResearch()
         state.setStreaming(false)
       }, CANCEL_FALLBACK_TIMEOUT_MS)

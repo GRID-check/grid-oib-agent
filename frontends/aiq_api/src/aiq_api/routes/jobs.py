@@ -796,7 +796,25 @@ async def register_job_routes(app: FastAPI, builder: WorkflowBuilder, worker: Fa
             logger.info("Cancel no-op for already-terminal job %s (status: %s)", job_id, job.status)
             return {"job_id": job_id, "status": job.status, "task_cancelled": False}
 
-        await job_store.update_status(job_id, JobStatus.INTERRUPTED, error="cancelled by user")
+        from ..jobs.runner import _update_status_if_not_terminal
+
+        # Conditional write: the worker may finalize between the read above
+        # and this write. An unconditional update_status would flip that
+        # SUCCESS/FAILURE back to INTERRUPTED — the mirror of the
+        # runner-overwrites-reaper race _update_status_if_not_terminal guards.
+        written = await _update_status_if_not_terminal(
+            job_store, job_id, JobStatus.INTERRUPTED, error="cancelled by user"
+        )
+        if not written:
+            current = await job_store.get_job(job_id)
+            if current is None:
+                raise HTTPException(404, f"Job not found: {job_id}")
+            logger.info(
+                "Cancel raced completion for job %s (status: %s); leaving the existing verdict",
+                job_id,
+                current.status,
+            )
+            return {"job_id": job_id, "status": current.status, "task_cancelled": False}
 
         def _record_cancellation_event() -> None:
             # EventStore construction and store() are blocking DB I/O — keep

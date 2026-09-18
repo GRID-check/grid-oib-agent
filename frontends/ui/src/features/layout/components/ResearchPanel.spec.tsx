@@ -1,4 +1,4 @@
-import { render, screen, fireEvent } from '@/test-utils'
+import { render, screen, fireEvent, act } from '@/test-utils'
 import userEvent from '@testing-library/user-event'
 import { vi, describe, test, expect, beforeEach } from 'vitest'
 import { ResearchPanel } from './ResearchPanel'
@@ -47,20 +47,48 @@ const mockImportJobStream = vi.fn()
 const mockLoadResearchPanelTab = vi.fn()
 
 const mockCancelCurrentJob = vi.fn()
+const mockPatchConversationMessage = vi.fn()
+const mockAddDeepResearchBanner = vi.fn()
+const mockStopAllDeepResearchSpinners = vi.fn()
+const mockCompleteDeepResearch = vi.fn()
+const mockSetStreaming = vi.fn()
+let mockFallbackState: {
+  isDeepResearchStreaming: boolean
+  deepResearchJobId: string | null
+  deepResearchOwnerConversationId: string | null
+  activeDeepResearchMessageId: string | null
+  reportContent: string
+} | null = null
 
 vi.mock('@/features/chat', () => ({
-  useChatStore: (
-    selector: (state: {
-      isDeepResearchStreaming: boolean
-      deepResearchJobId: string | null
-      deepResearchStreamLoaded: boolean
-    }) => unknown
-  ) =>
-    selector({
-      isDeepResearchStreaming: mockIsDeepResearchStreaming,
-      deepResearchJobId: mockDeepResearchJobId,
-      deepResearchStreamLoaded: mockDeepResearchStreamLoaded,
-    }),
+  useChatStore: Object.assign(
+    (
+      selector: (state: {
+        isDeepResearchStreaming: boolean
+        deepResearchJobId: string | null
+        deepResearchStreamLoaded: boolean
+      }) => unknown
+    ) =>
+      selector({
+        isDeepResearchStreaming: mockIsDeepResearchStreaming,
+        deepResearchJobId: mockDeepResearchJobId,
+        deepResearchStreamLoaded: mockDeepResearchStreamLoaded,
+      }),
+    {
+      getState: () => ({
+        isDeepResearchStreaming: mockFallbackState?.isDeepResearchStreaming ?? mockIsDeepResearchStreaming,
+        deepResearchJobId: mockFallbackState?.deepResearchJobId ?? mockDeepResearchJobId,
+        deepResearchOwnerConversationId: mockFallbackState?.deepResearchOwnerConversationId ?? null,
+        activeDeepResearchMessageId: mockFallbackState?.activeDeepResearchMessageId ?? null,
+        reportContent: mockFallbackState?.reportContent ?? '',
+        stopAllDeepResearchSpinners: mockStopAllDeepResearchSpinners,
+        patchConversationMessage: mockPatchConversationMessage,
+        addDeepResearchBanner: mockAddDeepResearchBanner,
+        completeDeepResearch: mockCompleteDeepResearch,
+        setStreaming: mockSetStreaming,
+      }),
+    }
+  ),
   useLoadJobData: () => ({
     importStreamOnly: mockImportJobStream,
     loadResearchPanelTab: mockLoadResearchPanelTab,
@@ -88,12 +116,14 @@ vi.mock('./ReportTab', () => ({
 describe('ResearchPanel', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    vi.useRealTimers()
     mockRightPanel = 'research'
     mockResearchPanelTab = 'tasks'
     mockIsDeepResearchStreaming = false
     mockDeepResearchJobId = null
     mockDeepResearchStreamLoaded = false
     mockIsLoadJobDataLoading = false
+    mockFallbackState = null
     mockImportJobStream.mockClear()
     mockLoadResearchPanelTab.mockClear()
   })
@@ -338,6 +368,44 @@ describe('ResearchPanel', () => {
 
       await user.click(screen.getByTestId('stop-research-confirm'))
       expect(cancelJob).not.toHaveBeenCalled()
+    })
+
+    test('cancel fallback reconciles the backend terminal verdict', async () => {
+      vi.useFakeTimers()
+      const { cancelJob } = await import('@/adapters/api')
+      vi.mocked(cancelJob).mockResolvedValue({ cancelled: true, status: 'success' })
+      mockIsDeepResearchStreaming = true
+      mockDeepResearchJobId = 'job-123'
+      mockFallbackState = {
+        isDeepResearchStreaming: true,
+        deepResearchJobId: 'job-123',
+        deepResearchOwnerConversationId: 'conv-1',
+        activeDeepResearchMessageId: 'msg-1',
+        reportContent: '',
+      }
+
+      render(<ResearchPanel />)
+
+      fireEvent.click(screen.getByTestId('research-panel-stop'))
+      fireEvent.click(screen.getByTestId('stop-research-confirm'))
+
+      // Let the async cancel resolve and schedule the fallback.
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(0)
+      })
+      expect(cancelJob).toHaveBeenCalledWith('job-123', 'mock-token')
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(5000)
+      })
+
+      expect(mockPatchConversationMessage).toHaveBeenCalledWith(
+        'conv-1',
+        'msg-1',
+        expect.objectContaining({ deepResearchJobStatus: 'success' })
+      )
+      expect(mockAddDeepResearchBanner).toHaveBeenCalledWith('success', 'job-123', 'conv-1')
+      vi.useRealTimers()
     })
   })
 

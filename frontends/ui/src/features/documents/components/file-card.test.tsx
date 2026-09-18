@@ -238,6 +238,41 @@ describe('ThumbnailWithFallback', () => {
     await new Promise((resolve) => setTimeout(resolve, 50))
     expect(hits).toHaveBeenCalledTimes(1)
   })
+
+  it('refreshes a mounted thumbnail before its URL expires (#366)', async () => {
+    let hits = 0
+    server.use(
+      http.get('/api/documents/:id/thumbnail', () => {
+        hits += 1
+        if (hits === 1) {
+          return HttpResponse.json({
+            url: '/api/documents/eB/image?org=o&v=thumb&exp=1&sig=first',
+            expiresAtMs: Date.now() + 70_000,
+          })
+        }
+        return HttpResponse.json({
+          url: '/api/documents/eB/image?org=o&v=thumb&exp=2&sig=second',
+          expiresAtMs: Date.now() + 2 * 3600_000,
+        })
+      })
+    )
+
+    const setTimeoutSpy = vi.spyOn(globalThis, 'setTimeout')
+    const rendered = render(<ThumbnailWithFallback file={file('eB', 'Foto.png', 'image/png')} />)
+    try {
+      await waitFor(() => expect(rendered.container.querySelector('img')).toBeInTheDocument())
+      expect(hits).toBe(1)
+
+      // The refresh is scheduled 60s before expiry: a 70s expiry schedules
+      // ~10s out. Pin the scheduling (not the 10s wait) so the suite stays
+      // fast; the firing path is the same loadThumbnail the remount test pins.
+      const refreshCall = setTimeoutSpy.mock.calls.find(([, delay]) => typeof delay === 'number' && delay > 5_000 && delay < 15_000)
+      expect(refreshCall).toBeDefined()
+    } finally {
+      setTimeoutSpy.mockRestore()
+      rendered.unmount()
+    }
+  })
 })
 
 /**

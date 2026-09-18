@@ -2091,14 +2091,27 @@ export async function streamDocumentImage(
     return serveImageFallback(documentId, 'missing-object')
   }
 
-  // A numeric ContentLength decides from the header, exactly as before: an
-  // object that truncated to 0 bytes between the mint-side HEAD check and this
-  // GET decodes to nothing.
+  // A numeric ContentLength still reads the bytes before answering: the
+  // header only says the object STARTED non-empty, while the body stream can
+  // fail or truncate during consumption — which the optimizer would surface
+  // as "isn't a valid image". Buffering here is bounded by the upload
+  // ceiling no legitimate image can exceed, so a failing or empty body
+  // deflects to the placeholder instead of a truncated response.
   if (typeof object?.ContentLength === 'number') {
     if (object.ContentLength <= 0 || !object.Body) {
       return serveImageFallback(documentId, 'empty-object')
     }
-    return tenantImageResponse(object.Body.transformToWebStream(), contentType)
+    const { maxFileSize } = getFileUploadConfigFromEnv(process.env)
+    if (object.ContentLength > maxFileSize) {
+      return serveImageFallback(documentId, 'oversize-object')
+    }
+    const buffered = await object.Body.transformToByteArray().catch(() => null)
+    if (!buffered || buffered.byteLength === 0) {
+      return serveImageFallback(documentId, 'unreadable-object')
+    }
+    // Copied: the SDK may hand back a view over a shared pool, and the
+    // response takes ownership of what it is given.
+    return tenantImageResponse(Buffer.from(buffered), contentType)
   }
 
   // No ContentLength on the response — some gateways omit it — so decide from

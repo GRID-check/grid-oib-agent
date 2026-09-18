@@ -1814,4 +1814,23 @@ describe('thumbnails ignore empty objects', () => {
     expect(response.headers.get('Content-Type')).toBe('image/png')
     expect(new Uint8Array(await response.arrayBuffer())).toEqual(fallbackImageBytes())
   })
+
+  it('streamDocumentImage deflects a failing numeric-ContentLength body to the placeholder', async () => {
+    vi.stubEnv('GRID_INTERNAL_API_TOKEN', 'test-secret')
+    const imageUrl = new URL(buildDocumentImageUrl('org-1', 'doc-1', 'thumb')!, 'https://grid.test')
+    vi.mocked(s3Client.send).mockResolvedValue({
+      ContentLength: 48211,
+      Body: {
+        transformToByteArray: async (): Promise<Uint8Array> => {
+          throw new Error('s3 body failed mid-stream')
+        },
+      },
+    } as never)
+
+    const response = await streamDocumentImage('doc-1', imageUrl.searchParams)
+
+    expect(response.status).toBe(200)
+    expect(response.headers.get('Content-Type')).toBe('image/png')
+    expect(new Uint8Array(await response.arrayBuffer())).toEqual(fallbackImageBytes())
+  })
 })

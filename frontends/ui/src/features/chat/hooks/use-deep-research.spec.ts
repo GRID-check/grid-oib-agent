@@ -451,6 +451,35 @@ describe('useDeepResearch', () => {
       consoleWarnSpy.mockRestore()
     })
 
+    test('fallback reconciles the backend terminal verdict instead of a blind interrupted', async () => {
+      mockStoreState.deepResearchJobId = 'job-456'
+      mockStoreState.isDeepResearchStreaming = true
+      mockStoreState.deepResearchOwnerConversationId = 'test-conv-123'
+      mockStoreState.activeDeepResearchMessageId = 'msg-1'
+      mockCancelJob.mockResolvedValue({ cancelled: true, status: 'success' })
+
+      const consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+
+      const { result } = renderHook(() => useDeepResearch())
+
+      await act(async () => {
+        await result.current.cancelCurrentJob()
+      })
+
+      await act(async () => {
+        vi.advanceTimersByTime(5000)
+      })
+
+      expect(mockPatchConversationMessage).toHaveBeenCalledWith(
+        'test-conv-123',
+        'msg-1',
+        expect.objectContaining({ deepResearchJobStatus: 'success' })
+      )
+      expect(mockAddDeepResearchBanner).toHaveBeenCalledWith('success', 'job-456', 'test-conv-123')
+
+      consoleWarnSpy.mockRestore()
+    })
+
     test('fallback is a no-op if SSE already handled cleanup', async () => {
       mockStoreState.deepResearchJobId = 'job-456'
       mockStoreState.isDeepResearchStreaming = true
