@@ -146,15 +146,25 @@ config:
   # ── Auth / platform ──
   grid-oib:requireAuth: "true"
   grid-oib:workosClientId: client_01KEF0YGNPX7S4SF952ZX46V1K # pragma: allowlist secret (public OAuth client id)
-  grid-oib:enforceFeatureFlags: "false"
-  # Agent Skills + Jobs (ADR-0046). On in staging so the feature can actually be
-  # exercised. With enforceFeatureFlags off, this env gate is the only thing
-  # that turns the Skills and Jobs tabs on and the job scheduler up.
+  # ON since 2026-09-18, and it follows prod deliberately. Staging is where a
+  # prod change is rehearsed, and with enforcement off it rehearsed a DIFFERENT
+  # code path: `isFeatureEnabled` fell open here and read real flags there, so
+  # the per-turn capability resolution never ran in staging and a registry flag
+  # missing from WorkOS was invisible until prod failed it closed.
+  #
+  # Every one of the 20 registry flags is ON for ALL organizations in the
+  # Staging WorkOS environment, so this is behaviour-preserving with one
+  # deliberate exception: `project-knowledge-page` had no env opt-in here and
+  # its flag is on, so the Knowledge page appears in staging. That is wanted —
+  # it is the environment the page is meant to be exercised in.
+  grid-oib:enforceFeatureFlags: "true"
+  # Agent Skills + Jobs (ADR-0046). Inert for the UI under enforcement — the
+  # per-org `skills` flag decides, and it is ON for all staging organizations —
+  # but still what creates the `skill-scheduler` Deployment, so it stays "true".
   grid-oib:skillsEnabled: "true"
-  # Collaboration (ADR-0032…0035): shared chats, @-mentions, the inbox. On in
-  # staging so the feature can actually be exercised; prod stays dark until it
-  # ships. With enforceFeatureFlags off, this env gate is the only thing that
-  # turns the surfaces on.
+  # Collaboration (ADR-0032…0035): shared chats, @-mentions, the inbox. Also
+  # inert under enforcement (the `collaboration` flag is ON for all staging
+  # organizations); kept truthful in case enforcement is ever lifted here.
   grid-oib:collaborationEnabled: "true"
   grid-oib:registryUsername: matthiasbigl
   # ── Observability / OTel Collector + Aspire dashboard (ADR-0029) ──
