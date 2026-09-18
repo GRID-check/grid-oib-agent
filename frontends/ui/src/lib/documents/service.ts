@@ -41,6 +41,7 @@ import {
 import { ALLOWED_TAGS } from './tag-vocabulary'
 import { contentDigest } from './content-digest'
 import { documentStatusFacts } from './document-status'
+import { IN_FLIGHT_DOCUMENT_STATUSES } from './document-status'
 import { documentNameKey } from './name-match'
 import { normalizeDrawingStructured, type DrawingStructured } from './drawing-structured'
 import { getFileUploadConfigFromEnv } from '@/shared/config/file-upload'
@@ -59,7 +60,7 @@ import { deleteAssignmentsForResource } from '@/lib/assignments/repository'
 import { purgeResourceCollaboration } from '@/lib/collaboration/cleanup'
 import type { AuthorizedSession } from '@/lib/auth/types'
 import type { Document, DocumentAuthor } from '@/lib/db/schema'
-import { reconcileDocumentStatuses, type DocumentMetadata } from './reconcile-status'
+import { reconcileDocumentStatuses, describeBackendIngestState, type DocumentMetadata } from './reconcile-status'
 import {
   collectionDocumentsUrl,
   collectionFileRef,
@@ -77,6 +78,7 @@ import {
   markDocumentProcessing,
   setDocumentDisplayName,
   setDocumentIngestJob,
+  setDocumentReconciledStatus,
   findLiveDocumentByFilename,
   type DocumentListRow,
 } from './repository'
@@ -1259,10 +1261,49 @@ export async function reingestDocument(
 ): Promise<ReingestDocumentResult> {
   const doc = await getAccessibleDocument(session, documentId, 'write')
 
-  if (doc.status !== 'failed') {
-    throw new ConflictError('Only failed documents can be re-ingested', { status: doc.status })
-  }
   if (!doc.storageKey) throw new NotFoundError('File not available')
+
+  if (doc.status !== 'failed' && doc.status !== 'uploaded' && !IN_FLIGHT_DOCUMENT_STATUSES.has(doc.status)) {
+    throw new ConflictError('Only failed, stuck, or never-indexed documents can be re-ingested', {
+      status: doc.status,
+    })
+  }
+
+  if (doc.status !== 'failed' && doc.status !== 'uploaded') {
+    // In flight: retry only what the backend has LOST. A row can sit at
+    // `processing` forever — a backend restart wipes the in-memory job
+    // registry, a detached IFC extraction dies with the process — while the
+    // old guard answered every one of those with 409 and the user's only way
+    // out was delete + re-upload under a NEW id, breaking every citation,
+    // chat subject and assignment pointing at the old one. Retrying keeps the
+    // id, so nothing pointing at the document breaks.
+    //
+    // The check is live backend state, not a timer: a row is retryable when
+    // the backend knows neither a job nor a file for it. A job that is
+    // genuinely running refuses with 409 rather than doubling VLM work and
+    // churning the chunks citations point at.
+    const knowledge = await describeBackendIngestState({
+      metadata: doc.metadata,
+      collectionName: doc.collectionName,
+      filename: doc.filename,
+      authoredBy: doc.authoredBy,
+      publishedVersionId: doc.publishedVersionId,
+    })
+    if (knowledge.state === 'in-progress') {
+      throw new ConflictError('Ingestion is still running for this document', { status: doc.status })
+    }
+    if (knowledge.state === 'unreachable') {
+      throw new UpstreamError('The ingestion backend could not be reached, so a retry cannot be verified as safe')
+    }
+    if (knowledge.state === 'terminal') {
+      // Finished behind the row's back (no listing read reconciled it yet).
+      // Heal the row instead of re-dispatching a finished document.
+      await setDocumentReconciledStatus(doc.id, session.organizationId, knowledge.resolution)
+      throw new ConflictError(`Ingestion already ${knowledge.resolution.status} for this document`, {
+        status: knowledge.resolution.status,
+      })
+    }
+  }
 
   // The bucket the object is ACTUALLY in — `doc.storageBucket`, not the bucket
   // a new upload would go to. Both presigned URLs the dispatch mints name it:
