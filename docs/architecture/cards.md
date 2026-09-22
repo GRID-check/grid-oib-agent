@@ -288,11 +288,30 @@ so there is nothing to persist on the message.
 
 ## How generation works
 
-Cards are emitted by the answering agent itself via the **`emit_card` tool**
-(`cards/register.py`): mid-turn, with full context, the agent calls the tool
+**Since 2026-09 the model's own cards travel in the answer envelope.** The
+`cards` field of the ```answer_json object carries the card objects in the
+same message as the answer (`common/answer_envelope.py`, `cards/envelope.py`);
+the pipeline validates each one with the same adapter and the same two closed
+channels `emit_card` runs, registers them in the same per-turn `CardRegistry`
+after whatever the tools pushed, and moves the prose's `[[card:N]]` markers
+from array numbers to registry positions. A shape the validator refuses is
+repaired once on the small card model (`cards/repair.py`, `card_repair_llm`),
+or dropped and recorded (`status:card:invalid:N`). The reason is the round:
+`emit_card` is a tool call, a tool call ends a message, and every card-bearing
+answer paid one more full-context call to write the prose after it — and a
+third on a wrong shape. Nothing on the wire changed. The taught envelope
+schema carries the doctrine, the index and the full shapes of the eight common
+content cards (`ENVELOPE_SHAPE_TYPES`, ~3 500 tokens, cached with the prefix;
+the whole catalog's shapes are ~23 000 and stay on demand).
+
+Cards can still be emitted by the answering agent via the **`emit_card` tool**
+(`cards/register.py`) — for a card it must show before the answer is written,
+or on an older prompt: mid-turn, with full context, the agent calls the tool
 whenever a structured element communicates better than prose. The card is
 validated against the shared schema and pushed into the conversation-scoped
-`CardRegistry`. The chat entrypoint snapshots that registry after the turn and
+`CardRegistry`. System cards (`document_draft`, `document_grid`,
+`file_operation_proposal`, `task_created`, `memory_proposal`) are pushed by the
+tool that did the work and never by the model, on either channel. The chat entrypoint snapshots that registry after the turn and
 attaches the cards to `ChatResponse.cards`, which the monkeypatched WS handler
 lifts onto the top-level message so the frontend reads it at `message.cards`.
 (The older post-hoc "re-derive cards from the finished prose" LLM call in

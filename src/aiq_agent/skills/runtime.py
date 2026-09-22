@@ -60,8 +60,8 @@ _CARDS_DOCTRINE = (
     "Where the content supports it, present the result as one of these cards: {types}. "
     "This is the skill author's preference, not a requirement — if none of them fits the "
     "result, pick the card that does or answer in prose. Never invent content just to fill "
-    "one of these cards. Their exact shapes follow, so you can call `emit_card` directly "
-    "without looking them up."
+    "one of these cards. Their exact shapes follow, so you can write them (in your answer's "
+    "`cards` field, or through `emit_card`) without looking them up."
 )
 
 

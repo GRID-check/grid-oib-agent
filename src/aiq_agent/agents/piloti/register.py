@@ -124,6 +124,15 @@ class ResearchAgentConfig(FunctionBaseConfig, name="research_agent"):
             "re-verify and keep the better answer. Off ships the markers as before."
         ),
     )
+    card_repair_llm: LLMRef | None = Field(
+        default=None,
+        description=(
+            "The small model that fixes ONE card the answer envelope carried and the validator "
+            "refused (`cards/repair.py`): the failed object, the refusal and the type's shape in a "
+            "message of a few thousand tokens, instead of the full-context round the `emit_card` "
+            "retry cost. Unset drops a card that fails validation, and records that it did."
+        ),
+    )
     verbose: bool = Field(default=False, description="Whether to enable verbose logging")
     skills_enabled: bool = Field(
         default=True,
@@ -420,6 +429,7 @@ async def research_agent(config: ResearchAgentConfig, builder: Builder):
         deferred_tool_loading=config.deferred_tool_loading,
         envelope_json_mode_with_tools=config.envelope_json_mode_with_tools,
         repair_pass=config.repair_pass,
+        card_repair_llm=(await get_langchain_llm(builder, config.card_repair_llm)) if config.card_repair_llm else None,
     )
     deployment = _Deployment(config=config, agent=agent, provider=provider, tools=tools)
 

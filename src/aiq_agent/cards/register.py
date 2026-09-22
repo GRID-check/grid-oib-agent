@@ -27,14 +27,15 @@ from aiq_agent.cards import surface_documents as _surface_documents  # noqa: F40
 # Re-exported so the shape-hint retry loop and tests keep importing them from
 # here; the definitions live in the framing-free catalog module.
 from aiq_agent.cards.catalog import CARD_EXAMPLES as _CARD_EXAMPLES  # noqa: F401
-from aiq_agent.cards.catalog import ENVELOPE_CARD_TYPES
-from aiq_agent.cards.catalog import SYSTEM_CARD_TYPES
 from aiq_agent.cards.catalog import model_facing_card_types
 from aiq_agent.cards.catalog import render_card_details
 from aiq_agent.cards.catalog import render_card_doctrine
 from aiq_agent.cards.catalog import render_card_index
-from aiq_agent.cards.catalog import shape_hint_for as _shape_hint_for
-from aiq_agent.common.tool_errors import render_error_detail
+from aiq_agent.cards.catalog import shape_hint_for as _shape_hint_for  # noqa: F401 — re-exported
+from aiq_agent.cards.envelope import REFUSED_ENVELOPE_TYPE
+from aiq_agent.cards.envelope import REFUSED_SHAPE
+from aiq_agent.cards.envelope import REFUSED_SYSTEM_TYPE
+from aiq_agent.cards.envelope import validate_model_card
 from nat.builder.builder import Builder
 from nat.builder.function_info import FunctionInfo
 from nat.cli.register_workflow import register_function
@@ -80,8 +81,11 @@ def _build_tool_description() -> str:
     """
     return (
         "Render a rich UI card alongside your answer, in addition to your written reply — always "
-        "write the prose too: delete the cards mentally and the answer must still answer. Several "
-        "cards are one call: pass a JSON array of card objects.\n\n"
+        "write the prose too: delete the cards mentally and the answer must still answer. On an "
+        "ordinary turn put your cards in the `cards` field of your answer envelope instead, in the "
+        "same message as the answer — that costs no further call; this tool is for a card you must "
+        "show BEFORE the answer is written. Several cards are one call: pass a JSON array of card "
+        "objects.\n\n"
         + _CARD_DOCTRINE
         + "\n\nHOW. Pass `card_json`: a JSON object with a `type` field plus that type's fields. "
         "Fill it from the type's line below and the rules above; you are not shown every shape up "
@@ -149,7 +153,6 @@ class EmitCardConfig(FunctionBaseConfig, name="emit_card"):
 
 @register_function(config_type=EmitCardConfig)
 async def emit_card(tool_config: EmitCardConfig, builder: Builder):
-    from aiq_agent.cards.models import grid_card_adapter
     from aiq_agent.cards.registry import get_card_registry
 
     def _validated_or_refusal(payload: object) -> tuple[dict | None, str | None]:
@@ -168,49 +171,35 @@ async def emit_card(tool_config: EmitCardConfig, builder: Builder):
         them apart picks by guess. Refusals are ``warning`` because each one is
         a card the reader was supposed to get and did not.
         """
-        if not isinstance(payload, dict):
-            logger.warning("emit_card rejected a card: card_json is a %s, not a JSON object", type(payload).__name__)
-            return None, "Error: card_json must be a JSON object with a 'type' field, or an array of them."
-
-        try:
-            validated = grid_card_adapter.validate_python(payload).model_dump(exclude_none=True)
-        except Exception as exc:
-            card_type = payload.get("type", "?")
+        # ONE validator for a card the model composes, shared with the answer
+        # envelope's `cards` field (``cards/envelope.py``): the shape check,
+        # the system-card channel and the envelope-field channel. What this
+        # tool adds is its own advice — which call to make next.
+        validated, refusal = validate_model_card(payload)
+        if refusal is None:
+            return validated, None
+        if refusal.kind == REFUSED_SHAPE:
             # The FULL shape, the building blocks, the field rules and the worked
             # example — the whole of what `describe_card` used to be asked for in
             # advance. The retry is the cheapest place to spend it: it is the one
             # moment we know the model needs it and know which type it needs.
-            hint = _shape_hint_for(card_type)
-            # The TYPE is the load-bearing half: it says which card the model
-            # knew it wanted, which is exactly what a silent turn cannot tell
-            # you. The validation message rides along as one clause per rejected
-            # field, so the shape it tripped over is readable without
-            # reproducing the turn, and pydantic's link to its own error index
-            # never reaches the model (see ``common/tool_errors.py``).
-            detail = render_error_detail(exc)
-            logger.warning("emit_card rejected a '%s' card: it failed validation: %s", card_type, detail)
             return None, (
-                f"Error: card of type '{card_type}' failed validation: {detail}. "
-                "Fix the fields and call emit_card again, or skip the card." + (f"\n\n{hint}" if hint else "")
+                f"Error: {refusal.message} Fix the fields and call emit_card again, or skip the card."
+                + (f"\n\n{refusal.hint}" if refusal.hint else "")
             )
-
-        # System cards (e.g. memory_proposal) are emitted only by their owning
-        # tool on a sanctioned path — the model must never emit one directly.
-        if validated["type"] in SYSTEM_CARD_TYPES:
-            logger.warning("emit_card rejected a '%s' card: that type is system-emitted", validated["type"])
+        if refusal.kind == REFUSED_SYSTEM_TYPE:
+            # System cards (e.g. memory_proposal) are emitted only by their
+            # owning tool on a sanctioned path — the model must never emit one.
             return None, (
-                f"Error: card type '{validated['type']}' is system-emitted and cannot be created with "
+                f"Error: card type '{refusal.card_type}' is system-emitted and cannot be created with "
                 "emit_card. Do not emit this card type."
             )
-
-        # Envelope shapes are answer-envelope fields; the refusal names the
-        # right channel so a model that correctly recognised "this answer has a
-        # verdict" is redirected rather than merely refused.
-        if validated["type"] in ENVELOPE_CARD_TYPES:
-            logger.warning("emit_card rejected a '%s' card: that type is trailer-materialized", validated["type"])
-            return None, _ENVELOPE_REFUSAL.format(card_type=validated["type"])
-
-        return validated, None
+        if refusal.kind == REFUSED_ENVELOPE_TYPE:
+            # Envelope shapes are answer-envelope fields; the refusal names the
+            # right channel so a model that correctly recognised "this answer
+            # has a verdict" is redirected rather than merely refused.
+            return None, _ENVELOPE_REFUSAL.format(card_type=refusal.card_type)
+        return None, f"Error: {refusal.message}"
 
     def _register(validated: dict) -> int | None:
         """Add the card to this turn's registry and return the marker's N.

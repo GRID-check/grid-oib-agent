@@ -64,6 +64,7 @@ import re
 from collections.abc import Callable
 from dataclasses import dataclass
 from types import UnionType
+from typing import Any
 from typing import Literal
 from typing import Union
 from typing import get_args
@@ -286,6 +287,23 @@ class AnswerMeta(_EnvelopeModel):
         default=None,
         description="with escalate_to_deep: one short clause saying why, in the answer's language",
     )
+    #: The model's own cards, in the same message as the answer — the card
+    #: objects ``emit_card`` takes, validated by the same adapter after
+    #: extraction (``cards/envelope.py``) and registered in the same per-turn
+    #: registry, so nothing on the wire changes. ``Any`` because the card union
+    #: is validated by its own adapter, not here; and OMITTED from the strict
+    #: provider schema (``json_schema_extra``), because a 40-way union of
+    #: nested objects is not expressible in strict mode — the forced-synthesis
+    #: call, the only one enforced that way, is the truncated turn, and a
+    #: truncated turn ships without cards rather than without an answer.
+    cards: list[Any] | None = Field(
+        default=None,
+        description=(
+            "the rich-UI cards this answer earns, as card objects (each with a `type` field), in the "
+            "same message as the answer — the contract for them follows the field list"
+        ),
+        json_schema_extra={"strict_schema": "omit"},
+    )
 
     @field_validator("kind", mode="before")
     @classmethod
@@ -312,6 +330,7 @@ class AnswerMeta(_EnvelopeModel):
             and self.confidence is None
             and self.escalate_to_deep is None
             and self.escalation_reason is None
+            and not self.cards
         )
 
 
@@ -789,6 +808,12 @@ def _strict_object(model_cls: type[BaseModel]) -> dict:
     """A model as a strict-mode object schema: all keys required, closed."""
     properties: dict[str, dict] = {}
     for name, info in model_cls.model_fields.items():
+        extra = info.json_schema_extra if isinstance(info.json_schema_extra, dict) else {}
+        if extra.get("strict_schema") == "omit":
+            # A field whose type strict mode cannot express (the cards union):
+            # taught in the prompt, validated by its own adapter, and absent
+            # from the enforced schema rather than mis-stated in it.
+            continue
         prop = _strict_property(info.annotation, required=info.is_required())
         if info.description:
             prop = {**prop, "description": info.description}
@@ -867,4 +892,14 @@ def render_envelope_schema() -> str:
         if field.name in AnswerMeta.model_fields:
             description = AnswerMeta.model_fields[field.name].description
             lines.append(f"{field.name}: string ({description})")
-    return "\n".join(f"  {line}" for line in lines)
+    cards_description = AnswerMeta.model_fields["cards"].description
+    lines.append(f"cards: [ {{ type*: string, …the fields of that type }} ] ({cards_description})")
+    rendered = "\n".join(f"  {line}" for line in lines)
+    # The cards contract — which trigger takes which card, the index, the
+    # shapes of the common eight, the placement rule — rendered from the card
+    # catalog so it cannot drift from the validator. Imported here because the
+    # cards package validates with pydantic models of its own and never needs
+    # this module; the dependency runs one way.
+    from aiq_agent.cards.envelope import render_envelope_cards_contract
+
+    return rendered + "\n\nCARDS (the `cards` field):\n" + render_envelope_cards_contract()

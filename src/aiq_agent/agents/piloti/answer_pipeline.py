@@ -16,6 +16,7 @@ from collections.abc import Awaitable
 from collections.abc import Callable
 from collections.abc import Sequence
 from dataclasses import dataclass
+from dataclasses import replace
 from typing import Any
 
 from langchain_core.messages import AIMessage
@@ -58,6 +59,15 @@ logger = logging.getLogger(__name__)
 #: a rewrite, or ``None`` to keep the marked answer. ``None`` as the function
 #: means the repair pass is off.
 RepairFn = Callable[[str, VerificationFailures, list[Any]], Awaitable[Repair | None]]
+
+#: The card repair the agent injects: ``(card as written, the refusal with the
+#: shape, the answer prose)`` → the corrected card object, or ``None`` to drop
+#: it. ``None`` as the function means a shape miss is dropped without a repair.
+CardRepairFn = Callable[[dict[str, Any], str, str], Awaitable[dict[str, Any] | None]]
+
+#: A ``[[card:N]]`` marker, with N captured: the envelope's own cards are
+#: addressed by these, and renumbered to their registry positions.
+_CARD_MARKER_NUMBER_RE = re.compile(r"\[\[card:(\d+)\]\]")
 
 
 @dataclass(frozen=True)
@@ -236,6 +246,106 @@ def _extract(raw: str) -> _Extracted:
         confidence = meta.confidence.level
         reason = (meta.confidence.reason or "").strip()[:300] or None
     return _Extracted(content, meta, escalation, confidence, reason, escalation_reason)
+
+
+def _handed_markers(messages: Sequence[Any]) -> set[int]:
+    """The ``[[card:N]]`` numbers a TOOL handed the model this turn.
+
+    A tool that pushes a system card (``write_file`` → ``document_draft``,
+    ``surface_documents`` → ``document_grid``, ``emit_card`` on an older
+    prompt) answers with the marker to write, so the numbers in its replies
+    are taken. Read off the transcript rather than off the registry's size:
+    the registry says how many cards exist, the replies say which of them the
+    model was told to address by number.
+    """
+    handed: set[int] = set()
+    for message in messages:
+        if not isinstance(message, ToolMessage):
+            continue
+        for match in _CARD_MARKER_NUMBER_RE.finditer(content_to_text(message.content)):
+            handed.add(int(match.group(1)))
+    return handed
+
+
+def _renumber_envelope_markers(content: str, *, handed: set[int], positions: dict[int, int], count: int) -> str:
+    """The envelope's card markers moved from array numbers to registry positions.
+
+    The model numbers its ``cards`` array from 1 (the taught rule), and the
+    array is registered AFTER whatever tools pushed this turn, so array number
+    N becomes the registry position it landed at (``positions``). A marker a
+    tool handed out keeps its number: it already IS a registry position, and a
+    number both channels could claim resolves to the tool's card — the model
+    copied that one from a reply, and the envelope card lands after the
+    answer instead of in the wrong place. The marker of a card that was
+    DROPPED is removed, so the reader never meets a marker with nothing behind
+    it and no later card slides onto its neighbour's place. A marker past the
+    array is left alone, as it always was.
+    """
+    if count == 0:
+        return content
+
+    def substitute(match: re.Match[str]) -> str:
+        number = int(match.group(1))
+        if number in handed or not 1 <= number <= count:
+            return match.group(0)
+        position = positions.get(number)
+        return f"[[card:{position}]]" if position is not None else ""
+
+    return _CARD_MARKER_NUMBER_RE.sub(substitute, content)
+
+
+async def _register_envelope_cards(
+    meta: AnswerMeta | None,
+    content: str,
+    messages: Sequence[Any],
+    card_repair: CardRepairFn | None,
+) -> str:
+    """Validate the envelope's cards into the turn's registry; the prose with its markers resolved.
+
+    The same validator and the same two closed channels ``emit_card`` runs
+    (``cards/envelope.validate_model_card``), so the envelope buys a card no
+    softer standard than the tool would. A shape miss goes to the repair once
+    — a bounded call on the small card model, never a round — and a card that
+    still fails is dropped and recorded (``status:card:invalid:N``). Cards
+    register in array order after whatever the tools pushed, and the prose's
+    markers are moved to those positions. Fail-open throughout: no registry
+    bound (a CLI run) means the answer ships without cards, as it always did.
+    """
+    from aiq_agent.cards.envelope import REFUSED_SHAPE
+    from aiq_agent.cards.envelope import envelope_card_objects
+    from aiq_agent.cards.envelope import validate_model_card
+    from aiq_agent.cards.registry import get_card_registry
+    from aiq_agent.common.turn_status import CARD_INVALID_DROPPED
+    from aiq_agent.common.turn_status import CARD_INVALID_REPAIRED
+    from aiq_agent.common.turn_status import emit_card_invalid
+
+    raw = envelope_card_objects(meta.cards if meta is not None else None)
+    if not raw:
+        return content
+    registry = get_card_registry()
+    if registry is None:
+        logger.info("answer envelope carried %d card(s) with no card registry bound; dropped", len(raw))
+        return content
+    handed = _handed_markers(messages)
+    positions: dict[int, int] = {}
+    for index, payload in enumerate(raw):
+        validated, refusal = validate_model_card(payload)
+        card_type = refusal.card_type if refusal is not None else str(validated["type"])
+        # Only a SHAPE miss is repairable: a system or envelope type is refused
+        # whatever its fields, and a non-object has no fields to fix.
+        if validated is None and refusal is not None and refusal.kind == REFUSED_SHAPE and card_repair is not None:
+            repaired = await card_repair(payload, refusal.for_repair(), content)
+            if repaired is not None:
+                validated, _ = validate_model_card(repaired)
+            if validated is not None:
+                emit_card_invalid(card_type=card_type, index=index, outcome=CARD_INVALID_REPAIRED)
+        if validated is None:
+            emit_card_invalid(card_type=card_type, index=index, outcome=CARD_INVALID_DROPPED)
+            continue
+        registry.add(validated)
+        positions[index + 1] = len(registry)
+        logger.info("answer envelope registered a '%s' card as card %d", validated["type"], len(registry))
+    return _renumber_envelope_markers(content, handed=handed, positions=positions, count=len(raw))
 
 
 def _source_lookup_attempted(messages: Sequence[Any]) -> bool:
@@ -636,6 +746,7 @@ async def finalize_answer(
     tools: Sequence[BaseTool],
     repair: RepairFn | None,
     turn_sources: Sequence[SourceEntry] | None = None,
+    card_repair: CardRepairFn | None = None,
 ) -> FinalAnswer:
     """Run every post-answer stage and return the answer as the reader gets it.
 
@@ -653,6 +764,13 @@ async def finalize_answer(
     if index is None or not messages[index].content:
         return FinalAnswer(messages=list(messages), answered=False)
     extracted = _extract(content_to_text(messages[index].content))
+    # The envelope's cards, before verification: registration is what turns
+    # the array's numbers into registry positions, and the markers have to be
+    # the reader's before the suppression floor and the callout resolver read
+    # the prose.
+    with_cards = await _register_envelope_cards(extracted.meta, extracted.content, messages, card_repair)
+    if with_cards != extracted.content:
+        extracted = replace(extracted, content=with_cards)
     lookup_attempted = _source_lookup_attempted(messages)
     sources = registry.all_sources()
     if sources:

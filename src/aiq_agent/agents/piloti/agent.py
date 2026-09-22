@@ -96,6 +96,7 @@ from aiq_agent.tools.bim.measurement_sources import begin_measurement_capture
 from aiq_agent.tools.bim.measurement_sources import end_measurement_capture
 from aiq_agent.tools.bim.measurement_sources import get_measurement_captures
 
+from .answer_pipeline import CardRepairFn
 from .answer_pipeline import FinalAnswer
 from .answer_pipeline import RepairFn
 from .answer_pipeline import finalize_answer
@@ -881,6 +882,7 @@ class PilotiAgent:
         deferred_tool_loading: DeferredToolLoadingSettings | None = None,
         envelope_json_mode_with_tools: bool = False,
         repair_pass: bool = True,
+        card_repair_llm: BaseChatModel | None = None,
     ) -> None:
         """Build the agent once.
 
@@ -921,7 +923,13 @@ class PilotiAgent:
             repair_pass: One bounded repair after verification (``repair.py``).
                 Off is the pre-repair behaviour: ship the markers, never
                 re-search.
+            card_repair_llm: The small model that fixes ONE envelope card
+                whose shape the validator refused (``cards/repair.py``): a few
+                thousand tokens instead of the full-context round the
+                ``emit_card`` retry used to cost. ``None`` drops a card that
+                fails validation, and records that it did.
         """
+        self.card_repair_llm = card_repair_llm
         self.llm_provider = llm_provider
         self.tools = list(tools)
         self.max_tool_iterations = max_tool_iterations
@@ -1370,6 +1378,19 @@ class PilotiAgent:
 
         return repair
 
+    def _card_repairer(self) -> CardRepairFn | None:
+        """The turn's card repair on the small model; ``None`` when none is configured."""
+        llm = self.card_repair_llm
+        if llm is None:
+            return None
+
+        async def repair(card: dict[str, Any], refusal: str, answer: str) -> dict[str, Any] | None:
+            from aiq_agent.cards.repair import repair_card
+
+            return await repair_card(llm, card, refusal, answer)
+
+        return repair
+
     def _emit_final_report(self, final: FinalAnswer) -> None:
         """Hand the verified, sanitised text to the first callback that renders it
         (it overwrites the raw draft auto-emitted during ``ainvoke``)."""
@@ -1445,6 +1466,7 @@ class PilotiAgent:
             tools=binding.tools,
             repair=self._repairer(binding, graph_result),
             turn_sources=turn_sources,
+            card_repair=self._card_repairer(),
         )
         self._emit_final_report(final)
         # The "already read" digest, appended at turn end: this turn's captures

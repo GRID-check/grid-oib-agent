@@ -847,6 +847,11 @@ functions:
     # verification, one more retrieval aimed at the failing text and one rewrite,
     # re-verified; the better answer ships. Off = ship the markers as before.
     repair_pass: true
+    # A card the answer envelope carried and the validator refused is fixed
+    # ONCE on the card model — the failed object, the refusal and the type's
+    # shape in a few thousand tokens — instead of costing the full-context
+    # round the `emit_card` retry used to. Unset = drop it and record it.
+    card_repair_llm: card_llm
     # Agent skills (progressive-disclosure `use_skill` tool) active on research
     # turns. Empty allowlist = every resolved skill (builtin + org) is offered.
     skills_enabled: true

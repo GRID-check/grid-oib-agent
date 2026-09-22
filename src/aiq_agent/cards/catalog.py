@@ -1023,11 +1023,26 @@ def _field_constraints(field_info: object) -> list[str]:
     return out
 
 
+def _is_discriminator(field_name: str, field_info: Any) -> bool:
+    """Whether a field is a card's ``type`` tag — the one field the model never fills.
+
+    A card's ``type`` is a single-value ``Literal`` that the union switches on;
+    the shape already names it. A building block may have a field CALLED
+    ``type`` that is a choice (``TypedColumn.type``: mass, norm, verdict, …),
+    and that one is the model's to fill — the renderer hid it for a release
+    while the validator required it, so every ``typed_table`` written from the
+    shape failed on its first attempt.
+    """
+    if field_name != "type":
+        return False
+    return len(getattr(field_info.annotation, "__args__", ())) == 1
+
+
 def _shape(model_cls: type, nested: list[type], *, with_desc: bool) -> str:
     """Render a model's fields as `{ name*: type (desc; constraints), ... }`."""
     parts: list[str] = []
     for field_name, field_info in model_cls.model_fields.items():
-        if field_name == "type":
+        if _is_discriminator(field_name, field_info):
             continue
         req = "*" if field_info.is_required() else ""
         type_str = _annotation_str(field_info.annotation, nested)
@@ -1049,7 +1064,7 @@ def _field_specs(model_cls: type, nested: list[type]) -> list[dict[str, Any]]:
     """The same per-field information ``_shape`` renders as prose, as data."""
     specs: list[dict[str, Any]] = []
     for field_name, field_info in model_cls.model_fields.items():
-        if field_name == "type":
+        if _is_discriminator(field_name, field_info):
             continue
         specs.append(
             {
