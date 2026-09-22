@@ -336,6 +336,37 @@ async def _endpoint(organization_id: str | None) -> tuple[_Endpoint | None, str 
     return await asyncio.to_thread(_resolve_endpoint_blocking, organization_id)
 
 
+#: The keep-alive client, one per event loop. Measured on 2026-09-22 against
+#: the live endpoint: a client built per call answered in ~430 ms, of which
+#: ~370 ms was the TLS handshake; the same call on a warm connection took
+#: ~60 ms. Keyed by loop because an httpx client is bound to the loop that
+#: opened its connections, and the test runner opens a new loop per test.
+_shared_client: tuple[Any, Any] | None = None
+
+
+def _client(timeout: float, transport: Any) -> tuple[Any, bool]:
+    """The client for one call, and whether the caller must close it.
+
+    A ``transport`` (tests) gets a throwaway client around it; everything
+    else shares the loop's keep-alive client.
+    """
+    import httpx
+
+    if transport is not None:
+        return httpx.AsyncClient(timeout=timeout, transport=transport), True
+    global _shared_client
+    loop = asyncio.get_running_loop()
+    if _shared_client is None or _shared_client[0] is not loop or _shared_client[1].is_closed:
+        _shared_client = (
+            loop,
+            httpx.AsyncClient(
+                timeout=timeout,
+                limits=httpx.Limits(max_keepalive_connections=8, keepalive_expiry=60.0),
+            ),
+        )
+    return _shared_client[1], False
+
+
 async def _post(
     endpoint: _Endpoint,
     state: Any,
@@ -348,13 +379,18 @@ async def _post(
 
     body = {"model": endpoint.model, "state": state, "questions": dict(questions)}
     started = time.monotonic()
+    client, owned = _client(timeout, transport)
     try:
-        async with httpx.AsyncClient(timeout=timeout, transport=transport) as client:
+        try:
             response = await client.post(
                 endpoint.url,
                 json=body,
+                timeout=timeout,
                 headers={"Authorization": f"Bearer {endpoint.api_key}", "Content-Type": "application/json"},
             )
+        finally:
+            if owned:
+                await client.aclose()
     except httpx.TimeoutException:
         _record_failure()
         return _Outcome(skipped=SKIPPED_TIMEOUT)

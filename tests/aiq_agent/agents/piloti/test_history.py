@@ -150,3 +150,44 @@ class TestPruneToolResults:
     def test_keep_turns_widens_the_window(self):
         history = [*_turn("Q1", "P1", "A1"), *_turn("Q2", "P2", "A2"), HumanMessage(content="Q3")]
         assert len(prune_tool_results(history, keep_turns=2)) == len(history)
+
+
+def _grounding(*hits: tuple[str, str]) -> str:
+    """A rendered retrieval result with one block per ``(citation key, body)``."""
+    blocks = [
+        f"--- Result {i} ---\nSource: OIB-Richtlinie 2\nPage: {i}\nCitation: {key}\nContent Type: text\n\n{body}\n"
+        for i, (key, body) in enumerate(hits, start=1)
+    ]
+    return "Found 2 relevant document(s):\n\n" + "\n".join(blocks) + "\n## Gliederung\n1 Allgemeines\n"
+
+
+class TestCompactToolResults:
+    """The kept turn holds the cited passages whole and the rest by header only."""
+
+    def test_an_uncited_passage_keeps_its_header_and_loses_its_body(self):
+        from aiq_agent.agents.piloti.history import UNCITED_PASSAGE_NOTE
+        from aiq_agent.agents.piloti.history import compact_tool_results
+
+        content = _grounding(
+            ("oib-rl_2.pdf, p.1", "REI 60 gilt in GK 4."), ("oib-rl_2.pdf, p.2", "Ein langer, nie zitierter Absatz.")
+        )
+        [compacted] = compact_tool_results([ToolMessage(content=content, tool_call_id="c1")], {"oib-rl_2.pdf, p.1"})
+        assert "REI 60 gilt in GK 4." in compacted.content
+        assert "Ein langer, nie zitierter Absatz." not in compacted.content
+        assert "Citation: oib-rl_2.pdf, p.2" in compacted.content
+        assert UNCITED_PASSAGE_NOTE in compacted.content
+        # The result's own trailer survives: it belongs to the call, not to a passage.
+        assert "## Gliederung" in compacted.content
+
+    def test_no_cited_key_leaves_the_turn_as_it_was(self):
+        from aiq_agent.agents.piloti.history import compact_tool_results
+
+        content = _grounding(("k1", "A"), ("k2", "B"))
+        messages = [ToolMessage(content=content, tool_call_id="c1")]
+        assert compact_tool_results(messages, set())[0].content == content
+
+    def test_a_result_without_blocks_is_untouched(self):
+        from aiq_agent.agents.piloti.history import compact_tool_results
+
+        messages = [ToolMessage(content="No relevant documents found for query: 'x'", tool_call_id="c1")]
+        assert compact_tool_results(messages, {"k1"})[0].content == messages[0].content

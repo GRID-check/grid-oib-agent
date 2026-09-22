@@ -163,10 +163,13 @@ numbers above are one run on German questions the product actually gets.
 * Good, because "which OIB documents does this question need" is now a
   question the platform asks and records, per turn, in numbers.
 * Bad, because a turn now depends on an alpha endpoint's latency for up to
-  1.5 s at its start — measured 467–899 ms, mean 614, which is ~0.6 s the
-  first LLM call waits for beside the skill resolution, bought back by the
-  round the prefetch removes only when the prefetch hits. The breaker and the timeout bound it; the eval and
-  the technical record are how an operator sees it.
+  1.5 s at its start. First measured at 467–899 ms, mean 614; of that ~370 ms
+  was the TLS handshake of a client built per call, and on the shared
+  keep-alive client the same call answers in ~60 ms (measured 2026-09-22,
+  `gotchas.md`). The provider reads run beside it, so the first LLM call
+  waits for the slowest of the three, bought back by the round the prefetch
+  removes only when the prefetch hits. The breaker and the timeout bound it;
+  the eval and the technical record are how an operator sees it.
 * Bad, because a prefetch that misses spends a search, its judge and ~2–4k
   tokens the model reads for nothing. `needs_evidence` and the corpus
   threshold are the gate, and the loop eval's `prefetch_wasted` column

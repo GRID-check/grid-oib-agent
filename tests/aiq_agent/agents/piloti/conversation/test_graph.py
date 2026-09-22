@@ -647,6 +647,35 @@ class TestTheWholeTurnIsWrittenBack:
         assert update["messages"][-1].content == "Die Antwort."
         assert update["messages"][1].content == "Passage aus OIB-RL 2"
 
+    async def test_the_written_back_results_are_cut_to_the_cited_passages(self):
+        from langchain_core.messages import ToolMessage
+
+        from aiq_agent.agents.piloti.conversation import _finalize_answer
+        from aiq_agent.agents.piloti.history import UNCITED_PASSAGE_NOTE
+
+        call = {"name": "knowledge_search", "args": {"query": "REI"}, "id": "c1"}
+        content = (
+            "Found 2 relevant document(s):\n\n"
+            "--- Result 1 ---\nSource: OIB 2\nCitation: oib-rl_2.pdf, p.1\n\nREI 60.\n\n"
+            "--- Result 2 ---\nSource: OIB 2\nCitation: oib-rl_2.pdf, p.9\n\nNie zitiert.\n"
+        )
+        turn = [
+            AIMessage(content="", tool_calls=[call]),
+            ToolMessage(content=content, tool_call_id="c1", name="knowledge_search"),
+            AIMessage(content="REI 60 [1]."),
+        ]
+        result = ResearchAgentState(
+            messages=[HumanMessage(content="Q"), *turn],
+            source_lookup_attempted=True,
+            verified_sources=[{"number": 1, "citation_key": "oib-rl_2.pdf, p.1"}],
+        )
+
+        update = _finalize_answer(turn[-1], result, turn_messages=turn)
+
+        kept = update["messages"][1].content
+        assert "REI 60." in kept and "Nie zitiert." not in kept
+        assert "Citation: oib-rl_2.pdf, p.9" in kept and UNCITED_PASSAGE_NOTE in kept
+
     def test_the_next_turns_history_prunes_the_turn_before_last(self):
         from langchain_core.messages import ToolMessage
 

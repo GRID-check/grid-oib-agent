@@ -23,7 +23,7 @@
 
 'use client'
 
-import { type CSSProperties, type FC } from 'react'
+import { useState, type CSSProperties, type FC } from 'react'
 import { Globe } from 'lucide-react'
 import { SectionLabel } from '@/components/ui/section-label'
 import { useTranslations } from '@/i18n'
@@ -96,12 +96,15 @@ export const AnswerSourcesRow: FC<AnswerSourcesRowProps> = ({
   const metaFor = useSourceMeta()
   const scope = useCitationScope()
 
+  const [expanded, setExpanded] = useState(false)
   const documents = answerDocuments(allDocuments)
   // Never drop a document the prose numbered: dropping one would leave an
   // inline [N] pointing at an anchor that does not exist.
   const numbered = documents.filter((doc) => citationNumbers(doc).length > 0)
   const rest = documents.filter((doc) => citationNumbers(doc).length === 0)
-  const shown = [...numbered, ...rest.slice(0, Math.max(0, MAX_ANSWER_SOURCES - numbered.length))]
+  const folded = Math.max(0, MAX_ANSWER_SOURCES - numbered.length)
+  const shown = expanded ? documents : [...numbered, ...rest.slice(0, folded)]
+  const hidden = documents.length - shown.length
   // Citation chips always wear their lane tints: lane tint is provenance
   // (where it stands), not decoration — washes/alarms spend the hue budget
   // elsewhere, never by muting the source signal. Grey chips read as broken,
@@ -117,21 +120,19 @@ export const AnswerSourcesRow: FC<AnswerSourcesRowProps> = ({
     const isSubstantive = routingDecision !== 'meta' && routingDecision !== 'error'
     if (!isSubstantive) return null
     if (isStreaming) {
-      return (
-        <div
-          className={cn('min-h-6', withDivider && 'border-t pt-2')}
-          aria-hidden="true"
-        />
-      )
+      return <div className={cn('min-h-6', withDivider && 'border-t pt-2')} aria-hidden="true" />
     }
 
     return (
       <div
-        className={cn('flex min-h-6 flex-wrap items-center gap-1.5', withDivider && 'border-t pt-2')}
+        className={cn(
+          'flex min-h-6 flex-wrap items-center gap-1.5',
+          withDivider && 'border-t pt-2'
+        )}
         role="note"
         aria-label={t('answerSources.gapAria')}
       >
-        <span className="inline-flex items-center gap-1.5 rounded-md border border-source-auto/40 bg-source-auto-tint px-2 py-0.5 text-xs font-medium text-source-auto-text">
+        <span className="border-source-auto/40 bg-source-auto-tint text-source-auto-text inline-flex items-center gap-1.5 rounded-md border px-2 py-0.5 text-xs font-medium">
           <Globe className="size-3 shrink-0" aria-hidden="true" />
           {t('answerSources.gapLabel')}
         </span>
@@ -139,7 +140,9 @@ export const AnswerSourcesRow: FC<AnswerSourcesRowProps> = ({
     )
   }
 
-  const refs: CitationRef[] = display.map((doc) => ({ document: doc }))
+  // Every document, not the shown ones: „Alle Quellen kopieren" is a claim about
+  // the answer, and a fold is a claim about the screen.
+  const refs: CitationRef[] = documents.map((doc) => ({ document: doc }))
 
   return (
     <div
@@ -156,46 +159,57 @@ export const AnswerSourcesRow: FC<AnswerSourcesRowProps> = ({
         // landed among eight near-identical chips.
         const isFocused = scope?.focused != null && numbers.includes(scope.focused)
         return (
-        <span
-          role="listitem"
-          key={doc.id}
-          data-focused={isFocused || undefined}
-          className={cn(
-            // `rounded-md`, matching the chip button inside: the highlight is
-            // drawn on this wrapper, so a pill radius here traced a capsule
-            // around a rounded rectangle — round on square, the shape of two
-            // elements disagreeing rather than one element being marked.
-            'inline-flex max-w-full scroll-mt-6 rounded-md',
-            // Single fade for the whole row after the answer body (which has
-            // its own fade/slide) instead of a per-chip cascade: the stagger
-            // held late chips invisible behind `backwards` fill for up to
-            // ~200ms to communicate an ordering nobody was counting, and every
-            // chip flashing in sequence drew the eye down the row instead of
-            // to the prose. A FOCUSED chip skips the entrance: it
-            // belongs to an already-rendered message the reader jumped to, and
-            // a delay there would stall the citation pulse that must fire now.
-            !isFocused &&
-              'animate-in fade-in-0 slide-in-from-bottom-1 duration-base ease-entrance [animation-fill-mode:backwards] motion-reduce:animate-none',
-            isFocused && 'animate-citation-pulse motion-reduce:animate-none'
-          )}
-          style={
-            isFocused
-              ? ({ ['--citation-pulse' as string]: `var(--source-${doc.tint})` } as CSSProperties)
-              : undefined
-          }
-        >
-          {/* One anchor per [N] this document carries, all resolving to this
+          <span
+            role="listitem"
+            key={doc.id}
+            data-focused={isFocused || undefined}
+            className={cn(
+              // `rounded-md`, matching the chip button inside: the highlight is
+              // drawn on this wrapper, so a pill radius here traced a capsule
+              // around a rounded rectangle — round on square, the shape of two
+              // elements disagreeing rather than one element being marked.
+              'inline-flex max-w-full scroll-mt-6 rounded-md',
+              // Single fade for the whole row after the answer body (which has
+              // its own fade/slide) instead of a per-chip cascade: the stagger
+              // held late chips invisible behind `backwards` fill for up to
+              // ~200ms to communicate an ordering nobody was counting, and every
+              // chip flashing in sequence drew the eye down the row instead of
+              // to the prose. A FOCUSED chip skips the entrance: it
+              // belongs to an already-rendered message the reader jumped to, and
+              // a delay there would stall the citation pulse that must fire now.
+              !isFocused &&
+                'animate-in fade-in-0 slide-in-from-bottom-1 duration-base ease-entrance [animation-fill-mode:backwards] motion-reduce:animate-none',
+              isFocused && 'animate-citation-pulse motion-reduce:animate-none'
+            )}
+            style={
+              isFocused
+                ? ({ ['--citation-pulse' as string]: `var(--source-${doc.tint})` } as CSSProperties)
+                : undefined
+            }
+          >
+            {/* One anchor per [N] this document carries, all resolving to this
               chip. A document cited as [2] and [7] is one chip that both
               markers scroll to — which is the truth, and what the 1:1 shape
               could only fake by rendering the document twice. */}
-          {anchorPrefix &&
-            numbers.map((number) => (
-              <span key={number} id={`${anchorPrefix}${number}`} className="scroll-mt-6" />
-            ))}
-          <SourcePreviewChip citation={{ document: doc }} meta={metaFor(doc)} />
-        </span>
+            {anchorPrefix &&
+              numbers.map((number) => (
+                <span key={number} id={`${anchorPrefix}${number}`} className="scroll-mt-6" />
+              ))}
+            <SourcePreviewChip citation={{ document: doc }} meta={metaFor(doc)} />
+          </span>
         )
       })}
+      {(hidden > 0 || expanded) && documents.length > MAX_ANSWER_SOURCES && (
+        <button
+          type="button"
+          onClick={() => setExpanded((open) => !open)}
+          aria-expanded={expanded}
+          data-testid="answer-sources-more"
+          className="rounded-xs text-muted-foreground duration-quick hover:text-foreground focus-visible:ring-ring/60 cursor-pointer text-xs leading-relaxed underline decoration-dotted underline-offset-2 transition-colors ease-out focus-visible:outline-none focus-visible:ring-2"
+        >
+          {expanded ? t('answerSources.less') : t('answerSources.more', { count: hidden })}
+        </button>
+      )}
       {/* Every source of this answer as a citation, in the format the user's
           own tooling reads. Quiet, at the end of the row. */}
       <CopyCitationsMenu citations={refs} />

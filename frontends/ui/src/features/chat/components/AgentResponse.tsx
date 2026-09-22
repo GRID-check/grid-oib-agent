@@ -830,9 +830,10 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
   // is provenance (where it stands), not decoration — washes/alarms spend the
   // hue budget elsewhere, never by muting the source signal. Grey chips read
   // as broken, so there is no muted variant and no spend counting here.
-  // Renders nothing when the index has no card yet — while streaming a marker
-  // routinely arrives several frames before the card it names, and a hole is
-  // better than a crash or a raw `[[card:2]]`.
+  // Renders nothing when the index has no card yet: the cards ride the
+  // terminal envelope, so within the few frames an answer streams a marker in
+  // the prose can precede the card it names, and a hole is better than a
+  // crash or a raw `[[card:2]]`.
   const cardSet = useMemo(() => [...(cards ?? []), ...(anatomy?.all ?? [])], [cards, anatomy])
   const renderCardSlot = useCallback(
     (index: number) => {

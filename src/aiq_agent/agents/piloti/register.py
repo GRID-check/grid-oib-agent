@@ -498,11 +498,16 @@ async def _run_turn(deployment: _Deployment, state: ResearchAgentState) -> Resea
     # turn has no conversation to namespace by (CLI, eval, worker).
     # The turn-start decision (ADR-0064) runs beside it: a bounded call that
     # only adds to the turn — round-0 fetches, card shapes, the IFC skill.
-    draft_tools, decisions = await asyncio.gather(draft_tools_for_turn(), _decide_turn(config, state, runtime))
+    # The provider reads (four cache-first BFF lookups) run beside them too:
+    # nothing here depends on another, so the turn pays the slowest of the
+    # three, not their sum.
+    draft_tools, decisions, llm_provider = await asyncio.gather(
+        draft_tools_for_turn(), _decide_turn(config, state, runtime), _active_provider(deployment.provider)
+    )
     _apply_decisions(decisions, state, runtime)
     turn_tools = list(deployment.tools) + (list(runtime.build_tools()) if runtime is not None else []) + draft_tools
     turn = TurnConfig(
-        llm_provider=await _active_provider(deployment.provider),
+        llm_provider=llm_provider,
         tools=turn_tools,
         disabled_sources=disabled_sources,
         prefetch=tuple(

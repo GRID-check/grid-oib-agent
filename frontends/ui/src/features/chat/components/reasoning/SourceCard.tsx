@@ -69,7 +69,7 @@ const RoundLoci: FC<{ loci: RoundLocus[]; marked: boolean; repeatLabel: string }
   const named = loci.filter((locus) => locus.detail)
   if (named.length === 0) return null
   return (
-    <span className="text-xs tabular-nums text-muted-foreground">
+    <span className="text-muted-foreground text-xs tabular-nums">
       {named.map((locus, i) => (
         // A Fragment, not a wrapper span: the separators and the loci stay
         // direct text of one element, so the line reads as one string to a
@@ -78,7 +78,7 @@ const RoundLoci: FC<{ loci: RoundLocus[]; marked: boolean; repeatLabel: string }
           {i > 0 && ', '}
           {locus.detail}
           {marked && locus.repeat && (
-            <span className="italic text-muted-foreground/80"> ({repeatLabel})</span>
+            <span className="text-muted-foreground/80 italic"> ({repeatLabel})</span>
           )}
         </Fragment>
       ))}
@@ -109,7 +109,7 @@ export const SourceCard: FC<{
   // wire carried (ADR-0047 — read as data, never prefix-matched off a collection
   // id), else the coarse display stratum. A document with no shelf on the wire
   // is simply not attributed to one; it never inherits a guessed shelf.
-  const tabLabel = documentTabLabel(doc)
+  const tabLabel = documentTabLabel(doc, t)
   // Icon keys off the coarse SIGNAL (all Baurecht shares the scales glyph); the
   // tint keys off the fine ACCENT so OIB and RIS are distinguishable at a
   // glance instead of relying on the badge text alone.
@@ -162,7 +162,7 @@ export const SourceCard: FC<{
           reads as grounding the answer did not actually use. */}
       <div
         className={cn(
-          'min-w-0 flex-1 rounded-lg border bg-card px-3 py-2.5 shadow-xs',
+          'bg-card shadow-xs min-w-0 flex-1 rounded-lg border px-3 py-2.5',
           // Only set a document back once the verdict is real. While the turn
           // streams nothing has been cited yet, so dimming would grey out every
           // source the answer is about to lean on.
@@ -194,7 +194,7 @@ export const SourceCard: FC<{
           // `items-center` because a flex row defaults to `stretch`, which would
           // pin the title to the top of the taller box and leave the extra
           // height looking like a gap rather than part of the control.
-          className="border-0 bg-transparent p-0 shadow-none hover:bg-transparent pointer-coarse:-my-2 pointer-coarse:min-h-11 pointer-coarse:items-center"
+          className="pointer-coarse:-my-2 pointer-coarse:min-h-11 pointer-coarse:items-center border-0 bg-transparent p-0 shadow-none hover:bg-transparent"
         />
 
         <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
@@ -206,9 +206,9 @@ export const SourceCard: FC<{
             className={cn(
               'inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium',
               allRepeat
-                ? 'bg-muted italic text-muted-foreground/80'
+                ? 'bg-muted text-muted-foreground/80 italic'
                 : used
-                  ? 'bg-secondary tabular-nums text-muted-foreground'
+                  ? 'bg-secondary text-muted-foreground tabular-nums'
                   : 'bg-muted text-muted-foreground'
             )}
           >
@@ -219,26 +219,32 @@ export const SourceCard: FC<{
               round named none, because the turn aggregate would be a claim
               about other rounds. Everywhere else it stays the aggregate it
               always was. */}
-          {loci
-            ? <RoundLoci loci={loci} marked={!allRepeat} repeatLabel={t('thinking.node.roundDocRepeat')} />
-            : pages.length > 0 && (
-                <span className="text-xs tabular-nums text-muted-foreground">
-                  {/* Singular and plural are two keys, as every other page line in
+          {loci ? (
+            <RoundLoci
+              loci={loci}
+              marked={!allRepeat}
+              repeatLabel={t('thinking.node.roundDocRepeat')}
+            />
+          ) : (
+            pages.length > 0 && (
+              <span className="text-muted-foreground text-xs tabular-nums">
+                {/* Singular and plural are two keys, as every other page line in
                       the product already knows. German „S." is number-agnostic, so
                       always taking the plural was invisible here and read „pp. 9"
                       in English. */}
-                  {pages.length === 1
-                    ? t('answerSources.page', { page: pages[0]! })
-                    : t('answerSources.pages', { pages: pages.join(', ') })}
-                </span>
-              )}
+                {pages.length === 1
+                  ? t('answerSources.page', { page: pages[0]! })
+                  : t('answerSources.pages', { pages: pages.join(', ') })}
+              </span>
+            )
+          )}
           {/* Which markers in the answer this document carries — the link
               between "what was read" and "what was used" that the trace could
               not express before. A document the answer used but whose [N] the
               backend never resolved shows neither: claiming "not used" there
               would be a statement about the ANSWER made from a missing number. */}
           {numbers.length > 0 && (
-            <span className="text-xs font-semibold tabular-nums text-muted-foreground">
+            <span className="text-muted-foreground text-xs font-semibold tabular-nums">
               {numbers.map((n) => `[${n}]`).join(' ')}
             </span>
           )}
@@ -248,7 +254,7 @@ export const SourceCard: FC<{
               the ones about to be cited a second later. Withheld until the
               turn lands. */}
           {!used && !live && (
-            <span className="text-xs italic text-muted-foreground/80">
+            <span className="text-muted-foreground/80 text-xs italic">
               {t('thinking.readNotUsed')}
             </span>
           )}
@@ -278,14 +284,14 @@ export const BareSourceCard: FC<{ name: string; loci?: RoundLocus[] }> = ({ name
   const allRepeat = !!loci && loci.length > 0 && loci.every((locus) => locus.repeat)
   return (
     <div role="listitem" data-source-card className="flex min-w-0 flex-col">
-      <div className="min-w-0 flex-1 rounded-lg border border-dashed bg-card px-3 py-2.5 opacity-75 shadow-xs">
-        <p className="line-clamp-2 text-sm leading-snug text-foreground">{name}</p>
+      <div className="bg-card shadow-xs min-w-0 flex-1 rounded-lg border border-dashed px-3 py-2.5 opacity-75">
+        <p className="text-foreground line-clamp-2 text-sm leading-snug">{name}</p>
         {loci && loci.length > 0 && (
           <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
             {/* No hit tally to stand in for: a bare slot has no card, so the
                 pill appears only when there is a repeat to declare. */}
             {allRepeat && (
-              <span className="inline-flex items-center rounded-full bg-muted px-2 py-0.5 text-xs font-medium italic text-muted-foreground/80">
+              <span className="bg-muted text-muted-foreground/80 inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium italic">
                 {t('thinking.node.roundDocRepeat')}
               </span>
             )}

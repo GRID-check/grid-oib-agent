@@ -50,6 +50,7 @@ from aiq_agent.turn.commission import CommissionedRun
 from aiq_agent.turn.commission import CommissionRefused
 
 from .clarify import ClarifyFn
+from .history import compact_tool_results
 from .history import prune_tool_results
 from .history import trim_message_history
 from .markers import detect_and_strip_confidence_marker
@@ -178,13 +179,21 @@ def _answer_update(
     The WHOLE turn is written back — the tool calls, their results, then the
     answer — not the answer alone: the passages this answer was written from
     are the context the next turn's follow-up needs, and re-fetching what the
-    transcript just held was the round every follow-up paid. Older turns are
-    pruned to what was said when the next turn's history is built
-    (``history.prune_tool_results``), so the budget holds answers, plus one
-    turn of evidence.
+    transcript just held was the round every follow-up paid. The results are
+    cut to the passages the answer CITED (``history.compact_tool_results``);
+    an uncited passage keeps its header so the next turn knows it exists.
+    Older turns are pruned to what was said when the next turn's history is
+    built (``history.prune_tool_results``), so the budget holds answers, plus
+    one turn of cited evidence.
     """
     update: dict[str, Any] = {field: getattr(result, source) for source, field in ANSWER_LIFTS}
-    update["messages"] = [*(m for m in turn_messages if m is not message), message]
+    cited = {
+        str(source.get("citation_key"))
+        for source in (result.verified_sources or [])
+        if isinstance(source, dict) and source.get("citation_key")
+    }
+    kept = compact_tool_results([m for m in turn_messages if m is not message], cited)
+    update["messages"] = [*kept, message]
     update["escalate_to_deep"] = False
     # Presence is the fact: True or absent, never False.
     update["research_truncated"] = True if result.research_truncated else None

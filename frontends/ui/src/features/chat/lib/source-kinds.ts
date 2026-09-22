@@ -30,7 +30,13 @@ import type { SourceSignal, SourceTint } from '@/features/layout/lib/source-pres
  */
 export type SourceKind = 'baurecht' | 'buero' | 'projekt' | 'web' | 'messung'
 
-const SOURCE_KINDS: ReadonlySet<SourceKind> = new Set(['baurecht', 'buero', 'projekt', 'web', 'messung'])
+const SOURCE_KINDS: ReadonlySet<SourceKind> = new Set([
+  'baurecht',
+  'buero',
+  'projekt',
+  'web',
+  'messung',
+])
 
 /** Narrow an untrusted wire value to a SourceKind, else undefined. */
 export const asSourceKind = (value: string | null | undefined): SourceKind | undefined =>
@@ -52,7 +58,6 @@ export const KIND_TO_SIGNAL: Record<SourceKind, SourceSignal> = {
   // contradicts.
   messung: 'model',
 }
-
 
 /**
  * The fine lane of a PUBLISHED, human-approved, agent-authored document —
@@ -140,39 +145,15 @@ export const asShelf = (value: string | null | undefined): Shelf | undefined => 
   return SHELF_SET.has(key) ? (key as Shelf) : undefined
 }
 
-/**
- * Exhaustiveness guard. A shelf added to {@link Shelf} without a case in every
- * switch below is a COMPILE error here, not a silent fallthrough at runtime.
+/*
+ * The shelf's label is a dictionary key (`chat.sourceTabs.shelves.<shelf>`),
+ * resolved where it is rendered (`citations/views.ts`, `documentShelfLabel`).
+ * **Rendering only** (ADR-0047 §5: German is rendering, never transport):
+ * nothing persists these strings, so rewording one is a copy change and never
+ * invalidates a citation key already written. `session` has its own label on
+ * purpose — a file attached privately to a chat used to be cited as
+ * "Projektwissen" — and it is the wording the upload target uses.
  */
-const unhandledShelf = (shelf: never): never => {
-  throw new Error(`Unhandled shelf: ${String(shelf)}`)
-}
-
-/**
- * Shelf → German label. **Rendering only** (ADR-0047 §5: German is rendering,
- * never transport). Nothing persists these strings any more, so renaming one is
- * a copy change and no longer invalidates citation keys already written.
- *
- * `session` gets its OWN label: a file the user attached privately to a chat
- * used to be cited as "Projektwissen", because `('s_', 'projekt')` was the only
- * guess the prefix table could offer. It is the same wording the upload target
- * uses ("Private Sitzung", `de/research.ts`), so the citation now agrees with
- * what the user was told when the file went up.
- */
-export const shelfLabel = (shelf: Shelf): string => {
-  switch (shelf) {
-    case 'archiv':
-      return 'Büroarchiv'
-    case 'project':
-      return 'Projektwissen'
-    case 'session':
-      return 'Private Sitzung'
-    case 'base':
-      return 'Basiswissen'
-    default:
-      return unhandledShelf(shelf)
-  }
-}
 
 /**
  * Citation-key qualifiers — the READER's side of a key's disambiguating suffix.
@@ -259,7 +240,5 @@ export const authorityTag = (lane: string | null | undefined): string | null => 
  * Use this (never the bare signal) wherever a LANE is known, so the Herleitung
  * cards and the "Belegt durch" chips can never drift apart.
  */
-export const accentForLane = (
-  lane: string | null | undefined,
-  signal: SourceTint
-): SourceTint => ((lane ?? '').toLowerCase().startsWith('baurecht_oib') ? 'oib' : signal)
+export const accentForLane = (lane: string | null | undefined, signal: SourceTint): SourceTint =>
+  (lane ?? '').toLowerCase().startsWith('baurecht_oib') ? 'oib' : signal

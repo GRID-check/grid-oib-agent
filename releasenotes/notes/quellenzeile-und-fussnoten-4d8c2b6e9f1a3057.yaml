@@ -1,0 +1,16 @@
+---
+fixes:
+  - >
+    Die Zeile „Belegt durch“ zeigt jetzt bei mehr als acht Quellen „+N weitere“
+    und klappt auf Wunsch alle auf; „Alle Quellen kopieren“ übernimmt stets
+    jede Quelle der Antwort, nicht nur die sichtbaren.
+  - >
+    Fußnoten in einer Antwort tragen ihre Überschrift und Rücksprünge in der
+    Sprache der Leserin, und die Sprungmarken führen wieder zur Fußnote.
+    Die Reiter der Quellenkarten in der Herleitung folgen ebenfalls der
+    eingestellten Sprache.
+  - >
+    Anschlussfragen kommen schneller: die Vorentscheidung zu Beginn einer
+    Antwort läuft über eine offen gehaltene Verbindung und parallel zu den
+    übrigen Vorbereitungen, und ins Gespräch wandern nur noch die belegten
+    Fundstellen der letzten Antwort in voller Länge.

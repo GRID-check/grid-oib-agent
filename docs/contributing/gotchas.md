@@ -129,6 +129,7 @@ string you are seeing.
 | A change under `packages/` passed every gate without being checked | `Taskfile.yml` names no `packages/` target and `ci.yml` has no `packages/**` paths filter | Run the suites by hand; see [`packages/AGENTS.md`](../../packages/AGENTS.md) |
 | Two ADRs share a number, or the index disagrees with the file | The next number was taken from the README index, which lags the directory | `python3 scripts/check_adrs.py --next`. Closed by `scripts/check_adrs.py` in `task lint:repo` |
 | `AGENTS.md` is growing again | Project knowledge is being written where only ways of working belong | Give it a home under `docs/contributing/` and leave a one-line pointer. See [documentation.md](documentation.md) |
+| A short outbound HTTP call to one host costs ~400 ms although the server answers in ~60 ms | An `httpx.AsyncClient` built per call pays the TLS handshake every time (measured 2026-09-22 on the decision endpoint: ~430 ms per-call client vs ~60 ms on a warm connection). Share one keep-alive client per event loop, as `common/decisions.py` does, and keep the per-call client only for a test transport |
 
 ## Adding an entry
 

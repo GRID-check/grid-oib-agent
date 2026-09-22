@@ -7,6 +7,7 @@ budgeted in TOKENS rather than in messages.
 
 import json
 import logging
+import re
 from collections.abc import Callable
 from functools import lru_cache
 from typing import Any
@@ -122,3 +123,70 @@ def prune_tool_results(messages: list[BaseMessage], *, keep_turns: int = 1) -> l
             message = message.model_copy(update={"tool_calls": []})
         pruned.append(message)
     return pruned
+
+
+#: The block delimiter ``grounding_block.render_grounding_block`` writes.
+_RESULT_BLOCK_RE = re.compile(r"^--- Result \d+ ---$", re.M)
+_CITATION_LINE_RE = re.compile(r"^Citation: (.+)$", re.M)
+#: What stands where an uncited passage stood. English like the block's own
+#: header lines; it names the way back, not the text.
+UNCITED_PASSAGE_NOTE = "[passage not cited by the answer; re-open with read_passage if it is needed]"
+
+
+def compact_tool_results(messages: list[BaseMessage], cited_keys: set[str]) -> list[BaseMessage]:
+    """The turn's tool results, cut to the passages the answer was written from.
+
+    A retrieval result is a run of ``--- Result N ---`` blocks, each a header
+    (source, page, Punkt, citation key) over a passage body. The answer cited
+    some of them; the rest were read and set aside. The next turn needs the
+    cited passages whole — a follow-up („und in GK 5?") is answered from them
+    — and of the rest only the fact that they exist and where: the header
+    stays, the body becomes one line. A heavy turn carried eight to ten
+    thousand tokens of results into the next one; the cited passages are a
+    fraction of that.
+
+    With no cited key at all the turn is left as it was: an answer that cited
+    nothing gives no signal about which passage mattered, and guessing would
+    cut the wrong one.
+    """
+    if not cited_keys:
+        return list(messages)
+    wanted = {key.strip() for key in cited_keys}
+    return [
+        message.model_copy(update={"content": _compact_block(message.content, wanted)})
+        if isinstance(message, ToolMessage)
+        and isinstance(message.content, str)
+        and _RESULT_BLOCK_RE.search(message.content)
+        else message
+        for message in messages
+    ]
+
+
+def _compact_block(content: str, wanted: set[str]) -> str:
+    starts = [m.start() for m in _RESULT_BLOCK_RE.finditer(content)]
+    if not starts:
+        return content
+    head = content[: starts[0]]
+    pieces = [head]
+    for index, start in enumerate(starts):
+        end = starts[index + 1] if index + 1 < len(starts) else len(content)
+        block = content[start:end]
+        match = _CITATION_LINE_RE.search(block)
+        if match is not None and match.group(1).strip() in wanted:
+            pieces.append(block)
+            continue
+        pieces.append(_header_only(block))
+    return "".join(pieces)
+
+
+def _header_only(block: str) -> str:
+    """The block up to its first blank line, then the note, then the trailing
+    text after the body (the next block starts there, or the block's own tail)."""
+    header, sep, rest = block.partition("\n\n")
+    if not sep:
+        return block
+    # The body runs to the blank line that closes it; keep whatever follows
+    # (a trailer such as the ``## Gliederung`` index belongs to the result, not
+    # to one passage).
+    _body, tail_sep, tail = rest.partition("\n\n")
+    return f"{header}\n\n{UNCITED_PASSAGE_NOTE}\n\n{tail}" if tail_sep else f"{header}\n\n{UNCITED_PASSAGE_NOTE}\n"

@@ -104,6 +104,22 @@ export const chat: typeof en.chat = {
     // tiny one-line hint under the composer keeps the active source count legible.
     sourcesActiveMobile: '{count, plural, one {# Quelle} other {# Quellen}} aktiv',
   },
+  // Der Reiter einer Quellenkarte in der Herleitung: die grobe Ebene, wenn der
+  // Server keine feine Lane benannt hat, und das Regal, auf dem das Dokument
+  // laut Wire liegt (ADR-0047: Deutsch ist Darstellung, nie Transport).
+  sourceTabs: {
+    law: 'Baurecht',
+    project: 'Projektwissen',
+    office: 'Büroarchiv',
+    auto: 'Web',
+    model: 'Modellmessung',
+    shelves: {
+      archiv: 'Büroarchiv',
+      project: 'Projektwissen',
+      session: 'Private Sitzung',
+      base: 'Basiswissen',
+    },
+  },
   shortcuts: {
     label: 'Schnellzugriff',
     presetAria: 'Quellen-Voreinstellung: {label}',
@@ -149,6 +165,10 @@ export const chat: typeof en.chat = {
     sourceNumber: 'Quelle {number}',
     page: 'S. {page}',
     pages: 'S. {pages}',
+    // Quellen jenseits der acht Chips falten sich hinter denselben Auslöser wie
+    // die gelesenen Quellen: die Zahl zuerst, jeder Name beim Aufklappen.
+    more: '+{count} weitere',
+    less: 'Weniger anzeigen',
     // Die Fundstelle in der Zählung des Gesetzes selbst: ein Punkt der
     // Richtlinie, wenn der Chunker einen ermittelt hat, sonst nur die Seite.
     punkt: 'Pkt. {punkt}',
@@ -274,7 +294,8 @@ export const chat: typeof en.chat = {
     // über der Prosa steht (`EvidenceBlock`): das Zitat ist KI-generiert, wie
     // auf der gerahmten Karte — hier kürzer, weil der Block daneben schon
     // schlank ist.
-    evidenceQuoteDisclaimer: 'KI-generierte Zitierung — prüfen Sie den Auszug anhand der Primärquelle.',
+    evidenceQuoteDisclaimer:
+      'KI-generierte Zitierung — prüfen Sie den Auszug anhand der Primärquelle.',
     legalBasis: 'Rechtsgrundlage',
     // Tooltip auf dem OIB-/RIS-Abzeichen: das Abzeichen selbst ist ein
     // Eigenname und in beiden Sprachen gleich — hier steht, was er bedeutet.

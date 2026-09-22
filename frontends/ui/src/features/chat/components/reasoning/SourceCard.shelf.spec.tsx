@@ -9,6 +9,7 @@
  */
 
 import { render, screen } from '@/test-utils'
+import { en } from '@/i18n/dictionaries'
 import { describe, test, expect } from 'vitest'
 import { SourceCard } from './SourceCard'
 import type { CitedDocument } from '../../lib/citations'
@@ -37,20 +38,20 @@ describe('SourceCard — provenance tab', () => {
   test('a private session attachment is not labelled Projektwissen', () => {
     renderCard('session')
 
-    expect(screen.getByText('Private Sitzung')).toBeInTheDocument()
-    expect(screen.queryByText('Projektwissen')).not.toBeInTheDocument()
+    expect(screen.getByText(en.chat.sourceTabs.shelves.session)).toBeInTheDocument()
+    expect(screen.queryByText(en.chat.sourceTabs.shelves.project)).not.toBeInTheDocument()
   })
 
   test('a project document is labelled Projektwissen', () => {
     renderCard('project')
 
-    expect(screen.getByText('Projektwissen')).toBeInTheDocument()
+    expect(screen.getByText(en.chat.sourceTabs.shelves.project)).toBeInTheDocument()
   })
 
   test('an org Archiv document is labelled Büroarchiv', () => {
     renderCard('archiv')
 
-    expect(screen.getByText('Büroarchiv')).toBeInTheDocument()
+    expect(screen.getByText(en.chat.sourceTabs.shelves.archiv)).toBeInTheDocument()
   })
 
   test('a document with no shelf claims none — it falls back to its display kind', () => {
@@ -60,7 +61,7 @@ describe('SourceCard — provenance tab', () => {
     // family, not about whose shelf the file sits on.
     renderCard(undefined)
 
-    expect(screen.getByText('Projektwissen')).toBeInTheDocument()
-    expect(screen.queryByText('Private Sitzung')).not.toBeInTheDocument()
+    expect(screen.getByText(en.chat.sourceTabs.shelves.project)).toBeInTheDocument()
+    expect(screen.queryByText(en.chat.sourceTabs.shelves.session)).not.toBeInTheDocument()
   })
 })

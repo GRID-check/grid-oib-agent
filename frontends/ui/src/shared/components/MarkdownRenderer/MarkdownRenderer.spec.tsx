@@ -2,6 +2,8 @@ import { render, screen, fireEvent } from '@/test-utils'
 import { describe, test, expect, vi } from 'vitest'
 import { MarkdownRenderer, stabilizeStreamingMarkdown } from './MarkdownRenderer'
 import { InternalLinkProvider } from './internal-link-context'
+import { I18nProvider } from '@/i18n'
+import { de } from '@/i18n/dictionaries'
 
 describe('MarkdownRenderer', () => {
   describe('basic rendering', () => {
@@ -18,11 +20,28 @@ describe('MarkdownRenderer', () => {
     })
 
     test('applies custom className', () => {
-      const { container } = render(
-        <MarkdownRenderer content="Test" className="custom-class" />
-      )
+      const { container } = render(<MarkdownRenderer content="Test" className="custom-class" />)
 
       expect(container.querySelector('.custom-class')).toBeInTheDocument()
+    })
+  })
+
+  describe('footnotes', () => {
+    test("the footnote chrome is in the reader's language and its anchors resolve", () => {
+      const { container } = render(
+        <I18nProvider initialLocale="de" fixedLocale>
+          <MarkdownRenderer content={'Satz[^1].\n\n[^1]: Die Fußnote.'} />
+        </I18nProvider>
+      )
+      // The converter's own heading stays out of the page but keeps its name.
+      const label = container.querySelector('h2#footnote-label')
+      expect(label).not.toBeNull()
+      expect(label?.className).toContain('sr-only')
+      expect(label?.textContent).toBe(de.common.markdown.footnotes)
+      // The list item keeps the id the `[^1]` link points at.
+      expect(container.querySelector('li[id$="fn-1"]')).not.toBeNull()
+      const back = container.querySelector('[data-footnote-backref]')
+      expect(back?.getAttribute('aria-label')).toBe('Zurück zu Verweis 1')
     })
   })
 
@@ -52,11 +71,7 @@ describe('MarkdownRenderer', () => {
     })
 
     test('headings have slugified id attributes for anchor navigation', () => {
-      render(
-        <MarkdownRenderer
-          content={`# Introduction\n\n## Key Findings\n\n### Next Steps`}
-        />
-      )
+      render(<MarkdownRenderer content={`# Introduction\n\n## Key Findings\n\n### Next Steps`} />)
 
       expect(screen.getByRole('heading', { level: 1 })).toHaveAttribute('id', 'introduction')
       expect(screen.getByRole('heading', { level: 2 })).toHaveAttribute('id', 'key-findings')
@@ -150,9 +165,13 @@ describe('MarkdownRenderer', () => {
     })
 
     test('renders multiple paragraphs', () => {
-      render(<MarkdownRenderer content={`Paragraph 1.
+      render(
+        <MarkdownRenderer
+          content={`Paragraph 1.
 
-Paragraph 2.`} />)
+Paragraph 2.`}
+        />
+      )
 
       expect(screen.getByText('Paragraph 1.')).toBeInTheDocument()
       expect(screen.getByText('Paragraph 2.')).toBeInTheDocument()
@@ -161,9 +180,13 @@ Paragraph 2.`} />)
 
   describe('lists', () => {
     test('renders unordered list', () => {
-      render(<MarkdownRenderer content={`- Item 1
+      render(
+        <MarkdownRenderer
+          content={`- Item 1
 - Item 2
-- Item 3`} />)
+- Item 3`}
+        />
+      )
 
       expect(screen.getByText('Item 1')).toBeInTheDocument()
       expect(screen.getByText('Item 2')).toBeInTheDocument()
@@ -171,9 +194,13 @@ Paragraph 2.`} />)
     })
 
     test('renders ordered list', () => {
-      render(<MarkdownRenderer content={`1. First
+      render(
+        <MarkdownRenderer
+          content={`1. First
 2. Second
-3. Third`} />)
+3. Third`}
+        />
+      )
 
       expect(screen.getByText('First')).toBeInTheDocument()
       expect(screen.getByText('Second')).toBeInTheDocument()
@@ -268,10 +295,7 @@ Paragraph 2.`} />)
     test('gives a heading with ß an id that survives it', () => {
       render(<MarkdownRenderer content={'## Außenwand'} />)
 
-      expect(screen.getByRole('heading', { name: 'Außenwand' })).toHaveAttribute(
-        'id',
-        'aussenwand'
-      )
+      expect(screen.getByRole('heading', { name: 'Außenwand' })).toHaveAttribute('id', 'aussenwand')
     })
 
     /*
@@ -362,11 +386,15 @@ Paragraph 2.`} />)
 
   describe('horizontal rules', () => {
     test('renders horizontal rule', () => {
-      const { container } = render(<MarkdownRenderer content={`Above
+      const { container } = render(
+        <MarkdownRenderer
+          content={`Above
 
 ---
 
-Below`} />)
+Below`}
+        />
+      )
 
       expect(container.querySelector('hr')).toBeInTheDocument()
     })

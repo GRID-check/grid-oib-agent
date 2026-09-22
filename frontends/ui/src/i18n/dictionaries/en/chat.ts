@@ -112,6 +112,21 @@ export const chat = {
     sourcesActiveMobile: '{count, plural, one {# source} other {# sources}} active',
   },
   // Source-preset shortcut chips under the composer (empty thread).
+  // A source card's provenance tab in the Herleitung: the coarse stratum when
+  // the backend named no fine lane, and the shelf the wire stated.
+  sourceTabs: {
+    law: 'Building law',
+    project: 'Project knowledge',
+    office: 'Office archive',
+    auto: 'Web',
+    model: 'Model measurement',
+    shelves: {
+      archiv: 'Office archive',
+      project: 'Project knowledge',
+      session: 'Private session',
+      base: 'Base knowledge',
+    },
+  },
   shortcuts: {
     label: 'Shortcuts',
     presetAria: 'Source preset: {label}',
@@ -161,6 +176,10 @@ export const chat = {
     sourceNumber: 'Source {number}',
     page: 'p. {page}',
     pages: 'pp. {pages}',
+    // Sources past the eight chips fold behind the same control the read
+    // sources use: the count first, every name on expand.
+    more: '+{count} more',
+    less: 'Show fewer',
     punkt: 'Pkt. {punkt}',
     punktPage: 'Pkt. {punkt} · p. {page}',
     // Citations the user can actually paste somewhere — per source (Fachtext)
@@ -287,7 +306,8 @@ export const chat = {
     // The muted line under an UNPLACED legal basis surfaced flat above the
     // prose (`EvidenceBlock`): the quote is model-generated, like the framed
     // card's — shorter here, because the block beside it is spare already.
-    evidenceQuoteDisclaimer: 'AI-generated citation — check the excerpt against the primary source.',
+    evidenceQuoteDisclaimer:
+      'AI-generated citation — check the excerpt against the primary source.',
     conditionTree: {
       eyebrow: 'Condition tree',
       dependsOn: 'Depends on',
@@ -497,8 +517,7 @@ export const chat = {
       // reads; the control does not appear, and this says why rather than
       // failing on click.
       unavailable: {
-        noProject:
-          'This chat is not attached to a project, so there is no file store to change.',
+        noProject: 'This chat is not attached to a project, so there is no file store to change.',
       },
     },
     processMap: {
@@ -1168,7 +1187,8 @@ export const chat = {
             'No research report was filed — the answer exists only here in the conversation.',
           noCitations:
             'No citation held up under checking. Please verify the figures yourself before using them.',
-          noCards: 'The report is complete, but the proposals derived from it could not be produced.',
+          noCards:
+            'The report is complete, but the proposals derived from it could not be produced.',
         },
       },
       branchesTab: 'Next steps',
@@ -1386,7 +1406,8 @@ export const chat = {
     // capped, keyed by `answer_confidence_capped_reason` (WP-A, PB-9).
     cappedReasons: {
       ungrounded: 'Low confidence: answer not backed by sources.',
-      quoteUnverified: 'A quote could not be verified verbatim against the source; the assessment is capped accordingly.',
+      quoteUnverified:
+        'A quote could not be verified verbatim against the source; the assessment is capped accordingly.',
       // The measurement backs the number, not the legal statement beside it —
       // so the mixed answer stays at "low" and the tooltip says why.
       normativeClaimUncited:

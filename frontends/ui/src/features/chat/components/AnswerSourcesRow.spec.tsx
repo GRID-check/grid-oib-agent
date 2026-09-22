@@ -53,6 +53,33 @@ const signalOf = (container: HTMLElement, title: string): string | null => {
   return match?.getAttribute('data-signal') ?? null
 }
 
+describe('AnswerSourcesRow past the cap', () => {
+  const unnumbered = (n: number): CitedDocument => ({
+    id: `doc-${n}`,
+    title: `Unterlage ${n}`,
+    fileName: `unterlage-${n}.pdf`,
+    kind: 'projekt',
+    tint: 'project',
+    loci: [{ key: 'l1', page: 1, isCited: true }],
+  })
+
+  test('the sources past the cap fold behind a count and unfold on demand', async () => {
+    const docs = Array.from({ length: 11 }, (_, i) => unnumbered(i + 1))
+    render(<AnswerSourcesRow documents={docs} anchorPrefix="test-" />)
+    expect(screen.queryByText('Unterlage 11')).not.toBeInTheDocument()
+    const more = screen.getByTestId('answer-sources-more')
+    expect(more.textContent).toContain('3')
+    const { default: userEvent } = await import('@testing-library/user-event')
+    await userEvent.setup().click(more)
+    expect(screen.getByText('Unterlage 11')).toBeInTheDocument()
+  })
+
+  test('a row within the cap offers no fold', () => {
+    render(<AnswerSourcesRow documents={[oibDoc, risDoc]} anchorPrefix="test-" />)
+    expect(screen.queryByTestId('answer-sources-more')).not.toBeInTheDocument()
+  })
+})
+
 describe('AnswerSourcesRow lane tints', () => {
   test('by default the chips keep their lane tints', () => {
     const { container } = render(
@@ -97,6 +124,8 @@ describe('AnswerSourcesRow lane tints', () => {
     const { container } = render(<AnswerSourcesRow documents={[oibDoc]} anchorPrefix="test-" />)
 
     expect(signalOf(container, 'OIB-Richtlinie 2')).toBe('oib')
-    expect(screen.getByRole('list', { name: 'Sources this answer is backed by' })).toBeInTheDocument()
+    expect(
+      screen.getByRole('list', { name: 'Sources this answer is backed by' })
+    ).toBeInTheDocument()
   })
 })

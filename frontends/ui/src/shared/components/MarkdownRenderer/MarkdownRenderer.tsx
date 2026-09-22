@@ -1,6 +1,7 @@
 'use client'
 
 import { type FC, type ReactNode, memo, useCallback, useMemo } from 'react'
+import { useTranslations } from '@/i18n'
 import dynamic from 'next/dynamic'
 import ReactMarkdown, { type Components, type ExtraProps } from 'react-markdown'
 import type { PluggableList } from 'unified'
@@ -30,7 +31,10 @@ import { getLanguageFromClassName, headingAnchorId, isMermaidFence } from './uti
  * resolves in one frame reads as a fault.
  */
 const MermaidDiagram = dynamic(
-  () => import('@/features/diagrams/components/mermaid-diagram').then((module) => module.MermaidDiagram),
+  () =>
+    import('@/features/diagrams/components/mermaid-diagram').then(
+      (module) => module.MermaidDiagram
+    ),
   { ssr: false }
 )
 
@@ -135,9 +139,19 @@ export function stabilizeStreamingMarkdown(raw: string): string {
  */
 export const MarkdownRenderer: FC<MarkdownRendererProps> = memo(
   ({ content, className = '', compact = false, isStreaming = false, remarkPlugins }) => {
+    const t = useTranslations('common')
     const renderInPageAnchor = useInPageAnchorRenderer()
     const renderInternalLink = useInternalLinkRenderer()
     const renderSlot = useMarkdownSlotRenderer()
+    const footnoteOptions = useMemo(
+      () => ({
+        footnoteLabel: t('markdown.footnotes'),
+        footnoteLabelProperties: { className: ['sr-only'] },
+        footnoteBackLabel: (referenceIndex: number) =>
+          t('markdown.backToReference', { n: referenceIndex + 1 }),
+      }),
+      [t]
+    )
     const plugins = useMemo(
       (): PluggableList => [remarkGfm, remarkMath, ...(remarkPlugins ?? [])],
       [remarkPlugins]
@@ -189,279 +203,336 @@ export const MarkdownRenderer: FC<MarkdownRendererProps> = memo(
 
     // Custom component mappings
     const components: Components = useMemo(
-      () => ({
-        // A position a remark plugin marked for the surface to fill (see
-        // `slot-context`). Cast because `Components` is keyed by intrinsic
-        // elements and this tag is deliberately not one of them — that is what
-        // guarantees the markdown itself can never produce it.
-        [MARKDOWN_SLOT_TAG]: ({ index }: { index?: string }) => {
-          const position = Number(index)
-          if (!renderSlot || !Number.isInteger(position)) return null
-          return <>{renderSlot(position)}</>
-        },
+      () =>
+        ({
+          // A position a remark plugin marked for the surface to fill (see
+          // `slot-context`). Cast because `Components` is keyed by intrinsic
+          // elements and this tag is deliberately not one of them — that is what
+          // guarantees the markdown itself can never produce it.
+          [MARKDOWN_SLOT_TAG]: ({ index }: { index?: string }) => {
+            const position = Number(index)
+            if (!renderSlot || !Number.isInteger(position)) return null
+            return <>{renderSlot(position)}</>
+          },
 
-        code: ({
-          children,
-          className: codeClassName,
-          ...props
-        }: React.ComponentPropsWithoutRef<'code'> & ExtraProps) => {
-          // Block code vs inline. The class alone cannot decide it: a BARE
-          // fence (``` with no language — the fence the model actually writes
-          // when it forgets the tag) reaches here with no className at all, and
-          // keying on the class rendered whole diagrams and listings as inline
-          // code, so `isMermaidFence`'s content sniff never even ran. The
-          // trailing newline is the discriminator remark itself provides: a
-          // fenced block's text is always `value + '\n'`, an inline span can
-          // never contain a newline.
-          const rawContent = String(children)
-          const isBlock = codeClassName?.startsWith('language-') || rawContent.includes('\n')
-          const codeContent = rawContent.replace(/\n$/, '')
+          code: ({
+            children,
+            className: codeClassName,
+            ...props
+          }: React.ComponentPropsWithoutRef<'code'> & ExtraProps) => {
+            // Block code vs inline. The class alone cannot decide it: a BARE
+            // fence (``` with no language — the fence the model actually writes
+            // when it forgets the tag) reaches here with no className at all, and
+            // keying on the class rendered whole diagrams and listings as inline
+            // code, so `isMermaidFence`'s content sniff never even ran. The
+            // trailing newline is the discriminator remark itself provides: a
+            // fenced block's text is always `value + '\n'`, an inline span can
+            // never contain a newline.
+            const rawContent = String(children)
+            const isBlock = codeClassName?.startsWith('language-') || rawContent.includes('\n')
+            const codeContent = rawContent.replace(/\n$/, '')
 
-          if (isBlock) {
-            const language = getLanguageFromClassName(codeClassName)
-            const lineCount = codeContent.split('\n').length
+            if (isBlock) {
+              const language = getLanguageFromClassName(codeClassName)
+              const lineCount = codeContent.split('\n').length
 
-            // A diagram, not a listing. `MermaidDiagram` falls back to exactly
-            // the `CodeBlock` below when the source will not draw — while the
-            // answer is still streaming (the stabiliser makes a half-arrived
-            // fence LOOK closed, so drawing it would flash a parse error per
-            // token) and when the model wrote broken mermaid, which it will.
-            if (isMermaidFence(codeClassName, codeContent)) {
-              return <MermaidDiagram source={codeContent} isStreaming={isStreaming} />
+              // A diagram, not a listing. `MermaidDiagram` falls back to exactly
+              // the `CodeBlock` below when the source will not draw — while the
+              // answer is still streaming (the stabiliser makes a half-arrived
+              // fence LOOK closed, so drawing it would flash a parse error per
+              // token) and when the model wrote broken mermaid, which it will.
+              if (isMermaidFence(codeClassName, codeContent)) {
+                return <MermaidDiagram source={codeContent} isStreaming={isStreaming} />
+              }
+
+              return (
+                <CodeBlock
+                  value={codeContent}
+                  language={language}
+                  collapsible={lineCount > 15}
+                  maxLines={15}
+                />
+              )
             }
 
+            // Inline code
             return (
-              <CodeBlock
-                value={codeContent}
-                language={language}
-                collapsible={lineCount > 15}
-                maxLines={15}
-              />
+              <code
+                className="bg-muted text-foreground rounded-md px-1.5 py-0.5 font-mono text-[0.875em]"
+                {...props}
+              >
+                {children}
+              </code>
             )
-          }
+          },
 
-          // Inline code
-          return (
-            <code
-              className="rounded-md bg-muted px-1.5 py-0.5 font-mono text-[0.875em] text-foreground"
-              {...props}
+          // Skip default pre rendering since CodeBlock handles it
+          pre: ({ children }) => <>{children}</>,
+
+          // Headings — include id for in-page anchor navigation
+          h1: ({ children, node }: React.ComponentPropsWithoutRef<'h1'> & ExtraProps) => {
+            const id = headingId(node, children)
+            return (
+              <h1
+                id={id}
+                className="text-foreground mb-3 mt-6 block scroll-mt-4 text-2xl font-semibold tracking-tight"
+              >
+                {children}
+              </h1>
+            )
+          },
+          h2: ({
+            children,
+            node,
+            id: givenId,
+            className: givenClass,
+          }: React.ComponentPropsWithoutRef<'h2'> & ExtraProps) => {
+            // The GFM footnote section's own heading arrives with an id and an
+            // `sr-only` class; both are kept, so its label stays out of the
+            // page and the back-references resolve.
+            const id = givenId ?? headingId(node, children)
+            return (
+              <h2
+                id={id}
+                className={`mb-2 mt-5 block scroll-mt-4 text-xl font-semibold tracking-tight text-foreground${givenClass ? ` ${givenClass}` : ''}`}
+              >
+                {children}
+              </h2>
+            )
+          },
+          h3: ({ children, node }: React.ComponentPropsWithoutRef<'h3'> & ExtraProps) => {
+            const id = headingId(node, children)
+            return (
+              <h3
+                id={id}
+                className="text-foreground mb-2 mt-4 block scroll-mt-4 text-base font-semibold tracking-tight"
+              >
+                {children}
+              </h3>
+            )
+          },
+          h4: ({ children, node }: React.ComponentPropsWithoutRef<'h4'> & ExtraProps) => {
+            const id = headingId(node, children)
+            return (
+              <h4
+                id={id}
+                className="text-foreground mb-1 mt-3 block scroll-mt-4 text-sm font-semibold"
+              >
+                {children}
+              </h4>
+            )
+          },
+          // h5/h6 need a mapping too: Tailwind's preflight strips heading sizes
+          // and weights, so an unmapped level rendered as plain body text — a
+          // deeply structured answer (OIB guideline → section → clause) silently
+          // lost its two lowest levels of hierarchy.
+          h5: ({ children, node }: React.ComponentPropsWithoutRef<'h5'> & ExtraProps) => {
+            const id = headingId(node, children)
+            return (
+              <h5
+                id={id}
+                className="text-foreground mb-1 mt-3 block scroll-mt-4 text-sm font-semibold"
+              >
+                {children}
+              </h5>
+            )
+          },
+          h6: ({ children, node }: React.ComponentPropsWithoutRef<'h6'> & ExtraProps) => {
+            const id = headingId(node, children)
+            return (
+              <h6 id={id} className="text-subtle mb-1 mt-3 block scroll-mt-4 text-sm font-semibold">
+                {children}
+              </h6>
+            )
+          },
+
+          // Paragraphs
+          p: ({ children }) => (
+            <p
+              className={`text-foreground mb-3 block leading-relaxed ${compact ? 'text-sm' : 'text-base'}`}
             >
               {children}
-            </code>
-          )
-        },
+            </p>
+          ),
 
-        // Skip default pre rendering since CodeBlock handles it
-        pre: ({ children }) => <>{children}</>,
+          // Lists. GFM task lists arrive with `contains-task-list` /
+          // `task-list-item` classes; forcing `list-disc` on them drew a bullet
+          // NEXT TO each checkbox, so a checklist read as two markers per row.
+          ul: ({ children, className: listClassName }) => (
+            <ul
+              className={
+                listClassName?.includes('contains-task-list')
+                  ? 'text-foreground mb-3 list-none space-y-1 pl-1'
+                  : 'text-foreground mb-3 list-outside list-disc space-y-1 pl-5'
+              }
+            >
+              {children}
+            </ul>
+          ),
+          ol: ({ children }) => (
+            <ol className="text-foreground mb-3 list-outside list-decimal space-y-1 pl-5">
+              {children}
+            </ol>
+          ),
+          // `id` forwarded for the footnote list items, which the `[^n]` links
+          // point at; without it every footnote link scrolled nowhere.
+          li: ({ children, id }) => (
+            <li id={id} className={`text-foreground ${compact ? 'text-sm' : 'text-base'}`}>
+              {children}
+            </li>
+          ),
 
-        // Headings — include id for in-page anchor navigation
-        h1: ({ children, node }: React.ComponentPropsWithoutRef<'h1'> & ExtraProps) => {
-          const id = headingId(node, children)
-          return (
-            <h1 id={id} className="mb-3 mt-6 block scroll-mt-4 text-2xl font-semibold tracking-tight text-foreground">
-              {children}
-            </h1>
-          )
-        },
-        h2: ({ children, node }: React.ComponentPropsWithoutRef<'h2'> & ExtraProps) => {
-          const id = headingId(node, children)
-          return (
-            <h2 id={id} className="mb-2 mt-5 block scroll-mt-4 text-xl font-semibold tracking-tight text-foreground">
-              {children}
-            </h2>
-          )
-        },
-        h3: ({ children, node }: React.ComponentPropsWithoutRef<'h3'> & ExtraProps) => {
-          const id = headingId(node, children)
-          return (
-            <h3 id={id} className="mb-2 mt-4 block scroll-mt-4 text-base font-semibold tracking-tight text-foreground">
-              {children}
-            </h3>
-          )
-        },
-        h4: ({ children, node }: React.ComponentPropsWithoutRef<'h4'> & ExtraProps) => {
-          const id = headingId(node, children)
-          return (
-            <h4 id={id} className="mb-1 mt-3 block scroll-mt-4 text-sm font-semibold text-foreground">
-              {children}
-            </h4>
-          )
-        },
-        // h5/h6 need a mapping too: Tailwind's preflight strips heading sizes
-        // and weights, so an unmapped level rendered as plain body text — a
-        // deeply structured answer (OIB guideline → section → clause) silently
-        // lost its two lowest levels of hierarchy.
-        h5: ({ children, node }: React.ComponentPropsWithoutRef<'h5'> & ExtraProps) => {
-          const id = headingId(node, children)
-          return (
-            <h5 id={id} className="mb-1 mt-3 block scroll-mt-4 text-sm font-semibold text-foreground">
-              {children}
-            </h5>
-          )
-        },
-        h6: ({ children, node }: React.ComponentPropsWithoutRef<'h6'> & ExtraProps) => {
-          const id = headingId(node, children)
-          return (
-            <h6 id={id} className="text-subtle mb-1 mt-3 block scroll-mt-4 text-sm font-semibold">
-              {children}
-            </h6>
-          )
-        },
+          // The task-list checkbox itself: read-only state, not a control. Sized
+          // and baseline-nudged so it reads as the line's marker; `readOnly`
+          // because react-markdown passes `checked` with no handler.
+          input: ({
+            type,
+            checked,
+            node: _node,
+            ...props
+          }: React.ComponentPropsWithoutRef<'input'> & ExtraProps) => {
+            if (type !== 'checkbox') return null
+            return (
+              <input
+                {...props}
+                type="checkbox"
+                checked={checked}
+                readOnly
+                disabled
+                className="accent-brand mr-1.5 size-3.5 translate-y-px"
+              />
+            )
+          },
 
-        // Paragraphs
-        p: ({ children }) => (
-          <p className={`mb-3 block leading-relaxed text-foreground ${compact ? 'text-sm' : 'text-base'}`}>
-            {children}
-          </p>
-        ),
-
-        // Lists. GFM task lists arrive with `contains-task-list` /
-        // `task-list-item` classes; forcing `list-disc` on them drew a bullet
-        // NEXT TO each checkbox, so a checklist read as two markers per row.
-        ul: ({ children, className: listClassName }) => (
-          <ul
-            className={
-              listClassName?.includes('contains-task-list')
-                ? 'mb-3 list-none space-y-1 pl-1 text-foreground'
-                : 'mb-3 list-outside list-disc space-y-1 pl-5 text-foreground'
+          // Links — anchor hrefs scroll in-page; external hrefs open new tabs
+          a: ({ href, children, node: _node, ...rest }) => {
+            // A GFM footnote link (the `[^1]` reference and its back-reference)
+            // arrives with a data attribute and an aria-label. It is a plain
+            // in-page jump, never a citation, so it keeps both and skips the
+            // surface's own anchor renderer.
+            const extra = rest as Record<string, unknown>
+            const footnoteRef = extra['data-footnote-ref'] as boolean | undefined
+            const footnoteBackref = extra['data-footnote-backref'] as boolean | undefined
+            const isFootnote = footnoteRef !== undefined || footnoteBackref !== undefined
+            if (href?.startsWith('#')) {
+              // A surface that knows what this anchor MEANS can render it itself
+              // — the chat answer turns its `[3]` into a citation with a preview.
+              // Without a provider this falls through to the plain scroll link,
+              // which is what every other markdown surface wants.
+              if (renderInPageAnchor && !isFootnote) {
+                return <>{renderInPageAnchor({ href, children })}</>
+              }
+              return (
+                <a
+                  href={href}
+                  aria-label={extra['aria-label'] as string | undefined}
+                  data-footnote-ref={footnoteRef}
+                  data-footnote-backref={footnoteBackref}
+                  className="text-brand underline underline-offset-2 hover:opacity-80"
+                  onClick={(e: React.MouseEvent) => {
+                    e.preventDefault()
+                    scrollToAnchor(href.slice(1))
+                  }}
+                >
+                  {children}
+                </a>
+              )
             }
-          >
-            {children}
-          </ul>
-        ),
-        ol: ({ children }) => (
-          <ol className="mb-3 list-outside list-decimal space-y-1 pl-5 text-foreground">{children}</ol>
-        ),
-        li: ({ children }) => (
-          <li className={`text-foreground ${compact ? 'text-sm' : 'text-base'}`}>{children}</li>
-        ),
-
-        // The task-list checkbox itself: read-only state, not a control. Sized
-        // and baseline-nudged so it reads as the line's marker; `readOnly`
-        // because react-markdown passes `checked` with no handler.
-        input: ({ type, checked, node: _node, ...props }: React.ComponentPropsWithoutRef<'input'> & ExtraProps) => {
-          if (type !== 'checkbox') return null
-          return (
-            <input
-              {...props}
-              type="checkbox"
-              checked={checked}
-              readOnly
-              disabled
-              className="accent-brand mr-1.5 size-3.5 translate-y-px"
-            />
-          )
-        },
-
-        // Links — anchor hrefs scroll in-page; external hrefs open new tabs
-        a: ({ href, children }) => {
-          if (href?.startsWith('#')) {
-            // A surface that knows what this anchor MEANS can render it itself
-            // — the chat answer turns its `[3]` into a citation with a preview.
-            // Without a provider this falls through to the plain scroll link,
-            // which is what every other markdown surface wants.
-            if (renderInPageAnchor) {
-              return <>{renderInPageAnchor({ href, children })}</>
+            // In-app links stay in the app. A surface that knows the destination
+            // may render something better than a link — the chat answer turns a
+            // model deep link into an element chip.
+            if (isInternalHref(href)) {
+              if (renderInternalLink) {
+                return <>{renderInternalLink({ href, children })}</>
+              }
+              return (
+                <a href={href} className="text-brand underline underline-offset-2 hover:opacity-80">
+                  {children}
+                </a>
+              )
             }
             return (
               <a
-                href={href}
+                href={href ?? '#'}
+                target="_blank"
+                rel="noopener noreferrer"
                 className="text-brand underline underline-offset-2 hover:opacity-80"
-                onClick={(e: React.MouseEvent) => {
-                  e.preventDefault()
-                  scrollToAnchor(href.slice(1))
-                }}
               >
                 {children}
               </a>
             )
-          }
-          // In-app links stay in the app. A surface that knows the destination
-          // may render something better than a link — the chat answer turns a
-          // model deep link into an element chip.
-          if (isInternalHref(href)) {
-            if (renderInternalLink) {
-              return <>{renderInternalLink({ href, children })}</>
-            }
-            return (
-              <a href={href} className="text-brand underline underline-offset-2 hover:opacity-80">
-                {children}
-              </a>
-            )
-          }
-          return (
-            <a
-              href={href ?? '#'}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-brand underline underline-offset-2 hover:opacity-80"
+          },
+
+          // Emphasis
+          strong: ({ children }) => (
+            <strong className="text-foreground font-semibold">{children}</strong>
+          ),
+          em: ({ children }) => <em className="text-foreground italic">{children}</em>,
+
+          // Blockquotes
+          blockquote: ({ children }) => (
+            <blockquote className="border-base text-subtle my-3 border-l-2 pl-4 italic leading-relaxed">
+              {children}
+            </blockquote>
+          ),
+
+          // Horizontal rule
+          hr: () => <hr className="border-base my-4" />,
+
+          // Tables (GFM)
+          table: ({ children }) => (
+            <div className="border-base my-4 overflow-x-auto rounded-xl border">
+              <table className="min-w-full">{children}</table>
+            </div>
+          ),
+          thead: ({ children }) => <thead className="bg-muted/50">{children}</thead>,
+          tbody: ({ children }) => <tbody>{children}</tbody>,
+          tr: ({ children }) => (
+            <tr className="border-base border-b last:border-b-0">{children}</tr>
+          ),
+          th: ({ children, align, style }: React.ComponentPropsWithoutRef<'th'> & ExtraProps) => (
+            <th
+              className={`text-foreground px-3 py-2 text-sm font-semibold ${cellAlignClass(align, style) ?? 'text-left'}`}
             >
               {children}
-            </a>
-          )
-        },
+            </th>
+          ),
+          td: ({ children, align, style }: React.ComponentPropsWithoutRef<'td'> & ExtraProps) => (
+            <td
+              className={`text-foreground px-3 py-2 text-sm ${cellAlignClass(align, style) ?? ''}`}
+            >
+              {children}
+            </td>
+          ),
 
-        // Emphasis
-        strong: ({ children }) => (
-          <strong className="font-semibold text-foreground">{children}</strong>
-        ),
-        em: ({ children }) => <em className="italic text-foreground">{children}</em>,
-
-        // Blockquotes
-        blockquote: ({ children }) => (
-          <blockquote className="border-base text-subtle my-3 border-l-2 pl-4 italic leading-relaxed">
-            {children}
-          </blockquote>
-        ),
-
-        // Horizontal rule
-        hr: () => <hr className="border-base my-4" />,
-
-        // Tables (GFM)
-        table: ({ children }) => (
-          <div className="border-base my-4 overflow-x-auto rounded-xl border">
-            <table className="min-w-full">{children}</table>
-          </div>
-        ),
-        thead: ({ children }) => <thead className="bg-muted/50">{children}</thead>,
-        tbody: ({ children }) => <tbody>{children}</tbody>,
-        tr: ({ children }) => <tr className="border-base border-b last:border-b-0">{children}</tr>,
-        th: ({ children, align, style }: React.ComponentPropsWithoutRef<'th'> & ExtraProps) => (
-          <th
-            className={`px-3 py-2 text-sm font-semibold text-foreground ${cellAlignClass(align, style) ?? 'text-left'}`}
-          >
-            {children}
-          </th>
-        ),
-        td: ({ children, align, style }: React.ComponentPropsWithoutRef<'td'> & ExtraProps) => (
-          <td className={`px-3 py-2 text-sm text-foreground ${cellAlignClass(align, style) ?? ''}`}>
-            {children}
-          </td>
-        ),
-
-        // Images: bounded, softened, and lazy. Without the mapping an image
-        // rendered at natural size with square corners and loaded eagerly —
-        // and a broken source showed the browser's raw glyph full-bleed.
-        img: ({ src, alt }: React.ComponentPropsWithoutRef<'img'> & ExtraProps) => (
-          // Markdown images come from arbitrary hosts the Next image loader is
-          // not configured for; `next/image` would 400 on every one of them.
-          // eslint-disable-next-line @next/next/no-img-element
-          <img
-            src={src}
-            alt={alt ?? ''}
-            loading="lazy"
-            className="border-base my-3 h-auto max-w-full rounded-xl border"
-          />
-        ),
-      }) as Components,
+          // Images: bounded, softened, and lazy. Without the mapping an image
+          // rendered at natural size with square corners and loaded eagerly —
+          // and a broken source showed the browser's raw glyph full-bleed.
+          img: ({ src, alt }: React.ComponentPropsWithoutRef<'img'> & ExtraProps) => (
+            // Markdown images come from arbitrary hosts the Next image loader is
+            // not configured for; `next/image` would 400 on every one of them.
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={src}
+              alt={alt ?? ''}
+              loading="lazy"
+              className="border-base my-3 h-auto max-w-full rounded-xl border"
+            />
+          ),
+        }) as Components,
       [compact, headingId, isStreaming, renderInPageAnchor, renderInternalLink, renderSlot]
     )
 
     return (
-      <div className={`markdown-content break-words [overflow-wrap:anywhere] [&>*:last-child]:mb-0 ${className}`}>
+      <div
+        className={`markdown-content break-words [overflow-wrap:anywhere] [&>*:last-child]:mb-0 ${className}`}
+      >
         <ReactMarkdown
           remarkPlugins={plugins}
           rehypePlugins={[[rehypeKatex, { throwOnError: false }]]}
+          // The footnote chrome the mdast→hast step writes on its own: named in
+          // the reader's language instead of the converter's English defaults.
+          remarkRehypeOptions={footnoteOptions}
           components={components}
         >
           {renderedContent}
