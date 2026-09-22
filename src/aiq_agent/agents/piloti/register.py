@@ -397,8 +397,14 @@ async def _decide_turn(
     """The turn-start decision, or none: never raises, never blocks longer than its timeout."""
     if not config.turn_decisions:
         return TurnDecisions.none()
+    facts = _turn_facts(state, runtime)
+    # A first message of one or two words („Hallo", „Danke!") needs no
+    # decision: nothing to prefetch, no method to read in, and the ~0.6 s the
+    # call costs would be a third of the reply's whole latency.
+    if facts.previous_message is None and len(facts.question.split()) < 3:
+        return TurnDecisions.none()
     try:
-        return await decide_turn(_turn_facts(state, runtime), organization_id=get_organization_id_from_context())
+        return await decide_turn(facts, organization_id=get_organization_id_from_context())
     except Exception:  # noqa: BLE001 — a decision is worth less than the turn
         logger.warning("Turn decision failed; running the turn as before", exc_info=True)
         return TurnDecisions.none()

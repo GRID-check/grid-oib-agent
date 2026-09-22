@@ -20,6 +20,7 @@ from dataclasses import replace
 from typing import Any
 
 from langchain_core.messages import AIMessage
+from langchain_core.messages import HumanMessage
 from langchain_core.messages import ToolMessage
 from langchain_core.tools import BaseTool
 
@@ -364,8 +365,25 @@ async def _register_envelope_cards(
     return _renumber_envelope_markers(content, handed=handed, positions=positions, count=len(raw))
 
 
+def this_turn(messages: Sequence[Any]) -> list[Any]:
+    """The messages of THIS turn: everything after the last human message.
+
+    The transcript now carries the previous turn's tool calls and results
+    (``conversation._answer_update`` writes the whole turn back), so a scan
+    that means "this turn" must stop at the turn boundary: a previous turn's
+    search must not count as this turn's lookup — a follow-up answered from
+    the transcript against an empty registry would otherwise ship the
+    "nothing retrieved" refusal — and a marker a tool handed out last turn
+    must not be a number this turn's cards have to skip.
+    """
+    for index in range(len(messages) - 1, -1, -1):
+        if isinstance(messages[index], HumanMessage):
+            return list(messages[index + 1 :])
+    return list(messages)
+
+
 def _source_lookup_attempted(messages: Sequence[Any]) -> bool:
-    """Whether any data-source tool ran this turn."""
+    """Whether any data-source tool ran this turn (pass this turn's messages)."""
     return any(
         isinstance(msg, ToolMessage) and get_source_id_for_tool(getattr(msg, "name", "") or "") is not None
         for msg in messages
@@ -790,10 +808,11 @@ async def finalize_answer(
     # the array's numbers into registry positions, and the markers have to be
     # the reader's before the suppression floor and the callout resolver read
     # the prose.
-    with_cards = await _register_envelope_cards(extracted.meta, extracted.content, messages, card_repair)
+    turn = this_turn(messages)
+    with_cards = await _register_envelope_cards(extracted.meta, extracted.content, turn, card_repair)
     if with_cards != extracted.content:
         extracted = replace(extracted, content=with_cards)
-    lookup_attempted = _source_lookup_attempted(messages)
+    lookup_attempted = _source_lookup_attempted(turn)
     sources = registry.all_sources()
     if sources:
         emit_citation_check(source_count=len(sources))

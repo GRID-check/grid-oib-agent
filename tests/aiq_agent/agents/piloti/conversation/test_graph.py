@@ -680,3 +680,28 @@ class TestTheWholeTurnIsWrittenBack:
         contents = [m.content for m in trimmed]
         assert "P2" in contents and "P1" not in contents
         assert contents[:2] == ["Q1", "A1"]
+
+
+class TestAFollowUpAnsweredFromTheTranscript:
+    async def test_a_previous_turns_search_is_not_this_turns_lookup(self):
+        """Against an empty registry, a follow-up answered from the transcript is an
+        answer — not the "nothing retrieved" refusal the previous turn's search
+        would trigger if it counted as this turn's."""
+        from langchain_core.messages import ToolMessage
+
+        from aiq_agent.agents.piloti.answer_pipeline import finalize_answer
+        from aiq_agent.common.citation_verification import SourceRegistry
+
+        call = {"name": "knowledge_search", "args": {"query": "Fluchtweg"}, "id": "c1"}
+        messages = [
+            HumanMessage(content="Wie lang darf der Fluchtweg sein?"),
+            AIMessage(content="", tool_calls=[call]),
+            ToolMessage(content="Keine Treffer.", tool_call_id="c1", name="knowledge_search"),
+            AIMessage(content="Dazu habe ich nichts gefunden."),
+            HumanMessage(content="Und in GK 4?"),
+            AIMessage(content="Auch dazu liegt nichts vor; die Frage bleibt offen."),
+        ]
+
+        final = await finalize_answer(messages, registry=SourceRegistry(), tools=[], repair=None)
+
+        assert final.answered and not final.source_lookup_attempted

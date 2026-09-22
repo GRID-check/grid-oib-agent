@@ -149,6 +149,25 @@ async def _run_turn(config: ResearchAgentConfig, decisions: TurnDecisions):
 
 
 class TestTheTurn:
+    async def test_a_two_word_first_message_skips_the_decision(self):
+        builder = _FakeBuilder({"knowledge_search": knowledge_search})
+        agent = MagicMock()
+        agent.run = AsyncMock(side_effect=lambda state, turn=None: state)
+        with (
+            patch.object(register_module, "PilotiAgent", return_value=agent),
+            patch.object(register_module, "decide_turn", new_callable=AsyncMock) as decide,
+            patch.object(register_module, "get_organization_id_from_context", return_value="org-1"),
+            patch.object(register_module, "SkillResolver") as ResolverCls,
+        ):
+            ResolverCls.return_value.resolve.return_value = ()
+            gen = register_module.research_agent.__wrapped__(
+                ResearchAgentConfig(llm="research_llm", tools=["knowledge_search"], skills_enabled=False), builder
+            )
+            info = await gen.__anext__()
+            await info.single_fn(ResearchAgentState(messages=[HumanMessage(content="Hallo Piloti")]))
+            await gen.aclose()
+        decide.assert_not_awaited()
+
     async def test_the_prefetch_reaches_the_turn_config(self):
         decided = TurnDecisions(decided=True, needs_evidence=0.9, corpus="baurecht", corpus_p=0.8)
         turn, _state, decide = await _run_turn(

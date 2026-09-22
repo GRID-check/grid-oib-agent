@@ -140,3 +140,22 @@ async def test_a_system_card_in_the_envelope_is_refused_and_never_repaired(card_
 async def test_no_registry_bound_ships_the_answer_without_cards():
     final = await finalize_answer(_messages([BASIS]), registry=_sources(), tools=[], repair=None)
     assert final.answered
+
+
+@pytest.mark.asyncio
+async def test_a_marker_a_tool_handed_out_last_turn_is_not_taken_this_turn(card_registry):
+    """The transcript carries the previous turn; its `[[card:1]]` belongs to that turn's registry."""
+    from langchain_core.messages import HumanMessage
+
+    previous_turn = [
+        HumanMessage(content="Schreib den Aktenvermerk."),
+        ToolMessage(
+            content="Draft written. Write [[card:1]] where the file belongs.", name="write_file", tool_call_id="t0"
+        ),
+        AIMessage(content="Erledigt. [[card:1]]"),
+        HumanMessage(content="Und die Brandabschnitte?"),
+    ]
+    final = await finalize_answer([*previous_turn, *_messages([BASIS])], registry=_sources(), tools=[], repair=None)
+
+    assert [card["type"] for card in card_registry.snapshot()] == ["legal_basis"]
+    assert "[[card:1]]" in final.content
