@@ -20,7 +20,11 @@ import { CONTACT_EMAIL } from '../consts'
  * Gewerbeberechtigung whenever those arrive.
  */
 export interface LegalIdentity {
-  /** The brand the site trades under. Not a legal entity, so not enough on its own. */
+  /**
+   * The name of the website. A brand, not a legal entity - which is why it is
+   * stated on a labelled line of its own and never inside the identity below.
+   * Above the names it read as the company that does not exist yet.
+   */
   operator: string
   /** Everyone who answers for the site by name - the founders, later the company. */
   mediaOwners: string[]
@@ -43,12 +47,14 @@ export const legalIdentity: LegalIdentity = {
 }
 
 /**
- * The identity as lines, in the order an Impressum states it. Shared so the
- * imprint and the privacy policy can never name a different set of people:
- * one renders the lines stacked, the other joins them into a sentence.
+ * Who is legally responsible, as lines, in the order an Impressum states it.
+ * Shared so the imprint and the privacy policy can never name a different set
+ * of people: one renders the lines stacked, the other joins them into a
+ * sentence. `operator` is deliberately absent - it is the medium's name, not
+ * part of anyone's identity.
  */
 export function identityLines(id: LegalIdentity): string[] {
-  return [id.operator, ...id.mediaOwners, id.legalForm, ...id.addressLines].filter(
+  return [...id.mediaOwners, id.legalForm, ...id.addressLines].filter(
     (line): line is string => Boolean(line)
   )
 }
