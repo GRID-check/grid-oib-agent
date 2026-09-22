@@ -37,16 +37,18 @@ Ohne Projekt in dieser Unterhaltung bleibt der Entwurf im Arbeitsordner: Ablegen
 
 {% endif %}
 
-{# Agent skills: the short bodies in full and the rest as catalog lines
-   (ADR-0063), rendered by the register layer only when skills apply to this
-   run. None = no skills section, model never sees `use_skill`. #}
+{# Agent skills: the body the turn-start decision chose in full (ADR-0064),
+   any bodies under an opt-in budget (ADR-0063), and the rest as catalog
+   lines, rendered by the register layer only when skills apply to this run.
+   None = no skills section, model never sees `use_skill`. #}
 {% if skills_block is defined and skills_block %}
 {{ skills_block }}
 
 {% endif %}
 {# The full shapes of the card types the turn-start decision named
    (ADR-0064): the taught envelope carries the eight common ones; these are
-   the two this question is likely to earn beyond them. #}
+   the ones this question is likely to earn beyond them, the chosen skill's
+   preferred cards first. #}
 {% if card_shapes_block is defined and card_shapes_block %}
 ## Card shapes this answer is likely to need
 The exact shape of the cards this question most likely earns, beyond the eight in the answer contract. A preference, not a command: emit a card only when the answer calls for it.
