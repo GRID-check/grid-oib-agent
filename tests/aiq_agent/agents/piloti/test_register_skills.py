@@ -126,7 +126,7 @@ async def test_research_turn_resolves_allows_and_folds_skill_tool():
         ResolverCls.assert_called_once_with(agent="researcher")
         resolver.resolve.assert_called_once_with("org-1")
         # The catalog and nothing else: the runtime takes no list of names.
-        RuntimeCls.assert_called_once_with(skills=resolved, inline_max_body_chars=2400, inline_budget_chars=16000)
+        RuntimeCls.assert_called_once_with(skills=resolved, inline_max_body_chars=0, inline_budget_chars=0)
 
         # The turn got both the search tool and use_skill; the agent itself
         # was built once, at boot, with the search tool only.
@@ -233,7 +233,7 @@ async def test_a_mentioned_skill_is_offered_like_any_other():
         result = await run_fn(state)
 
         ResolverCls.assert_called_once_with(agent="researcher")
-        RuntimeCls.assert_called_once_with(skills=resolved, inline_max_body_chars=2400, inline_budget_chars=16000)
+        RuntimeCls.assert_called_once_with(skills=resolved, inline_max_body_chars=0, inline_budget_chars=0)
         assert result.skills_activated == ["forecast-analysis"]
         await gen.aclose()
 
@@ -289,7 +289,7 @@ async def test_allowlist_narrows_resolved_set():
         await run_fn(state)
 
         resolver.resolve.assert_called_once_with("org-1")
-        RuntimeCls.assert_called_once_with(skills=(resolved[0],), inline_max_body_chars=2400, inline_budget_chars=16000)
+        RuntimeCls.assert_called_once_with(skills=(resolved[0],), inline_max_body_chars=0, inline_budget_chars=0)
         await gen.aclose()
 
 
@@ -322,7 +322,7 @@ async def test_a_name_the_allowlist_dropped_is_simply_not_in_the_catalog():
         run_fn, gen = await _get_run_fn(config, builder)
         await run_fn(ResearchAgentState(messages=[HumanMessage(content="/mystery-skill bitte")]))
 
-        RuntimeCls.assert_called_once_with(skills=(resolved[0],), inline_max_body_chars=2400, inline_budget_chars=16000)
+        RuntimeCls.assert_called_once_with(skills=(resolved[0],), inline_max_body_chars=0, inline_budget_chars=0)
         await gen.aclose()
 
 

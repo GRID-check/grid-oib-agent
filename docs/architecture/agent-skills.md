@@ -397,23 +397,21 @@ skill onto a turn: not the request, not the deployment, not a job.
   KV-cache boundary, never a source and never above the rules it may not
   override).
 
-Progressive disclosure has two levels, and a measured shortcut (ADR-0063):
-a body short enough to cost less than the round `use_skill` would take rides
-the prompt in full, within a budget the agent's config sets
-(`skills_inline_max_body_chars` 2,400 / `skills_inline_budget_chars` 16,000 on
-Piloti; deep research sets neither and keeps the catalog). The inlined bodies
-render as `<skill name="…">` elements under `## Skills`, the rest as one line
-each under `### Available by name`. The model names the inlined skills it
+Progressive disclosure has two levels, and a measured shortcut (ADR-0063 as
+amended, ADR-0064): the turn-start decision asks a `skill` choice over every
+resolved skill with `none`, verified by one "fits" noul per skill, and the ONE
+chosen body rides this turn's prompt in full (`SkillRuntime.inline_also`,
+~400 tokens for a chat method, the IFC method on a model question) with its
+preferred card shapes beyond the eight the envelope teaches. An inlined body
+renders as a `<skill name="…">` element under `## Skills`, the rest as one
+line each under `### Available by name`. The model names the inlined skill it
 followed in the envelope's `skills_applied`; the runtime accepts a name only
-when that body was in the prompt, and that is what makes it `activated`. An
-inlined skill's `grid-cards` ride as names only; the FULL shapes `use_skill`
-appends are attached per turn by the turn-start decision (ADR-0064), for the
-one skill it chose and verified, so a Brandschutz question still has
-`fire_compartment` in front of the model without every turn paying for all
-nine skills' shapes. The
-nine chat-facing platform methods fit the default budget together (~4,600
-tokens, cached with the prefix within a turn); `ifc-spatial-reasoning` and any
-long org method stay a line.
+when that body was in the prompt, and that is what makes it `activated`.
+Inlining every short method by size (`skills_inline_max_body_chars` /
+`skills_inline_budget_chars`) is an opt-in budget an org can set; the shipped
+config sets neither, because nine bodies were ~4,600 tokens on every call for
+methods most turns never use. Deep research sets nothing and keeps the
+catalog.
 
 - **L1 — the catalog.** One line per RESOLVED skill (`name: description`)
   under the system prompt's `## Available skills` heading (or `### Available

@@ -17,7 +17,6 @@ from langchain_core.messages import HumanMessage
 from langchain_core.tools import tool
 
 import aiq_agent.agents.piloti.register as register_module
-from aiq_agent.agents.piloti.decisions import MODEL_SKILL
 from aiq_agent.agents.piloti.decisions import TurnDecisions
 from aiq_agent.agents.piloti.models import ResearchAgentState
 from aiq_agent.agents.piloti.register import ResearchAgentConfig
@@ -45,8 +44,12 @@ class _FakeBuilder:
         return MagicMock()
 
 
-def _ifc_runtime() -> SkillRuntime:
-    ifc = Skill(name=MODEL_SKILL, description="model", body="x" * 5000, origin="platform")
+IFC = "ifc-spatial-reasoning"
+
+
+def _runtime() -> SkillRuntime:
+    """Two skills, nothing inlined by budget — the shipped default."""
+    ifc = Skill(name=IFC, description="Am Modell messen.", body="x" * 5000, origin="platform")
     short = Skill(
         name="brandschutz",
         description="Brandabschnitt, Fluchtweg.",
@@ -54,7 +57,7 @@ def _ifc_runtime() -> SkillRuntime:
         metadata={"grid-cards": "fire_compartment,egress_diagram,legal_basis"},
         origin="platform",
     )
-    return SkillRuntime(skills=(short, ifc), inline_max_body_chars=2400, inline_budget_chars=16000)
+    return SkillRuntime(skills=(short, ifc))
 
 
 class TestTheFacts:
@@ -64,24 +67,26 @@ class TestTheFacts:
             focus_file_name="EG.pdf",
             project_context="confirmed:\n- gebaeudeklasse=4\n",
         )
-        facts = _turn_facts(state, _ifc_runtime())
+        facts = _turn_facts(state, _runtime())
         assert facts.question == "Wie hoch?" and facts.focus_file_name == "EG.pdf"
-        # The skills riding the prompt are offered to the choice; the IFC body is not inlined yet.
-        assert facts.skills == [("brandschutz", "Brandabschnitt, Fluchtweg.")]
+        # Every resolved skill is an option of the choice, the long IFC one included.
+        assert facts.skills == [("brandschutz", "Brandabschnitt, Fluchtweg."), (IFC, "Am Modell messen.")]
         assert facts.project_facts == {"gebaeudeklasse": "4"}
-        assert facts.offers_model_skill
         # The card types are the content cards beyond the taught eight.
         names = {t for t, _ in facts.card_types}
         assert "fire_compartment" in names and "legal_basis" not in names
 
 
 class TestTheEffects:
-    def test_a_model_answer_inlines_the_ifc_skill(self):
-        runtime = _ifc_runtime()
-        assert MODEL_SKILL not in {s.name for s in runtime.inlined}
-        _apply_decisions(TurnDecisions(decided=True, model=0.9), ResearchAgentState(messages=[]), runtime)
-        assert MODEL_SKILL in {s.name for s in runtime.inlined}
-        assert "x" * 100 in (runtime.prompt_block() or "")
+    def test_the_chosen_skill_rides_the_prompt_whatever_its_size(self):
+        runtime = _runtime()
+        assert runtime.inlined == ()
+        _apply_decisions(
+            TurnDecisions(decided=True, skill=IFC, skill_p=0.9, skill_fit=0.8), ResearchAgentState(messages=[]), runtime
+        )
+        assert [s.name for s in runtime.inlined] == [IFC]
+        block = runtime.prompt_block() or ""
+        assert "x" * 100 in block and "- `brandschutz`:" in block
 
     def test_chosen_cards_become_the_shapes_block(self):
         state = ResearchAgentState(messages=[])
@@ -94,7 +99,9 @@ class TestTheEffects:
     def test_the_chosen_skills_preferred_shapes_beyond_the_eight_ride_the_turn(self):
         state = ResearchAgentState(messages=[])
         decided = TurnDecisions(decided=True, skill="brandschutz", skill_p=0.8, skill_fit=0.9)
-        _apply_decisions(decided, state, _ifc_runtime())
+        runtime = _runtime()
+        _apply_decisions(decided, state, runtime)
+        assert [s.name for s in runtime.inlined] == ["brandschutz"]
         block = state.card_shapes_block or ""
         assert "fire_compartment" in block and "egress_diagram" in block
         # `legal_basis` is one of the eight the envelope already teaches.
@@ -109,10 +116,10 @@ class TestTheEffects:
 
     def test_no_decision_changes_nothing(self):
         state = ResearchAgentState(messages=[])
-        runtime = _ifc_runtime()
+        runtime = _runtime()
         _apply_decisions(TurnDecisions.none(), state, runtime)
         assert state.card_shapes_block is None
-        assert MODEL_SKILL not in {s.name for s in runtime.inlined}
+        assert runtime.inlined == ()
 
 
 async def _run_turn(config: ResearchAgentConfig, decisions: TurnDecisions):

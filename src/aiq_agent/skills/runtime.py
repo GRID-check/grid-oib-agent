@@ -1,11 +1,11 @@
 """Per-run skill runtime: the skills block + the ``use_skill`` tool.
 
-Skills are progressive disclosure with a measured shortcut (ADR-0063). Every
-resolved skill is in the catalog; a body SHORT enough to cost less than the
-round it would otherwise take rides the prompt in full, within a budget the
-caller sets, and the model follows it without a call. Everything over the
-budget is one catalog line, and its body travels through the ``use_skill``
-tool. The runtime is per run (ADR-0018 — never cached on a shared agent
+Skills are progressive disclosure with a measured shortcut (ADR-0063, as
+amended). Every resolved skill is in the catalog; the ONE body the turn-start
+decision picks (ADR-0064, ``inline_also``) rides the prompt in full and the
+model follows it without a call — or, for a caller that sets the opt-in
+budget, every body short enough to fit. Everything else is one catalog line,
+and its body travels through the ``use_skill`` tool. The runtime is per run (ADR-0018 — never cached on a shared agent
 instance): it owns the ordered activation list that surfaces as
 ``skills_activated`` on the terminal frame.
 

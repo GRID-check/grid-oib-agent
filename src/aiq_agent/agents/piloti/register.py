@@ -60,7 +60,6 @@ from nat.data_models.function import FunctionBaseConfig
 from . import ask_user as _ask_user  # noqa: F401
 from .agent import PilotiAgent
 from .agent import TurnConfig
-from .decisions import MODEL_SKILL
 from .decisions import TurnDecisions
 from .decisions import TurnFacts
 from .decisions import attached_card_types
@@ -149,31 +148,31 @@ class ResearchAgentConfig(FunctionBaseConfig, name="research_agent"):
         description="Optional skill-name allowlist; empty = every resolved skill is offered.",
     )
     skills_inline_max_body_chars: int = Field(
-        default=2400,
+        default=0,
         description=(
-            "A skill whose body is at most this many characters rides the system prompt in full "
-            "(ADR-0063), so following it costs no `use_skill` round; a longer one is one catalog line. "
-            "The office's own methods are ~1 600 characters each. 0 = every body behind `use_skill`."
+            "OPT-IN budget: a skill whose body is at most this many characters rides the system prompt "
+            "in full on every turn (ADR-0063, amended). 0, the default: no body rides by budget; the "
+            "turn-start decision (ADR-0064) reads the ONE skill the question is the subject of into the "
+            "turn, and the rest stay a catalog line behind `use_skill`."
         ),
     )
     turn_decisions: bool = Field(
         default=True,
         description=(
             "Ask the decision model (Jev, ADR-0064) at turn start whether the message needs evidence, "
-            "which corpus and which OIB families it needs, which card types it is likely to earn and "
-            "whether it is about the building model — and act on the answers only by ADDING: the named "
-            "fetches run as round 0 before the first LLM call, the named card shapes ride this turn's "
-            "prompt, the IFC skill rides it on a model question. Every tool stays bound whatever it says; "
+            "which corpus and which OIB families it needs, which skill it is the subject of and which "
+            "card types it is likely to earn — and act on the answers only by ADDING: the named fetches "
+            "run as round 0 before the first LLM call, the chosen skill's body and card shapes ride this "
+            "turn's prompt. Every tool stays bound whatever it says; "
             "a decision that cannot run leaves the turn exactly as before. GRID_DECISIONS_ENABLED=false "
             "is the global switch."
         ),
     )
     skills_inline_budget_chars: int = Field(
-        default=16000,
+        default=0,
         description=(
-            "Ceiling on the characters of skill bodies that ride the prompt per turn, filled in catalog "
-            "order (platform, then the org's own); what does not fit is one catalog line. ~4 600 tokens "
-            "at the default, cached with the prefix within a turn. 0 = every body behind `use_skill`."
+            "OPT-IN budget: ceiling on the characters of skill bodies that ride the prompt per turn by "
+            "size alone, filled in catalog order. 0, the default: see skills_inline_max_body_chars."
         ),
     )
     tool_search: ToolSearchSettings = Field(
@@ -371,18 +370,17 @@ def _turn_facts(state: ResearchAgentState, runtime: SkillRuntime | None) -> Turn
     question = humans[-1] if humans else ""
     previous = humans[-2] if len(humans) > 1 else None
     documents = state.available_documents or []
-    inlined = tuple(runtime.inlined) if runtime is not None else ()
+    offered = tuple(runtime.skills) if runtime is not None else ()
     return TurnFacts(
         question=question,
         previous_message=previous,
-        skills=[(skill.name, " ".join(skill.description.split())) for skill in inlined],
+        skills=[(skill.name, " ".join(skill.description.split())) for skill in offered],
         focus_file_name=state.focus_file_name,
         project_facts={k: str(v) for k, v in facts_from_project_context(state.project_context or "").items()},
         families=get_norm_families(),
         project_files=sum(1 for doc in documents if getattr(doc, "shelf", None) is Shelf.PROJECT),
         archive_files=sum(1 for doc in documents if getattr(doc, "shelf", None) is Shelf.ARCHIV),
         card_types=[entry for entry in card_index_entries() if entry[0] not in ENVELOPE_SHAPE_TYPES],
-        offers_model_skill=runtime is not None and any(skill.name == MODEL_SKILL for skill in runtime.skills),
     )
 
 
@@ -400,17 +398,19 @@ async def _decide_turn(
 
 
 def _apply_decisions(decisions: TurnDecisions, state: ResearchAgentState, runtime: SkillRuntime | None) -> None:
-    """The two prompt-side effects: the IFC skill body, and the likely card shapes.
+    """The two prompt-side effects: the chosen skill's body, and the likely card shapes.
 
-    The shapes are the chosen skill's preferred cards beyond the eight the
-    envelope teaches — what ``use_skill`` used to hand over with the body —
-    then the card nouls' picks, capped (``attached_card_types``).
+    The chosen skill rides this turn's prompt in full (``inline_also``), the
+    one method the question is the subject of; the shapes are its preferred
+    cards beyond the eight the envelope teaches — what ``use_skill`` hands
+    over with the body — then the card nouls' picks, capped
+    (``attached_card_types``). Still offers: the model decides.
     """
     from aiq_agent.cards.envelope import ENVELOPE_SHAPE_TYPES
     from aiq_agent.skills.models import preferred_cards
 
-    if runtime is not None and decisions.wants_model_skill:
-        runtime.inline_also((MODEL_SKILL,))
+    if runtime is not None and decisions.chosen_skill:
+        runtime.inline_also((decisions.chosen_skill,))
     skill_cards = {
         skill.name: [card for card in preferred_cards(skill.metadata) if card not in ENVELOPE_SHAPE_TYPES]
         for skill in (runtime.skills if runtime is not None else ())

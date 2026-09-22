@@ -115,6 +115,18 @@ class Row:
         return FAMILY_SKILL.get(self.expected_family or "")
 
     @property
+    def skill_loaded(self) -> bool:
+        from aiq_agent.agents.piloti.decisions import SKILL_FIT_THRESHOLD
+        from aiq_agent.agents.piloti.decisions import SKILL_THRESHOLD
+
+        return bool(
+            self.skill
+            and self.skill != "none"
+            and self.skill_p >= SKILL_THRESHOLD
+            and (self.skill_fit or 0.0) >= SKILL_FIT_THRESHOLD
+        )
+
+    @property
     def family_hit(self) -> bool | None:
         if self.expected_family is None:
             return None
@@ -155,7 +167,7 @@ async def _evaluate(questions_path: Path) -> list[Row]:
     skills = [
         (skill.name, " ".join(skill.description.split()))
         for skill in discover_builtin_skills()
-        if _skill_applies_to_agent(skill, "researcher") and len(skill.body) <= 2400
+        if _skill_applies_to_agent(skill, "researcher")
     ]
     rows: list[Row] = []
     for question in load_questions(questions_path):
@@ -165,9 +177,7 @@ async def _evaluate(questions_path: Path) -> list[Row]:
             expected_family=expected_family(question.family),
             expected_corpus=expected_corpus(question.family),
         )
-        facts = TurnFacts(
-            question=question.question, families=families, card_types=cards, offers_model_skill=True, skills=skills
-        )
+        facts = TurnFacts(question=question.question, families=families, card_types=cards, skills=skills)
         decided = await decide_turn(facts)
         row.decided = decided.decided
         if decided.decided:
@@ -179,7 +189,6 @@ async def _evaluate(questions_path: Path) -> list[Row]:
                 row.expected_family_p = by_key.get(row.expected_family or "")
             if decided.cards:
                 row.top_card, row.top_card_p = max(decided.cards, key=lambda c: c[1])
-            row.model_p = decided.model
             row.skill, row.skill_p, row.skill_fit = decided.skill, decided.skill_p, decided.skill_fit
             row.self_contained = decided.self_contained
             row.latency_ms = decided.latency_ms
@@ -203,12 +212,16 @@ def summarise(rows: list[Row]) -> dict[str, float | int | bool]:
     evidence_floor_held = all((r.needs_evidence or 0.0) >= 0.5 for r in ruling_rows)
     skill_rows = [r for r in decided if r.expected_skill is not None]
     skill_top1 = sum(1 for r in skill_rows if r.skill == r.expected_skill) / len(skill_rows) if skill_rows else 0.0
+    loaded = sum(1 for r in decided if r.skill_loaded)
+    wrong_load = sum(1 for r in skill_rows if r.skill_loaded and r.skill != r.expected_skill)
     self_contained_rate = sum(1 for r in decided if (r.self_contained or 0.0) >= 0.5) / len(decided) if decided else 0.0
     return {
         "questions": len(rows),
         "decided": len(decided),
         "family_top1": round(family_top1, 3),
         "skill_top1_informational": round(skill_top1, 3),
+        "skill_loaded": loaded,
+        "skill_loaded_wrong_by_family_map": wrong_load,
         "self_contained_rate": round(self_contained_rate, 3),
         "corpus_baurecht_rate": round(corpus_rate, 3),
         "ruling_evidence_floor_held": evidence_floor_held,

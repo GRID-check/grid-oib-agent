@@ -71,7 +71,7 @@ is on the ledger under the `decision` role (`common/decisions.py`).
 `register.py::_decide_turn`). One request beside the skill resolution:
 `needs_evidence`, `corpus` (baurecht / projekt / buero / modell / none), one
 noul per Richtlinien-Familie the corpus holds, one noul per content card
-type the taught envelope does not already carry, `model`, `self_contained`
+type the taught envelope does not already carry, `self_contained`
 (whether the message can be searched without the previous one — a follow-up
 cannot, and prefetching „und in GK 4?" would hand the model a block about
 nothing), and `skill`: a choice over the skills riding the prompt with
@@ -88,9 +88,11 @@ preferred card shapes beyond the eight the envelope teaches — what
 `use_skill` handed over with the body before ADR-0063 moved the bodies into
 the prompt, at 1.1–1.6k tokens per skill too much to carry for all nine —
 and the two most likely card types get their full shape in this turn's
-prompt (at most five shapes); a model question reads the one skill body too
-long to ride the prompt (`ifc-spatial-reasoning`, ADR-0063) into this turn.
-Every tool stays bound whatever it says.
+prompt (at most five shapes); and the chosen skill's BODY rides this turn's
+prompt — the one method the question is the subject of, ~400 tokens, or
+the 17k-character IFC method on a model question — because inlining every
+method by size cost ~4 600 tokens on every call (ADR-0063, amended). Every
+tool stays bound whatever it says.
 
 **Use 2 — the judge's yes/no** (`knowledge_layer/decisions.py`,
 `requery_decider: jev`). One noul per passage of the fused head — "does this
@@ -133,10 +135,12 @@ weaker: six of 27 rows put a type over 0.6, two of them doubtful
 (`change_impact` on the high-rise question, `calculation` on a parking
 question) — harmless, since a shape attached is only a shape, and the
 reason the card threshold stays at 0.6. The skill choice, re-run with the
-same set: the family's method on 0.74 of the rows by the family→skill map,
-and the "misses" are abstentions the cookbook is for — `none` on the two
-overview questions and the structural one, a fit of 0.21 on the
-project-file question — so a wrong skill's shapes were attached on no row.
+same set over all ten skills: a body loads on 18 of 27 rows, the family's
+method on 0.74 of the rows by a crude family→skill map, and the rest are
+abstentions the cookbook is for — `none` on the two overview questions and
+the structural one, a fit of 0.19 on the project-file question — with one
+disagreement the map is wrong about (`gebaeudeklasse` for the high-rise
+question, which does turn on the class). Latency 507–685 ms, mean 602.
 `self_contained` ran 0.74–0.95 on a set with no follow-ups; the false case
 is pinned by unit test only. The judge use is measured live by
 the loop eval's `judge_calls` column once it exists (audit §8 row 1).

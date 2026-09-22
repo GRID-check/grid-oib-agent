@@ -865,22 +865,21 @@ functions:
     # Agent skills (progressive-disclosure `use_skill` tool) active on research
     # turns. Empty allowlist = every resolved skill (builtin + org) is offered.
     skills_enabled: true
-    # A skill body within these caps rides the system prompt in full, so the
-    # model follows it without a `use_skill` round (ADR-0063). The nine
-    # chat-facing platform methods are ~1 600 characters each and fit
-    # together under the budget (~4 600 tokens, cached with the prefix within
-    # a turn); `ifc-spatial-reasoning` (17 500) and anything an org writes at
-    # length stay one catalog line and load on demand. 0 on either restores
-    # the catalog-only prompt.
-    skills_inline_max_body_chars: 2400
-    skills_inline_budget_chars: 16000
+    # No skill body rides the prompt by size (ADR-0063, amended): all nine
+    # chat methods together were ~4 600 tokens on every call, for methods most
+    # turns never use. The turn-start decision below picks the ONE method the
+    # question is the subject of and reads that body in (~400 tokens, or the
+    # IFC method on a model question); the rest stay a catalog line behind
+    # `use_skill`. These two are an opt-in budget for an org that wants a
+    # method on every turn regardless.
+    skills_inline_max_body_chars: 0
+    skills_inline_budget_chars: 0
     # The turn-start decision (ADR-0064): one decision-model request beside
     # the skill resolution — does the message need evidence, which corpus and
-    # which OIB families, which card types, is it about the model — acted on
-    # by ADDING only: the named fetches run as round 0 before the first LLM
-    # call (no budget spent, answered by the duplicate guard when the model
-    # asks again), the named card shapes ride this turn's prompt, the IFC
-    # skill rides it on a model question. Every tool stays bound whatever it
+    # which OIB families, which skill, which card types — acted on by ADDING
+    # only: the named fetches run as round 0 before the first LLM call (no
+    # budget spent, answered by the duplicate guard when the model asks
+    # again), the chosen skill's body and card shapes ride this turn's prompt. Every tool stays bound whatever it
     # says (ADR-0052). `scripts/decision_eval.py` is the adoption gate;
     # GRID_DECISIONS_ENABLED=false switches every decision off at once.
     turn_decisions: true

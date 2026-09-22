@@ -151,6 +151,27 @@ model (`cards/envelope.py`).
 * Bad, because there are now two ways a body reaches the model and the
   disclosure has to be told about the second one by the model itself.
 
+## Amendment (2026-09-22): the budget is opt-in; the decision reads the one body in
+
+The measurement stands — a chat method is ~400 tokens, not "thousands" —
+and the mechanism was still too costly: nine bodies together are ~4 600
+tokens on every call of every turn, paid for methods most turns never use.
+The product owner's call, and the right one. So `skills_inline_max_body_chars`
+and `skills_inline_budget_chars` default to 0 and are an opt-in budget for an
+org that wants a method on every turn regardless; the shipped config sets
+neither. What reads a body in now is the turn-start decision (ADR-0064): a
+`skill` choice over every resolved skill with `none`, verified by one "fits"
+noul per skill — TypeSafe's skill-suggestion cookbook — and the chosen
+skill's body rides this turn's prompt through `SkillRuntime.inline_also`,
+whatever its size (the 17k-character IFC method on a model question
+included), with its preferred card shapes beyond the eight the envelope
+teaches. One body, ~400 tokens, only on a turn whose question is that
+method's subject; the rest stay one catalog line behind `use_skill`.
+Measured on the loop-eval set: the choice named the family's method or
+abstained on every row (`decision_eval_2026-09-22.csv`). Everything else
+in this ADR — the premise, `skills_applied`, the block's shape, the
+opt-in budget's tests — is unchanged.
+
 ## More Information
 
 - ADR-0060 (c) is amended by this ADR; its category rule stands.

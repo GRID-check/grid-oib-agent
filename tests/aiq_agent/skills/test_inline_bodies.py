@@ -25,8 +25,8 @@ SHORT_TWO = Skill(
 )
 LONG = Skill(name="lang", description="Lange Methode.", body="x" * 5000, origin="org")
 
-#: The register's defaults (``ResearchAgentConfig``), repeated here so a change
-#: to either is a change to this file too.
+#: The opt-in budget ADR-0063 measured (the register's defaults are 0: the
+#: turn-start decision reads the one chosen body in instead, ADR-0064).
 MAX_BODY = 2400
 BUDGET = 16000
 

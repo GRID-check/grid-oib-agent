@@ -31,7 +31,7 @@ CARDS = [
 
 
 def _facts(question: str, **kwargs) -> TurnFacts:
-    return TurnFacts(question=question, families=FAMILIES, card_types=CARDS, offers_model_skill=True, **kwargs)
+    return TurnFacts(question=question, families=FAMILIES, card_types=CARDS, **kwargs)
 
 
 class TestWhatIsAsked:
@@ -45,7 +45,6 @@ class TestWhatIsAsked:
             "family_4",
             "card_fire_compartment",
             "card_stair_diagram",
-            "model",
         }
         assert questions["corpus"]["type"] == "choice"
         assert set(questions["corpus"]["criteria"]) == {"baurecht", "projekt", "buero", "modell", "none"}
@@ -66,10 +65,6 @@ class TestWhatIsAsked:
     def test_the_previous_message_rides_the_state_bounded(self):
         state = TurnFacts(question="und in GK 4?", previous_message="x" * 1000).state()
         assert len(state["previous_message"]) == 300
-
-    def test_no_model_skill_offered_means_no_model_question(self):
-        facts = TurnFacts(question="q", families=FAMILIES, card_types=CARDS, offers_model_skill=False)
-        assert "model" not in questions_for(facts)
 
     def test_the_state_is_structured_and_bounded(self):
         facts = _facts(
@@ -100,7 +95,6 @@ class TestWhatTheAnswersBecome:
                 "family_4": {"type": "noul", "noul": 0.1},
                 "card_fire_compartment": {"type": "noul", "noul": 0.7},
                 "card_stair_diagram": {"type": "noul", "noul": 0.2},
-                "model": {"type": "noul", "noul": 0.05},
             },
             latency_ms=210,
         )
@@ -110,7 +104,7 @@ class TestWhatTheAnswersBecome:
         assert decided.corpus == "baurecht" and decided.corpus_p == 0.8
         assert decided.chosen_families() == ["2"]
         assert decided.chosen_cards() == ["fire_compartment"]
-        assert not decided.wants_model_skill
+        assert decided.chosen_skill is None
         assert decided.latency_ms == 210
 
     async def test_no_decision_is_none_and_none_does_nothing(self):
@@ -176,12 +170,15 @@ class TestTheSkillsShapes:
         assert attached_card_types(decided, self.SKILL_CARDS) == ["fire_compartment", "egress_diagram", "stair_diagram"]
 
     def test_the_cookbooks_abstention_a_low_fit_or_none_attaches_no_skill(self):
-        low_fit = TurnDecisions(decided=True, skill="brandschutz", skill_p=0.8, skill_fit=0.2)
-        assert low_fit.chosen_skill is None and attached_card_types(low_fit, self.SKILL_CARDS) == []
+        name_match = TurnDecisions(decided=True, skill="brandschutz", skill_p=0.8, skill_fit=0.05)
+        assert name_match.chosen_skill is None and attached_card_types(name_match, self.SKILL_CARDS) == []
         none = TurnDecisions(decided=True, skill="none", skill_p=0.9, skill_fit=None)
         assert none.chosen_skill is None
-        unsure = TurnDecisions(decided=True, skill="hygiene", skill_p=0.3, skill_fit=0.9)
+        unsure = TurnDecisions(decided=True, skill="hygiene", skill_p=0.5, skill_fit=0.9)
         assert unsure.chosen_skill is None
+        # A weak fit on a confident choice still loads: a body is ~400 tokens and an offer.
+        weak_fit = TurnDecisions(decided=True, skill="waermeschutz", skill_p=0.64, skill_fit=0.13)
+        assert weak_fit.chosen_skill == "waermeschutz"
 
     async def test_the_choice_and_its_fit_are_read_back(self):
         decision = Decision(

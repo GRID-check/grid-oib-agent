@@ -18,18 +18,18 @@ whose answer can only ADD to the turn:
 - one ``noul`` per content card type whose shape is NOT already in the
   taught envelope: the two most likely get their full shape attached to
   this turn's prompt, so a card the answer earns is written right first time.
-- ``model``: whether the question is about the building model, which reads
-  the one skill body too long to ride the prompt (``ifc-spatial-reasoning``)
-  into this turn.
-- ``skill``, a choice over the skills riding the prompt with "none", and one
-  "fits" noul per skill (TypeSafe's own skill-suggestion cookbook: rank,
+- ``skill``, a choice over every skill the turn resolved with "none", and
+  one "fits" noul per skill (TypeSafe's own skill-suggestion cookbook: rank,
   then verify the candidate does the specific thing asked; its abstention
-  is what keeps a wrong skill from being pushed). What it may do: attach
-  the chosen skill's PREFERRED CARD shapes beyond the eight the envelope
-  already teaches. That is what ``use_skill`` used to hand over with the
-  body (ADR-0063 moved the bodies into the prompt and left the shapes
-  behind, at ~1.1-1.6k tokens per skill too much to carry for all nine);
-  the body itself is already in front of the model and stays an offer.
+  is what keeps a wrong skill from being pushed). What it may do: read the
+  chosen skill's BODY into this turn's prompt — the one method the question
+  is the subject of, ~400 tokens, or the IFC method on a model question —
+  and attach its preferred card shapes beyond the eight the envelope
+  already teaches. Inlining every short method cost ~4 600 tokens on every
+  call for methods most turns never use (ADR-0063, amended); one chosen
+  body costs a tenth of that and only when a question calls for it. The
+  body stays an offer: the model decides whether to follow it, and the
+  rest stay one catalog line each behind ``use_skill``.
 - ``self_contained``: whether the message can be searched on its own. A
   follow-up („und in GK 4?") cannot, and prefetching it would hand the model
   a grounding block about nothing; the family overviews still run.
@@ -62,9 +62,6 @@ SLOT = "turn"
 
 #: The knowledge tool the prefetch calls. A wire name (``configs/*.yml``).
 KNOWLEDGE_SEARCH = "knowledge_search"
-#: The one chat skill too long to ride the prompt (ADR-0063), read in on a
-#: model-shaped turn. A skill name is a wire name (``SKILL.md`` frontmatter).
-MODEL_SKILL = "ifc-spatial-reasoning"
 
 #: Below this p(needs_evidence) nothing is prefetched. Deliberately low: a
 #: false "no" costs the model its first round, a false "yes" costs one unread
@@ -83,13 +80,17 @@ CARD_THRESHOLD = 0.6
 MAX_CARD_SHAPES = 2
 #: The chosen corpus must reach this before its prefetch runs.
 CORPUS_THRESHOLD = 0.5
-MODEL_THRESHOLD = 0.6
-#: A skill's shapes are attached when the choice lands on it at this
-#: probability AND its own "fits" noul reaches ``SKILL_FIT_THRESHOLD``. The
-#: cookbook rejects a shortlist whose best fit is under 0.30; a shape attached
-#: is cheaper than a body loaded, so the bar is not higher here.
-SKILL_THRESHOLD = 0.4
-SKILL_FIT_THRESHOLD = 0.3
+#: A skill's body and shapes ride the turn when the choice lands on it at
+#: this probability AND its own "fits" noul is not near zero. Measured on the
+#: loop-eval set (``decision_eval_2026-09-22.csv``): the choice was right or
+#: abstained on every row, while the fit noul ran 0.11-0.88 on rows where
+#: the method plainly applied (Schallschutz → waermeschutz at 0.13, a
+#: Holzfassade → brandschutz at 0.26). The cookbook's 0.30 on the fit was
+#: set for loads that cost more than this one — a body is ~400 tokens and an
+#: offer — so here the choice carries the decision and the fit only vetoes
+#: a name-match (``ordner-brandschutz-listing`` → brandschutz at 0.59/0.13).
+SKILL_THRESHOLD = 0.6
+SKILL_FIT_THRESHOLD = 0.1
 #: Below this p(self_contained) the message itself is not searched.
 SELF_CONTAINED_THRESHOLD = 0.5
 #: How many card shapes the turn may attach in all (skill's plus the nouls').
@@ -152,7 +153,6 @@ class TurnDecisions:
     corpus_p: float = 0.0
     families: tuple[tuple[str, float], ...] = ()
     cards: tuple[tuple[str, float], ...] = ()
-    model: float | None = None
     skill: str | None = None
     skill_p: float = 0.0
     skill_fit: float | None = None
@@ -168,12 +168,8 @@ class TurnDecisions:
         return self.decided and (self.needs_evidence or 0.0) >= NEEDS_EVIDENCE_THRESHOLD
 
     @property
-    def wants_model_skill(self) -> bool:
-        return self.decided and (self.model or 0.0) >= MODEL_THRESHOLD
-
-    @property
     def chosen_skill(self) -> str | None:
-        """The skill whose card shapes ride this turn, or None (the cookbook's abstention)."""
+        """The skill whose body and card shapes ride this turn, or None (the cookbook's abstention)."""
         if not self.decided or not self.skill or self.skill == "none":
             return None
         if self.skill_p < SKILL_THRESHOLD or (self.skill_fit or 0.0) < SKILL_FIT_THRESHOLD:
@@ -205,8 +201,7 @@ class TurnFacts:
     project_files: int = 0
     archive_files: int = 0
     card_types: Sequence[tuple[str, str]] = ()
-    offers_model_skill: bool = False
-    #: ``(name, description)`` of the skills riding the prompt this turn.
+    #: ``(name, description)`` of every skill the turn resolved — the choice's options.
     skills: Sequence[tuple[str, str]] = ()
     #: The user's previous message, bounded — what a follow-up refers to.
     previous_message: str | None = None
@@ -278,12 +273,6 @@ def questions_for(facts: TurnFacts) -> dict[str, dict[str, Any]]:
                 true=f"The message is exactly the case this method is written for: {description}",
                 false="The message is about something else, or only shares a word with the method's name.",
             )
-    if facts.offers_model_skill:
-        questions["model"] = noul(
-            "Is this message about the building model (IFC/BIM) rather than about a regulation or a document?",
-            true=CORPUS_OPTIONS["modell"],
-            false="The message is about a regulation, a document, the office, or nothing that is measured in a model.",
-        )
     return questions
 
 
@@ -310,7 +299,6 @@ async def decide_turn(facts: TurnFacts, *, organization_id: str | None = None) -
         corpus_p=distribution.get(corpus or "", 0.0),
         families=families,
         cards=cards,
-        model=decision.noul("model"),
         skill=skill,
         skill_p=skill_distribution.get(skill or "", 0.0),
         skill_fit=decision.noul(f"fits_{skill}") if skill and skill != "none" else None,
