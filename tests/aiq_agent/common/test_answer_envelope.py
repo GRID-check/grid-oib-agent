@@ -532,6 +532,21 @@ class TestSummaryGate:
         assert payload is not None
         assert "summary" not in payload and payload["verdict"]["value"] == "REI 60"
 
+    def test_the_length_drop_is_counted_under_its_field_and_reason(self, monkeypatch):
+        """The reader keeps the prose; the operator gets the rate. A dropped
+        summary is a standfirst nobody sees, and only a count says whether the
+        limit or the prompt wording is wrong."""
+        pushed: list[tuple[str, dict]] = []
+        monkeypatch.setattr(
+            "aiq_agent.common.turn_status.push_custom_step",
+            lambda name, payload: pushed.append((name, payload)),
+        )
+        meta = AnswerMeta.model_validate({"summary": "x" * (SUMMARY_MAX_CHARS + 1), "verdict": _VERDICT})
+        gate_answer_meta(meta, prose_chars=100)
+        assert [(name, payload["values"]) for name, payload in pushed] == [
+            ("status:anatomy:dropped", {"field": "summary", "reason": "too_long"})
+        ]
+
     def test_blank_is_absent_not_empty(self):
         meta = AnswerMeta.model_validate({"summary": "   ", "verdict": _VERDICT})
         payload = gate_answer_meta(meta, prose_chars=100)

@@ -12,6 +12,7 @@ from unittest.mock import patch
 
 import pytest
 
+from aiq_agent.common.canned_replies import GENERIC_ERROR_MESSAGE
 from aiq_agent.stages import get_stage
 from aiq_agent.stages.flags import legacy_enabled_stages
 from aiq_agent.stages.flags import stages_for_flag_slug
@@ -110,7 +111,7 @@ class TestGate:
         assert decision.reason == "escalation"
 
     def test_canned_error_answer_skipped(self):
-        decision = _gate(answer="An error occurred while researching your question. Please try again.")
+        decision = _gate(answer=GENERIC_ERROR_MESSAGE)
         assert decision.reason == "canned_non_answer"
 
     def test_empty_answer_skipped(self):

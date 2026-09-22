@@ -5,6 +5,7 @@ from langchain_core.messages import HumanMessage
 
 from aiq_agent.agents.piloti.models import ConversationState
 from aiq_agent.common import _create_chat_response
+from aiq_agent.common.canned_replies import NO_RESPONSE_TEXT
 from aiq_agent.stages import TurnFacts
 from aiq_agent.turn.response import RESPONSE_LIFTS
 from aiq_agent.turn.response import answer_text
@@ -125,7 +126,7 @@ class TestBuildResponse:
 
     def test_no_messages_is_said_so(self):
         response = build_response(_state(messages=[]), cards=None, workflow_id="wf")
-        assert response.choices[0].message.content == "No response generated."
+        assert response.choices[0].message.content == NO_RESPONSE_TEXT
         assert getattr(response, "cards", None) is None
 
     def test_non_string_content_is_stringified(self):

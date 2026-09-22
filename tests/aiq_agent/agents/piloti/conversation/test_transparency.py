@@ -31,6 +31,7 @@ from aiq_agent.agents.piloti.markers import surface_answer_confidence
 from aiq_agent.agents.piloti.models import ClarifyResult
 from aiq_agent.agents.piloti.models import ConversationState
 from aiq_agent.agents.piloti.models import ResearchAgentState
+from aiq_agent.common.canned_replies import GENERIC_ERROR_MESSAGE
 from aiq_agent.common.job_admission import JobAdmissionError
 from aiq_agent.turn.commission import CommissionedRun
 from aiq_agent.turn.commission import CommissionRefused
@@ -539,7 +540,7 @@ class TestEscalationReasonEndToEnd:
 
         assert result.escalation_reason is None
         contents = [m.content for m in result.messages if isinstance(m, AIMessage)]
-        assert any("An error occurred" in c for c in contents)
+        assert GENERIC_ERROR_MESSAGE in contents
 
 
 class TestCitationsRemovedEndToEnd:

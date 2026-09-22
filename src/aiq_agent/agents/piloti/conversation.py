@@ -35,6 +35,8 @@ from langgraph.types import Command
 
 from aiq_agent.agents.deep_researcher.models import DeepResearchAgentState
 from aiq_agent.common import get_latest_user_query
+from aiq_agent.common.canned_replies import GENERIC_ERROR_MESSAGE
+from aiq_agent.common.canned_replies import NO_SOURCES_MESSAGE
 from aiq_agent.common.citation_verification import EmptySourceRegistryError
 from aiq_agent.common.job_admission import JobAdmissionError
 from aiq_agent.common.platform_lessons import render_lessons_block
@@ -74,12 +76,6 @@ after all. The second half is literally true: the cancellation sets
 routes straight to Piloti instead of producing plan number two.
 """
 
-GENERIC_ERROR_MESSAGE = "An error occurred while researching your question. Please try again."
-NO_SOURCES_MESSAGE = (
-    "I searched the available sources but couldn't retrieve anything usable "
-    "to ground an answer to this question. This may be a temporary issue — "
-    "please try again, or rephrase the question."
-)
 # Reader-facing text, and therefore left verbatim by the rename: it is what
 # `escalation_reason` carries onto the wire when the model asked to escalate
 # without saying why, so it is already stored in turns from before this commit.

@@ -17,6 +17,7 @@ import logging
 from typing import TYPE_CHECKING
 
 from aiq_agent.common import _create_chat_response
+from aiq_agent.common.canned_replies import NO_RESPONSE_TEXT
 from aiq_agent.stages import TurnFacts
 from nat.data_models.api_server import ChatResponse
 
@@ -25,7 +26,6 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-NO_RESPONSE_TEXT = "No response generated."
 
 #: ``(state field, response attribute, state field it may only accompany)``.
 #: The frontend renders every extra on PRESENCE, so a field is lifted only

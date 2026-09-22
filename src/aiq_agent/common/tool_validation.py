@@ -4,15 +4,9 @@ import logging
 import os
 from typing import Any
 
-logger = logging.getLogger(__name__)
+from aiq_agent.common.canned_replies import TOOLS_UNAVAILABLE_MESSAGE
 
-# Returned to end users in web/production/e2e deployments.  Detailed
-# diagnostics (specific tool names and missing API keys) are only shown when
-# AIQ_DEV_ENV is "cli" — set automatically by scripts/start_cli.sh.
-# See deploy/.env for guidance.
-_GENERIC_TOOL_ERROR = (
-    "Some search capabilities are currently unavailable. Please contact your administrator or try again later."
-)
+logger = logging.getLogger(__name__)
 
 
 def _extract_unavailable_reason(description: str) -> str:
@@ -145,4 +139,6 @@ def format_user_facing_tool_error(
     if dev_env == "cli":
         return detailed
 
-    return _GENERIC_TOOL_ERROR
+    # Detailed diagnostics (tool names, missing keys) are only shown when
+    # AIQ_DEV_ENV is "cli" — set automatically by scripts/start_cli.sh.
+    return TOOLS_UNAVAILABLE_MESSAGE

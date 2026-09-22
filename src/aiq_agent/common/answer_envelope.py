@@ -78,6 +78,7 @@ from pydantic import field_validator
 from aiq_agent.common.provenance import normalize_document_name
 from aiq_agent.common.turn_status import VERDICT_DROP_AGENT_AUTHORED
 from aiq_agent.common.turn_status import VERDICT_DROP_UNREFERENCED_WITH_AGENT_SOURCE
+from aiq_agent.common.turn_status import emit_anatomy_dropped
 from aiq_agent.common.turn_status import emit_verdict_dropped
 
 logger = logging.getLogger(__name__)
@@ -377,6 +378,7 @@ def _gate_summary(meta: AnswerMeta, ctx: GateContext) -> str | None:
             len(summary),
             SUMMARY_MAX_CHARS,
         )
+        emit_anatomy_dropped(field="summary", reason="too_long")
         return None
     return summary
 
@@ -393,6 +395,7 @@ def _gate_topic(meta: AnswerMeta, ctx: GateContext) -> str | None:
             len(topic),
             TOPIC_MAX_CHARS,
         )
+        emit_anatomy_dropped(field="topic", reason="too_long")
         return None
     return topic
 
@@ -409,6 +412,7 @@ def _gate_context(meta: AnswerMeta, ctx: GateContext) -> str | None:
             len(context),
             CONTEXT_MAX_CHARS,
         )
+        emit_anatomy_dropped(field="context", reason="too_long")
         return None
     return context
 
@@ -535,9 +539,11 @@ def _gate_takeaways(meta: AnswerMeta, ctx: GateContext) -> list | None:
             ctx.prose_chars,
             TAKEAWAYS_MIN_PROSE_CHARS,
         )
+        emit_anatomy_dropped(field="takeaways", reason="prose_too_short")
         return None
     if len(takeaways) < 2:
         logger.info("answer_meta takeaways gated out: a single takeaway is a sentence, not a block")
+        emit_anatomy_dropped(field="takeaways", reason="single_item")
         return None
     return [_takeaway_payload(t) for t in takeaways]
 

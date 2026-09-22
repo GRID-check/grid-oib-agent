@@ -1686,6 +1686,33 @@ def emit_card_invalid(*, card_type: str, index: int, outcome: str) -> None:
     )
 
 
+#: Slot for any other anatomy field the envelope gate refused (summary,
+#: topic, context, takeaways). Same channel and reasoning as the verdict
+#: slot: the reader keeps the prose, the operator needs the rate. A summary
+#: dropped for length is a standfirst the reader never sees, and how often
+#: the model overshoots the limit is what decides whether the limit or the
+#: prompt wording is wrong.
+ANATOMY_DROPPED_SLOT = "anatomy:dropped"
+
+
+def emit_anatomy_dropped(*, field: str, reason: str) -> None:
+    """Record that an anatomy field other than the verdict was refused.
+
+    Args:
+        field: The envelope field, e.g. ``summary``.
+        reason: A stable token, e.g. ``too_long``; counted, not read.
+    """
+    push_custom_step(
+        f"{STATUS_STEP_PREFIX}{ANATOMY_DROPPED_SLOT}",
+        {
+            "kind": "status",
+            "channel": CHANNEL_TECHNICAL,
+            "slot": ANATOMY_DROPPED_SLOT,
+            "values": {"field": field, "reason": reason},
+        },
+    )
+
+
 def emit_verdict_dropped(*, reason: str) -> None:
     """Record that an answer's headline verdict was refused, and why.
 

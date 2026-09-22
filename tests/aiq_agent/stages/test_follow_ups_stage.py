@@ -15,6 +15,7 @@ import json
 import pytest
 from pydantic import ValidationError
 
+from aiq_agent.common.canned_replies import GENERIC_ERROR_MESSAGE
 from aiq_agent.common.model_overrides import AgentGroup
 from aiq_agent.stages import get_stage
 from aiq_agent.stages.follow_ups import FOLLOW_UPS
@@ -152,7 +153,7 @@ class TestGate:
             ({"routing_decision": "error"}, "routing_error"),
             ({"research_truncated": True}, "research_truncated"),
             ({"query": ""}, "empty_turn"),
-            ({"answer": "An error occurred while researching your question. " * 12}, "canned_non_answer"),
+            ({"answer": GENERIC_ERROR_MESSAGE * 12}, "canned_non_answer"),
             ({"answer": "Ja, 100 cm."}, "answer_too_short"),
             ({"answer": ANSWER + "\n\nIn welchem Bundesland liegt das Projekt?"}, "answer_ends_in_question"),
         ],

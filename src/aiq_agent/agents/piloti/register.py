@@ -34,6 +34,7 @@ from aiq_agent.common import get_zdr_only_from_context
 from aiq_agent.common import is_verbose
 from aiq_agent.common import unavailable_source_ids
 from aiq_agent.common import validate_tool_availability
+from aiq_agent.common.canned_replies import SCOPED_NO_SOURCES_MESSAGE
 from aiq_agent.common.citation_verification import EmptySourceRegistryError
 from aiq_agent.common.data_source_registry import get_all_sources
 from aiq_agent.common.deferred_tool_loading import DeferredToolLoadingSettings
@@ -517,11 +518,7 @@ async def _run_turn(deployment: _Deployment, state: ResearchAgentState) -> Resea
         # an unhandled NAT error. Raising here became err2issue #447 and left
         # the user with no reply.
         logger.warning("Research captured no sources; returning an empty-result answer.")
-        return _reply(
-            state,
-            "I searched the available sources but couldn't retrieve anything usable. "
-            "Try a broader question, or ask without limiting to one file.",
-        )
+        return _reply(state, SCOPED_NO_SOURCES_MESSAGE)
     if runtime is not None:
         _report_skills(result, runtime)
     return result
