@@ -780,3 +780,44 @@ class TestDeferredStructuredOutputMiddleware:
         wire = middleware.strategy.to_model_kwargs()["response_format"]
         assert wire["type"] == "json_schema"
         assert wire["json_schema"]["strict"] is True
+
+
+class TestExcludedDocumentsNeverBecomeSources:
+    """The reader's Ausgeschlossen are refused at the registry, not at the writer."""
+
+    def _make_request(self, tool_name: str):
+        req = MagicMock()
+        req.tool_call = {"name": tool_name}
+        return req
+
+    @pytest.fixture(autouse=True)
+    def _clean_registry(self):
+        reset_registry()
+        yield
+        reset_registry()
+
+    @pytest.mark.asyncio
+    async def test_a_passage_from_an_excluded_document_is_refused(self):
+        mw = SourceRegistryMiddleware(source_tool_names={"knowledge_search"}, excluded_file_names=["Alt.PDF"])
+        content = (
+            "--- Result 1 ---\nSource: alt.pdf\nPage: 5\nCitation: alt.pdf, p.5\nContent Type: pdf\n\nText.\n"
+            "--- Result 2 ---\nSource: neu.pdf\nPage: 2\nCitation: neu.pdf, p.2\nContent Type: pdf\n\nText."
+        )
+        handler = AsyncMock(return_value=ToolMessage(content=content, tool_call_id="tc1"))
+
+        await mw.awrap_tool_call(self._make_request("knowledge_search"), handler)
+
+        assert [s.citation_key for s in mw.registry.all_sources()] == ["neu.pdf, p.2"]
+        assert mw.read_file_names() == {"neu.pdf"}
+
+    def test_a_research_note_cannot_whitelist_an_excluded_document(self):
+        mw = SourceRegistryMiddleware(source_tool_names={"knowledge_search"}, excluded_file_names=["alt.pdf"])
+        mw.registry.add(SourceEntry(citation_key="neu.pdf, p.2", title="neu.pdf"))
+        mw.register_research_note_sources(
+            [
+                SimpleNamespace(
+                    sources=[SimpleNamespace(locator="alt.pdf, p.5"), SimpleNamespace(locator="neu.pdf, p.2")]
+                )
+            ]
+        )
+        assert [e.citation_key for e in mw.get_source_entries()] == ["neu.pdf, p.2"]

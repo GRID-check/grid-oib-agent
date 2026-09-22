@@ -53,7 +53,7 @@ class _Finding(BaseModel):
     model_config = ConfigDict(extra="forbid")
     requirement: str
     value: str | None
-    status: Literal["erfuellt", "nicht_erfuellt", "offen", "nicht_anwendbar"]
+    status: Literal["erfuellt", "nicht_erfuellt", "offen", "nicht_anwendbar"] | None
     grounding: Literal["belegt", "abgeleitet", "offen"]
     reference: _Reference | None
     citations: list[int]
@@ -132,7 +132,9 @@ SYSTEM_PROMPT = (
     "- `findings`: one row per requirement the report read against the project. `requirement` is a noun "
     "phrase; `value` the copyable value or null; `status` one of erfuellt / nicht_erfuellt / offen / "
     'nicht_anwendbar, where "offen" means the report could not decide (missing project fact, pending '
-    "Behörde); `grounding` is belegt when a cited passage states it, abgeleitet when it is computed or "
+    "Behörde) — or null when the report STATES the row without judging it (a Vergleich's criterion, an "
+    "Aktenvermerk's point), so a table of results never wears a verdict it did not give; `grounding` is "
+    "belegt when a cited passage states it, abgeleitet when it is computed or "
     "inferred from cited values, offen when no source carries it; `reference` the document and Punkt or "
     "page the report names; `citations` the [N] numbers the report attaches to it; `comment` what "
     "qualifies the status in one sentence or null; `area` the section it belongs to or null. "

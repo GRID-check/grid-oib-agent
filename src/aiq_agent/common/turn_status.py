@@ -1566,6 +1566,10 @@ DEGRADED_UNVERIFIED_QUOTES = "unverified_quotes"
 #: fail silently. Without this token a run whose card model timed out looked
 #: exactly like a run whose report warranted no proposals.
 DEGRADED_CARDS_GENERATION_FAILED = "cards_generation_failed"
+#: A document the reader named as Grundlage was never reached: the run has no
+#: passage from it. The report names the document; the token is what the chip
+#: and the dashboard read.
+DEGRADED_GRUNDLAGE_UNREAD = "grundlage_unread"
 
 
 def emit_deep_research_cutoff(

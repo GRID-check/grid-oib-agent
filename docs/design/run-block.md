@@ -133,6 +133,12 @@ minute three. The fold copies each `ResearchNotes.findings[].claim` off the
 researcher's own output (`run_ledger_fold._add_findings`); the ledger's
 `findings` field is the contract on both sides, pinned by the schema fixture.
 
+When the reader named documents on the plan card, the block carries a receipt
+under the phases: each Grundlage row, read — with the pages or Punkte the
+rounds reached, derived from the steps (`grundlageReceipt`) — or not yet read.
+The ledger's `grundlage` field is the list; the loci are never stored twice.
+A row opens the document as a dialog over the thread, never a pane beside it.
+
 ## The actions
 
 One action fits each state — „Antworten", „Prüfen", „Bericht öffnen", „Erneut
@@ -151,10 +157,18 @@ things sit beside it rather than instead of it:
   per-run signal the research tool reads before every batch
   (`deep_researcher/control.py`), and the report lands marked
   `unterbrochen` with a banner that says it was the reader's choice.
+- **„Dokument hinzufügen"**, while the run is *researching*, when a caller
+  offers it: a dialog over the thread lists the project's and the Archiv's
+  documents, and one press names one as Grundlage. The addition travels as a
+  job event (`POST /v1/jobs/async/job/{id}/documents`), the research tool
+  plans it into its next batch, and the receipt shows the row at once, unread
+  until a round reaches it. A row already named offers no second add.
 - **„Bericht fortschreiben"**, on a finished or interrupted run, when a caller
   offers it: a new run on the same subject, briefed with this report's
   findings, so a changed project fact re-reads the Befunde instead of starting
-  over. The new block lands in the same thread; its matrix marks what changed.
+  over, and with the report's cited project and Archiv documents as its
+  Grundlage. The new block lands in the same thread; its matrix marks what
+  changed.
 - **The connection line**, when the live view loses its stream. It leads with the
   run („Der Auftrag läuft weiter"), because that is the fact the reader fears.
   Silence there would read as a run that stopped.

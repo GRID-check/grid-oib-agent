@@ -168,11 +168,14 @@ export const chat = {
   findings: {
     label: 'Findings',
     page: 'p. {page}',
+    /** The same table when the report states rows without judging them. */
+    labelResults: 'Results',
     columns: {
       requirement: 'Requirement',
       value: 'Value',
       reference: 'Reference',
       status: 'Status',
+      note: 'Note',
     },
     status: {
       erfuellt: 'met',
@@ -804,6 +807,18 @@ export const chat = {
       },
       depth: 'Depth',
       depths: { kurzpruefung: 'Short review', gutachten: 'Full opinion' },
+      /** The documents the reader names for the run, and the sources it may use. */
+      unterlagen: {
+        label: 'Documents',
+        grundlage: 'Read in full:',
+        ausgeschlossen: 'Excluded:',
+        none: 'No documents named — the research reads what it finds.',
+        choose: 'Choose documents',
+        removeRead: 'No longer read in full: {name}',
+        removeExcluded: 'No longer excluded: {name}',
+      },
+      rahmen: 'Sources',
+      rahmenNote: 'The sources selected in the composer. Change them there before approving.',
     },
     needsInput: 'Piloti needs your input',
     receivedInput: 'Piloti received your input',

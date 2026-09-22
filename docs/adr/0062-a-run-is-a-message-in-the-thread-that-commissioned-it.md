@@ -185,6 +185,11 @@ the run goes (`features/runs/hooks/use-run-ledger`). There is no right-hand
 panel left: what needs more room than a message opens as a dialog over the
 thread.
 
+The ledger also carries what the reader asked the run to read (`grundlage`,
+2026-09): the documents named on the plan card and any added while the run
+goes, so the block prints a receipt against the steps — read with its loci, or
+not. The receipt is derived, never stored twice; the loci are the steps'.
+
 ## More Information
 
 - The contract: `frontends/ui/src/lib/runs/run-ledger-types.ts`; the mirror:

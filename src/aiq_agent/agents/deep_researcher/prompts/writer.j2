@@ -145,6 +145,17 @@ When the request references "me", "myself", or "my work", it means this person.
 
 The reader approved this plan. The report's sections follow the plan's sections in this order, each one answered; a point the research could not settle is written as open, never dropped. Its genre decides the writer skill and the shape; its depth decides the length: `kurzpruefung` is the smallest complete form, `gutachten` the full derivation.
 {% endif %}
+{% if grundlage is defined and grundlage %}
+## Grundlage (binding)
+The reader named these documents as the Grundlage. Where the report's findings rest on them, cite them; a Grundlage document the research notes never reached is stated as not read in the report's own words, never silently left out.
+{% for doc in grundlage %}- {% if doc.title and doc.title != doc.name %}{{ doc.title }} — {% endif %}{{ doc.name }}{% if doc.shelf %} [{{ doc.shelf }}]{% endif %}
+{% endfor %}{% endif %}
+{% if ausgeschlossen is defined and ausgeschlossen %}
+## Ausgeschlossen (binding)
+The reader excluded these documents. They are never cited; a claim that would need one of them is written as open.
+{% for doc in ausgeschlossen %}- {{ doc.name }}
+{% endfor %}{% endif %}
+
 
 {% if project_context %}
 ## Project Context

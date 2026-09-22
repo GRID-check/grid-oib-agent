@@ -64,7 +64,8 @@ import type { ChatMessage } from '@/features/chat/types'
 import { useChatStore } from '@/features/chat/store'
 import { sanitizeRunLedger } from '@/lib/runs/run-ledger'
 import { isTerminalRunStatus, type RunLedger } from '@/lib/runs/run-ledger-types'
-import { cancelRun, fetchRunView, writeNowRun } from '@/lib/runs/run-view-client'
+import { addRunDocument, cancelRun, fetchRunView, writeNowRun } from '@/lib/runs/run-view-client'
+import type { PlanDocument } from '@/lib/runs/plan-documents'
 import { runDisplayStatus } from '@/lib/runs/run-vocabulary'
 
 export interface UseRunLedgerInput {
@@ -109,6 +110,12 @@ export interface UseRunLedgerResult {
    * phase where it means anything.
    */
   writeNow: (() => Promise<void>) | null
+  /**
+   * „Unterlage hinzufügen": name one more document as Grundlage while the run
+   * goes. `null` on the same terms as `cancel`. The ledger lists it through
+   * the run's own stream; the view the request answers is taken as a snapshot.
+   */
+  addDocument: ((doc: PlanDocument) => Promise<void>) | null
 }
 
 /**
@@ -244,6 +251,19 @@ export function useRunLedger({
     }
   }, [runId, projectId])
 
+  const addDocument = useCallback(
+    async (doc: PlanDocument): Promise<void> => {
+      if (!runId || !projectId) return
+      try {
+        const view = await addRunDocument(projectId, runId, doc)
+        if (view.ledger) setLedger((current) => notOlder(current, view.ledger as RunLedger))
+      } catch {
+        // Fail-open, like the cancel: the run goes on and the person can try again.
+      }
+    },
+    [runId, projectId]
+  )
+
   return {
     ledger,
     live: live && !terminal,
@@ -251,5 +271,6 @@ export function useRunLedger({
     connection: terminal ? null : connection,
     cancel: terminal || !runId || !projectId ? null : cancel,
     writeNow: terminal || !runId || !projectId ? null : writeNow,
+    addDocument: terminal || !runId || !projectId ? null : addDocument,
   }
 }

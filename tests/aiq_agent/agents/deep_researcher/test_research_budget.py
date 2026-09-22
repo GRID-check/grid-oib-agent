@@ -488,3 +488,34 @@ class TestBudgetThroughBatchToolPath:
         assert executions == 1
         assert exc_info.value.ceiling == 1000
         assert exc_info.value.used == 1500
+
+
+class TestAddedDocumentsReachTheOrchestrator:
+    @pytest.mark.asyncio
+    async def test_a_live_addition_is_announced_on_the_next_batch_result(self):
+        from aiq_agent.agents.deep_researcher.control import bind_added_documents
+        from aiq_agent.agents.deep_researcher.control import reset_added_documents
+        from aiq_agent.agents.deep_researcher.tools.research import ADDED_DOCUMENTS_NOTICE
+        from aiq_agent.common.plan_documents import PlanDocument
+
+        runnable = _fake_runnable(_structured_response())
+        batch_tool = build_research_batch_tool(
+            researcher_runnable=runnable,
+            callbacks=[],
+            max_research_concurrency=2,
+            researcher_tool_names={"web_search_tool"},
+        )
+        queue: list[PlanDocument] = [PlanDocument(name="nachtrag.pdf", title="Nachtrag")]
+        token = bind_added_documents(queue)
+        try:
+            result = await batch_tool.ainvoke({"queries": [_make_query("first")]})
+            assert result.startswith(ADDED_DOCUMENTS_NOTICE.split("{lines}")[0].rstrip("\n"))
+            assert "- Nachtrag — nachtrag.pdf" in result
+            # The notes still follow, as JSON, after the notice.
+            payload = json.loads(result.split("\n\n", 1)[1])
+            assert payload[0]["query_topic"] == "test"
+            # Drained: the next batch says nothing about it.
+            again = await batch_tool.ainvoke({"queries": [_make_query("second")]})
+            assert not again.startswith(ADDED_DOCUMENTS_NOTICE[:20])
+        finally:
+            reset_added_documents(token)

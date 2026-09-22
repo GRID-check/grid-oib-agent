@@ -7,7 +7,11 @@
 import { act, renderHook, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-vi.mock('@/lib/runs/run-view-client', () => ({ fetchRunView: vi.fn(), cancelRun: vi.fn() }))
+vi.mock('@/lib/runs/run-view-client', () => ({
+  fetchRunView: vi.fn(),
+  cancelRun: vi.fn(),
+  addRunDocument: vi.fn(),
+}))
 vi.mock('@/adapters/api/deep-research-client', () => ({ createDeepResearchClient: vi.fn() }))
 
 import {
@@ -16,7 +20,7 @@ import {
   type DeepResearchStreamOptions,
 } from '@/adapters/api/deep-research-client'
 import type { RunLedger, RunView } from '@/lib/runs/run-ledger-types'
-import { cancelRun, fetchRunView } from '@/lib/runs/run-view-client'
+import { addRunDocument, cancelRun, fetchRunView } from '@/lib/runs/run-view-client'
 import { useRunLedger } from './use-run-ledger'
 import { useChatStore } from '@/features/chat/store'
 
@@ -315,5 +319,34 @@ describe('useRunLedger', () => {
     expect(patch).toHaveBeenCalledWith('conv-1', 'msg-1', {
       runLedger: expect.objectContaining({ status: 'fertig' }),
     })
+  })
+})
+
+describe('useRunLedger — adding a document while the run goes', () => {
+  it('hands the document to the run through the read door and takes the ledger it answers', async () => {
+    const withDoc = ledger({
+      updatedAt: '2026-09-16T08:02:00.000Z',
+      grundlage: [{ name: 'Nachtrag.pdf', loci: [] }],
+    })
+    vi.mocked(addRunDocument).mockResolvedValue(view({ ledger: withDoc }))
+
+    const { result } = renderHook(() =>
+      useRunLedger({ message: { id: 'msg-1', runLedger: ledger() }, projectId: 'p1' })
+    )
+    await waitFor(() => expect(result.current.addDocument).not.toBeNull())
+
+    await act(async () => {
+      await result.current.addDocument?.({ name: 'Nachtrag.pdf', shelf: 'project' })
+    })
+
+    expect(addRunDocument).toHaveBeenCalledWith('p1', RUN, { name: 'Nachtrag.pdf', shelf: 'project' })
+    expect(result.current.ledger?.grundlage?.map((doc) => doc.name)).toEqual(['Nachtrag.pdf'])
+  })
+
+  it('offers no addition once the run is over', () => {
+    const { result } = renderHook(() =>
+      useRunLedger({ message: { id: 'msg-1', runLedger: ledger({ status: 'fertig' }) }, projectId: 'p1' })
+    )
+    expect(result.current.addDocument).toBeNull()
   })
 })

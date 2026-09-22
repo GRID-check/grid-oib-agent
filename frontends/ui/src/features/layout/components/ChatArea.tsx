@@ -293,7 +293,7 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
     async (message: ChatMessage): Promise<void> => {
       if (!commissionRun) return
       const brief = continuationBrief(message)
-      await commissionRun.commission(brief.question, brief.context)
+      await commissionRun.commission(brief.question, brief.context, brief.documents)
     },
     [commissionRun]
   )

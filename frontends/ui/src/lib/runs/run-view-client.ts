@@ -19,6 +19,7 @@ import { z } from 'zod'
  */
 
 import { runViewSchema, type RunView } from './run-ledger-types'
+import type { PlanDocument, PlanDocuments } from './plan-documents'
 
 /** How a request is made — injected so a spec can hand in a fake. */
 export type RunViewFetch = (input: string, init?: RequestInit) => Promise<Response>
@@ -76,7 +77,7 @@ export type CommissionedRun = z.infer<typeof commissionedRunSchema>
  */
 export async function commissionRun(
   projectId: string,
-  input: { conversationId: string; question: string; context?: string },
+  input: { conversationId: string; question: string; context?: string; documents?: PlanDocuments },
   run: RunViewFetch = (i, init) => fetch(i, init)
 ): Promise<CommissionedRun> {
   const response = await run(runsPath(projectId), {
@@ -87,6 +88,29 @@ export async function commissionRun(
   })
   if (!response.ok) throw new RunViewError(response.status, 'The run could not be commissioned')
   return commissionedRunSchema.parse(await response.json())
+}
+
+export function runDocumentsPath(projectId: string, runId: string): string {
+  return `${runViewPath(projectId, runId)}/documents`
+}
+
+/** Add a document to a running run's Grundlage. Same errors as the cancel. */
+export async function addRunDocument(
+  projectId: string,
+  runId: string,
+  document: PlanDocument,
+  run: RunViewFetch = (input, init) => fetch(input, init)
+): Promise<RunView> {
+  const response = await run(runDocumentsPath(projectId, runId), {
+    method: 'POST',
+    headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+    credentials: 'same-origin',
+    body: JSON.stringify(document),
+  })
+  if (!response.ok) {
+    throw new RunViewError(response.status, `Run view request failed with ${response.status}`)
+  }
+  return runViewSchema.parse(await response.json())
 }
 
 export function runWriteNowPath(projectId: string, runId: string): string {

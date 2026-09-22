@@ -890,8 +890,72 @@ class TestThePlanCard:
             "sections": ["GK", "Fluchtwege"],
             "genre": "pruefbericht",
             "depth": "kurzpruefung",
+            "grundlage": [],
+            "ausgeschlossen": [],
         }
         assert text.rstrip().endswith("or provide feedback to revise the plan.")
+
+    def test_the_preview_lists_what_the_run_can_read(self):
+        plan = PlanResponse(title="T", sections=["A"], grundlage=["Einreichplan.pdf"])
+        inventory = [
+            {"file_name": "Einreichplan.pdf", "display_title": "Einreichplan EG", "shelf": "project", "summary": "x"},
+            {"file_name": "Notiz.md", "shelf": "session"},
+            {"summary": "a row without a name is not a document"},
+        ]
+        text = format_plan_for_user(plan, inventory)
+        payload = json.loads(text.split("```plan_json\n", 1)[1].split("\n```", 1)[0])
+        assert payload["grundlage"] == ["Einreichplan.pdf"]
+        assert payload["unterlagen"] == [
+            {"name": "Einreichplan.pdf", "title": "Einreichplan EG", "shelf": "project"},
+            {"name": "Notiz.md", "shelf": "session"},
+        ]
+
+    def test_the_unterlagen_edits_land_and_resolve_against_the_inventory(self):
+        from aiq_agent.agents.piloti.clarify import apply_plan_edits
+        from aiq_agent.agents.piloti.clarify import plan_data_sources
+        from aiq_agent.agents.piloti.clarify import plan_documents
+
+        plan = PlanResponse(title="T", sections=["A"])
+        reply = (
+            '{"grundlage": ["Einreichplan EG", "erfunden.pdf"], "ausgeschlossen": ["alt.pdf"], '
+            '"data_sources": ["knowledge_base", " web_search "]}'
+        )
+        edited = apply_plan_edits(plan, reply)
+        assert edited.grundlage == ["Einreichplan EG", "erfunden.pdf"]
+        assert edited.ausgeschlossen == ["alt.pdf"]
+        inventory = [
+            {"file_name": "Einreichplan.pdf", "display_title": "Einreichplan EG", "shelf": "project"},
+            {"file_name": "alt.pdf", "shelf": "archiv"},
+        ]
+        docs = plan_documents(edited, inventory)
+        assert docs is not None
+        # A title resolves to its file; an invented name falls out.
+        assert [d.name for d in docs.grundlage] == ["Einreichplan.pdf"]
+        assert docs.grundlage[0].title == "Einreichplan EG" and docs.grundlage[0].shelf == "project"
+        assert [d.name for d in docs.ausgeschlossen] == ["alt.pdf"]
+        assert plan_data_sources(reply) == ["knowledge_base", "web_search"]
+        assert plan_data_sources('{"sections": ["A"]}') is None
+
+    def test_an_excluded_name_beats_the_same_name_in_the_grundlage(self):
+        from aiq_agent.agents.piloti.clarify import plan_documents
+
+        plan = PlanResponse(title="T", sections=["A"], grundlage=["a.pdf"], ausgeschlossen=["a.pdf"])
+        docs = plan_documents(plan, [{"file_name": "a.pdf"}])
+        assert docs is not None and docs.grundlage == [] and [d.name for d in docs.ausgeschlossen] == ["a.pdf"]
+
+    def test_the_approved_context_names_the_unterlagen(self):
+        from aiq_agent.agents.piloti.clarify import approved_plan_context
+        from aiq_agent.common.plan_documents import PlanDocument
+        from aiq_agent.common.plan_documents import PlanDocuments
+
+        docs = PlanDocuments(
+            grundlage=[PlanDocument(name="Einreichplan.pdf", title="Einreichplan EG", shelf="project")],
+            ausgeschlossen=[PlanDocument(name="alt.pdf")],
+        )
+        text = approved_plan_context(PlanResponse(title="T", sections=["A"]), docs)
+        assert "Grundlage (documents to read in full" in text
+        assert "- Einreichplan EG — Einreichplan.pdf [project]" in text
+        assert "Ausgeschlossen (documents that may not be used" in text and "- alt.pdf" in text
 
     def test_an_edited_approval_is_approved_with_its_edits(self):
         decision, edits = parse_plan_reply('approve {"sections": ["Nur Wien"], "depth": "gutachten"}')

@@ -35,7 +35,12 @@ export interface FindingReference {
 export interface Finding {
   requirement: string
   value?: string
-  status: FindingStatus
+  /**
+   * The verdict, when the report judged the requirement. Absent for a row a
+   * Vergleich or an Aktenvermerk states without judging it — the matrix is
+   * then a list of Ergebnisse, not of Befunde.
+   */
+  status?: FindingStatus
   grounding: FindingGrounding
   reference?: FindingReference
   citations: number[]
@@ -79,13 +84,17 @@ const sanitizeFinding = (value: unknown): Finding | null => {
   const requirement = text(value.requirement, MAX_LABEL_CHARS)
   const status = oneOf(value.status, FINDING_STATUSES)
   const grounding = oneOf(value.grounding, FINDING_GROUNDINGS)
-  if (!requirement || !status || !grounding) return null
+  if (!requirement || !grounding) return null
+  // A status the contract does not know is dropped as a whole row: a wrong
+  // verdict is worse than none. An ABSENT status is a row without one.
+  if (value.status !== undefined && value.status !== null && !status) return null
   const citations = Array.isArray(value.citations)
     ? value.citations
         .filter((n): n is number => typeof n === 'number' && Number.isInteger(n) && n > 0)
         .slice(0, MAX_CITATIONS)
     : []
-  const out: Finding = { requirement, status, grounding, citations }
+  const out: Finding = { requirement, grounding, citations }
+  if (status) out.status = status
   const val = text(value.value, MAX_VALUE_CHARS)
   if (val) out.value = val
   const reference = sanitizeReference(value.reference)
@@ -110,8 +119,12 @@ export function sanitizeFindings(input: unknown): Findings | null {
 }
 
 /** How many findings carry each status, for the matrix's summary line. */
+/** Whether any row carries a verdict: the matrix is Befunde then, Ergebnisse otherwise. */
+export const hasFindingStatuses = (findings: Findings): boolean =>
+  findings.items.some((item) => item.status !== undefined)
+
 export const findingCounts = (findings: Findings): Record<FindingStatus, number> => {
   const counts = { erfuellt: 0, nicht_erfuellt: 0, offen: 0, nicht_anwendbar: 0 }
-  for (const item of findings.items) counts[item.status] += 1
+  for (const item of findings.items) if (item.status) counts[item.status] += 1
   return counts
 }

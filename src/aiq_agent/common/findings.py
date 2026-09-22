@@ -59,7 +59,10 @@ class Finding(BaseModel):
 
     requirement: str = Field(min_length=1, max_length=MAX_LABEL_CHARS, description="the requirement, as a noun phrase")
     value: str | None = Field(default=None, max_length=MAX_VALUE_CHARS, description="the copyable value, e.g. 'REI 60'")
-    status: FindingStatus
+    #: The verdict, when the report judged the requirement. None for a row a
+    #: Vergleich or an Aktenvermerk states without judging it: the matrix is a
+    #: list of Ergebnisse then, not of Befunde.
+    status: FindingStatus | None = None
     grounding: FindingGrounding
     reference: FindingReference | None = None
     citations: list[int] = Field(default_factory=list, max_length=MAX_CITATIONS, description="the [N] the report cites")
@@ -78,6 +81,10 @@ class Findings(BaseModel):
     def counts(self) -> dict[str, int]:
         """How many findings carry each status, for the summary line."""
         return {status: sum(1 for item in self.items if item.status == status) for status in FINDING_STATUSES}
+
+    def judged(self) -> bool:
+        """Whether any row carries a verdict: Befunde then, Ergebnisse otherwise."""
+        return any(item.status is not None for item in self.items)
 
 
 def sanitize_findings(raw: Any) -> dict[str, Any] | None:

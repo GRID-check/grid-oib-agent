@@ -66,7 +66,7 @@
 
 import { type FC, type ReactNode, useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
-import { CheckCircle2, ChevronDown, FileText, XCircle } from 'lucide-react'
+import { BookOpen, CheckCircle2, ChevronDown, FileText, XCircle } from 'lucide-react'
 
 import {
   AnimatePresence,
@@ -104,6 +104,7 @@ import {
   activePhase,
   completedBefore,
   elapsedMs,
+  grundlageReceipt,
   isLiveStatus,
   phaseDurationMs,
   phaseState,
@@ -165,6 +166,17 @@ export interface RunBlockProps {
    * happens — and only when a caller hands one in.
    */
   onWriteNow?: (() => void | Promise<void>) | null
+  /**
+   * „Unterlage hinzufügen": name one more document as Grundlage while the run
+   * goes. Offered while the run is going and a caller hands one in; opens the
+   * caller's picker, which is why it takes nothing.
+   */
+  onAddDocument?: (() => void) | null
+  /**
+   * Open one Grundlage document from the receipt — as a dialog over the thread.
+   * Absent, the receipt names the document and nothing opens.
+   */
+  onOpenDocument?: ((doc: RunLedgerDoc) => void) | null
   /**
    * „Bericht fortschreiben": a new run on the same subject, briefed with this
    * run's findings, so a changed project fact re-reads the Befunde instead of
@@ -514,6 +526,8 @@ export function RunBlock({
   onRetry,
   onCancel,
   onWriteNow,
+  onAddDocument,
+  onOpenDocument,
   onContinue,
   connection,
   reviewHref,
@@ -661,6 +675,22 @@ export function RunBlock({
       </Button>
     ) : null
 
+  const addDocument: ReactNode =
+    onAddDocument && live ? (
+      <Button
+        size="sm"
+        variant="ghost"
+        className="text-muted-foreground h-7 gap-1 px-2 text-xs"
+        onClick={onAddDocument}
+        data-testid="run-action-add-document"
+      >
+        <BookOpen className="size-3.5" aria-hidden />
+        {t('unterlagen.addAction')}
+      </Button>
+    ) : null
+
+  const receipt = grundlageReceipt(ledger)
+
   const carryForward: ReactNode =
     onContinue && (status === 'fertig' || status === 'unterbrochen') ? (
       <Button
@@ -771,6 +801,7 @@ export function RunBlock({
                 </span>
               )}
               {writeNow}
+              {addDocument}
               {stop}
               {carryForward}
               {action}
@@ -842,6 +873,70 @@ export function RunBlock({
               className="overflow-hidden"
               data-testid="run-body"
             >
+              {/* The receipt: every document the reader named, read (with where)
+                  or not. Above the rounds, because it is the promise the rounds
+                  are measured against. */}
+              {receipt.length > 0 && (
+                <div
+                  className="border-border flex flex-col gap-1 border-t px-3 py-2"
+                  data-testid="run-grundlage"
+                  aria-label={t('unterlagen.receiptLabel')}
+                >
+                  <p className="text-muted-foreground text-[11px] font-medium">
+                    {t('unterlagen.receipt', {
+                      read: receipt.filter((row) => row.read).length,
+                      total: receipt.length,
+                    })}
+                  </p>
+                  <ul className="flex flex-wrap gap-1" role="list">
+                    {receipt.map((row) => {
+                      const label = row.doc.title ?? row.doc.name
+                      const loci = row.loci.join(' · ')
+                      const body = (
+                        <>
+                          {label}
+                          {row.read && loci && <span className="opacity-70"> · {loci}</span>}
+                          {!row.read && <span className="italic"> · {t('unterlagen.unread')}</span>}
+                        </>
+                      )
+                      return (
+                        <li
+                          key={row.doc.name}
+                          className="inline-flex max-w-full"
+                          data-testid="run-grundlage-doc"
+                          data-read={row.read ? 'true' : 'false'}
+                        >
+                          {onOpenDocument ? (
+                            <button
+                              type="button"
+                              onClick={() => onOpenDocument(row.doc)}
+                              className="focus-visible:ring-ring/60 max-w-full rounded-md text-left focus-visible:outline-none focus-visible:ring-2"
+                              aria-label={t('unterlagen.open', { name: label })}
+                            >
+                              <SourceSignalChip
+                                signal={docProvenance(row.doc).tint}
+                                className={cn('max-w-full', !row.read && 'opacity-75')}
+                                title={row.doc.name}
+                              >
+                                {body}
+                              </SourceSignalChip>
+                            </button>
+                          ) : (
+                            <SourceSignalChip
+                              signal={docProvenance(row.doc).tint}
+                              className={cn('max-w-full', !row.read && 'opacity-75')}
+                              title={row.doc.name}
+                            >
+                              {body}
+                            </SourceSignalChip>
+                          )}
+                        </li>
+                      )
+                    })}
+                  </ul>
+                </div>
+              )}
+
               {/* The rounds: one hairline-separated row each, the history's own
                   shape. Keyed by step id, so an appended round is a new element
                   and the rows above it are the same ones, re-rendered. */}

@@ -47,7 +47,13 @@ import {
 } from '@/lib/conversations/repository'
 import type { Message, TaskRun } from '@/lib/db/schema'
 import { withPlatformAccess, withTenant } from '@/lib/db/tenant-context'
-import { cancelBackendJob, JobCancelError, writeNowBackendJob } from '@/lib/jobs/backend-client'
+import {
+  addDocumentToBackendJob,
+  cancelBackendJob,
+  JobCancelError,
+  writeNowBackendJob,
+} from '@/lib/jobs/backend-client'
+import type { PlanDocument } from './plan-documents'
 import { inboxGroupKey } from '@/lib/inbox/registry'
 import { emitInboxItems, resolveInboxItemsFor } from '@/lib/inbox/service'
 import * as taskRepository from '@/lib/tasks/repository'
@@ -427,6 +433,35 @@ export async function cancelRun(
  * row, the same view answered — the ledger turns `unterbrochen` when the
  * report lands, never because the button was pressed.
  */
+/**
+ * Add a document to a running run's Grundlage on a person's request. Same
+ * gate and the same refusals as „Jetzt schreiben"; the ledger lists the
+ * document through the run's own stream, never here.
+ */
+export async function addRunDocument(
+  session: AuthorizedSession,
+  projectId: string,
+  runId: string,
+  document: PlanDocument
+): Promise<RunView> {
+  await requireProjectAccess(session, projectId, 'project:view')
+  await requireProjectAccess(session, projectId, CHAT_PERMISSIONS)
+  const run = await taskRepository.findRunInProject(runId, projectId, session.organizationId)
+  if (!run) throw new NotFoundError('Unknown run')
+  if (!isActiveTaskRunStatus(run.status)) throw new ConflictError('This run has already ended')
+  if (!run.backendJobId) throw new ConflictError('This run has no backend job to hand the document to')
+
+  try {
+    await addDocumentToBackendJob(run.backendJobId, document, session.accessToken ?? null)
+  } catch (error) {
+    if (!(error instanceof JobCancelError)) throw error
+    if (error.status === 400) throw new ConflictError('This run has already ended')
+    if (error.status === 404) throw new NotFoundError('Unknown run')
+    throw new UpstreamError('The document could not be handed to the run')
+  }
+  return runView(run)
+}
+
 export async function writeNowRun(
   session: AuthorizedSession,
   projectId: string,

@@ -176,6 +176,17 @@ You have access to the following tools. You can ONLY use the tools provided. Do 
 
 The reader approved this plan on the plan card. Its sections are the `required_components`, in this order, one component each; its genre is the `answer_type` (`pruefbericht`, `aktenvermerk`, `vergleich`, `checkliste`, or `long_form_report` for `bericht`); its depth bounds the answer (`kurzpruefung`: the smallest complete form, `gutachten`: full derivation). Add a component only for evidence the plan's sections need; never drop one.
 {% endif %}
+{% if grundlage is defined and grundlage %}
+## Grundlage (binding)
+The reader named these documents as the Grundlage: each MUST be read in full. Plan ONE dedicated ResearchQuery per document, naming the file exactly as listed, with the knowledge tool first in `preferred_tools`; that query is never merged with another and never dropped, whatever the other queries find.
+{% for doc in grundlage %}- {% if doc.title and doc.title != doc.name %}{{ doc.title }} — {% endif %}{{ doc.name }}{% if doc.shelf %} [{{ doc.shelf }}]{% endif %}
+{% endfor %}{% endif %}
+{% if ausgeschlossen is defined and ausgeschlossen %}
+## Ausgeschlossen (binding)
+The reader excluded these documents. No query targets them, and a passage from one of them is never evidence: the run reads around them.
+{% for doc in ausgeschlossen %}- {{ doc.name }}
+{% endfor %}{% endif %}
+
 
 {% if project_context %}
 ## Project Context

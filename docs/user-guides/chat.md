@@ -179,6 +179,16 @@ shows the same account from the server. There is no side panel — anything that
 needs more room than a message, a document or an answer's sources, opens as a
 dialog over the thread.
 
+**You choose what the run reads.** The Rechercheplan card before a deep
+research lists the sections and, under „Unterlagen", lets you pick documents
+from the project and the office archive: „Lesen" means read in full whatever
+else the research finds, „Ausschließen" means never used, not even when a
+search returns it. The chips under „Rahmen" show which data sources the
+research will search. Once the run goes, „Dokument hinzufügen" on its block
+adds one more document, and the block's receipt shows for every named document
+whether it was read and where. A report that never reached one says so under
+„Nicht gelesene Unterlagen".
+
 **The composer stays open throughout.** A run is a message beside which you keep
 asking, and a follow-up runs in the same thread: „Bericht fortschreiben" on a
 finished block commissions the next run with the last report's findings as its

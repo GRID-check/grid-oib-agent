@@ -24,6 +24,8 @@ from aiq_agent.common.citation_verification import EmptySourceRegistryError
 from aiq_agent.common.citation_verification import get_session_registry
 from aiq_agent.common.citation_verification import reset_session_registry
 from aiq_agent.common.citation_verification import set_session_registry
+from aiq_agent.common.plan_documents import PlanDocuments
+from aiq_agent.common.plan_documents import unread_grundlage
 from aiq_agent.common.turn_status import CUTOFF_USER_REQUESTED
 from aiq_agent.common.turn_status import DEGRADED_NO_REPORT_FILE
 from aiq_agent.common.turn_status import begin_lane_capture
@@ -171,6 +173,8 @@ class DeepResearchRunArtifacts:
     #: it already fetched. Read back once the graph has finished, to state the
     #: run's rounds beside its sources.
     rounds: RetrievalRounds
+    #: The Unterlagen the reader named, for the unread mark at the end.
+    plan_documents: PlanDocuments | None
     #: This run's resolved skills. The runtime accumulates the activation list
     #: DURING the run and ``_finalize`` reports it — a runtime that went out of
     #: scope at graph-build time is why deep research shipped
@@ -249,7 +253,11 @@ class DeepResearcherAgent:
         """
         if skill_runtime is None:
             skill_runtime = SkillRuntime()
-        source_registry_middleware = SourceRegistryMiddleware(source_tool_names=self.source_tool_names)
+        documents = state.plan_documents
+        source_registry_middleware = SourceRegistryMiddleware(
+            source_tool_names=self.source_tool_names,
+            excluded_file_names=[doc.name for doc in documents.ausgeschlossen] if documents else (),
+        )
         rounds = RetrievalRounds()
         tool_set = build_deep_research_tool_set(
             self.tools,
@@ -282,6 +290,7 @@ class DeepResearcherAgent:
             rounds=rounds,
         )
         return DeepResearchRunArtifacts(
+            plan_documents=state.plan_documents,
             graph=graph,
             source_registry_middleware=source_registry_middleware,
             tool_set=tool_set,
@@ -429,12 +438,16 @@ class DeepResearcherAgent:
         # the text, or a stray "[CONFIDENCE:high]" reaches the PDF.
         report, self_confidence, self_confidence_reason = detect_and_strip_confidence_marker(report)
         verification = self._verify(report, middleware, self_confidence)
+        # The receipt: a Grundlage document with no passage in the registry was
+        # never read, whatever the writer wrote about it.
+        unread = unread_grundlage(artifacts.plan_documents, middleware.read_file_names())
         finalized = finalize_report(
             verification,
             self_confidence=self_confidence,
             self_confidence_reason=self_confidence_reason,
             degraded_reasons=degraded_reasons,
             cutoff_reason=cutoff_reason,
+            grundlage_unread=[doc.name for doc in unread],
         )
         annotate_state(result, finalized, artifacts.skill_runtime)
         record_retrieval_ledger(result, artifacts.rounds.announcements, get_lane_captures())

@@ -334,11 +334,39 @@ class SourceRegistryMiddleware(AgentMiddleware):
     the chat entrypoint) still spans turns via ``active_registry()``.
     """
 
-    def __init__(self, source_tool_names: set[str] | None = None) -> None:
+    def __init__(
+        self,
+        source_tool_names: set[str] | None = None,
+        *,
+        excluded_file_names: Iterable[str] = (),
+    ) -> None:
         self.registry = SourceRegistry()
         self._source_tool_names = source_tool_names or set()
         self._compact_source_keys: set[str] = set()
+        # The reader's Ausgeschlossen, keyed like the registry keys a file. A
+        # passage from one of them is refused HERE, before it is a source, so
+        # it can neither be cited nor quoted and a citation to it is stripped
+        # like one to a source that never existed.
+        self._excluded_keys = {self._locator_key(name) for name in excluded_file_names if name and name.strip()}
         self._lock = asyncio.Lock()
+
+    def is_excluded(self, entry: SourceEntry) -> bool:
+        """Whether the reader excluded the document this entry came from."""
+        if not self._excluded_keys:
+            return False
+        key = self._entry_key(entry)
+        return key is not None and key in self._excluded_keys
+
+    def read_file_names(self) -> set[str]:
+        """The file names (page-stripped, lowercased) the run has a passage from."""
+        names: set[str] = set()
+        for entry in self.active_registry().all_sources():
+            if entry.url or not entry.citation_key:
+                continue
+            key = self._entry_key(entry)
+            if key:
+                names.add(key)
+        return names
 
     def active_registry(self) -> SourceRegistry:
         """Return the session-scoped registry if set, otherwise the instance registry."""
@@ -380,7 +408,11 @@ class SourceRegistryMiddleware(AgentMiddleware):
             getattr(source, "locator", "") for note in notes for source in (getattr(note, "sources", None) or [])
         )
         self._compact_source_keys.update(
-            self._locator_key(locator) for locator in locators if isinstance(locator, str) and locator.strip()
+            key
+            for key in (
+                self._locator_key(locator) for locator in locators if isinstance(locator, str) and locator.strip()
+            )
+            if key not in self._excluded_keys
         )
 
     async def awrap_tool_call(self, request, handler):
@@ -410,6 +442,12 @@ class SourceRegistryMiddleware(AgentMiddleware):
             return result
         source_id = get_source_id_for_tool(tool_name)
         sources = extract_sources_from_tool_result(tool_name, str(result.content), source_id=source_id)
+        refused = [s for s in sources if self.is_excluded(s)]
+        if refused:
+            logger.info(
+                "[CitationRegistry] Refused %d source(s) from %s: excluded by the reader", len(refused), tool_name
+            )
+            sources = [s for s in sources if not self.is_excluded(s)]
         async with self._lock:
             active_registry = self.active_registry()
             for source in sources:

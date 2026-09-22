@@ -524,3 +524,49 @@ describe('RunBlock — when the live view loses its line', () => {
     expect(screen.queryByTestId('run-connection')).not.toBeInTheDocument()
   })
 })
+
+describe('RunBlock — the documents the reader named', () => {
+  const named = (ledger: RunLedger): RunLedger => ({
+    ...ledger,
+    grundlage: [
+      { name: 'Grundriss EG', shelf: 'project', loci: [] },
+      { name: 'Einreichplan.pdf', title: 'Einreichplan EG', shelf: 'project', loci: [] },
+    ],
+  })
+
+  it('prints the receipt: every named document read with its loci, or unread', () => {
+    render(<RunBlock ledger={named(researching())} title={TITLE} />)
+    const receipt = screen.getByTestId('run-grundlage')
+    expect(receipt).toHaveTextContent('1 of 2 named documents read')
+    const docs = screen.getAllByTestId('run-grundlage-doc')
+    expect(docs[0]).toHaveAttribute('data-read', 'true')
+    expect(docs[0]).toHaveTextContent('Grundriss EG · Achse C–E')
+    expect(docs[1]).toHaveAttribute('data-read', 'false')
+    expect(docs[1]).toHaveTextContent('Einreichplan EG · not read')
+  })
+
+  it('opens a named document through the caller, as a dialog over the thread', () => {
+    const onOpenDocument = vi.fn()
+    render(<RunBlock ledger={named(researching())} title={TITLE} onOpenDocument={onOpenDocument} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Open Einreichplan EG' }))
+    expect(onOpenDocument).toHaveBeenCalledWith(expect.objectContaining({ name: 'Einreichplan.pdf' }))
+  })
+
+  it('offers „Unterlage hinzufügen" only while the run is going, and only when a caller hands one in', () => {
+    const onAddDocument = vi.fn()
+    const { unmount } = render(
+      <RunBlock ledger={researching()} title={TITLE} onAddDocument={onAddDocument} />
+    )
+    fireEvent.click(screen.getByTestId('run-action-add-document'))
+    expect(onAddDocument).toHaveBeenCalledTimes(1)
+    unmount()
+
+    render(<RunBlock ledger={finished('doc-9')} title={TITLE} onAddDocument={onAddDocument} />)
+    expect(screen.queryByTestId('run-action-add-document')).not.toBeInTheDocument()
+  })
+
+  it('says nothing about documents when none was named', () => {
+    render(<RunBlock ledger={researching()} title={TITLE} />)
+    expect(screen.queryByTestId('run-grundlage')).not.toBeInTheDocument()
+  })
+})

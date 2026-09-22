@@ -119,6 +119,7 @@ import {
   listJobRuns,
   listJobs,
   runJobNow,
+  submitAgentRun,
   updateJob,
 } from './service'
 
@@ -668,6 +669,50 @@ describe('fireScheduledJob', () => {
     const result = await fireScheduledJob(definitionRow({ trigger: 'schedule', scheduleCron: '0 8 * * 1' }))
 
     expect(result).toEqual({ fired: true, jobId: 'backend-1' })
+  })
+})
+
+/**
+ * The one submission delegated and commissioned work share. What is pinned:
+ * the settled plan and the named Unterlagen ride the payload under the worker's
+ * own keys, and a run that settled nothing sends neither key at all — the
+ * backend's schema treats an absent key and a null the same, but a spec that
+ * asserted `null` would let a `'null'` string through.
+ */
+describe('submitAgentRun', () => {
+  const spec = {
+    organizationId: 'org_1',
+    projectId: 'proj_1',
+    userId: 'user_1',
+    ownerEmail: null,
+    title: 'Fluchtwege',
+    prompt: 'Fluchtwege prüfen',
+    skillSnapshot: null,
+    output: 'deep-research' as const,
+    dataSources: null,
+    runId: 'run-7',
+    conversationId: 's_conv',
+  }
+
+  it('carries the approved plan and the Unterlagen to the worker', async () => {
+    const documents = {
+      grundlage: [{ name: 'Einreichplan.pdf', shelf: 'project' as const }],
+      ausgeschlossen: [{ name: 'Altbestand.pdf' }],
+    }
+    await submitAgentRun({ ...spec, clarifierResult: 'Rechercheplan: …', documents })
+
+    const submitted = vi.mocked(submitJob).mock.calls[0][0]
+    expect(submitted.run_id).toBe('run-7')
+    expect(submitted.clarifier_result).toBe('Rechercheplan: …')
+    expect(submitted.documents).toEqual(documents)
+  })
+
+  it('sends neither key for a run that settled nothing first', async () => {
+    await submitAgentRun(spec)
+
+    const submitted = vi.mocked(submitJob).mock.calls[0][0]
+    expect(submitted).not.toHaveProperty('clarifier_result')
+    expect(submitted).not.toHaveProperty('documents')
   })
 })
 

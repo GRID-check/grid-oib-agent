@@ -18,6 +18,7 @@ import {
   finishRun,
   openPhase,
   sanitizeRunLedger,
+  setGrundlage,
   setRunStatus,
 } from './run-ledger'
 import {
@@ -369,5 +370,34 @@ describe('the moves', () => {
     expect(applyRunLedgerFinish(ledger, { error: { reason: 'Zeitüberschreitung' } }, T2).status).toBe(
       'fehlgeschlagen',
     )
+  })
+})
+
+describe('the Grundlage on the ledger', () => {
+  it('is sanitised, deduplicated by name and carried without loci', () => {
+    const ledger = sanitizeRunLedger(
+      wire({
+        grundlage: [
+          { name: 'Einreichplan.pdf', title: 'Einreichplan EG', shelf: 'project', loci: ['S. 1'] },
+          { name: 'einreichplan.PDF' },
+          { title: 'no name' },
+        ],
+      })
+    )
+    expect(ledger?.grundlage).toEqual([
+      { name: 'Einreichplan.pdf', loci: [], title: 'Einreichplan EG', shelf: 'project' },
+    ])
+    expect(sanitizeRunLedger(wire({}))?.grundlage).toBeUndefined()
+  })
+
+  it('an append re-sends the whole list, and the same list changes nothing', () => {
+    const base = emptyRunLedger('run-1', T0)
+    const named = applyRunLedgerAppend(base, { grundlage: [{ name: 'a.pdf', loci: [] }] }, T1)
+    expect(named.grundlage).toEqual([{ name: 'a.pdf', loci: [] }])
+    expect(named.updatedAt).toBe(T1.toISOString())
+    expect(setGrundlage(named, [{ name: 'a.pdf', loci: [] }], T2)).toBe(named)
+    const grown = setGrundlage(named, [{ name: 'a.pdf', loci: [] }, { name: 'b.pdf', loci: [] }], T2)
+    expect(grown.grundlage?.map((doc) => doc.name)).toEqual(['a.pdf', 'b.pdf'])
+    expect(setGrundlage(grown, [], T2).grundlage).toBeUndefined()
   })
 })

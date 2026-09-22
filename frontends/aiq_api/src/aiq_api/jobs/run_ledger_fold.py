@@ -76,6 +76,7 @@ from aiq_agent.common.run_ledger import MAX_DOCS_PER_STEP
 from aiq_agent.common.run_ledger import MAX_ERROR_REASON_CHARS
 from aiq_agent.common.run_ledger import MAX_FINDING_CHARS
 from aiq_agent.common.run_ledger import MAX_FINDINGS_PER_STEP
+from aiq_agent.common.run_ledger import MAX_GRUNDLAGE_DOCS
 from aiq_agent.common.run_ledger import MAX_INTENT_CHARS
 from aiq_agent.common.run_ledger import MAX_LOCI_PER_DOC
 from aiq_agent.common.run_ledger import MAX_LOCUS_CHARS
@@ -269,6 +270,7 @@ class RunLedgerFold:
         client: RunLedgerClient | None = None,
         loop: asyncio.AbstractEventLoop | None = None,
         autoflush: bool = True,
+        grundlage: list[dict[str, Any]] | None = None,
     ) -> None:
         """
         Args:
@@ -287,6 +289,10 @@ class RunLedgerFold:
             autoflush: Whether an ingest may schedule its own flush. False hands
                 the timing to the caller, which is what a test wants and what a
                 caller with no loop of its own has anyway.
+            grundlage: The documents the reader named as Grundlage, as
+                ``plan_documents`` rows (name, title, shelf). On the ledger
+                from the first snapshot, so the block can print the receipt
+                against the steps; ``add_grundlage`` extends it live.
         """
         self._job_id = job_id
         self._run_id = run_id
@@ -307,6 +313,10 @@ class RunLedgerFold:
         self._error_reason: str | None = None
         self._finished_at: str | None = None
         self._updated_at = started
+        self._grundlage: list[RunLedgerDoc] = [doc for doc in map(_grundlage_doc, grundlage or []) if doc][
+            :MAX_GRUNDLAGE_DOCS
+        ]
+        self._sent_grundlage: int = 0
 
         self._dirty = False
         self._flush_now = False
@@ -316,6 +326,27 @@ class RunLedgerFold:
         self._sent_status: str | None = None
 
     # -- ingest ---------------------------------------------------------------
+
+    def add_grundlage(self, doc: Any) -> None:
+        """A document the reader added to the Grundlage while the run goes.
+
+        Idempotent by name, bounded like the list it joins, and flushed at
+        once: the addition is the reader's own act, and the block should show
+        it before the next round does.
+        """
+        wire = _grundlage_doc(doc.model_dump() if hasattr(doc, "model_dump") else doc)
+        if wire is None:
+            return
+        with self._lock:
+            if any(existing.name.casefold() == wire.name.casefold() for existing in self._grundlage):
+                return
+            if len(self._grundlage) >= MAX_GRUNDLAGE_DOCS:
+                return
+            self._grundlage.append(wire)
+            self._updated_at = _now()
+            self._dirty = True
+            self._flush_now = True
+        self._schedule_flush()
 
     def observing(self, event_store: Any) -> FoldingEventStore:
         """The job's event store, with everything stored also folded in here."""
@@ -562,6 +593,7 @@ class RunLedgerFold:
             steps=[step.wire() for step in self._steps],
             result=self._result,
             error=error,
+            grundlage=list(self._grundlage) or None,
             startedAt=self._started_at,
             updatedAt=self._updated_at,
             finishedAt=self._finished_at,
@@ -572,9 +604,10 @@ class RunLedgerFold:
         phases = [entry.wire() for entry in self._phases if self._sent_phases.get(entry.phase, "") != entry.ended_at]
         steps = [step.wire() for step in self._steps if step is not self._open_step and step.id not in self._sent_steps]
         status = self._status if self._status != self._sent_status else None
-        if not phases and not steps and status is None:
+        grundlage = list(self._grundlage) if len(self._grundlage) != self._sent_grundlage else None
+        if not phases and not steps and status is None and grundlage is None:
             return None
-        return RunLedgerAppendRequest(steps=steps or None, phases=phases or None, status=status)
+        return RunLedgerAppendRequest(steps=steps or None, phases=phases or None, status=status, grundlage=grundlage)
 
     def _mark_sent(self, body: RunLedgerAppendRequest) -> None:
         """Remember what the store accepted, so the next append does not repeat it.
@@ -592,6 +625,8 @@ class RunLedgerFold:
                 self._sent_phases[entry.phase] = entry.ended_at
             if body.status is not None:
                 self._sent_status = body.status
+            if body.grundlage is not None:
+                self._sent_grundlage = len(body.grundlage)
 
     def _emit_snapshot(self, ledger: dict[str, Any] | None) -> None:
         """Put the whole ledger on the job's own stream, for whoever is watching."""
@@ -637,6 +672,22 @@ class FoldingEventStore:
         flush = getattr(self._event_store, "flush", None)
         if flush is not None:
             flush()
+
+
+def _grundlage_doc(row: Any) -> RunLedgerDoc | None:
+    """One Grundlage row as the ledger carries it: no loci, the receipt is the steps'."""
+    if not isinstance(row, dict):
+        return None
+    name = _clip(row.get("name") or row.get("file_name"), MAX_NAME_CHARS)
+    if not name:
+        return None
+    title = _clip(row.get("title"), MAX_TITLE_CHARS)
+    return RunLedgerDoc(
+        name=name,
+        title=title if title and title != name else None,
+        shelf=_clip(row.get("shelf"), MAX_SHELF_CHARS) or None,
+        loci=[],
+    )
 
 
 def _add_findings(step: _Step, content: Any) -> bool:

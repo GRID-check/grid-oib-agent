@@ -18,6 +18,7 @@ import json
 import logging
 import os
 import uuid
+from collections.abc import Callable
 from collections.abc import Iterator
 from typing import Any
 
@@ -28,6 +29,9 @@ from aiq_agent.cards.generate import CardGenerationResult
 from aiq_agent.cards.registry import CardRegistry
 from aiq_agent.cards.registry import reset_card_registry
 from aiq_agent.cards.registry import set_card_registry
+from aiq_agent.common.plan_documents import PlanDocument
+from aiq_agent.common.plan_documents import PlanDocuments
+from aiq_agent.common.plan_documents import sanitize_plan_documents
 from aiq_agent.common.turn_status import DEGRADED_CARDS_GENERATION_FAILED
 from aiq_agent.project_context import ORGANIZATION_ID_HEADER
 from aiq_agent.project_context import PROJECT_ID_HEADER
@@ -507,6 +511,9 @@ def _normalize_trace_id(trace_id: int | str | None) -> int | None:
 
 #: The job event the write-now route records and the monitor listens for.
 WRITE_NOW_EVENT_TYPE = "job.write_now_requested"
+#: The job event the documents route records when the reader adds a document
+#: to the Grundlage while the run goes; the monitor hands it to the run.
+DOCUMENT_ADDED_EVENT_TYPE = "job.document_added"
 
 
 class CancellationMonitor:
@@ -534,6 +541,12 @@ class CancellationMonitor:
         # Read off the job's own events, beside the status poll, so the request
         # reaches a worker that holds nothing but the job id.
         self.write_now = asyncio.Event()
+        # Documents the reader added to the Grundlage while the run goes, in
+        # arrival order. The research tool drains this list before a batch
+        # (``deep_researcher.control``); ``on_document_added`` is the ledger
+        # fold's hook, so the block shows the addition at once.
+        self.added_documents: list[PlanDocument] = []
+        self.on_document_added: Callable[[PlanDocument], None] | None = None
         self._last_event_id = 0
         self._monitor_task: asyncio.Task | None = None
 
@@ -560,16 +573,15 @@ class CancellationMonitor:
                     logger.info("Cancellation detected for job %s (status: %s)", self.job_id, job.status)
                     self._cancelled.set()
                     break
-                if not self.write_now.is_set():
-                    events = await EventStore.get_events_async(self.db_url, self.job_id, after_id=self._last_event_id)
-                    self._note_control_events(events)
+                events = await EventStore.get_events_async(self.db_url, self.job_id, after_id=self._last_event_id)
+                self._note_control_events(events)
             except Exception as e:
                 logger.warning("Error checking job status for %s: %s", self.job_id, e)
 
             await asyncio.sleep(self.poll_interval)
 
     def _note_control_events(self, events: list[dict]) -> None:
-        """Advance the cursor over the job's events and set the write-now signal on its request."""
+        """Advance the cursor over the job's events and act on the reader's controls."""
         for event in events:
             event_id = event.get("_id")
             if isinstance(event_id, int) and event_id > self._last_event_id:
@@ -577,6 +589,20 @@ class CancellationMonitor:
             if event.get("type") == WRITE_NOW_EVENT_TYPE:
                 logger.info("Write-now requested for job %s", self.job_id)
                 self.write_now.set()
+            elif event.get("type") == DOCUMENT_ADDED_EVENT_TYPE:
+                self._note_added_document(event.get("data"))
+
+    def _note_added_document(self, data: Any) -> None:
+        docs = sanitize_plan_documents({"grundlage": [data]}) if isinstance(data, dict) else None
+        if docs is None:
+            return
+        doc = docs.grundlage[0]
+        if any(d.name.casefold() == doc.name.casefold() for d in self.added_documents):
+            return
+        logger.info("Document added to the Grundlage of job %s: %s", self.job_id, doc.name)
+        self.added_documents.append(doc)
+        if self.on_document_added is not None:
+            self.on_document_added(doc)
 
     def start(self) -> None:
         """Start the cancellation monitor background task."""
@@ -885,6 +911,9 @@ async def run_agent_job(
     # stream and posts nothing (``jobs/run_ledger_fold.py``). Keyword-only in
     # practice: the Dask path passes positionally up to ``claim_owner``.
     run_id: str | None = None,
+    # The Unterlagen the reader named on the plan card (``plan_documents``
+    # contract), sanitised here into the agent state and the run ledger.
+    documents: dict | None = None,
 ):
     """
     Dask task to run any registered agent with cancellation support and telemetry.
@@ -1023,6 +1052,9 @@ async def run_agent_job(
             job_id=job_id,
             poll_interval=1.0,
         )
+        # The Unterlagen, sanitised ONCE here: the agent state, the ledger fold
+        # and the prompts all read this one object.
+        plan_documents = sanitize_plan_documents(documents)
 
         from aiq_agent.observability import ensure_registered as register_grid_telemetry
 
@@ -1336,7 +1368,13 @@ async def run_agent_job(
                     # documents on another office's report. Wrapping the store
                     # is what feeds it — every producer downstream keeps writing
                     # exactly as it did.
-                    run_ledger_fold = RunLedgerFold(job_id=job_id, run_id=run_id, event_store=event_store)
+                    run_ledger_fold = RunLedgerFold(
+                        job_id=job_id,
+                        run_id=run_id,
+                        event_store=event_store,
+                        grundlage=[doc.model_dump() for doc in plan_documents.grundlage] if plan_documents else None,
+                    )
+                    cancellation_monitor.on_document_added = run_ledger_fold.add_grundlage
                     event_store = run_ledger_fold.observing(event_store)
                     agent_event_callback = AgentEventCallback(event_store)
                     callbacks.append(agent_event_callback)
@@ -1414,6 +1452,7 @@ async def run_agent_job(
                             event_store=event_store,
                             user_info=user_info,
                             clarifier_result=clarifier_result,
+                            plan_documents=plan_documents,
                             project_context=agent_project_context,
                             platform_lessons=platform_lessons,
                             organization_id=_job_org_id,
@@ -1820,6 +1859,7 @@ async def _run_agent(
     event_store: EventStore | None = None,
     user_info: dict | None = None,
     clarifier_result: str | None = None,
+    plan_documents: PlanDocuments | None = None,
     project_context: str | None = None,
     platform_lessons: str | None = None,
     organization_id: str | None = None,
@@ -1863,6 +1903,7 @@ async def _run_agent(
             for field_name, field_value in (
                 ("user_info", user_info),
                 ("clarifier_result", clarifier_result),
+                ("plan_documents", plan_documents),
                 ("project_context", project_context),
                 ("platform_lessons", platform_lessons),
                 # No request headers exist in a Dask worker, so an agent that
@@ -1907,10 +1948,13 @@ async def _run_agent(
         # The reader's „Jetzt schreiben" reaches the research tool through a
         # per-run binding; the task created inside `run_with_cancellation`
         # inherits it.
+        from aiq_agent.agents.deep_researcher.control import bind_added_documents
         from aiq_agent.agents.deep_researcher.control import bind_write_now
+        from aiq_agent.agents.deep_researcher.control import reset_added_documents
         from aiq_agent.agents.deep_researcher.control import reset_write_now
 
         token = bind_write_now(monitor.write_now)
+        added_token = bind_added_documents(monitor.added_documents)
         try:
             return await run_with_cancellation(
                 agent.run(state),
@@ -1918,6 +1962,7 @@ async def _run_agent(
                 event_store=event_store,
             )
         finally:
+            reset_added_documents(added_token)
             reset_write_now(token)
 
     raise TypeError(f"Agent {type(agent).__name__} does not have a run method")

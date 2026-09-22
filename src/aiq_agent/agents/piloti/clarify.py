@@ -74,6 +74,9 @@ from aiq_agent.common import is_verbose
 from aiq_agent.common import load_prompt
 from aiq_agent.common import render_prompt_template
 from aiq_agent.common import strict_json_response_format
+from aiq_agent.common.plan_documents import MAX_PLAN_DOCUMENTS
+from aiq_agent.common.plan_documents import PlanDocuments
+from aiq_agent.common.plan_documents import documents_from_plan
 from aiq_agent.common.turn_status import push_custom_step
 from aiq_agent.project_context import get_organization_id_from_context
 from nat.builder.builder import Builder
@@ -291,14 +294,29 @@ def parse_plan_reply(reply: str) -> tuple[PlanDecision, str]:
 MAX_PLAN_SECTIONS = 12
 
 
-def apply_plan_edits(plan: PlanResponse, edits_json: str) -> PlanResponse:
-    """The plan as the reader left it on the card; the original on anything unreadable."""
+def _parse_edits(edits_json: str) -> dict[str, Any] | None:
     try:
         edits = json.loads(edits_json)
     except ValueError:
         logger.warning("Plan edits did not parse; running the plan as shown")
-        return plan
-    if not isinstance(edits, dict):
+        return None
+    return edits if isinstance(edits, dict) else None
+
+
+def _names(value: Any) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    return [v.strip() for v in value if isinstance(v, str) and v.strip()][:MAX_PLAN_DOCUMENTS]
+
+
+def apply_plan_edits(plan: PlanResponse, edits_json: str) -> PlanResponse:
+    """The plan as the reader left it on the card; the original on anything unreadable.
+
+    The Unterlagen lists are taken as named; :func:`plan_documents` resolves
+    them against the inventory, which is where a name nobody can find falls out.
+    """
+    edits = _parse_edits(edits_json)
+    if edits is None:
         return plan
     data = plan.model_dump()
     sections = edits.get("sections")
@@ -309,6 +327,9 @@ def apply_plan_edits(plan: PlanResponse, edits_json: str) -> PlanResponse:
     for key in ("genre", "depth"):
         if isinstance(edits.get(key), str):
             data[key] = edits[key]
+    for key in ("grundlage", "ausgeschlossen"):
+        if isinstance(edits.get(key), list):
+            data[key] = _names(edits[key])
     try:
         return PlanResponse.model_validate(data)
     except ValidationError as exc:
@@ -316,7 +337,47 @@ def apply_plan_edits(plan: PlanResponse, edits_json: str) -> PlanResponse:
         return plan
 
 
-def format_plan_for_user(plan: PlanResponse) -> str:
+def plan_data_sources(edits_json: str) -> list[str] | None:
+    """The Rahmen the reply carries: the composer's Datengrundlage at approval.
+
+    ``None`` when the reply names none — an older client — so the turn's own
+    sources stay. An empty list is a statement (no sources) and is kept.
+    """
+    edits = _parse_edits(edits_json) if edits_json else None
+    if edits is None or not isinstance(edits.get("data_sources"), list):
+        return None
+    return [s.strip() for s in edits["data_sources"] if isinstance(s, str) and s.strip()]
+
+
+def plan_documents(plan: PlanResponse, inventory: list[dict[str, Any]] | None) -> PlanDocuments | None:
+    """The plan's Unterlagen, resolved against what this turn can actually read."""
+    return documents_from_plan(plan.grundlage, plan.ausgeschlossen, inventory)
+
+
+def _inventory_rows(inventory: list[dict[str, Any]] | None) -> list[dict[str, Any]]:
+    """The turn's documents as the plan card lists them: name, title, shelf."""
+    rows: list[dict[str, Any]] = []
+    for row in inventory or []:
+        if not isinstance(row, dict) or not isinstance(row.get("file_name"), str):
+            continue
+        entry: dict[str, Any] = {"name": row["file_name"]}
+        if isinstance(row.get("display_title"), str) and row["display_title"].strip():
+            entry["title"] = row["display_title"].strip()
+        if isinstance(row.get("shelf"), str) and row["shelf"]:
+            entry["shelf"] = row["shelf"]
+        rows.append(entry)
+        if len(rows) >= MAX_PLAN_INVENTORY_ROWS:
+            break
+    return rows
+
+
+#: The plan card lists what the run can read. Two hundred rows is more than a
+#: card can show and more than a project usually holds; beyond it the picker
+#: still resolves a typed name against the full inventory server-side.
+MAX_PLAN_INVENTORY_ROWS = 200
+
+
+def format_plan_for_user(plan: PlanResponse, inventory: list[dict[str, Any]] | None = None) -> str:
     """Render the plan preview the user replies to."""
     sections_text = "\n".join(f"  {i + 1}. {s}" for i, s in enumerate(plan.sections))
     # The footer sentence is a byte-stable envelope: the UI detects it,
@@ -327,7 +388,13 @@ def format_plan_for_user(plan: PlanResponse) -> str:
     # and renders the sections, the genre and the depth as controls; a client
     # that does not know the fence shows the list above and the fence stays
     # readable. The envelope sentence below it is untouched.
-    plan_json = json.dumps(plan.model_dump(), ensure_ascii=False)
+    payload: dict[str, Any] = plan.model_dump()
+    rows = _inventory_rows(inventory)
+    if rows:
+        # What the run can read, so the card's picker needs no second fetch
+        # and can only ever name a document this turn could find.
+        payload["unterlagen"] = rows
+    plan_json = json.dumps(payload, ensure_ascii=False)
     return (
         f"**Research Plan Preview**\n\n"
         f"**Title:** {plan.title}\n\n"
@@ -377,18 +444,39 @@ def question_for(response: ClarificationResponse | None, messages: Sequence[Base
     return fallback_clarification(get_latest_user_query(list(messages)))
 
 
-def approved_plan_context(plan: PlanResponse) -> str:
+def _document_lines(docs: list[Any]) -> str:
+    lines = []
+    for doc in docs:
+        where = f" [{doc.shelf}]" if doc.shelf else ""
+        title = f"{doc.title} — " if doc.title and doc.title != doc.name else ""
+        lines.append(f"- {title}{doc.name}{where}")
+    return "\n".join(lines)
+
+
+def approved_plan_context(plan: PlanResponse, documents: PlanDocuments | None = None) -> str:
     """The approved plan as deep research reads it.
 
     The orchestrator, the planner and the writer all receive it
     (``factory.py`` ``prompt_values``): the sections become the required
-    components in this order, the genre the answer type, the depth the length.
+    components in this order, the genre the answer type, the depth the length,
+    and the Unterlagen what must be read and what may not be used.
     """
     sections_text = "\n".join(f"- {s}" for s in plan.sections)
-    return (
+    text = (
         f"**Approved Research Plan**\n\nTitle: {plan.title}\nGenre: {plan.genre}\nDepth: {plan.depth}\n\n"
         f"Sections (required components, in this order):\n{sections_text}"
     )
+    if documents and documents.grundlage:
+        text += (
+            "\n\nGrundlage (documents to read in full, each through its own research query; "
+            f"a report that could not reach one names it as unread):\n{_document_lines(documents.grundlage)}"
+        )
+    if documents and documents.ausgeschlossen:
+        text += (
+            "\n\nAusgeschlossen (documents that may not be used: never searched, never cited):\n"
+            f"{_document_lines(documents.ausgeschlossen)}"
+        )
+    return text
 
 
 def _fallback_plan() -> PlanResponse:
@@ -502,6 +590,7 @@ async def generate_plan(
         clarifier_context=log,
         feedback_history=feedback_history or None,
         preselected=_preselection_text(shape),
+        available_documents=request.available_documents or [],
     )
     anchor = HumanMessage(
         content=(
@@ -529,11 +618,24 @@ def _preselection_text(shape: PlanShape) -> str | None:
     return "\n".join(lines) or None
 
 
-def _outcome(log: str, plan: PlanResponse, outcome: PlanOutcome) -> ClarifyResult:
+def _outcome(
+    log: str,
+    plan: PlanResponse,
+    outcome: PlanOutcome,
+    *,
+    inventory: list[dict[str, Any]] | None = None,
+    data_sources: list[str] | None = None,
+) -> ClarifyResult:
     """One finished plan preview, as the conversation graph reads it."""
     if outcome != "approved":
         return ClarifyResult(research_context=log, outcome=outcome)
-    return ClarifyResult(research_context=f"{log}\n\n{approved_plan_context(plan)}", outcome="approved")
+    documents = plan_documents(plan, inventory)
+    return ClarifyResult(
+        research_context=f"{log}\n\n{approved_plan_context(plan, documents)}",
+        outcome="approved",
+        data_sources=data_sources,
+        documents=documents,
+    )
 
 
 async def preview_plan(request: ClarifyRequest, deps: ClarifyDeps, log: str) -> ClarifyResult:
@@ -543,17 +645,20 @@ async def preview_plan(request: ClarifyRequest, deps: ClarifyDeps, log: str) -> 
 
     for _ in range(deps.max_plan_iterations):
         plan = await generate_plan(request, deps, log, feedback_history)
-        decision, feedback = parse_plan_reply(await deps.ask_user(format_plan_for_user(plan), ()))
+        shown = format_plan_for_user(plan, request.available_documents)
+        decision, feedback = parse_plan_reply(await deps.ask_user(shown, ()))
         if decision != "feedback":
+            data_sources = None
             if decision == "approved" and feedback:
                 plan = apply_plan_edits(plan, feedback)
+                data_sources = plan_data_sources(feedback)
             logger.info("Clarifier: plan %s by user", decision)
-            return _outcome(log, plan, decision)
+            return _outcome(log, plan, decision, inventory=request.available_documents, data_sources=data_sources)
         logger.info("Clarifier: User provided feedback, regenerating plan")
         feedback_history.append(feedback)
 
     logger.warning("Clarifier: Max plan iterations reached, auto-approving")
-    return _outcome(log, plan, "approved")
+    return _outcome(log, plan, "approved", inventory=request.available_documents)
 
 
 async def clarify(request: ClarifyRequest, deps: ClarifyDeps) -> ClarifyResult:

@@ -25,6 +25,8 @@ from pydantic import ConfigDict
 from pydantic import Field
 from pydantic import model_validator
 
+from aiq_agent.common.plan_documents import PlanDocuments
+
 PlanDecision = Literal["approved", "shallow", "cancelled", "feedback"]
 """What one reply to the plan preview asks for. ``feedback`` means "revise it"."""
 
@@ -133,6 +135,17 @@ class PlanResponse(_StrictContract):
     depth: PlanDepth = Field(
         default="gutachten", description="kurzpruefung for the smallest complete form, gutachten for full depth."
     )
+    grundlage: list[str] = Field(
+        default_factory=list,
+        description=(
+            "File names from the document inventory the run must read in full, because the request is about "
+            "them or cannot be answered without them. Empty when no listed document is that."
+        ),
+    )
+    ausgeschlossen: list[str] = Field(
+        default_factory=list,
+        description="File names the reader excluded on the plan card. Always empty from the planner.",
+    )
 
 
 @dataclass(frozen=True)
@@ -164,3 +177,10 @@ class ClarifyResult:
 
     research_context: str
     outcome: PlanOutcome | None = None
+    #: The Rahmen the reader approved the plan under: the composer's
+    #: Datengrundlage at the moment of approval, carried onto the run. None
+    #: when the reply named none (an older client), and the turn's own stays.
+    data_sources: list[str] | None = None
+    #: The Unterlagen the reader named on the plan, resolved against the turn's
+    #: inventory. None when none were named.
+    documents: PlanDocuments | None = None

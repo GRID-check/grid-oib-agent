@@ -36,3 +36,37 @@ def test_the_banner_names_the_readers_choice_not_a_limit():
         degraded_reasons=None,
     ).splitlines()[0]
     assert "at your request" in english
+
+
+def test_added_documents_are_drained_once_and_the_binding_is_per_run():
+    from aiq_agent.agents.deep_researcher.control import bind_added_documents
+    from aiq_agent.agents.deep_researcher.control import reset_added_documents
+    from aiq_agent.agents.deep_researcher.control import take_added_documents
+    from aiq_agent.common.plan_documents import PlanDocument
+
+    assert take_added_documents() == []
+    queue: list[PlanDocument] = []
+    token = bind_added_documents(queue)
+    try:
+        queue.append(PlanDocument(name="nachtrag.pdf", title="Nachtrag"))
+        assert [d.name for d in take_added_documents()] == ["nachtrag.pdf"]
+        assert take_added_documents() == []
+    finally:
+        reset_added_documents(token)
+    assert take_added_documents() == []
+
+
+def test_the_report_names_the_grundlage_it_never_reached():
+    from aiq_agent.agents.deep_researcher.finalize import _append_unread_grundlage
+
+    german = _append_unread_grundlage("# Bericht\n\nDer Fluchtweg ist zulässig.", ["Einreichplan.pdf"])
+    assert german.rstrip().endswith(
+        "## Nicht gelesene Unterlagen\n\nDiese Unterlagen waren als Grundlage benannt "
+        "und konnten nicht gelesen werden; ihr Inhalt ist oben nicht berücksichtigt:\n\n"
+        "- Einreichplan.pdf"
+    )
+    english = _append_unread_grundlage(
+        "# Report\n\nThe escape route is compliant and the fire resistance is REI 60.", ["plan.pdf"]
+    )
+    assert "## Documents not read" in english and english.rstrip().endswith("- plan.pdf")
+    assert _append_unread_grundlage("# Bericht", []) == "# Bericht"

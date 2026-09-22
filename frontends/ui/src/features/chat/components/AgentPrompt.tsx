@@ -18,6 +18,7 @@ import { formatTime } from '@/shared/utils/format-time'
 import { MarkdownRenderer } from '@/shared/components/MarkdownRenderer'
 import { BranchOptions } from './reasoning/BranchOptions'
 import { useChatStore } from '../store'
+import { useLayoutStore } from '@/features/layout/store'
 import {
   approvalReply,
   parsePlanFence,
@@ -144,6 +145,16 @@ export const AgentPrompt: FC<AgentPromptProps> = ({
   )
   const [editedPlan, setEditedPlan] = useState<PlanShape | null>(null)
   const shownPlan = editedPlan ?? plan
+  // The Rahmen: the composer's Datengrundlage, read off the layout store the
+  // composer writes. The approval carries the ids; the card shows the names.
+  const enabledSourceIds = useLayoutStore((s) => s.enabledDataSourceIds)
+  const availableSources = useLayoutStore((s) => s.availableDataSources)
+  const rahmen = useMemo(() => {
+    if (!plan) return undefined
+    const ids = enabledSourceIds.filter((id) => (availableSources ?? []).some((s) => s.id === id))
+    const labels = ids.map((id) => (availableSources ?? []).find((s) => s.id === id)?.name ?? id)
+    return { ids, labels }
+  }, [plan, enabledSourceIds, availableSources])
   // An edited approval is the keyword plus JSON; the receipt keys off the keyword.
   const displayContent = isApprovalPrompt
     ? stripPlanFence(content)
@@ -169,8 +180,10 @@ export const AgentPrompt: FC<AgentPromptProps> = ({
   const responseLabel = responseKey ? t(responseKey) : response
 
   const handleApprove = useCallback(() => {
-    respondToInteractionFn?.(plan && shownPlan ? approvalReply(plan, shownPlan) : 'approve')
-  }, [respondToInteractionFn, plan, shownPlan])
+    respondToInteractionFn?.(
+      plan && shownPlan ? approvalReply(plan, shownPlan, rahmen?.ids ?? []) : 'approve'
+    )
+  }, [respondToInteractionFn, plan, shownPlan, rahmen])
 
   const handleShallow = useCallback(() => {
     respondToInteractionFn?.('shallow')
@@ -225,6 +238,7 @@ export const AgentPrompt: FC<AgentPromptProps> = ({
             <PlanChecklist
               plan={shownPlan}
               disabled={isResponded || !isAddressee || !respondToInteractionFn}
+              rahmen={rahmen}
               onChange={setEditedPlan}
             />
           )}

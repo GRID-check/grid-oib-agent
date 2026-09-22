@@ -60,3 +60,27 @@ class TestSanitize:
         )
         assert out is not None
         assert "reference" not in out["items"][0]
+
+
+class TestARowMayStateWithoutJudging:
+    """A Bericht states its rows; only a Prüfbericht judges them (status null = stated, not failed)."""
+
+    def test_a_null_status_survives_and_is_not_counted(self):
+        out = sanitize_findings(
+            {
+                "items": [
+                    {"requirement": "Fluchtweglänge", "status": None, "grounding": "belegt", "value": "38 m"},
+                    {"requirement": "Türbreite", "status": "erfuellt", "grounding": "belegt"},
+                ]
+            }
+        )
+        assert out is not None
+        assert [item.get("status") for item in out["items"]] == [None, "erfuellt"]
+        findings = Findings.model_validate(out)
+        assert findings.counts() == {"erfuellt": 1, "nicht_erfuellt": 0, "offen": 0, "nicht_anwendbar": 0}
+
+    def test_judged_is_whether_any_row_carries_a_status(self):
+        stated = Findings.model_validate({"items": [{"requirement": "A", "grounding": "belegt"}]})
+        judged = Findings.model_validate({"items": [{"requirement": "A", "status": "offen", "grounding": "offen"}]})
+        assert stated.judged() is False
+        assert judged.judged() is True

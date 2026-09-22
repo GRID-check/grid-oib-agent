@@ -6,6 +6,7 @@
  */
 
 import { z } from 'zod'
+import { planDocumentsSchema } from '@/lib/runs/plan-documents'
 import { apiRoute, parseJsonBody } from '@/lib/api/handler'
 import { TASK_GOAL_MAX_CHARS } from '@/lib/tasks/delegation'
 import { commissionResearchRun } from '@/lib/tasks/delegation'
@@ -16,6 +17,8 @@ const commissionRunSchema = z.object({
   conversationId: z.string().min(1),
   question: z.string().trim().min(1).max(TASK_GOAL_MAX_CHARS),
   context: z.string().trim().max(20_000).optional(),
+  /** The Unterlagen a continuation carries forward: the last report's sources as its Grundlage. */
+  documents: planDocumentsSchema.optional(),
 })
 
 export const POST = apiRoute<Params>(
@@ -26,6 +29,7 @@ export const POST = apiRoute<Params>(
       conversationId: input.conversationId,
       question: input.question,
       context: input.context ?? null,
+      documents: input.documents ?? null,
     })
     return {
       runId: run.runId,

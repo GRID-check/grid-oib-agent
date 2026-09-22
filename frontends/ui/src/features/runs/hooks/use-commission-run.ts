@@ -10,9 +10,10 @@
 import { useCallback, useState } from 'react'
 import { useChatStore } from '@/features/chat/store'
 import { commissionRun } from '@/lib/runs/run-view-client'
+import type { PlanDocuments } from '@/lib/runs/plan-documents'
 
 export interface CommissionRunHandle {
-  commission: (question: string, context?: string) => Promise<boolean>
+  commission: (question: string, context?: string, documents?: PlanDocuments) => Promise<boolean>
   pending: boolean
 }
 
@@ -23,11 +24,11 @@ export function useCommissionRun(
   const hydrate = useChatStore((s) => s.hydrateConversationMessages)
   const [pending, setPending] = useState(false)
   const commission = useCallback(
-    async (question: string, context?: string): Promise<boolean> => {
+    async (question: string, context?: string, documents?: PlanDocuments): Promise<boolean> => {
       if (!projectId || !conversationId) return false
       setPending(true)
       try {
-        await commissionRun(projectId, { conversationId, question, context })
+        await commissionRun(projectId, { conversationId, question, context, documents })
         await hydrate(conversationId)
         return true
       } catch {

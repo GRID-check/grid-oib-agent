@@ -157,11 +157,13 @@ export const chat: typeof en.chat = {
   findings: {
     label: 'Befunde',
     page: 'S. {page}',
+    labelResults: 'Ergebnisse',
     columns: {
       requirement: 'Anforderung',
       value: 'Wert',
       reference: 'Fundstelle',
       status: 'Status',
+      note: 'Anmerkung',
     },
     status: {
       erfuellt: 'erfüllt',
@@ -810,6 +812,17 @@ export const chat: typeof en.chat = {
       },
       depth: 'Tiefe',
       depths: { kurzpruefung: 'Kurzprüfung', gutachten: 'Gutachten' },
+      unterlagen: {
+        label: 'Unterlagen',
+        grundlage: 'Vollständig lesen:',
+        ausgeschlossen: 'Ausgeschlossen:',
+        none: 'Keine Unterlagen benannt – die Recherche liest, was sie findet.',
+        choose: 'Unterlagen wählen',
+        removeRead: 'Nicht mehr vollständig lesen: {name}',
+        removeExcluded: 'Nicht mehr ausgeschlossen: {name}',
+      },
+      rahmen: 'Datengrundlage',
+      rahmenNote: 'Die im Eingabefeld gewählten Quellen. Ändern Sie sie dort, bevor Sie freigeben.',
     },
     awaitingOther: 'Piloti wartet auf {name}',
     awaitingSomeone: 'Piloti wartet auf eine andere Person',

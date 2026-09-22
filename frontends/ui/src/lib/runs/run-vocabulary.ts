@@ -23,6 +23,7 @@ import {
   type RunPhase,
   type RunStatus,
   type RunStep,
+  type RunLedgerDoc,
 } from './run-ledger-types'
 
 /** The three ways a phase reads on the rail and in the list. */
@@ -88,6 +89,36 @@ export function phaseState(ledger: RunLedger, phase: RunPhase): PhaseState {
 /** The steps the run took inside one phase, in the order they were taken. */
 export function stepsInPhase(ledger: RunLedger, phase: RunPhase): RunStep[] {
   return ledger.steps.filter((step) => step.phase === phase)
+}
+
+/**
+ * One Grundlage document against the steps: read (with the loci the steps
+ * reached it at) or not. The receipt principle: every document the reader
+ * named is either read, with where, or reported unread — never silently
+ * dropped.
+ */
+export interface GrundlageReceiptRow {
+  doc: RunLedgerDoc
+  read: boolean
+  loci: string[]
+}
+
+export function grundlageReceipt(ledger: RunLedger): GrundlageReceiptRow[] {
+  const named = ledger.grundlage ?? []
+  if (named.length === 0) return []
+  const reached = new Map<string, string[]>()
+  for (const step of ledger.steps) {
+    for (const doc of step.docs) {
+      const key = doc.name.toLocaleLowerCase()
+      const loci = reached.get(key) ?? []
+      for (const locus of doc.loci) if (!loci.includes(locus)) loci.push(locus)
+      reached.set(key, loci)
+    }
+  }
+  return named.map((doc) => {
+    const loci = reached.get(doc.name.toLocaleLowerCase())
+    return { doc, read: loci !== undefined, loci: loci ?? [] }
+  })
 }
 
 export function runTallies(ledger: RunLedger): RunTallies {

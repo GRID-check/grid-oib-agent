@@ -51,6 +51,41 @@ describe('continuationBrief', () => {
 
   it('says so when the report carried no findings', () => {
     expect(continuationBrief(message({})).context).toContain('(keine Befundliste vorhanden)')
+    expect(continuationBrief(message({})).documents).toBeUndefined()
+  })
+
+  it('names the office documents the last report drew on as the next run’s Grundlage', () => {
+    const brief = continuationBrief(
+      message({
+        citations: [
+          { id: '1', content: '', timestamp: new Date(), shelf: 'project', fileName: 'Einreichplan.pdf', title: 'Einreichplan EG' },
+          { id: '2', content: '', timestamp: new Date(), shelf: 'archiv', fileName: 'Muster.pdf' },
+          { id: '3', content: '', timestamp: new Date(), shelf: 'project', fileName: 'einreichplan.pdf' },
+          { id: '4', content: '', timestamp: new Date(), shelf: 'base', fileName: 'OIB-RL 2.pdf' },
+          { id: '5', content: '', timestamp: new Date(), url: 'https://ris.bka.gv.at/x' },
+        ],
+      })
+    )
+    expect(brief.documents).toEqual({
+      grundlage: [
+        { name: 'Einreichplan.pdf', title: 'Einreichplan EG', shelf: 'project' },
+        { name: 'Muster.pdf', shelf: 'archiv' },
+      ],
+      ausgeschlossen: [],
+    })
+  })
+
+  it('writes a row without a verdict without a status word', () => {
+    const brief = continuationBrief(
+      message({
+        findings: {
+          v: 1,
+          items: [{ requirement: 'Kriterium A', value: '12 m', grounding: 'belegt', citations: [] }],
+        },
+      })
+    )
+    expect(brief.context).toContain('- Kriterium A — 12 m')
+    expect(brief.context).not.toContain('Kriterium A — 12 m —')
   })
 })
 

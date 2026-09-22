@@ -322,6 +322,49 @@ class TestWriteNowRoute:
         assert response.status_code == 400
 
 
+class TestAddDocumentRoute:
+    @pytest.mark.asyncio
+    async def test_a_running_job_records_the_document(self, cancel_app, db_url):
+        app, job_store = cancel_app
+        job_store.get_job.return_value = _job("running")
+
+        with TestClient(app) as client:
+            response = client.post(
+                "/v1/jobs/async/job/job-1/documents",
+                json={"name": "Einreichplan.pdf", "title": "Einreichplan", "shelf": "project"},
+            )
+
+        assert response.status_code == 200
+        assert response.json() == {
+            "job_id": "job-1",
+            "document": {"name": "Einreichplan.pdf", "title": "Einreichplan", "shelf": "project"},
+        }
+        job_store.update_status.assert_not_awaited()
+        events = EventStore.get_events(db_url, "job-1")
+        assert [event["type"] for event in events] == ["job.document_added"]
+        assert events[0]["data"]["name"] == "Einreichplan.pdf"
+
+    @pytest.mark.asyncio
+    async def test_a_job_that_is_not_running_is_refused(self, cancel_app):
+        app, job_store = cancel_app
+        job_store.get_job.return_value = _job("success")
+
+        with TestClient(app) as client:
+            response = client.post("/v1/jobs/async/job/job-1/documents", json={"name": "Einreichplan.pdf"})
+
+        assert response.status_code == 400
+
+    @pytest.mark.asyncio
+    async def test_a_body_without_a_name_is_refused(self, cancel_app):
+        app, job_store = cancel_app
+        job_store.get_job.return_value = _job("running")
+
+        with TestClient(app) as client:
+            response = client.post("/v1/jobs/async/job/job-1/documents", json={"title": "Einreichplan"})
+
+        assert response.status_code == 422
+
+
 class TestTheMonitorHearsTheRequest:
     def test_the_write_now_event_sets_the_signal_and_advances_the_cursor(self):
         from aiq_api.jobs.runner import WRITE_NOW_EVENT_TYPE
@@ -331,6 +374,26 @@ class TestTheMonitorHearsTheRequest:
         monitor._note_control_events([{"_id": 3, "type": "job.heartbeat"}, {"_id": 4, "type": WRITE_NOW_EVENT_TYPE}])
         assert monitor.write_now.is_set()
         assert monitor._last_event_id == 4
+
+    def test_a_document_event_joins_the_added_list_once_and_calls_the_hook(self):
+        from aiq_api.jobs.runner import DOCUMENT_ADDED_EVENT_TYPE
+        from aiq_api.jobs.runner import CancellationMonitor
+
+        monitor = CancellationMonitor(scheduler_address="tcp://x", db_url="sqlite://", job_id="job-1")
+        seen: list[str] = []
+        monitor.on_document_added = lambda doc: seen.append(doc.name)
+        monitor._note_control_events(
+            [
+                {"_id": 5, "type": DOCUMENT_ADDED_EVENT_TYPE, "data": {"name": "Einreichplan.pdf", "shelf": "project"}},
+                {"_id": 6, "type": DOCUMENT_ADDED_EVENT_TYPE, "data": {"name": "einreichplan.pdf"}},
+                {"_id": 7, "type": DOCUMENT_ADDED_EVENT_TYPE, "data": {"title": "kein Name"}},
+                {"_id": 8, "type": DOCUMENT_ADDED_EVENT_TYPE, "data": "not a row"},
+            ]
+        )
+        assert [doc.name for doc in monitor.added_documents] == ["Einreichplan.pdf"]
+        assert seen == ["Einreichplan.pdf"]
+        assert monitor._last_event_id == 8
+        assert not monitor.write_now.is_set()
 
     def test_other_events_leave_the_signal_alone(self):
         from aiq_api.jobs.runner import CancellationMonitor

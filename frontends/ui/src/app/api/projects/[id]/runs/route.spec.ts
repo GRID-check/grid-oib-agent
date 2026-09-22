@@ -65,7 +65,29 @@ describe('POST /api/projects/[id]/runs', () => {
         conversationId: 's_conv',
         question: 'Fluchtweg klären',
         context: 'Befund offen',
+        documents: null,
       }
+    )
+  })
+
+  it('carries a continuation’s Grundlage into the commission', async () => {
+    vi.mocked(commissionResearchRun).mockResolvedValue({
+      runId: 'run-2',
+      runMessageId: 'msg-2',
+      conversationId: 's_conv',
+      status: 'queued',
+    } as never)
+    const response = await post({
+      conversationId: 's_conv',
+      question: 'Fortschreibung: Bericht',
+      documents: { grundlage: [{ name: 'Einreichplan.pdf', shelf: 'project' }], ausgeschlossen: [] },
+    })
+    expect(response.status).toBe(201)
+    expect(commissionResearchRun).toHaveBeenCalledWith(
+      expect.objectContaining({ userId: 'user_1' }),
+      expect.objectContaining({
+        documents: { grundlage: [{ name: 'Einreichplan.pdf', shelf: 'project' }], ausgeschlossen: [] },
+      })
     )
   })
 

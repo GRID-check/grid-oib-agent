@@ -29,6 +29,10 @@ which both sides validate. One row per requirement:
 - `requirement`, `value` — the noun phrase and the copyable value.
 - `status` — `erfuellt | nicht_erfuellt | offen | nicht_anwendbar`; `offen`
   means the report could not decide (a missing project fact, a pending Behörde).
+  Null for a row the report states without judging it — a Vergleich's
+  criterion, an Aktenvermerk's point — so the matrix is headed „Ergebnisse"
+  rather than „Befunde" and wears no verdict it did not give
+  (`Findings.judged()`, `hasFindingStatuses`).
 - `grounding` — `belegt` when a cited passage states it, `abgeleitet` when it is
   computed from cited values, `offen` when no source carries it.
 - `reference`, `citations` — the document and Punkt or page, and the `[N]` the
@@ -55,6 +59,43 @@ writer (`factory.py` `prompt_values`); the sections become the required
 components in that order, the genre the answer type, the depth the length. The
 `pruefbericht-writer` skill writes the genre's core, one Befund line per
 Prüfpunkt in a fixed shape, which is also what the findings extraction reads.
+
+### Unterlagen: what the run reads, and what it may not
+
+The plan card names documents as well as sections. The fence carries the turn's
+inventory (`unterlagen`, the project's and the Archiv's documents by name,
+title and shelf), and a dialog over the card (`UnterlagenDialog.tsx`, mode
+`pick`) lets the reader mark each one:
+
+- **Grundlage** — read in full, whatever else the research finds. The planner
+  is told to plan one dedicated query per document; the finalizer marks any it
+  never opened (`## Nicht gelesene Unterlagen`, degraded token
+  `grundlage_unread`), and the block's receipt lists each one as read, with
+  the loci the rounds reached, or unread (`run-vocabulary.grundlageReceipt`).
+- **Ausgeschlossen** — never used, not even when a search returns it. Enforced
+  at the root, in the source registry: `SourceRegistryMiddleware` refuses the
+  file name before it becomes a citable source, so no prompt discipline is
+  relied on. An exclusion beats a Grundlage mark for the same name.
+- **Rahmen** — the composer's data-source toggles at the moment of approval,
+  shown as chips on the card and carried as `data_sources` in the approval.
+
+The names travel as `grundlage` / `ausgeschlossen` in the approval JSON
+(`clarify.apply_plan_edits`), are resolved against the inventory
+(`common/plan_documents.py` — `documents_from_plan`) and reach the worker as
+`documents` on the submission (`turn/commission.py`, the BFF's `TaskPlan`,
+`submitAgentRun`, `POST /v1/internal/skills/submit`) beside the approved plan
+as `clarifier_result`. `MAX_PLAN_DOCUMENTS` (20) bounds each list on every
+side.
+
+While the run goes, „Dokument hinzufügen" on the block opens the same dialog
+in mode `add`: the addition travels as a job event
+(`POST /v1/jobs/async/job/{id}/documents` → `job.document_added`), the
+worker's monitor hands it to the research tool before its next batch
+(`deep_researcher/control.py` — `take_added_documents`, an
+`ADDED_DOCUMENTS_NOTICE` on the batch result) and to the ledger fold, so the
+receipt shows the new row at once. „Bericht fortschreiben" names the last
+report's cited project and Archiv documents as the next run's Grundlage
+(`carry-forward.ts` — `reportDocuments`).
 
 ## While the run is going
 

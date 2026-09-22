@@ -39,6 +39,7 @@ from aiq_agent.common.canned_replies import GENERIC_ERROR_MESSAGE
 from aiq_agent.common.canned_replies import NO_SOURCES_MESSAGE
 from aiq_agent.common.citation_verification import EmptySourceRegistryError
 from aiq_agent.common.job_admission import JobAdmissionError
+from aiq_agent.common.plan_documents import PlanDocuments
 from aiq_agent.common.platform_lessons import render_lessons_block
 from aiq_agent.common.profiler import profiled_node
 from aiq_agent.common.tool_validation import format_user_facing_tool_error
@@ -291,7 +292,12 @@ def _answer_message(new_messages: list[BaseMessage]) -> BaseMessage | None:
 
 
 def _deep_handoff(
-    original_query: str | None, escalation_reason: str | None, clarifier_result: str | None = None
+    original_query: str | None,
+    escalation_reason: str | None,
+    clarifier_result: str | None = None,
+    *,
+    data_sources: list[str] | None = None,
+    plan_documents: PlanDocuments | None = None,
 ) -> Command:
     update: dict[str, Any] = {
         "original_query": original_query,
@@ -300,6 +306,12 @@ def _deep_handoff(
     }
     if clarifier_result is not None:
         update["clarifier_result"] = clarifier_result
+    # The Rahmen the reader approved the plan under replaces the turn's own
+    # sources: it IS the composer's Datengrundlage at the moment of approval.
+    if data_sources is not None:
+        update["data_sources"] = data_sources
+    if plan_documents is not None:
+        update["plan_documents"] = plan_documents
     return Command(goto="deep_research", update=update)
 
 
@@ -410,7 +422,13 @@ class ConversationGraph:
             return _plan_cancelled(original_query)
         if result.outcome == "shallow":
             return _plan_rejected(original_query)
-        return _deep_handoff(original_query, escalation_reason, result.research_context)
+        return _deep_handoff(
+            original_query,
+            escalation_reason,
+            result.research_context,
+            data_sources=result.data_sources,
+            plan_documents=result.documents,
+        )
 
     def _research_input(self, state: ConversationState, trimmed: list[BaseMessage]) -> ResearchAgentState:
         return ResearchAgentState(
@@ -537,6 +555,7 @@ class ConversationGraph:
             messages=self._trimmed(state) + [HumanMessage(content=research_query)],
             data_sources=state.data_sources,
             clarifier_result=state.clarifier_result,
+            plan_documents=state.plan_documents,
             available_documents=state.available_documents,
             user_info=state.user_info,
             project_context=state.project_context,

@@ -1,0 +1,18 @@
+---
+features:
+  - >
+    Im Rechercheplan wählen Sie unter „Unterlagen“ aus Projekt und Büroarchiv,
+    was die Tiefenrecherche vollständig liest („Lesen“) und was sie nie
+    verwendet („Ausschließen“); die Chips unter „Rahmen“ zeigen die
+    durchsuchten Quellen. Ausgeschlossene Dokumente werden auch dann nicht
+    zitiert, wenn eine Suche sie findet.
+  - >
+    Während ein Auftrag läuft, fügt „Dokument hinzufügen“ am Laufblock eine
+    weitere Unterlage hinzu. Der Block zeigt für jede benannte Unterlage, ob
+    und wo sie gelesen wurde; ein Bericht, der eine nicht erreicht hat, nennt
+    sie unter „Nicht gelesene Unterlagen“. „Bericht fortschreiben“ übernimmt die
+    zitierten Unterlagen als Grundlage.
+  - >
+    Eine Ergebnistabelle in einem Vergleich oder Aktenvermerk trägt kein
+    Urteil mehr, das der Bericht nicht gefällt hat: sie heißt „Ergebnisse“
+    statt „Befunde“ und zeigt Wert, Fundstelle und Anmerkung.

@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { findingCounts, sanitizeFindings } from './message-findings'
+import { findingCounts, hasFindingStatuses, sanitizeFindings } from './message-findings'
 
 const FIXTURE_PATH = resolve(__dirname, '../../../../../tests/fixtures/findings/wire_payload.json')
 const fixture = JSON.parse(readFileSync(FIXTURE_PATH, 'utf-8')) as Record<string, unknown>
@@ -55,6 +55,25 @@ describe('sanitizeFindings', () => {
     expect(findings?.items[0]?.requirement).toHaveLength(200)
     expect(findings?.items[0]?.comment).toHaveLength(600)
     expect(findings?.items[0]?.citations).toEqual([1, 3, 4, 5, 6, 7, 8, 9])
+  })
+
+  it('keeps a row without a verdict, and drops one with a verdict it does not know', () => {
+    const findings = sanitizeFindings({
+      items: [
+        { requirement: 'Kriterium', value: '12 m', grounding: 'belegt' },
+        { requirement: 'B', status: 'vielleicht', grounding: 'belegt' },
+      ],
+    })
+    expect(findings?.items).toEqual([
+      { requirement: 'Kriterium', value: '12 m', grounding: 'belegt', citations: [] },
+    ])
+    expect(hasFindingStatuses(findings!)).toBe(false)
+    expect(findingCounts(findings!)).toEqual({
+      erfuellt: 0,
+      nicht_erfuellt: 0,
+      offen: 0,
+      nicht_anwendbar: 0,
+    })
   })
 
   it('is null for nothing usable, never an empty table', () => {

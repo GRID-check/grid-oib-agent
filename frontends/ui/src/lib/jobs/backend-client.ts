@@ -11,6 +11,7 @@
  */
 
 import 'server-only'
+import type { PlanDocument, PlanDocuments } from '@/lib/runs/plan-documents'
 
 /**
  * Backend base URL — same resolution as `getBackendUrl` in
@@ -61,6 +62,10 @@ export interface JobSubmitPayload {
    * row behind it.
    */
   run_id?: string
+  /** The commissioning turn's settled context; the worker sets it on the agent state. */
+  clarifier_result?: string
+  /** The Unterlagen the reader named on the plan card (`lib/runs/plan-documents`). */
+  documents?: PlanDocuments
   data_sources: string[] | null
   collection_scope: string[] | null
   project_context: string | null
@@ -227,10 +232,24 @@ export async function writeNowBackendJob(
   return postJobControl(backendJobId, 'write-now', accessToken)
 }
 
+/**
+ * Add a document to the Grundlage of a running deep research: the worker
+ * plans one dedicated research query for it in its next batch, and the run
+ * block lists it beside the other Grundlage. Same door, same errors.
+ */
+export async function addDocumentToBackendJob(
+  backendJobId: string,
+  document: PlanDocument,
+  accessToken: string | null
+): Promise<void> {
+  return postJobControl(backendJobId, 'documents', accessToken, document)
+}
+
 async function postJobControl(
   backendJobId: string,
-  action: 'cancel' | 'write-now',
-  accessToken: string | null
+  action: 'cancel' | 'write-now' | 'documents',
+  accessToken: string | null,
+  body?: unknown
 ): Promise<void> {
   let response: Response
   try {
@@ -240,8 +259,10 @@ async function postJobControl(
         method: 'POST',
         headers: {
           Accept: 'application/json',
+          ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}),
           ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
         },
+        ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
       }
     )
   } catch (err) {

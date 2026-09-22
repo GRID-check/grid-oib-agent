@@ -3,6 +3,7 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
+  addDocumentToBackendJob,
   cancelBackendJob,
   JobCancelError,
   JobSubmitError,
@@ -128,5 +129,27 @@ describe('cancelBackendJob', () => {
     })
     fetchMock.mockRejectedValue(new TypeError('network down'))
     await expect(cancelBackendJob('job-1', 'tok')).rejects.toMatchObject({ status: 503 })
+  })
+})
+
+describe('addDocumentToBackendJob', () => {
+  it('posts the document as JSON to the job’s documents door, as the caller', async () => {
+    fetchMock.mockResolvedValue(new Response('{}', { status: 200 }))
+    await expect(
+      addDocumentToBackendJob('job 1', { name: 'Einreichplan.pdf', shelf: 'project' }, 'tok'),
+    ).resolves.toBeUndefined()
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit]
+    expect(url).toBe('http://backend:8000/v1/jobs/async/job/job%201/documents')
+    expect(init.method).toBe('POST')
+    expect(headersOf(init).Authorization).toBe('Bearer tok')
+    expect(headersOf(init)['Content-Type']).toBe('application/json')
+    expect(JSON.parse(init.body as string)).toEqual({ name: 'Einreichplan.pdf', shelf: 'project' })
+  })
+
+  it('carries the backend’s refusal the way the cancel does', async () => {
+    fetchMock.mockResolvedValue(new Response('Job not running: job-1', { status: 400 }))
+    await expect(
+      addDocumentToBackendJob('job-1', { name: 'Einreichplan.pdf' }, 'tok'),
+    ).rejects.toMatchObject({ status: 400, message: 'Job not running: job-1' })
   })
 })

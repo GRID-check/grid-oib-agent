@@ -90,6 +90,37 @@ export const runs = {
    * stops a hand on this button is losing the two rounds already researched —
    * and they are kept.
    */
+  /**
+   * The Unterlagen: the documents the reader named for the run. The receipt
+   * says which were read and where; the picker over the thread names more.
+   */
+  unterlagen: {
+    receiptLabel: 'Documents named for this task',
+    receipt: '{read} of {total} named documents read',
+    unread: 'not read',
+    open: 'Open {name}',
+    addAction: 'Add document',
+    addTitle: 'Add a document',
+    addDescription:
+      'Piloti reads it in full in the next research round and lists it with the other documents named for this task.',
+    pickTitle: 'Choose documents',
+    pickDescription:
+      '„Read" means read in full, whatever else the research finds. „Exclude" means never used, not even when a search returns it.',
+    search: 'Search documents',
+    searchPlaceholder: 'Search by name …',
+    list: 'Documents',
+    loading: 'Loading documents …',
+    empty: 'No documents match.',
+    read: 'Read',
+    exclude: 'Exclude',
+    markRead: 'Read in full: {name}',
+    markExcluded: 'Exclude: {name}',
+    add: 'Add',
+    addOne: 'Add {name}',
+    alreadyNamed: 'named',
+    done: 'Done',
+    shelf: { project: 'Project', archiv: 'Office archive', session: 'This chat', base: 'Regulations' },
+  },
   cancel: {
     confirmTitle: 'Stop this task?',
     confirmBody:

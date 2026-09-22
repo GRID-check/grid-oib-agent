@@ -22,13 +22,17 @@
  * `ChatArea`; a second copy here would drift on the first added prop.
  */
 
-import { useEffect, useRef, type ReactNode } from 'react'
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { motion, motionEntrance, motionInstant } from '@/components/motion'
 import type { ChatMessage } from '@/features/chat/types'
 import { useReducedMotion } from '@/hooks/use-reduced-motion'
 import type { RunStatus } from '@/lib/runs/run-ledger-types'
 import { runDisplayStatus } from '@/lib/runs/run-vocabulary'
 import { useRunLedger } from '../hooks/use-run-ledger'
+import { useProjectInventory } from '../hooks/use-project-inventory'
+import { UnterlagenDialog } from './UnterlagenDialog'
+import { openFilePeek } from '@/features/documents/lib/open-file-peek'
+import type { RunLedgerDoc } from '@/lib/runs/run-ledger-types'
 import { landingDelays } from '../lib/choreography'
 import { RunBlock } from './RunBlock'
 
@@ -54,12 +58,34 @@ export function RunBlockMessage({
   answer,
   onContinue,
 }: RunBlockMessageProps): JSX.Element | null {
-  const { ledger, live, cancel, writeNow, connection } = useRunLedger({
+  const { ledger, live, cancel, writeNow, addDocument, connection } = useRunLedger({
     message,
     projectId,
     conversationId,
   })
   const reduced = useReducedMotion()
+  // The picker for „Unterlage hinzufügen", and the reader behind a receipt
+  // chip: both dialogs over the thread, and both read the same listing, which
+  // is fetched only once one of them is wanted.
+  const [picking, setPicking] = useState(false)
+  const [wantsInventory, setWantsInventory] = useState(false)
+  const inventory = useProjectInventory(projectId ?? null, wantsInventory)
+  const openDocument = useCallback(
+    (doc: RunLedgerDoc): void => {
+      setWantsInventory(true)
+      const key = doc.name.trim().toLocaleLowerCase()
+      const found = inventory.documents?.find((row) => row.name.trim().toLocaleLowerCase() === key)
+      if (!found) return
+      openFilePeek({
+        file: found.file,
+        source: found.source,
+        projectId: projectId ?? null,
+        presentation: 'modal',
+        bindComposerSubject: false,
+      })
+    },
+    [inventory.documents, projectId]
+  )
   // A report that arrives while the reader is watching rises AFTER the block
   // has finished saying how the run ended: the verdict first, the document
   // second. A thread scrolled back to weeks later has both at once — nothing
@@ -85,8 +111,28 @@ export function RunBlockMessage({
         connection={connection}
         onCancel={cancel}
         onWriteNow={writeNow}
+        onAddDocument={
+          addDocument
+            ? () => {
+                setWantsInventory(true)
+                setPicking(true)
+              }
+            : null
+        }
+        onOpenDocument={projectId ? openDocument : null}
         onContinue={onContinue ?? null}
       />
+      {addDocument && (
+        <UnterlagenDialog
+          mode="add"
+          open={picking}
+          onOpenChange={setPicking}
+          documents={inventory.documents ?? []}
+          loading={inventory.loading}
+          named={(ledger.grundlage ?? []).map((doc) => doc.name)}
+          onAdd={(doc) => addDocument(doc)}
+        />
+      )}
       {showAnswer ? (
         <motion.div
           initial={rises ? { opacity: 0, y: 6 } : false}

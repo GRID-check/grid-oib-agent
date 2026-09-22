@@ -33,6 +33,22 @@ describe('FindingsMatrix', () => {
     expect(screen.getByText('REI 60')).toBeInTheDocument()
   })
 
+  test('a table of rows without verdicts is headed Results, with no status column', () => {
+    const results: Findings = {
+      v: 1,
+      items: [
+        { requirement: 'Variante A', value: '12 m', grounding: 'belegt', citations: [1] },
+        { requirement: 'Variante B', value: '15 m', grounding: 'belegt', citations: [2] },
+      ],
+    }
+    render(<FindingsMatrix findings={results} anchorPrefix="src-" />)
+    expect(screen.getByTestId('findings-matrix')).toHaveAttribute('data-judged', 'false')
+    expect(screen.getByText(en.chat.findings.labelResults)).toBeInTheDocument()
+    expect(screen.queryByText(en.chat.findings.columns.status)).not.toBeInTheDocument()
+    expect(screen.getByText(en.chat.findings.columns.note)).toBeInTheDocument()
+    expect(screen.queryByText(en.chat.findings.status.offen)).not.toBeInTheDocument()
+  })
+
   test('the [N] jumps to the answer’s own sources row', () => {
     render(<FindingsMatrix findings={findings} anchorPrefix="src-" />)
     expect(screen.getByText('[1]').closest('a')).toHaveAttribute('href', '#src-1')

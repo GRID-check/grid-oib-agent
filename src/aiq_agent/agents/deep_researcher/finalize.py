@@ -35,6 +35,7 @@ from aiq_agent.common.turn_status import CUTOFF_STEP_LIMIT
 from aiq_agent.common.turn_status import CUTOFF_UPSTREAM_TIMEOUT
 from aiq_agent.common.turn_status import CUTOFF_USER_REQUESTED
 from aiq_agent.common.turn_status import CUTOFF_WALL_CLOCK
+from aiq_agent.common.turn_status import DEGRADED_GRUNDLAGE_UNREAD
 from aiq_agent.common.turn_status import DEGRADED_NO_VALID_CITATIONS
 from aiq_agent.common.turn_status import DEGRADED_UNVERIFIED_QUOTES
 from aiq_agent.common.turn_status import emit_answer_degraded
@@ -512,6 +513,35 @@ class FinalizedReport:
     confidence: ConfidenceLevel | None
     confidence_reason: str | None
     confidence_capped_reason: str | None
+    #: The Grundlage the run did not reach, by file name. Empty when every
+    #: named document has a passage in the registry, or none was named.
+    grundlage_unread: list[str] = field(default_factory=list)
+
+
+def _append_unread_grundlage(report: str, unread: Sequence[str]) -> str:
+    """Name, at the end of the report, the Grundlage the run never reached.
+
+    At the END, as its own section, in the report's language: the banner at
+    the top says the report is weaker, this says exactly which document the
+    reader still has to read themselves. Never silent — a Grundlage is a
+    promise the reader made the run keep, and a report that dropped it would
+    read as if the document said nothing.
+    """
+    if not unread:
+        return report
+    from aiq_agent.common.query_expansion import detect_language
+
+    english = detect_language(report[:4000]) == "en"
+    heading = "## Documents not read" if english else "## Nicht gelesene Unterlagen"
+    lead = (
+        "These documents were named as the basis of this research and could not be read; "
+        "their contents are not reflected above:"
+        if english
+        else "Diese Unterlagen waren als Grundlage benannt und konnten nicht gelesen werden; "
+        "ihr Inhalt ist oben nicht berücksichtigt:"
+    )
+    lines = "\n".join(f"- {name}" for name in unread)
+    return f"{report.rstrip()}\n\n{heading}\n\n{lead}\n\n{lines}\n"
 
 
 def finalize_report(
@@ -521,6 +551,7 @@ def finalize_report(
     self_confidence_reason: str | None,
     degraded_reasons: list[str],
     cutoff_reason: str | None,
+    grundlage_unread: Sequence[str] = (),
 ) -> FinalizedReport:
     """Sanitise, renumber, banner and grade the verified report.
 
@@ -531,6 +562,8 @@ def finalize_report(
     ceiling cap it.
     """
     degraded = [*degraded_reasons, *verification.degraded_reasons]
+    if grundlage_unread:
+        degraded.append(DEGRADED_GRUNDLAGE_UNREAD)
     sanitization = sanitize_report(verification.report)
     wire_sources = _apply_renumbering(
         verification.wire_sources,
@@ -538,7 +571,9 @@ def finalize_report(
         getattr(sanitization, "removed_citation_numbers", None),
     )
     report = _prepend_honesty_banner(
-        sanitization.sanitized_report, cutoff_reason=cutoff_reason, degraded_reasons=degraded
+        _append_unread_grundlage(sanitization.sanitized_report, grundlage_unread),
+        cutoff_reason=cutoff_reason,
+        degraded_reasons=degraded,
     )
     grounded, quotes_ok = verification.citation_grounded, verification.quotes_verified
     confidence = _cap_for_incomplete_evidence(
@@ -556,6 +591,7 @@ def finalize_report(
         confidence=confidence,
         confidence_reason=self_confidence_reason if confidence is not None else None,
         confidence_capped_reason=capped_reason if confidence is not None else None,
+        grundlage_unread=list(grundlage_unread),
     )
 
 
@@ -594,6 +630,8 @@ def annotate_state(result: Any, finalized: FinalizedReport, skill_runtime: Skill
     if finalized.degraded_reasons:
         set_state_field(result, "degraded_reasons", list(finalized.degraded_reasons))
         emit_answer_degraded(agent="deep", reasons=finalized.degraded_reasons)
+    if finalized.grundlage_unread:
+        set_state_field(result, "grundlage_unread", list(finalized.grundlage_unread))
     if finalized.confidence is None:
         return
     set_state_field(result, "answer_confidence", finalized.confidence)

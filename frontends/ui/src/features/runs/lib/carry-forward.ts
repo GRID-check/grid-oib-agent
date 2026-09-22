@@ -7,14 +7,21 @@
  */
 
 import type { ChatMessage } from '@/features/chat/types'
-import type { Finding, Findings } from '@/lib/conversations/message-findings'
+import type { Finding, Findings, FindingStatus } from '@/lib/conversations/message-findings'
+import {
+  MAX_PLAN_DOCUMENTS,
+  type PlanDocument,
+  type PlanDocuments,
+} from '@/lib/runs/plan-documents'
 
 export interface RunBrief {
   question: string
   context?: string
+  /** The Unterlagen the run starts from: a continuation reads what the last report read. */
+  documents?: PlanDocuments
 }
 
-const STATUS_WORD: Record<Finding['status'], string> = {
+const STATUS_WORD: Record<FindingStatus, string> = {
   erfuellt: 'erfüllt',
   nicht_erfuellt: 'nicht erfüllt',
   offen: 'offen',
@@ -24,7 +31,7 @@ const STATUS_WORD: Record<Finding['status'], string> = {
 const findingLine = (finding: Finding): string => {
   const parts = [finding.requirement]
   if (finding.value) parts.push(finding.value)
-  parts.push(STATUS_WORD[finding.status])
+  if (finding.status) parts.push(STATUS_WORD[finding.status])
   if (finding.reference) {
     parts.push([finding.reference.document, finding.reference.section].filter(Boolean).join(' '))
   }
@@ -42,6 +49,28 @@ export function findingBrief(finding: Finding): RunBrief {
   return { question, context }
 }
 
+/**
+ * The office's own documents the last report drew on, as the next run's
+ * Grundlage: what was read once is read again, in full, so a Fortschreibung
+ * starts from the same paper and not from a fresh search. Regulations and
+ * the web are not documents to name — the run finds them on its own.
+ */
+export function reportDocuments(message: ChatMessage): PlanDocument[] {
+  const out: PlanDocument[] = []
+  const seen = new Set<string>()
+  for (const source of message.citations ?? []) {
+    if (source.shelf !== 'project' && source.shelf !== 'archiv') continue
+    const name = source.fileName?.trim()
+    if (!name) continue
+    const key = name.toLocaleLowerCase()
+    if (seen.has(key) || out.length >= MAX_PLAN_DOCUMENTS) continue
+    seen.add(key)
+    const title = source.title?.trim()
+    out.push({ name, ...(title && title !== name ? { title } : {}), shelf: source.shelf })
+  }
+  return out
+}
+
 /** The brief for carrying a finished report forward. */
 export function continuationBrief(message: ChatMessage): RunBrief {
   const title = message.runTitle?.trim() || 'Bericht'
@@ -52,7 +81,10 @@ export function continuationBrief(message: ChatMessage): RunBrief {
     ...(lines.length > 0 ? lines : ['(keine Befundliste vorhanden)']),
     'Prüfen Sie jeden Befund gegen den aktuellen Projektstand, kennzeichnen Sie, was sich geändert hat, und schließen Sie offene Punkte, wo die Quellen es erlauben.',
   ].join('\n')
-  return { question, context }
+  const grundlage = reportDocuments(message)
+  return grundlage.length > 0
+    ? { question, context, documents: { grundlage, ausgeschlossen: [] } }
+    : { question, context }
 }
 
 /**

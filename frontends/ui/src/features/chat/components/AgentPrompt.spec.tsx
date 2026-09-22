@@ -4,6 +4,7 @@ import { vi, describe, test, expect, beforeEach } from 'vitest'
 import { AgentPrompt } from './AgentPrompt'
 import { en } from '@/i18n/dictionaries'
 import { useChatStore } from '../store'
+import { useLayoutStore } from '@/features/layout/store'
 
 // Mock MarkdownRenderer
 vi.mock('@/shared/components/MarkdownRenderer', () => ({
@@ -540,6 +541,55 @@ describe('AgentPrompt — the plan card', () => {
       sections: ['Gebäudeklasse', 'Landesabweichungen'],
       genre: 'pruefbericht',
       depth: 'gutachten',
+      grundlage: [],
+      ausgeschlossen: [],
+    })
+  })
+
+  test('the composer’s sources travel with the approval as the Rahmen', async () => {
+    const respond = vi.fn()
+    useChatStore.setState({ respondToInteractionFn: respond })
+    useLayoutStore.setState({
+      enabledDataSourceIds: ['knowledge_base'],
+      availableDataSources: [
+        { id: 'knowledge_base', name: 'Wissensbasis' },
+        { id: 'web_search', name: 'Web' },
+      ],
+    })
+    try {
+      render(<AgentPrompt id="prompt-1" type="approval" content={CONTENT} />)
+      expect(screen.getByTestId('plan-rahmen')).toHaveTextContent('Wissensbasis')
+      expect(screen.getByTestId('plan-rahmen')).not.toHaveTextContent('Web')
+      await userEvent.setup().click(screen.getByRole('button', { name: /approve plan/i }))
+      const reply = respond.mock.calls[0]?.[0] as string
+      expect(JSON.parse(reply.slice('approve '.length))).toMatchObject({
+        data_sources: ['knowledge_base'],
+      })
+    } finally {
+      useLayoutStore.setState({ enabledDataSourceIds: [], availableDataSources: null })
+    }
+  })
+
+  test('the documents the reader names travel with the approval', async () => {
+    const user = userEvent.setup()
+    const respond = vi.fn()
+    useChatStore.setState({ respondToInteractionFn: respond })
+    const content = CONTENT.replace(
+      '"depth":"kurzpruefung"',
+      '"depth":"kurzpruefung","grundlage":[],"ausgeschlossen":[],"unterlagen":[{"name":"Einreichplan.pdf","title":"Einreichplan EG","shelf":"project"},{"name":"alt.pdf","shelf":"archiv"}]'
+    )
+    render(<AgentPrompt id="prompt-1" type="approval" content={content} />)
+    await user.click(screen.getByTestId('plan-unterlagen-pick'))
+    await user.click(screen.getByRole('button', { name: 'Read in full: Einreichplan EG' }))
+    await user.click(screen.getByRole('button', { name: 'Exclude: alt.pdf' }))
+    await user.click(screen.getByRole('button', { name: 'Done' }))
+    expect(screen.getByTestId('plan-grundlage')).toHaveTextContent('Einreichplan EG')
+    expect(screen.getByTestId('plan-ausgeschlossen')).toHaveTextContent('alt.pdf')
+    await user.click(screen.getByRole('button', { name: /approve plan/i }))
+    const reply = respond.mock.calls[0]?.[0] as string
+    expect(JSON.parse(reply.slice('approve '.length))).toMatchObject({
+      grundlage: ['Einreichplan.pdf'],
+      ausgeschlossen: ['alt.pdf'],
     })
   })
 

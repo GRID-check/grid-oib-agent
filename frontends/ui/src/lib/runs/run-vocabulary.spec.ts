@@ -27,6 +27,7 @@ import {
   activePhase,
   completedBefore,
   elapsedMs,
+  grundlageReceipt,
   isLiveStatus,
   phaseDurationMs,
   phaseState,
@@ -195,5 +196,48 @@ describe('elapsedMs and phaseDurationMs', () => {
   it('stops an open phase at the run’s end once the run is terminal', () => {
     const failed = failRun(researching(), 'Budget', at(70))
     expect(phaseDurationMs(failed, 'recherchieren', at(1000).getTime())).toBe(58_000)
+  })
+})
+
+describe('grundlageReceipt', () => {
+  it('reads every named document against the steps: read with its loci, or unread', () => {
+    const ledger: RunLedger = {
+      ...researching(),
+      grundlage: [
+        { name: 'grundriss eg', title: 'Grundriss EG', shelf: 'project', loci: [] },
+        { name: 'Einreichplan.pdf', shelf: 'project', loci: [] },
+      ],
+    }
+    const receipt = grundlageReceipt(ledger)
+    expect(receipt.map((row) => [row.doc.name, row.read, row.loci])).toEqual([
+      ['grundriss eg', true, ['S. 1']],
+      ['Einreichplan.pdf', false, []],
+    ])
+  })
+
+  it('collects the loci across rounds, once each, for a document reached twice', () => {
+    let ledger = researching()
+    ledger = appendStep(
+      ledger,
+      {
+        ...step('r3', 'recherchieren', ['Grundriss EG'], 60),
+        docs: [{ name: 'Grundriss EG', loci: ['Achse C–E', 'S. 2'] }],
+      },
+      at(60)
+    )
+    ledger = appendStep(
+      ledger,
+      {
+        ...step('r4', 'recherchieren', ['Grundriss EG'], 70),
+        docs: [{ name: 'Grundriss EG', loci: ['S. 2', 'S. 3'] }],
+      },
+      at(70)
+    )
+    const withNamed: RunLedger = { ...ledger, grundlage: [{ name: 'Grundriss EG', loci: [] }] }
+    expect(grundlageReceipt(withNamed)[0]?.loci).toEqual(['S. 1', 'Achse C–E', 'S. 2', 'S. 3'])
+  })
+
+  it('is empty for a run nobody named documents for', () => {
+    expect(grundlageReceipt(researching())).toEqual([])
   })
 })

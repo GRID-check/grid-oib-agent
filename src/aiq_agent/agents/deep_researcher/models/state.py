@@ -10,6 +10,7 @@ from pydantic import BaseModel
 from pydantic import Field
 
 from aiq_agent.common.message_utils import content_to_text
+from aiq_agent.common.plan_documents import PlanDocuments
 from aiq_agent.knowledge import AvailableDocument
 
 
@@ -47,6 +48,14 @@ class DeepResearchAgentState(BaseModel):
     todos: list[dict[str, Any]] = Field(default_factory=list)
     files: Annotated[dict[str, Any], _merge_dict_state] = Field(default_factory=dict)
     clarifier_result: str | None = None
+    # The Unterlagen the reader named on the plan card: Grundlage to read in
+    # full, Ausgeschlossen never to use. The prompts state both, the source
+    # registry refuses an excluded document, and the report names a Grundlage
+    # document the run never reached.
+    plan_documents: PlanDocuments | None = None
+    # The Grundlage the run did NOT reach, by file name. Set by ``run()`` only
+    # when there is one, so presence is the fact.
+    grundlage_unread: list[str] | None = None
     available_documents: list[AvailableDocument] | None = None
     project_context: str | None = None
     # The rendered PLATFORM_LESSONS block — anonymized fleet-wide process

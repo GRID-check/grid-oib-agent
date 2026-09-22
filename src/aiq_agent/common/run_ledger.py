@@ -77,6 +77,9 @@ MAX_FINDINGS_PER_STEP = 8
 MAX_FINDING_CHARS = 200
 MAX_ERROR_REASON_CHARS = 400
 MAX_REFERENCE_ID_CHARS = 128
+#: The Grundlage the reader named, mirrored from ``plan_documents`` so the
+#: block can print the receipt (read with loci, or unread) beside the steps.
+MAX_GRUNDLAGE_DOCS = 20
 
 
 class _Wire(BaseModel):
@@ -157,6 +160,9 @@ class RunLedger(_Wire):
     steps: list[RunStep] = Field(default_factory=list, max_length=MAX_STEPS)
     result: RunResult | None = None
     error: RunError | None = None
+    #: The documents the reader named as Grundlage (loci empty: the receipt is
+    #: read off the steps). Absent when none was named.
+    grundlage: list[RunLedgerDoc] | None = Field(default=None, max_length=MAX_GRUNDLAGE_DOCS)
     started_at: str = Field(alias="startedAt")
     updated_at: str = Field(alias="updatedAt")
     finished_at: str | None = Field(default=None, alias="finishedAt")
@@ -191,6 +197,8 @@ class RunLedgerAppendRequest(_Wire):
     steps: list[RunStep] | None = Field(default=None, max_length=MAX_STEPS)
     phases: list[RunPhaseEntry] | None = Field(default=None, max_length=len(RUN_PHASES))
     status: RunStatus | None = None
+    #: The whole Grundlage list as it now stands (a live addition re-sends it).
+    grundlage: list[RunLedgerDoc] | None = Field(default=None, max_length=MAX_GRUNDLAGE_DOCS)
 
 
 class RunLedgerFinishRequest(_Wire):

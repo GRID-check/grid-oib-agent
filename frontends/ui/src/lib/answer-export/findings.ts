@@ -24,14 +24,14 @@ export function findingsBlocks(findings: unknown, t: Translator): DocBlock[] {
           .join(' · ')
       : ''
     const citations = item.citations.map((n) => `[${n}]`).join('')
-    const status = t(`findingsMatrix.status.${item.status}`)
+    const status = item.status ? t(`findingsMatrix.status.${item.status}`) : ''
     const grounding =
       item.grounding === 'belegt' ? '' : ` (${t(`findingsMatrix.grounding.${item.grounding}`)})`
     return [
       cell(item.area ? `${item.requirement} — ${item.area}` : item.requirement),
       cell(item.value ?? ''),
       cell([reference, citations].filter(Boolean).join(' ')),
-      cell(`${status}${grounding}${item.comment ? ` — ${item.comment}` : ''}`),
+      cell(`${status}${grounding}${item.comment ? `${status || grounding ? ' — ' : ''}${item.comment}` : ''}`),
     ]
   })
   return [

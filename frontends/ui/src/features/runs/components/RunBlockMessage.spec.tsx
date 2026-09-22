@@ -64,6 +64,7 @@ describe('RunBlockMessage', () => {
       live: true,
       cancel: null,
       writeNow: null,
+      addDocument: null,
       connection: null,
     })
 
@@ -84,6 +85,7 @@ describe('RunBlockMessage', () => {
       live: true,
       cancel,
       writeNow: null,
+      addDocument: null,
       connection: 'live',
     })
 
@@ -98,6 +100,7 @@ describe('RunBlockMessage', () => {
       live: false,
       cancel: null,
       writeNow: null,
+      addDocument: null,
       connection: null,
     })
     render(<RunBlockMessage message={message()} projectId="p1" answer={answer} />)
@@ -110,6 +113,7 @@ describe('RunBlockMessage', () => {
       live: true,
       cancel: null,
       writeNow: null,
+      addDocument: null,
       connection: null,
     })
 
@@ -124,6 +128,7 @@ describe('RunBlockMessage', () => {
       live: false,
       cancel: null,
       writeNow: null,
+      addDocument: null,
       connection: null,
     })
 
@@ -140,6 +145,7 @@ describe('RunBlockMessage', () => {
       live: false,
       cancel: null,
       writeNow: null,
+      addDocument: null,
       connection: null,
     })
 
@@ -154,6 +160,7 @@ describe('RunBlockMessage', () => {
       live: false,
       cancel: null,
       writeNow: null,
+      addDocument: null,
       connection: null,
     })
 

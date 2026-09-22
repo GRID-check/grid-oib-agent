@@ -19,7 +19,7 @@ import { Chip } from '@/components/ui/chip'
 import { SectionLabel } from '@/components/ui/section-label'
 import { useTranslations } from '@/i18n'
 import type { Finding, Findings, FindingStatus } from '@/lib/conversations/message-findings'
-import { findingCounts } from '@/lib/conversations/message-findings'
+import { findingCounts, hasFindingStatuses } from '@/lib/conversations/message-findings'
 import { cn } from '@/lib/utils'
 
 const STATUS_ICON: Record<FindingStatus, typeof CircleCheck> = {
@@ -55,7 +55,7 @@ export function changeOf(finding: Finding, previous: Findings | undefined): Find
   if (!previous) return 'same'
   const before = previous.items.find((item) => item.requirement === finding.requirement)
   if (!before) return 'new'
-  return before.status !== finding.status || (before.value ?? '') !== (finding.value ?? '')
+  return (before.status ?? '') !== (finding.status ?? '') || (before.value ?? '') !== (finding.value ?? '')
     ? 'changed'
     : 'same'
 }
@@ -79,11 +79,15 @@ const FindingRow: FC<{
 }> = ({ finding, anchorPrefix, change, onCommission }) => {
   const t = useTranslations('chat')
   const [open, setOpen] = useState(false)
-  const Icon = STATUS_ICON[finding.status]
+  const Icon = finding.status ? STATUS_ICON[finding.status] : null
   const reference = referenceText(finding, t)
   const [commissioned, setCommissioned] = useState(false)
   const expandable = Boolean(finding.comment)
-  const clearable = Boolean(onCommission) && OPEN_STATUSES.has(finding.status) && !commissioned
+  const clearable =
+    Boolean(onCommission) &&
+    finding.status !== undefined &&
+    OPEN_STATUSES.has(finding.status) &&
+    !commissioned
   return (
     <>
       <tr
@@ -141,10 +145,12 @@ const FindingRow: FC<{
         </td>
         <td className="py-2 text-xs">
           <span className="flex flex-wrap items-center gap-1">
-            <Chip size="sm" variant={STATUS_VARIANT[finding.status]}>
-              <Icon aria-hidden />
-              {t(`findings.status.${finding.status}`)}
-            </Chip>
+            {finding.status && Icon && (
+              <Chip size="sm" variant={STATUS_VARIANT[finding.status]}>
+                <Icon aria-hidden />
+                {t(`findings.status.${finding.status}`)}
+              </Chip>
+            )}
             {finding.grounding !== 'belegt' && (
               <Chip size="sm" variant="outline">
                 {t(`findings.grounding.${finding.grounding}`)}
@@ -193,6 +199,10 @@ export const FindingsMatrix: FC<{
   const t = useTranslations('chat')
   const counts = findingCounts(findings)
   const dropped = droppedFrom(previous, findings)
+  // Befunde when the report judged, Ergebnisse when it only stated: the same
+  // table, the honest word for it, and no empty status column.
+  const judged = hasFindingStatuses(findings)
+  const label = judged ? t('findings.label') : t('findings.labelResults')
   const summary = (Object.keys(counts) as FindingStatus[])
     .filter((status) => counts[status] > 0)
     .map((status) => `${counts[status]} ${t(`findings.status.${status}`)}`)
@@ -201,11 +211,12 @@ export const FindingsMatrix: FC<{
     <section
       className="flex flex-col gap-2"
       data-testid="findings-matrix"
-      aria-label={t('findings.label')}
+      aria-label={label}
+      data-judged={judged ? 'true' : 'false'}
     >
       <div className="flex flex-wrap items-baseline justify-between gap-2">
-        <SectionLabel>{t('findings.label')}</SectionLabel>
-        <span className="text-muted-foreground text-xs">{summary}</span>
+        <SectionLabel>{label}</SectionLabel>
+        {judged && <span className="text-muted-foreground text-xs">{summary}</span>}
       </div>
       <div className="overflow-x-auto">
         <table className="w-full border-collapse text-left">
@@ -214,7 +225,9 @@ export const FindingsMatrix: FC<{
               <th className="pb-1 pr-3 font-medium">{t('findings.columns.requirement')}</th>
               <th className="pb-1 pr-3 font-medium">{t('findings.columns.value')}</th>
               <th className="pb-1 pr-3 font-medium">{t('findings.columns.reference')}</th>
-              <th className="pb-1 font-medium">{t('findings.columns.status')}</th>
+              <th className="pb-1 font-medium">
+                {judged ? t('findings.columns.status') : t('findings.columns.note')}
+              </th>
             </tr>
           </thead>
           <tbody>

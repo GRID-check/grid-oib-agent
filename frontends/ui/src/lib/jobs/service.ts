@@ -31,6 +31,7 @@ import { loadProjectBundesland, loadProjectPromptView } from '@/lib/project-prof
 import { buildProjectMemoryDigest } from '@/lib/projects/memory-service'
 import { resolveOrgInstructions } from '@/lib/org-instructions/service'
 import { computeCollectionScope } from '@/lib/collection-scope'
+import type { PlanDocuments } from '@/lib/runs/plan-documents'
 import {
   buildGridRequestContextWireHeaders,
   encodeGridBudgetHeader,
@@ -532,6 +533,14 @@ export interface AgentRunSpec {
    * just has no account of itself in any thread (ADR-0062).
    */
   conversationId: string | null
+  /**
+   * What the commissioning turn settled with the person, for the worker's
+   * agent state: the approved plan in it binds the planner and the writer.
+   * Null for a scheduled or delegated run, which settled nothing first.
+   */
+  clarifierResult?: string | null
+  /** The Unterlagen the reader named on the plan card. */
+  documents?: PlanDocuments | null
 }
 
 /**
@@ -593,6 +602,8 @@ export async function submitAgentRun(spec: AgentRunSpec): Promise<SubmittedAgent
     // The run this job is, so the worker folds its ledger onto the run's own
     // message instead of narrating into the void (ADR-0062).
     run_id: spec.runId,
+    ...(spec.clarifierResult ? { clarifier_result: spec.clarifierResult } : {}),
+    ...(spec.documents ? { documents: spec.documents } : {}),
     data_sources: withAlwaysOnSources(spec.dataSources ?? null),
     collection_scope: collectionScope,
     project_context: projectContext,
