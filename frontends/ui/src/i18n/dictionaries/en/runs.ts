@@ -57,6 +57,7 @@ export const runs = {
     /** A document a step reached a second time. */
     repeat: 'already read',
     openPoints: 'Open:',
+    findings: 'Established so far',
   },
   /** The one line a finished phase folds to, and the live line of an active one. */
   phaseLine: {
@@ -69,6 +70,7 @@ export const runs = {
   tallies: {
     rounds: '{count, plural, one {# round} other {# rounds}}',
     docs: '{count, plural, one {# document} other {# documents}}',
+    findings: '{count, plural, one {# finding} other {# findings}}',
   },
   /** The one action that fits the state, at the right end of the header. */
   action: {
@@ -80,6 +82,7 @@ export const runs = {
     openInThread: 'Open in thread',
     /** The quiet way out of a run still going. Never the loud one: see `cancel`. */
     cancel: 'Stop',
+    writeNow: 'Write now',
   },
   /**
    * Stopping a run. The confirmation says what survives, because the fear that
@@ -106,7 +109,8 @@ export const runs = {
    * going. Only the line into it broke.
    */
   connection: {
-    reconnecting: 'The live view lost its connection and is reconnecting. The task is still running.',
+    reconnecting:
+      'The live view lost its connection and is reconnecting. The task is still running.',
     lost: 'The live view is disconnected. The task is still running — reload to follow it again.',
   },
   block: {

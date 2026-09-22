@@ -34,6 +34,12 @@ export interface RunTallies {
   rounds: number
   /** Distinct document names across every step, whatever phase reached them. */
   docs: number
+  /**
+   * Claims the rounds established so far — the number that says the run is
+   * producing. Optional because a task summary from the database carries the
+   * two counts above and not this one.
+   */
+  findings?: number
 }
 
 const STATUS_SET: ReadonlySet<string> = new Set<string>(RUN_STATUSES)
@@ -86,10 +92,12 @@ export function stepsInPhase(ledger: RunLedger, phase: RunPhase): RunStep[] {
 
 export function runTallies(ledger: RunLedger): RunTallies {
   const names = new Set<string>()
+  let findings = 0
   for (const step of ledger.steps) {
     for (const doc of step.docs) names.add(doc.name)
+    findings += step.findings?.length ?? 0
   }
-  return { rounds: stepsInPhase(ledger, 'recherchieren').length, docs: names.size }
+  return { rounds: stepsInPhase(ledger, 'recherchieren').length, docs: names.size, findings }
 }
 
 /**
@@ -102,7 +110,7 @@ export function runTallies(ledger: RunLedger): RunTallies {
 export function completedBefore(ledger: RunLedger): RunPhase[] {
   const done = new Set<RunPhase>(
     ledger.error?.completedBefore ??
-      ledger.phases.filter((entry) => entry.endedAt).map((entry) => entry.phase),
+      ledger.phases.filter((entry) => entry.endedAt).map((entry) => entry.phase)
   )
   return RUN_PHASES.filter((phase) => done.has(phase))
 }

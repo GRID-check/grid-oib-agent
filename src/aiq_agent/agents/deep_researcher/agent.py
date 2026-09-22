@@ -24,6 +24,7 @@ from aiq_agent.common.citation_verification import EmptySourceRegistryError
 from aiq_agent.common.citation_verification import get_session_registry
 from aiq_agent.common.citation_verification import reset_session_registry
 from aiq_agent.common.citation_verification import set_session_registry
+from aiq_agent.common.turn_status import CUTOFF_USER_REQUESTED
 from aiq_agent.common.turn_status import DEGRADED_NO_REPORT_FILE
 from aiq_agent.common.turn_status import begin_lane_capture
 from aiq_agent.common.turn_status import end_lane_capture
@@ -36,6 +37,7 @@ from aiq_agent.skills import SkillRuntime
 from aiq_agent.skills import resolve_served_skills
 from aiq_agent.skills.events import emit_skills_offered
 
+from .control import write_now_requested
 from .custom_middleware import SourceRegistryMiddleware
 from .cutoff import classify_cutoff
 from .cutoff import salvage_cutoff
@@ -417,6 +419,11 @@ class DeepResearcherAgent:
         being the banner and the flags that say it was cut off.
         """
         middleware = artifacts.source_registry_middleware
+        # A run the reader cut short by asking for the report is salvaged and
+        # marked like a cut-off run, under its own token: the banner says it
+        # was their choice.
+        if cutoff_reason is None and write_now_requested():
+            cutoff_reason = CUTOFF_USER_REQUESTED
         report, degraded_reasons = self._extract_report(result, middleware)
         # The writer's self-assessment comes out before ANY other reader touches
         # the text, or a stray "[CONFIDENCE:high]" reaches the PDF.

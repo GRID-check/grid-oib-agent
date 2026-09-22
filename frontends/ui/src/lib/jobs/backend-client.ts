@@ -19,7 +19,8 @@ import 'server-only'
  * path (and these unit tests) must not load. Keep the env chain in sync.
  */
 function getBackendUrl(): string {
-  const url = process.env.BACKEND_URL || process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8000'
+  const url =
+    process.env.BACKEND_URL || process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8000'
   return url.replace(/\/$/, '')
 }
 
@@ -86,7 +87,7 @@ export interface JobSubmitPayload {
 export class JobSubmitSkippedError extends Error {
   constructor(
     message: string,
-    readonly retryAfterSeconds: number | null,
+    readonly retryAfterSeconds: number | null
   ) {
     super(message)
     this.name = 'JobSubmitSkippedError'
@@ -97,7 +98,7 @@ export class JobSubmitSkippedError extends Error {
 export class JobSubmitError extends Error {
   constructor(
     message: string,
-    readonly status: number,
+    readonly status: number
   ) {
     super(message)
     this.name = 'JobSubmitError'
@@ -129,7 +130,7 @@ async function readBody(response: Response): Promise<string> {
  */
 export async function submitJob(
   payload: JobSubmitPayload,
-  extraHeaders: Record<string, string>,
+  extraHeaders: Record<string, string>
 ): Promise<{ jobId: string }> {
   const token = process.env.GRID_INTERNAL_API_TOKEN
   if (!token) {
@@ -153,7 +154,10 @@ export async function submitJob(
   }
 
   if (response.status === 429) {
-    throw new JobSubmitSkippedError(await readBody(response), parseRetryAfter(response.headers.get('retry-after')))
+    throw new JobSubmitSkippedError(
+      await readBody(response),
+      parseRetryAfter(response.headers.get('retry-after'))
+    )
   }
   if (!response.ok) {
     throw new JobSubmitError(await readBody(response), response.status)
@@ -185,7 +189,7 @@ export async function submitJob(
 export class JobCancelError extends Error {
   constructor(
     message: string,
-    readonly status: number,
+    readonly status: number
   ) {
     super(message)
     this.name = 'JobCancelError'
@@ -204,18 +208,41 @@ export class JobCancelError extends Error {
  * Resolves on a 2xx and throws `JobCancelError` for everything else; a network
  * failure is a 503.
  */
-export async function cancelBackendJob(backendJobId: string, accessToken: string | null): Promise<void> {
+export async function cancelBackendJob(
+  backendJobId: string,
+  accessToken: string | null
+): Promise<void> {
+  return postJobControl(backendJobId, 'cancel', accessToken)
+}
+
+/**
+ * „Jetzt schreiben": ask a running deep research to write its report from what
+ * it has. Same door, same errors as the cancel; the run keeps going until the
+ * report is filed.
+ */
+export async function writeNowBackendJob(
+  backendJobId: string,
+  accessToken: string | null
+): Promise<void> {
+  return postJobControl(backendJobId, 'write-now', accessToken)
+}
+
+async function postJobControl(
+  backendJobId: string,
+  action: 'cancel' | 'write-now',
+  accessToken: string | null
+): Promise<void> {
   let response: Response
   try {
     response = await fetch(
-      `${getBackendUrl()}/v1/jobs/async/job/${encodeURIComponent(backendJobId)}/cancel`,
+      `${getBackendUrl()}/v1/jobs/async/job/${encodeURIComponent(backendJobId)}/${action}`,
       {
         method: 'POST',
         headers: {
           Accept: 'application/json',
           ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
         },
-      },
+      }
     )
   } catch (err) {
     const message = err instanceof Error ? err.message : 'network error'

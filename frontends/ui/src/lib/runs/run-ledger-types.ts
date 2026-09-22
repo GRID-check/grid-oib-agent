@@ -113,6 +113,9 @@ export const MAX_LOCUS_CHARS = 128
 export const MAX_LOCI_PER_DOC = 20
 export const MAX_OPEN_POINTS = 20
 export const MAX_OPEN_POINT_CHARS = 200
+/** What a round established, one claim per line. Mirrors `run_ledger.MAX_FINDINGS_PER_STEP`. */
+export const MAX_FINDINGS_PER_STEP = 8
+export const MAX_FINDING_CHARS = 200
 /**
  * The run's error, as the reader sees it. Shorter than the 2000 the outcome
  * route accepts, because this one is rendered in the thread rather than stored
@@ -190,6 +193,11 @@ export const runStepSchema = z
     openPoints: z
       .array(z.string().trim().min(1).max(MAX_OPEN_POINT_CHARS))
       .max(MAX_OPEN_POINTS)
+      .optional(),
+    /** What this round established so far, in the researcher's own claims. */
+    findings: z
+      .array(z.string().trim().min(1).max(MAX_FINDING_CHARS))
+      .max(MAX_FINDINGS_PER_STEP)
       .optional(),
   })
   .strict()

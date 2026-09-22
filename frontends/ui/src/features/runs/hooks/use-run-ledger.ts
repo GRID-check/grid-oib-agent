@@ -46,11 +46,14 @@
  */
 
 import { useCallback, useEffect, useState } from 'react'
-import { createDeepResearchClient, type DeepResearchClient } from '@/adapters/api/deep-research-client'
+import {
+  createDeepResearchClient,
+  type DeepResearchClient,
+} from '@/adapters/api/deep-research-client'
 import type { ChatMessage } from '@/features/chat/types'
 import { sanitizeRunLedger } from '@/lib/runs/run-ledger'
 import { isTerminalRunStatus, type RunLedger } from '@/lib/runs/run-ledger-types'
-import { cancelRun, fetchRunView } from '@/lib/runs/run-view-client'
+import { cancelRun, fetchRunView, writeNowRun } from '@/lib/runs/run-view-client'
 import { runDisplayStatus } from '@/lib/runs/run-vocabulary'
 
 export interface UseRunLedgerInput {
@@ -83,6 +86,12 @@ export interface UseRunLedgerResult {
    * says the run was cancelled, never because the button was pressed.
    */
   cancel: (() => Promise<void>) | null
+  /**
+   * „Jetzt schreiben": stop researching and write from what is there. `null`
+   * on the same terms as `cancel`; the block decides whether the run is in a
+   * phase where it means anything.
+   */
+  writeNow: (() => Promise<void>) | null
 }
 
 /**
@@ -192,11 +201,22 @@ export function useRunLedger({ message, projectId }: UseRunLedgerInput): UseRunL
     }
   }, [runId, projectId])
 
+  const writeNow = useCallback(async (): Promise<void> => {
+    if (!runId || !projectId) return
+    try {
+      const view = await writeNowRun(projectId, runId)
+      if (view.ledger) setLedger((current) => notOlder(current, view.ledger as RunLedger))
+    } catch {
+      // Fail-open, like the cancel: the run goes on and the person can try again.
+    }
+  }, [runId, projectId])
+
   return {
     ledger,
     live: live && !terminal,
     // A run that has ended has nothing to reconnect to, whatever the socket did.
     connection: terminal ? null : connection,
     cancel: terminal || !runId || !projectId ? null : cancel,
+    writeNow: terminal || !runId || !projectId ? null : writeNow,
   }
 }

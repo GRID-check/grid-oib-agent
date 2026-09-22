@@ -62,6 +62,7 @@ best-effort, and a BFF that is down costs the account a flush, never the report.
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import threading
 import time
@@ -73,6 +74,8 @@ from typing import Any
 
 from aiq_agent.common.run_ledger import MAX_DOCS_PER_STEP
 from aiq_agent.common.run_ledger import MAX_ERROR_REASON_CHARS
+from aiq_agent.common.run_ledger import MAX_FINDING_CHARS
+from aiq_agent.common.run_ledger import MAX_FINDINGS_PER_STEP
 from aiq_agent.common.run_ledger import MAX_INTENT_CHARS
 from aiq_agent.common.run_ledger import MAX_LOCI_PER_DOC
 from aiq_agent.common.run_ledger import MAX_LOCUS_CHARS
@@ -203,6 +206,7 @@ class _Step:
     started_at: str
     docs: dict[str, _Doc] = field(default_factory=dict)
     open_points: list[str] = field(default_factory=list)
+    findings: list[str] = field(default_factory=list)
 
     def add_doc(self, source: dict[str, Any]) -> bool:
         """Fold one ``citation_source`` into this step's documents."""
@@ -232,6 +236,7 @@ class _Step:
             startedAt=self.started_at,
             docs=docs,
             openPoints=points,
+            findings=self.findings[:MAX_FINDINGS_PER_STEP] or None,
         )
 
 
@@ -378,6 +383,8 @@ class RunLedgerFold:
             return step.add_doc(data)
         if data.get("type") == "todo":
             return _set_open_points(step, data.get("content"))
+        if data.get("type") == "output" and data.get("output_category") == "research_notes":
+            return _add_findings(step, data.get("content"))
         return False
 
     def _ingest_error(self, data: dict[str, Any]) -> bool:
@@ -630,6 +637,44 @@ class FoldingEventStore:
         flush = getattr(self._event_store, "flush", None)
         if flush is not None:
             flush()
+
+
+def _add_findings(step: _Step, content: Any) -> bool:
+    """The claims a researcher's notes state, onto the round that produced them.
+
+    The researcher's final message is its ``ResearchNotes`` JSON; each finding
+    carries a ``claim``. Appended and de-duplicated rather than replaced: one
+    round runs several researchers, and each one's notes arrive on their own.
+    Anything that is not that JSON is not a finding and changes nothing.
+    """
+    for claim in _claims(content):
+        if claim not in step.findings and len(step.findings) < MAX_FINDINGS_PER_STEP:
+            step.findings.append(claim)
+    return bool(step.findings)
+
+
+def _claims(content: Any) -> list[str]:
+    if not isinstance(content, str):
+        return []
+    text = content.strip()
+    if text.startswith("```"):
+        text = text.strip("`")
+        text = text[4:] if text.startswith("json") else text
+    start = text.find("{")
+    if start < 0:
+        return []
+    try:
+        notes = json.loads(text[start:])
+    except ValueError:
+        return []
+    if not isinstance(notes, dict) or not isinstance(notes.get("findings"), list):
+        return []
+    claims: list[str] = []
+    for finding in notes["findings"]:
+        claim = _clip(finding.get("claim") if isinstance(finding, dict) else None, MAX_FINDING_CHARS)
+        if claim:
+            claims.append(claim)
+    return claims
 
 
 def _set_open_points(step: _Step, todos: Any) -> bool:

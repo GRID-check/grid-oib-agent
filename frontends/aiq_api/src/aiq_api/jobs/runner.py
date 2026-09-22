@@ -505,6 +505,10 @@ def _normalize_trace_id(trace_id: int | str | None) -> int | None:
         return int(trace_id)
 
 
+#: The job event the write-now route records and the monitor listens for.
+WRITE_NOW_EVENT_TYPE = "job.write_now_requested"
+
+
 class CancellationMonitor:
     """
     Monitors job status for cancellation requests.
@@ -526,6 +530,11 @@ class CancellationMonitor:
         self.job_id = job_id
         self.poll_interval = poll_interval
         self._cancelled = asyncio.Event()
+        # „Jetzt schreiben": the reader asked for the report from what is there.
+        # Read off the job's own events, beside the status poll, so the request
+        # reaches a worker that holds nothing but the job id.
+        self.write_now = asyncio.Event()
+        self._last_event_id = 0
         self._monitor_task: asyncio.Task | None = None
 
     @property
@@ -551,10 +560,23 @@ class CancellationMonitor:
                     logger.info("Cancellation detected for job %s (status: %s)", self.job_id, job.status)
                     self._cancelled.set()
                     break
+                if not self.write_now.is_set():
+                    events = await EventStore.get_events_async(self.db_url, self.job_id, after_id=self._last_event_id)
+                    self._note_control_events(events)
             except Exception as e:
                 logger.warning("Error checking job status for %s: %s", self.job_id, e)
 
             await asyncio.sleep(self.poll_interval)
+
+    def _note_control_events(self, events: list[dict]) -> None:
+        """Advance the cursor over the job's events and set the write-now signal on its request."""
+        for event in events:
+            event_id = event.get("_id")
+            if isinstance(event_id, int) and event_id > self._last_event_id:
+                self._last_event_id = event_id
+            if event.get("type") == WRITE_NOW_EVENT_TYPE:
+                logger.info("Write-now requested for job %s", self.job_id)
+                self.write_now.set()
 
     def start(self) -> None:
         """Start the cancellation monitor background task."""
@@ -1878,11 +1900,21 @@ async def _run_agent(
             if platform_lessons is not None:
                 state["platform_lessons"] = platform_lessons
 
-        return await run_with_cancellation(
-            agent.run(state),
-            monitor,
-            event_store=event_store,
-        )
+        # The reader's „Jetzt schreiben" reaches the research tool through a
+        # per-run binding; the task created inside `run_with_cancellation`
+        # inherits it.
+        from aiq_agent.agents.deep_researcher.control import bind_write_now
+        from aiq_agent.agents.deep_researcher.control import reset_write_now
+
+        token = bind_write_now(monitor.write_now)
+        try:
+            return await run_with_cancellation(
+                agent.run(state),
+                monitor,
+                event_store=event_store,
+            )
+        finally:
+            reset_write_now(token)
 
     raise TypeError(f"Agent {type(agent).__name__} does not have a run method")
 

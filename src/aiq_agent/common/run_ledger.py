@@ -71,6 +71,10 @@ MAX_LOCUS_CHARS = 128
 MAX_LOCI_PER_DOC = 20
 MAX_OPEN_POINTS = 20
 MAX_OPEN_POINT_CHARS = 200
+#: What a round established, one claim per line, so a run is readable at
+#: minute three: the researcher's notes state them and the fold copies them.
+MAX_FINDINGS_PER_STEP = 8
+MAX_FINDING_CHARS = 200
 MAX_ERROR_REASON_CHARS = 400
 MAX_REFERENCE_ID_CHARS = 128
 
@@ -116,6 +120,7 @@ class RunStep(_Wire):
     started_at: str = Field(alias="startedAt")
     docs: list[RunLedgerDoc] = Field(default_factory=list, max_length=MAX_DOCS_PER_STEP)
     open_points: list[str] | None = Field(default=None, alias="openPoints", max_length=MAX_OPEN_POINTS)
+    findings: list[str] | None = Field(default=None, max_length=MAX_FINDINGS_PER_STEP)
 
 
 class RunPhaseEntry(_Wire):

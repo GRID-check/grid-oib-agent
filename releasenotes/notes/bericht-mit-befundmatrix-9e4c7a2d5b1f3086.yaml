@@ -1,0 +1,20 @@
+---
+features:
+  - >
+    Ein Bericht der Tiefenrecherche kommt jetzt mit Kopf und Befundmatrix:
+    oben das Urteil, die Zusammenfassung und das Wichtigste wie bei jeder
+    Antwort, darunter eine Zeile je geprüfter Anforderung – Wert, Fundstelle
+    mit Sprung zur Quelle, Status erfüllt / nicht erfüllt / offen / nicht
+    anwendbar – und unter dem Bericht Anschlussfragen. Der Word-Export
+    enthält dieselbe Tabelle.
+  - >
+    Während die Recherche läuft, zeigt der Auftragsblock je Runde, was
+    bereits belegt ist, und zählt die Befunde im Kopf mit. Neu daneben:
+    „Jetzt schreiben“ lässt Piloti die Recherche nach der laufenden Runde
+    beenden und den Bericht aus dem Vorhandenen schreiben – der Bericht
+    sagt dann, dass das Ihr Wunsch war.
+fixes:
+  - >
+    Ein deutscher Bericht endet mit „Quellen“ statt „Sources“, und der
+    Hinweis über einem abgebrochenen Bericht folgt der Sprache des
+    Berichts.

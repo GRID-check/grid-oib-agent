@@ -26,7 +26,7 @@ export type RunViewFetch = (input: string, init?: RequestInit) => Promise<Respon
 export class RunViewError extends Error {
   constructor(
     readonly status: number,
-    message: string,
+    message: string
   ) {
     super(message)
     this.name = 'RunViewError'
@@ -45,13 +45,26 @@ export function runViewPath(projectId: string, runId: string): string {
 export async function fetchRunView(
   projectId: string,
   runId: string,
-  run: RunViewFetch = (input, init) => fetch(input, init),
+  run: RunViewFetch = (input, init) => fetch(input, init)
 ): Promise<RunView> {
   return requestRunView(run, runViewPath(projectId, runId), 'GET')
 }
 
 export function runCancelPath(projectId: string, runId: string): string {
   return `${runViewPath(projectId, runId)}/cancel`
+}
+
+export function runWriteNowPath(projectId: string, runId: string): string {
+  return `${runViewPath(projectId, runId)}/write-now`
+}
+
+/** „Jetzt schreiben": same errors as the cancel; the view it answers is the run before the request took. */
+export async function writeNowRun(
+  projectId: string,
+  runId: string,
+  run: RunViewFetch = (input, init) => fetch(input, init)
+): Promise<RunView> {
+  return requestRunView(run, runWriteNowPath(projectId, runId), 'POST')
 }
 
 /**
@@ -64,12 +77,16 @@ export function runCancelPath(projectId: string, runId: string): string {
 export async function cancelRun(
   projectId: string,
   runId: string,
-  run: RunViewFetch = (input, init) => fetch(input, init),
+  run: RunViewFetch = (input, init) => fetch(input, init)
 ): Promise<RunView> {
   return requestRunView(run, runCancelPath(projectId, runId), 'POST')
 }
 
-async function requestRunView(run: RunViewFetch, path: string, method: 'GET' | 'POST'): Promise<RunView> {
+async function requestRunView(
+  run: RunViewFetch,
+  path: string,
+  method: 'GET' | 'POST'
+): Promise<RunView> {
   const response = await run(path, {
     method,
     headers: { Accept: 'application/json' },

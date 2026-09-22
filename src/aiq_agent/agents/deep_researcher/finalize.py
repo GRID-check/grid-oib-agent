@@ -33,6 +33,7 @@ from aiq_agent.common.retrieval_ledger import build_retrieval_ledger
 from aiq_agent.common.turn_status import CUTOFF_RUN_BUDGET
 from aiq_agent.common.turn_status import CUTOFF_STEP_LIMIT
 from aiq_agent.common.turn_status import CUTOFF_UPSTREAM_TIMEOUT
+from aiq_agent.common.turn_status import CUTOFF_USER_REQUESTED
 from aiq_agent.common.turn_status import CUTOFF_WALL_CLOCK
 from aiq_agent.common.turn_status import DEGRADED_NO_VALID_CITATIONS
 from aiq_agent.common.turn_status import DEGRADED_UNVERIFIED_QUOTES
@@ -75,6 +76,7 @@ _CUTOFF_CAUSE_CLAUSES = {
     CUTOFF_STEP_LIMIT: "wegen des erreichten Schritt-Limits",
     CUTOFF_UPSTREAM_TIMEOUT: "weil eine angefragte Quelle nicht rechtzeitig geantwortet hat",
     CUTOFF_RUN_BUDGET: "wegen des erreichten Recherche-Budgets",
+    CUTOFF_USER_REQUESTED: "auf Ihren Wunsch",
 }
 #: The same clauses for a report the writer wrote in English: the banner
 #: follows the report's language, detected off the report itself, so an
@@ -85,6 +87,7 @@ _CUTOFF_CAUSE_CLAUSES_EN = {
     CUTOFF_STEP_LIMIT: "at the step limit",
     CUTOFF_UPSTREAM_TIMEOUT: "because a requested source did not answer in time",
     CUTOFF_RUN_BUDGET: "at the research budget",
+    CUTOFF_USER_REQUESTED: "at your request",
 }
 
 _OUTPUT_PATHS = ("/shared/output.md", "/output.md")

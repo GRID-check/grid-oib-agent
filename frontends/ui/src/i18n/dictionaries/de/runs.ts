@@ -42,6 +42,7 @@ export const runs: typeof en.runs = {
     round: 'Runde {n}',
     repeat: 'bereits gelesen',
     openPoints: 'Offen:',
+    findings: 'Bisher belegt',
   },
   phaseLine: {
     planen: 'Rechercheplan erstellt',
@@ -53,6 +54,7 @@ export const runs: typeof en.runs = {
   tallies: {
     rounds: '{count, plural, one {# Runde} other {# Runden}}',
     docs: '{count, plural, one {# Dokument} other {# Dokumente}}',
+    findings: '{count, plural, one {# Befund} other {# Befunde}}',
   },
   action: {
     answer: 'Antworten',
@@ -62,6 +64,7 @@ export const runs: typeof en.runs = {
     retry: 'Erneut starten',
     openInThread: 'Im Verlauf öffnen',
     cancel: 'Abbrechen',
+    writeNow: 'Jetzt schreiben',
   },
   cancel: {
     confirmTitle: 'Auftrag abbrechen?',
@@ -77,7 +80,8 @@ export const runs: typeof en.runs = {
     rejectedAnon: 'Zurückgeschickt',
   },
   connection: {
-    reconnecting: 'Die Live-Ansicht hat die Verbindung verloren und verbindet neu. Der Auftrag läuft weiter.',
+    reconnecting:
+      'Die Live-Ansicht hat die Verbindung verloren und verbindet neu. Der Auftrag läuft weiter.',
     lost: 'Die Live-Ansicht ist getrennt. Der Auftrag läuft weiter — zum Mitlesen neu laden.',
   },
   block: {

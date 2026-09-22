@@ -187,7 +187,12 @@ export const CAPPED_REASONS = [
 ] as const
 const ROUTING_DECISIONS = ['meta', 'shallow', 'deep', 'error'] as const
 /** The cutoff causes the deep researcher records. See {@link TruncationReason}. */
-export const TRUNCATION_REASONS = ['wall_clock', 'step_limit', 'upstream_timeout'] as const
+export const TRUNCATION_REASONS = [
+  'wall_clock',
+  'step_limit',
+  'upstream_timeout',
+  'user_requested',
+] as const
 /** The degradations it records. See {@link AnswerDegradedReason}. */
 export const ANSWER_DEGRADED_REASONS = [
   'no_report_file',

@@ -247,6 +247,7 @@ export const chat = {
       // two are only counted apart internally.
       upstream_timeout: 'time limit reached',
       step_limit: 'step limit reached',
+      user_requested: 'stopped at your request',
     },
     // Ways a salvaged answer is weaker than one from a finished run. Same
     // register as the lines above — muted, factual, about the EVIDENCE — but

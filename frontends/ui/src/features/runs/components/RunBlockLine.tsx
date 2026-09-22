@@ -54,7 +54,7 @@ export interface RunBlockLineProps {
 // `whitespace-pre`: as a flex item the span is block-level and would collapse
 // its own leading and trailing space, gluing the dot to both neighbours.
 const Sep: FC = () => (
-  <span aria-hidden className="whitespace-pre text-muted-foreground/50">
+  <span aria-hidden className="text-muted-foreground/50 whitespace-pre">
     {' · '}
   </span>
 )
@@ -72,7 +72,8 @@ export function RunBlockLine({
   const { locale } = useLocale()
   const shown: RunStatus = status ?? (ledger ? runDisplayStatus(ledger) : 'angelegt')
   const statusWord = t(`status.${shown}`)
-  const tallies = givenTallies ?? (ledger ? runTallies(ledger) : { rounds: 0, docs: 0 })
+  const tallies =
+    givenTallies ?? (ledger ? runTallies(ledger) : { rounds: 0, docs: 0, findings: 0 })
   const atIso = at instanceof Date ? at.toISOString() : at
 
   return (
@@ -88,28 +89,31 @@ export function RunBlockLine({
           „vor 1…" has lost the thing the time was there for. The tallies step
           aside on a phone, where the title needs the width more. */}
       <span className="flex min-w-0 flex-1 items-baseline overflow-hidden">
-        <span className="shrink-0 font-semibold text-foreground" data-testid="run-line-status">
+        <span className="text-foreground shrink-0 font-semibold" data-testid="run-line-status">
           {statusWord}
         </span>
         {title && (
           <>
             <Sep />
-            <span className="min-w-0 truncate text-foreground">{title}</span>
+            <span className="text-foreground min-w-0 truncate">{title}</span>
           </>
         )}
         {(tallies.rounds > 0 || tallies.docs > 0) && (
-          <span className="hidden shrink-0 text-muted-foreground sm:inline">
+          <span className="text-muted-foreground hidden shrink-0 sm:inline">
             <Sep />
             {[
               tallies.rounds > 0 ? t('tallies.rounds', { count: tallies.rounds }) : null,
               tallies.docs > 0 ? t('tallies.docs', { count: tallies.docs }) : null,
+              (tallies.findings ?? 0) > 0
+                ? t('tallies.findings', { count: tallies.findings ?? 0 })
+                : null,
             ]
               .filter(Boolean)
               .join(' · ')}
           </span>
         )}
         {atIso && (
-          <span className="shrink-0 text-muted-foreground">
+          <span className="text-muted-foreground shrink-0">
             <Sep />
             <TimeAgo date={atIso} locale={locale} />
           </span>
@@ -122,7 +126,7 @@ export function RunBlockLine({
         <Link
           href={href}
           aria-label={t('action.openInThread')}
-          className="ml-auto inline-flex shrink-0 items-center justify-center gap-1 rounded-md text-xs font-medium text-primary hover:underline pointer-coarse:min-h-11 pointer-coarse:min-w-11"
+          className="text-primary pointer-coarse:min-h-11 pointer-coarse:min-w-11 ml-auto inline-flex shrink-0 items-center justify-center gap-1 rounded-md text-xs font-medium hover:underline"
           data-testid="run-line-open"
         >
           <span className="hidden sm:inline">{t('action.openInThread')}</span>

@@ -123,6 +123,16 @@ moment, so the SPOKEN word is a plain `sr-only` copy beside it and the moving
 pair is `aria-hidden`: a reader must never hear the run called two things in one
 breath.
 
+## What a round shows while it runs
+
+A round used to show only what it read. It now also shows what it established:
+the claims the researchers' notes state, up to eight per round, under the
+document chips and before the open points, and the header counts them
+(„3 Runden · 9 Dokumente · 4 Befunde"). A twelve-minute run is readable at
+minute three. The fold copies each `ResearchNotes.findings[].claim` off the
+researcher's own output (`run_ledger_fold._add_findings`); the ledger's
+`findings` field is the contract on both sides, pinned by the schema fixture.
+
 ## The actions
 
 One action fits each state — „Antworten", „Prüfen", „Bericht öffnen", „Erneut
@@ -133,6 +143,14 @@ things sit beside it rather than instead of it:
   so it never competes; always in the same slot, so it is never hunted for. It
   asks first, and the question is phrased around what SURVIVES: the rounds
   already researched stay in the block, only the report goes unwritten.
+- **„Jetzt schreiben"**, while the run is *researching* and only when a caller
+  offers it. The opposite of „Abbrechen": stop researching after the current
+  batch and write the report from what is there. No confirmation — nothing is
+  lost by it. The request travels as a job event
+  (`POST /v1/jobs/async/job/{id}/write-now`), the worker's monitor sets a
+  per-run signal the research tool reads before every batch
+  (`deep_researcher/control.py`), and the report lands marked
+  `unterbrochen` with a banner that says it was the reader's choice.
 - **The connection line**, when the live view loses its stream. It leads with the
   run („Der Auftrag läuft weiter"), because that is the fact the reader fears.
   Silence there would read as a run that stopped.

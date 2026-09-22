@@ -237,6 +237,7 @@ export const chat: typeof en.chat = {
       // Zeitgrenze. Getrennt gezählt wird es nur intern.
       upstream_timeout: 'Zeitgrenze erreicht',
       step_limit: 'Schrittgrenze erreicht',
+      user_requested: 'auf Ihren Wunsch beendet',
     },
     // Wodurch diese gerettete Antwort schwächer ist als die eines sauberen
     // Laufs. Gleiches Register wie oben — leise, sachlich, über die BELEGLAGE —

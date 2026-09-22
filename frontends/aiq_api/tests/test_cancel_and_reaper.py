@@ -294,3 +294,48 @@ class TestCancelRoute:
 
         assert response.status_code == 400
         job_store.update_status.assert_not_awaited()
+
+
+class TestWriteNowRoute:
+    @pytest.mark.asyncio
+    async def test_a_running_job_records_the_request_and_keeps_running(self, cancel_app, db_url):
+        app, job_store = cancel_app
+        job_store.get_job.return_value = _job("running")
+
+        with TestClient(app) as client:
+            response = client.post("/v1/jobs/async/job/job-1/write-now")
+
+        assert response.status_code == 200
+        assert response.json() == {"job_id": "job-1", "write_now": True}
+        job_store.update_status.assert_not_awaited()
+        events = EventStore.get_events(db_url, "job-1")
+        assert [event["type"] for event in events] == ["job.write_now_requested"]
+
+    @pytest.mark.asyncio
+    async def test_a_job_that_is_not_running_is_refused(self, cancel_app):
+        app, job_store = cancel_app
+        job_store.get_job.return_value = _job("submitted")
+
+        with TestClient(app) as client:
+            response = client.post("/v1/jobs/async/job/job-1/write-now")
+
+        assert response.status_code == 400
+
+
+class TestTheMonitorHearsTheRequest:
+    def test_the_write_now_event_sets_the_signal_and_advances_the_cursor(self):
+        from aiq_api.jobs.runner import WRITE_NOW_EVENT_TYPE
+        from aiq_api.jobs.runner import CancellationMonitor
+
+        monitor = CancellationMonitor(scheduler_address="tcp://x", db_url="sqlite://", job_id="job-1")
+        monitor._note_control_events([{"_id": 3, "type": "job.heartbeat"}, {"_id": 4, "type": WRITE_NOW_EVENT_TYPE}])
+        assert monitor.write_now.is_set()
+        assert monitor._last_event_id == 4
+
+    def test_other_events_leave_the_signal_alone(self):
+        from aiq_api.jobs.runner import CancellationMonitor
+
+        monitor = CancellationMonitor(scheduler_address="tcp://x", db_url="sqlite://", job_id="job-1")
+        monitor._note_control_events([{"_id": 9, "type": "job.phase"}])
+        assert not monitor.write_now.is_set()
+        assert monitor._last_event_id == 9

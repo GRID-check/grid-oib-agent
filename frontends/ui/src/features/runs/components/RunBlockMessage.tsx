@@ -43,8 +43,12 @@ export interface RunBlockMessageProps {
   answer?: ReactNode
 }
 
-export function RunBlockMessage({ message, projectId, answer }: RunBlockMessageProps): JSX.Element | null {
-  const { ledger, live, cancel, connection } = useRunLedger({ message, projectId })
+export function RunBlockMessage({
+  message,
+  projectId,
+  answer,
+}: RunBlockMessageProps): JSX.Element | null {
+  const { ledger, live, cancel, writeNow, connection } = useRunLedger({ message, projectId })
   const reduced = useReducedMotion()
   // A report that arrives while the reader is watching rises AFTER the block
   // has finished saying how the run ended: the verdict first, the document
@@ -70,6 +74,7 @@ export function RunBlockMessage({ message, projectId, answer }: RunBlockMessageP
         live={live}
         connection={connection}
         onCancel={cancel}
+        onWriteNow={writeNow}
       />
       {showAnswer ? (
         <motion.div
@@ -77,7 +82,9 @@ export function RunBlockMessage({ message, projectId, answer }: RunBlockMessageP
           animate={{
             opacity: 1,
             y: 0,
-            transition: rises ? { ...motionEntrance, delay: landingDelays(status).report } : motionInstant,
+            transition: rises
+              ? { ...motionEntrance, delay: landingDelays(status).report }
+              : motionInstant,
           }}
           data-testid="run-report"
         >

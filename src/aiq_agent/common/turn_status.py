@@ -1547,6 +1547,10 @@ CUTOFF_RUN_BUDGET = "run_budget"
 #: 2400-second budget overrun makes "how often do runs exhaust their budget?"
 #: unanswerable, and that question is the reason the budget is tunable.
 CUTOFF_UPSTREAM_TIMEOUT = "upstream_timeout"
+#: The reader asked for the report to be written from what was there
+#: („Jetzt schreiben"). Salvaged like the others and marked, but it is the
+#: reader's choice, not a limit, and the banner says so.
+CUTOFF_USER_REQUESTED = "user_requested"
 
 #: Ways a finished deep answer is weaker than a clean one. Also stable tokens.
 DEGRADED_NO_REPORT_FILE = "no_report_file"

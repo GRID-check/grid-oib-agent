@@ -32,7 +32,7 @@ describe('run ledger JSON Schema', () => {
     expect(
       readFileSync(FIXTURE, 'utf8'),
       'The wire schemas changed. Re-run with UPDATE_FIXTURES=1 and commit the fixture ' +
-        'in the same change, so the Python models and this tier cannot disagree.',
+        'in the same change, so the Python models and this tier cannot disagree.'
     ).toBe(generated)
   })
 
@@ -64,6 +64,7 @@ describe('run ledger JSON Schema', () => {
     expect(step.additionalProperties).toBe(false)
     expect(Object.keys(step.properties as Node).sort()).toEqual([
       'docs',
+      'findings',
       'id',
       'intent',
       'openPoints',
