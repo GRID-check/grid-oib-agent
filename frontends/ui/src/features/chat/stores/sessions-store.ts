@@ -253,7 +253,7 @@ export const createResilientStorage = (): PersistStorage<PersistedChatState> | u
 const createNewConversation = (
   userId: string,
   projectId: string | null,
-  subject?: { resourceType: 'document'; resourceId: string; title?: string | null } | null,
+  subject?: { resourceType: 'document'; resourceId: string; title?: string | null } | null
 ): Conversation => ({
   id: `s_${uuidv4().replace(/-/g, '_')}`,
   userId,
@@ -312,7 +312,9 @@ const restoreConversationDataSources = (conversation: Conversation): void => {
 // Single memoized dynamic import: the conversations client is loaded lazily
 // (it is browser-only), but exactly once — concurrent first loads must share
 // one promise.
-let conversationsClientModule: Promise<typeof import('@/adapters/api/conversations-client')> | null = null
+let conversationsClientModule: Promise<
+  typeof import('@/adapters/api/conversations-client')
+> | null = null
 const getConversationsClient = () => {
   conversationsClientModule ??= import('@/adapters/api/conversations-client')
   return conversationsClientModule.then((m) => m.conversationsClient)
@@ -328,7 +330,10 @@ const hydratingConversationIds = new Set<string>()
 // the check per conversation.
 const ensuredServerConversations = new Map<string, Promise<void>>()
 
-const ensureServerConversation = (conversation: Conversation, fallbackProjectId: string | null): Promise<void> => {
+const ensureServerConversation = (
+  conversation: Conversation,
+  fallbackProjectId: string | null
+): Promise<void> => {
   const inFlight = ensuredServerConversations.get(conversation.id)
   if (inFlight) return inFlight
 
@@ -344,7 +349,7 @@ const ensureServerConversation = (conversation: Conversation, fallbackProjectId:
       conversation.projectId ?? fallbackProjectId,
       conversation.subjectResourceId
         ? { resourceType: 'document', resourceId: conversation.subjectResourceId }
-        : null,
+        : null
     )
   })()
 
@@ -403,7 +408,12 @@ export const initialSessionsState = {
   serverConversationsLoaded: false,
 }
 
-export const createSessionsSlice: StateCreator<ChatStore, [["zustand/devtools", never]], [], SessionsSlice> = (set, get) => ({
+export const createSessionsSlice: StateCreator<
+  ChatStore,
+  [['zustand/devtools', never]],
+  [],
+  SessionsSlice
+> = (set, get) => ({
   ...initialSessionsState,
 
   loadServerConversations: async (projectId?: string) => {
@@ -456,7 +466,7 @@ export const createSessionsSlice: StateCreator<ChatStore, [["zustand/devtools", 
           subjectResourceType:
             serverConv.subjectResourceType === 'document'
               ? 'document'
-              : (idx >= 0 ? merged[idx].subjectResourceType : null) ?? null,
+              : ((idx >= 0 ? merged[idx].subjectResourceType : null) ?? null),
           subjectResourceId:
             serverConv.subjectResourceId ??
             (idx >= 0 ? merged[idx].subjectResourceId : null) ??
@@ -760,8 +770,7 @@ export const createSessionsSlice: StateCreator<ChatStore, [["zustand/devtools", 
   selectConversation: (conversationId: string) => {
     const beforeLeave = get()
     const leavingId =
-      beforeLeave.currentConversation?.id &&
-      beforeLeave.currentConversation.id !== conversationId
+      beforeLeave.currentConversation?.id && beforeLeave.currentConversation.id !== conversationId
         ? beforeLeave.currentConversation.id
         : undefined
 
@@ -1020,9 +1029,7 @@ export const createSessionsSlice: StateCreator<ChatStore, [["zustand/devtools", 
 
     if (jobIdsToCancel.length > 0) {
       import('@/adapters/api/deep-research-client').then(async ({ cancelJob }) => {
-        const results = await Promise.allSettled(
-          jobIdsToCancel.map((jobId) => cancelJob(jobId))
-        )
+        const results = await Promise.allSettled(jobIdsToCancel.map((jobId) => cancelJob(jobId)))
 
         const failedCount = results.filter((result) => result.status === 'rejected').length
         results.forEach((result, index) => {
@@ -1039,9 +1046,7 @@ export const createSessionsSlice: StateCreator<ChatStore, [["zustand/devtools", 
             t('sessionActions.researchRunsMayStillRunTitle', {
               count: failedCount,
               runLabel:
-                failedCount === 1
-                  ? t('sessionActions.runSingular')
-                  : t('sessionActions.runPlural'),
+                failedCount === 1 ? t('sessionActions.runSingular') : t('sessionActions.runPlural'),
             }),
             {
               description: t('sessionActions.researchRunsMayStillRunDescription'),
@@ -1176,7 +1181,7 @@ export const createSessionsSlice: StateCreator<ChatStore, [["zustand/devtools", 
     // Deep-research conversations already derive a report title from their
     // plan (see use-websocket-chat onPlan); don't override it with a chat name.
     const isDeepResearch = conversation.messages.some(
-      (m) => m.messageType === 'deep_research_banner' || Boolean(m.deepResearchJobId),
+      (m) => m.messageType === 'deep_research_banner' || Boolean(m.deepResearchJobId)
     )
     if (isDeepResearch) return
 
@@ -1188,7 +1193,7 @@ export const createSessionsSlice: StateCreator<ChatStore, [["zustand/devtools", 
     if (!firstQuestion) return
 
     const firstAnswer = conversation.messages.find(
-      (m) => m.messageType === 'agent_response' && messagePlainText(m).length > 0,
+      (m) => m.messageType === 'agent_response' && messagePlainText(m).length > 0
     )
     if (!firstAnswer) return
 
@@ -1202,7 +1207,7 @@ export const createSessionsSlice: StateCreator<ChatStore, [["zustand/devtools", 
 
     getConversationsClient()
       .then((conversationsClient) =>
-        conversationsClient.generateTitle(conversationId, payload, getActiveLocale()),
+        conversationsClient.generateTitle(conversationId, payload, getActiveLocale())
       )
       .then((result) => {
         const title = result.title.trim()
@@ -1311,13 +1316,7 @@ export const createSessionsSlice: StateCreator<ChatStore, [["zustand/devtools", 
     )
 
     if (!restoredPendingInteraction) {
-      const meaningfulTypes = new Set([
-        'user',
-        'assistant',
-        'agent_response',
-        'error',
-        'prompt',
-      ])
+      const meaningfulTypes = new Set(['user', 'assistant', 'agent_response', 'error', 'prompt'])
       const lastMeaningful = [...conversation.messages]
         .reverse()
         .find((m) => meaningfulTypes.has(m.messageType ?? ''))
@@ -1414,10 +1413,7 @@ export const createSessionsSlice: StateCreator<ChatStore, [["zustand/devtools", 
       return true
     }
 
-    if (
-      state.deepResearchOwnerConversationId === conversationId &&
-      state.isDeepResearchStreaming
-    ) {
+    if (state.deepResearchOwnerConversationId === conversationId && state.isDeepResearchStreaming) {
       return true
     }
 
@@ -1505,9 +1501,10 @@ export const createSessionsSlice: StateCreator<ChatStore, [["zustand/devtools", 
             return readSources ? { readSources } : {}
           })(),
         },
-        createdAt: message.timestamp instanceof Date
-          ? message.timestamp.toISOString()
-          : String(message.timestamp),
+        createdAt:
+          message.timestamp instanceof Date
+            ? message.timestamp.toISOString()
+            : String(message.timestamp),
       })
     } catch (err) {
       console.warn('[appendMessage] Failed:', err)
@@ -1519,7 +1516,9 @@ export const createSessionsSlice: StateCreator<ChatStore, [["zustand/devtools", 
     if (!currentConversation) return
     try {
       const conversationsClient = await getConversationsClient()
-      await conversationsClient.updateMessagePromptState(currentConversation.id, messageId, { response })
+      await conversationsClient.updateMessagePromptState(currentConversation.id, messageId, {
+        response,
+      })
     } catch (err) {
       // Best-effort, like the other mirrors: the answer already reached the agent
       // over the socket and is rendered from the store. Losing this costs the
@@ -1533,7 +1532,9 @@ export const createSessionsSlice: StateCreator<ChatStore, [["zustand/devtools", 
     if (!currentConversation) return
     try {
       const conversationsClient = await getConversationsClient()
-      await conversationsClient.updateMessageStages(currentConversation.id, messageId, { ...stages })
+      await conversationsClient.updateMessageStages(currentConversation.id, messageId, {
+        ...stages,
+      })
     } catch (err) {
       // Never surfaced, like the other mirrors: the chips are already on screen,
       // rendered from the store. Losing this costs a colleague's view and the
@@ -1554,9 +1555,7 @@ export const createSessionsSlice: StateCreator<ChatStore, [["zustand/devtools", 
     const userMessage = currentUserMessageId
       ? messages.find((message) => message.id === currentUserMessageId)
       : undefined
-    const assistantMessage = [...messages]
-      .reverse()
-      .find((message) => message.role === 'assistant')
+    const assistantMessage = [...messages].reverse().find((message) => message.role === 'assistant')
 
     const targets: Array<[string, Record<string, unknown>]> = []
 
@@ -1589,6 +1588,12 @@ export const createSessionsSlice: StateCreator<ChatStore, [["zustand/devtools", 
       }
       if (assistantMessage.citationsRemoved) {
         provenance.citationsRemoved = assistantMessage.citationsRemoved
+      }
+      if (assistantMessage.skillsActivated?.length) {
+        provenance.skillsActivated = assistantMessage.skillsActivated
+      }
+      if (assistantMessage.skillsHidden?.length) {
+        provenance.skillsHidden = assistantMessage.skillsHidden
       }
       if (assistantMessage.researchTruncated) provenance.researchTruncated = true
       // Mirrored so a reload of a LIVE turn shows what the turn showed. The

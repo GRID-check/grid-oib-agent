@@ -99,6 +99,12 @@ describe('AgentResponse', () => {
     expect(screen.getByText(/\d{1,2}:\d{2}/)).toBeInTheDocument()
   })
 
+  test('the details open on their own when the research was cut off', () => {
+    // A warning behind a closed trigger is a warning nobody read.
+    render(<AgentResponse content="Response" timestamp="2024-01-15T14:30:00Z" researchTruncated />)
+    expect(screen.getByText(/\d{1,2}:\d{2}/)).toBeInTheDocument()
+  })
+
   test('handles ISO string timestamp', async () => {
     const user = userEvent.setup()
     render(<AgentResponse content="Response" timestamp="2024-01-15T14:30:00Z" />)
@@ -171,7 +177,12 @@ describe('AgentResponse', () => {
 
   test('hides the confidence chip when the flag is off (inline variant)', () => {
     render(
-      <AgentResponse content="Answer" variant="inline" answerConfidence="low" showConfidenceChip={false} />
+      <AgentResponse
+        content="Answer"
+        variant="inline"
+        answerConfidence="low"
+        showConfidenceChip={false}
+      />
     )
     expect(screen.queryByText(/Confidence:/)).not.toBeInTheDocument()
     expect(screen.getByText('Answer')).toBeInTheDocument()
@@ -229,7 +240,7 @@ describe('AgentResponse', () => {
 
     const { container } = render(<AgentResponse content="Die Antwort." cards={cards} />)
 
-    const body = (container.textContent ?? '')
+    const body = container.textContent ?? ''
     expect(body.indexOf('Die Antwort.')).toBeGreaterThanOrEqual(0)
     expect(body.indexOf('Nachgestellte Karte')).toBeGreaterThan(body.indexOf('Die Antwort.'))
   })
@@ -358,7 +369,9 @@ describe('AgentResponse', () => {
     })
 
     test('renders no meta row when it would hold nothing at all', () => {
-      render(<AgentResponse content="Answer" showConfidenceChip={false} showAnswerFeedback={false} />)
+      render(
+        <AgentResponse content="Answer" showConfidenceChip={false} showAnswerFeedback={false} />
+      )
 
       expect(screen.queryByText('Piloti noted')).not.toBeInTheDocument()
       expect(screen.queryByText(/\d{1,2}:\d{2}/)).not.toBeInTheDocument()
@@ -433,7 +446,7 @@ describe('AgentResponse', () => {
       expect(screen.getByText(/^\d{1,2}:\d{2}/)).toBeInTheDocument()
     })
 
-    test('a down-vote opens its disclosure as the meta row\'s own next line', async () => {
+    test("a down-vote opens its disclosure as the meta row's own next line", async () => {
       // The layout defect this holds: the row is `items-center`, so one box
       // holding both the thumbs and their open form made the row as tall as the
       // form and centred the copy actions against it — two icons floating in
@@ -679,9 +692,7 @@ describe('AgentResponse', () => {
     })
 
     test('the two kinds render visibly different role tabs for the same content', () => {
-      const { unmount } = render(
-        <AgentResponse content="Same text" routingDecision="deep" />
-      )
+      const { unmount } = render(<AgentResponse content="Same text" routingDecision="deep" />)
       expect(screen.getByText('Result')).toBeInTheDocument()
       unmount()
 
@@ -698,7 +709,7 @@ describe('AgentResponse', () => {
       expect(screen.queryByText('Note')).not.toBeInTheDocument()
     })
 
-    test("fallback: an 'error' routing keeps the default \"Result\" treatment", () => {
+    test('fallback: an \'error\' routing keeps the default "Result" treatment', () => {
       render(<AgentResponse content="Something went wrong" routingDecision="error" />)
 
       expect(screen.getByText('Result')).toBeInTheDocument()
@@ -863,7 +874,10 @@ describe('AgentResponse', () => {
 
     test('renders the masthead above the prose and the rest after it', () => {
       const { container } = render(
-        <AgentResponse content="REI 60 gilt, und maßgeblich ist das Fluchtniveau." answerMeta={answerMeta} />
+        <AgentResponse
+          content="REI 60 gilt, und maßgeblich ist das Fluchtniveau."
+          answerMeta={answerMeta}
+        />
       )
       const text = container.textContent ?? ''
       expect(text).toContain('REI 60')
@@ -874,7 +888,9 @@ describe('AgentResponse', () => {
       expect(text.indexOf('REI 60')).toBeLessThan(text.indexOf('In GK 4 gilt REI 60'))
       expect(text.indexOf('In GK 4 gilt REI 60')).toBeLessThan(text.indexOf('REI 60 gilt,'))
       expect(text.indexOf('REI 60 gilt,')).toBeLessThan(text.indexOf('Binnen sechs Wochen'))
-      expect(text.indexOf('Binnen sechs Wochen')).toBeLessThan(text.indexOf('Maßgeblich ist das Fluchtniveau'))
+      expect(text.indexOf('Binnen sechs Wochen')).toBeLessThan(
+        text.indexOf('Maßgeblich ist das Fluchtniveau')
+      )
     })
 
     test('a summary holds the lede emphasis alone — the first paragraph stays body-sized', () => {
@@ -978,7 +994,10 @@ describe('AgentResponse', () => {
 
     test('a genuinely different summary still headlines the answer', () => {
       const { container } = render(
-        <AgentResponse content="REI 60 gilt, und maßgeblich ist das Fluchtniveau." answerMeta={answerMeta} />
+        <AgentResponse
+          content="REI 60 gilt, und maßgeblich ist das Fluchtniveau."
+          answerMeta={answerMeta}
+        />
       )
       expect(container.querySelector('header')?.textContent).toContain('In GK 4 gilt REI 60')
     })

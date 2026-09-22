@@ -13,7 +13,7 @@
 
 'use client'
 
-import { type FC, memo, useCallback, useId, useMemo, useState } from 'react'
+import { type FC, memo, useCallback, useEffect, useId, useMemo, useState } from 'react'
 import { Check, ChevronDown, FileText, MessageCircle } from 'lucide-react'
 import { Chip } from '@/components/ui/chip'
 import { SectionLabel } from '@/components/ui/section-label'
@@ -36,10 +36,7 @@ import { MarkdownSlotProvider } from '@/shared/components/MarkdownRenderer/slot-
 import type { GridCard } from '@/shared/cards/schemas'
 import type { CitationSource } from '../types'
 import type { AnswerConfidenceCappedReason } from '@/lib/conversations/message-provenance'
-import {
-  ANSWER_DEGRADED_REASONS,
-  TRUNCATION_REASONS,
-} from '@/lib/conversations/message-provenance'
+import { ANSWER_DEGRADED_REASONS, TRUNCATION_REASONS } from '@/lib/conversations/message-provenance'
 import type { MessageStages } from '@/lib/conversations/message-stages'
 import type { CardInteractions } from '@/features/grid-cards/card-decision'
 import { useChatStore } from '../store'
@@ -165,8 +162,8 @@ export interface AgentResponseProps {
   answerConfidenceReason?: string
   /**
    * Citation-verification result: how many citations were removed as
-   * unverifiable, with de-duplicated reasons. Renders a muted note under the
-   * "Belegt durch" sources row when present.
+   * unverifiable, with de-duplicated reasons. Renders a muted note inside the
+   * answer details, which open on their own when it is present.
    */
   citationsRemoved?: { count: number; reasons: string[] }
   /**
@@ -179,8 +176,9 @@ export interface AgentResponseProps {
   /**
    * The turn's research was cut off at its budget ceiling: this answer rests on
    * the evidence gathered up to that point rather than on a finished search.
-   * Renders one muted line directly under the sources row — a fact about the
-   * EVIDENCE, in the same register as the row above it. Never a badge on the
+   * Renders one muted line inside the answer details, which open on their
+   * own when it is present — a fact about the EVIDENCE, in the same register
+   * as the sources row. Never a badge on the
    * answer and never folded into the confidence chip: that grades whether the
    * claims are sourced, which a truncated answer can be, perfectly.
    */
@@ -266,7 +264,7 @@ export interface AgentResponseProps {
 function answerRoleTab(
   kind: AnswerKind | undefined,
   routingDecision: AgentResponseProps['routingDecision'],
-  hasVerdict: boolean,
+  hasVerdict: boolean
 ): 'note' | 'answer' | 'result' {
   if (kind === 'direct' || kind === 'handoff') return 'note'
   if (kind === 'walkthrough') return 'answer'
@@ -279,7 +277,7 @@ function answerRoleTab(
 const StreamingCaret: FC = () => (
   <span
     aria-hidden="true"
-    className="ml-0.5 inline-block h-[1.05em] w-[2px] translate-y-[0.15em] animate-pulse rounded-full bg-foreground/70 align-baseline motion-reduce:animate-none"
+    className="bg-foreground/70 ml-0.5 inline-block h-[1.05em] w-[2px] translate-y-[0.15em] animate-pulse rounded-full align-baseline motion-reduce:animate-none"
   />
 )
 
@@ -369,7 +367,7 @@ const CitationsRemovedNote: FC<{ citationsRemoved?: { count: number; reasons: st
   )
 
   const text = (
-    <span className="text-xs leading-relaxed text-muted-foreground" role="note">
+    <span className="text-muted-foreground text-xs leading-relaxed" role="note">
       {label}
     </span>
   )
@@ -384,10 +382,10 @@ const CitationsRemovedNote: FC<{ citationsRemoved?: { count: number; reasons: st
         <TooltipTrigger asChild>
           <button
             type="button"
-            className="cursor-help rounded-xs text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60"
+            className="rounded-xs focus-visible:ring-ring/60 cursor-help text-left focus-visible:outline-none focus-visible:ring-2"
             aria-label={label}
           >
-            <span className="text-xs leading-relaxed text-muted-foreground underline decoration-dotted underline-offset-2">
+            <span className="text-muted-foreground text-xs leading-relaxed underline decoration-dotted underline-offset-2">
               {label}
             </span>
           </button>
@@ -430,9 +428,7 @@ const ResearchTruncatedNote: FC<{
   const t = useTranslations('chat')
   if (!researchTruncated) return null
   const sentence = t(
-    hasSources
-      ? 'answerSources.researchTruncated'
-      : 'answerSources.researchTruncatedWithoutSources'
+    hasSources ? 'answerSources.researchTruncated' : 'answerSources.researchTruncatedWithoutSources'
   )
   // The cause rides the same line as a parenthetical rather than claiming one of
   // its own: "it ran out of time" is not a second statement, it is the first one
@@ -443,7 +439,7 @@ const ResearchTruncatedNote: FC<{
     : null
   return (
     <div className="mt-1.5">
-      <span className="text-xs leading-relaxed text-muted-foreground" role="note">
+      <span className="text-muted-foreground text-xs leading-relaxed" role="note">
         {cause ? `${sentence} (${cause})` : sentence}
       </span>
     </div>
@@ -479,7 +475,7 @@ const AnswerDegradedNote: FC<{ degradedReasons?: string[] }> = ({ degradedReason
   return (
     <div className="mt-1.5 flex flex-col gap-0.5">
       {lines.map((line) => (
-        <span key={line} className="text-xs leading-relaxed text-muted-foreground" role="note">
+        <span key={line} className="text-muted-foreground text-xs leading-relaxed" role="note">
           {line}
         </span>
       ))}
@@ -565,7 +561,7 @@ const ReadSourcesSection: FC<{ readSources?: CitationSource[] }> = ({ readSource
             onClick={() => setExpanded((open) => !open)}
             aria-expanded={expanded}
             data-testid="read-sources-more"
-            className="cursor-pointer rounded-xs text-xs leading-relaxed text-muted-foreground underline decoration-dotted underline-offset-2 transition-colors duration-quick ease-out hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60"
+            className="rounded-xs text-muted-foreground duration-quick hover:text-foreground focus-visible:ring-ring/60 cursor-pointer text-xs leading-relaxed underline decoration-dotted underline-offset-2 transition-colors ease-out focus-visible:outline-none focus-visible:ring-2"
           >
             {expanded
               ? t('answerDetails.readSources.less')
@@ -584,7 +580,10 @@ const ReadSourcesSection: FC<{ readSources?: CitationSource[] }> = ({ readSource
  * actions and the feedback thumbs visible; everything else the turn carries
  * — confidence, the memory note, the skills that shaped the answer, the
  * verification notes and the timestamp — lives behind ONE muted text-xs
- * trigger line. `SkillsUsedDisclosure` is MOVED here, not duplicated: it
+ * trigger line. The disclosure opens ITSELF when the turn carries something
+ * the reader must not miss — a cut-off, a salvaged run, stripped citations,
+ * low confidence — because a warning behind a closed trigger is a warning
+ * nobody read. `SkillsUsedDisclosure` is MOVED here, not duplicated: it
  * renders null on a turn that activated nothing, like every other item
  * inside. Feedback stays out on purpose: rating the answer must not cost a
  * click first.
@@ -627,16 +626,27 @@ const AnswerDetails: FC<{
   // an en-US browser got "03:35 PM" beside cards that all say "15:35".
   const { locale } = useLocale()
   const [open, setOpen] = useState(false)
+  // The warnings arrive with the terminal frame, after this mounted for the
+  // streaming answer, so an effect rather than the initial state.
+  const needsAttention = Boolean(
+    researchTruncated ||
+    degradedReasons?.length ||
+    citationsRemoved?.count ||
+    answerConfidence === 'low'
+  )
+  useEffect(() => {
+    if (needsAttention) setOpen(true)
+  }, [needsAttention])
   return (
     <Collapsible open={open} onOpenChange={setOpen} className="flex w-full flex-col">
       <CollapsibleTrigger
-        className="text-muted-foreground hover:text-foreground focus-visible:ring-ring/60 touch-target flex items-center gap-1.5 self-start rounded-md text-xs leading-relaxed transition-colors duration-quick ease-out focus-visible:outline-none focus-visible:ring-2"
+        className="text-muted-foreground hover:text-foreground focus-visible:ring-ring/60 touch-target duration-quick flex items-center gap-1.5 self-start rounded-md text-xs leading-relaxed transition-colors ease-out focus-visible:outline-none focus-visible:ring-2"
         aria-label={t('answerDetails.triggerAria')}
         data-testid="answer-details-trigger"
       >
         <span>{t('answerDetails.trigger')}</span>
         <ChevronDown
-          className={`size-3 shrink-0 transition-transform duration-quick ease-out motion-reduce:transition-none${open ? ' rotate-180' : ''}`}
+          className={`duration-quick size-3 shrink-0 transition-transform ease-out motion-reduce:transition-none${open ? ' rotate-180' : ''}`}
           aria-hidden="true"
         />
       </CollapsibleTrigger>
@@ -663,7 +673,9 @@ const AnswerDetails: FC<{
           <AnswerDegradedNote degradedReasons={degradedReasons} />
           <CitationsRemovedNote citationsRemoved={citationsRemoved} />
           <ReadSourcesSection readSources={readSources} />
-          {timestamp && <span className="text-subtle text-xs">{formatTime(timestamp, locale)}</span>}
+          {timestamp && (
+            <span className="text-subtle text-xs">{formatTime(timestamp, locale)}</span>
+          )}
         </div>
       </CollapsibleContent>
     </Collapsible>
@@ -753,10 +765,13 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
   // with none.
   const effectiveSummary = useMemo(
     () =>
-      anatomy?.summary && summaryDuplicatesBody(anatomy.summary, body) ? undefined : anatomy?.summary,
+      anatomy?.summary && summaryDuplicatesBody(anatomy.summary, body)
+        ? undefined
+        : anatomy?.summary,
     [anatomy, body]
   )
-  const ledeClass = opensWithLede(body, stillArriving) && !effectiveSummary && !anatomy?.topic ? LEDE_CLASS : ''
+  const ledeClass =
+    opensWithLede(body, stillArriving) && !effectiveSummary && !anatomy?.topic ? LEDE_CLASS : ''
   // The files this answer NAMES, as opposed to the ones it cites. A sentence
   // like „Beginnen Sie mit pd8280-2.pdf" is pointing at a document the reader
   // owns, and until the index below resolved that name it was dead text. The
@@ -818,17 +833,14 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
   // Renders nothing when the index has no card yet — while streaming a marker
   // routinely arrives several frames before the card it names, and a hole is
   // better than a crash or a raw `[[card:2]]`.
-  const cardSet = useMemo(
-    () => [...(cards ?? []), ...(anatomy?.all ?? [])],
-    [cards, anatomy]
-  )
+  const cardSet = useMemo(() => [...(cards ?? []), ...(anatomy?.all ?? [])], [cards, anatomy])
   const renderCardSlot = useCallback(
     (index: number) => {
       // The callout's slot: the one anatomy block the prose may anchor.
       if (index === CALLOUT_SLOT_INDEX) {
         if (!anatomy?.callout) return null
         return (
-          <div className="mb-3 block!">
+          <div className="block! mb-3">
             <CardSetProvider cards={cardSet}>
               <AnatomyBlock card={anatomy.callout} />
             </CardSetProvider>
@@ -842,7 +854,7 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
       // the streaming caret's `*:last-child]:inline` rule, which would collapse
       // a card that ends the answer for as long as the answer is still arriving.
       return (
-        <div className="mb-3 block!">
+        <div className="block! mb-3">
           {/* The whole answer's cards, not just this one: a card placed inline
               by a marker still has to know what ELSE the answer is carrying —
               `summary` and `verdict_header` must not both claim the top of it
@@ -902,11 +914,7 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
   const hasAnswerActions =
     !stillArriving && Boolean(content) && content.trim().length > 0 && content !== 'null'
   const hasMetaRow =
-    hasConfidence ||
-    hasFeedback ||
-    hasAnswerActions ||
-    Boolean(timestamp) ||
-    memoryItems.length > 0
+    hasConfidence || hasFeedback || hasAnswerActions || Boolean(timestamp) || memoryItems.length > 0
   // Streaming still has no chips/thumbs, but the row is reserved at chip
   // height so the footer does not jump when they land. An idle answer with
   // nothing to hold still omits the row (no empty band).
@@ -957,48 +965,54 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
   if (variant === 'inline') {
     return (
       <DiagramFilingProvider target={diagramFilingTarget}>
-      <AnswerCitations
-      documents={documents}
-      anchorPrefix={anchorPrefix}
-      resolveFileReference={fileReferences.resolve}
-    >
-      <div className="flex w-full flex-col gap-2 overflow-hidden break-words">
-        {/* The answer's masthead — verdict/topic and/or summary, flat above the prose. */}
-        {anatomy && (anatomy.verdict || effectiveSummary || anatomy.topic) && (
-          <CardSetProvider cards={cardSet}>
-            <AnatomyMasthead
-              verdict={anatomy.verdict}
-              summary={effectiveSummary}
-              topic={anatomy.topic}
-              context={anatomy.context}
-              kind={answerMeta?.kind}
-            />
-          </CardSetProvider>
-        )}
-        {/* An unplaced legal basis — flat above the prose, never in the fallback grid. */}
-        {!stillArriving && evidenceCard?.type === 'legal_basis' && (
-          <CardSetProvider cards={cardSet}>
-            <EvidenceBlock card={evidenceCard} />
-          </CardSetProvider>
-        )}
-        {/* Response Content rendered as markdown (with streaming caret). While
+        <AnswerCitations
+          documents={documents}
+          anchorPrefix={anchorPrefix}
+          resolveFileReference={fileReferences.resolve}
+        >
+          <div className="flex w-full flex-col gap-2 overflow-hidden break-words">
+            {/* The answer's masthead — verdict/topic and/or summary, flat above the prose. */}
+            {anatomy && (anatomy.verdict || effectiveSummary || anatomy.topic) && (
+              <CardSetProvider cards={cardSet}>
+                <AnatomyMasthead
+                  verdict={anatomy.verdict}
+                  summary={effectiveSummary}
+                  topic={anatomy.topic}
+                  context={anatomy.context}
+                  kind={answerMeta?.kind}
+                  confidence={answerConfidence}
+                  confidenceReason={answerConfidenceReason}
+                />
+              </CardSetProvider>
+            )}
+            {/* An unplaced legal basis — flat above the prose, never in the fallback grid. */}
+            {!stillArriving && evidenceCard?.type === 'legal_basis' && (
+              <CardSetProvider cards={cardSet}>
+                <EvidenceBlock card={evidenceCard} />
+              </CardSetProvider>
+            )}
+            {/* Response Content rendered as markdown (with streaming caret). While
             streaming, the markdown block + its last child are forced inline so
             the caret trails the final glyph instead of dropping to a new line.
             Cards the answer placed with a marker are spliced into this body. */}
-        <MarkdownSlotProvider render={renderCardSlot}>
-          <div
-            className={
-              stillArriving
-                ? '[&>.markdown-content>*:last-child]:inline [&>.markdown-content]:inline'
-                : ledeClass || undefined
-            }
-          >
-            <MarkdownRenderer content={body} isStreaming={stillArriving} remarkPlugins={markerPlugins} />
-            {stillArriving && <StreamingCaret />}
-          </div>
-        </MarkdownSlotProvider>
+            <MarkdownSlotProvider render={renderCardSlot}>
+              <div
+                className={
+                  stillArriving
+                    ? '[&>.markdown-content>*:last-child]:inline [&>.markdown-content]:inline'
+                    : ledeClass || undefined
+                }
+              >
+                <MarkdownRenderer
+                  content={body}
+                  isStreaming={stillArriving}
+                  remarkPlugins={markerPlugins}
+                />
+                {stillArriving && <StreamingCaret />}
+              </div>
+            </MarkdownSlotProvider>
 
-        {/* Cards no marker claimed. AFTER the body, never before it: an answer
+            {/* Cards no marker claimed. AFTER the body, never before it: an answer
             that opens with three diagrams has pushed itself below the fold.
             Withheld until the reveal finishes, because "unplaced" is read off
             the body SO FAR: a card whose `[[card:N]]` has not been typed out yet
@@ -1008,37 +1022,37 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
             paragraph rhythm is 12px, so without it an UNPLACED card hugged the
             prose 4px tighter than a placed one — visible the moment an answer
             carries both. */}
-        {/* The anatomy below the prose: the callout (unless its marker placed
+            {/* The anatomy below the prose: the callout (unless its marker placed
             it inline), then the takeaways. */}
-        {!stillArriving && anatomyBelow.length > 0 && (
-          <div className="mt-1 flex flex-col gap-3">
-            <CardSetProvider cards={cardSet}>
-              {anatomyBelow.map((card) => (
-                <AnatomyBlock key={card.type} card={card} />
-              ))}
-            </CardSetProvider>
-          </div>
-        )}
-        {!stillArriving && cards && fallbackGridIndices.length > 0 && (
-          <div className="mt-1">
-            <GridCards
-              cards={cards}
-              indices={fallbackGridIndices}
-              projectId={projectId}
-              messageId={messageId}
+            {!stillArriving && anatomyBelow.length > 0 && (
+              <div className="mt-1 flex flex-col gap-3">
+                <CardSetProvider cards={cardSet}>
+                  {anatomyBelow.map((card) => (
+                    <AnatomyBlock key={card.type} card={card} />
+                  ))}
+                </CardSetProvider>
+              </div>
+            )}
+            {!stillArriving && cards && fallbackGridIndices.length > 0 && (
+              <div className="mt-1">
+                <GridCards
+                  cards={cards}
+                  indices={fallbackGridIndices}
+                  projectId={projectId}
+                  messageId={messageId}
+                />
+              </div>
+            )}
+
+            {/* "Belegt durch": provenance chips for sources this answer carries */}
+            <AnswerSourcesRow
+              documents={documents}
+              anchorPrefix={anchorPrefix}
+              routingDecision={routingDecision}
+              isStreaming={stillArriving}
             />
-          </div>
-        )}
 
-        {/* "Belegt durch": provenance chips for sources this answer carries */}
-        <AnswerSourcesRow
-          documents={documents}
-          anchorPrefix={anchorPrefix}
-          routingDecision={routingDecision}
-          isStreaming={stillArriving}
-        />
-
-        {/* No copy actions here, deliberately. This variant is the box-less
+            {/* No copy actions here, deliberately. This variant is the box-less
             rendering used INSIDE another container (the thinking process, the
             dev turn surfaces) — it has no consolidated meta row, so the buttons
             would land as one more loose element in a stack that already ends in
@@ -1046,41 +1060,41 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
             answer in the thread: ChatArea always uses the default variant, so
             every answer a reader would paste has its buttons on its own card.
             If that changes, <AnswerActions /> drops into the row below. */}
-        {reserveMetaRow && (
-          <div
-            className={
-              hasMetaRow
-                ? 'animate-in fade-in-0 flex min-h-6 flex-col gap-1.5 duration-quick ease-out motion-reduce:animate-none'
-                : 'min-h-6'
-            }
-            aria-hidden={hasMetaRow ? undefined : true}
-          >
-            {hasDetailsContent && (
-              <AnswerDetails
-                hasConfidence={hasConfidence}
-                answerConfidence={answerConfidence}
-                answerConfidenceCappedReason={answerConfidenceCappedReason}
-                answerConfidenceReason={answerConfidenceReason}
-                memoryItems={memoryItems}
-                skillsActivated={skillsActivated}
-                skillsHidden={skillsHidden}
-                showReasoning={showReasoning}
-                researchTruncated={researchTruncated}
-                truncationReason={truncationReason}
-                degradedReasons={degradedReasons}
-                citationsRemoved={citationsRemoved}
-                readSources={readSources}
-                hasAnswerSources={hasAnswerSources}
-                timestamp={timestamp}
-              />
-            )}
-            {hasFeedback && messageId && (
-              <AnswerFeedback messageId={messageId} conversationId={conversationId} />
+            {reserveMetaRow && (
+              <div
+                className={
+                  hasMetaRow
+                    ? 'animate-in fade-in-0 duration-quick flex min-h-6 flex-col gap-1.5 ease-out motion-reduce:animate-none'
+                    : 'min-h-6'
+                }
+                aria-hidden={hasMetaRow ? undefined : true}
+              >
+                {hasDetailsContent && (
+                  <AnswerDetails
+                    hasConfidence={hasConfidence}
+                    answerConfidence={answerConfidence}
+                    answerConfidenceCappedReason={answerConfidenceCappedReason}
+                    answerConfidenceReason={answerConfidenceReason}
+                    memoryItems={memoryItems}
+                    skillsActivated={skillsActivated}
+                    skillsHidden={skillsHidden}
+                    showReasoning={showReasoning}
+                    researchTruncated={researchTruncated}
+                    truncationReason={truncationReason}
+                    degradedReasons={degradedReasons}
+                    citationsRemoved={citationsRemoved}
+                    readSources={readSources}
+                    hasAnswerSources={hasAnswerSources}
+                    timestamp={timestamp}
+                  />
+                )}
+                {hasFeedback && messageId && (
+                  <AnswerFeedback messageId={messageId} conversationId={conversationId} />
+                )}
+              </div>
             )}
           </div>
-        )}
-      </div>
-      </AnswerCitations>
+        </AnswerCitations>
       </DiagramFilingProvider>
     )
   }
@@ -1097,179 +1111,195 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
   const roleTab = answerRoleTab(answerMeta?.kind, routingDecision, Boolean(answerMeta?.verdict))
   const isNote = roleTab === 'note'
   const tabLabel =
-    roleTab === 'note' ? t('roles.note') : roleTab === 'answer' ? t('roles.answer') : t('roles.result')
+    roleTab === 'note'
+      ? t('roles.note')
+      : roleTab === 'answer'
+        ? t('roles.answer')
+        : t('roles.result')
   return (
     <DiagramFilingProvider target={diagramFilingTarget}>
-    <AnswerCitations
-      documents={documents}
-      anchorPrefix={anchorPrefix}
-      resolveFileReference={fileReferences.resolve}
-    >
-    {/* Full column width, not a fixed 680px: the answer is the thread's main
+      <AnswerCitations
+        documents={documents}
+        anchorPrefix={anchorPrefix}
+        resolveFileReference={fileReferences.resolve}
+      >
+        {/* Full column width, not a fixed 680px: the answer is the thread's main
         content and reads as a centered column (the width itself is set by the
         list's max-w container), rather than a card hugging the left edge with
         dead space beside it. */}
-    <div className="animate-in fade-in-0 slide-in-from-bottom-1 flex w-full flex-col duration-base ease-entrance motion-reduce:animate-none">
-      {/* Role tab — uppercase 10.5/600. Substantive answer: near-black action
+        <div className="animate-in fade-in-0 slide-in-from-bottom-1 duration-base ease-entrance flex w-full flex-col motion-reduce:animate-none">
+          {/* Role tab — uppercase 10.5/600. Substantive answer: near-black action
           fill + check. Meta / direct reply: quiet secondary fill + conversation icon. */}
-      {isNote ? (
-        <SectionLabel as="div" className="ml-[14px] inline-flex w-fit items-center gap-1.5 rounded-t-md bg-secondary px-2.5 py-1 text-secondary-foreground">
-          <MessageCircle className="size-2.5" strokeWidth={2.6} aria-hidden="true" />
-          {tabLabel}
-        </SectionLabel>
-      ) : (
-        <SectionLabel as="div" className="ml-[14px] inline-flex w-fit items-center gap-1.5 rounded-t-md bg-primary px-2.5 py-1 text-primary-foreground">
-          <Check className="size-2.5" strokeWidth={2.6} aria-hidden="true" />
-          {tabLabel}
-        </SectionLabel>
-      )}
+          {isNote ? (
+            <SectionLabel
+              as="div"
+              className="bg-secondary text-secondary-foreground ml-[14px] inline-flex w-fit items-center gap-1.5 rounded-t-md px-2.5 py-1"
+            >
+              <MessageCircle className="size-2.5" strokeWidth={2.6} aria-hidden="true" />
+              {tabLabel}
+            </SectionLabel>
+          ) : (
+            <SectionLabel
+              as="div"
+              className="bg-primary text-primary-foreground ml-[14px] inline-flex w-fit items-center gap-1.5 rounded-t-md px-2.5 py-1"
+            >
+              <Check className="size-2.5" strokeWidth={2.6} aria-hidden="true" />
+              {tabLabel}
+            </SectionLabel>
+          )}
 
-      {/* Shell: subtle surface + hairline + soft shadow, corners clipped. A meta
+          {/* Shell: subtle surface + hairline + soft shadow, corners clipped. A meta
           reply sits on a quieter muted surface, so the whole card — not just the
           tab — reads as the calmer, non-result kind. Both kinds use shadow-sm,
           matching the composer's elevation so the answer never outranks it. */}
-      <div
-        className={
-          isNote
-            ? 'overflow-hidden rounded-lg border border-input bg-muted shadow-sm'
-            : 'overflow-hidden rounded-lg border border-input bg-input-background shadow-sm'
-        }
-      >
-        {/* Answer body — the hero white surface. It fills the top of the card
+          <div
+            className={
+              isNote
+                ? 'border-input bg-muted overflow-hidden rounded-lg border shadow-sm'
+                : 'border-input bg-input-background overflow-hidden rounded-lg border shadow-sm'
+            }
+          >
+            {/* Answer body — the hero white surface. It fills the top of the card
             flush (corners clipped by the shell) and is separated from the
             provenance footer by a single hairline, so the whole thing reads as
             one considered object with sections — not a card floating in a tray. */}
-        <div className="flex flex-col gap-2 break-words border-b bg-card px-[22px] pb-[17px] pt-[18px]">
-          {/* The answer's masthead — verdict/topic and/or summary, flat above the prose. */}
-          {anatomy && (anatomy.verdict || effectiveSummary || anatomy.topic) && (
-          <CardSetProvider cards={cardSet}>
-            <AnatomyMasthead
-              verdict={anatomy.verdict}
-              summary={effectiveSummary}
-              topic={anatomy.topic}
-              context={anatomy.context}
-              kind={answerMeta?.kind}
-            />
-          </CardSetProvider>
-        )}
-        {/* An unplaced legal basis — flat above the prose, never in the fallback grid. */}
-        {!stillArriving && evidenceCard?.type === 'legal_basis' && (
-          <CardSetProvider cards={cardSet}>
-            <EvidenceBlock card={evidenceCard} />
-          </CardSetProvider>
-        )}
-        {/* Response Content rendered as markdown (with streaming caret).
+            <div className="bg-card flex flex-col gap-2 break-words border-b px-[22px] pb-[17px] pt-[18px]">
+              {/* The answer's masthead — verdict/topic and/or summary, flat above the prose. */}
+              {anatomy && (anatomy.verdict || effectiveSummary || anatomy.topic) && (
+                <CardSetProvider cards={cardSet}>
+                  <AnatomyMasthead
+                    verdict={anatomy.verdict}
+                    summary={effectiveSummary}
+                    topic={anatomy.topic}
+                    context={anatomy.context}
+                    kind={answerMeta?.kind}
+                    confidence={answerConfidence}
+                    confidenceReason={answerConfidenceReason}
+                  />
+                </CardSetProvider>
+              )}
+              {/* An unplaced legal basis — flat above the prose, never in the fallback grid. */}
+              {!stillArriving && evidenceCard?.type === 'legal_basis' && (
+                <CardSetProvider cards={cardSet}>
+                  <EvidenceBlock card={evidenceCard} />
+                </CardSetProvider>
+              )}
+              {/* Response Content rendered as markdown (with streaming caret).
               Cards the answer placed with a marker are spliced into this body. */}
-          <MarkdownSlotProvider render={renderCardSlot}>
-            <div
-              className={
-                stillArriving
-                  ? '[&>.markdown-content>*:last-child]:inline [&>.markdown-content]:inline'
-                  : ledeClass || undefined
-              }
-            >
-              <MarkdownRenderer content={body} isStreaming={stillArriving} remarkPlugins={markerPlugins} />
-              {stillArriving && <StreamingCaret />}
-            </div>
-          </MarkdownSlotProvider>
+              <MarkdownSlotProvider render={renderCardSlot}>
+                <div
+                  className={
+                    stillArriving
+                      ? '[&>.markdown-content>*:last-child]:inline [&>.markdown-content]:inline'
+                      : ledeClass || undefined
+                  }
+                >
+                  <MarkdownRenderer
+                    content={body}
+                    isStreaming={stillArriving}
+                    remarkPlugins={markerPlugins}
+                  />
+                  {stillArriving && <StreamingCaret />}
+                </div>
+              </MarkdownSlotProvider>
 
-          {/* Cards no marker claimed. AFTER the body, never before it: an answer
+              {/* Cards no marker claimed. AFTER the body, never before it: an answer
               that opens with three diagrams has pushed itself below the fold.
               `mt-1` because this column's `gap-2` is 8px and the markdown
               body's paragraph rhythm is 12px, so without it an UNPLACED card
               hugged the prose 4px tighter than a placed one — visible the
               moment an answer carries both, which is what
               /dev/chat-turn?variant=two-cards shows. */}
-          {/* The anatomy below the prose: the callout (unless its marker placed
+              {/* The anatomy below the prose: the callout (unless its marker placed
               it inline), then the takeaways. */}
-          {!stillArriving && anatomyBelow.length > 0 && (
-          <div className="mt-1 flex flex-col gap-3">
-            <CardSetProvider cards={cardSet}>
-              {anatomyBelow.map((card) => (
-                <AnatomyBlock key={card.type} card={card} />
-              ))}
-            </CardSetProvider>
-          </div>
-        )}
-        {!stillArriving && cards && fallbackGridIndices.length > 0 && (
-            <div className="mt-1">
-              <GridCards
-                cards={cards}
-                indices={fallbackGridIndices}
-                projectId={projectId}
-                messageId={messageId}
-              />
+              {!stillArriving && anatomyBelow.length > 0 && (
+                <div className="mt-1 flex flex-col gap-3">
+                  <CardSetProvider cards={cardSet}>
+                    {anatomyBelow.map((card) => (
+                      <AnatomyBlock key={card.type} card={card} />
+                    ))}
+                  </CardSetProvider>
+                </div>
+              )}
+              {!stillArriving && cards && fallbackGridIndices.length > 0 && (
+                <div className="mt-1">
+                  <GridCards
+                    cards={cards}
+                    indices={fallbackGridIndices}
+                    projectId={projectId}
+                    messageId={messageId}
+                  />
+                </div>
+              )}
             </div>
-          )}
-        </div>
 
-        {/* Provenance footer — ONE tinted zone under the body's hairline that
+            {/* Provenance footer — ONE tinted zone under the body's hairline that
             holds the sources block, the copy actions, and a single disclosure
             for everything else (confidence, memory note, skills used,
             verification notes, feedback, timestamp). The sources row must not
             draw its own divider here (the body hairline already separates), so
             it takes withDivider={false}. */}
-        <div className="flex flex-col gap-2.5 px-[22px] pb-[14px] pt-3">
-          <AnswerSourcesRow
-            documents={documents}
-            anchorPrefix={anchorPrefix}
-            routingDecision={routingDecision}
-            isStreaming={stillArriving}
-            withDivider={false}
-          />
-          {reserveMetaRow && (
-            <div
-              className={
-                hasMetaRow
-                  ? 'animate-in fade-in-0 flex min-h-6 flex-wrap items-center gap-2 duration-quick ease-out motion-reduce:animate-none'
-                  : 'min-h-6'
-              }
-              aria-hidden={hasMetaRow ? undefined : true}
-            >
-              {/* Copy the answer out — markdown, with or without its sources
+            <div className="flex flex-col gap-2.5 px-[22px] pb-[14px] pt-3">
+              <AnswerSourcesRow
+                documents={documents}
+                anchorPrefix={anchorPrefix}
+                routingDecision={routingDecision}
+                isStreaming={stillArriving}
+                withDivider={false}
+              />
+              {reserveMetaRow && (
+                <div
+                  className={
+                    hasMetaRow
+                      ? 'animate-in fade-in-0 duration-quick flex min-h-6 flex-wrap items-center gap-2 ease-out motion-reduce:animate-none'
+                      : 'min-h-6'
+                  }
+                  aria-hidden={hasMetaRow ? undefined : true}
+                >
+                  {/* Copy the answer out — markdown, with or without its sources
                   written out. Before the disclosure: "take this with you" is
                   what the reader wants first; the details are the afterthought. */}
-              {hasAnswerActions && (
-                <AnswerActions
-                  content={content}
-                  body={body}
-                  documents={documents}
-                  conversationId={conversationId}
-                  messageId={messageId}
-                />
-              )}
-              {hasMetaRow && <span className="flex-1" aria-hidden="true" />}
-              {/* `compact`: the thumbs stay on this line and their disclosure
+                  {hasAnswerActions && (
+                    <AnswerActions
+                      content={content}
+                      body={body}
+                      documents={documents}
+                      conversationId={conversationId}
+                      messageId={messageId}
+                    />
+                  )}
+                  {hasMetaRow && <span className="flex-1" aria-hidden="true" />}
+                  {/* `compact`: the thumbs stay on this line and their disclosure
                   takes the next one full-width, rather than one tall box the
                   row would centre the copy actions against. */}
-              {hasFeedback && messageId && (
-                <AnswerFeedback compact messageId={messageId} conversationId={conversationId} />
-              )}
-              {hasDetailsContent && (
-                <AnswerDetails
-                  hasConfidence={hasConfidence}
-                  answerConfidence={answerConfidence}
-                  answerConfidenceCappedReason={answerConfidenceCappedReason}
-                  answerConfidenceReason={answerConfidenceReason}
-                  memoryItems={memoryItems}
-                  skillsActivated={skillsActivated}
-                  skillsHidden={skillsHidden}
-                  showReasoning={showReasoning}
-                  researchTruncated={researchTruncated}
-                  truncationReason={truncationReason}
-                  degradedReasons={degradedReasons}
-                  citationsRemoved={citationsRemoved}
-                  readSources={readSources}
-                  hasAnswerSources={hasAnswerSources}
-                  timestamp={timestamp}
-                />
+                  {hasFeedback && messageId && (
+                    <AnswerFeedback compact messageId={messageId} conversationId={conversationId} />
+                  )}
+                  {hasDetailsContent && (
+                    <AnswerDetails
+                      hasConfidence={hasConfidence}
+                      answerConfidence={answerConfidence}
+                      answerConfidenceCappedReason={answerConfidenceCappedReason}
+                      answerConfidenceReason={answerConfidenceReason}
+                      memoryItems={memoryItems}
+                      skillsActivated={skillsActivated}
+                      skillsHidden={skillsHidden}
+                      showReasoning={showReasoning}
+                      researchTruncated={researchTruncated}
+                      truncationReason={truncationReason}
+                      degradedReasons={degradedReasons}
+                      citationsRemoved={citationsRemoved}
+                      readSources={readSources}
+                      hasAnswerSources={hasAnswerSources}
+                      timestamp={timestamp}
+                    />
+                  )}
+                </div>
               )}
             </div>
-          )}
+          </div>
         </div>
-      </div>
-    </div>
-    </AnswerCitations>
+      </AnswerCitations>
     </DiagramFilingProvider>
   )
 }

@@ -165,6 +165,22 @@ describe('provenanceFromBackendMetadata', () => {
     ).toMatchObject({ answerConfidenceCappedReason: 'quote_unverified' })
   })
 
+  it('carries the routing, the escalation ask and the skills the server-side persist wrote', () => {
+    expect(
+      provenanceFromBackendMetadata({
+        routing_decision: 'meta',
+        escalation_reason: 'Viele Quellen gegeneinander zu lesen.',
+        skills_activated: ['piloti-cards'],
+        skills_hidden: ['house-voice'],
+      })
+    ).toEqual({
+      routingDecision: 'meta',
+      escalationReason: 'Viele Quellen gegeneinander zu lesen.',
+      skillsActivated: ['piloti-cards'],
+      skillsHidden: ['house-voice'],
+    })
+  })
+
   it('carries the deep-research job pointer', () => {
     expect(provenanceFromBackendMetadata({ deep_research_job_id: 'job_42' })).toEqual({
       deepResearchJobId: 'job_42',
@@ -358,7 +374,9 @@ describe('normalizeAgentAnswerMetadata', () => {
   it('keeps storing the passage fields for cited sources', () => {
     // The stripping above is read-only: a cited source still needs its
     // passage, its Punkt and its score.
-    const result = normalizeAgentAnswerMetadata({ sources: [kbSource({ punkt: '3.5.2', score: 0.87 })] })
+    const result = normalizeAgentAnswerMetadata({
+      sources: [kbSource({ punkt: '3.5.2', score: 0.87 })],
+    })
     const stored = (result?.citations as { sources: Record<string, unknown>[] }).sources[0]
     expect(stored).toMatchObject({
       content: '[KB] OIB-Richtlinie 2, S. 18',
@@ -392,22 +410,23 @@ describe('normalizeAgentAnswerMetadata', () => {
     // Left untranslated, the snake_case key would sit in the column forever
     // and a later tightening of the strip list would delete the ledger for
     // exactly the turns it exists for.
-    const result = normalizeAgentAnswerMetadata({
-      messageType: 'agent_response',
-      retrieval_ledger: [
-        {
-          index: 0,
-          key: 'status.retrieval.withQuery',
-          tools: ['knowledge_search'],
-          corpora: ['knowledge'],
-          query: 'Fluchtweglänge GK4',
-          docs: [{ name: 'OIB-RL_2.pdf', detail: 'p.12' }],
-          new_docs: ['OIB-RL_2.pdf'],
-          hits: 1,
-          documents: 1,
-        },
-      ],
-    }) ?? {}
+    const result =
+      normalizeAgentAnswerMetadata({
+        messageType: 'agent_response',
+        retrieval_ledger: [
+          {
+            index: 0,
+            key: 'status.retrieval.withQuery',
+            tools: ['knowledge_search'],
+            corpora: ['knowledge'],
+            query: 'Fluchtweglänge GK4',
+            docs: [{ name: 'OIB-RL_2.pdf', detail: 'p.12' }],
+            new_docs: ['OIB-RL_2.pdf'],
+            hits: 1,
+            documents: 1,
+          },
+        ],
+      }) ?? {}
 
     expect(result).not.toHaveProperty('retrieval_ledger')
     expect(result.provenance).toEqual({

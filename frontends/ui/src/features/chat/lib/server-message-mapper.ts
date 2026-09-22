@@ -219,7 +219,7 @@ const restorePrompt = (prompt: unknown, promptState: unknown): Partial<ChatMessa
     }
     if (Array.isArray(detail.promptOptions)) {
       out.promptOptions = detail.promptOptions.filter(
-        (option): option is string => typeof option === 'string',
+        (option): option is string => typeof option === 'string'
       )
     }
     if (typeof detail.promptPlaceholder === 'string') {
@@ -288,6 +288,14 @@ const restoreProvenance = (value: unknown): Partial<ChatMessage> => {
   }
   if (typeof provenance.escalationReason === 'string') {
     out.escalationReason = provenance.escalationReason
+  }
+  if (Array.isArray(provenance.skillsActivated) && provenance.skillsActivated.length > 0) {
+    out.skillsActivated = provenance.skillsActivated.filter(
+      (s): s is string => typeof s === 'string'
+    )
+  }
+  if (Array.isArray(provenance.skillsHidden) && provenance.skillsHidden.length > 0) {
+    out.skillsHidden = provenance.skillsHidden.filter((s): s is string => typeof s === 'string')
   }
   if (
     typeof provenance.citationsRemoved === 'object' &&

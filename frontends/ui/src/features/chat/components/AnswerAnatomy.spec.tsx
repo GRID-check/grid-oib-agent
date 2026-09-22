@@ -60,6 +60,19 @@ describe('AnatomyMasthead verdict path', () => {
     expect(screen.getByText('REI 60')).toHaveClass('card-figure-30')
   })
 
+  test("the turn's confidence sits beside the figure, as on the retired card", () => {
+    render(
+      <AnatomyMasthead
+        verdict={verdictCard}
+        summary="S."
+        confidence="high"
+        confidenceReason="Direkt aus Tabelle 1b."
+      />
+    )
+    expect(screen.getByText('hohe Sicherheit')).toBeInTheDocument()
+    expect(screen.getByText('Direkt aus Tabelle 1b.')).toBeInTheDocument()
+  })
+
   test('a topic beside an earned verdict headlines nothing twice', () => {
     const { container } = render(
       <AnatomyMasthead verdict={verdictCard} topic="Geländerhöhe bei Balkonen" summary="S." />
@@ -83,6 +96,25 @@ describe('AnatomyMasthead verdict path', () => {
   })
 })
 
+describe('AnatomyMasthead context without a title', () => {
+  test('a context still orients a summary-only masthead', () => {
+    // A ruling whose verdict the gate refused keeps its Richtlinie and Ausgabe.
+    const { container } = render(
+      <AnatomyMasthead context="OIB-RL 2, Ausgabe Mai 2023 · Wien" summary="REI 60 in GK 4." />
+    )
+    const head = header(container)
+    expect(head.children).toHaveLength(2)
+    expect(head.textContent?.indexOf('OIB-RL 2')).toBeLessThan(
+      head.textContent?.indexOf('REI 60') ?? 0
+    )
+  })
+
+  test('a context alone renders no masthead', () => {
+    const { container } = render(<AnatomyMasthead context="Wien" />)
+    expect(container.querySelector('header')).toBeNull()
+  })
+})
+
 describe('AnatomyMasthead topic path', () => {
   test('renders title and context over the summary, in that order', () => {
     const { container } = render(
@@ -100,9 +132,7 @@ describe('AnatomyMasthead topic path', () => {
     expect(head.querySelector('.card-eyebrow')).toBeNull()
     const title = head.querySelector('.card-headline')
     expect(title?.textContent).toBe('Geländerhöhe bei Balkonen')
-    expect(text.indexOf('Geländerhöhe bei Balkonen')).toBeLessThan(
-      text.indexOf('Neubau in GK 4')
-    )
+    expect(text.indexOf('Geländerhöhe bei Balkonen')).toBeLessThan(text.indexOf('Neubau in GK 4'))
     expect(text.indexOf('Neubau in GK 4')).toBeLessThan(text.indexOf('1,10 m ab 60 cm'))
   })
 
@@ -116,14 +146,6 @@ describe('AnatomyMasthead topic path', () => {
     const { container } = render(<AnatomyMasthead summary="In GK 4 gilt REI 60." />)
     expect(header(container).children).toHaveLength(1)
     expect(header(container).querySelector('.card-eyebrow')).toBeNull()
-  })
-
-  test('a context with no title to sit under renders no line', () => {
-    const { container } = render(
-      <AnatomyMasthead summary="In GK 4 gilt REI 60." context="Neubau in GK 4." />
-    )
-    expect(container.textContent).not.toContain('Neubau in GK 4.')
-    expect(header(container).children).toHaveLength(1)
   })
 
   test('a context under an earned verdict renders under the verdict', () => {

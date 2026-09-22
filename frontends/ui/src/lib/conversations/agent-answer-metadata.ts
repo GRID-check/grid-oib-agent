@@ -92,6 +92,14 @@ const BACKEND_ANSWER_KEYS = [
   // in the row forever and a later tightening of this list would delete the
   // ledger for exactly the turns it was added for.
   'retrieval_ledger',
+  // Written by the same socket-persistence path when the client had gone:
+  // the routing (a `meta` turn must not reload as a researched answer with
+  // the "Ohne Quellenbeleg" gap row), the ask that sent a turn to deep
+  // research, and the skills that shaped the answer.
+  'routing_decision',
+  'escalation_reason',
+  'skills_activated',
+  'skills_hidden',
 ] as const
 
 /**
@@ -283,11 +291,7 @@ function normalizeReadSource(input: unknown): StoredCitationSource | null {
   }
 
   const identifying =
-    source.url ??
-    source.file_name ??
-    source.document_id ??
-    source.citation_key ??
-    source.title
+    source.url ?? source.file_name ?? source.document_id ?? source.citation_key ?? source.title
   if (!identifying) return null
 
   // Same absent-vs-dropped distinction as above: no explicit nulls stored.
@@ -373,6 +377,15 @@ export function provenanceFromBackendMetadata(
   if (typeof metadata.deep_research_job_id === 'string') {
     candidate.deepResearchJobId = metadata.deep_research_job_id
   }
+  if (typeof metadata.routing_decision === 'string') {
+    candidate.routingDecision = metadata.routing_decision
+  }
+  if (typeof metadata.escalation_reason === 'string') {
+    candidate.escalationReason = metadata.escalation_reason
+  }
+  if (Array.isArray(metadata.skills_activated))
+    candidate.skillsActivated = metadata.skills_activated
+  if (Array.isArray(metadata.skills_hidden)) candidate.skillsHidden = metadata.skills_hidden
 
   // ── What the run cost the answer ────────────────────────────────────────
   // Presence IS the fact: `=== true`, so a `false` on the wire is read as
