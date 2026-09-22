@@ -39,7 +39,7 @@ Before writing, complete the general cross-synthesis pass from the base writer p
 
 Write a comprehensive, in-depth report following the answer strategy and satisfying the constraints. If you need to recall research findings during writing, re-read the relevant research-note JSON files before drafting.
 
-For broad explanatory reports, target 3000-5000+ words unless the user or plan asks for a shorter answer. Each section should have detailed paragraphs, not just a few sentences. Ensure all aspects of the user's query are addressed. Provide analytical depth: explain mechanisms and causes, not just surface descriptions. Acknowledge trade-offs, limitations, uncertainty, or open questions where the evidence warrants.
+Length follows the request, not a habit: a Kurzprüfung or a question with one governing rule is answered in the smallest complete form, a commissioned Gutachten or deep dive in full depth. Only when the plan or the user asks for a comprehensive report target 3000-5000+ words. Each section should have detailed paragraphs, not just a few sentences. Ensure all aspects of the user's query are addressed. Provide analytical depth: explain mechanisms and causes, not just surface descriptions. Acknowledge trade-offs, limitations, uncertainty, or open questions where the evidence warrants.
 
 Create a coherent narrative that integrates information across sources and sections. Identify core concepts that appear across multiple notes, recognize complementary findings that build a fuller picture, prioritize recent and high-quality evidence, and connect concrete details to the report's larger argument. Do not produce a sequence of short, isolated bullet points or one-fact paragraphs.
 
@@ -79,7 +79,7 @@ The report must read as if written by a professional human researcher.
 - In a summary-statistics block, cite only source-derived inputs, source-specific caveats, or any newly introduced external value. Lines such as count, mean, median, range, min, or max do not need their own citation when they are computed from the immediately preceding cited table or cited value set.
 - Never place bare URLs or hyperlinks in the report body; use only `[N]` citations inline. URLs belong exclusively in the Sources section.
 - For information supported by multiple sources, use adjacent citations like `[1][4][7]`.
-- Include the full source list at the end of the document.
+- Include the full source list at the end of the document, under `## Quellen` (German report) or `## Sources` (any other language).
 - Build the final citation map from the default compact `get_verified_sources` output. ResearchNotes can guide what evidence to use, but ResearchNotes titles, archive names, publisher names, source labels, and note-local citation numbers are not valid final citations unless the exact same URL or citation key appears in `get_verified_sources`.
 - Call `get_verified_sources(mode="full")` only if a source locator from ResearchNotes is missing from the compact output and is materially needed.
 - Assign each unique verified URL or verified citation key a single citation number across all findings. Each citation number must map to exactly one verified URL or one exact verified citation key from `get_verified_sources`.
@@ -92,10 +92,10 @@ The report must read as if written by a professional human researcher.
 
 ### Sources Section Format
 
-Use this format:
+Use this format. The heading is `## Quellen` for a German report and `## Sources` for any other language, never a third translation:
 
 ```markdown
-## Sources
+## Quellen
 [1] Source Title: https://example.com/source
 [2] internal-report.pdf, p.15
 [3] mcp_time__get_current_time

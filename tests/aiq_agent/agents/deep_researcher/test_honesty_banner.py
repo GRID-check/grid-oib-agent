@@ -29,3 +29,13 @@ def test_a_source_that_did_not_answer_is_not_called_a_time_limit():
 
 def test_an_unknown_reason_still_says_the_report_is_partial():
     assert "unvollständig" in _banner("quota_exhausted")
+
+
+def test_an_english_report_gets_an_english_banner():
+    """The banner follows the report's language, detected off the report itself."""
+    report = "# Report\n\nThe fire resistance of the load-bearing elements is REI 60 and the escape route is compliant."
+    line = _prepend_honesty_banner(report, cutoff_reason=CUTOFF_WALL_CLOCK, degraded_reasons=["x"]).splitlines()[0]
+
+    assert line.startswith("> **Note:**")
+    assert "at the time limit" in line and "incomplete" in line
+    assert "Hinweis" not in line

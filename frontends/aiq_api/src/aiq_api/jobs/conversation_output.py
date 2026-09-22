@@ -78,6 +78,14 @@ _TRANSPARENCY_METADATA_KEYS = (
     "answer_confidence",
     "answer_confidence_reason",
     "answer_confidence_capped_reason",
+    # The report's anatomy and findings, read off the finished report by the
+    # runner; the run's own retrieval ledger and muted skills; and the
+    # follow-up questions, under the key the client mirrors a stage frame to.
+    "answer_meta",
+    "findings",
+    "retrieval_ledger",
+    "skills_hidden",
+    "stages",
 )
 
 

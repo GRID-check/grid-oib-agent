@@ -931,3 +931,61 @@ class TestWorkerHeaderTextEncoding:
         headers = Headers(headers={"x-grid-project-context": encoded})
         ctx = GridRequestContext.from_headers(dict(headers))
         assert ctx.project_context == self.GERMAN_CONTEXT
+
+
+class TestTheReportsOwnAccountReachesTheMessage:
+    """The deep state records a retrieval ledger and the muted skills; both used
+    to be dropped between the state and the message."""
+
+    def test_the_retrieval_ledger_and_the_hidden_skills_are_lifted(self) -> None:
+        from types import SimpleNamespace
+
+        from aiq_api.jobs.runner import _extract_answer_transparency
+
+        state = SimpleNamespace(retrieval_ledger=[{"round": 0}], skills_hidden=["house-voice", 3, ""])
+        assert _extract_answer_transparency(state) == {
+            "retrieval_ledger": [{"round": 0}],
+            "skills_hidden": ["house-voice"],
+        }
+
+    def test_an_empty_ledger_or_list_writes_nothing(self) -> None:
+        from types import SimpleNamespace
+
+        from aiq_api.jobs.runner import _extract_answer_transparency
+
+        assert _extract_answer_transparency(SimpleNamespace(retrieval_ledger=[], skills_hidden=[])) == {}
+
+
+class TestReportFollowUps:
+    @pytest.mark.asyncio
+    async def test_the_org_flag_gates_the_stage_like_a_chat_turn(self, monkeypatch) -> None:
+        from unittest.mock import AsyncMock
+
+        from aiq_api.jobs import runner
+
+        monkeypatch.setattr(
+            "aiq_agent.stages.flags.resolve_enabled_stages", AsyncMock(return_value=frozenset({"memory_reflection"}))
+        )
+        llm = AsyncMock()
+        assert await runner._propose_report_follow_ups(llm, query="q", report="r", organization_id="org") is None
+        llm.ainvoke.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_the_stages_handler_payload_rides_the_message(self, monkeypatch) -> None:
+        from unittest.mock import AsyncMock
+
+        from aiq_api.jobs import runner
+
+        monkeypatch.setattr(
+            "aiq_agent.stages.flags.resolve_enabled_stages", AsyncMock(return_value=frozenset({"follow_ups"}))
+        )
+        import dataclasses
+
+        from aiq_agent.stages import follow_ups as follow_ups_module
+
+        stage = dataclasses.replace(
+            follow_ups_module.FOLLOW_UPS, handler=AsyncMock(return_value={"items": [{"question": "Und in GK 5?"}]})
+        )
+        monkeypatch.setattr(follow_ups_module, "FOLLOW_UPS", stage)
+        payload = await runner._propose_report_follow_ups(object(), query="q", report="r", organization_id="org")
+        assert payload == {"items": [{"question": "Und in GK 5?"}]}

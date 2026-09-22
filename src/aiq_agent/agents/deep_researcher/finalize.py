@@ -76,6 +76,16 @@ _CUTOFF_CAUSE_CLAUSES = {
     CUTOFF_UPSTREAM_TIMEOUT: "weil eine angefragte Quelle nicht rechtzeitig geantwortet hat",
     CUTOFF_RUN_BUDGET: "wegen des erreichten Recherche-Budgets",
 }
+#: The same clauses for a report the writer wrote in English: the banner
+#: follows the report's language, detected off the report itself, so an
+#: English report is not opened by a German sentence.
+_HONESTY_BANNER_PREFIX_EN = "> **Note:**"
+_CUTOFF_CAUSE_CLAUSES_EN = {
+    CUTOFF_WALL_CLOCK: "at the time limit",
+    CUTOFF_STEP_LIMIT: "at the step limit",
+    CUTOFF_UPSTREAM_TIMEOUT: "because a requested source did not answer in time",
+    CUTOFF_RUN_BUDGET: "at the research budget",
+}
 
 _OUTPUT_PATHS = ("/shared/output.md", "/output.md")
 
@@ -167,25 +177,35 @@ def _prepend_honesty_banner(
 ) -> str:
     """Put the answer's own limitations at the top of the answer.
 
-    German, like every other line this product writes to a reader, and in the
-    register of the job runner's ``FAILURE_NOTICE``: factual, short, Sie-form,
+    In the report's language (German by default, English for an English
+    report), in the register of the job runner's ``FAILURE_NOTICE``: factual, short, Sie-form,
     no invented error taxonomy. It rides the REPORT rather than only the state
     flags because the report is what travels furthest — into the conversation,
     the job output, the exported PDF — and someone reading only that must still
     be able to tell that it is partial.
     """
+    from aiq_agent.common.query_expansion import detect_language
+
+    english = detect_language(report[:4000]) == "en"
     sentences: list[str] = []
     if cutoff_reason is not None:
-        cause = _CUTOFF_CAUSE_CLAUSES.get(cutoff_reason)
+        cause = (_CUTOFF_CAUSE_CLAUSES_EN if english else _CUTOFF_CAUSE_CLAUSES).get(cutoff_reason)
         cause_clause = f" {cause}" if cause else ""
         sentences.append(
-            f"Diese Recherche wurde{cause_clause} vorzeitig beendet, der folgende Bericht ist daher unvollständig."
+            f"This research was stopped{cause_clause} before it was finished, so the report below is incomplete."
+            if english
+            else f"Diese Recherche wurde{cause_clause} vorzeitig beendet, der folgende Bericht ist daher unvollständig."
         )
     if degraded_reasons:
-        sentences.append("Die Angaben konnten nicht vollständig geprüft werden und sind nur eingeschränkt belastbar.")
+        sentences.append(
+            "The statements could not be fully verified and are only partly reliable."
+            if english
+            else "Die Angaben konnten nicht vollständig geprüft werden und sind nur eingeschränkt belastbar."
+        )
     if not sentences:
         return report
-    return f"{_HONESTY_BANNER_PREFIX} {' '.join(sentences)}\n\n{report.lstrip()}"
+    prefix = _HONESTY_BANNER_PREFIX_EN if english else _HONESTY_BANNER_PREFIX
+    return f"{prefix} {' '.join(sentences)}\n\n{report.lstrip()}"
 
 
 def _salvaged_report_length(text: str) -> int:

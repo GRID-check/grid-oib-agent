@@ -23,6 +23,7 @@ from typing import Any
 
 from starlette.datastructures import Headers
 
+from aiq_agent.agents.deep_researcher.anatomy import ReportAnatomy
 from aiq_agent.cards.generate import CardGenerationResult
 from aiq_agent.cards.registry import CardRegistry
 from aiq_agent.cards.registry import reset_card_registry
@@ -1440,7 +1441,7 @@ async def run_agent_job(
                     # the thread turn and the notification waited) for up to the
                     # card timeout plus the reflection model's retries after the
                     # reader already had the report.
-                    cards_result, _ = await asyncio.gather(
+                    cards_result, _, anatomy, follow_ups = await asyncio.gather(
                         _generate_grid_cards(llm, input_text, report),
                         _run_deep_research_reflection(
                             builder=builder,
@@ -1456,6 +1457,14 @@ async def run_agent_job(
                             org_credential=resolved_org_credential,
                             model_overrides=model_overrides,
                         ),
+                        # The report's anatomy (masthead) and its findings
+                        # (Befundmatrix), read off the finished report in one
+                        # structured call, and the follow-up questions the
+                        # report just made askable. Both post hoc, both
+                        # additive: a failure costs the reader a layer, never
+                        # the report.
+                        _extract_report_anatomy(llm, input_text, report),
+                        _propose_report_follow_ups(llm, query=input_text, report=report, organization_id=_job_org_id),
                     )
                     cards = _merge_job_cards(card_registry.snapshot(), cards_result.cards)
                     if cards:
@@ -1476,6 +1485,12 @@ async def run_agent_job(
                     transparency: dict[str, Any] = {}
                     try:
                         transparency = _extract_answer_transparency(result)
+                        if anatomy.answer_meta:
+                            transparency["answer_meta"] = anatomy.answer_meta
+                        if anatomy.findings:
+                            transparency["findings"] = anatomy.findings
+                        if follow_ups:
+                            transparency["stages"] = {"followUps": follow_ups}
                         # Post-hoc card generation is the runner's own step, so
                         # its failure is recorded here rather than by the agent:
                         # the report is whole, the proposals derived from it are
@@ -1963,6 +1978,48 @@ def _merge_job_cards(emitted: list[dict[str, Any]], generated: list[Any] | None)
     return merged or None
 
 
+async def _extract_report_anatomy(llm: Any, query: str, report: str) -> ReportAnatomy:
+    """The masthead and the findings of the finished report; never raises."""
+    try:
+        from aiq_agent.agents.deep_researcher.anatomy import extract_report_anatomy
+
+        anatomy = await extract_report_anatomy(llm, query, report)
+        if anatomy.findings:
+            logger.info("Extracted %d finding(s) from the deep-research report", len(anatomy.findings["items"]))
+        return anatomy
+    except Exception as e:  # noqa: BLE001 — additive; the report is already whole
+        logger.warning("Report anatomy extraction failed (non-fatal): %s", e)
+        return ReportAnatomy(failed=True)
+
+
+async def _propose_report_follow_ups(
+    llm: Any, *, query: str, report: str, organization_id: str | None
+) -> dict[str, Any] | None:
+    """The follow-up questions a finished report makes askable, as the stage's payload.
+
+    The post-answer stage runs on chat turns and skips a turn that only
+    commissioned a run; the report message is where those questions belong,
+    so the stage's own handler is called here, under the same org flag and
+    the same bound, and its payload is written onto the message the way the
+    client would have mirrored a frame. Never raises.
+    """
+    try:
+        from aiq_agent.stages import StageContext
+        from aiq_agent.stages import TurnFacts
+        from aiq_agent.stages.flags import resolve_enabled_stages
+        from aiq_agent.stages.follow_ups import FOLLOW_UPS
+
+        enabled = await resolve_enabled_stages(organization_id=organization_id, memory_reflection_enabled=False)
+        if FOLLOW_UPS.id not in enabled:
+            return None
+        facts = TurnFacts(query=query, answer=report, organization_id=organization_id)
+        payload = await asyncio.wait_for(FOLLOW_UPS.handler(StageContext(facts=facts, llm=llm)), FOLLOW_UPS.timeout_s)
+        return payload if isinstance(payload, dict) and payload.get("items") else None
+    except Exception as e:  # noqa: BLE001 — additive; the report is already whole
+        logger.warning("Report follow-ups failed (non-fatal): %s", e)
+        return None
+
+
 async def _generate_grid_cards(llm: Any, query: str, report: str) -> CardGenerationResult:
     """Generate Grid response cards from the final report.
 
@@ -2240,6 +2297,18 @@ def _extract_answer_transparency(result: Any) -> dict[str, Any]:
         value = field(confidence_field)
         if isinstance(value, str) and value.strip():
             transparency[confidence_field] = value
+
+    # Recorded on the deep state and, until this, dropped on the way to the
+    # message: the run's own retrieval ledger and the skills the disclosure
+    # mutes. Both ride the same dict as the rest, present or absent.
+    ledger = field("retrieval_ledger")
+    if isinstance(ledger, list) and ledger:
+        transparency["retrieval_ledger"] = ledger
+    hidden = field("skills_hidden")
+    if isinstance(hidden, list):
+        names = [name for name in hidden if isinstance(name, str) and name]
+        if names:
+            transparency["skills_hidden"] = names
 
     return transparency
 
