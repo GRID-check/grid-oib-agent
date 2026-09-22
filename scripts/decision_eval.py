@@ -38,6 +38,15 @@ USAGE
     python scripts/decision_eval.py --questions my_questions.yaml
 
 `task be:eval:decisions` is the same thing with the paths defaulted.
+
+THE LAST RUN
+------------
+2026-09-22, from the branch that introduced the decisions, committed beside
+the questions as `tests/fixtures/herleitung/decision_eval_2026-09-22.csv`:
+27/27 decided, family top-1 1.00, corpus `baurecht` 1.00 on the regulation
+rows, the ruling floor held, latency 467-899 ms (mean 614). The family
+threshold sweep put recall at 1.00 for thresholds up to 0.5 and at 0.90 at
+0.6, which is why `FAMILY_THRESHOLD` is 0.5.
 """
 
 from __future__ import annotations

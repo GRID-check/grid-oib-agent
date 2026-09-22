@@ -59,7 +59,12 @@ MODEL_SKILL = "ifc-spatial-reasoning"
 #: grounding block.
 NEEDS_EVIDENCE_THRESHOLD = 0.5
 #: A family is prefetched at or above this; the top ``MAX_FAMILY_PREFETCH``.
-FAMILY_THRESHOLD = 0.6
+#: Measured, not guessed: on the 27 loop-eval questions (2026-09-22,
+#: ``tests/fixtures/herleitung/decision_eval_2026-09-22.csv``) the expected
+#: family's probability ran 0.54-0.97 and no Bauordnung row's top family
+#: passed 0.49, so 0.5 is recall 1.0 at precision 1.0 where 0.6 lost two
+#: rows. Re-run ``task be:eval:decisions`` before moving it.
+FAMILY_THRESHOLD = 0.5
 MAX_FAMILY_PREFETCH = 2
 #: A card type gets its shape attached at or above this; the top ``MAX_CARD_SHAPES``.
 CARD_THRESHOLD = 0.6

@@ -667,7 +667,7 @@ loop-eval column that must move and the one that must not.
 | # | Change | Calls out | Must move | Must not move | Size |
 |---|---|---|---|---|---|
 | 1 | **Make the loop eval report calls, not only rounds.** `llm_calls` per row off the cost tracker (`GridCostTracker` already meters every completion of the turn, hidden ones included), `card_rounds`, `judge_calls`, `skill_calls`, `cards_invalid`. Then run it at this tip and commit the CSV beside the yaml, so §2.3 stops being a reconstruction | 0 | — | — | S |
-| 2 | **Run the decision eval and quote it** (`task be:eval:decisions`, ADR-0064). The prefetch, the judge's yes/no and the eval are built; the three floors have not been measured against a live key from this branch. Below the floors, `turn_decisions: false` | — | `family_top1`, `corpus_baurecht_rate`, the ruling evidence floor | — | S, needs a key |
+| 2 | ~~Run the decision eval and quote it~~ **Done 2026-09-22** (`tests/fixtures/herleitung/decision_eval_2026-09-22.csv`): 27/27, family top-1 1.00, corpus 1.00, ruling floor held, 467–899 ms. Re-run on every change to `decisions.py`'s criteria | — | — | — | — |
 | 3 | **`prefetch_used` / `prefetch_wasted` on the loop eval**: did the answer cite a passage round 0 returned | 0 — the measurement of row 2's effect | `rounds` down, `truncated` → 0 on the family rows | `punkt_match`, `family_coverage` | S |
 | 4 | **RIS prefetch**: `ris_lookup` as round 0 when the decision's corpus is `baurecht` and the question names a Land or a Bauordnung; the knowledge prefetch stops at the OIB corpus today | 1 on the Bauordnung rows | `ris_calls` | `paragraph_match` | S |
 | 5 | **A miss says why** — `miss_hint` on the ledger entry (§6) | 0 — trust, not calls | — | — | S |

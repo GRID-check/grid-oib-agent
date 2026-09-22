@@ -108,10 +108,24 @@ shapes and the nine chat skills are cheap enough to sit in the prompt
 runs the turn-start questions over the loop-eval set — German, the family
 each row names — and holds three floors: family top-1 ≥ 85 % on the OIB rows,
 corpus `baurecht` on ≥ 90 % of the regulation rows, and `needs_evidence`
-never below 0.5 on a ruling row. Below them, `turn_decisions: false`. The
-judge use is measured live by the loop eval's `judge_calls` column once it
-exists (audit §8 row 1). Nothing here rests on a calibration study, because
-there is none yet.
+never below 0.5 on a ruling row. Below them, `turn_decisions: false`.
+
+**Measured 2026-09-22** from the branch that introduced this, committed as
+`tests/fixtures/herleitung/decision_eval_2026-09-22.csv`: 27 of 27
+decided; family top-1 **1.00** (the expected family's probability ran
+0.54–0.97; no Bauordnung row's top family passed 0.49); corpus `baurecht`
+on **1.00** of the regulation rows and `projekt` (0.91) on the one
+project-file row; `needs_evidence` 0.81–0.97, the ruling floor held; latency
+467–899 ms, mean 614 — above the vendor's 70–500 ms envelope, inside the
+1.5 s bound. The family threshold is 0.5 because the sweep put recall at
+1.00 there and at 0.90 at 0.6, both at precision 1.00. The card nouls are
+weaker: six of 27 rows put a type over 0.6, two of them doubtful
+(`change_impact` on the high-rise question, `calculation` on a parking
+question) — harmless, since a shape attached is only a shape, and the
+reason the card threshold stays at 0.6. The judge use is measured live by
+the loop eval's `judge_calls` column once it exists (audit §8 row 1).
+Nothing here rests on a calibration study, because there is none yet; the
+numbers above are one run on German questions the product actually gets.
 
 ### Consequences
 
@@ -123,7 +137,9 @@ there is none yet.
 * Good, because "which OIB documents does this question need" is now a
   question the platform asks and records, per turn, in numbers.
 * Bad, because a turn now depends on an alpha endpoint's latency for up to
-  1.5 s at its start. The breaker and the timeout bound it; the eval and
+  1.5 s at its start — measured 467–899 ms, mean 614, which is ~0.6 s the
+  first LLM call waits for beside the skill resolution, bought back by the
+  round the prefetch removes only when the prefetch hits. The breaker and the timeout bound it; the eval and
   the technical record are how an operator sees it.
 * Bad, because a prefetch that misses spends a search, its judge and ~2–4k
   tokens the model reads for nothing. `needs_evidence` and the corpus
@@ -149,7 +165,8 @@ there is none yet.
 - `tests/knowledge_layer_tests/test_decisions_in_retrieval.py`: a sufficient
   head costs no judge call, an absent decision runs the judge, a flagged
   passage is kept, the reranker's order.
-- `tests/test_decision_eval.py`: the adoption gate's arithmetic.
+- `tests/test_decision_eval.py`: the adoption gate's arithmetic;
+  `tests/fixtures/herleitung/decision_eval_2026-09-22.csv`: its last result.
 
 ## Pros and Cons of the Options
 

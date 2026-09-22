@@ -109,7 +109,7 @@ class TestWhatTheAnswersBecome:
         decided = TurnDecisions(
             decided=True,
             needs_evidence=0.9,
-            families=(("2", 0.61), ("4", 0.9), ("3", 0.7), ("6", 0.2)),
+            families=(("2", 0.51), ("4", 0.9), ("3", 0.7), ("6", 0.49)),
             cards=(("a", 0.59), ("b", 0.95), ("c", 0.8), ("d", 0.61)),
         )
         assert decided.chosen_families() == ["4", "3"]
