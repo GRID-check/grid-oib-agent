@@ -75,6 +75,7 @@ from aiq_agent.common import load_prompt
 from aiq_agent.common import render_prompt_template
 from aiq_agent.common import strict_json_response_format
 from aiq_agent.common.turn_status import push_custom_step
+from aiq_agent.project_context import get_organization_id_from_context
 from nat.builder.builder import Builder
 from nat.builder.context import Context
 from nat.builder.framework_enum import LLMFrameworkEnum
@@ -88,6 +89,8 @@ from .models.clarify import ClarifyResult
 from .models.clarify import PlanDecision
 from .models.clarify import PlanOutcome
 from .models.clarify import PlanResponse
+from .plan_decisions import PlanShape
+from .plan_decisions import decide_plan_shape
 
 logger = logging.getLogger(__name__)
 
@@ -268,15 +271,49 @@ def parse_plan_reply(reply: str) -> tuple[PlanDecision, str]:
 
     Returns:
         ``("approved", "")`` run deep research on this plan;
+        ``("approved", json)`` run it on the plan as the reader EDITED it on
+        the plan card — the Prüfpunkte, the genre, the depth — as a JSON object
+        after the keyword (:func:`apply_plan_edits`);
         ``("shallow", "")`` answer now without the plan;
         ``("cancelled", "")`` stop the turn, no answer wanted;
         ``("feedback", text)`` revise the plan with this text.
     """
     text = unwrap_query(reply).strip()
     decision = PLAN_REPLIES.get(text.lower())
-    if decision is None:
-        return "feedback", text
-    return decision, ""
+    if decision is not None:
+        return decision, ""
+    head, _, rest = text.partition(" ")
+    if head.lower() == "approve" and rest.strip().startswith("{"):
+        return "approved", rest.strip()
+    return "feedback", text
+
+
+MAX_PLAN_SECTIONS = 12
+
+
+def apply_plan_edits(plan: PlanResponse, edits_json: str) -> PlanResponse:
+    """The plan as the reader left it on the card; the original on anything unreadable."""
+    try:
+        edits = json.loads(edits_json)
+    except ValueError:
+        logger.warning("Plan edits did not parse; running the plan as shown")
+        return plan
+    if not isinstance(edits, dict):
+        return plan
+    data = plan.model_dump()
+    sections = edits.get("sections")
+    if isinstance(sections, list):
+        kept = [s.strip()[:200] for s in sections if isinstance(s, str) and s.strip()][:MAX_PLAN_SECTIONS]
+        if kept:
+            data["sections"] = kept
+    for key in ("genre", "depth"):
+        if isinstance(edits.get(key), str):
+            data[key] = edits[key]
+    try:
+        return PlanResponse.model_validate(data)
+    except ValidationError as exc:
+        logger.warning("Plan edits did not validate (%s); running the plan as shown", exc)
+        return plan
 
 
 def format_plan_for_user(plan: PlanResponse) -> str:
@@ -286,10 +323,16 @@ def format_plan_for_user(plan: PlanResponse) -> str:
     # strips it, and renders localized action buttons in its place
     # (frontends/ui .../AgentPrompt.tsx). Changing a byte here requires
     # changing the regexes there in the same commit.
+    # The same plan as data, for the plan card: the client strips the fence
+    # and renders the Prüfpunkte, the genre and the depth as controls; a client
+    # that does not know the fence shows the list above and the fence stays
+    # readable. The envelope sentence below it is untouched.
+    plan_json = json.dumps(plan.model_dump(), ensure_ascii=False)
     return (
         f"**Research Plan Preview**\n\n"
         f"**Title:** {plan.title}\n\n"
         f"**Sections:**\n{sections_text}\n\n"
+        f"```plan_json\n{plan_json}\n```\n\n"
         f"---\n"
         f"Reply **approve** to proceed, **shallow** for a quick answer instead, "
         f"**cancel** to dismiss, or provide feedback to revise the plan."
@@ -335,9 +378,17 @@ def question_for(response: ClarificationResponse | None, messages: Sequence[Base
 
 
 def approved_plan_context(plan: PlanResponse) -> str:
-    """The approved plan as deep research reads it (``orchestrator.j2``)."""
+    """The approved plan as deep research reads it.
+
+    The orchestrator, the planner and the writer all receive it
+    (``factory.py`` ``prompt_values``): the Prüfpunkte become the required
+    components in this order, the genre the answer type, the depth the length.
+    """
     sections_text = "\n".join(f"- {s}" for s in plan.sections)
-    return f"**Approved Research Plan**\n\nTitle: {plan.title}\n\nSections:\n{sections_text}"
+    return (
+        f"**Approved Research Plan**\n\nTitle: {plan.title}\nGenre: {plan.genre}\nDepth: {plan.depth}\n\n"
+        f"Prüfpunkte (required components, in this order):\n{sections_text}"
+    )
 
 
 def _fallback_plan() -> PlanResponse:
@@ -443,11 +494,14 @@ async def generate_plan(
     topic still present in the history (an aborted research the user has moved
     on from), producing plans unrelated to what was just asked.
     """
+    query = get_latest_user_query(list(request.messages)) or ""
+    shape = await decide_plan_shape(query, request.project_context, organization_id=get_organization_id_from_context())
     system_prompt = render_prompt_template(
         PLAN_GENERATION_PROMPT,
         project_context=request.project_context,
         clarifier_context=log,
         feedback_history=feedback_history or None,
+        preselected=_preselection_text(shape),
     )
     anchor = HumanMessage(
         content=(
@@ -466,6 +520,15 @@ async def generate_plan(
     return plan
 
 
+def _preselection_text(shape: PlanShape) -> str | None:
+    lines = []
+    if shape.genre:
+        lines.append(f"genre: {shape.genre}")
+    if shape.depth:
+        lines.append(f"depth: {shape.depth}")
+    return "\n".join(lines) or None
+
+
 def _outcome(log: str, plan: PlanResponse, outcome: PlanOutcome) -> ClarifyResult:
     """One finished plan preview, as the conversation graph reads it."""
     if outcome != "approved":
@@ -482,6 +545,8 @@ async def preview_plan(request: ClarifyRequest, deps: ClarifyDeps, log: str) -> 
         plan = await generate_plan(request, deps, log, feedback_history)
         decision, feedback = parse_plan_reply(await deps.ask_user(format_plan_for_user(plan), ()))
         if decision != "feedback":
+            if decision == "approved" and feedback:
+                plan = apply_plan_edits(plan, feedback)
             logger.info("Clarifier: plan %s by user", decision)
             return _outcome(log, plan, decision)
         logger.info("Clarifier: User provided feedback, regenerating plan")

@@ -139,6 +139,13 @@ Authenticated user: **{{ user_info.name }}** ({{ user_info.email or "email not p
 When the request references "me", "myself", or "my work", it means this person.
 {% endif %}
 
+{% if approved_plan %}
+## Approved plan (binding)
+{{ approved_plan }}
+
+The reader approved this plan. The report's sections follow its Prüfpunkte in this order, each one answered; a point the research could not settle is written as open, never dropped. Its genre decides the writer skill and the shape; its depth decides the length: `kurzpruefung` is the smallest complete form, `gutachten` the full derivation.
+{% endif %}
+
 {% if project_context %}
 ## Project Context
 <project_context>

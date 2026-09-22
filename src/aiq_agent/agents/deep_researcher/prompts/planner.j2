@@ -59,6 +59,10 @@ Create an answer_strategy that tells the writer what kind of final Markdown answ
 
 ### answer_type
 Choose the closest value:
+- `pruefbericht`: requirements read against the project — one finding per requirement with value, Fundstelle and status
+- `aktenvermerk`: a short decision memo — the question, the rule, the decision
+- `vergleich`: variants, jurisdictions or alternatives compared on the same criteria
+- `checkliste`: the documents, proofs or steps a submission or procedure needs
 - `long_form_report`: broad explanatory research answer with headings and depth
 - `brief_answer`: concise answer with short rationale
 - `table`: Markdown table is the primary output
@@ -164,6 +168,13 @@ You have access to the following tools. You can ONLY use the tools provided. Do 
 
 {% if document_inventory %}
 {{ document_inventory }}
+{% endif %}
+
+{% if approved_plan %}
+## Approved plan (binding)
+{{ approved_plan }}
+
+The reader approved this plan on the plan card. Its Prüfpunkte are the `required_components`, in this order, one component each; its genre is the `answer_type` (`pruefbericht`, `aktenvermerk`, `vergleich`, `checkliste`, or `long_form_report` for `bericht`); its depth bounds the answer (`kurzpruefung`: the smallest complete form, `gutachten`: full derivation). Add a component only for evidence the plan's points need; never drop one.
 {% endif %}
 
 {% if project_context %}

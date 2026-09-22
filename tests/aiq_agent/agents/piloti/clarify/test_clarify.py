@@ -1,6 +1,7 @@
 """Tests for the clarification step."""
 
 import asyncio
+import json
 from unittest.mock import AsyncMock
 from unittest.mock import MagicMock
 from unittest.mock import patch
@@ -872,3 +873,55 @@ class TestTools:
         assert result.outcome is None
         ask.assert_not_called()
         assert "kept searching" in caplog.text
+
+
+class TestThePlanCard:
+    """The plan travels as data beside its text, and comes back edited."""
+
+    def test_the_preview_carries_the_plan_as_json_beside_the_list(self):
+        plan = PlanResponse(
+            title="Brandschutz", sections=["GK", "Fluchtwege"], genre="pruefbericht", depth="kurzpruefung"
+        )
+        text = format_plan_for_user(plan)
+        assert "```plan_json\n" in text
+        payload = json.loads(text.split("```plan_json\n", 1)[1].split("\n```", 1)[0])
+        assert payload == {
+            "title": "Brandschutz",
+            "sections": ["GK", "Fluchtwege"],
+            "genre": "pruefbericht",
+            "depth": "kurzpruefung",
+        }
+        assert text.rstrip().endswith("or provide feedback to revise the plan.")
+
+    def test_an_edited_approval_is_approved_with_its_edits(self):
+        decision, edits = parse_plan_reply('approve {"sections": ["Nur Wien"], "depth": "gutachten"}')
+        assert decision == "approved"
+        assert json.loads(edits) == {"sections": ["Nur Wien"], "depth": "gutachten"}
+
+    def test_the_edits_land_on_the_plan_and_the_title_stays(self):
+        from aiq_agent.agents.piloti.clarify import apply_plan_edits
+
+        plan = PlanResponse(title="T", sections=["A", "B"])
+        edited = apply_plan_edits(plan, '{"sections": ["B", " C "], "genre": "aktenvermerk", "depth": "kurzpruefung"}')
+        assert edited.title == "T"
+        assert edited.sections == ["B", "C"]
+        assert edited.genre == "aktenvermerk" and edited.depth == "kurzpruefung"
+
+    def test_unreadable_or_invalid_edits_run_the_plan_as_shown(self):
+        from aiq_agent.agents.piloti.clarify import apply_plan_edits
+
+        plan = PlanResponse(title="T", sections=["A"])
+        assert apply_plan_edits(plan, "not json") == plan
+        assert apply_plan_edits(plan, '{"genre": "roman"}') == plan
+        assert apply_plan_edits(plan, '{"sections": []}') == plan
+
+    def test_the_approved_context_binds_genre_depth_and_the_points(self):
+        from aiq_agent.agents.piloti.clarify import approved_plan_context
+
+        text = approved_plan_context(PlanResponse(title="T", sections=["A", "B"], genre="vergleich", depth="gutachten"))
+        assert "Genre: vergleich" in text and "Depth: gutachten" in text
+        assert "Prüfpunkte (required components, in this order):\n- A\n- B" in text
+
+    def test_a_plan_without_the_new_keys_still_parses_with_the_defaults(self):
+        plan = parse_json_response('{"title": "T", "sections": ["A"]}', PlanResponse)
+        assert plan is not None and plan.genre == "bericht" and plan.depth == "gutachten"

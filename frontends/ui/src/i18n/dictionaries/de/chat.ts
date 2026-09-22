@@ -785,6 +785,22 @@ export const chat: typeof en.chat = {
     },
   },
   agentPrompt: {
+    plan: {
+      points: 'Prüfpunkte',
+      addPoint: 'Prüfpunkt ergänzen',
+      addPlaceholder: 'Weiteren Prüfpunkt eintragen …',
+      removePoint: 'Prüfpunkt streichen: {point}',
+      genre: 'Art des Berichts',
+      genres: {
+        pruefbericht: 'Prüfbericht',
+        aktenvermerk: 'Aktenvermerk',
+        vergleich: 'Vergleich',
+        checkliste: 'Checkliste',
+        bericht: 'Bericht',
+      },
+      depth: 'Tiefe',
+      depths: { kurzpruefung: 'Kurzprüfung', gutachten: 'Gutachten' },
+    },
     awaitingOther: 'Piloti wartet auf {name}',
     awaitingSomeone: 'Piloti wartet auf eine andere Person',
     needsInput: 'Piloti benötigt Ihre Eingabe',

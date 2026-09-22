@@ -493,6 +493,9 @@ def build_deep_research_subagents(context: DeepResearchGraphContext) -> list[dic
                 "tools": context.tool_set.tools_info,
                 "enable_source_router": context.enable_source_router,
                 "max_research_concurrency": context.max_research_concurrency,
+                # The plan the reader approved binds the planner: its
+                # Prüfpunkte are the required components, in that order.
+                "approved_plan": context.state.clarifier_result,
             },
         )
     )
@@ -508,7 +511,7 @@ def build_deep_research_subagents(context: DeepResearchGraphContext) -> list[dic
             role=LLMRole.REPORT_WRITER,
             tools=context.tool_set.writer_tools,
             middleware=context.middleware_set.writer,
-            prompt_values={"skills_block": context.skills_block},
+            prompt_values={"skills_block": context.skills_block, "approved_plan": context.state.clarifier_result},
             skills=context.skill_sources(WRITER_AGENT),
         ),
     )

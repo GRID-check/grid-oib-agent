@@ -195,11 +195,13 @@ class TestDeepAgentsRuntimeRouting:
         synthesis_skills = _list_skills(backend, SYNTHESIS_SKILL_SOURCE)
 
         assert [skill["name"] for skill in top_level_skills] == []
-        assert [skill["name"] for skill in synthesis_skills] == [
+        assert sorted(skill["name"] for skill in synthesis_skills) == [
             "long-form-report-writer",
+            "pruefbericht-writer",
         ]
-        assert [skill["path"] for skill in synthesis_skills] == [
+        assert sorted(skill["path"] for skill in synthesis_skills) == [
             "/skills/synthesis/long-form-report-writer/SKILL.md",
+            "/skills/synthesis/pruefbericht-writer/SKILL.md",
         ]
 
     def test_deepagents_subagent_skills_key_adds_skills_middleware(self) -> None:

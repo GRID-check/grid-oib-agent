@@ -782,6 +782,22 @@ export const chat = {
     },
   },
   agentPrompt: {
+    plan: {
+      points: 'Review points',
+      addPoint: 'Add a review point',
+      addPlaceholder: 'Add another review point …',
+      removePoint: 'Remove review point: {point}',
+      genre: 'Kind of report',
+      genres: {
+        pruefbericht: 'Compliance review',
+        aktenvermerk: 'Memo',
+        vergleich: 'Comparison',
+        checkliste: 'Checklist',
+        bericht: 'Report',
+      },
+      depth: 'Depth',
+      depths: { kurzpruefung: 'Short review', gutachten: 'Full opinion' },
+    },
     needsInput: 'Piloti needs your input',
     receivedInput: 'Piloti received your input',
     /**

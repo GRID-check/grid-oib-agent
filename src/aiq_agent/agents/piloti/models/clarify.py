@@ -29,6 +29,12 @@ PlanDecision = Literal["approved", "shallow", "cancelled", "feedback"]
 """What one reply to the plan preview asks for. ``feedback`` means "revise it"."""
 
 PlanOutcome = Literal["approved", "shallow", "cancelled"]
+
+PlanGenre = Literal["pruefbericht", "aktenvermerk", "vergleich", "checkliste", "bericht"]
+"""The document genre a run writes. Office genres, not whitepaper shapes."""
+
+PlanDepth = Literal["kurzpruefung", "gutachten"]
+"""How deep the report goes: the smallest complete form, or the full derivation."""
 """Where the plan preview ended. ``PlanDecision`` minus the one that loops."""
 
 
@@ -102,11 +108,32 @@ class ClarificationResponse(_StrictContract):
         return not self.options
 
 
+def _require_every_property(schema: dict[str, Any]) -> None:
+    """Strict json_schema needs every property required; the Python defaults
+    below are for callers that build a plan by hand, never for the model."""
+    schema["required"] = list(schema.get("properties", {}))
+
+
 class PlanResponse(_StrictContract):
-    """Structured response from the planner LLM: the research plan preview."""
+    """Structured response from the planner LLM: the research plan preview.
+
+    ``sections`` are the Prüfpunkte: what the report will read against the
+    project, in the order it will do so. The reader edits them, the genre and
+    the depth on the plan card before the run starts, and the approved plan
+    binds the planner and the writer.
+    """
+
+    model_config: ClassVar[ConfigDict] = {"extra": "forbid", "json_schema_extra": _require_every_property}
 
     title: str = Field(description="Clear, descriptive title for the research report.")
-    sections: list[str] = Field(description="5-8 section headings outlining the report structure.")
+    sections: list[str] = Field(description="3-8 Prüfpunkte (section headings) outlining what the report covers.")
+    genre: PlanGenre = Field(
+        default="bericht",
+        description="The document genre: pruefbericht, aktenvermerk, vergleich, checkliste or bericht.",
+    )
+    depth: PlanDepth = Field(
+        default="gutachten", description="kurzpruefung for the smallest complete form, gutachten for full depth."
+    )
 
 
 @dataclass(frozen=True)

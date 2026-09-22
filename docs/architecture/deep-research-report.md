@@ -37,6 +37,25 @@ which both sides validate. One row per requirement:
 
 Every string is bounded on both sides, because the payload is jsonb and a table.
 
+## The Prüfplan, before the run
+
+With plan approval on (`configs/*.yml` `enable_plan_approval`), the plan preview
+carries the plan as data beside its text (a `plan_json` fence the client strips),
+and the bubble renders it as controls (`PlanChecklist.tsx`): the Prüfpunkte as a
+list the reader can strike and extend, the genre (`pruefbericht`,
+`aktenvermerk`, `vergleich`, `checkliste`, `bericht`) and the depth
+(`kurzpruefung`, `gutachten`) as choices. An untouched plan approves with the
+bare keyword; an edited one sends the keyword and the edits as JSON
+(`clarify.parse_plan_reply`, `apply_plan_edits`). The decision model
+pre-selects genre and depth before the planner runs (`plan_decisions.py`), and
+the planner is told.
+
+The approved plan is binding: it reaches the orchestrator, the planner and the
+writer (`factory.py` `prompt_values`); the Prüfpunkte become the required
+components in that order, the genre the answer type, the depth the length. The
+`pruefbericht-writer` skill writes the genre's core, one Befund line per
+Prüfpunkt in a fixed shape, which is also what the findings extraction reads.
+
 ## While the run is going
 
 Each research round's notes state claims; the run ledger fold copies them onto
