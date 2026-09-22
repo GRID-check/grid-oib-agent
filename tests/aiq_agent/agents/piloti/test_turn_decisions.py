@@ -62,9 +62,9 @@ class TestWhatIsAsked:
         assert "fits_brandschutz" in questions and "fits_hygiene" in questions
         assert "Brandabschnitt" in questions["fits_brandschutz"]["criteria"]["true"]
 
-    def test_the_previous_message_rides_the_state_bounded(self):
-        state = TurnFacts(question="und in GK 4?", previous_message="x" * 1000).state()
-        assert len(state["previous_message"]) == 300
+    def test_the_previous_exchange_rides_the_state_bounded(self):
+        state = TurnFacts(question="und in GK 4?", previous_message="x" * 1000, previous_answer="y" * 1000).state()
+        assert len(state["previous_message"]) == 300 and len(state["previous_answer"]) == 300
 
     def test_the_state_is_structured_and_bounded(self):
         facts = _facts(
@@ -199,7 +199,22 @@ class TestTheSkillsShapes:
 
 
 class TestAFollowUpIsNotSearched:
-    def test_the_question_prefetch_waits_but_the_family_overview_still_runs(self):
+    def test_the_fragment_is_not_searched_the_last_turns_passages_are_reopened(self):
+        decided = TurnDecisions(
+            decided=True,
+            needs_evidence=0.9,
+            corpus="baurecht",
+            corpus_p=0.8,
+            families=(("2", 0.9),),
+            self_contained=0.1,
+        )
+        loci = [{"document": "oib-rl_2_ausgabe_mai_2023.pdf", "punkt": "2.2"}]
+        assert prefetch_calls(decided, "und in GK 4?", follow_up_loci=loci) == [
+            {"name": "read_passage", "args": {"document": "oib-rl_2_ausgabe_mai_2023.pdf", "punkt": "2.2"}},
+            {"name": "knowledge_search", "args": {"query": "OIB-Richtlinie 2"}},
+        ]
+
+    def test_a_follow_up_with_nothing_digested_keeps_only_the_family_overview(self):
         decided = TurnDecisions(
             decided=True,
             needs_evidence=0.9,

@@ -241,3 +241,30 @@ def render_already_read_block(digest: Sequence[str] | None) -> str:
             *[f"- {line}" for line in lines],
         ]
     )
+
+
+def latest_turn_loci(digest: Sequence[str] | None, *, limit: int = 4) -> list[dict[str, Any]]:
+    """The passages the most recent turn opened, as ``read_passage`` arguments.
+
+    What a follow-up („und in GK 4?") is about is what the last answer was
+    about, and the digest already names the loci that answer was written
+    from. Re-opening them is the locator-first rule the prompt teaches,
+    done before the model's first call (ADR-0064, round 0) — no search, no
+    judge, the same ``document``/``punkt``/``page`` the digest line prints
+    and ``read_passage`` resolves verbatim. One argument dict per Punkt
+    (a document with no Punkt: per page; with neither: its outline), most
+    recent entry first, at most ``limit``; empty when nothing was digested.
+    """
+    entries = [entry for entry in (parse_digest_line(line) for line in digest or ()) if entry is not None]
+    if not entries:
+        return []
+    latest = max(entry.turn for entry in entries)
+    loci: list[dict[str, Any]] = []
+    for entry in (entry for entry in entries if entry.turn == latest):
+        if entry.punkts:
+            loci.extend({"document": entry.file_name, "punkt": p} for p in sorted(entry.punkts, key=_punkt_sort_key))
+        elif entry.pages:
+            loci.extend({"document": entry.file_name, "page": page} for page in sorted(entry.pages))
+        else:
+            loci.append({"document": entry.file_name})
+    return loci[:limit]

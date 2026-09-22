@@ -277,10 +277,15 @@ turn whose Herleitung drew two empty „Suche" layers until this change (§6).
 | | Call | Needs |
 |---|---|---|
 | before | ① `read_passage(OIB-RL 2, Pkt 2.2)` → ② `emit_card` → ③ answer | ① the other column of the same table — ② the card — ③ the marker |
-| after | ① `read_passage` → ② answer + card | the digest already names the document; nothing to search |
+| after | ⓪ `read_passage(OIB-RL 2, Pkt 2.2)` as round 0 → ① answer + card | the digest names the loci the last answer was written from; a follow-up re-opens them before the first call (ADR-0064, `latest_turn_loci`) |
 
-Three become two. The digest did its job (no search); the card round was
-all that was left.
+Three become one. The digest did its job twice: it kept the model from
+searching, and now it tells round 0 what to re-open. What a follow-up used
+to lose was the model searching the FRAGMENT („und in GK 4?") when it did
+not resolve it first; the research rules now say to resolve it against the
+last answer, and the decision's `self_contained` keeps the fragment out of
+round 0. Measured on six follow-ups (`follow_up_questions.yaml`,
+`task be:eval:decisions`).
 
 ### 2.8 „Erstell mir einen ausführlichen Bericht zum Brandschutz." (handoff)
 

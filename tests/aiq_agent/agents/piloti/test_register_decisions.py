@@ -107,12 +107,19 @@ class TestTheEffects:
         # `legal_basis` is one of the eight the envelope already teaches.
         assert '"legal_basis"' not in block
 
-    def test_a_second_human_message_becomes_the_previous_message(self):
+    def test_the_previous_exchange_is_the_last_question_and_the_last_answer(self):
+        from langchain_core.messages import AIMessage
+
         state = ResearchAgentState(
-            messages=[HumanMessage(content="Wie hoch ist die GK?"), HumanMessage(content="und in GK 4?")]
+            messages=[
+                HumanMessage(content="Wie hoch ist die GK?"),
+                AIMessage(content="Gebäudeklasse 5, weil das Fluchtniveau 22 m übersteigt."),
+                HumanMessage(content="und in GK 4?"),
+            ]
         )
         facts = _turn_facts(state, None)
         assert facts.question == "und in GK 4?" and facts.previous_message == "Wie hoch ist die GK?"
+        assert facts.previous_answer is not None and facts.previous_answer.startswith("Gebäudeklasse 5")
 
     def test_no_decision_changes_nothing(self):
         state = ResearchAgentState(messages=[])
@@ -142,6 +149,34 @@ async def _run_turn(config: ResearchAgentConfig, decisions: TurnDecisions):
 
 
 class TestTheTurn:
+    async def test_a_follow_up_reopens_the_digests_loci_as_round_zero(self):
+        from aiq_agent.knowledge.already_read import format_digest_line
+
+        decided = TurnDecisions(decided=True, needs_evidence=0.9, corpus="baurecht", corpus_p=0.8, self_contained=0.1)
+        builder = _FakeBuilder({"knowledge_search": knowledge_search})
+        agent = MagicMock()
+        agent.run = AsyncMock(side_effect=lambda state, turn=None: state)
+        with (
+            patch.object(register_module, "PilotiAgent", return_value=agent),
+            patch.object(register_module, "decide_turn", new_callable=AsyncMock, return_value=decided),
+            patch.object(register_module, "get_organization_id_from_context", return_value="org-1"),
+            patch.object(register_module, "SkillResolver") as ResolverCls,
+        ):
+            ResolverCls.return_value.resolve.return_value = ()
+            gen = research_agent.__wrapped__(
+                ResearchAgentConfig(llm="research_llm", tools=["knowledge_search"], skills_enabled=False), builder
+            )
+            info = await gen.__anext__()
+            state = ResearchAgentState(
+                messages=[HumanMessage(content="und in GK 4?")],
+                already_read_digest=[format_digest_line("oib-rl_2_ausgabe_mai_2023.pdf", "oib", {12}, {"2.2"}, 1)],
+            )
+            await info.single_fn(state)
+            await gen.aclose()
+        assert agent.run.await_args.kwargs["turn"].prefetch == (
+            {"name": "read_passage", "args": {"document": "oib-rl_2_ausgabe_mai_2023.pdf", "punkt": "2.2"}},
+        )
+
     async def test_the_prefetch_reaches_the_turn_config(self):
         decided = TurnDecisions(decided=True, needs_evidence=0.9, corpus="baurecht", corpus_p=0.8)
         turn, _state, decide = await _run_turn(

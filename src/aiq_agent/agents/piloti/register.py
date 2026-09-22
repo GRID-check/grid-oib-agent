@@ -38,6 +38,7 @@ from aiq_agent.common.citation_verification import EmptySourceRegistryError
 from aiq_agent.common.data_source_registry import get_all_sources
 from aiq_agent.common.deferred_tool_loading import DeferredToolLoadingSettings
 from aiq_agent.common.deferred_tool_loading import verify_deferred_tool_loading
+from aiq_agent.knowledge.already_read import latest_turn_loci
 from aiq_agent.project_context import get_organization_id_from_context
 from aiq_agent.skills import SkillResolver
 from aiq_agent.skills import SkillRuntime
@@ -369,11 +370,18 @@ def _turn_facts(state: ResearchAgentState, runtime: SkillRuntime | None) -> Turn
     humans = [str(m.content) for m in state.messages if isinstance(m, HumanMessage) and isinstance(m.content, str)]
     question = humans[-1] if humans else ""
     previous = humans[-2] if len(humans) > 1 else None
+    answers = [
+        str(m.content)
+        for m in state.messages
+        if isinstance(m, AIMessage) and isinstance(m.content, str) and not getattr(m, "tool_calls", None)
+    ]
+    previous_answer = answers[-1] if answers else None
     documents = state.available_documents or []
     offered = tuple(runtime.skills) if runtime is not None else ()
     return TurnFacts(
         question=question,
         previous_message=previous,
+        previous_answer=previous_answer,
         skills=[(skill.name, " ".join(skill.description.split())) for skill in offered],
         focus_file_name=state.focus_file_name,
         project_facts={k: str(v) for k, v in facts_from_project_context(state.project_context or "").items()},
@@ -492,7 +500,12 @@ async def _run_turn(deployment: _Deployment, state: ResearchAgentState) -> Resea
         tools=turn_tools,
         disabled_sources=disabled_sources,
         prefetch=tuple(
-            prefetch_calls(decisions, _turn_facts(state, runtime).question, focus_file_name=state.focus_file_name)
+            prefetch_calls(
+                decisions,
+                _turn_facts(state, runtime).question,
+                focus_file_name=state.focus_file_name,
+                follow_up_loci=latest_turn_loci(state.already_read_digest),
+            )
         ),
     )
     if runtime is not None:

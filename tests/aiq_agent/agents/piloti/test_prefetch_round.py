@@ -167,6 +167,20 @@ class TestRoundZero:
         assert result.tool_iterations == 1
 
 
+class TestAFollowUpRoundZero:
+    async def test_a_read_passage_prefetch_is_round_zero_too(self, steps):
+        calls: list = []
+        result = await _run(
+            _agent(ANSWER, llm_calls=calls),
+            prefetch=({"name": "read_passage", "args": {"document": "OIB-RL 2", "punkt": "2.2"}},),
+            question="und in GK 4?",
+        )
+        assert RAN == ["read_passage:OIB-RL 2|2.2"]
+        assert any(s["step"] == "status:retrieval:0" for s in steps)
+        assert [m for m in calls[0] if isinstance(m, ToolMessage)][0].content == "Passage aus OIB-RL 2"
+        assert result.tool_iterations == 0
+
+
 class TestNothingRunsThatShouldNot:
     async def test_an_unbound_tool_is_dropped_silently(self):
         result = await _run(_agent(ANSWER, llm_calls=[]), prefetch=({"name": "web_search", "args": {"query": "x"}},))

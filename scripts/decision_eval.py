@@ -58,12 +58,14 @@ import os
 import sys
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT / "src"))
 sys.path.insert(0, str(REPO_ROOT))
 
 DEFAULT_QUESTIONS = REPO_ROOT / "tests" / "fixtures" / "herleitung" / "loop_eval_questions.yaml"
+DEFAULT_FOLLOW_UPS = REPO_ROOT / "tests" / "fixtures" / "herleitung" / "follow_up_questions.yaml"
 
 #: The six families as the platform corpus holds them, so the eval asks the
 #: same questions a turn asks. Synthetic filenames in the corpus's own shape.
@@ -81,6 +83,10 @@ CORPUS_FILES = [
 
 FAMILY_TOP1_FLOOR = 0.85
 CORPUS_FLOOR = 0.90
+#: Of the follow-up rows, how many the decision must hold back from a search
+#: of the fragment (`self_contained` under 0.5): a fragment searched is one
+#: wasted block, so the bar is high but not absolute.
+FOLLOW_UP_FLOOR = 0.80
 
 #: Which chat skill a family's question is the subject of — for REPORTING
 #: skill top-1, not for the gate: the loop-eval rows carry no expected skill,
@@ -94,6 +100,7 @@ class Row:
     kind: str
     expected_family: str | None
     expected_corpus: str | None
+    follow_up: bool = False
     needs_evidence: float | None = None
     corpus: str | None = None
     corpus_p: float = 0.0
@@ -152,7 +159,15 @@ def expected_corpus(family: str | None) -> str | None:
     return "baurecht"
 
 
-async def _evaluate(questions_path: Path) -> list[Row]:
+def load_follow_ups(path: Path) -> list[dict[str, Any]]:
+    """The follow-up rows: ``id``, ``previous``, ``question``, ``family``."""
+    import yaml
+
+    raw = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    return [dict(row) for row in raw.get("questions") or [] if row.get("previous")]
+
+
+async def _evaluate(questions_path: Path, follow_ups_path: Path | None = None) -> list[Row]:
     from aiq_agent.agents.piloti.decisions import TurnFacts
     from aiq_agent.agents.piloti.decisions import decide_turn
     from aiq_agent.cards.catalog import card_index_entries
@@ -170,14 +185,27 @@ async def _evaluate(questions_path: Path) -> list[Row]:
         if _skill_applies_to_agent(skill, "researcher")
     ]
     rows: list[Row] = []
-    for question in load_questions(questions_path):
+    standalone = [
+        (question.id, question.question, None, question.family, question.kind)
+        for question in load_questions(questions_path)
+    ]
+    follow_ups = (
+        [
+            (r["id"], str(r["question"]).strip(), str(r["previous"]).strip(), r.get("family"), "follow_up")
+            for r in load_follow_ups(follow_ups_path)
+        ]
+        if follow_ups_path is not None and follow_ups_path.exists()
+        else []
+    )
+    for row_id, text, previous, family, kind in [*standalone, *follow_ups]:
         row = Row(
-            id=question.id,
-            kind=question.kind,
-            expected_family=expected_family(question.family),
-            expected_corpus=expected_corpus(question.family),
+            id=row_id,
+            kind=kind,
+            expected_family=expected_family(family),
+            expected_corpus=expected_corpus(family),
+            follow_up=previous is not None,
         )
-        facts = TurnFacts(question=question.question, families=families, card_types=cards, skills=skills)
+        facts = TurnFacts(question=text, previous_message=previous, families=families, card_types=cards, skills=skills)
         decided = await decide_turn(facts)
         row.decided = decided.decided
         if decided.decided:
@@ -204,8 +232,8 @@ async def _evaluate(questions_path: Path) -> list[Row]:
 
 def summarise(rows: list[Row]) -> dict[str, float | int | bool]:
     decided = [r for r in rows if r.decided]
-    family_rows = [r for r in decided if r.expected_family is not None]
-    corpus_rows = [r for r in decided if r.expected_corpus is not None]
+    family_rows = [r for r in decided if r.expected_family is not None and not r.follow_up]
+    corpus_rows = [r for r in decided if r.expected_corpus is not None and not r.follow_up]
     ruling_rows = [r for r in decided if r.kind == "ruling"]
     family_top1 = sum(1 for r in family_rows if r.family_hit) / len(family_rows) if family_rows else 0.0
     corpus_rate = sum(1 for r in corpus_rows if r.corpus_hit) / len(corpus_rows) if corpus_rows else 0.0
@@ -214,7 +242,13 @@ def summarise(rows: list[Row]) -> dict[str, float | int | bool]:
     skill_top1 = sum(1 for r in skill_rows if r.skill == r.expected_skill) / len(skill_rows) if skill_rows else 0.0
     loaded = sum(1 for r in decided if r.skill_loaded)
     wrong_load = sum(1 for r in skill_rows if r.skill_loaded and r.skill != r.expected_skill)
-    self_contained_rate = sum(1 for r in decided if (r.self_contained or 0.0) >= 0.5) / len(decided) if decided else 0.0
+    standalone = [r for r in decided if not r.follow_up]
+    follow_ups = [r for r in decided if r.follow_up]
+    self_contained_rate = (
+        sum(1 for r in standalone if (r.self_contained or 0.0) >= 0.5) / len(standalone) if standalone else 0.0
+    )
+    held_back = sum(1 for r in follow_ups if (r.self_contained or 0.0) < 0.5) / len(follow_ups) if follow_ups else None
+    follow_up_family = sum(1 for r in follow_ups if r.family_hit) / len(follow_ups) if follow_ups else None
     return {
         "questions": len(rows),
         "decided": len(decided),
@@ -223,13 +257,17 @@ def summarise(rows: list[Row]) -> dict[str, float | int | bool]:
         "skill_loaded": loaded,
         "skill_loaded_wrong_by_family_map": wrong_load,
         "self_contained_rate": round(self_contained_rate, 3),
+        "follow_ups": len(follow_ups),
+        "follow_ups_held_back": None if held_back is None else round(held_back, 3),
+        "follow_ups_family_top1": None if follow_up_family is None else round(follow_up_family, 3),
         "corpus_baurecht_rate": round(corpus_rate, 3),
         "ruling_evidence_floor_held": evidence_floor_held,
         "mean_latency_ms": int(sum(r.latency_ms for r in decided) / len(decided)) if decided else 0,
         "adopt": bool(decided)
         and family_top1 >= FAMILY_TOP1_FLOOR
         and corpus_rate >= CORPUS_FLOOR
-        and evidence_floor_held,
+        and evidence_floor_held
+        and (held_back is None or held_back >= FOLLOW_UP_FLOOR),
     }
 
 
@@ -252,6 +290,7 @@ def write_csv(rows: list[Row], path: Path) -> None:
     fields = [
         "id",
         "kind",
+        "follow_up",
         "expected_family",
         "top_family",
         "top_family_p",
@@ -278,12 +317,13 @@ def write_csv(rows: list[Row], path: Path) -> None:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--questions", type=Path, default=DEFAULT_QUESTIONS)
+    parser.add_argument("--follow-ups", type=Path, default=DEFAULT_FOLLOW_UPS)
     parser.add_argument("--out", type=Path, default=None)
     args = parser.parse_args(argv)
     if not (os.environ.get("OPENROUTER_API_KEY") or os.environ.get("GRID_DECISIONS_API_KEY")):
         print("decision_eval: set OPENROUTER_API_KEY (or GRID_DECISIONS_API_KEY); nothing to measure without one.")
         return 2
-    rows = asyncio.run(_evaluate(args.questions))
+    rows = asyncio.run(_evaluate(args.questions, args.follow_ups))
     summary = summarise(rows)
     print()
     for key, value in summary.items():

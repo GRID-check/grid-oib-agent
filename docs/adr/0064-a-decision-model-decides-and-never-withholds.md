@@ -73,8 +73,9 @@ is on the ledger under the `decision` role (`common/decisions.py`).
 noul per Richtlinien-Familie the corpus holds, one noul per content card
 type the taught envelope does not already carry, `self_contained`
 (whether the message can be searched without the previous one — a follow-up
-cannot, and prefetching „und in GK 4?" would hand the model a block about
-nothing), and `skill`: a choice over the skills riding the prompt with
+cannot, and searching „und in GK 4?" would hand the model a block about
+nothing; instead round 0 re-opens the loci the previous turn read, which the
+„Bereits gelesen" digest already names, `knowledge.already_read.latest_turn_loci`), and `skill`: a choice over the skills riding the prompt with
 `none`, verified by one "fits" noul per skill, which is TypeSafe's own
 skill-suggestion cookbook (rank, then check the candidate does the specific
 thing asked; abstain under 0.30). What the
@@ -141,8 +142,12 @@ abstentions the cookbook is for — `none` on the two overview questions and
 the structural one, a fit of 0.19 on the project-file question — with one
 disagreement the map is wrong about (`gebaeudeklasse` for the high-rise
 question, which does turn on the class). Latency 507–685 ms, mean 602.
-`self_contained` ran 0.74–0.95 on a set with no follow-ups; the false case
-is pinned by unit test only. The judge use is measured live by
+`self_contained` ran 0.74–0.95 on the 27 standalone questions and
+0.02–0.26 on six follow-ups (`follow_up_questions.yaml`: „Und in
+Gebäudeklasse 4?", „Genauer bitte", „Warum?"), all six held back from a
+search of the fragment, the family right on all six from the previous
+message, and the skill choice reading them as intended (`bestand` for „und
+im Bestand"). Six rows is a start, not a study. The judge use is measured live by
 the loop eval's `judge_calls` column once it exists (audit §8 row 1).
 Nothing here rests on a calibration study, because there is none yet; the
 numbers above are one run on German questions the product actually gets.
