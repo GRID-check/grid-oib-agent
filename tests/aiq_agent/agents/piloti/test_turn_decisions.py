@@ -220,3 +220,16 @@ class TestAFollowUpIsNotSearched:
         assert prefetch_calls(decided, "Was steht im Bescheid?") == [
             {"name": "knowledge_search", "args": {"query": "Was steht im Bescheid?"}}
         ]
+
+
+class TestTheOpenDocument:
+    def test_a_project_question_with_a_file_open_is_pinned_to_it(self):
+        decided = TurnDecisions(decided=True, needs_evidence=0.9, corpus="projekt", corpus_p=0.9)
+        assert prefetch_calls(decided, "Fass den Plan zusammen.", focus_file_name="EG_Grundriss.pdf") == [
+            {"name": "knowledge_search", "args": {"query": "Fass den Plan zusammen.", "file_name": "EG_Grundriss.pdf"}}
+        ]
+
+    def test_a_law_question_with_a_file_open_searches_the_corpus_not_the_file(self):
+        decided = TurnDecisions(decided=True, needs_evidence=0.9, corpus="baurecht", corpus_p=0.9)
+        calls = prefetch_calls(decided, "Wie lang darf der Fluchtweg sein?", focus_file_name="EG_Grundriss.pdf")
+        assert calls == [{"name": "knowledge_search", "args": {"query": "Wie lang darf der Fluchtweg sein?"}}]

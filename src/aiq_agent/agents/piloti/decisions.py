@@ -331,11 +331,17 @@ async def decide_turn(facts: TurnFacts, *, organization_id: str | None = None) -
     return decided
 
 
-def prefetch_calls(decisions: TurnDecisions, question: str) -> list[dict[str, Any]]:
+def prefetch_calls(
+    decisions: TurnDecisions, question: str, *, focus_file_name: str | None = None
+) -> list[dict[str, Any]]:
     """The tool calls round 0 runs, as the agent's tools node reads them.
 
     The question itself, when the corpus is one the knowledge tool searches
-    and the message can be searched on its own (a follow-up cannot); and,
+    and the message can be searched on its own (a follow-up cannot) — pinned
+    to the open document (``file_name``) when one is open and the corpus is
+    the project's or the office's own files, which is the audit's cleanest
+    case: the subject was known before the model ran, and a pinned lookup
+    skips the judge; and,
     when the question is NOT itself a family overview, the chosen
     families' overviews — ``knowledge_search`` recognises ``OIB-Richtlinie n``
     as a family query and returns every member's scope and Gliederung. Nothing
@@ -353,7 +359,10 @@ def prefetch_calls(decisions: TurnDecisions, question: str) -> list[dict[str, An
         return []
     calls: list[dict[str, Any]] = []
     if decisions.searchable:
-        calls.append({"name": KNOWLEDGE_SEARCH, "args": {"query": query}})
+        args: dict[str, Any] = {"query": query}
+        if focus_file_name and decisions.corpus in {"projekt", "buero"}:
+            args["file_name"] = focus_file_name
+        calls.append({"name": KNOWLEDGE_SEARCH, "args": args})
     if decisions.corpus == "baurecht" and family_query_number(query) is None:
         calls.extend(
             {"name": KNOWLEDGE_SEARCH, "args": {"query": f"OIB-Richtlinie {key}"}}

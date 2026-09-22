@@ -491,7 +491,9 @@ async def _run_turn(deployment: _Deployment, state: ResearchAgentState) -> Resea
         llm_provider=await _active_provider(deployment.provider),
         tools=turn_tools,
         disabled_sources=disabled_sources,
-        prefetch=tuple(prefetch_calls(decisions, _turn_facts(state, runtime).question)),
+        prefetch=tuple(
+            prefetch_calls(decisions, _turn_facts(state, runtime).question, focus_file_name=state.focus_file_name)
+        ),
     )
     if runtime is not None:
         state.skills_block = _skills_block(runtime)
