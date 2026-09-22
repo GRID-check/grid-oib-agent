@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import re
 from collections import OrderedDict
 from collections.abc import Iterator
 from contextvars import ContextVar
@@ -149,6 +150,31 @@ class GroundingBlock(BaseModel):
 # ---------------------------------------------------------------------------
 # The renderer
 # ---------------------------------------------------------------------------
+
+
+#: The heading of the fan-out JSON every rendered block carries.
+TRACE_LANES_MARKER = "## Trace-Lanes"
+
+_TRACE_LANES_RE = re.compile(rf"\n*{re.escape(TRACE_LANES_MARKER)}\n[^\n]*\n*")
+
+
+def strip_trace_lanes(text: str) -> str:
+    """The block without its ``## Trace-Lanes`` line: what the MODEL reads.
+
+    The lanes JSON is for the Herleitung — the frontend reads it off the tool
+    step NAT recorded when the tool returned — and for the citation registry,
+    which reads the records the renderer filed under the block's bytes before
+    anything strips them. The model reads neither; it reads the passages and
+    the ``Citation:`` keys. Yet the line travelled in every ``ToolMessage``, so
+    a search with sixteen hits put ~1 000 tokens of ``{"lanes": …}`` into the
+    transcript and re-sent them on every later call of the turn, and into the
+    next turn's history. The passages, the keys and the trailer (``##
+    Gliederung``) stay byte-for-byte; only the one line goes. Idempotent, and
+    text with no marker is returned unchanged.
+    """
+    if TRACE_LANES_MARKER not in text:
+        return text
+    return _TRACE_LANES_RE.sub("\n\n", text, count=1).rstrip("\n") + ("\n" if text.endswith("\n") else "")
 
 
 def render_grounding_block(block: GroundingBlock) -> str:

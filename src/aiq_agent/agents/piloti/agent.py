@@ -65,6 +65,7 @@ from aiq_agent.common.deferred_tool_loading import DeferredToolLoadingSettings
 from aiq_agent.common.deferred_tool_loading import bind_tools_deferred
 from aiq_agent.common.grounding_block import begin_grounding_capture
 from aiq_agent.common.grounding_block import end_grounding_capture
+from aiq_agent.common.grounding_block import strip_trace_lanes
 from aiq_agent.common.prompt_caching import begin_stable_prefix
 from aiq_agent.common.prompt_caching import end_stable_prefix
 from aiq_agent.common.retrieval_rounds import assistant_checkpoint
@@ -595,6 +596,16 @@ def _without_dropped_calls(state: ResearchAgentState, dropped: Sequence[Any]) ->
     kept = [call for call in (getattr(last, "tool_calls", None) or []) if id(call) not in withheld]
     trimmed = last.model_copy(update={"tool_calls": kept})
     return state.model_copy(update={"messages": [*state.messages[:-1], trimmed]})
+
+
+def _without_trace_lanes(message: Any) -> Any:
+    """The same tool result minus the fan-out JSON; anything else untouched."""
+    if not isinstance(message, ToolMessage) or not isinstance(message.content, str):
+        return message
+    stripped = strip_trace_lanes(message.content)
+    if stripped == message.content:
+        return message
+    return message.model_copy(update={"content": stripped})
 
 
 def _notice(call: Any, content: str) -> ToolMessage:
@@ -1276,6 +1287,13 @@ class PilotiAgent:
             raise RuntimeError("PilotiAgent graph invoked outside run(): no source registry is bound")
         ran_messages = list(result.get("messages", []))
         measured = self._capture_round(ran_messages, binding, registry, state)
+        # AFTER the capture, which files the sources under the bytes the tool
+        # returned: from here on the transcript, the repeat-fetch answers and
+        # the next turn's history carry the passages without the lanes JSON
+        # the model never reads (``strip_trace_lanes``). The frontend's copy is
+        # the NAT tool step, recorded when the tool returned, and unaffected.
+        ran_messages = [_without_trace_lanes(message) for message in ran_messages]
+        result = {**result, "messages": ran_messages}
         failed_ids = failed_call_ids(ran_messages)
         # Merged BEFORE the notices are built: a call repeated inside its own
         # batch is answered with the result its first occurrence just returned.

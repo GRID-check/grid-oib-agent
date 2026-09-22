@@ -125,7 +125,33 @@ class TestResolution:
 
     def test_a_document_answers_to_its_file_name_title_and_derived_title(self):
         names = _document_names(_document(OIB, "Hausname 2"))
-        assert names == [OIB, "Hausname 2", "OIB-Richtlinie 2, Ausgabe Mai 2023"]
+        assert names == [
+            OIB,
+            "Hausname 2",
+            "OIB-Richtlinie 2, Ausgabe Mai 2023",
+            "OIB-Richtlinie 2",
+            "OIB 2",
+            "OIB-RL 2",
+        ]
+
+    @pytest.mark.parametrize(
+        "wanted",
+        ["OIB 2.1", "OIB-RL 2.1", "OIB-Richtlinie 2.1", "oib-richtlinie 2.1"],
+    )
+    def test_a_member_answers_to_the_names_the_family_line_uses(self, wanted: str):
+        """The inventory names a family's parts as numbers („2, 2.1, 2.2, 2.3")
+        and a conclusion names one the way the office does. Each of those used
+        to be refused — a wasted round, an empty locator layer in the
+        Herleitung — with only the edition-bearing title accepted."""
+        assert _matches(_document("oib-rl_2.1_ausgabe_mai_2023.pdf"), wanted.strip().casefold())
+
+    @pytest.mark.parametrize("wanted", ["OIB 2", "OIB-RL 2", "OIB-Richtlinie 2"])
+    def test_a_parts_alias_never_opens_its_sibling(self, wanted: str):
+        assert not _matches(_document("oib-rl_2.1_ausgabe_mai_2023.pdf"), wanted.casefold())
+
+    def test_a_leitfaden_gets_no_member_alias(self):
+        names = _document_names(_document("oib-rl_2_leitfaden_ausgabe_mai_2023.pdf"))
+        assert not any(name.startswith(("OIB 2", "OIB-RL 2")) for name in names)
 
     @pytest.mark.parametrize(
         "wanted",

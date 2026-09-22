@@ -28,9 +28,9 @@ Relevance Score: 0.71
 {"lanes": [{"key": "baurecht_oib", "label": "OIB-Richtlinie", "kind": "baurecht", "hitCount": 2, "sources": [{"name": "oib-rl_2_ausgabe_mai_2023.pdf", "title": "OIB-Richtlinie 2, Ausgabe Mai 2023", "detail": "Pkt. 0 p.3", "shelf": "base"}]}]}
 
 ## Gliederung
-- Punkt 0: Vorbemerkungen (S. 3)
-- Punkt 1: Begriffsbestimmungen (S. 3)
-- Punkt 2: Allgemeine Anforderungen (S. 4)
+- Punkt 0: Vorbemerkungen (S. 3) — Diese Richtlinie gilt für …
+- Punkt 1: Begriffsbestimmungen (S. 3) — Text zu Begriffsbestimmungen.
+- Punkt 2: Allgemeine Anforderungen (S. 4) — Text zu Allgemeine Anforderungen.
   - Punkt 2.1: Abstände (S. 4)
   - Punkt 2.9: Löschwasser (S. 5)
   - Punkt 2.10: Blitzschutz (S. 5)

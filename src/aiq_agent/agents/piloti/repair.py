@@ -40,6 +40,7 @@ from aiq_agent.common.citation_verification import UnverifiedQuote
 from aiq_agent.common.citation_verification import _answer_body_before_sources
 from aiq_agent.common.citation_verification import _parse_citation_key
 from aiq_agent.common.citation_verification import extract_sources_from_tool_result
+from aiq_agent.common.grounding_block import strip_trace_lanes
 from aiq_agent.common.turn_status import emit_answer_repair
 
 from .dsml import strip_and_salvage_dsml_tool_calls
@@ -237,8 +238,10 @@ async def _retrieve(tool: BaseTool, lookups: Sequence[tuple[str, str | None]]) -
         text = str(output or "")
         if not text:
             continue
-        grounding.append(text)
+        # Sources off the full text (the records are filed under its bytes),
+        # the model's grounding without the lanes JSON it does not read.
         sources.extend(extract_sources_from_tool_result(tool.name, text, source_id=source_id))
+        grounding.append(strip_trace_lanes(text))
     return grounding, sources
 
 

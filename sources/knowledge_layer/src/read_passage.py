@@ -58,6 +58,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any
@@ -175,13 +176,32 @@ def _document_names(document: Any) -> list[str]:
         names.append(str(stored))
     try:
         from aiq_agent.common.norm_registry import guess_display_title
+        from aiq_agent.common.norm_registry import oib_family_member
 
         derived = guess_display_title(names[0])
+        member = oib_family_member(names[0])
     except Exception:  # noqa: BLE001 — a missing title helper must not hide the file name
         derived = None
+        member = None
     if derived:
         names.append(derived)
-    return [name for name in names if name.strip()]
+        # The title without its edition: the head a conclusion names when the
+        # edition is not what it is talking about ("OIB-Richtlinie 2.1").
+        head = derived.split(",", 1)[0].strip()
+        if head and head != derived:
+            names.append(head)
+    if member:
+        # The three spellings the prompt's own family line and the office use
+        # for a part of a Richtlinie. Exact names, each — `_matches` still
+        # refuses "OIB 2" for OIB 2.1, because the member number is the name.
+        names += [f"OIB {member}", f"OIB-RL {member}", f"OIB-Richtlinie {member}"]
+    seen: set[str] = set()
+    unique: list[str] = []
+    for name in names:
+        if name.strip() and name.casefold() not in seen:
+            seen.add(name.casefold())
+            unique.append(name)
+    return unique
 
 
 def _matches(document: Any, wanted: str) -> bool:
@@ -407,6 +427,35 @@ class OutlineEntry:
     title: str
     page: str
     depth: int
+    #: The Punkt's opening sentence, bounded — what a chapter is ABOUT, beside
+    #: what it is called. Empty below depth 1 and for a chunk with no body.
+    excerpt: str = ""
+
+
+#: How much of a Punkt's opening sentence a Gliederung line carries.
+_EXCERPT_CHARS = 120
+
+
+def _excerpt_of(chunk: Any) -> str:
+    """The opening sentence of one Punkt, bounded to :data:`_EXCERPT_CHARS`.
+
+    A heading list answers "what is in this document" with names, and a name
+    („Anforderungen") tells an overview question nothing it did not know. The
+    first sentence does: the model can say what each chapter regulates from
+    the outline alone, instead of opening every chapter to find out — which is
+    one round of eight parallel opens per member, or three rounds once the
+    fan-out crosses the per-round width cap. A Punkt chunk opens with its own
+    heading line; the body follows the blank line, and only the body is quoted.
+    """
+    text = str(getattr(chunk, "content", "") or "")
+    body = text.split("\n\n", 1)[1] if "\n\n" in text else text
+    body = " ".join(body.split())
+    if not body:
+        return ""
+    sentence = re.split(r"(?<=[.!?])\s", body, maxsplit=1)[0]
+    if len(sentence) > _EXCERPT_CHARS:
+        return sentence[:_EXCERPT_CHARS].rstrip() + "…"
+    return sentence
 
 
 def _outline_entries(chunks: Sequence[Any]) -> list[OutlineEntry]:
@@ -434,6 +483,7 @@ def _outline_entries(chunks: Sequence[Any]) -> list[OutlineEntry]:
             title=str(metadata.get("punkt_title") or "").strip(),
             page=str(metadata.get("page_label") or getattr(chunk, "page_number", "") or ""),
             depth=depth,
+            excerpt=_excerpt_of(chunk) if depth == 1 else "",
         )
     return sorted(entries.values(), key=lambda entry: (_punkt_number(entry.punkt_id), entry.punkt_id))
 
@@ -471,7 +521,8 @@ def _outline_lines(entries: Sequence[OutlineEntry], limit: int = _MAX_OUTLINE_LI
         indent = "  " if entry.depth == 2 else ""
         title = f": {entry.title}" if entry.title else ""
         page = f" (S. {entry.page})" if entry.page else ""
-        lines.append(f"{indent}- Punkt {entry.punkt_id}{title}{page}")
+        excerpt = f" — {entry.excerpt}" if entry.excerpt else ""
+        lines.append(f"{indent}- Punkt {entry.punkt_id}{title}{page}{excerpt}")
     remaining = len(entries) - len(shown)
     if remaining > 0:
         lines.append(f"(+{remaining} weitere Punkte nicht gelistet)")
