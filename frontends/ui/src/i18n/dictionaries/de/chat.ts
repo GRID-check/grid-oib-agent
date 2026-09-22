@@ -1252,71 +1252,6 @@ export const chat: typeof en.chat = {
       branchesSub: 'Wählen Sie eine Option — das Ergebnis wird für Ihre Wahl zusammengestellt.',
     },
   },
-  deepResearch: {
-    stats: {
-      toolCalls: '{count, plural, one {# Werkzeugaufruf} other {# Werkzeugaufrufe}}',
-    },
-    success: {
-      heading: 'Bericht abgeschlossen!{stats}',
-      subheading:
-        'Die Recherche ist abgeschlossen und ein Bericht steht im Recherchebereich zur Ansicht bereit.',
-      // Steht NUR, wenn die Ablage tatsächlich stattgefunden hat und der Bericht
-      // eine Dokument-ID hat. Fehlt sie und wurde auch nichts versprochen — Chat
-      // ohne Projekt, Lauf aus der Zeit vor dieser Funktion —, schweigt das
-      // Banner, statt eine Datei zu behaupten, die es nicht gibt.
-      filedLine: 'Im Projekt abgelegt: {filename}',
-      // Die Rücknahme von `starting.filingDisclosure`, und nur dann: Das
-      // Start-Banner hat „wird abgelegt“ versprochen, der Server hat die Ablage
-      // versucht (es gab ein Projekt) und sie ist nicht zustande gekommen. Wer
-      // die Zusage gelesen hat, geht sonst in „Berichte“ und findet nichts —
-      // die einzige Spur wäre ein Serverprotokoll, das niemand hier lesen kann.
-      // Kein Grund: abgelehntes Speicherkontingent, entzogene Berechtigung
-      // „project:documents:write“ und ein zu langer Bericht sind dieselbe
-      // Tatsache — das Dokument ist nicht da; die Unterschiede sind für den
-      // Betrieb, nicht für die Ziviltechnikerin. Gleiche leise Zeile wie die
-      // Zusage, kein Rot, kein Fehlerzustand: die Recherche ist gelungen.
-      filingFailedLine: 'Der Bericht konnte nicht unter „Berichte“ abgelegt werden.',
-    },
-    failure: {
-      heading: 'Bericht konnte nicht abgeschlossen werden',
-      subheading:
-        'Etwas hat den Abschluss des Rechercheberichts verhindert. Prüfen Sie die Denkschritte für Details.',
-    },
-    cancelled: {
-      heading: 'Recherche abgebrochen',
-      subheading:
-        'Die Recherche wurde vom Benutzer gestoppt. Sie können den Teilfortschritt im Recherchebereich ansehen.',
-    },
-    expired: {
-      heading: 'Bericht abgelaufen',
-      subheading: 'Der Bericht ist abgelaufen und nicht mehr verfügbar.',
-    },
-    starting: {
-      heading: 'Deep Research wird gestartet',
-      subheading:
-        'Der Chat ist pausiert, während der Bericht erstellt wird, um zu verhindern, dass mehrere Berichte generiert werden. Sie können den Tab verlassen, während dies läuft – es kann mehrere Minuten dauern.',
-      // Die Offenlegung, die die Zustimmung erst echt macht. Sie steht auf dem
-      // START-Banner, nicht auf dem Ergebnis: Deep Research eskaliert aus einem
-      // Chat-Turn (es gibt kein Absendeformular), und ein Lauf kann beginnen,
-      // weil der Agent selbst eskaliert hat — nicht, weil jemand einen Bericht
-      // bestellt hat. Der Zeitpunkt, an dem man den Lauf noch abbrechen kann,
-      // ist deshalb der einzige, an dem die Angabe des Ablageorts etwas wert
-      // ist. Kein Dialog, keine Rückfrage: eine Bestätigung nach dem Lauf wird
-      // immer nur mit Ja beantwortet und ist damit keine Entscheidung.
-      // Erscheint nur in einem Projekt — außerhalb wird nichts abgelegt.
-      filingDisclosure: 'Der fertige Bericht wird in diesem Projekt unter „Berichte“ abgelegt.',
-    },
-    viewReport: 'Bericht anzeigen',
-    // Zweite Aktion auf dem Erfolgsbanner, wenn abgelegt wurde. Bewusst anders
-    // benannt als „Bericht anzeigen“: das öffnet den Recherchebereich, dies
-    // öffnet die Datei in der Projektablage — zwei Orte, zwei Wörter.
-    openInProject: 'Im Projekt öffnen',
-    viewThinking: 'Denkschritte anzeigen',
-    viewProgress: 'Fortschritt anzeigen',
-    // Einzeiler über dem „Deep Research wird gestartet“-Banner, wenn der Turn
-    // von der Kurz- zur Tiefenrecherche eskaliert ist (WP-A `escalation_reason`).
-    escalationNarration: 'Eskaliert zur Tiefenrecherche: {reason}',
-  },
   error: {
     showDetails: 'Details anzeigen',
     hideDetails: 'Details ausblenden',
@@ -1364,15 +1299,6 @@ export const chat: typeof en.chat = {
       message:
         'Beim Bearbeiten Ihrer Anfrage ist beim Assistenten ein unerwarteter Fehler aufgetreten. Bitte versuchen Sie es erneut.',
     },
-    deepResearchFailed: {
-      title: 'Deep Research fehlgeschlagen',
-      message: 'Beim Deep-Research-Vorgang ist ein Fehler aufgetreten.',
-    },
-    deepResearchLoadFailed: {
-      title: 'Recherchedaten nicht verfügbar',
-      message:
-        'Recherchedaten konnten nicht geladen werden. Der Auftrag ist möglicherweise abgelaufen oder wurde gelöscht.',
-    },
     unknown: {
       title: 'Etwas ist schiefgelaufen',
       message: 'Ein unerwarteter Fehler ist aufgetreten. Bitte versuchen Sie es erneut.',
@@ -1386,23 +1312,6 @@ export const chat: typeof en.chat = {
       retryHint:
         'Bitte in etwa {seconds, plural, one {# Sekunde} other {# Sekunden}} erneut senden.',
     },
-  },
-  deepResearchErrors: {
-    interrupted: 'Die Recherche wurde vor dem Abschluss unterbrochen.',
-    reportUnavailable: 'Dieser Recherchebericht ist nicht mehr verfügbar.',
-    serviceUnreachable:
-      'Der Dienst ist derzeit nicht erreichbar. Bitte versuchen Sie es später erneut.',
-    loadFailed: 'Recherchedaten konnten nicht geladen werden.',
-  },
-  sessionActions: {
-    researchMayStillRunTitle: 'Recherche-Ausführung läuft möglicherweise noch',
-    researchMayStillRunDescription:
-      'Die Sitzung wurde gelöscht, aber der zugehörige Deep-Research-Auftrag konnte auf dem Server nicht gestoppt werden.',
-    researchRunsMayStillRunTitle: 'Möglicherweise laufen noch {count} Recherche-{runLabel}',
-    researchRunsMayStillRunDescription:
-      'Die Sitzungen wurden gelöscht, aber einige Deep-Research-Aufträge konnten auf dem Server nicht gestoppt werden.',
-    runSingular: 'Ausführung',
-    runPlural: 'Ausführungen',
   },
   budgetExhausted: {
     title: 'Budget aufgebraucht',

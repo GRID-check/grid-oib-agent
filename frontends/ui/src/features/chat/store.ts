@@ -4,7 +4,10 @@
  * Combined Zustand store composed from 3 slices:
  * - Messages slice (streaming, thinking, file cards)
  * - Sessions slice (conversations CRUD, persistence)
- * - Deep Research slice (SSE streaming, HITL, jobs)
+ * - Interaction slice (the open HITL prompt and its send path)
+ *
+ * A deep-research run keeps no state here: it is a message in the thread
+ * (ADR-0062) and its block subscribes to its own stream (`features/runs`).
  */
 
 import { create } from 'zustand'
@@ -24,7 +27,7 @@ export type ChatStoreWithHydration = ChatStore & {
 import {
   createMessagesSlice,
   createSessionsSlice,
-  createDeepResearchSlice,
+  createInteractionSlice,
 } from './stores'
 import { createResilientStorage } from './stores/sessions-store'
 import {
@@ -38,7 +41,7 @@ export const useChatStore = create<ChatStoreWithHydration>()(
       (set, get, store) => ({
         ...createMessagesSlice(set, get, store),
         ...createSessionsSlice(set, get, store),
-        ...createDeepResearchSlice(set, get, store),
+        ...createInteractionSlice(set, get, store),
         // Client-only hydration flag (C5); flipped true in onRehydrateStorage.
         hasHydrated: false,
       }),
@@ -51,7 +54,6 @@ export const useChatStore = create<ChatStoreWithHydration>()(
           currentConversation: state.currentConversation,
           pendingInteraction: state.pendingInteraction,
           composerDrafts: state.composerDrafts,
-          resolvedDeepResearchJobs: state.resolvedDeepResearchJobs,
         }),
         onRehydrateStorage: () => (state) => {
           // Mark hydration settled regardless of whether persisted data existed
@@ -65,7 +67,6 @@ export const useChatStore = create<ChatStoreWithHydration>()(
             // projectId; re-apply it so setProjectId's guard clears a
             // persisted currentConversation from another project (UX-8).
             if (store.projectId) store.setProjectId(store.projectId)
-            void store.refreshDeepResearchSessionStatuses()
           })
         },
       }

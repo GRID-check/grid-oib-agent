@@ -8,6 +8,8 @@ import { asStoreState, type DeepPartial, type StoreSelector } from '@/test-utils
 import type { ChatStoreWithHydration } from '../store'
 import type { LayoutStore } from '@/features/layout/types'
 import type { DocumentsStore } from '@/features/documents/types'
+import { emptyRunLedger, setRunStatus } from '@/lib/runs/run-ledger'
+import type { RunStatus } from '@/lib/runs/run-ledger-types'
 
 // Mock store actions
 const mockAddUserMessage = vi.fn()
@@ -26,7 +28,6 @@ const mockAppendToThinkingStep = vi.fn()
 const mockCompleteThinkingStep = vi.fn()
 const mockUpdateThinkingStepByFunctionName = vi.fn()
 const mockFindThinkingStepByFunctionName = vi.fn(() => undefined)
-const mockSetReportContent = vi.fn()
 const mockAddAgentPrompt = vi.fn()
 const mockAddErrorCard = vi.fn()
 const mockSetCurrentStatus = vi.fn()
@@ -35,17 +36,31 @@ const mockClearPendingInteraction = vi.fn()
 const mockSetLoading = vi.fn()
 const mockSetStreaming = vi.fn()
 const mockClearThinkingSteps = vi.fn()
-const mockClearReportContent = vi.fn()
 const mockCreateConversation = vi.fn()
 const mockSetCurrentUser = vi.fn()
 const mockGetUserConversations = vi.fn(() => [])
 const mockSelectConversation = vi.fn()
 const mockRespondToPrompt = vi.fn()
-const mockAddPlanMessage = vi.fn()
-const mockUpdatePlanMessageResponse = vi.fn()
-const mockAddDeepResearchBanner = vi.fn()
 const mockDismissConnectionErrors = vi.fn()
 const mockMaybeGenerateConversationName = vi.fn()
+
+/** The conversation with one run message whose stored ledger says `status`. */
+const withLiveRun = (
+  conversation: DeepPartial<ChatStoreWithHydration>['currentConversation'],
+  status: RunStatus
+): DeepPartial<ChatStoreWithHydration>['currentConversation'] => ({
+  ...(conversation ?? { id: 'conv-1', userId: 'user-1' }),
+  messages: [
+    {
+      id: 'run-1',
+      role: 'assistant',
+      content: '',
+      messageType: 'agent_response',
+      timestamp: new Date('2026-01-01T00:00:00Z'),
+      runLedger: setRunStatus(emptyRunLedger('run-1'), status),
+    },
+  ],
+})
 
 // Mock store state. Typed against the real store rather than a hand-copied
 // shape, so a renamed or retyped field fails to compile here.
@@ -57,10 +72,8 @@ let mockStoreState: DeepPartial<ChatStoreWithHydration> = {
   isLoading: false,
   thinkingSteps: [],
   activeThinkingStepId: null,
-  reportContent: '',
   currentStatus: null,
   pendingInteraction: null,
-  planMessages: [],
 }
 
 /**
@@ -87,7 +100,6 @@ const defaultUseChatStoreImpl = (selector?: StoreSelector<ChatStoreWithHydration
     completeThinkingStep: mockCompleteThinkingStep,
     updateThinkingStepByFunctionName: mockUpdateThinkingStepByFunctionName,
     findThinkingStepByFunctionName: mockFindThinkingStepByFunctionName,
-    setReportContent: mockSetReportContent,
     addAgentPrompt: mockAddAgentPrompt,
     addErrorCard: mockAddErrorCard,
     setCurrentStatus: mockSetCurrentStatus,
@@ -96,15 +108,11 @@ const defaultUseChatStoreImpl = (selector?: StoreSelector<ChatStoreWithHydration
     setLoading: mockSetLoading,
     setStreaming: mockSetStreaming,
     clearThinkingSteps: mockClearThinkingSteps,
-    clearReportContent: mockClearReportContent,
     createConversation: mockCreateConversation,
     setCurrentUser: mockSetCurrentUser,
     getUserConversations: mockGetUserConversations,
     selectConversation: mockSelectConversation,
     respondToPrompt: mockRespondToPrompt,
-    addPlanMessage: mockAddPlanMessage,
-    updatePlanMessageResponse: mockUpdatePlanMessageResponse,
-    addDeepResearchBanner: mockAddDeepResearchBanner,
     dismissConnectionErrors: mockDismissConnectionErrors,
     maybeGenerateConversationName: mockMaybeGenerateConversationName,
   }
@@ -307,10 +315,8 @@ describe('useWebSocketChat', () => {
       isLoading: false,
       thinkingSteps: [],
       activeThinkingStepId: null,
-      reportContent: '',
-      currentStatus: null,
+          currentStatus: null,
       pendingInteraction: null,
-      planMessages: [],
     }
     useChatStore.getState = vi.fn(() => mockStoreState) as unknown as typeof useChatStore.getState
     mockWsClient.isConnected.mockReturnValue(false)
@@ -331,7 +337,6 @@ describe('useWebSocketChat', () => {
     expect(result.current.messages).toEqual([])
     expect(result.current.conversation).toEqual(mockStoreState.currentConversation)
     expect(result.current.thinkingSteps).toEqual([])
-    expect(result.current.reportContent).toBe('')
     expect(result.current.currentStatus).toBeNull()
     expect(result.current.pendingInteraction).toBeNull()
     expect(result.current.isConnected).toBe(false)
@@ -378,7 +383,6 @@ describe('useWebSocketChat', () => {
       messageFiles: [],
     })
     // Note: clearThinkingSteps is no longer called - thinking steps persist per userMessageId for chat history
-    expect(mockClearReportContent).toHaveBeenCalled()
     expect(mockClearPendingInteraction).toHaveBeenCalled()
     expect(mockSetCurrentStatus).toHaveBeenCalledWith('thinking')
     expect(mockAddThinkingStep).not.toHaveBeenCalled()
@@ -1159,14 +1163,13 @@ describe('useWebSocketChat', () => {
     }
   })
 
-  test('never accuses a turn a live deep-research job is carrying (#624)', () => {
+  test('never accuses a turn a live run in this thread is carrying (#624)', () => {
     vi.useFakeTimers()
     try {
       mockWsClient.isConnected.mockReturnValue(true)
       mockStoreState = {
         ...mockStoreState,
-        isDeepResearchStreaming: true,
-        deepResearchOwnerConversationId: 'conv-1',
+        currentConversation: withLiveRun(mockStoreState.currentConversation, 'laeuft'),
       }
       useChatStore.getState = vi.fn(() => mockStoreState) as unknown as typeof useChatStore.getState
 
@@ -1186,17 +1189,16 @@ describe('useWebSocketChat', () => {
     }
   })
 
-  test('but the research exemption has a ceiling, or the composer locks forever', () => {
+  test('but the run exemption has a ceiling, or the composer locks forever', () => {
     vi.useFakeTimers()
     try {
       mockWsClient.isConnected.mockReturnValue(true)
-      // The first time a terminal job event is lost, a persisted "running"
-      // status would otherwise vouch for this turn for the rest of the session
-      // — a spinner and a locked composer with nothing on screen to explain it.
+      // The first time a terminal run event is lost, a stored "laeuft" ledger
+      // would otherwise vouch for this turn for the rest of the session — a
+      // spinner and a locked composer with nothing on screen to explain it.
       mockStoreState = {
         ...mockStoreState,
-        isDeepResearchStreaming: true,
-        deepResearchOwnerConversationId: 'conv-1',
+        currentConversation: withLiveRun(mockStoreState.currentConversation, 'laeuft'),
       }
       useChatStore.getState = vi.fn(() => mockStoreState) as unknown as typeof useChatStore.getState
 
@@ -1216,48 +1218,13 @@ describe('useWebSocketChat', () => {
     }
   })
 
-  test('a research job owned by ANOTHER conversation vouches for nothing', () => {
+  test('a finished run in the thread vouches for nothing', () => {
     vi.useFakeTimers()
     try {
       mockWsClient.isConnected.mockReturnValue(true)
-      // These store fields are global; only the owner id makes them answerable.
-      // Read unscoped, a run in one thread exempted a stuck turn in every other.
       mockStoreState = {
         ...mockStoreState,
-        isDeepResearchStreaming: true,
-        deepResearchOwnerConversationId: 'some-other-conversation',
-      }
-      useChatStore.getState = vi.fn(() => mockStoreState) as unknown as typeof useChatStore.getState
-
-      const { result } = renderWebSocketHook()
-      startStreamingTurn(result)
-
-      act(() => {
-        vi.advanceTimersByTime(SILENCE_BUDGET_MS + WATCHDOG_MS)
-      })
-
-      expect(mockAddErrorCard).toHaveBeenCalledWith(
-        'agent.response_interrupted',
-        'The assistant stopped responding. Please resend your message.'
-      )
-    } finally {
-      vi.useRealTimers()
-    }
-  })
-
-  test('a research stream the client has LOST is not liveness', () => {
-    vi.useFakeTimers()
-    try {
-      mockWsClient.isConnected.mockReturnValue(true)
-      // The panel keeps `isDeepResearchStreaming` true through a dropped SSE
-      // connection on purpose — only the server may mark a job failed — and it
-      // shows its own reconnect notice for that state. Treating it as liveness
-      // here would hand a permanently-open turn to anyone whose stream dropped.
-      mockStoreState = {
-        ...mockStoreState,
-        isDeepResearchStreaming: true,
-        deepResearchOwnerConversationId: 'conv-1',
-        deepResearchConnectionLost: true,
+        currentConversation: withLiveRun(mockStoreState.currentConversation, 'fertig'),
       }
       useChatStore.getState = vi.fn(() => mockStoreState) as unknown as typeof useChatStore.getState
 
@@ -2314,9 +2281,8 @@ describe('useWebSocketChat', () => {
 
     expect(fetchRunMessage).toHaveBeenCalledWith('s_conv', 'msg-run')
     expect(mockAdoptRunMessage).toHaveBeenCalledWith(runMessage)
-    // No banner, no tracking message, no SSE stream: the block narrates the run
-    // and subscribes to it by itself.
-    expect(mockAddDeepResearchBanner).not.toHaveBeenCalled()
+    // No tracking message, no SSE stream: the block narrates the run and
+    // subscribes to it by itself.
     expect(mockAddAgentResponseWithMeta).not.toHaveBeenCalled()
     // The composer is free again.
     expect(mockSetStreaming).toHaveBeenCalledWith(false)
@@ -3351,10 +3317,8 @@ describe('useWebSocketChat — mentions and the addressee ruling', () => {
       isLoading: false,
       thinkingSteps: [],
       activeThinkingStepId: null,
-      reportContent: '',
-      currentStatus: null,
+          currentStatus: null,
       pendingInteraction: null,
-      planMessages: [],
     }
     useChatStore.getState = vi.fn(() => mockStoreState) as unknown as typeof useChatStore.getState
     // The mention path writes its own echo (it must not let the store persist a
@@ -3589,10 +3553,8 @@ describe('useWebSocketChat — context-only delivery (the agent sees the whole t
       isLoading: false,
       thinkingSteps: [],
       activeThinkingStepId: null,
-      reportContent: '',
-      currentStatus: null,
+          currentStatus: null,
       pendingInteraction: null,
-      planMessages: [],
     }
     useChatStore.getState = vi.fn(() => mockStoreState) as unknown as typeof useChatStore.getState
     ;(useChatStore as unknown as { setState: unknown }).setState = mockSetState
@@ -3794,10 +3756,8 @@ describe('useWebSocketChat — the agent socket follows intent to send, not moun
       isLoading: false,
       thinkingSteps: [],
       activeThinkingStepId: null,
-      reportContent: '',
-      currentStatus: null,
+          currentStatus: null,
       pendingInteraction: null,
-      planMessages: [],
     }
     useChatStore.getState = vi.fn(() => mockStoreState) as unknown as typeof useChatStore.getState
     mockWsClient.isConnected.mockReturnValue(false)
@@ -3965,10 +3925,8 @@ describe('useWebSocketChat — a context-only send with no socket yet', () => {
       isLoading: false,
       thinkingSteps: [],
       activeThinkingStepId: null,
-      reportContent: '',
-      currentStatus: null,
+          currentStatus: null,
       pendingInteraction: null,
-      planMessages: [],
     }
     useChatStore.getState = vi.fn(() => mockStoreState) as unknown as typeof useChatStore.getState
     ;(useChatStore as unknown as { setState: unknown }).setState = mockSetState

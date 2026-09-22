@@ -64,7 +64,6 @@ import { motion, springPress } from '@/components/motion'
 import { Popover, PopoverAnchor, PopoverContent } from '@/components/ui/popover'
 import { useHoverPopover } from '@/hooks/use-hover-popover'
 import { useIsMobile } from '@/hooks/use-is-mobile'
-import { useLayoutStore } from '@/features/layout/store'
 import { openFilePeek } from '@/features/documents/lib/open-file-peek'
 import { fileTypeIcon, isCitable } from '@/features/documents/components/document-status'
 import type { FileItem } from '@/features/documents/components/project-file-workspace'
@@ -123,12 +122,6 @@ export const useOpenStoredFile = (): ((stored: StoredFile) => void) => {
 
   return useCallback(
     (stored: StoredFile) => {
-      // The research panel occupies the same side of the split and the host
-      // refuses to peek while it is open. The reader asked for the document, so
-      // the panel narrating a run they have already watched steps aside.
-      const layout = useLayoutStore.getState()
-      if (layout.rightPanel === 'research') layout.closeRightPanel()
-
       openFilePeek({
         file: stored.file,
         source: stored.corpus === 'buero' ? 'buero' : stored.corpus === 'session' ? 'session' : 'projekt',

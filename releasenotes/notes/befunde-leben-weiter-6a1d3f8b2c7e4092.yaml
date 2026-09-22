@@ -3,7 +3,9 @@ features:
   - >
     Befunde eines Berichts leben im Projekt weiter: ein offener Befund lässt
     sich mit „Klären“ als eigener Auftrag anstoßen, dessen Lauf im selben
-    Verlauf erscheint; ein fertiger Bericht bietet „Bericht fortschreiben“
-    an, und der neue Bericht kennzeichnet je Befund, was neu ist, was sich
-    geändert hat und was entfallen ist. Die Befunde wandern außerdem als
-    Fakten und offene Punkte ins Projektgedächtnis.
+    Verlauf erscheint, und ein fertiger Bericht bietet „Bericht fortschreiben“
+    an. Der neue Bericht kennzeichnet je Befund, was neu, geändert oder
+    entfallen ist.
+  - >
+    Die Befunde eines Berichts wandern als Fakten und offene Punkte ins
+    Projektgedächtnis.

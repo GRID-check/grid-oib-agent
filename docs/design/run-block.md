@@ -180,7 +180,11 @@ Three surfaces, one organism:
 
 1. **The thread** (`RunBlockMessage`). The only one that holds a subscription —
    this is where a live run is watched, where „Abbrechen" is offered, and where
-   a `wartet` question is answered.
+   a `wartet` question is answered. When the stream moves the run from one
+   status word to the next, the block writes that ledger back onto its message
+   in the chat store, so everything outside the block — the composer, the
+   toolbar's „läuft" pill, the history's row, the delete that stops a live run
+   — reads the same account (`chat/lib/session-activity`).
 2. **The Aufträge drawer** (`TaskDetail`). The block again, fetched once through
    `GET /api/projects/[id]/runs/[runId]` and re-read only when the panel's poll
    moves the row. Opened rather than folded: the click on the row IS the request

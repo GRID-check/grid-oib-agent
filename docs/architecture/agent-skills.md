@@ -1205,10 +1205,9 @@ name now gets no link at all rather than one that lands on the chat page and
 silently does nothing. "Run now" opens the history and offers that same *View
 progress* action.
 
-A **deep-research** run has no owning conversation, so the research panel
-attaches to the job without writing banners or error cards into whatever chat
-thread happens to be open; TasksTab's outcome notice reports how the run ended
-instead. A **chat** run does have one, and the run row carries its id
+A **deep-research** run has no owning conversation, so its row in the history
+says what the run became and offers no door into a thread. A **chat** run does
+have one, and the run row carries its id
 (`conversationId` on `adapters/api/jobs-client.ts`) — the handle a link into
 the finished thread is built from. The thread itself is an ordinary
 project-visible conversation today: it is reachable from the project's chat and

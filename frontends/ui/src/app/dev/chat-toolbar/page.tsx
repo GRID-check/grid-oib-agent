@@ -70,6 +70,7 @@ import { AppConfigProvider, type AppConfig } from '@/shared/context'
 import { getFileUploadConfigFromEnv } from '@/shared/config/file-upload'
 import { ChatToolbar } from '@/features/layout/components/ChatToolbar'
 import { useChatStore } from '@/features/chat'
+import { emptyRunLedger, setRunStatus } from '@/lib/runs/run-ledger'
 import type { ResourceAccessEntry, ResourceSharingState } from '@/lib/sharing/types'
 
 const config: AppConfig = {
@@ -79,6 +80,7 @@ const config: AppConfig = {
 
 /** `useAuth` returns this id when auth is disabled, so it is "me" in the preview. */
 const ME = 'default-user'
+const CONV_ID = 'conv-toolbar-preview'
 
 const person = (userId: string, name: string) => ({
   userId,
@@ -200,10 +202,10 @@ export default function ChatToolbarPreviewPage(): JSX.Element {
   }
 
   // Seeded after mount so the server and the first client render agree. The
-  // toolbar reads the current conversation only to decide whether renaming is
-  // possible, so one seeded id serves every row — and `isDeepResearchStreaming`
-  // is store-global, which is exactly why "research is running" is a page variant
-  // rather than a fourth row.
+  // toolbar reads the current conversation to decide whether renaming is
+  // possible and whether a run is going in it (a live ledger on one of its
+  // messages), which is why "research is running" is a page variant rather
+  // than a fourth row.
   const [ready, setReady] = useState(false)
   useEffect(() => {
     const isRunning =
@@ -211,7 +213,31 @@ export default function ChatToolbarPreviewPage(): JSX.Element {
     useChatStore.setState({
       currentUserId: ME,
       hasHydrated: true,
-      isDeepResearchStreaming: isRunning,
+      ...(isRunning
+        ? {
+            currentConversation: {
+              id: CONV_ID,
+              userId: ME,
+              title: 'Rettungswege Bürogebäude GK4 Wien',
+              createdAt: new Date('2024-01-15T10:00:00Z'),
+              updatedAt: new Date('2024-01-15T10:00:00Z'),
+              messages: [
+                {
+                  id: 'run-1',
+                  role: 'assistant' as const,
+                  content: '',
+                  messageType: 'agent_response' as const,
+                  timestamp: new Date('2024-01-15T10:00:00Z'),
+                  runLedger: setRunStatus(
+                    emptyRunLedger('run-1', new Date('2024-01-15T10:00:00Z')),
+                    'laeuft',
+                    new Date('2024-01-15T10:00:00Z')
+                  ),
+                },
+              ],
+            },
+          }
+        : {}),
     })
     setReady(true)
   }, [])

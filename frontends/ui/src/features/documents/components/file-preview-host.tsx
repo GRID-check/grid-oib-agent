@@ -19,7 +19,6 @@ import { cn } from '@/lib/utils'
 import { FOCUS_RING } from '@/components/ui/focus-ring'
 import { Spinner } from '@/components/ui/spinner'
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/components/ui/resizable'
-import { useLayoutStore } from '@/features/layout/store'
 import { useSettlingRefresh } from '../hooks/use-settling-refresh'
 import { useDocumentActions, type DocumentScope } from './document-actions'
 import { isCitableStatus, isFailedStatus } from './document-status'
@@ -60,7 +59,6 @@ export function FilePreviewHost({
     () => (fileId ? [{ status: fileStatus }] : []),
     [fileId, fileStatus],
   )
-  const researchOpen = useLayoutStore((state) => state.rightPanel === 'research')
   const panelRef = useRef<HTMLDivElement>(null)
   const openerRef = useRef<HTMLElement | null>(null)
   /**
@@ -89,7 +87,7 @@ export function FilePreviewHost({
   const carrying = handoff && !onChat
   const overlay = mode === 'modal' || (mode === 'expanded' && onChat && !hidden) || carrying
   const peeking =
-    inSplit || (mode === 'peek' && onChat && !hidden && !researchOpen && !isMobile)
+    inSplit || (mode === 'peek' && onChat && !hidden && !isMobile)
   const chromeVisible = file !== null && (overlay || peeking)
   // Keep the pane mounted across Files → Chat so an IFC viewport is not remounted
   // (and its camera reset) when Ask flips mode to peek while still on /files.
@@ -358,21 +356,19 @@ export function FilePreviewHost({
  *                must: a dismissal that cannot be undone from where it happened
  *                is a door that only opens one way.
  * `away`       — no file, or the reader is somewhere the peek does not belong
- *                (Files, a phone, the research panel across the same half of
- *                the row, the enlarged view already covering the page).
+ *                (Files, a phone, the enlarged view already covering the page).
  */
 export type FilePeekPlacement = 'beside' | 'dismissed' | 'away'
 
 export function useFilePeekPlacement(): FilePeekPlacement {
   const pathname = usePathname()
   const isMobile = useIsMobile()
-  const researchOpen = useLayoutStore((state) => state.rightPanel === 'research')
   const file = useFilePreviewStore((state) => state.file)
   const mode = useFilePreviewStore((state) => state.mode)
   const hidden = useFilePreviewStore((state) => state.hidden)
 
   const roomForIt =
-    file !== null && mode === 'peek' && Boolean(pathname?.includes('/chat')) && !isMobile && !researchOpen
+    file !== null && mode === 'peek' && Boolean(pathname?.includes('/chat')) && !isMobile
   if (!roomForIt) return 'away'
   return hidden ? 'dismissed' : 'beside'
 }

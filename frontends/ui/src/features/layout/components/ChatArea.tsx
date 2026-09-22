@@ -30,7 +30,6 @@ import {
   AgentPrompt,
   AgentResponse,
   ErrorBanner,
-  DeepResearchBanner,
   UserMessage,
   ChatThinking,
   useElapsedSeconds,
@@ -310,8 +309,7 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
           messageType === 'prompt' ||
           messageType === 'agent_response' ||
           messageType === 'file' ||
-          messageType === 'error' ||
-          messageType === 'deep_research_banner'
+          messageType === 'error'
         )
       }),
     [messages]
@@ -1291,6 +1289,7 @@ const MessageRendererComponent: FC<MessageRendererProps> = ({
           <RunBlockMessage
             message={message}
             projectId={projectId}
+            conversationId={conversationId}
             answer={answer}
             onContinue={onContinueRun ? () => onContinueRun(message) : null}
           />
@@ -1344,23 +1343,6 @@ const MessageRendererComponent: FC<MessageRendererProps> = ({
           timestamp={message.timestamp}
           onDismiss={onErrorDismiss ? () => onErrorDismiss(message.id) : undefined}
           onRetry={onErrorRetry ? () => onErrorRetry(message.id) : undefined}
-        />
-      )
-
-    case 'deep_research_banner':
-      // Deep research status banners (success/failure)
-      if (!message.deepResearchBannerData) {
-        return null
-      }
-      return (
-        <DeepResearchBanner
-          bannerType={message.deepResearchBannerData.bannerType}
-          jobId={message.deepResearchBannerData.jobId}
-          toolCallCount={message.deepResearchBannerData.toolCallCount}
-          timestamp={message.timestamp}
-          escalationReason={message.deepResearchBannerData.escalationReason}
-          filedDocument={message.deepResearchBannerData.filedDocument}
-          filingFailed={message.deepResearchBannerData.filingFailed}
         />
       )
 

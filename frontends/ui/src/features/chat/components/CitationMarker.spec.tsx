@@ -27,13 +27,8 @@ vi.mock('../store', () => ({
   useChatStore: vi.fn((selector?: (s: Record<string, unknown>) => unknown) => {
     const state = {
       projectId: chatStore.projectId,
-      reportContent: '',
-      deepResearchJobId: null,
-      isDeepResearchStreaming: false,
-      deepResearchStreamLoaded: false,
       currentConversation: null,
       patchConversationMessage: vi.fn(),
-      reconnectToActiveJob: vi.fn(),
     }
     return selector ? selector(state) : state
   }),

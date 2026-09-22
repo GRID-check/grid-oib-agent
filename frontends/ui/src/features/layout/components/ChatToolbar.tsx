@@ -30,6 +30,7 @@ import {
 import { Spinner } from '@/components/ui/spinner'
 import { useAuth } from '@/adapters/auth'
 import { useChatStore } from '@/features/chat'
+import { hasLiveRun } from '@/features/chat/lib/session-activity'
 import { AccessChip, namedAudienceCount } from '@/features/collaboration/components/AccessChip'
 import { InboxBadge } from '@/features/collaboration/components/InboxBadge'
 import { ParticipantStrip } from '@/features/collaboration/components/ParticipantStrip'
@@ -99,7 +100,10 @@ export const ChatToolbar: FC<ChatToolbarProps> = memo(function ChatToolbar({
   const tCollab = useTranslations('collaboration')
   const toggleSessionsPanel = useLayoutStore((s) => s.toggleSessionsPanel)
   const openMobileNav = useLayoutStore((s) => s.setMobileNavOpen)
-  const isDeepResearchStreaming = useChatStore((s) => s.isDeepResearchStreaming)
+  // A run going in THIS thread, read off its stored ledger (ADR-0062).
+  const isDeepResearchStreaming = useChatStore((s) =>
+    hasLiveRun(s.currentConversation?.messages ?? [])
+  )
   // Inline rename reuses the SAME store action the sessions panel uses.
   const currentSessionId = useChatStore((s) => s.currentConversation?.id)
   const updateConversationTitle = useChatStore((s) => s.updateConversationTitle)
@@ -510,8 +514,8 @@ export const ChatToolbar: FC<ChatToolbarProps> = memo(function ChatToolbar({
                   className="inline-flex items-center gap-1.5 overflow-hidden whitespace-nowrap text-sm text-muted-foreground"
                   data-testid="research-running"
                 >
-                  <Spinner size="sm" label={t('researchPanel.researching')} />
-                  <span className="hidden lg:inline">{t('researchPanel.researching')}</span>
+                  <Spinner size="sm" label={t('chatToolbar.researching')} />
+                  <span className="hidden lg:inline">{t('chatToolbar.researching')}</span>
                 </motion.span>
               )}
             </AnimatePresence>

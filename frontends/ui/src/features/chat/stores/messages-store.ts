@@ -10,9 +10,6 @@ import type {
   PromptType,
   FileCardData,
   ErrorCode,
-  DeepResearchBannerData,
-  DeepResearchBannerType,
-  DeepResearchFiledDocument,
   Conversation,
   CitationSource,
   AnswerTransparency,
@@ -105,8 +102,6 @@ export type MessagesSlice = {
   thinkingSteps: ThinkingStep[]
   activeThinkingStepId: string | null
   streamingAssistantMessageId: string | null
-  reportContent: string
-  reportContentCategory: 'research_notes' | 'final_report' | null
   currentStatus: StatusType | null
   projectId: string | null
   /**
@@ -165,9 +160,7 @@ export type MessagesSlice = {
     isComplete: boolean
   ) => void
   findThinkingStepByFunctionName: (functionName: string) => ThinkingStep | undefined
-  setReportContent: (content: string, category?: 'research_notes' | 'final_report') => void
   clearThinkingSteps: () => void
-  clearReportContent: () => void
   setCurrentStatus: (status: StatusType | null) => void
   addAgentPrompt: (
     type: PromptType,
@@ -188,7 +181,6 @@ export type MessagesSlice = {
   ) => ChatMessage
   addAgentResponse: (
     content: string,
-    showViewReport?: boolean,
     cards?: (GridCard | undefined)[],
     answerConfidence?: 'low' | 'medium' | 'high',
     citations?: CitationSource[],
@@ -232,7 +224,6 @@ export type MessagesSlice = {
   discardStreamingAssistantMessage: () => void
   addAgentResponseWithMeta: (
     content: string,
-    showViewReport: boolean,
     meta: Partial<ChatMessage>,
     cards?: (GridCard | undefined)[]
   ) => string
@@ -258,17 +249,6 @@ export type MessagesSlice = {
   addErrorCard: (code: ErrorCode, message?: string, details?: string) => void
   dismissErrorCard: (messageId: string) => void
   dismissConnectionErrors: () => void
-  addDeepResearchBanner: (
-    bannerType: DeepResearchBannerType,
-    jobId: string,
-    conversationId?: string,
-    stats?: { totalTokens?: number; toolCallCount?: number },
-    escalationReason?: string
-  ) => void
-  /** See `ChatActions.recordDeepResearchFiling` — the filing arrives after the banner. */
-  recordDeepResearchFiling: (jobId: string, filed: DeepResearchFiledDocument) => void
-  /** See `ChatActions.recordDeepResearchFilingFailure` — the other half of the same answer. */
-  recordDeepResearchFilingFailure: (jobId: string) => void
   setProjectId: (projectId: string | null) => void
   /** Queue text for the composer to pick up (does NOT auto-send). */
   setComposerPrefill: (text: string, mentions?: DraftMention[], subject?: ComposerSubject) => void
@@ -498,120 +478,6 @@ const createNewConversation = (userId: string): Conversation => ({
   updatedAt: new Date(),
 })
 
-const createDeepResearchBannerMessage = (
-  bannerType: DeepResearchBannerType,
-  jobId: string,
-  stats?: { totalTokens?: number; toolCallCount?: number },
-  escalationReason?: string
-): ChatMessage => ({
-  id: uuidv4(),
-  role: 'assistant',
-  content: '',
-  timestamp: new Date(),
-  messageType: 'deep_research_banner',
-  deepResearchBannerData: {
-    bannerType,
-    jobId,
-    totalTokens: stats?.totalTokens,
-    toolCallCount: stats?.toolCallCount,
-    ...(escalationReason ? { escalationReason } : {}),
-  },
-  ...(bannerType === 'starting' && {
-    deepResearchJobId: jobId,
-    deepResearchJobStatus: 'submitted' as const,
-    isDeepResearchActive: true,
-  }),
-})
-
-const withDeepResearchBanner = (
-  conversation: Conversation,
-  bannerType: DeepResearchBannerType,
-  jobId: string,
-  stats?: { totalTokens?: number; toolCallCount?: number },
-  escalationReason?: string
-): Conversation => {
-  const isTerminalBanner = bannerType !== 'starting'
-  const filteredMessages = isTerminalBanner
-    ? conversation.messages.filter(
-        (message) =>
-          !(
-            message.messageType === 'deep_research_banner' &&
-            message.deepResearchBannerData?.jobId === jobId
-          )
-      )
-    : conversation.messages
-
-  return {
-    ...conversation,
-    messages: [
-      ...filteredMessages,
-      createDeepResearchBannerMessage(bannerType, jobId, stats, escalationReason),
-    ],
-    updatedAt: new Date(),
-  }
-}
-
-/**
- * Patch one run's SUCCESS banner with what the report route said about filing,
- * wherever in the store that banner happens to live.
- *
- * Shared by the two outcomes — a document landed, or a promised filing did not
- * — because they differ only in the patch, never in the search. Both are
- * reported by the same endpoint on the same fetch, and a second walk written
- * separately is a second answer to "which banner is this about".
- *
- * Every conversation, not just the current one: the run's banner lives in the
- * thread that commissioned it, and the report can be re-read (and so first
- * filed) from another thread, from the run history, or after the reader has
- * moved on. Searching by job id is what makes that safe.
- *
- * `patch` returns `null` for "already says this" — an attached run has no
- * banner at all, and a report is re-fetched every time its tab is opened, so
- * both callers would otherwise re-render the whole conversation list to write
- * the value that is already there.
- */
-const withPatchedDeepResearchSuccessBanner = (
-  conversations: Conversation[],
-  currentConversation: Conversation | null,
-  jobId: string,
-  patch: (data: DeepResearchBannerData) => DeepResearchBannerData | null
-): {
-  conversations: Conversation[]
-  currentConversation: Conversation | null
-  changed: boolean
-} => {
-  let changed = false
-
-  const patchConversation = (conversation: Conversation): Conversation => {
-    let patchedHere = false
-    const messages = conversation.messages.map((message) => {
-      const data = message.deepResearchBannerData
-      if (
-        message.messageType !== 'deep_research_banner' ||
-        data?.jobId !== jobId ||
-        data.bannerType !== 'success'
-      ) {
-        return message
-      }
-      const patched = patch(data)
-      if (!patched) return message
-      patchedHere = true
-      return { ...message, deepResearchBannerData: patched }
-    })
-    if (!patchedHere) return conversation
-    changed = true
-    return { ...conversation, messages }
-  }
-
-  return {
-    conversations: conversations.map(patchConversation),
-    currentConversation: currentConversation
-      ? patchConversation(currentConversation)
-      : currentConversation,
-    changed,
-  }
-}
-
 export const initialMessagesState = {
   isStreaming: false,
   isLoading: false,
@@ -620,8 +486,6 @@ export const initialMessagesState = {
   thinkingSteps: [] as ThinkingStep[],
   activeThinkingStepId: null as string | null,
   streamingAssistantMessageId: null as string | null,
-  reportContent: '',
-  reportContentCategory: null as 'research_notes' | 'final_report' | null,
   currentStatus: null as StatusType | null,
   projectId: null as string | null,
   composerPrefill: null as ComposerPrefill | null,
@@ -631,8 +495,8 @@ export const initialMessagesState = {
 }
 
 /**
- * Build an `agent_response` ChatMessage, folding in the deep-research /
- * plan / citation context carried on the store at emit time. Shared by
+ * Build an `agent_response` ChatMessage from what the store carries at emit
+ * time. Shared by
  * `addAgentResponse` (one-shot bubble) and `appendAgentResponseDelta` (first
  * delta of a streamed answer) so a finalized streamed bubble is byte-identical
  * to today's single-shot response for the same store state — this is what
@@ -643,7 +507,6 @@ const buildAgentResponseMessage = (
   id: string,
   content: string,
   opts: {
-    showViewReport?: boolean
     cards?: (GridCard | undefined)[]
     answerConfidence?: 'low' | 'medium' | 'high'
     citations?: CitationSource[]
@@ -651,46 +514,15 @@ const buildAgentResponseMessage = (
     transparency?: AnswerTransparency
   }
 ): ChatMessage => {
-  const {
-    reportContent,
-    deepResearchCitations,
-    planMessages,
-    deepResearchTodos,
-    deepResearchLLMSteps,
-    deepResearchAgents,
-    deepResearchToolCalls,
-    deepResearchFiles,
-    deepResearchJobId,
-    deepResearchLastEventId,
-    deepResearchStatus,
-  } = state
-
   return {
     id,
     role: 'assistant',
     content,
     timestamp: new Date(),
     messageType: 'agent_response',
-    showViewReport: opts.showViewReport,
     cards: opts.cards,
     answerConfidence: opts.answerConfidence,
-    reportContent: reportContent || undefined,
-    citations:
-      opts.citations && opts.citations.length > 0
-        ? opts.citations
-        : deepResearchCitations.length > 0
-          ? [...deepResearchCitations]
-          : undefined,
-    planMessages: planMessages.length > 0 ? [...planMessages] : undefined,
-    deepResearchTodos: deepResearchTodos.length > 0 ? [...deepResearchTodos] : undefined,
-    deepResearchLLMSteps: deepResearchLLMSteps.length > 0 ? [...deepResearchLLMSteps] : undefined,
-    deepResearchAgents: deepResearchAgents.length > 0 ? [...deepResearchAgents] : undefined,
-    deepResearchToolCalls:
-      deepResearchToolCalls.length > 0 ? [...deepResearchToolCalls] : undefined,
-    deepResearchFiles: deepResearchFiles.length > 0 ? [...deepResearchFiles] : undefined,
-    deepResearchJobId: deepResearchJobId || undefined,
-    deepResearchLastEventId: deepResearchLastEventId || undefined,
-    deepResearchJobStatus: deepResearchStatus || undefined,
+    citations: opts.citations && opts.citations.length > 0 ? opts.citations : undefined,
     ...(opts.isStreaming ? { isStreaming: true } : {}),
     // Which WS turn this answer belongs to, so a stage frame that arrives
     // seconds later can find it. Stamped as the bubble is built rather than
@@ -1245,20 +1077,8 @@ export const createMessagesSlice: StateCreator<
       )
     },
 
-    setReportContent: (content: string, category?: 'research_notes' | 'final_report') => {
-      set(
-        { reportContent: content, reportContentCategory: category ?? null },
-        false,
-        'setReportContent'
-      )
-    },
-
     clearThinkingSteps: () => {
       set({ thinkingSteps: [], activeThinkingStepId: null }, false, 'clearThinkingSteps')
-    },
-
-    clearReportContent: () => {
-      set({ reportContent: '', reportContentCategory: null }, false, 'clearReportContent')
     },
 
     setCurrentStatus: (status: StatusType | null) => {
@@ -1274,7 +1094,7 @@ export const createMessagesSlice: StateCreator<
       parentId?: string,
       inputType?: HumanPromptInputType
     ) => {
-      const { currentConversation, conversations, planMessages } = get()
+      const { currentConversation, conversations } = get()
       if (!currentConversation) return
 
       const promptMessage: ChatMessage = {
@@ -1290,7 +1110,6 @@ export const createMessagesSlice: StateCreator<
         promptOptions: options,
         promptPlaceholder: placeholder,
         isPromptResponded: false,
-        planMessages: planMessages.length > 0 ? [...planMessages] : undefined,
       }
 
       const updatedConversation: Conversation = {
@@ -1429,7 +1248,6 @@ export const createMessagesSlice: StateCreator<
 
     addAgentResponse: (
       content: string,
-      showViewReport?: boolean,
       cards?: (GridCard | undefined)[],
       answerConfidence?: 'low' | 'medium' | 'high',
       citations?: CitationSource[],
@@ -1440,7 +1258,6 @@ export const createMessagesSlice: StateCreator<
       if (!currentConversation) return
 
       const responseMessage = buildAgentResponseMessage(state, uuidv4(), content, {
-        showViewReport,
         cards,
         answerConfidence,
         citations,
@@ -1502,7 +1319,6 @@ export const createMessagesSlice: StateCreator<
 
         const id = uuidv4()
         const message = buildAgentResponseMessage(state, id, content, {
-          showViewReport: false,
           cards: cards && cards.length > 0 ? cards : undefined,
           answerConfidence,
           citations,
@@ -1563,7 +1379,7 @@ export const createMessagesSlice: StateCreator<
       // synthetic complete when nothing preceded it.
       if (!streamingAssistantMessageId) {
         if ((content && content.trim()) || (cards && cards.length > 0)) {
-          get().addAgentResponse(content, false, cards, answerConfidence, citations, transparency)
+          get().addAgentResponse(content, cards, answerConfidence, citations, transparency)
         }
         return
       }
@@ -1796,7 +1612,6 @@ export const createMessagesSlice: StateCreator<
 
     addAgentResponseWithMeta: (
       content: string,
-      showViewReport: boolean,
       meta: Partial<ChatMessage>,
       cards?: (GridCard | undefined)[]
     ): string => {
@@ -1810,7 +1625,6 @@ export const createMessagesSlice: StateCreator<
         content,
         timestamp: new Date(),
         messageType: 'agent_response',
-        showViewReport,
         cards,
         ...meta,
       }
@@ -2098,94 +1912,6 @@ export const createMessagesSlice: StateCreator<
       )
     },
 
-    addDeepResearchBanner: (
-      bannerType: DeepResearchBannerType,
-      jobId: string,
-      conversationId?: string,
-      stats?: { totalTokens?: number; toolCallCount?: number },
-      escalationReason?: string
-    ) => {
-      const { currentConversation, conversations } = get()
-
-      const targetConversation = conversationId
-        ? conversations.find((c) => c.id === conversationId)
-        : currentConversation
-
-      if (!targetConversation) return
-
-      const updatedConversation = withDeepResearchBanner(
-        targetConversation,
-        bannerType,
-        jobId,
-        stats,
-        escalationReason
-      )
-
-      const updatedConversations = updateConversationInList(conversations, updatedConversation)
-
-      const updatedCurrent =
-        currentConversation?.id === targetConversation.id
-          ? updatedConversation
-          : currentConversation
-
-      set(
-        {
-          currentConversation: updatedCurrent,
-          conversations: updatedConversations,
-        },
-        false,
-        'addDeepResearchBanner'
-      )
-    },
-
-    recordDeepResearchFiling: (jobId: string, filed: DeepResearchFiledDocument) => {
-      const { currentConversation, conversations } = get()
-
-      const next = withPatchedDeepResearchSuccessBanner(
-        conversations,
-        currentConversation,
-        jobId,
-        (data) =>
-          data.filedDocument?.documentId === filed.documentId
-            ? null
-            : // `filingFailed` is cleared, not merged. A document that exists is
-              // the whole of what the reader needs to know; leaving the
-              // retraction beside it would have the same banner deny and name the
-              // same file.
-              { ...data, filedDocument: filed, filingFailed: false }
-      )
-      if (!next.changed) return
-
-      set(
-        { currentConversation: next.currentConversation, conversations: next.conversations },
-        false,
-        'recordDeepResearchFiling'
-      )
-    },
-
-    recordDeepResearchFilingFailure: (jobId: string) => {
-      const { currentConversation, conversations } = get()
-
-      const next = withPatchedDeepResearchSuccessBanner(
-        conversations,
-        currentConversation,
-        jobId,
-        (data) =>
-          // A recorded document wins over a later failed attempt. The file is
-          // there; a re-read that could not file it again says nothing about
-          // that, and retracting a filing the reader can still open would be the
-          // one dishonesty worse than the silence this replaces.
-          data.filedDocument || data.filingFailed ? null : { ...data, filingFailed: true }
-      )
-      if (!next.changed) return
-
-      set(
-        { currentConversation: next.currentConversation, conversations: next.conversations },
-        false,
-        'recordDeepResearchFilingFailure'
-      )
-    },
-
     setProjectId: (projectId: string | null) => {
       const { currentConversation } = get()
 
@@ -2210,23 +1936,7 @@ export const createMessagesSlice: StateCreator<
             thinkingSteps: [],
             activeThinkingStepId: null,
             streamingAssistantMessageId: null,
-            reportContent: '',
-            reportContentCategory: null,
             currentStatus: null,
-            planMessages: [],
-            deepResearchCitations: [],
-            deepResearchTodos: [],
-            deepResearchLLMSteps: [],
-            deepResearchAgents: [],
-            deepResearchToolCalls: [],
-            deepResearchFiles: [],
-            deepResearchStreamLoaded: false,
-            deepResearchJobId: null,
-            deepResearchLastEventId: null,
-            isDeepResearchStreaming: false,
-            deepResearchStatus: null,
-            deepResearchOwnerConversationId: null,
-            activeDeepResearchMessageId: null,
             pendingInteraction: null,
           },
           false,

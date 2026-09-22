@@ -32,7 +32,6 @@ describe('sanitizeProvenance', () => {
       routingDecision: 'shallow',
       citationsRemoved: { count: 2, reasons: ['ungrounded', 'duplicate'] },
       deepResearchJobId: 'job_1',
-      showViewReport: true,
     })
 
     expect(result).toEqual({
@@ -52,7 +51,6 @@ describe('sanitizeProvenance', () => {
       routingDecision: 'shallow',
       citationsRemoved: { count: 2, reasons: ['ungrounded', 'duplicate'] },
       deepResearchJobId: 'job_1',
-      showViewReport: true,
     })
   })
 

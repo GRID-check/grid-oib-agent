@@ -10,7 +10,7 @@ export {
   patchConversationMessageById,
 } from './sessions-store'
 export {
-  createDeepResearchSlice,
-  type DeepResearchSlice,
-  initialDeepResearchState,
-} from './deep-research-store'
+  createInteractionSlice,
+  type InteractionSlice,
+  initialInteractionState,
+} from './interaction-store'

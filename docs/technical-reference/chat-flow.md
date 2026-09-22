@@ -77,8 +77,8 @@ The `useChatStore` Zustand store manages all chat state:
 | `startAssistantMessage()` | Create empty assistant message with `isStreaming: true` |
 | `appendToAssistantMessage(content)` | Append text chunks during streaming |
 | `completeAssistantMessage()` | Mark message as complete, persist to server |
-| `addAgentResponse(content, showViewReport?, cards?)` | Final agent response with research panel data |
-| `addAgentResponseWithMeta(content, showViewReport, meta, cards?)` | Agent response with custom metadata |
+| `addAgentResponse(content, cards?, answerConfidence?, citations?, transparency?)` | Final agent response |
+| `addAgentResponseWithMeta(content, meta, cards?)` | Agent response with custom metadata |
 
 ### Deep research actions
 

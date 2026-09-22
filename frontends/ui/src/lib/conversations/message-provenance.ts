@@ -150,7 +150,6 @@ export interface MessageProvenance {
    * message row.
    */
   deepResearchJobId?: string
-  showViewReport?: boolean
   /**
    * The backend's own account of this turn's retrieval rounds. Stored beside
    * the thinking steps because it IS Herleitung data — the compact form the
@@ -354,8 +353,6 @@ export function sanitizeProvenance(input: unknown): MessageProvenance | null {
 
   const jobId = cap(input.deepResearchJobId, 128)
   if (jobId) out.deepResearchJobId = jobId
-
-  if (input.showViewReport === true) out.showViewReport = true
 
   // Re-bounded on write like everything else here, through the same sanitizer
   // the wire boundary uses: one bound in one place instead of two that drift.

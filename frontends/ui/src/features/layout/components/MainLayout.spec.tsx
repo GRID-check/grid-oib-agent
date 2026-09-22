@@ -14,7 +14,6 @@ const mockStartNewSessionDraft = vi.fn()
 const mockDeleteConversation = vi.fn()
 const mockDeleteAllConversations = vi.fn()
 const mockUpdateConversationTitle = vi.fn()
-const mockOpenRightPanel = vi.fn()
 
 // Mock the useSessionUrl hook (uses Next.js App Router hooks)
 vi.mock('@/hooks/use-session-url', () => ({
@@ -42,8 +41,6 @@ vi.mock('@/features/chat', () => ({
       updateConversationTitle: mockUpdateConversationTitle,
       isStreaming: false,
       pendingInteraction: null,
-      isDeepResearchStreaming: false,
-      deepResearchOwnerConversationId: null,
       ...chatStoreOverrides,
     }
     return selector ? selector(asStoreState<ChatStoreWithHydration>(state)) : state
@@ -55,11 +52,9 @@ vi.mock('@/features/chat', () => ({
 vi.mock('../store', () => ({
   useLayoutStore: vi.fn((selector?: StoreSelector<LayoutStore>) => {
     const state: DeepPartial<LayoutStore> = {
-      rightPanel: null,
       isSessionsPanelOpen: false,
       setSessionsPanelOpen: vi.fn(),
       enabledDataSourceIds: ['source-1', 'source-2'],
-      openRightPanel: mockOpenRightPanel,
     }
     return selector ? selector(asStoreState<LayoutStore>(state)) : state
   }),
@@ -103,10 +98,6 @@ vi.mock('./InputArea', () => ({
   InputArea: () => <div data-testid="input-area">Input Area</div>,
 }))
 
-vi.mock('./ResearchPanel', () => ({
-  ResearchPanel: () => <div data-testid="research-panel">Research Panel</div>,
-}))
-
 import { useChatStore } from '@/features/chat'
 import { useLayoutStore } from '../store'
 
@@ -127,7 +118,6 @@ describe('MainLayout', () => {
     expect(screen.getByTestId('sessions-panel')).toBeInTheDocument()
     expect(screen.getByTestId('chat-area')).toBeInTheDocument()
     expect(screen.getByTestId('input-area')).toBeInTheDocument()
-    expect(screen.getByTestId('research-panel')).toBeInTheDocument()
   })
 
   test('renders core sections when unauthenticated', () => {
@@ -137,7 +127,6 @@ describe('MainLayout', () => {
     expect(screen.getByTestId('sessions-panel')).toBeInTheDocument()
     expect(screen.getByTestId('chat-area')).toBeInTheDocument()
     expect(screen.getByTestId('input-area')).toBeInTheDocument()
-    expect(screen.getByTestId('research-panel')).toBeInTheDocument()
   })
 
   test('passes session title to AppBar', () => {
@@ -172,8 +161,6 @@ describe('MainLayout', () => {
 
     expect(mockStartNewSessionDraft).toHaveBeenCalledOnce()
     expect(mockClearSessionUrl).toHaveBeenCalledOnce()
-    // New sessions no longer force-open a right panel (removed default-open).
-    expect(mockOpenRightPanel).not.toHaveBeenCalledWith('data-sources')
   })
 
   test('does not open data sources from new session while unauthenticated', async () => {
@@ -185,7 +172,6 @@ describe('MainLayout', () => {
 
     expect(mockStartNewSessionDraft).toHaveBeenCalledOnce()
     expect(mockClearSessionUrl).toHaveBeenCalledOnce()
-    expect(mockOpenRightPanel).not.toHaveBeenCalled()
   })
 
   test('disables new session action while shallow streaming is active', () => {
@@ -200,8 +186,6 @@ describe('MainLayout', () => {
         updateConversationTitle: vi.fn(),
         isStreaming: true,
         pendingInteraction: null,
-        isDeepResearchStreaming: false,
-        deepResearchOwnerConversationId: null,
       }
       return selector ? selector(asStoreState<ChatStoreWithHydration>(state)) : state
     })
@@ -209,24 +193,6 @@ describe('MainLayout', () => {
     render(<MainLayout />)
 
     expect(screen.getByRole('button', { name: /header new session/i })).toBeDisabled()
-  })
-
-  test('adjusts chat width when details panel is open', () => {
-    vi.mocked(useLayoutStore).mockImplementation((selector?: StoreSelector<LayoutStore>) => {
-      const state: DeepPartial<LayoutStore> = {
-        rightPanel: 'research',
-        isSessionsPanelOpen: false,
-        setSessionsPanelOpen: vi.fn(),
-        enabledDataSourceIds: ['source-1', 'source-2'],
-      }
-      return selector ? selector(asStoreState<LayoutStore>(state)) : state
-    })
-
-    const { container } = render(<MainLayout />)
-
-    // The chat container should share width evenly with the research panel when open
-    const chatContainer = container.querySelector('[style*="width"]')
-    expect(chatContainer).toHaveStyle({ width: '50%' })
   })
 
   test('sessions panel only lists the active project\'s sessions (legacy unscoped fail open)', () => {
@@ -259,8 +225,6 @@ describe('MainLayout', () => {
         updateConversationTitle: vi.fn(),
         isStreaming: false,
         pendingInteraction: null,
-        isDeepResearchStreaming: false,
-        deepResearchOwnerConversationId: null,
       }
       return selector ? selector(asStoreState<ChatStoreWithHydration>(state)) : state
     })
@@ -289,8 +253,7 @@ describe('MainLayout', () => {
     })
     vi.mocked(useLayoutStore).mockImplementation((selector?: StoreSelector<LayoutStore>) => {
       const state: DeepPartial<LayoutStore> = {
-        rightPanel: null,
-        isSessionsPanelOpen: false,
+          isSessionsPanelOpen: false,
         setSessionsPanelOpen: vi.fn(),
         enabledDataSourceIds: ['source-1', 'source-2'],
       }
@@ -303,11 +266,10 @@ describe('MainLayout', () => {
     expect(chatContainer).toHaveStyle({ width: '100%' })
   })
 
-  test('shows full width when details panel is closed', () => {
+  test('shows full width', () => {
     vi.mocked(useLayoutStore).mockImplementation((selector?: StoreSelector<LayoutStore>) => {
       const state: DeepPartial<LayoutStore> = {
-        rightPanel: null,
-        isSessionsPanelOpen: false,
+          isSessionsPanelOpen: false,
         setSessionsPanelOpen: vi.fn(),
         enabledDataSourceIds: ['source-1', 'source-2'],
       }

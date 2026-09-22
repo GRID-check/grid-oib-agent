@@ -18,6 +18,7 @@ import {
 import type { RunLedger, RunView } from '@/lib/runs/run-ledger-types'
 import { cancelRun, fetchRunView } from '@/lib/runs/run-view-client'
 import { useRunLedger } from './use-run-ledger'
+import { useChatStore } from '@/features/chat/store'
 
 const RUN = 'run-1'
 
@@ -67,7 +68,7 @@ afterEach(() => {
 
 describe('useRunLedger', () => {
   it('says what the live view is doing, and stops saying it once the run is over', async () => {
-    const { result } = renderHook(() => useRunLedger({ message: { runLedger: ledger() }, projectId: 'p1' }))
+    const { result } = renderHook(() => useRunLedger({ message: { id: 'msg-1', runLedger: ledger() }, projectId: 'p1' }))
     await waitFor(() => expect(connected).toHaveLength(1))
     expect(result.current.connection).toBe('live')
 
@@ -86,7 +87,7 @@ describe('useRunLedger', () => {
   })
 
   it('has nothing to say about the line once the run is over', async () => {
-    const { result } = renderHook(() => useRunLedger({ message: { runLedger: ledger() }, projectId: 'p1' }))
+    const { result } = renderHook(() => useRunLedger({ message: { id: 'msg-1', runLedger: ledger() }, projectId: 'p1' }))
     await waitFor(() => expect(connected).toHaveLength(1))
 
     act(() => {
@@ -104,7 +105,7 @@ describe('useRunLedger', () => {
     // says so, because the loop only shows up as a hung test.
     const stored = ledger({ status: 'fertig' })
     const { result, rerender } = renderHook(
-      ({ runLedger }) => useRunLedger({ message: { runLedger }, projectId: 'p1' }),
+      ({ runLedger }) => useRunLedger({ message: { id: 'msg-1', runLedger }, projectId: 'p1' }),
       { initialProps: { runLedger: stored } },
     )
     const first = result.current.ledger
@@ -117,7 +118,7 @@ describe('useRunLedger', () => {
   it('shows the stored ledger and touches no network once the run is over', () => {
     const stored = ledger({ status: 'fertig', finishedAt: '2026-09-16T08:10:00.000Z' })
 
-    const { result } = renderHook(() => useRunLedger({ message: { runLedger: stored }, projectId: 'p1' }))
+    const { result } = renderHook(() => useRunLedger({ message: { id: 'msg-1', runLedger: stored }, projectId: 'p1' }))
 
     expect(result.current.ledger).toBe(stored)
     expect(result.current.live).toBe(false)
@@ -126,7 +127,7 @@ describe('useRunLedger', () => {
   })
 
   it('opens the run’s own stream with replay and replaces the ledger on every snapshot', async () => {
-    const { result } = renderHook(() => useRunLedger({ message: { runLedger: ledger() }, projectId: 'p1' }))
+    const { result } = renderHook(() => useRunLedger({ message: { id: 'msg-1', runLedger: ledger() }, projectId: 'p1' }))
 
     await waitFor(() => expect(connected).toHaveLength(1))
     expect(fetchRunView).toHaveBeenCalledWith('p1', RUN)
@@ -156,7 +157,7 @@ describe('useRunLedger', () => {
   })
 
   it('closes the stream on the terminal snapshot and goes quiet', async () => {
-    const { result } = renderHook(() => useRunLedger({ message: { runLedger: ledger() }, projectId: 'p1' }))
+    const { result } = renderHook(() => useRunLedger({ message: { id: 'msg-1', runLedger: ledger() }, projectId: 'p1' }))
     await waitFor(() => expect(connected).toHaveLength(1))
 
     act(() =>
@@ -180,7 +181,7 @@ describe('useRunLedger', () => {
 
   it('never moves the block backwards: a replayed snapshot older than what is shown is dropped', async () => {
     const stored = ledger({ updatedAt: '2026-09-16T08:05:00.000Z' })
-    const { result } = renderHook(() => useRunLedger({ message: { runLedger: stored }, projectId: 'p1' }))
+    const { result } = renderHook(() => useRunLedger({ message: { id: 'msg-1', runLedger: stored }, projectId: 'p1' }))
     await waitFor(() => expect(connected).toHaveLength(1))
 
     act(() => callbacksOf().onLedger?.(ledger({ updatedAt: '2026-09-16T08:00:10.000Z', phases: [] })))
@@ -190,7 +191,7 @@ describe('useRunLedger', () => {
 
   it('drops a snapshot the sanitiser rejects', async () => {
     const stored = ledger()
-    const { result } = renderHook(() => useRunLedger({ message: { runLedger: stored }, projectId: 'p1' }))
+    const { result } = renderHook(() => useRunLedger({ message: { id: 'msg-1', runLedger: stored }, projectId: 'p1' }))
     await waitFor(() => expect(connected).toHaveLength(1))
 
     act(() => callbacksOf().onLedger?.('lief gut'))
@@ -207,7 +208,7 @@ describe('useRunLedger', () => {
     })
     vi.mocked(fetchRunView).mockResolvedValue(view({ ledger: finished }))
 
-    const { result } = renderHook(() => useRunLedger({ message: { runLedger: ledger() }, projectId: 'p1' }))
+    const { result } = renderHook(() => useRunLedger({ message: { id: 'msg-1', runLedger: ledger() }, projectId: 'p1' }))
 
     await waitFor(() => expect(result.current.ledger?.status).toBe('fehlgeschlagen'))
     expect(createDeepResearchClient).not.toHaveBeenCalled()
@@ -218,7 +219,7 @@ describe('useRunLedger', () => {
     vi.mocked(fetchRunView).mockRejectedValue(new Error('404'))
     const stored = ledger()
 
-    const { result } = renderHook(() => useRunLedger({ message: { runLedger: stored }, projectId: 'p1' }))
+    const { result } = renderHook(() => useRunLedger({ message: { id: 'msg-1', runLedger: stored }, projectId: 'p1' }))
 
     await waitFor(() => expect(fetchRunView).toHaveBeenCalled())
     expect(result.current.ledger).toBe(stored)
@@ -227,7 +228,7 @@ describe('useRunLedger', () => {
   })
 
   it('disconnects on unmount', async () => {
-    const { unmount } = renderHook(() => useRunLedger({ message: { runLedger: ledger() }, projectId: 'p1' }))
+    const { unmount } = renderHook(() => useRunLedger({ message: { id: 'msg-1', runLedger: ledger() }, projectId: 'p1' }))
     await waitFor(() => expect(connected).toHaveLength(1))
 
     unmount()
@@ -239,8 +240,8 @@ describe('useRunLedger', () => {
     const other = ledger({ runId: 'run-2' })
     vi.mocked(fetchRunView).mockImplementation(async (_project, runId) => view({ runId, backendJobId: `job-${runId}` }))
 
-    renderHook(() => useRunLedger({ message: { runLedger: ledger() }, projectId: 'p1' }))
-    renderHook(() => useRunLedger({ message: { runLedger: other }, projectId: 'p1' }))
+    renderHook(() => useRunLedger({ message: { id: 'msg-1', runLedger: ledger() }, projectId: 'p1' }))
+    renderHook(() => useRunLedger({ message: { id: 'msg-1', runLedger: other }, projectId: 'p1' }))
 
     await waitFor(() => expect(connected).toHaveLength(2))
     expect(connected.map((entry) => entry.options.jobId).sort()).toEqual(['job-run-1', 'job-run-2'])
@@ -248,11 +249,11 @@ describe('useRunLedger', () => {
 
   it('offers no way to stop a run that is over, or one it cannot reach', () => {
     const done = renderHook(() =>
-      useRunLedger({ message: { runLedger: ledger({ status: 'fertig' }) }, projectId: 'p1' }),
+      useRunLedger({ message: { id: 'msg-1', runLedger: ledger({ status: 'fertig' }) }, projectId: 'p1' }),
     )
     expect(done.result.current.cancel).toBeNull()
 
-    const unreachable = renderHook(() => useRunLedger({ message: { runLedger: ledger() } }))
+    const unreachable = renderHook(() => useRunLedger({ message: { id: 'msg-1', runLedger: ledger() } }))
     expect(unreachable.result.current.cancel).toBeNull()
   })
 
@@ -260,7 +261,7 @@ describe('useRunLedger', () => {
     const stopped = ledger({ status: 'abgebrochen', updatedAt: '2026-09-16T08:02:00.000Z' })
     vi.mocked(cancelRun).mockResolvedValue(view({ status: 'cancelled', ledger: stopped }))
 
-    const { result } = renderHook(() => useRunLedger({ message: { runLedger: ledger() }, projectId: 'p1' }))
+    const { result } = renderHook(() => useRunLedger({ message: { id: 'msg-1', runLedger: ledger() }, projectId: 'p1' }))
     await waitFor(() => expect(result.current.cancel).not.toBeNull())
 
     await act(async () => {
@@ -276,7 +277,7 @@ describe('useRunLedger', () => {
     const stored = ledger()
     vi.mocked(cancelRun).mockRejectedValue(new Error('conflict'))
 
-    const { result } = renderHook(() => useRunLedger({ message: { runLedger: stored }, projectId: 'p1' }))
+    const { result } = renderHook(() => useRunLedger({ message: { id: 'msg-1', runLedger: stored }, projectId: 'p1' }))
     await waitFor(() => expect(result.current.cancel).not.toBeNull())
 
     await act(async () => {
@@ -288,4 +289,31 @@ describe('useRunLedger', () => {
   })
 
 
+
+  it('writes a status change back onto the stored message, and nothing else', async () => {
+    const patch = vi.fn()
+    useChatStore.setState({ patchConversationMessage: patch } as never)
+    const stored = ledger()
+    renderHook(() =>
+      useRunLedger({
+        message: { id: 'msg-1', runLedger: stored },
+        projectId: 'p1',
+        conversationId: 'conv-1',
+      })
+    )
+    await waitFor(() => expect(connected).toHaveLength(1))
+    // The same status word on a newer snapshot: the rest of the thread has
+    // nothing new to learn, so the message is left alone.
+    act(() => {
+      callbacksOf().onLedger?.({ ...stored, updatedAt: '2026-09-16T08:00:06.000Z' })
+    })
+    expect(patch).not.toHaveBeenCalled()
+    // A status change is what the thread reads: it lands on the message.
+    act(() => {
+      callbacksOf().onLedger?.(ledger({ status: 'fertig', updatedAt: '2026-09-16T08:00:09.000Z' }))
+    })
+    expect(patch).toHaveBeenCalledWith('conv-1', 'msg-1', {
+      runLedger: expect.objectContaining({ status: 'fertig' }),
+    })
+  })
 })

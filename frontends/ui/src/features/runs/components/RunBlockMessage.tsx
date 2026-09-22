@@ -39,6 +39,8 @@ export interface RunBlockMessageProps {
   message: ChatMessage
   /** The project the run belongs to; without one the block is static. */
   projectId?: string | null
+  /** The thread the message is in; lets a status change reach the stored message. */
+  conversationId?: string | null
   /** The report as the caller renders an answer. Shown only once the run has one. */
   answer?: ReactNode
   /** „Bericht fortschreiben", when the thread can commission a run. */
@@ -48,10 +50,15 @@ export interface RunBlockMessageProps {
 export function RunBlockMessage({
   message,
   projectId,
+  conversationId,
   answer,
   onContinue,
 }: RunBlockMessageProps): JSX.Element | null {
-  const { ledger, live, cancel, writeNow, connection } = useRunLedger({ message, projectId })
+  const { ledger, live, cancel, writeNow, connection } = useRunLedger({
+    message,
+    projectId,
+    conversationId,
+  })
   const reduced = useReducedMotion()
   // A report that arrives while the reader is watching rises AFTER the block
   // has finished saying how the run ended: the verdict first, the document

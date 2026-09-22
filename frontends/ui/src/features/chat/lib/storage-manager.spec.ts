@@ -1,4 +1,5 @@
 import { describe, test, expect, beforeEach, vi } from 'vitest'
+import { emptyRunLedger, setRunStatus } from '@/lib/runs/run-ledger'
 import {
   calculateTotalStorageSize,
   calculateChatStoreSize,
@@ -162,7 +163,7 @@ describe('storage-manager', () => {
       expect(busy.size).toBe(0)
     })
 
-    test('identifies sessions with active deep research jobs', () => {
+    test('identifies sessions with a live run', () => {
       const busyMessages: ChatMessage[] = [
         {
           id: 'msg1',
@@ -170,8 +171,7 @@ describe('storage-manager', () => {
           content: 'Running...',
           timestamp: new Date(),
           messageType: 'agent_response',
-          deepResearchJobId: 'job_1',
-          deepResearchJobStatus: 'running',
+          runLedger: setRunStatus(emptyRunLedger('run_1'), 'laeuft'),
         },
       ]
 
@@ -186,7 +186,7 @@ describe('storage-manager', () => {
       expect(busy.has('s_busy')).toBe(true)
     })
 
-    test('does not flag completed jobs as busy', () => {
+    test('does not flag finished runs as busy', () => {
       const completedMessages: ChatMessage[] = [
         {
           id: 'msg1',
@@ -194,8 +194,7 @@ describe('storage-manager', () => {
           content: 'Done',
           timestamp: new Date(),
           messageType: 'agent_response',
-          deepResearchJobId: 'job_1',
-          deepResearchJobStatus: 'success',
+          runLedger: setRunStatus(emptyRunLedger('run_1'), 'fertig'),
         },
       ]
 

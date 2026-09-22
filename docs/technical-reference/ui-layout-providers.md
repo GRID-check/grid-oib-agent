@@ -33,9 +33,8 @@ Nesting order (outermost to innermost):
 AppConfigProvider
   AuthKitProvider               (WorkOS AuthKit session)
     ThemeWrapper                (theme sync + data sources init)
-      DeepResearchRestorer     (reconnects active jobs on mount)
-        ConversationsHydrator  (loads server conversations on mount)
-          {children}
+      ConversationsHydrator    (loads server conversations on mount)
+        {children}
 ```
 
 ### ThemeWrapper
@@ -46,14 +45,6 @@ AppConfigProvider
 - Defers theme application until after hydration to prevent SSR mismatch.
 - Calls `useDataSourcesInit()` — fetches available data sources from the API on first mount (if not already loaded).
 - Calls `useDataSourceSessionRestore()` — after the API data sources load, restores the per-conversation data source selection from the chat store (saved per-session).
-
-### DeepResearchRestorer
-
-- Uses a `mounted` ref to skip SSR.
-- On mount, calls two chat store actions:
-  1. `reconnectToActiveJob()` — reconnects to running/submitted deep research jobs (page refresh recovery).
-  2. `cleanupOrphanedStartingBanners()` — polls job status via REST to remove stale "starting" banners.
-- Guarded: only runs when a `currentConversationId` is set and deep research is not already streaming.
 
 ### ConversationsHydrator
 
@@ -73,18 +64,20 @@ Orchestrates all visible panels and areas. Accepts `isAuthenticated` and `onSign
 ```
 ┌─────────────────────────────────────────┐
 │               AppBar                     │  (top, fixed)
-├────────┬──────────────────┬─────────────┤
-│        │                  │  Research   │
-│Sessions│   ChatArea       │  Panel      │
-│Panel   │   (scrollable)   │  (push, 60%)│
-│(overlay)│                  │             │
-│        │   NoSourcesBanner│             │
-│        │   InputArea      │             │
-│        │   (fixed bottom) │             │
-├────────┴──────────────────┴─────────────┤
-│  DataSourcesPanel (overlay, right)       │
-│  SettingsPanel    (overlay, right)       │
-└─────────────────────────────────────────┘
+├────────┬────────────────────────────────┤
+│        │                                │
+│Sessions│   ChatArea                     │
+│Panel   │   (scrollable; a run is a      │
+│(overlay)│   block in the thread)         │
+│        │   NoSourcesBanner              │
+│        │   InputArea                    │
+│        │   (fixed bottom)               │
+└────────┴────────────────────────────────┘
+
+There is no right-hand panel. A deep-research run is a message in the thread
+that commissioned it (ADR-0062), and anything that needs more room than a
+message — a document, the sources of an answer — opens as a dialog over the
+thread, never as a pane beside it.
 ```
 
 ### Panel Behavior
@@ -92,20 +85,15 @@ Orchestrates all visible panels and areas. Accepts `isAuthenticated` and `onSign
 | Panel | Side | Behavior | Trigger |
 |-------|------|----------|---------|
 | SessionsPanel | Left | Overlay (slides over content) | `isSessionsPanelOpen` state |
-| ResearchPanel | Right | Push (content shrinks to 40%) | `rightPanel === 'research'` |
-| DataSourcesPanel | Right | Overlay (slides over content) | `rightPanel === 'data-sources'` |
-| SettingsPanel | Right | Overlay (slides over content) | `rightPanel === 'settings'` |
-
-ResearchPanel uses a CSS `width` transition (`600ms ease-in-out`) on the center content div. When open, the center area takes 40% width and the research panel takes 60%. Respects `prefers-reduced-motion`.
 
 ### Chat Store Integration
 
 MainLayout reads from `useChatStore` via `useShallow`:
-- `currentConversation`, `conversations`, `isStreaming`, `pendingInteraction`, `isDeepResearchStreaming`, `deepResearchOwnerConversationId`, `currentUserId`
+- `currentConversation`, `conversations`, `isStreaming`, `pendingInteraction`, `currentUserId`
 
 Derives session list for the SessionsPanel, annotating each with:
-- `hasActiveDeepResearch` — checks messages for active jobs OR checks if the current streaming job belongs to this conversation.
-- `hasCompletedReport` / `hasExpiredReport` — via `session-activity` helpers.
+- `hasActiveDeepResearch` — a run message in the thread whose stored ledger is still live (`hasLiveRun`, `chat/lib/session-activity`).
+- `hasCompletedReport` — a run message whose ledger says `fertig` (`hasFinishedRun`).
 
 ### URL Sync
 
@@ -133,8 +121,6 @@ Zustand store with `devtools` middleware, named `LayoutStore`.
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `isSessionsPanelOpen` | `boolean` | `false` | Left sessions panel visibility |
-| `rightPanel` | `RightPanelType` | `'data-sources'` | Active right panel (`'research'` / `'data-sources'` / `'settings'` / `null`) |
-| `researchPanelTab` | `'tasks' \| 'thinking' \| 'report'` | `'tasks'` | Active research panel tab |
 | `dataSourcesPanelTab` | `'connections' \| 'files'` | `'connections'` | Active data sources tab |
 | `enabledDataSourceIds` | `string[]` | `[]` | IDs of currently enabled data sources |
 | `theme` | `ThemeMode` | `'system'` | UI theme |
@@ -149,9 +135,6 @@ Zustand store with `devtools` middleware, named `LayoutStore`.
 |--------|-----------|-------------|
 | `toggleSessionsPanel` | `() => void` | Toggle left panel |
 | `setSessionsPanelOpen` | `(open: boolean) => void` | Set left panel state |
-| `openRightPanel` | `(panel: RightPanelType) => void` | Open a specific right panel |
-| `closeRightPanel` | `() => void` | Close the right panel |
-| `setResearchPanelTab` | `(tab: ResearchPanelTab) => void` | Set research tab |
 | `setDataSourcesPanelTab` | `(tab: DataSourcesPanelTab) => void` | Set data sources tab |
 | `toggleDataSource` | `(id: string) => void` | Toggle a data source on/off |
 | `setEnabledDataSources` | `(ids: string[]) => void` | Replace all enabled IDs |
@@ -176,7 +159,5 @@ Zustand store with `devtools` middleware, named `LayoutStore`.
 
 ```typescript
 type ThemeMode = 'light' | 'dark' | 'system'
-type RightPanelType = 'research' | 'data-sources' | 'settings' | null
-type ResearchPanelTab = 'tasks' | 'thinking' | 'report'
 type DataSourcesPanelTab = 'connections' | 'files'
 ```

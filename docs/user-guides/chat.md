@@ -169,29 +169,22 @@ The WebSocket supports auto-reconnection with exponential backoff (3 attempts, 1
 
 Simple chat sends a single message through the SSE or WebSocket path and streams the assistant response back.
 
-Deep research submits a job to the backend and receives progress via SSE events through the `/generate/stream` endpoint. The `DeepResearchBanner` component shows submission, success, failure, cancellation, and expiry states. Users can navigate away and reconnect to an active job on return. The Research Panel displays:
+Deep research commissions a run, and the run is one block in the thread that
+asked for it: a stand naming where the run is (Planen · Recherchieren · Prüfen
+· Schreiben · Abgelegt), the findings each round produced, „Jetzt schreiben" and
+„Abbrechen" while it goes, and the report with its findings matrix once it is
+written ([the run block](../design/run-block.md), ADR-0062). You can navigate
+away and come back: the block picks the run's stream up again, and a reload
+shows the same account from the server. There is no side panel — anything that
+needs more room than a message, a document or an answer's sources, opens as a
+dialog over the thread.
 
-- **Report tab**: Final report content
-- **Sources tab**: Citations collected during research
-- **Thought Traces tab**: LLM reasoning steps
-- **Agents tab**: Sub-agent execution traces
-- **Tool Calls tab**: Tool invocations with inputs/outputs
-- **Files tab**: Generated files
-- **Tasks tab**: Progress checklist
-
-**After a run finishes, the composer follows the LATEST run.** A run that
-delivered a report locks the composer — the report defines the session's
-context, so the composer offers *Neue Sitzung starten* and follow-up questions
-belong in a fresh session. A run that failed or was interrupted produced no
-report to protect, so the composer stays usable and invites a follow-up or a
-retry in place.
-
-Only the most recent run counts, in both directions. Retrying after a failure
-and succeeding locks the chat, as a completed session should. Running research
-again after a successful one and having it fail leaves the chat usable, so the
-retry is possible — previously an earlier success kept the composer locked for
-good, telling the user research had completed over a session whose report never
-arrived.
+**The composer stays open throughout.** A run is a message beside which you keep
+asking, and a follow-up runs in the same thread: „Bericht fortschreiben" on a
+finished block commissions the next run with the last report's findings as its
+brief, and „Klären" on a single finding commissions a run about that one point.
+The thread's history row shows a run going or a report ready; stopping a run is
+done from its block, or from the run's row in the history.
 
 ## Herleitung: folding a search step
 
@@ -297,8 +290,7 @@ of the page.
 Whichever way you put it away, a **tab stays on the edge it went out through** —
 click it and the document comes back at the width you had chosen. Nothing here
 is one-way: **Show file** in the composer does the same from the other side of
-the screen (and with the research panel across that half of the row, the panel
-steps aside, since the request was to see the file), and the **×** on the
+the screen and the **×** on the
 *Asking about …* bar — the one control that ends the question as well as the
 viewer — offers **Undo** in the confirmation that follows it.
 

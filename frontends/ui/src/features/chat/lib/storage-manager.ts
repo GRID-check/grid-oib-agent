@@ -12,7 +12,7 @@
  */
 
 import type { Conversation } from '../types'
-import { hasActiveDeepResearchJob } from './session-activity'
+import { hasLiveRun } from './session-activity'
 import { logStorageCapacity, logStorageWarning, logStorageCleanup } from './storage-logger'
 
 /** localStorage quota limit in MB (conservative estimate across browsers) */
@@ -144,13 +144,13 @@ const saveChatStoreData = (
 }
 
 /**
- * Collect IDs of sessions that have active deep research jobs.
+ * Collect IDs of sessions with a run still going.
  * These are protected from cleanup deletion.
  */
 export const getBusySessionIds = (conversations: Conversation[]): Set<string> => {
   const busy = new Set<string>()
   for (const conv of conversations) {
-    if (hasActiveDeepResearchJob(conv.messages)) {
+    if (hasLiveRun(conv.messages)) {
       busy.add(conv.id)
     }
   }

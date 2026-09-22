@@ -39,9 +39,9 @@ export const StopResearchConfirmationModal: FC<StopResearchConfirmationModalProp
       open={open}
       onOpenChange={onOpenChange}
       tone="warning"
-      title={t('researchPanel.stopConfirmTitle')}
-      description={t('researchPanel.stopConfirmBody')}
-      confirmLabel={t('researchPanel.stopConfirmConfirm')}
+      title={t('sessionsPanel.stopConfirmTitle')}
+      description={t('sessionsPanel.stopConfirmBody')}
+      confirmLabel={t('sessionsPanel.stopConfirmConfirm')}
       cancelLabel={tc('actions.cancel')}
       confirmTestId="stop-research-confirm"
       onConfirm={onConfirm}

@@ -31,10 +31,6 @@ export type MessageType =
   | 'agent_response'
   | 'file'
   | 'error'
-  | 'deep_research_banner'
-
-/** Deep research banner types for status notifications */
-export type DeepResearchBannerType = 'starting' | 'success' | 'failure' | 'cancelled' | 'expired'
 
 /** File upload status types for banner messages */
 export type FileUploadStatusType = 'uploaded' | 'pending_warning'
@@ -108,8 +104,6 @@ export type ErrorCode =
   | 'agent.response_failed'
   | 'agent.response_interrupted'
   | 'agent.workflow_error'
-  | 'agent.deep_research_failed'
-  | 'agent.deep_research_load_failed'
   // Research errors
   // Deep-research job could not be admitted (queue full). Warning-styled, and
   // NON-locking: the composer stays usable so the user can retry.
@@ -246,72 +240,6 @@ export interface FileUploadStatusData {
   jobId: string
 }
 
-/** Deep research banner data for status notifications */
-export interface DeepResearchBannerData {
-  /** Type of banner: starting, success, failure, cancellation, or expiry */
-  bannerType: DeepResearchBannerType
-  /** Job ID for identification */
-  jobId: string
-  /**
-   * Total tokens the run consumed, as the stream reported it.
-   *
-   * Recorded, not rendered: the success banner used to print it as „Textmenge",
-   * a number with no reader-facing unit, and that statistic was removed rather
-   * than reworded. The field stays because turns already stored carry it and
-   * because it is the honest place to put the figure if a surface for our own
-   * cost ever earns one; nothing in the UI reads it today.
-   */
-  totalTokens?: number
-  /** Number of tool calls (for success banner) */
-  toolCallCount?: number
-  /**
-   * Narration shown above a `starting` banner when the turn escalated
-   * shallow→deep — `Eskaliert zur Tiefenrecherche: <reason>` per the contract.
-   */
-  escalationReason?: string
-  /**
-   * The document this run's report was filed as, once the BFF has reported one.
-   *
-   * Absent is the NORMAL, honest state, not a loading state: filing is skipped
-   * when the chat has no project, and for every run that finished before this
-   * feature existed. The banner therefore says nothing at all when this is
-   * missing — it must never offer to open a file that does not exist, and
-   * "maybe there is a document" is not a thing to render.
-   */
-  filedDocument?: DeepResearchFiledDocument
-  /**
-   * A filing this run's starting banner PROMISED, which then did not land.
-   *
-   * The one state `filedDocument` being absent used to swallow. Absence still
-   * means "nothing was ever promised" — no project, no attempt, an older run —
-   * and stays silent. This flag means the opposite: the disclosure
-   * („Der fertige Bericht wird in diesem Projekt unter ‚Berichte' abgelegt.")
-   * was shown, the run finished, and there is no file. That reader is going to
-   * go and look; the banner owes them the correction, in the same quiet
-   * register the promise was made in.
-   *
-   * Set from the report route's `filingFailed`, which is raised only when a
-   * project was resolved — the same condition under which the disclosure
-   * rendered. It carries no reason, deliberately: see `JobReportResponse`.
-   */
-  filingFailed?: boolean
-}
-
-/**
- * A filed agent-authored report, as the report route reports it back.
- *
- * `alreadyFiled` is deliberately NOT carried here. It answers "did this call
- * create the row", which is a question about the request, not about the
- * document — the banner shows the same link whether the row was created by this
- * fetch or by the one before it.
- */
-export interface DeepResearchFiledDocument {
-  /** `documents.id` — what the `/files?doc=` deep link addresses. */
-  documentId: string
-  /** The generated filename, so the banner can name what now exists. */
-  filename: string
-}
-
 /** Individual chat message */
 export interface ChatMessage {
   id: string
@@ -358,47 +286,20 @@ export interface ChatMessage {
   errorData?: ErrorCardData
   /** File upload status data for banner messages */
   fileUploadStatusData?: FileUploadStatusData
-  /** Deep research banner data for status notifications */
-  deepResearchBannerData?: DeepResearchBannerData
-  /** Whether to show "View Report" button on agent responses */
-  showViewReport?: boolean
 
   // Session persistence fields (embedded in messages for localStorage persistence)
 
   /** Thinking steps that occurred during processing (for user messages) */
   thinkingSteps?: ThinkingStep[]
-  /** Report content shown in ResearchPanel (for agent_response messages) */
-  reportContent?: string
   /** Citations/sources used (for agent_response messages) */
   citations?: CitationSource[]
-
-  // ResearchPanel persistence fields (for agent_response messages)
-
-  /** Plan messages shown in chat/HITL restore flows */
-  planMessages?: PlanMessage[]
-  /** Task todos shown in TasksTab */
-  deepResearchTodos?: DeepResearchTodo[]
-  /** LLM steps shown in ThoughtTracesTab */
-  deepResearchLLMSteps?: DeepResearchLLMStep[]
-  /** Agent steps shown in AgentsTab */
-  deepResearchAgents?: DeepResearchAgent[]
-  /** Tool calls shown in ToolCallsTab */
-  deepResearchToolCalls?: DeepResearchToolCall[]
-  /** File artifacts shown in FilesTab */
-  deepResearchFiles?: DeepResearchFile[]
-
-  // Deep research job persistence fields (for session restoration across tab close/reopen)
-
-  /** Deep research job ID for session restoration */
+  /**
+   * The backend job behind a run's answer: the pointer a colleague's client
+   * uses to find the report and its cards (`features/grid-cards/card-owner`),
+   * and the one deep-research field a message still carries. The run itself
+   * is read from `runLedger`.
+   */
   deepResearchJobId?: string
-  /** Last SSE event ID received (for reconnection to running jobs) */
-  deepResearchLastEventId?: string
-  /** Job status at time of save (submitted, running, success, failure, interrupted) */
-  deepResearchJobStatus?: DeepResearchJobStatus
-  /** True when a completed report's backend job/report can no longer be loaded. */
-  deepResearchReportExpired?: boolean
-  /** Whether this message has active (streaming) deep research - used for UI state */
-  isDeepResearchActive?: boolean
   /** Data sources that were enabled when this message was sent (for display in thinking panel) */
   enabledDataSources?: string[]
   /** Files that were available when this message was sent (for display in thinking panel) */
@@ -716,9 +617,6 @@ export interface PendingInteraction {
   defaultValue?: string
 }
 
-/** Deep research job status (from SSE stream) */
-export type DeepResearchJobStatus = 'submitted' | 'running' | 'success' | 'failure' | 'interrupted'
-
 /** Citation source from research (deep SSE or shallow WS ``sources``). */
 export interface CitationSource {
   id: string
@@ -847,106 +745,6 @@ export interface WireCitationSource {
   binding_status?: string | null
 }
 
-/** Plan message for chat/HITL display and restore flows */
-export interface PlanMessage {
-  id: string
-  /** The text content (clarification question, plan preview, etc.) */
-  text: string
-  /** Input type expected from user (if any) */
-  inputType?: HumanPromptInputType
-  /** Placeholder for text input */
-  placeholder?: string
-  /** Whether input is required */
-  required?: boolean
-  /** User's response to this message (if applicable) */
-  userResponse?: string
-  /** When this message was received */
-  timestamp: Date
-}
-
-/** Todo item status from deep research SSE */
-export type DeepResearchTodoStatus = 'pending' | 'in_progress' | 'completed' | 'stopped'
-
-/** Todo item from deep research (artifact.update with type: "todo") */
-export interface DeepResearchTodo {
-  /** Unique identifier (generated from content hash) */
-  id: string
-  /** Task content/description */
-  content: string
-  /** Current status */
-  status: DeepResearchTodoStatus
-}
-
-/** LLM step for ThoughtTracesTab (from llm.start/end) */
-export interface DeepResearchLLMStep {
-  /** Unique identifier */
-  id: string
-  /** LLM model name */
-  name: string
-  /** Parent workflow (metadata.workflow) */
-  workflow?: string
-  /** Streaming/final output content */
-  content: string
-  /** Chain-of-thought reasoning (metadata.thinking) */
-  thinking?: string
-  /** Token usage (from llm.end metadata.usage) */
-  usage?: { input_tokens: number; output_tokens: number }
-  /** When LLM started */
-  timestamp: Date
-  /** Whether LLM call is complete */
-  isComplete: boolean
-}
-
-/** Agent step for AgentsTab (from workflow.start/end) */
-export interface DeepResearchAgent {
-  /** Unique identifier */
-  id: string
-  /** Agent/workflow name (e.g., "planner-agent", "researcher-agent") */
-  name: string
-  /** Input provided to agent (data.input) */
-  input?: string
-  /** Output from agent (data.output) */
-  output?: string
-  /** Current execution status */
-  status: 'running' | 'complete' | 'error'
-  /** When agent started */
-  startedAt: Date
-  /** When agent completed */
-  completedAt?: Date
-}
-
-/** Tool call for ToolCallsTab (from tool.start/end) */
-export interface DeepResearchToolCall {
-  /** Unique identifier */
-  id: string
-  /** Tool name (e.g., "tavily_web_search", "write_file") */
-  name: string
-  /** Structured tool input arguments */
-  input?: Record<string, unknown>
-  /** Tool output/result (after tool.end) */
-  output?: string
-  /** Parent workflow that invoked the tool */
-  workflow?: string
-  /** Parent agent ID that invoked the tool (for grouping under agents) */
-  agentId?: string
-  /** Current execution status */
-  status: 'running' | 'complete' | 'error'
-  /** When tool was called */
-  timestamp: Date
-}
-
-/** File artifact for FilesTab (from artifact.update type: "file") */
-export interface DeepResearchFile {
-  /** Unique identifier */
-  id: string
-  /** File name/path */
-  filename: string
-  /** File content */
-  content: string
-  /** When file was created/updated */
-  timestamp: Date
-}
-
 /** Chat state for Zustand store */
 export interface ChatState {
   /** Current authenticated user ID - used for filtering sessions */
@@ -1036,10 +834,6 @@ export interface ChatState {
    * ChatArea — resend through the real send path.
    */
   chatSendFn: ((content: string) => void) | null
-  /** Content for the Details Panel - Report tab */
-  reportContent: string
-  /** Category of the current report content (distinguishes intermediate notes from final report) */
-  reportContentCategory: 'research_notes' | 'final_report' | null
   /** Current status type (for status indicators) */
   currentStatus: StatusType | null
   /** Pending interaction requiring user response (for HITL) */
@@ -1047,59 +841,6 @@ export interface ChatState {
   /** Transient callback for responding to HITL interactions (registered by InputArea, not persisted) */
   respondToInteractionFn: ((response: string) => void) | null
 
-  // Deep research SSE state
-  /** Current deep research job ID (null when not active) */
-  deepResearchJobId: string | null
-  /** Last SSE event ID received (for reconnection) */
-  deepResearchLastEventId: string | null
-  /** Whether deep research SSE is currently streaming */
-  isDeepResearchStreaming: boolean
-  /** Epoch ms when the current live run started in this tab (null after reload) */
-  deepResearchStartedAt: number | null
-  /** Current deep research job status */
-  deepResearchStatus: DeepResearchJobStatus | null
-  /** Conversation ID that owns the current deep research stream (for session isolation) */
-  deepResearchOwnerConversationId: string | null
-  /** Message ID of the originating deep research message (for patching on completion) */
-  activeDeepResearchMessageId: string | null
-  /** Citations collected during deep research */
-  deepResearchCitations: CitationSource[]
-  /** Todo items from deep research (from artifact.update with type: "todo") */
-  deepResearchTodos: DeepResearchTodo[]
-  /** LLM steps for ThoughtTracesTab (from llm.start/end events) */
-  deepResearchLLMSteps: DeepResearchLLMStep[]
-  /** Agent steps for AgentsTab (from workflow.start/end events) */
-  deepResearchAgents: DeepResearchAgent[]
-  /** Tool calls for ToolCallsTab (from tool.start/end events) */
-  deepResearchToolCalls: DeepResearchToolCall[]
-  /** File artifacts for FilesTab (from artifact.update type: "file" events) */
-  deepResearchFiles: DeepResearchFile[]
-  /** Grid response cards attached to the final deep-research report */
-  deepResearchCards: (GridCard | undefined)[]
-  /** Whether the full stream data (artifacts, tool calls, etc.) has been loaded for current job */
-  deepResearchStreamLoaded: boolean
-  /** Live stream is open but has gone quiet (no events for a while) — UX-11a */
-  isDeepResearchStalled: boolean
-  /** SSE retries exhausted: stream is gone but the job may still run server-side — UX-11b */
-  deepResearchConnectionLost: boolean
-  /** Transient reconnect handler registered by useDeepResearch (not persisted) */
-  reconnectDeepResearchFn: (() => void) | null
-  /**
-   * Jobs this browser has terminally settled itself (dismissed from the
-   * history), jobId → terminal status. The backend's status/list endpoints can
-   * serve a stale `running` for a crashed run indefinitely — and the cancel
-   * endpoint can simultaneously report it terminal — so without this record
-   * every status refresh would flip a dismissed thread back to active and the
-   * purge would look like it did nothing. Automatic reconciliation (refresh,
-   * reconnect, banner cleanup) treats these as settled and never re-activates
-   * them; only an explicit re-attach overrides it. Persisted: the staleness
-   * survives reloads, so the record must too. Bounded (see the dismiss path).
-   */
-  resolvedDeepResearchJobs: Record<string, DeepResearchJobStatus>
-
-  // Plan state (for chat/HITL restore flows)
-  /** Messages for clarification questions, plan previews, and approvals. */
-  planMessages: PlanMessage[]
 }
 
 /** Chat actions for Zustand store */
@@ -1194,12 +935,8 @@ export interface ChatActions {
   ) => void
   /** Find a thinking step by function name */
   findThinkingStepByFunctionName: (functionName: string) => ThinkingStep | undefined
-  /** Set the report content with optional category */
-  setReportContent: (content: string, category?: 'research_notes' | 'final_report') => void
   /** Clear all thinking steps (for new request) */
   clearThinkingSteps: () => void
-  /** Clear report content (for new request) */
-  clearReportContent: () => void
   /** Set current status type */
   setCurrentStatus: (status: StatusType | null) => void
   /** Add an agent prompt message to the conversation */
@@ -1220,7 +957,6 @@ export interface ChatActions {
   /** Add an agent response message to the chat (for short answers) */
   addAgentResponse: (
     content: string,
-    showViewReport?: boolean,
     cards?: (GridCard | undefined)[],
     answerConfidence?: 'low' | 'medium' | 'high',
     citations?: CitationSource[],
@@ -1283,7 +1019,6 @@ export interface ChatActions {
   /** Add an agent response with additional metadata - returns the created message ID */
   addAgentResponseWithMeta: (
     content: string,
-    showViewReport: boolean,
     meta: Partial<ChatMessage>,
     cards?: (GridCard | undefined)[]
   ) => string
@@ -1327,177 +1062,9 @@ export interface ChatActions {
   /** Dismiss all connection error cards (connection.*) from the current conversation */
   dismissConnectionErrors: () => void
 
-  /**
-   * Add a deep research banner (starting, success, or failure) to a conversation.
-   * If conversationId is provided, adds to that specific conversation.
-   * Otherwise, adds to the current conversation.
-   * For 'starting' banners, job metadata is automatically set for session restoration.
-   */
-  addDeepResearchBanner: (
-    bannerType: DeepResearchBannerType,
-    jobId: string,
-    conversationId?: string,
-    stats?: { totalTokens?: number; toolCallCount?: number },
-    escalationReason?: string
-  ) => void
-
-  /**
-   * Record that a run's report was filed into the project, on that run's
-   * success banner.
-   *
-   * Separate from `addDeepResearchBanner` because the two facts arrive at
-   * different times and over different transports: the banner is written from
-   * the SSE stream the moment the run succeeds, and the filing is only known
-   * once the report route has been asked for the report (that GET is where the
-   * BFF observes completion and files the document). Folding it into the banner
-   * call would mean holding the banner back until a second request returns,
-   * which would delay the outcome the user is waiting for to decorate it.
-   *
-   * A no-op when no success banner for `jobId` exists — an attached run has no
-   * thread to write into.
-   */
-  recordDeepResearchFiling: (jobId: string, filed: DeepResearchFiledDocument) => void
-
-  /**
-   * Record that a filing this run's starting banner promised did NOT land.
-   *
-   * The counterpart to `recordDeepResearchFiling`, and it exists because the
-   * absence of a filing means two different things. The report route reports
-   * them apart — `filed` when the document exists, `filingFailed` when a
-   * project was resolved and the write still failed — and only the second one
-   * contradicts something the reader was already told.
-   *
-   * Never overrides a recorded document: see the action's own comment.
-   *
-   * A no-op when no success banner for `jobId` exists.
-   */
-  recordDeepResearchFilingFailure: (jobId: string) => void
-
-  // Deep research SSE actions
-
-  /** Start deep research streaming with a job ID and optional originating message ID */
-  startDeepResearch: (jobId: string, messageId?: string) => void
-  /**
-   * Follow a run this session did not start (a workflow run, or one opened from
-   * the run history): binds the job so its SSE stream connects and the research
-   * panel updates live — without an owning conversation or tracking message.
-   */
-  attachToDeepResearchJob: (jobId: string) => void
-  /** Update deep research job status */
-  updateDeepResearchStatus: (status: DeepResearchJobStatus) => void
-  /** Update the last received SSE event ID (for reconnection) */
-  setDeepResearchLastEventId: (eventId: string | null) => void
-  /** Persist current deep research state to sessionStorage (for page refresh) */
-  persistDeepResearchToSession: () => void
-  /** Complete deep research (clears streaming state, keeps content) */
-  completeDeepResearch: () => void
-  /** Mark the live stream as stalled (open but silent) or clear it — UX-11a */
-  setDeepResearchStalled: (stalled: boolean) => void
-  /** Mark the SSE connection as lost (retries exhausted) or clear it — UX-11b */
-  setDeepResearchConnectionLost: (lost: boolean) => void
-  /** Register/clear the reconnect handler surfaced by useDeepResearch */
-  setReconnectDeepResearchFn: (fn: (() => void) | null) => void
-  /** Save current deep research progress to conversation (for session switching) */
-  saveDeepResearchProgress: () => void
-  /** Reconnect to an in-progress job after page refresh (running/submitted only) */
-  reconnectToActiveJob: () => Promise<void>
-  /** Clean up orphaned 'starting' banners by polling job status via REST */
-  cleanupOrphanedStartingBanners: () => Promise<void>
-  /**
-   * Refresh persisted deep-research job metadata without deleting the chat
-   * session. Missing backend jobs are represented as expired report state when
-   * the session previously had a completed report.
-   */
-  refreshDeepResearchSessionStatuses: () => Promise<void>
-  /**
-   * Dismiss one stuck deep-research run: cancel the backend job best-effort
-   * and always mark the thread terminal locally, so an abandoned run stops
-   * spinning and its row becomes actionable again. `conversationId` may be null for headless
-   * runs with no thread to write into. Idempotent — never appends a second
-   * terminal banner.
-   *
-   * A cancel that fails 400 with "Job not cancellable (status: …)" carries the
-   * backend's own terminal verdict for an already-finished run; the dismiss
-   * reconciles to that verdict (and records it, see `resolvedDeepResearchJobs`)
-   * instead of merely marking the thread stopped.
-   */
-  dismissDeepResearchJob: (conversationId: string | null, jobId: string) => Promise<void>
-  /**
-   * Dismiss every stuck deep-research run of the current user, across all
-   * projects (a stuck run anywhere blocks delete-all everywhere).
-   * @returns how many runs were dismissed.
-   */
-  purgeAbandonedDeepResearchJobs: () => Promise<number>
-  /**
-   * Add a citation from deep research (isCited=true for citation_use, false for
-   * citation_source). Takes the backend citation wire whole and normalizes it
-   * with `citationFromWire` — the same single normalizer the shallow-chat path
-   * uses, so both transports produce identical CitationSource objects.
-   */
-  addDeepResearchCitation: (wire: WireCitationSource, isCited?: boolean) => void
-  /** Set the full todo list from deep research (replaces existing) */
-  setDeepResearchTodos: (todos: Array<{ content: string; status: string }>) => void
-  /** Mark all in-progress and pending todos as stopped (on error) */
-  stopDeepResearchTodos: () => void
-  /** Stop all spinners (todos, LLM steps, agents, tool calls). Pass true for success, false/undefined for error. */
-  stopAllDeepResearchSpinners: (isSuccessfulCompletion?: boolean) => void
-  /** Clear all deep research state (for new research) */
-  clearDeepResearch: () => void
-  /** Set job ID for loaded (non-streaming) report data - enables cache lookup */
-  setLoadedJobId: (jobId: string) => void
-  /** Mark that full stream data has been loaded for current job */
-  setStreamLoaded: (loaded: boolean) => void
-
-  // Deep research ThinkingTab actions (LLM steps, agents, tool calls, files)
-
-  /** Add a new LLM step (on llm.start) */
-  addDeepResearchLLMStep: (
-    step: Omit<DeepResearchLLMStep, 'id' | 'timestamp' | 'isComplete'>
-  ) => string
-  /** Append content to an LLM step (on llm.chunk) */
-  appendToDeepResearchLLMStep: (stepId: string, content: string) => void
-  /** Complete an LLM step with thinking and usage (on llm.end) */
-  completeDeepResearchLLMStep: (
-    stepId: string,
-    thinking?: string,
-    usage?: { input_tokens: number; output_tokens: number }
-  ) => void
-  /** Add a new agent (on workflow.start) */
-  addDeepResearchAgent: (agent: Omit<DeepResearchAgent, 'id' | 'startedAt' | 'status'>) => string
-  /** Add a new agent with a specific ID (for linking with tool calls) */
-  addDeepResearchAgentWithId: (
-    id: string,
-    agent: Omit<DeepResearchAgent, 'id' | 'startedAt' | 'status'>
-  ) => string
-  /** Complete an agent (on workflow.end) */
-  completeDeepResearchAgent: (agentId: string, output?: string) => void
-  /** Add a new tool call (on tool.start) */
-  addDeepResearchToolCall: (
-    toolCall: Omit<DeepResearchToolCall, 'id' | 'timestamp' | 'status'>
-  ) => string
-  /** Complete a tool call (on tool.end) */
-  completeDeepResearchToolCall: (toolCallId: string, output?: string) => void
-  /** Get tool calls for a specific agent */
-  getAgentToolCalls: (agentId: string) => DeepResearchToolCall[]
-  /** Add a file artifact (on artifact.update type: "file") */
-  addDeepResearchFile: (file: Omit<DeepResearchFile, 'id' | 'timestamp'>) => string
-  /** Validate and set Grid cards from the final deep-research report artifact */
-  setDeepResearchCards: (cards: unknown) => void
-
-  // Plan actions (for chat/HITL restore flows)
-
-  /** Add a plan message (clarification, plan preview, etc.) */
-  addPlanMessage: (message: Omit<PlanMessage, 'id' | 'timestamp'>) => string
-  /** Update a plan message with user response */
-  updatePlanMessageResponse: (messageId: string, response: string) => void
-  /** Clear all plan messages (for new request) */
-  clearPlanMessages: () => void
-  /** Persist current planMessages to the conversation for HITL recovery */
-  persistPlanMessages: () => void
-
   // Session restoration
 
-  /** Restore ephemeral state (thinkingSteps, reportContent, citations) from a conversation's messages */
+  /** Restore ephemeral state (thinkingSteps, the pending HITL prompt) from a conversation's messages */
   restoreSessionState: (conversation: Conversation) => void
 
   /**

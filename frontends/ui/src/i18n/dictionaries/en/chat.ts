@@ -1238,70 +1238,6 @@ export const chat = {
       branchesSub: 'Pick one option — the answer is assembled for your choice.',
     },
   },
-  deepResearch: {
-    stats: {
-      toolCalls: '{count, plural, one {# tool call} other {# tool calls}}',
-    },
-    success: {
-      heading: 'Report Completed!{stats}',
-      subheading: 'Research has finished and a report is ready to view in the research panel.',
-      // Rendered ONLY when the report really was filed and has a document id.
-      // Absent with nothing having been promised — no project, a run older than
-      // the feature — the banner says nothing rather than claiming a file that
-      // does not exist.
-      filedLine: 'Filed in the project: {filename}',
-      // The retraction of `starting.filingDisclosure`, and only that: the
-      // starting banner promised „wird abgelegt", the server attempted the
-      // filing (there was a project) and it did not land. A reader who saw the
-      // promise otherwise walks to Berichte, finds nothing, and the only record
-      // is a server log they cannot read. No reason travels — a refused quota,
-      // a revoked `project:documents:write` and a report too long to render are
-      // one fact here: the document is not there. Same quiet line as the
-      // promise, no red and no error state: the research itself succeeded. The
-      // folder is named in German because that is what the folder is called.
-      filingFailedLine: 'The report could not be filed under “Berichte”.',
-    },
-    failure: {
-      heading: 'Report Failed to Complete',
-      subheading:
-        'Something prevented the research report from completing. Check the thinking for details.',
-    },
-    cancelled: {
-      heading: 'Research Cancelled',
-      subheading:
-        'Research was stopped by user. You can view any partial progress in the research panel.',
-    },
-    expired: {
-      heading: 'Report Expired',
-      subheading: 'The report has expired and is no longer available.',
-    },
-    starting: {
-      heading: 'Starting Deep Research',
-      subheading:
-        'Chat is paused while the report is created to prevent generating multiple reports. You can click away while this runs — it may take several minutes.',
-      // The disclosure that makes the authorization real. It sits on the
-      // STARTING banner rather than the outcome: deep research escalates out of
-      // a chat turn (there is no submit form), and a run can begin because the
-      // agent itself escalated rather than because anybody ordered a report. The
-      // moment the run can still be stopped is therefore the only moment at
-      // which naming the destination is worth anything. No dialog and no
-      // confirmation: a modal asked after the fact is only ever answered yes,
-      // which makes it a ritual rather than a decision. Shown inside a project
-      // only — outside one nothing is filed. The folder is named in German
-      // because that is literally what the folder in the file tree is called.
-      filingDisclosure: 'The finished report will be filed in this project under “Berichte”.',
-    },
-    viewReport: 'View Report',
-    // The success banner's second action, when something was filed. Worded
-    // apart from "View Report" on purpose: that opens the research panel, this
-    // opens the file in the project — two places, two words.
-    openInProject: 'Open in project',
-    viewThinking: 'View Thinking',
-    viewProgress: 'View Progress',
-    // One-liner above the "Starting Deep Research" banner when the turn
-    // escalated from shallow to deep research (WP-A `escalation_reason`).
-    escalationNarration: 'Escalated to deep research: {reason}',
-  },
   error: {
     showDetails: 'Show details',
     hideDetails: 'Hide details',
@@ -1349,14 +1285,6 @@ export const chat = {
       message:
         'The assistant hit an unexpected error while handling your request. Please try again.',
     },
-    deepResearchFailed: {
-      title: 'Deep Research Failed',
-      message: 'The deep research process encountered an error.',
-    },
-    deepResearchLoadFailed: {
-      title: 'Research Data Unavailable',
-      message: 'Unable to load research data. The job may have expired or been deleted.',
-    },
     unknown: {
       title: 'Something Went Wrong',
       message: 'An unexpected error occurred. Please try again.',
@@ -1368,26 +1296,6 @@ export const chat = {
       message: 'The research queue is currently full. Please resend your request in a moment.',
       retryHint: 'Please try again in about {seconds, plural, one {# second} other {# seconds}}.',
     },
-  },
-  // User-facing deep-research error copy raised from the SSE hook and the
-  // job-data loading hook (use-load-job-data.ts).
-  deepResearchErrors: {
-    interrupted: 'Research was interrupted before completion.',
-    reportUnavailable: 'This research report is no longer available.',
-    serviceUnreachable: 'The service is currently unreachable. Please try again later.',
-    loadFailed: 'Research data could not be loaded.',
-  },
-  // Toasts fired when a session is deleted but its deep-research job could not
-  // be cancelled on the server.
-  sessionActions: {
-    researchMayStillRunTitle: 'Research run may still be running',
-    researchMayStillRunDescription:
-      'The session was deleted, but its deep-research job could not be stopped on the server.',
-    researchRunsMayStillRunTitle: '{count} research {runLabel} may still be running',
-    researchRunsMayStillRunDescription:
-      'Sessions were deleted, but some deep-research jobs could not be stopped on the server.',
-    runSingular: 'run',
-    runPlural: 'runs',
   },
   budgetExhausted: {
     title: 'Budget exhausted',

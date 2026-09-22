@@ -561,7 +561,6 @@ describe('FilePreviewHost', () => {
     })
 
     it.each([
-      ['the research panel holds that half of the row', () => { layout.rightPanel = 'research' }],
       ['the reader is on a phone', () => { mobile.is = true }],
       ['the reader has walked to another section', () => { nav.pathname = '/app/projects/p1/files' }],
       ['the peek was dismissed', () => useFilePreviewStore.getState().hide()],

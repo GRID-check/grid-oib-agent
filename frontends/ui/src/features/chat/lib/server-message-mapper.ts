@@ -54,7 +54,6 @@ const MESSAGE_TYPES: ReadonlySet<string> = new Set([
   'agent_response',
   'file',
   'error',
-  'deep_research_banner',
 ])
 
 const asMessageType = (value: unknown): MessageType | undefined =>
@@ -325,7 +324,6 @@ const restoreProvenance = (value: unknown): Partial<ChatMessage> => {
   if (typeof provenance.deepResearchJobId === 'string') {
     out.deepResearchJobId = provenance.deepResearchJobId
   }
-  if (provenance.showViewReport === true) out.showViewReport = true
   // The backend's account of the turn's rounds, restored beside the thinking
   // steps it replaces reading from: re-sanitized on read, narrowed not cast.
   const ledger = sanitizeRetrievalLedger(provenance.retrievalLedger)
