@@ -38,7 +38,6 @@ from aiq_agent.common.citation_verification import EmptySourceRegistryError
 from aiq_agent.common.data_source_registry import get_all_sources
 from aiq_agent.common.deferred_tool_loading import DeferredToolLoadingSettings
 from aiq_agent.common.deferred_tool_loading import verify_deferred_tool_loading
-from aiq_agent.knowledge.already_read import latest_turn_loci
 from aiq_agent.project_context import get_organization_id_from_context
 from aiq_agent.skills import SkillResolver
 from aiq_agent.skills import SkillRuntime
@@ -500,12 +499,7 @@ async def _run_turn(deployment: _Deployment, state: ResearchAgentState) -> Resea
         tools=turn_tools,
         disabled_sources=disabled_sources,
         prefetch=tuple(
-            prefetch_calls(
-                decisions,
-                _turn_facts(state, runtime).question,
-                focus_file_name=state.focus_file_name,
-                follow_up_loci=latest_turn_loci(state.already_read_digest),
-            )
+            prefetch_calls(decisions, _turn_facts(state, runtime).question, focus_file_name=state.focus_file_name)
         ),
     )
     if runtime is not None:

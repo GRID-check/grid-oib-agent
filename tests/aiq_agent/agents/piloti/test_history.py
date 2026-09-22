@@ -3,8 +3,10 @@
 from langchain_core.messages import AIMessage
 from langchain_core.messages import HumanMessage
 from langchain_core.messages import SystemMessage
+from langchain_core.messages import ToolMessage
 
 from aiq_agent.agents.piloti.history import _count_message_tokens
+from aiq_agent.agents.piloti.history import prune_tool_results
 from aiq_agent.agents.piloti.history import trim_message_history
 
 
@@ -105,3 +107,46 @@ class TestTrimMessageHistory:
         # Under len-counting, both messages count as 2 tokens total -> both kept.
         result = trim_message_history(messages, max_tokens=2, token_counter=len)
         assert len(result) == 2
+
+
+def _turn(question: str, passage: str, answer: str, thought: str = "") -> list:
+    call = {"name": "read_passage", "args": {"document": "OIB-RL 2"}, "id": f"c-{question[:4]}"}
+    return [
+        HumanMessage(content=question),
+        AIMessage(content=thought, tool_calls=[call]),
+        ToolMessage(content=passage, tool_call_id=call["id"], name="read_passage"),
+        AIMessage(content=answer),
+    ]
+
+
+class TestPruneToolResults:
+    """The previous turn keeps its evidence; older turns keep what was said."""
+
+    def test_the_previous_turn_is_intact_and_the_older_one_is_prose_only(self):
+        history = [*_turn("Q1", "P1", "A1"), *_turn("Q2", "P2", "A2", thought="Ich prüfe."), HumanMessage(content="Q3")]
+        pruned = prune_tool_results(history)
+        assert [type(m).__name__ for m in pruned] == [
+            "HumanMessage",
+            "AIMessage",
+            "HumanMessage",
+            "AIMessage",
+            "ToolMessage",
+            "AIMessage",
+            "HumanMessage",
+        ]
+        assert pruned[1].content == "A1" and not pruned[1].tool_calls
+        assert pruned[4].content == "P2"
+
+    def test_an_older_assistant_message_with_prose_keeps_its_prose_and_loses_its_calls(self):
+        history = [*_turn("Q1", "P1", "A1", thought="Ich prüfe."), *_turn("Q2", "P2", "A2"), HumanMessage(content="Q3")]
+        pruned = prune_tool_results(history)
+        assert pruned[1].content == "Ich prüfe." and pruned[1].tool_calls == []
+        assert pruned[2].content == "A1"
+
+    def test_one_previous_turn_is_untouched(self):
+        history = [*_turn("Q1", "P1", "A1"), HumanMessage(content="Q2")]
+        assert prune_tool_results(history) == history
+
+    def test_keep_turns_widens_the_window(self):
+        history = [*_turn("Q1", "P1", "A1"), *_turn("Q2", "P2", "A2"), HumanMessage(content="Q3")]
+        assert len(prune_tool_results(history, keep_turns=2)) == len(history)

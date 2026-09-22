@@ -32,11 +32,11 @@ whose answer can only ADD to the turn:
   rest stay one catalog line each behind ``use_skill``.
 - ``self_contained``: whether the message can be searched on its own. A
   follow-up („und in GK 4?") cannot, and searching the fragment would hand
-  the model a grounding block about nothing. What a follow-up IS about is
-  what the last answer was about, and the „Bereits gelesen" digest already
-  names the loci that answer was written from — so round 0 re-opens those
-  with ``read_passage`` instead (``knowledge.already_read.latest_turn_loci``):
-  the locator-first rule the prompt teaches, done before the first call.
+  the model a grounding block about nothing. A follow-up prefetches
+  NOTHING: the previous turn's passages are still in the transcript
+  (``conversation._answer_update`` writes the whole turn back), which is
+  the context the follow-up needs, and re-fetching it was the round every
+  follow-up paid.
 
 One request, every question over one state — the vendor evaluates them
 independently — and the state is built from structured fields, never the
@@ -64,9 +64,8 @@ logger = logging.getLogger(__name__)
 #: The slot the technical record is filed under: ``status:decision:turn``.
 SLOT = "turn"
 
-#: The two knowledge tools the prefetch calls. Wire names (``configs/*.yml``).
+#: The knowledge tool the prefetch calls. A wire name (``configs/*.yml``).
 KNOWLEDGE_SEARCH = "knowledge_search"
-READ_PASSAGE = "read_passage"
 
 #: Below this p(needs_evidence) nothing is prefetched. Deliberately low: a
 #: false "no" costs the model its first round, a false "yes" costs one unread
@@ -330,11 +329,7 @@ async def decide_turn(facts: TurnFacts, *, organization_id: str | None = None) -
 
 
 def prefetch_calls(
-    decisions: TurnDecisions,
-    question: str,
-    *,
-    focus_file_name: str | None = None,
-    follow_up_loci: Sequence[Mapping[str, Any]] = (),
+    decisions: TurnDecisions, question: str, *, focus_file_name: str | None = None
 ) -> list[dict[str, Any]]:
     """The tool calls round 0 runs, as the agent's tools node reads them.
 
@@ -343,16 +338,15 @@ def prefetch_calls(
     (``file_name``) when one is open and the corpus is the project's or the
     office's own files, which is the audit's cleanest case: the subject was
     known before the model ran, and a pinned lookup skips the judge. A
-    message that cannot be searched on its own (a follow-up) re-opens
-    ``follow_up_loci`` — the previous turn's passages, from the digest —
-    with ``read_passage`` instead; and,
+    message that cannot be searched on its own (a follow-up) prefetches
+    nothing: the previous turn's passages are in the transcript; and,
     when the question is NOT itself a family overview, the chosen
     families' overviews — ``knowledge_search`` recognises ``OIB-Richtlinie n``
     as a family query and returns every member's scope and Gliederung. Nothing
     for the model corpus (a measurement needs the model, not a search) and
     nothing when the decision did not run or said no evidence is needed.
     """
-    if not decisions.wants_evidence:
+    if not decisions.wants_evidence or not decisions.searchable:
         return []
     if decisions.corpus not in {"baurecht", "projekt", "buero"} or decisions.corpus_p < CORPUS_THRESHOLD:
         return []
@@ -361,14 +355,10 @@ def prefetch_calls(
     query = " ".join((question or "").split())[:300]
     if not query:
         return []
-    calls: list[dict[str, Any]] = []
-    if decisions.searchable:
-        args: dict[str, Any] = {"query": query}
-        if focus_file_name and decisions.corpus in {"projekt", "buero"}:
-            args["file_name"] = focus_file_name
-        calls.append({"name": KNOWLEDGE_SEARCH, "args": args})
-    else:
-        calls.extend({"name": READ_PASSAGE, "args": dict(locus)} for locus in follow_up_loci)
+    args: dict[str, Any] = {"query": query}
+    if focus_file_name and decisions.corpus in {"projekt", "buero"}:
+        args["file_name"] = focus_file_name
+    calls: list[dict[str, Any]] = [{"name": KNOWLEDGE_SEARCH, "args": args}]
     if decisions.corpus == "baurecht" and family_query_number(query) is None:
         calls.extend(
             {"name": KNOWLEDGE_SEARCH, "args": {"query": f"OIB-Richtlinie {key}"}}

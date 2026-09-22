@@ -13,7 +13,7 @@ features:
     of a full language-model call, and only a search that came up short
     still asks for other wordings.
   - >
-    Follow-up questions („und in Gebäudeklasse 4?") no longer send the
-    assistant searching for the fragment: it re-opens the passages the
-    previous answer was written from before it starts, and resolves the
-    follow-up against the last exchange.
+    Follow-up questions („und in Gebäudeklasse 4?") answer from what the
+    previous answer already read: the passages of the last exchange stay
+    with the conversation instead of being fetched again, so a follow-up
+    is one step, and the assistant no longer searches for the fragment.

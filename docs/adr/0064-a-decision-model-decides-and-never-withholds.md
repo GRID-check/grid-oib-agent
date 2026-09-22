@@ -74,8 +74,9 @@ noul per Richtlinien-Familie the corpus holds, one noul per content card
 type the taught envelope does not already carry, `self_contained`
 (whether the message can be searched without the previous one — a follow-up
 cannot, and searching „und in GK 4?" would hand the model a block about
-nothing; instead round 0 re-opens the loci the previous turn read, which the
-„Bereits gelesen" digest already names, `knowledge.already_read.latest_turn_loci`), and `skill`: a choice over the skills riding the prompt with
+nothing; a follow-up prefetches nothing, because the previous turn's
+passages are still in the transcript — a turn writes its whole transcript
+back, `conversation._answer_update`, and older turns are pruned to prose), and `skill`: a choice over the skills riding the prompt with
 `none`, verified by one "fits" noul per skill, which is TypeSafe's own
 skill-suggestion cookbook (rank, then check the candidate does the specific
 thing asked; abstain under 0.30). What the

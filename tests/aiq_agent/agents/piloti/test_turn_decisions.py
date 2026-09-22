@@ -198,23 +198,10 @@ class TestTheSkillsShapes:
         assert decided.self_contained == 0.2 and not decided.searchable
 
 
-class TestAFollowUpIsNotSearched:
-    def test_the_fragment_is_not_searched_the_last_turns_passages_are_reopened(self):
-        decided = TurnDecisions(
-            decided=True,
-            needs_evidence=0.9,
-            corpus="baurecht",
-            corpus_p=0.8,
-            families=(("2", 0.9),),
-            self_contained=0.1,
-        )
-        loci = [{"document": "oib-rl_2_ausgabe_mai_2023.pdf", "punkt": "2.2"}]
-        assert prefetch_calls(decided, "und in GK 4?", follow_up_loci=loci) == [
-            {"name": "read_passage", "args": {"document": "oib-rl_2_ausgabe_mai_2023.pdf", "punkt": "2.2"}},
-            {"name": "knowledge_search", "args": {"query": "OIB-Richtlinie 2"}},
-        ]
+class TestAFollowUpPrefetchesNothing:
+    """The previous turn's passages are in the transcript; nothing to fetch ahead."""
 
-    def test_a_follow_up_with_nothing_digested_keeps_only_the_family_overview(self):
+    def test_a_follow_up_runs_no_round_zero_not_even_the_family_overview(self):
         decided = TurnDecisions(
             decided=True,
             needs_evidence=0.9,
@@ -223,9 +210,7 @@ class TestAFollowUpIsNotSearched:
             families=(("2", 0.9),),
             self_contained=0.1,
         )
-        assert prefetch_calls(decided, "und in GK 4?") == [
-            {"name": "knowledge_search", "args": {"query": "OIB-Richtlinie 2"}}
-        ]
+        assert prefetch_calls(decided, "und in GK 4?") == []
 
     def test_unknown_self_containment_counts_as_searchable(self):
         decided = TurnDecisions(decided=True, needs_evidence=0.9, corpus="projekt", corpus_p=0.8)

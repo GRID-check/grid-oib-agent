@@ -20,6 +20,7 @@ turn carries out is a field of Piloti's own finished state, lifted by
 import logging
 from collections.abc import Awaitable
 from collections.abc import Callable
+from collections.abc import Sequence
 from typing import Any
 
 from langchain_core.messages import AIMessage
@@ -47,6 +48,7 @@ from aiq_agent.turn.commission import CommissionedRun
 from aiq_agent.turn.commission import CommissionRefused
 
 from .clarify import ClarifyFn
+from .history import prune_tool_results
 from .history import trim_message_history
 from .markers import detect_and_strip_confidence_marker
 from .markers import detect_and_strip_escalation_marker
@@ -172,10 +174,21 @@ def _escalation_update(message: BaseMessage, result: ResearchAgentState) -> dict
     }
 
 
-def _answer_update(message: BaseMessage, result: ResearchAgentState) -> dict[str, Any]:
-    """A finished answer with everything Piloti decided about it."""
+def _answer_update(
+    message: BaseMessage, result: ResearchAgentState, turn_messages: Sequence[BaseMessage] = ()
+) -> dict[str, Any]:
+    """A finished answer with everything Piloti decided about it.
+
+    The WHOLE turn is written back — the tool calls, their results, then the
+    answer — not the answer alone: the passages this answer was written from
+    are the context the next turn's follow-up needs, and re-fetching what the
+    transcript just held was the round every follow-up paid. Older turns are
+    pruned to what was said when the next turn's history is built
+    (``history.prune_tool_results``), so the budget holds answers, plus one
+    turn of evidence.
+    """
     update: dict[str, Any] = {field: getattr(result, source) for source, field in ANSWER_LIFTS}
-    update["messages"] = [message]
+    update["messages"] = [*(m for m in turn_messages if m is not message), message]
     update["escalate_to_deep"] = False
     # Presence is the fact: True or absent, never False.
     update["research_truncated"] = True if result.research_truncated else None
@@ -195,7 +208,11 @@ def _stripped(content: str) -> str:
 
 
 def _finalize_answer(
-    message: BaseMessage, result: ResearchAgentState, *, deep_research_allowed: bool = True
+    message: BaseMessage,
+    result: ResearchAgentState,
+    *,
+    deep_research_allowed: bool = True,
+    turn_messages: Sequence[BaseMessage] = (),
 ) -> dict[str, Any]:
     """The node update for a finished research turn, from its answer message and
     the structured signals Piloti extracted in its own ``run()``.
@@ -242,7 +259,7 @@ def _finalize_answer(
     updated = message.model_copy(update={"content": clean_content}) if clean_content != content else message
     if escalating:
         return _escalation_update(updated, result)
-    return _answer_update(updated, result)
+    return _answer_update(updated, result, [m for m in turn_messages if m is not message])
 
 
 def _answer_only(text: str) -> dict[str, Any]:
@@ -359,7 +376,9 @@ class ConversationGraph:
         self._graph = self._build_graph()
 
     def _trimmed(self, state: ConversationState) -> list[BaseMessage]:
-        return trim_message_history(state.messages, self.max_history_tokens)
+        # The previous turn's tool results stay (a follow-up answers from
+        # them); older turns keep what was said. Then the token budget.
+        return trim_message_history(prune_tool_results(state.messages), self.max_history_tokens)
 
     async def _clarifier_node(self, state: ConversationState) -> Command:
         original_query = get_latest_user_query(state.messages)
@@ -436,10 +455,13 @@ class ConversationGraph:
         if not result.messages:
             logger.error("Piloti returned no messages")
             return _error_update(GENERIC_ERROR_MESSAGE)
-        message = _answer_message(result.messages[len(trimmed) :])
+        new_messages = result.messages[len(trimmed) :]
+        message = _answer_message(new_messages)
         if message is None:
             return {"messages": []}
-        update = _finalize_answer(message, result, deep_research_allowed=state.deep_research_allowed)
+        update = _finalize_answer(
+            message, result, deep_research_allowed=state.deep_research_allowed, turn_messages=new_messages
+        )
         if isinstance(result, ResearchAgentState) and not update.get("already_read_digest"):
             # A result that carries no digest (a mocked research_fn, an older
             # caller) must not wipe the checkpointed lines: the digest only

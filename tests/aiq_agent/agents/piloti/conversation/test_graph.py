@@ -623,3 +623,60 @@ class TestEscalation:
 
         assert not result.escalate_to_deep
         assert result.routing_decision == "shallow"
+
+
+class TestTheWholeTurnIsWrittenBack:
+    """The next turn has the passages the last answer was written from."""
+
+    async def test_tool_results_reach_the_conversation_and_the_answer_stays_last(self):
+        from langchain_core.messages import ToolMessage
+
+        from aiq_agent.agents.piloti.conversation import _finalize_answer
+
+        call = {"name": "read_passage", "args": {"document": "OIB-RL 2"}, "id": "c1"}
+        turn = [
+            AIMessage(content="", tool_calls=[call]),
+            ToolMessage(content="Passage aus OIB-RL 2", tool_call_id="c1", name="read_passage"),
+            AIMessage(content="Die Antwort."),
+        ]
+        result = ResearchAgentState(messages=[HumanMessage(content="Q"), *turn], source_lookup_attempted=True)
+
+        update = _finalize_answer(turn[-1], result, turn_messages=turn)
+
+        assert [type(m).__name__ for m in update["messages"]] == ["AIMessage", "ToolMessage", "AIMessage"]
+        assert update["messages"][-1].content == "Die Antwort."
+        assert update["messages"][1].content == "Passage aus OIB-RL 2"
+
+    def test_the_next_turns_history_prunes_the_turn_before_last(self):
+        from langchain_core.messages import ToolMessage
+
+        async def research(state_input):
+            return _research_result(state_input.messages, "x")
+
+        async def deep(state):
+            return DeepResearchAgentState(messages=list(state.messages))
+
+        async def clarifier(request):
+            return ClarifyResult(research_context="", outcome="approved")
+
+        graph = ConversationGraph(research_fn=research, deep_research_fn=deep, clarifier_fn=clarifier)
+        call = {"name": "read_passage", "args": {"document": "OIB-RL 2"}, "id": "c1"}
+        old_turn = [
+            HumanMessage(content="Q1"),
+            AIMessage(content="", tool_calls=[call]),
+            ToolMessage(content="P1", tool_call_id="c1", name="read_passage"),
+            AIMessage(content="A1"),
+        ]
+        last_turn = [
+            HumanMessage(content="Q2"),
+            AIMessage(content="", tool_calls=[{**call, "id": "c2"}]),
+            ToolMessage(content="P2", tool_call_id="c2", name="read_passage"),
+            AIMessage(content="A2"),
+        ]
+        state = ConversationState(messages=[*old_turn, *last_turn, HumanMessage(content="und in GK 4?")])
+
+        trimmed = graph._trimmed(state)
+
+        contents = [m.content for m in trimmed]
+        assert "P2" in contents and "P1" not in contents
+        assert contents[:2] == ["Q1", "A1"]

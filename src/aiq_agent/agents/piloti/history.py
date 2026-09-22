@@ -11,7 +11,10 @@ from collections.abc import Callable
 from functools import lru_cache
 from typing import Any
 
+from langchain_core.messages import AIMessage
 from langchain_core.messages import BaseMessage
+from langchain_core.messages import HumanMessage
+from langchain_core.messages import ToolMessage
 from langchain_core.messages import trim_messages
 
 logger = logging.getLogger(__name__)
@@ -86,3 +89,36 @@ def trim_message_history(
         start_on="human",
         include_system=True,
     )
+
+
+def prune_tool_results(messages: list[BaseMessage], *, keep_turns: int = 1) -> list[BaseMessage]:
+    """The history with tool results kept for the last ``keep_turns`` turns only.
+
+    A turn writes its whole transcript back to the conversation — the tool
+    calls, their results, the answer — so the NEXT turn has the passages the
+    last answer was written from in front of it and a follow-up („und in
+    GK 4?") needs no fetch at all. Older turns keep only what was said: the
+    ``ToolMessage``s go, and so does an ``AIMessage`` that was nothing but
+    tool calls (a provider rejects a call with no result, so the two leave
+    together); an assistant message with prose keeps its prose and drops its
+    calls. A turn starts at a ``HumanMessage``; the current question is a
+    turn of its own and counts.
+    """
+    boundaries = [i for i, m in enumerate(messages) if isinstance(m, HumanMessage)]
+    if len(boundaries) <= keep_turns + 1:
+        return list(messages)
+    cutoff = boundaries[-(keep_turns + 1)]
+    pruned: list[BaseMessage] = []
+    for index, message in enumerate(messages):
+        if index >= cutoff or not isinstance(message, (AIMessage, ToolMessage)):
+            pruned.append(message)
+            continue
+        if isinstance(message, ToolMessage):
+            continue
+        if getattr(message, "tool_calls", None):
+            text = _message_text(message).strip()
+            if not text:
+                continue
+            message = message.model_copy(update={"tool_calls": []})
+        pruned.append(message)
+    return pruned

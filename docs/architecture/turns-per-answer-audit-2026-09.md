@@ -277,15 +277,18 @@ turn whose Herleitung drew two empty „Suche" layers until this change (§6).
 | | Call | Needs |
 |---|---|---|
 | before | ① `read_passage(OIB-RL 2, Pkt 2.2)` → ② `emit_card` → ③ answer | ① the other column of the same table — ② the card — ③ the marker |
-| after | ⓪ `read_passage(OIB-RL 2, Pkt 2.2)` as round 0 → ① answer + card | the digest names the loci the last answer was written from; a follow-up re-opens them before the first call (ADR-0064, `latest_turn_loci`) |
+| after | ① answer + card | the previous turn's passages are still in the transcript: a turn writes its whole transcript back, not the answer alone (`conversation._answer_update`), and the turn before it is pruned to what was said (`history.prune_tool_results`) |
 
-Three become one. The digest did its job twice: it kept the model from
-searching, and now it tells round 0 what to re-open. What a follow-up used
-to lose was the model searching the FRAGMENT („und in GK 4?") when it did
-not resolve it first; the research rules now say to resolve it against the
-last answer, and the decision's `self_contained` keeps the fragment out of
-round 0. Measured on six follow-ups (`follow_up_questions.yaml`,
-`task be:eval:decisions`).
+Three become one, with no fetch at all. Only the final answer used to be
+written back to the conversation, so every follow-up re-fetched what the
+turn before it had just read — the round every follow-up paid, and the
+reason the digest existed. Now the last turn's tool results ride into the
+next turn (older turns keep their prose, so the 40k history budget still
+holds answers), the research rules say to answer a follow-up from the
+transcript and fetch only what it does not hold, and the decision's
+`self_contained` keeps the fragment out of round 0 — a follow-up prefetches
+nothing. Measured on six follow-ups (`follow_up_questions.yaml`,
+`task be:eval:decisions`): all six held back.
 
 ### 2.8 „Erstell mir einen ausführlichen Bericht zum Brandschutz." (handoff)
 
