@@ -1,7 +1,7 @@
 ---
 import SectionTag from '../atoms/SectionTag.astro'
 import { ui, type Locale } from '../../i18n/ui'
-import { legalIdentity } from '../../data/legal'
+import { identityLines, legalIdentity } from '../../data/legal'
 
 interface Props {
   locale?: Locale
@@ -22,7 +22,7 @@ const id = legalIdentity
     <div class="prose-piloti mt-10">
       <h2>{t.datenschutz.controllerHeading}</h2>
       <p>
-        {id.operator}, {id.legalForm}, {id.addressLines.join(', ')}. {t.emailLabel}:
+        {identityLines(id).join(', ')}. {t.emailLabel}:
         <a href={`mailto:${id.email}`}>{id.email}</a>
       </p>
       <h2>{t.datenschutz.siteHeading}</h2>

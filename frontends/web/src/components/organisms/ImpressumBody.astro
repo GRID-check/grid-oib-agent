@@ -1,7 +1,7 @@
 ---
 import SectionTag from '../atoms/SectionTag.astro'
 import { ui, type Locale } from '../../i18n/ui'
-import { legalIdentity } from '../../data/legal'
+import { identityLines, legalIdentity } from '../../data/legal'
 
 interface Props {
   locale?: Locale
@@ -9,6 +9,17 @@ interface Props {
 const { locale = 'de' } = Astro.props
 const t = ui[locale].legal
 const id = legalIdentity
+const owner = identityLines(id)
+
+// Only the rows that have a value. While the FlexCo is unfounded that is none
+// of them, and the whole section below falls away with its heading rather than
+// printing labels with nothing behind them.
+const register = [
+  id.registerNumber && `${t.impressum.registerNumberLabel}: ${id.registerNumber}`,
+  id.registerCourt && `${t.impressum.registerCourtLabel}: ${id.registerCourt}`,
+  id.uid && `${t.impressum.uidLabel}: ${id.uid}`,
+  id.chamber && `${t.impressum.chamberLabel}: ${id.chamber}`,
+].filter((row): row is string => Boolean(row))
 ---
 
 <section class="px-6 pb-28 pt-36 md:px-10">
@@ -22,23 +33,35 @@ const id = legalIdentity
     <div class="prose-piloti mt-10">
       <h2>{t.impressum.ownerHeading}</h2>
       <p>
-        {id.operator}<br />
-        {id.legalForm}<br />
-        {id.addressLines[0]}<br />
-        {id.addressLines[1]}
+        {
+          owner.map((line, i) => (
+            <Fragment>
+              {line}
+              {i < owner.length - 1 && <br />}
+            </Fragment>
+          ))
+        }
       </p>
       <p>
         {t.emailLabel}: <a href={`mailto:${id.email}`}>{id.email}</a>
       </p>
       <h2>{t.impressum.purposeHeading}</h2>
       <p>{t.impressum.purpose}</p>
-      <h2>{t.impressum.registerHeading}</h2>
-      <p>
-        {t.impressum.registerNumberLabel}: {id.registerNumber}<br />
-        {t.impressum.registerCourtLabel}: {id.registerCourt}<br />
-        {t.impressum.uidLabel}: {id.uid}<br />
-        {t.impressum.registerNote}
-      </p>
+      {
+        register.length > 0 && (
+          <Fragment>
+            <h2>{t.impressum.registerHeading}</h2>
+            <p>
+              {register.map((row, i) => (
+                <Fragment>
+                  {row}
+                  {i < register.length - 1 && <br />}
+                </Fragment>
+              ))}
+            </p>
+          </Fragment>
+        )
+      }
       <h2>{t.impressum.liabilityHeading}</h2>
       <p>{t.impressum.liability}</p>
     </div>

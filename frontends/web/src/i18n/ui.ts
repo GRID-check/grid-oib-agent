@@ -365,7 +365,7 @@ const de = {
       registerNumberLabel: 'Firmenbuchnummer',
       registerCourtLabel: 'Firmenbuchgericht',
       uidLabel: 'UID-Nummer',
-      registerNote: 'Zuständige Kammer und Behörde — wird vor dem Livegang ergänzt.',
+      chamberLabel: 'Kammer und Aufsichtsbehörde',
       liabilityHeading: 'Haftung für Inhalte',
       liability:
         'Die Inhalte dieser Website werden mit Sorgfalt erstellt. Für Richtigkeit, Vollständigkeit und Aktualität wird keine Gewähr übernommen. Inhalte zu baurechtlichen Themen stellen keine Rechtsberatung dar.',
@@ -738,7 +738,7 @@ const en: typeof de = {
       registerNumberLabel: 'Commercial register no.',
       registerCourtLabel: 'Register court',
       uidLabel: 'VAT ID',
-      registerNote: 'Competent chamber and authority — to be completed before launch.',
+      chamberLabel: 'Chamber and supervising authority',
       liabilityHeading: 'Liability for content',
       liability:
         'The content of this website is created with care. No guarantee is given for accuracy, completeness or currency. Content on building-law topics does not constitute legal advice.',

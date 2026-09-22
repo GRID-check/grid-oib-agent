@@ -12,6 +12,10 @@
  * act on:
  *   1. an image reference that points at no file
  *   2. an image with no alt text
+ *
+ * It also reports any bracketed placeholder still sitting in the legal identity.
+ * That one shipped to /impressum once already, because a placeholder breaks
+ * nothing: the page renders, the build is green, and only a reader notices.
  */
 
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
@@ -92,6 +96,16 @@ for (const file of files) {
       problems.push(`${rel}: image "${ref}" has no alt text`)
     }
   }
+}
+
+/**
+ * Placeholders in src/data/legal.ts, by the bracket convention the file uses.
+ * A warning, not a failure: the site is pre-launch and a red build every time
+ * anyone touches the blog would teach everyone to ignore the check.
+ */
+const legalSource = readFileSync(resolve(webRoot, 'src/data/legal.ts'), 'utf8')
+for (const [, placeholder] of legalSource.matchAll(/'(\[[^']*)'/g)) {
+  warnings.push(`src/data/legal.ts: still a placeholder — ${placeholder}`)
 }
 
 for (const warning of warnings) console.warn(`  ! ${warning}`)
