@@ -135,7 +135,7 @@ SYSTEM_PROMPT = (
     "Behörde); `grounding` is belegt when a cited passage states it, abgeleitet when it is computed or "
     "inferred from cited values, offen when no source carries it; `reference` the document and Punkt or "
     "page the report names; `citations` the [N] numbers the report attaches to it; `comment` what "
-    "qualifies the status in one sentence or null; `area` the section or Prüfpunkt it belongs to or null. "
+    "qualifies the status in one sentence or null; `area` the section it belongs to or null. "
     "Keep the report's order. A report with no requirement-shaped content returns an empty list.\n"
     "\n"
 )

@@ -796,10 +796,10 @@ export const chat: typeof en.chat = {
   },
   agentPrompt: {
     plan: {
-      points: 'Prüfpunkte',
-      addPoint: 'Prüfpunkt ergänzen',
-      addPlaceholder: 'Weiteren Prüfpunkt eintragen …',
-      removePoint: 'Prüfpunkt streichen: {point}',
+      points: 'Abschnitte',
+      addPoint: 'Abschnitt ergänzen',
+      addPlaceholder: 'Weiteren Abschnitt eintragen …',
+      removePoint: 'Abschnitt streichen: {point}',
       genre: 'Art des Berichts',
       genres: {
         pruefbericht: 'Prüfbericht',

@@ -2,9 +2,9 @@
 features:
   - >
     Der Rechercheplan vor einer Tiefenrecherche ist jetzt eine Checkliste:
-    Prüfpunkte lassen sich streichen und ergänzen, die Art des Berichts
+    Abschnitte lassen sich streichen und ergänzen, die Art des Berichts
     (Prüfbericht, Aktenvermerk, Vergleich, Checkliste, Bericht) und die Tiefe
     (Kurzprüfung, Gutachten) sind wählbar. Was Sie freigeben, bindet die
-    Recherche: die Prüfpunkte werden in dieser Reihenfolge zu den Abschnitten
-    des Berichts, und ein Prüfbericht trägt je Prüfpunkt einen Befund mit
+    Recherche: die Abschnitte werden in dieser Reihenfolge zu denen des Berichts,
+    und ein Prüfbericht trägt je Prüfpunkt einen Befund mit
     Wert, Fundstelle und Status.

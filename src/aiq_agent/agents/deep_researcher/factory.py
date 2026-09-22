@@ -494,7 +494,7 @@ def build_deep_research_subagents(context: DeepResearchGraphContext) -> list[dic
                 "enable_source_router": context.enable_source_router,
                 "max_research_concurrency": context.max_research_concurrency,
                 # The plan the reader approved binds the planner: its
-                # Prüfpunkte are the required components, in that order.
+                # sections are the required components, in that order.
                 "approved_plan": context.state.clarifier_result,
             },
         )

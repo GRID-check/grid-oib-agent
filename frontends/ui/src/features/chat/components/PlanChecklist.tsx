@@ -1,9 +1,9 @@
 /**
- * The Prüfplan card: the plan as controls, not as a list to say yes to.
+ * The Rechercheplan card: the plan as controls, not as a list to say yes to.
  *
  * The backend's plan preview carries the plan as data beside its text
  * (`clarify.format_plan_for_user`, the `plan_json` fence). This renders the
- * Prüfpunkte as a checklist the reader can strike and extend, and the genre
+ * sections as a checklist the reader can strike and extend, and the genre
  * and depth as choices, and hands the edited plan back to the approval
  * button: an approval without edits sends the bare keyword the backend has
  * always understood; an approval with edits sends the keyword and the edits

@@ -154,7 +154,7 @@ export const AgentPrompt: FC<AgentPromptProps> = ({
         .trim()
     : content
   // With the plan drawn as controls, the numbered list above it would say the
-  // Prüfpunkte twice; the text keeps the title and loses the list.
+  // sections twice; the text keeps the title and loses the list.
   const bubbleContent = plan
     ? displayContent.replace(PLAN_SECTIONS_BLOCK_RE, '').trim()
     : displayContent

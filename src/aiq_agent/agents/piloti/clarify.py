@@ -272,7 +272,7 @@ def parse_plan_reply(reply: str) -> tuple[PlanDecision, str]:
     Returns:
         ``("approved", "")`` run deep research on this plan;
         ``("approved", json)`` run it on the plan as the reader EDITED it on
-        the plan card — the Prüfpunkte, the genre, the depth — as a JSON object
+        the plan card — the sections, the genre, the depth — as a JSON object
         after the keyword (:func:`apply_plan_edits`);
         ``("shallow", "")`` answer now without the plan;
         ``("cancelled", "")`` stop the turn, no answer wanted;
@@ -324,7 +324,7 @@ def format_plan_for_user(plan: PlanResponse) -> str:
     # (frontends/ui .../AgentPrompt.tsx). Changing a byte here requires
     # changing the regexes there in the same commit.
     # The same plan as data, for the plan card: the client strips the fence
-    # and renders the Prüfpunkte, the genre and the depth as controls; a client
+    # and renders the sections, the genre and the depth as controls; a client
     # that does not know the fence shows the list above and the fence stays
     # readable. The envelope sentence below it is untouched.
     plan_json = json.dumps(plan.model_dump(), ensure_ascii=False)
@@ -381,13 +381,13 @@ def approved_plan_context(plan: PlanResponse) -> str:
     """The approved plan as deep research reads it.
 
     The orchestrator, the planner and the writer all receive it
-    (``factory.py`` ``prompt_values``): the Prüfpunkte become the required
+    (``factory.py`` ``prompt_values``): the sections become the required
     components in this order, the genre the answer type, the depth the length.
     """
     sections_text = "\n".join(f"- {s}" for s in plan.sections)
     return (
         f"**Approved Research Plan**\n\nTitle: {plan.title}\nGenre: {plan.genre}\nDepth: {plan.depth}\n\n"
-        f"Prüfpunkte (required components, in this order):\n{sections_text}"
+        f"Sections (required components, in this order):\n{sections_text}"
     )
 
 

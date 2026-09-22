@@ -496,7 +496,7 @@ describe('AgentPrompt — the plan card', () => {
     useChatStore.setState({ respondToInteractionFn: null })
   })
 
-  test('renders the Prüfpunkte, the genre and the depth as controls, and hides the fence', () => {
+  test('renders the sections, the genre and the depth as controls, and hides the fence', () => {
     useChatStore.setState({ respondToInteractionFn: vi.fn() })
     render(<AgentPrompt id="prompt-1" type="approval" content={CONTENT} />)
     expect(screen.getAllByTestId('plan-point').map((li) => li.textContent)).toEqual([
@@ -527,9 +527,9 @@ describe('AgentPrompt — the plan card', () => {
     const respond = vi.fn()
     useChatStore.setState({ respondToInteractionFn: respond })
     render(<AgentPrompt id="prompt-1" type="approval" content={CONTENT} />)
-    await user.click(screen.getByRole('button', { name: 'Remove review point: Fluchtwege' }))
+    await user.click(screen.getByRole('button', { name: 'Remove section: Fluchtwege' }))
     await user.type(
-      screen.getByRole('textbox', { name: 'Add a review point' }),
+      screen.getByRole('textbox', { name: 'Add a section' }),
       'Landesabweichungen{enter}'
     )
     await user.click(screen.getByRole('radio', { name: 'Full opinion' }))

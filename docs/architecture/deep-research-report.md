@@ -33,15 +33,15 @@ which both sides validate. One row per requirement:
   computed from cited values, `offen` when no source carries it.
 - `reference`, `citations` — the document and Punkt or page, and the `[N]` the
   report attaches; the matrix links each `[N]` to the answer's sources row.
-- `comment`, `area` — what qualifies the status; the Prüfpunkt it belongs to.
+- `comment`, `area` — what qualifies the status; the section it belongs to.
 
 Every string is bounded on both sides, because the payload is jsonb and a table.
 
-## The Prüfplan, before the run
+## The Rechercheplan, before the run
 
 With plan approval on (`configs/*.yml` `enable_plan_approval`), the plan preview
 carries the plan as data beside its text (a `plan_json` fence the client strips),
-and the bubble renders it as controls (`PlanChecklist.tsx`): the Prüfpunkte as a
+and the bubble renders it as controls (`PlanChecklist.tsx`): the sections as a
 list the reader can strike and extend, the genre (`pruefbericht`,
 `aktenvermerk`, `vergleich`, `checkliste`, `bericht`) and the depth
 (`kurzpruefung`, `gutachten`) as choices. An untouched plan approves with the
@@ -51,7 +51,7 @@ pre-selects genre and depth before the planner runs (`plan_decisions.py`), and
 the planner is told.
 
 The approved plan is binding: it reaches the orchestrator, the planner and the
-writer (`factory.py` `prompt_values`); the Prüfpunkte become the required
+writer (`factory.py` `prompt_values`); the sections become the required
 components in that order, the genre the answer type, the depth the length. The
 `pruefbericht-writer` skill writes the genre's core, one Befund line per
 Prüfpunkt in a fixed shape, which is also what the findings extraction reads.

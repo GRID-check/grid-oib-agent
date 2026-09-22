@@ -790,10 +790,10 @@ export const chat = {
   },
   agentPrompt: {
     plan: {
-      points: 'Review points',
-      addPoint: 'Add a review point',
-      addPlaceholder: 'Add another review point …',
-      removePoint: 'Remove review point: {point}',
+      points: 'Sections',
+      addPoint: 'Add a section',
+      addPlaceholder: 'Add another section …',
+      removePoint: 'Remove section: {point}',
       genre: 'Kind of report',
       genres: {
         pruefbericht: 'Compliance review',

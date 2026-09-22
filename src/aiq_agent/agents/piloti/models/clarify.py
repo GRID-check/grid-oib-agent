@@ -117,8 +117,7 @@ def _require_every_property(schema: dict[str, Any]) -> None:
 class PlanResponse(_StrictContract):
     """Structured response from the planner LLM: the research plan preview.
 
-    ``sections`` are the Prüfpunkte: what the report will read against the
-    project, in the order it will do so. The reader edits them, the genre and
+    ``sections`` are what the report will cover, in the order it will. The reader edits them, the genre and
     the depth on the plan card before the run starts, and the approved plan
     binds the planner and the writer.
     """
@@ -126,7 +125,7 @@ class PlanResponse(_StrictContract):
     model_config: ClassVar[ConfigDict] = {"extra": "forbid", "json_schema_extra": _require_every_property}
 
     title: str = Field(description="Clear, descriptive title for the research report.")
-    sections: list[str] = Field(description="3-8 Prüfpunkte (section headings) outlining what the report covers.")
+    sections: list[str] = Field(description="3-8 section headings outlining what the report covers.")
     genre: PlanGenre = Field(
         default="bericht",
         description="The document genre: pruefbericht, aktenvermerk, vergleich, checkliste or bericht.",

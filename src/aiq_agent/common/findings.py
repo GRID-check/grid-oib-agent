@@ -64,9 +64,7 @@ class Finding(BaseModel):
     reference: FindingReference | None = None
     citations: list[int] = Field(default_factory=list, max_length=MAX_CITATIONS, description="the [N] the report cites")
     comment: str | None = Field(default=None, max_length=MAX_COMMENT_CHARS, description="what qualifies the status")
-    area: str | None = Field(
-        default=None, max_length=MAX_LABEL_CHARS, description="the Prüfpunkt the finding belongs to"
-    )
+    area: str | None = Field(default=None, max_length=MAX_LABEL_CHARS, description="the section the finding belongs to")
 
 
 class Findings(BaseModel):
