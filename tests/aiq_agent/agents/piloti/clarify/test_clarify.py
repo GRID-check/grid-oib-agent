@@ -920,7 +920,7 @@ class TestThePlanCard:
 
         text = approved_plan_context(PlanResponse(title="T", sections=["A", "B"], genre="vergleich", depth="gutachten"))
         assert "Genre: vergleich" in text and "Depth: gutachten" in text
-        assert "Prüfpunkte (required components, in this order):\n- A\n- B" in text
+        assert "Sections (required components, in this order):\n- A\n- B" in text
 
     def test_a_plan_without_the_new_keys_still_parses_with_the_defaults(self):
         plan = parse_json_response('{"title": "T", "sections": ["A"]}', PlanResponse)
