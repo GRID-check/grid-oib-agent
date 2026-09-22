@@ -1,23 +1,27 @@
 # Turns per answer (2026-09)
 
 > Where one chat turn spends its LLM calls, which of those calls exist only
-> because of how the answer is carried, and what takes them out without taking
-> a capability with them. It ends in a ranked plan whose every step names the
-> loop-eval column that has to move, and in an evaluation of TypeSafe's Jev —
-> a decision model, not a language model — against the one rule this repo has
-> already made about deciding things before the answer (ADR-0052).
+> because of how the answer is carried or how a tool result is worded, and
+> what took them out without taking a capability with them. It reconstructs
+> the fifteen-call turn the product owner saw on „was weißt du über OIB 2"
+> mechanism by mechanism, says which mechanisms this change closed and
+> which remain, and evaluates TypeSafe's Jev — a decision model, not a
+> language model — against the one rule this repo has already made about
+> deciding things before the answer (ADR-0052).
 >
 > **What it rests on.** The tree at this tip, read call by call
 > (`agents/piloti/agent.py`, `answer_pipeline.py`, `common/turn_status.py`,
-> `sources/knowledge_layer/src/register.py`, `configs/config_oib_openrouter.yml`);
-> the prompt weights measured with `o200k_base` against
-> `prompts/piloti_static.md`; the two Langfuse traces the
-> [hobble register](hobble-register-2026-09.md) §0 already holds. **What it
-> does not rest on:** a fresh trace set. Langfuse was not reachable from the
-> session that wrote this and PostHog holds no `$ai_generation` events for
-> this project (checked 2026-09-22, last 14 days: zero traces). Every count
-> below is therefore the *minimum honest* number of calls a shape needs under
-> the code as written, not a p50, and §8 starts by making it one.
+> `sources/knowledge_layer/src/register.py`, `read_passage.py`,
+> `configs/config_oib_openrouter.yml`); the prompt and catalog weights
+> measured with `o200k_base`; and, for every mechanism named in §2.3, a
+> local reproduction of it (the script or test that shows it is cited in
+> the row). **What it does not rest on:** a trace set. Langfuse was not
+> reachable from the session that wrote this and PostHog holds no
+> `$ai_generation` events for this project (2026-09-22, last 14 days). So
+> §2.3 is a *reconstruction*: the sequence the prompt, the tool contracts
+> and the budget lead a model to, with each step's cause verified in
+> isolation, landing on the count the owner observed. The first item of §8
+> is still to make it a measurement.
 >
 > Complements the [hobble register](hobble-register-2026-09.md) (which
 > constraint sits where), the
@@ -45,27 +49,37 @@ round, the repair rewrite is not a round. This document counts **calls**,
 because that is what costs money and seconds, and says where each one comes
 from.
 
-Minimum honest call counts, today and after the changes of §8:
+The first version of this document counted the *minimum* calls a shape needs
+and put „Was weißt du über OIB 2" at three or four. The product owner saw
+about fifteen. The gap is not the model being careless: every one of the
+extra calls is the reasonable next step given what a tool result said, what
+a prompt taught, or what a budget did — and each of those was a defect
+that a local reproduction could show. §2.3 lists them; the table below is
+the before and after per shape, with the calls that this change removed
+named by the mechanism that caused them.
 
-| Shape | Today | After | What comes out |
+| Shape | Reconstructed before | After this change | What came out (§ where it is verified) |
 |---|---|---|---|
 | Greeting, memory request, shelf listing | 1 | 1 | — |
-| „Fass den offenen Plan zusammen" | 2 (+1 judge) | 1–2 | the judge (§4 J2); the search when the prefetch hits (§8.2) |
-| „Was regelt die OIB-Richtlinie 2?" | 3–4 (+1 judge) | 1–2 | the card round (§3.3), the search when the prefetch hits |
-| Ruling with a card („Feuerwiderstand tragende Wände GK 5") | 4 (+1 judge; +1 on a wrong card shape) | 2 | the card round and the shape retry (§3.3), the search (§8.2) |
-| Bauordnung question via RIS („Unterlagen für die Einreichung in Wien") | 3 (+planner, +extractor) | 2 | the card round; the extractor when a § is named |
-| Measurement turn („wie hoch ist der Keller") | 5 | 3–4 | the card round; the skill round when the body is pre-loaded (§4 J5) |
+| „Fass den offenen Plan zusammen" | 2 (+1 judge) | 2 (+1 judge) | nothing yet; the search when the prefetch lands (§8.2) |
+| „Was weißt du über OIB 2?" | **14–15** | 3–4 (+1 judge) | the two skill rounds (§2.3 a), the second and third open round (b, c), the card round and its retry (d, e), the repair pass (f); the post-answer pair stays, off the path |
+| Ruling with a card („Feuerwiderstand tragende Wände GK 5") | 6–7 (+1 judge) | 3 (+1 judge) | the skill rounds, the card round and the shape retry |
+| Bauordnung question via RIS („Unterlagen für die Einreichung in Wien") | 4 (+planner, +extractor) | 3 | the skill round (`einreichcheck`), the card round |
+| Measurement turn („wie hoch ist der Keller") | 5 | 4 | the card round; the skill round stays (`ifc-spatial-reasoning` is over the inline cap, §2.6) |
 | Follow-up on an opened document („und in GK 4?") | 3 | 2 | the card round |
-| Commissioned document („mach daraus einen Aktenvermerk") | 3 | 2–3 | nothing structural; `file_draft` depends on `write_file` |
+| Commissioned document („mach daraus einen Aktenvermerk") | 3 | 3 | nothing structural; `file_draft` depends on `write_file` |
 | Commissioned report (handoff) | 1 (+ the deep path) | 1 | — |
 
-Two things the table says that are easy to miss. First, **the card round is
-the one call that appears on every researched shape and buys the reader no
-new evidence** — it exists because a card is a tool call and a tool call
-ends a message, so the answer needs one more call after it (§3.3). Second,
-**the search round is the one the model has to make before it has read
-anything**, and on the shapes the product answers most it is a call the
-question alone could have made (§8.2).
+Two things the table says that are easy to miss. First, **the calls that
+came out were not decisions the model made badly; they were decisions it
+was led to** — by a skill body that says "load the other one first", by an
+outline with no excerpts, by a shape the catalog rendered wrong, by a
+citation format the verifier did not recognise. Each is closed at the layer
+that produced it (§2.3), which is why the count falls without a prompt
+sentence telling the model to hurry. Second, **the search round is the one
+the model still has to make before it has read anything**, and on the
+shapes the product answers most it is a call the question alone could have
+made (§8.2). That is the next structural change and it is not in this one.
 
 ---
 
@@ -73,34 +87,41 @@ question alone could have made (§8.2).
 
 ```
 WS frame ─▶ gather(context, inventory, registry, subject)      no LLM; one HTTP hop each, in parallel
-        ─▶ render_system_prompt                                  no LLM (Langfuse prompt store, cached)
+        ─▶ render_system_prompt                                  no LLM (Langfuse prompt store, cached);
+        │                                                        the short skill bodies ride it (ADR-0063)
         ─▶ agent node ──▶ tools node ──▶ agent node ── … ──▶ answer
-             │ 1 call        │ parallel calls   │ 1 call         │ 1 call, the envelope
+             │ 1 call        │ parallel calls   │ 1 call         │ 1 call, the envelope: prose, anatomy, CARDS
              │               │ knowledge_search: embed → chroma → cross-encoder ‖ REQUERY JUDGE (1 frontier call)
              │               │                  → (insufficient?) 2 more retrievals → rerank again
+             │               │ read_passage:     deterministic; outline with excerpts; member aliases resolve
              │               │ ris_lookup:       planner (1 small call) → fetch → extractor (1 small call, 0 when a § is named)
              │               │ ifc_*, surface_documents, emit_card, remember, write_file …: no LLM
-        ─▶ verify_citations, verify_quoted_spans                 pure
+             │               │ every grounding block: Trace-Lanes JSON stripped before the model reads it
+        ─▶ register the envelope's cards; repair a wrong shape ONCE on card_llm (bounded), or drop and record
+        ─▶ verify_citations (filename OR display title + page), verify_quoted_spans   pure
         ─▶ repair (≤ 2 retrievals + 1 rewrite)                   up to 1 frontier call + 2 judges, only on a failure
         ─▶ sanitize, gate the envelope                           pure
         ─▶ deltas of the FINISHED text                          nothing streamed before this line
         ─▶ post-answer stages (follow-ups, reflection)          async, off the reader's path, on the bill
 ```
 
-**What every call re-sends.** The static prefix is 9 722 tokens at this tip
-(`piloti_static.md`, `o200k_base`; the hobble register's 8 503 predates the
-envelope schema growing), of which `<answer_envelope>` is 3 884 and `<stimme>`
-1 406. The envelope JSON schema is injected on top. The tool schemas ride on
-every call unless deferred; ADR-0048 measured `ifc_query` + `ifc_measure` +
-`emit_card` alone at ≈ 14 000 tokens before deferral, and the config still
-budgets "~9 000 tokens of tool schema" per round. The dynamic half is
-≈ 3 000 (hobble register row 23). History is kept to 40 000. So a research
-turn's *third* call carries the prefix, the schemas, the history, two rounds
-of tool results and the model's own intermediate messages — 40–80 k tokens,
-which is what the traces in the register show (37 k → 83 k across one turn).
-Prompt caching (row 6, `common/prompt_caching.py`) makes the prefix cheap to
-re-send; it does not make the call faster to start, and it does nothing for
-the tool results, which are new every round.
+**What every call re-sends.** The static prefix is 9 722 tokens at the
+previous tip (`piloti_static.md`, `o200k_base`) and the envelope schema
+injected into it grew by the cards contract: doctrine 1 477, index 919,
+the eight common shapes 3 515, in all 6 083 tokens, so the taught envelope
+is now 6 820. The skills block below the boundary is 4 570 tokens with the
+nine chat methods inlined against 356 for their catalog lines. Both sit in
+the part of the prompt the provider's automatic prefix caching covers
+(`common/prompt_caching.py`), so they are re-read once per turn, not once
+per call. The tool schemas ride on every call unless deferred; ADR-0048
+measured `ifc_query` + `ifc_measure` + `emit_card` alone at ≈ 14 000 tokens
+before deferral. History is kept to 40 000. What is *not* cached and grows
+per round is the tool results, and there this change took something out
+too: every knowledge grounding block used to carry a `## Trace-Lanes` line
+of JSON (file ids, lane names, scores) meant for the ledger and read by the
+model; it is stripped before the message reaches the transcript
+(`strip_trace_lanes`, `_tools_node`), and the repair's retrievals get the
+same treatment.
 
 **The hidden calls.** Two are worth naming because they never appear as a
 round and are paid on every search:
@@ -108,15 +129,22 @@ round and are paid on every search:
 - **The requery judge** (`sources/knowledge_layer/src/requery.py`,
   `requery_llm: rerank_llm`, which is `${GRID_DEFAULT_MODEL}` — the frontier
   default — at `reasoning_effort: none`). It runs beside the reranker on
-  every `knowledge_search`, reads the question and twelve 600-character
-  excerpts, and answers "sufficient, or here are two other phrasings". When
-  the cross-encoder was the slow half this cost nothing; the cross-encoder is
-  now a ~300 ms OpenRouter call (`reranker_provider: openrouter`), so the
-  judge is the long pole of every search and a frontier call per search. Its
-  job is a yes/no over a state — §4 J2.
+  every `knowledge_search` that reaches the retrieval loop and that
+  `should_skip_judge` does not exempt (a pinned file, a judge that already
+  fired this search; the family overview is a branch that returns before the
+  loop), reads the question and
+  twelve 600-character excerpts, and answers "sufficient, or here are two
+  other phrasings". With the cross-encoder a ~300 ms OpenRouter call, the
+  judge is the long pole of every search and a frontier call per search.
+  Its job is a yes/no over a state — §4 J2.
 - **The RIS planner and extractor** (`ris_planner_llm`, reasoning `none`).
   One or two small calls inside `ris_lookup`, zero when the question names a
   §. Already bounded by design (register §3.3); nothing to take out.
+
+And one new bounded call, off the round budget: the **card repair**
+(`cards/repair.py`, `card_repair_llm: card_llm`), a few thousand tokens on
+the small tier, only when the envelope carried a card the validator refused
+and only once per card. It replaces a full-context retry round.
 
 **What is not on the reader's path** and must be left alone: the post-answer
 stages, citation and quote verification (pure Python), the client's delta
@@ -128,88 +156,128 @@ batching. The latency audit §2 lists them.
 
 Each row is a question the office actually asks (the loop-eval set,
 `tests/fixtures/herleitung/loop_eval_questions.yaml`, plus the shapes the
-config's traced floors name). "Today" is the call sequence the prompt and
-tool contracts lead to, with the minimum count; "why" names what each call
-needs that the previous one could not have had. Calls the hobble register
-already removed (`ris_search → ris_fetch → …`, `describe_card`) are not
-re-counted.
+config's traced floors name). "Before" is the call sequence the prompt and
+tool contracts led to at the previous tip; "why" names what each call
+needed that the previous one could not have had, or the defect that made it
+happen. Calls the hobble register already removed (`ris_search → ris_fetch →
+…`, `describe_card`) are not re-counted.
 
 ### 2.1 „Hallo, was kannst du?" · „Merk dir: Bauklasse III" · „Was liegt im Büroarchiv?"
 
 | | Call | Needs |
 |---|---|---|
-| today | ① answer (`kind: direct`) — or ① `remember` → ② answer | the inventory is in the prompt; nothing to retrieve |
+| before, after | ① answer (`kind: direct`) — or ① `remember` → ② answer | the inventory is in the prompt; nothing to retrieve |
 
-One call, two for a memory write. Nothing to take out except the 20 k tokens of
-prefix the greeting pays, which caching already discounts. A greeting's cost
-is a *prefix* problem, not a *turns* problem, and §8 does not touch it.
+One call, two for a memory write. Nothing to take out except the prefix the
+greeting pays, which caching already discounts. A greeting's cost is a
+*prefix* problem, not a *turns* problem, and §8 does not touch it.
 
 ### 2.2 „Fass den offenen Plan zusammen." (subject document open)
 
 | | Call | Needs |
 |---|---|---|
-| today | ① `knowledge_search(file_name=EG_Grundriss.pdf)` [+ judge] → ② answer | the passages; the file name is already in the prompt (`## This turn's subject`) |
-| after | ⓪ prefetch `knowledge_search(question, file_name=subject)` → ① answer | the subject is known before the model runs; the fetch needs no decision |
+| before, after | ① `knowledge_search(file_name=EG_Grundriss.pdf)` [judge skipped: file pinned] → ② answer | the passages; the file name is already in the prompt (`## This turn's subject`) |
+| next | ⓪ prefetch `knowledge_search(question, file_name=subject)` → ① answer | the subject is known before the model runs; the fetch needs no decision |
 
 The search is a call the *turn* could have made: the subject is bound before
 the model sees the question. This is the cleanest case for speculative
 retrieval (§8.2) and the first one to measure.
 
-### 2.3 „Was weißt du über die OIB-Richtlinie 2?"
+### 2.3 „Was weißt du über OIB 2?" — the fifteen calls, reconstructed
 
-| | Call | Needs |
-|---|---|---|
-| today | ① `knowledge_search("OIB-Richtlinie 2")` [+ judge] → ② `read_passage` × members *or* `emit_card` → ③ `emit_card` → ④ answer | ① the family shape (every member's scope + Gliederung) — ② the Punkte the answer will name — ③ the card (a `typed_table` of the members or a `summary`) needs the content — ④ the prose needs the marker `[[card:N]]` the tool returned |
-| after | ⓪ prefetch the family search (the question is family-shaped: `family_query_number` already recognises it) → ① `read_passage` × members → ② answer + cards in the envelope | ① what ② needs; the card no longer ends a message |
+The owner's report was "about 15 turns". Here is the sequence the code led
+to, with each step's cause and the reproduction that confirms the cause.
+Every row is a mechanism, not a guess about the model's mood; the count is
+what the mechanisms add up to.
 
-Three or four calls become two. The register's trace A of this exact question
-ran 4 calls and truncated; the config's traced floor is 3 rounds + synthesis.
+| # | Call | Why it happened | Verified by |
+|---|---|---|---|
+| 1 | `use_skill(brandschutz)` | The catalog offered ten one-line skills; "OIB 2" is fire safety, and the doctrine said to load a skill before following it | `brandschutz/SKILL.md` description; `SkillRuntime.prompt_block` at the previous tip |
+| 2 | `use_skill(gebaeudeklasse)` | The Brandschutz body opens with „Gebäudeklasse zuerst … `gebaeudeklasse` laden, bevor eine Zahl fällt" | the body, verbatim |
+| 3 (+judge) | `knowledge_search("OIB-Richtlinie 2")` | The family search; `family_query_number` recognises the shape and returns every member's outline | `sources/knowledge_layer/src/register.py::family_overview` |
+| 4 | `read_passage` × 12 | The outline listed ~26 Punkte across OIB 2, 2.1, 2.2 and 2.3 with **nothing but their headings**; an overview answer needs their content, so the model opened them — and `max_calls_per_round: 12` ran twelve and answered the rest „not run this round, ask again next round" | `_outline_lines` before this change; `status:width:N` in `piloti/AGENTS.md` |
+| 5 | `read_passage` × 12 | the withheld opens, as told | the width cap's own notice |
+| 6 | `read_passage` × 2, some by member label | The rest — and an open addressed as „OIB 2.1" or „OIB-Richtlinie 2.1" **missed**, because `_document_names` matched the filename and the derived title only, so the tool answered with suggestions and the model re-issued it | `tests/knowledge_layer_tests/test_read_passage.py` alias tests, red before this change |
+| 7 | `emit_card(typed_table)` → **rejected** | The card of the members: the catalog rendered `TypedColumn = { label* }` and the validator required `type` too, so every first `typed_table` failed (7 of 12 first attempts across the common shapes failed in the local experiment, this being the certain one) | `tests/aiq_agent/cards/test_envelope_cards.py::TestTheRenderedShapeIsTheValidatedShape`, red before |
+| — | budget ceiling | Seven rounds spent; `max_tool_iterations: 7` forces synthesis, strict schema, **no cards possible** on that call | `agent.py` forced-synthesis branch |
+| 8 | synthesis (forced) | the answer, written from what was gathered | — |
+| — | `verify_citations` | The answer cited the way the prompt teaches a Fundstelle — „OIB-Richtlinie 2, S. 5" — and the verifier matched **filenames only**, so every title-style citation was removed and the answer was graded ungrounded | `tests/aiq_agent/common/test_citation_verification.py::TestATitleCitationResolves`, red before |
+| 9, 10 (+2 judges) | repair retrievals | The repair pass (`repair_pass: true`) fetched twice for the „failing" text | `piloti/repair.py::_retrieve` |
+| 11 | repair rewrite | and rewrote the answer with the citations it could resolve | same |
+| 12, 13 | follow-ups, memory reflection | the post-answer stages, off the reader's path | `stages/runner.py` |
+
+Eleven calls on the reader's path, thirteen with the post-answer pair,
+fourteen to fifteen with the hidden judges (the family overview is its own
+branch in `knowledge_search` and returns before the retrieval loop, so it
+runs none; the repair's two retrievals run theirs). And the answer
+that shipped had **no card**, because the round that would have carried it
+was the one the ceiling cut, and the strict synthesis schema cannot express
+a card.
+
+What each mechanism became:
+
+| | Mechanism | Closed by | Calls out |
+|---|---|---|---|
+| a | the skill chain (1, 2) | ADR-0063: the nine chat methods ride the prompt; `brandschutz`'s "load `gebaeudeklasse`" is read in place | 2 |
+| b | the opens the overview forced (4, 5, 6) | every chapter line of an outline carries its opening sentence (`OutlineEntry.excerpt`, 120 characters), so an *overview* answer is written from the overview; the opens that remain are the Punkte the answer will quote | 2–3 |
+| c | the member-label miss (6) | `_document_names` resolves `OIB 2.1`, `OIB-RL 2.1`, `OIB-Richtlinie 2.1` and the edition-less title | the re-issue |
+| d | the card round (7) | cards travel in the envelope's `cards` field, registered by `finalize_answer`; the marker contract is unchanged | 1 |
+| e | the rejected shape (7) | `catalog._is_discriminator` renders `TypedColumn.type`; and a shape the model still gets wrong is repaired once on `card_llm`, not by a round | 1 |
+| f | the repair pass (9, 10, 11) | `_match_registry_title`: a citation by display title, with or without a page, resolves to the registry entry — longest unambiguous name wins, an ambiguous head resolves nothing | 3 (+2 judges) |
+| g | Trace-Lanes JSON in every block | stripped before the transcript; not a call, but every call after a read was carrying it | tokens per call |
+| — | the family search (3) and its overview | stays: it is the one retrieval the question needs | 0 |
+| — | the post-answer pair (12, 13) | stays, off the path | 0 |
+
+After: ① the family search → ② the opens the answer quotes (0–1 round) →
+③ synthesis with the members' table in the envelope; two post-answer calls
+behind it; one judge at most. Three to four on the reader's path.
 
 ### 2.4 „Welchen Feuerwiderstand brauchen die tragenden Wände in GK 5?" (`kind: ruling`)
 
 | | Call | Needs |
 |---|---|---|
-| today | ① `knowledge_search` [+ judge] → ② `read_passage(OIB-RL 2, Pkt 2.2 / Tabelle 1b)` → ③ `emit_card(legal_basis)` (+ `typed_table`) → ④ answer; a wrong `legal_basis` shape → ③′ retry with the shape the error handed back | ② the table row the verdict copies — ③ the verbatim `original_text` for the card — ④ the marker |
-| after | ⓪ prefetch `knowledge_search(question)` → ① `read_passage(Punkt)` → ② answer + `legal_basis` in the envelope, shape pre-attached (§4 J3) | the passage; the card's shape arrives with the synthesis call, so the first attempt is the right one |
+| before | ① `use_skill(brandschutz)` → ② `use_skill(gebaeudeklasse)` → ③ `knowledge_search` [+ judge] → ④ `read_passage(OIB-RL 2, Pkt 2.2 / Tabelle 1b)` → ⑤ `emit_card(legal_basis)` (+ `typed_table`) → ⑥ answer; a wrong shape → ⑤′ retry | ④ the table row the verdict copies — ⑤ the verbatim `original_text` for the card — ⑥ the marker |
+| after | ① `knowledge_search` [+ judge] → ② `read_passage(Punkt)` → ③ answer + `legal_basis` in the envelope, its shape in the prefix | the passage; the method and the shape are already in front of the model |
+| next | ⓪ prefetch `knowledge_search(question)` → ① `read_passage(Punkt)` → ② answer | §8.2 |
 
-Four (five on a shape miss) become two. This is the product's core shape and
-the one where the card round is the most visible: `legal_basis` is emitted on
-most rulings, and the doctrine itself says the card is the *proof* margin
-(`_LEGAL_BASIS_CARD_TYPE` in `answer_pipeline.py`) — an answer that carries
-it pays a full round for it every time.
+Six or seven become three. This is the product's core shape and the one
+where the card round was the most visible: `legal_basis` is emitted on most
+rulings, and the doctrine itself says the card is the *proof* margin
+(`_LEGAL_BASIS_CARD_TYPE` in `answer_pipeline.py`) — an answer that carried
+it paid a full round for it every time.
 
 ### 2.5 „Welche Unterlagen verlangt die Baubehörde in Wien für die Einreichung eines Wohnhauses?"
 
 | | Call | Needs |
 |---|---|---|
-| today | ① `ris_lookup(question)` [+ planner + extractor] → ② `emit_card(document_checklist)` → ③ answer | ① the §§ of the BO Wien — ② the checklist rows need the §§ — ③ the marker |
-| after | ⓪ prefetch `ris_lookup` when the question is a Bauordnung question (Land + „Einreichung/Bewilligung/Unterlagen" — the norm registry's `match_entries` already says so) → ① answer + `document_checklist` in the envelope | — |
+| before | ① `use_skill(einreichcheck)` → ② `ris_lookup(question)` [+ planner + extractor] → ③ `emit_card(document_checklist)` → ④ answer | ② the §§ of the BO Wien — ③ the checklist rows need the §§ — ④ the marker |
+| after | ① `ris_lookup(question)` → ② answer + `document_checklist` in the envelope | — |
+| next | ⓪ prefetch `ris_lookup` when the question is a Bauordnung question (Land + „Einreichung/Bewilligung/Unterlagen" — the norm registry's `match_entries` already says so) → ① answer | — |
 
-Three become one on a prefetch hit, two on a miss. `ris_lookup` was the
-register's consolidation (five calls → three); the two that remain are the
-card and the search-before-reading, which are the two this document is about.
+Four become two. `ris_lookup` was the register's consolidation (five calls →
+three); what remains is the search-before-reading, which §8.2 is about.
 
 ### 2.6 „Wie hoch ist der Keller?" (a model in the project)
 
 | | Call | Needs |
 |---|---|---|
-| today | ① `use_skill(ifc-spatial-reasoning)` → ② `ifc_query(overview)` → ③ `ifc_measure(storeyHeight, Keller)` → ④ `emit_card` → ⑤ answer | ① the routing table between the two tools (the skill IS the vocabulary, `bim/AGENTS.md`) — ② the storey names, which ③ refuses to guess — ④ the measured value — ⑤ the marker |
-| after | ⓪ the skill body pre-attached when the question is model-shaped (§4 J5), or ① `use_skill` → ② `ifc_query` → ③ `ifc_measure` → ④ answer + card | the model step is genuinely serial: the measure needs the storey name the overview returned |
+| before | ① `use_skill(ifc-spatial-reasoning)` → ② `ifc_query(overview)` → ③ `ifc_measure(storeyHeight, Keller)` → ④ `emit_card` → ⑤ answer | ① the routing table between the two tools (the skill IS the vocabulary, `bim/AGENTS.md`) — ② the storey names, which ③ refuses to guess — ④ the measured value — ⑤ the marker |
+| after | ① `use_skill` → ② `ifc_query` → ③ `ifc_measure` → ④ answer + card | the skill body is 17 573 characters, over the inline cap on purpose; the model step is genuinely serial: the measure needs the storey name the overview returned |
 
-Five become three or four. The serial pair ② → ③ is real work and stays; the
-skill round is a *loading* call, which is what the Jev skill-suggestion
-pattern removes (§4 J5). This is also the turn whose Herleitung drew two
-empty „Suche" layers until this change (§6).
+Five become four. The serial pair ② → ③ is real work and stays; the skill
+round is a *loading* call for the one method too long to ride the prompt,
+which is the case J1's `corpus` question is for (§4.3). This is also the
+turn whose Herleitung drew two empty „Suche" layers until this change (§6).
 
 ### 2.7 „…und in GK 4?" (follow-up; `OIB-RL 2` is in „Bereits gelesen")
 
 | | Call | Needs |
 |---|---|---|
-| today | ① `read_passage(OIB-RL 2, Pkt 2.2)` → ② `emit_card` → ③ answer | ① the other column of the same table — ② the card — ③ the marker |
+| before | ① `read_passage(OIB-RL 2, Pkt 2.2)` → ② `emit_card` → ③ answer | ① the other column of the same table — ② the card — ③ the marker |
 | after | ① `read_passage` → ② answer + card | the digest already names the document; nothing to search |
 
-Three become two. The digest did its job (no search); the card round is all
-that is left.
+Three become two. The digest did its job (no search); the card round was
+all that was left.
 
 ### 2.8 „Erstell mir einen ausführlichen Bericht zum Brandschutz." (handoff)
 
@@ -221,13 +289,13 @@ out of scope here.
 
 | | Call | Needs |
 |---|---|---|
-| today | ① `write_file` → ② `file_draft` → ③ answer (+ the `document_draft` system card, pushed by the tool) | ② needs ①'s path; ③ needs the card's marker |
-| after | same; the dependency ① → ② is real | — |
+| before, after | ① `write_file` → ② `file_draft` → ③ answer (+ the `document_draft` system card, pushed by the tool) | ② needs ①'s path; ③ needs the card's marker |
 
-Nothing structural. The one thing §3.3 must keep is that `document_draft`,
-`document_grid`, `file_operation_proposal` and `task_created` are **system
-cards pushed by tools**, not cards the model composes — they stay on the tool
-channel whatever happens to the model's own cards.
+Nothing structural. What §3.3 kept is that `document_draft`,
+`document_grid`, `file_operation_proposal`, `task_created` and
+`memory_proposal` are **system cards pushed by tools**, not cards the model
+composes — they stay on the tool channel, and the envelope refuses them by
+name.
 
 ---
 
@@ -236,8 +304,9 @@ channel whatever happens to the model's own cards.
 The envelope (`common/answer_envelope.py`) is the right decision and this
 section does not reopen it: the verdict, summary, takeaways and callout are
 the answer's own anatomy, parsed once and gated deterministically, and they
-used to cost a tool call each. What follows is what the envelope *carries*,
-and one thing it does not carry yet.
+used to cost a tool call each. What follows is what the envelope *carries*
+— including, since this change, the cards — and the one thing it still
+does not do.
 
 ### 3.1 What it buys — keep
 
@@ -247,7 +316,8 @@ and one thing it does not carry yet.
   (register §5): a verdict longer than 60 characters is dropped, a summary
   over 320, more than one callout.
 - Rendering the schema from the validator's own models, so the prompt and the
-  gate cannot drift.
+  gate cannot drift — and now the cards contract from the card catalog, for
+  the same reason (`cards/envelope.py::render_envelope_cards_contract`).
 
 ### 3.2 What it costs
 
@@ -261,62 +331,40 @@ and one thing it does not carry yet.
 - **`kind` is decided at the end**, which is correct (the model knows what
   the turn was only once it has answered) and means nothing upstream can act
   on it. Fine.
-- **The cards are not in it.** See 3.3.
+- **A forced synthesis ships without cards.** The strict provider schema
+  cannot express the card union, so the field is omitted there
+  (`json_schema_extra={"strict_schema": "omit"}`); the truncated turn ships
+  without cards rather than without an answer. That is the right asymmetry
+  and it is one more reason a turn must not reach the ceiling.
 
-### 3.3 Cards are tool calls, and that is the one extra round on every researched turn
+### 3.3 Cards travel in the envelope (done in this change)
 
-`emit_card` is bound as a tool (`cards/register.py`). A message that carries
-tool calls is not the answer — `tools_condition` routes it to the tools node,
-the cards are validated and pushed into the `CardRegistry`, and the model is
-called **again** to write the prose with the `[[card:N]]` markers the tool
-handed back. That second call re-sends the whole context (40–80 k tokens on a
-researched turn) to produce text the model could have written in the same
-breath as the card. On a wrong shape it is a third call: the error returns the
-shape (`_shape_hint_for`), the model retries, then answers.
+`emit_card` was bound as a tool, and a message that carries tool calls is
+not the answer: the cards were validated, pushed into the `CardRegistry`,
+and the model was called **again** to write the prose with the `[[card:N]]`
+markers the tool handed back — 40–80 k tokens re-sent for text it could have
+written in the same breath, and a third call on a wrong shape. The doctrine
+already treated cards as part of the answer ("delete the cards mentally and
+the answer must still answer"), and the envelope had made the same move for
+the verdict and the takeaways for the same reason.
 
-The doctrine already treats cards as part of the answer — "delete the cards
-mentally and the answer must still answer", a card is placed "while you
-write, not afterwards" — and the envelope already made the same move for
-the verdict and the takeaways, for the same reason: "emission was optional
-twice (the model had to recognise the trigger AND spend a tool call)"
-(`answer_envelope.py`, header). The cards are the last of the model's own
-output still travelling on the tool channel.
+What shipped (`cards/envelope.py`, `answer_pipeline.py::_register_envelope_cards`,
+`cards/repair.py`, `docs/architecture/cards.md`):
 
-**The change.** A `cards` field on the envelope: a JSON array of card
-objects, each exactly what `emit_card` takes today, validated by the same
-`grid_card_adapter`, pushed into the same registry in `finalize_answer`
-before `_suppress_cards` runs. `[[card:N]]` keeps its positional meaning: N
-indexes that array, in order, so the frontend's resolver
-(`features/grid-cards/card-markers.ts`) does not change. What changes:
-
-| | Today | After |
+| | Before | Now |
 |---|---|---|
-| A card on a researched answer | +1 full-context call | 0 calls |
-| A card whose shape was wrong | +2 calls (retry, then answer) | one bounded repair on the small tier, with the same shape hint text the error returns today; if that fails the card is dropped and `status:card:invalid` records the type — never the answer |
-| System cards (`document_draft`, `document_grid`, `file_operation_proposal`, `task_created`, `ifc_*`) | pushed by their tool | unchanged; `emit_card` stays bound for them and for a model that reaches for it anyway |
-| The card doctrine (triggers, craft, honesty) | in the `emit_card` description | moves to the envelope's `cards` field description — the same text, one home, no second copy in the prompt (register row 8 holds) |
-| `[[card:N]]` | returned by the tool | the model numbers the array it wrote; the marker contract in `<cards>` stays as is |
+| A card on a researched answer | +1 full-context call | 0 calls: the `cards` field of the envelope, same objects, same validator, same registry |
+| A card whose shape was wrong | +2 calls (retry, then answer) | one bounded repair on `card_llm` (`card_repair_llm`), with the same clauses and shape the tool error returned; failing that the card is dropped and `status:card:invalid:N` records the type — never the answer |
+| The shapes the model is taught | the one-line index; the shape arrived with the error | the doctrine, the index and the full shapes of the eight cards answers earn most (`ENVELOPE_SHAPE_TYPES`, 3 515 tokens) in the cached prefix; the other thirty-odd keep their index line |
+| A shape the catalog rendered wrong | every first `typed_table` failed | `_is_discriminator`: a field called `type` is skipped only when it is the card's one-value discriminator |
+| System cards | pushed by their tool | unchanged; the envelope refuses them by name, as `emit_card` does |
+| `emit_card` | the only channel | still bound, for a card shown before the answer is written and for deep research, whose writer has no envelope; its description keeps the doctrine and index for that reader |
+| `[[card:N]]` | returned by the tool | the model numbers its array from 1, after any marker a tool handed it this turn; `_renumber_envelope_markers` moves array numbers to registry positions and removes a dropped card's marker |
 
-**What it must not break, and the tests that say so.** Strict
-`json_schema` cannot express the 40-way card union (`envelope_call.py`
-already says so about `cards/generate.py`); the synthesis call therefore
-stays on the fenced contract or the `json_object` rung, which it is on today
-(`envelope_json_mode_with_tools: false`). A card the validator rejects costs
-the card, never the answer — the fail-open asymmetry of the envelope header
-applies verbatim. `_suppress_cards` and its two vetoes (a system card, a
-`legal_basis`) read the registry after it is filled, so the short-overview
-rule keeps working. The post-hoc deep-research path (`cards/generate.py`)
-does not change. Measure: `loop_eval` gains `card_rounds` (rounds whose
-calls were all `emit_card`; today 1 on every card-bearing row, must be 0) and
-`cards_invalid` (from `status:card:invalid`; must not rise above today's
-shape-retry rate, which `status:action:card` followed by a second
-`status:action:card` in one turn already counts).
-
-This is the single change with the largest turn effect and no capability
-cost, and it needs an amendment to `cards.md` / ADR-0012 (the "synchronous
-card channel" paragraph in `cards/register.py` argues the tool step is a
-*visible* step; the envelope makes it visible after the fact, on the wire,
-which is what the Herleitung reads anyway).
+Measure: `loop_eval` gains `card_rounds` (rounds whose calls were all
+`emit_card`; must be 0) and `cards_invalid` (from `status:card:invalid`;
+must stay below the old shape-retry rate). Neither column exists yet — §8
+row 1.
 
 ### 3.4 Envelope or trailer, when streaming is built
 
@@ -328,15 +376,15 @@ forms of the *same* schema, same fields, same gates:
   closes and resolves.
 - **Trailer**: the prose first as it is written, then ONE fenced
   `answer_meta` object last (kind, confidence, summary, verdict, takeaways,
-  callout, cards). The prose streams natively; the markers are withheld the
-  same way; the registry is complete by synthesis time so per-marker
-  verification is deterministic; the sources section is rebuilt anyway; a
-  handoff's one-line answer streaming and then being replaced by the terminal
-  frame is legal on this wire (the frame is authoritative).
+  callout, cards, skills_applied). The prose streams natively; the markers
+  are withheld the same way; the registry is complete by synthesis time so
+  per-marker verification is deterministic; the sources section is rebuilt
+  anyway; a handoff's one-line answer streaming and then being replaced by
+  the terminal frame is legal on this wire (the frame is authoritative).
 
 The trailer is the cheaper build and the envelope is the cleaner contract;
-the gates do not care which. It is an ADR, not a paragraph, and it is
-sequenced after §3.3 so the `cards` field exists in whichever carrier wins.
+the gates do not care which. It is an ADR, not a paragraph, and the `cards`
+field now exists in whichever carrier wins.
 
 ---
 
@@ -431,26 +479,28 @@ one unread grounding block. Measure: `rounds`, `truncated`, and a new
 `prefetch_used` (did the answer cite a passage the prefetch returned) against
 `prefetch_wasted`.
 
-**J3 — card selection, so the shape arrives with the synthesis call.** The
-user's "multi-select which cards have to be created" is several Nouls in one
-call, one per trigger row of `_CARD_TRIGGERS` (twenty-odd), over `{question,
-the round conclusions, the retrieved passages' headings}` — never the full
-passages (the "large irrelevant state" edge). The top one or two types above
-threshold get their L2 shape (`render_card_details`) attached to the
-synthesis call. Nothing is withheld: the model may still emit any card, and a
-type Jev did not pick simply arrives without its shape, exactly as today.
-What it buys, combined with §3.3: the first attempt is the right shape, and a
-card costs zero rounds. Measure: `cards_invalid` must fall; `card_rounds` is
-already 0 from §3.3. Worth doing only after §3.3, since with the tool channel
-the shape still costs a round.
+**J3 — card selection, so the shape arrives with the synthesis call —
+answered without a decision model.** The user's "multi-select which cards
+have to be created" was going to be several Nouls in one call, one per
+trigger row, picking whose L2 shape to attach to the synthesis call. Measured
+(§3.3), the eight shapes answers earn most are 3 515 tokens together, cheap
+enough to sit in the cached static prefix on every call; a selector that
+picks two of them per turn saves ~2 700 cached tokens and costs an alpha
+endpoint on the reader's path. The whole catalog's shapes are 23 376 tokens,
+and the rest of it is served by the small-model repair (§3.3) at a few
+thousand tokens on the rare miss. There is nothing left for a selector to
+buy until `cards_invalid` says the repair is running often, and if it does
+the answer is a ninth shape in the prefix, not a classifier.
 
-**J5 — skill suggestion.** TypeSafe's *skill suggestion* cookbook is the
-`use_skill` round: a Choice over the L1 catalog, and the winner's body
-attached to this turn's prompt below the cache boundary. The tension with
-ADR-0060's "a skill is an offer" is real and resolvable: the body is offered
-*earlier*, the tool stays bound, nothing is forced, and a skill the model did
-not need costs its tokens once rather than a round. Measure `skill_calls` on
-the model rows of the loop eval (today ≥ 1 on every measurement turn).
+**J5 — skill suggestion — answered without a decision model.** The
+`use_skill` round is gone for the skills where it cost more than the body
+(ADR-0063, §2.6): the nine chat methods are ~400 tokens each and ride the
+prompt; `ifc-spatial-reasoning` (17 573 characters) stays on the catalog
+line. A Choice over the catalog to pre-attach *that* one is the remaining
+case, on model-shaped turns only, and it is the same shape as J1's `corpus`
+question (`model` is one of its options): fold it into J1 rather than a
+question of its own. Measure `skill_calls` on the model rows of the loop
+eval, which J1 must bring to 0.
 
 **J4 — a grounding score after the fact.** "Does the cited passage support
 this sentence" per citation is the *citation check* cookbook and would be a
@@ -573,6 +623,11 @@ plan below does not pretend to have addressed them:
 - **The live line is per round, not per call.** A round of five parallel
   opens shows one line; the judge inside a search shows nothing. Fine while
   the judge is fast; if J2 is not done, a 10 s judge is a silent 10 s.
+- **The card repair is one more thing on the path.** A wrong-shaped card
+  now costs a bounded small-model call (≤ 20 s, `cards/repair.py`) after
+  the answer is written and before it ships. Rare by design (§3.3: the
+  common shapes are in front of the model), and it must stay rare:
+  `status:card:invalid` is the count to watch.
 - **`ask_user` costs a round and a human.** One per turn, six options, and
   the guard is right (register row 11). Nothing here changes it; the
   clarification doctrine ("state your assumption, or ask ONE question") is
@@ -582,17 +637,32 @@ plan below does not pretend to have addressed them:
 
 ## 8. The plan, ranked
 
-Rank = calls removed per researched turn × how often the shape occurs ÷ what
-it risks. Every row names the loop-eval column that must move and the one
-that must not.
+What this change did, and what is left. Rank = calls removed per researched
+turn × how often the shape occurs ÷ what it risks. Every open row names the
+loop-eval column that must move and the one that must not.
+
+**Done in this change**, each at the layer that produced the call (§2.3):
+
+| Mechanism | Closed by | Ratchet |
+|---|---|---|
+| the skill rounds | ADR-0063: short bodies ride the prompt, the model names what it followed | `test_inline_bodies.py::TestThePremiseIsMeasured` fails when a chat method grows past the cap |
+| the card round and its retry | cards in the envelope; one small-model repair | `test_envelope_cards_pipeline.py`; `status:card:invalid` counts what the repair could not fix |
+| the shape the catalog hid | `_is_discriminator` | a test writes a card from the rendered shape and validates it |
+| the opens an overview forced | outline lines carry an excerpt | `test_read_passage_outline.py` |
+| the member-label miss | `_document_names` aliases | `test_read_passage.py` |
+| the repair pass on a title citation | `_match_registry_title` | `TestATitleCitationResolves` |
+| Trace-Lanes JSON on the model's context | `strip_trace_lanes` in `_tools_node` and the repair | `test_trace_lanes_off_context.py`, through the compiled graph |
+| the Herleitung's empty „Suche" layers | §6 | `ReasoningFlow.spec.ts` |
+
+**Open**, ranked:
 
 | # | Change | Calls out | Must move | Must not move | Size |
 |---|---|---|---|---|---|
-| 1 | **Make the loop eval report calls, not only rounds.** `llm_calls` per row off the cost tracker (`GridCostTracker` already meters every completion of the turn, hidden ones included), `card_rounds`, `judge_calls`. Then run it once at this tip and commit the CSV beside the yaml | 0 | — | — | S |
-| 2 | **Cards in the envelope** (§3.3) | 1 on every card-bearing turn, 2 on a shape miss | `card_rounds` → 0 | `cards_invalid`, `verdict`, `punkt_match` | M + an amendment to `cards.md` |
-| 3 | **Speculative prefetch, no decision model** (§2.2, §2.3, §8.2 below) | 1 on most researched turns | `rounds` down, `truncated` → 0 on the family rows | `punkt_match`, `family_coverage`; `prefetch_wasted` must be reported | M |
-| 4 | **Applicable outlines below the boundary** (§5 b) | up to 1 on Punkt-shaped questions | `read_passage` up, `repeat_query` down | `punkt_match` | S |
-| 5 | **The decision eval** (§4.4), then J2, J1, J3, J5 in that order, each behind its adoption rule | 1 hidden frontier call per search (J2); the skill round (J5) | `judge_calls` → 0 (J2), `skill_calls` (J5) | everything the rule names | S for the eval; S each after |
+| 1 | **Make the loop eval report calls, not only rounds.** `llm_calls` per row off the cost tracker (`GridCostTracker` already meters every completion of the turn, hidden ones included), `card_rounds`, `judge_calls`, `skill_calls`, `cards_invalid`. Then run it at this tip and commit the CSV beside the yaml, so §2.3 stops being a reconstruction | 0 | — | — | S |
+| 2 | **Speculative prefetch, no decision model** (§2.2, §2.4, §2.5, §8.2 below) | 1 on most researched turns | `rounds` down, `truncated` → 0 on the family rows | `punkt_match`, `family_coverage`; `prefetch_wasted` must be reported | M |
+| 3 | **Applicable outlines below the boundary** (§5 b) | up to 1 on Punkt-shaped questions | `read_passage` up, `repeat_query` down | `punkt_match` | S |
+| 4 | **The decision eval** (§4.4), then J2 and J1 (J1 carrying the `corpus: model` question that pre-attaches `ifc-spatial-reasoning`), each behind its adoption rule | 1 hidden frontier call per search (J2); the last skill round (J1) | `judge_calls` → 0 (J2), `skill_calls` → 0 (J1) | everything the rule names | S for the eval; S each after |
+| 5 | **A miss says why** — `miss_hint` on the ledger entry (§6) | 0 — trust, not calls | — | — | S |
 | 6 | **Streaming, with the carrier decision** (§3.4, ledger 16) | 0 — seconds, not calls | time to first token on the root span | the terminal frame stays authoritative | L, ADR |
 
 **8.2, the prefetch in one paragraph, because it is the least obvious row.**
@@ -619,9 +689,20 @@ the round it would have spent already spent.
 **What not to do**, each of which has been proposed once: an intent router
 in front of the agent (ADR-0052); a smaller tool set (the register measured
 what that costs); lowering the round ceiling (the ceiling is a floor plus two
-repairs, config comment); preloading law texts by project (§5 c); trimming
-the envelope's rhetorical fields to save output tokens (output is 0.4–1.4 %
-of a turn's tokens, register §0).
+repairs, config comment — and §2.3 shows what a turn that hits it loses: its
+cards); preloading law texts by project (§5 c); trimming the envelope's
+rhetorical fields to save output tokens (output is 0.4–1.4 % of a turn's
+tokens, register §0); a prompt sentence telling the model to use fewer
+rounds, which treats the symptom of every mechanism in §2.3 and removes the
+signal that points at the next one.
+
+**Two things a PR of this change must carry**, said here because nothing
+local checks them: the static prompt in production is the Langfuse-managed
+copy (ADR-0060 a), so the envelope schema change reaches it through the
+injected placeholder on its own, and the rewritten `<cards>` prose reaches
+it only when the Langfuse prompt is updated from the committed file; and
+the Herleitung label change (§6) needs visual evidence on the PR or the
+`no-visual-evidence` marker with its reason.
 
 ---
 
