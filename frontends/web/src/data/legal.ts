@@ -1,9 +1,12 @@
 import { CONTACT_EMAIL } from '../consts'
 
 /**
- * LAUNCH BLOCKER: real company data required before going live.
- * Every value below is a placeholder and must be replaced with the actual
- * operator identity before the site is published.
+ * LAUNCH BLOCKER: the register data below is still placeholder.
+ *
+ * `legalForm`, `registerCourt`, `registerNumber` and `uid` must carry the real
+ * operator identity before the site is published - § 5 ECG and § 25 MedienG
+ * require them, and they render verbatim on /impressum in both locales.
+ * `registerNote` in `i18n/ui.ts` (de and en) is the fifth, written as prose.
  */
 export interface LegalIdentity {
   operator: string
@@ -18,10 +21,7 @@ export interface LegalIdentity {
 export const legalIdentity: LegalIdentity = {
   operator: 'Piloti',
   legalForm: '[Firmenname und Rechtsform — Platzhalter / placeholder]',
-  addressLines: [
-    '[Straße und Hausnummer — Platzhalter / placeholder]',
-    '[PLZ und Ort — Platzhalter / placeholder], Österreich / Austria',
-  ],
+  addressLines: ['Kellermanngasse 8/12', '1070 Wien, Österreich / Austria'],
   registerCourt: '[Firmenbuchgericht — Platzhalter / placeholder]',
   registerNumber: '[Firmenbuchnummer — Platzhalter / placeholder]',
   uid: '[UID-Nummer — Platzhalter / placeholder]',
