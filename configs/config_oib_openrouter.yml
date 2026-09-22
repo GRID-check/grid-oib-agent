@@ -855,6 +855,15 @@ functions:
     # Agent skills (progressive-disclosure `use_skill` tool) active on research
     # turns. Empty allowlist = every resolved skill (builtin + org) is offered.
     skills_enabled: true
+    # A skill body within these caps rides the system prompt in full, so the
+    # model follows it without a `use_skill` round (ADR-0063). The nine
+    # chat-facing platform methods are ~1 600 characters each and fit
+    # together under the budget (~4 600 tokens, cached with the prefix within
+    # a turn); `ifc-spatial-reasoning` (17 500) and anything an org writes at
+    # length stay one catalog line and load on demand. 0 on either restores
+    # the catalog-only prompt.
+    skills_inline_max_body_chars: 2400
+    skills_inline_budget_chars: 16000
     skill_allowlist: []
     # Retrieval-based tool narrowing. OFF, deliberately — the block below is the
     # tested configuration, not a suggestion, and it is commented out because on

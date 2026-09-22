@@ -1,0 +1,8 @@
+---
+features:
+  - >
+    Questions that follow one of the office's working methods (Gebäudeklasse,
+    Brandschutz, Einreichcheck, Bestand and the others) answer faster: the
+    assistant has the short methods in front of it from the start instead of
+    loading each one in a separate step, and the "Skills used" disclosure
+    still names the ones it followed.

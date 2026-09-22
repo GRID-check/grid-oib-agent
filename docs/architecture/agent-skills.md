@@ -212,8 +212,9 @@ chat turn that cannot execute it.
 disclosure under an answer reports what shaped it, and a product built on
 traceable sourcing must not have a class of instruction it declines to admit
 ran. With forcing gone there is one way a skill runs — the model read its line
-in the catalog and called `use_skill` — so the panel names exactly the bodies
-that were delivered.
+in the catalog and called `use_skill`, or (ADR-0063) read its body in the
+prompt and named it in the envelope's `skills_applied` — so the panel names
+exactly the bodies that reached the model and that it says it followed.
 
 **Fail-open drops offers and keeps machinery** — see Resolution below. Offers
 reach a run through the BFF payload, and the backend's fail-open baseline is the
@@ -396,10 +397,22 @@ skill onto a turn: not the request, not the deployment, not a job.
   KV-cache boundary, never a source and never above the rules it may not
   override).
 
-Progressive disclosure has exactly two levels:
+Progressive disclosure has two levels, and a measured shortcut (ADR-0063):
+a body short enough to cost less than the round `use_skill` would take rides
+the prompt in full, within a budget the agent's config sets
+(`skills_inline_max_body_chars` 2,400 / `skills_inline_budget_chars` 16,000 on
+Piloti; deep research sets neither and keeps the catalog). The inlined bodies
+render as `<skill name="…">` elements under `## Skills`, the rest as one line
+each under `### Available by name`. The model names the inlined skills it
+followed in the envelope's `skills_applied`; the runtime accepts a name only
+when that body was in the prompt, and that is what makes it `activated`. The
+nine chat-facing platform methods fit the default budget together (~4,600
+tokens, cached with the prefix within a turn); `ifc-spatial-reasoning` and any
+long org method stay a line.
 
 - **L1 — the catalog.** One line per RESOLVED skill (`name: description`)
-  under the system prompt's `## Available skills` heading, and nothing else —
+  under the system prompt's `## Available skills` heading (or `### Available
+  by name` when a budget is set), and nothing else —
   there is no second, "active" block any more, and nothing a person sets takes
   a row out. `grid-auto-invoke: false` used to; its author-facing switch is
   gone, so honouring the stored token would hide a skill from every turn with
@@ -407,10 +420,11 @@ Progressive disclosure has exactly two levels:
   decides nothing. The block is pre-collated by the register layer
   (`piloti/register.py::_skills_block`, `deep_researcher/agent.py::_skills_block`)
   and renders via the runtime's `prompt_block()`; `None` renders no section.
-- **L2 — the body.** The model must call the `use_skill` tool to load a
-  body before following it. A failed lookup returns an error listing the
+- **L2 — the body.** A body over the budget is loaded with the `use_skill`
+  tool before it is followed. A failed lookup returns an error listing the
   available names, so a hallucinated skill name is self-correcting rather
-  than a fatal turn.
+  than a fatal turn. `use_skill` still answers for an inlined body (a model on
+  an older prompt), and that delivery activates it exactly as before.
 
 **Every scaffolding string in the runtime is English**, and that is a decision
 rather than an oversight. The one heading left was German once (`## Verfügbare

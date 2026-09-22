@@ -37,8 +37,9 @@ Ohne Projekt in dieser Unterhaltung bleibt der Entwurf im Arbeitsordner: Ablegen
 
 {% endif %}
 
-{# Agent skills catalog (L1): rendered by the register layer only when skills
-   apply to this run. None = no skills section, model never sees `use_skill`. #}
+{# Agent skills: the short bodies in full and the rest as catalog lines
+   (ADR-0063), rendered by the register layer only when skills apply to this
+   run. None = no skills section, model never sees `use_skill`. #}
 {% if skills_block is defined and skills_block %}
 {{ skills_block }}
 

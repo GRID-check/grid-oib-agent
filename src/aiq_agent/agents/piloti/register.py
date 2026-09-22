@@ -142,6 +142,22 @@ class ResearchAgentConfig(FunctionBaseConfig, name="research_agent"):
         default_factory=list,
         description="Optional skill-name allowlist; empty = every resolved skill is offered.",
     )
+    skills_inline_max_body_chars: int = Field(
+        default=2400,
+        description=(
+            "A skill whose body is at most this many characters rides the system prompt in full "
+            "(ADR-0063), so following it costs no `use_skill` round; a longer one is one catalog line. "
+            "The office's own methods are ~1 600 characters each. 0 = every body behind `use_skill`."
+        ),
+    )
+    skills_inline_budget_chars: int = Field(
+        default=16000,
+        description=(
+            "Ceiling on the characters of skill bodies that ride the prompt per turn, filled in catalog "
+            "order (platform, then the org's own); what does not fit is one catalog line. ~4 600 tokens "
+            "at the default, cached with the prefix within a turn. 0 = every body behind `use_skill`."
+        ),
+    )
     tool_search: ToolSearchSettings = Field(
         default_factory=ToolSearchSettings,
         description=(
@@ -245,7 +261,11 @@ async def _resolve_skill_runtime(
         resolved = tuple(skill for skill in resolved if skill.name in allow)
     if not resolved:
         return None
-    runtime = SkillRuntime(skills=resolved)
+    runtime = SkillRuntime(
+        skills=resolved,
+        inline_max_body_chars=config.skills_inline_max_body_chars,
+        inline_budget_chars=config.skills_inline_budget_chars,
+    )
     emit_skills_offered(runtime)
     return runtime
 
@@ -322,12 +342,16 @@ def _skills_block(runtime: SkillRuntime) -> str:
 
 
 def _report_skills(result: ResearchAgentState, runtime: SkillRuntime) -> None:
-    """Lift what was DELIVERED onto the result.
+    """Lift what was DELIVERED AND FOLLOWED onto the result.
 
     ``skills_activated`` is rendered to the reader as what shaped this answer,
-    so only a skill whose body the model opened belongs in it. A catalog the
-    model read past is not a miss to report: the offer was the whole mechanism.
+    so only a skill whose body reached the model belongs in it: opened through
+    ``use_skill``, or ridden in the prompt and named in the envelope's
+    ``skills_applied`` (ADR-0063), which the runtime accepts only for a body
+    it inlined. A catalog the model read past is not a miss to report: the
+    offer was the whole mechanism.
     """
+    runtime.record_applied(result.skills_applied or ())
     result.skills_activated = list(runtime.activated)
     hidden = list(runtime.hidden_activated)
     if hidden:
@@ -371,8 +395,8 @@ async def _run_turn(deployment: _Deployment, state: ResearchAgentState) -> Resea
 
     # The runtime's `use_skill` tool is folded into the tool set on every
     # turn: the model has the catalog and decides whether a skill applies,
-    # the same way it decides whether to search (ADR-0052). A skill's BODY
-    # still only travels on a `use_skill` call.
+    # the same way it decides whether to search (ADR-0052). A short body rides
+    # the prompt (ADR-0063); a long one still travels on a `use_skill` call.
     runtime = await _resolve_skill_runtime(config, state)
     # The conversation's working directory, folded in the same way: four file
     # verbs over a store namespaced by conversation, or nothing at all when the

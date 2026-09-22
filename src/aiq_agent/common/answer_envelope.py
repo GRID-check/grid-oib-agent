@@ -287,6 +287,18 @@ class AnswerMeta(_EnvelopeModel):
         default=None,
         description="with escalate_to_deep: one short clause saying why, in the answer's language",
     )
+    #: CONTROL. The model's account of which of the skills in its prompt it
+    #: followed (ADR-0063): a body that rode the prompt costs no ``use_skill``
+    #: call, so this is the only way the "Skills used" disclosure can learn it
+    #: shaped the answer. Names only; the runtime accepts a name only when the
+    #: body was in the prompt (``skills/runtime.py::record_applied``).
+    skills_applied: list[str] | None = Field(
+        default=None,
+        description=(
+            "the names of the skills from the prompt's Skills section whose method this answer followed; "
+            "omit when none did"
+        ),
+    )
     #: The model's own cards, in the same message as the answer — the card
     #: objects ``emit_card`` takes, validated by the same adapter after
     #: extraction (``cards/envelope.py``) and registered in the same per-turn
@@ -329,6 +341,7 @@ class AnswerMeta(_EnvelopeModel):
             and self.callout is None
             and self.confidence is None
             and self.escalate_to_deep is None
+            and not self.skills_applied
             and self.escalation_reason is None
             and not self.cards
         )
@@ -793,7 +806,10 @@ def _strict_property(annotation: object, *, required: bool) -> dict:
         schema = _strict_object(core)
     elif get_origin(core) is list:
         (item,) = get_args(core)
-        schema = {"type": "array", "items": _strict_object(item)}
+        # An array of one model (takeaways) or of plain strings (skills_applied);
+        # ``_strict_property`` on the item keeps a model recursive and raises on
+        # anything else the walker cannot express.
+        schema = {"type": "array", "items": _strict_property(item, required=True)}
     else:
         raise TypeError(f"envelope field type {annotation!r} has no strict-schema rendering")
 
@@ -868,6 +884,7 @@ def render_envelope_schema() -> str:
         "document, many sources to read against each other, or retrieved sources that cannot support an "
         "adequate answer)",
         "escalation_reason: string (with escalate_to_deep: one short clause saying why, in the answer's language)",
+        f"skills_applied: [string] ({AnswerMeta.model_fields['skills_applied'].description})",
     ]
     field_models: dict[str, type[BaseModel] | None] = {
         "verdict": AnswerMetaVerdict,

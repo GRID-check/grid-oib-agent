@@ -1,32 +1,52 @@
-"""Per-run skill runtime: the L1 catalog + the ``use_skill`` tool.
+"""Per-run skill runtime: the skills block + the ``use_skill`` tool.
 
-Skills are progressive disclosure: L1 is the description list (never expanded
-further than a line each), L2 is the full body, loaded ONLY through the
-``use_skill`` tool. The runtime is per run (ADR-0018 — never cached on a
-shared agent instance): it owns the ordered activation list that surfaces as
+Skills are progressive disclosure with a measured shortcut (ADR-0063). Every
+resolved skill is in the catalog; a body SHORT enough to cost less than the
+round it would otherwise take rides the prompt in full, within a budget the
+caller sets, and the model follows it without a call. Everything over the
+budget is one catalog line, and its body travels through the ``use_skill``
+tool. The runtime is per run (ADR-0018 — never cached on a shared agent
+instance): it owns the ordered activation list that surfaces as
 ``skills_activated`` on the terminal frame.
 
-A SKILL IS AN OFFER. Nothing in this module can put a skill's instructions in
-front of the model: the catalog carries one line per skill and the body travels
-through exactly one path, the ``use_skill`` closure below, called because the
-model decided the skill applies. There is no way to mark a skill as required,
-for a deployment or for one request, and that is the point — a working method
-the model was ordered to open is a standing instruction wearing a tool's
-clothes. Standing instructions belong in prompt text that says what must be
-true of the answer (the platform prompt, and the office's own instruction
-block), where they cost no tool call and cannot be half-applied.
+Why the shortcut: a ``use_skill`` call ends a message, so the body arrives one
+full-context call later — the whole prefix and every message re-sent, 3-8 s
+of latency, and a second round when the body says to load another (the
+Brandschutz method opens with "load ``gebaeudeklasse`` first"). The chat
+office's own methods are ~400 tokens each and ~3 800 tokens together
+(``tests/aiq_agent/skills/test_runtime.py`` measures it), which is the cost
+of one such round about ten times over. ADR-0060 rejected inlining on the
+premise that a body is "thousands of tokens"; it is, for the writers deep
+research uses (7-9k chars), and those stay on the catalog line. The budget
+is what keeps the premise measured rather than assumed: it is in characters,
+per body and in total, and a body over either is offered exactly as before.
 
-So ``activated`` means one thing only: the body was handed over. It is read by
-the "Skills used" disclosure as *what shaped this answer*, and in a product
-whose proposition is traceability a skill that was merely listed has shaped
-nothing.
+A SKILL IS AN OFFER. Nothing in this module can REQUIRE a skill: whether its
+body sits in the prompt or behind ``use_skill``, the model decides whether the
+question is the skill's subject, and a skill it did not choose shaped nothing.
+There is no way to mark a skill as required, for a deployment or for one
+request, and that is the point — a working method the model was ordered to
+follow is a standing instruction wearing a tool's clothes. Standing
+instructions belong in prompt text that says what must be true of the answer
+(the platform prompt, and the office's own instruction block), where they
+cannot be half-applied. Inlining moves WHERE an offer is read, not whether it
+is one.
 
-Activation is also ANNOUNCED as it happens (``skills.events``) rather than only
-reported at the end of the turn -- a skill rewrites how the answer is made, so
-the reader learns which working method is being applied while it still matters.
-That announcement rides on the same fact for the same reason: it fires when the
-body is delivered, so the live line cannot say a working method is being
-applied before the model has read it.
+So ``activated`` means the body reached the model AND was followed: handed
+over by ``use_skill``, or ridden in the prompt and NAMED by the model in the
+envelope's ``skills_applied`` (``record_applied``). It is read by the "Skills
+used" disclosure as *what shaped this answer*, and in a product whose
+proposition is traceability a skill that was merely listed has shaped
+nothing. A body in the prompt is listed until the model says it followed
+it; a name the model gives that was neither in the prompt nor delivered is
+dropped, because no body reached it.
+
+Activation is also ANNOUNCED (``skills.events``) rather than only reported at
+the end of the turn -- a skill rewrites how the answer is made, so the reader
+learns which working method is being applied. The announcement rides on the
+same fact: a ``use_skill`` delivery announces as it happens, and an inlined
+skill announces when the envelope names it, so the live line never says a
+working method is being applied before the model has read and chosen it.
 
 All scaffolding here is ENGLISH. The agent answers in the user's language —
 that is decided per turn from the question, not baked into the machinery — and a
@@ -40,6 +60,7 @@ same rule for the same reason: they carry keys, not sentences.
 from __future__ import annotations
 
 import logging
+from collections.abc import Sequence
 
 from .models import Skill
 from .models import preferred_cards
@@ -48,6 +69,18 @@ logger = logging.getLogger(__name__)
 
 _L1_HEADING = "## Available skills"
 _L1_DOCTRINE = "Call `use_skill` to load a skill's full instructions before following them."
+
+_INLINE_HEADING = "## Skills"
+_INLINE_DOCTRINE = (
+    "The office's working methods; you decide which one a question is the subject of. The ones "
+    "below are here in full: follow one without loading it, and name every one you followed in "
+    "the `skills_applied` field of your answer envelope — that is how the reader learns which "
+    "method shaped the answer. A skill below that says to load another that is also below is "
+    "asking you to read it here."
+)
+_INLINE_REST_HEADING = "### Available by name"
+_INLINE_REST_DOCTRINE = "Longer methods, one line each. Call `use_skill` to load one before following it."
+_INLINE_CARDS_LINE = "Preferred cards: {types} — the author's preference, not a requirement."
 
 _TOOL_NAME = "use_skill"
 _TOOL_DESCRIPTION = (
@@ -93,23 +126,80 @@ def _preferred_cards_block(skill: Skill) -> str | None:
     return f"{block}\n\n{details}" if details else block
 
 
+def _within_budget(skills: tuple[Skill, ...], max_body_chars: int, budget_chars: int) -> tuple[Skill, ...]:
+    """The skills whose body rides the prompt: catalog order, greedy, two caps.
+
+    A body longer than ``max_body_chars`` never rides, whatever room is left —
+    the per-body cap is what keeps one long method from taking the whole
+    budget. The total cap is filled in catalog order (platform, then the org's
+    own), so what an org sees is stable across turns and changes only when the
+    org changes its skills. Either cap at 0 means nothing rides.
+    """
+    if max_body_chars <= 0 or budget_chars <= 0:
+        return ()
+    chosen: list[Skill] = []
+    spent = 0
+    for skill in skills:
+        size = len(skill.body)
+        if size > max_body_chars or spent + size > budget_chars:
+            continue
+        chosen.append(skill)
+        spent += size
+    return tuple(chosen)
+
+
+def _inline_skill(skill: Skill) -> str:
+    """One inlined skill: its element, and its card preference as one line.
+
+    The preference rides as names only. The eight shapes answers earn most are
+    in the envelope contract already, and any other miss is repaired by the
+    small model (``cards/envelope.py``), so the full shapes ``use_skill``
+    appends would be paid on every call for nothing.
+    """
+    cards = preferred_cards(skill.metadata)
+    body = skill.body.strip()
+    if cards:
+        types = ", ".join(f"`{card}`" for card in cards)
+        body = f"{body}\n\n{_INLINE_CARDS_LINE.format(types=types)}"
+    description = " ".join(skill.description.split())
+    return f'<skill name="{skill.name}" description="{description}">\n{body}\n</skill>'
+
+
 class SkillRuntime:
     """Holds the resolved skills of ONE run and builds its prompt/tool wiring.
 
     Attributes:
         skills: The resolved skill set for this run (builtin + org, allowlisted).
-        activated: Skill names whose BODY was delivered this run, in call order.
+        inlined: The subset whose body rides the prompt, within the caller's budget.
+        activated: Skill names whose body was delivered and followed this run, in order.
     """
 
-    def __init__(self, skills: tuple[Skill, ...] = ()) -> None:
+    def __init__(
+        self,
+        skills: tuple[Skill, ...] = (),
+        *,
+        inline_max_body_chars: int = 0,
+        inline_budget_chars: int = 0,
+    ) -> None:
         self._skills: tuple[Skill, ...] = skills
         self._by_name: dict[str, Skill] = {s.name: s for s in skills}
         self._activated: list[str] = []
         self._activated_seen: set[str] = set()
+        self._inlined: tuple[Skill, ...] = _within_budget(skills, inline_max_body_chars, inline_budget_chars)
 
     @property
     def skills(self) -> tuple[Skill, ...]:
         return self._skills
+
+    @property
+    def inlined(self) -> tuple[Skill, ...]:
+        """The skills whose body rides the prompt this run, in catalog order.
+
+        Empty unless the caller set a budget: deep research builds a runtime
+        with the defaults and keeps every body behind ``use_skill``, because
+        its writer has no envelope to name a followed skill in.
+        """
+        return self._inlined
 
     @property
     def activated(self) -> tuple[str, ...]:
@@ -161,11 +251,38 @@ class SkillRuntime:
 
             emit_skill_activated(skill)
 
-    def prompt_block(self) -> str | None:
-        """L1: the progressive-disclosure catalog section, or None when empty.
+    def record_applied(self, names: Sequence[str]) -> tuple[str, ...]:
+        """Activate the INLINED skills the model says it followed; return what newly activated.
 
-        One line per resolved skill (name + description); the model must opt IN
-        via ``use_skill`` to see a body.
+        The envelope's ``skills_applied`` is the model's own account of which
+        of the bodies in its prompt shaped the answer. Only a name whose body
+        was in the prompt can be accepted: a skill delivered by ``use_skill``
+        is already active, and a name that matches nothing had no body reach
+        the model, so it shaped nothing whatever the model wrote. The
+        announcement fires here, with the answer, which is later than a
+        ``use_skill`` delivery announces — the price of the round it saves.
+        """
+        accepted: list[str] = []
+        inlined = {skill.name for skill in self._inlined}
+        for raw in names:
+            name = str(raw).strip().strip("`")
+            if name not in inlined:
+                logger.debug("skills_applied names %r, which was not inlined this run; ignored", name)
+                continue
+            if name in self._activated_seen:
+                continue
+            self._record_activation(name)
+            accepted.append(name)
+        return tuple(accepted)
+
+    def prompt_block(self) -> str | None:
+        """The skills section of the system prompt, or None when there are no skills.
+
+        With a budget: the inlined bodies in full under ``## Skills``, each in
+        a ``<skill name="…">`` element so its own headings cannot pass for the
+        prompt's, followed by one line per remaining skill. Without one: the
+        L1 catalog only, one line per resolved skill (name + description), and
+        the model must opt IN via ``use_skill`` to see a body.
 
         EVERY resolved skill is listed. ``grid-auto-invoke`` used to cut rows
         out of here, which made the catalog a thing a person edited rather than
@@ -180,9 +297,18 @@ class SkillRuntime:
         """
         if not self._skills:
             return None
-        lines = [_L1_HEADING, _L1_DOCTRINE, ""]
-        lines.extend(f"- `{s.name}`: {s.description}" for s in self._skills)
-        return "\n".join(lines)
+        if not self._inlined:
+            lines = [_L1_HEADING, _L1_DOCTRINE, ""]
+            lines.extend(f"- `{s.name}`: {s.description}" for s in self._skills)
+            return "\n".join(lines)
+        parts = [f"{_INLINE_HEADING}\n{_INLINE_DOCTRINE}"]
+        parts.extend(_inline_skill(skill) for skill in self._inlined)
+        rest = [skill for skill in self._skills if skill not in self._inlined]
+        if rest:
+            lines = [_INLINE_REST_HEADING, _INLINE_REST_DOCTRINE, ""]
+            lines.extend(f"- `{s.name}`: {s.description}" for s in rest)
+            parts.append("\n".join(lines))
+        return "\n\n".join(parts)
 
     def build_tools(self) -> list[object]:
         """The ``use_skill`` tool closure for this run; [] when no skills apply.

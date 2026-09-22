@@ -106,6 +106,10 @@ class FinalAnswer:
     escalation_reason: str | None = None
     source_lookup_attempted: bool = False
     answer_meta: dict[str, Any] | None = None
+    #: The envelope's ``skills_applied``: the inlined skills the model says it
+    #: followed. Names as written; the register hands them to the skill
+    #: runtime, which accepts only those whose body was in the prompt.
+    skills_applied: tuple[str, ...] = ()
     cited: tuple[CitedSource, ...] = ()
     removed_citations: tuple[dict[str, Any], ...] = ()
     #: The retrieval of an ADOPTED repair: already in the registry, and part
@@ -220,6 +224,18 @@ class _Extracted:
     confidence: str | None
     confidence_reason: str | None
     escalation_reason: str | None = None
+
+
+def _skills_applied(meta: AnswerMeta | None) -> tuple[str, ...]:
+    """The envelope's ``skills_applied`` as clean names, deduped, in the model's order."""
+    if meta is None or not meta.skills_applied:
+        return ()
+    names: list[str] = []
+    for raw in meta.skills_applied:
+        name = str(raw).strip().strip("`")
+        if name and name not in names:
+            names.append(name)
+    return tuple(names)
 
 
 def _extract(raw: str) -> _Extracted:
@@ -810,6 +826,7 @@ async def finalize_answer(
         escalation_reason=extracted.escalation_reason,
         source_lookup_attempted=lookup_attempted,
         answer_meta=meta,
+        skills_applied=_skills_applied(extracted.meta),
         cited=_renumbered(grounding.cited, sanitized.renumber_map),
         removed_citations=grounding.removed_citations,
         repair_sources=grounding.repair_sources,

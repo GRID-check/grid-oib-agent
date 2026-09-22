@@ -186,6 +186,7 @@ def assemble_result(
         "answer_escalation_reason": final.escalation_reason,
         "source_lookup_attempted": final.source_lookup_attempted,
         "answer_meta": final.answer_meta,
+        "skills_applied": list(final.skills_applied) or None,
         "verified_sources": (wire + measurement_sources_to_wire(list(turn_measurements))) or None,
         # Retrieved-but-not-cited document identities (no prose): what the
         # turn read beyond what the answer claims. Computed off the same two

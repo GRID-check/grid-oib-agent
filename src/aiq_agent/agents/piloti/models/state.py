@@ -250,6 +250,11 @@ class ResearchAgentState(BaseModel):
     # config — the chat node lifts it onto the terminal ChatResponse only when
     # present.
     skills_activated: list[str] | None = None
+    # What the ANSWER ENVELOPE said the model followed among the skills whose
+    # body rode the prompt (ADR-0063). Raw names, lifted by the ledger; the
+    # register turns the accepted ones into ``skills_activated`` after ``run()``.
+    # Never lifted to the reader itself.
+    skills_applied: list[str] | None = None
     # The subset of ``skills_activated`` marked ``grid-hidden`` — a skill that
     # runs on every answer (the house voice) is named in the disclosure but
     # de-emphasised there until the reader opens the reasoning view. Named, never

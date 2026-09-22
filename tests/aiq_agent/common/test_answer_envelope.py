@@ -641,3 +641,22 @@ class TestTopicContextRegistry:
         assert payload is not None
         assert payload["topic"] == "Brandschutz"
         assert payload["context"] == "OIB-RL 2, Ausgabe Mai 2023 · Wien"
+
+
+class TestSkillsApplied:
+    """A CONTROL field (ADR-0063): taught, enforced, never on the reader's wire."""
+
+    def test_it_parses_and_never_reaches_the_wire(self):
+        from aiq_agent.common.answer_envelope import gate_answer_meta
+
+        _content, meta = extract_answer_envelope(
+            _fenced({"answer": _PROSE, "kind": "walkthrough", "skills_applied": ["brandschutz"]})
+        )
+        assert meta is not None and meta.skills_applied == ["brandschutz"]
+        gated = gate_answer_meta(meta, prose_chars=len(_PROSE)) or {}
+        assert "skills_applied" not in json.dumps(gated)
+
+    def test_it_is_taught_and_enforced_as_an_array_of_strings(self):
+        assert "skills_applied: [string]" in render_envelope_schema()
+        prop = render_envelope_response_format()["json_schema"]["schema"]["properties"]["skills_applied"]
+        assert prop["items"] == {"type": "string"}
