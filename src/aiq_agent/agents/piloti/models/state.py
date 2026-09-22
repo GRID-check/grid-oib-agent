@@ -242,6 +242,11 @@ class ResearchAgentState(BaseModel):
     # by the register layer before ``run()`` when skills are enabled; None
     # otherwise.
     skills_block: str | None = None
+    # The full shapes of the card types the turn-start decision (ADR-0064)
+    # says this answer is likely to earn, for the types the taught envelope
+    # does not already carry. Rendered by the register before ``run()``;
+    # None renders no section.
+    card_shapes_block: str | None = None
     # Ordered names of the skills whose BODY reached the model this turn, in
     # delivery order, deduped. DELIVERED, not offered: the disclosure renders
     # this as "what shaped this answer", and a skill the model read past in the

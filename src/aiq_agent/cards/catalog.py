@@ -1460,6 +1460,27 @@ def render_card_index(*, include_model_backed: bool = True) -> str:
     return "Card types:\n" + "\n".join(lines) + _interactive_note()
 
 
+def card_index_entries(*, include_model_backed: bool = False) -> list[tuple[str, str]]:
+    """``(type, first docstring line)`` per content card the answering model may emit.
+
+    The same rows :func:`render_card_index` prints, as data: what a decision
+    over "which card would this answer earn" (``agents/piloti/decisions.py``)
+    needs as its criteria, without parsing the rendered index back.
+    """
+    from aiq_agent.cards.models import GridCard
+
+    withheld = SYSTEM_CARD_TYPES | ENVELOPE_CARD_TYPES
+    if not include_model_backed:
+        withheld |= MODEL_BACKED_CARD_TYPES
+    entries: list[tuple[str, str]] = []
+    for card_cls in GridCard.__args__:
+        type_value = _card_type_of(card_cls)
+        if type_value in withheld:
+            continue
+        entries.append((type_value, (card_cls.__doc__ or "").strip().split("\n")[0]))
+    return entries
+
+
 def render_card_details(card_types: Iterable[str]) -> str:
     """L2: the exact shape, building blocks and worked example for named types.
 

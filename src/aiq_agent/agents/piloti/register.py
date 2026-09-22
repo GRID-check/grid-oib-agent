@@ -60,6 +60,11 @@ from nat.data_models.function import FunctionBaseConfig
 from . import ask_user as _ask_user  # noqa: F401
 from .agent import PilotiAgent
 from .agent import TurnConfig
+from .decisions import MODEL_SKILL
+from .decisions import TurnDecisions
+from .decisions import TurnFacts
+from .decisions import decide_turn
+from .decisions import prefetch_calls
 from .models import ResearchAgentState
 from .tool_search import ToolSearchSettings
 
@@ -148,6 +153,18 @@ class ResearchAgentConfig(FunctionBaseConfig, name="research_agent"):
             "A skill whose body is at most this many characters rides the system prompt in full "
             "(ADR-0063), so following it costs no `use_skill` round; a longer one is one catalog line. "
             "The office's own methods are ~1 600 characters each. 0 = every body behind `use_skill`."
+        ),
+    )
+    turn_decisions: bool = Field(
+        default=True,
+        description=(
+            "Ask the decision model (Jev, ADR-0064) at turn start whether the message needs evidence, "
+            "which corpus and which OIB families it needs, which card types it is likely to earn and "
+            "whether it is about the building model — and act on the answers only by ADDING: the named "
+            "fetches run as round 0 before the first LLM call, the named card shapes ride this turn's "
+            "prompt, the IFC skill rides it on a model question. Every tool stays bound whatever it says; "
+            "a decision that cannot run leaves the turn exactly as before. GRID_DECISIONS_ENABLED=false "
+            "is the global switch."
         ),
     )
     skills_inline_budget_chars: int = Field(
@@ -341,6 +358,56 @@ def _skills_block(runtime: SkillRuntime) -> str:
     return runtime.prompt_block() or ""
 
 
+def _turn_facts(state: ResearchAgentState, runtime: SkillRuntime | None) -> TurnFacts:
+    """What the decider is shown, from the state the gather already filled."""
+    from aiq_agent.cards.catalog import card_index_entries
+    from aiq_agent.cards.envelope import ENVELOPE_SHAPE_TYPES
+    from aiq_agent.common.applicability import facts_from_project_context
+    from aiq_agent.common.source_kinds import Shelf
+    from aiq_agent.knowledge.inventory import get_norm_families
+
+    question = ""
+    for message in reversed(state.messages):
+        if isinstance(message, HumanMessage):
+            question = str(message.content) if isinstance(message.content, str) else ""
+            break
+    documents = state.available_documents or []
+    return TurnFacts(
+        question=question,
+        focus_file_name=state.focus_file_name,
+        project_facts={k: str(v) for k, v in facts_from_project_context(state.project_context or "").items()},
+        families=get_norm_families(),
+        project_files=sum(1 for doc in documents if getattr(doc, "shelf", None) is Shelf.PROJECT),
+        archive_files=sum(1 for doc in documents if getattr(doc, "shelf", None) is Shelf.ARCHIV),
+        card_types=[entry for entry in card_index_entries() if entry[0] not in ENVELOPE_SHAPE_TYPES],
+        offers_model_skill=runtime is not None and any(skill.name == MODEL_SKILL for skill in runtime.skills),
+    )
+
+
+async def _decide_turn(
+    config: ResearchAgentConfig, state: ResearchAgentState, runtime: SkillRuntime | None
+) -> TurnDecisions:
+    """The turn-start decision, or none: never raises, never blocks longer than its timeout."""
+    if not config.turn_decisions:
+        return TurnDecisions.none()
+    try:
+        return await decide_turn(_turn_facts(state, runtime), organization_id=get_organization_id_from_context())
+    except Exception:  # noqa: BLE001 — a decision is worth less than the turn
+        logger.warning("Turn decision failed; running the turn as before", exc_info=True)
+        return TurnDecisions.none()
+
+
+def _apply_decisions(decisions: TurnDecisions, state: ResearchAgentState, runtime: SkillRuntime | None) -> None:
+    """The two prompt-side effects: the IFC skill body, and the likely card shapes."""
+    if runtime is not None and decisions.wants_model_skill:
+        runtime.inline_also((MODEL_SKILL,))
+    chosen = decisions.chosen_cards()
+    if chosen:
+        from aiq_agent.cards.catalog import render_card_details
+
+        state.card_shapes_block = render_card_details(chosen) or None
+
+
 def _report_skills(result: ResearchAgentState, runtime: SkillRuntime) -> None:
     """Lift what was DELIVERED AND FOLLOWED onto the result.
 
@@ -401,12 +468,16 @@ async def _run_turn(deployment: _Deployment, state: ResearchAgentState) -> Resea
     # The conversation's working directory, folded in the same way: four file
     # verbs over a store namespaced by conversation, or nothing at all when the
     # turn has no conversation to namespace by (CLI, eval, worker).
-    draft_tools = await draft_tools_for_turn()
+    # The turn-start decision (ADR-0064) runs beside it: a bounded call that
+    # only adds to the turn — round-0 fetches, card shapes, the IFC skill.
+    draft_tools, decisions = await asyncio.gather(draft_tools_for_turn(), _decide_turn(config, state, runtime))
+    _apply_decisions(decisions, state, runtime)
     turn_tools = list(deployment.tools) + (list(runtime.build_tools()) if runtime is not None else []) + draft_tools
     turn = TurnConfig(
         llm_provider=await _active_provider(deployment.provider),
         tools=turn_tools,
         disabled_sources=disabled_sources,
+        prefetch=tuple(prefetch_calls(decisions, _turn_facts(state, runtime).question)),
     )
     if runtime is not None:
         state.skills_block = _skills_block(runtime)

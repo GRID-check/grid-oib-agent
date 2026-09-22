@@ -141,6 +141,14 @@ def _parse_verdict(raw: str, *, original_query: str, max_queries: int) -> Suffic
     return SufficiencyVerdict(sufficient=sufficient, queries=queries)
 
 
+#: Who answers the yes/no. ``llm`` is the judge as it always was; ``jev``
+#: asks the decision model one ``noul`` per passage of the head first
+#: (``knowledge_layer.decisions``) and runs the judge only when the head is
+#: insufficient — for the phrasings, which a decision model cannot write.
+DECIDER_LLM = "llm"
+DECIDER_JEV = "jev"
+
+
 async def judge_sufficiency(
     llm: Any,
     query: str,
@@ -148,6 +156,8 @@ async def judge_sufficiency(
     *,
     max_queries: int,
     timeout_seconds: float = DEFAULT_TIMEOUT_SECONDS,
+    decider: str = DECIDER_LLM,
+    decision_threshold: float | None = None,
 ) -> SufficiencyVerdict:
     """Ask ``llm`` whether ``chunks`` can answer ``query``; fail-open to sufficient.
 
@@ -158,6 +168,12 @@ async def judge_sufficiency(
             pool is the strongest reason to try another formulation.
         max_queries: Ceiling on proposed alternative queries.
         timeout_seconds: Upper bound for the judge call.
+        decider: :data:`DECIDER_LLM` or :data:`DECIDER_JEV`. With ``jev`` the
+            decision model answers the yes/no over the head first; a head it
+            finds sufficient costs no judge call, and a decision that did not
+            run (absent, disabled, failed) falls back to the judge.
+        decision_threshold: The sufficiency threshold for ``jev``; ``None``
+            is the module default.
 
     Returns:
         The verdict. On any failure, :data:`SUFFICIENT`, so the caller's search
@@ -167,6 +183,18 @@ async def judge_sufficiency(
         return SUFFICIENT
 
     shown = list(chunks[:_JUDGE_CANDIDATES])
+    if decider == DECIDER_JEV and shown:
+        from .decisions import DEFAULT_SUFFICIENCY_THRESHOLD
+        from .decisions import passage_verdicts
+
+        verdicts = await passage_verdicts(
+            query, shown, threshold=DEFAULT_SUFFICIENCY_THRESHOLD if decision_threshold is None else decision_threshold
+        )
+        if verdicts is not None and verdicts.sufficient:
+            logger.info("Decision model found the head sufficient (p=%.2f) for %r", verdicts.best, query[:60])
+            return SUFFICIENT
+        if verdicts is not None:
+            logger.info("Decision model found the head insufficient (p=%.2f); asking the judge", verdicts.best)
     user_prompt = (
         _build_user_prompt(query, shown, _JUDGE_EXCERPT_CHARS) if shown else f"Question: {query}\n\nCandidates: none."
     )

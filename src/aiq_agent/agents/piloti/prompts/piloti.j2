@@ -44,6 +44,16 @@ Ohne Projekt in dieser Unterhaltung bleibt der Entwurf im Arbeitsordner: Ablegen
 {{ skills_block }}
 
 {% endif %}
+{# The full shapes of the card types the turn-start decision named
+   (ADR-0064): the taught envelope carries the eight common ones; these are
+   the two this question is likely to earn beyond them. #}
+{% if card_shapes_block is defined and card_shapes_block %}
+## Card shapes this answer is likely to need
+The exact shape of the cards this question most likely earns, beyond the eight in the answer contract. A preference, not a command: emit a card only when the answer calls for it.
+
+{{ card_shapes_block }}
+
+{% endif %}
 
 {% if focus_file_name is defined and focus_file_name %}
 ## This turn's subject: **{{ focus_file_name }}**{% if focus_shelf_label is defined and focus_shelf_label %} ({{ focus_shelf_label }}){% endif %}

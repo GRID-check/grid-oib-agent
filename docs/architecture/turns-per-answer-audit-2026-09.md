@@ -89,10 +89,13 @@ made (§8.2). That is the next structural change and it is not in this one.
 WS frame ─▶ gather(context, inventory, registry, subject)      no LLM; one HTTP hop each, in parallel
         ─▶ render_system_prompt                                  no LLM (Langfuse prompt store, cached);
         │                                                        the short skill bodies ride it (ADR-0063)
+        ─▶ TURN DECISION (Jev, ≤1.5 s, beside the skill resolve)  no LLM: needs_evidence, corpus, families, cards, model
+        ─▶ prefetch node: ROUND 0, the fetches the decision named  through the tools node; charged to no round
         ─▶ agent node ──▶ tools node ──▶ agent node ── … ──▶ answer
              │ 1 call        │ parallel calls   │ 1 call         │ 1 call, the envelope: prose, anatomy, CARDS
-             │               │ knowledge_search: embed → chroma → cross-encoder ‖ REQUERY JUDGE (1 frontier call)
-             │               │                  → (insufficient?) 2 more retrievals → rerank again
+             │               │ knowledge_search: embed → chroma → cross-encoder ‖ PASSAGE VERDICTS (Jev, 1 noul per passage)
+             │               │                  → (insufficient?) the judge writes 2 phrasings (1 frontier call, minority)
+             │               │                  → 2 more retrievals → rerank again
              │               │ read_passage:     deterministic; outline with excerpts; member aliases resolve
              │               │ ris_lookup:       planner (1 small call) → fetch → extractor (1 small call, 0 when a § is named)
              │               │ ifc_*, surface_documents, emit_card, remember, write_file …: no LLM
@@ -448,7 +451,8 @@ misroutes it fixed („Zeig mir die Grundrisse" answered without
 
 ### 4.3 Where a decision earns its place — ranked
 
-**J2 — replace the requery judge.** The judge is a frontier call per search
+**J2 — replace the requery judge — shipped (ADR-0064,
+`requery_decider: jev`).** The judge is a frontier call per search
 answering a yes/no ("does the head of this pool contain what the question
 needs") and, when no, generating two alternative phrasings. The yes/no is a
 Noul per candidate over `{question, passage}` — TypeSafe's own *RAG passage
@@ -464,7 +468,8 @@ search. **Measure offline first**, on the retrieval golden set
 on the same pools, in German. The language caveat is the whole risk; a
 German Punkt passage is not a US court opinion.
 
-**J1 — gate and shape the speculative prefetch of §8.2.** The prefetch needs
+**J1 — gate and shape the speculative prefetch of §8.2 — shipped (ADR-0064,
+`turn_decisions: true`, `PilotiAgent._prefetch_node`).** The prefetch needs
 no decision model to exist (the retriever is itself a classifier: run
 `knowledge_search(question)` and see). What a decision adds, in one parallel
 call of four questions against `{question, project facts, inventory
@@ -653,15 +658,18 @@ loop-eval column that must move and the one that must not.
 | the repair pass on a title citation | `_match_registry_title` | `TestATitleCitationResolves` |
 | Trace-Lanes JSON on the model's context | `strip_trace_lanes` in `_tools_node` and the repair | `test_trace_lanes_off_context.py`, through the compiled graph |
 | the Herleitung's empty „Suche" layers | §6 | `ReasoningFlow.spec.ts` |
+| the search-before-reading round (§8.2) | ADR-0064: the turn-start decision names the question and the top families; they run as round 0 through the tools node, charged to nothing | `test_prefetch_round.py`, through the compiled graph; `test_turn_decisions.py` |
+| the frontier judge on every search (J2) | per-passage nouls decide sufficiency; the judge writes phrasings only on the insufficient case | `test_decisions_in_retrieval.py` |
+| the last skill round (`ifc-spatial-reasoning`) | the decision's `model` answer reads it into the turn | `test_register_decisions.py` |
 
 **Open**, ranked:
 
 | # | Change | Calls out | Must move | Must not move | Size |
 |---|---|---|---|---|---|
 | 1 | **Make the loop eval report calls, not only rounds.** `llm_calls` per row off the cost tracker (`GridCostTracker` already meters every completion of the turn, hidden ones included), `card_rounds`, `judge_calls`, `skill_calls`, `cards_invalid`. Then run it at this tip and commit the CSV beside the yaml, so §2.3 stops being a reconstruction | 0 | — | — | S |
-| 2 | **Speculative prefetch, no decision model** (§2.2, §2.4, §2.5, §8.2 below) | 1 on most researched turns | `rounds` down, `truncated` → 0 on the family rows | `punkt_match`, `family_coverage`; `prefetch_wasted` must be reported | M |
-| 3 | **Applicable outlines below the boundary** (§5 b) | up to 1 on Punkt-shaped questions | `read_passage` up, `repeat_query` down | `punkt_match` | S |
-| 4 | **The decision eval** (§4.4), then J2 and J1 (J1 carrying the `corpus: model` question that pre-attaches `ifc-spatial-reasoning`), each behind its adoption rule | 1 hidden frontier call per search (J2); the last skill round (J1) | `judge_calls` → 0 (J2), `skill_calls` → 0 (J1) | everything the rule names | S for the eval; S each after |
+| 2 | **Run the decision eval and quote it** (`task be:eval:decisions`, ADR-0064). The prefetch, the judge's yes/no and the eval are built; the three floors have not been measured against a live key from this branch. Below the floors, `turn_decisions: false` | — | `family_top1`, `corpus_baurecht_rate`, the ruling evidence floor | — | S, needs a key |
+| 3 | **`prefetch_used` / `prefetch_wasted` on the loop eval**: did the answer cite a passage round 0 returned | 0 — the measurement of row 2's effect | `rounds` down, `truncated` → 0 on the family rows | `punkt_match`, `family_coverage` | S |
+| 4 | **RIS prefetch**: `ris_lookup` as round 0 when the decision's corpus is `baurecht` and the question names a Land or a Bauordnung; the knowledge prefetch stops at the OIB corpus today | 1 on the Bauordnung rows | `ris_calls` | `paragraph_match` | S |
 | 5 | **A miss says why** — `miss_hint` on the ledger entry (§6) | 0 — trust, not calls | — | — | S |
 | 6 | **Streaming, with the carrier decision** (§3.4, ledger 16) | 0 — seconds, not calls | time to first token on the root span | the terminal frame stays authoritative | L, ADR |
 

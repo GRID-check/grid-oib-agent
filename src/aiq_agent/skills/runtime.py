@@ -201,6 +201,26 @@ class SkillRuntime:
         """
         return self._inlined
 
+    def inline_also(self, names: Sequence[str]) -> tuple[str, ...]:
+        """Ride the named skills in this run's prompt whatever their size; return what was added.
+
+        For a body the caps keep out (``ifc-spatial-reasoning`` at 17k chars)
+        on a turn something already knows is its subject — the turn-start
+        decision's ``model`` answer (ADR-0064). Still an offer: it moves where
+        the body is read, not whether the model follows it. Unknown names and
+        skills already inlined are ignored.
+        """
+        added: list[str] = []
+        inlined = {skill.name for skill in self._inlined}
+        for name in names:
+            skill = self._by_name.get(name)
+            if skill is None or name in inlined:
+                continue
+            self._inlined = (*self._inlined, skill)
+            inlined.add(name)
+            added.append(name)
+        return tuple(added)
+
     @property
     def activated(self) -> tuple[str, ...]:
         """Skills whose BODY reached the model, in the order it asked for them.

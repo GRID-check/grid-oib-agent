@@ -327,6 +327,8 @@ Ohne Projekt in dieser Unterhaltung bleibt der Entwurf im Arbeitsordner: Ablegen
 
 
 
+
+
 ## This turn's subject: **Einreichplan.pdf** (<<SHELF>>)
 
 The user has this file open, so every bare reference in their message („dieses Dokument", „das PDF", "it", or a request with no object at all) means **Einreichplan.pdf**. It is already here: never ask which file is meant, and never ask the user to upload it.

@@ -1,0 +1,14 @@
+---
+features:
+  - >
+    The assistant starts reading before it starts thinking. A fast decision
+    model looks at each question first and, when the answer lives in a
+    regulation or a project file, fetches the likely passages and the
+    Gliederung of the OIB-Richtlinien it needs before the first reasoning
+    step, so most questions answer one step sooner. The reasoning view shows
+    this as the first search step.
+  - >
+    Searches judge their own results faster: whether the first hits already
+    answer the question is decided by the same fast decision model instead
+    of a full language-model call, and only a search that came up short
+    still asks for other wordings.

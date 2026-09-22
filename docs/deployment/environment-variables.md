@@ -160,7 +160,7 @@ Variables set in `docker-compose.yaml` under `environment:` take precedence over
 | `AIQ_STATIC_RESULT_CACHE_COLLECTIONS` | No | `oib_knowledge` | Comma-separated collections whose retrieval results may be cached (static corpora only — never project/session collections). |
 | `AIQ_STATIC_RESULT_CACHE_TTL_SECONDS` | No | `3600` | TTL for cached static-collection retrieval results; in-process writes invalidate immediately via a collection version. |
 | `AIQ_EMBED_BASE_URL` | No | `https://openrouter.ai/api/v1` | Embedding model API base URL (an OpenAI-compatible embeddings endpoint). Drives provider inference for the embeddings key (see `AIQ_EMBED_API_KEY`). |
-| `AIQ_RERANKER_PROVIDER` | No | `none` | Cross-encoder reranking for `knowledge_search`: `none` \| `openrouter`. The env value is only the default the config's `reranker_provider` field falls back to — **the shipped config hardcodes `openrouter`, so this env var does nothing in production** unless the YAML is changed to read it. YAML wins over env, and every value here is read once at import, so changing one requires a process **restart**. `none` hands reranking back to the judge. Removed names (`cohere`/`voyage`/`jina`/`nvidia`) log an error naming the migration, then fall back to the judge like any unknown name. |
+| `AIQ_RERANKER_PROVIDER` | No | `none` | Cross-encoder reranking for `knowledge_search`: `none` \| `openrouter` \| `jev` (the decision model, one noul per candidate — ADR-0064, an option to evaluate, not the default). The env value is only the default the config's `reranker_provider` field falls back to — **the shipped config hardcodes `openrouter`, so this env var does nothing in production** unless the YAML is changed to read it. YAML wins over env, and every value here is read once at import, so changing one requires a process **restart**. `none` hands reranking back to the judge. Removed names (`cohere`/`voyage`/`jina`/`nvidia`) log an error naming the migration, then fall back to the judge like any unknown name. |
 | `AIQ_RERANKER_MODEL` | No | `cohere/rerank-v3.5` | Reranking model id on OpenRouter. The corpus is German, so a multilingual reranker is not optional. Read at import — restart required. |
 | `AIQ_RERANKER_BASE_URL` | No | `https://openrouter.ai/api/v1` | Override the host (a gateway, a self-hosted reranker speaking the same request and response shape, a test double). A trailing `/rerank` segment is stripped (the request path is appended by the caller). Read at import — restart required. |
 | `AIQ_RERANKER_API_KEY` | No | `OPENROUTER_API_KEY`, then provider inference from the base URL | Explicit reranker key override. Resolved through the shared resolver like the embeddings key; when nothing resolves at startup the cross-encoder is not built and the judge reranks. This is the PLATFORM key: since 2026-09-10 each search re-resolves the credential from the turn's organization, so an org with its own key (BYOK) reranks on it and this value is the fallback for turns that have no organization in scope. A BYOK hit replaces the key and the base URL, never the model. |
@@ -276,6 +276,15 @@ The org skill toolbox, and project-level **definitions** — a prompt on a timer
 The scheduler also reuses `GRID_APP_DATABASE_URL`, `FRONTEND_INTERNAL_URL`, and `GRID_INTERNAL_API_TOKEN`. Scheduled runs go through the same async-job admission control as interactive research (`GRID_MAX_ACTIVE_JOBS[_PER_ORG]`); cap-rejected occurrences are recorded as `skipped` runs and not retried until their next scheduled slot.
 
 ---
+
+## Decision model (ADR-0064)
+
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `GRID_DECISIONS_ENABLED` | No | `true` | Whether the decision model (TypeSafe Jev via OpenRouter's alpha Decisions endpoint) is consulted at all: the turn-start decision, the retrieval judge's yes/no, the `jev` reranker. `false` runs every turn exactly as before the decisions existed. Every use is fail-open; this is the one switch that turns them all off. |
+| `GRID_DECISIONS_MODEL` | No | `typesafe/jev-1.13` | The decision model id on the Decisions endpoint. |
+| `GRID_DECISIONS_URL` | No | derived | The Decisions endpoint (`<openrouter origin>/api/alpha/decisions`). Only for a mock or a proxy. |
+| `GRID_DECISIONS_API_KEY` | No | — | A dedicated key for the endpoint; falls back to `OPENROUTER_API_KEY` through the shared credential resolver, BYOK first. A BYOK org whose key points anywhere but `openrouter.ai`, and a ZDR-only org, skip every decision. |
 
 ## Application
 

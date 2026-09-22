@@ -566,6 +566,16 @@ functions:
     # Fail-open: any judge error keeps the first pool.
     requery_llm: rerank_llm
     requery_max_queries: 2
+    # Who answers the judge's yes/no (ADR-0064). `jev` asks the decision model
+    # one noul per passage of the fused head — ~300 ms in parallel, a fraction
+    # of a cent — and runs `requery_llm` only when the head is insufficient,
+    # for the phrasings a decision model cannot write. The hidden frontier
+    # call on EVERY search becomes a frontier call on the insufficient
+    # minority. No key, ZDR org, breaker open: the judge runs as before.
+    # `reranker_provider: jev` is the same model as a reranker, an option to
+    # evaluate beside the cross-encoder, not the default.
+    requery_decider: jev
+    decision_sufficiency_threshold: 0.55
 
   # The locator beside the search: open the passage a conclusion NAMED
   # (document + Punkt, or document + page) instead of searching for it again.
@@ -864,6 +874,16 @@ functions:
     # the catalog-only prompt.
     skills_inline_max_body_chars: 2400
     skills_inline_budget_chars: 16000
+    # The turn-start decision (ADR-0064): one decision-model request beside
+    # the skill resolution — does the message need evidence, which corpus and
+    # which OIB families, which card types, is it about the model — acted on
+    # by ADDING only: the named fetches run as round 0 before the first LLM
+    # call (no budget spent, answered by the duplicate guard when the model
+    # asks again), the named card shapes ride this turn's prompt, the IFC
+    # skill rides it on a model question. Every tool stays bound whatever it
+    # says (ADR-0052). `scripts/decision_eval.py` is the adoption gate;
+    # GRID_DECISIONS_ENABLED=false switches every decision off at once.
+    turn_decisions: true
     skill_allowlist: []
     # Retrieval-based tool narrowing. OFF, deliberately — the block below is the
     # tested configuration, not a suggestion, and it is commented out because on
