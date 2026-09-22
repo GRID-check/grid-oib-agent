@@ -79,6 +79,20 @@ export const answerExport = {
   createdAt: 'Created on',
   sources: 'Sources',
   findings: 'Findings',
+  findingsMatrix: {
+    title: 'Findings matrix',
+    requirement: 'Requirement',
+    value: 'Value',
+    reference: 'Reference',
+    status: {
+      label: 'Status',
+      erfuellt: 'met',
+      nicht_erfuellt: 'not met',
+      offen: 'open',
+      nicht_anwendbar: 'not applicable',
+    },
+    grounding: { belegt: 'sourced', abgeleitet: 'derived', offen: 'unsourced' },
+  },
   /**
    * Heading of the section a filed research report appends for its
    * `legal_basis` cards — the cited Richtlinie, § and excerpt an architect is

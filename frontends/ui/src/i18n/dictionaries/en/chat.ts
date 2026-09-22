@@ -163,6 +163,25 @@ export const chat = {
     answer: 'Answer',
   },
   // "Belegt durch" provenance chip row under answers that carry source data.
+  // The findings matrix over a report: one row per requirement the report
+  // read against the project.
+  findings: {
+    label: 'Findings',
+    page: 'p. {page}',
+    columns: {
+      requirement: 'Requirement',
+      value: 'Value',
+      reference: 'Reference',
+      status: 'Status',
+    },
+    status: {
+      erfuellt: 'met',
+      nicht_erfuellt: 'not met',
+      offen: 'open',
+      nicht_anwendbar: 'not applicable',
+    },
+    grounding: { belegt: 'sourced', abgeleitet: 'derived', offen: 'unsourced' },
+  },
   answerSources: {
     label: 'Sources',
     ariaLabel: 'Sources this answer is backed by',

@@ -9,6 +9,7 @@ import type { CardDecision, CardInteractions } from '@/features/grid-cards/card-
 import type { DraftMention } from '@/features/collaboration/lib/mention-text'
 import type { AnswerConfidenceCappedReason } from '@/lib/conversations/message-provenance'
 import type { AnswerMeta } from '@/lib/conversations/message-answer-meta'
+import type { Findings } from '@/lib/conversations/message-findings'
 import type { RetrievalLedger } from '@/lib/conversations/message-retrieval-ledger'
 import type { RunLedger } from '@/lib/runs/run-ledger-types'
 import type { MessageStages } from '@/lib/conversations/message-stages'
@@ -209,6 +210,8 @@ export interface AnswerTransparency {
    * rendered in a fixed layout by AgentResponse. Never cards.
    */
   answerMeta?: AnswerMeta
+  /** The report's findings (`lib/conversations/message-findings.ts`), rendered as the Befundmatrix. */
+  findings?: Findings
   /**
    * The backend's own account of this turn's retrieval rounds — native answer
    * fields, recorded backend-side and sanitized at the wire boundary. The
@@ -515,6 +518,8 @@ export interface ChatMessage {
    * fixed layout: verdict above the prose, callout and takeaways after it.
    */
   answerMeta?: AnswerMeta
+  /** The report's findings (`lib/conversations/message-findings.ts`), rendered as the Befundmatrix. */
+  findings?: Findings
   /**
    * The backend's own account of this turn's retrieval rounds, same sanitize
    * contract as `answerMeta`. The Herleitung spine draws each round's fan from

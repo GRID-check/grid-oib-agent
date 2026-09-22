@@ -152,6 +152,25 @@ export const chat: typeof en.chat = {
     // Walkthrough: eine geführte Antwort ohne Urteil — nicht das Ergebnis-Dokument.
     answer: 'Antwort',
   },
+  // Die Befundmatrix über dem Bericht: eine Zeile je Anforderung, die der
+  // Bericht gegen das Projekt gelesen hat.
+  findings: {
+    label: 'Befunde',
+    page: 'S. {page}',
+    columns: {
+      requirement: 'Anforderung',
+      value: 'Wert',
+      reference: 'Fundstelle',
+      status: 'Status',
+    },
+    status: {
+      erfuellt: 'erfüllt',
+      nicht_erfuellt: 'nicht erfüllt',
+      offen: 'offen',
+      nicht_anwendbar: 'nicht anwendbar',
+    },
+    grounding: { belegt: 'belegt', abgeleitet: 'abgeleitet', offen: 'ohne Beleg' },
+  },
   answerSources: {
     label: 'Belegt durch',
     ariaLabel: 'Quellen, auf die sich diese Antwort stützt',

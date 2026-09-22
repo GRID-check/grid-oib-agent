@@ -162,6 +162,7 @@ export async function exportAnswerDocument(
       createdAt: new Date(answer.createdAt),
       citations: metadata.citations,
       cards: metadata.cards,
+      findings: metadata.findings,
       confidence: readConfidence(metadata),
     },
     t,

@@ -39,6 +39,20 @@ export const answerExport: typeof en.answerExport = {
   createdAt: 'Erstellt am',
   sources: 'Quellen',
   findings: 'Befunde',
+  findingsMatrix: {
+    title: 'Befundmatrix',
+    requirement: 'Anforderung',
+    value: 'Wert',
+    reference: 'Fundstelle',
+    status: {
+      label: 'Status',
+      erfuellt: 'erfüllt',
+      nicht_erfuellt: 'nicht erfüllt',
+      offen: 'offen',
+      nicht_anwendbar: 'nicht anwendbar',
+    },
+    grounding: { belegt: 'belegt', abgeleitet: 'abgeleitet', offen: 'ohne Beleg' },
+  },
   legalBasis: 'Rechtsgrundlagen',
   // Beschriftungen eines Deckblatts, keine Sätze: „Standort“ und „Erstellt
   // von“ stehen links in einer zweispaltigen Aufstellung, so wie es eine

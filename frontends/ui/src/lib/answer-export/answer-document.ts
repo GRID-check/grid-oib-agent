@@ -20,6 +20,7 @@ import type { Translator } from '@/i18n/translate'
 import type { Locale } from '@/i18n/config'
 import { compact, labelled, type DocBlock, type DocRun } from './blocks'
 import { cardsBlocks } from './cards'
+import { findingsBlocks } from './findings'
 import { referencesFromStored, splitProse, type ReferenceEntry } from './citations'
 import { markdownToBlocks } from './markdown'
 
@@ -52,6 +53,8 @@ export interface AnswerDocumentInput {
   citations?: unknown
   /** `metadata.cards`, in the stored card shape. */
   cards?: unknown
+  /** `metadata.findings`, the report's Befundmatrix in the stored shape. */
+  findings?: unknown
   confidence?: AnswerConfidence | null
   /**
    * Set when Piloti wrote the content and no human has reviewed it.
@@ -244,6 +247,7 @@ export function buildAnswerSections(
 
   const confidence = input.confidence ? confidenceBlocks(input.confidence, t) : []
 
+  const findings = findingsBlocks(input.findings, t)
   const cards = cardsBlocks(input.cards, t)
   const cardSection: DocBlock[] =
     cards.length > 0 ? [{ kind: 'heading', level: 2, text: t('findings') }, ...cards] : []
@@ -261,6 +265,7 @@ export function buildAnswerSections(
       ...questionSection,
       ...answerSection,
       ...confidence,
+      ...findings,
       ...cardSection,
       ...sourceSection,
     ]),

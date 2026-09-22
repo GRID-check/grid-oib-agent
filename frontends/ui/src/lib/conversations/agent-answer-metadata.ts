@@ -55,6 +55,7 @@ import { CITATIONS_PAYLOAD_VERSION } from '@/features/chat/lib/citations'
 import type { WireCitationSource } from '@/features/chat/types'
 import { sanitizeProvenance, type MessageProvenance } from './message-provenance'
 import { sanitizeAnswerMeta } from './message-answer-meta'
+import { sanitizeFindings } from './message-findings'
 
 /**
  * The metadata keys the backend writes in wire spelling. Listed so the
@@ -86,6 +87,8 @@ const BACKEND_ANSWER_KEYS = [
   // envelope's gated wire payload, stored under the camelCase key the client
   // writer uses so history reads one dialect.
   'answer_meta',
+  // The report's findings, same extraction, same camelCase landing key.
+  'findings',
   // The backend's account of the turn's retrieval rounds, written by the
   // socket-persistence path (`websocket_reconnect.persist_assistant_message`)
   // when the client had gone. Without this entry the snake_case key would stay
@@ -462,6 +465,10 @@ export function normalizeAgentAnswerMetadata(
   if (out.answerMeta === undefined) {
     const answerMeta = sanitizeAnswerMeta(metadata.answer_meta)
     if (answerMeta) out.answerMeta = answerMeta
+  }
+  if (out.findings === undefined) {
+    const findings = sanitizeFindings(metadata.findings)
+    if (findings) out.findings = findings
   }
 
   return out

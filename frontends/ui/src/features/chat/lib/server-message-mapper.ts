@@ -35,6 +35,7 @@
 import type { Message } from '@/lib/db/schema'
 import { CAPPED_REASONS } from '@/lib/conversations/message-provenance'
 import { sanitizeAnswerMeta } from '@/lib/conversations/message-answer-meta'
+import { sanitizeFindings } from '@/lib/conversations/message-findings'
 import { sanitizeRetrievalLedger } from '@/lib/conversations/message-retrieval-ledger'
 import { sanitizeStages } from '@/lib/conversations/message-stages'
 import { sanitizeRunLedger, sanitizeRunTitle } from '@/lib/runs/run-ledger'
@@ -143,6 +144,10 @@ export const mapServerMessageToChatMessage = (message: Message): ChatMessage | n
     ...(() => {
       const answerMeta = sanitizeAnswerMeta(metadata.answerMeta)
       return answerMeta ? { answerMeta } : {}
+    })(),
+    ...(() => {
+      const findings = sanitizeFindings(metadata.findings)
+      return findings ? { findings } : {}
     })(),
     // Re-sanitized on read like `answerMeta`: the backend's account of the
     // turn's retrieval rounds, written by the BFF persist path. A row from any
