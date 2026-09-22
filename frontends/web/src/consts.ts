@@ -1,6 +1,6 @@
 export const SITE_NAME = 'Piloti'
 export const SITE_TAGLINE = 'Die KI-Plattform für Architektur- und Planungsbüros'
-export const CONTACT_EMAIL = 'Ferdinand.Rubenbauer@gmail.com'
+export const CONTACT_EMAIL = 'ferdinand.rubenbauer@gmail.com'
 
 /**
  * Where the "Anmelden"/"Sign in" link points.

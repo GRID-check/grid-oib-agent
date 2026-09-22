@@ -6,7 +6,7 @@ improvements:
     footer, the demo and waiting-list buttons, and the value calculator —
     reaches the same working mailbox.
   - >
-    The imprint no longer shows commercial-register details for a company that
-    does not exist yet. Register number, register court, VAT ID and the
+    The imprint names the three people who answer for the site, and no longer
+    shows commercial-register details for a company that does not exist yet. Register number, register court, VAT ID and the
     supervising chamber appear once there is something to state, and the
     section stays out of the page until then.

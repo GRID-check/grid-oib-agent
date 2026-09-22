@@ -12,9 +12,12 @@ import { CONTACT_EMAIL } from '../consts'
  * filled. Blank strings would have rendered "Firmenbuchnummer:" with nothing
  * behind it.
  *
- * ONCE THE FLEXCO IS REGISTERED: put the company in `mediaOwners`, set
- * `legalForm`, `registerNumber` and `registerCourt`, and add `uid` and
- * `chamber` when the UID and the Gewerbeberechtigung follow.
+ * Two moments change this file. When the Errichtungserklärung is signed the
+ * company exists before the Firmenbuch knows it, and `legalForm` carries the
+ * "in Gründung" designation from that day. When the Firmenbuch entry follows,
+ * `registerNumber` and `registerCourt` get their values and the register
+ * section reappears on its own; `uid` and `chamber` follow the UID and the
+ * Gewerbeberechtigung whenever those arrive.
  */
 export interface LegalIdentity {
   /** The brand the site trades under. Not a legal entity, so not enough on its own. */
@@ -34,7 +37,7 @@ export interface LegalIdentity {
 
 export const legalIdentity: LegalIdentity = {
   operator: 'Piloti',
-  mediaOwners: ['[Die drei Gründer, je Vor- und Nachname — Platzhalter / placeholder]'],
+  mediaOwners: ['Jonathan Uhlemann', 'Ferdinand Rubenbauer', 'Matthias Bigl'],
   addressLines: ['Kellermanngasse 8/12', '1070 Wien, Österreich / Austria'],
   email: CONTACT_EMAIL,
 }
