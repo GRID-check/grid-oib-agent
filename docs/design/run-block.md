@@ -151,6 +151,10 @@ things sit beside it rather than instead of it:
   per-run signal the research tool reads before every batch
   (`deep_researcher/control.py`), and the report lands marked
   `unterbrochen` with a banner that says it was the reader's choice.
+- **„Bericht fortschreiben"**, on a finished or interrupted run, when a caller
+  offers it: a new run on the same subject, briefed with this report's
+  findings, so a changed project fact re-reads the Befunde instead of starting
+  over. The new block lands in the same thread; its matrix marks what changed.
 - **The connection line**, when the live view loses its stream. It leads with the
   run („Der Auftrag läuft weiter"), because that is the fact the reader fears.
   Silence there would read as a run that stopped.

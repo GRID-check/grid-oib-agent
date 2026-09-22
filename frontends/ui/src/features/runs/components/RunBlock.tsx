@@ -165,6 +165,12 @@ export interface RunBlockProps {
    * happens — and only when a caller hands one in.
    */
   onWriteNow?: (() => void | Promise<void>) | null
+  /**
+   * „Bericht fortschreiben": a new run on the same subject, briefed with this
+   * run's findings, so a changed project fact re-reads the Befunde instead of
+   * re-commissioning the work from scratch. Offered on a finished report only.
+   */
+  onContinue?: (() => void | Promise<void>) | null
   /** fertig & unreviewed: „Prüfen". */
   reviewHref?: string | null
   /** fertig & reviewed: „Bericht öffnen". */
@@ -508,6 +514,7 @@ export function RunBlock({
   onRetry,
   onCancel,
   onWriteNow,
+  onContinue,
   connection,
   reviewHref,
   reportHref,
@@ -654,6 +661,19 @@ export function RunBlock({
       </Button>
     ) : null
 
+  const carryForward: ReactNode =
+    onContinue && (status === 'fertig' || status === 'unterbrochen') ? (
+      <Button
+        size="sm"
+        variant="ghost"
+        className="text-muted-foreground h-7 px-2 text-xs"
+        onClick={() => void onContinue()}
+        data-testid="run-action-continue"
+      >
+        {t('action.continue')}
+      </Button>
+    ) : null
+
   const [confirmingCancel, setConfirmingCancel] = useState(false)
   const stop: ReactNode =
     onCancel && live ? (
@@ -752,6 +772,7 @@ export function RunBlock({
               )}
               {writeNow}
               {stop}
+              {carryForward}
               {action}
             </span>
           </div>

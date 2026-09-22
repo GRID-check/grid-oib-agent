@@ -181,6 +181,13 @@ export const chat = {
       nicht_anwendbar: 'not applicable',
     },
     grounding: { belegt: 'sourced', abgeleitet: 'derived', offen: 'unsourced' },
+    clarify: 'Clarify',
+    commissioned: 'Run commissioned',
+    change: {
+      new: 'new',
+      changed: 'changed',
+      dropped: '{count, plural, one {# finding dropped:} other {# findings dropped:}}',
+    },
   },
   answerSources: {
     label: 'Sources',

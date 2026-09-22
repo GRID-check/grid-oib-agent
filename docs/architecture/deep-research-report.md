@@ -66,6 +66,24 @@ schreiben": the report is written from what is there
 lands `unterbrochen`, with the truncation reason `user_requested` and a banner
 that names the reader's choice rather than a limit.
 
+## The report's afterlife
+
+- **Into project memory.** The memory reflection over a finished report runs
+  after the extraction and reads the report *with* its findings, one line per
+  Befund, so a value lands as a fact and an open point as an open point
+  (`runner._reflection_text`).
+- **An open finding becomes a run.** A row whose status is `offen` or
+  `nicht_erfuellt` offers „Klären": the thread commissions a research run
+  briefed with that finding (`POST /api/projects/[id]/runs`,
+  `commissionResearchRun`, the same door the agent's escalation uses), and the
+  run's block appears in the same thread.
+- **A report is carried forward.** A finished block offers „Bericht
+  fortschreiben": a new run briefed with the report's findings
+  (`features/runs/lib/carry-forward.ts`). The new report's matrix marks each
+  finding `neu` or `geändert` against the most recent earlier run in the
+  thread and names the ones that dropped out; the thread is the record, so
+  the comparison needs no column.
+
 ## Language
 
 The sources heading follows the report's language (`## Quellen` for German,

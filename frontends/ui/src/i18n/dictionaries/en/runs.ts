@@ -83,6 +83,7 @@ export const runs = {
     /** The quiet way out of a run still going. Never the loud one: see `cancel`. */
     cancel: 'Stop',
     writeNow: 'Write now',
+    continue: 'Update report',
   },
   /**
    * Stopping a run. The confirmation says what survives, because the fear that

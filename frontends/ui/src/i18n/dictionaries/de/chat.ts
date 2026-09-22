@@ -170,6 +170,16 @@ export const chat: typeof en.chat = {
       nicht_anwendbar: 'nicht anwendbar',
     },
     grounding: { belegt: 'belegt', abgeleitet: 'abgeleitet', offen: 'ohne Beleg' },
+    // Ein offener Befund lässt sich als eigener Auftrag klären; der Lauf
+    // erscheint als Block in diesem Verlauf.
+    clarify: 'Klären',
+    commissioned: 'Auftrag angelegt',
+    // Gegenüber dem vorigen Bericht zum selben Thema.
+    change: {
+      new: 'neu',
+      changed: 'geändert',
+      dropped: '{count, plural, one {# Befund entfallen:} other {# Befunde entfallen:}}',
+    },
   },
   answerSources: {
     label: 'Belegt durch',

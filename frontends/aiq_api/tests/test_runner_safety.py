@@ -989,3 +989,28 @@ class TestReportFollowUps:
         monkeypatch.setattr(follow_ups_module, "FOLLOW_UPS", stage)
         payload = await runner._propose_report_follow_ups(object(), query="q", report="r", organization_id="org")
         assert payload == {"items": [{"question": "Und in GK 5?"}]}
+
+
+class TestTheFindingsRideIntoMemory:
+    def test_each_finding_is_one_line_after_the_report(self) -> None:
+        from aiq_api.jobs.runner import _reflection_text
+
+        text = _reflection_text(
+            "Bericht.",
+            {
+                "items": [
+                    {"requirement": "Feuerwiderstand", "value": "REI 60", "status": "erfuellt", "comment": "x"},
+                    {"requirement": "Fluchtweg", "status": "offen", "comment": "Fluchtniveau unbekannt."},
+                ]
+            },
+        )
+        assert text == (
+            "Bericht.\n\n## Befunde\n- Feuerwiderstand — REI 60 — erfuellt\n"
+            "- Fluchtweg — offen (Fluchtniveau unbekannt.)"
+        )
+
+    def test_no_findings_leaves_the_report_as_it_was(self) -> None:
+        from aiq_api.jobs.runner import _reflection_text
+
+        assert _reflection_text("Bericht.", None) == "Bericht."
+        assert _reflection_text("Bericht.", {"items": []}) == "Bericht."

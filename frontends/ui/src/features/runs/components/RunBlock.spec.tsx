@@ -443,6 +443,19 @@ describe('RunBlock — stopping a run', () => {
     expect(screen.queryByTestId('run-action-write-now')).not.toBeInTheDocument()
   })
 
+  it('offers „Bericht fortschreiben" on a finished run only, and only when a caller hands one in', () => {
+    const onContinue = vi.fn()
+    const { unmount } = render(
+      <RunBlock ledger={finished('doc-9')} title={TITLE} onContinue={onContinue} />
+    )
+    fireEvent.click(screen.getByTestId('run-action-continue'))
+    expect(onContinue).toHaveBeenCalledTimes(1)
+    unmount()
+
+    render(<RunBlock ledger={researching()} title={TITLE} onContinue={onContinue} />)
+    expect(screen.queryByTestId('run-action-continue')).not.toBeInTheDocument()
+  })
+
   it('shows no stop at all when no caller offers one', () => {
     render(<RunBlock ledger={researching()} title={TITLE} />)
     expect(screen.queryByTestId('run-action-cancel')).not.toBeInTheDocument()

@@ -65,6 +65,7 @@ export const runs: typeof en.runs = {
     openInThread: 'Im Verlauf öffnen',
     cancel: 'Abbrechen',
     writeNow: 'Jetzt schreiben',
+    continue: 'Bericht fortschreiben',
   },
   cancel: {
     confirmTitle: 'Auftrag abbrechen?',

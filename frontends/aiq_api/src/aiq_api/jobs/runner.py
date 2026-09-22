@@ -1463,22 +1463,8 @@ async def run_agent_job(
                     # the thread turn and the notification waited) for up to the
                     # card timeout plus the reflection model's retries after the
                     # reader already had the report.
-                    cards_result, _, anatomy, follow_ups = await asyncio.gather(
+                    cards_result, anatomy, follow_ups = await asyncio.gather(
                         _generate_grid_cards(llm, input_text, report),
-                        _run_deep_research_reflection(
-                            builder=builder,
-                            job_id=job_id,
-                            # A scheduled job's submitter (the BFF) knows the flag but
-                            # not the config's LLM ref; the worker has the config.
-                            reflection_llm_ref=memory_reflection_llm or _workflow_reflection_llm_ref(config),
-                            reflection_enabled=memory_reflection_enabled,
-                            query=input_text,
-                            report=report,
-                            usage_context=usage_context,
-                            memory_digest=memory_digest,
-                            org_credential=resolved_org_credential,
-                            model_overrides=model_overrides,
-                        ),
                         # The report's anatomy (masthead) and its findings
                         # (Befundmatrix), read off the finished report in one
                         # structured call, and the follow-up questions the
@@ -1487,6 +1473,24 @@ async def run_agent_job(
                         # the report.
                         _extract_report_anatomy(llm, input_text, report),
                         _propose_report_follow_ups(llm, query=input_text, report=report, organization_id=_job_org_id),
+                    )
+                    # Reflection reads the report WITH its findings, after the
+                    # extraction: a Befund with its value and status lands in
+                    # project memory as a fact, an open one as an open point,
+                    # instead of both being fished back out of the prose.
+                    await _run_deep_research_reflection(
+                        builder=builder,
+                        job_id=job_id,
+                        # A scheduled job's submitter (the BFF) knows the flag but
+                        # not the config's LLM ref; the worker has the config.
+                        reflection_llm_ref=memory_reflection_llm or _workflow_reflection_llm_ref(config),
+                        reflection_enabled=memory_reflection_enabled,
+                        query=input_text,
+                        report=_reflection_text(report, anatomy.findings),
+                        usage_context=usage_context,
+                        memory_digest=memory_digest,
+                        org_credential=resolved_org_credential,
+                        model_overrides=model_overrides,
                     )
                     cards = _merge_job_cards(card_registry.snapshot(), cards_result.cards)
                     if cards:
@@ -2008,6 +2012,28 @@ def _merge_job_cards(emitted: list[dict[str, Any]], generated: list[Any] | None)
     """
     merged = [*emitted, *(generated or [])]
     return merged or None
+
+
+def _reflection_text(report: str, findings: dict[str, Any] | None) -> str:
+    """The report as memory reflection reads it: the prose, then its findings as lines.
+
+    One line per Befund — requirement, value, status, and the comment for an
+    open one — so the reflection model meets each fact once, in a fixed
+    shape, rather than reconstructing it from a paragraph.
+    """
+    items = (findings or {}).get("items") if isinstance(findings, dict) else None
+    if not isinstance(items, list) or not items:
+        return report
+    lines = []
+    for item in items:
+        if not isinstance(item, dict) or not item.get("requirement"):
+            continue
+        value = f" — {item['value']}" if item.get("value") else ""
+        comment = (
+            f" ({item['comment']})" if item.get("comment") and item.get("status") in ("offen", "nicht_erfuellt") else ""
+        )
+        lines.append(f"- {item['requirement']}{value} — {item.get('status', 'offen')}{comment}")
+    return f"{report.rstrip()}\n\n## Befunde\n" + "\n".join(lines) if lines else report
 
 
 async def _extract_report_anatomy(llm: Any, query: str, report: str) -> ReportAnatomy:

@@ -48,12 +48,42 @@ const referenceText = (
   return parts.join(' · ')
 }
 
-const FindingRow: FC<{ finding: Finding; anchorPrefix?: string }> = ({ finding, anchorPrefix }) => {
+/** How a row stands against the previous report's row of the same requirement. */
+export type FindingChange = 'new' | 'changed' | 'same'
+
+export function changeOf(finding: Finding, previous: Findings | undefined): FindingChange {
+  if (!previous) return 'same'
+  const before = previous.items.find((item) => item.requirement === finding.requirement)
+  if (!before) return 'new'
+  return before.status !== finding.status || (before.value ?? '') !== (finding.value ?? '')
+    ? 'changed'
+    : 'same'
+}
+
+/** Requirements the previous report had and this one dropped. */
+export function droppedFrom(previous: Findings | undefined, current: Findings): string[] {
+  if (!previous) return []
+  const now = new Set(current.items.map((item) => item.requirement))
+  return previous.items
+    .map((item) => item.requirement)
+    .filter((requirement) => !now.has(requirement))
+}
+
+const OPEN_STATUSES: ReadonlySet<FindingStatus> = new Set(['offen', 'nicht_erfuellt'])
+
+const FindingRow: FC<{
+  finding: Finding
+  anchorPrefix?: string
+  change: FindingChange
+  onCommission?: (finding: Finding) => Promise<boolean>
+}> = ({ finding, anchorPrefix, change, onCommission }) => {
   const t = useTranslations('chat')
   const [open, setOpen] = useState(false)
   const Icon = STATUS_ICON[finding.status]
   const reference = referenceText(finding, t)
+  const [commissioned, setCommissioned] = useState(false)
   const expandable = Boolean(finding.comment)
+  const clearable = Boolean(onCommission) && OPEN_STATUSES.has(finding.status) && !commissioned
   return (
     <>
       <tr
@@ -78,6 +108,16 @@ const FindingRow: FC<{ finding: Finding; anchorPrefix?: string }> = ({ finding, 
             )}
             <span>
               {finding.requirement}
+              {change !== 'same' && (
+                <Chip
+                  size="sm"
+                  variant="info"
+                  className="ml-1.5 align-middle"
+                  data-testid="finding-change"
+                >
+                  {t(`findings.change.${change}`)}
+                </Chip>
+              )}
               {finding.area && (
                 <span className="text-muted-foreground block text-xs">{finding.area}</span>
               )}
@@ -110,6 +150,24 @@ const FindingRow: FC<{ finding: Finding; anchorPrefix?: string }> = ({ finding, 
                 {t(`findings.grounding.${finding.grounding}`)}
               </Chip>
             )}
+            {clearable && (
+              <button
+                type="button"
+                data-testid="finding-commission"
+                onClick={(event) => {
+                  event.stopPropagation()
+                  void onCommission?.(finding).then((ok) => setCommissioned(ok))
+                }}
+                className="rounded-xs text-brand focus-visible:ring-ring/60 underline decoration-dotted underline-offset-2 hover:opacity-80 focus-visible:outline-none focus-visible:ring-2"
+              >
+                {t('findings.clarify')}
+              </button>
+            )}
+            {commissioned && (
+              <Chip size="sm" variant="success" data-testid="finding-commissioned">
+                {t('findings.commissioned')}
+              </Chip>
+            )}
           </span>
         </td>
       </tr>
@@ -124,12 +182,17 @@ const FindingRow: FC<{ finding: Finding; anchorPrefix?: string }> = ({ finding, 
   )
 }
 
-export const FindingsMatrix: FC<{ findings: Findings; anchorPrefix?: string }> = ({
-  findings,
-  anchorPrefix,
-}) => {
+export const FindingsMatrix: FC<{
+  findings: Findings
+  anchorPrefix?: string
+  /** The previous report's findings on the same subject, for the change marks. */
+  previous?: Findings
+  /** Commission a run to clear an open finding; absent when the thread cannot. */
+  onCommission?: (finding: Finding) => Promise<boolean>
+}> = ({ findings, anchorPrefix, previous, onCommission }) => {
   const t = useTranslations('chat')
   const counts = findingCounts(findings)
+  const dropped = droppedFrom(previous, findings)
   const summary = (Object.keys(counts) as FindingStatus[])
     .filter((status) => counts[status] > 0)
     .map((status) => `${counts[status]} ${t(`findings.status.${status}`)}`)
@@ -160,11 +223,18 @@ export const FindingsMatrix: FC<{ findings: Findings; anchorPrefix?: string }> =
                 key={`${index}-${finding.requirement}`}
                 finding={finding}
                 anchorPrefix={anchorPrefix}
+                change={changeOf(finding, previous)}
+                onCommission={onCommission}
               />
             ))}
           </tbody>
         </table>
       </div>
+      {dropped.length > 0 && (
+        <p className="text-muted-foreground text-xs" data-testid="findings-dropped">
+          {t('findings.change.dropped', { count: dropped.length })} {dropped.join(' · ')}
+        </p>
+      )}
     </section>
   )
 }

@@ -1,3 +1,4 @@
+import { z } from 'zod'
 /**
  * The browser's typed client for one run: `GET /api/projects/[id]/runs/[runId]`
  * and `POST …/cancel` (ADR-0055).
@@ -52,6 +53,40 @@ export async function fetchRunView(
 
 export function runCancelPath(projectId: string, runId: string): string {
   return `${runViewPath(projectId, runId)}/cancel`
+}
+
+export function runsPath(projectId: string): string {
+  return `/api/projects/${encodeURIComponent(projectId)}/runs`
+}
+
+export const commissionedRunSchema = z
+  .object({
+    runId: z.string().min(1),
+    runMessageId: z.string().nullable(),
+    conversationId: z.string(),
+    status: z.string(),
+  })
+  .strict()
+export type CommissionedRun = z.infer<typeof commissionedRunSchema>
+
+/**
+ * Commission a research run from the thread: an open finding to clear, or a
+ * report to carry forward. The run's message is minted server-side in the
+ * conversation; the caller re-reads the thread to show it.
+ */
+export async function commissionRun(
+  projectId: string,
+  input: { conversationId: string; question: string; context?: string },
+  run: RunViewFetch = (i, init) => fetch(i, init)
+): Promise<CommissionedRun> {
+  const response = await run(runsPath(projectId), {
+    method: 'POST',
+    headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+    credentials: 'same-origin',
+    body: JSON.stringify(input),
+  })
+  if (!response.ok) throw new RunViewError(response.status, 'The run could not be commissioned')
+  return commissionedRunSchema.parse(await response.json())
 }
 
 export function runWriteNowPath(projectId: string, runId: string): string {

@@ -41,12 +41,15 @@ export interface RunBlockMessageProps {
   projectId?: string | null
   /** The report as the caller renders an answer. Shown only once the run has one. */
   answer?: ReactNode
+  /** „Bericht fortschreiben", when the thread can commission a run. */
+  onContinue?: (() => void | Promise<void>) | null
 }
 
 export function RunBlockMessage({
   message,
   projectId,
   answer,
+  onContinue,
 }: RunBlockMessageProps): JSX.Element | null {
   const { ledger, live, cancel, writeNow, connection } = useRunLedger({ message, projectId })
   const reduced = useReducedMotion()
@@ -75,6 +78,7 @@ export function RunBlockMessage({
         connection={connection}
         onCancel={cancel}
         onWriteNow={writeNow}
+        onContinue={onContinue ?? null}
       />
       {showAnswer ? (
         <motion.div

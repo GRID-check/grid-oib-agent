@@ -60,7 +60,7 @@ import { AnatomyBlock, AnatomyMasthead } from './AnswerAnatomy'
 import { FindingsMatrix } from './FindingsMatrix'
 import { EvidenceBlock } from './EvidenceBlock'
 import type { AnswerKind, AnswerMeta } from '@/lib/conversations/message-answer-meta'
-import type { Findings } from '@/lib/conversations/message-findings'
+import type { Finding, Findings } from '@/lib/conversations/message-findings'
 import { ConfidenceChip, type AnswerConfidence } from './ConfidenceChip'
 import { AnswerFeedback } from './AnswerFeedback'
 import { AnswerActions } from './AnswerActions'
@@ -151,6 +151,10 @@ export interface AgentResponseProps {
   answerMeta?: AnswerMeta
   /** The report's findings, drawn as the Befundmatrix between the masthead and the prose. */
   findings?: Findings
+  /** The previous report's findings on the same subject, for the matrix's change marks. */
+  previousFindings?: Findings
+  /** Commission a run to clear an open finding; absent when the thread cannot. */
+  onCommissionFinding?: (finding: Finding) => Promise<boolean>
   /** The assistant's guarded self-assessed answer confidence (shallow answers only) */
   answerConfidence?: 'low' | 'medium' | 'high'
   /**
@@ -700,6 +704,8 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
   stages,
   answerMeta,
   findings,
+  previousFindings,
+  onCommissionFinding,
   answerConfidence,
   answerConfidenceCappedReason,
   answerConfidenceReason,
@@ -991,7 +997,14 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
                 />
               </CardSetProvider>
             )}
-            {findings && <FindingsMatrix findings={findings} anchorPrefix={anchorPrefix} />}
+            {findings && (
+              <FindingsMatrix
+                findings={findings}
+                anchorPrefix={anchorPrefix}
+                previous={previousFindings}
+                onCommission={onCommissionFinding}
+              />
+            )}
             {/* An unplaced legal basis — flat above the prose, never in the fallback grid. */}
             {!stillArriving && evidenceCard?.type === 'legal_basis' && (
               <CardSetProvider cards={cardSet}>
@@ -1185,7 +1198,14 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
                   />
                 </CardSetProvider>
               )}
-              {findings && <FindingsMatrix findings={findings} anchorPrefix={anchorPrefix} />}
+              {findings && (
+                <FindingsMatrix
+                  findings={findings}
+                  anchorPrefix={anchorPrefix}
+                  previous={previousFindings}
+                  onCommission={onCommissionFinding}
+                />
+              )}
               {/* An unplaced legal basis — flat above the prose, never in the fallback grid. */}
               {!stillArriving && evidenceCard?.type === 'legal_basis' && (
                 <CardSetProvider cards={cardSet}>

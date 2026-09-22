@@ -47,7 +47,14 @@ import { FollowUpsRail } from '@/features/chat/components/FollowUpsRail'
 import { offersAktenvermerk } from '@/features/chat/lib/aktenvermerk-chip'
 // Its own module rather than a barrel, for the reason FollowUpsRail is: the
 // specs that mock `@/features/chat` must not have to know about the run block.
+import type { Finding, Findings } from '@/lib/conversations/message-findings'
 import { RunBlockMessage } from '@/features/runs/components/RunBlockMessage'
+import { useCommissionRun } from '@/features/runs/hooks/use-commission-run'
+import {
+  continuationBrief,
+  findingBrief,
+  previousRunFindings,
+} from '@/features/runs/lib/carry-forward'
 import { AGENT_MENTION_ID } from '@/lib/mentions/types'
 import { cn } from '@/lib/utils'
 import { AwaitingBanner } from '@/features/collaboration/components/AwaitingBanner'
@@ -272,6 +279,25 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
   reducedMotionRef.current = prefersReducedMotion
 
   const messages = currentConversation?.messages
+  // Commissioning from inside the thread: an open finding to clear, or a
+  // report to carry forward. Null when there is no project or conversation.
+  const commissionRun = useCommissionRun(activeProjectId ?? null, currentConversation?.id ?? null)
+  const commissionFromFinding = useCallback(
+    async (finding: Finding): Promise<boolean> => {
+      if (!commissionRun) return false
+      const brief = findingBrief(finding)
+      return commissionRun.commission(brief.question, brief.context)
+    },
+    [commissionRun]
+  )
+  const continueRun = useCallback(
+    async (message: ChatMessage): Promise<void> => {
+      if (!commissionRun) return
+      const brief = continuationBrief(message)
+      await commissionRun.commission(brief.question, brief.context)
+    },
+    [commissionRun]
+  )
 
   // Filter to only show displayable message types in the chat area
   // Assistant text messages (full reports) are displayed in the Details Panel instead
@@ -884,6 +910,13 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
                             message={message}
                             conversationId={currentConversation?.id}
                             projectId={activeProjectId}
+                            previousFindings={
+                              message.runLedger
+                                ? previousRunFindings(messages ?? [], message.id)
+                                : undefined
+                            }
+                            onCommissionFinding={commissionRun ? commissionFromFinding : undefined}
+                            onContinueRun={commissionRun ? continueRun : undefined}
                             onPromptRespond={handlePromptRespond}
                             onErrorDismiss={dismissErrorCard}
                             onErrorRetry={handleErrorRetry}
@@ -1133,6 +1166,12 @@ interface MessageRendererProps {
   currentUserId?: string | null
   /** Who a restored prompt was addressed to, for the read-only line (ADR-0037). */
   promptAddresseeName?: string | null
+  /** The previous run's findings in this thread, for a report's change marks. */
+  previousFindings?: Findings
+  /** Commission a run to clear an open finding; absent when the thread cannot. */
+  onCommissionFinding?: (finding: Finding) => Promise<boolean>
+  /** „Bericht fortschreiben" for a finished run's message. */
+  onContinueRun?: (message: ChatMessage) => Promise<void>
 }
 
 const MessageRendererComponent: FC<MessageRendererProps> = ({
@@ -1149,6 +1188,9 @@ const MessageRendererComponent: FC<MessageRendererProps> = ({
   grouped,
   currentUserId,
   promptAddresseeName,
+  previousFindings,
+  onCommissionFinding,
+  onContinueRun,
 }) => {
   const tFileStatus = useTranslations('research')
   const messageType = message.messageType || (message.role === 'user' ? 'user' : 'assistant')
@@ -1211,6 +1253,8 @@ const MessageRendererComponent: FC<MessageRendererProps> = ({
           stages={message.stages}
           answerMeta={message.answerMeta}
           findings={message.findings}
+          previousFindings={previousFindings}
+          onCommissionFinding={onCommissionFinding}
           answerConfidence={message.answerConfidence}
           answerConfidenceCappedReason={message.answerConfidenceCappedReason}
           answerConfidenceReason={message.answerConfidenceReason}
@@ -1243,7 +1287,14 @@ const MessageRendererComponent: FC<MessageRendererProps> = ({
       // below is the last surface that still opens the panel, and it is
       // produced only for threads older than run messages.
       if (message.runLedger) {
-        return <RunBlockMessage message={message} projectId={projectId} answer={answer} />
+        return (
+          <RunBlockMessage
+            message={message}
+            projectId={projectId}
+            answer={answer}
+            onContinue={onContinueRun ? () => onContinueRun(message) : null}
+          />
+        )
       }
       return answer
     }
@@ -1344,6 +1395,9 @@ const areMessageRendererPropsEqual = (
   prev.message.isStreaming === next.message.isStreaming &&
   prev.conversationId === next.conversationId &&
   prev.projectId === next.projectId &&
+  prev.previousFindings === next.previousFindings &&
+  prev.onCommissionFinding === next.onCommissionFinding &&
+  prev.onContinueRun === next.onContinueRun &&
   prev.showConfidenceChip === next.showConfidenceChip &&
   prev.showAnswerFeedback === next.showAnswerFeedback &&
   prev.showReasoning === next.showReasoning &&

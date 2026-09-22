@@ -1,6 +1,6 @@
 import { render, screen } from '@/test-utils'
 import userEvent from '@testing-library/user-event'
-import { describe, expect, test } from 'vitest'
+import { describe, expect, test, vi } from 'vitest'
 import { en } from '@/i18n/dictionaries'
 import type { Findings } from '@/lib/conversations/message-findings'
 import { FindingsMatrix } from './FindingsMatrix'
@@ -45,6 +45,38 @@ describe('FindingsMatrix', () => {
     expect(screen.getByText('Gilt für GK 4; im Kellergeschoß REI 90.')).toBeInTheDocument()
     await userEvent.setup().click(screen.getAllByTestId('finding-row')[1]!)
     expect(screen.getAllByTestId('finding-detail')).toHaveLength(1)
+  })
+
+  test('marks what changed against the previous report and names what was dropped', () => {
+    const previous: Findings = {
+      v: 1,
+      items: [
+        {
+          requirement: 'Feuerwiderstand tragender Bauteile',
+          value: 'REI 90',
+          status: 'erfuellt',
+          grounding: 'belegt',
+          citations: [],
+        },
+        { requirement: 'Barrierefreiheit', status: 'erfuellt', grounding: 'belegt', citations: [] },
+      ],
+    }
+    render(<FindingsMatrix findings={findings} previous={previous} />)
+    const marks = screen.getAllByTestId('finding-change').map((chip) => chip.textContent)
+    expect(marks).toEqual([en.chat.findings.change.changed, en.chat.findings.change.new])
+    expect(screen.getByTestId('findings-dropped')).toHaveTextContent('Barrierefreiheit')
+  })
+
+  test('an open finding offers „Klären" and shows the receipt once the run is commissioned', async () => {
+    const onCommission = vi.fn().mockResolvedValue(true)
+    render(<FindingsMatrix findings={findings} onCommission={onCommission} />)
+    expect(screen.getAllByTestId('finding-commission')).toHaveLength(1)
+    await userEvent.setup().click(screen.getByTestId('finding-commission'))
+    expect(onCommission).toHaveBeenCalledWith(
+      expect.objectContaining({ requirement: 'Zweiter Fluchtweg' })
+    )
+    expect(await screen.findByTestId('finding-commissioned')).toBeInTheDocument()
+    expect(screen.queryByTestId('finding-commission')).not.toBeInTheDocument()
   })
 
   test('an unsourced finding says so beside its status', () => {
