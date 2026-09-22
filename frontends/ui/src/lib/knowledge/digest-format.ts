@@ -13,6 +13,20 @@
  *    ceiling.
  */
 
+/**
+ * The character budget one prompt block gets.
+ *
+ * Shared, because the blocks that use it SHARE a channel: the project-memory
+ * digest, the proposal decisions and the review decisions all ride the same
+ * header on the same turn, and „same order of size as one memory digest" was
+ * the reason each of them gave for the number — written out three times, in
+ * three files, as three private constants that nothing kept equal. The two that
+ * are genuinely different (`lib/projects/memory-service.ts` at 1800, the
+ * platform lessons at 1600) keep their own and say so; a block that wants this
+ * size takes it from here.
+ */
+export const DIGEST_BLOCK_MAX_CHARS = 900
+
 export interface DigestLineItem {
   /** Rendered inside the `[...]` bracket, joined with ` | `. */
   tags: string[]

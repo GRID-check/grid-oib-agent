@@ -96,6 +96,7 @@ export async function requireProjectAccess(
   const check = (permissionSlug: ProjectPermission) =>
     checkResourcePermission({
       organizationMembershipId: session.organizationMembershipId,
+      organizationId: session.organizationId,
       permissionSlug,
       resourceExternalId: projectId,
       resourceTypeSlug: 'project',

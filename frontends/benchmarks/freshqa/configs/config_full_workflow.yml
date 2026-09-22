@@ -1,5 +1,5 @@
 # Deep Agent Workflow Configuration
-# Full workflow with intent classification, depth routing, and research agents. Nemotron on integrate.api; add judge (OpenAI or Gemini) for evaluator.
+# Full workflow with research agents. Agent models run through OpenRouter (OPENROUTER_API_KEY); add judge (OpenAI or Gemini) for evaluator.
 
 general:
   telemetry:
@@ -9,36 +9,25 @@ general:
         level: INFO
 
 llms:
-  nemotron_llm_intent:
-    _type: nim
-    model_name: nvidia/nemotron-3-super-120b-a12b
-    base_url: "https://integrate.api.nvidia.com/v1"
-    temperature: 0.7
-    top_p: 0.7
-    max_tokens: 8192
-    num_retries: 5
-    chat_template_kwargs:
-      enable_thinking: false
-
   nemotron_super_llm:
-    _type: nim
-    model_name: nvidia/nemotron-3-super-120b-a12b
-    base_url: "https://integrate.api.nvidia.com/v1"
+    _type: openai
+    model_name: openai/gpt-5.6-luna
+    base_url: "https://openrouter.ai/api/v1"
     temperature: 0.7
     top_p: 0.7
     max_tokens: 65536
-    num_retries: 5
+    api_key: ${OPENROUTER_API_KEY}
     chat_template_kwargs:
       enable_thinking: true
 
   gpt_oss_llm:
-    _type: nim
+    _type: openai
     model_name: openai/gpt-oss-120b
-    base_url: "https://integrate.api.nvidia.com/v1"
+    base_url: "https://openrouter.ai/api/v1"
     temperature: 1.0
     top_p: 1.0
     max_tokens: 256000
-    api_key: ${NVIDIA_API_KEY}
+    api_key: ${OPENROUTER_API_KEY}
     max_retries: 10
 
   # Judge model for evaluator: set OPENAI_API_KEY or add a Gemini LLM and set evaluators.freshqa.llm_name.
@@ -53,18 +42,17 @@ functions:
     _type: tavily_internet_search
     max_results: 5
 
-  intent_classifier:
-    _type: intent_classifier
-    llm: nemotron_llm_intent
-
   shallow_research_agent:
-    _type: shallow_research_agent
+    _type: research_agent
     llm: nemotron_super_llm
     tools:
       - web_search_tool
-    max_llm_turns: 10
     max_tool_iterations: 5
     verbose: true
+    # Runaway guard on ONE round's fan-out, not a doctrine: a round costs
+    # one however wide it is, and the calls past this are answered with a
+    # notice saying they may be issued again next round. 0 disables it.
+    max_calls_per_round: 12
 
   deep_research_agent:
     _type: deep_research_agent
@@ -79,14 +67,13 @@ functions:
 
 workflow:
   _type: chat_deepresearcher_agent
-  enable_escalation: true
   verbose: true
   tools:
     - web_search_tool
 
 eval:
   general:
-    workflow_alias: "freshqa_eval_full_workflow_with_intent_classifier_and_depth_router"
+    workflow_alias: "freshqa_eval_full_workflow"
     output_dir: frontends/benchmarks/freshqa/results
     max_concurrency: 1
     dataset:

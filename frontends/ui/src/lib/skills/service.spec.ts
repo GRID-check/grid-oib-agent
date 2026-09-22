@@ -29,13 +29,27 @@ vi.mock('./platform-skills', () => ({
 
 vi.mock('./platform-repository', () => ({
   listPublishedOfferRows: vi.fn(),
-  listPublishedStandardRows: vi.fn(),
-  findStandardPlatformSkillRowByName: vi.fn(),
+}))
+
+vi.mock('./skill-category-repository', () => ({
+  CATEGORIES_LIST_LIMIT: 100,
+  listCategoriesForOrg: vi.fn(),
+  listOrgCategories: vi.fn(),
+  findCategoryInScope: vi.fn(),
+  findPlatformSkillCategory: vi.fn(),
+  findOrgCategoryByName: vi.fn(),
+  findPlatformSkillCategoryByName: vi.fn(),
+  findOrgCategory: vi.fn(),
+  insertCategory: vi.fn(),
+  updateCategory: vi.fn(),
+  deleteCategory: vi.fn(),
+  orgCategoryValues: vi.fn((organizationId, values) => ({ ...values, organizationId })),
 }))
 
 import { canManageSkills } from '@/lib/authz/organizations'
 import { requireSkillsEnabled } from '@/lib/authz/feature-flags'
 import * as repository from './repository'
+import * as categoryRepository from './skill-category-repository'
 import * as platformRepository from './platform-repository'
 import { findPlatformSkill, listPlatformSkills } from './platform-skills'
 import { ConflictError, ForbiddenError, NotFoundError } from '@/lib/api/errors'
@@ -45,6 +59,10 @@ import {
   createSkill,
   updateSkill,
   deleteSkill,
+  listSkillCategories,
+  createSkillCategory,
+  updateSkillCategory,
+  deleteSkillCategory,
   resolveSkillSnapshot,
   resolveSkillsForAgent,
   resolveSelectableSkills,
@@ -121,6 +139,7 @@ function platformRow(overrides: Partial<PlatformSkillRow> = {}): PlatformSkillRo
     metadata: {},
     published: true,
     delivery: 'offer',
+    categoryId: null,
     createdBy: 'owner',
     createdByEmail: null,
     createdAt: new Date('2026-01-01T00:00:00Z'),
@@ -130,30 +149,21 @@ function platformRow(overrides: Partial<PlatformSkillRow> = {}): PlatformSkillRo
 }
 
 /**
- * The platform's house instruction: published, `delivery: 'standard'`.
- *
- * Every organization runs it, none of them is asked, and none of them can see
- * it on a Skills tab or switch it off.
+ * A dashboard row the platform published — the one that used to carry
+ * `delivery: 'standard'` and impose itself on every tenant. An ordinary offer
+ * since migration 0088.
  */
-const STANDARD_ROW = platformRow({
-  id: 'ps-std',
+const HOUSE_ROW = platformRow({
+  id: 'ps-house',
   name: 'house-citation-style',
   description: 'Always cite the OIB paragraph number.',
   body: 'Cite every normative claim with its OIB paragraph.',
-  delivery: 'standard',
 })
 
-/** Publish `rows` into the fleet catalogue, wiring both reads consistently. */
+/** Publish `rows` into the fleet catalogue. */
 function publishPlatformRows(rows: PlatformSkillRow[]): void {
   vi.mocked(platformRepository.listPublishedOfferRows).mockResolvedValue(
-    rows.filter((row) => row.delivery === 'offer' && row.published)
-  )
-  vi.mocked(platformRepository.listPublishedStandardRows).mockResolvedValue(
-    rows.filter((row) => row.delivery === 'standard' && row.published)
-  )
-  vi.mocked(platformRepository.findStandardPlatformSkillRowByName).mockImplementation(
-    async (name) =>
-      rows.find((row) => row.name === name && row.delivery === 'standard' && row.published) ?? null
+    rows.filter((row) => row.published)
   )
 }
 
@@ -167,6 +177,7 @@ function makeSkill(overrides: Partial<Skill> = {}): Skill {
     metadata: {},
     origin: 'org',
     clonedFrom: null,
+    categoryId: null,
     enabled: true,
     createdBy: 'user_1',
     createdByEmail: null,
@@ -174,6 +185,32 @@ function makeSkill(overrides: Partial<Skill> = {}): Skill {
     updatedAt: new Date('2025-01-01T00:00:00Z'),
   }
   return { ...base, ...overrides }
+}
+
+/** A category row — platform-owned when organizationId is null. */
+function makeCategory(
+  overrides: Partial<{
+    id: string
+    organizationId: string | null
+    name: string
+    description: string | null
+    slug: string | null
+    sortOrder: number
+  }> = {}
+) {
+  return {
+    id: 'cat-1',
+    organizationId: null,
+    name: 'Recherche',
+    description: null,
+    slug: null,
+    sortOrder: 0,
+    createdBy: 'owner',
+    createdByEmail: null,
+    createdAt: new Date('2026-01-01T00:00:00Z'),
+    updatedAt: new Date('2026-01-01T00:00:00Z'),
+    ...overrides,
+  }
 }
 
 beforeEach(() => {
@@ -191,6 +228,12 @@ beforeEach(() => {
   publishPlatformRows([])
   vi.mocked(repository.findSkill).mockResolvedValue(null)
   vi.mocked(repository.findSkillByName).mockResolvedValue(null)
+  // No categories unless a test stands some up.
+  vi.mocked(categoryRepository.listCategoriesForOrg).mockResolvedValue([])
+  vi.mocked(categoryRepository.listOrgCategories).mockResolvedValue([])
+  vi.mocked(categoryRepository.findCategoryInScope).mockResolvedValue(null)
+  vi.mocked(categoryRepository.findOrgCategoryByName).mockResolvedValue(null)
+  vi.mocked(categoryRepository.findOrgCategory).mockResolvedValue(null)
 })
 
 afterEach(() => {
@@ -238,7 +281,7 @@ describe('listSkills', () => {
       enabled: false,
       origin: 'platform',
     })
-    const { skills: chat } = await resolveSkillsForAgent('org_1', 'shallow_researcher')
+    const { skills: chat } = await resolveSkillsForAgent('org_1', 'researcher')
     expect(chat.map((s) => s.name)).not.toContain('forecast-analysis')
     const { skills: deep } = await resolveSkillsForAgent('org_1', 'deep_researcher')
     expect(deep.map((s) => s.name)).not.toContain('forecast-analysis')
@@ -412,7 +455,6 @@ describe('resolveSkillSnapshot', () => {
     expect(snapshot.origin).toBe('platform')
     // In-memory, so the platform_skills query is never made for machinery.
     expect(platformRepository.listPublishedOfferRows).not.toHaveBeenCalled()
-    expect(platformRepository.findStandardPlatformSkillRowByName).not.toHaveBeenCalled()
     expect(repository.listCuratedSkillActivations).not.toHaveBeenCalled()
   })
 
@@ -467,7 +509,7 @@ describe('resolveSkillsForAgent', () => {
       'for-researcher',
       'for-everyone',
     ])
-    const { skills: other } = await resolveSkillsForAgent('org_1', 'shallow_researcher')
+    const { skills: other } = await resolveSkillsForAgent('org_1', 'researcher')
     expect(other.map((s) => s.name)).toEqual(['oib-fire-check', 'data-table-analysis', 'for-everyone'])
   })
 
@@ -475,8 +517,45 @@ describe('resolveSkillsForAgent', () => {
     vi.mocked(repository.listSkillsInOrg).mockResolvedValue([
       makeSkill({ name: 'typo', metadata: { 'grid-agents': 'shallow_reseacher' } }),
     ])
-    const { skills } = await resolveSkillsForAgent('org_1', 'shallow_researcher')
+    const { skills } = await resolveSkillsForAgent('org_1', 'researcher')
     expect(skills.map((s) => s.name)).toContain('typo')
+  })
+
+  /**
+   * `shallow_researcher` became `researcher`, and a stored row must keep meaning
+   * the restriction its author chose.
+   *
+   * This is the pair to the test above, and the reason the alias could not
+   * simply be a third known name: an ignored name reads as NO restriction, so a
+   * chat-only skill would have started reaching deep research — silently, in
+   * the widest possible direction. `0081_grid_agents_researcher_rename.sql`
+   * rewrites the rows we can see; this covers the ones we cannot.
+   */
+  it('reads the retired shallow_researcher name as the researcher, both ways', async () => {
+    vi.mocked(repository.listSkillsInOrg).mockResolvedValue([
+      makeSkill({ name: 'chat-only', metadata: { 'grid-agents': 'shallow_researcher' } }),
+    ])
+    const { skills: forChat } = await resolveSkillsForAgent('org_1', 'researcher')
+    expect(forChat.map((s) => s.name)).toContain('chat-only')
+
+    const { skills: forDeep } = await resolveSkillsForAgent('org_1', 'deep_researcher')
+    expect(forDeep.map((s) => s.name)).not.toContain('chat-only')
+  })
+
+  /**
+   * The other direction: a backend still on the pre-rename build asks under the
+   * old name for as long as a rolling deploy takes, and by then the migration
+   * has already rewritten the rows. Canonicalising only the stored side would
+   * black out every skill for that caller until the deploy finished.
+   */
+  it('answers a caller that still asks as shallow_researcher', async () => {
+    vi.mocked(repository.listSkillsInOrg).mockResolvedValue([
+      makeSkill({ name: 'chat-only', metadata: { 'grid-agents': 'researcher' } }),
+      makeSkill({ id: 's2', name: 'deep-only', metadata: { 'grid-agents': 'deep_researcher' } }),
+    ])
+    const { skills } = await resolveSkillsForAgent('org_1', 'shallow_researcher')
+    expect(skills.map((s) => s.name)).toContain('chat-only')
+    expect(skills.map((s) => s.name)).not.toContain('deep-only')
   })
 
   /**
@@ -502,134 +581,120 @@ describe('resolveSkillsForAgent', () => {
 })
 
 /**
- * The platform's STANDARD tier: a skill every organization runs, nobody is
- * offered, and nobody outside the platform dashboard can see or change.
+ * The platform's STANDARD tier, and the fact that it is gone (migration 0088).
  *
- * Five properties, each of which has to be true independently, because each one
- * is enforced by a different line and any one of them failing would give an
- * organization a handle on platform policy:
+ * It was a skill every organization ran, nobody was offered, and nobody outside
+ * the platform dashboard could see or change — and `SkillRuntime` FORCED it, so
+ * its body was loaded whether or not the model judged it relevant. That is an
+ * instruction wearing a capability's clothes, and instructions now live in the
+ * platform prompt and in each organization's own instruction block.
  *
- *   invisible       not on the Skills tab, not in the `/` picker, not attachable
- *   default-on      resolved with no activation row and no decision made
- *   non-targetable  the activation endpoint 404s the name
- *   non-shadowable  an org row of the same name cannot replace it
- *   platform-owned  a tenant cannot even author that name
+ * Five properties used to hold here, each enforced by its own line: invisible,
+ * default-on, non-targetable, non-shadowable, platform-owned. Every one of them
+ * is asserted below in the NEGATIVE, because each was a handle the platform held
+ * over a tenant and the removal is only real if none of them survives. A
+ * published row is an ordinary offer now: listed, switchable, off until the org
+ * says otherwise, and shadowable by the org's own skill of the same name.
  */
-describe('platform standard skills', () => {
+describe('a published platform row, after the standard tier was retired', () => {
   beforeEach(() => {
-    publishPlatformRows([STANDARD_ROW])
+    publishPlatformRows([HOUSE_ROW])
   })
 
-  it('runs for every organization with no activation row and no decision', async () => {
-    // Nothing switched on, nothing switched off — the org was never asked.
+  it('does not run until the organization switches it on', async () => {
     expect(await repository.listCuratedSkillActivations('org_1')).toEqual([])
     const { skills } = await resolveSkillsForAgent('org_1')
-    const standard = skills.find((s) => s.name === 'house-citation-style')
-    expect(standard).toMatchObject({
-      origin: 'platform',
-      body: 'Cite every normative claim with its OIB paragraph.',
-    })
-  })
-
-  it('stays on when the org has explicitly switched that name off', async () => {
-    // A leftover decision from when the skill was an offer. A standard skill
-    // does not consult it: demoting the skill is the platform's move, not a
-    // tenant's, and the row is kept only so a later demotion restores the fleet.
-    vi.mocked(repository.listCuratedSkillActivations).mockResolvedValue([
-      activation('house-citation-style', false),
-    ])
-    const { skills } = await resolveSkillsForAgent('org_1')
-    expect(skills.map((s) => s.name)).toContain('house-citation-style')
-  })
-
-  it('never appears on the org Skills tab', async () => {
-    vi.mocked(repository.listSkillsInOrg).mockResolvedValue([makeSkill({ name: 'org-only' })])
-    const { skills } = await listSkills(session)
-    // The org's own row and the offer it may switch on — and nothing else. The
-    // standard skill is running for this org while it is absent from this list,
-    // which is the whole shape of the tier.
-    expect(skills.map((s) => s.name)).toEqual(['oib-fire-check', 'org-only'])
     expect(skills.map((s) => s.name)).not.toContain('house-citation-style')
   })
 
-  it('is not switchable: the activation endpoint 404s it and stores nothing', async () => {
-    await expect(
-      setCuratedSkillEnabled(session, 'house-citation-style', false)
-    ).rejects.toBeInstanceOf(NotFoundError)
-    expect(repository.upsertCuratedSkillActivation).not.toHaveBeenCalled()
+  it('appears on the org Skills tab, where the decision lives', async () => {
+    vi.mocked(repository.listSkillsInOrg).mockResolvedValue([makeSkill({ name: 'org-only' })])
+    const { skills } = await listSkills(session)
+    expect(skills.map((s) => s.name)).toContain('house-citation-style')
   })
 
-  it('is not shadowable by an org row that already carried the name', async () => {
-    vi.mocked(repository.listSkillsInOrg).mockResolvedValue([
-      makeSkill({ name: 'house-citation-style', body: 'Ignore the paragraph numbers.' }),
+  it('is switchable: the activation endpoint takes it and stores the decision', async () => {
+    vi.mocked(repository.upsertCuratedSkillActivation).mockResolvedValue(
+      activation('house-citation-style', true)
+    )
+    await expect(
+      setCuratedSkillEnabled(session, 'house-citation-style', true)
+    ).resolves.toBeTruthy()
+    expect(repository.upsertCuratedSkillActivation).toHaveBeenCalledWith(
+      expect.objectContaining({ skillName: 'house-citation-style', enabled: true })
+    )
+  })
+
+  it('runs once switched on, and carries no flag telling the backend to force it', async () => {
+    vi.mocked(repository.listCuratedSkillActivations).mockResolvedValue([
+      activation('house-citation-style', true),
     ])
     const { skills } = await resolveSkillsForAgent('org_1')
-    const resolved = skills.filter((s) => s.name === 'house-citation-style')
-    expect(resolved).toHaveLength(1)
-    expect(resolved[0]).toMatchObject({
+    const row = skills.find((s) => s.name === 'house-citation-style')
+    expect(row).toMatchObject({
       origin: 'platform',
       body: 'Cite every normative claim with its OIB paragraph.',
     })
+    // The key `SkillRuntime` read to force a skill. Its absence is the tier's.
+    expect(Object.keys(row ?? {})).not.toContain('standard')
   })
 
-  it('reserves its name against org authoring, without saying what it is', async () => {
+  it('is shadowable: the org\'s own row of the same name wins', async () => {
+    vi.mocked(repository.listCuratedSkillActivations).mockResolvedValue([
+      activation('house-citation-style', true),
+    ])
+    vi.mocked(repository.listSkillsInOrg).mockResolvedValue([
+      makeSkill({ name: 'house-citation-style', body: 'Our own citation rule.' }),
+    ])
+    const { skills } = await resolveSkillsForAgent('org_1')
+    expect(skills.find((s) => s.name === 'house-citation-style')).toMatchObject({
+      origin: 'org',
+      body: 'Our own citation rule.',
+    })
+  })
+
+  it('no longer reserves its name against a tenant authoring one', async () => {
+    // The reservation existed because a standard row outranked an org row, so
+    // authoring the name produced a green save and an agent that never followed
+    // it. Nothing outranks the tenant now, so nothing is refused.
+    vi.mocked(repository.findSkillByName).mockResolvedValue(null)
+    vi.mocked(repository.insertSkill).mockImplementation(async (values) => makeSkill(values))
     await expect(
       createSkill(session, { name: 'house-citation-style', description: 'b', body: 'c' })
-    ).rejects.toThrow(/reserved/i)
-    expect(repository.insertSkill).not.toHaveBeenCalled()
-
-    vi.mocked(repository.findSkill).mockResolvedValue(makeSkill())
-    await expect(
-      updateSkill(session, 'skill-1', { name: 'house-citation-style' })
-    ).rejects.toBeInstanceOf(ConflictError)
-    expect(repository.updateSkill).not.toHaveBeenCalled()
+    ).resolves.toBeTruthy()
   })
 
-  /**
-   * The same trap reached from the other side: not authoring the name, but
-   * editing a row that was already wearing it. The row is inert — the resolver
-   * deletes the name before merging the platform's version — so a successful
-   * save here would be the "green save, agent never follows it" failure the
-   * create boundary exists to prevent.
-   *
-   * Refused, not hidden: the row stays listed and stays deletable.
-   */
-  it('refuses to edit a legacy row already wearing a standardised name', async () => {
-    vi.mocked(repository.findSkill).mockResolvedValue(
-      makeSkill({ name: 'house-citation-style' })
+  it('no longer refuses an edit to a row wearing its name', async () => {
+    vi.mocked(repository.findSkill).mockResolvedValue(makeSkill({ name: 'house-citation-style' }))
+    vi.mocked(repository.updateSkill).mockResolvedValue(
+      makeSkill({ name: 'house-citation-style', body: 'NEW ORG BODY' })
     )
     await expect(
       updateSkill(session, 'skill-1', { body: 'NEW ORG BODY' })
-    ).rejects.toThrow(/reserved/i)
-    expect(repository.updateSkill).not.toHaveBeenCalled()
+    ).resolves.toBeTruthy()
+  })
 
-    // Still theirs to see and to remove.
-    vi.mocked(repository.listSkillsInOrg).mockResolvedValue([
-      makeSkill({ name: 'house-citation-style' }),
+  it('is attachable to a job once the org has taken it up', async () => {
+    vi.mocked(repository.listCuratedSkillActivations).mockResolvedValue([
+      activation('house-citation-style', true),
     ])
-    expect((await listSkills(session)).skills.map((s) => s.name)).toContain('house-citation-style')
-    await expect(deleteSkill(session, 'skill-1')).resolves.toEqual({ deleted: true })
+    vi.mocked(repository.findSkillByName).mockResolvedValue(null)
+    expect((await resolveSkillSnapshot('house-citation-style', 'org_1')).origin).toBe('platform')
   })
 
   /**
    * The collision no write boundary can catch: `assertNameIsFree` refuses a ROW
    * named after an existing builtin, but the other direction is a DEPLOY —
-   * shipping a `SKILL.md` whose name matches a standard row published months
-   * ago. Standard is merged after the org's rows and therefore after the
-   * machinery, so left alone that row would silently replace how deep research
-   * writes its report for every tenant at once.
-   *
-   * Made inert at read time instead, in both resolvers: machinery wins, and the
-   * standard row simply does not exist while a builtin owns its name.
+   * shipping a `SKILL.md` whose name matches a row published months ago. The
+   * file is product code, the row is dashboard copy, so the file wins, in both
+   * resolvers.
    */
-  it('yields to the machinery when a builtin ships under a standardised name', async () => {
+  it('yields to the machinery when a builtin ships under its name', async () => {
     publishPlatformRows([
-      platformRow({ ...STANDARD_ROW, name: 'data-table-analysis', body: 'DASHBOARD OVERRIDE' }),
+      platformRow({ ...HOUSE_ROW, name: 'data-table-analysis', body: 'DASHBOARD OVERRIDE' }),
     ])
     const { skills } = await resolveSkillsForAgent('org_1')
-    expect(skills.find((s) => s.name === 'data-table-analysis')?.body).toBe(
-      PLATFORM_SKILL.body
-    )
+    expect(skills.find((s) => s.name === 'data-table-analysis')?.body).toBe(PLATFORM_SKILL.body)
 
     // And the job path agrees, which is the half that actually runs on a save.
     vi.mocked(repository.findSkillByName).mockResolvedValue(null)
@@ -639,156 +704,31 @@ describe('platform standard skills', () => {
   })
 
   /**
-   * The same guard, reached through a CURATED builtin file rather than
-   * machinery. Without it the name would sit in both halves at once — offered
-   * on the Skills tab with a working switch, which breaks invisibility and
-   * non-targetability together.
-   */
-  it('yields to a curated builtin file too, rather than sitting in both halves', async () => {
-    publishPlatformRows([
-      platformRow({ ...STANDARD_ROW, name: 'oib-fire-check', body: 'DASHBOARD OVERRIDE' }),
-    ])
-    const { skills } = await listSkills(session)
-    const listed = skills.filter((s) => s.name === 'oib-fire-check')
-    expect(listed).toHaveLength(1)
-    expect(listed[0].body).toBe(CURATED_SKILL.body)
-    // An offer, so still switchable — as the file always was.
-    vi.mocked(repository.upsertCuratedSkillActivation).mockResolvedValue(
-      activation('oib-fire-check', true)
-    )
-    await expect(setCuratedSkillEnabled(session, 'oib-fire-check', true)).resolves.toBeTruthy()
-  })
-
-  /**
-   * Fleet policy is read UNCAPPED, and that is a correctness property rather
-   * than a performance one. The offer list keeps its 200-row rail; standard rows
-   * cannot share it, because a truncated standard read would stop policy running
-   * for every organization on the platform — silently, since nothing errors —
-   * while the name stayed reserved and job attachment stayed 404'd.
-   */
-  it('reads the standard set without the catalogue cap', async () => {
-    await resolveSkillsForAgent('org_1')
-    expect(platformRepository.listPublishedStandardRows).toHaveBeenCalledWith()
-  })
-
-  /**
-   * The flag the backend forces on. `delivery: 'standard'` already meant
-   * "resolved for every organization, no decision to make", but resolving only
-   * put the skill's one-line description in the catalogue — and a description
-   * the model may or may not open is not fleet policy. `SkillRuntime` forces
-   * every resolved standard skill, which is what makes the tier bind; it can
-   * only do that if the distinction survives the wire.
-   */
-  it('marks standard skills on the wire so the backend applies rather than offers them', async () => {
-    const { skills } = await resolveSkillsForAgent('org_1')
-    const standard = skills.filter((s) => s.standard)
-    expect(standard.length).toBeGreaterThan(0)
-  })
-
-  /**
-   * Not derivable from `origin`, which is also 'platform' for the machinery and
-   * for offers an org took up. Deriving it there would force every builtin on
-   * the fleet as policy.
-   */
-  it('does not mark the machinery or a taken-up offer as standard', async () => {
-    const { skills } = await resolveSkillsForAgent('org_1')
-    for (const skill of skills) {
-      if (!skill.standard) continue
-      expect(skill.origin).toBe('platform')
-    }
-    expect(skills.some((s) => s.origin === 'platform' && !s.standard)).toBe(true)
-  })
-
-  it('leaves an unpublished standard draft imposing nothing and reserving nothing', async () => {
-    publishPlatformRows([])
-    vi.mocked(repository.insertSkill).mockImplementation(async (values) => makeSkill(values))
-    await expect(
-      createSkill(session, { name: 'house-citation-style', description: 'b', body: 'c' })
-    ).resolves.toBeTruthy()
-    const { skills } = await resolveSkillsForAgent('org_1')
-    expect(skills.map((s) => s.name)).not.toContain('house-citation-style')
-  })
-
-  it('is not attachable to a job, even by name', async () => {
-    vi.mocked(repository.findSkillByName).mockResolvedValue(null)
-    await expect(resolveSkillSnapshot('house-citation-style', 'org_1')).rejects.toBeInstanceOf(
-      NotFoundError
-    )
-  })
-
-  /**
-   * The legacy-collision case, and the reason the standard check runs FIRST in
-   * `resolveSkillSnapshot`. The org row is found — it exists — but pinning its
-   * body would give the job instructions the run has already been told to
-   * ignore, because `resolveAll` merges standard last.
-   */
-  it('refuses to pin a legacy org row wearing a standardised name', async () => {
-    vi.mocked(repository.findSkillByName).mockResolvedValue(
-      makeSkill({ name: 'house-citation-style', body: 'Ignore the paragraph numbers.' })
-    )
-    await expect(resolveSkillSnapshot('house-citation-style', 'org_1')).rejects.toBeInstanceOf(
-      NotFoundError
-    )
-  })
-
-  it('is kept out of every picker a person reads, while still resolving for the run', async () => {
-    const { skills: selectable } = await resolveSelectableSkills('org_1')
-    expect(selectable.map((s) => s.name)).not.toContain('house-citation-style')
-
-    const { skills: forTheRun } = await resolveSkillsForAgent('org_1')
-    expect(forTheRun.map((s) => s.name)).toContain('house-citation-style')
-
-    const { skills: invocable } = await listInvocableSkills(session)
-    expect(invocable.map((s) => s.name)).not.toContain('house-citation-style')
-  })
-
-  /**
    * `grid-agents` still applies. That gate answers "which agent CAN run this",
-   * which is a different question from "who decides that it runs" — a standard
-   * skill written for deep research must not be handed to a chat turn that
-   * cannot execute it.
+   * which is a different question from who decides that it runs.
    */
   it('still respects grid-agents', async () => {
     publishPlatformRows([
-      platformRow({
-        ...STANDARD_ROW,
-        metadata: { 'grid-agents': 'deep_researcher' },
-      }),
+      platformRow({ ...HOUSE_ROW, metadata: { 'grid-agents': 'deep_researcher' } }),
+    ])
+    vi.mocked(repository.listCuratedSkillActivations).mockResolvedValue([
+      activation('house-citation-style', true),
     ])
     const { skills: deep } = await resolveSkillsForAgent('org_1', 'deep_researcher')
     expect(deep.map((s) => s.name)).toContain('house-citation-style')
-    const { skills: chat } = await resolveSkillsForAgent('org_1', 'shallow_researcher')
+    const { skills: chat } = await resolveSkillsForAgent('org_1', 'researcher')
     expect(chat.map((s) => s.name)).not.toContain('house-citation-style')
   })
 
-  /**
-   * The corner where "merge standard last" is not enough on its own.
-   *
-   * The platform scoped its instruction to deep research; a legacy org row of
-   * the same name targets every agent. On the CHAT agent the standard skill is
-   * filtered out by `grid-agents` — so an overwrite-only merge would leave the
-   * tenant's row standing on a name the platform owns, which is the shadowing
-   * this tier exists to prevent, just arriving through the targeting gate
-   * instead of through the merge order.
-   *
-   * A standardised name resolves to the platform's skill or to nothing.
-   */
-  it('does not let grid-agents hand a standardised name back to the org', async () => {
-    publishPlatformRows([
-      platformRow({ ...STANDARD_ROW, metadata: { 'grid-agents': 'deep_researcher' } }),
+  it('is in the pickers a person reads, because it is theirs to pick now', async () => {
+    vi.mocked(repository.listCuratedSkillActivations).mockResolvedValue([
+      activation('house-citation-style', true),
     ])
-    vi.mocked(repository.listSkillsInOrg).mockResolvedValue([
-      makeSkill({ name: 'house-citation-style', body: 'Ignore the paragraph numbers.' }),
-    ])
+    const { skills: selectable } = await resolveSelectableSkills('org_1')
+    expect(selectable.map((s) => s.name)).toContain('house-citation-style')
 
-    const { skills: chat } = await resolveSkillsForAgent('org_1', 'shallow_researcher')
-    expect(chat.map((s) => s.name)).not.toContain('house-citation-style')
-
-    const { skills: deep } = await resolveSkillsForAgent('org_1', 'deep_researcher')
-    expect(deep.find((s) => s.name === 'house-citation-style')).toMatchObject({
-      origin: 'platform',
-      body: 'Cite every normative claim with its OIB paragraph.',
-    })
+    const { skills: invocable } = await listInvocableSkills(session)
+    expect(invocable.map((s) => s.name)).toContain('house-citation-style')
   })
 })
 
@@ -839,5 +779,173 @@ describe('listInvocableSkills', () => {
     const { skills } = await listInvocableSkills(session)
     const entry = skills.find((s) => s.name === 'a-skill')
     expect(entry).toEqual({ name: 'a-skill', description: 'Does the thing.', origin: 'org' })
+  })
+})
+
+describe('skill categories', () => {
+  it('lists platform categories before org categories, with their scope', async () => {
+    // Repository order is the contract (platform first); the service maps it.
+    vi.mocked(categoryRepository.listCategoriesForOrg).mockResolvedValue([
+      makeCategory({ id: 'cat-1', name: 'Recherche', slug: 'research', sortOrder: 0 }),
+      makeCategory({ id: 'cat-2', organizationId: 'org_1', name: 'Eigene', slug: null, sortOrder: 0 }),
+    ])
+    const { categories } = await listSkills(session)
+    expect(categories.map((c) => c.name)).toEqual(['Recherche', 'Eigene'])
+    expect(categories[0]).toMatchObject({ scope: 'platform', slug: 'research' })
+    expect(categories[1]).toMatchObject({ scope: 'org' })
+  })
+
+  it('categories a builtin file offer by its collection slug', async () => {
+    vi.mocked(categoryRepository.listCategoriesForOrg).mockResolvedValue([
+      makeCategory({ id: 'cat-1', name: 'Recherche', slug: 'research' }),
+    ])
+    const { skills } = await listSkills(session)
+    // CURATED_SKILL is a `research` file offer: no row, still categorized.
+    expect(skills.find((s) => s.name === 'oib-fire-check')?.categoryId).toBe('cat-1')
+  })
+
+  it('keeps a dashboard row on its stored category', async () => {
+    publishPlatformRows([platformRow({ categoryId: 'cat-9' })])
+    const { skills } = await listSkills(session)
+    expect(skills.find((s) => s.name === 'energy-check')?.categoryId).toBe('cat-9')
+  })
+
+  it('leaves file offers unsorted when no category carries their slug', async () => {
+    const { skills } = await listSkills(session)
+    expect(skills.find((s) => s.name === 'oib-fire-check')?.categoryId).toBeNull()
+  })
+
+  it('refuses a category outside the org on create', async () => {
+    vi.mocked(categoryRepository.findCategoryInScope).mockResolvedValue(null)
+    vi.mocked(repository.insertSkill).mockImplementation(async () => makeSkill())
+    await expect(
+      createSkill(session, { name: 'a', description: 'b', body: 'c', categoryId: 'cat-x' })
+    ).rejects.toBeInstanceOf(NotFoundError)
+    expect(repository.insertSkill).not.toHaveBeenCalled()
+  })
+
+  it('assigns an org or platform category on create', async () => {
+    vi.mocked(categoryRepository.findCategoryInScope).mockResolvedValue(
+      makeCategory({ id: 'cat-1' })
+    )
+    vi.mocked(repository.insertSkill).mockImplementation(async (values) => makeSkill(values))
+    const { skill } = await createSkill(session, {
+      name: 'a',
+      description: 'b',
+      body: 'c',
+      categoryId: 'cat-1',
+    })
+    expect(skill.categoryId).toBe('cat-1')
+  })
+
+  it('removes the category on an explicit null, keeps it on an omitted key', async () => {
+    vi.mocked(repository.findSkill).mockResolvedValue(makeSkill({ categoryId: 'cat-1' }))
+    vi.mocked(categoryRepository.findCategoryInScope).mockResolvedValue(
+      makeCategory({ id: 'cat-2' })
+    )
+    vi.mocked(repository.updateSkill).mockImplementation(
+      async (_id, _org, patch) => makeSkill({ categoryId: patch.categoryId ?? 'cat-1' })
+    )
+    await updateSkill(session, 'skill-1', { description: 'neu' })
+    expect(vi.mocked(repository.updateSkill).mock.calls[0][2]).not.toHaveProperty('categoryId')
+    expect(categoryRepository.findCategoryInScope).not.toHaveBeenCalled()
+    await updateSkill(session, 'skill-1', { categoryId: 'cat-2' })
+    expect(vi.mocked(repository.updateSkill).mock.calls[1][2]).toHaveProperty('categoryId', 'cat-2')
+    await updateSkill(session, 'skill-1', { categoryId: null })
+    expect(vi.mocked(repository.updateSkill).mock.calls[2][2]).toHaveProperty('categoryId', null)
+  })
+})
+
+describe('skill category CRUD', () => {
+  it('lists categories with their scope', async () => {
+    vi.mocked(categoryRepository.listCategoriesForOrg).mockResolvedValue([
+      makeCategory({ id: 'cat-1', name: 'Recherche', slug: 'research', sortOrder: 0 }),
+      makeCategory({ id: 'cat-2', organizationId: 'org_1', name: 'Eigene', slug: null, sortOrder: 0 }),
+    ])
+    const { categories } = await listSkillCategories(session)
+    expect(categories).toEqual([
+      { id: 'cat-1', name: 'Recherche', description: null, slug: 'research', sortOrder: 0, scope: 'platform' },
+      { id: 'cat-2', name: 'Eigene', description: null, slug: null, sortOrder: 0, scope: 'org' },
+    ])
+  })
+
+  it('refuses a duplicate category name in the org', async () => {
+    vi.mocked(categoryRepository.findOrgCategoryByName).mockResolvedValue(
+      makeCategory({ organizationId: 'org_1', name: 'Eigene' })
+    )
+    vi.mocked(categoryRepository.insertCategory).mockImplementation(async (values) => ({
+      ...makeCategory({ organizationId: 'org_1' }),
+      ...values,
+    }))
+    await expect(createSkillCategory(session, { name: 'Eigene' })).rejects.toBeInstanceOf(
+      ConflictError
+    )
+    expect(categoryRepository.insertCategory).not.toHaveBeenCalled()
+  })
+
+  it('creates, renames and removes an org category', async () => {
+    vi.mocked(categoryRepository.findOrgCategoryByName).mockResolvedValue(null)
+    vi.mocked(categoryRepository.insertCategory).mockImplementation(async (values) => ({
+      ...makeCategory({ organizationId: 'org_1' }),
+      ...values,
+    }))
+    const { category } = await createSkillCategory(session, { name: 'Eigene' })
+    expect(category).toMatchObject({ name: 'Eigene', scope: 'org' })
+
+    vi.mocked(categoryRepository.findOrgCategory).mockResolvedValue(
+      makeCategory({ id: 'cat-9', organizationId: 'org_1', name: 'Eigene' })
+    )
+    vi.mocked(categoryRepository.updateCategory).mockImplementation(
+      async (_id, patch) => ({ ...makeCategory({ id: 'cat-9', organizationId: 'org_1' }), ...patch, description: patch.description ?? null })
+    )
+    const renamed = await updateSkillCategory(session, 'cat-9', { name: 'Prüfungen' })
+    expect(renamed.category.name).toBe('Prüfungen')
+
+    vi.mocked(categoryRepository.deleteCategory).mockResolvedValue(true)
+    await expect(deleteSkillCategory(session, 'cat-9')).resolves.toEqual({ deleted: true })
+  })
+
+  it('never addresses a platform category from the org path', async () => {
+    vi.mocked(categoryRepository.findOrgCategory).mockResolvedValue(null)
+    vi.mocked(categoryRepository.deleteCategory).mockResolvedValue(true)
+    await expect(deleteSkillCategory(session, 'cat-1')).rejects.toBeInstanceOf(NotFoundError)
+    expect(categoryRepository.deleteCategory).not.toHaveBeenCalled()
+  })
+
+  it('refuses a create past the list limit instead of silently dropping rows', async () => {
+    vi.mocked(categoryRepository.findOrgCategoryByName).mockResolvedValue(null)
+    // Exactly at the cap, not past it: the row this call would insert is the
+    // one that falls off the bounded read, so the cap has to bite at `>=`.
+    vi.mocked(categoryRepository.listOrgCategories).mockResolvedValue(
+      Array.from({ length: 100 }, (_, index) =>
+        makeCategory({ id: `cat-${index}`, organizationId: 'org_1', name: `Kat ${index}` })
+      )
+    )
+    vi.mocked(categoryRepository.insertCategory).mockImplementation(async (values) => ({
+      ...makeCategory({ organizationId: 'org_1' }),
+      ...values,
+    }))
+    await expect(createSkillCategory(session, { name: 'Eine zu viel' })).rejects.toBeInstanceOf(
+      ConflictError
+    )
+    expect(categoryRepository.insertCategory).not.toHaveBeenCalled()
+  })
+
+  it('does not spend an org quota on the platform\u2019s categories', async () => {
+    // The regression this guards: counting the combined list meant a busy
+    // platform curation locked every tenant out of its own shelves forever.
+    vi.mocked(categoryRepository.findOrgCategoryByName).mockResolvedValue(null)
+    vi.mocked(categoryRepository.listCategoriesForOrg).mockResolvedValue(
+      Array.from({ length: 100 }, (_, index) =>
+        makeCategory({ id: `plat-${index}`, name: `Plattform ${index}` })
+      )
+    )
+    vi.mocked(categoryRepository.listOrgCategories).mockResolvedValue([])
+    vi.mocked(categoryRepository.insertCategory).mockImplementation(async (values) => ({
+      ...makeCategory({ organizationId: 'org_1' }),
+      ...values,
+    }))
+    const { category } = await createSkillCategory(session, { name: 'Eigene' })
+    expect(category).toMatchObject({ name: 'Eigene', scope: 'org' })
   })
 })

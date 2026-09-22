@@ -54,7 +54,7 @@ The Python backend service running NAT + FastAPI.
 | `AIQ_CHECKPOINT_DB` | `postgresql://aiq:aiq_dev@postgres:5432/aiq_checkpoints` |
 | `AIQ_SUMMARY_DB` | `postgresql+psycopg://aiq:aiq_dev@postgres:5432/aiq_jobs` |
 | `AIQ_CHROMA_DIR` | `/app/data/chroma_data` |
-| `CONFIG_FILE` | `/app/configs/config_grid_oib.yml` |
+| `CONFIG_FILE` | `/app/configs/config_oib_openrouter.yml` |
 | `HOST` | `0.0.0.0` |
 | `PORT` | `8000` |
 | `DASK_NWORKERS` | `1` |
@@ -65,7 +65,7 @@ The Python backend service running NAT + FastAPI.
 | Mount | Purpose |
 |-------|---------|
 | `../../configs:/app/configs:ro` | NAT workflow YAML configs |
-| `../../data/oib:/app/data/oib:ro` | OIB Richtlinien PDFs |
+| `../../data/oib:/app/data/oib:ro` | OIB Richtlinien PDFs. Operator-provided — the directory is gitignored and ships empty (`data/oib/README.md`); an empty corpus boots fine and answers nothing until it is filled |
 | `aiq-data:/app/data` | Persistent data (summaries DB, job DB) |
 | `chroma_data:/app/data/chroma_data` | ChromaDB vector persistence |
 
@@ -297,14 +297,14 @@ The backend `deploy/Dockerfile` defines two build targets:
 
 ### dev (default)
 
-- Based on `nvcr.io/nvidia/distroless/python:3.13-v4.0.5`
+- Based on `debian:bookworm-slim` with a uv-managed Python 3.14 (`python-build-standalone`)
 - Includes CLI (`aiq-research`) and debug UI (`aiq_debug`)
 - Includes Node.js 22 for frontend development inside the dev container
 - `APP_ENV` defaults to `development` (when unset, compose default is `production`)
 
 ### release
 
-- Based on `nvcr.io/nvidia/distroless/python:3.13-v4.0.5`
+- Based on `debian:bookworm-slim` with a uv-managed Python 3.14 (`python-build-standalone`)
 - Web only — no CLI, no debug UI, no Node.js
 - `APP_ENV` is hardcoded to `production`
 - Validates required environment variables at startup

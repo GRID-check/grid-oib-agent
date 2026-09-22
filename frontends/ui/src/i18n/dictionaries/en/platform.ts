@@ -338,7 +338,7 @@ export const platform = {
     // retrieval disagrees with the catalog — so the answer lives here.
     howTitle: 'What reconciling does',
     howBody:
-      'Deleting a document is two steps: drop its indexed chunks from the vector store, then drop its row from the catalog. When the first step is skipped or fails, the row disappears but the chunks stay behind — invisible everywhere in the app, yet still eligible to be retrieved and cited. Reconciling walks every collection, compares it against the catalog, and deletes the chunks no document owns any more.',
+      'Deleting a document is two steps: drop its indexed chunks from the vector store, then drop its row from the catalog. When the first step is skipped or fails, the row disappears but the chunks stay behind — invisible everywhere in the app, yet still eligible to be retrieved and cited. Reconciling walks every collection, compares it against the catalog, and deletes the chunks no document owns any more. It then forgets the opposite leftover: an entry in the assistant’s document inventory whose file has no chunks left, so the assistant stops listing a file it cannot read.',
     whenTitle: 'When you need it',
     whenBody:
       'Run it when an answer cites a document nobody can find, when a deleted file keeps reappearing as a source, or after a bulk delete that reported errors. Repeating it is harmless: on a healthy store it finds nothing and deletes nothing.',
@@ -366,6 +366,8 @@ export const platform = {
     measureFoundHint: 'Indexed files with no owning document row.',
     measureDeleted: 'Chunks removed',
     measureDeletedHint: 'Chunks the vector store confirmed it deleted.',
+    measureSummaries: 'Inventory entries forgotten',
+    measureSummariesHint: 'Files the assistant still listed although nothing of them was left to read.',
     outcomeRemoved: 'Removed {chunks} orphaned chunk(s) across {collections} collection(s).',
     outcomeClean: 'Nothing to clean up — every indexed chunk still has its document.',
     failuresTitle: '{count} collection(s) could not be reconciled',
@@ -377,17 +379,9 @@ export const platform = {
   },
   /** Platform → Skills: the catalogue curated for every organization. */
   skills: {
-    hint: 'A skill written here reaches every organization. As an offer, each one decides whether to switch it on; as a standard, all of them run it without seeing it on their Skills tab or being able to switch it off. Drafts stay invisible until you publish them.',
+    hint: 'A skill written here is offered to every organization, and each one decides whether to switch it on. Drafts stay invisible until you publish them. Anything that should apply to every answer belongs in the platform prompt, not in a skill.',
     new: 'New curated skill',
     draft: 'Draft',
-    standardBadge: 'Standard',
-    deliveryOffer: 'Offered',
-    deliveryStandard: 'Standard for all',
-    deliveryAria: 'Change how the skill “{name}” is delivered',
-    deliveryNowStandard:
-      '“{name}” is now standard: every organization runs it and none can switch it off.',
-    deliveryNowOffer:
-      '“{name}” is now an offer: it runs again only where an organization switches it on.',
     edit: 'Edit',
     delete: 'Delete',
     deleted: '“{name}” deleted.',
@@ -514,7 +508,7 @@ export const platform = {
   sections: {
     overview: {
       title: 'Overview',
-      subtitle: 'Every organization on the platform, with projects and LLM spend.',
+      subtitle: 'Every organization on the platform, with projects, LLM cost and revenue — and the price list behind it.',
     },
     skills: {
       title: 'Skills',
@@ -723,26 +717,63 @@ export const platform = {
   stats: {
     organizations: 'Organizations',
     projects: 'Projects',
-    spendToday: 'Spend today',
-    spendMonth: 'Spend this month',
+    // Cost is what OpenRouter charges, in USD, as charged — never converted.
+    costToday: 'Cost today',
+    costMonth: 'Cost this month',
+    revenueMonth: 'Revenue this month',
+    marginHint: 'Gross margin {margin}',
+    ownKeyExcluded: 'Excludes {amount} on organizations’ own keys',
     requestsMonth: '{count} requests this month',
   },
   orgs: {
     title: 'Organizations',
-    description: 'Every organization on the platform, biggest spender first. Costs come from the LLM usage ledger.',
+    description:
+      'Every organization on the platform, biggest revenue first. Cost is what OpenRouter charged in USD; revenue is what the organization is charged at the price list.',
     colOrganization: 'Organization',
     colProjects: 'Projects',
-    colToday: 'Today',
-    colMonth: 'This month',
+    colToday: 'Cost today',
+    colMonth: 'Cost this month',
+    colRevenue: 'Revenue this month',
     colCreated: 'Created',
     platformBadge: 'Platform',
+    ownKeyBadge: 'Own key',
+    ownKeyHint: '{amount} this month ran on the organization’s own key — its bill, not ours, and not in the cost columns.',
     empty: 'No organizations yet.',
   },
   trend: {
-    title: 'Spend trend',
-    description: 'Platform-wide LLM spend per day over the last 30 days (UTC), from the usage ledger.',
+    title: 'Cost trend',
+    description: 'Platform-wide LLM cost per day over the last 30 days (UTC), in USD as charged, from the usage ledger.',
     requests: '{count} requests',
     empty: 'No usage recorded in the last 30 days.',
+  },
+  pricing: {
+    title: 'Price list',
+    description:
+      'What organizations are charged for what OpenRouter charges Piloti. Cost × margin is the price; price ÷ credit price is what they see. A save applies to every organization from its next request — nothing already recorded is repriced.',
+    setBadge: 'Set',
+    bootFloorBadge: 'Boot floor — not set yet',
+    margin: 'Margin multiplier',
+    marginHint: 'Price ÷ cost. 1 is pass-through; 2.5 is a 150 % markup. {min}–{max}.',
+    usdPerCredit: 'Credit price (USD of price per credit)',
+    usdPerCreditHint: 'How much price one credit stands for. What a credit sells for in euros is the contract’s business.',
+    defaultDaily: 'Seeded daily allowance (credits)',
+    defaultMonthly: 'Seeded monthly allowance (credits)',
+    unlimitedPlaceholder: 'Unlimited',
+    example: 'A call OpenRouter charges {cost} for is priced at {price} and shows as {credits} credits.',
+    exampleIncomplete: 'Enter a margin and a credit price to see a worked example.',
+    note: 'Change note',
+    notePlaceholder: 'Why this price list (optional)',
+    save: 'Save price list',
+    saved: 'Price list saved — applies from the next request.',
+    saveError: 'The price list could not be saved.',
+    loadError: 'The price list could not be loaded.',
+    confirmTitle: 'Change the price list for every organization?',
+    confirmDescription:
+      'From the next request on, every organization is priced with these numbers. Usage already recorded keeps the price it was recorded at.',
+    confirmSave: 'Save for every organization',
+    updatedBy: 'Set by {email} on {date}',
+    historyTitle: 'Previous versions',
+    historyEntry: '{margin}× · {usdPerCredit} per credit · {daily}/day · {monthly}/month',
   },
   team: {
     title: 'Platform team',

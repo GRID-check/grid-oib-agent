@@ -44,7 +44,10 @@ export const ViewerSurface = forwardRef<HTMLDivElement, ViewerSurfaceProps>(
             // canvas and `backdrop-blur-md` needs something to blur; the
             // `supports-` step is the no-blur fallback.
             ? 'bg-card/80 shadow-sm backdrop-blur-md supports-[backdrop-filter]:bg-card/70'
-            : 'bg-transparent',
+            // Flat sits INSIDE another surface and states no chrome of its own:
+            // a lone border with nothing behind it over the 3D canvas is a
+            // ghost box, so the border goes transparent with the background.
+            : 'border-transparent bg-transparent',
           className
         )}
         {...props}

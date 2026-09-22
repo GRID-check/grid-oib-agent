@@ -17,11 +17,6 @@ repos:
       - id: check-merge-conflict
       - id: check-added-large-files
         args: [--maxkb=1024]
-        # Committed UI evidence (AGENTS.md: a user-visible change is only
-        # "done" with a screenshot). Full-page retina captures of a long
-        # surface routinely exceed 1 MB — the tracked gallery shots are ~3 MB —
-        # so the cap would block exactly the artifacts the repo requires.
-        exclude: ^frontends/ui/visual/screenshots/.*\.png$
       - id: check-yaml
         exclude: ^deploy/helm/helm-charts-k8s/.*/templates/.*\.ya?ml$
       - id: end-of-file-fixer
@@ -50,7 +45,22 @@ repos:
         # secret by none. Excluded rather than baselined for the reason the note
         # below gives — a baseline entry pins a hash to a LINE NUMBER, and this
         # file grows by a block every time a skill is added.
-        exclude: (^skills/[^/]+/skill\.oms\.sig$|^frontends/ui/pnpm-lock\.yaml$|^tests/fixtures/collection_scope/scope_header\.json$|^apm\.lock\.yaml$)
+        #
+        # vector_channel_recorded.json is the scope_header.json case again: its
+        # `corpus_fingerprint` is a SHA-256 prefix over the embedded corpus text,
+        # hex by construction and secret by none. `task be:eval:record-vector`
+        # rewrites the whole file whenever the model or the corpus moves, so a
+        # baseline entry would pin a hash to a line number that does not survive
+        # the next recording — and JSON cannot carry the inline
+        # `pragma: allowlist secret` comment that would be the other way out.
+        #
+        # aspire-dashboard.pin is a public image reference
+        # (`mcr.microsoft.com/dotnet/aspire-dashboard@sha256:…`). The digest is
+        # hex by construction and a secret by none; the file is one line so
+        # detect-secrets sees a high-entropy blob with no surrounding code.
+        # Excluded rather than baselined for the same line-number reason as
+        # the lockfiles above. gitleaks in security.yml still sees it.
+        exclude: (^skills/[^/]+/skill\.oms\.sig$|^frontends/ui/pnpm-lock\.yaml$|^tests/fixtures/collection_scope/scope_header\.json$|^apm\.lock\.yaml$|^frontends/benchmarks/oib_retrieval/fixtures/vector_channel_recorded\.json$|^deploy/pulumi/aspire-dashboard\.pin$)
         # REGENERATING THE BASELINE — keep the --exclude-lines flag, or CI starts
         # failing again a few commits later:
         #
@@ -142,6 +152,17 @@ repos:
         language: system
         pass_filenames: false
         files: ^docs/adr/.*\.md$|^scripts/check_adrs\.py$
+
+      - id: doc-paths
+        name: the concept index points at files that exist
+        # docs/architecture/where-is-what.md is only worth reading while its
+        # paths resolve, and they sit in code spans, so markdown-link-check
+        # never looks at them. A rename turns a row into the grep the index
+        # exists to remove, with nothing local objecting.
+        entry: python3 scripts/check_doc_paths.py
+        language: system
+        pass_filenames: false
+        files: ^docs/architecture/where-is-what\.md$|^scripts/check_doc_paths\.py$
 
       - id: validate-skills
         name: skill bundles are well-formed

@@ -24,6 +24,7 @@ import {
 import { ArrowDown, FileText, Lock } from 'lucide-react'
 import { useShallow } from 'zustand/react/shallow'
 import { Button } from '@/components/ui/button'
+import { Skeleton } from '@/components/ui/skeleton'
 import {
   useChatStore,
   AgentPrompt,
@@ -43,6 +44,10 @@ import type { UserMessageAuthor } from '@/features/chat/components/UserMessage'
 // reason the collaboration imports above are: existing specs mock that barrel,
 // and a new export on it would have to be added to every one of those mocks.
 import { FollowUpsRail } from '@/features/chat/components/FollowUpsRail'
+import { offersAktenvermerk } from '@/features/chat/lib/aktenvermerk-chip'
+// Its own module rather than a barrel, for the reason FollowUpsRail is: the
+// specs that mock `@/features/chat` must not have to know about the run block.
+import { RunBlockMessage } from '@/features/runs/components/RunBlockMessage'
 import { AGENT_MENTION_ID } from '@/lib/mentions/types'
 import { cn } from '@/lib/utils'
 import { AwaitingBanner } from '@/features/collaboration/components/AwaitingBanner'
@@ -129,6 +134,10 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
   )
 
   const respondToPrompt = useChatStore((s) => s.respondToPrompt)
+  // The project this thread is scoped to. Read here for one reason: the
+  // „Als Aktenvermerk schreiben" chip is only offered where a draft has
+  // somewhere to be filed (ledger 23).
+  const activeProjectId = useChatStore((s) => s.projectId)
   const setComposerPrefill = useChatStore((s) => s.setComposerPrefill)
   const getThinkingStepsForMessage = useChatStore((s) => s.getThinkingStepsForMessage)
   const dismissErrorCard = useChatStore((s) => s.dismissErrorCard)
@@ -653,12 +662,6 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
     [retryLastUserMessage, dismissErrorCard]
   )
 
-  // TODO: Implement file retry/cancel/delete handlers when file upload is added
-  // For now, these are placeholders
-  const handleFileRetry = useCallback((_messageId: string) => {
-    // Will be implemented with file upload feature
-  }, [])
-
   // Latency-gap typing indicator, shown at the bottom of the thread while
   // streaming and nothing has come back yet — two distinct gaps, both silent
   // without this:
@@ -750,7 +753,11 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
                   exit={{ opacity: 0, y: 16 }}
                   transition={motionSheetExit}
                 >
-                  <WelcomeState isAuthenticated={isAuthenticated} onSignIn={onSignIn} />
+                  <WelcomeState
+                    isAuthenticated={isAuthenticated}
+                    onSignIn={onSignIn}
+                    inProject={Boolean(activeProjectId)}
+                  />
                 </motion.div>
               )}
             </AnimatePresence>
@@ -822,6 +829,16 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
                       }
                     : undefined
 
+                  // Whether this turn earns the „Als Aktenvermerk schreiben"
+                  // chip — a walkthrough or a ruling, in a project, long enough
+                  // that the reader is already thinking about where to put it
+                  // (`features/chat/lib/aktenvermerk-chip`).
+                  const aktenvermerk = offersAktenvermerk({
+                    kind: agentMsg?.answerMeta?.kind,
+                    projectId: activeProjectId,
+                    body: agentMsg?.content,
+                  })
+
                   // The just-sent question's turn is the top-anchor target on send.
                   const isAnchorTarget = isUserMessage && message.id === currentUserMessageId
 
@@ -848,7 +865,7 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
                       // Animate only genuinely new messages; hydrated ones render in place.
                       initial={hydratedIds.has(message.id) ? false : 'hidden'}
                       animate="visible"
-                      exit={{ opacity: 0, transition: { duration: 0.15, ease: 'easeOut' } }}
+                      exit={{ opacity: 0, transition: motionQuick }}
                       transition={motionQuick}
                     >
                       {/* Where the reader left off, in a shared thread (spec CC-19). */}
@@ -860,8 +877,8 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
                       <MessageRenderer
                         message={message}
                         conversationId={currentConversation?.id}
+                        projectId={activeProjectId}
                         onPromptRespond={handlePromptRespond}
-                        onFileRetry={handleFileRetry}
                         onErrorDismiss={dismissErrorCard}
                         onErrorRetry={handleErrorRetry}
                         showConfidenceChip={showConfidenceChip}
@@ -898,9 +915,8 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
                             citations={agentMsg?.citations}
                             choicePrompt={choicePrompt}
                             onChoiceRespond={handlePromptRespond}
-                            routingDecision={agentMsg?.routingDecision}
-                            routingReason={agentMsg?.routingReason}
                             escalationReason={agentMsg?.escalationReason}
+                            retrievalLedger={agentMsg?.retrievalLedger}
                           />
                         </div>
                       )}
@@ -919,9 +935,20 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
                       in the THREAD either, the answer no longer streaming, the
                       reader not already typing) is enforced where the frame
                       arrives, in `applyStageFrame`. */}
-                      {message.stages?.followUps && (
+                      {/* One more chip beside them, decided in the browser: the
+                      offer to file this answer as an Aktenvermerk. It rides the
+                      rail rather than getting a surface of its own, because it
+                      is the same gesture the questions are (fill the composer,
+                      the reader presses send) and a second block under the
+                      answer would be a second thing to learn. `agentMsg` is
+                      only resolved once the turn has an answer, so the chip
+                      cannot appear mid-stream. */}
+                      {(message.stages?.followUps || aktenvermerk) && (
                         <div className="w-full">
-                          <FollowUpsRail items={message.stages.followUps.items} />
+                          <FollowUpsRail
+                            items={message.stages?.followUps?.items ?? []}
+                            offerAktenvermerk={aktenvermerk}
+                          />
                         </div>
                       )}
                     </motion.div>
@@ -1052,7 +1079,7 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
               initial={{ opacity: 0, y: 6 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: 6 }}
-              transition={{ duration: 0.15, ease: 'easeOut' }}
+              transition={motionQuick}
             >
               <button
                 type="button"
@@ -1077,10 +1104,9 @@ interface MessageRendererProps {
   message: ChatMessage
   /** Id of the conversation these messages belong to (for the memory chip). */
   conversationId?: string | null
+  /** The active project — the run block reads its live ledger through it. */
+  projectId?: string | null
   onPromptRespond: (promptId: string, response: string) => void
-  onFileRetry?: (messageId: string) => void
-  onFileCancel?: (messageId: string) => void
-  onFileDelete?: (messageId: string) => void
   onErrorDismiss?: (messageId: string) => void
   /** Resend the last user message + dismiss this error card (retry affordance). */
   onErrorRetry?: (messageId: string) => void
@@ -1106,10 +1132,8 @@ interface MessageRendererProps {
 const MessageRendererComponent: FC<MessageRendererProps> = ({
   message,
   conversationId,
+  projectId,
   onPromptRespond,
-  onFileRetry: _onFileRetry,
-  onFileCancel: _onFileCancel,
-  onFileDelete: _onFileDelete,
   onErrorDismiss,
   onErrorRetry,
   showConfidenceChip = true,
@@ -1120,6 +1144,7 @@ const MessageRendererComponent: FC<MessageRendererProps> = ({
   currentUserId,
   promptAddresseeName,
 }) => {
+  const tFileStatus = useTranslations('research')
   const messageType = message.messageType || (message.role === 'user' ? 'user' : 'assistant')
 
   switch (messageType) {
@@ -1160,16 +1185,14 @@ const MessageRendererComponent: FC<MessageRendererProps> = ({
         />
       )
 
-    case 'agent_response':
-      // Short answers from the agent displayed in the chat area
-      return (
+    case 'agent_response': {
+      // Short answers from the agent displayed in the chat area. Built once,
+      // here, because a RUN's message renders the same card beneath its block
+      // once the run has a report — and the prop mapping must exist in one place.
+      const answer = (
         <AgentResponse
           content={message.content}
           timestamp={message.timestamp}
-          showViewReport={message.showViewReport}
-          jobId={message.deepResearchJobId}
-          isDeepResearchActive={message.isDeepResearchActive}
-          deepResearchJobStatus={message.deepResearchJobStatus}
           cards={message.cards}
           citations={message.citations}
           conversationId={conversationId}
@@ -1180,10 +1203,12 @@ const MessageRendererComponent: FC<MessageRendererProps> = ({
           // reader said yes.
           cardInteractions={message.cardInteractions}
           stages={message.stages}
+          answerMeta={message.answerMeta}
           answerConfidence={message.answerConfidence}
           answerConfidenceCappedReason={message.answerConfidenceCappedReason}
           answerConfidenceReason={message.answerConfidenceReason}
           citationsRemoved={message.citationsRemoved}
+          readSources={message.readSources}
           researchTruncated={message.researchTruncated}
           truncationReason={message.truncationReason}
           degradedReasons={message.degradedReasons}
@@ -1197,13 +1222,45 @@ const MessageRendererComponent: FC<MessageRendererProps> = ({
           routingDecision={message.routingDecision}
         />
       )
+      // A message that carries a run ledger IS a run (ADR-0062): the block
+      // renders from the ledger, and the answer card above becomes the report
+      // beneath it once the run has one. Nothing else about the message
+      // changes — same row, same id, same deep-link target.
+      //
+      // The answer card is now the whole of it. The Python worker still stamps
+      // `deep_research_job_id` into every run message's metadata, and that used
+      // to reach `AgentResponse` as `jobId` and grow a "Bericht anzeigen"
+      // button on the finished block — a door that opened the legacy research
+      // panel OVER the run it belongs to. `AgentResponse` no longer takes those
+      // props, so the report is read where the reader already is. The banner
+      // below is the last surface that still opens the panel, and it is
+      // produced only for threads older than run messages.
+      if (message.runLedger) {
+        return <RunBlockMessage message={message} projectId={projectId} answer={answer} />
+      }
+      return answer
+    }
 
     case 'file':
-      // TODO: FileCard was removed in refactor - file display handled by FileSourceCard in panel
-      // File operation messages show upload/ingest status
+      // File operation messages show upload/ingest status. The wire status is
+      // never shown raw: anything this build cannot word falls back to
+      // "Available" rather than leaking `success`/`deleted` into the thread.
       if (!message.fileData) {
         return null
       }
+      // FileCard was removed in an earlier refactor — file display is handled
+      // by FileSourceCard in the panel; the thread keeps this status line.
+      const fileStatus = message.fileData.fileStatus
+      const fileStatusLabel =
+        fileStatus === 'uploading'
+          ? tFileStatus('fileSourceCard.statusUploading')
+          : fileStatus === 'ingesting'
+            ? tFileStatus('fileSourceCard.statusIngesting')
+            : fileStatus === 'success'
+              ? tFileStatus('fileSourceCard.statusAvailable')
+              : fileStatus === 'error'
+                ? tFileStatus('fileSourceCard.statusError')
+                : tFileStatus('fileSourceCard.statusAvailable')
       return (
         <div
           className="bg-muted shadow-xs flex items-center gap-2 rounded-xl px-4 py-2"
@@ -1211,7 +1268,7 @@ const MessageRendererComponent: FC<MessageRendererProps> = ({
         >
           <FileText className="text-muted-foreground size-4" aria-hidden="true" />
           <span className="text-muted-foreground text-sm">
-            {message.fileData.fileName} ({message.fileData.fileStatus})
+            {message.fileData.fileName} ({fileStatusLabel})
           </span>
         </div>
       )
@@ -1279,6 +1336,7 @@ const areMessageRendererPropsEqual = (
   prev.message.content === next.message.content &&
   prev.message.isStreaming === next.message.isStreaming &&
   prev.conversationId === next.conversationId &&
+  prev.projectId === next.projectId &&
   prev.showConfidenceChip === next.showConfidenceChip &&
   prev.showAnswerFeedback === next.showAnswerFeedback &&
   prev.showReasoning === next.showReasoning &&
@@ -1294,8 +1352,7 @@ const areMessageRendererPropsEqual = (
   prev.author?.isYou === next.author?.isYou &&
   prev.onPromptRespond === next.onPromptRespond &&
   prev.onErrorDismiss === next.onErrorDismiss &&
-  prev.onErrorRetry === next.onErrorRetry &&
-  prev.onFileRetry === next.onFileRetry
+  prev.onErrorRetry === next.onErrorRetry
 
 const MessageRenderer = memo(MessageRendererComponent, areMessageRendererPropsEqual)
 MessageRenderer.displayName = 'MessageRenderer'
@@ -1385,10 +1442,28 @@ const TypingIndicator: FC<{ status?: StatusType | null }> = ({ status }) => {
       role="status"
       aria-label={label}
     >
-      <span className="flex items-center gap-1" aria-hidden="true">
-        <span className="bg-muted-foreground/70 size-1.5 animate-pulse rounded-full [animation-delay:-0.3s] motion-reduce:animate-none" />
-        <span className="bg-muted-foreground/70 size-1.5 animate-pulse rounded-full [animation-delay:-0.15s] motion-reduce:animate-none" />
-        <span className="bg-muted-foreground/70 size-1.5 animate-pulse rounded-full motion-reduce:animate-none" />
+      <span className="flex items-center gap-1 motion-reduce:hidden" aria-hidden="true">
+        <motion.span
+          className="bg-muted-foreground/70 size-1.5 rounded-full"
+          initial={{ y: 0, opacity: 0.4 }}
+          animate={{ y: [0, -2, 0], opacity: [0.4, 1, 0.4] }}
+          transition={{ ...motionQuick, repeat: Infinity, delay: 0 }}
+        />
+        <motion.span
+          className="bg-muted-foreground/70 size-1.5 rounded-full"
+          initial={{ y: 0, opacity: 0.4 }}
+          animate={{ y: [0, -2, 0], opacity: [0.4, 1, 0.4] }}
+          transition={{ ...motionQuick, repeat: Infinity, delay: 0.12 }}
+        />
+        <motion.span
+          className="bg-muted-foreground/70 size-1.5 rounded-full"
+          initial={{ y: 0, opacity: 0.4 }}
+          animate={{ y: [0, -2, 0], opacity: [0.4, 1, 0.4] }}
+          transition={{ ...motionQuick, repeat: Infinity, delay: 0.24 }}
+        />
+      </span>
+      <span className="text-muted-foreground/70 hidden text-xs motion-reduce:inline" aria-hidden="true">
+        …
       </span>
       {/* Always word the wait (shimmering), and surface elapsed seconds once
           past a couple of seconds so a slow first token never feels stalled. */}
@@ -1421,15 +1496,20 @@ const MessageListSkeleton: FC = () => {
     >
       {/* user bubble (right) */}
       <div className="flex justify-end">
-        <div className="bg-muted h-10 w-1/2 animate-pulse rounded-2xl" />
+        <Skeleton className="h-10 w-1/2 rounded-lg" />
       </div>
-      {/* assistant bubble (left, taller) */}
+      {/* assistant answer card (left): a tab-width bar and a footer line around
+          the body, mirroring the answer card's shape rather than a bare slab */}
       <div className="flex justify-start">
-        <div className="bg-muted h-24 w-4/5 animate-pulse rounded-2xl" />
+        <div className="flex w-4/5 flex-col gap-2">
+          <Skeleton className="h-4 w-20 rounded-lg" />
+          <Skeleton className="h-24 w-full rounded-lg" />
+          <Skeleton className="h-3 w-1/3 rounded-lg" />
+        </div>
       </div>
       {/* user bubble (right) */}
       <div className="flex justify-end">
-        <div className="bg-muted h-10 w-1/3 animate-pulse rounded-2xl" />
+        <Skeleton className="h-10 w-1/3 rounded-lg" />
       </div>
     </div>
   )
@@ -1454,6 +1534,12 @@ const MessageListSkeleton: FC = () => {
 interface WelcomeStateProps {
   isAuthenticated?: boolean
   onSignIn?: () => void
+  /**
+   * The canvas belongs to a project, so the one sentence about what Piloti can
+   * do with it is true here. Outside a project there is nowhere for a draft to
+   * be filed, and the sentence would be an offer the surface cannot keep.
+   */
+  inProject?: boolean
 }
 
 /** Time-of-day bucket for the greeting (morning / afternoon / evening). */
@@ -1463,7 +1549,11 @@ const greetingKeyForHour = (hour: number): 'morning' | 'afternoon' | 'evening' =
   return 'evening'
 }
 
-const WelcomeState: FC<WelcomeStateProps> = ({ isAuthenticated = false, onSignIn }) => {
+const WelcomeState: FC<WelcomeStateProps> = ({
+  isAuthenticated = false,
+  onSignIn,
+  inProject = false,
+}) => {
   const t = useTranslations('research')
   const tChat = useTranslations('chat')
   const { user } = useAuth()
@@ -1508,22 +1598,39 @@ const WelcomeState: FC<WelcomeStateProps> = ({ isAuthenticated = false, onSignIn
       style={{ paddingBottom: `var(--welcome-offset, ${WELCOME_OFFSET_FALLBACK})` }}
     >
       {/* Hero greeting — the one larger moment in the app, and the only place
-          the ramp's 23px step is used (design language, "Type ramp"). */}
+          the ramp's 23px step is used (design language, "Type ramp"). The
+          project-grounded starters live in their own plan (categorized,
+          backend-driven) — until they land, the canvas stays quiet rather
+          than showing static examples. */}
       <h1 className="text-foreground text-center text-[23px] font-semibold tracking-tight">
         {heading}
       </h1>
 
-      {/* The chat is about one file: say which. This is the only line left under
-          the greeting — the generic "answers cite their sources" subtitle was
-          removed, because it explained the product to someone who has already
-          bought it, every single time they opened a thread. A named file is a
-          different thing: it is the state of THIS canvas, and it is not
-          recoverable from anything else on screen. */}
+      {/* The chat is about one file: say which. A named file is the state of
+          THIS canvas, and it is not recoverable from anything else on
+          screen. */}
       {composerSubject && (
         <p className="text-muted-foreground mt-2 max-w-md text-center text-sm leading-relaxed">
           {tFiles('assignment.welcomeAbout', {
             name: composerSubject.title?.trim() || tFiles('assignment.thisFile'),
           })}
+        </p>
+      )}
+
+      {/* One sentence, and only in a project: that Piloti WRITES. The canvas is
+          otherwise deliberately quiet (the starters were cut for costing every
+          user on every new thread), and this earns its place because it is the
+          product's least discoverable capability — today it is found only by
+          someone who happens to phrase a request as a commission (ledger 23).
+          Below the file line, because a named subject is the state of THIS
+          canvas and this is a standing fact about the project.
+
+          Not shown when the thread is about one file: that reader has already
+          been told what this canvas is for, and two grey sentences under a
+          greeting is a paragraph. */}
+      {inProject && !composerSubject && (
+        <p className="text-muted-foreground mt-3 max-w-md text-center text-sm leading-relaxed">
+          {tChat('greeting.projectWrites')}
         </p>
       )}
     </div>

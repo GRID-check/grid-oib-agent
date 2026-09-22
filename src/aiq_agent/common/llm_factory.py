@@ -12,8 +12,16 @@ automatically:
   :mod:`aiq_agent.common.message_contract`): a request must never end on an
   assistant turn, because Google rejects that shape while OpenAI-compatible
   providers accept it, and OpenRouter picks the provider per request.
+- prompt-cache affinity (see :mod:`aiq_agent.common.prompt_caching`): a
+  ``session_id`` + ``prompt_cache_key`` derived from the request's own stable
+  prefix, so the 3-6 calls of one turn land on the endpoint that cached it
+  instead of being spread across a model's providers.
+- ``use_previous_response_id=False`` on the Responses path (see
+  :func:`disable_previous_response_id`): OpenRouter's Responses API is
+  stateless and rejects the field, while NAT turns it on for every
+  ``api_type: responses`` client.
 
-This is an OpenRouter-specific request-body field, so it is applied only to LLMs
+Every one of these is OpenRouter-specific, so each is applied only to LLMs
 whose ``base_url`` points at OpenRouter — non-OpenRouter deployments (e.g.
 NVIDIA-hosted models) are returned untouched.
 
@@ -118,6 +126,81 @@ def apply_openrouter_structured_defaults(llm: Any) -> Any:
     return llm
 
 
+def disable_previous_response_id(llm: Any) -> Any:
+    """Stop an OpenRouter-bound Responses-API client from sending ``previous_response_id``.
+
+    NAT builds every ``api_type: responses`` client with
+    ``use_previous_response_id=True`` (``nat/plugins/langchain/llm.py``), and
+    langchain-openai then fills the field in from the most recent ``AIMessage``
+    whose id starts with ``resp_`` and truncates the request to the messages
+    after it. OpenRouter cannot serve that:
+
+        "Requests that set ``store: true`` or a non-null
+        ``previous_response_id`` are rejected with a ``400`` error."
+        -- https://openrouter.ai/docs/api_reference/responses/overview
+
+    It is dormant only because OpenRouter does not currently hand back ids of
+    that shape; its own documented examples are ``resp_…``, so the day it does,
+    every follow-up call inside a turn 400s at once.
+
+    Flipping the flag off does not leave the Responses path: NAT sets
+    ``use_responses_api=True`` explicitly alongside it. No-op off OpenRouter,
+    where the field is the provider's own state handle and works as documented.
+    """
+    if not llm_targets_openrouter(llm):
+        return llm
+    if not getattr(llm, "use_previous_response_id", False):
+        return llm
+    try:
+        llm.use_previous_response_id = False
+    except Exception:  # noqa: BLE001 - never let hardening break model resolution
+        logger.warning("Could not disable previous_response_id on %s", type(llm).__name__, exc_info=True)
+    return llm
+
+
+def _request_organization_id() -> str | None:
+    """The caller's org id, or None outside a request (a CLI run, an ingest thread)."""
+    try:
+        from aiq_agent.project_context import get_organization_id_from_context
+
+        return get_organization_id_from_context()
+    except Exception:  # noqa: BLE001 - identity is a cache-key ingredient, never a precondition
+        logger.debug("Could not read the organization id for the prompt-cache key", exc_info=True)
+        return None
+
+
+def prepare_request(llm: Any, messages: Any, kwargs: dict[str, Any]) -> Any:
+    """Apply both request-shaping rules to one outgoing call, in place on ``kwargs``.
+
+    Returns the messages to send and mutates the call's ``kwargs`` with the
+    prompt-cache routing fields. Both halves are no-ops where they do not
+    apply — a non-OpenRouter model keeps its body untouched, and a call with no
+    leading system message gets no key.
+
+    The merge order matters: the instance's own ``extra_body`` (the
+    response-healing plugin, ZDR provider routing) is the base, a per-call
+    ``extra_body`` from a binding layers over it, and only then are the cache
+    fields filled in — so nothing this adds can drop what was already there.
+    """
+    normalized = normalize_chat_request(messages)
+    if not llm_targets_openrouter(llm):
+        return normalized
+    from aiq_agent.common.prompt_caching import prompt_cache_extra_body
+
+    base = getattr(llm, "extra_body", None)
+    merged_base = {**(dict(base) if isinstance(base, dict) else {}), **(kwargs.get("extra_body") or {})}
+    extra_body = prompt_cache_extra_body(
+        normalized,
+        kwargs,
+        extra_body=merged_base,
+        organization_id=_request_organization_id(),
+        model=getattr(llm, "model_name", None) or getattr(llm, "model", None),
+    )
+    if extra_body is not None:
+        kwargs["extra_body"] = extra_body
+    return normalized
+
+
 def _contract_subclass(base: type) -> type:
     """Build (once per base class) a subclass that normalizes outgoing requests.
 
@@ -136,20 +219,20 @@ def _contract_subclass(base: type) -> type:
     from langchain_core.language_models.chat_models import BaseChatModel
 
     def _generate(self, messages, stop=None, run_manager=None, **kwargs):
-        return base._generate(self, normalize_chat_request(messages), stop=stop, run_manager=run_manager, **kwargs)
+        prepared = prepare_request(self, messages, kwargs)
+        return base._generate(self, prepared, stop=stop, run_manager=run_manager, **kwargs)
 
     async def _agenerate(self, messages, stop=None, run_manager=None, **kwargs):
-        return await base._agenerate(
-            self, normalize_chat_request(messages), stop=stop, run_manager=run_manager, **kwargs
-        )
+        prepared = prepare_request(self, messages, kwargs)
+        return await base._agenerate(self, prepared, stop=stop, run_manager=run_manager, **kwargs)
 
     def _stream(self, messages, stop=None, run_manager=None, **kwargs):
-        yield from base._stream(self, normalize_chat_request(messages), stop=stop, run_manager=run_manager, **kwargs)
+        prepared = prepare_request(self, messages, kwargs)
+        yield from base._stream(self, prepared, stop=stop, run_manager=run_manager, **kwargs)
 
     async def _astream(self, messages, stop=None, run_manager=None, **kwargs):
-        async for chunk in base._astream(
-            self, normalize_chat_request(messages), stop=stop, run_manager=run_manager, **kwargs
-        ):
+        prepared = prepare_request(self, messages, kwargs)
+        async for chunk in base._astream(self, prepared, stop=stop, run_manager=run_manager, **kwargs):
             yield chunk
 
     namespace: dict[str, Any] = {_CONTRACT_MARKER: True, "_generate": _generate, "_agenerate": _agenerate}
@@ -212,7 +295,8 @@ async def get_langchain_llm(builder: Any, ref: Any) -> Any:
     the instance), never here.
     """
     llm = await builder.get_llm(ref, wrapper_type=LLMFrameworkEnum.LANGCHAIN)
-    return enforce_chat_request_contract(apply_openrouter_structured_defaults(llm))
+    hardened = disable_previous_response_id(apply_openrouter_structured_defaults(llm))
+    return enforce_chat_request_contract(hardened)
 
 
 def strict_response_format(schema: Any) -> Any:

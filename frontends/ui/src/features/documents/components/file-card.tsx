@@ -9,10 +9,12 @@ import { TimeAgo } from '@/components/ui/time-ago'
 import { cn } from '@/lib/utils'
 import { useTranslations } from '@/i18n'
 import { documentDisplayName } from '@/lib/documents/display-name'
+import { documentDragProps } from '../hooks/use-document-drag'
 import { sourceTint } from '@/lib/ui/source-tint'
 import { extChipTint, fileExtensionLabel, inferDocumentKind } from '../document-kind'
 import { DocumentKindThumbnail } from './document-kind-thumbnail'
 import { AuthorshipLine } from './authorship-line'
+import { DocumentVersionStateBadge } from './document-version-badge'
 import { DocumentStatusBadge, isCitableStatus, isSettlingStatus } from './document-status'
 import { SemanticMatch } from './semantic-match'
 import { GridTileBody, GridTileFooter, GridTileMedia, GridTileShell } from './grid-tile'
@@ -140,7 +142,14 @@ export function ThumbnailWithFallback({ file }: { file: FileItem }) {
         unoptimized={!isOptimizerEligible(imgUrl)}
         className="object-cover"
         // A url that resolves but won't render is a genuine failure, not "no thumbnail".
-        onError={() => setState('error')}
+        onError={() => {
+          // …but the URL itself may be stale rather than the document imageless
+          // (a thumbnail object replaced after we resolved it): evict it so a
+          // later mount re-resolves instead of replaying the same poisoned URL
+          // on every remount (#366, #395).
+          thumbnailCache.delete(file.id)
+          setState('error')
+        }}
       />
     )
   }
@@ -191,6 +200,12 @@ export interface FileCardProps {
    * its own — this card is a `<button>`, so the slot sits beside it.
    */
   actions?: ReactNode
+  /**
+   * Let this card be dragged onto a folder. Off by default: a card that lifts
+   * under the finger where nothing can receive it promises a move the surface
+   * cannot make — the Archiv, for one, has no folders at all.
+   */
+  draggable?: boolean
 }
 
 /**
@@ -216,6 +231,7 @@ export function FileCard({
   hideFooter,
   testId = 'file-card',
   actions,
+  draggable = false,
 }: FileCardProps) {
   const t = useTranslations('files')
   const name = documentDisplayName(file)
@@ -231,7 +247,6 @@ export function FileCard({
 
   return (
     <GridTileShell
-      variant="file"
       interactive
       className={cn(
         'group/card',
@@ -239,20 +254,31 @@ export function FileCard({
         isBusy && 'cursor-progress opacity-70',
         !isSelected && 'hover:border-border/80'
       )}
+      // Dragging is opt-in per surface: the Archiv has no folders to drop into,
+      // and a card that lifts under the finger where nothing can receive it is
+      // an affordance for a capability that is not there.
+      {...(draggable ? documentDragProps(file.id) : {})}
     >
       {actions && (
         <div
-          className="absolute left-1.5 top-1.5 z-[1] opacity-0 group-hover/card:opacity-100 group-focus-within/card:opacity-100 transition-opacity duration-quick ease-out motion-reduce:transition-none"
+          className="absolute right-1.5 top-1.5 z-[1] md:opacity-0 md:group-hover/card:opacity-100 group-focus-within/card:opacity-100 has-[[data-state=open]]:opacity-100 transition-opacity duration-quick ease-out motion-reduce:transition-none"
           onClick={(event) => event.stopPropagation()}
           onPointerDown={(event) => event.stopPropagation()}
         >
           {actions}
         </div>
       )}
+      {/* `aria-current`, not `aria-pressed`: pressing this OPENS the file, it
+          does not toggle anything. The card used to close the preview when you
+          clicked the row you were already looking at — the one surface in the
+          product that did — and `aria-pressed` was at least honest about that.
+          The behaviour was the bug; a row opens, and closing is the overlay's
+          job. `aria-current` says the remaining true thing: this is the one on
+          screen. */}
       <button
         type="button"
         onClick={onSelect}
-        aria-pressed={isSelected}
+        aria-current={isSelected ? 'true' : undefined}
         aria-label={ariaLabel}
         aria-busy={isBusy}
         data-testid={testId}
@@ -275,7 +301,7 @@ export function FileCard({
                 // The 80% alpha is load-bearing: this badge floats over a document
                 // thumbnail, and with `backdrop-blur-sm` it frosts the image
                 // underneath instead of hiding it.
-                className="absolute right-2 top-2 border-transparent bg-background/80 px-1.5 py-0 text-xs font-medium leading-4 shadow-2xs backdrop-blur-sm"
+                className="absolute left-2 top-2 border-transparent bg-background/80 px-1.5 py-0 text-xs font-medium leading-4 shadow-2xs backdrop-blur-sm"
               />
             )}
           </GridTileMedia>
@@ -312,6 +338,20 @@ export function FileCard({
                 `Unvergeben` live and that slot answers a different question:
                 who is responsible for it. */}
             <AuthorshipLine authoredBy={file.authoredBy} className="mt-0.5" />
+            {/* The editorial state, on the same side as the byline and nowhere
+                near the footer, for exactly that reason: „freigegeben" is a
+                statement about the CONTENT and „Unvergeben" one about
+                responsibility (ADR-0047's addendum, ADR-0054). Silent without a
+                history: one version distinguishes nothing, so the badge appears
+                only once a second version exists — even for a draft Piloti wrote. */}
+            {(file.versionCount ?? 0) > 1 && (
+              <DocumentVersionStateBadge
+                versionState={file.versionState}
+                versionCount={file.versionCount}
+                authoredBy={file.authoredBy}
+                className="mt-1"
+              />
+            )}
             {match ? (
               <SemanticMatch snippet={match.snippet} page={match.page} score={match.score} />
             ) : isFailed ? (

@@ -1,5 +1,6 @@
 import { and, desc, eq, inArray, isNull, or, sql } from 'drizzle-orm'
 import { getDb } from '@/lib/db'
+import { executeRows } from '@/lib/db/execute-rows'
 import { projectMemory, projects } from '@/lib/db/schema'
 import type {
   NewProjectMemoryItem,
@@ -175,7 +176,10 @@ const SEMANTIC_DUP_THRESHOLD = 0.9
  * embed-based consolidation gate the design named as essential and never got
  * (memory-system-audit-2026-07 F2).
  *
- * Same-kind and scope-exact like its lexical sibling, and it carries the same
+ * Scope-exact like its lexical sibling but NOT kind-bound: at 0.90 cosine the
+ * incoming note is the same statement, and the same statement filed once as a
+ * `constraint` and once as a `derived_fact` is one fact with two rows — the
+ * "there should be only one entry" a reviewer sees. It carries the same
  * polarity check: at this similarity the incoming finding is either the same
  * fact restated (merge) or the same fact CORRECTED (supersede), and merging a
  * correction is how memory becomes uncorrectable. Cosine is computed in SQL so
@@ -204,7 +208,6 @@ async function findSemanticNearMatch(
       from project_memory m
       where ${owner}
         and m.status = 'active'
-        and m.kind = ${values.kind}
         and m.embedding_model = ${embedded.fingerprint}
     )
     select * from scored
@@ -212,7 +215,7 @@ async function findSemanticNearMatch(
     order by similarity desc
     limit 1
   `)
-  const rows = (result as { rows?: Record<string, unknown>[] })?.rows ?? []
+  const rows = executeRows(result)
   if (rows.length === 0) return null
   const raw = rows[0]
   // The consolidation path reads id/content/pinned/verification/provenance —
@@ -223,6 +226,8 @@ async function findSemanticNearMatch(
     pinned: Boolean(raw.pinned),
     verification: raw.verification,
     provenanceType: raw.provenance_type,
+    // The refresh compares confidence; without it the merge could never raise one.
+    confidence: (raw.confidence as ProjectMemoryConfidence | undefined) ?? 'medium',
     supersedesId: (raw.supersedes_id as string | null) ?? null,
   } as ProjectMemoryItem
   return {
@@ -260,6 +265,24 @@ async function resolveSupersedeTarget(
 
   const normalized = normalizeContent(supersedesContent)
   if (!normalized) return null
+  // An exact quote resolves against the WHOLE scope, through the same
+  // normalisation the 0010 unique index is built on, so a correction of a
+  // note older than the fuzzy window below still lands on it.
+  const [exactInScope] = await db
+    .select()
+    .from(projectMemory)
+    .where(
+      and(
+        memoryOwnerCondition(values),
+        eq(projectMemory.status, 'active'),
+        sql`btrim(regexp_replace(lower(${projectMemory.content}), '[^a-z0-9]+', ' ', 'g')) = ${normalized}`
+      )
+    )
+    .orderBy(desc(projectMemory.updatedAt))
+    .limit(1)
+  // Re-checked in JS: the row is what the index expression says it is, and
+  // the two normalisations are kept in lock-step by exactly this comparison.
+  if (exactInScope && normalizeContent(exactInScope.content) === normalized) return exactInScope
   const exact = candidates.find((candidate) => normalizeContent(candidate.content) === normalized)
   if (exact) return exact
 
@@ -417,21 +440,41 @@ export async function createProjectMemoryItem(
   // embedder had nothing to say.
   const near =
     (await findSemanticNearMatch(values, embedded)) ?? (await findActiveNearMatch(values))
-  if (near && !near.opposedPolarity) return refreshDuplicate(near.item, values)
+  const named = options.supersedesContent?.trim()
+    ? await resolveSupersedeTarget(values, options.supersedesContent)
+    : null
+  if (near && !near.opposedPolarity) {
+    const refreshed = await refreshDuplicate(near.item, values)
+    // The finding restates a row we already hold — and the caller ALSO named
+    // the entry it makes obsolete. Merging must not swallow that: the named
+    // row was left live beside the refreshed one, which is exactly the
+    // duplicate the caller was trying to close.
+    if (named && named.id !== refreshed.id && isAgentSupersedable(named)) {
+      const retired = await db
+        .update(projectMemory)
+        .set({ status: 'superseded', updatedAt: new Date() })
+        .where(and(eq(projectMemory.id, named.id), eq(projectMemory.status, 'active')))
+        .returning({ id: projectMemory.id })
+      if (retired.length > 0) options.onSuperseded?.(named.id)
+    }
+    return refreshed
+  }
 
-  const candidate =
-    near?.item ??
-    (options.supersedesContent?.trim()
-      ? await resolveSupersedeTarget(values, options.supersedesContent)
-      : null)
+  const candidate = near?.item ?? named
 
   let supersedeTarget: ProjectMemoryItem | null = null
+  let conflictsWithId: string | null = null
   if (candidate) {
     if (isAgentSupersedable(candidate)) {
       supersedeTarget = candidate
     } else {
       // Both stay active and the user resolves it in the memory panel — the
       // new finding is still recorded, it just doesn't retire a human's entry.
+      // Recorded ON THE ROW, not only in this log line: the contradiction is a
+      // fact about the project (two live notes disagree, and a person's wins
+      // until a person says otherwise), and a panel can only show a conflict
+      // the database remembers.
+      conflictsWithId = candidate.id
       console.warn(
         `[memory] Not superseding human-curated item ${candidate.id} (pinned/user-confirmed/user-authored)`
       )
@@ -448,7 +491,9 @@ export async function createProjectMemoryItem(
     : values
   const insertValues: NewProjectMemoryItem = supersedeTarget
     ? { ...withVector, supersedesId: supersedeTarget.id }
-    : withVector
+    : conflictsWithId
+      ? { ...withVector, conflictsWithId }
+      : withVector
 
   try {
     if (!supersedeTarget) {
@@ -742,7 +787,15 @@ export async function buildProjectMemoryDigest(
     })
     .from(projectMemory)
     .where(scope)
-    .orderBy(desc(projectMemory.updatedAt))
+    // The window is the whole quality mechanism's ceiling: everything below
+    // (dedup, decay, hybrid fusion) runs over these rows only. Recency was the
+    // only order it had, so past two hundred notes a relevant old one could
+    // not be recalled at all. With a query, the database ranks by similarity
+    // first and recency breaks ties; without one, recency is still the order.
+    .orderBy(
+      ...(embedded ? [sql`${relevanceColumn} desc nulls last`] : []),
+      desc(projectMemory.updatedAt)
+    )
     .limit(RECALL_CANDIDATE_LIMIT)
 
   if (rows.length === 0) return null
@@ -810,10 +863,14 @@ export async function buildProjectMemoryDigest(
   const kept = [...keptPinned, ...keptRecalled]
   const omitted = candidates.length - kept.length
 
-  // Recall is the reinforcement event: what was surfaced decays more slowly
-  // next time. Fire-and-forget — a bookkeeping write must never delay a turn,
-  // and losing one is a slightly colder score, not a wrong answer.
-  void markMemoryRecalled(kept.map((item) => item.id))
+  // Recall FOR A QUESTION is the reinforcement event: what was surfaced against
+  // a query decays more slowly next time. The query-less handshake build
+  // (opening a chat, typing nothing) used to reinforce exactly as hard, and
+  // under it the selection is pinned-then-recent — so recency reinforced
+  // recency and whatever was already winning compounded. Fire-and-forget — a
+  // bookkeeping write must never delay a turn, and losing one is a slightly
+  // colder score, not a wrong answer.
+  if (queryText) void markMemoryRecalled(kept.map((item) => item.id))
 
   return formatDigestLines(kept, omitted)
 }
@@ -969,8 +1026,7 @@ export async function implicateMemoryFromFeedback(input: {
       where p.id = i.id
       returning p.id
     `)
-    const rows = (result as { rows?: Record<string, unknown>[] })?.rows ?? []
-    return rows.length
+    return executeRows(result).length
   } catch (error) {
     console.warn('[memory] Feedback implication failed (non-fatal):', error)
     return 0

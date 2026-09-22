@@ -27,7 +27,7 @@
 > - **Promotion is not a new gesture.** §0.05 already corrected this; the built
 >   feature confirms it. A generated report is a document with zero assignees
 >   and `Zuweisen` is the promotion primitive. See
->   [ADR-0047's 2026-08-20 addendum](../adr/0047-assignment-is-not-access.md).
+>   [ADR-0047's 2026-08-20 addendum](../adr/0059-assignment-is-not-access.md).
 > - **Authorship is a column, and it is not responsibility.** `authored_by` /
 >   `authored_by_ref` / `authored_by_ref_kind` on `documents`, rendered as a
 >   quiet byline and never as a face.
@@ -256,7 +256,7 @@ What this buys, none of it as a feature to build later:
 - **Diff is free**, which is what makes a version history worth showing, which
   is what makes an agent write reviewable at all.
 - **Re-embedding is keyed by blob hash**, so a re-file, a rename or a
-  no-op rewrite costs nothing in the index — the same instinct ADR-0027 already
+  no-op rewrite costs nothing in the index — the same instinct ADR-0056 already
   applied to VLM captions.
 - **`display_name` stops being a special case.** It was migration 0048's
   correct answer to "identity is not label"; here the node holds the label and
@@ -325,7 +325,7 @@ difference is the whole ergonomics of the feature.
 | Invocation | Deliverable | Default destination | Authorization |
 |---|---|---|---|
 | **Deep research** (chat or job, `jobs.output = 'deep-research'`) | one report | **`/projects/<p>/files/`**, into a folder named on the submit form | **commissioned** — the run was requested with a form that showed where the report will land |
-| Shallow / chat turn | any work product | `/projects/<p>/work/` | **confirmed** — the agent offers `fs_publish`, the user clicks |
+| Chat turn | any work product | `/projects/<p>/work/` | **confirmed** — the agent offers `fs_publish`, the user clicks |
 | Compliance run, BCF export, take-off, Raumbuch | export node | `/work/` | confirmed |
 | Job with `output = 'chat'` | a conversation | — | — |
 
@@ -515,7 +515,7 @@ tree:
 > summaries, and every chat turn injects the full list into ~5 prompt templates
 > — so per-turn LLM cost grew linearly with the corpus, paid even on chit-chat.
 > Cap it.
-> — `_available_documents_limit`, `agents/chat_researcher/register.py`
+> — `_available_documents_limit`, `agents/piloti/conversation_register.py`
 
 That cap is 50. So today, at a thousand documents, the agent is shown fifty of
 them, on every turn, whether or not the turn is about files — and
@@ -696,7 +696,7 @@ built, on `project:documents:generate` beside it, so that "Piloti may write
 here" is a capability an organization can withhold without also stopping its own
 architects uploading plans. That removes the confused deputy instead of
 reasoning about it — see the build spec's decision 4 and
-[ADR-0047's third addendum](../adr/0047-assignment-is-not-access.md).
+[ADR-0047's third addendum](../adr/0059-assignment-is-not-access.md).
 
 **Keep proposing everything through cards.** Rejected: it does not scale past
 one write per turn, and a deep-research run that writes 30 notes would render 30

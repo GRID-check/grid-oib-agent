@@ -31,6 +31,7 @@ import {
   type NATIntermediateStepContent,
   type NATErrorContent,
   type NATResponseTransparency,
+  type CommissionedRunRef,
   type NATStageMessage,
   HumanPromptType,
 } from '@/adapters/api/websocket-client'
@@ -50,6 +51,9 @@ import { useDocumentsStore } from '@/features/documents/store'
 import { isLikelyAuthRelatedTransportError } from '../lib/transport-auth-signals'
 import { validateGridCards } from '@/shared/cards/schemas'
 import { citationsFromWireList } from '../lib/wire-citation'
+import { fetchRunMessage } from '../lib/commissioned-run'
+import { isDeepResearchLive } from '../lib/session-activity'
+import type { DocumentVersionState } from '@/lib/documents/lifecycle-types'
 import type { GridCard } from '@/shared/cards/schemas'
 import type {
   ChatMessage,
@@ -59,6 +63,7 @@ import type {
   StatusType,
   ThinkingStep,
   ErrorCode,
+  AnswerTransparency,
 } from '../types'
 import {
   parseFunctionName,
@@ -97,15 +102,6 @@ export interface SendMessageOptions {
    * so a stale read costs a round trip and nothing else.
    */
   awaitingHuman?: boolean
-  /**
-   * Skill names the user invoked with `/name` in the composer.
-   *
-   * Structured, and reconciled against the composer text at send time rather
-   * than remembered — the same discipline `mentions` follows, for the same
-   * reason: the token can be edited away after it was inserted, and what is
-   * sent must be what the text still says.
-   */
-  skills?: readonly string[]
 }
 
 /** A refusal the composer can localise from `details.reason`. */
@@ -186,7 +182,9 @@ function readAddresseeRuling(body: unknown, messageId: string): AddresseeSet | n
 function appendLocalUserMessage(message: ChatMessage): void {
   const store = useChatStore as unknown as {
     getState: () => { currentConversation: Conversation | null; conversations: Conversation[] }
-    setState?: (partial: Partial<{ currentConversation: Conversation | null; conversations: Conversation[] }>) => void
+    setState?: (
+      partial: Partial<{ currentConversation: Conversation | null; conversations: Conversation[] }>
+    ) => void
   }
   const { currentConversation, conversations } = store.getState()
   if (!currentConversation || typeof store.setState !== 'function') return
@@ -201,7 +199,7 @@ function appendLocalUserMessage(message: ChatMessage): void {
   store.setState({
     currentConversation: updated,
     conversations: conversations.map((conversation) =>
-      conversation.id === updated.id ? updated : conversation,
+      conversation.id === updated.id ? updated : conversation
     ),
   })
 }
@@ -218,15 +216,23 @@ type PendingOutgoing =
       kind: 'message'
       content: string
       dataSources: string[]
-      /** Skills invoked with `/name`; travels WITH the payload so a frame that
-       *  is queued through a reconnect is replayed with its invocation intact. */
-      skills?: string[]
       focusFileName?: string
       focusShelf?: 'project' | 'archiv' | 'session'
+      /** The subject document and, when it has one, its OPEN version — the
+       *  version retrieval cannot see, which the turn reads as bytes instead. */
+      focusDocumentId?: string
+      focusVersionId?: string
+      focusVersionState?: DocumentVersionState
       sourcePreset?: 'law' | 'project' | 'office'
       deliveryRetryCount?: number
     }
-  | { kind: 'interaction'; interactionId: string; parentId: string; response: string; deliveryRetryCount?: number }
+  | {
+      kind: 'interaction'
+      interactionId: string
+      parentId: string
+      response: string
+      deliveryRetryCount?: number
+    }
 
 /**
  * A human message the agent must SEE but was not asked to answer (ADR-0034
@@ -311,12 +317,56 @@ const UNACKNOWLEDGED_OUTGOING_ACK_TIMEOUT_MS = 7_000
  * frame) would leave `isStreaming=true` forever -- a spinner that never stops
  * with the composer and session list locked.
  *
- * This watchdog fires when NO frame has arrived for this long while streaming.
- * It is (re)armed on send and reset on every incoming frame, and cleared on
- * completion / error / disconnect / HITL pause / unmount. On fire it ends the
- * turn, marks it interrupted, and surfaces a retryable timeout banner.
+ * This timer fires when NO frame has arrived for this long while streaming. It
+ * is (re)armed on send and reset on every incoming frame, and cleared on
+ * completion / error / disconnect / HITL pause / unmount.
+ *
+ * IT IS A PROBE, NOT A VERDICT. Silence is not death, and treating it as one is
+ * what put „Antwort unterbrochen — bitte erneut senden" in front of readers
+ * whose research was still running (#624). The arithmetic was never in the
+ * turn's favour: a single LLM call is allowed `request_timeout: 600` in
+ * `configs/config_oib_openrouter.yml` with one retry, inside a deep-research run
+ * budget of `DEFAULT_MAX_RUN_SECONDS = 2400`, and the SYNCHRONOUS deep-research
+ * path (no job dispatcher configured, so `deep_research_node` runs inline in
+ * this very turn) holds the socket for all of it. Three minutes of quiet is
+ * nothing to that turn.
+ *
+ * So on fire this looks for EVIDENCE instead of concluding from its absence —
+ * see {@link handleStreamingWatchdogTimeout}.
  */
 const STREAMING_INACTIVITY_TIMEOUT_MS = 180_000
+
+/**
+ * How many of the server's own beats may go missing before the turn is gone.
+ *
+ * The backend states its cadence ON the heartbeat frame (`every_ms`), so this
+ * side holds a TOLERANCE and not an interval — three beats is one lost frame
+ * plus room for a slow network, and nothing here has to be edited when the
+ * server retunes `TURN_HEARTBEAT_SECONDS`.
+ *
+ * This replaced a copy of `DEFAULT_MAX_RUN_SECONDS`. The client used to predict
+ * how long the server was allowed to spend and wait exactly that out — two
+ * numbers in two repositories with nothing keeping them in step, and forty
+ * minutes of a locked composer whenever a turn really had died. Now the server
+ * says so itself and the client only listens.
+ */
+const MISSED_HEARTBEATS_BEFORE_GONE = 3
+
+/**
+ * The same question, for a backend that does not beat.
+ *
+ * A rolling deploy can put a new client in front of an old server, and an old
+ * server tells this side nothing — so the old rule stands there, unchanged and
+ * deliberately generous: wait out the longest run the backend is allowed
+ * (`DEFAULT_MAX_RUN_SECONDS = 2400` in
+ * `src/aiq_agent/agents/deep_researcher/agent.py`), because a synchronous
+ * deep-research turn can be quiet on this socket for the whole of it and
+ * anything shorter accuses a turn its own backend still considers healthy.
+ *
+ * It is a compatibility path, not the design. Once a turn has beaten even once,
+ * this number is never consulted again for it.
+ */
+const STREAMING_SILENCE_BUDGET_MS = 2_400_000
 
 /**
  * Debounce window for reconnect-triggered answer recovery (FIX 2). A burst of
@@ -388,7 +438,7 @@ interface UseWebSocketChatReturn {
    */
   sendMessage: (
     content: string,
-    options?: SendMessageOptions,
+    options?: SendMessageOptions
   ) => boolean | Promise<SendMessageOutcome>
   /** Respond to a pending interaction (clarification, approval, etc.) */
   respondToInteraction: (response: string) => void
@@ -535,6 +585,27 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
   const streamingWatchdogTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   /**
+   * When the turn last showed a sign of life — set by an inbound frame, never
+   * by the watchdog re-arming itself. Every deadline below is measured from
+   * here, so silence is spent by real silence rather than renewed by the timer
+   * that measures it.
+   */
+  const lastFrameAtRef = useRef(0)
+
+  /**
+   * How long this turn may now be silent, from the server's own mouth: the
+   * heartbeat's stated cadence times {@link MISSED_HEARTBEATS_BEFORE_GONE}.
+   *
+   * `0` means the turn has never beaten — either it has only just started, or
+   * the backend is older than the frame — and the generous compatibility budget
+   * applies instead. Zeroed where a turn BEGINS (both `doSend`s) and where one
+   * ends badly (`endSilentTurn`), never in `clearStreamingWatchdog`: arming the
+   * probe goes through that, so clearing it there would have the heartbeat
+   * erase the deadline it had just set.
+   */
+  const heartbeatDeadlineRef = useRef(0)
+
+  /**
    * Set by the soft timer when it fires while streaming; consumed by the
    * deferred-rotation effect once `isStreaming` returns to false. Ref (not
    * state) so flipping the flag doesn't re-run the timer effect.
@@ -631,8 +702,9 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
    * does NOT re-authenticate an already-open socket, so binding the timer
    * to it would let refreshes clear it before it fires.
    */
-  const [activeSocketTokenExpiresAt, setActiveSocketTokenExpiresAt] =
-    useState<number | undefined>(undefined)
+  const [activeSocketTokenExpiresAt, setActiveSocketTokenExpiresAt] = useState<number | undefined>(
+    undefined
+  )
 
   /**
    * Refresh the AuthKit session before opening a new WebSocket so the
@@ -665,17 +737,19 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
     reportContent,
     currentStatus,
     pendingInteraction,
-  } = useChatStore(useShallow((s) => ({
-    currentConversation: s.currentConversation,
-    conversations: s.conversations,
-    currentUserId: s.currentUserId,
-    isStreaming: s.isStreaming,
-    isLoading: s.isLoading,
-    thinkingSteps: s.thinkingSteps,
-    reportContent: s.reportContent,
-    currentStatus: s.currentStatus,
-    pendingInteraction: s.pendingInteraction,
-  })))
+  } = useChatStore(
+    useShallow((s) => ({
+      currentConversation: s.currentConversation,
+      conversations: s.conversations,
+      currentUserId: s.currentUserId,
+      isStreaming: s.isStreaming,
+      isLoading: s.isLoading,
+      thinkingSteps: s.thinkingSteps,
+      reportContent: s.reportContent,
+      currentStatus: s.currentStatus,
+      pendingInteraction: s.pendingInteraction,
+    }))
+  )
   const currentConversationId = currentConversation?.id
   // Subscribe reactively so the connect effect re-runs when the project store
   // resolves after the socket was first created (fixes the first-load race
@@ -690,7 +764,7 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
   const setTurnWsParentId = useChatStore((s) => s.setTurnWsParentId)
   const applyStageFrame = useChatStore((s) => s.applyStageFrame)
   const discardStreamingAssistantMessage = useChatStore((s) => s.discardStreamingAssistantMessage)
-  const addAgentResponseWithMeta = useChatStore((s) => s.addAgentResponseWithMeta)
+  const adoptRunMessage = useChatStore((s) => s.adoptRunMessage)
   const addThinkingStep = useChatStore((s) => s.addThinkingStep)
   const appendToThinkingStep = useChatStore((s) => s.appendToThinkingStep)
   const completeThinkingStep = useChatStore((s) => s.completeThinkingStep)
@@ -709,11 +783,8 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
   const setCurrentUser = useChatStore((s) => s.setCurrentUser)
   const storeSelectConversation = useChatStore((s) => s.selectConversation)
   const respondToPrompt = useChatStore((s) => s.respondToPrompt)
-  const startDeepResearch = useChatStore((s) => s.startDeepResearch)
-  const addDeepResearchBanner = useChatStore((s) => s.addDeepResearchBanner)
   const addPlanMessage = useChatStore((s) => s.addPlanMessage)
   const updatePlanMessageResponse = useChatStore((s) => s.updatePlanMessageResponse)
-  const updateConversationTitle = useChatStore((s) => s.updateConversationTitle)
   const maybeGenerateConversationName = useChatStore((s) => s.maybeGenerateConversationName)
 
   // Sync authenticated user ID to store when auth state changes
@@ -870,10 +941,7 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
       currentStatusRef.current = null
     }
 
-    addErrorCard(
-      'connection.failed',
-      'No response received from the server. Please try again.',
-    )
+    addErrorCard('connection.failed', 'No response received from the server. Please try again.')
     setCurrentStatus(null)
     setStreaming(false)
     setLoading(false)
@@ -899,29 +967,23 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
   }, [])
 
   /**
-   * Fired when a streaming turn goes silent for too long. End the turn the
-   * same way an interrupt does (complete the open thinking step, reset
-   * streaming/loading/status, clear any HITL prompt), drop the resend buffers
-   * so nothing replays behind the user's back, and surface the existing
-   * timeout banner so the user can retry.
+   * End the turn: complete the open thinking step, reset streaming/loading/
+   * status, clear any HITL prompt, and drop the resend buffers so nothing
+   * replays behind the user's back.
+   *
+   * Separate from the banner, because the two outcomes of a dead turn need the
+   * same teardown and must not carry the same message.
    */
-  const handleStreamingWatchdogTimeout = useCallback((): void => {
-    clearStreamingWatchdog()
-    // Only act if we're still streaming -- a terminal frame may have landed
-    // in the same tick the timer fired.
-    if (!useChatStore.getState().isStreaming) return
-
+  const endSilentTurn = useCallback((): void => {
     if (currentThinkingStepIdRef.current) {
       completeThinkingStep(currentThinkingStepIdRef.current)
       currentThinkingStepIdRef.current = null
       currentStatusRef.current = null
     }
-
-    // Reuse the interrupted-turn banner: warning status, "please resend".
-    addErrorCard(
-      'agent.response_interrupted',
-      'The assistant stopped responding. Please resend your message.',
-    )
+    // A partial answer bubble is likely — the turn was mid-stream. Left behind
+    // it blinks its caret forever beside the banner, which is the defect the
+    // queue-rejection path above already documents.
+    discardStreamingAssistantMessage()
     setCurrentStatus(null)
     setStreaming(false)
     setLoading(false)
@@ -929,28 +991,184 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
     lastSentOutgoingRef.current = null
     pendingOutgoingRef.current = null
     clearUnacknowledgedOutgoing()
+    heartbeatDeadlineRef.current = 0
   }, [
-    addErrorCard,
     clearPendingInteraction,
-    clearStreamingWatchdog,
     clearUnacknowledgedOutgoing,
     completeThinkingStep,
+    discardStreamingAssistantMessage,
     setCurrentStatus,
     setLoading,
     setStreaming,
   ])
 
   /**
+   * Fired when a streaming turn has said nothing for
+   * {@link STREAMING_INACTIVITY_TIMEOUT_MS}.
+   *
+   * SILENCE IS EVIDENCE OF NOTHING ON ITS OWN. What IS evidence is the socket:
+   * a backend that died took its connection with it, and a half-open path is
+   * surfaced as a close by the gateway's TCP keepalive within about two
+   * minutes. So this asks the socket first and only falls back to a clock.
+   *
+   *  1. **The socket is gone** — CLOSED or CONNECTING. That is a real
+   *     observation of a dead turn, and it ends here, immediately, exactly as
+   *     it always did. The reconnect path runs its own answer recovery, so a
+   *     turn that actually finished server-side still surfaces as the answer.
+   *  2. **The socket is open and a deep-research job owns this turn** — its
+   *     progress travels on SSE, not on frames, so silence here means nothing
+   *     at all. Re-armed, but NOT indefinitely — the budget in (3) is checked
+   *     first, because an exemption with no ceiling locks the composer forever
+   *     the first time a terminal job event is lost. The research panel's own
+   *     recovery notice covers a stalled stream in the meantime; that one is
+   *     evidence-based already, since the backend heartbeats the SSE channel
+   *     every 30s and the client resets on it.
+   *  3. **The socket is open and quiet** — re-arm until the whole silence
+   *     budget is spent, then accuse the turn.
+   *
+   * WHAT IT MUST NOT DO is take `isStreaming` down to look around. Both frame
+   * handlers drop everything while it is false ("Ignoring stale isFinal — not
+   * currently streaming"), so a turn that is alive and speaks during the check
+   * would lose the frame the check exists to wait for — including its terminal
+   * one. Dropping it also unblocks session switching mid-turn and releases the
+   * deferred socket rotation into the middle of a live stream. The probe is
+   * therefore pure: it observes and re-arms, and the turn's state changes only
+   * when the turn is over.
+   */
+  const handleStreamingWatchdogTimeout = useCallback((): void => {
+    clearStreamingWatchdog()
+    const state = useChatStore.getState()
+    if (!state.isStreaming) return
+
+    const conversation = state.currentConversation ?? null
+
+    /**
+     * End the turn — but ASK THE SERVER FIRST.
+     *
+     * The turn being over on this socket does not mean it is over: the backend
+     * finishes and persists its answer whether or not anyone is listening, and
+     * the recovery fetch is HTTP, so it works precisely when the WebSocket does
+     * not. Skipping it meant a socket death mid-turn deleted the partial answer
+     * and told the reader to resend a turn that was already complete in
+     * Postgres — worse than the banner it replaced, which at least left the
+     * streamed prose on screen. The reconnect handler cannot cover this: it runs
+     * on a `connected` event, and there is none when the client gives up.
+     */
+    const endTurn = (): void => {
+      const lastUserMessage = conversation
+        ? [...conversation.messages].reverse().find((m) => m.messageType === 'user')
+        : undefined
+      if (!conversation || !lastUserMessage) {
+        endSilentTurn()
+        addErrorCard(
+          'agent.response_interrupted',
+          'The assistant stopped responding. Please resend your message.'
+        )
+        return
+      }
+      // `endSilentTurn` first, and it takes the partial bubble with it. That is
+      // required rather than tidy: the recovery refuses to fold server history
+      // over a live stream, so the stream has to be over before it is asked.
+      // The partial goes either way — half a legal answer left on screen with
+      // no marker is worse than none, and if the server does have the finished
+      // one it would sit above it looking like a separate reply.
+      endSilentTurn()
+      void useChatStore
+        .getState()
+        ._recoverInterruptedAssistantMessage(conversation.id, lastUserMessage.id)
+        .then((outcome) => {
+          // ONLY `nothing` earns the banner. `superseded` means another
+          // recovery already put the answer on screen (mount and reconnect both
+          // run this, and a reconnect can land inside this very round trip), or
+          // the reader has already resent — accusing there prints
+          // "please resend" underneath a live answer.
+          if (outcome !== 'nothing') return
+          addErrorCard(
+            'agent.response_interrupted',
+            'The assistant stopped responding. Please resend your message.'
+          )
+        })
+    }
+
+    // (1) The socket is the only hard evidence available on this side.
+    if (!wsClientRef.current?.isConnected()) {
+      endTurn()
+      return
+    }
+
+    // (2) The turn's own heartbeat, when the backend sends one: the deadline is
+    // the cadence the SERVER stated, times a tolerance. Beats arriving means the
+    // server still owns this turn and its own run ceiling applies; beats
+    // stopping means the turn is gone, and this side can say so in a minute
+    // instead of waiting out a ceiling it used to keep a copy of.
+    //
+    // A backend that has never beaten falls back to that copy — see
+    // `STREAMING_SILENCE_BUDGET_MS`, which is now only the rolling-deploy path.
+    const silentFor = Date.now() - lastFrameAtRef.current
+    const deadline = heartbeatDeadlineRef.current || STREAMING_SILENCE_BUDGET_MS
+    const spent = silentFor >= deadline
+
+    // (3) A deep-research job carries this turn on a channel of its own. Scoped
+    // to the conversation that owns it: these store fields are global, so an
+    // unscoped read let a run in one thread exempt a stuck turn in another.
+    //
+    // Bounded by the same deadline as branch (4), and checked BEFORE it: an
+    // exemption with no ceiling locks the composer forever the first time a
+    // terminal job event is lost, which is a failure the reader cannot even
+    // describe.
+    if (!spent && conversation && isDeepResearchLive(state, conversation.id)) {
+      armStreamingWatchdogRef.current?.(false)
+      return
+    }
+
+    // (4) Open, quiet, and nothing claims to be working. Spend the deadline.
+    if (!spent) {
+      armStreamingWatchdogRef.current?.(false)
+      return
+    }
+    endTurn()
+  }, [addErrorCard, clearStreamingWatchdog, endSilentTurn])
+
+  /**
    * (Re)arm the watchdog. Called when a turn starts and on every inbound
    * frame so the deadline is measured from the last sign of life.
+   *
+   * `progress` says whether something the turn DID prompted this. Only that
+   * resets the silence clock — a re-arm from the watchdog itself must not, or
+   * the budget above renews forever and the timer can never conclude.
    */
-  const armStreamingWatchdog = useCallback((): void => {
-    clearStreamingWatchdog()
-    streamingWatchdogTimeoutRef.current = setTimeout(
-      handleStreamingWatchdogTimeout,
-      STREAMING_INACTIVITY_TIMEOUT_MS,
-    )
-  }, [clearStreamingWatchdog, handleStreamingWatchdogTimeout])
+  const armStreamingWatchdog = useCallback(
+    (progress = true): void => {
+      clearStreamingWatchdog()
+      // `|| === 0` is the floor: an un-initialised clock would make the first
+      // probe measure silence from the epoch and accuse a healthy turn at once.
+      if (progress || lastFrameAtRef.current === 0) lastFrameAtRef.current = Date.now()
+      // Probe at whichever is sooner. Three minutes is the right cadence when
+      // the deadline is forty — but once the turn beats, its deadline is about a
+      // minute, and a three-minute probe would notice a dead turn up to two
+      // minutes after the fact, throwing away most of what the heartbeat buys.
+      const deadline = heartbeatDeadlineRef.current
+      const probeIn = deadline > 0 ? Math.min(STREAMING_INACTIVITY_TIMEOUT_MS, deadline) : STREAMING_INACTIVITY_TIMEOUT_MS
+      streamingWatchdogTimeoutRef.current = setTimeout(() => watchdogHandlerRef.current(), probeIn)
+    },
+    [clearStreamingWatchdog]
+  )
+
+  // The handler re-arms the timer and the timer calls the handler. The ref is
+  // held on the HANDLER side and written after commit, not during render: a ref
+  // written during render is read by a StrictMode second pass and by a
+  // discarded concurrent render (`use-level-direction.ts` is that postmortem).
+  // Inverting it also keeps `armStreamingWatchdog`'s identity stable, which
+  // three dependency arrays in this file depend on.
+  const watchdogHandlerRef = useRef<() => void>(() => {})
+  useEffect(() => {
+    watchdogHandlerRef.current = handleStreamingWatchdogTimeout
+  })
+
+  const armStreamingWatchdogRef = useRef<((progress?: boolean) => void) | null>(null)
+  useEffect(() => {
+    armStreamingWatchdogRef.current = armStreamingWatchdog
+  })
 
   const handleUnacknowledgedOutgoingTimeout = useCallback((): void => {
     const unacknowledged = unacknowledgedOutgoingRef.current
@@ -958,8 +1176,7 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
 
     const activeConversationId = useChatStore.getState().currentConversation?.id
     const sameConversation =
-      !unacknowledged.conversationId ||
-      unacknowledged.conversationId === activeConversationId
+      !unacknowledged.conversationId || unacknowledged.conversationId === activeConversationId
 
     if (!sameConversation) {
       lastSentOutgoingRef.current = null
@@ -968,9 +1185,7 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
       return
     }
 
-    if (
-      unacknowledged.retryCount < MAX_UNACKNOWLEDGED_OUTGOING_REPLAYS
-    ) {
+    if (unacknowledged.retryCount < MAX_UNACKNOWLEDGED_OUTGOING_REPLAYS) {
       pendingOutgoingRef.current = {
         ...unacknowledged.payload,
         deliveryRetryCount: unacknowledged.retryCount + 1,
@@ -981,16 +1196,13 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
     }
 
     failUnacknowledgedOutgoing()
-  }, [
-    clearUnacknowledgedOutgoing,
-    failUnacknowledgedOutgoing,
-    rotateSocket,
-  ])
+  }, [clearUnacknowledgedOutgoing, failUnacknowledgedOutgoing, rotateSocket])
 
   const trackSentOutgoing = useCallback(
     (payload: PendingOutgoing, outboundId: string): void => {
       const retryCount = payload.deliveryRetryCount ?? 0
-      const conversationId = useChatStore.getState().currentConversation?.id ?? currentConversationId
+      const conversationId =
+        useChatStore.getState().currentConversation?.id ?? currentConversationId
 
       clearUnacknowledgedOutgoingTimeout()
       lastSentOutgoingRef.current = payload
@@ -1003,33 +1215,32 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
       }
       unacknowledgedOutgoingTimeoutRef.current = setTimeout(
         handleUnacknowledgedOutgoingTimeout,
-        UNACKNOWLEDGED_OUTGOING_ACK_TIMEOUT_MS,
+        UNACKNOWLEDGED_OUTGOING_ACK_TIMEOUT_MS
       )
     },
-    [
-      clearUnacknowledgedOutgoingTimeout,
-      currentConversationId,
-      handleUnacknowledgedOutgoingTimeout,
-    ]
+    [clearUnacknowledgedOutgoingTimeout, currentConversationId, handleUnacknowledgedOutgoingTimeout]
   )
 
-  const acknowledgeOutgoingDelivery = useCallback((parentId?: string): void => {
-    const unacknowledged = unacknowledgedOutgoingRef.current
-    if (!unacknowledged) return
+  const acknowledgeOutgoingDelivery = useCallback(
+    (parentId?: string): void => {
+      const unacknowledged = unacknowledgedOutgoingRef.current
+      if (!unacknowledged) return
 
-    // Some NAT frames omit parent_id, and intermediate frames may carry an
-    // internal step id rather than the original user-message id. Any backend
-    // frame while this request is active proves the prior send crossed the
-    // socket boundary, but when parent_id is present and matches our known
-    // request ids we can be stricter.
-    if (
-      !parentId ||
-      parentId === unacknowledged.ackParentId ||
-      parentId === unacknowledged.outboundId
-    ) {
-      clearUnacknowledgedOutgoing()
-    }
-  }, [clearUnacknowledgedOutgoing])
+      // Some NAT frames omit parent_id, and intermediate frames may carry an
+      // internal step id rather than the original user-message id. Any backend
+      // frame while this request is active proves the prior send crossed the
+      // socket boundary, but when parent_id is present and matches our known
+      // request ids we can be stricter.
+      if (
+        !parentId ||
+        parentId === unacknowledged.ackParentId ||
+        parentId === unacknowledged.outboundId
+      ) {
+        clearUnacknowledgedOutgoing()
+      }
+    },
+    [clearUnacknowledgedOutgoing]
+  )
 
   const sendOutgoingPayload = useCallback(
     (payload: PendingOutgoing): boolean => {
@@ -1043,9 +1254,11 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
       const sendChatMessage = (): string | null => {
         if (payload.kind !== 'message') return null
         const extras = {
-          ...(payload.skills && payload.skills.length > 0 ? { skills: payload.skills } : {}),
           ...(payload.focusFileName ? { focusFileName: payload.focusFileName } : {}),
           ...(payload.focusShelf ? { focusShelf: payload.focusShelf } : {}),
+          ...(payload.focusDocumentId ? { focusDocumentId: payload.focusDocumentId } : {}),
+          ...(payload.focusVersionId ? { focusVersionId: payload.focusVersionId } : {}),
+          ...(payload.focusVersionState ? { focusVersionState: payload.focusVersionState } : {}),
           ...(payload.sourcePreset ? { sourcePreset: payload.sourcePreset } : {}),
         }
         return Object.keys(extras).length > 0
@@ -1053,13 +1266,14 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
           : client.sendMessage(payload.content, payload.dataSources)
       }
 
-      const outboundId = payload.kind === 'message'
-        ? sendChatMessage()
-        : client.sendInteractionResponse(
-          payload.interactionId,
-          payload.parentId,
-          payload.response,
-        )
+      const outboundId =
+        payload.kind === 'message'
+          ? sendChatMessage()
+          : client.sendInteractionResponse(
+              payload.interactionId,
+              payload.parentId,
+              payload.response
+            )
 
       if (!outboundId) return false
       trackSentOutgoing(payload, outboundId)
@@ -1089,7 +1303,7 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
         isFinal: boolean,
         parentId?: string,
         cards?: unknown[],
-        deepResearchJobId?: string,
+        commissionedRun?: CommissionedRunRef,
         answerConfidence?: 'low' | 'medium' | 'high',
         sources?: unknown[],
         transparency?: NATResponseTransparency
@@ -1101,7 +1315,10 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
         consecutiveAuthExpiredRef.current = 0
 
         if (isStaleMessage(parentId)) {
-          console.warn('Dropping stale system_response (parent_id mismatch)', { parentId, active: wsClientRef.current?.activeParentId })
+          console.warn('Dropping stale system_response (parent_id mismatch)', {
+            parentId,
+            active: wsClientRef.current?.activeParentId,
+          })
           return
         }
 
@@ -1129,7 +1346,7 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
         armStreamingWatchdog()
 
         // Validate grid cards carried on the response message
-        const validatedCards: GridCard[] = validateGridCards(cards)
+        const validatedCards: (GridCard | undefined)[] = validateGridCards(cards)
 
         // Queue-rejection notice (WP-A `job_admission_rejected`): the terminal
         // frame's text is NOT a research answer but a "queue full, try later"
@@ -1170,110 +1387,30 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
           return
         }
 
-        // Deep research escalation signal. Prefer the STRUCTURED job id sent
-        // as a dedicated field; fall back to regex-parsing the response prose
-        // only for older backends that don't emit the structured field.
-        const deepResearchMatch = content?.match(
-          /Deep research job submitted\. Job ID: ([a-f0-9-]+)/i
-        )
-        const resolvedJobId = deepResearchJobId ?? deepResearchMatch?.[1]
-
-        if (resolvedJobId) {
-          const jobId = resolvedJobId
-          // Get current state for plan messages and conversation
-          const state = useChatStore.getState()
-          const currentPlanMessages = state.planMessages
-          const currentConversation = state.currentConversation
-
-          // Derive a conversation title from the plan (preferred) or fall
-          // back to the last user message.
-          if (currentConversation) {
-            let extractedTitle: string | null = null
-
-            // First, look at all plan messages for a title
-            for (const planMsg of currentPlanMessages) {
-              if (extractedTitle) break
-
-              // Pattern 1: JSON report_title field
-              const jsonTitleMatch = planMsg.text.match(/"report_title":\s*"([^"]+)"/i)
-              if (jsonTitleMatch) {
-                extractedTitle = jsonTitleMatch[1]
-                break
-              }
-
-              // Pattern 2: Markdown Report Title heading
-              const reportTitleMatch = planMsg.text.match(/\*\*Report Title[:\s]*\*\*\s*\n?\s*\*?([^*\n]+)/i)
-                || planMsg.text.match(/Report Title[:\s]*\n?\s*\*?([^*\n]+)/i)
-              if (reportTitleMatch) {
-                extractedTitle = reportTitleMatch[1].trim()
-                break
-              }
-
-              // Pattern 3: First markdown heading
-              const mdHeadingMatch = planMsg.text.match(/^#+\s+(.+?)(?:\n|$)/m)
-              if (mdHeadingMatch) {
-                extractedTitle = mdHeadingMatch[1].trim()
-                break
-              }
-            }
-
-            // Fallback: Use the last user message if no title found in plan
-            if (!extractedTitle) {
-              const userMessages = currentConversation.messages.filter((m) => m.role === 'user')
-              const lastUserMsg = userMessages[userMessages.length - 1]
-              // Skip simple greetings.
-              if (lastUserMsg && lastUserMsg.content.length > 10) {
-                extractedTitle = lastUserMsg.content
-              }
-            }
-
-            if (extractedTitle) {
-              // Clean up the title
-              const cleanTitle = extractedTitle
-                .replace(/^\*+|\*+$/g, '')
-                .replace(/^["']|["']$/g, '')
-                .trim()
-
-              // Truncate to reasonable length
-              const title = cleanTitle.length > 80
-                ? cleanTitle.substring(0, 77) + '...'
-                : cleanTitle
-
-              if (title.length > 0) {
-                updateConversationTitle(currentConversation.id, title)
-              }
-            }
+        // The turn commissioned a run instead of answering (ADR-0062). The run's
+        // message already exists in this thread — the BFF wrote it before the
+        // worker was asked for anything — so the whole of the client's work is
+        // to put that message on screen: the block renders from its ledger and
+        // subscribes to the run's own stream by itself. No banner, no panel, no
+        // tracking message, and nothing to parse out of prose.
+        if (commissionedRun) {
+          const conversationId = useChatStore.getState().currentConversation?.id
+          if (conversationId) {
+            void fetchRunMessage(conversationId, commissionedRun.runMessageId).then((message) => {
+              if (message) adoptRunMessage(message)
+            })
           }
-
-          // Add 'starting' banner as a persistent message. When this turn
-          // escalated shallow→deep, the escalation reason rides above the
-          // banner (contract: `Eskaliert zur Tiefenrecherche: <reason>`).
-          addDeepResearchBanner('starting', jobId, undefined, undefined, transparency?.escalationReason)
-
-          // Empty-content tracking message carries job metadata for session
-          // restoration; AgentResponse returns null for empty content so it
-          // won't render.
-          const messageId = addAgentResponseWithMeta(
-            '',
-            false,
-            {
-              deepResearchJobId: jobId,
-              deepResearchJobStatus: 'submitted',
-              isDeepResearchActive: true,
-              planMessages: currentPlanMessages.length > 0 ? [...currentPlanMessages] : undefined,
-            },
-            validatedCards
-          )
-          // Start deep research SSE streaming bound to this message
-          startDeepResearch(jobId, messageId)
-          // Hand off to the deep-research SSE stream: it drives its own
-          // progress signal, so the WS inactivity watchdog must stand down
-          // (no WS frames arrive during deep research).
-          clearStreamingWatchdog()
-          // Keep isStreaming=true to block input -- deep research SSE will
-          // release it on completion.
+          // The turn is over for the composer: what happens next happens in the
+          // block, on the run's own stream, and the reader may keep typing.
+          discardStreamingAssistantMessage()
+          setCurrentStatus(null)
+          setStreaming(false)
           setLoading(false)
-          // Don't add this as final response - let SSE handle the rest
+          clearStreamingWatchdog()
+          clearPendingInteraction()
+          lastSentOutgoingRef.current = null
+          pendingOutgoingRef.current = null
+          clearUnacknowledgedOutgoing()
           return
         }
 
@@ -1288,8 +1425,18 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
         // (full text + cards) then an empty complete", which finalizes the same
         // one bubble — identical to the previous single-shot behaviour.
         const citations = citationsFromWireList(sources)
+        // Retrieved-but-uncited documents ride the transparency bundle as raw
+        // wire entries and are normalized here, like `sources` above — the
+        // store and every renderer downstream read `CitationSource`. The
+        // bundle is rebuilt only when there is something to put in it;
+        // otherwise the very same object (including `undefined`) rides on.
+        const readSources = citationsFromWireList(transparency?.readSources)
+        const answerTransparency: AnswerTransparency | undefined =
+          readSources && readSources.length > 0
+            ? { ...transparency, readSources }
+            : (transparency as AnswerTransparency | undefined)
         if (isFinal) {
-          finalizeAgentResponse(content, validatedCards, answerConfidence, citations, transparency)
+          finalizeAgentResponse(content, validatedCards, answerConfidence, citations, answerTransparency)
         } else if ((content && content.trim()) || validatedCards.length > 0) {
           appendAgentResponseDelta(content, validatedCards, answerConfidence, citations)
         }
@@ -1326,6 +1473,27 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
         }
       },
 
+      /**
+       * The turn said it is still running.
+       *
+       * Two effects, and the second is the point of the frame. It re-arms the
+       * inactivity probe like any other inbound frame — and it records the
+       * deadline the SERVER just stated, which replaces this client's copy of
+       * the server's run ceiling with something it was actually told.
+       *
+       * The deadline is recorded either way; only the ARMING is gated on a turn
+       * being in flight. The backend beats for as long as `_run_workflow` runs,
+       * and that includes a HITL pause — where the reader may take an hour and
+       * the prompt path has deliberately stood the watchdog down. Re-arming
+       * there would put back a timer that exists only to conclude something
+       * about a silence nobody is waiting on.
+       */
+      onTurnHeartbeat: (everyMs: number) => {
+        heartbeatDeadlineRef.current = everyMs * MISSED_HEARTBEATS_BEFORE_GONE
+        const { isStreaming: currentlyStreaming } = useChatStore.getState()
+        if (currentlyStreaming) armStreamingWatchdog()
+      },
+
       onStage: (frame: NATStageMessage) => {
         // NOT behind the `isStreaming` guard `onResponse` runs under, and this
         // is the whole reason a stage needs its own frame type: a stage frame
@@ -1346,7 +1514,11 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
         })
       },
 
-      onIntermediateStep: (content: NATIntermediateStepContent | string, status: string, _parentId?: string) => {
+      onIntermediateStep: (
+        content: NATIntermediateStepContent | string,
+        status: string,
+        _parentId?: string
+      ) => {
         // Same as onResponse: any backend-emitted frame on this socket
         // proves the rotated handshake is honoured. Reset the consecutive
         // auth_expired budget.
@@ -1453,7 +1625,15 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
         // Add as an agent prompt in the chat with HITL routing info for persistence
         // This captures current planMessages (including the one just added) for session restoration
         const promptType = mapHumanPromptType(prompt.input_type)
-        addAgentPrompt(promptType, prompt.text, prompt.options, undefined, promptId, parentId, inputType)
+        addAgentPrompt(
+          promptType,
+          prompt.text,
+          prompt.options,
+          undefined,
+          promptId,
+          parentId,
+          inputType
+        )
 
         // Pause streaming while waiting for user response. The user may take
         // arbitrarily long to answer, so stand the inactivity watchdog down.
@@ -1497,7 +1677,7 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
             addErrorCard(
               'auth.session_expired' as ErrorCode,
               'Your session has expired. Please sign in again to continue.',
-              errorContent.details,
+              errorContent.details
             )
             setCurrentStatus(null)
             setStreaming(false)
@@ -1547,7 +1727,11 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
 
           const errorInfo = backendUp
             ? getTransportFailure(errorContent.message, errorContent.details)
-            : { code: 'connection.failed' as const, message: errorContent.message, details: errorContent.details }
+            : {
+                code: 'connection.failed' as const,
+                message: errorContent.message,
+                details: errorContent.details,
+              }
 
           addErrorCard(errorInfo.code, errorInfo.message, errorInfo.details)
           setCurrentStatus(null)
@@ -1572,11 +1756,7 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
 
         // Map NAT error to frontend error code and display error card
         const errorCode = mapNATErrorToErrorCode(errorContent.code)
-        addErrorCard(
-          errorCode,
-          errorContent.message,
-          errorContent.details,
-        )
+        addErrorCard(errorCode, errorContent.message, errorContent.details)
 
         setCurrentStatus(null)
         setStreaming(false)
@@ -1665,7 +1845,10 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
                   .reverse()
                   .find((m) => m.messageType === 'user')
                 if (lastUserMessage) {
-                  void state._recoverInterruptedAssistantMessage(conversation.id, lastUserMessage.id)
+                  void state._recoverInterruptedAssistantMessage(
+                    conversation.id,
+                    lastUserMessage.id
+                  )
                 }
               }
             }
@@ -1727,7 +1910,7 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
     setTurnWsParentId,
     applyStageFrame,
     discardStreamingAssistantMessage,
-    addAgentResponseWithMeta,
+    adoptRunMessage,
     addThinkingStep,
     appendToThinkingStep,
     completeThinkingStep,
@@ -1741,10 +1924,7 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
     clearPendingInteraction,
     setLoading,
     setStreaming,
-    startDeepResearch,
-    addDeepResearchBanner,
     addPlanMessage,
-    updateConversationTitle,
     maybeGenerateConversationName,
     getTransportFailure,
     rotateSocket,
@@ -1794,6 +1974,7 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
       callbacks: {
         onResponse: (...args) => latestCallbacksRef.current.onResponse?.(...args),
         onStage: (...args) => latestCallbacksRef.current.onStage?.(...args),
+        onTurnHeartbeat: (...args) => latestCallbacksRef.current.onTurnHeartbeat?.(...args),
         onIntermediateStep: (...args) => latestCallbacksRef.current.onIntermediateStep?.(...args),
         onHumanPrompt: (...args) => latestCallbacksRef.current.onHumanPrompt?.(...args),
         onError: (...args) => latestCallbacksRef.current.onError?.(...args),
@@ -1845,8 +2026,11 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
         wsClientRef.current.disconnect()
         wsClientRef.current = null
       }
-      const { isStreaming: wasStreaming, isLoading: wasLoading, currentStatus: status } =
-        useChatStore.getState()
+      const {
+        isStreaming: wasStreaming,
+        isLoading: wasLoading,
+        currentStatus: status,
+      } = useChatStore.getState()
       if (wasStreaming || wasLoading || status !== null) {
         setStreaming(false)
         setLoading(false)
@@ -1970,7 +2154,7 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
         return queue()
       }
     },
-    [user?.name, user?.email, buildWsClient, noteSendIntent],
+    [user?.name, user?.email, buildWsClient, noteSendIntent]
   )
 
   /**
@@ -1986,7 +2170,8 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
     const trackedFiles = useDocumentsStore.getState().trackedFiles
     const sessionFiles = sessionId
       ? trackedFiles.filter(
-          (f) => f.collectionName === sessionId && (f.status === 'ingesting' || f.status === 'success')
+          (f) =>
+            f.collectionName === sessionId && (f.status === 'ingesting' || f.status === 'success')
         )
       : []
 
@@ -2013,8 +2198,7 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
     (
       content: string,
       dataSourcesForMessage: string[],
-      conversationId: string | undefined,
-      skills?: string[],
+      conversationId: string | undefined
     ): boolean => {
       // thinkingSteps are NOT cleared here -- they persist per userMessageId
       // so chat history still renders prior thinking blocks.
@@ -2035,23 +2219,38 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
       const preview = useFilePreviewStore.getState()
       const subject = useChatStore.getState().composerSubject
       const subjectName = subject?.filename?.trim() || subject?.title?.trim() || undefined
-      const peekName = isFilePeekVisible(preview) ? preview.file?.filename.trim() || undefined : undefined
+      const peekName = isFilePeekVisible(preview)
+        ? preview.file?.filename.trim() || undefined
+        : undefined
       const focusFileName = subjectName || peekName
       const focusShelf = subject?.shelf
+      // Only from the composer SUBJECT, never from a peek: a version id is a
+      // statement about what this turn is about, and a file that merely happens
+      // to be visible beside the chat is not that.
+      const focusDocumentId = subject?.resourceId
+      const focusVersionId = subject?.versionId ?? undefined
+      const focusVersionState = subject?.versionState ?? undefined
       const sourcePreset = useLayoutStore.getState().activeSourcePreset
       const outgoingPayload: PendingOutgoing = {
         kind: 'message',
         content,
         dataSources: dataSourcesForMessage,
-        ...(skills && skills.length > 0 ? { skills } : {}),
         ...(focusFileName ? { focusFileName } : {}),
         ...(focusShelf ? { focusShelf } : {}),
+        ...(focusDocumentId ? { focusDocumentId } : {}),
+        ...(focusVersionId ? { focusVersionId } : {}),
+        ...(focusVersionState ? { focusVersionState } : {}),
         ...(sourcePreset ? { sourcePreset } : {}),
       }
 
       // Helper to actually send the message
       const doSend = (): boolean => {
         if (sendOutgoingPayload(outgoingPayload)) {
+          // A NEW turn has not beaten yet, so it is judged by the generous
+          // fallback until it does. Carrying the last turn's deadline over
+          // would apply one backend's promise to another's — and after a
+          // reconnect onto an older replica, to one that never made it.
+          heartbeatDeadlineRef.current = 0
           // Turn is on the wire -- start the overall inactivity deadline.
           armStreamingWatchdog()
           setLoading(false)
@@ -2181,7 +2380,7 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
               mentions: mentions.map((mention) => ({ targetId: mention.targetId })),
               ...(options.mentionNote ? { mentionNote: options.mentionNote } : {}),
             }),
-          },
+          }
         )
 
         if (!response.ok) {
@@ -2221,7 +2420,7 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
       const started = openAgentTurn(content, dataSourcesForMessage, conversationId)
       return { ok: started, addressees: ruling }
     },
-    [addErrorCard, collectSendMetadata, deliverAsContext, openAgentTurn],
+    [addErrorCard, collectSendMetadata, deliverAsContext, openAgentTurn]
   )
 
   /**
@@ -2256,14 +2455,9 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
       // currentConversation may have just been created inside addUserMessage.
       const conversationId = useChatStore.getState().currentConversation?.id
 
-      return openAgentTurn(
-        content,
-        dataSourcesForMessage,
-        conversationId,
-        options?.skills ? [...options.skills] : undefined,
-      )
+      return openAgentTurn(content, dataSourcesForMessage, conversationId)
     },
-    [addUserMessage, collectSendMetadata, openAgentTurn, sendRuledMessage],
+    [addUserMessage, collectSendMetadata, openAgentTurn, sendRuledMessage]
   )
 
   /**
@@ -2313,6 +2507,9 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
         if (sendOutgoingPayload(interactionPayload)) {
           setStreaming(true)
           setLoading(true)
+          // The turn resumes from the answer, and what runs after it is as new
+          // as a fresh turn — see the note in `sendMessage`'s `doSend`.
+          heartbeatDeadlineRef.current = 0
           // HITL answer is on the wire -- resume the inactivity deadline.
           armStreamingWatchdog()
         } else {
@@ -2475,7 +2672,8 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
 
   const messages = currentConversation?.messages ?? EMPTY_MESSAGES
   const userConversations = useMemo(
-    () => (currentUserId ? conversations.filter((c) => c.userId === currentUserId) : EMPTY_CONVERSATIONS),
+    () =>
+      currentUserId ? conversations.filter((c) => c.userId === currentUserId) : EMPTY_CONVERSATIONS,
     [conversations, currentUserId]
   )
 

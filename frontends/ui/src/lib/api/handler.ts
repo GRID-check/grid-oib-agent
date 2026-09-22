@@ -70,6 +70,7 @@ import {
   TooManyRequestsError,
 } from './errors'
 import { requestBodyLimitBytes } from '@/shared/config/request-body-limit'
+import { REQUEST_ID_HEADER, resolveRequestId } from './request-id'
 
 /** Context passed to session-authenticated handlers. */
 export interface ApiContext<TParams = Record<string, never>> {
@@ -235,8 +236,31 @@ function isNextControlFlowError(error: unknown): boolean {
   )
 }
 
+/**
+ * Every error carries its request id, in the body and in the header.
+ *
+ * Both, because the two readers are different: the header is what a proxy log
+ * and a browser's network panel keep, and the body is the only one a chat
+ * client can put in front of the person who is looking at the failure
+ * (`ErrorBanner`). Adding it here rather than at each throw site means an id is
+ * on the errors nobody remembered to think about, which are the ones that get
+ * reported.
+ */
+function errorPayload(
+  body: Record<string, unknown>,
+  status: number,
+  requestId: string,
+  headers?: Record<string, string>,
+): Response {
+  return NextResponse.json(
+    { ...body, requestId },
+    { status, headers: { ...headers, [REQUEST_ID_HEADER]: requestId } },
+  )
+}
+
 export function errorResponse(error: unknown, request: Request): Response {
   if (isNextControlFlowError(error)) throw error
+  const requestId = resolveRequestId(request)
   if (error instanceof ApiError) {
     const body: Record<string, unknown> = { error: error.message, code: error.code }
     if (error.details !== undefined) body.details = error.details
@@ -245,17 +269,59 @@ export function errorResponse(error: unknown, request: Request): Response {
     // the retry storm the limit exists to stop (ADR-0040).
     const headers =
       error instanceof TooManyRequestsError ? rateLimitHeaders(error.decision) : undefined
-    return NextResponse.json(body, { status: error.status, headers })
+    return errorPayload(body, error.status, requestId, headers)
   }
   // Legacy guards (requireGridSession, requireProjectAccess, WorkOS client
   // wrappers) throw plain Errors classified by message. Map them exactly as
   // authzErrorResponse() did so behavior stays stable while they migrate.
   if (isAuthzError(error)) {
-    return NextResponse.json({ error: 'Forbidden', code: 'FORBIDDEN' }, { status: 403 })
+    return errorPayload({ error: 'Forbidden', code: 'FORBIDDEN' }, 403, requestId)
+  }
+  // Binding a filename to a uuid column is not an internal failure (#572).
+  if (isInvalidUuidQueryError(error)) {
+    return errorPayload({ error: 'Not found', code: 'NOT_FOUND' }, 404, requestId)
   }
   const url = new URL(request.url)
-  console.error(`[api] Unhandled error in ${request.method} ${url.pathname}:`, error)
-  return NextResponse.json({ error: 'Internal server error', code: 'INTERNAL' }, { status: 500 })
+  const pgCode = findPostgresCode(error)
+  // The id goes in the LOG LINE too, and that is the half that makes it worth
+  // having: the response tells the user what to quote, this tells the operator
+  // what to grep. An id on only one side of that handshake is decoration.
+  console.error(
+    `[api] Unhandled error in ${request.method} ${url.pathname} requestId=${requestId}${pgCode ? ` pgCode=${pgCode}` : ''}:`,
+    error
+  )
+  return errorPayload({ error: 'Internal server error', code: 'INTERNAL' }, 500, requestId)
+}
+
+/**
+ * Walk `error.cause` for a Postgres error code (`22P02`, `23505`, …) and
+ * attach it to the unhandled-error log line. Drizzle reports a failed write
+ * as `Failed query … params: <the entire blob>`, which buries the code that
+ * says what actually went wrong — three PATCH 500s (err2issue
+ * #581/#579/#576) arrived with kilobytes of payload and no cause. The next
+ * one arrives classified.
+ */
+function findPostgresCode(error: unknown): string | undefined {
+  let current: unknown = error
+  for (let depth = 0; depth < 4 && current; depth += 1) {
+    if (typeof current === 'object' && current !== null && 'code' in current) {
+      const code: unknown = (current as { code: unknown }).code
+      if (typeof code === 'string' && /^[0-9A-Z]{5}$/.test(code)) return code
+    }
+    current = current instanceof Error ? current.cause : undefined
+  }
+  return undefined
+}
+
+/** Walk `error.cause` for Postgres `22P02` on a uuid column. */
+function isInvalidUuidQueryError(error: unknown): boolean {
+  let current: unknown = error
+  for (let depth = 0; depth < 4 && current; depth += 1) {
+    const message = current instanceof Error ? current.message : ''
+    if (/invalid input syntax for type uuid/i.test(message)) return true
+    current = current instanceof Error ? current.cause : undefined
+  }
+  return false
 }
 
 export async function resolveParams(

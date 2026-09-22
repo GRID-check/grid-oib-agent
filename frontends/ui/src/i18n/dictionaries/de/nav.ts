@@ -17,10 +17,12 @@ export const nav: typeof en.nav = {
     files: 'Dateien',
     knowledge: 'Wissen',
     research: 'Recherche',
-    /** Der zusammengelegte Skills+Jobs-Bereich; beide leben als Tabs darin weiter. */
+    /** Automatisierung — Tasks und Skills als Tabs in einem Bereich. */
     automation: 'Automatisierung',
     skills: 'Skills',
     jobs: 'Jobs',
+    // Der führende Tab: an Piloti übergebene Arbeit, eine Karte je Task (ADR-0051).
+    tasks: 'Tasks',
     archiv: 'Archiv',
     settings: 'Einstellungen',
     // Der Intake-Assistent, im Produkt „Einrichtung" (nur ⌘K-Palette).
@@ -28,13 +30,12 @@ export const nav: typeof en.nav = {
   },
   sectionGroups: {
     work: 'Arbeit',
-    automate: 'Automatisieren',
     org: 'Organisation',
   },
   sectionSubtitles: {
     files: 'Dokumente, auf die sich Piloti in diesem Projekt stützt.',
     automation:
-      'Skills, die die Organisation wiederverwendet, und Prompts, die dieses Projekt zeitgesteuert ausführt.',
+      'Was Piloti erledigt hat, während Sie weg waren, was als Nächstes ansteht — und die Skills, mit denen es arbeitet.',
     knowledge: 'Was die Wissensbasis derzeit enthält.',
     settings: 'Projektprofil, Mitglieder, Gedächtnis und Gefahrenzone.',
     intake: 'Geführtes Briefing für dieses Projekt.',

@@ -26,13 +26,9 @@ export const research = {
     },
     loggedOutTitle: 'Piloti opens after your organization is verified.',
     loggedOutBody:
-      'Sign in to unlock project-scoped OIB research, document reading, and member access controls.',
+      'Sign in to unlock the project workspace: your files, the office archive, and the building-regulation corpus.',
     signInSso: 'Sign in with SSO',
     welcomeTitle: 'How can Piloti help with your project?',
-    usePrompt: 'Use suggestion: {prompt}',
-    prompt1: 'Compare OIB 2 fire resistance duties across building classes.',
-    prompt2: 'Summarize accessibility requirements for a public retrofit.',
-    prompt3: 'Find contradictions between uploaded plans and OIB guidance.',
   },
 
   chatToolbar: {
@@ -50,7 +46,6 @@ export const research = {
     /** Trigger for the thread menu that holds every non-primary header action. */
     moreActions: 'More actions',
     renameSession: 'Rename chat',
-    researchReport: 'Research report',
   },
 
   dataSources: {
@@ -228,9 +223,9 @@ export const research = {
     subjectCleared: 'No longer asking about that file.',
     subjectClearedUndo: 'Undo',
     aiDisclosure:
-      'Piloti is an AI — answers can be wrong; verify them against the cited Richtlinie.',
+      'Piloti is an AI — answers can be wrong; verify them against the cited files.',
     placeholderDefault: 'Check data sources and ask a research question...',
-    signInToStart: 'Sign in to start researching',
+    signInToStart: 'Sign in to start working',
     researchCompletedNewSession: 'Research completed. Create a new session for further questions.',
     researchFailedFollowUp: 'Research didn’t finish. Ask a follow-up or try again.',
     typeResponse: 'Type your response to Piloti...',
@@ -262,6 +257,8 @@ export const research = {
     chatMessageInput: 'Chat message input',
     stopStreaming: 'Stop response',
     sendWhilePending: 'Files are still processing — send anyway?',
+    heldForUpload: 'Sending as soon as the file has been read.',
+    heldForUploadSendNow: 'Ask now without it',
     removeFile: 'Remove file: {name}',
     retryUpload: 'Retry upload',
     manageFiles: 'Manage files',
@@ -345,6 +342,19 @@ export const research = {
     deleteAll: 'Delete all chats in this project',
     cannotDeleteBusy: 'Cannot delete while operations are in progress',
     deleteAllButton: 'Delete all chats',
+    /** Stop action for a stuck deep-research run (chat row, run row). */
+    stopResearch: 'Stop research',
+    stopResearchTitle: 'Stop this stuck research run',
+    /** Bulk purge in the history footer: stops every abandoned run of the user. */
+    purgeStuckRunsButton: 'Stop stuck research',
+    purgeStuckRuns: 'Stop all stuck research runs',
+    purgeDone: '{count, plural, one {Stopped # stuck research run} other {Stopped # stuck research runs}}',
+    purgeIdle: 'No stuck research runs found',
+    /** Bulk-purge confirm (shared ConfirmDialog, warning tone): the purge is the one bulk action that cancels server work. */
+    purgeConfirmTitle: 'Stop stuck research?',
+    purgeConfirmBody:
+      'Every stuck research run will be cancelled and cannot be resumed. Your chats are kept — only the runs stop.',
+    purgeConfirmConfirm: 'Stop stuck research',
     newSessionDisabled: 'Start a new chat (disabled during active operations)',
     startNewSession: 'Start a new chat',
     cannotCreateActive: 'Cannot start a new chat while this one is still answering',

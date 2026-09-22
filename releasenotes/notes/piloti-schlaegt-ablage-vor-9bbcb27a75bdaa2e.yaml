@@ -1,0 +1,20 @@
+---
+features:
+  - >
+    Piloti can now help tidy the project files. Ask it to move something into a
+    folder, rename a file, create a folder or hand a document to a colleague,
+    and it puts the change on a card beside the answer for you to apply or
+    discard.
+  - >
+    A request that touches several files at once — putting the submission
+    documents together, for instance — arrives as one card listing every move,
+    so it is one decision rather than one per file.
+improvements:
+  - >
+    Nothing is changed until you press Apply, and the change then runs as you,
+    with your own permissions. Piloti never says a file has been moved,
+    renamed or handed over while the card is still waiting.
+  - >
+    If part of a batch cannot be applied — a file somebody already moved, a
+    colleague who has left the project — the card says which entries did not
+    go through instead of reporting the whole thing as done.

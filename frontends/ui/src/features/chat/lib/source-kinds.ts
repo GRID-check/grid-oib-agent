@@ -26,7 +26,7 @@ import type { SourceSignal, SourceTint } from '@/features/layout/lib/source-pres
  * derived from, the operator expression, a tolerance and a provenance, which is
  * a stronger audit trail than a quotation. It is a kind here so every surface
  * that already renders off `kind` picks it up; it is deliberately NOT a
- * citation on the backend (`aiq_agent/agents/bim/measurement_sources.py`).
+ * citation on the backend (`aiq_agent/tools/bim/measurement_sources.py`).
  */
 export type SourceKind = 'baurecht' | 'buero' | 'projekt' | 'web' | 'messung'
 
@@ -53,6 +53,25 @@ export const KIND_TO_SIGNAL: Record<SourceKind, SourceSignal> = {
   messung: 'model',
 }
 
+
+/**
+ * The fine lane of a PUBLISHED, human-approved, agent-authored document —
+ * mirror of the backend `source_kinds.AGENT_AUTHORED_LANE`.
+ *
+ * Its coarse kind is `buero`: it IS office knowledge, painted in the office
+ * colour, and the lane is the sub-label inside that kind. The distinction the
+ * lane carries is "Piloti wrote this and the office released it" versus "a
+ * person in the office wrote it" — and the backend decides it from the stated
+ * PROVENANCE (`authored_by: agent`) before the shelf is consulted, so a
+ * document filed on the project shelf keeps its author instead of arriving as
+ * Projektwissen.
+ *
+ * The label is the SUB-LABEL only. Who approved it, and when, travel as data
+ * (`provenance` on the Trace-Lanes source), so a renderer appends the approver
+ * in the reader's own locale rather than parsing him out of a German sentence.
+ */
+export const AGENT_AUTHORED_LANE = 'buero_piloti'
+export const AGENT_AUTHORED_LANE_LABEL = 'Piloti-Dokument'
 
 // Fine lane family → coarse kind (mirror of backend `source_kinds.kind_for_lane`).
 // The Herleitung fan-out and the chips MUST share this so they never disagree

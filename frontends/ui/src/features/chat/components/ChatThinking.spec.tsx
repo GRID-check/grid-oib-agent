@@ -282,7 +282,7 @@ describe('ChatThinking', () => {
 
   describe('source fan-out', () => {
     test('a still-running turn never reports a source as unused', async () => {
-      // "gelesen, nicht verwendet" is a claim about the FINISHED answer. While
+      // "abgerufen, nicht zitiert" is a claim about the FINISHED answer. While
       // the turn streams nothing has been cited yet, so every retrieved
       // document read as discarded — including the ones about to be cited a
       // second later.
@@ -308,12 +308,12 @@ describe('ChatThinking', () => {
 
       const { rerender } = render(<ChatThinking steps={steps} isThinking={true} />)
       await user.click(screen.getByText(/Trace ·/))
-      expect(screen.queryByText('read, not used')).not.toBeInTheDocument()
+      expect(screen.queryByText('retrieved, not cited')).not.toBeInTheDocument()
 
       // Once the turn lands and the answer cited nothing from it, the verdict
       // becomes true and is stated.
       rerender(<ChatThinking steps={steps} isThinking={false} />)
-      expect(screen.getByText('read, not used')).toBeInTheDocument()
+      expect(screen.getByText('retrieved, not cited')).toBeInTheDocument()
     })
 
     test('renders per-document source cards from traceLanes', async () => {
@@ -475,8 +475,8 @@ describe('ChatThinking', () => {
       // A greeting: one assistant step ran, no search tool did.
       const steps = [
         createStep({
-          functionName: 'meta_chatter',
-          displayName: 'Meta Chatter',
+          functionName: 'shallow_research_agent',
+          displayName: 'Shallow Research Agent',
           isComplete: true,
         }),
       ]
@@ -497,6 +497,7 @@ describe('ChatThinking', () => {
       expect(screen.queryByText('Web search')).not.toBeInTheDocument()
       expect(screen.queryByText('Web Search')).not.toBeInTheDocument()
       expect(screen.queryByText('RIS')).not.toBeInTheDocument()
+      expect(screen.queryByText('Knowledge')).not.toBeInTheDocument()
       expect(screen.queryByText('OIB knowledge')).not.toBeInTheDocument()
       expect(screen.queryByText('Selected Data Sources:')).not.toBeInTheDocument()
       expect(screen.queryByText('Attached files:')).not.toBeInTheDocument()
@@ -668,10 +669,10 @@ describe('ChatThinking', () => {
 
       await expandChain(user)
 
-      // The assessment node ("Assessment" eyebrow) now shows a reasoning-only
+      // The findings node ("Findings" eyebrow) now shows a reasoning-only
       // hit-lane summary ("Hits in: <lane>"), deduped to a single lane — not a
       // second copy of the answer's provenance chips.
-      expect(screen.getByText('Assessment')).toBeVisible()
+      expect(screen.getByText('Findings')).toBeVisible()
       expect(screen.getByText('Hits in: OIB-Richtlinie')).toBeVisible()
     })
 

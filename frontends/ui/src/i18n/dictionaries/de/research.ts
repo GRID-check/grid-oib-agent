@@ -26,13 +26,9 @@ export const research: typeof en.research = {
     },
     loggedOutTitle: 'Piloti wird verfügbar, sobald Ihre Organisation verifiziert ist.',
     loggedOutBody:
-      'Melden Sie sich an, um projektbezogene OIB-Recherche, das Einlesen Ihrer Dokumente und Zugriffsrechte für Mitglieder freizuschalten.',
+      'Melden Sie sich an, um den Projekt-Arbeitsbereich freizuschalten: Ihre Unterlagen, das Büroarchiv und den Vorschriftenkorpus.',
     signInSso: 'Mit SSO anmelden',
     welcomeTitle: 'Wie kann Piloti bei Ihrem Projekt helfen?',
-    usePrompt: 'Vorschlag verwenden: {prompt}',
-    prompt1: 'Vergleiche die Brandschutzpflichten nach OIB 2 über die Gebäudeklassen hinweg.',
-    prompt2: 'Fasse die Barrierefreiheitsanforderungen für eine öffentliche Sanierung zusammen.',
-    prompt3: 'Finde Widersprüche zwischen den hochgeladenen Plänen und den OIB-Richtlinien.',
   },
 
   chatToolbar: {
@@ -51,7 +47,6 @@ export const research: typeof en.research = {
     /** Trigger for the thread menu that holds every non-primary header action. */
     moreActions: 'Weitere Aktionen',
     renameSession: 'Chat umbenennen',
-    researchReport: 'Recherchebericht',
   },
 
   dataSources: {
@@ -231,9 +226,9 @@ export const research: typeof en.research = {
     subjectCleared: 'Frage bezieht sich nicht mehr auf diese Datei.',
     subjectClearedUndo: 'Rückgängig',
     aiDisclosure:
-      'Piloti ist ein KI-System — Antworten können falsch sein; prüfen Sie sie anhand der zitierten Richtlinie.',
+      'Piloti ist ein KI-System — Antworten können falsch sein; prüfen Sie sie anhand der zitierten Unterlagen.',
     placeholderDefault: 'Datenquellen prüfen und eine Recherchefrage stellen...',
-    signInToStart: 'Melden Sie sich an, um mit der Recherche zu beginnen',
+    signInToStart: 'Melden Sie sich an, um zu beginnen',
     researchCompletedNewSession:
       'Recherche abgeschlossen. Erstellen Sie für weitere Fragen eine neue Sitzung.',
     researchFailedFollowUp:
@@ -268,6 +263,8 @@ export const research: typeof en.research = {
     chatMessageInput: 'Chat-Nachrichteneingabe',
     stopStreaming: 'Antwort stoppen',
     sendWhilePending: 'Dateien werden noch verarbeitet – trotzdem senden?',
+    heldForUpload: 'Wird gesendet, sobald die Datei gelesen ist.',
+    heldForUploadSendNow: 'Jetzt ohne die Datei fragen',
     removeFile: 'Datei entfernen: {name}',
     retryUpload: 'Upload erneut versuchen',
     manageFiles: 'Dateien verwalten',
@@ -349,6 +346,20 @@ export const research: typeof en.research = {
     deleteAll: 'Alle Chats dieses Projekts löschen',
     cannotDeleteBusy: 'Löschen nicht möglich, während Vorgänge laufen',
     deleteAllButton: 'Alle Chats löschen',
+    /** Stopp-Aktion für einen blockierten Deep-Research-Durchlauf (Chatzeile, Durchlaufzeile). */
+    stopResearch: 'Recherche stoppen',
+    stopResearchTitle: 'Diesen blockierten Recherchedurchlauf stoppen',
+    /** Sammelbereinigung in der Verlaufsfußzeile: stoppt alle abgebrochenen Durchläufe. */
+    purgeStuckRunsButton: 'Blockierte Recherchen stoppen',
+    purgeStuckRuns: 'Alle blockierten Recherchedurchläufe stoppen',
+    purgeDone:
+      '{count, plural, one {# blockierter Recherchedurchlauf gestoppt} other {# blockierte Recherchedurchläufe gestoppt}}',
+    purgeIdle: 'Keine blockierten Recherchedurchläufe gefunden',
+    /** Sammelbestätigung zum Bereinigen (geteilter ConfirmDialog, Warnton): die Bereinigung ist die einzige Sammelaktion, die Serverarbeit abbricht. */
+    purgeConfirmTitle: 'Blockierte Recherchen stoppen?',
+    purgeConfirmBody:
+      'Alle blockierten Recherchedurchläufe werden abgebrochen und können nicht fortgesetzt werden. Ihre Chats bleiben erhalten — nur die Durchläufe werden gestoppt.',
+    purgeConfirmConfirm: 'Blockierte Recherchen stoppen',
     newSessionDisabled: 'Neuen Chat starten (während aktiver Vorgänge deaktiviert)',
     startNewSession: 'Neuen Chat starten',
     cannotCreateActive:

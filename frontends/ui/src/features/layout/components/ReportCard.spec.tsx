@@ -28,16 +28,34 @@ vi.mock('@/hooks/use-download-pdf', () => ({
 
 // Mock the centralized busy hook (replaces ad-hoc store checks)
 let mockIsBusy = false
+// The project of the chat this card sits in — what „Besprechen" needs to open a
+// conversation about the report. `null` is a chat outside a project, where the
+// control correctly does not appear.
+let mockProjectId: string | null = null
 
 vi.mock('@/features/chat', () => ({
   useIsCurrentSessionBusy: () => mockIsBusy,
+  useChatStore: (selector: (state: { projectId: string | null }) => unknown) =>
+    selector({ projectId: mockProjectId }),
 }))
+
+// The Freigabe controls are their own surface with their own spec; what this one
+// asserts about a filed report is the „Besprechen" beside them.
+vi.mock('@/features/documents/components/document-lifecycle-panel', () => ({
+  DocumentLifecyclePanel: () => <div data-testid="lifecycle-panel" />,
+}))
+
+const FILED = {
+  documentId: 'doc-7',
+  viewer: { permissions: [], userId: 'user-1' },
+} as const
 
 describe('ReportCard', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mockIsPdfLoading = false
     mockIsBusy = false
+    mockProjectId = null
   })
 
   describe('empty state', () => {
@@ -198,6 +216,33 @@ Line three`} />)
       render(<ReportCard content={longContent} />)
 
       expect(screen.getByText('1,500 words')).toBeInTheDocument()
+    })
+  })
+
+  describe('a report that was filed as a document', () => {
+    test('offers Besprechen, so the reader can ask about what they just read', () => {
+      mockProjectId = 'proj-1'
+      render(<ReportCard content="Content" filedDocument={FILED} />)
+
+      // A filed report is a DRAFT nobody published, so it has no chunks and used
+      // to be exactly the document Piloti could not answer about. The turn now
+      // reads the subject version's bytes instead, which is what makes this
+      // control honest rather than decorative.
+      expect(screen.getByTestId('discuss-document')).toBeInTheDocument()
+    })
+
+    test('offers nothing to discuss when the run filed no document', () => {
+      mockProjectId = 'proj-1'
+      render(<ReportCard content="Content" />)
+      expect(screen.queryByTestId('discuss-document')).not.toBeInTheDocument()
+    })
+
+    test('offers nothing to discuss outside a project', () => {
+      // No project, no project chat to open — and a report filed nowhere has no
+      // subject to bind the conversation to.
+      mockProjectId = null
+      render(<ReportCard content="Content" filedDocument={FILED} />)
+      expect(screen.queryByTestId('discuss-document')).not.toBeInTheDocument()
     })
   })
 })

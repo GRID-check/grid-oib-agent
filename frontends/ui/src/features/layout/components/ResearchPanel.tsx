@@ -290,7 +290,9 @@ export const ResearchPanel: FC<ResearchPanelProps> = memo(function ResearchPanel
                     <Skeleton className="size-8 shrink-0 rounded-md" />
                     <div className="flex-1 space-y-1.5">
                       <Skeleton className="h-3.5 w-1/2" />
-                      <Skeleton className="size-3/4" />
+                      {/* Meta line, not a second title: thinner and shorter,
+                          in the meta-line vocabulary the file/item rows use. */}
+                      <Skeleton className="h-3 w-1/3" />
                     </div>
                   </div>
                 ))}

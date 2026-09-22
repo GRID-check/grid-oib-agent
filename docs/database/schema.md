@@ -32,7 +32,9 @@ All schemas are in `frontends/ui/src/lib/db/schema/` and barrel-exported from `i
 | `inbox.ts` | `inbox_items` |
 | `mention-requests.ts` | `mention_requests` |
 | `conversation-reads.ts` | `conversation_reads` |
-| `jobs.ts` | `skills`, `jobs`, `job_runs` |
+| `jobs.ts` | `skills`, `jobs`, `job_runs` — the last two LEGACY since 0086; they are not written or read after the cutover and migration 0087 drops them |
+| `tasks.ts` | `tasks` — LEGACY since 0086, same |
+| `task-model.ts` | `task_definitions`, `task_runs` — the collapsed model (migration 0086) |
 
 ---
 
@@ -92,12 +94,12 @@ export const conversations = pgTable('conversations', {
 | `created_by` | `text` | NOT NULL | WorkOS user ID |
 | `title` | `text` | | Auto-generated or user-set title |
 | `project_id` | `uuid` | FK → `projects.id` ON DELETE SET NULL | Scopes knowledge collection |
-| `job_id` | `uuid` | FK → `jobs.id` ON DELETE SET NULL (migration `0044`) | **Provenance, not ownership**: the job whose `output='chat'` run was materialised into this thread, or NULL when a person started it (every row before 0044, and the great majority after). `created_by` on a job conversation is still the JOB'S OWNER — a real user id, because the sharing roster, the last-owner invariant, `attributeLegacyAuthor` and audit all read that column as a person — so this column is the only thing that says "nobody typed this". Two behaviours are meant to hang off it: rendering the thread with the job's name and a job glyph instead of the owner's face, and filtering it out of the owner's personal sessions list (a weekly job is 52 threads a year) while it stays openable by URL and from the job's run history. The column and the fire path that writes it exist; those two consumers are follow-up. `SET NULL`, because deleting a job must never delete its output. |
+| `job_id` | `uuid` | FK → `task_definitions.id` ON DELETE SET NULL (repointed by migration `0086`; was `jobs.id`, and the definition ids for job-backed rows are the same uuids) | **Provenance, not ownership**: the definition whose `output='chat'` run was materialised into this thread, or NULL when a person started it (every row before 0044, and the great majority after). `created_by` on a job conversation is still the JOB'S OWNER — a real user id, because the sharing roster, the last-owner invariant, `attributeLegacyAuthor` and audit all read that column as a person — so this column is the only thing that says "nobody typed this". Two behaviours hang off it: rendering the thread with the job's name and a job glyph instead of the owner's face, and filtering it out of the owner's personal sessions list (a weekly job is 52 threads a year) while it stays openable by URL and from the job's run history. `SET NULL`, because deleting a definition must never delete its output. **From PR 1 (ADR-0062) a standing definition owns exactly ONE thread**, and each fire appends its run message to it rather than minting a conversation per fire. The invariant is held by the thread's ID, which is derived from the definition's (`lib/tasks/task-thread.ts`, uuid5) so the primary key plus `ON CONFLICT DO NOTHING` makes „ensure the thread“ idempotent: **this column is NOT unique and cannot become unique**, because every fire before that change stamped its own conversation with the same value, and clearing the duplicates would delete the provenance the column exists for (migration `0091`'s header carries the record). That derived id is also how a reader tells the two apart: the standing thread is shown in the sessions list, the per-fire conversations stay hidden. |
 | `visibility` | `text` | NOT NULL, default `'private'` | `private` \| `project` \| `organization` (ADR-0032). Read on the hot path with the row, so access resolution costs no join. **Migration 0027 backfilled pre-existing rows with a `project_id` to `'project'`** — conversations used to be resolved org-scoped only, so any org member with an id could read any thread; `'project'` keeps access for everyone inside the project and withdraws the accidental org-wide read. Rows with a NULL `project_id` stayed `'private'` (no project membership could describe their audience). |
 | `created_at` | `timestamptz` | NOT NULL, `defaultNow()` | |
 | `updated_at` | `timestamptz` | NOT NULL, `defaultNow()` | Updated on message activity |
 
-**Indexes:** `conversations_org_updated_idx` on `(organization_id, updated_at)` — tenant list ordered by activity; `conversations_project_idx` on `(project_id)` — FK lookups/cascades (migration `0014`); `conversations_job_id_idx` on `(job_id)` **partial**, `WHERE job_id IS NOT NULL` (migration `0044`) — it exists for the foreign key, since an unindexed referencing column makes every `DELETE FROM jobs` seq-scan this table; partial because job-produced conversations are a small minority and Drizzle's builder cannot express a partial index, so it lives only in the migration.
+**Indexes:** `conversations_org_updated_idx` on `(organization_id, updated_at)` — tenant list ordered by activity; `conversations_project_idx` on `(project_id)` — FK lookups/cascades (migration `0014`); `conversations_job_id_idx` on `(job_id)` **partial**, `WHERE job_id IS NOT NULL` (migration `0044`) — it exists for the foreign key, since an unindexed referencing column makes every `DELETE FROM task_definitions` seq-scan this table; partial because job-produced conversations are a small minority and Drizzle's builder cannot express a partial index, so it lives only in the migration.
 
 ---
 
@@ -126,6 +128,7 @@ export const messages = pgTable('messages', {
 | `role` | `text` | NOT NULL | `user`, `assistant`, `system`, or agent name |
 | `author_user_id` | `text` | | WorkOS user id of the human author; NULL for assistant/system/tool rows and for messages written before authorship existed. `role` only recorded the KIND of author, which was free with one human per thread and a defect with two. Legacy NULL-author `user` rows are attributed to the conversation's `created_by` **at read time**, never backfilled, so the column never claims a precision the data lacks (spec MG-3). |
 | `content` | `text` | NOT NULL | Message body |
+| `run_id` | `text` | | The `task_runs` row this message is the account of (migration `0091`, ADR-0062). A run — a deep-research run, a scheduled task — is ONE assistant message in the conversation it was commissioned in, and that message carries the run ledger in `metadata.run_ledger`; this column is what finds it. NULL on every message a person or an ordinary turn wrote. `text` and no foreign key, for the reason `document_versions.origin_conversation_id` has none: the honest constraint would be composite with the tenant column, worth its cost on a row that decides access and not on one that decides rendering. Rendering and lookup only — never authorization, which comes from the conversation. |
 | `metadata` | `jsonb` | | Flexible: see the key list below |
 | `created_at` | `timestamptz` | NOT NULL, `defaultNow()` | |
 
@@ -144,7 +147,18 @@ card key); it also rides the INSERT when a decision was already recorded
 locally, which is how a decision made before the row existed still reaches the
 server.
 
-**Indexes:** `messages_conversation_created_idx` on `(conversation_id, created_at)` — conversation history reads (migration `0014`; Postgres does not auto-index FK columns).
+`run_ledger` is the run's own account of itself — phases, steps described by the
+INTENT the runner stated (never a tool name), the documents each step reached,
+and the terminal result or error. It is written by the fold in the Python tier
+through `POST /api/internal/runs/{runId}/ledger` and sanitized on write and again
+on read (`lib/runs/run-ledger.ts`, `server-message-mapper.ts`) — the same
+contract `retrieval_ledger` keeps, and for a stronger reason: the payload is
+produced by a different deployable. The shape is defined once in zod
+(`lib/runs/run-ledger-types.ts`) and exported to
+`frontends/ui/tests/fixtures/run-ledger.schema.json`, which the Python models
+(`src/aiq_agent/common/run_ledger.py`) validate against (ADR-0055, ADR-0062).
+
+**Indexes:** `messages_conversation_created_idx` on `(conversation_id, created_at)` — conversation history reads (migration `0014`; Postgres does not auto-index FK columns); `idx_messages_run_id` on `(run_id)` **partial**, `WHERE run_id IS NOT NULL` (migration `0091`) — a run message is a small minority of all messages, and an index entry per chat message would be paid for on every insert. Drizzle's builder cannot express a partial index, so it lives only in the migration.
 
 ---
 
@@ -174,6 +188,26 @@ export const documents = pgTable('documents', {
   collectionName: text('collection_name').notNull(),
   fileSize: integer('file_size'),
   contentType: text('content_type'),
+  // Where the file sat before it was uploaded, for a folder upload — e.g.
+  // `Wohnbau Nord/03_Einreichung/EG.pdf`. NULL for a picked file, which
+  // genuinely has none. Written once and never rewritten: this is a fact about
+  // the ORIGINAL, deliberately not `folder_id` / the materialised folder path
+  // (ADR-0049), which are Piloti's own filing and are meant to be rearranged.
+  // Migration 0072.
+  originPath: text('origin_path'),
+  // A digest of the stored bytes, `sha256:<hex>`, or NULL when unknown. What
+  // makes a folder RE-upload cheap: the browser hashes only the files whose
+  // name and size already match a document here and sends the ones whose
+  // digest differs, so a 500-file re-sync of an Einreichung uploads the eight
+  // that changed. NULL means "unknown" — a file matching such a row is treated
+  // as CHANGED, never as unchanged; `uploadDocument` then compares the digest
+  // it computes from the bytes against this column and, when they agree and the
+  // row has landed in the right folder, returns without writing the object or
+  // re-ingesting, which is what stops a corpus older than this column paying
+  // for the same re-sync twice. Not an identity (a document is still identified
+  // by its filename within a collection, 0074) and not a trust boundary.
+  // Migration 0078.
+  contentHash: text('content_hash'),
   status: text('status').notNull().default('pending'),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
@@ -197,7 +231,7 @@ export const documents = pgTable('documents', {
 | `authored_by_producer` | `text` | | **Migration `0063`**: WHAT wrote a non-`user` document, as a producer identifier (`deep_research`, `diagram_svg`, `diagram_pdf`), never a display label. A producer is a KIND OF DELIVERABLE, not a piece of software — which is why one run can carry two of them, and why migration `0065` makes it half of the idempotency key. `NULL` for everything a person uploaded. Separate from `authored_by_ref` because a reference identifies the producer only while there is exactly one of them; recovering it later from pruned job history is archaeology. Since migration `0066` it is also what the reference KIND is derived from. |
 | `authored_by_ref` | `text` | | **Migration `0063`, renamed by `0066`**: the identifier of the thing that produced a non-`user` document. `NULL` for everything a person uploaded. `text`, not `uuid` — every kind of reference is carried from somewhere else, never generated here. It was called `authored_by_run_id` and documented as "the backend async job id of the run", which was true while `deep_research` was the only producer and false for the two diagram producers, whose reference is the chat answer the drawing came from plus a hash of its source. Read it WITH `authored_by_ref_kind`. |
 | `authored_by_ref_kind` | `text` | | **Migration `0066`**: what kind of identifier `authored_by_ref` holds — `agent_run` (a backend async job id in the `aiq_api` job store) or `answer_artifact` (one artifact inside one chat answer). `NULL` for everything a person uploaded. Derived from `authored_by_producer` by the one filing path (`GENERATED_DOCUMENT_PRODUCER_REF_KINDS`), never chosen at a call site, so a producer and the kind of identity it files under cannot disagree. No CHECK on the value, so a further kind is a TypeScript change — the `authored_by`/`scope` arrangement. It is ALSO the WorkOS audit target type on `document.generated`, so a kind added to `AUTHORED_REF_KINDS` owes an entry in `lib/audit/schemas.mjs` — without it WorkOS rejects the event, and because that emit throws, the rejection unfiles the document rather than losing a log line. Backfilled from the producer by `0066`, which refuses to run rather than guess a kind for a producer it does not know. |
-| `filename` | `text` | NOT NULL | Original filename — the document's IDENTITY, not its label. It addresses the SeaweedFS object and, as `(collection_name, filename)`, every chunk the retrieval index holds for the document, so it is written at upload and never updated. |
+| `filename` | `text` | NOT NULL | Original filename — the document's IDENTITY, not its label. It addresses the SeaweedFS object and, as `(collection_name, filename)`, every chunk the retrieval index holds for the document, so it is written at upload and never updated. A document Piloti wrote whose versions may be **published** carries the namespace `piloti/<document id>/<name>` from creation (ADR-0054, `lib/documents/agent-namespace.ts`), so a model-chosen title cannot collide with a person's upload; the OBJECT key is built from the bare name and stays flat, and the ingest dispatch states this column as `file_name` rather than letting the backend derive it from the key. |
 | `display_name` | `text` | | **Migration `0048`**: what a reader sees, once somebody has renamed the document. `NULL` = never renamed → show `filename`, which is what every earlier row means (no backfill). Resolve the pair with `documentDisplayName` (`lib/documents/display-name`) rather than reading the column directly. Written by `PATCH /api/documents/{id}`, which also mirrors the value onto the backend metadata store's `display_title` so citation chips follow the rename without a re-ingestion. Renaming `filename` instead would orphan the document's chunks — the migration spells out why. |
 | `storage_key` | `text` | NOT NULL | Object storage key |
 | `storage_bucket` | `text` | | **ADR-0043** (migration `0033`): the S3 bucket holding this document's bytes. `NULL` means the deployment's shared bucket (`SEAWEED_BUCKET`), which is what every row written before per-organization buckets existed means — and the meaning is fixed, so no backfill is needed or wanted. Recorded rather than derived from `organization_id`: deriving it would make `SEAWEED_PER_ORG_BUCKETS` a cutover, where flipping it makes every earlier object unreachable. `resolveDocumentBucket` in `lib/storage/bucket` is the one place that turns it back into a name. |
@@ -220,12 +254,273 @@ export const documents = pgTable('documents', {
 
 - `uniq_documents_authored_ref_producer_per_project` — **UNIQUE**, on (`organization_id`, `project_id`, `authored_by_ref`, `authored_by_producer`), **PARTIAL** (`WHERE authored_by <> 'user'`) — one machine-authored document per reference per producer. Its columns are exactly the WHERE clause of `findDocumentAuthoredByRef`: an index narrower than that probe rejects rows the probe would accept, a wider one admits the duplicates the probe was meant to prevent, so the two are changed together or not at all. Introduced without the producer as `uniq_documents_authored_run_per_project` (migration `0064`, one document per RUN) and widened by migration `0065`, because a run can owe more than one file — a diagram is a previewable SVG that carries its own source and an attachable PDF, and under the old key the second call answered "already filed". Restated under the renamed column by migration `0066` rather than renamed, so the live rule is readable in one file instead of split between a `CREATE` in `0065` and an `ALTER … RENAME` in `0066`. `authored_by_ref_kind` is deliberately NOT in the key: it is a function of `authored_by_producer`, which is already in it. Partial on `<> 'user'` because the CHECK below deliberately lets a HUMAN row carry a reference too, and two colleagues saving one run's artefact into one project must not collide. A NULL producer is not covered (NULL never equals NULL), which `documents_authorship_requires_provenance` makes unreachable for these rows.
 
-All three partial indexes live **only in the migration** — drizzle's index builder cannot express a `WHERE` clause — with a NOTE beside the relevant column in `schema/documents.ts`. `documents.spec.ts` pins each one to its migration so a regeneration cannot quietly drop it.
+- `uniq_documents_live_name_per_collection` — **UNIQUE**, on (`organization_id`, `collection_name`, `filename`), **PARTIAL** (`WHERE authored_by = 'user' OR filename LIKE 'piloti/%'`) — one live document per filename per collection over every row that can own chunks, because the ingest pipeline replaces passages by filename and a second row under one name is a ghost (migration `0074`, widened by `0083`). The predicate is two disjoint arms: `authored_by = 'user'` is 0074's rule, and `filename LIKE 'piloti/%'` covers the namespace an agent-authored document is filed under once a version of it may be published and therefore indexed (ADR-0054). They cannot meet — no browser produces a filename containing a slash, so no upload can reach the second arm — and a machine-authored row OUTSIDE the namespace is in neither: it carries a model-chosen name, owns no chunks, and must coexist with a person's file of the same name. Its columns and its FIRST arm are the WHERE clause of `findLiveDocumentByFilename`, the probe that makes a re-upload replace instead of insert; the index closes the concurrent-first-upload race the probe cannot. The second arm has no probe and needs none — the document id inside the namespace is unique by construction, and the filing path's idempotency is `uniq_documents_authored_ref_producer_per_project` one level up — so it is the database refusing to hold a collision the application has no way to create. Created with `AND deleted_at IS NULL` and restated without it by migration `0077`, which dropped `documents.deleted_at`: the column was added by `0009` for a soft delete that documents never got (every document delete is a hard DELETE), so the clause was inert, and a predicate over a column nothing writes hides rows the day something does. `projects` and `conversations` keep their `deleted_at`.
+
+The three `authored_by` partial indexes above live **only in the migration** — drizzle's index builder cannot express a `WHERE` clause — with a NOTE beside the relevant column in `schema/documents.ts`; the filename one is declared in the schema as well. `documents.spec.ts` pins each one to its migration so a regeneration cannot quietly drop it.
 
 **Constraints:**
 - `documents_folder_requires_project` — a document with a folder has a project, which is what makes the composite folder FK check anything under MATCH SIMPLE (migration `0030`)
 - `documents_session_requires_conversation` — the scope partition: a `session` row has a conversation, nothing else does, and a `session` row has no project (migration `0049`)
 - `documents_authorship_requires_provenance` — `authored_by = 'user' OR (authored_by_producer IS NOT NULL AND authored_by_ref IS NOT NULL AND authored_by_ref_kind IS NOT NULL)`. A document no person wrote can always say what wrote it, which one, and what kind of identifier that is; one that cannot is an audit trail in appearance only. The third conjunct is migration `0066`'s: the first two were satisfiable by a row whose reference nobody could resolve, because the column's name asserted a job id over a value that was not one. Written against `<> 'user'` rather than against `agent` so a member added to `DOCUMENT_AUTHORS` arrives already constrained instead of arriving as a hole nothing notices (migration `0063`). One-directional: a `user` row carrying all three is legal.
+
+- `documents_lifecycle_known` — `lifecycle IN ('active', 'archived')` (migration `0082`). A CHECK where `scope` and `status` deliberately have none, because this column gates a LISTING: a third value nothing knows how to render would silently hide documents, and that looks like data loss to the person whose file vanished.
+
+**Version pointer (migration `0082`, ADR-0054):** `published_version_id` names the `document_versions` row whose bytes the storage columns above mirror, through a composite foreign key on `(published_version_id, id)` → `document_versions (id, document_id)` — so a document can only ever point at a version OF ITSELF. `ON DELETE SET NULL`: discarding a version must not take the item with it. The constraint lives only in the migration, because declaring it in drizzle would make `documents.ts` and `document-versions.ts` import each other.
+
+---
+
+## document_versions (migration 0082, ADR-0054)
+
+One row per set of bytes a document has ever had, plus the one fact the item
+could not carry: **whether anybody has asserted the content**.
+
+It is not an agent-only structure. Re-uploading a file under a name a collection
+already holds has replaced the document in place since migration `0074` — the
+same id, so citations, chat subjects and folder placements survive — and then
+threw the previous bytes away. That was versioning without the history. Now:
+
+| Who | What happens |
+|---|---|
+| a person uploads a file | version 1, `published`, born approved (`approved_by = published_by = created_by`) — the person who uploaded it IS the assertion, and no review round is invented |
+| a person re-uploads the same name | version N+1, `published`; version N becomes `superseded` and **keeps its object**, under the `v<n>/` storage prefix it was written to |
+| Piloti files a document | version 1, `draft`, which walks `draft → in_review → approved → published` and can be sent back with `changes_requested` or `rejected` |
+
+`documents.published_version_id` points at the live version and the item's
+`storage_key` / `storage_bucket` / `file_size` / `content_type` / `content_hash`
+mirror it, which is what makes every existing reader — preview, download,
+thumbnail, ingest, the quota ledger — work unchanged.
+
+**Columns:** `id`, `organization_id`, `document_id` + `project_id` (composite FK
+to `documents (id, project_id)`, the `documents_folder_id_project_id_fkey`
+shape; `project_id` is NULL for the Archiv and session shelves, where MATCH
+SIMPLE skips the check), `version_number`, `state`, `storage_key`,
+`storage_bucket`, `content_type`, `file_size`, `content_hash`,
+`submitted_by`/`_at`, `reviewed_by`/`_at`, `approved_by`/`_at`,
+`published_by`/`_at`, `review_comment`, `created_by`,
+`origin_conversation_id` (migration `0084`), `submitted_by_actor` (migration
+`0085`), `created_at`, `updated_at`.
+
+**Constraints — the ratchet, not decoration:**
+
+- `document_versions_state_known` — `draft | in_review | changes_requested | approved | published | superseded | rejected`, generated from `DOCUMENT_VERSION_STATES` so the tuple and the CHECK cannot drift.
+- `document_versions_review_complete` — `(reviewed_by IS NULL) = (reviewed_at IS NULL)`. Copied from `tasks_review_complete` (migration `0075`): a decision is by somebody, at some time, or it is not a decision.
+- `document_versions_published_is_approved` — `state <> 'published' OR (approved_by IS NOT NULL AND approved_at IS NOT NULL)`. **The publish door.** Only a published version is ever dispatched to the retrieval index, so this makes "indexed ⟹ approved by a person" a row invariant rather than a predicate in a fail-open retrieval path.
+- `document_versions_refusal_has_comment` — `state NOT IN ('changes_requested', 'rejected') OR review_comment IS NOT NULL`. A refusal with nothing in it is a decision the next attempt cannot act on.
+- `document_versions_submitted_by_actor_known` — `human | agent` (migration `0085`).
+
+**Indexes:** `idx_document_versions_document (document_id, version_number)`,
+`idx_document_versions_organization_id`, and two PARTIAL unique indexes that
+live only in the migration (with `COMMENT ON INDEX`, because the next person to
+meet one meets it as a constraint violation in a log line):
+`uniq_document_versions_open_per_document` — at most one `draft`/`in_review`/
+`changes_requested` version per document, so two chat turns cannot fork one file
+into two live drafts — and `uniq_document_versions_published_per_document`.
+
+The second one is why publishing is ONE transaction: "two published versions of
+one document" is unrepresentable, so the previous version must already have been
+superseded at the instant the new one becomes published, and a supersede that
+then lost the compare-and-swap race would leave the document with no published
+version at all.
+
+There are two such transactions, and the second one was missing at first.
+`promoteVersionToPublished` moves an EXISTING version to `published`. A version
+that is BORN published — every human upload — cannot use it: the row has to be
+INSERTED as `published`, and the index is a plain partial unique index, checked
+per statement rather than deferred, so that insert is refused while the previous
+version is still published. The insert therefore lives inside the same
+transaction as the supersede (`insertPublishedVersion`), supersede first. Before
+that, **every re-upload of a document failed** on the constraint.
+
+**Bytes:** a superseded version keeps its object. They are purged when the
+document is deleted — `deleteDocument`, `deleteArchivDocument` and
+`deleteSessionDocument` each walk every version — and not when one is replaced.
+The consequence is stated rather than hidden: superseded versions stay charged
+against the organization's storage quota, because they exist. A per-organization
+retention policy is a later row on a later table.
+
+**And the ledger says so.** That sentence was a claim the code did not honour
+for a while: usage summed `documents.file_size` alone, which is the LIVE bytes,
+so every superseded version and every written-to draft was invisible to the
+quota it was supposed to be charged against. `lib/storage/repository.ts` now adds
+`versionOverheadBytes` — every `document_versions` row whose `storage_key` is not
+its item's `storage_key` — to `sumStorageBytes`, to the per-scope breakdown, and
+to both admitting transactions, so the ceiling and the number a reader is shown
+measure the same thing. The predicate compares KEYS rather than ids on purpose:
+a draft forked from the published version deliberately shares that version's
+object until its content is replaced, and two rows over one object are one
+charge.
+
+**Whose hand submitted (migration `0085`):** `submitted_by_actor` (`human` |
+`agent`, default `human`) is written from `TransitionInput.actingHuman` at the
+submit transition. `submitted_by` stays whose AUTHORITY the submission carried —
+permissions, the audit actor and the inbox all read it. The distinction has one
+reader: the not-the-submitter guard on `approve`. „Der Einreichende darf nicht
+freigeben" is about a person asserting their own work, and a report Piloti filed
+in the commissioning human's session is not their own work — reading
+`submitted_by` alone refused the one person who had asked for the report the
+right to release it.
+
+**Where a version came from (migration `0084`):** `origin_conversation_id` is
+the chat conversation a version was filed from, written at the internal filing
+route out of the VERIFIED request-context envelope and never off a request body
+(ADR-0054 §4), so it is a fact this tier asserted. NULL for a human upload, a
+scheduled deep-research report, and every version forked from the Files pane.
+`text` with no foreign key, as `job_runs.conversation_id` is: the honest
+constraint would be the composite `(conversation_id, organization_id)`, which is
+worth its cost on a row that decides access and not on one that decides prose.
+
+It is PROVENANCE, never authorization — nothing reads it to decide who may act —
+and it decides exactly two things, both of them what happens after a reviewer
+presses „Änderungen anfordern":
+
+- with an origin, the next turn of THAT conversation is told, verbatim, as a
+  `REVIEW_DECISIONS v1` block on the memory channel
+  (`lib/documents/review-decisions.ts`);
+- without one, there is nobody typing, so the lifecycle's `openRevisionTask`
+  effect opens a `revision` task instead (ADR-0051).
+
+`idx_document_versions_origin_conversation (origin_conversation_id, reviewed_at DESC)`
+is partial on `origin_conversation_id IS NOT NULL` and lives only in the
+migration, like the two unique indexes above.
+
+**RLS:** tenant table, secured the way `tasks` is, widened by a NULL arm for the
+two shelves with no project. Listed in `rls-coverage.spec.ts`
+`BOUNDARY_MIGRATIONS`. Migration `0084` adds a column and does NOT move the
+boundary, so it is deliberately not in that list.
+
+---
+
+## tasks (migration 0075, ADR-0051) — LEGACY since 0086
+
+**Superseded by `task_definitions` + `task_runs` (migration 0086, next section).
+Kept in this document while migration 0087 has not yet dropped the table; the
+0086 backfill reads every row described here.**
+
+The durable unit of delegated work: one row per attempt, with the requester
+pinned, the plan frozen, and review as an axis of its own.
+
+**Columns:** `id`, `organization_id`, `project_id`, `kind`, `title`, `plan`
+(jsonb), `requester_user_id` + `requester_email`, `status`, `error`,
+`budget_usd`, `deadline_at`, `job_id` + `job_run_id` + `backend_job_id`,
+`conversation_id`, `filed_document_id` + `filing_status` + `filing_detail`,
+`review` + `review_reason` + `reviewed_by` + `reviewed_at`, `created_at`,
+`started_at`, `finished_at`, `updated_at`.
+
+**`kind` has no CHECK, deliberately** (see migration `0075`'s own header), which
+is why the vocabulary lives in one place — `TASK_KINDS` in
+`lib/db/schema/tasks.ts` — rather than in a column and a tuple that can disagree.
+It holds six members: `deep-research` and `chat` are `jobs.output` and describe
+how a JOB delivers its result; `compliance_check`, `einreichcheck`, `document`
+and `revision` are what a person DELEGATES (`DELEGATABLE_TASK_KINDS`, derived as
+the complement rather than listed again). `status`, `review` and `filing_status`
+DO carry CHECKs naming their members.
+
+**`plan` is the frozen statement of what was asked:** `prompt` (as submitted,
+skill body included), `skill` (the snapshot, `{}` for a plain prompt),
+`dataSources`, and — for a delegated task — `goal`, the requester's own sentence,
+plus `subject` for a `revision`: the `{documentId, versionId, comment}` a
+reviewer sent back. On the plan rather than in three columns, because it is part
+of what was asked and it exists for exactly one kind.
+
+**A delegated task has no `job_runs` row.** `job_runs.schedule_id` is NOT NULL
+and its RLS predicate requires the row to name a `jobs` row (migration `0043`),
+so giving every „@Piloti prüf das" a hidden job row would have put a
+scheduled-job entry in the project's Aufträge list for a sentence somebody typed
+once. The task row IS the record: `uniq_tasks_backend_job_id` is what the
+worker's outcome callback looks it up by, and
+`POST /api/internal/jobs/[jobId]/outcome` tries the run first and falls back to
+the task.
+
+**RLS:** the organization AND the project's organization, so a row cannot be
+planted under another tenant's project. Listed in `rls-coverage.spec.ts`
+`BOUNDARY_MIGRATIONS`.
+
+---
+
+## task_definitions / task_runs (migration 0086, ADR-0051)
+
+The collapsed model: the trigger is a property of the WORK, not a different kind
+of work. `task_definitions` holds the standing intent (what was asked, by whom,
+and what makes it run); `task_runs` holds one attempt — including the attempts
+that never reached the agent. A chat handover is a definition with a degenerate
+trigger (`once`, no due date), which is what lets chat say „jeden Montag".
+
+- `task_definitions`: `id`, `organization_id`, `project_id`, `kind`, `title`,
+  `plan` (jsonb: prompt, pinned skill snapshot, data sources, the requester's
+  goal/subject), `requester_user_id` + `requester_email`, `trigger`
+  (`manual | once | schedule`), `enabled`, `schedule_cron` +
+  `schedule_timezone`, `next_run_at` — *when the due scan should next look at
+  this row*, which is the cron's next occurrence on a `schedule`, the `due_at`
+  on a pending `once`, and NULL on a `manual` one, on anything paused, and on a
+  one-shot that has already fired (0090) — `due_at` (live only on `once`),
+  `budget_usd`, `last_run_at`, `created_at`, `updated_at`.
+- `task_runs`: `id`, `organization_id`, `project_id`, `definition_id`
+  (nullable, `ON DELETE SET NULL` via the composite FK below — history outlives
+  the arrangement), the frozen `kind` /
+  `title` / `plan` / `requester_*`, `trigger` (`manual | schedule | delegated`)
+  + `triggered_by`, `status` (`queued | running | succeeded | failed |
+  interrupted | skipped | error` — the merge of the worker lifecycle with the
+  submission's), `error`, `skill_snapshot`, `backend_job_id` (the one id the
+  worker holds), `conversation_id` — *the thread the work was commissioned in:
+  the conversation a person was typing in, or the standing definition's own
+  thread; no longer a conversation minted per fire* — `run_message_id`
+  (migration `0091`, ADR-0062: the ONE assistant message this run writes its
+  ledger and its report into, in that thread; `uuid`, nullable, no foreign key,
+  minted deterministically from the run id so a retried submit is a no-op, and
+  NULL for every run that predates the migration and for one whose message could
+  not be created — a run without one still runs, and its report is written as a
+  question-and-answer pair the old way), filing (`filed_document_id`, `filing_status`,
+  `filing_detail`) and review (`review`, `review_reason`, `reviewed_by`,
+  `reviewed_at`) columns, `created_at`, `started_at`, `finished_at`,
+  `updated_at`.
+- **CHECKs** keep the two trigger axes from disagreeing
+  (`task_definitions_cron_only_when_scheduled`, `task_definitions_due_only_when_once`,
+  `task_definitions_trigger_known`) and the run lifecycle honest
+  (`task_runs_status_known`, `task_runs_trigger_known`, plus the review/filing
+  constraints copied from 0075). `kind` has NO check, deliberately, as in 0075.
+- **Indexes:** `idx_task_definitions_project_created`,
+  `idx_task_definitions_organization_id`, and the PARTIAL `idx_task_definitions_due`
+  on `(next_run_at) WHERE enabled AND next_run_at IS NOT NULL` — the scheduler's
+  due-scan, the successor of `idx_jobs_due`. 0090 moved that predicate off the
+  trigger and onto `next_run_at` so ONE index and ONE claim query serve both a
+  recurring task and a one-shot; the claim's WHERE clause must keep matching it
+  or the scan degrades to a sequential one over every definition. A claimed
+  one-shot has its `next_run_at` NULLED rather than advanced, which is what
+  makes it at-most-once — and `enabled` is deliberately left alone, because it
+  is the person's pause switch and a finished task is not a paused one. On runs:
+  `idx_task_runs_definition_created`, `idx_task_runs_project_created`,
+  `idx_task_runs_organization_id`, and the partial unique
+  `uniq_task_runs_backend_job_id`.
+- **Two composite FKs** follow the 0032 pattern:
+  `task_runs_conversation_id_organization_id_fkey` keeps a run from naming
+  another tenant's thread, and
+  `task_runs_definition_id_organization_id_project_id_fkey`
+  (`(definition_id, organization_id, project_id)` ->
+  `task_definitions (id, organization_id, project_id)`, `ON DELETE SET NULL
+  ("definition_id")`) additionally keeps it from naming another project's or
+  tenant's definition. The latter references
+  `task_definitions_id_organization_id_project_id_key` — a UNIQUE on that column
+  set, redundant with the primary key and required by the FK, the
+  `conversations_id_organization_id_key` arrangement.
+- **RLS:** both secured like `jobs`/`tasks`: the organization AND the project's
+  organization.
+- **Ids are reused by the backfill:** a job's definition id is the job's id, and
+  a job-spawned run keeps the `job_runs` id, so conversations, filed documents
+  and inbox anchors keep their uuids. `conversations.job_id` was repointed to
+  `task_definitions` in the same migration.
+- **0087 (held):** migration `0087` drops `jobs`, `job_runs` and `tasks` in a
+  separate release, after several real scheduled fires have run on the new model.
+- **`run_message_id` (uuid, nullable, migration `0091`, ADR-0062):** the ONE
+  assistant message this run writes into, in the conversation the work was
+  commissioned in — its ledger lives in that message's
+  `metadata.run_ledger` and its report in its content. Minted deterministically
+  from the run id (uuid5 over `NAMESPACE_URL`, `lib/runs/service.ts`
+  `runMessageId`), so a retried submit lands on the same row instead of leaving
+  two half-written runs in a thread. NULL for every run created before 0091 and
+  for a run whose message could not be created; a run without one still runs and
+  still files. No foreign key, deliberately: a deleted conversation must not
+  cascade away a run's own history, and a dangling id reads as „keine
+  Nachricht".
 
 ---
 
@@ -343,7 +638,7 @@ This PostgreSQL entrypoint script runs on first container startup and creates tw
 | `job_info` | NAT JobStore metadata | `job_id` (PK), `status`, `config_file`, `error`, `output_path`, `created_at`, `updated_at`, `expiry_seconds`, `is_expired` |
 | `job_access` | Job ownership/access control | `job_id` (PK), `owner_auth_type`, `owner_subject`, `owner_email` |
 | `job_events` | SSE streaming event persistence | `id` (serial PK), `job_id`, `event_type`, `event_data`, `created_at` |
-| `document_metadata` | Per-document metadata (was `summaries`) | `collection` + `filename` (composite PK), `summary`, `tags` (`TEXT`, JSON list; nullable), `doc_class` (`TEXT`; nullable), `display_title` (`TEXT`; nullable), `folder_path` (`TEXT`; nullable — the BFF's materialised `project_folders.path`, ADR-0049) |
+| `document_metadata` | Per-document metadata (was `summaries`) | `collection` + `filename` (composite PK), `summary`, `tags` (`TEXT`, JSON list; nullable), `doc_class` (`TEXT`; nullable), `display_title` (`TEXT`; nullable), `folder_path` (`TEXT`; nullable — the BFF's materialised `project_folders.path`, ADR-0049), `provenance` (`TEXT`, JSON object; nullable — who wrote a published Piloti document and who released it, ADR-0054; deleted with the chunks by `unregister_summary`) |
 
 Indexes: `job_info(status)`, `job_info(created_at)`, `job_access(owner_auth_type, owner_subject)`, `job_events(job_id)`, `job_events(job_id, id)`, `document_metadata(collection)`.
 
@@ -461,7 +756,12 @@ LLM budgets and the usage ledger (ADR-0015).
   insert; budget enforcement reads these rows instead of aggregating the
   ledger per WebSocket upgrade. Backfilled from the ledger by the migration.
 
-## skills / jobs / job_runs (migrations 0041, 0043, 0044)
+## skills / jobs / job_runs (migrations 0041, 0043, 0044) — jobs and job_runs LEGACY since 0086
+
+**`jobs` and `job_runs` are superseded by `task_definitions` + `task_runs`
+(migration 0086, next section); `skills` is unchanged.** Kept in this document
+while migration 0087 has not yet dropped them; the 0086 backfill reads every row
+described here.
 
 Jobs and Agent Skills (ADR-0046, `docs/architecture/agent-skills.md`) — the
 successor to the removed Workflows tables. Schema:
@@ -553,22 +853,22 @@ and what each organization decided about it. Schema:
     at all. A draft is invisible fleet-wide, which is what makes the dashboard a
     writing surface rather than a publish-on-save wire.
   - `delivery` text NOT NULL default **`'offer'`** (0050), constrained by
-    `platform_skills_delivery_check` to `offer | standard` — whether
-    organizations CHOOSE the skill or simply run it. `offer` puts it on every
-    org's Skills tab behind a switch; `standard` is fleet standard equipment:
-    resolved for every organization with no activation row, never listed, not
-    switchable, and not shadowable by an org row of the same name. A published
-    `standard` row is the only combination that imposes anything on a tenant.
+    `platform_skills_delivery_check` to the single value `offer` since 0088.
+    A published skill goes on every org's Skills tab behind a switch, and the
+    model chooses it from there. The second value, `standard`, was fleet
+    standard equipment: resolved for every organization with no activation
+    row, never listed, not switchable. It was retired by 0088 because forcing
+    a skill is a system-prompt edit in disguise (ADR-0060); what the platform
+    wants in every turn is the platform prompt, and what an office wants in
+    every turn is its `organization_instructions` row. 0088 rewrote the
+    surviving `standard` rows to `offer` and dropped the partial index
+    `idx_platform_skills_standard` that served the resolver's
+    `delivery = 'standard'` lookup.
 
-  The CHECK lives in the database and not only in the BFF's zod schema because
-  the resolver asks `delivery = 'standard'`: an unrecognised value would fail
-  toward "offer" and silently demote a fleet instruction rather than erroring.
-  That a tenant cannot WRITE this column is what makes `standard` an enforced
-  boundary rather than a convention — the RLS grant is SELECT and nothing else.
-  Partial index `idx_platform_skills_standard` on `(name)` WHERE
-  `delivery = 'standard' AND published` serves the point lookup the org write
-  boundary and the job-snapshot path make; drafts and offers are the bulk of a
-  mature catalogue and none can satisfy the predicate.
+  The CHECK stays in the database and not only in the BFF's zod schema so
+  that the retired value cannot come back through a tenant-side write: the
+  RLS grant is SELECT and nothing else, and an unrecognised value errors
+  rather than being read as an offer.
 
 - `curated_skill_activations` (0046): one organization's decision about one
   OFFER — PK `(organization_id, skill_name)`, `enabled` boolean NOT NULL default
@@ -588,6 +888,24 @@ one in or out of the boundary. Its `.down.sql` is safe but LOSSY in a way worth
 reading before a rollback — published standard rows become ordinary offers, which
 means they run for nobody until each organization switches them on, and nothing
 records which rows were standard.
+
+## skill_categories (migration 0089)
+
+The skill categories — one table for both curators. `organization_id`
+NULL is a platform skill category (read by every tenant, written through
+**Platform → Skills**); set, it is that org's own category for the skills it
+authors. `skills.category_id` and `platform_skills.category_id` reference it
+`ON DELETE SET NULL`: removing a category never removes the skills on it, they
+fall back to unsorted. Names are unique per owner (two partial unique indexes,
+because Postgres treats NULLs as distinct); the `slug` marks the five seeded
+platform categories (`oib`, `research`, `presentation`, `bim`, `synthesis`)
+that builtin file offers resolve to at read time, so renaming a display name
+never detaches them. Tenant predicate with a NULL arm —
+`organization_id IS NULL OR organization_id = grid_current_org()` — in
+`rls-coverage.spec.ts`'s `BOUNDARY_MIGRATIONS`, plus three RESTRICTIVE
+write-guard policies: the tenant role reads platform rows but writes only its
+own org's (the helper installs one policy per table for every command, so the
+split is stated explicitly).
 
 ---
 
@@ -739,7 +1057,7 @@ omits it to collapse.
 | `id` | `uuid` | PK, `defaultRandom()` | |
 | `organization_id` | `text` | NOT NULL | A user in two orgs has two inboxes; counts never mix |
 | `recipient_user_id` | `text` | NOT NULL | WorkOS user this is FOR |
-| `type` | `text` | NOT NULL | `mention.requested` \| `mention.answered` \| `conversation.shared_with_you` \| `conversation.activity` |
+| `type` | `text` | NOT NULL | The item kind. **The list lives in `INBOX_ITEM_TYPES` (`frontends/ui/src/lib/db/schema/inbox.ts`) and is exhaustive over two registries by construction**, so it is not restated here — this row said four types long after there were eight. Today: the four collaboration ones, `storage.quota_warning`, `document.assigned_to_you`, `job.completed` / `job.failed`, and `document.review_requested` (ADR-0054, actionable). |
 | `resource_type` / `resource_id` | `text` | NOT NULL | What it points AT — resolved through the sharing registry |
 | `anchor_id` | `text` | | Exact spot inside the resource (a message id), for a deep link |
 | `actor_user_id` | `text` | | Who caused it; NULL for system items |

@@ -8,10 +8,11 @@ import {
   KNOWLEDGE_SOURCE_ID,
   MAX_JOB_PROMPT_LENGTH,
   patchJobSchema,
-  withAlwaysOnKnowledge,
+  withAlwaysOnSources,
+  RIS_SOURCE_ID,
 } from './types'
 
-const base = { name: 'Weekly run', prompt: 'Fasse die Woche zusammen.', output: 'chat' as const }
+const base = { name: 'Weekly run', prompt: 'Fasse die Woche zusammen.' as const }
 
 describe('createJobSchema', () => {
   it('accepts a plain prompt with no skill — a job need not have one', () => {
@@ -30,10 +31,13 @@ describe('createJobSchema', () => {
     ).toThrow()
   })
 
-  it('requires a valid output kind and rejects anything else', () => {
-    expect(createJobSchema.parse({ ...base, output: 'deep-research' }).output).toBe('deep-research')
-    expect(() => createJobSchema.parse({ ...base, output: 'deep_research' })).toThrow()
-    expect(() => createJobSchema.parse({ ...base, output: undefined })).toThrow()
+  // A standing task is always a research run that files a report, so there is
+  // no output to state. „Chat" meant „leaves no deliverable", which is the one
+  // thing a standing task is for; an older `chat` definition keeps its kind and
+  // keeps firing as one, but nothing new is created that way.
+  it('takes no output kind — the wire no longer carries one', () => {
+    expect(createJobSchema.parse({ ...base })).not.toHaveProperty('output')
+    expect(createJobSchema.parse({ ...base, output: 'chat' })).not.toHaveProperty('output')
   })
 
   it('accepts an attached skill name, or an explicit null for none', () => {
@@ -81,26 +85,71 @@ describe('AGENT_FOR_OUTPUT', () => {
     // The mirror of `_OUTPUT_AGENT_TYPES` in routes/skills.py, and what the
     // skill picker filters `grid-agents` by.
     expect(AGENT_FOR_OUTPUT).toEqual({
-      chat: 'shallow_researcher',
+      chat: 'researcher',
       'deep-research': 'deep_researcher',
     })
   })
 })
 
-describe('withAlwaysOnKnowledge', () => {
+describe('withAlwaysOnSources', () => {
   it('keeps null (all sources) as null', () => {
-    expect(withAlwaysOnKnowledge(null)).toBeNull()
+    expect(withAlwaysOnSources(null)).toBeNull()
   })
 
-  it('prepends the knowledge source when absent, including for an empty list', () => {
-    expect(withAlwaysOnKnowledge([])).toEqual([KNOWLEDGE_SOURCE_ID])
-    expect(withAlwaysOnKnowledge(['other'])).toEqual([KNOWLEDGE_SOURCE_ID, 'other'])
+  // The project's own documents, and the law they are judged against. A
+  // Normprüfung with RIS switched off does not answer the question faster — it
+  // answers a different question in the same words.
+  it('prepends every always-on source when absent, including for an empty list', () => {
+    expect(withAlwaysOnSources([])).toEqual([KNOWLEDGE_SOURCE_ID, RIS_SOURCE_ID])
+    expect(withAlwaysOnSources(['web_search'])).toEqual([
+      KNOWLEDGE_SOURCE_ID,
+      RIS_SOURCE_ID,
+      'web_search',
+    ])
   })
 
-  it('returns a COPY when the source is already present, never the caller’s array', () => {
-    const input = [KNOWLEDGE_SOURCE_ID, 'other']
-    const result = withAlwaysOnKnowledge(input)
+  // A job stored before RIS became always-on must start including it, rather
+  // than keeping a narrower world nobody can see or fix from the wizard.
+  it('adds only what is missing, and keeps what the caller already had', () => {
+    expect(withAlwaysOnSources([KNOWLEDGE_SOURCE_ID, 'web_search'])).toEqual([
+      RIS_SOURCE_ID,
+      KNOWLEDGE_SOURCE_ID,
+      'web_search',
+    ])
+  })
+
+  it('returns a COPY when nothing is missing, never the caller’s array', () => {
+    const input = [KNOWLEDGE_SOURCE_ID, RIS_SOURCE_ID, 'web_search']
+    const result = withAlwaysOnSources(input)
     expect(result).toEqual(input)
     expect(result).not.toBe(input)
+  })
+})
+
+describe('when a job runs', () => {
+  it('accepts a due date and hands the service a Date, not a string', () => {
+    const parsed = createJobSchema.parse({ ...base, dueAt: '2026-10-02T07:00:00.000Z' })
+    expect(parsed.dueAt).toBeInstanceOf(Date)
+    expect(parsed.dueAt?.toISOString()).toBe('2026-10-02T07:00:00.000Z')
+  })
+
+  it('treats an absent due date and an explicit null differently on a patch', () => {
+    // Absent keeps what the row has; null clears it. The same contract
+    // `skillName` and `scheduleCron` follow, and what stops an unrelated edit
+    // from silently demoting a one-shot to a manual task.
+    expect('dueAt' in patchJobSchema.parse({ prompt: 'x' })).toBe(false)
+    expect(patchJobSchema.parse({ prompt: 'x', dueAt: null }).dueAt).toBeNull()
+  })
+
+  it('refuses a cron and a due date together, naming the field', () => {
+    // Otherwise `task_definitions_due_only_when_once` rejects it in the
+    // database and the reader gets a 500 with nothing to act on.
+    const result = createJobSchema.safeParse({
+      ...base,
+      scheduleCron: '0 8 * * 1',
+      dueAt: '2026-10-02T07:00:00.000Z',
+    })
+    expect(result.success).toBe(false)
+    expect(result.error?.issues[0].path).toEqual(['dueAt'])
   })
 })

@@ -1,0 +1,9 @@
+---
+improvements:
+  - >
+    Das Eingabefeld im Chat ist wieder ruhig: Der grüne Rahmen beim Tippen und
+    der grüne Senden-Button sind zurück in Grau und Schwarz. Grün steht in
+    Piloti sonst für die Herkunft einer Quelle, und zwei Grüntöne direkt
+    übereinander waren nicht auseinanderzuhalten. Dass eine Nachricht abgeschickt
+    werden kann, zeigt der Button weiterhin — durch den Kontrast, nicht durch
+    Farbe.

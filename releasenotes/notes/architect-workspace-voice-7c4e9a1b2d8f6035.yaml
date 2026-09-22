@@ -1,0 +1,8 @@
+---
+improvements:
+  - >
+    Piloti in chat now answers as a colleague in the planning office, not as a
+    compliance checker. A ruling appears only when there is a copyable legal
+    value, so summarising a plan or organising drawings no longer produces a
+    verdict. Helping apply a rule is allowed. Piloti does not replace the
+    Entwurfsverfasser or the Behoerde.

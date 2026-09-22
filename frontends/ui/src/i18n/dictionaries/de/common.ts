@@ -3,7 +3,7 @@ import type { en } from '../en'
 /** Shared strings used across many surfaces. */
 export const common: typeof en.common = {
   appName: 'Piloti',
-  tagline: 'KI-gestützter Recherche-Assistent',
+  tagline: 'Arbeitsbereich für Planungsbüros',
   actions: {
     save: 'Speichern',
     cancel: 'Abbrechen',

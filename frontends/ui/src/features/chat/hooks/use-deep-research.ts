@@ -155,7 +155,14 @@ export const useDeepResearch = (): UseDeepResearchReturn => {
 
   /**
    * Ask the report route for this run's report once it has succeeded, so the
-   * BFF files it into the project.
+   * BFF files it into the project and the Report tab learns the `[N]` of every
+   * source.
+   *
+   * The second reason is why the request goes out even without a project. The
+   * live stream announces a source when a tool finds it, before verification
+   * has numbered anything, so a report watched to completion cited `[3]` above
+   * a source list in which no row was 3. The persisted output is the only
+   * place the binding exists, and this route is how it reaches the tab.
    *
    * Filing is observed on `GET .../report` and nowhere else — that route is
    * where a finished run stops being a chat message and becomes a `documents`
@@ -170,10 +177,10 @@ export const useDeepResearch = (): UseDeepResearchReturn => {
    * Deliberately best-effort, and quiet about everything except the one thing
    * the reader was promised:
    *
-   *  - no project, no filing, and therefore no request. The proxy resolves the
-   *    project from the query string and files nothing without one, so firing
-   *    it anyway would be a round trip that can only fail. It is also the case
-   *    in which no disclosure was ever shown, so there is nothing to correct.
+   *  - no project, no filing. The proxy resolves the project from the query
+   *    string and files nothing without one; the request still goes out for
+   *    the sources, but nothing about a file is recorded, because no
+   *    disclosure was ever shown and there is nothing to correct.
    *  - the REQUEST failing is swallowed. The user's answer already arrived, and
    *    a dead fetch tells us nothing about whether a document exists — the
    *    write may well have landed before the response was lost. Guessing out
@@ -192,10 +199,13 @@ export const useDeepResearch = (): UseDeepResearchReturn => {
   const fileCompletedReport = useCallback(
     async (jobId: string): Promise<void> => {
       const projectId = useChatStore.getState().projectId
-      if (!projectId) return
 
       try {
         const response = await getJobReport(jobId, idToken || undefined, { projectId })
+        // Merged, never replaced: the rows the stream discovered carry the
+        // richer payload, and `mergeCitation` lets the number ride in on top.
+        for (const wire of response.sources ?? []) addDeepResearchCitation(wire, true)
+        if (!projectId) return
         if (response.filed) {
           recordDeepResearchFiling(jobId, {
             documentId: response.filed.documentId,
@@ -208,7 +218,7 @@ export const useDeepResearch = (): UseDeepResearchReturn => {
         console.warn('[deep research] failed to file the report into the project:', error)
       }
     },
-    [idToken, recordDeepResearchFiling, recordDeepResearchFilingFailure]
+    [idToken, addDeepResearchCitation, recordDeepResearchFiling, recordDeepResearchFilingFailure]
   )
 
   // Layout store for opening research panel

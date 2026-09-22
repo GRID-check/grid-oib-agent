@@ -108,7 +108,7 @@ describe('ProjectMembersForm', () => {
     // access reference while the API refused its slug, so it could never be
     // picked here.
     expect(
-      within(listbox).getByText(/Can also ask the research agent in this project/i)
+      within(listbox).getByText(/Can also ask Piloti in this project/i)
     ).toBeDefined()
     await user.keyboard('{Escape}')
 

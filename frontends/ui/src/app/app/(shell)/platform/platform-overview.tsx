@@ -2,9 +2,14 @@
 
 /**
  * Platform owner's cross-organization overview (ADR-0016): headline stat tiles,
- * the 30-day spend trend, the organization directory with per-org spend from
- * the usage ledger, and the WorkOS Users Management widget scoped to the GRID
- * Platform organization.
+ * the 30-day cost trend, the price list (ADR-0053), the organization directory
+ * with per-org cost and revenue from the usage ledger, and the WorkOS Users
+ * Management widget scoped to the GRID Platform organization.
+ *
+ * Money here is USD as OpenRouter charges it — cost — and what the tenants are
+ * charged for it at the price list — revenue. No currency conversion anywhere:
+ * a hand-set rate is nobody's actual charge. The tenants themselves never see
+ * either figure; their surfaces are in credits.
  *
  * The directory is built on the shared admin primitives (SectionCard +
  * DataToolbar + Table + Pagination). It used to be a hand-rolled list of flex
@@ -25,8 +30,9 @@ import {
   ChevronUp,
   FolderKanban,
   Gauge,
-  ReceiptEuro,
+  Receipt,
   SearchX,
+  TrendingUp,
 } from 'lucide-react'
 import { toast } from 'sonner'
 
@@ -42,10 +48,25 @@ import { SectionCard } from '@/features/platform/components/section-card'
 import { makeWidgetTokenFetcher } from '@/lib/workos/widget-token'
 import { useResolvedAppearance, widgetTheme } from '@/lib/workos/use-widget-appearance'
 import { useLocale, useTranslations } from '@/i18n'
-import { formatEur as eur } from '@/lib/format'
+import { formatUsd as usd } from '@/lib/format'
 import { cn } from '@/lib/utils'
 import { AuditLogButton } from '@/components/audit/audit-log-button'
-import { SpendTrendChart, type SpendTrendPoint } from '@/components/charts/spend-trend-chart'
+import { SpendTrendChart } from '@/components/charts/spend-trend-chart'
+import { PlatformPricingCard } from './platform-pricing-card'
+
+interface SpendWindowDto {
+  /** USD as OpenRouter charged it, whoever's key it was. */
+  costUsd: number
+  /** The share billed to a tenant's own key — not the platform's cost. */
+  ownKeyCostUsd: number
+  priceUsd: number
+  credits: number
+  tokens: number
+  events: number
+}
+
+/** What OpenRouter charged the PLATFORM: everything that was not a tenant's own key. */
+const platformCost = (window: SpendWindowDto): number => window.costUsd - window.ownKeyCostUsd
 
 interface PlatformOrganizationDto {
   id: string
@@ -53,22 +74,21 @@ interface PlatformOrganizationDto {
   createdAt: string
   isPlatformOrg: boolean
   projectCount: number
-  dayUsd: number
-  monthUsd: number
-  monthEvents: number
+  day: SpendWindowDto
+  month: SpendWindowDto
 }
 
 interface OverviewDto {
   organizations: PlatformOrganizationDto[]
   organizationsCapped: boolean
-  dailyTrend: SpendTrendPoint[]
-  totals: { organizations: number; projects: number; dayUsd: number; monthUsd: number; monthEvents: number }
-  eurPerUsd: number
+  dailyTrend: Array<{ day: string } & SpendWindowDto>
+  totals: { organizations: number; projects: number; day: SpendWindowDto; month: SpendWindowDto }
+  pricing: { marginMultiplier: number; usdPerCredit: number; explicit: boolean }
 }
 
 const PAGE_SIZE = 10
 
-type SortKey = 'name' | 'projects' | 'day' | 'month' | 'created'
+type SortKey = 'name' | 'projects' | 'day' | 'month' | 'revenue' | 'created'
 type SortDirection = 'asc' | 'desc'
 
 /**
@@ -80,6 +100,7 @@ const INITIAL_DIRECTION: Record<SortKey, SortDirection> = {
   projects: 'desc',
   day: 'desc',
   month: 'desc',
+  revenue: 'desc',
   created: 'desc',
 }
 
@@ -95,9 +116,11 @@ const compareBy = (
     case 'projects':
       return a.projectCount - b.projectCount
     case 'day':
-      return a.dayUsd - b.dayUsd
+      return platformCost(a.day) - platformCost(b.day)
     case 'month':
-      return a.monthUsd - b.monthUsd
+      return platformCost(a.month) - platformCost(b.month)
+    case 'revenue':
+      return a.month.priceUsd - b.month.priceUsd
     case 'created':
       return Date.parse(a.createdAt) - Date.parse(b.createdAt)
   }
@@ -143,7 +166,7 @@ export const PlatformOverview: FC = () => {
   const [offset, setOffset] = useState(0)
   // Mirrors the backend's own ordering, so the first render matches what the
   // service already sorted for us.
-  const [sortKey, setSortKey] = useState<SortKey>('month')
+  const [sortKey, setSortKey] = useState<SortKey>('revenue')
   const [sortDirection, setSortDirection] = useState<SortDirection>('desc')
 
   const load = useCallback(() => {
@@ -205,8 +228,8 @@ export const PlatformOverview: FC = () => {
   if (loading || !overview) {
     return (
       <div className="flex flex-col gap-4">
-        <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-          {Array.from({ length: 4 }, (_, i) => (
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+          {Array.from({ length: 5 }, (_, i) => (
             <Skeleton key={i} className="h-[7.25rem] w-full" />
           ))}
         </div>
@@ -216,6 +239,7 @@ export const PlatformOverview: FC = () => {
   }
 
   const { totals } = overview
+  const monthMargin = totals.month.priceUsd - platformCost(totals.month)
   // Search and sort reset the offset, but a reload does not: if a retry returns
   // fewer organizations than the reader's current page starts at, the offset
   // points past the end and the table renders empty instead of falling back to
@@ -239,7 +263,7 @@ export const PlatformOverview: FC = () => {
       <div className="animate-in fade-in-0 flex flex-col gap-6 duration-base ease-out motion-reduce:animate-none">
         {/* Headline stats — min-h reserves the optional hint line so a capped
             directory does not grow the row after the first paint. */}
-        <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
           <StatCard
             className="min-h-[7.25rem]"
             icon={<Building2 className="size-4" aria-hidden />}
@@ -262,33 +286,58 @@ export const PlatformOverview: FC = () => {
           <StatCard
             className="min-h-[7.25rem]"
             icon={<Gauge className="size-4" aria-hidden />}
-            label={t('stats.spendToday')}
-            value={eur(totals.dayUsd * overview.eurPerUsd, locale)}
+            label={t('stats.costToday')}
+            value={usd(platformCost(totals.day), locale)}
           />
           <StatCard
             className="min-h-[7.25rem]"
-            icon={<ReceiptEuro className="size-4" aria-hidden />}
-            label={t('stats.spendMonth')}
+            icon={<Receipt className="size-4" aria-hidden />}
+            label={t('stats.costMonth')}
             value={
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <span className="cursor-default">{eur(totals.monthUsd * overview.eurPerUsd, locale)}</span>
+                  <span className="cursor-default">{usd(platformCost(totals.month), locale)}</span>
                 </TooltipTrigger>
-                <TooltipContent>{t('stats.requestsMonth', { count: totals.monthEvents })}</TooltipContent>
+                <TooltipContent>{t('stats.requestsMonth', { count: totals.month.events })}</TooltipContent>
               </Tooltip>
             }
+            // Cost on tenants' own keys is theirs, not ours; say what was left out.
+            hint={
+              totals.month.ownKeyCostUsd > 0
+                ? t('stats.ownKeyExcluded', { amount: usd(totals.month.ownKeyCostUsd, locale) })
+                : undefined
+            }
+          />
+          <StatCard
+            className="min-h-[7.25rem]"
+            icon={<TrendingUp className="size-4" aria-hidden />}
+            label={t('stats.revenueMonth')}
+            value={usd(totals.month.priceUsd, locale)}
+            // Revenue minus cost, in the same unit, is the number a price
+            // list exists for. Shown under revenue rather than as its own
+            // tile because it is derived, not measured.
+            hint={t('stats.marginHint', { margin: usd(monthMargin, locale) })}
           />
         </div>
 
-        {/* 30-day platform-wide spend trend */}
+        {/* 30-day platform-wide cost trend */}
         <SectionCard title={t('trend.title')} description={t('trend.description')} testId="platform-trend">
           <SpendTrendChart
-            points={overview.dailyTrend ?? []}
-            eurPerUsd={overview.eurPerUsd}
+            points={(overview.dailyTrend ?? []).map((point) => ({
+              day: point.day,
+              value: platformCost(point),
+              events: point.events,
+            }))}
+            formatValue={(value) => usd(value, locale)}
             requestsLabel={(count) => t('trend.requests', { count })}
             emptyLabel={t('trend.empty')}
           />
         </SectionCard>
+
+        {/* The price list — margin and credit price, fleet-wide. A save
+            changes what the revenue tiles above mean from the next request
+            on, so the overview reloads its figures afterwards. */}
+        <PlatformPricingCard onSaved={load} />
 
         {/* Organization directory */}
         <SectionCard
@@ -328,6 +377,7 @@ export const PlatformOverview: FC = () => {
                       {sortableColumn('projects', t('orgs.colProjects'), 'text-right')}
                       {sortableColumn('day', t('orgs.colToday'), 'text-right')}
                       {sortableColumn('month', t('orgs.colMonth'), 'text-right')}
+                      {sortableColumn('revenue', t('orgs.colRevenue'), 'text-right')}
                       {sortableColumn('created', t('orgs.colCreated'), 'text-right')}
                     </TableRow>
                   </TableHeader>
@@ -342,16 +392,34 @@ export const PlatformOverview: FC = () => {
                                 {t('orgs.platformBadge')}
                               </Badge>
                             ) : null}
+                            {/* Usage on the organization's own key this month:
+                                its cost column is what it paid its provider,
+                                and it is billed nothing here. */}
+                            {org.month.ownKeyCostUsd > 0 ? (
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <Badge variant="outline" className="shrink-0 cursor-default font-normal">
+                                    {t('orgs.ownKeyBadge')}
+                                  </Badge>
+                                </TooltipTrigger>
+                                <TooltipContent>
+                                  {t('orgs.ownKeyHint', { amount: usd(org.month.ownKeyCostUsd, locale) })}
+                                </TooltipContent>
+                              </Tooltip>
+                            ) : null}
                           </span>
                         </TableCell>
                         <TableCell className="text-right text-sm tabular-nums text-muted-foreground">
                           {org.projectCount}
                         </TableCell>
                         <TableCell className="text-right text-sm tabular-nums">
-                          {eur(org.dayUsd * overview.eurPerUsd, locale)}
+                          {usd(platformCost(org.day), locale)}
                         </TableCell>
                         <TableCell className="text-right text-sm tabular-nums">
-                          {eur(org.monthUsd * overview.eurPerUsd, locale)}
+                          {usd(platformCost(org.month), locale)}
+                        </TableCell>
+                        <TableCell className="text-right text-sm tabular-nums">
+                          {usd(org.month.priceUsd, locale)}
                         </TableCell>
                         <TableCell className="whitespace-nowrap text-right text-sm tabular-nums text-muted-foreground">
                           {new Date(org.createdAt).toLocaleDateString(locale)}

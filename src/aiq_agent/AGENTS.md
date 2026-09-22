@@ -20,6 +20,7 @@ everything passes.
 | Add a source kind | Change `common/source_kinds.py` **and** mirror it in `frontends/ui/src/features/chat/lib/source-kinds.ts` | The chip renders as unknown. There is no shared schema between them |
 | Emit a card | Push it through the `emit_card` tool into the session `CardRegistry`; address it from prose as `[[card:N]]` | The frontend resolves N positionally against the same ordered array. A card added by any other path is unaddressable |
 | Add per-turn state | A `ContextVar` registry created/reset per turn, the way `cards/registry.py` and `common/citation_verification.py` do | Module-level state leaks across turns and across tenants |
+| Add a line to the grounding block a tool returns | Put the field on `GroundingHit` and the line in `render_grounding_block` (`common/grounding_block.py`), then read it back in `_entry_from_hit`. Both producers build records; neither writes grammar text (ADR-0061) | The byte-identity fixtures in `tests/aiq_agent/common/test_grounding_block.py`, and then the contract test, where the two readers stop agreeing |
 | Build a prompt block from rows | Bound it, and say in the text the model reads that it is bounded | Cost grows with project size on every turn, and the agent answers "which files do I have" confidently and wrongly. See `render_inventory_block` |
 | Change `cards/models.py` | Re-run both generators: `uv run python scripts/generate_card_schema.py`, then `npm run generate:cards` in `frontends/ui` | The `card-schemas` pre-commit hook. Without it the frontend validates the old schema, and it type-checks |
 | Change a builtin skill's `SKILL.md` | Re-run the generator: `node frontends/ui/scripts/sync-platform-skills.mjs` | `sync-platform-skills` pre-commit hook. A stale generated module type-checks perfectly, which is why it has broken the build from behind three times |
@@ -30,9 +31,9 @@ everything passes.
 **A measurement is not a source.** The four retrieved kinds (`baurecht`,
 `buero`, `projekt`, `web`) are passages a citation resolves to and can be read
 back. `messung` is reproducible instead, carries GlobalIds and a tolerance, and
-travels its own channel (`agents/bim/measurement_sources.py`). Putting one in
+travels its own channel (`tools/bim/measurement_sources.py`). Putting one in
 the `SourceRegistry` would let a basement measurement ground an uncited legal
-verdict, the exact laundering path `shallow_researcher.grounding` exists to
+verdict, the exact laundering path `piloti.grounding` exists to
 close. The header of `common/source_kinds.py` is the full argument.
 
 **`doc_class` is human-set and beats every filename guess.** The fine

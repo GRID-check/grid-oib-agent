@@ -70,7 +70,10 @@ Concretely, the rules that keep it modular:
 
 Multiple **segments per image** — a sheet carrying a floor plan + a section + a
 chart + a photo indexes as four chunks, each with its **own scale and its own
-domain**. Per segment: entities (each with a `category` from its domain),
+domain**. Repeated depictions of the same kind side by side (two floor plans)
+are separate segments too, with a per-type ordinal in the chunk header
+("Floor plan 1 of 2") and a shared `segment_count` on every chunk of the
+sheet, so the detail view can say which depiction a row is. Per segment: entities (each with a `category` from its domain),
 compositions as ordered layers, states per element, **quantities as
 object+property+value+unit** (never a bare `71 %`), **relations as
 subject→relation→object triples**, verbatim annotations, an approximate bbox,

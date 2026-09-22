@@ -22,6 +22,7 @@ from langchain_core.outputs import LLMResult
 from aiq_agent.common.cost_tracking import BudgetExceededError
 from aiq_agent.common.cost_tracking import BudgetSnapshot
 from aiq_agent.common.cost_tracking import GridCostTracker
+from aiq_agent.common.cost_tracking import UsageEvent
 from aiq_agent.common.cost_tracking import extract_usage_event
 from aiq_agent.common.cost_tracking import grid_cost_tracker_var
 from aiq_agent.common.cost_tracking import track_llm_costs
@@ -51,6 +52,23 @@ def _openrouter_result(usage: dict | None = OPENROUTER_USAGE, model: str = "deep
 
 def _budget_header(payload: dict) -> str:
     return base64.urlsafe_b64encode(json.dumps(payload).encode()).rstrip(b"=").decode()
+
+
+def _usage_event(*, cost_source: str, cost_usd: float = 0.0) -> UsageEvent:
+    """One bespoke (non-callback) event, the way the reranker records one."""
+    return UsageEvent(
+        model=None,
+        requested_model=None,
+        generation_id=None,
+        prompt_tokens=10,
+        completion_tokens=5,
+        total_tokens=15,
+        cached_tokens=0,
+        reasoning_tokens=0,
+        cost_usd=cost_usd,
+        cost_source=cost_source,
+        is_byok=None,
+    )
 
 
 class TestExtractUsageEvent:
@@ -116,6 +134,23 @@ class TestBudgetSnapshot:
         assert snapshot.exhausted_scope(0.1) == "member"
         assert snapshot.exhausted_scope(1.0) == "organization"
 
+    def test_token_family_round_trips_and_enforces(self):
+        # An organization on its own key is limited in tokens, never in cost
+        # (ADR-0053): the USD family is absent and the token family decides.
+        snapshot = BudgetSnapshot.from_header(
+            _budget_header({"remainingOrgUsd": None, "remainingOrgTokens": 5000, "remainingUserTokens": 800})
+        )
+        assert snapshot is not None
+        assert snapshot.remaining_org_usd is None
+        assert snapshot.remaining_org_tokens == 5000
+        assert snapshot.exhausted_scope(0.0, 799) is None
+        assert snapshot.exhausted_scope(0.0, 800) == "member"
+        assert snapshot.exhausted_scope(0.0, 5000) == "organization"
+        # Older BFFs send only the USD family; the token side stays unlimited.
+        legacy = BudgetSnapshot.from_header(_budget_header({"remainingOrgUsd": 1.0}))
+        assert legacy is not None and legacy.remaining_org_tokens is None
+        assert legacy.exhausted_scope(0.5, 10**9) is None
+
 
 class TestGridCostTracker:
     def _tracker(self, budget: BudgetSnapshot | None = None) -> GridCostTracker:
@@ -134,6 +169,18 @@ class TestGridCostTracker:
         assert tracker.turn_cost_usd == pytest.approx(0.00428)
         assert tracker.events_recorded == 2
 
+    def test_cost_source_reports_the_events_provenance(self):
+        # The rollup must be able to say whether its dollar number was
+        # reported or estimated; a positive cost alone does not tell it.
+        tracker = self._tracker()
+        assert tracker.cost_source is None
+
+        tracker.on_llm_end(_openrouter_result())
+        assert tracker.cost_source == "usage_field"
+
+        tracker.record(_usage_event(cost_source="estimate"))
+        assert tracker.cost_source == "mixed"
+
     def test_blocks_next_call_when_budget_exhausted(self):
         tracker = self._tracker(BudgetSnapshot(remaining_user_usd=0.003))
         tracker.on_chat_model_start({}, [])  # within budget: allowed
@@ -142,6 +189,17 @@ class TestGridCostTracker:
         with pytest.raises(BudgetExceededError) as exc_info:
             tracker.on_chat_model_start({}, [])
         assert exc_info.value.scope == "member"
+
+    def test_blocks_next_call_when_token_budget_exhausted(self):
+        # Each replayed generation is 1,535 tokens; the cap trips on the second.
+        tracker = self._tracker(BudgetSnapshot(remaining_org_tokens=2000))
+        tracker.on_chat_model_start({}, [])
+        tracker.on_llm_end(_openrouter_result())
+        tracker.on_chat_model_start({}, [])  # 1,535 < 2,000: allowed
+        tracker.on_llm_end(_openrouter_result())
+        with pytest.raises(BudgetExceededError) as exc_info:
+            tracker.on_chat_model_start({}, [])
+        assert exc_info.value.scope == "organization"
 
     def test_no_budget_never_blocks(self):
         tracker = self._tracker()
@@ -226,3 +284,109 @@ class TestTrackLlmCosts:
         with track_llm_costs(identity={"organization_id": "org_1"}, budget=BudgetSnapshot()) as tracker:
             manager = CallbackManager.configure(inheritable_callbacks=None, local_callbacks=None)
             assert any(handler is tracker for handler in manager.handlers)
+
+
+class TestDeferredFlush:
+    def test_inline_flush_false_leaves_the_batch_pending(self):
+        """The chat turn posts the usage batch after the deltas, not before."""
+        with patch("aiq_agent.common.cost_tracking._post_usage_events") as post:
+            with track_llm_costs(
+                identity={"organization_id": "org_1"}, budget=BudgetSnapshot(), inline_flush=False
+            ) as tracker:
+                tracker.on_llm_end(_openrouter_result())
+            assert post.call_count == 0
+            tracker.flush(wait=True)
+        assert post.call_count == 1
+        assert len(post.call_args.args[0]["events"]) == 1
+
+    def test_flush_without_wait_returns_the_workers_future(self):
+        tracker = self_tracker = GridCostTracker(
+            organization_id="org_1",
+            user_id=None,
+            project_id=None,
+            conversation_id="conv_1",
+            budget=BudgetSnapshot(),
+        )
+        self_tracker.on_llm_end(_openrouter_result())
+        with patch("aiq_agent.common.cost_tracking._post_usage_events") as post:
+            future = tracker.flush(wait=False)
+            assert future is not None
+            future.result(timeout=5)
+        assert post.call_count == 1
+        assert tracker.flush(wait=False) is None
+
+
+# The shape an `api_type: responses` role actually leaves behind. langchain-openai's
+# `_construct_lc_result_from_responses_api` builds a ChatResult with NO llm_output
+# and a response_metadata that excludes `usage`, so the provider object — the only
+# carrier of `cost` and `cache_discount` — never reaches this process; what survives
+# is LangChain's normalized usage_metadata, in which OpenRouter's
+# `input_tokens_details.cached_tokens` has become `input_token_details.cache_read`.
+RESPONSES_USAGE_METADATA = {
+    "input_tokens": 41883,
+    "output_tokens": 514,
+    "total_tokens": 42397,
+    "input_token_details": {"cache_read": 35072},
+    "output_token_details": {"reasoning": 192},
+}
+
+
+def _responses_result(usage_metadata=RESPONSES_USAGE_METADATA) -> LLMResult:
+    message = AIMessage(content="answer", id="resp_01HXYZ", usage_metadata=usage_metadata)
+    return LLMResult(generations=[[ChatGeneration(message=message)]], llm_output=None)
+
+
+class TestResponsesApiUsage:
+    """The Responses path must still land cached tokens on the ledger."""
+
+    def test_cached_and_reasoning_tokens_survive_the_normalized_shape(self):
+        event = extract_usage_event(_responses_result())
+        assert event is not None
+        assert event.prompt_tokens == 41883
+        assert event.completion_tokens == 514
+        assert event.cached_tokens == 35072
+        assert event.reasoning_tokens == 192
+
+    def test_cost_is_reported_missing_rather_than_invented(self):
+        # OpenRouter's `cost` is genuinely absent on this path. A zero that
+        # claimed to be a measurement would be worse than one that says so.
+        event = extract_usage_event(_responses_result())
+        assert event is not None
+        assert event.cost_usd == 0.0
+        assert event.cost_source == "missing"
+
+    def test_cached_tokens_reach_the_ledger_payload(self):
+        event = extract_usage_event(_responses_result())
+        assert event is not None
+        assert event.to_payload()["cachedTokens"] == 35072
+
+    def test_a_call_without_cache_details_reports_zero(self):
+        usage = {"input_tokens": 100, "output_tokens": 10, "total_tokens": 110}
+        event = extract_usage_event(_responses_result(usage))
+        assert event is not None
+        assert event.cached_tokens == 0
+        assert event.reasoning_tokens == 0
+
+
+class TestPromptCacheSummary:
+    def test_summary_counts_cached_against_total_input(self, caplog):
+        tracker = GridCostTracker(organization_id="org_1")
+        tracker.on_llm_end(_responses_result(), run_id="run-1")
+        assert tracker.cached_tokens == 35072
+        with caplog.at_level("INFO", logger="aiq_agent.common.cost_tracking"):
+            tracker.log_prompt_cache_summary()
+        line = next(r.getMessage() for r in caplog.records if "[PromptCache]" in r.getMessage())
+        assert "35072/41883" in line
+        assert "6811 uncached" in line
+
+    def test_nothing_recorded_logs_nothing(self, caplog):
+        tracker = GridCostTracker(organization_id="org_1")
+        with caplog.at_level("INFO", logger="aiq_agent.common.cost_tracking"):
+            tracker.log_prompt_cache_summary()
+        assert not [r for r in caplog.records if "[PromptCache]" in r.getMessage()]
+
+    def test_the_turn_scope_summarises_on_exit(self, caplog):
+        with caplog.at_level("INFO", logger="aiq_agent.common.cost_tracking"):
+            with track_llm_costs(inline_flush=False) as tracker:
+                tracker.on_llm_end(_responses_result(), run_id="run-1")
+        assert [r for r in caplog.records if "[PromptCache]" in r.getMessage()]

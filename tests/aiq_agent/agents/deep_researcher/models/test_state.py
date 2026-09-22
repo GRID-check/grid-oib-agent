@@ -32,17 +32,17 @@ class TestDeepResearchAgentState:
 
         assert state.user_info == {"name": "John", "role": "developer"}
 
-    def test_state_with_tools_info(self):
-        """Test state with tools info."""
-        tools_info = [
-            {"name": "web_search", "description": "Search the web"},
-        ]
+    def test_state_ignores_fields_it_no_longer_declares(self):
+        """``tools_info``, ``subagents`` and ``rubric`` were never read; a stale payload still validates."""
         state = DeepResearchAgentState(
             messages=[HumanMessage(content="Test")],
-            tools_info=tools_info,
+            tools_info=[{"name": "web_search", "description": "Search the web"}],
+            subagents=[],
+            rubric="x",
         )
 
-        assert state.tools_info == tools_info
+        assert not hasattr(state, "tools_info")
+        assert not hasattr(state, "rubric")
 
     def test_state_with_todos(self):
         """Test state with todos."""
@@ -75,10 +75,8 @@ class TestDeepResearchAgentState:
         state = DeepResearchAgentState(messages=[])
 
         assert state.user_info is None
-        assert state.tools_info is None
         assert state.todos == []
         assert state.files == {}
-        assert state.subagents == []
 
     def test_state_message_accumulation(self):
         """Test that messages use add_messages reducer behavior."""

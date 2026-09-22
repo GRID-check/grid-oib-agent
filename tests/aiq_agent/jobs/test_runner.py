@@ -48,6 +48,7 @@ Test coverage:
         - Error message filtering for CancelledError
 """
 
+from types import SimpleNamespace
 from unittest.mock import AsyncMock
 from unittest.mock import MagicMock
 from unittest.mock import patch
@@ -482,7 +483,7 @@ class TestSubmitDeepResearchJob:
 
         job_args = mock_job_store.submit_job.call_args.kwargs["job_args"]
         # Tail order: ..., user_info, clarifier_result,
-        # memory_reflection_enabled, memory_reflection_llm, force_skills.
+        # memory_reflection_enabled, memory_reflection_llm.
         assert _job_arg(job_args, "user_info") == {"name": "Ada", "email": "ada@example.com"}
         assert _job_arg(job_args, "clarifier_result") == "User confirmed scope: OIB 4 only."
 
@@ -688,18 +689,19 @@ class TestRunAgentStateFields:
     @pytest.mark.asyncio
     async def test_run_agent_skips_unsupported_state_fields(self):
         """Fields absent from a state model are not passed (no validation errors)."""
-        from aiq_agent.agents.shallow_researcher.models import ShallowResearchAgentState
+        from aiq_agent.agents.piloti.models import ResearchAgentState
         from aiq_api.jobs.runner import _run_agent
 
         captured: dict = {}
 
-        class FakeShallowAgent:
+        class FakePilotiAgent:
             async def run(self, state):
                 captured["state"] = state
                 return state
 
-        FakeShallowAgent.__module__ = "aiq_agent.agents.shallow_researcher.agent"
-        FakeShallowAgent.__name__ = "ShallowResearcherAgent"
+        FakePilotiAgent.__module__ = "aiq_agent.agents.piloti.agent"
+        FakePilotiAgent.__name__ = "PilotiAgent"
+        FakePilotiAgent.state_model = ResearchAgentState
 
         monitor = MagicMock()
         monitor.is_cancelled = False
@@ -707,19 +709,41 @@ class TestRunAgentStateFields:
         monitor.stop = AsyncMock()
 
         await _run_agent(
-            agent=FakeShallowAgent(),
+            agent=FakePilotiAgent(),
             input_text="quick lookup",
             monitor=monitor,
             user_info={"name": "Ada"},
-            clarifier_result="not a shallow field",
+            clarifier_result="not a researcher-state field",
             project_context="facts: {}",
         )
 
         state = captured["state"]
-        assert isinstance(state, ShallowResearchAgentState)
+        assert isinstance(state, ResearchAgentState)
         assert state.user_info == {"name": "Ada"}
         assert state.project_context == "facts: {}"
         assert not hasattr(state, "clarifier_result")
+
+    def test_every_registered_agent_declares_its_state_model(self):
+        """The state model is declared, never spelled out of the class name.
+
+        ``_get_agent_state_class`` falls back to guessing from the class name,
+        and the guess is silent when it misses: the agent is handed a bare
+        dict and every field this class forwards is dropped. Renaming
+        ``ResearcherAgent`` to ``PilotiAgent`` is exactly the miss.
+        """
+        import importlib
+
+        from aiq_api.jobs.runner import _get_agent_state_class
+        from aiq_api.registry import AGENT_REGISTRY
+
+        assert AGENT_REGISTRY, "no agents registered"
+        for agent_type, config in AGENT_REGISTRY.items():
+            module_path, _, class_name = config.class_path.rpartition(".")
+            agent_cls = getattr(importlib.import_module(module_path), class_name)
+            declared = getattr(agent_cls, "state_model", None)
+            assert isinstance(declared, type), f"{agent_type} ({class_name}) declares no state_model"
+            assert "messages" in declared.model_fields, f"{agent_type} state model has no messages field"
+            assert _get_agent_state_class(agent_cls.__new__(agent_cls)) is declared
 
 
 class TestResolveWorkerToolRefs:
@@ -1910,7 +1934,7 @@ class TestDeepResearchReflection:
 
         with (
             patch(
-                "aiq_agent.agents.project_memory.reflection.run_memory_reflection",
+                "aiq_agent.memory.reflection.run_memory_reflection",
                 new=AsyncMock(return_value=["mem-1"]),
             ) as mock_reflect,
             patch(
@@ -1926,7 +1950,7 @@ class TestDeepResearchReflection:
                 query="what beam depth did we settle on?",
                 report=report,
                 usage_context=self._identity(),
-                project_context="existing project memory",
+                memory_digest="existing project memory",
                 org_credential=None,
                 model_overrides=None,
             )
@@ -1950,7 +1974,7 @@ class TestDeepResearchReflection:
         builder.get_llm = AsyncMock()
 
         with patch(
-            "aiq_agent.agents.project_memory.reflection.run_memory_reflection",
+            "aiq_agent.memory.reflection.run_memory_reflection",
             new=AsyncMock(),
         ) as mock_reflect:
             await _run_deep_research_reflection(
@@ -1961,7 +1985,7 @@ class TestDeepResearchReflection:
                 query="q",
                 report="R" * 80,
                 usage_context=self._identity(),
-                project_context="mem",
+                memory_digest="mem",
                 org_credential=None,
                 model_overrides=None,
             )
@@ -1978,7 +2002,7 @@ class TestDeepResearchReflection:
         builder.get_llm = AsyncMock()
 
         with patch(
-            "aiq_agent.agents.project_memory.reflection.run_memory_reflection",
+            "aiq_agent.memory.reflection.run_memory_reflection",
             new=AsyncMock(),
         ) as mock_reflect:
             await _run_deep_research_reflection(
@@ -1989,7 +2013,7 @@ class TestDeepResearchReflection:
                 query="q",
                 report="R" * 80,
                 usage_context=self._identity(),
-                project_context="mem",
+                memory_digest="mem",
                 org_credential=None,
                 model_overrides=None,
             )
@@ -2006,7 +2030,7 @@ class TestDeepResearchReflection:
         builder.get_llm = AsyncMock()
 
         with patch(
-            "aiq_agent.agents.project_memory.reflection.run_memory_reflection",
+            "aiq_agent.memory.reflection.run_memory_reflection",
             new=AsyncMock(),
         ) as mock_reflect:
             await _run_deep_research_reflection(
@@ -2017,7 +2041,7 @@ class TestDeepResearchReflection:
                 query="q",
                 report="R" * 80,
                 usage_context=self._identity(project_id=None),
-                project_context="mem",
+                memory_digest="mem",
                 org_credential=None,
                 model_overrides=None,
             )
@@ -2037,7 +2061,7 @@ class TestDeepResearchReflection:
 
         with (
             patch(
-                "aiq_agent.agents.project_memory.reflection.run_memory_reflection",
+                "aiq_agent.memory.reflection.run_memory_reflection",
                 new=AsyncMock(side_effect=RuntimeError("boom")),
             ),
             patch(
@@ -2054,10 +2078,56 @@ class TestDeepResearchReflection:
                 query="q",
                 report="R" * 80,
                 usage_context=self._identity(),
-                project_context="mem",
+                memory_digest="mem",
                 org_credential=None,
                 model_overrides=None,
             )
+
+    @pytest.mark.asyncio
+    async def test_a_slow_reflection_is_cut_at_the_stage_timeout(self):
+        """The job's SUCCESS bookkeeping waits for reflection, so the wait is
+        bounded by the same timeout the chat path's stage declares — not by the
+        reflection model's own retries."""
+        import asyncio
+        from contextlib import nullcontext
+
+        from aiq_api.jobs.runner import _run_deep_research_reflection
+
+        builder = MagicMock()
+        builder.get_llm = AsyncMock(return_value=MagicMock())
+        started = asyncio.Event()
+
+        async def never_finishes(**_):
+            started.set()
+            await asyncio.sleep(60)
+
+        with (
+            patch(
+                "aiq_agent.memory.reflection.run_memory_reflection",
+                new=AsyncMock(side_effect=never_finishes),
+            ),
+            patch(
+                "aiq_agent.common.cost_tracking.track_llm_costs",
+                side_effect=lambda **_: nullcontext(),
+            ),
+            patch("aiq_agent.stages.memory_reflection.REFLECTION_TIMEOUT_S", 0.05),
+        ):
+            await asyncio.wait_for(
+                _run_deep_research_reflection(
+                    builder=builder,
+                    job_id="job-1",
+                    reflection_llm_ref="card_llm",
+                    reflection_enabled=True,
+                    query="q",
+                    report="R" * 80,
+                    usage_context=self._identity(),
+                    memory_digest="mem",
+                    org_credential=None,
+                    model_overrides=None,
+                ),
+                timeout=5,
+            )
+        assert started.is_set()
 
 
 class TestCitedSourceEmission:
@@ -2495,3 +2565,68 @@ class TestVerifiedCitedSourceStream:
             callback.emit_final_report(REPORT_CITING_BOTH)
 
         assert [item["type"] for item in emitted] == [ArtifactType.OUTPUT]
+
+
+class TestWorkerHeaderInjection:
+    """A worker has no inbound request; what a chat turn reads from headers is
+    placed there by hand, layered so each injection keeps the earlier ones."""
+
+    @staticmethod
+    def _context_state():
+        from starlette.datastructures import Headers
+
+        request = SimpleNamespace(headers=Headers(headers={"x-existing": "1"}))
+        # `attrs.headers` must follow `_request.headers`, as the real object does.
+        return SimpleNamespace(metadata=_Slot(_LiveAttrs(request)))
+
+    def test_layers_headers_and_keeps_existing_ones(self):
+        from aiq_api.jobs.runner import _inject_worker_headers
+
+        state = self._context_state()
+        _inject_worker_headers(state, {"x-grid-project-id": "proj-1"})
+        _inject_worker_headers(state, {"x-grid-organization-id": "org-1"})
+        headers = state.metadata.get().headers
+        assert headers["x-existing"] == "1"
+        assert headers["x-grid-project-id"] == "proj-1"
+        assert headers["x-grid-organization-id"] == "org-1"
+
+
+class TestWorkflowReflectionLlmRef:
+    def test_reads_the_workflow_ref_as_a_plain_string(self):
+        from aiq_api.jobs.runner import _workflow_reflection_llm_ref
+
+        class _Ref(str):
+            pass
+
+        config = SimpleNamespace(workflow=SimpleNamespace(memory_reflection_llm=_Ref("memory_reflection_llm")))
+        ref = _workflow_reflection_llm_ref(config)
+        assert ref == "memory_reflection_llm"
+        assert type(ref) is str
+
+    def test_none_when_the_workflow_declares_no_ref(self):
+        from aiq_api.jobs.runner import _workflow_reflection_llm_ref
+
+        assert _workflow_reflection_llm_ref(SimpleNamespace(workflow=SimpleNamespace())) is None
+        assert _workflow_reflection_llm_ref(SimpleNamespace()) is None
+
+
+class _LiveAttrs:
+    """Mirrors NAT's request attributes: ``headers`` reads through to the request."""
+
+    def __init__(self, request):
+        self._request = request
+
+    @property
+    def headers(self):
+        return self._request.headers
+
+
+class _Slot:
+    def __init__(self, value):
+        self._value = value
+
+    def get(self):
+        return self._value
+
+    def set(self, value):
+        self._value = value

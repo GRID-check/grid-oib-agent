@@ -29,7 +29,7 @@ runtime (see `org-model-configuration.md`), except for `summary_llm` and
 ```yaml
 # configs/config_oib_openrouter.yml (excerpt) — an OpenAI-compatible LLM
 llms:
-  shallow_llm:
+  research_llm:
     _type: openai
     base_url: "https://openrouter.ai/api/v1"
     model_name: openai/gpt-5.6-luna
@@ -37,8 +37,8 @@ llms:
     # max_tokens / max_retries / reasoning_effort tuned per role
 ```
 
-The config defines several LLM "roles" (intent classification, the main
-super-model, the deep-research model, summarization) so different steps can use
+The config defines several LLM "roles" (the main super-model, the clarifier,
+the deep-research models, summarization) so different steps can use
 different models/parameters. Point them all at your endpoint to switch providers.
 
 ## To use a different provider
@@ -52,7 +52,7 @@ different models/parameters. Point them all at your endpoint to switch providers
 ## Runtime per-org model overrides (ADR-0014)
 
 The YAML remains the *default* layer. On top of it, org admins can re-point
-each **agent group** (intent, clarifier, shallow research, deep research,
+each **agent group** (clarifier, research, deep research,
 deep-research router, memory reflection) at a different OpenRouter model at
 runtime — per tenant, versioned, validated against the OpenRouter catalog,
 no restart. The BFF forwards the active configuration as the
@@ -90,9 +90,8 @@ bounded by per-org/member/project budgets — see
   block in `configs/config_oib_openrouter.yml` now sets `request_timeout`
   (60–180 s depending on role) and `max_retries: 2`, so an unresponsive
   upstream call can no longer hang a run indefinitely at the HTTP layer.
-  This is in addition to, not a replacement for, the intent classifier's
-  `asyncio.wait_for` (`llm_timeout`, default 90 s) and card generation's 30 s
-  app-level timeouts. `DeepResearcherAgent` additionally gained a wall-clock
+  This is in addition to, not a replacement for, card generation's 30 s
+  app-level timeout. `DeepResearcherAgent` additionally gained a wall-clock
   `max_run_seconds` budget (config key, default 2400 s; `0` disables) around
   the whole run via `asyncio.wait_for` — `recursion_limit` still bounds graph
   *steps*, not time, but the run as a whole is now bounded either way.
@@ -116,9 +115,9 @@ bounded by per-org/member/project budgets — see
   (ADR-0048).** `LLMBaseConfig.api_type` (`chat_completion` | `responses`) is
   already understood by NAT: `nat.plugins.langchain.llm.openai_langchain`
   builds `ChatOpenAI(use_responses_api=True, use_previous_response_id=True)`
-  when it is `responses`, so no app-side shim exists or is needed. Only roles
+  when it is `responses`. The one app-side adjustment is `llm_factory.disable_previous_response_id`, which turns the response handle off for OpenRouter targets: its Responses API is stateless and rejects a non-null `previous_response_id` with a 400. Only roles
   that require a Responses-only capability set it — today that is
-  `shallow_llm` when `shallow_research_agent.deferred_tool_loading` is
+  `research_llm` when `shallow_research_agent.deferred_tool_loading` is
   enabled, because OpenRouter's server-side tool search has no Chat
   Completions equivalent. Enabling that feature without this line fails the
   workflow build deliberately (`verify_deferred_tool_loading`) rather than
@@ -155,9 +154,10 @@ bounded by per-org/member/project budgets — see
   None of this can fail a request or a build — every "no" means *bind the full
   schemas*, i.e. the pre-ADR-0048 behaviour. The gate is scoped to
   `shallow_research_agent` and lives on its per-agent settings object, never in
-  module scope: it is not, and must not become, a fleet-wide model policy. A
-  cheap sub-50 model remains the right choice for `intent_classifier`, which has
-  no tool surface worth deferring in the first place.
+  module scope: it is not, and must not become, a fleet-wide model policy.
+  Since ADR-0052 Piloti binds its full tool set on every turn,
+  greetings included, so this gate is what keeps the per-turn schema floor
+  from growing with the tool list.
 - `reasoning_effort` is a **native** `ChatOpenAI` field
   (`langchain_openai`'s `BaseChatOpenAI.reasoning_effort`), not something
   routed through `extra_body`: NAT's `OpenAIModelConfig` allows extra YAML

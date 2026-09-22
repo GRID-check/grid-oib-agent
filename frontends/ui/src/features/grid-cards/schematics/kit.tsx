@@ -37,6 +37,7 @@ import { Card } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { useTranslations, type Translator } from '@/i18n'
 import { AskAboutChip } from '../components/AskAboutChip'
+import { CARD_SHELL } from '../components/card-chrome'
 import { PdfViewerDialog } from '@/features/knowledge/components/pdf-viewer-dialog'
 import { resolveCorpusFileName } from '@/features/knowledge/lib/resolve-corpus-file'
 import { useCorpusFiles } from '@/features/knowledge/lib/use-corpus-files'
@@ -460,7 +461,7 @@ export const LimitBar: FC<LimitBarProps> = ({ check, className }) => {
 
   return (
     <div className={cn('flex flex-col gap-1.5', className)}>
-      <div className="flex items-baseline justify-between gap-3 text-xs">
+      <div className="card-body flex items-baseline justify-between gap-3">
         <span className="text-muted-foreground">{label}</span>
         <span className="font-mono text-foreground">
           {value == null ? (
@@ -468,10 +469,10 @@ export const LimitBar: FC<LimitBarProps> = ({ check, className }) => {
           ) : (
             fmtDim(value, unit, t)
           )}
-          {band && <span className="ml-1 text-[0.9em] text-muted-foreground">{band}</span>}
+          {band && <span className="card-meta ml-1 text-muted-foreground">{band}</span>}
           {check.provenance && (
             <span
-              className="ml-1.5 rounded bg-muted px-1 py-px font-sans text-[0.85em] text-muted-foreground"
+              className="card-meta ml-1.5 rounded bg-muted px-1 py-px font-sans text-muted-foreground"
               title={provenanceTitle(check.provenance, t)}
             >
               {provenanceLabel(check.provenance, t)}
@@ -508,12 +509,12 @@ export const LimitBar: FC<LimitBarProps> = ({ check, className }) => {
         )}
       </div>
       {straddlesLimit && (
-        <p className="text-[0.92em] leading-snug text-muted-foreground">
+        <p className="card-caption leading-snug text-muted-foreground">
           {t('cards.kit.toleranceStraddlesLimit')}
         </p>
       )}
       {status === 'needs_input' && check.missing && (
-        <p className="text-[0.92em] leading-snug text-muted-foreground">{check.missing}</p>
+        <p className="card-caption leading-snug text-muted-foreground">{check.missing}</p>
       )}
     </div>
   )
@@ -551,7 +552,7 @@ export const DimChecksList: FC<DimChecksListProps> = ({ checks, className }) => 
         const unit = check.unit ?? 'cm'
         const band = check.provenance === 'computed' ? fmtTolerance(check.tolerance, unit) : null
         return (
-          <li key={`${check.label}-${index}`} className="flex flex-col gap-0.5 text-xs">
+          <li key={`${check.label}-${index}`} className="card-body flex flex-col gap-0.5">
             <div className="flex items-center gap-2">
               <Icon
                 className="size-3.5 shrink-0"
@@ -564,12 +565,12 @@ export const DimChecksList: FC<DimChecksListProps> = ({ checks, className }) => 
               ) : (
                 <span className="font-mono text-foreground">
                   {fmtDim(check.value, unit, t)}
-                  {band && <span className="ml-1 text-[0.9em] text-muted-foreground">{band}</span>}
+                  {band && <span className="card-meta ml-1 text-muted-foreground">{band}</span>}
                 </span>
               )}
               {check.provenance && (
                 <span
-                  className="shrink-0 rounded bg-muted px-1 py-px text-[0.85em] text-muted-foreground"
+                  className="card-meta shrink-0 rounded bg-muted px-1 py-px text-muted-foreground"
                   title={provenanceTitle(check.provenance, t)}
                 >
                   {provenanceLabel(check.provenance, t)}
@@ -582,7 +583,7 @@ export const DimChecksList: FC<DimChecksListProps> = ({ checks, className }) => 
               )}
             </div>
             {check.status === 'needs_input' && check.missing && (
-              <p className="pl-5.5 text-[0.92em] leading-snug text-muted-foreground">{check.missing}</p>
+              <p className="card-caption pl-5.5 leading-snug text-muted-foreground">{check.missing}</p>
             )}
             {/* The remedy is stated; the question about it is one click away.
                 Everything the sentence needs is already in this row, so the
@@ -610,12 +611,19 @@ export const DimChecksList: FC<DimChecksListProps> = ({ checks, className }) => 
 
 interface NormRefFooterProps {
   reference: NormReferenceData | null | undefined
+  /**
+   * Drop the separating top rule. For the flat answer anatomy, whose masthead
+   * ends with its own hairline — a second rule directly above it would read as
+   * a table border. The framed cards keep the rule: on a ground, a footer
+   * needs the separation.
+   */
+  bare?: boolean
 }
 
 /** Footer chip echoing LegalBasisCard: document + section badge + edition.
  * When the referenced document resolves to a base-corpus PDF, the citation
  * opens the actual source in the in-app viewer. */
-export const NormRefFooter: FC<NormRefFooterProps> = ({ reference }) => {
+export const NormRefFooter: FC<NormRefFooterProps> = ({ reference, bare = false }) => {
   // Named for its namespace: every other translator in this file is scoped to
   // `chat`, and two `t`s in one file bound to different namespaces are
   // indistinguishable to `key-coverage.spec.ts`.
@@ -625,12 +633,12 @@ export const NormRefFooter: FC<NormRefFooterProps> = ({ reference }) => {
   if (!reference?.document) return null
   const corpusFileName = resolveCorpusFileName(reference.document, corpusFiles)
   return (
-    <div className="flex flex-col gap-2 border-t pt-3">
-      <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+    <div className={bare ? 'flex flex-col gap-2' : 'flex flex-col gap-2 border-t pt-3'}>
+      <div className="card-caption flex flex-wrap items-center gap-2 text-muted-foreground">
         <Scale className="size-3.5" aria-hidden="true" />
         <span className="font-medium text-foreground">{reference.document}</span>
         {reference.section && (
-          <Badge variant="outline" className="font-mono text-xs font-normal">
+          <Badge variant="outline" className="card-meta font-mono font-normal">
             {reference.section}
           </Badge>
         )}
@@ -647,7 +655,7 @@ export const NormRefFooter: FC<NormRefFooterProps> = ({ reference }) => {
         )}
       </div>
       {reference.excerpt && (
-        <blockquote className="max-w-prose border-l-2 border-border pl-3 text-xs italic leading-relaxed text-muted-foreground">
+        <blockquote className="card-caption max-w-prose border-l-2 border-border pl-3 italic text-muted-foreground">
           {reference.excerpt}
         </blockquote>
       )}
@@ -671,7 +679,7 @@ export const StatusBadge: FC<StatusBadgeProps> = ({ status }) => {
   return (
     <span
       className={cn(
-        'inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium',
+        'card-meta inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5',
         STATUS_BADGE_CLASS[status]
       )}
     >
@@ -710,20 +718,20 @@ export const SchematicCard: FC<SchematicCardProps> = ({
 }) => {
   const t = useTranslations('chat')
   return (
-    <Card className="animate-in fade-in-0 slide-in-from-bottom-1 gap-3 p-5 shadow-xs">
+    <Card className={cn(CARD_SHELL, 'animate-in fade-in-0 slide-in-from-bottom-1 duration-base ease-entrance motion-reduce:animate-none gap-3 p-5')}>
       <div className="flex items-center justify-between gap-2">
-        <div className="flex items-center gap-1.5 text-xs font-medium uppercase tracking-widest text-muted-foreground">
+        <div className="card-eyebrow flex items-center gap-1.5 text-muted-foreground">
           <Icon className="size-3.5" aria-hidden="true" />
           <span>{eyebrow ?? t('cards.kit.eyebrow')}</span>
         </div>
         {verdict && <StatusBadge status={verdict} />}
       </div>
 
-      <p className="text-sm font-semibold text-foreground">{title}</p>
+      <p className="card-title text-foreground">{title}</p>
 
       {children}
 
-      {note && <p className="max-w-prose text-xs leading-relaxed text-muted-foreground">{note}</p>}
+      {note && <p className="card-caption max-w-prose text-muted-foreground">{note}</p>}
 
       <NormRefFooter reference={reference} />
     </Card>

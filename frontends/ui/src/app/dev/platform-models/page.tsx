@@ -5,7 +5,7 @@
  * with fixture data so the three states that matter can be reviewed and
  * screenshotted without a backend or an OpenRouter key:
  *
- *  - a group pinned to a platform default (`shallow_research`, `intent`),
+ *  - a group pinned to a platform default (`shallow_research`, `follow_ups`),
  *  - a group still on the workflow config (`clarifier`, `deep_research`, …),
  *  - a pinned default with no zero-data-retention endpoint (`deep_research_router`),
  *    which ZDR tenants cannot inherit,
@@ -26,7 +26,7 @@ import { AGENT_GROUPS as REGISTRY } from '@/lib/model-config/agent-groups'
 const AGENT_GROUPS = REGISTRY.map(({ id, label, description }) => ({ id, label, description }))
 
 const DEFAULTS = {
-  intent: {
+  follow_ups: {
     model: 'deepseek/deepseek-v4-flash',
     updatedByEmail: 'owner@grid.example',
     updatedAt: '2026-07-28T09:00:00Z',
@@ -49,10 +49,10 @@ const DEFAULTS = {
 const WORKFLOW_DEFAULTS = Object.fromEntries(AGENT_GROUPS.map((group) => [group.id, 'openai/gpt-5.6-luna']))
 
 // The thinking-level half of the same card. Pinned at both ends of the scale
-// (`intent` → none, `deep_research` → xhigh) so the cheapest and most expensive
+// (`follow_ups` → none, `deep_research` → xhigh) so the cheapest and most expensive
 // labels are both on screen; the rest inherit.
 const EFFORTS = {
-  intent: { effort: 'none', updatedByEmail: 'owner@grid.example', updatedAt: '2026-08-01T09:00:00Z' },
+  follow_ups: { effort: 'none', updatedByEmail: 'owner@grid.example', updatedAt: '2026-08-01T09:00:00Z' },
   deep_research: { effort: 'xhigh', updatedByEmail: 'owner@grid.example', updatedAt: '2026-08-01T09:00:00Z' },
 }
 
@@ -61,7 +61,7 @@ const EFFORTS = {
 // for the env-configured VLM, and the option must degrade to the generic label
 // instead of inventing one.
 const WORKFLOW_EFFORTS: Record<string, string | null> = {
-  intent: 'none',
+  follow_ups: 'none',
   clarifier: 'medium',
   shallow_research: 'low',
   deep_research: 'medium',

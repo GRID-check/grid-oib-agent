@@ -9,10 +9,13 @@ An audit of the 53 records here found four kinds of silent drift:
 
 * **Number collisions.** 0027, 0039, 0044 and 0047 were each used twice, every
   time because two people took the next number from ``README.md`` on the same
-  day. The index lags the directory; the directory cannot.
+  day. The index lags the directory; the directory cannot. The four later
+  records were renumbered to 0056-0059 and this script now REFUSES any repeat;
+  it used to carry them as a recorded exemption, which is a checker agreeing
+  that a number may name two decisions.
 * **Index drift.** ADR-0021 and ADR-0045 read *Accepted* in the file and
   *Proposed* in the index. The index is what people scan, so the wrong one won.
-* **An unindexed record.** ``0044-retrieval-correctness-and-the-measurement-gate``
+* **An unindexed record.** ``0058-retrieval-correctness-and-the-measurement-gate``
   existed on disk and appeared nowhere in the index.
 * **Four metadata formats.** ``- **Status:** x``, ``- **Status**: x``, a
   ``## Status`` section, and a bare ``**Status:** x`` with no Deciders at all —
@@ -24,10 +27,11 @@ superseded a month ago.
 What it checks
 --------------
 
-Numbers are unique (bar the four recorded collisions), every ADR is indexed,
-the index status matches the file, statuses come from the legend, and new ADRs
-(0050 and up) carry MADR frontmatter. Records 0001-0049 predate the template
-and are read with a legacy parser rather than being asked to convert.
+Numbers are unique — no exemptions — every ADR is indexed, the index status
+matches the file, statuses come from the legend, and new ADRs (0050 and up)
+carry MADR frontmatter. Records 0001-0049 predate the template and are read
+with a legacy parser rather than being asked to convert, as do the four
+pre-template records renumbered into 0056-0059 (``RENUMBERED_LEGACY``).
 
 Usage:
     python scripts/check_adrs.py            # validate; exit 1 on drift
@@ -51,10 +55,15 @@ TEMPLATE = "0000-template.md"
 # process here forbids.
 MADR_FROM = 50
 
-# Collisions already in the history. Each is recorded rather than renumbered so
-# existing links keep resolving. Do not add to this set: take the next number
-# from `--next`.
-KNOWN_COLLISIONS = frozenset({27, 39, 44, 47})
+# Pre-template records that were RENUMBERED out of a collision (0027, 0039,
+# 0044 and 0047 were each used twice; the later record of each pair moved to
+# 0056-0059). Their NUMBER is now above MADR_FROM; their content is not, and a
+# renumbering must not rewrite an accepted decision, so they are read with the
+# legacy parser like every other record written before the template.
+#
+# This set is closed. It exists because four records moved once; it is not a
+# way to opt a NEW ADR out of the template.
+RENUMBERED_LEGACY = frozenset({56, 57, 58, 59})
 
 STATUSES = ("proposed", "rejected", "accepted", "deprecated", "superseded")
 
@@ -167,14 +176,12 @@ def check(errors: list[str]) -> int:
     indexed = index_rows(readme, errors)
 
     seen: dict[int, Path] = {}
-    counts: dict[int, int] = {}
     for path in files:
         num = number_of(path)
-        counts[num] = counts.get(num, 0) + 1
-        # The recorded collisions are exempt for their SECOND file only. A third
-        # would leave the directory ambiguous with nothing to say so.
-        exempt = num in KNOWN_COLLISIONS and counts[num] <= 2
-        if num in seen and not exempt:
+        # No exemptions. The four historical collisions were renumbered to
+        # 0056-0059 rather than recorded, because a recorded collision is a
+        # number that names two decisions and a checker that says that is fine.
+        if num in seen:
             errors.append(
                 f"{path.name}: number {num:04d} is already used by {seen[num].name}. Take the next one from `--next`."
             )
@@ -190,7 +197,7 @@ def check(errors: list[str]) -> int:
                 f"Qualifications belong in Consequences."
             )
 
-        if num >= MADR_FROM:
+        if num >= MADR_FROM and num not in RENUMBERED_LEGACY:
             check_madr(path, status, errors)
 
         if path.name not in indexed:

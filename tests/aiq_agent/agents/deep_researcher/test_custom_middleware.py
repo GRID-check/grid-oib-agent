@@ -17,7 +17,10 @@ from aiq_agent.agents.deep_researcher.custom_middleware import ToolVisibilityMid
 from aiq_agent.agents.deep_researcher.custom_middleware import is_retryable_tool_error
 from aiq_agent.agents.deep_researcher.models import ResearchNotes
 from aiq_agent.agents.deep_researcher.tools.source_registry import build_get_verified_sources_tool
+from aiq_agent.agents.deep_researcher.tools.source_registry import render_source_list
+from aiq_agent.common.budget_guard import RunBudgetExceededError
 from aiq_agent.common.citation_verification import SourceEntry
+from aiq_agent.common.cost_tracking import BudgetExceededError
 from aiq_agent.common.data_source_registry import populate_from_config
 from aiq_agent.common.data_source_registry import reset_registry
 
@@ -27,7 +30,7 @@ class TestToolNameSanitizationMiddleware:
 
     @pytest.fixture
     def valid_tool_names(self):
-        return ["advanced_web_search_tool", "paper_search_tool", "read_file", "write_file", "grep", "glob", "think"]
+        return ["advanced_web_search_tool", "scholar_search_tool", "read_file", "write_file", "grep", "glob", "think"]
 
     @pytest.fixture
     def middleware(self, valid_tool_names):
@@ -52,9 +55,9 @@ class TestToolNameSanitizationMiddleware:
         """Strip .exec suffix when base name is valid."""
         assert middleware._sanitize_tool_name("advanced_web_search_tool.exec") == "advanced_web_search_tool"
 
-    def test_sanitize_paper_search_channel(self, middleware):
-        """Strip channel suffix from paper_search_tool too."""
-        assert middleware._sanitize_tool_name("paper_search_tool<|channel|>commentary") == "paper_search_tool"
+    def test_sanitize_scholar_search_channel(self, middleware):
+        """Strip channel suffix from scholar_search_tool too."""
+        assert middleware._sanitize_tool_name("scholar_search_tool<|channel|>commentary") == "scholar_search_tool"
 
     def test_map_open_file_to_read_file(self, middleware):
         """Map hallucinated open_file to read_file."""
@@ -232,6 +235,83 @@ class TestSelectiveToolRetryMiddleware:
         assert "partial batch failure" in result.content
 
 
+class TestBudgetExhaustionIsTerminal:
+    """Backlog item 2 ratchet: budget exhaustion is terminal, never a retryable ToolMessage.
+
+    ``RunBudgetExceededError`` (token ceiling) raised inside ``run_research_batch``
+    used to fall into ``except Exception -> _handle_failure`` and return as
+    "failed after 1 attempt ... Please try again", so the orchestrator resubmitted
+    into an already-exceeded tracker until the wall clock. It must propagate so the
+    run salvages once, marked, instead of looping.
+    """
+
+    def _middleware(self, **kwargs) -> SelectiveToolRetryMiddleware:
+        return SelectiveToolRetryMiddleware(
+            max_retries=3,
+            backoff_factor=0.0,
+            initial_delay=0.0,
+            jitter=False,
+            retry_on=is_retryable_tool_error,
+            no_retry_tools={"run_research_batch"},
+            **kwargs,
+        )
+
+    def _request(self, tool_name: str):
+        request = MagicMock()
+        request.tool = SimpleNamespace(name=tool_name)
+        request.tool_call = {"name": tool_name, "id": "tc1"}
+        return request
+
+    def test_is_retryable_rejects_token_budget(self):
+        assert is_retryable_tool_error(RunBudgetExceededError(ceiling=1000, used=1500)) is False
+
+    def test_is_retryable_rejects_usd_budget(self):
+        assert is_retryable_tool_error(BudgetExceededError(scope="organization")) is False
+
+    @pytest.mark.asyncio
+    async def test_no_retry_tool_budget_propagates_without_tool_message(self):
+        """The batch path: one execution, no ToolMessage, no retry loop."""
+        middleware = self._middleware()
+        handler = AsyncMock(side_effect=RunBudgetExceededError(ceiling=1000, used=1500))
+
+        with pytest.raises(RunBudgetExceededError):
+            await middleware.awrap_tool_call(self._request("run_research_batch"), handler)
+
+        handler.assert_awaited_once()
+
+    def test_sync_no_retry_tool_budget_propagates(self):
+        middleware = self._middleware()
+        handler = MagicMock(side_effect=RunBudgetExceededError(ceiling=1000, used=1500))
+
+        with pytest.raises(RunBudgetExceededError):
+            middleware.wrap_tool_call(self._request("run_research_batch"), handler)
+
+        handler.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_regular_tool_budget_is_not_retried(self):
+        """Even off the no-retry list, a budget error must not burn retries."""
+        middleware = self._middleware()
+        handler = AsyncMock(side_effect=RunBudgetExceededError(ceiling=1000, used=1500))
+
+        with pytest.raises(RunBudgetExceededError):
+            await middleware.awrap_tool_call(self._request("web_search_tool"), handler)
+
+        handler.assert_awaited_once()
+
+    def test_handle_failure_reraises_budget_as_safety_net(self):
+        """Exhausted-retry callers of _handle_failure still cannot launder a budget error."""
+        middleware = self._middleware()
+
+        with pytest.raises(RunBudgetExceededError):
+            middleware._handle_failure(
+                "run_research_batch",
+                "tc1",
+                RunBudgetExceededError(ceiling=1000, used=1500),
+                4,
+            )
+
+
 class TestToolVisibilityMiddleware:
     """Tests for hiding tools from model requests."""
 
@@ -274,7 +354,7 @@ class TestSourceRegistryMiddleware:
 
     @pytest.fixture
     def source_tools(self):
-        return {"advanced_web_search_tool", "knowledge_search", "paper_search_tool"}
+        return {"advanced_web_search_tool", "knowledge_search", "scholar_search_tool"}
 
     @pytest.fixture(autouse=True)
     def _reset_data_source_registry(self):
@@ -306,10 +386,10 @@ class TestSourceRegistryMiddleware:
                     "tools": ["knowledge_search"],
                 },
                 {
-                    "id": "paper_search",
+                    "id": "scholar_search",
                     "name": "Academic Papers",
                     "description": "Search academic papers.",
-                    "tools": ["paper_search_tool"],
+                    "tools": ["scholar_search_tool"],
                 },
             ]
         )
@@ -385,6 +465,26 @@ class TestSourceRegistryMiddleware:
         await middleware.awrap_tool_call(request, handler)
 
         assert len(middleware.registry.all_sources()) == 0
+
+    @pytest.mark.asyncio
+    async def test_a_failed_call_contributes_no_source(self, middleware):
+        """An errored result is the failure's own words, not evidence.
+
+        Piloti hit this first: a call rejected by argument validation returned
+        pydantic's message, whose ``https://errors.pydantic.dev/...`` line was
+        captured as a web source and drawn as a source card. The gate is the
+        message STATUS, so it holds whatever the error happens to say.
+        """
+        content = (
+            "Error: the call was rejected. query: Field required. "
+            "For further information visit https://errors.pydantic.dev/2.13/v/missing"
+        )
+        handler = AsyncMock(return_value=ToolMessage(content=content, tool_call_id="tc1", status="error"))
+        request = self._make_request("advanced_web_search_tool")
+
+        await middleware.awrap_tool_call(request, handler)
+
+        assert middleware.registry.all_sources() == []
 
     @pytest.mark.asyncio
     async def test_unknown_tool_ignored(self, middleware):
@@ -477,7 +577,7 @@ class TestSourceRegistryMiddleware:
         h2 = AsyncMock(return_value=self._make_tool_result("See https://b.com"))
 
         await middleware.awrap_tool_call(self._make_request("advanced_web_search_tool"), h1)
-        await middleware.awrap_tool_call(self._make_request("paper_search_tool"), h2)
+        await middleware.awrap_tool_call(self._make_request("scholar_search_tool"), h2)
 
         urls = {s.url for s in middleware.registry.all_sources()}
         assert urls == {"https://a.com", "https://b.com"}
@@ -539,7 +639,7 @@ class TestSourceRegistryMiddleware:
         compact_entries = middleware.get_source_entries()
 
         assert [entry.citation_key for entry in compact_entries] == ["handbuch.pdf, p.3"]
-        compact = middleware.get_source_list_text()
+        compact = render_source_list(middleware.get_source_entries())
         assert "handbuch.pdf, p.3" in compact
         assert "other.pdf" not in compact
 

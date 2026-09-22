@@ -3,8 +3,8 @@
  */
 import { describe, expect, it } from 'vitest'
 import {
+  createCategorySchema,
   createSkillSchema,
-  isAutoInvokeSkill,
   isHiddenSkill,
   METADATA_AUTO_INVOKE,
   METADATA_CARDS,
@@ -70,17 +70,21 @@ describe('preferredCardsOf', () => {
   it('parses the comma list, trimming and deduplicating', () => {
     expect(preferredCardsOf({})).toEqual([])
     expect(preferredCardsOf({ [METADATA_CARDS]: '' })).toEqual([])
-    expect(preferredCardsOf({ [METADATA_CARDS]: ' summary , legal_basis ' })).toEqual([
-      'summary',
+    expect(preferredCardsOf({ [METADATA_CARDS]: ' condition_tree , legal_basis ' })).toEqual([
+      'condition_tree',
       'legal_basis',
     ])
-    expect(preferredCardsOf({ [METADATA_CARDS]: 'summary,summary' })).toEqual(['summary'])
+    expect(preferredCardsOf({ [METADATA_CARDS]: 'condition_tree,condition_tree' })).toEqual([
+      'condition_tree',
+    ])
   })
 
-  it('drops names the catalogue no longer offers, including system cards', () => {
+  it('drops names the catalogue no longer offers, including system and envelope cards', () => {
     expect(
-      preferredCardsOf({ [METADATA_CARDS]: 'summary,memory_proposal,gibt_es_nicht' })
-    ).toEqual(['summary'])
+      preferredCardsOf({ [METADATA_CARDS]: 'condition_tree,memory_proposal,gibt_es_nicht' })
+    ).toEqual(['condition_tree'])
+    // Envelope shapes are answer fields now, never a card preference.
+    expect(preferredCardsOf({ [METADATA_CARDS]: 'summary,verdict_header,callout' })).toEqual([])
   })
 })
 
@@ -90,9 +94,9 @@ describe('createSkillSchema — grid-cards write boundary', () => {
   it('accepts known card types', () => {
     const parsed = createSkillSchema.parse({
       ...valid,
-      metadata: { [METADATA_CARDS]: 'summary,comparison_table' },
+      metadata: { [METADATA_CARDS]: 'condition_tree,comparison_table' },
     })
-    expect(parsed.metadata?.[METADATA_CARDS]).toBe('summary,comparison_table')
+    expect(parsed.metadata?.[METADATA_CARDS]).toBe('condition_tree,comparison_table')
   })
 
   it('rejects unknown card types and system cards', () => {
@@ -144,17 +148,39 @@ describe('isHiddenSkill (grid-hidden)', () => {
   })
 })
 
-describe('isAutoInvokeSkill (grid-auto-invoke)', () => {
-  it('reads absent and truthy tokens as on (the default)', () => {
-    expect(isAutoInvokeSkill({})).toBe(true)
-    for (const token of ['true', '1', 'yes', 'TRUE', '', 'maybe']) {
-      expect(isAutoInvokeSkill({ [METADATA_AUTO_INVOKE]: token })).toBe(true)
-    }
+// `grid-auto-invoke` is retired: no switch writes it and no reader honours it,
+// here or in the agent tier. The constant survives so a stored key has a name
+// the next reader can look up; this holds that nothing grew a reader back.
+describe('grid-auto-invoke is a name, not a decision', () => {
+  it('exports the key and nothing that acts on it', async () => {
+    const skillTypes = await import('./types')
+    expect(METADATA_AUTO_INVOKE).toBe('grid-auto-invoke')
+    expect('isAutoInvokeSkill' in skillTypes).toBe(false)
+  })
+})
+
+describe('createCategorySchema', () => {
+  it('accepts a name with an optional description and sort order', () => {
+    expect(createCategorySchema.parse({ name: 'OIB' })).toMatchObject({ name: 'OIB' })
+    expect(
+      createCategorySchema.parse({ name: 'Eigene Prüfungen', description: 'd', sortOrder: 5 })
+        .sortOrder,
+    ).toBe(5)
   })
 
-  it('reads the falsy tokens as off', () => {
-    for (const token of ['false', '0', 'no', 'FALSE', '  No  ']) {
-      expect(isAutoInvokeSkill({ [METADATA_AUTO_INVOKE]: token })).toBe(false)
-    }
+  it('rejects blank and over-long names', () => {
+    expect(() => createCategorySchema.parse({ name: '   ' })).toThrow()
+    expect(() => createCategorySchema.parse({ name: 'x'.repeat(61) })).toThrow()
+  })
+
+  it('constrains sortOrder to the Postgres 32-bit integer range', () => {
+    expect(createCategorySchema.parse({ name: 'a', sortOrder: 2147483647 }).sortOrder).toBe(
+      2147483647,
+    )
+    expect(createCategorySchema.parse({ name: 'a', sortOrder: -2147483648 }).sortOrder).toBe(
+      -2147483648,
+    )
+    expect(() => createCategorySchema.parse({ name: 'a', sortOrder: 2147483648 })).toThrow()
+    expect(() => createCategorySchema.parse({ name: 'a', sortOrder: 1.5 })).toThrow()
   })
 })

@@ -4,6 +4,16 @@
 
 **Purpose.** The product owner's brief: *"really also make each of the cards truly unique and look absolutely stunning here."* Not "same box, different accent colour and icon" — that is what exists and it is the complaint. This charter's job is the tension in that instruction: **maximum per-card distinctiveness inside one coherent system.**
 
+> **Superseding brief (2026-09).** The owner sharpened the instruction: a card
+> must **read as part of the answer, never as its own object** — "cards" is the
+> schema's word, not the pixels' — and the answer's native anatomy (verdict,
+> takeaways, callout from the ```answer_json envelope) is not a card at all but
+> answer typography. Distinctiveness therefore comes from each card's §A5 mark
+> and its typography, **never from its frame**: the framed register became a
+> quiet ground (§A1), and the anatomy renders flat
+> (`features/chat/components/AnswerAnatomy.tsx`). Where an older line below
+> reads as praise for borders or shadows, this brief wins.
+
 **Audience.** Implementation agents work from this file as their contract. Every claim about the current state carries a `file:line` so it stays checkable.
 
 ---
@@ -28,7 +38,7 @@ Cards in group 1 and group 2 render an identical silhouette — `rounded-lg bord
 
 `document_checklist`, `deadline_timeline` and `change_impact` landed in commit `67c2ee03` (2026-08-19). They are **well-built** — derived tallies, honest unknown states, no fabricated fields — and they are, at a glance, **the same card three times**: a left rail with a small round node, a 13.5px label, a 13.5px semibold second line, a status chip right-aligned, a chevron, an identical dashed-bordered disclosure panel, an identical footer.
 
-Seen in `visual/screenshots/cards-gallery.light.png`, the three stack into one undifferentiated column. Two older cards — `process_map` (ProcessMapCard.tsx:117–213) and `condition_tree` (ConditionTreeCard.tsx:123–273) — use the same silhouette, so **five cards now share one interaction shape.**
+Seen in a capture of `/dev/cards`, the three stack into one undifferentiated column. Two older cards — `process_map` (ProcessMapCard.tsx:117–213) and `condition_tree` (ConditionTreeCard.tsx:123–273) — use the same silhouette, so **five cards now share one interaction shape.**
 
 This is the charter's central evidence. The sameness is not legacy debt in old cards; it is what a competent implementer produces *today*, because the shared pattern is the path of least resistance and nothing tells them what should differ. **A charter that only fixes existing cards fixes nothing. The rules in §A are what stop the sixth card from being the same card again.**
 
@@ -72,7 +82,7 @@ The schema generator flattens **every** `$ref` to `z.any()` — not only arrays 
 
 > **Rule.** Every read of a nested field must have a fallback, and every unknown enum value must render as the neutral/unknown case. `STATUS_ICON[item.status] ?? CircleHelp` (RequirementChecklistCard.tsx:74) and `TONES[kind] ?? TONES.hinweis` (CalloutCard.tsx:87) are the pattern; they are not defensive nicety, they are the only thing between a bad field and a white screen. **This is the single most important implementation constraint in this document.**
 
-**2. Cards arrive whole, or not at all.** `validateGridCards` Zod-parses and drops anything that fails, so **a card never renders half-populated** and there is no card-level skeleton or partial-render state. What *does* happen mid-stream is that a `[[card:N]]` marker arrives frames before the card it names — handled by `CardMarkerOptions.count` (card-markers.ts:43–51), which renders nothing rather than letting a raw marker flash as literal text. Degradation sections in §B therefore address **missing optional fields and hostile content**, not partial hydration.
+**2. Cards arrive whole, or not at all.** `validateGridCards` Zod-parses and leaves an `undefined` hole where a card fails instead of closing the gap, so **a card never renders half-populated** and there is no card-level skeleton or partial-render state — and positions after the hole do not move, which is what keeps `[[card:N]]` markers and persisted card decisions bound to the cards they were written for. What *does* happen mid-stream is that a `[[card:N]]` marker arrives frames before the card it names — handled by `CardMarkerOptions.count` (card-markers.ts:43–51), which renders nothing rather than letting a raw marker flash as literal text. Degradation sections in §B therefore address **missing optional fields and hostile content**, not partial hydration.
 
 **3. Layout width — design to 636px.** The chain is message column `max-w-3xl` → answer card `w-[680px]` (AgentResponse.tsx:575) → body `px-[22px]` (AgentResponse.tsx:605, :678). **680 − 44 = 636px on desktop, ~314px on a 390px phone.**
 **`/dev/cards` renders at `max-w-2xl` (`app/dev/cards/page.tsx:75`) — narrower than production.** Do not tune a layout against the gallery; it will mislead you.
@@ -113,9 +123,9 @@ Two content cards is a turn's budget, one is usual, three is too many (catalog.p
 
 Collapse the five chromes to one component with three declared registers. A register is a property of the card's **job**, never of taste.
 
-- **Framed** — `rounded-lg border bg-card p-5 shadow-xs`. The card is an object separable from the prose: it can be cropped and pasted into an Einreichung and still make sense. Default.
-- **Flat** — no border, no ground, sits directly on the answer surface. Only for blocks that are *part of the answer body*: `summary`, `requirement_checklist`, and (newly) `follow_ups`.
-- **Accented** — Framed plus a 2px left edge in a role colour. Means "this card makes a claim you may act on." Exactly three: `legal_basis` (source-law), `verdict_header` (ink), the two proposals (lifecycle).
+- **Framed** — `rounded-lg p-5` on a **quiet ground**: `bg-muted/40`, no border, no shadow (`CARD_SHELL` in `components/card-chrome.ts`, the one place the framedness is decided). The card is an object separable from the prose — it can be cropped and pasted into an Einreichung — but it sits in the answer the way a figure sits in a book: grouped by its ground, not fenced off. The border-and-shadow silhouette this register used to carry is retired under the superseding brief above. Default.
+- **Flat** — no ground at all, sits directly on the answer surface. For blocks that are *part of the answer body*: `summary`, `requirement_checklist`, `follow_ups` — and the whole envelope anatomy (the masthead of verdict value plus the near-universal `summary` standfirst, closed by one hairline; the takeaways as the closing block; the callout as an accent-ruled aside anchored by its `[[callout]]` marker), which always renders flat via `AnswerAnatomy.tsx`.
+- **Accented** — Framed plus a 2px left edge in a role colour. Means "this card makes a claim you may act on." Exactly three: `legal_basis` (source-law), `verdict_header` *as a stored card* (ink), the two proposals (lifecycle).
 
 **A fourth register is forbidden.** A new card picks one of these or it does not ship.
 
@@ -294,7 +304,7 @@ Keep verbatim: a row with no `detail` is not a button (line 58).
 - `original_text` gets **hanging quotation marks**: a `„` at 24px in `--source-law/30` set outside the measure, with the quote at 13.5px `leading-[1.75]` and the italic dropped (italic at that measure hurts German compounds). **This is the only decorative mark permitted anywhere in the system**, granted because a quotation mark on a quotation is not decoration.
 - `summary` at Body. The AI-transparency line (line 130, EU AI Act Art. 50) stays, and stays last.
 **Unmistakable.** The only recessed card, the only right-margin § column, the only large quote mark.
-**Degradation.** No `original_text` → header + summary; the recessed ground still identifies it. No article/section → margin column collapses to 0 and text runs full width. Below 360px the margin column moves above the law name as a chip row.
+**Degradation.** No `original_text` → header + summary; the recessed ground still identifies it. No article/section → margin column collapses to 0 and text runs full width. Below 360px the margin column moves above the law name as a chip row. **An article/section longer than 20 characters is not marginalia** — a shipped card set „Punkte 8 bis 10 der OIB-Richtlinie 2" and „Anwendungsbereiche der ergänzenden Richtlinien" there and got a nine-line ragged pillar of mono beside a two-line header, with „§ " glued to a heading. Both halves then run inline with the law name, unprefixed and wrapping, because they are one Fundstelle and this is the citation an architect verifies: it loses the margin, never its content. The schema asks for identifiers (`LegalBasisCard.article` / `.section`); the renderer is what holds when the model writes prose anyway.
 
 > **SCHEMA ADDITIONS — REQUESTED, NOT YET IMPLEMENTED.** Neither field exists today. The card cannot render either treatment until they land in `src/aiq_agent/cards/models.py` and are regenerated through `shared/cards/schemas.json` → `npm run generate:cards`.
 >
@@ -445,7 +455,7 @@ All three landed in commit `67c2ee03`. **They are well-built**: derived tallies 
 
 ### B3. The schematics — honest judgement
 
-**Eleven are genuinely good and need nothing but the shell and token pass.** Saying so plainly is part of the job; manufacturing work here would cost the schematics the quality they already have. Verified by reading the code and by looking at `visual/screenshots/cards-gallery.{light,dark}.png` and `.mobile.*`.
+**Eleven are genuinely good and need nothing but the shell and token pass.** Saying so plainly is part of the job; manufacturing work here would cost the schematics the quality they already have. Verified by reading the code and by looking at `/dev/cards` in both themes, desktop and mobile.
 
 | Card | Verdict | Raise | Effort |
 |---|---|---|---|
@@ -477,7 +487,7 @@ Axis: **(visual poverty today) × (how often the model emits it)**. Frequency is
 
 > **Since this was written:** `follow_ups` is retired — the model emits none, and the post-answer STAGE produces the questions instead, rendered below the answer rather than inside it (`docs/architecture/post-answer-stages.md` §7.10). The ranking below is left as the record of a decision already taken and shipped; `FollowUpsCard.tsx` still draws every stored card and the rail, so §B1's flat register is still what a reader sees. a schematic fires only when the question names its geometry; IFC cards fire only with a model loaded.
 
-Poverty was assessed by reading the JSX **and by looking at the captured gallery** (`visual/screenshots/cards-gallery.{light,dark}.png`, desktop and mobile) — the three-newest-cards finding in §0.2 came from looking, not from reading.
+Poverty was assessed by reading the JSX **and by looking at the rendered gallery** (`/dev/cards` in both themes, desktop and mobile) — the three-newest-cards finding in §0.2 came from looking, not from reading.
 
 | # | Card | Why here | Effort |
 |---|---|---|---|
@@ -559,13 +569,21 @@ A charting library would import a visual language that is not this one, arriving
 Two families exist. Sans is prose. **Mono means "a number or an identifier you could go and check"** — which is why it appears on § references, measured values and tolerance bands and on nothing else. Spending it on a heading costs the product its one typographic signal.
 
 **12. Do not claim CI will catch it.**
-There is no visual-regression diffing, no render-time budget and no bundle-size budget (§0.5.6, §0.5.7), and only six `jsx-a11y` rules (§0.5.9). A card is verified by a human looking at `npm run screenshots` output in both themes at both widths, and by hand-written `getByRole` assertions for anything keyboard-operable. **Write the assertions; nothing else will.**
+There is no visual-regression diffing, no render-time budget and no bundle-size budget (§0.5.6, §0.5.7), and only six `jsx-a11y` rules (§0.5.9). A card is verified by a human looking at a capture of `/dev/cards` in both themes at both widths, and by hand-written `getByRole` assertions for anything keyboard-operable. **Write the assertions; nothing else will.**
 
 ---
 
 ## E. Status
 
-**Last updated: 2026-08-19.** Sprint 1 has shipped (`b82f23e1`): the §A2 type ramp, the §A3 colour-role fix, and items 1, 4, 6, 17, 18, 19. Everything else below is still a design contract, not a description of shipped work — read the Status column per row rather than assuming either way.
+**Last updated: 2026-09-01.** Sprint 1 has shipped (`b82f23e1`): the §A2 type ramp, the §A3 colour-role fix, and items 1, 4, 6, 17, 18, 19. Everything else below is still a design contract, not a description of shipped work — read the Status column per row rather than assuming either way.
+
+**Type-ramp sprint 2 (2026-09-01)** put `schematics/kit.tsx` and the two table cards on the ramp, out of the sprint order above, for a reason worth recording. The trigger was a stakeholder report — „Textgröße teilweise viel zu klein, zu viele Typo-Arten, insgesamt zu unruhig (z. B. bei Vergleichstabellen-Output-Cards)" — which is §0.3 observed from the outside, and it named the exact card §C had scheduled last.
+
+`kit.tsx` went first because it is the chrome for NINE cards: eyebrow, title, note and norm footer. One migration moves all of them, and every schematic card migrated after it starts from a compliant shell.
+
+The tables were the substance. `comparison_table` rendered **thirteen distinct type treatments, none above 14px**, with its entire content at 12px — the CAPTION step — inside a 16px answer. That is a misreading of this document rather than a limit in it: §A2 defines Body as "every row of every list. The default." and a comparison table's rows are rows of a list. The whole table is now one size, with weight and ink carrying the hierarchy that size had been spending itself on. `typed_table` had the same defect and took the same fix. Only the type scale moved; the transposing mobile layout §C calls the hardest single thing in this charter is untouched and still Pending.
+
+**Note what this sprint did NOT settle.** The ramp tops out at 13.5px Body while the prose it interrupts is 16px (`MarkdownRenderer`, `text-base`), so a migrated card is still systematically smaller than the paragraph above it. Every step is *internally* consistent and *externally* undersized. Whether to re-base the ramp against the prose baseline is a product decision affecting all 35 cards at once, and it is open.
 
 ### Implemented
 *(none)*
@@ -588,7 +606,7 @@ There is no visual-regression diffing, no render-time budget and no bundle-size 
 | # | Card | Section | Effort | Status |
 |---|---|---|---|---|
 | 1 | follow_ups | B1 | S | **Done** (Sprint 1, `b82f23e1`) — frame dropped; `title` deliberately KEPT, see note below |
-| 2 | comparison_table | B1 | L | Pending |
+| 2 | comparison_table | B1 | L | **Type scale done** (ramp sprint 2, 2026-09-01) — one size for the table, weight/ink for hierarchy. The transposing mobile layout is still Pending |
 | 3 | requirement_checklist | B1 | M | Pending |
 | 4 | key_takeaways | B1 | S | **Done** (Sprint 1, `b82f23e1`) |
 | 5 | legal_basis | B1 | M | Pending — schema now LANDED (`284b2625`), so no longer blocked; the recessed ground / margin § column / hanging quote marks remain |

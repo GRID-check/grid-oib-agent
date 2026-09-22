@@ -182,3 +182,49 @@ export function buildThumbnailStorageKey(storageKey: string): string | null {
   if (idx <= 0 || idx === storageKey.length - 1) return null
   return `${storageKey.slice(0, idx)}/_thumb.jpg`
 }
+
+/**
+ * The most embedded rasters one document may keep beside it.
+ *
+ * The ingest pipeline extracts every image XObject a PDF carries, captions
+ * each with the VLM, and — since the `_img/` derivatives landed — asks this
+ * tier for one PUT slot per raster so the agent can later look at the image
+ * itself rather than at a whole-page render. A plan set can embed thousands
+ * of small rasters (hatch tiles, logos, scanned stamps), and each slot is an
+ * object the tenant pays storage for and a prefix sweep has to visit on
+ * delete. This is the ceiling per document; the presign route refuses an
+ * index at or past it, and the backend stops asking at the first refusal.
+ * One definition, here, because the route enforces it and the sweep in
+ * `documents/object-cleanup.ts` relies on the prefix the builder below fixes.
+ */
+export const MAX_STORED_IMAGES_PER_DOCUMENT = 64
+
+/**
+ * The directory the ingest pipeline's stored rasters live in, beneath the
+ * document's own directory: `<dir>/_img/`. A prefix rather than a sibling
+ * file (unlike `_thumb.jpg`) because the count is unknown until extraction
+ * has run, and a prefix is what a delete can sweep without a list of names.
+ */
+export function buildImageDerivedPrefix(storageKey: string): string | null {
+  const idx = storageKey.lastIndexOf('/')
+  if (idx <= 0 || idx === storageKey.length - 1) return null
+  return `${storageKey.slice(0, idx)}/_img/`
+}
+
+/**
+ * Storage key of the `index`-th embedded raster the ingest pipeline stored
+ * for a document: `<dir>/_img/<index>.jpg`.
+ *
+ * Built from the document's OWN key, never from a caller-supplied path, which
+ * is what keeps a derived read or write inside the owning document's prefix:
+ * the only free variable is a bounded integer. Null for a key with no
+ * directory segment (same two shapes {@link buildThumbnailStorageKey}
+ * refuses) and for an index outside `[0, MAX_STORED_IMAGES_PER_DOCUMENT)`,
+ * so a caller cannot mint an unbounded number of objects under the prefix.
+ */
+export function buildImageStorageKey(storageKey: string, index: number): string | null {
+  if (!Number.isInteger(index) || index < 0 || index >= MAX_STORED_IMAGES_PER_DOCUMENT) return null
+  const prefix = buildImageDerivedPrefix(storageKey)
+  if (!prefix) return null
+  return `${prefix}${index}.jpg`
+}

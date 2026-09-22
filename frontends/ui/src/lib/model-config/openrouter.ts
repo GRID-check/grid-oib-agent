@@ -213,8 +213,8 @@ export function filterCatalogToZdr(catalog: OpenRouterModel[], zdrModelIds: Set<
  * `REASONING_MANDATORY_IDS` is matched by exact id.
  *
  * Known reasoning-only families: OpenAI's o-series (`openai/o1`, `o3`, `o4`),
- * xAI's Grok 4 line (the `intent -> x-ai/grok-4.5` incident that motivated this
- * filter), and DeepSeek R1. Everything else is assumed hybrid — see below.
+ * xAI's Grok 4 line (an org override that pinned a reasoning-off group to
+ * x-ai/grok-4.5 is the incident that motivated this filter), and DeepSeek R1. Everything else is assumed hybrid — see below.
  */
 export const REASONING_MANDATORY_PREFIXES: string[] = [
   'openai/o1',
@@ -290,7 +290,7 @@ export function validateModelForGroup(
       }
     }
   }
-  // Reasoning-off groups (e.g. intent, `reasoning_effort: none`) must not
+  // Reasoning-off groups (e.g. follow_ups, `reasoning_effort: none`) must not
   // select a reasoning-mandatory model. Runs regardless of strictCapabilities:
   // relaxed BYOK catalogs carry no `supported_parameters`, so isReasoningSafeForOff
   // treats them as safe (fails open only when there is no reasoning evidence).

@@ -4,12 +4,15 @@ import { useCallback, useMemo, useRef, useState, type ReactNode } from 'react'
 import { ArrowDown, ArrowUp } from 'lucide-react'
 import type { FileItem } from './project-file-workspace'
 import { DocumentStatusBadge } from './document-status'
+import { DocumentVersionStateBadge } from './document-version-badge'
+import { documentBadgeState } from '../lib/document-lifecycle'
 import { extChipTint, fileExtensionLabel } from '../document-kind'
-import { RELEVANCE_SORT, nextSort, sortFiles, type FileSort, type FileSortKey } from '../lib/file-sort'
+import { DEFAULT_FILE_SORT, RELEVANCE_SORT, nextSort, sortFiles, type FileSort, type FileSortKey } from '../lib/file-sort'
 import { useLocale, useTranslations } from '@/i18n'
 import { formatAbsoluteTime, formatBytes, formatRelativeTime } from '@/lib/format'
 import { cn } from '@/lib/utils'
 import { documentDisplayName } from '@/lib/documents/display-name'
+import { documentDragProps } from '../hooks/use-document-drag'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 
@@ -38,6 +41,8 @@ interface FileListViewProps {
   onSelectFile: (id: string | null) => void
   /** Per-row file operations. Clicks here must not select the row. */
   renderActions?: (file: FileItem) => ReactNode
+  /** Wrap each `<tr>` (right-click host). Must keep a `forwardRef` row as the child. */
+  wrapRow?: (file: FileItem, row: ReactNode) => ReactNode
   /**
    * These rows are RANKED semantic results, not a plain listing.
    *
@@ -47,9 +52,28 @@ interface FileListViewProps {
    * away without saying so.
    */
   semantic?: boolean
+  /**
+   * The listing's order, when somebody outside owns it.
+   *
+   * The workspace does, so its filter menu and these column headers set the
+   * same thing and switching to the card grid keeps the order. Left out — by
+   * the semantic branches, and by fixtures — the view falls back to holding it
+   * itself, which is what it did before the order was lifted.
+   */
+  sort?: FileSort
+  onSortChange?: (next: FileSort) => void
+  /**
+   * Whether a row can be dragged into a folder.
+   *
+   * The card grid had this and the detail view did not, so the same corpus was
+   * re-fileable by drag in one view and not the other — and the detail view is
+   * the one people switch to when there are enough documents for the filing to
+   * matter. Opt-in for the same reason the card's is: a row that lifts under
+   * the finger where nothing can receive it promises a move the surface (the
+   * flat Archiv) cannot make.
+   */
+  draggable?: boolean
 }
-
-const DEFAULT_SORT: FileSort = { key: 'added', direction: 'desc' }
 
 /** A 0..1 backend score as the whole percent the reader sees. */
 const percentOf = (score: number | undefined): number =>
@@ -63,11 +87,22 @@ export function FileListView({
   selectedFileId,
   onSelectFile,
   renderActions,
+  wrapRow,
   semantic = false,
+  sort: controlledSort,
+  onSortChange,
+  draggable = false,
 }: FileListViewProps) {
   const t = useTranslations('files')
   const { locale } = useLocale()
-  const [sort, setSort] = useState<FileSort>(semantic ? RELEVANCE_SORT : DEFAULT_SORT)
+  const [uncontrolledSort, setUncontrolledSort] = useState<FileSort>(
+    semantic ? RELEVANCE_SORT : DEFAULT_FILE_SORT
+  )
+  // A ranked result set keeps its own relevance order whatever the workspace
+  // holds — the same rule as the menu, which hides the sort section while a
+  // semantic search is active.
+  const sort = semantic || !controlledSort ? uncontrolledSort : controlledSort
+  const setSort = semantic || !onSortChange ? setUncontrolledSort : onSortChange
   const bodyRef = useRef<HTMLTableSectionElement>(null)
 
   const rows = useMemo(() => sortFiles(files, sort, locale), [files, sort, locale])
@@ -175,7 +210,15 @@ export function FileListView({
               className="w-[104px]"
             />
             {/* Below `sm` the row keeps only what identifies and what acts:
-                name and status. Pages, size and date are reference columns. */}
+                name and status. Pages, size and date are reference columns.
+                The Freigabe column steps out with them: triage is bulk work,
+                and bulk work happens where the table has room. */}
+            <TableHead
+              scope="col"
+              className="hidden h-auto w-[120px] px-2 py-1.5 text-[10.5px] font-medium tracking-wider sm:table-cell"
+            >
+              {t('list.columns.approval')}
+            </TableHead>
             <TableHead
               scope="col"
               className="hidden h-auto w-[76px] px-2 py-1.5 text-right text-[10.5px] font-medium tracking-wider lg:table-cell"
@@ -205,11 +248,22 @@ export function FileListView({
           {rows.map((file, index) => {
             const ext = fileExtensionLabel(file.filename)
             const isSelected = selectedFileId === file.id
-            return (
+            // The badge rule's subject, with the listing's nulls narrowed to
+            // what the rule reads: `null` lifecycle is "the working set", i.e.
+            // absent, and an unknown state is no badge.
+            const approvalSubject = {
+              versionState: file.versionState ?? null,
+              versionCount: file.versionCount ?? null,
+              lifecycle: file.lifecycle ?? undefined,
+              authoredBy: file.authoredBy ?? null,
+            }
+            const approvalState = documentBadgeState(approvalSubject)
+            const row = (
               <TableRow
                 key={file.id}
                 data-file-row
                 data-testid="file-list-row"
+                {...(draggable ? documentDragProps(file.id) : {})}
                 data-state={isSelected ? 'selected' : undefined}
                 // Roving tabindex: one stop for the whole list, then arrows.
                 tabIndex={index === tabStop ? 0 : -1}
@@ -304,6 +358,28 @@ export function FileListView({
                     <DocumentStatusBadge status={file.status} className="max-w-full truncate" />
                   )}
                 </TableCell>
+                <TableCell className={cn('hidden sm:table-cell', CELL)}>
+                  {/* The editorial state, in the same words the card badge uses:
+                      the column that makes bulk approval state visible where
+                      bulk work happens. Silent by the same rule as the card — a
+                      plain upload has one published version and shows nothing —
+                      so the triage signal is exactly the rows that need work.
+                      `documentBadgeState` is the rule read directly, so an empty
+                      slot renders the same `—` a missing page count does. */}
+                  {approvalState ? (
+                    <DocumentVersionStateBadge
+                      versionState={approvalSubject.versionState}
+                      versionCount={approvalSubject.versionCount}
+                      lifecycle={approvalSubject.lifecycle}
+                      authoredBy={approvalSubject.authoredBy}
+                      className="max-w-full truncate"
+                    />
+                  ) : (
+                    <span className="text-xs text-muted-foreground" data-testid="file-list-approval-empty">
+                      —
+                    </span>
+                  )}
+                </TableCell>
                 <TableCell
                   className={cn(
                     'hidden whitespace-nowrap text-right text-xs text-muted-foreground tabular-nums lg:table-cell',
@@ -345,6 +421,7 @@ export function FileListView({
                 )}
               </TableRow>
             )
+            return wrapRow ? wrapRow(file, row) : row
           })}
         </TableBody>
       </Table>
@@ -426,6 +503,16 @@ function SortHeader({
 export function FileListSkeleton({ rows = 6 }: { rows?: number }) {
   return (
     <div className="space-y-1 px-4 pb-4 pt-6" data-testid="file-list-skeleton">
+      {/*
+        THE COLUMN HEADINGS ARE PART OF THE SHAPE.
+        This drew rows and no header, so the detail view's first frame was six
+        grey lines that then jumped down by a header's height the moment the
+        answer arrived — on the one view a reader chooses precisely because it
+        is dense and stable. The headings are real words, not grey bars: they
+        are known before the listing is, and they tell a reader what they are
+        about to be looking at while they wait for it.
+      */}
+      <FileListSkeletonHeader />
       {Array.from({ length: rows }).map((_, index) => (
         <div key={index} className="flex items-center gap-2.5 px-2 py-1.5">
           <Skeleton className="size-6 shrink-0 rounded-sm" />
@@ -434,10 +521,26 @@ export function FileListSkeleton({ rows = 6 }: { rows?: number }) {
             <Skeleton className="h-3 w-2/3" />
           </div>
           <Skeleton className="h-4 w-16 shrink-0 rounded-full" />
+          <Skeleton className="hidden h-4 w-20 shrink-0 rounded-full sm:block" />
           <Skeleton className="hidden h-3 w-12 shrink-0 sm:block" />
           <Skeleton className="hidden h-3 w-16 shrink-0 md:block" />
         </div>
       ))}
+    </div>
+  )
+}
+
+/** The heading strip above the placeholder rows — same widths as the real columns. */
+function FileListSkeletonHeader(): JSX.Element {
+  const t = useTranslations('files')
+  return (
+    <div className="text-muted-foreground flex items-center gap-2.5 border-b px-2 pb-1.5 text-[10.5px] font-medium tracking-wider">
+      <span className="min-w-0 flex-1">{t('list.columns.name')}</span>
+      <span className="w-[104px] shrink-0">{t('list.columns.status')}</span>
+      <span className="hidden w-[120px] shrink-0 sm:block">{t('list.columns.approval')}</span>
+      <span className="hidden w-[76px] shrink-0 text-right lg:block">{t('list.columns.pages')}</span>
+      <span className="hidden w-[104px] shrink-0 text-right sm:block">{t('list.columns.size')}</span>
+      <span className="hidden w-[104px] shrink-0 text-right sm:block">{t('list.columns.added')}</span>
     </div>
   )
 }

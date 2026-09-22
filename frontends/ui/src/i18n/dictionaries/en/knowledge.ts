@@ -58,11 +58,26 @@ export const knowledge = {
     openInTab: 'Open in new tab',
     loading: 'Loading document…',
     pageCount: '{count, plural, one {# page} other {# pages}}',
+    pagePosition: 'Page {page} of {count}',
     toPassage: 'Go to passage',
+    passageNotFound: 'Passage not found in the document',
+    copyQuote: 'Copy as citation',
+    quoteCopied: 'Citation copied',
+    copyFailed: 'Could not copy',
     zoomIn: 'Zoom in',
     zoomOut: 'Zoom out',
     highlightUnavailable:
       'The passage cannot be marked in this browser — showing the document without the highlight.',
+  },
+  // The RIS reader: a legal source read INSIDE Piloti, not in a browser tab.
+  risViewer: {
+    description: 'Reading copy from RIS.',
+    openAtRis: 'Open at RIS',
+    loading: 'Loading legal source…',
+    failed:
+      'This legal source cannot be shown in Piloti right now. “Open at RIS” still reaches the document.',
+    busy: 'Too many requests in a row. Wait a moment, then open the source again.',
+    truncated: 'Shortened — the full text is at RIS.',
   },
   error: {
     title: 'Knowledge base unavailable',

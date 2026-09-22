@@ -295,3 +295,100 @@ describe('FileCard for a report Piloti wrote', () => {
     expect(screen.queryByText('Citable')).not.toBeInTheDocument()
   })
 })
+
+describe('FileCard headlines carry no version numbers', () => {
+  const uploaded = file('u1', 'Einreichplan.pdf', 'application/pdf')
+
+  it('numbers nothing on a single version — the state word stands alone, never Vn', () => {
+    render(
+      <FileCard
+        file={{ ...uploaded, versionState: 'published', versionCount: 1 }}
+        isSelected={false}
+        onSelect={() => {}}
+        locale="de"
+      />,
+    )
+
+    const card = screen.getByTestId('file-card')
+    expect(card.textContent).not.toMatch(/\bv\d+\b/i)
+    // The footer keeps what it measures: size · time.
+    expect(card.textContent).toMatch('1 kB')
+    expect(card.querySelector('time')).toBeInTheDocument()
+  })
+
+  it('states the word once the document has a history — and still no number', () => {
+    render(
+      <FileCard
+        file={{ ...uploaded, versionState: 'in_review', versionCount: 2 }}
+        isSelected={false}
+        onSelect={() => {}}
+        locale="de"
+      />,
+    )
+
+    // Exactly one state word, never a counter beside it.
+    expect(screen.getAllByTestId('document-version-badge')).toHaveLength(1)
+    expect(screen.getByTestId('document-version-badge')).toHaveTextContent('In review')
+    expect(screen.getByTestId('file-card').textContent).not.toMatch(/\bv\d+\b/i)
+  })
+})
+
+describe('FileCard and the version state badge', () => {
+  const uploaded = file('u1', 'Einreichplan.pdf', 'application/pdf')
+
+  it('says nothing on a plain upload', () => {
+    // One version, born published, a person put it there. A badge here would
+    // appear on every row of every folder and distinguish nothing.
+    render(
+      <FileCard
+        file={{ ...uploaded, versionState: 'published', versionCount: 1 }}
+        isSelected={false}
+        onSelect={() => {}}
+        locale="de"
+      />,
+    )
+
+    expect(screen.queryByTestId('document-version-badge')).not.toBeInTheDocument()
+  })
+
+  it('speaks once the document has a history', () => {
+    render(
+      <FileCard
+        file={{ ...uploaded, versionState: 'in_review', versionCount: 2 }}
+        isSelected={false}
+        onSelect={() => {}}
+        locale="de"
+      />,
+    )
+
+    expect(screen.getByTestId('document-version-badge')).toHaveTextContent('In review')
+  })
+
+  it('stays silent on a first draft Piloti wrote — one version is no history', () => {
+    render(
+      <FileCard
+        file={{
+          ...uploaded,
+          authoredBy: 'agent',
+          status: 'stored',
+          versionState: 'draft',
+          versionCount: 1,
+        }}
+        isSelected={false}
+        onSelect={() => {}}
+        locale="de"
+      />,
+    )
+
+    // The byline still says who wrote it; the badge waits for a second
+    // version, when there is something to distinguish.
+    expect(screen.queryByTestId('document-version-badge')).not.toBeInTheDocument()
+    expect(screen.getByText('Created by Piloti')).toBeInTheDocument()
+  })
+
+  it('says nothing when the listing never read the state', () => {
+    render(<FileCard file={uploaded} isSelected={false} onSelect={() => {}} locale="de" />)
+
+    expect(screen.queryByTestId('document-version-badge')).not.toBeInTheDocument()
+  })
+})

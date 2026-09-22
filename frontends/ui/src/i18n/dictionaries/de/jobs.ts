@@ -1,189 +1,230 @@
 import type { en } from '../en'
 
 /**
- * Jobs — ein Prompt mit Zeitplan.
+ * Aufgaben mit Rhythmus — ein Auftrag auf Wunsch mit Timer, und die Woche, die
+ * daraus wird.
  *
- * Ein Job schickt seinen Prompt genau so ab, wie man ihn in einen neuen Chat
- * tippen würde. Ein Skill kann zusätzlich angehängt werden — genau so, wie ein
- * vorangestelltes „/name“ ihn anhängt. Der Normalfall ist: kein Skill.
+ * Eine Aufgabe feuert ihren Prompt in einen frischen Lauf, so wie jemand einen
+ * neuen Chat öffnet und tippt — einmalig, oder nach dem Rhythmus aus Schritt 2.
+ * Ein Skill wird genau wie im Chat erreicht: „/name“ im Auftrag, den das Modell
+ * dann von sich aus verwendet. Hier hängt nichts einen Skill an, und die
+ * Skill-Werkstatt selbst liegt im Namensraum `skills`.
+ *
+ * Zwei Dinge gehören diesem Namensraum neu: die Texte des STUNDENPLANS und die
+ * des dreiteiligen ASSISTENTEN. Beide gibt es, weil ein Rhythmus das Einzige im
+ * Produkt ist, das man nicht durch Hinsehen prüfen kann — also gehen die Wörter
+ * dorthin, wo die Festlegung lesbar wird („Jeden Montag um 06:00“, die nächsten
+ * drei echten Termine), statt in die Namen von Cron-Feldern.
  */
 export const jobs: typeof en.jobs = {
-  title: 'Jobs',
-  subtitle:
-    'Prompts, die dieses Projekt nach Zeitplan ausführt — als Chat oder Bericht, auf Wunsch mit Skill.',
-  backToList: 'Zurück zu den Jobs',
-  loadError: 'Die Jobs konnten nicht geladen werden.',
+  title: 'Aufgaben',
+  backToList: 'Zurück zur Liste',
+  loadError: 'Die Aufgaben konnten nicht geladen werden.',
   tryAgain: 'Erneut versuchen',
 
   list: {
-    heading: 'Jobs',
+    heading: 'Aufgaben',
     empty: {
-      title: 'Noch keine Jobs',
+      title: 'Noch keine Aufgaben',
       description:
-        'Ein Job ist ein Prompt mit Zeitplan. Formulieren Sie ihn einmal, legen Sie fest, ob ein Chat oder ein Bericht entsteht, und lassen Sie ihn laufen — auf Zuruf oder wiederkehrend.',
-      action: 'Neuer Job',
+        'Eine Aufgabe ist ein Auftrag mit oder ohne Rhythmus. Einmal schreiben, festlegen, wann sie läuft — und Piloti recherchiert und legt den Bericht ab, während Sie woanders sind.',
+      action: 'Neue Aufgabe',
     },
     manualOnly: 'Nur manuell',
-    // Terse on purpose: both sit on ONE footer line next to the history
-    // toggle, and the full phrasings ("Nächste Ausführung …") overflowed the
-    // card at grid width.
-    nextRun: 'Nächster Lauf {time}',
-    lastRun: 'Letzter Lauf {time}',
-    neverRun: 'Noch nie ausgeführt',
-    disabled: 'Deaktiviert',
-    enableAria: 'Job „{name}“ aktivieren',
-    disableAria: 'Job „{name}“ deaktivieren',
-    toggleError: 'Der Job konnte nicht aktualisiert werden.',
-    promptLabel: 'Prompt',
+    onceOn: 'Einmal am {time}',
+    onceDone: 'Erledigt',
+    // Bewusst knapp: beide stehen auf EINER Fußzeile einer Karte.
+    nextRun: 'Nächster {time}',
+    lastRun: 'Letzter {time}',
+    neverRun: 'Noch nie gelaufen',
+    disabled: 'Pausiert',
+    enableAria: 'Aufgabe „{name}“ fortsetzen',
+    disableAria: 'Aufgabe „{name}“ pausieren',
+    toggleError: 'Die Aufgabe konnte nicht geändert werden.',
     withSkill: 'Skill: {name}',
-    noSkill: 'Ohne Skill',
+    noSkill: 'Kein Skill',
     output: {
       chat: 'Chat',
       'deep-research': 'Bericht',
     },
   },
 
+  card: {
+    openAria: 'Aufgabe „{name}“ öffnen',
+  },
+
   actions: {
     edit: 'Bearbeiten',
     runNow: 'Jetzt ausführen',
-    running: 'Wird ausgeführt…',
     delete: 'Löschen',
-    history: 'Verlauf',
+  },
+
+  timetable: {
+    title: 'Die Woche',
+    legend: 'Aufgaben in diesem Raster',
+    thisWeek: 'Diese Woche',
+    today: 'Heute',
+    previousWeek: 'Vorige Woche',
+    nextWeek: 'Nächste Woche',
+    showFullDay: 'Alle 24 Stunden zeigen',
+    showActiveHours: 'Nur aktive Stunden zeigen',
+    nothing: 'Nichts',
+    gap: '{hours} Std.',
+    /** Ein Cron, den der Parser nicht lesen konnte — benannt, nie verschwiegen. */
+    unplaceable: 'Nicht im Raster: {names}',
+    emptyNoSchedules: 'Noch nichts geplant',
+    emptyNoSchedulesHint: 'Legen Sie eine Aufgabe mit Rhythmus an — dann füllt sich diese Woche.',
+    emptyThisWeek: 'Diese Woche läuft nichts',
   },
 
   schedule: {
-    presets: {
+    frequency: {
       hourly: 'Stündlich',
-      daily: 'Täglich um 06:00',
-      weekly: 'Wöchentlich, Montag 06:00',
-      monthly: 'Monatlich, am 1. um 06:00',
-      custom: 'Benutzerdefinierter Zeitplan',
+      daily: 'Täglich',
+      weekly: 'Wöchentlich',
+      monthly: 'Monatlich',
     },
-    summaryHourly: 'Stündlich',
-    summaryDaily: 'Täglich um 06:00',
-    summaryWeekly: 'Wöchentlich montags um 06:00',
-    summaryMonthly: 'Monatlich am 1. um 06:00',
-    summaryCustom: 'Benutzerdefiniert ({cron})',
+    summaryHourly: 'Stündlich um :{minute}',
+    summaryDaily: 'Täglich um {time}',
+    summaryWeekly: 'Jeden {weekday} um {time}',
+    summaryWeekdays: 'Werktags um {time}',
+    summaryMonthly: 'Monatlich am {day}. um {time}',
+    summaryCustom: 'Eigener Rhythmus ({cron})',
     inTimezone: '{summary} · {timezone}',
   },
 
   run: {
-    submitted: 'Ausführung gestartet.',
-    submittedDetail: 'Sie läuft jetzt — verfolgen Sie sie live im Ausführungsverlauf.',
-    viewProgress: 'Fortschritt ansehen',
-    skipped: 'Ausführung übersprungen',
-    error: 'Die Ausführung konnte nicht gestartet werden.',
-    disabled: 'Aktivieren Sie den Job, bevor Sie ihn ausführen.',
+    submitted: 'Gestartet.',
+    submittedDetail: 'Er läuft jetzt — verfolgen Sie ihn unter Tasks.',
+    skipped: 'Übersprungen',
+    error: 'Das konnte nicht gestartet werden.',
+    disabled: 'Setzen Sie die Aufgabe fort, bevor Sie sie ausführen.',
   },
 
   deleteDialog: {
-    title: 'Job löschen',
-    description:
-      'Dadurch werden „{name}“ und der zugehörige Ausführungsverlauf dauerhaft gelöscht. Dies kann nicht rückgängig gemacht werden.',
-    confirm: 'Job löschen',
+    title: 'Aufgabe löschen',
+    description: 'Löscht „{name}“ und ihren Verlauf dauerhaft. Das lässt sich nicht rückgängig machen.',
+    confirm: 'Aufgabe löschen',
     cancel: 'Abbrechen',
-    error: 'Der Job konnte nicht gelöscht werden.',
+    error: 'Die Aufgabe konnte nicht gelöscht werden.',
   },
 
   builder: {
-    createTitle: 'Neuer Job',
-    editTitle: 'Job bearbeiten',
-    createSubtitle:
-      'Formulieren Sie den Prompt, den dieser Job abschickt, legen Sie fest, was dabei herauskommt, und wann er läuft. Die Vorschau zeigt genau, was der Agent erhält.',
-    editSubtitle:
-      'Passen Sie Prompt, Ausgabe oder Zeitplan an. Die Vorschau zeigt genau, was der Agent erhält.',
+    stepsLabel: 'Schritte',
+    stepProgress: 'Schritt {current} von {total}',
+    steps: {
+      task: 'Auftrag',
+      schedule: 'Wann',
+      review: 'Prüfen',
+      taskTitle: 'Was soll Piloti tun?',
+      taskHint:
+        'Schreiben Sie es genau so, wie Sie es in einen neuen Chat tippen würden. Piloti startet ohne weiteren Kontext.',
+      scheduleTitle: 'Wann soll es laufen?',
+      scheduleHint:
+        'Einmal, wiederkehrend oder nur auf Zuruf — die nächsten Termine stehen darunter, zum Prüfen vor der Festlegung.',
+      reviewTitle: 'Fertig',
+      reviewHint: 'Das wird passieren. Gespeichert ist noch nichts.',
+    },
+    next: 'Weiter',
+    back: 'Zurück',
+    cancel: 'Abbrechen',
+    create: 'Aufgabe anlegen',
+    save: 'Aufgabe speichern',
+    saving: 'Wird gespeichert…',
 
-    detailsSection: 'Details',
     nameLabel: 'Name',
-    namePlaceholder: 'z. B. Wöchentlicher OIB-Brandschutz-Check',
+    namePlaceholder: 'z. B. Wöchentlicher OIB-Brandschutz-Scan',
+    nameHint: 'So heißt er in der Liste. Leer gelassen, wird die erste Zeile oben genommen.',
     nameRequired: 'Ein Name ist erforderlich.',
     nameTooLong: 'Der Name ist zu lang (max. 200 Zeichen).',
 
-    promptSection: 'Prompt',
-    promptLabel: 'Was dieser Job fragt',
+    promptLabel: 'Der Auftrag',
     promptPlaceholder:
-      'Prüfe die aktuellen Projektunterlagen auf offene Brandschutzpunkte und nenne jede Abweichung mit der zugehörigen OIB-Klausel.',
-    promptHint:
-      'Das ist es, was ausgelöst wird. Schreiben Sie ihn genau so, wie Sie ihn in einen neuen Chat tippen würden — die Ausführung startet ohne weiteren Kontext.',
-    promptRequired: 'Ein Prompt ist erforderlich.',
-    promptTooLong: 'Der Prompt ist zu lang (max. 8000 Zeichen).',
+      'Prüfe die aktuellen Projektunterlagen auf offene Brandschutzpunkte und nenne jede Abweichung mit der OIB-Fundstelle.',
+    promptHint: 'Das ist es, was jedes Mal wortwörtlich abgefeuert wird.',
+    promptRequired: 'Ein Auftrag ist erforderlich.',
+    promptTooLong: 'Der Auftrag ist zu lang (max. 8000 Zeichen).',
 
-    outputSection: 'Ausgabe',
-    outputLabel: 'Was eine Ausführung erzeugt',
-    outputHint: 'Diese Wahl entscheidet auch, welche Skills der Job anhängen kann.',
-    output: {
-      chatLabel: 'Chat',
-      chatHint: 'ein Chat, den Sie öffnen und weiterführen können',
-      deepResearchLabel: 'Deep Research',
-      deepResearchHint: 'ein Bericht',
-    },
-
-    skillSection: 'Skill',
-    skillLabel: 'Angehängter Skill',
-    skillOptional: 'Optional',
-    skillHint:
-      'Ein Skill wird dem Prompt hinzugefügt — genau so, wie ein vorangestelltes „/name“ ihn anhängen würde. Die meisten Jobs brauchen keinen.',
-    skillNone: 'Kein Skill',
-    skillNoneHint: 'Der Prompt läuft für sich allein.',
-    skillPlaceholder: 'Kein Skill',
-    skillsLoading: 'Skills werden geladen…',
-    skillsError:
-      'Die Skills konnten nicht geladen werden — der Job lässt sich trotzdem ohne Skill speichern.',
-    skillsEmpty: 'Für diese Ausgabe kann kein Skill laufen.',
-    skillDetached: '„{name}“ kann nicht als {output} laufen und wurde deshalb entfernt.',
+    advancedSources: 'Datenquellen',
+    advancedSchedule: 'Zeitzone und Cron',
 
     sourcesSection: 'Datenquellen',
-    knowledgeAlways: 'Projektdokumente & OIB-Wissensbasis — in jedem Lauf automatisch enthalten',
-    additionalSourcesLabel: 'Weitere Quellen',
+    sourcesSummary: '{count} zusätzliche Quellen',
+    knowledgeAlways: 'Projektdokumente, OIB-Wissensbasis & RIS-Rechtstexte — jedes Mal dabei',
+    additionalSourcesLabel: 'Zusätzliche Quellen',
     sourcesHint:
-      'Fügen Sie Quellen über die Wissensbasis hinaus hinzu. Lassen Sie alle deaktiviert, um jede verfügbare weitere Quelle zuzulassen.',
+      'Quellen über die Wissensbasis hinaus. Nichts angehakt heißt: alle verfügbaren Quellen sind erlaubt.',
     sourcesAll: 'Alle verfügbaren Quellen',
     sourcesLoading: 'Quellen werden geladen…',
-    sourcesError:
-      'Die Quellen konnten nicht geladen werden — der Job verwendet alle verfügbaren Quellen.',
+    sourcesError: 'Quellen konnten nicht geladen werden — die Aufgabe nutzt alle verfügbaren.',
 
-    scheduleSection: 'Zeitplan',
-    enableScheduleLabel: 'Nach Zeitplan ausführen',
-    enableScheduleHint: 'Ist dies aus, läuft der Job nur bei „Jetzt ausführen“.',
-    presetLabel: 'Häufigkeit',
+    scheduleSection: 'Wann',
+    cadence: {
+      label: 'Wann soll die Aufgabe laufen',
+      once: 'Einmal',
+      onceHint: 'An einem Datum, das Sie festlegen. Danach ist sie erledigt.',
+      recurring: 'Wiederkehrend',
+      recurringHint: 'Nach einem Rhythmus, immer wieder.',
+      manual: 'Nur manuell',
+      manualHint: 'Läuft nur, wenn Sie „Jetzt ausführen“ drücken.',
+    },
+    dueAtLabel: 'Fälligkeitstermin',
+    dueAtHint: 'Nach Ihrer Ortszeit. Die Aufgabe läuft genau einmal.',
+    presetLabel: 'Wie oft',
+    timeLabel: 'Um',
+    minuteLabel: 'Zur Minute',
+    minutePast: '{minute} nach der vollen Stunde',
+    weekdayLabel: 'Am',
+    weekdayHint: 'So viele Tage wie nötig — Mo bis Fr liest sich als „werktags“.',
+    monthDayLabel: 'Am',
+    monthDayValue: '{day}.',
+    upcomingLabel: 'Nächste Termine',
+    upcomingNone: 'Das feuert nie von selbst — es läuft nur, wenn Sie es starten.',
+
+    customCronLabel: 'Cron-Ausdruck schreiben',
+    customCronHint: 'Für Rhythmen, die die vier Optionen oben nicht abbilden.',
     cronLabel: 'Cron-Ausdruck',
     cronPlaceholder: '0 6 * * 1',
     cronHint: 'Fünf Felder: Minute Stunde Tag-des-Monats Monat Wochentag.',
-    cronInvalid: 'Geben Sie einen gültigen Cron-Ausdruck mit 5 Feldern ein.',
+    cronInvalid: 'Bitte einen gültigen 5-Feld-Cron-Ausdruck eingeben.',
     timezoneLabel: 'Zeitzone',
+    timezoneHint: 'Der Zeitplan feuert nach der Uhr dieser Zone, Sommerzeit inklusive.',
 
-    enabledLabel: 'Aktiviert',
-    enabledHint:
-      'Ein deaktivierter Job läuft nie nach Zeitplan und kann nicht manuell ausgeführt werden.',
+    enabledLabel: 'Aktiv',
+    enabledHint: 'Eine pausierte Aufgabe feuert nie und lässt sich nicht von Hand starten.',
 
-    save: 'Job speichern',
-    saving: 'Wird gespeichert…',
-    cancel: 'Abbrechen',
-    createSuccess: 'Job erstellt.',
-    updateSuccess: 'Job gespeichert.',
-    saveError: 'Der Job konnte nicht gespeichert werden.',
+    reviewSentence: 'Piloti recherchiert {cadence} einen Bericht und legt ihn im Projekt ab.',
+    reviewSentenceOnce:
+      'Piloti recherchiert einen Bericht und legt ihn im Projekt ab — einmal, am {dueAt}.',
+    reviewSentenceManual:
+      'Piloti recherchiert einen Bericht und legt ihn im Projekt ab, jedes Mal wenn Sie es von Hand starten.',
+
+    createAndRun: 'Anlegen und jetzt ausführen',
+    saveAndRun: 'Speichern und jetzt ausführen',
+    runNowFailed: 'Die Aufgabe ist gespeichert, der erste Lauf konnte nicht gestartet werden.',
+
+    createSuccess: 'Aufgabe angelegt.',
+    updateSuccess: 'Aufgabe gespeichert.',
+    saveError: 'Die Aufgabe konnte nicht gespeichert werden.',
 
     preview: {
       title: 'Was der Agent erhält',
       subtitle:
-        'Genau der Text, der bei einer Ausführung übermittelt wird. Der Server baut denselben Prompt, wenn der Job auslöst.',
-      empty: 'Schreiben Sie einen Prompt, um zu sehen, was der Agent erhält.',
+        'Genau dieser Text wird übermittelt. Der Server baut beim Feuern denselben Prompt.',
     },
   },
 
   history: {
-    title: 'Ausführungsverlauf',
-    loading: 'Ausführungen werden geladen…',
-    loadError: 'Der Ausführungsverlauf konnte nicht geladen werden.',
-    empty: 'Dieser Job wurde noch nie ausgeführt.',
-    viewReport: 'Bericht ansehen',
+    title: 'Verlauf',
+    loading: 'Tasks werden geladen…',
+    loadError: 'Der Verlauf konnte nicht geladen werden.',
+    empty: 'Diese Aufgabe ist noch nie gelaufen.',
     openChat: 'Chat öffnen',
     viewProgress: 'Fortschritt ansehen',
-    viewThinking: 'Denkprozess ansehen',
     scheduler: 'Zeitplaner',
     trigger: {
       manual: 'Manuell',
-      schedule: 'Nach Zeitplan',
+      schedule: 'Geplant',
     },
     status: {
       submitted: 'Übermittelt',
@@ -191,8 +232,8 @@ export const jobs: typeof en.jobs = {
       error: 'Fehler',
     },
     jobStatus: {
-      submitted: 'In Warteschlange',
-      pending: 'In Warteschlange',
+      submitted: 'Eingereiht',
+      pending: 'Eingereiht',
       running: 'Läuft',
       completed: 'Abgeschlossen',
       failed: 'Fehlgeschlagen',

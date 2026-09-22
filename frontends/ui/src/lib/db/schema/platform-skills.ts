@@ -1,19 +1,29 @@
 import { boolean, jsonb, pgTable, text, timestamp, uniqueIndex, uuid } from 'drizzle-orm/pg-core'
+import { skillCategories } from './skill-categories'
 
 /**
- * How a curated skill reaches organizations.
+ * How a curated skill reaches organizations. One answer since migration 0088:
+ * it is OFFERED.
  *
- * `offer` is the default and what 0047 shipped: publishing puts the skill on
- * every org's Skills tab, and each one decides. `standard` is the tier that has
- * no tenant decision in it at all — the platform's own house instruction, live
- * for the whole fleet the moment it is published.
+ * There used to be a second, `standard` — fleet standard equipment, resolved
+ * for every organization with no decision in it, and FORCED onto every run so
+ * its body loaded whether or not the model judged it relevant. It is gone,
+ * together with the other way a skill could be forced onto a turn (the
+ * composer's `skills` array on the WS envelope). Both answered "how should
+ * Piloti behave by default?" with the wrong mechanism: a skill is a capability
+ * the model may reach for, and a skill that is always forced is an instruction
+ * wearing a capability's clothes.
  *
- * Mirrored by the `platform_skills_delivery_check` constraint (0050), which is
- * the one that survives a psql session: the resolver asks `delivery ===
- * 'standard'`, so an unrecognised value fails toward "offer" and would silently
- * demote a fleet instruction to something nobody was told to switch on.
+ * Standing instructions have two homes now, and neither is this table: the
+ * PLATFORM PROMPT for what the platform says, and `organization_instructions`
+ * (migration 0087) for what a tenant says.
+ *
+ * The tuple survives with one member rather than the column being dropped,
+ * because the column still states something true — a curated skill is offered —
+ * and `platform_skills_delivery_check` still says so in SQL. A column with one
+ * legal value and no constraint is a column that accepts the next typo.
  */
-export const PLATFORM_SKILL_DELIVERIES = ['offer', 'standard'] as const
+export const PLATFORM_SKILL_DELIVERIES = ['offer'] as const
 export type PlatformSkillDelivery = (typeof PLATFORM_SKILL_DELIVERIES)[number]
 
 /**
@@ -23,15 +33,10 @@ export type PlatformSkillDelivery = (typeof PLATFORM_SKILL_DELIVERIES)[number]
  * once, which is the whole point: we write a skill in the platform dashboard and
  * it reaches every org and project without anyone copying anything.
  *
- * HOW it reaches them is `delivery`, and there are two answers:
- *
- *   'offer'     Listed on every organization's Skills tab. A dashboard offer
- *               starts off until that org switches it on. The decision is
- *               theirs and lives in `curated_skill_activations`. Chat-usable
- *               FILE offers are a different source and start on.
- *   'standard'  Fleet standard equipment. Resolved for every organization with
- *               no decision to make, never listed, not switchable, and not
- *               shadowable by an org row of the same name.
+ * What it reaches them AS is an offer: listed on every organization's Skills
+ * tab, off until that org switches it on. The decision is theirs and lives in
+ * `curated_skill_activations`. Chat-usable FILE offers are a different source
+ * and start on.
  *
  * Distinct from the two skill sources that already existed:
  *
@@ -73,19 +78,21 @@ export const platformSkills = pgTable(
      */
     published: boolean('published').notNull().default(false),
     /**
-     * Whether organizations CHOOSE this skill or simply run it.
+     * How the skill reaches organizations. `offer`, and only `offer`, since
+     * 0088 retired the `standard` tier — see {@link PLATFORM_SKILL_DELIVERIES}.
      *
-     * Orthogonal to `published`, and the two closed defaults mean different
-     * things: an unpublished row is invisible, an `offer` row requires consent.
-     * A published `standard` row is the only combination that imposes anything
-     * on a tenant, which is why it takes two deliberate acts to reach.
-     *
-     * A tenant can never write this column — `platform_skills` is secured with
-     * `grid_secure_platform_table`, so SELECT is all the tenant role has. That
-     * is what makes `standard` an enforced boundary rather than a convention an
-     * org could route around by crafting a request.
+     * A tenant can never write this column: `platform_skills` is secured with
+     * `grid_secure_platform_table`, so SELECT is all the tenant role has.
      */
     delivery: text('delivery').$type<PlatformSkillDelivery>().notNull().default('offer'),
+    /**
+     * The platform shelf this skill stands on — a platform-owned category, or
+     * NULL for unsorted. Tenant shelves are never addressable here: the
+     * service validates the category's ownership on write.
+     */
+    categoryId: uuid('category_id').references(() => skillCategories.id, {
+      onDelete: 'set null',
+    }),
     createdBy: text('created_by').notNull(),
     createdByEmail: text('created_by_email'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),

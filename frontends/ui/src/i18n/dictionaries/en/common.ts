@@ -1,7 +1,7 @@
 /** Shared strings used across many surfaces. */
 export const common = {
   appName: 'Piloti',
-  tagline: 'AI-powered research assistant',
+  tagline: 'Workspace for planning offices',
   actions: {
     save: 'Save',
     cancel: 'Cancel',

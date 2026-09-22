@@ -1,0 +1,13 @@
+---
+features:
+  - >
+    Eine IFC-Datei verhält sich jetzt überall gleich. Ein Klick öffnet die
+    Vorschau mit dem Gebäude darin, und darunter führt eine Schaltfläche in den
+    Modellbereich. Bisher sprang ein Klick in den Projektdateien direkt in die
+    Vollbildansicht, während dieselbe Datei im Büroarchiv eine Vorschau ohne
+    Ausgang zeigte.
+  - >
+    Der Modellbereich ist jetzt auch aus dem Büroarchiv erreichbar. Struktur,
+    Mengen und Revisionen stehen dort vollständig zur Verfügung; das Prüfbuch
+    braucht weiterhin ein Projekt, weil es gegen Gebäudeklasse und Hauptnutzung
+    prüft, und sagt das an Ort und Stelle.

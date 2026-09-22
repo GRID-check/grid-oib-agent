@@ -356,6 +356,29 @@ class JobReportResponse(BaseModel):
             "(already validated at write time). Null when the run produced none."
         ),
     )
+    sources: list[dict] | None = Field(
+        None,
+        description=(
+            "The report's verified sources, each carrying the [N] the report cites it by, "
+            "as the runner persisted them. The live event stream discovers sources before "
+            "verification numbers them, so this is the only place a reader of the finished "
+            "report can learn which row [3] is. Null when the run recorded none."
+        ),
+    )
+
+
+def _report_sources(raw: Any) -> list[dict] | None:
+    """The persisted source list, or ``None`` for anything that is not one.
+
+    Same posture as :func:`_report_cards`: written by the runner from
+    ``source_entry_to_wire``, so a well-formed value is passed through whole, and
+    a malformed one (an older worker, a corrupted blob) degrades to "no sources"
+    rather than costing the report.
+    """
+    if not isinstance(raw, list):
+        return None
+    sources = [entry for entry in raw if isinstance(entry, dict)]
+    return sources or None
 
 
 class ResearchRunItem(BaseModel):
@@ -560,7 +583,16 @@ async def register_job_routes(app: FastAPI, builder: WorkflowBuilder, worker: Fa
 
         from ..jobs.event_store import EventStore
 
-        result = {"status": "ok", "dask_available": dask_available, "db": "ok"}
+        # `sha` is the deployed commit (GRID_GIT_SHA, stamped into the image
+        # at build time), or "unknown". The boot log prints it too, but a pilot
+        # report arrives after that line has rotated — this answers "what is
+        # that deployment running" over HTTP, which is what makes the report
+        # actionable. It also reaches the BFF's own `/api/health`, which is a
+        # pass-through of this body. A commit sha of a private repository is
+        # not a credential and not tenant data.
+        from ..startup_banner import deployed_sha
+
+        result = {"status": "ok", "sha": deployed_sha(), "dask_available": dask_available, "db": "ok"}
 
         # Check DB connectivity using any cached async engine
         try:
@@ -820,6 +852,7 @@ async def register_job_routes(app: FastAPI, builder: WorkflowBuilder, worker: Fa
 
         report = None
         cards = None
+        sources = None
         if job.output:
             try:
                 output = json.loads(job.output) if isinstance(job.output, str) else job.output
@@ -830,6 +863,9 @@ async def register_job_routes(app: FastAPI, builder: WorkflowBuilder, worker: Fa
                 # describes a state the runner cannot produce — it writes both
                 # keys in the same `output` dict or neither.
                 cards = _report_cards(output.get("cards")) if report else None
+                # Gated the same way, for the same reason: they are the sources
+                # OF this report, numbered as it cites them.
+                sources = _report_sources(output.get("sources")) if report else None
             except (json.JSONDecodeError, AttributeError):
                 pass
 
@@ -842,6 +878,7 @@ async def register_job_routes(app: FastAPI, builder: WorkflowBuilder, worker: Fa
             has_report=bool(report),
             report=report,
             cards=cards,
+            sources=sources,
             project_collection=project_collection,
         )
 
@@ -1117,6 +1154,7 @@ async def _do_reap_cycle(job_store, db_url: str, scheduler_address: str | None, 
     from nat.front_ends.fastapi.async_jobs.job_store import JobStatus
 
     from ..jobs.event_store import EventStore
+    from ..jobs.runner import _update_status_if_not_terminal
     from ..jobs.submit import job_execution_mode
 
     if job_execution_mode() == "db":
@@ -1133,14 +1171,26 @@ async def _do_reap_cycle(job_store, db_url: str, scheduler_address: str | None, 
         stale_statuses = (JobStatus.RUNNING.value, JobStatus.SUBMITTED.value)
     stale_job_ids = await loop.run_in_executor(None, _find_stale_jobs, db_url, stale_statuses)
 
+    reaped: list[str] = []
     for stale_job_id in stale_job_ids:
         logger.warning("Reaping ghost job %s (no events for %ds)", stale_job_id, GHOST_JOB_TIMEOUT_SECONDS)
         try:
-            await job_store.update_status(
+            # Conditional write: the worker may have finalized this job after
+            # it was detected as stale (a SUCCESS racing the reaper). An
+            # unconditional update_status here would flip that verdict back to
+            # FAILURE — the mirror image of the runner-overwrites-reaper race.
+            written = await _update_status_if_not_terminal(
+                job_store,
                 stale_job_id,
                 JobStatus.FAILURE,
                 error="Job timed out (no heartbeat received from worker)",
             )
+            if not written:
+                logger.info(
+                    "Ghost job %s reached a terminal status before reaping; leaving the existing verdict",
+                    stale_job_id,
+                )
+                continue
             event_store = EventStore(db_url, stale_job_id)
             event_store.store(
                 {
@@ -1157,10 +1207,11 @@ async def _do_reap_cycle(job_store, db_url: str, scheduler_address: str | None, 
             # and its CancellationMonitor stops it once it polls the FAILURE).
             if scheduler_address:
                 await _cancel_dask_task(scheduler_address, stale_job_id)
+            reaped.append(stale_job_id)
         except Exception as e:
             logger.warning("Failed to reap ghost job %s: %s", stale_job_id, e)
 
-    return stale_job_ids
+    return reaped
 
 
 async def _reap_ghost_jobs(job_store, db_url: str, scheduler_address: str | None = None) -> None:
@@ -1776,6 +1827,21 @@ async def _sse_generator(job_store, job_id: str, db_url: str, start_event_id: in
             yield event
 
 
+#: How long an SSE stream may go byte-silent before it sends a keepalive comment.
+#:
+#: Nothing in either generator emitted anything while a job sat queued or a
+#: worker was still building its graph, and deep research is silent for minutes
+#: at a time by design. Node's undici applies a 300 s inactivity `bodyTimeout`
+#: to the BFF's `fetch` of this stream, so a quiet run was torn down from the
+#: proxy side at exactly the moment the reader was waiting hardest — which is
+#: the "deep research just stops" report. A comment frame is invisible to
+#: `EventSource` (the spec says to ignore it) and costs 13 bytes.
+SSE_KEEPALIVE_SECONDS = 20.0
+
+#: An SSE comment: ignored by every client, resets every inactivity timer.
+SSE_KEEPALIVE_FRAME = ": keepalive\n\n"
+
+
 async def _sse_generator_postgres(
     job_store, job_id: str, db_url: str, start_event_id: int = 0, progress: dict[str, int] | None = None
 ):
@@ -1901,11 +1967,19 @@ async def _sse_generator_postgres(
                 logger.info(f"SSE pub-sub: Job {job_id} already complete, sent {len(events)} events")
                 return
 
+            last_sent = time.monotonic()
+            keepalive_cursor = last_event_id
+
             while True:
                 if connection_manager.is_shutting_down:
                     logger.info("SSE pub-sub stream closing for job %s due to server shutdown", job_id)
                     yield format_sse("job.shutdown", {"message": "Server shutting down"})
                     break
+                # Any real frame counts as liveness; the keepalive only fills
+                # genuine silence rather than adding to a busy stream.
+                if last_event_id != keepalive_cursor:
+                    keepalive_cursor = last_event_id
+                    last_sent = time.monotonic()
 
                 try:
                     try:
@@ -1935,6 +2009,9 @@ async def _sse_generator_postgres(
                                 advance_cursor(db_event_id)
                             event_type = event.pop("type", "event")
                             yield format_sse(event_type, event, db_event_id)
+                        if not fallback_events and time.monotonic() - last_sent >= SSE_KEEPALIVE_SECONDS:
+                            last_sent = time.monotonic()
+                            yield SSE_KEEPALIVE_FRAME
 
                     job = await job_store.get_job(job_id)
                     if not job:
@@ -2010,6 +2087,8 @@ async def _sse_generator_polling(job_store, job_id: str, db_url: str, start_even
     is_reconnect = start_event_id > 0
     in_replay_mode = True
     replay_mode_announced = False
+    last_sent = time.monotonic()
+    keepalive_cursor = start_event_id
 
     def format_sse(event_type: str, data: dict, event_id: int | None = None) -> str:
         # Synthetic events (job.status, stream.mode, ...) reuse the last real
@@ -2107,6 +2186,16 @@ async def _sse_generator_polling(job_store, job_id: str, db_url: str, start_even
                 if not in_replay_mode and not replay_mode_announced:
                     replay_mode_announced = True
                     yield format_sse("stream.mode", {"mode": "live"})
+
+                # Same silence problem as the pub-sub generator, at a 0.5 s tick:
+                # a live-mode poll that finds nothing yields nothing, and the
+                # proxy's inactivity timer does not know the job is fine.
+                if last_event_id != keepalive_cursor:
+                    keepalive_cursor = last_event_id
+                    last_sent = time.monotonic()
+                elif time.monotonic() - last_sent >= SSE_KEEPALIVE_SECONDS:
+                    last_sent = time.monotonic()
+                    yield SSE_KEEPALIVE_FRAME
 
                 shutdown_signaled = await connection_manager.wait_or_shutdown(0.5)
                 if shutdown_signaled:

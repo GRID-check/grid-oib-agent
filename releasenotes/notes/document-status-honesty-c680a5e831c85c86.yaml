@@ -1,0 +1,22 @@
+---
+# One entry per user-visible change. This text is PUBLISHED, in English and in
+# German machine translation, to https://piloti.at/changelog — write it for the
+# architect using Piloti, not for the reviewer of your diff.
+#
+#   - Plain sentences. No RST directives, no code blocks, no issue numbers, no
+#     file paths, no internal component names.
+#   - Say what the reader can now do, or what stopped going wrong for them.
+#   - Two sentences is usually the right length. `task release:lint` enforces
+#     the mechanical half of this.
+#
+# Delete every section you do not need — an empty one fails the lint.
+fixes:
+  - >
+    A document stuck on "processing" after an ingestion job was lost can now
+    be retried from its menu instead of deleted and re-uploaded. The retry
+    keeps the document, so sources, chat references and assignments survive,
+    and it refuses while ingestion is genuinely still running.
+  - >
+    A document whose indexing never started no longer wears a green
+    "citable" badge. It now reports a failure with a retry, or a neutral
+    stored state for rows filed before this change.

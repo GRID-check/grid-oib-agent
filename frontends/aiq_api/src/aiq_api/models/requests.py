@@ -35,6 +35,37 @@ class IngestRequest(BaseModel):
             "(e.g. 'Brandschutz/Fluchtwege'). Omit or null for the project root."
         ),
     )
+    file_name: str | None = Field(
+        None,
+        description=(
+            "The document's identity inside the collection, as the BFF's `documents.filename`. "
+            "Omit or null to derive it from the presigned URL's last path segment, which is what "
+            "every caller did before this field existed. State it whenever the object key's "
+            "basename is not the name the document is known by: the chunk `file_name` metadata "
+            "is the join key every chunk purge addresses, and a name derived from the key is a "
+            "guess about a string the BFF already knows."
+        ),
+    )
+    authored_by: str | None = Field(
+        None,
+        description=(
+            "Who wrote the document: 'agent' for one Piloti wrote, absent for every human "
+            "document. The first of four provenance keys stamped onto every chunk and onto the "
+            "document metadata row; see aiq_agent.common.provenance."
+        ),
+    )
+    approved_by: str | None = Field(
+        None,
+        description="Display name of the person who released an agent-authored document.",
+    )
+    approved_at: str | None = Field(
+        None,
+        description="ISO timestamp of that release.",
+    )
+    producer: str | None = Field(
+        None,
+        description="Which pipeline wrote an agent-authored document (`documents.authored_by_producer`).",
+    )
 
 
 class DocumentSearchRequest(BaseModel):

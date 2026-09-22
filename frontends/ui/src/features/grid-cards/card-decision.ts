@@ -55,6 +55,13 @@ export const CARD_INTERACTIVITY: Record<GridCard['type'], CardInteractivity> = {
   project_profile_patch: 'interactive',
   // Asks the user to commit an org- or project-scoped memory write.
   memory_proposal: 'interactive',
+  // Asks the user to run a workspace change the agent only PROPOSED: a move, a
+  // rename, a new folder, a Dokumentart, an assignment. Accepting calls the
+  // same routes the Files pane calls, in this reader's session, and none of
+  // them is idempotent — a card that forgot it had been accepted would move the
+  // same files a second time (or fail confusingly, because they are no longer
+  // where the card says they are).
+  file_operation_proposal: 'interactive',
 
   // Presentation only — no commitment is started, nothing to remember.
   summary: 'presentational',
@@ -130,6 +137,26 @@ export const CARD_INTERACTIVITY: Record<GridCard['type'], CardInteractivity> = {
   // decision, so there is nothing to remember across a reload.
   follow_ups: 'presentational',
   document_grid: 'presentational',
+  // Reports a draft the working directory holds, and — once it has been filed,
+  // whether by Piloti or by the reader's own press — the project document it
+  // became. „Zur Freigabe einreichen" on a filed card is a real write through
+  // the lifecycle client: it opens an inbox item on a reviewer and moves the
+  // version to `in_review`, from which it can no longer be replaced. Pressing
+  // it twice is not idempotent, and a card that forgot it had been pressed
+  // would ask a colleague twice.
+  //
+  // The UNFILED card's „Ins Projekt ablegen" files the draft directly through
+  // the BFF's draft-file door, in the reader's own session, and records
+  // `filed` — see `DocumentDraftCard`. The decision is record-only: a
+  // `CardInteraction` carries no document id, so the open link lives in the
+  // card's own mount state and a reload restores it through the same
+  // idempotent press.
+  document_draft: 'interactive',
+  // Reports a task row the BFF has ALREADY created — `create_task` returns the
+  // id this card carries. There is nothing to accept: the only controls a
+  // decision could drive would repeat the delegation or cancel it, and
+  // cancelling delegated work belongs to the task surface, not to a chat card.
+  task_created: 'presentational',
   building_section: 'presentational',
   stair_diagram: 'presentational',
   dimension_diagram: 'presentational',
@@ -180,9 +207,16 @@ export const isInteractiveCardType = (type: GridCard['type']): boolean =>
  * derived from the card itself.
  */
 export const CARD_DECISIONS = [
-  /** project_profile_patch: the patch was applied to the project brief. */
+  /**
+   * project_profile_patch: the patch was applied to the project brief.
+   * file_operation_proposal: every operation on the card was applied.
+   *
+   * The file card reuses this pair rather than growing its own: the reader's
+   * answer is the same answer, and the card's payload already says which verb
+   * it was.
+   */
   'accepted',
-  /** project_profile_patch: the user declined the patch. */
+  /** project_profile_patch / file_operation_proposal: the user declined. */
   'rejected',
   /** memory_proposal: written org-wide. */
   'savedOrg',
@@ -190,6 +224,37 @@ export const CARD_DECISIONS = [
   'savedProject',
   /** memory_proposal: the user declined to remember it. */
   'dismissed',
+  /**
+   * file_operation_proposal: the reader accepted and SOME of the operations
+   * failed — a file that had moved since the proposal was written, a folder
+   * somebody deleted, a colleague who left the project.
+   *
+   * Its own outcome because the alternative is a card that says „übernommen"
+   * about four moves of which three happened. Which ones failed is NOT stored
+   * (a `CardInteraction` is a decision plus a timestamp, ADR-0030), so after a
+   * reload the card says that some could not be applied and points at the
+   * Files pane — honest about what it knows and about what it does not.
+   */
+  'partiallyApplied',
+  /**
+   * document_draft: the reader filed the unfiled draft into the project
+   * themselves, through the BFF's draft-file door.
+   *
+   * Record-only, like every decision here: the open link is NOT stored (a
+   * `CardInteraction` is a decision plus a timestamp, ADR-0030), so after a
+   * reload the card knows it was filed and restores the link through the same
+   * idempotent press rather than remembering it.
+   */
+  'filed',
+  /**
+   * document_draft: the filed draft was sent for approval.
+   *
+   * Its own outcome rather than `accepted`, which is about a proposal the
+   * reader agreed to: nothing was proposed here. What happened is that a
+   * version left the writing states and a person was asked to look at it, and
+   * the card has to say THAT after a reload rather than „übernommen".
+   */
+  'submitted',
 ] as const
 
 export type CardDecision = (typeof CARD_DECISIONS)[number]
@@ -207,11 +272,14 @@ export type CardInteractions = Record<string, CardInteraction>
 /**
  * Stable identity of a card WITHIN one message.
  *
- * Cards carry no id on the wire, so identity is positional. Once a turn has
- * FINALIZED its `cards` array is never mutated again — it round-trips through
- * localStorage and `metadata.cards` unchanged — so the key means the same thing
- * for the life of the message. `GridCards` uses this same value as its React
- * key, so a decision and the element it belongs to cannot drift apart.
+ * Cards carry no id on the wire, so identity is positional — and positions
+ * only mean something because `validateGridCards` never compacts the array: a
+ * card that fails validation leaves an `undefined` hole at its wire index
+ * rather than renumbering what follows. Once a turn has FINALIZED, its `cards`
+ * array is never mutated again — it round-trips through localStorage and
+ * `metadata.cards` unchanged — so the key means the same thing for the life
+ * of the message. `GridCards` uses this same value as its React key, so a
+ * decision and the element it belongs to cannot drift apart.
  *
  * While a turn is still STREAMING the array is replaced wholesale on each frame
  * that carries cards; `reconcileCardInteractions` re-checks every recorded
@@ -259,8 +327,8 @@ const isTimestamp = (value: unknown): value is string =>
  */
 export const reconcileCardInteractions = (
   interactions: CardInteractions | undefined,
-  previousCards: ReadonlyArray<GridCard> | undefined,
-  nextCards: ReadonlyArray<GridCard> | undefined
+  previousCards: ReadonlyArray<GridCard | undefined> | undefined,
+  nextCards: ReadonlyArray<GridCard | undefined> | undefined
 ): CardInteractions | undefined => {
   if (!interactions) return undefined
 
@@ -268,6 +336,11 @@ export const reconcileCardInteractions = (
   // them and revive exactly the mis-attribution this guards against.
   const survivors = new Set<string>()
   ;(nextCards ?? []).forEach((card, index) => {
+    // A hole is a card validation rejected: it carries no decision, and
+    // `cardKey` needs a real card — so a decision once recorded against this
+    // index is dropped rather than re-anchored. Losing a record and re-asking
+    // is recoverable, attributing it to the card beside the hole is not.
+    if (!card) return
     const previous = previousCards?.[index]
     if (previous !== undefined && JSON.stringify(previous) === JSON.stringify(card)) {
       survivors.add(cardKey(card, index))

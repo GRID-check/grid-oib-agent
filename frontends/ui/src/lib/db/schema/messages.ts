@@ -40,6 +40,29 @@ export const messages = pgTable(
      */
     authorUserId: text('author_user_id'),
     content: text('content').notNull(),
+    /**
+     * The `task_runs` row this message is the account of (migration 0091,
+     * ADR-0062).
+     *
+     * A run — a deep-research run, a scheduled task — is ONE assistant message
+     * in the conversation it was commissioned in, and that message carries the
+     * run ledger in `metadata.run_ledger`. This column is what finds it: NULL on
+     * every message a person or an ordinary turn wrote, set on exactly one
+     * message per run.
+     *
+     * `text` and no foreign key, for the reason `document_versions.origin_conversation_id`
+     * has none: the honest constraint would be composite with the tenant column,
+     * which is worth its cost on a row that decides access and not on one that
+     * decides rendering. A run deleted out from under its message leaves a string
+     * that resolves to nothing, and every reader treats that as „kein Lauf".
+     *
+     * NOTE: the database also has `idx_messages_run_id`, PARTIAL
+     * (`WHERE run_id IS NOT NULL`) so it carries no entry for the ordinary chat
+     * message. Drizzle's index builder cannot express a partial index, so it
+     * lives only in migration 0091 — the same arrangement as
+     * `conversations_job_id_idx`.
+     */
+    runId: text('run_id'),
     metadata: jsonb('metadata'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },

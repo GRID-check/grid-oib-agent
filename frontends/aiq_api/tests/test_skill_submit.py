@@ -8,12 +8,13 @@ and manual skill runs. It must:
 - reject malformed payloads (missing organization_id, invalid output enum,
   neither output nor execution, oversized input) with 422;
 - select the agent type DETERMINISTICALLY from the JOB's chosen output kind:
-  ``chat`` -> shallow_researcher, ``deep-research`` -> deep_researcher, with an
+  ``chat`` -> researcher, ``deep-research`` -> deep_researcher, with an
   explicit ``agent_type`` as the only override;
 - accept the pre-rename ``execution`` spelling for one release, with ``output``
   winning when both arrive (the BFF and this service deploy separately);
-- thread the forced skill names through to ``submit_agent_job`` as
-  ``force_skills`` (the same path ``data_sources`` travels);
+- accept the attached skill NAMES and forward none of them: the skill's body
+  is already inside the composed ``input``, and no agent state carries a forced
+  skill any more;
 - reconstitute the skill owner's identity into the Principal, owner, and
   usage_context handed to ``submit_agent_job`` (org-scoped admission + cost
   attribution);
@@ -172,35 +173,29 @@ def test_unknown_legacy_execution_value_422(client, prod_token):
 # --- skills are optional: a job is a prompt, a skill is attached on top -----
 
 
-def test_missing_skills_submits_with_no_forced_skills(client, prod_token, submit_mock):
+def test_missing_skills_submits_the_prompt_alone(client, prod_token, submit_mock):
     """A job need not have a skill at all — the prompt runs on its own."""
     body = _valid_body()
     del body["skills"]
     resp = _post(client, body)
     assert resp.status_code == 200
-    assert submit_mock.await_args.kwargs["force_skills"] == []
+    assert "force_skills" not in submit_mock.await_args.kwargs
 
 
-def test_empty_skills_submits_with_no_forced_skills(client, prod_token, submit_mock):
-    """An empty list is "no skill attached", not a malformed payload.
-
-    It is forwarded as-is rather than normalised to None: everything downstream
-    already treats an empty force list identically to no list
-    (``SkillRuntime(force_names=[])`` iterates ``force_names or ()``, and the
-    shallow register layer's wiring check is a plain truthiness test).
-    """
+def test_an_empty_skills_list_is_accepted_not_rejected(client, prod_token, submit_mock):
+    """An empty list is "no skill attached", not a malformed payload."""
     resp = _post(client, _valid_body(skills=[]))
     assert resp.status_code == 200
-    assert submit_mock.await_args.kwargs["force_skills"] == []
+    assert "force_skills" not in submit_mock.await_args.kwargs
 
 
 # --- deterministic agent selection ----------------------------------------
 
 
-def test_chat_output_selects_shallow_researcher(client, prod_token, submit_mock):
+def test_chat_output_selects_researcher(client, prod_token, submit_mock):
     resp = _post(client, _valid_body(output="chat", agent_type=None))
     assert resp.status_code == 200
-    assert submit_mock.await_args.kwargs["agent_type"] == "shallow_researcher"
+    assert submit_mock.await_args.kwargs["agent_type"] == "researcher"
 
 
 def test_deep_research_output_selects_deep_researcher(client, prod_token, submit_mock):
@@ -229,7 +224,7 @@ def test_output_only_is_the_new_contract(client, prod_token, submit_mock):
     assert "execution" not in body
     resp = _post(client, body)
     assert resp.status_code == 200
-    assert submit_mock.await_args.kwargs["agent_type"] == "shallow_researcher"
+    assert submit_mock.await_args.kwargs["agent_type"] == "researcher"
 
 
 def test_execution_only_still_works_during_the_deploy_window(client, prod_token, submit_mock):
@@ -237,13 +232,13 @@ def test_execution_only_still_works_during_the_deploy_window(client, prod_token,
     del body["output"]
     resp = _post(client, body)
     assert resp.status_code == 200
-    assert submit_mock.await_args.kwargs["agent_type"] == "shallow_researcher"
+    assert submit_mock.await_args.kwargs["agent_type"] == "researcher"
 
 
 def test_output_wins_when_both_are_sent(client, prod_token, submit_mock):
     resp = _post(client, _valid_body(output="chat", execution="deep-research"))
     assert resp.status_code == 200
-    assert submit_mock.await_args.kwargs["agent_type"] == "shallow_researcher"
+    assert submit_mock.await_args.kwargs["agent_type"] == "researcher"
 
 
 def test_neither_output_nor_execution_is_422_not_500(client, prod_token, submit_mock):
@@ -276,15 +271,17 @@ def test_successful_submit_returns_job_id(client, prod_token, submit_mock):
     submit_mock.assert_awaited_once()
 
 
-def test_successful_submit_forwards_identity_scope_and_forced_skills(client, prod_token, submit_mock):
+def test_successful_submit_forwards_identity_and_scope(client, prod_token, submit_mock):
     resp = _post(client, _valid_body())
     assert resp.status_code == 200
 
     kwargs = submit_mock.await_args.kwargs
     assert kwargs["agent_type"] == "deep_researcher"
     assert kwargs["input_text"] == "Act as a building-physics advisor: check the OIB thermal requirements."
-    # The forced skill names ride the same path data_sources travels.
-    assert kwargs["force_skills"] == ["oib-thermal-check", "building-physics-advisor"]
+    # The skill names are NOT forwarded: the attached skill's body is already
+    # composed into `input` above, and nothing on the worker can be told to
+    # load a skill any more.
+    assert "force_skills" not in kwargs
     # Owner is the owner's email (principal.email or principal.sub).
     assert kwargs["owner"] == "creator@example.com"
     # Collection scope is forwarded verbatim; the project collection is derived
@@ -292,6 +289,9 @@ def test_successful_submit_forwards_identity_scope_and_forced_skills(client, pro
     assert kwargs["collection_scope"] == ["oib_knowledge", "proj_uuid_1", "s_conv1"]
     assert kwargs["project_context"] is None
     assert kwargs["model_overrides"] == {"researcher": "openrouter/some-model"}
+    # Absent from the body: no digest travels, and reflection stays off.
+    assert kwargs["project_memory"] is None
+    assert kwargs["memory_reflection_enabled"] is False
 
     # Principal is the skill owner (type "jwt" matches the WorkOS principal
     # they present later), so job-access ownership authz keeps working.
@@ -322,10 +322,10 @@ def test_owner_falls_back_to_user_id_when_no_email(client, prod_token, submit_mo
     assert kwargs["principal"].email is None
 
 
-def test_chat_output_forwards_a_single_forced_skill(client, prod_token, submit_mock):
+def test_chat_output_accepts_an_attached_skill_without_forcing_it(client, prod_token, submit_mock):
     resp = _post(client, _valid_body(output="chat", skills=["only-one"]))
     assert resp.status_code == 200
-    assert submit_mock.await_args.kwargs["force_skills"] == ["only-one"]
+    assert "force_skills" not in submit_mock.await_args.kwargs
 
 
 def test_unknown_data_source_ids_422_via_registry_fallback(client, prod_token, submit_mock, monkeypatch):
@@ -378,3 +378,38 @@ def test_route_not_on_external_allowlist():
     for allowed in EXTERNAL_ALLOWED_PATHS:
         if allowed.endswith("/"):
             assert not path.startswith(allowed)
+
+
+def test_memory_digest_and_reflection_flag_are_forwarded(client, prod_token, submit_mock):
+    """A scheduled run gets what a chat turn gets: the project's memory, and the
+    organization's reflection flag as the BFF evaluated it."""
+    body = _valid_body()
+    body["project_memory"] = "PROJECT_MEMORY v1\n- Atrium ist OIB 2.3"
+    body["memory_reflection_enabled"] = True
+    resp = _post(client, body)
+    assert resp.status_code == 200
+    kwargs = submit_mock.await_args.kwargs
+    assert kwargs["project_memory"] == "PROJECT_MEMORY v1\n- Atrium ist OIB 2.3"
+    assert kwargs["memory_reflection_enabled"] is True
+
+
+def test_run_id_is_forwarded_so_the_worker_can_narrate_the_run(client, prod_token, submit_mock):
+    """The run's own id reaches the worker (ADR-0062).
+
+    Without it `runner` builds no ``RunLedgerFold``: the BFF mints the run's
+    message, the block appears — and then never moves, because nothing flushes
+    a ledger to it. The field is the whole reason the block is live.
+    """
+    body = _valid_body()
+    body["run_id"] = "6f1c2f6e-4a1b-4c2e-9f3a-2b1d4e5f6a7b"
+    resp = _post(client, body)
+    assert resp.status_code == 200
+    assert submit_mock.await_args.kwargs["run_id"] == "6f1c2f6e-4a1b-4c2e-9f3a-2b1d4e5f6a7b"
+
+
+def test_a_submit_without_a_run_id_still_runs(client, prod_token, submit_mock):
+    """A job with no run row behind it narrates itself on its event stream and
+    writes no ledger — absent, not invalid."""
+    resp = _post(client, _valid_body())
+    assert resp.status_code == 200
+    assert submit_mock.await_args.kwargs["run_id"] is None

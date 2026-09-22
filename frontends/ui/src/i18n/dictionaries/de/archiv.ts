@@ -39,6 +39,12 @@ export const archiv = {
       siteplan: 'Lageplan',
       notice: 'Bescheid',
       photo: 'Foto',
+      // `model` fehlte, obwohl `inferDocumentKind` es für jede `.ifc` liefert —
+      // die Karte zeigte den rohen Schlüssel. Ein Gebäude ist kein Dokument,
+      // und die Bezeichnung sagt das.
+      model: 'Gebäudemodell',
+      sheet: 'Tabelle',
+      text: 'Notiz',
       document: 'Dokument',
     },
   },
@@ -62,13 +68,17 @@ export const archiv = {
     reingestError: 'Die Verarbeitung konnte nicht erneut gestartet werden. Bitte versuchen Sie es erneut.',
     menuLabel: 'Dateiaktionen',
     download: 'Herunterladen',
+    open: 'Öffnen',
+    ask: 'Danach fragen',
+    copyOriginPath: 'Herkunftspfad kopieren',
+    move: 'In Ordner verschieben',
     rename: 'Umbenennen…',
     delete: 'Löschen…',
   },
   rename: {
     title: 'Dokument umbenennen',
     description:
-      'Ändert den Namen, der in Grid überall angezeigt wird — auch in Zitaten. Die Datei selbst und alles daraus Indexierte bleiben unverändert.',
+      'Ändert den Namen, der in Piloti überall angezeigt wird — auch in Zitaten. Die Datei selbst und alles daraus Indexierte bleiben unverändert.',
     label: 'Name',
     hint: 'Die Dateiendung bleibt erhalten.',
     save: 'Umbenennen',

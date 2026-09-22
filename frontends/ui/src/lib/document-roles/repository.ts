@@ -85,11 +85,11 @@ export async function listProjectDocumentRoles(projectId: string): Promise<Docum
   const rows = await db
     .select(SELECTION)
     .from(documentRoles)
+    // The join is the liveness check: a document delete is a hard DELETE and the
+    // FK cascade takes the binding with it, so a row here always names a file
+    // that exists. (Documents have no soft delete — 0077.)
     .innerJoin(documents, eq(documents.id, documentRoles.documentId))
-    // A soft-deleted document still has its rows (the FK cascade only fires on a
-    // hard delete), so without this a binding outlives the file it names and the
-    // checklist reports a slot as filled by something the user already removed.
-    .where(and(eq(documentRoles.projectId, projectId), isNull(documents.deletedAt)))
+    .where(eq(documentRoles.projectId, projectId))
     .orderBy(documentRoles.role, documentRoles.createdAt)
   return rows.map(toBinding)
 }
@@ -115,8 +115,7 @@ export async function findBindingsForRole(
         // have it — the single-holder ones.
         scopeInstanceId === null
           ? isNull(documentRoles.scopeInstanceId)
-          : eq(documentRoles.scopeInstanceId, scopeInstanceId),
-        isNull(documents.deletedAt)
+          : eq(documentRoles.scopeInstanceId, scopeInstanceId)
       )
     )
     .orderBy(documentRoles.createdAt)
@@ -222,8 +221,7 @@ export async function documentBelongsToProject(
     .where(
       and(
         eq(documents.id, documentId),
-        eq(documents.projectId, projectId),
-        isNull(documents.deletedAt)
+        eq(documents.projectId, projectId)
       )
     )
     .limit(1)

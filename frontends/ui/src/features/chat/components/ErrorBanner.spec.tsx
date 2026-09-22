@@ -217,3 +217,59 @@ describe('ErrorBanner', () => {
     })
   })
 })
+
+/**
+ * The support reference (ledger item 11).
+ *
+ * The property that matters is not that an id is drawn — it is that the id
+ * drawn is a PREFIX of the id copied, and that both are the id the BFF logged.
+ * A digest, or a re-formatted id, would look right and find nothing.
+ */
+describe('ErrorBanner — support reference', () => {
+  const REQUEST_ID = '3f2a1b4c-9d8e-4f70-bc21-0a5d6e7f8091'
+
+  test('says nothing when the failure carried no id', () => {
+    render(<ErrorBanner code="connection.failed" />)
+
+    expect(screen.queryByTestId('error-request-id')).not.toBeInTheDocument()
+  })
+
+  test('shows the short form under the support label', () => {
+    render(<ErrorBanner code="connection.failed" requestId={REQUEST_ID} />)
+
+    const reference = screen.getByTestId('error-request-id')
+    expect(reference).toHaveTextContent('Support reference')
+    expect(reference).toHaveTextContent('3f2a1b4c')
+    // The long form is not on screen: it is what the clipboard gets.
+    expect(reference).not.toHaveTextContent(REQUEST_ID)
+  })
+
+  test('copies the WHOLE id, not the eight characters it shows', async () => {
+    const user = userEvent.setup()
+    // AFTER `setup()`: user-event installs a clipboard stub of its own, and a
+    // spy defined before it is the one that gets replaced.
+    const writeText = vi.fn().mockResolvedValue(undefined)
+    Object.defineProperty(navigator, 'clipboard', {
+      value: { writeText },
+      configurable: true,
+    })
+    render(<ErrorBanner code="connection.failed" requestId={REQUEST_ID} />)
+
+    await user.click(screen.getByLabelText(`Copy reference ${REQUEST_ID}`))
+
+    expect(writeText).toHaveBeenCalledWith(REQUEST_ID)
+  })
+
+  test('a refused clipboard leaves the id readable rather than throwing', async () => {
+    const user = userEvent.setup()
+    Object.defineProperty(navigator, 'clipboard', {
+      value: { writeText: vi.fn().mockRejectedValue(new Error('denied')) },
+      configurable: true,
+    })
+    render(<ErrorBanner code="connection.failed" requestId={REQUEST_ID} />)
+
+    await user.click(screen.getByLabelText(`Copy reference ${REQUEST_ID}`))
+
+    expect(screen.getByTestId('error-request-id')).toHaveTextContent('3f2a1b4c')
+  })
+})

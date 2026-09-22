@@ -238,19 +238,16 @@ def _gate(facts: TurnFacts) -> GateDecision:
     whether the bet paid. Ordered most specific first, so a turn that fails two
     conditions is filed under the one that says the most about it.
     """
-    if facts.deep_research_job_id:
-        # The chat turn is a stub; the report arrives later on the job path.
-        return GateDecision.skip("deep_research_job")
-    if facts.intent == "out_of_scope":
-        # An off-topic redirect must not be handed four ways to stay off topic.
-        # Checked before `routing_decision`, which folds out_of_scope into
-        # "meta" for the transparency surface and would hide it here.
-        return GateDecision.skip("intent_out_of_scope")
-    if facts.routing_decision == "meta" or facts.intent == "meta":
-        # Small talk has no subject to go deeper into — `_FOLLOW_UPS_RULE`'s
-        # first exception, enforced instead of suggested.
+    if facts.run_id:
+        # The turn commissioned a run; the report arrives on the run's own
+        # message, and the follow-ups belong to it rather than to the handover.
+        return GateDecision.skip("commissioned_run")
+    if facts.routing_decision == "meta":
+        # A direct reply — small talk, a shelf listing, an off-topic decline —
+        # has no subject to go deeper into: `_FOLLOW_UPS_RULE`'s first
+        # exception, enforced instead of suggested.
         return GateDecision.skip("routing_meta")
-    if facts.routing_decision == "error" or facts.intent == "error":
+    if facts.routing_decision == "error":
         return GateDecision.skip("routing_error")
     if facts.research_truncated:
         # The turn ran out of budget before it ran out of question. Offering

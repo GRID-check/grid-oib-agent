@@ -39,6 +39,7 @@ import { FEATURE_FLAGS, requireFeature } from '@/lib/authz/feature-flags'
 import { isAuthzError } from '@/lib/auth-utils'
 import { getEffectiveModelOverrides } from '@/lib/model-config/service'
 import { loadProjectBundesland } from '@/lib/project-profile/prompt-view'
+import { resolveOrgInstructions } from '@/lib/org-instructions/service'
 import {
   buildGridRequestContextWireHeaders,
   type GridRequestContextInput,
@@ -98,6 +99,14 @@ async function resolveGridContextHeaders(
       }
     } catch (error) {
       console.warn('[Deep Research API] Failed to load model overrides:', error)
+    }
+    // The organization's standing instruction block (migration 0087) — the
+    // same text a chat turn carries, because a deep-research run is a turn the
+    // same office asked for. `resolveOrgInstructions` already fails soft to
+    // null, so a lookup failure costs the run its preferences and not the run.
+    const orgInstructions = await resolveOrgInstructions(session.organizationId)
+    if (orgInstructions) {
+      input.orgInstructions = orgInstructions
     }
   }
 
@@ -232,17 +241,18 @@ function readReportCards(data: unknown): unknown[] | undefined {
  * absent) rather than raised, which is the same posture every other best-effort
  * enrichment on this route already takes.
  *
- * ## Interactive runs only
+ * ## Interactive runs here; scheduled runs at completion
  *
- * A scheduled run (`jobs.schedule_cron`) has no live session, and there is no
- * BFF path today on which one reaches this handler — nothing polls a report on
- * a user's behalf. The session check below is therefore both the anonymous-mode
- * guard and the scheduled-run guard: with no session there is no principal
- * whose `project:documents:write` could authorize the write, and resolving the
- * scheduler's `triggered_by` permission at fire time is a real design that v1.1
- * owns (design doc decision 10). Do not paper over it by falling back to a
- * service token — the agent's principal is WIDER than the user's, which is the
- * hole this whole feature was shaped to avoid.
+ * A scheduled run (`jobs.schedule_cron`) has no live session and never reaches
+ * this handler. It is filed by the worker's outcome callback instead
+ * (`/api/internal/jobs/[jobId]/outcome` → `completeTaskForRun`), as the
+ * REQUESTER the task row pinned when the job was set up — the person's own
+ * membership and permissions resolved at completion (ADR-0051, the design's
+ * decision 10). Both paths key the document on the same backend job id, so a
+ * report filed at 03:00 and opened here at 09:00 is one row (migration 0064).
+ * The session check below stays the anonymous-mode guard, and the rule stays:
+ * never a service token — the agent's principal is WIDER than the user's,
+ * which is the hole this whole feature was shaped to avoid.
  */
 async function fileReportIfCommissioned(
   req: Request,
@@ -372,7 +382,15 @@ export const GET = tenantSlotRoute(async function GET(
     // Handle error responses
     if (!response.ok) {
       const errorText = await response.text()
-      console.error('[Deep Research API] Backend error:', response.status, errorText)
+      // #632: cancel-after-terminal race — the client already parses this via
+      // `readTerminalVerdictFromCancelError` and treats it as a verdict, not a
+      // failure. Warn so err2issue stops filing an ERROR per double-clicked
+      // cancel on an already-finished job.
+      if (response.status === 400 && errorText.includes('Job not cancellable')) {
+        console.warn('[Deep Research API] Cancel race: job already terminal:', errorText.slice(0, 200))
+      } else {
+        console.error('[Deep Research API] Backend error:', response.status, errorText)
+      }
 
       return backendErrorEnvelope(response.status, errorText)
     }
@@ -417,7 +435,15 @@ export const GET = tenantSlotRoute(async function GET(
       return handleAuthzError(error)
     }
 
-    console.error('[Deep Research API] GET error:', error)
+    // #646: backend unreachable (EHOSTUNREACH, fetch failed) is a transient
+    // transport miss, not an application bug. Warn with the host so operators
+    // can see which tier dropped, without filing an ERROR per blip.
+    const message = error instanceof Error ? error.message : String(error)
+    if (message.includes('fetch failed') || message.includes('EHOSTUNREACH') || message.includes('ECONNREFUSED')) {
+      console.warn('[Deep Research API] GET transport miss:', message.slice(0, 300))
+    } else {
+      console.error('[Deep Research API] GET error:', error)
+    }
 
     return proxyErrorEnvelope(error)
   }
@@ -548,7 +574,13 @@ export const DELETE = tenantSlotRoute(async function DELETE(
 
     if (!response.ok) {
       const errorText = await response.text()
-      console.error('[Deep Research API] DELETE Backend error:', response.status, errorText)
+      // Same cancel-after-terminal race as GET (#632): a DELETE that lands
+      // after the job finished is a verdict, not a failure.
+      if (response.status === 400 && errorText.includes('Job not cancellable')) {
+        console.warn('[Deep Research API] DELETE cancel race: job already terminal:', errorText.slice(0, 200))
+      } else {
+        console.error('[Deep Research API] DELETE Backend error:', response.status, errorText)
+      }
 
       return backendErrorEnvelope(response.status, errorText)
     }

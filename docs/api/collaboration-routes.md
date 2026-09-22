@@ -8,7 +8,7 @@ assignment (who is professionally on the hook — ADR-0047).
   [ADR-0033](../adr/0033-server-authoritative-shared-conversations.md) (shared threads),
   [ADR-0034](../adr/0034-mention-handoff-persisted-state.md) (hand-off),
   [ADR-0035](../adr/0035-notification-model-and-inbox.md) (inbox + live delivery),
-  [ADR-0047](../adr/0047-assignment-is-not-access.md) (assignment is not access)
+  [ADR-0047](../adr/0059-assignment-is-not-access.md) (assignment is not access)
 - **Sibling reference:** [`bff-routes.md`](bff-routes.md)
 
 ## Rules that apply to every route here

@@ -44,7 +44,7 @@ The whole header is hidden on an empty chat that has not started yet, apart from
 
 The composer is a white card with the message field on top and a control row below, separated by a hairline:
 
-- **Asking about … bar**: when this turn is about a project file (**Piloti dazu fragen**, a surfaced card, or a cited drawing), a bar at the top of the composer names that file and the file stays open as a peek. Sidebar **Frag Piloti** (`?new=1` alone) is an empty draft and closes the previous peek. **Piloti dazu fragen** lands on `?new=1&doc=` — a new chat *about that file* — and must keep the peek. The **×** on the bar stops asking about the file. The next send searches that document, not the Büroarchiv.
+- **Asking about … bar**: when this turn is about a project file (**Besprechen**, a surfaced card, or a cited drawing), a bar at the top of the composer names that file and the file stays open as a peek. Sidebar **Frag Piloti** (`?new=1` alone) is an empty draft and closes the previous peek. **Besprechen** lands on `?new=1&doc=` — a new chat *about that file* — and must keep the peek. The **×** on the bar stops asking about the file. The next send searches that document, not the Büroarchiv.
 - **Datengrundlage chip**: shows how many data sources are currently enabled and opens the existing Data Sources panel.
 - **Scope chip**: shows the current project with a lock icon. Retrieval is always scoped to this project; the popover lists a disabled "All projects" option — cross-project search is not available yet.
 - **Deep Research pill**: an on/off *preference*. Piloti escalates to deep research automatically when a question calls for it; the pill records your intent and shows an honest hint — it does not force a deep-research run.
@@ -193,6 +193,57 @@ retry is possible — previously an earlier success kept the composer locked for
 good, telling the user research had completed over a session whose report never
 arrived.
 
+## Herleitung: folding a search step
+
+Above the answer sits the *Herleitung* — a one-line bar that opens into the
+graph of how the turn got there. A turn that searched once draws a single fan of
+sources. A turn that searched **more than once** draws a spine instead: the
+conclusion that caused each fetch, the files *that* fetch returned, then the
+next conclusion. A step's body is always the model's own sentence, never the
+search query.
+
+**A step says what Piloti set out to do, then what it read.** The sentence under
+the step number is Piloti's own: why this fetch happened. Under it stands one
+card per document, listing the Punkte or pages that step read in it. Five
+Punkte of the OIB-Richtlinie 2 are one card with five addresses, not five cards.
+„bereits abgerufen" marks a passage the step fetched again: either that exact
+page or Punkt had already come back, or the step went back into a file an
+earlier step had opened. A file an earlier search merely *listed* does not
+count. Opening it is new work, and carries no marker.
+
+**Every step folds.** Clicking a step (or reaching it with Tab and pressing
+Enter — it is a real button and reports its state through `aria-expanded`)
+replaces its fan of file cards with the count of what that fetch returned,
+"3 Dateien". Clicking again brings the cards back. A step that fetched nothing
+has no fold: there is nothing to put away.
+
+**Three or more steps arrive folded**, all but the newest. Two steps are a
+comparison and folding half of one hides it; from the third the graph stops
+being a shape and starts being a scroll, so the older steps arrive as counts and
+the reader opens the one they want. A step opened by hand stays open as later
+steps stream in. The choice lives for as long as the panel is open — it is a
+reading preference for one Herleitung, not a saved setting.
+
+Rendered evidence: capture `/dev/herleitung`.
+
+## After a long answer: "Als Aktenvermerk schreiben"
+
+Under the answer, outside its card, sit the follow-up chips — the questions this
+answer made askable, computed by a post-answer stage. Beside them, on a turn
+that earns it, is one chip the browser decides on its own: **„Als Aktenvermerk
+schreiben"**.
+
+It appears when all three are true: the answer is a walkthrough or a ruling
+(a Hinweis or a handoff is not a document), the chat belongs to a project (a
+draft needs somewhere to be filed), and the answer is longer than about a
+screenful. Pressing it fills the composer with the request and stops there —
+the person presses send, so the draft is written under their permissions and
+their audit actor, exactly as if they had typed it.
+
+The empty chat in a project says the same thing in one sentence, because
+otherwise the only people who find out that Piloti writes are the ones who
+happen to phrase a request as a commission.
+
 ## Answer sources ("Belegt durch")
 
 Answers that already carry source data show a provenance block: structured citations from shallow/deep research (`origin` plus optional `file_name`/`page`/`number`, with `[KB]`/`[RIS]`/`[Web]` tokens and URL heuristics as fallback) and the laws named by `legal_basis` cards. Sources are tinted by origin (law / project / web) and always pair icon + label with the color; web and RIS sources link out. Answers without source data show no block — sources are never fabricated.
@@ -251,7 +302,7 @@ steps aside, since the request was to see the file), and the **×** on the
 *Asking about …* bar — the one control that ends the question as well as the
 viewer — offers **Undo** in the confirmation that follows it.
 
-**Coming from Files.** *Piloti dazu fragen* carries the document with you: the
+**Coming from Files.** *Besprechen* carries the document with you: the
 viewer you were looking at stays on screen while the conversation loads, and
 hands over to the peek when it arrives. It never blinks out and leaves you
 looking at the file grid mid-move.
@@ -279,8 +330,12 @@ which opens the enlarged view where the ingestion error and its retry live.
 Clicking a source chip opens a preview of the source instead of doing nothing:
 
 - **Web / RIS chips** keep linking out to the real source (RIS citations always hit the official Rechtsinformationssystem).
-- **Knowledge chips (`[KB]`)** whose citation names a document that exists for the current project — a project upload (PDF or image) or a base-corpus PDF (OIB Richtlinien) — open an in-app viewer dialog: a provenance-tinted document-type chip plus the title in the header, the document itself in the body (opened at the cited page when the citation carries one, e.g. `file.pdf, p.3`), and the cited passage in a tinted "Fundstelle" box when the citation carries passage text. Shallow and deep research attach structured `file_name` / `page` / `collection` on the wire so chips open real documents without inventing filenames in the browser.
-- **The cited passage is marked in the document itself.** When the citation carries passage text, the viewer finds that passage in the page's text layer, scrolls to it, and lights it up — a short pulse on arrival that settles into a highlighter mark in the source's own tint. A **Zur Fundstelle / Go to passage** button in the viewer toolbar brings you back to it after scrolling away or after jumping to another Fundstelle on the rail. Matching is deliberately conservative: it tolerates line-break hyphenation, ligatures, punctuation and German inflection, but when a page offers two passages that fit equally well it marks neither and simply opens at the page — a mark on the wrong sentence is worse than no mark. Scanned pages with no text layer likewise open at the page without a mark.
+- **Knowledge chips (`[KB]`)** whose citation names a document that exists for the current project — a project upload (PDF or image) or a base-corpus PDF (OIB Richtlinien) — open an in-app viewer dialog: a provenance-tinted document-type chip plus the title in the header, the document itself in the body (opened at the cited page when the citation carries one, e.g. `file.pdf, p.3`), and a **Fundstellen rail** beside it. Shallow and deep research attach structured `file_name` / `page` / `collection` on the wire so chips open real documents without inventing filenames in the browser.
+- **The rail lists every passage of this document the turn read**, in page order, each with its `[N]` marker, its page and its text; the one you are reading is tinted with the source's own colour and quoted in full. Passages retrieval surfaced but the answer did not lean on are in the list too, marked **Gelesen / Read** instead of `[N]` — hiding them would make the document look thinner than the research was. Click one to jump there, or step through with the arrows. A document read at a single page gets the rail too (without the stepper): it is the standing answer to "which passage am I checking", which matters most once you have scrolled away from it. A passage that names no page — a document-level snippet — is shown in a tinted band above the document instead, since there is nowhere to point at.
+- **The document is text, not a picture of one.** Select a sentence with the mouse and copy it; the browser's own find works on the page as well. (Scans with no text layer have nothing to select, here as anywhere.)
+- **A passage you select yourself can be copied as a citation.** Selecting text in the viewer offers **Als Zitat kopieren / Copy as citation**: the clipboard gets the quotation plus the document and the page it is on — the same Zitiertext form the answer's own copy actions produce, so a quote taken from the source and one taken from the chat arrive in your Stellungnahme looking alike. Plain ⌘/Ctrl-C still copies the bare words.
+- **The toolbar says which page you are on**, not how long the file is, and it follows you as you scroll — so a passage you have scrolled away from still has an address. **Zur Fundstelle / Go to passage** takes you back to the marked one.
+- **The cited passage is marked in the document itself.** When the citation carries passage text, the viewer finds that passage in the page's text layer, scrolls to it, and lights it up — a short pulse on arrival that settles into a highlighter mark in the source's own tint. A **Zur Fundstelle / Go to passage** button in the viewer toolbar brings you back to it after scrolling away or after jumping to another Fundstelle on the rail. Matching is deliberately conservative: it tolerates line-break hyphenation, ligatures, punctuation and German inflection, but when a page offers two passages that fit equally well it marks neither and simply opens at the page — a mark on the wrong sentence is worse than no mark. When the cited page does not hold the passage at all, the page either side is searched as well, because the page number counts sheets and a document with a cover page numbers itself differently; when those come up empty too, one more page out in each direction, for a title sheet plus a table of contents. Further than that is a different passage that happens to read alike, and is not looked at. Scanned pages with no text layer open at the page without a mark. Whenever the search comes up empty on every page it could have looked at, the viewer says so in the toolbar rather than leaving you to guess whether the passage is missing, the page is wrong, or the feature is broken.
 - **Anything unresolvable** (unknown document, non-previewable file type) shows a light popover with the source's origin, title, and passage instead — never a broken viewer. Chips with nothing beyond their label stay plain.
 
 The same affordance appears in the deep-research report's sources list: `[KB]` entries that resolve to an openable document get a small **View / Ansehen** button next to the entry.

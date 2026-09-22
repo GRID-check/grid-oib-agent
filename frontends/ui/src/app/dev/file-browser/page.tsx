@@ -50,6 +50,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { notFound, useSearchParams } from 'next/navigation'
 import { FileBrowserPane, type FolderNavigation } from '@/features/documents/components/file-browser-pane'
+import { DocumentActionsTrigger, DocumentObjectMenu } from '@/features/documents/components/document-actions'
 import { FileSearchBar, FileSearchField } from '@/features/documents/components/file-search-bar'
 import { useFileSearch } from '@/features/documents/hooks/use-file-search'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
@@ -110,6 +111,22 @@ const FILES: FileItem[] = [
   makeFile('p7', 'Baustellenfoto_Rohbau.jpg', 'Baustellenfoto des Rohbaus, Nordfassade.', {
     contentType: 'image/jpeg',
     fileSize: 5_300_000,
+  }),
+  // FORMAT BEATS THE NAME. „plan" matches anywhere in a filename, so these two
+  // used to draw a floor-plan card — outer walls, partitions and a door swing —
+  // over a Markdown note and a table. `Statik_Positionsplan.pdf` above is the
+  // control: it is a PDF, it really can be a drawing, and it still reads as one.
+  makeFile('p8', 'Projektplan_Sanierung.md', 'Ablauf der Sanierung in Phasen, mit offenen Punkten je Gewerk.', {
+    contentType: 'text/markdown',
+    fileSize: 31_000,
+    pageCount: null,
+    contentTypes: ['text'],
+  }),
+  makeFile('p9', 'Zeitplan_Gewerke.csv', 'Gewerke mit Start- und Endterminen je Bauabschnitt.', {
+    contentType: 'text/csv',
+    fileSize: 18_000,
+    pageCount: null,
+    contentTypes: ['table'],
   }),
 ]
 
@@ -220,6 +237,9 @@ export default function FileBrowserDevPage(): JSX.Element {
   if (variant === 'search-list') return <SearchInListViewFixture />
   if (variant === 'folder-rename') return <FolderCrudFixture mode="rename" />
   if (variant === 'folder-menu') return <FolderCrudFixture mode="menu" />
+  if (variant === 'folders-list') return <FoldersInListViewFixture />
+  if (variant === 'folder-drop') return <FolderDropTargetFixture />
+  if (variant === 'file-context') return <FileContextMenuFixture />
   return <FileBrowserFixtures />
 }
 
@@ -234,6 +254,114 @@ function useFixtureFolderNav(): FolderNavigation & { currentFolderId: string | n
     onRenameFolder: async () => true,
     onDeleteFolder: async () => true,
   }
+}
+
+/**
+ * A folder lit up as a drop target, mid-drag.
+ *
+ * The state only exists THROUGH a drag, so the fixture performs one rather than
+ * setting a flag: a `dragover` carrying our own folder MIME type, dispatched at
+ * a folder card after mount. Setting the highlight directly would be a picture
+ * of the state rather than the tile arriving in it, and it is the arriving that
+ * this pins — the target has to decide, during the drag and before the release,
+ * whether it can take what is over it.
+ *
+ * The shot is worth having because two surfaces used to answer this gesture at
+ * once. The workspace's upload overlay reacted to any drag with items on it, so
+ * dragging INSIDE the page covered the folder being aimed at in „Dateien hier
+ * ablegen". What this shows is one answer: the folder, ringed.
+ */
+function FolderDropTargetFixture(): JSX.Element {
+  const folderNav = useFixtureFolderNav()
+  const search = useFileSearch({ projectId: 'proj-demo' })
+
+  useEffect(() => {
+    const card = document.querySelector('[data-testid="folder-card-f-statik"]')
+    if (!card) return
+    const types = ['application/x-grid-folder-id', 'application/x-grid-folder-id:f-brand']
+    const event = new Event('dragover', { bubbles: true, cancelable: true })
+    // jsdom and the browser both refuse a constructed `DataTransfer` here, so
+    // the one fact the target reads is attached directly.
+    Object.defineProperty(event, 'dataTransfer', {
+      value: { types, getData: () => 'f-brand', dropEffect: 'none' },
+    })
+    const raf = window.requestAnimationFrame(() => card.dispatchEvent(event))
+    return () => window.cancelAnimationFrame(raf)
+  }, [])
+
+  return (
+    <main className="mx-auto flex max-w-5xl flex-col gap-8 p-6">
+      <div>
+        <h1 className="text-lg font-semibold">Files browser — a folder as a drop target</h1>
+        <p className="mt-1 text-sm text-muted-foreground">
+          „Brandschutz“ dragged over „Statik“. One answer to the gesture: the folder, ringed.
+        </p>
+      </div>
+      <div
+        className="flex h-[420px] flex-col overflow-hidden rounded-xl border"
+        data-testid="file-browser-folder-drop"
+      >
+        <div className="flex-1 overflow-y-auto">
+          <FileBrowserPane
+            files={[]}
+            searchFiles={FILES}
+            selectedFileId={null}
+            onSelectFile={() => {}}
+            isLoading={false}
+            search={search}
+            folderNav={folderNav}
+            onDropDocumentInFolder={() => {}}
+            onDropFolderInFolder={() => {}}
+          />
+        </div>
+      </div>
+    </main>
+  )
+}
+
+/**
+ * Folders in the DETAIL view — the one composition of this pane that had no
+ * shot at all.
+ *
+ * Every existing file-browser target photographs the card grid, or a search. The
+ * detail view's folder band was captured nowhere, which is how it came to be
+ * drawn in raw `amber-*` — a band of tinted rows above a neutral table, reading
+ * as a warning strip over a listing where nothing is wrong. The shot exists so
+ * the next change to either half is seen against the other.
+ */
+function FoldersInListViewFixture(): JSX.Element {
+  const [selected, setSelected] = useState<string | null>(null)
+  const folderNav = useFixtureFolderNav()
+  const search = useFileSearch({ projectId: 'proj-demo' })
+  const levelFiles = FILES.filter((f) => (f.folderId ?? null) === folderNav.currentFolderId)
+
+  return (
+    <main className="mx-auto flex max-w-5xl flex-col gap-8 p-6">
+      <div>
+        <h1 className="text-lg font-semibold">Files browser — folders in the detail view</h1>
+        <p className="mt-1 text-sm text-muted-foreground">
+          The level’s folders as rows above the sortable file table, at the root.
+        </p>
+      </div>
+      <div
+        className="flex h-[560px] flex-col overflow-hidden rounded-xl border"
+        data-testid="file-browser-folders-list"
+      >
+        <div className="flex-1 overflow-y-auto">
+          <FileBrowserPane
+            files={levelFiles}
+            searchFiles={FILES}
+            selectedFileId={selected}
+            onSelectFile={setSelected}
+            isLoading={false}
+            search={search}
+            view="list"
+            folderNav={folderNav}
+          />
+        </div>
+      </div>
+    </main>
+  )
 }
 
 /**
@@ -298,6 +426,55 @@ function SearchInListViewFixture(): JSX.Element {
             view="list"
           />
         </div>
+      </div>
+    </main>
+  )
+}
+
+/**
+ * Right-click on a file card — Finder-shaped, same items as the ⋯.
+ */
+function FileContextMenuFixture(): JSX.Element {
+  const folderNav = useFixtureFolderNav()
+  const search = useFileSearch({ projectId: 'proj-demo' })
+  const [selected, setSelected] = useState<string | null>(null)
+  const driven = useRef(false)
+  useEffect(() => {
+    if (driven.current) return
+    driven.current = true
+    const card = document.querySelector('[data-testid="file-card"]')
+    card?.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, clientX: 120, clientY: 160 }))
+  }, [])
+  const levelFiles = FILES.filter((file) => (file.folderId ?? null) === folderNav.currentFolderId)
+  return (
+    <main className="mx-auto flex max-w-5xl flex-col gap-8 p-6">
+      <div>
+        <h1 className="text-lg font-semibold">Files browser — right-click a file</h1>
+        <p className="mt-1 text-sm text-muted-foreground">
+          Open, Ask about this, Download, Rename, Move, Delete. Same list as the ⋯.
+        </p>
+      </div>
+      <div className="h-[520px] overflow-hidden rounded-xl border" data-testid="file-browser-file-context">
+        <FileBrowserPane
+          files={levelFiles}
+          searchFiles={FILES}
+          selectedFileId={selected}
+          onSelectFile={setSelected}
+          isLoading={false}
+          search={search}
+          folderNav={folderNav}
+          wrapFile={(file, card) => (
+            <DocumentObjectMenu
+              document={file}
+              scope="files"
+              folders={FOLDERS}
+              onOpen={() => setSelected(file.id)}
+            >
+              {card}
+            </DocumentObjectMenu>
+          )}
+          renderActions={() => <DocumentActionsTrigger />}
+        />
       </div>
     </main>
   )
@@ -514,7 +691,19 @@ function FileBrowserFixtures(): JSX.Element {
             isLoading={false}
             search={search}
             view={view}
+            onViewChange={setView}
             folderNav={folderNav}
+            wrapFile={(file, card) => (
+              <DocumentObjectMenu
+                document={file}
+                scope="files"
+                folders={FOLDERS}
+                onOpen={() => setSelected(file.id)}
+              >
+                {card}
+              </DocumentObjectMenu>
+            )}
+            renderActions={() => <DocumentActionsTrigger />}
           />
         </div>
       </div>

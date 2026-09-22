@@ -10,7 +10,8 @@
  *   * the **Python backend**, over the internal service-token route, when the
  *     client dropped mid-turn (`websocket_reconnect.persist_assistant_message`)
  *     or when the jobs runner materialises a finished run. That writer posts the
- *     wire spelling it already holds: `sources`, `answer_confidence`,
+ *     wire spelling it already holds: `sources`, `read_sources`,
+ *     `answer_confidence`,
  *     `answer_confidence_reason`, `answer_confidence_capped_reason`,
  *     `deep_research_job_id`, and the marks the run left on its own answer
  *     (`research_truncated`, `truncation_reason`, `degraded_reasons`,
@@ -53,6 +54,7 @@
 import { CITATIONS_PAYLOAD_VERSION } from '@/features/chat/lib/citations'
 import type { WireCitationSource } from '@/features/chat/types'
 import { sanitizeProvenance, type MessageProvenance } from './message-provenance'
+import { sanitizeAnswerMeta } from './message-answer-meta'
 
 /**
  * The metadata keys the backend writes in wire spelling. Listed so the
@@ -62,6 +64,9 @@ import { sanitizeProvenance, type MessageProvenance } from './message-provenance
  */
 const BACKEND_ANSWER_KEYS = [
   'sources',
+  // Retrieved-but-uncited document identities (no prose) for the
+  // "Gelesen, nicht zitiert" disclosure — same lift as `sources`.
+  'read_sources',
   'answer_confidence',
   'answer_confidence_reason',
   'answer_confidence_capped_reason',
@@ -77,6 +82,16 @@ const BACKEND_ANSWER_KEYS = [
   'truncation_reason',
   'degraded_reasons',
   'citations_removed',
+  // The answer's structured anatomy (verdict / takeaways / callout) — the
+  // envelope's gated wire payload, stored under the camelCase key the client
+  // writer uses so history reads one dialect.
+  'answer_meta',
+  // The backend's account of the turn's retrieval rounds, written by the
+  // socket-persistence path (`websocket_reconnect.persist_assistant_message`)
+  // when the client had gone. Without this entry the snake_case key would stay
+  // in the row forever and a later tightening of this list would delete the
+  // ledger for exactly the turns it was added for.
+  'retrieval_ledger',
 ] as const
 
 /**
@@ -95,6 +110,17 @@ const MAX_CONTENT = 400
 const MAX_TEXT = 500
 /** `document_id` / `citation_key` are identifiers, not prose. */
 const MAX_IDENTIFIER = 256
+
+/**
+ * Longest retrieved PASSAGE kept per source.
+ *
+ * Sized to the serializer's own bound rather than to `MAX_CONTENT`: the two are
+ * different things, and clipping this one hard is not a saving, it is a silent
+ * downgrade. The passage matchers anchor on BOTH ends of a snippet, so a
+ * truncated tail turns "the sentence is marked" into "the page is open" with
+ * nothing on screen saying why.
+ */
+const MAX_SNIPPET = 1200
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value)
@@ -139,6 +165,10 @@ export type StoredCitationSource = Partial<
     | 'lane'
     | 'lane_label'
     | 'binding_note'
+    | 'binding_status'
+    | 'punkt'
+    | 'score'
+    | 'snippet'
   >
 > & {
   /** Whether the answer cited this source, as opposed to merely retrieving it. */
@@ -185,7 +215,21 @@ function normalizeSource(input: unknown): StoredCitationSource | null {
     lane: text(input.lane, MAX_IDENTIFIER),
     lane_label: text(input.lane_label, MAX_TEXT),
     binding_note: text(input.binding_note, MAX_TEXT),
+    binding_status: text(input.binding_status, MAX_IDENTIFIER),
     tool: text(input.tool, MAX_IDENTIFIER),
+    // WHERE in the document, and the words themselves.
+    //
+    // This normalizer enumerates the wire, so a field it does not list is
+    // dropped — and it is applied to every row the PYTHON side persists:
+    // an answer whose client was gone mid-turn, and every deep-research answer,
+    // since nobody holds a socket for a job that finishes tomorrow. So the
+    // passage reached a live tab and was lost on exactly the turns a reader
+    // comes back to, and the loss was invisible because a citation with no
+    // passage opens the page and marks nothing, which is a supported outcome.
+    punkt: text(input.punkt, MAX_IDENTIFIER),
+    score:
+      typeof input.score === 'number' && Number.isFinite(input.score) ? input.score : undefined,
+    snippet: text(input.snippet, MAX_SNIPPET),
     // The `[N]` label this source carries in the answer prose. The one fact the
     // frontend cannot recover on its own: the number→source binding exists only
     // in the backend's citation verification.
@@ -211,6 +255,60 @@ function normalizeSource(input: unknown): StoredCitationSource | null {
 }
 
 /**
+ * One stored READ-BUT-UNCITED source, in the wire spelling the reader decodes.
+ *
+ * Identity + placement only — the same eleven fields the live wire schema
+ * keeps (`wireReadSourceSchema` in `adapters/api/schemas.ts`). A document the
+ * answer never cited must never carry prose into storage: `content`,
+ * `snippet`, `punkt` and `score` would let an uncited document ground the
+ * passage surfaces (the viewer highlight, the "Zitierte Stelle" box) that read
+ * the stored envelope. An entry with no identity at all is not a weaker
+ * disclosure row — it is not a row, and drops to null like above.
+ */
+function normalizeReadSource(input: unknown): StoredCitationSource | null {
+  if (!isRecord(input)) return null
+
+  const source: StoredCitationSource = {
+    document_id: text(input.document_id, MAX_IDENTIFIER),
+    citation_key: text(input.citation_key, MAX_IDENTIFIER),
+    file_name: text(input.file_name, MAX_TEXT),
+    page: positiveInt(input.page),
+    collection: text(input.collection, MAX_IDENTIFIER),
+    shelf: text(input.shelf, MAX_IDENTIFIER),
+    kind: text(input.kind, MAX_IDENTIFIER),
+    lane: text(input.lane, MAX_IDENTIFIER),
+    lane_label: text(input.lane_label, MAX_TEXT),
+    title: text(input.title, MAX_TEXT),
+    url: text(input.url, MAX_TEXT),
+  }
+
+  const identifying =
+    source.url ??
+    source.file_name ??
+    source.document_id ??
+    source.citation_key ??
+    source.title
+  if (!identifying) return null
+
+  // Same absent-vs-dropped distinction as above: no explicit nulls stored.
+  return Object.fromEntries(
+    Object.entries(source).filter(([, value]) => value !== undefined)
+  ) as StoredCitationSource
+}
+
+function encodeSources(
+  input: unknown,
+  normalize: (input: unknown) => StoredCitationSource | null
+): StoredCitations | undefined {
+  if (!Array.isArray(input)) return undefined
+  const sources = input
+    .slice(0, MAX_SOURCES)
+    .map(normalize)
+    .filter((source): source is StoredCitationSource => source !== null)
+  return sources.length > 0 ? { v: CITATIONS_PAYLOAD_VERSION, sources } : undefined
+}
+
+/**
  * Encode the backend's `sources` array as the stored citations envelope.
  *
  * Returns undefined when nothing usable survives, so a message with no
@@ -219,12 +317,19 @@ function normalizeSource(input: unknown): StoredCitationSource | null {
  * written.
  */
 export function encodeBackendSources(input: unknown): StoredCitations | undefined {
-  if (!Array.isArray(input)) return undefined
-  const sources = input
-    .slice(0, MAX_SOURCES)
-    .map(normalizeSource)
-    .filter((source): source is StoredCitationSource => source !== null)
-  return sources.length > 0 ? { v: CITATIONS_PAYLOAD_VERSION, sources } : undefined
+  return encodeSources(input, normalizeSource)
+}
+
+/**
+ * Encode the backend's `read_sources` array as the stored disclosure envelope.
+ *
+ * Identity + placement only (see `normalizeReadSource`): the full
+ * `encodeBackendSources` keeps the passage fields a cited source needs, and
+ * routing read sources through it stored prose under answers that never cited
+ * it. Returns undefined when nothing usable survives, like above.
+ */
+export function encodeBackendReadSources(input: unknown): StoredCitations | undefined {
+  return encodeSources(input, normalizeReadSource)
 }
 
 /**
@@ -232,7 +337,7 @@ export function encodeBackendSources(input: unknown): StoredCitations | undefine
  * backend's metadata.
  *
  * The level and its reason travel TOGETHER on purpose. The backend's marker is
- * `[CONFIDENCE:level | reason]` (`shallow_researcher/markers.py`) and the reason
+ * `[CONFIDENCE:level | reason]` (`researcher/markers.py`) and the reason
  * is the half that makes the level actionable: "niedrig" alone tells a reader
  * their answer might be wrong and nothing about what to check. A level whose
  * reason was dropped somewhere in transport is the exact complaint the backlog
@@ -290,6 +395,11 @@ export function provenanceFromBackendMetadata(
     candidate.citationsRemoved = metadata.citations_removed
   }
 
+  // The backend's account of the turn's retrieval rounds. Bounded by
+  // `sanitizeProvenance` like everything else here, which re-derives the
+  // tallies rather than trusting them.
+  candidate.retrievalLedger = metadata.retrieval_ledger
+
   // The enums are re-checked there, not here: `sanitizeProvenance` is the single
   // gate on this column and a second copy of the value lists would drift.
   return sanitizeProvenance(candidate)
@@ -322,9 +432,23 @@ export function normalizeAgentAnswerMetadata(
     if (citations) out.citations = citations
   }
 
+  // The read-but-uncited disclosure, stored under the camelCase key the
+  // browser writer uses so history reads one dialect. Identity + placement
+  // only — never the full `encodeBackendSources`, which would store prose
+  // under an answer that never cited it.
+  if (out.readSources === undefined) {
+    const readSources = encodeBackendReadSources(metadata.read_sources)
+    if (readSources) out.readSources = readSources
+  }
+
   if (out.provenance === undefined) {
     const provenance = provenanceFromBackendMetadata(metadata)
     if (provenance) out.provenance = provenance
+  }
+
+  if (out.answerMeta === undefined) {
+    const answerMeta = sanitizeAnswerMeta(metadata.answer_meta)
+    if (answerMeta) out.answerMeta = answerMeta
   }
 
   return out

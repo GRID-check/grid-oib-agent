@@ -12,7 +12,7 @@
 
 import { getWorkOS } from './client'
 import { getCached, invalidateCached } from '@/lib/cache'
-import { enforcementOn } from '@/lib/authz/feature-flags'
+import { FEATURE_FLAGS, enforcementOn } from '@/lib/authz/feature-flags'
 
 /** Slug of the flag gating the async post-answer memory-reflection stage. */
 export const MEMORY_REFLECTION_FLAG = 'memory-reflection'
@@ -45,12 +45,35 @@ export const SKILLS_FLAG = 'skills'
  */
 export const WEB_SEARCH_FLAG = 'web-search'
 
+/**
+ * Slug of the flag gating deep research. Taken from the registry rather than
+ * re-spelled, because this one is now read on TWO paths that must agree: the
+ * session gate on `POST /api/jobs/async/submit`, and the session-less per-turn
+ * read below that tells the agent tier whether it may offer the run at all.
+ */
+export const DEEP_RESEARCH_FLAG = FEATURE_FLAGS.deepResearch
+
+/**
+ * Slug of the flag gating delegated tasks and schedules. Read session-lessly
+ * for the same reason as the one above: the agent's `create_task` reaches the
+ * BFF with a signed envelope, not a session, and the model has to be told
+ * before it offers the hand-off.
+ */
+export const TASK_AUTOMATION_FLAG = FEATURE_FLAGS.taskAutomation
+
 const CACHE_TTL_MS = 30_000
 
 async function enabledSlugsForOrg(organizationId: string): Promise<Set<string>> {
   const slugs = await getCached(`flags:${organizationId}`, CACHE_TTL_MS, async () => {
     const list = await getWorkOS().featureFlags.listOrganizationFeatureFlags({ organizationId })
-    return (list.data ?? []).map((flag) => flag.slug)
+    // EVERY page, not the first. The endpoint defaults to 10 flags and this
+    // reader treats "absent from the set" as "off", so a one-page read silently
+    // disables whatever sorts past the tenth — which is not a hypothetical: an
+    // organization here is served more than ten. `autoPagination` follows the
+    // cursor for us, and deliberately gets NO `limit`: the SDK short-circuits to
+    // the first page when the first request carried one.
+    const flags = await list.autoPagination()
+    return flags.map((flag) => flag.slug)
   })
   return new Set(slugs)
 }
@@ -176,6 +199,52 @@ export async function isMemoryReflectionEnabled(
   const stage = POST_ANSWER_STAGE_FLAGS.find((entry) => entry.flag === MEMORY_REFLECTION_FLAG)
   if (!stage) return false
   return isPostAnswerStageEnabled(stage, organizationId)
+}
+
+/**
+ * Whether deep research is available to this org, resolved WITHOUT a session.
+ *
+ * The session-bearing half of this decision is `requireFeature(session,
+ * FEATURE_FLAGS.deepResearch)` on `POST /api/jobs/async/submit`, which refuses
+ * the job. That gate is necessary and was never sufficient: it closes the queue
+ * and nothing upstream of it knows the flag, so the agent still escalated, the
+ * clarifier still put a plan in front of the reader, and the approval button
+ * answered 403. This is what the agent tier reads per turn (`GET
+ * /api/internal/stages`) so it can decline to OFFER the run.
+ *
+ * Fail-open with enforcement off, exactly like `isFeatureEnabled`: the two
+ * halves must reach the same verdict, and a deployment that does not enforce
+ * flags has deep research for everyone.
+ */
+export async function isDeepResearchEnabledForOrg(
+  organizationId: string | null | undefined,
+): Promise<boolean> {
+  if (!enforcementOn()) return true
+  // No organization is not a tenant with the flag switched off: it is an
+  // anonymous deployment (REQUIRE_AUTH=false) or a break-glass session, and
+  // `POST /api/jobs/async/submit` skips its own gate for exactly that case.
+  // Denying here would make the two halves disagree and withdraw deep research
+  // from a deployment that has no per-org flags to read in the first place.
+  if (!organizationId) return true
+  return isOrgFeatureEnabled(DEEP_RESEARCH_FLAG, organizationId)
+}
+
+/**
+ * Whether this org may create delegated tasks and schedules, WITHOUT a session.
+ *
+ * Same two-halves shape as {@link isDeepResearchEnabledForOrg}, and the same
+ * reason for each half: the agent tier reads this per turn so it can decline to
+ * OFFER a hand-off, and `POST /api/internal/tasks` re-reads it so a turn that
+ * offers one anyway still creates nothing.
+ */
+export async function isTaskAutomationEnabledForOrg(
+  organizationId: string | null | undefined,
+): Promise<boolean> {
+  if (!enforcementOn()) return true
+  // See `isDeepResearchEnabledForOrg`: no organization is an anonymous or
+  // break-glass caller, not a tenant with the flag switched off.
+  if (!organizationId) return true
+  return isOrgFeatureEnabled(TASK_AUTOMATION_FLAG, organizationId)
 }
 
 /** Test hook: clear a specific org's flag cache entry. */

@@ -7,7 +7,7 @@ Branch: `feature/document-ownership` (worktree `.worktrees/document-ownership`)
 Related: [ADR-0032](../../adr/0032-shareable-resource-model.md),
 [ADR-0035](../../adr/0035-notification-model-and-inbox.md),
 [ADR-0045](../../adr/0045-ifc-models-as-a-queryable-building-not-a-document.md),
-[ADR-0047](../../adr/0047-assignment-is-not-access.md) (proposed),
+[ADR-0047](../../adr/0059-assignment-is-not-access.md) (proposed),
 [adding a shareable resource type](../../architecture/adding-a-shareable-resource-type.md),
 [collaboration spec](../../design/collaboration-sharing-and-inbox-spec.md) Phase 3,
 [citation pipeline](../../architecture/citation-system-audit-2026-07.md).

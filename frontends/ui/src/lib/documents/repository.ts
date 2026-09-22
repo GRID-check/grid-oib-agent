@@ -11,14 +11,16 @@
  */
 
 import 'server-only'
-import { and, count, desc, eq, inArray, isNull, ne } from 'drizzle-orm'
+import { and, asc, count, desc, eq, inArray, ne } from 'drizzle-orm'
 import { getDb } from '@/lib/db'
 import { withOptionalTenant, withTenant } from '@/lib/db/tenant-context'
+import { documentNameVariants } from './name-match'
 import {
   documents,
   projectFolders,
   type Document,
   type DocumentAuthor,
+  type DocumentLifecycle,
   type ResourceVisibility,
 } from '@/lib/db/schema'
 
@@ -45,8 +47,45 @@ export interface DocumentListRow {
    * indexed would make the derivation quietly wrong.
    */
   authoredBy: DocumentAuthor
+  /**
+   * The version the item's storage columns mirror, or `null` (ADR-0054).
+   *
+   * On the LIST row because `collectionFileRef` REQUIRES it: a machine-authored
+   * row owns chunks only once a version of it has been published, and the two
+   * sweeps that address the backend from a list — the status/metadata
+   * reconcile and the session-document cleanup — build their refs out of these
+   * rows. A row type that cannot answer the question cannot be handed to the
+   * constructor at all, which is the same argument `authoredBy` makes one line
+   * up.
+   */
+  publishedVersionId: string | null
+  /**
+   * Whether the item is in the working set (ADR-0054).
+   *
+   * On the LIST row because the one surface that asks for archived documents
+   * shows them MIXED with the active ones — a listing that could not say which
+   * is which would be a pane where „archiviert" is invisible again, one layer
+   * further in.
+   */
+  lifecycle: DocumentLifecycle
   collectionName: string
   folderId: string | null
+  /**
+   * Where the file came from, when a folder upload recorded one (0071).
+   * On the list row because the Files pane shows it in the detail rail without
+   * a second fetch — and because "go back to the original" is the one thing a
+   * reader wants from it, which is a per-file question.
+   */
+  originPath: string | null
+  /**
+   * A digest of the stored bytes (`sha256:<hex>`), or null when unknown.
+   *
+   * On the LIST row because the folder-upload planner runs in the browser: it
+   * compares what the reader just dropped against the corpus it already has on
+   * screen, and a second request per candidate file would be a round trip to
+   * learn that nothing needs uploading.
+   */
+  contentHash: string | null
   createdAt: Date
   updatedAt: Date
   errorMessage: string | null
@@ -71,13 +110,40 @@ export interface DocumentListRow {
  * case — the one any surface actually asks for — is a point query in the
  * listing's own sort order.
  */
+export interface ListProjectDocumentsOptions {
+  limit?: number
+  /**
+   * Rows to skip before the page — the draft-filing veto's paginated scan.
+   * Default 0 (first page, as before); bounded below like `limit` so a
+   * negative offset cannot widen the listing.
+   */
+  offset?: number
+  authoredBy?: DocumentAuthor
+  /**
+   * Show the documents somebody archived as well (ADR-0054).
+   *
+   * Default false, and that default is the point of the column: „archiviert"
+   * is a statement that the file has left the working set, and a file that is
+   * still in every listing has not left it. The archive gesture already purges
+   * the chunks so the agent stops citing it; the listing was the other half and
+   * it was missing, which made the whole act read as a no-op with an audit
+   * event.
+   *
+   * An OPTION rather than a second query, because the surface that shows them
+   * (the Files filter's „Archiviert" chip) needs the same projection, the same
+   * cap and the same assignment hydration as the default one — a second query
+   * would be a second definition of what a document listing is.
+   */
+  includeArchived?: boolean
+}
+
 export async function listProjectDocuments(
   projectId: string,
   organizationId: string,
-  limit = DOCUMENT_LIST_LIMIT,
-  authoredBy?: DocumentAuthor,
+  { limit = DOCUMENT_LIST_LIMIT, offset = 0, authoredBy, includeArchived = false }: ListProjectDocumentsOptions = {},
 ): Promise<DocumentListRow[]> {
   const boundedLimit = Math.min(Math.max(1, Math.trunc(limit)), DOCUMENT_LIST_LIMIT)
+  const boundedOffset = Math.max(0, Math.trunc(offset))
   const db = getDb()
   return withTenant({ organizationId }, () =>
     db
@@ -89,8 +155,12 @@ export async function listProjectDocuments(
         contentType: documents.contentType,
         status: documents.status,
         authoredBy: documents.authoredBy,
+        publishedVersionId: documents.publishedVersionId,
+        lifecycle: documents.lifecycle,
         collectionName: documents.collectionName,
         folderId: documents.folderId,
+        originPath: documents.originPath,
+        contentHash: documents.contentHash,
         createdAt: documents.createdAt,
         updatedAt: documents.updatedAt,
         errorMessage: documents.errorMessage,
@@ -111,10 +181,15 @@ export async function listProjectDocuments(
           // project documents; that is now what it asks for.
           eq(documents.scope, 'project'),
           ...(authoredBy ? [eq(documents.authoredBy, authoredBy)] : []),
+          ...(includeArchived ? [] : [eq(documents.lifecycle, 'active')]),
         ),
       )
-      .orderBy(desc(documents.createdAt))
-      .limit(boundedLimit),
+      // Newest first, with the id as tiebreak: createdAt ties are real (a
+      // batch import lands on one timestamp), and under offset pagination an
+      // unstable order drops rows from one page and repeats them on the next.
+      .orderBy(desc(documents.createdAt), asc(documents.id))
+      .limit(boundedLimit)
+      .offset(boundedOffset),
   )
 }
 
@@ -126,7 +201,7 @@ export async function findDocumentTenancy(
   documentId: string,
 ): Promise<Pick<
   Document,
-  'organizationId' | 'projectId' | 'visibility' | 'createdBy' | 'deletedAt' | 'filename' | 'displayName'
+  'organizationId' | 'projectId' | 'visibility' | 'createdBy' | 'filename' | 'displayName'
 > | null> {
   const db = getDb()
   const [row] = await db
@@ -135,7 +210,6 @@ export async function findDocumentTenancy(
       projectId: documents.projectId,
       visibility: documents.visibility,
       createdBy: documents.createdBy,
-      deletedAt: documents.deletedAt,
       filename: documents.filename,
       displayName: documents.displayName,
     })
@@ -339,6 +413,129 @@ export async function findDocumentAuthoredByRef(
  * and it is enforced the same way the dispatcher is: by reading the row, not by
  * trusting the caller.
  */
+/**
+ * The live document a re-upload of this filename would collide with, if any.
+ *
+ * A RE-UPLOAD USED TO LEAVE A GHOST. `uploadDocument` minted a fresh id and
+ * inserted unconditionally — there is no unique index on (collection, filename)
+ * — while the ingest pipeline's `_replace_previous_versions` deletes chunks by
+ * filename. So the SECOND upload's chunks replaced the FIRST's, and the first
+ * row survived: listed, downloadable, cited by nothing, findable by nothing,
+ * and charged to the organization's quota twice.
+ *
+ * Scoped to one collection — a project's, the Archiv's or a conversation's,
+ * all three shelves replace the same way. The comparison is exact, matching `_replace_previous_versions`'
+ * own identity rule ("a NEW name is a new document, even when its content
+ * supersedes an old one") — a looser match here would let this tier and that
+ * one disagree about what the same file is.
+ *
+ * Only rows a PERSON uploaded. A machine-authored row (`fileGeneratedDocument`)
+ * carries a filename the model chose and owns no chunks, so a person dropping a
+ * file of the same name is not correcting Piloti's report — and pointing the
+ * agent's row at their bytes would leave a human file wearing the agent's
+ * authorship. The two coexist; only human uploads replace human uploads.
+ *
+ * `uniq_documents_live_name_per_collection` (migration 0074, restated by 0077
+ * without the never-written `deleted_at`) is this probe's WHERE clause as a
+ * constraint, so a concurrent first upload of one name cannot
+ * slip past it and recreate the ghost this exists to stop.
+ */
+export async function findLiveDocumentByFilename(
+  organizationId: string,
+  collectionName: string,
+  filename: string,
+): Promise<{
+  id: string
+  storageKey: string
+  storageBucket: string | null
+  fileSize: number | null
+  contentHash: string | null
+  folderId: string | null
+  status: string | null
+} | null> {
+  const db = getDb()
+  const [row] = await withTenant({ organizationId }, () =>
+    db
+      .select({
+        id: documents.id,
+        storageKey: documents.storageKey,
+        storageBucket: documents.storageBucket,
+        fileSize: documents.fileSize,
+        contentHash: documents.contentHash,
+        folderId: documents.folderId,
+        status: documents.status,
+      })
+      .from(documents)
+      .where(
+        and(
+          eq(documents.organizationId, organizationId),
+          eq(documents.collectionName, collectionName),
+          /*
+           * Either Unicode form of the name, not just the one the caller holds.
+           *
+           * A name off a Mac is decomposed and the same name typed here is
+           * composed; they render identically, and `= $1` matches one of them.
+           * Rows written since `documentNameKey` reached the upload path are all
+           * composed, but the ones written before it are whatever arrived — and
+           * a miss here is not a null result, it is a SECOND document under a
+           * name a person cannot tell apart from the first.
+           *
+           * Two exact candidates rather than `normalize(filename, NFC) = $1`,
+           * which no index can serve.
+           */
+          inArray(documents.filename, documentNameVariants(filename)),
+          eq(documents.authoredBy, 'user'),
+        ),
+      )
+      // Newest wins if history already left more than one — this function is
+      // also how that history stops growing.
+      .orderBy(desc(documents.createdAt))
+      .limit(1),
+  )
+  return row ?? null
+}
+
+/**
+ * Point an existing document row at newly uploaded bytes.
+ *
+ * The id is deliberately kept. It is what every citation, every chat subject
+ * and every folder assignment already references, so replacing the bytes under
+ * a stable id is the difference between "this document was updated" and "a
+ * second document appeared and the first one stopped working".
+ */
+export async function replaceDocumentContents(
+  organizationId: string,
+  documentId: string,
+  next: {
+    storageKey: string
+    storageBucket: string | null
+    fileSize: number
+    contentType: string | null
+    folderId: string | null
+    createdBy: string
+  },
+): Promise<void> {
+  const db = getDb()
+  await withTenant({ organizationId }, () =>
+    db
+      .update(documents)
+      .set({
+        storageKey: next.storageKey,
+        storageBucket: next.storageBucket,
+        fileSize: next.fileSize,
+        contentType: next.contentType,
+        folderId: next.folderId,
+        // The uploader of the CURRENT bytes: "who brought this file in" is a
+        // question about what is there now, and the audit trail keeps both.
+        createdBy: next.createdBy,
+        status: 'uploaded',
+        errorMessage: null,
+        updatedAt: new Date(),
+      })
+      .where(and(eq(documents.organizationId, organizationId), eq(documents.id, documentId))),
+  )
+}
+
 export async function findStorageKeyByCollectionAndFilename(
   collectionName: string,
   filename: string,
@@ -364,7 +561,6 @@ export async function findStorageKeyByCollectionAndFilename(
           and(
             eq(documents.collectionName, collectionName),
             eq(documents.filename, filename),
-            isNull(documents.deletedAt),
             // See the note above: this is a byte-serving path reachable with
             // model-supplied arguments. A machine-authored row must not resolve.
             eq(documents.authoredBy, 'user'),
@@ -372,6 +568,43 @@ export async function findStorageKeyByCollectionAndFilename(
           ),
         )
         .orderBy(desc(documents.createdAt))
+        .limit(1),
+  )
+  return row ?? null
+}
+
+/**
+ * The storage location of a document the ingest pipeline is working on,
+ * addressed the way the pipeline knows it: by the `document_id` the dispatch
+ * sent AND the collection it was sent for. Both must match — the id alone is
+ * unguessable, but requiring the collection means a caller holding one
+ * document's id cannot mint derived objects under it from another shelf's
+ * ingest. Same row filters as {@link findStorageKeyByCollectionAndFilename}:
+ * live, user-authored (this feeds a presigned WRITE under the document's
+ * prefix), and org-narrowed when the caller carries one.
+ */
+export async function findStorageKeyByIdAndCollection(
+  documentId: string,
+  collectionName: string,
+  organizationId?: string,
+): Promise<{ storageKey: string; storageBucket: string | null } | null> {
+  const db = getDb()
+  const [row] = await withOptionalTenant(
+    organizationId,
+    'internal document-image presign: the service-token caller identifies the row by its ' +
+      'unguessable document id and collection name and carries no organization',
+    () =>
+      db
+        .select({ storageKey: documents.storageKey, storageBucket: documents.storageBucket })
+        .from(documents)
+        .where(
+          and(
+            eq(documents.id, documentId),
+            eq(documents.collectionName, collectionName),
+            eq(documents.authoredBy, 'user'),
+            ...(organizationId ? [eq(documents.organizationId, organizationId)] : []),
+          ),
+        )
         .limit(1),
   )
   return row ?? null

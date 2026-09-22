@@ -1,9 +1,11 @@
 # Agent onboarding files
 
 `AGENTS.md` is the onboarding guide an agent gets instead of a colleague. There
-is one at the root for what is true everywhere, and one per service for what is
-true only there. This page is how they are wired, why that wiring is fragile,
-and what goes in which file.
+is one at the root for what is true everywhere, and one per scope for what is
+true only there. A scope is usually a service, and inside the backend it goes a
+level finer — a package with invariants of its own carries its own pair. This
+page is how they are wired, why that wiring is fragile, and what goes in which
+file.
 
 ## The two-file pattern
 
@@ -56,7 +58,7 @@ task. The scoped files are cheap and precise. Sort by reach, not by importance.
 | Put it in | When |
 |---|---|
 | Root `AGENTS.md` | It bears on work in any part of the repo: setup, working style, release notes, documentation obligations |
-| `<scope>/AGENTS.md` | It bears only on that service: its commands, its gates, its traps |
+| `<scope>/AGENTS.md` | It bears only on that scope: its commands, its gates, its traps. The nearest scope that is still true of the whole rule wins — a rule about one package goes on the package, not on the service |
 | `docs/contributing/` or `docs/architecture/`, with a one-line pointer | It is project *knowledge* rather than a rule to act on |
 | [`gotchas.md`](gotchas.md) | It is a symptom somebody will arrive with |
 

@@ -25,15 +25,30 @@ vi.mock('./platform-skills', () => ({
   findPlatformSkill: vi.fn(),
 }))
 
+vi.mock('./skill-category-repository', () => ({
+  CATEGORIES_LIST_LIMIT: 100,
+  listPlatformSkillCategories: vi.fn(),
+  findPlatformSkillCategory: vi.fn(),
+  findPlatformSkillCategoryByName: vi.fn(),
+  insertCategory: vi.fn(),
+  updateCategory: vi.fn(),
+  deleteCategory: vi.fn(),
+}))
+
 import * as repository from './platform-repository'
+import * as categoryRepository from './skill-category-repository'
 import { findPlatformSkill } from './platform-skills'
 import { ConflictError, NotFoundError } from '@/lib/api/errors'
 import type { PlatformSkillRow } from '@/lib/db/schema'
 import {
   createPlatformSkill,
+  createPlatformSkillCategory,
   deletePlatformSkill,
+  deletePlatformSkillCategory,
+  listPlatformSkillCategories,
   listPlatformSkills,
   updatePlatformSkill,
+  updatePlatformSkillCategory,
 } from './platform-service'
 
 const author = { userId: 'user_1', email: 'owner@example.com' }
@@ -47,7 +62,32 @@ function makeRow(overrides: Partial<PlatformSkillRow> = {}): PlatformSkillRow {
     metadata: {},
     published: false,
     delivery: 'offer',
+    categoryId: null,
     createdBy: 'user_1',
+    createdByEmail: null,
+    createdAt: new Date('2026-01-01T00:00:00Z'),
+    updatedAt: new Date('2026-01-01T00:00:00Z'),
+    ...overrides,
+  }
+}
+
+function makeCategory(
+  overrides: Partial<{
+    id: string
+    name: string
+    description: string | null
+    slug: string | null
+    sortOrder: number
+  }> = {}
+) {
+  return {
+    id: 'cat-1',
+    organizationId: null,
+    name: 'Recherche',
+    description: null,
+    slug: 'research',
+    sortOrder: 0,
+    createdBy: 'owner',
     createdByEmail: null,
     createdAt: new Date('2026-01-01T00:00:00Z'),
     updatedAt: new Date('2026-01-01T00:00:00Z'),
@@ -95,11 +135,11 @@ describe('createPlatformSkill', () => {
   })
 
   /**
-   * The second closed default, and the one that decides whether an organization
-   * gets a choice. A skill that says nothing about its audience is an OFFER —
-   * imposing on the fleet has to be a word somebody wrote.
+   * There is one delivery now, and this is where it is written down: a curated
+   * skill is OFFERED. Migration 0088 retired `standard`, the tier that forced
+   * a skill onto every run and gave no organization a choice.
    */
-  it('creates an OFFER unless standard delivery was asked for', async () => {
+  it('creates an OFFER, the only delivery there is', async () => {
     vi.mocked(repository.insertPlatformSkillRow).mockImplementation(async (values) =>
       makeRow(values as Partial<PlatformSkillRow>)
     )
@@ -108,14 +148,8 @@ describe('createPlatformSkill', () => {
       author
     )
     expect(skill.delivery).toBe('offer')
-
-    const { skill: standard } = await createPlatformSkill(
-      { name: 'house-style', description: 'd', body: 'b', delivery: 'standard' },
-      author
-    )
-    expect(standard.delivery).toBe('standard')
     expect(repository.insertPlatformSkillRow).toHaveBeenLastCalledWith(
-      expect.objectContaining({ delivery: 'standard' })
+      expect.objectContaining({ delivery: 'offer' })
     )
   })
 
@@ -202,26 +236,25 @@ describe('updatePlatformSkill', () => {
   })
 
   /**
-   * Promotion and demotion are the same call, and neither touches the document.
-   * A standard skill is the same SKILL.md as the offer it was a moment ago — the
-   * only thing that changed is who is running it.
+   * Publishing is the only move left that changes who runs a skill, and it does
+   * not touch the document: a published skill is the same SKILL.md as the draft
+   * it was a moment ago.
+   *
+   * There is no promotion to promote to. `delivery` used to move a row between
+   * `offer` and `standard`, and the promotion took the choice away from every
+   * organization on the platform; 0088 retired the tier.
    */
-  it('moves a skill between the two deliveries', async () => {
-    vi.mocked(repository.findPlatformSkillRow).mockResolvedValue(makeRow({ published: true }))
-    vi.mocked(repository.updatePlatformSkillRow).mockResolvedValue(
-      makeRow({ published: true, delivery: 'standard' })
-    )
-    const { skill } = await updatePlatformSkill('ps-1', { delivery: 'standard' })
-    expect(skill.delivery).toBe('standard')
-    expect(repository.updatePlatformSkillRow).toHaveBeenCalledWith(
-      'ps-1',
-      expect.objectContaining({ delivery: 'standard' })
-    )
+  it('publishes without touching the document', async () => {
+    vi.mocked(repository.findPlatformSkillRow).mockResolvedValue(makeRow({ published: false }))
+    vi.mocked(repository.updatePlatformSkillRow).mockResolvedValue(makeRow({ published: true }))
+    const { skill } = await updatePlatformSkill('ps-1', { published: true })
+    expect(skill.published).toBe(true)
+    expect(skill.delivery).toBe('offer')
     // The body, description and metadata are not in the patch: nothing about the
     // instruction itself changes when its audience does.
     const [, patch] = vi.mocked(repository.updatePlatformSkillRow).mock.calls[0]
     expect(patch).not.toHaveProperty('body')
-    expect(patch).not.toHaveProperty('published')
+    expect(patch).not.toHaveProperty('description')
   })
 
   it('404s an unknown id', async () => {
@@ -238,5 +271,106 @@ describe('deletePlatformSkill', () => {
 
     vi.mocked(repository.deletePlatformSkillRow).mockResolvedValue(false)
     await expect(deletePlatformSkill('ps-1')).rejects.toBeInstanceOf(NotFoundError)
+  })
+})
+
+describe('platform skill categories', () => {
+  it('lists the platform categories with their scope', async () => {
+    vi.mocked(categoryRepository.listPlatformSkillCategories).mockResolvedValue([
+      makeCategory(),
+    ])
+    const { categories } = await listPlatformSkillCategories()
+    expect(categories).toEqual([
+      {
+        id: 'cat-1',
+        name: 'Recherche',
+        description: null,
+        slug: 'research',
+        sortOrder: 0,
+        scope: 'platform',
+      },
+    ])
+  })
+
+  it('creates on a free name and refuses a taken one', async () => {
+    vi.mocked(categoryRepository.findPlatformSkillCategoryByName).mockResolvedValue(null)
+    vi.mocked(categoryRepository.insertCategory).mockImplementation(async (values) => ({
+      ...makeCategory(),
+      ...values,
+    }))
+    const { category } = await createPlatformSkillCategory({ name: 'BIM' }, author)
+    expect(category).toMatchObject({ name: 'BIM', scope: 'platform' })
+
+    vi.mocked(categoryRepository.findPlatformSkillCategoryByName).mockResolvedValue(
+      makeCategory({ name: 'BIM' })
+    )
+    await expect(createPlatformSkillCategory({ name: 'BIM' }, author)).rejects.toBeInstanceOf(
+      ConflictError
+    )
+  })
+
+  it('renames and removes, 404ing unknown ids', async () => {
+    vi.mocked(categoryRepository.findPlatformSkillCategoryByName).mockResolvedValue(null)
+    vi.mocked(categoryRepository.findPlatformSkillCategory).mockResolvedValue(
+      makeCategory({ id: 'cat-9', name: 'Alt' })
+    )
+    vi.mocked(categoryRepository.updateCategory).mockImplementation(async (_id, patch) => ({
+      ...makeCategory({ id: 'cat-9', name: 'Alt' }),
+      ...patch,
+      description: patch.description ?? null,
+    }))
+    const renamed = await updatePlatformSkillCategory('cat-9', { name: 'Neu' })
+    expect(renamed.category.name).toBe('Neu')
+
+    vi.mocked(categoryRepository.findPlatformSkillCategory).mockResolvedValue(null)
+    await expect(updatePlatformSkillCategory('cat-x', { name: 'Neu' })).rejects.toBeInstanceOf(
+      NotFoundError
+    )
+    vi.mocked(categoryRepository.findPlatformSkillCategory).mockResolvedValue(
+      makeCategory({ id: 'cat-9', name: 'Neu' })
+    )
+    vi.mocked(categoryRepository.deleteCategory).mockResolvedValue(true)
+    await expect(deletePlatformSkillCategory('cat-9')).resolves.toEqual({ deleted: true })
+  })
+
+  it('assigns catalogue rows to platform categories only', async () => {    vi.mocked(categoryRepository.findPlatformSkillCategory).mockResolvedValue(
+      makeCategory({ id: 'cat-1' })
+    )
+    vi.mocked(repository.insertPlatformSkillRow).mockImplementation(async (values) => ({
+      ...makeRow(),
+      ...values,
+    }))
+    const { skill } = await createPlatformSkill(
+      {
+        name: 'oib-fire-check',
+        description: 'd',
+        body: 'b',
+        categoryId: 'cat-1',
+      },
+      author
+    )
+    expect(skill.categoryId).toBe('cat-1')
+
+    vi.mocked(categoryRepository.findPlatformSkillCategory).mockResolvedValue(null)
+    await expect(
+      createPlatformSkill({ name: 'x', description: 'd', body: 'b', categoryId: 'cat-x' }, author)
+    ).rejects.toBeInstanceOf(NotFoundError)
+  })
+
+  it('refuses a create past the list limit', async () => {
+    vi.mocked(categoryRepository.findPlatformSkillCategoryByName).mockResolvedValue(null)
+    vi.mocked(categoryRepository.listPlatformSkillCategories).mockResolvedValue(
+      Array.from({ length: 101 }, (_, index) =>
+        makeCategory({ id: `cat-${index}`, name: `Kat ${index}` })
+      )
+    )
+    vi.mocked(categoryRepository.insertCategory).mockImplementation(async (values) => ({
+      ...makeCategory(),
+      ...values,
+    }))
+    await expect(createPlatformSkillCategory({ name: 'Eine zu viel' }, author)).rejects.toBeInstanceOf(
+      ConflictError
+    )
+    expect(categoryRepository.insertCategory).not.toHaveBeenCalled()
   })
 })

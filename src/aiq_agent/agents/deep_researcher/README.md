@@ -62,7 +62,7 @@ orchestrator and all subagents:
 |------------|---------|
 | `EmptyContentFixMiddleware` | Replaces empty ToolMessage content (some APIs reject it) |
 | `ToolNameSanitizationMiddleware` | Repairs corrupted/hallucinated tool names |
-| `ToolRetryMiddleware` (langchain) | Retries failed tool calls with backoff |
+| `SelectiveToolRetryMiddleware` (subclass of langchain `ToolRetryMiddleware`) | Retries failed tool calls with backoff; `run_research_batch` is executed exactly once so the orchestrator, not the retry loop, reacts to a partial failure |
 | `SourceRegistryMiddleware` | Captures source URLs/citation keys from tool results; feeds `get_verified_sources` and citation verification |
 | `ToolResultPruningMiddleware` | Truncates older tool results to protect the context window. Keeps the last `keep_last_n` **oversized** `ToolMessage`s intact (default 10, all agents but the writer, which scales with `max_research_concurrency` to cover every research-note read) and truncates earlier ones to `max_chars` (default 2000; writer gets 20,000). Truncation is monotonic (recorded per message id, frozen once applied) rather than recomputed per call — see [Known limitations](#known-limitations) for the residual prompt-caching gap |
 | `ModelRetryMiddleware` (langchain) | Retries model calls with backoff |
@@ -130,8 +130,7 @@ The core deep research agent using the DeepAgents library.
 **Location**: `src/aiq_agent/agents/deep_researcher/`
 
 Optional DeepAgents sandbox behavior is configured via the
-`deep_research_sandbox` config (see `deepagents_runtime.py` and
-`configs/config_domain_routing_and_skills.yml` for a working example).
+`deep_research_sandbox` config (see `deepagents_runtime.py`).
 
 **Configuration:**
 
@@ -147,7 +146,7 @@ functions:
     enable_source_router: true            # set false to skip advisory source routing
     verbose: true                    # Enable detailed logging
     tools:
-      - web_search_tool              # Search tools (e.g. tavily_web_search, paper_search)
+      - web_search_tool              # Search tools (e.g. tavily_web_search, ris_search)
 ```
 
 **Parameters:**
@@ -161,7 +160,7 @@ functions:
 | `writer_llm` | LLMRef | optional | LLM for final writer subagent; falls back to default if unset |
 | `enable_source_router` | bool | `true` | Enable advisory source routing before planning |
 | `enable_citation_verification` | bool | `true` | Verify final citations against the captured source registry; a run with zero captured sources fails with `EmptySourceRegistryError` |
-| `tools` | list | `[]` | Research tools. Empty = inherit all tools from the data source registry. Keep this list evidence-only: interaction tools such as `emit_card`/`remember` belong to the shallow agent, not here — every loaded tool is treated as a citable source |
+| `tools` | list | `[]` | Research tools. Empty = inherit all tools from the data source registry. Keep this list evidence-only: interaction tools such as `emit_card`/`remember` belong to the researcher, not here — every loaded tool is treated as a citable source |
 | `exclude_tools` | list | `[]` | Tool names to exclude when inheriting from the registry |
 | `skills` | config/ref | unset | Optional `deep_research_skills` assignment of built-in skill collections to `researcher-agent`/`writer-agent` |
 | `sandbox` | config/ref | unset | Optional `deep_research_sandbox` (Modal) backend enabling the `execute` tool |
@@ -214,30 +213,14 @@ general:
   use_uvloop: true
 
 llms:
-  nemotron_nano_llm:
-    _type: nim
-    model_name: nvidia/nemotron-3-nano-30b-a3b
-    base_url: "https://integrate.api.nvidia.com/v1"
+  deep_orchestrator_llm:
+    _type: openai
+    model_name: ${GRID_DEFAULT_MODEL:-openai/gpt-5.6-luna}
+    base_url: "https://openrouter.ai/api/v1"
+    api_key: ${OPENROUTER_API_KEY}
     temperature: 1.0
     top_p: 1.0
     max_tokens: 128000
-    num_retries: 5
-    chat_template_kwargs:
-      enable_thinking: true
-
-  # Nemotron Super is compatible and tested with AIQ but has limited availability
-  # on the Build API due to high demand.
-  # Uncomment nemotron_super_llm below if the endpoint is accessible.
-  # nemotron_super_llm:
-  #   _type: nim
-  #   model_name: nvidia/nemotron-3-super-120b-a12b
-  #   base_url: "https://integrate.api.nvidia.com/v1"
-  #   temperature: 1.0
-  #   top_p: 1.0
-  #   max_tokens: 128000
-  #   num_retries: 5
-  #   chat_template_kwargs:
-  #     enable_thinking: true
 
 functions:
   web_search_tool:
@@ -301,7 +284,7 @@ usable for general research requests.
   `user_info`, `clarifier_result`, `project_context`, `available_documents`,
   and `data_sources` onto the state so both paths render identical prompts.
   Grid response cards are generated post-hoc from the final report in the job
-  runner (the `emit_card` tool used by the shallow agent requires the chat
+  runner (the `emit_card` tool used by the researcher requires the chat
   request's conversation-scoped card registry, which does not exist inside a
   worker).
 
@@ -439,7 +422,7 @@ glance:
   Phase 3 above), with partial-failure separation and `no_retry` on the
   batch tool so the *orchestrator* reacts to a failed subset rather than the
   tool-retry middleware blindly re-executing the whole batch.
-- `recursion_limit: 2000` (`factory.py:515`) is a deliberate reduction from
+- `recursion_limit: 150` (`factory.py`, `_ORCHESTRATOR_RECURSION_LIMIT`) is a deliberate reduction from
   deepagents' `9999` default, not an oversight.
 - Skill filesystem permission rules
   (`factory.py:skill_filesystem_permissions`) are evaluated first-match-wins

@@ -1,7 +1,7 @@
 'use client'
 
 /**
- * Dev preview for the avatar menu (visual/registry.mjs → `user-menu`). Not
+ * Dev preview for the avatar menu. Not
  * linked anywhere and 404s outside development.
  *
  * What this is evidence of: theme and language are SUBMENU rows now — one row

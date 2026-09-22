@@ -17,8 +17,8 @@
  *   - status and controls are separated by a hairline, and status is never
  *     clickable — the avatar stack used to be a button that looked like
  *     information, the access chip information that looked like a control;
- *   - only New chat stays in the open. Share, rename and the research report are
- *     occasional, so they live in the one "…" menu;
+ *   - only New chat stays in the open. Share and rename are occasional, so they
+ *     live in the one "…" menu;
  *   - nothing appears that has nothing to say: no chip on a private thread, no
  *     separator with an empty status group, no menu at all when there is no
  *     action to disclose.
@@ -39,12 +39,13 @@
  * Variants via `?variant=`:
  *   - default    — a thread at rest. This is what most threads look like, which
  *                  is the point of capturing it.
- *   - `running`  — deep research in flight. The one research state that belongs
- *                  in the open row, because it is STATUS: the thread's own
- *                  progress banner scrolls away, and this then is the only
- *                  persistent "still working" signal. Having a REPORT changes
- *                  nothing here — that is a menu entry — which is why the
- *                  captured second state is this one and not that.
+ *   - `running`  — deep research in flight. This is now the ONLY research state
+ *                  the toolbar has, and it belongs in the open row because it is
+ *                  STATUS: the thread's own progress banner scrolls away, and
+ *                  this then is the only persistent "still working" signal. A
+ *                  finished report used to add a "Recherchebericht" entry to the
+ *                  menu; a run is read in the thread that commissioned it now
+ *                  (ADR-0062), so the row states and never offers a way out.
  *
  * Each row reproduces the app's geometry: `max-w-3xl` (the message column) inside
  * a `relative` block, because the toolbar positions itself `absolute inset-x-0
@@ -200,8 +201,8 @@ export default function ChatToolbarPreviewPage(): JSX.Element {
 
   // Seeded after mount so the server and the first client render agree. The
   // toolbar reads the current conversation only to decide whether renaming is
-  // possible, so one seeded id serves every row — and the deep-research fields are
-  // store-global, which is exactly why "research is running" is a page variant
+  // possible, so one seeded id serves every row — and `isDeepResearchStreaming`
+  // is store-global, which is exactly why "research is running" is a page variant
   // rather than a fourth row.
   const [ready, setReady] = useState(false)
   useEffect(() => {
@@ -210,7 +211,6 @@ export default function ChatToolbarPreviewPage(): JSX.Element {
     useChatStore.setState({
       currentUserId: ME,
       hasHydrated: true,
-      deepResearchJobId: isRunning ? 'job-preview' : null,
       isDeepResearchStreaming: isRunning,
     })
     setReady(true)

@@ -58,7 +58,7 @@ export const RequirementChecklistCard: FC<RequirementChecklistCardProps> = ({
     reference != null && ref.document === reference.document && ref.section === reference.section
 
   return (
-    <div className="animate-in fade-in-0 slide-in-from-bottom-1 flex flex-col">
+    <div className="animate-in fade-in-0 slide-in-from-bottom-1 duration-base ease-entrance motion-reduce:animate-none flex flex-col">
       {/* Section label — the shared eyebrow primitive, not a hand-rolled copy.
           `tracking-[0.05em]` was exactly `tracking-wider` and the weight was a
           step heavy (the ramp says `font-medium`); SectionLabel carries both. */}

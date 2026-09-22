@@ -184,6 +184,7 @@ const mockGetJobReport = vi
       report?: string
       filed?: { documentId: string; filename: string; alreadyFiled: boolean }
       filingFailed?: boolean
+      sources?: Array<Record<string, unknown>>
     }>
   >()
   .mockResolvedValue({ has_report: false })
@@ -705,6 +706,39 @@ describe('useDeepResearch', () => {
       })
     })
 
+    test('numbers the sources the stream discovered from the finished report', async () => {
+      await setupConnectedHook({
+        reportContent: 'Test report [3]',
+        activeDeepResearchMessageId: 'msg-123',
+        projectId: 'proj-1',
+      })
+
+      // The live stream announced this source before verification numbered
+      // it; the persisted output is the only place the `[3]` binding exists.
+      const numbered = { file_name: 'oib-rl_2_ausgabe_mai_2023.pdf', page: 7, number: 3 }
+      mockGetJobReport.mockResolvedValue({ has_report: true, report: 'Test report [3]', sources: [numbered] })
+
+      useChatStore.getState = vi.fn(() => ({
+        ...mockStoreState,
+        projectId: 'proj-1',
+        deepResearchLLMSteps: [],
+        deepResearchToolCalls: [],
+        deepResearchCitations: [],
+        addErrorCard: mockAddErrorCard,
+        deepResearchOwnerConversationId: 'test-conv-123',
+        activeDeepResearchMessageId: 'msg-123',
+      })) as unknown as typeof useChatStore.getState
+
+      await act(async () => {
+        mockClient?.callbacks.onJobStatus?.('success', undefined)
+        await Promise.resolve()
+      })
+
+      // Through the store's merge, as a cited source: an existing row for the
+      // same document gains its number, a new one is added numbered.
+      expect(mockAddDeepResearchCitation).toHaveBeenCalledWith(numbered, true)
+    })
+
     test('does not ask to file a report outside a project', async () => {
       await setupConnectedHook({
         reportContent: 'Test report',
@@ -728,11 +762,13 @@ describe('useDeepResearch', () => {
         await Promise.resolve()
       })
 
-      // The proxy resolves the project from the query string and files nothing
-      // without one, so the request could only ever fail. The banner says
-      // nothing about a file, which is the honest outcome, not a degraded one.
-      expect(mockGetJobReport).not.toHaveBeenCalled()
+      // The request still goes out — the report's numbered sources are wanted
+      // in every context — but without a project to name, the proxy files
+      // nothing and nothing about a file is recorded. The banner says nothing
+      // about a file, which is the honest outcome, not a degraded one.
+      expect(mockGetJobReport).toHaveBeenCalledWith('job-456', 'mock-id-token', { projectId: null })
       expect(mockRecordDeepResearchFiling).not.toHaveBeenCalled()
+      expect(mockRecordDeepResearchFilingFailure).not.toHaveBeenCalled()
     })
 
     test('a refused filing never reaches the thread as an error', async () => {

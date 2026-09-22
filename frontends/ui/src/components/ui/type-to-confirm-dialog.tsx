@@ -3,6 +3,7 @@
 import { useId, useState, type FC, type ReactNode } from 'react'
 import { AlertTriangle } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { EmptyStateDisc } from '@/components/ui/empty-state'
 import { Field, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
 import {
@@ -64,8 +65,8 @@ export const TypeToConfirmDialog: FC<TypeToConfirmDialogProps> = ({
     <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
-            <AlertTriangle className="h-5 w-5 text-destructive" aria-hidden="true" />
+          <DialogTitle className="flex items-center gap-2 text-base leading-snug">
+            <EmptyStateDisc icon={AlertTriangle} tone="destructive" size="sm" />
             <span>{title}</span>
           </DialogTitle>
         </DialogHeader>

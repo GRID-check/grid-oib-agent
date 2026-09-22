@@ -70,14 +70,10 @@ services:
       - AIQ_EMBED_MODEL=${AIQ_EMBED_MODEL:-openai/text-embedding-3-large}
       - AIQ_EMBED_BASE_URL=${AIQ_EMBED_BASE_URL:-https://openrouter.ai/api/v1}
       # AIQ_EMBED_API_KEY is the embeddings key override (now read by the adapter
-      # via the shared resolver); explicit here so the OpenRouter key is used even
-      # if provider inference is ever disabled.
-      - AIQ_EMBED_API_KEY=${OPENROUTER_API_KEY}
-      # NVIDIA_API_KEY alias kept for back-compat (it is the embeddings/VLM
-      # fallback env); provider inference from the openrouter.ai base URL now
-      # covers this natively, so this line is belt-and-suspenders.
-      - NVIDIA_API_KEY=${NVIDIA_API_KEY:-${OPENROUTER_API_KEY}}
-      - AIQ_VLM_MODEL=${AIQ_VLM_MODEL:-google/gemma-4-31b-it}
+      # via the shared resolver). An explicitly set value wins; otherwise the
+      # OpenRouter key is used even if provider inference is ever disabled.
+      - AIQ_EMBED_API_KEY=${AIQ_EMBED_API_KEY:-${OPENROUTER_API_KEY}}
+      - AIQ_VLM_MODEL=${AIQ_VLM_MODEL:-openai/gpt-5.6-luna}
       - AIQ_VLM_BASE_URL=${AIQ_VLM_BASE_URL:-https://openrouter.ai/api/v1}
       # ── Databases (single Postgres, three logical DBs; see init-db.sql) ──
       - NAT_JOB_STORE_DB_URL=postgresql+asyncpg://aiq:${SERVICE_PASSWORD_POSTGRES}@postgres:5432/aiq_jobs
@@ -147,7 +143,6 @@ services:
       - DASK_DISTRIBUTED__LOGGING__DISTRIBUTED=${DASK_DISTRIBUTED__LOGGING__DISTRIBUTED:-warning}
       - PYTHONWARNINGS=${PYTHONWARNINGS:-ignore}
       # ── Optional keys (unused by the OpenRouter config; passthrough if set) ──
-      - KIMI_API_KEY=${KIMI_API_KEY:-}
       # ── Auth / admin control-plane ──
       # Required: gates POST /v1/admin/oib/sync (KB re-ingestion). An empty value
       # makes routes/oib.py fail OPEN, so the deploy fails fast if it is unset
@@ -158,6 +153,12 @@ services:
       # internal frontend->backend calls are always classified internal, so this
       # never breaks in-cluster traffic.
       - REQUIRE_AUTH=${REQUIRE_AUTH:-true}
+      # The commit this deployment is running. Stamped into the image as a
+      # build arg by publish-images.yml, so it is normally already set inside
+      # the container and this line only matters for a locally built or
+      # hand-tagged image. It appears in the `[boot]` log line and on the health
+      # endpoints, and it is what makes a pilot report nameable.
+      - GRID_GIT_SHA=${GRID_GIT_SHA:-}
       # Defense-in-depth: hostnames the backend treats as external. Bare domain,
       # comma-separated, no scheme/port — matched against the request Host header
       # (see auth/middleware.py::_load_external_hostnames). If port 8000 is ever
@@ -167,9 +168,10 @@ services:
     expose:
       - "8000"
     volumes:
-      # OIB source PDFs (Git LFS). Requires LFS objects to be present at build/
-      # deploy time — see the LFS note in docs/deployment/coolify.md. If absent,
-      # OIB ingestion fails non-fatally and the app still boots (no OIB KB).
+      # Operator-provided OIB corpus; the directory ships empty
+      # (data/oib/README.md). An empty or absent corpus is not an error: the app
+      # boots and the sync logs a zero-file run until the platform owner uploads
+      # the PDFs through the admin UI or drops them in here.
       - ./data/oib:/app/data/oib:ro
       - aiq-data:/app/data
       - chroma_data:/app/data/chroma_data
@@ -477,6 +479,10 @@ services:
       - WORKOS_API_KEY=${WORKOS_API_KEY:-}
       - NEXT_PUBLIC_WORKOS_REDIRECT_URI=https://${SERVICE_FQDN_FRONTEND}/api/auth/callback
       - WORKOS_REDIRECT_URI=https://${SERVICE_FQDN_FRONTEND}/api/auth/callback
+      # PostHog product analytics (fail-open: unset means no events leave the
+      # browser — see frontends/ui/src/lib/analytics/posthog.ts).
+      - NEXT_PUBLIC_POSTHOG_HOST=${NEXT_PUBLIC_POSTHOG_HOST:-}
+      - NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN=${NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN:-}
       - WORKOS_COOKIE_PASSWORD=${WORKOS_COOKIE_PASSWORD:-}
       # BYOK LLM credentials (ADR-0022): secret backend for tenant API keys.
       - GRID_BYOK_SECRET_BACKEND=${GRID_BYOK_SECRET_BACKEND:-}
@@ -503,8 +509,6 @@ services:
       - PROJECT_PURGE_GRACE_DAYS=${PROJECT_PURGE_GRACE_DAYS:-7}
       # OpenRouter model catalog for the org model-config picker/validation.
       - OPENROUTER_API_KEY=${OPENROUTER_API_KEY:?set OPENROUTER_API_KEY}
-      # Euros per 1 USD for comparing EUR budget limits against USD costs.
-      - GRID_BUDGET_EUR_PER_USD=${GRID_BUDGET_EUR_PER_USD:-0.86}
       # Platform tier (ADR-0016): break-glass owner bootstrap, platform-org
       # external id override, and the self-serve org creation gate.
       - GRID_PLATFORM_OWNER_EMAILS=${GRID_PLATFORM_OWNER_EMAILS:-}
@@ -513,8 +517,20 @@ services:
       # ── Shared cache (Dragonfly, ADR-0020) ──
       - REDIS_URL=redis://dragonfly:6379/0
       - GRID_WS_UPGRADE_RATE_LIMIT=${GRID_WS_UPGRADE_RATE_LIMIT:-30}
+      # The commit this deployment is running. Stamped into the image as a
+      # build arg by publish-images.yml, so it is normally already set inside
+      # the container and this line only matters for a locally built or
+      # hand-tagged image. It appears in the `[boot]` log line and on the health
+      # endpoints, and it is what makes a pilot report nameable.
+      - GRID_GIT_SHA=${GRID_GIT_SHA:-}
       # ── Agent Skills (ADR-0046): dark-launch gate + save-time cron validation ──
       - GRID_SKILLS_ENABLED=${GRID_SKILLS_ENABLED:-false}
+      # Flag ENFORCEMENT itself. It was on the skill-scheduler and NOT here,
+      # which meant `enforcementOn()` in the BFF read an unset variable no
+      # matter what the operator had configured — the frontend and the
+      # scheduler could disagree about whether WorkOS flags decide anything.
+      # Same default, so nothing moves until an operator sets it.
+      - GRID_ENFORCE_FEATURE_FLAGS=${GRID_ENFORCE_FEATURE_FLAGS:-false}
       - GRID_SKILL_MIN_INTERVAL_MINUTES=${GRID_SKILL_MIN_INTERVAL_MINUTES:-15}
       # ── Collaboration (ADR-0032…0035): shared chats, @-mentions, the inbox ──
       # Dark-launch gate, default-deny: with it off the inbox nav entry, the

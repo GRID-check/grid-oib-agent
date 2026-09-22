@@ -44,10 +44,13 @@ interface ProjectListRowProps {
 
 export function ProjectListRow({ project, docCount = 0, activityAt }: ProjectListRowProps): JSX.Element {
   return (
-    // The row's resting state is the paper itself with a hairline under it; on
-    // hover it becomes the card surface, so a row and a card are the same
-    // material caught in two states rather than two different things.
-    <li className="group relative flex items-center gap-3 rounded-xl border-b border-border px-3 py-2.5 transition-[background-color,box-shadow,border-color] duration-quick ease-out last:border-b-0 hover:border-transparent hover:bg-card hover:shadow-xs has-[a:focus-visible]:border-transparent has-[a:focus-visible]:bg-card motion-reduce:transition-none">
+    // Full-border `rounded-lg` pill on the paper, matching `ItemList` — the old
+    // `rounded-xl + border-b + hover:border-transparent` left the rounded
+    // corners orphaned over the hairline and flipped three properties on hover
+    // (border, background, shadow). Now the border stands still and hover lifts
+    // one property plus the background. `px-3 py-2.5` untouched: row height does
+    // not move.
+    <li className="group relative flex items-center gap-3 rounded-lg border border-border px-3 py-2.5 transition-[background-color,box-shadow] duration-quick ease-out hover:bg-card hover:shadow-xs has-[a:focus-visible]:bg-card motion-reduce:transition-none">
       {/* Hidden on phones: indexing a single narrow column by initials is worth
           less than the 48px it takes from names that are already truncating. */}
       <ProjectInitialsTile project={project} className="hidden sm:grid" />

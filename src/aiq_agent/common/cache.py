@@ -19,7 +19,17 @@ import logging
 import os
 import threading
 import time
+from collections.abc import Iterator
+from contextlib import contextmanager
+from contextvars import ContextVar
+from dataclasses import dataclass
+from dataclasses import replace
 from typing import Any
+
+try:
+    from redis import exceptions as _redis_exceptions
+except ImportError:  # pragma: no cover - redis is optional; no client either
+    _redis_exceptions = None  # type: ignore[assignment]
 
 logger = logging.getLogger(__name__)
 
@@ -36,13 +46,153 @@ _MAX_LOCAL_ENTRIES = 2048
 _local_store: dict[str, tuple[float, str]] = {}
 _local_lock = threading.Lock()
 
+# Delete tombstones: key -> monotonic expiry. A failed shared delete leaves the
+# old value on the server; the tombstone hides it from get_json for a short
+# window instead of popping local and claiming success while the server copy
+# resurrects on the next read.
+_TOMBSTONE_TTL_SECONDS = 30.0
+_local_tombstones: dict[str, float] = {}
+
 _client: Any | None = None
-_client_failed_at: float = 0.0
+#: ``None`` means "the client has never failed in this process". A float
+#: sentinel cannot say that: ``time.monotonic()`` is time since boot on Linux,
+#: so ``now - 0.0 < _CLIENT_RETRY_SECONDS`` held for the first 30s of a fresh
+#: container and every call silently took the in-process tier -- the cold start
+#: is exactly when the shared cache is worth most.
+_client_failed_at: float | None = None
 _client_lock = threading.Lock()
 
 # After a connection failure, skip Redis for a short window instead of paying
 # the connect timeout on every call.
 _CLIENT_RETRY_SECONDS = 30.0
+
+
+# --- Counting, and saying so once -------------------------------------------
+#
+# Two things the fail-open contract was missing, both named by the
+# 2026-09 latency audit (§4.4, options E6 and E7): nothing counted a hit, and
+# an unreachable store logged one warning WITH A TRACEBACK per operation. The
+# second is the reason the first matters — a replica that has lost Dragonfly
+# is serving every reader from the per-process map, which is correct and
+# invisible, and the only evidence in the log was a wall of identical
+# tracebacks nobody reads.
+
+#: How often the "the store is down" warning may repeat. Longer than
+#: :data:`_CLIENT_RETRY_SECONDS` on purpose: the breaker retries every 30s, and
+#: a warning per retry is the wall of tracebacks again at a tenth of the rate.
+#: Same shape as ``knowledge_layer.cross_encoder._throttled_warning``, which
+#: paid for this lesson first.
+_STORE_DOWN_WARN_INTERVAL_SECONDS = 300.0
+
+#: ``None`` means "never warned in this process" — the same distinction, and
+#: the same reason, as :data:`_client_failed_at` above: ``time.monotonic()`` is
+#: time since boot, so a float sentinel of 0.0 would swallow the first warning
+#: of a fresh container's first five minutes.
+_store_down_warned_at: float | None = None
+_warn_lock = threading.Lock()
+
+
+@dataclass(frozen=True)
+class CacheCounters:
+    """How the shared cache answered, since a process or a turn started.
+
+    ``shared_*`` is the Dragonfly tier, ``local_*`` the in-process fallback map;
+    a read is counted in exactly one of them. ``errors`` counts operations the
+    store refused or could not answer, whichever tier they landed on — a read
+    that errors is an error and NOT a miss, because the two have different
+    fixes.
+    """
+
+    shared_hits: int = 0
+    shared_misses: int = 0
+    local_hits: int = 0
+    local_misses: int = 0
+    errors: int = 0
+
+    def __bool__(self) -> bool:
+        """False when nothing was counted — a turn that never touched the cache."""
+        return any(vars(self).values())
+
+    def since(self, earlier: CacheCounters) -> CacheCounters:
+        """This snapshot minus an earlier one."""
+        return CacheCounters(
+            shared_hits=self.shared_hits - earlier.shared_hits,
+            shared_misses=self.shared_misses - earlier.shared_misses,
+            local_hits=self.local_hits - earlier.local_hits,
+            local_misses=self.local_misses - earlier.local_misses,
+            errors=self.errors - earlier.errors,
+        )
+
+    def as_facts(self, prefix: str = "cache") -> dict[str, int]:
+        """The counters as flat span facts (``cache_shared_hits`` …)."""
+        return {f"{prefix}_{name}": value for name, value in vars(self).items()}
+
+
+_process_counters = CacheCounters()
+_counters_lock = threading.Lock()
+
+#: Per-turn counters, when a caller opened a scope. A ContextVar rather than a
+#: module global for the reason every other per-turn registry here is one
+#: (``cards/registry.py``): a replica answers several turns at once, and a
+#: process-global delta taken around one of them counts the others' traffic —
+#: a number that looks per-turn and is not. ContextVars travel into
+#: ``asyncio.to_thread``, which is how the sync helpers here are called from
+#: the event loop, so a scope covers the turn's real cache traffic. A thread
+#: started outside the scope (ingest) counts into the process totals only.
+_turn_counters: ContextVar[CacheCounters | None] = ContextVar("grid_cache_counters", default=None)
+
+
+def _count(**deltas: int) -> None:
+    """Add to the process totals and, when one is open, the turn's scope."""
+    global _process_counters
+    with _counters_lock:
+        _process_counters = replace(
+            _process_counters, **{name: getattr(_process_counters, name) + value for name, value in deltas.items()}
+        )
+    scoped = _turn_counters.get()
+    if scoped is not None:
+        _turn_counters.set(replace(scoped, **{name: getattr(scoped, name) + value for name, value in deltas.items()}))
+
+
+def cache_counters() -> CacheCounters:
+    """The open turn scope's counters, or the process totals when there is none."""
+    scoped = _turn_counters.get()
+    return scoped if scoped is not None else _process_counters
+
+
+@contextmanager
+def count_cache_operations() -> Iterator[None]:
+    """Count this turn's cache traffic on its own, for the profiler to stamp.
+
+    Read the numbers with :func:`cache_counters` inside the block (the profiler
+    does it at teardown, where the totals are final). Never raises, and never
+    changes what a cache call returns.
+    """
+    token = _turn_counters.set(CacheCounters())
+    try:
+        yield
+    finally:
+        _turn_counters.reset(token)
+
+
+def _warn_store_down(message: str, *args: Any) -> None:
+    """Warn that the store is unreachable — once per window, debug in between.
+
+    The traceback rides the FIRST warning of a window only. An outage means
+    every operation of every turn takes this path, so an unthrottled
+    ``exc_info=True`` costs one stack per cache call and buries the line that
+    says the cache is gone.
+    """
+    global _store_down_warned_at
+    now = time.monotonic()
+    with _warn_lock:
+        first = _store_down_warned_at is None or now - _store_down_warned_at >= _STORE_DOWN_WARN_INTERVAL_SECONDS
+        if first:
+            _store_down_warned_at = now
+    if first:
+        logger.warning(message, *args, exc_info=True)
+    else:
+        logger.debug(message, *args)
 
 
 def _get_client() -> Any | None:
@@ -54,7 +204,7 @@ def _get_client() -> Any | None:
     with _client_lock:
         if _client is not None:
             return _client
-        if time.monotonic() - _client_failed_at < _CLIENT_RETRY_SECONDS:
+        if _client_failed_at is not None and time.monotonic() - _client_failed_at < _CLIENT_RETRY_SECONDS:
             return None
         try:
             import redis
@@ -67,7 +217,8 @@ def _get_client() -> Any | None:
             )
             return _client
         except Exception:
-            logger.warning("Shared cache unavailable; using in-process fallback", exc_info=True)
+            _warn_store_down("Shared cache unavailable; using in-process fallback")
+            _count(errors=1)
             _client_failed_at = time.monotonic()
             return None
 
@@ -77,6 +228,68 @@ def _mark_client_failed() -> None:
     with _client_lock:
         _client = None
         _client_failed_at = time.monotonic()
+
+
+def _exc_type(name: str) -> Any | None:
+    return getattr(_redis_exceptions, name, None) if _redis_exceptions is not None else None
+
+
+# Exception types that say the STORE is down (every consumer backs off).
+# Built dynamically so a missing name on an older redis-py never crashes.
+_STORE_DOWN_ERRORS: tuple[type, ...] = tuple(
+    t
+    for t in (
+        _exc_type("ConnectionError"),
+        _exc_type("TimeoutError"),
+        _exc_type("AuthenticationError"),  # subclass of ConnectionError; persistent misconfig
+        _exc_type("BusyLoadingError"),  # subclass of ConnectionError; server starting
+        _exc_type("NoPermissionError"),  # ACL rejection is per-deployment, not per-key
+        _exc_type("OutOfMemoryError"),  # store full: every write fails, not this key
+        _exc_type("ReadOnlyError"),  # replica/failover: every write fails
+        _exc_type("ClusterDownError"),
+        _exc_type("MasterDownError"),
+        # Wedged connection decoding garbage: treat as store-down to be safe.
+        _exc_type("InvalidResponse"),
+    )
+    if isinstance(t, type)
+)
+# AuthorizationError (sibling of AuthenticationError under ConnectionError) is
+# store-down via the ConnectionError base; not listed separately on purpose.
+_MAX_CONNECTIONS_ERROR: Any | None = _exc_type("MaxConnectionsError")
+
+
+def _is_transport_error(exc: BaseException) -> bool:
+    """Whether ``exc`` says the STORE is unreachable, as opposed to this call.
+
+    Store-down (global cooldown + local fallback): ConnectionError, TimeoutError
+    and the deployment-wide rejections above (OOM, read-only, ACL, cluster
+    down, busy-loading, auth, wedged-protocol InvalidResponse).
+
+    Per-call (fail open for this key only, no cooldown, no local replica):
+    ResponseError incl. WRONGTYPE, NoScriptError, ExecAbortError, DataError,
+    ValueError / JSON decode errors. ``MaxConnectionsError`` is explicitly
+    per-call despite inheriting ConnectionError: it is a client-side pool leak,
+    and a global cooldown would hide it for 30s.
+
+    Redis missing means unclassifiable: return False (fail-open, never engage
+    the global cooldown for something we cannot identify).
+    """
+    if _redis_exceptions is None:
+        return False
+    if _MAX_CONNECTIONS_ERROR is not None and isinstance(exc, _MAX_CONNECTIONS_ERROR):
+        return False
+    return isinstance(exc, _STORE_DOWN_ERRORS) if _STORE_DOWN_ERRORS else False
+
+
+def _on_store_error(operation: str, key: str, exc: BaseException) -> None:
+    _count(errors=1)
+    if _is_transport_error(exc):
+        _warn_store_down("Shared cache %s failed for %s; falling back", operation, key)
+        _mark_client_failed()
+    else:
+        # Per-key rejection: debug without traceback to avoid one traceback
+        # per turn when a single bad key is hot.
+        logger.debug("Shared cache %s rejected for %s: %s", operation, key, exc)
 
 
 def _local_get(key: str) -> str | None:
@@ -101,27 +314,72 @@ def _local_set(key: str, value: str, ttl_seconds: float) -> None:
 
 
 def reset_local_store() -> None:
-    """Clear the in-process fallback store. Test-support only.
+    """Clear this module's per-process state. Test-support only.
 
     The fallback (`REDIS_URL` unset) is a module-global map that otherwise leaks
     cached values across tests. No effect on a real Redis backend.
+
+    The counters and the warn throttle are per-process state of the same kind
+    and are cleared with it, so a test that asserts "warns once" is not decided
+    by which test ran before it. The suite calls this around every test
+    (``tests/conftest.py``), which is what makes both assertions stable.
     """
+    global _store_down_warned_at, _process_counters
     with _local_lock:
         _local_store.clear()
+        _local_tombstones.clear()
+    with _warn_lock:
+        _store_down_warned_at = None
+    with _counters_lock:
+        _process_counters = CacheCounters()
+    scoped = _turn_counters.get()
+    if scoped is not None:
+        _turn_counters.set(CacheCounters())
+
+
+def _tombstone_active(key: str) -> bool:
+    with _local_lock:
+        expires_at = _local_tombstones.get(key)
+        if expires_at is None:
+            return False
+        if time.monotonic() >= expires_at:
+            _local_tombstones.pop(key, None)
+            return False
+        return True
 
 
 def get_json(key: str) -> Any | None:
     """Fetch and JSON-decode a value; None on miss or any store error."""
+    if _tombstone_active(key):
+        _count(local_misses=1)
+        return None
     client = _get_client()
     if client is not None:
         try:
             raw = client.get(key)
-            return json.loads(raw) if raw is not None else None
-        except Exception:
-            logger.warning("Shared cache read failed for %s; falling back", key, exc_info=True)
-            _mark_client_failed()
+            if raw is None:
+                _count(shared_misses=1)
+                return None
+            value = json.loads(raw)
+            _count(shared_hits=1)
+            return value
+        except Exception as exc:
+            _on_store_error("read", key, exc)
+            if not _is_transport_error(exc):
+                # Per-key rejection (WRONGTYPE, bad JSON): miss -> recompute.
+                # Do NOT serve a stale local copy of a key the store refused.
+                return None
     raw = _local_get(key)
-    return json.loads(raw) if raw is not None else None
+    if raw is None:
+        _count(local_misses=1)
+        return None
+    try:
+        value = json.loads(raw)
+    except (TypeError, ValueError):
+        _count(errors=1)
+        return None
+    _count(local_hits=1)
+    return value
 
 
 def set_json(key: str, value: Any, ttl_seconds: float) -> None:
@@ -135,24 +393,68 @@ def set_json(key: str, value: Any, ttl_seconds: float) -> None:
     if client is not None:
         try:
             client.set(key, raw, px=int(ttl_seconds * 1000))
+            with _local_lock:
+                _local_tombstones.pop(key, None)
             return
-        except Exception:
-            logger.warning("Shared cache write failed for %s; falling back", key, exc_info=True)
-            _mark_client_failed()
+        except Exception as exc:
+            _on_store_error("write", key, exc)
+            if not _is_transport_error(exc):
+                # Per-key rejection: skip _local_set so we never create a
+                # replica-only value the shared tier does not have.
+                return
     _local_set(key, raw, ttl_seconds)
+    with _local_lock:
+        _local_tombstones.pop(key, None)
 
 
-def delete(key: str) -> None:
-    """Drop a key from the shared cache (and the local fallback)."""
+def delete(key: str) -> bool:
+    """Drop a key from the shared cache (and the local fallback).
+
+    Returns True when the shared delete succeeded (or there is no shared
+    client); False when the shared delete failed. A failure sets a
+    short-lived tombstone so get_json hides the not-deleted server copy
+    instead of resurrecting it on the next read.
+    """
     client = _get_client()
     if client is not None:
         try:
             client.delete(key)
-        except Exception:
-            logger.warning("Shared cache delete failed for %s", key, exc_info=True)
-            _mark_client_failed()
+        except Exception as exc:
+            _on_store_error("delete", key, exc)
+            with _local_lock:
+                _local_store.pop(key, None)
+                _local_tombstones[key] = time.monotonic() + _TOMBSTONE_TTL_SECONDS
+            return False
+        with _local_lock:
+            _local_store.pop(key, None)
+            _local_tombstones.pop(key, None)
+        return True
     with _local_lock:
         _local_store.pop(key, None)
+    return True
+
+
+def _repair_window_ttl(client: Any, key: str, window_seconds: int, cause: BaseException) -> None:
+    """Give a fixed-window counter a TTL when the pipelined ``EXPIRE`` was dropped.
+
+    ``EXPIRE ... NX`` needs Redis >= 7.0, and an ACL can deny EXPIRE outright,
+    so this is a standing deployment property rather than a blip: every INCR on
+    that key lands on a key with no expiry until someone notices. Retrying with
+    a plain EXPIRE covers both causes, and it is issued only when the key really
+    has no TTL, so it cannot slide a window that is already ticking.
+
+    Raises on failure, which puts the caller on the local per-process window —
+    an advisory count is a better answer than a count that never resets.
+    """
+    ttl = client.ttl(key)
+    if isinstance(ttl, int) and ttl >= 0:
+        return
+    logger.warning(
+        "Shared cache dropped EXPIRE on %s (%s); repairing the window TTL",
+        key,
+        type(cause).__name__,
+    )
+    client.expire(key, window_seconds)
 
 
 def incr_fixed_window(key: str, window_seconds: int) -> int | None:
@@ -162,6 +464,11 @@ def incr_fixed_window(key: str, window_seconds: int) -> int | None:
     the in-process fallback is available AND the caller should treat the
     limiter as best-effort (the local counter is still returned — it simply
     only sees this process's traffic).
+
+    NOTE: the local fallback is advisory — with N replicas each counting
+    locally, the effective limit is N x the nominal one. Callers enforcing
+    hard budgets (money, quota) must treat a local/advisory count as such
+    and never as a globally enforced ceiling.
     """
     client = _get_client()
     if client is not None:
@@ -169,11 +476,28 @@ def incr_fixed_window(key: str, window_seconds: int) -> int | None:
             pipe = client.pipeline()
             pipe.incr(key)
             pipe.expire(key, window_seconds, nx=True)
-            count, _ = pipe.execute()
+            try:
+                results = pipe.execute(raise_on_error=False)
+            except TypeError:
+                # Older redis-py without the kwarg: plain execute raises on
+                # the first failed command instead of returning partials.
+                results = pipe.execute()
+            count = results[0] if isinstance(results, (list, tuple)) else results
+            if isinstance(count, BaseException):
+                raise count
+            # INCR landed but EXPIRE did not. `raise_on_error=False` reports
+            # that as an exception IN the results list, which this used to
+            # drop on the floor -- and a counter with no TTL is not a window
+            # counter: it grows without bound, never rolls over, and the
+            # limiter denies that key permanently, silently. Repair it.
+            expire = results[1] if isinstance(results, (list, tuple)) and len(results) > 1 else None
+            if isinstance(expire, BaseException):
+                _repair_window_ttl(client, key, window_seconds, expire)
             return int(count)
-        except Exception:
-            logger.warning("Shared cache incr failed for %s", key, exc_info=True)
-            _mark_client_failed()
+        except Exception as exc:
+            _on_store_error("incr", key, exc)
+            if not _is_transport_error(exc):
+                return None
     # Per-process fixed window fallback.
     with _local_lock:
         entry = _local_store.get(key)
@@ -181,7 +505,11 @@ def incr_fixed_window(key: str, window_seconds: int) -> int | None:
         if entry is None or now >= entry[0]:
             _local_store[key] = (now + window_seconds, "1")
             return 1
-        count = int(entry[1]) + 1
+        try:
+            count = int(entry[1]) + 1
+        except (TypeError, ValueError):
+            _local_store[key] = (now + window_seconds, "1")
+            return 1
         _local_store[key] = (entry[0], str(count))
         return count
 
@@ -203,15 +531,13 @@ def eval_script(script: str, keys: list[str], args: list[Any]) -> Any | None:
     try:
         return client.eval(script, len(keys), *keys, *args)
     except Exception as exc:
-        from redis.exceptions import ResponseError
-
-        if isinstance(exc, ResponseError):
-            # A Lua compile error or a WRONGTYPE key. The store is healthy; this
-            # call is not. Marking the client failed here would take the whole
-            # shared cache offline for _CLIENT_RETRY_SECONDS — for every
-            # consumer of this module, over a bug in one script.
-            logger.warning("Shared cache eval rejected by server", exc_info=True)
-            return None
-        logger.warning("Shared cache eval failed", exc_info=True)
-        _mark_client_failed()
+        # A Lua compile error, WRONGTYPE key, or NOSCRIPT is this call, not
+        # the store (see _is_transport_error): the cooldown is for an
+        # unreachable store.
+        _count(errors=1)
+        if _is_transport_error(exc):
+            _warn_store_down("Shared cache eval failed")
+            _mark_client_failed()
+        else:
+            logger.debug("Shared cache eval rejected by server: %s", exc)
         return None

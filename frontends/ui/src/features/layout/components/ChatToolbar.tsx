@@ -15,7 +15,6 @@ import {
   MoreHorizontal,
   PencilLine,
   Share2,
-  Sparkles,
   SquarePen,
 } from 'lucide-react'
 import { AnimatePresence, motion, motionQuick } from '@/components/motion'
@@ -30,7 +29,7 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { Spinner } from '@/components/ui/spinner'
 import { useAuth } from '@/adapters/auth'
-import { useChatStore, useLoadJobData } from '@/features/chat'
+import { useChatStore } from '@/features/chat'
 import { AccessChip, namedAudienceCount } from '@/features/collaboration/components/AccessChip'
 import { InboxBadge } from '@/features/collaboration/components/InboxBadge'
 import { ParticipantStrip } from '@/features/collaboration/components/ParticipantStrip'
@@ -100,13 +99,10 @@ export const ChatToolbar: FC<ChatToolbarProps> = memo(function ChatToolbar({
   const tCollab = useTranslations('collaboration')
   const toggleSessionsPanel = useLayoutStore((s) => s.toggleSessionsPanel)
   const openMobileNav = useLayoutStore((s) => s.setMobileNavOpen)
-  const isResearchPanelOpen = useLayoutStore((s) => s.rightPanel === 'research')
   const isDeepResearchStreaming = useChatStore((s) => s.isDeepResearchStreaming)
-  const deepResearchJobId = useChatStore((s) => s.deepResearchJobId)
   // Inline rename reuses the SAME store action the sessions panel uses.
   const currentSessionId = useChatStore((s) => s.currentConversation?.id)
   const updateConversationTitle = useChatStore((s) => s.updateConversationTitle)
-  const { loadResearchPanelTab, isLoading: isStreamLoading } = useLoadJobData()
 
   // Sharing state for this thread. One request per conversation, shared by the
   // strip, the chip and the dialog — the hook is fully inert while the feature is
@@ -143,13 +139,6 @@ export const ChatToolbar: FC<ChatToolbarProps> = memo(function ChatToolbar({
   }, [isEditingTitle])
 
   const canRename = isAuthenticated && !!currentSessionId && !!updateConversationTitle
-
-  // Is there a report to go back to? A job on this thread (restored with the
-  // conversation, so it survives a reload), one running now, or the panel already
-  // open — the last so the entry can still close what it opened.
-  const hasResearchReport = Boolean(
-    deepResearchJobId || isDeepResearchStreaming || isResearchPanelOpen,
-  )
 
   /**
    * Who can read this thread — answered by exactly ONE of two forms, never both.
@@ -267,22 +256,6 @@ export const ChatToolbar: FC<ChatToolbarProps> = memo(function ChatToolbar({
     openMobileNav(true)
   }, [openMobileNav])
 
-  const handleResearchClick = useCallback(() => {
-    if (!isAuthenticated) return
-    const { rightPanel, closeRightPanel, openRightPanel, researchPanelTab } =
-      useLayoutStore.getState()
-    if (rightPanel === 'research') {
-      closeRightPanel()
-      return
-    }
-    openRightPanel('research')
-    // Re-hydrate the active tab from the job when one exists (same behavior
-    // the panel's own toggle tag had before it moved into the toolbar).
-    if (deepResearchJobId && !isStreamLoading) {
-      void loadResearchPanelTab(deepResearchJobId, researchPanelTab)
-    }
-  }, [isAuthenticated, deepResearchJobId, isStreamLoading, loadResearchPanelTab])
-
   const handleNewSessionClick = useCallback(() => {
     if (!isAuthenticated || isNewSessionDisabled) return
     onNewSession?.()
@@ -339,10 +312,9 @@ export const ChatToolbar: FC<ChatToolbarProps> = memo(function ChatToolbar({
           with nothing opposite it does not read as "quiet", it reads as a
           toolbar with its right half missing. Nothing is added on the right to
           balance it, because nothing there is true yet: no thread to share or
-          rename, no report to reopen, and New chat on an empty chat is a door
-          back into the room you are standing in. The controls stay exactly
-          where they are and lose their frame; the row goes quiet on both
-          sides. */}
+          rename, and New chat on an empty chat is a door back into the room you
+          are standing in. The controls stay exactly where they are and lose
+          their frame; the row goes quiet on both sides. */}
       <div
         className={cn(
           'pointer-events-auto flex min-h-12 min-w-0 max-w-[64%] items-center gap-0.5 rounded-lg p-0.5 sm:min-h-8 sm:max-w-none',
@@ -458,8 +430,8 @@ export const ChatToolbar: FC<ChatToolbarProps> = memo(function ChatToolbar({
 
       {/* RIGHT pill: what is TRUE about this thread, then what you can DO to it,
           with a hairline between the two. Hidden until a chat has started — on the
-          empty start screen New chat is redundant, there is no thread to share and
-          no report to reopen.
+          empty start screen New chat is redundant and there is no thread to share
+          or rename.
 
           The separation is the point. This row used to mix the two kinds freely,
           and worse, it mixed them in a way that made each LIE about itself: the
@@ -521,8 +493,9 @@ export const ChatToolbar: FC<ChatToolbarProps> = memo(function ChatToolbar({
             {/* Live research is status too, and the one piece of it worth carrying
                 in the header: the thread's own banner scrolls away, and this is
                 then the only persistent "still working" signal. It states, it does
-                not act — the report is in the menu. Independent of sharing: a solo
-                thread researches just as often as a shared one. */}
+                not act, and there is nothing here to act WITH — a run is read in
+                the thread it was commissioned from (ADR-0062). Independent of
+                sharing: a solo thread researches just as often as a shared one. */}
             <AnimatePresence initial={false}>
               {isDeepResearchStreaming && (
                 <motion.span
@@ -576,7 +549,7 @@ export const ChatToolbar: FC<ChatToolbarProps> = memo(function ChatToolbar({
             drawer holding the rest, so the pill reads as three plain groups
             instead of a run of controls. Drawn only with the menu it precedes —
             a divider with nothing after it is a promise of something missing. */}
-        {(canRename || canShare || hasResearchReport) && (
+        {(canRename || canShare) && (
           <>
           <div aria-hidden="true" className="mx-1 h-4 w-px bg-border" />
           <DropdownMenu>
@@ -637,28 +610,6 @@ export const ChatToolbar: FC<ChatToolbarProps> = memo(function ChatToolbar({
                 <DropdownMenuItem onSelect={() => setIsShareOpen(true)} data-testid="share-button">
                   <Share2 className="size-4" aria-hidden="true" />
                   {tCollab('sharing.action')}
-                </DropdownMenuItem>
-              )}
-
-              {/* Research report — the way BACK to a report this thread already
-                  has, for when you have closed the panel and scrolled on. It is
-                  deliberately not the primary door: the answer card that produced
-                  the report owns that (`AgentResponse` reconnects the right job and
-                  opens the right tab), and the panel closes from its own X and from
-                  Escape. So it appears only when there is something to go back to —
-                  a job on this thread (restored with the conversation, so it
-                  survives a reload), one streaming now, or the panel already open.
-                  On a thread that never ran deep research, a permanent "Recherche"
-                  button was a door to an empty room. */}
-              {hasResearchReport && (
-                <DropdownMenuItem
-                  onSelect={handleResearchClick}
-                  disabled={!isAuthenticated}
-                  aria-expanded={isResearchPanelOpen}
-                  data-testid="research-panel-toggle"
-                >
-                  <Sparkles className="size-4" aria-hidden="true" />
-                  {t('chatToolbar.researchReport')}
                 </DropdownMenuItem>
               )}
             </DropdownMenuContent>

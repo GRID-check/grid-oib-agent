@@ -45,9 +45,9 @@ export function PageSheetSkeleton({ loadingLabel }: { loadingLabel: string }): J
           <Skeleton className="hidden size-9 rounded-lg md:block" />
         </div>
         <div className="min-h-0 flex-1 space-y-3 px-4 py-6 md:px-8">
-          <Skeleton className="h-16 w-full rounded-xl" />
-          <Skeleton className="h-16 w-full rounded-xl" />
-          <Skeleton className="h-16 w-2/3 rounded-xl" />
+          <Skeleton className="h-16 w-full rounded-lg" />
+          <Skeleton className="h-16 w-full rounded-lg" />
+          <Skeleton className="h-16 w-2/3 rounded-lg" />
         </div>
       </div>
     </div>

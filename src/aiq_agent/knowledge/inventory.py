@@ -29,14 +29,48 @@ _listing_shelf: ContextVar[Shelf | None] = ContextVar("grid_listing_shelf", defa
 # How many files the cap dropped, per shelf, for the turn being rendered.
 #
 # A contextvar for the same reason ``_listing_shelf`` is one: the cap is applied
-# at AGGREGATION time (``chat_researcher.register``) and the block is rendered
+# at AGGREGATION time (``agents.piloti.conversation_register``) and the block is rendered
 # much later, by ``render_prompt_template``, with no call path between them that
 # could carry an extra argument.
 _inventory_drops: ContextVar[dict[Shelf | None, int]] = ContextVar("grid_inventory_drops", default={})
 
+# The turn's inventory ROWS, for the tools that have to resolve a file name the
+# reader typed against the files the reader actually has.
+#
+# The rendered block above is prose: it is what the MODEL reads, and a tool
+# cannot parse a shelf heading back into a document. The rows are what the
+# write-side workspace tools (`tools/files/`) resolve against, so a proposal
+# names a file that exists on a shelf the turn can see, and „verschieb den
+# Brandschutzplan" resolves or is refused rather than guessed.
+#
+# A ContextVar for the third time in this module and for the same reason: the
+# rows are aggregated in `turn/inventory.py` and read inside a tool call, with
+# a LangGraph run and a tool node between the two and no argument that could
+# travel. Set once per turn (`piloti/conversation_register.py`), so a turn
+# with no inventory reads the empty tuple rather than the previous turn's.
+_turn_documents: ContextVar[tuple[Any, ...]] = ContextVar("grid_turn_documents", default=())
+
+# The Richtlinien-Familien the base shelf holds, for the turn being rendered.
+#
+# A contextvar for the same reason as the two above, plus one of its own: it is
+# derived from the base shelf BEFORE the cap runs. The cap drops base rows
+# first (user shelves are the priority), so a family list derived from what
+# survives would lose members on exactly the projects with the most files —
+# which is the same silent-incompleteness failure the cap notice exists to
+# prevent, one level down.
+_norm_families: ContextVar[tuple[Any, ...]] = ContextVar("grid_norm_families", default=())
+
 # User-facing shelves first; base last so the OIB corpus cannot evict them.
 _USER_SHELF_ORDER: tuple[Shelf, ...] = (Shelf.ARCHIV, Shelf.PROJECT, Shelf.SESSION)
 _INVENTORY_ORDER: tuple[Shelf, ...] = (*_USER_SHELF_ORDER, Shelf.BASE)
+
+#: How many in-flight filenames the prompt names before it counts the rest.
+#:
+#: Same rule as every other block here: carry the shape, not the list. A bulk
+#: upload can have hundreds of files in flight, and the model needs to know
+#: THAT rather than WHICH — past a handful the names stop informing the answer
+#: and start being paid for on every turn.
+_IN_FLIGHT_MAX_NAMED = 5
 
 _SHELF_BLURBS: dict[Shelf, str] = {
     Shelf.BASE: (
@@ -330,6 +364,55 @@ def get_inventory_drops() -> dict[Shelf | None, int]:
     return _inventory_drops.get()
 
 
+def set_turn_documents(docs: Sequence[Any] | None) -> None:
+    """Bind the inventory rows this turn may resolve names against.
+
+    Called once per turn with whatever the inventory load produced — including
+    ``None``, which binds the empty tuple. That is the reset: a turn that
+    resolved nothing must not inherit the last turn's shelves.
+    """
+    _turn_documents.set(tuple(docs or ()))
+
+
+def get_turn_documents() -> tuple[Any, ...]:
+    """The inventory rows bound for this turn; empty when there are none."""
+    return _turn_documents.get()
+
+
+def set_norm_families(families: Sequence[Any] | None) -> None:
+    """Remember which Richtlinien-Familien the base shelf holds, or clear it."""
+    _norm_families.set(tuple(families or ()))
+
+
+def get_norm_families() -> tuple[Any, ...]:
+    """The turn's families (:class:`~aiq_agent.common.norm_registry.NormFamily`)."""
+    return _norm_families.get()
+
+
+def _family_lines(families: Sequence[Any]) -> list[str]:
+    """One line per Richtlinie, naming every part of it the corpus holds.
+
+    "OIB-Richtlinien 1–6" is a range, and a range names no members. OIB-RL 2 is
+    four documents — 2, 2.1, 2.2, 2.3 — and until this line the prompt never
+    said so, so „Was weißt du über die OIB 2?“ could open three of them and
+    read as complete. The rule that acts on this is in ``<research_rules>``;
+    this is the fact it needs.
+    """
+    if not families:
+        return []
+    lines = [
+        "Die Richtlinien-Familien dieses Korpus, mit allen Teilen, die tatsächlich "
+        "indiziert sind (nicht die Reihe „1–6“, sondern die Mitglieder):"
+    ]
+    lines += [f"- {family.label}: {', '.join(family.members)}" for family in families]
+    lines.append(
+        "Eine Frage nach einer ganzen Richtlinie ist erst beantwortet, wenn jedes hier "
+        "genannte Mitglied gelesen wurde. Ein nicht gelesenes Mitglied darf genannt, "
+        "aber nicht beschrieben werden."
+    )
+    return lines
+
+
 def set_listing_shelf(shelf: Shelf | str | None) -> None:
     """Remember the shelf this turn is listing, or clear it."""
     _listing_shelf.set(parse_shelf(shelf))
@@ -337,18 +420,6 @@ def set_listing_shelf(shelf: Shelf | str | None) -> None:
 
 def get_listing_shelf() -> Shelf | None:
     return _listing_shelf.get()
-
-
-def listing_intent_override(query: str) -> str | None:
-    """``"meta"`` when *query* is a shelf-listing question; otherwise ``None``.
-
-    The intent classifier's tie-break prefers research. A listing question is
-    Bürowissen, so that tie-break turns "welche Dateien hast du im Büroarchiv"
-    into a search. This override is the cause-level gate: if the query names a
-    shelf as a catalogue question, the turn is meta regardless of what the
-    classifier model said.
-    """
-    return "meta" if shelf_hint_from_query(query) is not None else None
 
 
 def _parse_scope_shelves(values: Sequence[Any] | None) -> list[Shelf]:
@@ -405,10 +476,9 @@ def _folded_base_lines(count: int) -> list[str]:
     model can cite a document by name, and they are what the model cannot
     reconstruct from anywhere else.
 
-    A listing question about THIS shelf ("welche OIB-Richtlinien hast du") is
-    routed to ``intent="meta"``, which binds no search tools — so that turn has
-    no retrieval to fall back on, and ``focus_shelf`` prints the full list. The
-    fold applies to every other turn.
+    A listing question about THIS shelf ("welche OIB-Richtlinien hast du")
+    names it (``shelf_hint_from_query`` → ``set_listing_shelf``), and then
+    ``focus_shelf`` prints the full list. The fold applies to every other turn.
     """
     n = f"{count} Datei" if count == 1 else f"{count} Dateien"
     return [
@@ -420,6 +490,10 @@ def _folded_base_lines(count: int) -> list[str]:
         f"Fragt der Nutzer, was auf diesem Regal liegt: sage, dass es {n} des "
         "OIB-Korpus sind und du sie über die Suche erreichst. Erfinde keine "
         "Dateinamen.",
+        # The one thing the fold may NOT leave out. Everything above is a shape
+        # retrieval can recover; which parts a Richtlinie HAS is not — a search
+        # that never returns 2.3 looks exactly like a Richtlinie that has none.
+        *_family_lines(get_norm_families()),
     ]
 
 
@@ -428,6 +502,7 @@ def render_inventory_block(
     *,
     in_scope_shelves: Sequence[Any] | None = None,
     focus_shelf: Shelf | str | None = None,
+    in_flight: Sequence[str] | None = None,
 ) -> str:
     """Markdown inventory grouped by shelf, including empty in-scope shelves.
 
@@ -436,6 +511,15 @@ def render_inventory_block(
 
     ``focus_shelf`` is a listing question about ONE shelf: only that group is
     printed, so OIB filenames cannot be recited as Büroarchiv.
+
+    ``in_flight`` names files whose ingestion has not finished. THE ABSENCE OF
+    A FILE IS NOT THE SAME FACT AS ITS NON-EXISTENCE, and this inventory could
+    only ever state the second. It is built from the summaries table, written
+    when a job COMPLETES, so a plan attached moments ago is missing here in
+    exactly the way it is missing from retrieval — and the model, seeing a
+    complete-looking shelf, answered confidently without the one document the
+    question was about. Naming those files lets the answer say what it could
+    not see.
     """
     groups: dict[Shelf, list[Any]] = {shelf: [] for shelf in _INVENTORY_ORDER}
     unknown: list[Any] = []
@@ -461,7 +545,7 @@ def render_inventory_block(
             continue
         if shelf in scoped or groups[shelf]:
             show.append(shelf)
-    if not show and not unknown:
+    if not show and not unknown and not (in_flight or []):
         return ""
     if focused is not None:
         unknown = []
@@ -493,6 +577,21 @@ def render_inventory_block(
             "`Brandschutz/…`. You may name folders when you talk about the files, and "
             "you may pass `folder=` to `knowledge_search` to read only what is filed "
             "there. Files with no `(Ordner: …)` sit at the top level."
+        )
+        lines.append("")
+
+    pending = [name for name in (in_flight or []) if name]
+    if pending:
+        shown = pending[:_IN_FLIGHT_MAX_NAMED]
+        rest = len(pending) - len(shown)
+        tail = f", und {rest} weitere" if rest > 0 else ""
+        lines.append(
+            "**Still being read.** These files were uploaded but their indexing has not "
+            f"finished, so they are NOT in the inventory above and a search will not find "
+            f"them yet: {', '.join(f'`{name}`' for name in shown)}{tail}. If the question "
+            "depends on one of them, say plainly that it is still being processed and "
+            "answer what you can without it — do not present an answer that omits it as "
+            "though the file had been read."
         )
         lines.append("")
 

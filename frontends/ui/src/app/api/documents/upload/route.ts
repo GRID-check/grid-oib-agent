@@ -13,6 +13,9 @@ export const POST = apiRoute(
     const projectId = formData.get('projectId')
     const folderId = formData.get('folderId')
     const file = formData.get('file')
+    // Where the file sat before it was uploaded, when the browser knows. Only a
+    // folder upload sends it; the service sanitizes and bounds it.
+    const originPath = formData.get('originPath')
 
     if (typeof projectId !== 'string' || !projectId || !(file instanceof File)) {
       throw new BadRequestError('projectId and file are required')
@@ -20,7 +23,12 @@ export const POST = apiRoute(
 
     return uploadDocument(
       session,
-      { projectId, folderId: typeof folderId === 'string' && folderId ? folderId : null, file },
+      {
+        projectId,
+        folderId: typeof folderId === 'string' && folderId ? folderId : null,
+        file,
+        originPath: typeof originPath === 'string' ? originPath : null,
+      },
       request
     )
   },

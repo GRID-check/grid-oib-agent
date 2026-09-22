@@ -1,9 +1,10 @@
 import type { ReactNode } from 'react'
-import { render, screen, waitFor, within } from '@/test-utils'
+import { render, screen, waitFor, within, fireEvent } from '@/test-utils'
 import userEvent from '@testing-library/user-event'
 import { vi, describe, test, expect, beforeEach } from 'vitest'
 import { SessionsPanel } from './SessionsPanel'
 import type { ResearchRun } from '@/adapters/api/research-runs-client'
+import type { DeepResearchJobStatus } from '@/features/chat/types'
 import { asStoreState, type DeepPartial, type StoreSelector } from '@/test-utils/store-fixtures'
 import type { LayoutStore } from '../types'
 import type { ChatStoreWithHydration } from '@/features/chat/store'
@@ -73,6 +74,9 @@ const createMockChatState = (
     isStreaming?: boolean
     pendingInteraction?: { id: string; type: string; content: string } | null
     refreshDeepResearchSessionStatuses?: () => Promise<void>
+    dismissDeepResearchJob?: (conversationId: string | null, jobId: string) => Promise<void>
+    purgeAbandonedDeepResearchJobs?: () => Promise<number>
+    resolvedDeepResearchJobs?: Record<string, DeepResearchJobStatus>
   } = {}
 ) => ({
   isSessionBusy: overrides.isSessionBusy ?? (() => false),
@@ -80,6 +84,9 @@ const createMockChatState = (
   isStreaming: overrides.isStreaming ?? false,
   pendingInteraction: overrides.pendingInteraction ?? null,
   refreshDeepResearchSessionStatuses: overrides.refreshDeepResearchSessionStatuses ?? vi.fn(),
+  dismissDeepResearchJob: overrides.dismissDeepResearchJob ?? vi.fn(),
+  purgeAbandonedDeepResearchJobs: overrides.purgeAbandonedDeepResearchJobs ?? vi.fn(),
+  resolvedDeepResearchJobs: overrides.resolvedDeepResearchJobs ?? {},
 })
 
 const setupChatStoreMock = (overrides: Parameters<typeof createMockChatState>[0] = {}) => {
@@ -858,7 +865,7 @@ describe('SessionsPanel - Deep Research section (FB-10)', () => {
     )
   })
 
-  test('shows runs by default: session-title label, untitled fallback, and deep-link hrefs', async () => {
+  test('shows runs by default: session-title label, untitled fallback, and thread hrefs', async () => {
     mockListResearchRuns.mockResolvedValue({
       jobs: [
         makeRun({ job_id: 'job-completed', status: 'completed', conversation_id: 'conv-1' }),
@@ -872,26 +879,33 @@ describe('SessionsPanel - Deep Research section (FB-10)', () => {
     // Always open — with the History page gone this sheet is the one record,
     // so the runs are visible without a click.
 
-    // Completed run inherits its originating session's title and links to the report.
+    // A run inherits its originating session's title and opens THAT thread,
+    // where the run narrates itself in one message (ADR-0062).
     const completed = await screen.findByRole('link', {
       name: /Open deep research run: Fire safety review/i,
     })
-    expect(completed.getAttribute('href')).toBe('/app/projects/p1/chat?job=job-completed')
+    expect(completed.getAttribute('href')).toBe('/app/projects/p1/chat?session=conv-1')
 
-    // Failed run with no local session falls back to the shared untitled label
-    // and deep-links to the thinking tab.
-    const failed = screen.getByRole('link', {
-      name: /Open deep research run: Deep research run/i,
-    })
-    expect(failed.getAttribute('href')).toBe('/app/projects/p1/chat?job=job-failed&tab=thinking')
+    // A run that names no conversation — headless, or from the CLI — has no
+    // thread to open. It keeps the shared untitled label and offers NO link:
+    // the `?job=…&tab=thinking` URL it used to get was read by the research
+    // panel alone, so with the panel gone it would land on the chat page and
+    // silently do nothing.
+    expect(screen.getByText('Deep research run')).toBeInTheDocument()
+    expect(
+      screen.queryByRole('link', { name: /Open deep research run: Deep research run/i })
+    ).not.toBeInTheDocument()
   })
 
   test('a run states its status in words, not only in its icon', async () => {
     mockListResearchRuns.mockResolvedValue({
       jobs: [
         makeRun({ job_id: 'job-ok', status: 'completed', conversation_id: 'conv-1' }),
-        makeRun({ job_id: 'job-bad', status: 'failed', conversation_id: null }),
-        makeRun({ job_id: 'job-live', status: 'running', conversation_id: null }),
+        // Threads of their own, so the failed row is a LINK and its accessible
+        // name can be asserted below — a run with no conversation renders no
+        // link at all, which the deep-link test above covers.
+        makeRun({ job_id: 'job-bad', status: 'failed', conversation_id: 'conv-2' }),
+        makeRun({ job_id: 'job-live', status: 'running', conversation_id: 'conv-3' }),
       ],
       total: 3,
     })
@@ -1034,10 +1048,218 @@ describe('SessionsPanel - Deep Research section (FB-10)', () => {
     )
 
     // Now the original fetch resolves; the result must land in the section.
-    resolveRuns({ jobs: [makeRun({ job_id: 'job-1' }), makeRun({ job_id: 'job-2' })], total: 2 })
+    resolveRuns({
+      jobs: [
+        makeRun({ job_id: 'job-1', conversation_id: 'conv-1' }),
+        makeRun({ job_id: 'job-2', conversation_id: 'conv-2' }),
+      ],
+      total: 2,
+    })
 
     expect(
       await screen.findAllByRole('link', { name: /open deep research run/i })
     ).toHaveLength(2)
+  })
+})
+
+describe('SessionsPanel - stuck research purge', () => {
+  const today = new Date()
+  const mockDismiss = vi.fn()
+  const mockPurge = vi.fn()
+
+  const stuckSession = {
+    id: 'conv-stuck',
+    title: 'Stuck research chat',
+    date: today,
+    hasActiveDeepResearch: true,
+    activeDeepResearchJobId: 'job-stuck',
+  }
+  const idleSession = { id: 'conv-idle', title: 'Idle chat', date: today }
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockDismiss.mockResolvedValue(undefined)
+    mockPurge.mockResolvedValue(0)
+    mockListResearchRuns.mockResolvedValue({ jobs: [], total: 0 })
+    setupChatStoreMock({
+      dismissDeepResearchJob: mockDismiss,
+      purgeAbandonedDeepResearchJobs: mockPurge,
+      // The row's stop action renders for an *active* session: the Session
+      // prop carries the stuck run, the busy check marks the row active.
+      isSessionBusy: () => true,
+    })
+    vi.mocked(useLayoutStore).mockImplementation((selector?: StoreSelector<LayoutStore>) => {
+      const state: DeepPartial<LayoutStore> = {
+        isSessionsPanelOpen: true,
+        setSessionsPanelOpen: mockSetSessionsPanelOpen,
+      }
+      return selector ? selector(asStoreState<LayoutStore>(state)) : state
+    })
+  })
+
+  test('a chat row with a stuck run offers a stop action that dismisses it', async () => {
+    const user = userEvent.setup()
+    render(<SessionsPanel sessions={[stuckSession, idleSession]} />)
+
+    // Hover reveals the overlay actions (the realistic path); the click itself
+    // goes through fireEvent because userEvent's multi-step pointer sequence
+    // re-renders the motion row mid-gesture and drops the click on the
+    // detached node — a jsdom artifact, not a production one.
+    await user.hover(screen.getByRole('button', { name: /chat: stuck research chat/i }))
+    fireEvent.click(screen.getByRole('button', { name: 'Stop research' }))
+
+    // Stopping cancels server-side work, so it confirms first through the
+    // shared dialog rather than firing off the icon.
+    expect(await screen.findByText('Stop research?')).toBeInTheDocument()
+    await user.click(screen.getByTestId('stop-research-confirm'))
+
+    await waitFor(() => {
+      expect(mockDismiss).toHaveBeenCalledWith('conv-stuck', 'job-stuck')
+    })
+  })
+
+  test('cancelling the stop confirm dismisses nothing', async () => {
+    const user = userEvent.setup()
+    render(<SessionsPanel sessions={[stuckSession, idleSession]} />)
+
+    await user.hover(screen.getByRole('button', { name: /chat: stuck research chat/i }))
+    fireEvent.click(screen.getByRole('button', { name: 'Stop research' }))
+    expect(await screen.findByText('Stop research?')).toBeInTheDocument()
+
+    await user.keyboard('{Escape}')
+    await waitFor(() => {
+      expect(screen.queryByText('Stop research?')).not.toBeInTheDocument()
+    })
+    expect(mockDismiss).not.toHaveBeenCalled()
+  })
+
+  test('an idle chat row offers no stop action', async () => {
+    const user = userEvent.setup()
+    render(<SessionsPanel sessions={[idleSession]} />)
+
+    await user.hover(screen.getByRole('button', { name: /chat: idle chat/i }))
+
+    expect(screen.queryByRole('button', { name: /stop research/i })).not.toBeInTheDocument()
+  })
+
+  test('the footer purges every stuck run when one is active', async () => {
+    const user = userEvent.setup()
+    mockPurge.mockResolvedValue(2)
+    render(<SessionsPanel sessions={[stuckSession, idleSession]} />)
+
+    await user.click(screen.getByRole('button', { name: /stop all stuck research runs/i }))
+    expect(await screen.findByText('Stop stuck research?')).toBeInTheDocument()
+    await user.click(screen.getByTestId('purge-stuck-research-confirm'))
+
+    await waitFor(() => {
+      expect(mockPurge).toHaveBeenCalledTimes(1)
+    })
+  })
+
+  test('the footer shows no purge when nothing is stuck', () => {
+    render(<SessionsPanel sessions={[idleSession]} />)
+
+    expect(
+      screen.queryByRole('button', { name: /stop all stuck research runs/i })
+    ).not.toBeInTheDocument()
+  })
+
+  test('a running research run offers a stop action that dismisses and refetches', async () => {
+    const user = userEvent.setup()
+    mockListResearchRuns.mockResolvedValue({
+      jobs: [
+        {
+          job_id: 'job-live',
+          status: 'running',
+          created_at: today.toISOString(),
+          conversation_id: null,
+          project_collection: 'proj_1',
+        },
+      ],
+      total: 1,
+    })
+    render(
+      <SessionsPanel
+        sessions={[idleSession]}
+        showDeepResearchSection
+        projectId="p1"
+        projectCollection="proj_1"
+      />
+    )
+
+    expect(await screen.findByText('Running')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Stop research' }))
+    expect(await screen.findByText('Stop research?')).toBeInTheDocument()
+    await user.click(screen.getByTestId('stop-research-confirm'))
+
+    await waitFor(() => {
+      expect(mockDismiss).toHaveBeenCalledWith(null, 'job-live')
+    })
+    // Initial fetch plus the refetch after the dismiss landed.
+    await waitFor(() => {
+      expect(mockListResearchRuns).toHaveBeenCalledTimes(2)
+    })
+  })
+
+  test('a finished research run offers no stop action', async () => {
+    mockListResearchRuns.mockResolvedValue({
+      jobs: [
+        {
+          job_id: 'job-done',
+          status: 'completed',
+          created_at: today.toISOString(),
+          conversation_id: null,
+          project_collection: 'proj_1',
+        },
+      ],
+      total: 1,
+    })
+    render(
+      <SessionsPanel
+        sessions={[idleSession]}
+        showDeepResearchSection
+        projectId="p1"
+        projectCollection="proj_1"
+      />
+    )
+
+    expect(await screen.findByText('Report ready')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /stop research/i })).not.toBeInTheDocument()
+  })
+
+  test('a dismissed run renders its recorded verdict, not the stale list status', async () => {
+    // The runs list can lag a crashed run indefinitely: the backend declared
+    // this job failed on cancel, but the list still serves it as running.
+    setupChatStoreMock({
+      dismissDeepResearchJob: mockDismiss,
+      purgeAbandonedDeepResearchJobs: mockPurge,
+      isSessionBusy: () => true,
+      resolvedDeepResearchJobs: { 'job-stale': 'failure' },
+    })
+    mockListResearchRuns.mockResolvedValue({
+      jobs: [
+        {
+          job_id: 'job-stale',
+          status: 'running',
+          created_at: today.toISOString(),
+          conversation_id: null,
+          project_collection: 'proj_1',
+        },
+      ],
+      total: 1,
+    })
+    render(
+      <SessionsPanel
+        sessions={[idleSession]}
+        showDeepResearchSection
+        projectId="p1"
+        projectCollection="proj_1"
+      />
+    )
+
+    expect(await screen.findByText('Failed')).toBeInTheDocument()
+    expect(screen.queryByText('Running')).not.toBeInTheDocument()
+    // Settled runs need no stop action.
+    expect(screen.queryByRole('button', { name: /stop research/i })).not.toBeInTheDocument()
   })
 })

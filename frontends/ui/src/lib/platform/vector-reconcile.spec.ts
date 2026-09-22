@@ -33,10 +33,35 @@ function deleteResponse(totalDeleted: number) {
   return { ok: true, json: () => Promise.resolve({ total_deleted: totalDeleted }) }
 }
 
+/** The backend's answer to the summary half of the sweep. */
+function summaryResponse(forgotten: { collection: string; file_name: string }[], failures: { collection: string; error: string }[] = []) {
+  return {
+    ok: true,
+    json: () =>
+      Promise.resolve({
+        status: 'ok',
+        dry_run: false,
+        orphans_found: forgotten.length,
+        orphans_forgotten: forgotten.length,
+        forgotten,
+        failures,
+      }),
+  }
+}
+
+/** The summary call is the LAST fetch of a run; everything before it is chunk work. */
+function summaryCall() {
+  const call = fetchMock.mock.calls[fetchMock.mock.calls.length - 1]
+  return { url: call[0] as string, init: call[1] as RequestInit }
+}
+
 describe('reconcileOrphanedVectors', () => {
   beforeEach(() => {
     vi.stubGlobal('fetch', fetchMock)
     fetchMock.mockReset()
+    // Every scripted response below is chunk work; the summary half runs last
+    // and, unless a test scripts it, finds nothing to forget.
+    fetchMock.mockImplementation(() => Promise.resolve(summaryResponse([])))
   })
   afterEach(() => {
     vi.unstubAllGlobals()
@@ -88,7 +113,8 @@ describe('reconcileOrphanedVectors', () => {
     const result = await reconcileOrphanedVectors()
 
     expect(result.orphansFound).toBe(0)
-    expect(fetchMock).toHaveBeenCalledTimes(1)
+    // One list call, then the summary half; no DELETE in between.
+    expect(fetchMock).toHaveBeenCalledTimes(2)
   })
 
   it('shields only `user`, so an author value nobody has added yet owns no chunks', async () => {
@@ -135,8 +161,8 @@ describe('reconcileOrphanedVectors', () => {
 
     expect(result.orphansFound).toBe(0)
     expect(result.orphansDeleted).toBe(0)
-    // No DELETE was issued — only the one list call.
-    expect(fetchMock).toHaveBeenCalledTimes(1)
+    // No DELETE was issued — the one list call, then the summary half.
+    expect(fetchMock).toHaveBeenCalledTimes(2)
   })
 
   it('deletes an orphan stored under an encoded name (the historical leak)', async () => {
@@ -159,9 +185,11 @@ describe('reconcileOrphanedVectors', () => {
     const result = await reconcileOrphanedVectors()
 
     expect(result.collectionsScanned).toBe(1)
-    // Only proj_a was listed; the unrelated oib_knowledge collection was never fetched.
-    expect(fetchMock).toHaveBeenCalledTimes(1)
+    // Only proj_a was listed; the unrelated oib_knowledge collection was never
+    // fetched, and the summary half was scoped to proj_a alone.
+    expect(fetchMock).toHaveBeenCalledTimes(2)
     expect(fetchMock.mock.calls[0][0]).toContain('/v1/collections/proj_a/documents')
+    expect(JSON.parse(summaryCall().init.body as string)).toEqual({ collections: ['proj_a'], dry_run: false })
   })
 
   it('records a per-collection failure and continues', async () => {
@@ -178,5 +206,81 @@ describe('reconcileOrphanedVectors', () => {
     expect(result.collectionsScanned).toBe(2)
     expect(result.failures).toHaveLength(1)
     expect(result.failures[0].collectionName).toBe('proj_a')
+  })
+
+  // The second half of the run: summary rows whose chunks are gone. The backend
+  // does the comparison; this tier only scopes it and records what came back.
+  it('forgets chunk-less summaries in the collections it just walked, after the chunk pass', async () => {
+    stubRows([{ collectionName: 'proj_a', filename: 'live.pdf', authoredBy: 'user' }])
+    fetchMock.mockResolvedValueOnce(listResponse(['live.pdf', 'ghost.pdf']))
+    fetchMock.mockResolvedValueOnce(deleteResponse(3))
+    fetchMock.mockResolvedValueOnce(summaryResponse([{ collection: 'proj_a', file_name: 'alt.pdf' }]))
+
+    const result = await reconcileOrphanedVectors()
+
+    expect(result.orphansDeleted).toBe(3)
+    expect(result.summariesForgotten).toBe(1)
+    expect(result.failures).toEqual([])
+    const { url, init } = summaryCall()
+    expect(url).toBe('http://backend:8000/v1/maintenance/reconcile-summaries')
+    expect(init.method).toBe('POST')
+    expect(JSON.parse(init.body as string)).toEqual({ collections: ['proj_a'], dry_run: false })
+    // Third call: the chunk half (list, delete) ran first.
+    expect(fetchMock).toHaveBeenCalledTimes(3)
+  })
+
+  it('sends the internal token the maintenance route is guarded by', async () => {
+    vi.stubEnv('GRID_INTERNAL_API_TOKEN', 'real-secret')
+    stubRows([{ collectionName: 'proj_a', filename: 'a.pdf', authoredBy: 'user' }])
+    fetchMock.mockResolvedValueOnce(listResponse(['a.pdf']))
+
+    await reconcileOrphanedVectors()
+
+    const headers = summaryCall().init.headers as Record<string, string>
+    expect(headers['x-grid-internal-token']).toBe('real-secret')
+    vi.unstubAllEnvs()
+  })
+
+  it('records a per-collection summary failure under that collection, and keeps the chunk result', async () => {
+    stubRows([
+      { collectionName: 'proj_a', filename: 'a.pdf', authoredBy: 'user' },
+      { collectionName: 'proj_b', filename: 'b.pdf', authoredBy: 'user' },
+    ])
+    fetchMock.mockResolvedValueOnce(listResponse(['a.pdf', 'ghost.pdf']))
+    fetchMock.mockResolvedValueOnce(deleteResponse(2))
+    fetchMock.mockResolvedValueOnce(listResponse(['b.pdf']))
+    fetchMock.mockResolvedValueOnce(
+      summaryResponse([{ collection: 'proj_a', file_name: 'x.pdf' }], [{ collection: 'proj_b', error: 'chroma timeout' }]),
+    )
+
+    const result = await reconcileOrphanedVectors()
+
+    expect(result.orphansDeleted).toBe(2)
+    expect(result.summariesForgotten).toBe(1)
+    expect(result.failures).toEqual([{ collectionName: 'proj_b', error: 'summary reconcile: chroma timeout' }])
+  })
+
+  it('a refused summary sweep is one recorded failure, not a failed run', async () => {
+    stubRows([{ collectionName: 'proj_a', filename: 'a.pdf', authoredBy: 'user' }])
+    fetchMock.mockResolvedValueOnce(listResponse(['a.pdf', 'ghost.pdf']))
+    fetchMock.mockResolvedValueOnce(deleteResponse(5))
+    fetchMock.mockResolvedValueOnce({ ok: false, status: 503 })
+
+    const result = await reconcileOrphanedVectors()
+
+    // The chunk half stands.
+    expect(result.orphansDeleted).toBe(5)
+    expect(result.summariesForgotten).toBe(0)
+    expect(result.failures).toEqual([{ collectionName: '*', error: 'summary reconcile: reconcile-summaries returned 503' }])
+  })
+
+  it('does not call the backend for summaries when no collection is live', async () => {
+    stubRows([])
+
+    const result = await reconcileOrphanedVectors()
+
+    expect(result.collectionsScanned).toBe(0)
+    expect(result.summariesForgotten).toBe(0)
+    expect(fetchMock).not.toHaveBeenCalled()
   })
 })

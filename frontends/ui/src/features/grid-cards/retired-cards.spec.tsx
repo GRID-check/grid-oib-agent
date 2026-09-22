@@ -9,12 +9,12 @@
  * `GridCardItem`, and there are thousands of them across historical threads.
  *
  * The alternative to retiring — deleting the union member — is the move this
- * suite exists to make impossible to ship silently. `validateGridCards` drops
- * anything that fails the union and logs a warning per card, so removing the
- * member would cost every old thread its chips AND fill the console with one
- * line per lost card, while every backend test about "the model can no longer
- * emit one" carried on passing. Nothing else in the frontend would notice: the
- * type would simply stop existing.
+ * suite exists to make impossible to ship silently. `validateGridCards` leaves
+ * an `undefined` hole for anything that fails the union and logs a warning per
+ * card, so removing the member would cost every old thread its chips AND fill
+ * the console with one line per lost card, while every backend test about "the
+ * model can no longer emit one" carried on passing. Nothing else in the
+ * frontend would notice: the type would simply stop existing.
  *
  * So the assertions here are deliberately about the READ path, from the shape a
  * database row actually holds to pixels, and they are pinned on the frontend
@@ -50,11 +50,11 @@ const storedMessage = (cards: unknown[]): Message =>
   }) as Message
 
 describe('the retired follow_ups card', () => {
-  it('still passes the union, so a stored one is not dropped', () => {
+  it('still passes the union, so a stored one is not holed', () => {
     const validated = validateGridCards([STORED_FOLLOW_UPS])
 
     expect(validated).toHaveLength(1)
-    expect(validated[0].type).toBe('follow_ups')
+    expect(validated[0]?.type).toBe('follow_ups')
   })
 
   it('survives the read path off a stored message row', () => {
@@ -65,8 +65,9 @@ describe('the retired follow_ups card', () => {
   })
 
   it('is not dropped with a warning, which is how the loss would actually look', () => {
-    // `validateGridCards` never throws — it drops and warns. So a union member
-    // removed by a future change would show up here and nowhere else.
+    // `validateGridCards` never throws — it leaves a hole and warns. So a
+    // union member removed by a future change would show up here and nowhere
+    // else.
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
     try {
       validateGridCards([STORED_FOLLOW_UPS])
@@ -78,6 +79,8 @@ describe('the retired follow_ups card', () => {
 
   it('still draws its chips', () => {
     const [card] = validateGridCards([STORED_FOLLOW_UPS])
+    expect(card).toBeDefined()
+    if (!card) throw new Error('expected the retired follow_ups card to validate')
     render(<GridCardItem card={card} index={0} projectId={null} />)
 
     expect(screen.getByText('Wie wird das Fluchtniveau gemessen?')).toBeInTheDocument()

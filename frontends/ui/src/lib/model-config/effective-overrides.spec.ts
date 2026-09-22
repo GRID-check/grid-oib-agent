@@ -63,22 +63,22 @@ describe('getEffectiveModelOverrides', () => {
   }
 
   it('serves the platform default to an org that configured nothing', async () => {
-    getPlatformModelDefaults.mockResolvedValue({ intent: 'vendor/fast', deep_research: 'vendor/deep' })
+    getPlatformModelDefaults.mockResolvedValue({ shallow_research: 'vendor/fast', deep_research: 'vendor/deep' })
     orgConfiguredNothing()
 
     expect(await getEffectiveModelOverrides('org_1')).toEqual({
-      intent: 'vendor/fast',
+      shallow_research: 'vendor/fast',
       deep_research: 'vendor/deep',
     })
   })
 
   it("keeps the org's own choice and inherits the default for every other group", async () => {
-    getPlatformModelDefaults.mockResolvedValue({ intent: 'vendor/fast', deep_research: 'vendor/deep' })
+    getPlatformModelDefaults.mockResolvedValue({ shallow_research: 'vendor/fast', deep_research: 'vendor/deep' })
     orgChose({ deep_research: { model: 'org/chosen' } })
 
     expect(await getEffectiveModelOverrides('org_1')).toEqual({
       // Inherited — the org never touched this group.
-      intent: 'vendor/fast',
+      shallow_research: 'vendor/fast',
       // The tenant's decision outranks the platform's.
       deep_research: 'org/chosen',
     })

@@ -19,6 +19,11 @@ import type { en } from '../en'
 export const answerExport: typeof en.answerExport = {
   documentTitle: 'Antwort',
   fileName: 'antwort',
+  // Der Export ist fehlgeschlagen — und zwar so, dass die Leserin etwas damit
+  // anfangen kann. Vorher stand hier „Bad Request".
+  pdfFailed: 'Das PDF konnte nicht erstellt werden. Bitte versuchen Sie es erneut.',
+  pdfTooLong:
+    'Dieser Bericht ist zu umfangreich für den PDF-Export. Laden Sie ihn als Markdown herunter oder exportieren Sie ihn abschnittsweise.',
   aiNotice: {
     title: 'KI-generiert — nicht geprüft',
     body: 'Dieses Dokument hat Piloti erstellt; ein Mensch hat es nicht geprüft. Es ist ein Entwurf und kein Nachweis — prüfen Sie jede Angabe, bevor Sie das Dokument weitergeben oder einreichen.',

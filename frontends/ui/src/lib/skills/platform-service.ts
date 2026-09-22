@@ -18,8 +18,15 @@ import 'server-only'
 import { ConflictError, NotFoundError } from '@/lib/api/errors'
 import type { PlatformSkillDelivery, PlatformSkillRow } from '@/lib/db/schema'
 import * as repository from './platform-repository'
+import * as categoryRepository from './skill-category-repository'
 import { findPlatformSkill } from './platform-skills'
-import type { CreatePlatformSkillInput, PatchPlatformSkillInput } from './types'
+import type {
+  CreateCategoryInput,
+  CreatePlatformSkillInput,
+  PatchCategoryInput,
+  PatchPlatformSkillInput,
+  SkillCategoryListItem,
+} from './types'
 
 /** A curated skill as the platform dashboard sees it — drafts included. */
 export type PlatformSkillListItem = {
@@ -29,8 +36,10 @@ export type PlatformSkillListItem = {
   body: string
   metadata: Record<string, string>
   published: boolean
-  /** `offer` — organizations choose it. `standard` — the whole fleet runs it. */
+  /** `offer`, and only `offer`: organizations choose it (migration 0088). */
   delivery: PlatformSkillDelivery
+  /** The platform skill category this skill stands on, or null when unsorted. */
+  categoryId: string | null
   createdAt: Date
   updatedAt: Date
 }
@@ -44,9 +53,33 @@ function toListItem(row: PlatformSkillRow): PlatformSkillListItem {
     metadata: { ...row.metadata },
     published: row.published,
     delivery: row.delivery,
+    categoryId: row.categoryId,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   }
+}
+
+function toCategoryListItem(row: {
+  id: string
+  name: string
+  description: string | null
+  slug: string | null
+  sortOrder: number
+}): SkillCategoryListItem {
+  return { id: row.id, name: row.name, description: row.description, slug: row.slug, sortOrder: row.sortOrder, scope: 'platform' }
+}
+
+/**
+ * The platform skill category a catalogue write names, resolved or refused.
+ *
+ * Tenant categories are never addressable here — assigning the fleet's copy to an
+ * org's category is a 404, the same shape as a category that never existed.
+ */
+async function assertPlatformSkillCategory(categoryId: string | null | undefined): Promise<string | null> {
+  if (categoryId === undefined || categoryId === null) return null
+  const category = await categoryRepository.findPlatformSkillCategory(categoryId)
+  if (!category) throw new NotFoundError('Skill category not found.')
+  return category.id
 }
 
 /**
@@ -93,10 +126,11 @@ export async function createPlatformSkill(
     body: input.body,
     metadata: input.metadata ?? {},
     published: input.published ?? false,
-    // An OFFER unless the author says otherwise, for the same reason it is a
-    // draft unless they say otherwise: the closed default is the one where a
-    // half-considered save cannot impose an instruction on the whole fleet.
+    // The only value the column takes since 0088. Still written explicitly
+    // rather than left to the column default, so the row a caller gets back is
+    // the row this function decided on.
     delivery: input.delivery ?? 'offer',
+    categoryId: await assertPlatformSkillCategory(input.categoryId),
     createdBy: author.userId,
     createdByEmail: author.email,
   })
@@ -104,28 +138,17 @@ export async function createPlatformSkill(
 }
 
 /**
- * Edit a curated skill — including publishing it, withdrawing it, and moving it
- * between the two deliveries.
+ * Edit a curated skill — including publishing it and withdrawing it.
  *
  * An edit reaches every organization that runs the skill immediately and without
  * anyone re-taking it. That is the property the removed clone flow could not
  * have: a copy stops being ours the moment it is made.
  *
- * Changing `delivery` changes who runs it, and the two directions are not
- * symmetrical:
- *
- *   offer → standard  Every organization starts running it, including the ones
- *                     that had explicitly switched it off. Their activation rows
- *                     are left alone but stop being consulted — a standard skill
- *                     asks nobody. This is the one edit here that imposes.
- *   standard → offer  Every organization stops running it until it switches the
- *                     skill on, and the activation rows come back into force, so
- *                     an org that switched the skill off back when it was an
- *                     offer stays off. A demotion is therefore a fleet-wide
- *                     deactivation, not a relabelling.
- *
- * Activation rows survive both moves precisely so that a promotion followed by a
- * demotion returns the fleet to where it started rather than to a blank slate.
+ * Nothing here can impose the skill on a tenant. `delivery` used to move a row
+ * between `offer` and `standard`, and promoting one took the decision away from
+ * every organization on the platform; migration 0088 retired that tier, so the
+ * only reachable value is `offer` and an organization always decides. What the
+ * platform wants applied to every turn goes in the platform prompt instead.
  */
 export async function updatePlatformSkill(
   skillId: string,
@@ -138,7 +161,14 @@ export async function updatePlatformSkill(
     await assertNameIsFree(patch.name, skillId)
   }
 
-  const row = await repository.updatePlatformSkillRow(skillId, { ...patch, updatedAt: new Date() })
+  // A named category is resolved or refused; an explicit null removes it; an
+  // omitted key leaves the skill where it stands.
+  const { categoryId, ...rest } = patch
+  const row = await repository.updatePlatformSkillRow(skillId, {
+    ...rest,
+    ...(categoryId !== undefined ? { categoryId: await assertPlatformSkillCategory(categoryId) } : {}),
+    updatedAt: new Date(),
+  })
   if (!row) throw new NotFoundError('Curated skill not found.')
   return { skill: toListItem(row) }
 }
@@ -154,5 +184,87 @@ export async function updatePlatformSkill(
 export async function deletePlatformSkill(skillId: string): Promise<{ deleted: true }> {
   const deleted = await repository.deletePlatformSkillRow(skillId)
   if (!deleted) throw new NotFoundError('Curated skill not found.')
+  return { deleted: true }
+}
+
+// ---------------------------------------------------------------------------
+// Skill categories — the fleet catalogue's arrangement
+// ---------------------------------------------------------------------------
+
+/**
+ * The platform's categories. Platform owner only (route-gated); these functions
+ * take no session and make no authorization claim of their own, like every
+ * other function in this module.
+ */
+export async function listPlatformSkillCategories(): Promise<{ categories: SkillCategoryListItem[] }> {
+  const rows = await categoryRepository.listPlatformSkillCategories()
+  return { categories: rows.map(toCategoryListItem) }
+}
+
+/** Add a platform skill category. Names are unique among platform skill categories. */
+export async function createPlatformSkillCategory(
+  input: CreateCategoryInput,
+  author: { userId: string; email: string | null },
+): Promise<{ category: SkillCategoryListItem }> {
+  const existing = await categoryRepository.findPlatformSkillCategoryByName(input.name)
+  if (existing) {
+    throw new ConflictError(`A category named "${input.name}" already exists.`)
+  }
+  // Same cap as the org path: past the list limit, categories silently fall
+  // off the catalogue read, so the overflowing create is refused instead.
+  const visible = await categoryRepository.listPlatformSkillCategories(
+    categoryRepository.CATEGORIES_LIST_LIMIT + 1,
+  )
+  // `>=` and not `>`: at exactly the limit the next insert is the one over it,
+  // and the reads that render these are bounded at the same number.
+  if (visible.length >= categoryRepository.CATEGORIES_LIST_LIMIT) {
+    throw new ConflictError(
+      `Category limit reached (${categoryRepository.CATEGORIES_LIST_LIMIT}). Remove an unused category before adding another.`
+    )
+  }
+  const row = await categoryRepository.insertCategory({
+    organizationId: null,
+    name: input.name,
+    description: input.description ?? null,
+    sortOrder: input.sortOrder ?? 0,
+    createdBy: author.userId,
+    createdByEmail: author.email,
+  })
+  return { category: toCategoryListItem(row) }
+}
+
+/** Rename, re-describe or re-order a platform skill category. */
+export async function updatePlatformSkillCategory(
+  categoryId: string,
+  patch: PatchCategoryInput,
+): Promise<{ category: SkillCategoryListItem }> {
+  const existing = await categoryRepository.findPlatformSkillCategory(categoryId)
+  if (!existing) throw new NotFoundError('Skill category not found.')
+
+  if (patch.name !== undefined && patch.name !== existing.name) {
+    const other = await categoryRepository.findPlatformSkillCategoryByName(patch.name)
+    if (other) {
+      throw new ConflictError(`A category named "${patch.name}" already exists.`)
+    }
+  }
+  const row = await categoryRepository.updateCategory(categoryId, {
+    ...(patch.name !== undefined ? { name: patch.name } : {}),
+    ...(patch.description !== undefined ? { description: patch.description } : {}),
+    ...(patch.sortOrder !== undefined ? { sortOrder: patch.sortOrder } : {}),
+    updatedAt: new Date(),
+  })
+  if (!row) throw new NotFoundError('Skill category not found.')
+  return { category: toCategoryListItem(row) }
+}
+
+/**
+ * Remove a platform skill category. Skills standing on it fall back to unsorted (the
+ * FK is ON DELETE SET NULL) — including the builtin file offers that resolved
+ * to it by slug, which read as unsorted until categorized again.
+ */
+export async function deletePlatformSkillCategory(categoryId: string): Promise<{ deleted: true }> {
+  const existing = await categoryRepository.findPlatformSkillCategory(categoryId)
+  if (!existing) throw new NotFoundError('Skill category not found.')
+  await categoryRepository.deleteCategory(categoryId)
   return { deleted: true }
 }

@@ -36,7 +36,7 @@ export interface DeepResearchBannerProps {
   /** Timestamp of the status update (Date or ISO string from persisted state) */
   timestamp?: Date | string
   /**
-   * When this turn escalated shallow→deep, the classifier's escalation reason.
+   * When this turn escalated shallow→deep, the agent's own escalation reason.
    * Rendered as a one-line narration directly ABOVE the banner
    * (`Eskaliert zur Tiefenrecherche: <reason>`) per the transparency contract.
    */
@@ -223,7 +223,7 @@ export const DeepResearchBanner: FC<DeepResearchBannerProps> = ({
   // This line IS the authorization. The design calls the filing "commissioned"
   // — the user asked for a report and was told where it goes — but deep
   // research escalates out of a chat turn rather than a submit form, and the
-  // escalation can be the classifier's decision (`escalationReason` above), so
+  // escalation can be the agent's own decision (`escalationReason` above), so
   // "the user asked" is not reliably true either. What can be made true is that
   // nobody is surprised: the destination is named before the file exists, at
   // the one moment stopping the run is still an option. A modal after the fact

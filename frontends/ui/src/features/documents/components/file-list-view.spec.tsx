@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { render, screen } from '@/test-utils'
+import { render, screen, within } from '@/test-utils'
 import userEvent from '@testing-library/user-event'
 import { FileListView } from './file-list-view'
 import type { FileItem } from './project-file-workspace'
@@ -193,5 +193,43 @@ describe('FileListView', () => {
 
     expect(screen.getByText('Einreichplan EG.pdf')).toBeInTheDocument()
     expect(screen.queryByText('plan.pdf')).not.toBeInTheDocument()
+  })
+
+  describe('Freigabe column — bulk state where bulk work happens', () => {
+    it('names the approval state beside the ingestion status, in the card’s words', () => {
+      renderList([doc('Plan.pdf', { versionState: 'in_review', versionCount: 2 })])
+
+      expect(screen.getByText('Approval')).toBeInTheDocument()
+      expect(screen.getByTestId('document-version-badge')).toHaveTextContent('In review')
+    })
+
+    it('stays quiet on a plain upload, like the card', () => {
+      renderList([doc('Plan.pdf', { versionState: 'published', versionCount: 1 })])
+
+      const row = screen.getByTestId('file-list-row')
+      expect(within(row).queryByTestId('document-version-badge')).not.toBeInTheDocument()
+      expect(within(row).getByTestId('file-list-approval-empty')).toBeInTheDocument()
+    })
+
+    it('shows a Piloti draft’s state — triage must see what waits', () => {
+      renderList([
+        doc('Bericht.pdf', {
+          authoredBy: 'agent',
+          status: 'stored',
+          versionState: 'draft',
+          versionCount: 1,
+        }),
+      ])
+
+      expect(screen.getByTestId('document-version-badge')).toHaveTextContent('Draft')
+    })
+
+    it('marks rows the listing never read the state for, as it does for pages', () => {
+      renderList([doc('Plan.pdf')])
+
+      const row = screen.getByTestId('file-list-row')
+      expect(within(row).queryByTestId('document-version-badge')).not.toBeInTheDocument()
+      expect(within(row).getByTestId('file-list-approval-empty')).toHaveTextContent('—')
+    })
   })
 })

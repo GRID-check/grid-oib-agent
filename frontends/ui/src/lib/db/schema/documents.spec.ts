@@ -351,13 +351,27 @@ describe('authorship on documents', () => {
     // database holding a pre-0066 diagram row wrote `agent_run` onto a chat
     // answer's artifact id — reachable on real data, because 0065 ships before
     // 0066 and diagram rows can already exist when it runs.
+    //
+    // AGREEMENT, not equality. A producer added AFTER 0066 shipped
+    // (`agent_document`, ADR-0054) is legitimately absent from a migration that
+    // already ran everywhere: editing an applied migration to add it is the one
+    // thing a migration history must never do, and there are no pre-0066 rows of
+    // a producer that did not exist then. What must still hold — and is what the
+    // failure above was about — is that every arm 0066 DOES have says the same
+    // thing the filing path says today.
     const backfill = MIGRATION_0066.slice(MIGRATION_0066.indexOf('CASE "authored_by_producer"'))
     const mapped = Object.fromEntries(
       [...backfill.slice(0, backfill.indexOf('END')).matchAll(/WHEN '(\w+)' THEN '(\w+)'/g)].map(
         ([, producer, kind]) => [producer, kind]
       )
     )
-    expect(mapped).toEqual(GENERATED_DOCUMENT_PRODUCER_REF_KINDS)
+    expect(Object.keys(mapped).length).toBeGreaterThan(0)
+    for (const [producer, kind] of Object.entries(mapped)) {
+      expect(
+        GENERATED_DOCUMENT_PRODUCER_REF_KINDS,
+        `0066 backfills ${producer} as ${kind}; the filing path disagrees`
+      ).toHaveProperty(producer, kind)
+    }
   })
 
   it('refuses exactly the producers it cannot backfill, and no others', () => {
@@ -367,10 +381,23 @@ describe('authorship on documents', () => {
     // exception that names the producer into a bare constraint violation, which
     // is the opposite of "a migration that cannot know an answer must stop and
     // say so".
+    //
+    // Compared against the CASE's own arms rather than against the live producer
+    // map, for the reason the test above gives: a producer added after 0066 is
+    // not in either half of this already-applied migration, and demanding it be
+    // would be demanding an edit to migration history.
     const guard = MIGRATION_0066.slice(0, MIGRATION_0066.indexOf('RAISE EXCEPTION'))
     const allowList = /NOT IN \(([^)]*)\)/.exec(guard)?.[1] ?? ''
     const guarded = [...allowList.matchAll(/'(\w+)'/g)].map(([, producer]) => producer).sort()
-    expect(guarded).toEqual(Object.keys(GENERATED_DOCUMENT_PRODUCER_REF_KINDS).sort())
+    const backfillArms = MIGRATION_0066.slice(MIGRATION_0066.indexOf('CASE "authored_by_producer"'))
+    const backfilled = [
+      ...backfillArms
+        .slice(0, backfillArms.indexOf('END'))
+        .matchAll(/WHEN '(\w+)' THEN '(\w+)'/g),
+    ]
+      .map(([, producer]) => producer)
+      .sort()
+    expect(guarded).toEqual(backfilled)
   })
 
   it('gives every producer a reference kind, so none can be filed unresolvable', () => {

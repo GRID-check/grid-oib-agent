@@ -143,27 +143,55 @@ class TestReapStaleJobsOnce:
     async def test_reaps_stale_submitted_job_and_cancels_dask_task(self, db_url, monkeypatch):
         import aiq_api.routes.jobs as jobs_routes
         from nat.front_ends.fastapi.async_jobs.job_store import JobStatus
+        from nat.front_ends.fastapi.async_jobs.job_store import JobStore
 
         _insert_job_info(db_url, "job-stuck", status="submitted", age_seconds=STALE_AGE)
         EventStore._ensure_table_exists(db_url)
 
         cancel_dask = AsyncMock(return_value=True)
         monkeypatch.setattr(jobs_routes, "_cancel_dask_task", cancel_dask)
-        job_store = SimpleNamespace(update_status=AsyncMock())
+        job_store = JobStore(scheduler_address="", db_url=db_url)
 
         reaped = await _reap_stale_jobs_once(job_store, db_url, "tcp://localhost:8786")
 
         assert reaped == ["job-stuck"]
-        job_store.update_status.assert_awaited_once_with(
-            "job-stuck",
-            JobStatus.FAILURE,
-            error="Job timed out (no heartbeat received from worker)",
-        )
+        job = await job_store.get_job("job-stuck")
+        assert job.status == JobStatus.FAILURE.value
+        assert job.error == "Job timed out (no heartbeat received from worker)"
         cancel_dask.assert_awaited_once_with("tcp://localhost:8786", "job-stuck")
 
         events = EventStore.get_events(db_url, "job-stuck")
         assert [event["type"] for event in events] == ["job.error"]
         assert events[0]["data"]["error_type"] == "GhostJobTimeout"
+
+    @pytest.mark.asyncio
+    async def test_reaper_does_not_flip_job_completed_after_detection(self, db_url, monkeypatch):
+        """Mirror race of backlog item 6: the job looked stale at detection but
+        the runner committed SUCCESS before the reaper's write. The reaper must
+        lose — no status flip, no GhostJobTimeout event on a good run, no Dask
+        cancel — and the job is not reported as reaped."""
+        import json
+
+        import aiq_api.routes.jobs as jobs_routes
+        from nat.front_ends.fastapi.async_jobs.job_store import JobStore
+
+        _insert_job_info(db_url, "job-1", status="success", age_seconds=STALE_AGE)
+        EventStore._ensure_table_exists(db_url)
+        job_store = JobStore(scheduler_address="", db_url=db_url)
+        await job_store.update_status("job-1", "success", output={"report": "r"})
+        monkeypatch.setattr(jobs_routes, "_find_stale_jobs", lambda *args, **kwargs: ["job-1"])
+
+        cancel_dask = AsyncMock(return_value=True)
+        monkeypatch.setattr(jobs_routes, "_cancel_dask_task", cancel_dask)
+
+        assert await _reap_stale_jobs_once(job_store, db_url, "tcp://localhost:8786") == []
+
+        job = await job_store.get_job("job-1")
+        assert job.status == "success"
+        assert json.loads(job.output) == {"report": "r"}
+        assert job.error is None
+        assert EventStore.get_events(db_url, "job-1") == []
+        cancel_dask.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_no_stale_jobs_is_a_no_op(self, db_url, monkeypatch):

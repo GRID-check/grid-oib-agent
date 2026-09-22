@@ -33,15 +33,40 @@ describe('PageHeader', () => {
     expect(row.className).toContain('items-stretch')
   })
 
-  it('never lets the action refuse to shrink while it is stacked', () => {
+  /**
+   * Stacking fixed the phone and left the laptop broken.
+   *
+   * In the row the action was still `sm:shrink-0`, so above 640px it kept its
+   * natural width and the title column was the only side that could give.
+   * Project → Dateien is the case that showed it: a view toggle, a filter menu,
+   * a `lg:w-72` search field and an upload button against the ~900px a header
+   * gets inside the sidebar, and the German subtitle came out as a
+   * one-to-two-word column. These two assertions are the fix, and they only
+   * work as a pair — a floor with a `shrink-0` action overflows the row
+   * instead.
+   */
+  it('gives the title a floor so the action is the side that yields', () => {
+    const { container } = render(
+      <PageHeader title="History" subtitle="Every conversation." action={<button type="button">New</button>} />,
+    )
+    const titleColumn = container.querySelector('h1')!.parentElement!
+    expect(titleColumn.className).toContain('sm:min-w-56')
+    // Still `min-w-0` below `sm`, where the row is stacked and the title
+    // already owns the width.
+    expect(titleColumn.className.split(/\s+/)).toContain('min-w-0')
+  })
+
+  it('never lets the action refuse to shrink', () => {
     const { container } = render(
       <PageHeader title="History" action={<button type="button">New</button>} />,
     )
     const wrapper = screen.getByRole('button', { name: 'New' }).parentElement!
-    // `shrink-0` unqualified is the bug: it holds the action at natural width on
-    // a phone. It may only apply once the row exists.
-    expect(wrapper.className).toContain('sm:shrink-0')
-    expect(wrapper.className.split(/\s+/)).not.toContain('shrink-0')
+    // `shrink-0` in ANY form is the bug — unqualified it holds the action at
+    // natural width on a phone, and `sm:`-qualified it does the same on a
+    // laptop. The action rows below this are `flex-wrap`; that wrap is dead
+    // code while the box is never narrower than its content.
+    expect(wrapper.className).not.toContain('shrink-0')
+    expect(wrapper.className.split(/\s+/)).toContain('min-w-0')
     expect(container.querySelector('h1')).toHaveTextContent('History')
   })
 

@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
 import type { MutableRefObject } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
@@ -16,7 +16,7 @@ import {
   Sparkles,
   Trash2,
 } from 'lucide-react'
-import { AnimatePresence, motion } from '@/components/motion'
+import { AnimatePresence, motion, springGlide } from '@/components/motion'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -2138,6 +2138,9 @@ function Segmented({
   ariaLabel: string
   size?: 'sm' | 'md'
 }) {
+  // One pill per control: several Segmented share a page, so the shared-layout
+  // id is scoped to this instance or the fill would fly between questions.
+  const pillId = useId()
   return (
     <div
       role="group"
@@ -2154,19 +2157,32 @@ function Segmented({
             aria-pressed={active}
             onClick={() => onChange(opt.value)}
             className={cn(
-              'border-border inline-flex items-center justify-center transition-colors duration-quick ease-out motion-reduce:transition-none',
+              'border-border relative isolate inline-flex items-center justify-center transition-colors duration-quick ease-out motion-reduce:transition-none',
               i > 0 && 'border-l',
               // Comfortable tap targets on touch screens; denser on desktop pointers.
               size === 'sm'
                 ? 'min-h-9 px-3 text-xs font-medium md:min-h-8 md:px-2.5 md:text-[11px]'
                 : 'min-h-11 px-4 text-sm md:min-h-9 md:px-3.5',
               !active && 'bg-card text-foreground hover:bg-muted',
-              active && tone === 'default' && 'bg-primary text-primary-foreground',
-              active && tone === 'warning' && 'bg-warning text-white',
-              active && tone === 'muted' && 'bg-muted-foreground text-background'
+              active && tone === 'default' && 'text-primary-foreground',
+              active && tone === 'warning' && 'text-white',
+              active && tone === 'muted' && 'text-background'
             )}
           >
-            {opt.label}
+            {active && (
+              <motion.span
+                layoutId={pillId}
+                transition={springGlide}
+                aria-hidden="true"
+                className={cn(
+                  'absolute inset-0 -z-10',
+                  tone === 'default' && 'bg-primary',
+                  tone === 'warning' && 'bg-warning',
+                  tone === 'muted' && 'bg-muted-foreground'
+                )}
+              />
+            )}
+            <span className="relative">{opt.label}</span>
           </button>
         )
       })}

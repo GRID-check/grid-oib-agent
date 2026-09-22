@@ -106,8 +106,8 @@ just the commits.
   every needed lint/test/build job succeeded or was skipped by the path filter.
 - Security scanning runs in
   [`.github/workflows/security.yml`](.github/workflows/security.yml): Semgrep
-  (SAST), OSV-Scanner (dependency CVEs), pip-audit / npm audit, and gitleaks —
-  fully in-CI, no paid licence. What each tool blocks on, and the three
+  (SAST), OSV-Scanner (dependency CVEs from every lockfile), gitleaks and trivy
+  — fully in-CI, no paid licence. What each tool blocks on, and the three
   non-obvious things about the trivy job:
   [docs/contributing/testing-and-verification.md](docs/contributing/testing-and-verification.md).
 - Dependency-update PRs are opened by Dependabot

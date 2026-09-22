@@ -62,13 +62,6 @@ export interface LayoutState {
   /** Error message if data sources fetch failed */
   dataSourcesError: string | null
   /**
-   * User's Deep-Research preference (composer pill). This is an INTENT HINT,
-   * not a hard switch: the agent auto-escalates to deep research on its own
-   * (spec §2.2(6)); no protocol field exists to force it, so the toggle only
-   * records the user's preference and the composer shows an honest hint.
-   */
-  deepResearchIntent: boolean
-  /**
    * Show the raw technical reasoning steps (which agent/tool ran) inside the
    * Herleitung. OFF by default — the default trace is the user-friendly node
    * chain; power users opt in via the settings toggle. Persisted like a profile
@@ -113,7 +106,6 @@ export interface LayoutActions {
   /** Set the theme mode */
   setTheme: (theme: ThemeMode) => void
   /** Record the user's Deep-Research preference (intent hint, not a guarantee) */
-  setDeepResearchIntent: (on: boolean) => void
   /** Toggle the raw technical reasoning steps in the Herleitung (default off) */
   setShowTechnicalReasoning: (on: boolean) => void
   /**

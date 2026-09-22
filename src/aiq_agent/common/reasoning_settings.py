@@ -115,10 +115,14 @@ def _resolve() -> dict[str, str]:
     """Cached resolution of the platform efforts (shared hot path)."""
     global _cache
     now = time.monotonic()
+    from aiq_agent.common.profiler import annotate_current_span
+
     with _cache_lock:
         if _cache is not None and _cache.expires_at > now:
+            annotate_current_span(cache_reasoning_settings="hit")
             return _cache.efforts
 
+    annotate_current_span(cache_reasoning_settings="miss")
     try:
         efforts = _fetch_efforts()
         ttl = _POSITIVE_TTL_SECONDS if efforts else _NEGATIVE_TTL_SECONDS
@@ -140,3 +144,13 @@ def get_reasoning_effort(group: str) -> str | None:
     calls.
     """
     return _resolve().get(group)
+
+
+def get_reasoning_efforts() -> dict[str, str]:
+    """Every pinned effort, ``{agent_group: effort}``, for ``LLMProvider.with_reasoning_efforts``.
+
+    A copy: callers may not reach the shared cache entry. Platform-wide, so any
+    process that can reach the BFF resolves the same map (a detached worker
+    needs nothing captured at submit time, unlike the per-org model overrides).
+    """
+    return dict(_resolve())

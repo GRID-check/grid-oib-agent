@@ -395,6 +395,26 @@ export const collaboration = {
         title: '{actor} assigned {subject} to you',
         body: 'You are responsible for this file.',
       },
+      jobCompleted: {
+        title: '"{subject}" is done',
+        body: 'Piloti ran the job. The result is in the project under Automation.',
+      },
+      jobFailed: {
+        title: '"{subject}" failed',
+        body: 'The job could not be completed. The run history in the project names the reason.',
+      },
+      // A run stopped to ask its requester something (ADR-0062, `wartet`). The
+      // body says where the answer goes, because the run resumes nowhere else.
+      jobWaiting: {
+        title: '"{subject}" is waiting for you',
+        body: 'Piloti has a question about this task. Answer it in the thread and the run carries on.',
+      },
+      // A version of a document is waiting for a decision (ADR-0054).
+      // {subject} is the document, {actor} whoever submitted it.
+      documentReviewRequested: {
+        title: '{actor} asked you to review {subject}',
+        body: 'A new version is waiting for your approval.',
+      },
       unknown: {
         title: 'Something happened',
         body: 'in {subject}',
@@ -403,6 +423,36 @@ export const collaboration = {
     /** Fallback when the actor cannot be resolved (deactivated user, etc.). */
     unknownActor: 'Someone',
     untitledConversation: 'Untitled conversation',
+    /**
+     * Triage of a version waiting for a decision, inline on the row: the three
+     * decisions without leaving the inbox. Approving carries the same minimum
+     * ceremony as on the file (explicit confirmation, never one click); the
+     * two refusals carry their words, as the transition table requires.
+     */
+    review: {
+      approve: 'Approve',
+      requestChanges: 'Request changes',
+      reject: 'Reject',
+      changesLabel: 'What needs to change',
+      reasonLabel: 'Reason for rejection',
+      approveConfirm: 'I release this version',
+      // The signature mirrors the file pane: which stand is released (the row
+      // names the document, the version number and when the round opened — the
+      // number is required, nothing is released without it) and who acts when.
+      // No viewer name is known here, so the acting line is always the
+      // date-only form; who asked is already in the title.
+      approveStand: '{subject} · version {number} · as of {date}',
+      approveActing: 'Acting: {date}',
+      standFailed: 'The current version could not be read — approval is blocked until it is.',
+      retry: 'Try again',
+      send: 'Send',
+      cancel: 'Cancel',
+      open: 'Open file',
+      decided: 'Decision sent — refreshing.',
+      failed: 'That did not go through. Nothing has changed.',
+      stale: 'This has moved on — the current version is in the file.',
+      reload: 'Open current version',
+    },
   },
 
   /** Chat-thread additions that only appear once a conversation is shared. */

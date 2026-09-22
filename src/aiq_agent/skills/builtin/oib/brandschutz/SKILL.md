@@ -3,7 +3,7 @@ name: brandschutz
 description: >
   Brandabschnitt, Fluchtweg und Feuerwiderstand, sobald die GK steht.
 metadata:
-  grid-agents: shallow_researcher,deep_researcher
+  grid-agents: researcher,deep_researcher
   grid-cards: fire_compartment,egress_diagram,fire_access_plan,requirement_checklist,legal_basis
 ---
 

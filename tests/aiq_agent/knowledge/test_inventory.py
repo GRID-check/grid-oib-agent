@@ -15,6 +15,7 @@ from aiq_agent.knowledge.inventory import allocate_inventory_detailed
 from aiq_agent.knowledge.inventory import document_identity
 from aiq_agent.knowledge.inventory import render_inventory_block
 from aiq_agent.knowledge.inventory import set_inventory_drops
+from aiq_agent.knowledge.inventory import set_norm_families
 from aiq_agent.knowledge.inventory import shelf_hint_from_query
 from aiq_agent.knowledge.inventory import stamp_document
 from aiq_agent.knowledge.schema import AvailableDocument
@@ -270,20 +271,6 @@ class TestShelfHintFromQuery:
         assert shelf_hint_from_query("und im archiv?") == Shelf.ARCHIV
 
 
-class TestListingIntentOverride:
-    def test_archiv_listing_is_meta_even_if_the_classifier_said_research(self):
-        from aiq_agent.knowledge.inventory import listing_intent_override
-
-        assert listing_intent_override("welche datein hast du im Bro archiv") == "meta"
-        assert listing_intent_override("nicht im projekt was hast du im archiv") == "meta"
-
-    def test_content_questions_are_not_overridden(self):
-        from aiq_agent.knowledge.inventory import listing_intent_override
-
-        assert listing_intent_override("was sagt OIB-RL 2 zum Brandschutz") is None
-        assert listing_intent_override("What is CUDA?") is None
-
-
 class TestScopedCollectionRoundTrip:
     def test_scope_entries_carry_the_shelf_the_renderer_needs(self):
         entries = [
@@ -376,9 +363,9 @@ class TestBaseShelfIsFolded:
     ``knowledge_search`` with no ``file_name`` fans out across this corpus and
     its hits name the file they came from.
 
-    The exception is the turn that has no retrieval: a listing question about
-    this shelf routes to ``intent="meta"``, which binds no search tools. That
-    turn arrives with ``focus_shelf=base`` and gets the full list.
+    The exception is the turn that is ABOUT the shelf: a listing question
+    names it (``shelf_hint_from_query`` → ``set_listing_shelf``), or the turn
+    arrives with ``focus_shelf=base``, and either gets the full list.
     """
 
     def teardown_method(self):
@@ -471,3 +458,141 @@ class TestTruncationEdgesTheFirstPassMissed:
         # Shelf-less drops are recorded under `None`, a key no shelf lookup hits.
         assert "### Unattributed" in rendered
         assert "weitere Datei(en) ohne angegebenes Regal" in rendered
+
+
+class TestFilesStillBeingRead:
+    """THE ABSENCE OF A FILE IS NOT THE SAME FACT AS ITS NON-EXISTENCE.
+
+    The inventory is built from the summaries table, which is written when an
+    ingestion job COMPLETES. A plan attached moments ago is therefore missing
+    from it in exactly the way it is missing from retrieval — and the model,
+    reading a complete-looking shelf, answered confidently without the one
+    document the question was about. Naming the files in flight is what lets an
+    answer say what it could not see.
+    """
+
+    def test_it_names_a_file_that_is_still_being_read(self):
+        block = render_inventory_block(
+            [_doc("oib-rl_2.pdf", collection="oib_knowledge")],
+            in_scope_shelves=[ScopedCollection("oib_knowledge", Shelf.BASE)],
+            in_flight=["grundriss_eg.pdf"],
+        )
+
+        assert "grundriss_eg.pdf" in block
+        # And says what that MEANS, because a filename alone reads like one more
+        # available document.
+        assert "NOT in the inventory above" in block
+        assert "still being processed" in block
+
+    def test_it_forbids_presenting_an_answer_that_silently_omits_it(self):
+        block = render_inventory_block(
+            [_doc("oib-rl_2.pdf", collection="oib_knowledge")],
+            in_scope_shelves=[ScopedCollection("oib_knowledge", Shelf.BASE)],
+            in_flight=["plan.pdf"],
+        )
+
+        assert "do not present an answer that omits it" in block
+
+    def test_a_bulk_upload_carries_the_shape_and_not_the_list(self):
+        """Same bound as every other block here: hundreds of names would be paid
+        for on every turn and would stop informing the answer past a handful."""
+        block = render_inventory_block(
+            [_doc("oib-rl_2.pdf", collection="oib_knowledge")],
+            in_scope_shelves=[ScopedCollection("oib_knowledge", Shelf.BASE)],
+            in_flight=[f"plan_{i}.pdf" for i in range(40)],
+        )
+
+        assert "plan_0.pdf" in block
+        assert "plan_39.pdf" not in block
+        # The remainder is COUNTED, in the text the model reads — not dropped.
+        assert "35 weitere" in block
+
+    def test_nothing_in_flight_changes_nothing(self):
+        with_none = render_inventory_block(
+            [_doc("oib-rl_2.pdf", collection="oib_knowledge")],
+            in_scope_shelves=[ScopedCollection("oib_knowledge", Shelf.BASE)],
+        )
+        with_empty = render_inventory_block(
+            [_doc("oib-rl_2.pdf", collection="oib_knowledge")],
+            in_scope_shelves=[ScopedCollection("oib_knowledge", Shelf.BASE)],
+            in_flight=[],
+        )
+
+        assert with_none == with_empty
+        assert "still being read" not in with_none.lower()
+
+    def test_a_first_upload_still_gets_a_block(self):
+        """An empty project whose only document is mid-ingest used to render no
+        inventory at all — so the turn carried no hint that anything existed."""
+        block = render_inventory_block([], in_flight=["erste_datei.pdf"])
+
+        assert block != ""
+        assert "erste_datei.pdf" in block
+
+
+class TestTheFamiliesAreNamed:
+    """ "OIB-Richtlinien 1–6" is a range, and a range names no members.
+
+    OIB-RL 2 is four documents — 2, 2.1 (Betriebsbauten), 2.2 (Garagen), 2.3
+    (Hochhäuser) — and the folded base shelf never said so. An overview
+    question could open three of them, forget the fourth, and read as complete:
+    fluent prose, every citation resolving, and the missing part missing in the
+    one way nothing checked. The fold may drop filenames, which retrieval can
+    recover; it may not drop which parts EXIST, which retrieval cannot — a
+    search that never returns 2.3 looks exactly like a Richtlinie without one.
+    """
+
+    def teardown_method(self):
+        set_inventory_drops(None)
+        set_norm_families(None)
+
+    def _base(self, *names: str):
+        return [_doc(name, collection="oib_knowledge", shelf="base") for name in names]
+
+    def test_the_folded_shelf_lists_each_family_and_its_members(self):
+        from aiq_agent.common.norm_registry import oib_families
+
+        names = [
+            "oib-rl_2_ausgabe_mai_2023.pdf",
+            "oib-rl_2.1_ausgabe_mai_2023.pdf",
+            "oib-rl_2.2_ausgabe_mai_2023.pdf",
+            "oib-rl_2.3_ausgabe_mai_2023.pdf",
+            "oib-rl_4_ausgabe_mai_2023.pdf",
+        ]
+        set_norm_families(oib_families(names))
+
+        text = render_inventory_block(self._base(*names))
+
+        assert "OIB-Richtlinie 2: 2, 2.1, 2.2, 2.3" in text
+        assert "OIB-Richtlinie 4: 4" in text
+        # …and the filenames are still folded away. This adds a fact, not a list.
+        assert "oib-rl_2.3_ausgabe_mai_2023.pdf" not in text
+
+    def test_it_says_what_an_unread_member_may_be_called(self):
+        from aiq_agent.common.norm_registry import oib_families
+
+        set_norm_families(oib_families(["oib-rl_2_x.pdf", "oib-rl_2.1_x.pdf"]))
+        text = render_inventory_block(self._base("oib-rl_2_x.pdf", "oib-rl_2.1_x.pdf"))
+
+        assert "nicht gelesen" in text
+
+    def test_a_corpus_with_no_families_adds_no_lines(self):
+        """Derived, never listed. A deployment whose corpus holds no
+        Richtlinien must not be told it has any."""
+        set_norm_families(None)
+        text = render_inventory_block(self._base("Handbuch.pdf"))
+
+        assert "Richtlinien-Familien" not in text
+
+    def test_a_listing_turn_about_base_prints_names_rather_than_families(self):
+        """The fold is what the family lines belong to. With the full list on
+        screen the members are visible as filenames."""
+        from aiq_agent.common.norm_registry import oib_families
+
+        names = ["oib-rl_2_x.pdf", "oib-rl_2.3_x.pdf"]
+        set_norm_families(oib_families(names))
+
+        text = render_inventory_block(self._base(*names), focus_shelf=Shelf.BASE)
+
+        assert "oib-rl_2.3_x.pdf" in text
+        assert "Richtlinien-Familien" not in text

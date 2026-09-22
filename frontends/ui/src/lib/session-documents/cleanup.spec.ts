@@ -18,7 +18,7 @@
  * ever remove.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { DeleteObjectCommand } from '@aws-sdk/client-s3'
+import { DeleteObjectCommand, ListObjectsV2Command } from '@aws-sdk/client-s3'
 
 vi.mock('server-only', () => ({}))
 
@@ -51,7 +51,8 @@ vi.mock('./repository', () => ({
 }))
 
 import type { Document } from '@/lib/db/schema'
-import { deleteDocumentObjects, purgeCollectionChunks, purgeSessionDocuments } from './cleanup'
+import { deleteDocumentObjects } from '@/lib/documents/object-cleanup'
+import { purgeCollectionChunks, purgeSessionDocuments } from './cleanup'
 import { collectionFileRef } from '@/lib/documents/collection-file-ref'
 
 const CONVERSATION_ID = 's_11111111-2222-3333-4444-555555555555'
@@ -100,11 +101,20 @@ describe('deleteDocumentObjects', () => {
     const result = await deleteDocumentObjects(sessionDoc())
 
     expect(result).toEqual({ ok: true })
-    const keys = send.mock.calls.map((call) => (call[0] as DeleteObjectCommand).input.Key)
+    const commands = send.mock.calls.map(([command]) => command)
+    const keys = commands
+      .filter((command): command is DeleteObjectCommand => command instanceof DeleteObjectCommand)
+      .map((command) => command.input.Key)
     expect(keys).toEqual([
       `org/${ORG_ID}/session/${CONVERSATION_ID}/doc/doc-1/brandschutz.pdf`,
       `org/${ORG_ID}/session/${CONVERSATION_ID}/doc/doc-1/_thumb.jpg`,
     ])
+    // The rasters ingestion cut out of the PDF live under `_img/`; the sweep
+    // lists that prefix so none of them outlives the document.
+    const listed = commands.find(
+      (command): command is ListObjectsV2Command => command instanceof ListObjectsV2Command,
+    )
+    expect(listed?.input.Prefix).toBe(`org/${ORG_ID}/session/${CONVERSATION_ID}/doc/doc-1/_img/`)
     expect(deleteBimDerivedObjects).toHaveBeenCalled()
   })
 
@@ -159,7 +169,14 @@ describe('purgeCollectionChunks', () => {
   // Built through the constructor, like production: a bare filename is no
   // longer callable, which is the point of the signature.
   const ref = (filename: string) => {
-    const value = collectionFileRef({ collectionName: CONVERSATION_ID, filename, authoredBy: 'user' })
+    const value = collectionFileRef({
+      collectionName: CONVERSATION_ID,
+      filename,
+      authoredBy: 'user',
+      // A session attachment's own bytes: a person uploaded them, and a human
+      // upload owns its chunks whatever its version pointer says.
+      publishedVersionId: null,
+    })
     if (!value) throw new Error('fixture is not a user-authored row')
     return value
   }
@@ -191,7 +208,12 @@ describe('purgeCollectionChunks', () => {
     // delete the chunks of whatever human document shares that name — the leak
     // this signature exists to make unrepresentable.
     expect(
-      collectionFileRef({ collectionName: CONVERSATION_ID, filename: 'a.pdf', authoredBy: 'agent' })
+      collectionFileRef({
+        collectionName: CONVERSATION_ID,
+        filename: 'a.pdf',
+        authoredBy: 'agent',
+        publishedVersionId: null,
+      })
     ).toBeNull()
   })
 

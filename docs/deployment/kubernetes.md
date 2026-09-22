@@ -516,7 +516,7 @@ metadata dump and the object copy lands in neither.
    ```shell
    # Source: every bucket the ledger records, not just grid-documents.
    for b in $(psql -At -d grid_app -c \
-     "SELECT DISTINCT coalesce(storage_bucket, 'grid-documents') FROM documents WHERE deleted_at IS NULL"); do
+     "SELECT DISTINCT coalesce(storage_bucket, 'grid-documents') FROM documents"); do
      aws --endpoint-url http://seaweedfs:8333 s3api list-objects-v2 --bucket "$b" \
        --query 'Contents[].[Key,Size]' --output text | sed "s|^|$b/|"
    done | sort > /tmp/source.inventory
@@ -604,7 +604,7 @@ metadata dump and the object copy lands in neither.
 
    ```shell
    BUCKETS=$(psql -At -d grid_app -c \
-     "SELECT DISTINCT coalesce(storage_bucket, 'grid-documents') FROM documents WHERE deleted_at IS NULL")
+     "SELECT DISTINCT coalesce(storage_bucket, 'grid-documents') FROM documents")
 
    for b in $BUCKETS; do
      aws --endpoint-url http://seaweedfs:8333 s3api list-objects-v2 --bucket "$b" \
@@ -868,7 +868,7 @@ schema.
      about before declaring the restore done:
      ```shell
      psql -At -d grid_app -c \
-       "SELECT DISTINCT coalesce(storage_bucket, 'grid-documents') FROM documents WHERE deleted_at IS NULL" \
+       "SELECT DISTINCT coalesce(storage_bucket, 'grid-documents') FROM documents" \
        | sort > /tmp/ledger.buckets
      comm -23 /tmp/ledger.buckets <(echo "$BUCKETS")
      ```
@@ -1780,6 +1780,47 @@ chasing the wrong layer. The fix lives in the deployment program
 (`allowUndeclaredLuaKeys` on the Langfuse Dragonfly instance); the cache and
 counter stores must not get it — only the Langfuse queue runs BullMQ scripts.
 
+A second signature with the same empty UI, seen on dev 2026-09-12: the
+ClickHouse PVC at 100% with `system.trace_log` (17 GiB) and `system.text_log`
+as the bulk — the server's OWN diagnostic logs, not trace data, which the
+stock image ships with no TTL ("by default, table growth is unlimited"). The
+worker then logs `Cannot reserve ... not enough space` and drops every batch
+(`Max attempts reached, dropped N ... records`), so the project stays on
+"Waiting for first trace" with all pods Ready:
+
+```bash
+kubectl -n grid exec clickhouse-0 -- df -h /var/lib/clickhouse
+kubectl -n grid exec clickhouse-0 -- clickhouse-client --query "SELECT table, formatReadableSize(sum(bytes_on_disk)) AS size FROM system.parts WHERE active GROUP BY table ORDER BY sum(bytes_on_disk) DESC LIMIT 10"
+kubectl -n grid logs deploy/langfuse-worker --tail=20  # Cannot reserve ... ?
+```
+
+The deployment TTL-bounds every system log table at 14 days
+(`system-log-ttl.xml` in `src/data/clickhouse.ts`), so the server's logs
+self-clean and only trace data can still fill the disk. A disk that filled
+before that change still needs one manual clear, and it is a DROP plus a
+restart, not a TRUNCATE: on startup with the new TTLs the server renames
+the old tables aside (`trace_log_0`, `text_log_0`, ...) and rebuilds fresh
+ones, so the bytes sit in detached tables no TTL will ever drain — and a
+bare DROP left `df` unchanged here, because the orphaned objects in
+`store/` are only released when the server restarts. So: `DROP TABLE
+system.<name>_0` for each renamed table, then delete the pod. Afterwards
+the TTLs keep it free.
+
+Two sharp edges found while landing this, kept here so the next one does not
+re-learn them:
+
+- `opentelemetry_span_log` is the one system table a standalone `<ttl>` must
+  NOT touch: the image defines it with a custom `<engine>`, and `<ttl>` next
+  to `<engine>` fails the server at startup with Code 36 (BAD_ARGUMENTS) —
+  CrashLoopBackOff with all pods otherwise healthy. It stays unbounded on
+  purpose (46 KiB, no producer behind it).
+- A crashing ClickHouse logs to FILES (`/var/log/...`, ephemeral), so
+  `kubectl logs` ends right after "Logging errors to ..." with no error. To
+  see the real message, patch the live ConfigMap with
+  `<logger><console>1</console></logger>`, delete the pod, and read the
+  crashed container's log. Do not ship that section: it duplicates every log
+  line to stdout permanently.
+
 Ground truth is a single ClickHouse query — rows here within seconds of a chat
 turn mean every layer works, whatever the UI's dashboard filters claim:
 
@@ -1794,7 +1835,7 @@ Agent turns appear as `CHAIN` rows (the `<workflow>` root, per-agent steps) and
 `GENERATION` rows named by model id; token usage rides on each `GENERATION` in
 `usage_details`. Each knowledge search adds a `retrieve.knowledge_search`
 observation carrying the query, the collections searched, the budgets and the
-picked chunk ids/files/scores — metadata only, no chunk text (ADR-0044,
+picked chunk ids/files/scores — metadata only, no chunk text (ADR-0058,
 Amendment 2).
 
 The frontend tier exports **no request spans** (ADR-0029, Amendment 5): one
@@ -1812,12 +1853,13 @@ Settings → Models in the Langfuse UI; that is configuration, not deployment.
 
 ### Operating it — the retention problem
 
-**Nothing expires.** Data-retention policies are an Enterprise feature, so on the
-free build the ClickHouse PVC grows for as long as the deployment runs. There is
-no setting in this program that changes that, and inventing one would be a knob
-that does nothing.
+**Trace data never expires.** Data-retention policies are an Enterprise feature, so on the
+free build the trace store grows for as long as the deployment runs. The server's
+own diagnostic logs are the exception: every system log table carries a 14-day TTL
+(`system-log-ttl.xml` in `src/data/clickhouse.ts`), so ClickHouse chatter self-cleans
+and only observations can still fill the disk.
 
-So treat `grid-oib:clickhouseStorageSize` (default `20Gi`) as a number to watch,
+So treat `grid-oib:clickhouseStorageSize` (default `50Gi`) as a number to watch,
 not to set once:
 
 ```bash

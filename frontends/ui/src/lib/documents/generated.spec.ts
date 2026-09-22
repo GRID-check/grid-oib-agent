@@ -325,6 +325,71 @@ describe('fileGeneratedDocument', () => {
       )
     })
 
+    /**
+     * The `piloti/` namespace, and the one producer that gets it (ADR-0054 §
+     * Indexing).
+     *
+     * The namespace is on the ROW's filename and not on the object key, and
+     * that split is the whole design: `documents.filename` is the retrieval
+     * index's join key and is never renamed, so applying the namespace only on
+     * the way into the index would index under one string and purge under
+     * another. The key stays flat because `storageKeySegment` would otherwise
+     * flatten the slashes into `piloti_<id>_<name>` and repeat an id the key
+     * already carries.
+     */
+    describe('the filename namespace', () => {
+      const fileDocument = () =>
+        fileGeneratedDocument({
+          session: SESSION,
+          projectId: 'proj-1',
+          producer: 'agent_document',
+          ref: 's_conv_1-aktenvermerk',
+          title: 'Aktenvermerk',
+          render: async ({ marking }) => ({
+            bytes: new TextEncoder().encode(`# Aktenvermerk\n\n\`\`\`\n${marking}\n\`\`\`\n`),
+            contentType: 'text/markdown',
+            marking,
+          }),
+        })
+
+      it('files a publishable Piloti document under piloti/<document id>/', async () => {
+        const result = await fileDocument()
+
+        const row = admittedRow()
+        expect(row.filename).toBe(`piloti/${row.id}/${result.filename.split('/').pop()}`)
+        expect(row.filename).toMatch(/^piloti\/[^/]+\/aktenvermerk-\d{4}-\d{2}-\d{2}\.md$/)
+      })
+
+      it('keeps the object key flat, under the document’s own prefix', async () => {
+        await fileDocument()
+
+        const put = onlyPut()
+        const row = admittedRow()
+        // No `piloti/` segment in the key, and no `_` mangling of one either:
+        // the key is what it would have been without the namespace.
+        expect(put.input.Key).toMatch(/\/doc\/[^/]+\/aktenvermerk-\d{4}-\d{2}-\d{2}\.md$/)
+        expect(put.input.Key).not.toContain('piloti')
+        expect(row.storageKey).toBe(put.input.Key)
+      })
+
+      it('shows the title, never the namespaced name, to a reader', async () => {
+        await fileDocument()
+
+        // `displayName` is the Files pane's label. `piloti/<uuid>/…` is an
+        // index join key and has no business being read by anybody.
+        expect(admittedRow().displayName).toBe('Aktenvermerk')
+      })
+
+      it('leaves a producer whose output is never published unnamespaced', async () => {
+        // A research report files as `stored`, walks no lifecycle and is never
+        // dispatched, so it owns no chunks and needs no namespace. Namespacing
+        // it would rename existing rows for no invariant.
+        await file()
+
+        expect(admittedRow().filename).not.toContain('piloti/')
+      })
+    })
+
     it('files the row into the project corpus it belongs to', async () => {
       await file()
 

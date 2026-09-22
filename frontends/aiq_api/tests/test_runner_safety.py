@@ -8,6 +8,7 @@ error-message sanitization (no raw exception text with hosts/DSNs to clients).
 from __future__ import annotations
 
 import asyncio
+import json
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 from unittest.mock import MagicMock
@@ -22,83 +23,259 @@ from aiq_api.jobs.runner import _GRAPH_RECURSION_ERROR_MSG
 from aiq_api.jobs.runner import _WALL_CLOCK_TIMEOUT_MSG
 from aiq_api.jobs.runner import JOB_DEGRADED_EVENT_TYPE
 from aiq_api.jobs.runner import CancellationMonitor
+from aiq_api.jobs.runner import _b64url_encode_text
 from aiq_api.jobs.runner import _build_job_output
 from aiq_api.jobs.runner import _create_agent_instance
 from aiq_api.jobs.runner import _extract_answer_transparency
 from aiq_api.jobs.runner import _extract_skills_activated
+from aiq_api.jobs.runner import _generate_grid_cards
+from aiq_api.jobs.runner import _mark_degraded
 from aiq_api.jobs.runner import _purge_deep_checkpoint
 from aiq_api.jobs.runner import _resolve_deep_research_checkpointer
 from aiq_api.jobs.runner import _update_status_if_not_terminal
 from aiq_api.jobs.runner import sanitize_job_error
 
 
-def _job_store(current_status: str | None):
-    job = SimpleNamespace(status=current_status) if current_status is not None else None
-    return SimpleNamespace(get_job=AsyncMock(return_value=job), update_status=AsyncMock())
+def _ensure_job_info_table(db_url: str) -> None:
+    """Create NAT's job_info table (mock stores cannot represent the race)."""
+    from sqlalchemy import text
+
+    from aiq_api.jobs.event_store import EventStore
+
+    engine = EventStore._get_or_create_sync_engine(db_url)
+    with engine.connect() as conn:
+        conn.execute(
+            text(
+                "CREATE TABLE IF NOT EXISTS job_info ("
+                "  job_id TEXT PRIMARY KEY,"
+                "  status TEXT,"
+                "  config_file TEXT,"
+                "  error TEXT,"
+                "  output_path TEXT,"
+                "  created_at DATETIME,"
+                "  updated_at DATETIME,"
+                "  expiry_seconds INTEGER,"
+                "  output TEXT,"
+                "  is_expired BOOLEAN DEFAULT 0"
+                ")"
+            )
+        )
+        conn.commit()
+
+
+def _seed_job(db_url: str, job_id: str, status: str) -> None:
+    """Seed one job_info row. Uses the sync engine like the reaper does, so the
+    runner (async JobStore) and the reaper (sync raw SQL) meet in one table."""
+    from datetime import UTC
+    from datetime import datetime
+    from datetime import timedelta
+
+    from sqlalchemy import text
+
+    from aiq_api.jobs.event_store import EventStore
+
+    _ensure_job_info_table(db_url)
+    engine = EventStore._get_or_create_sync_engine(db_url)
+    ts = (datetime.now(UTC) - timedelta(seconds=10)).replace(tzinfo=None)
+    with engine.connect() as conn:
+        conn.execute(
+            text(
+                "INSERT OR REPLACE INTO job_info "
+                "(job_id, status, created_at, updated_at, expiry_seconds, is_expired) "
+                "VALUES (:job_id, :status, :ts, :ts, 3600, 0)"
+            ),
+            {"job_id": job_id, "status": status, "ts": ts},
+        )
+        conn.commit()
+
+
+def _make_store(db_url: str):
+    from nat.front_ends.fastapi.async_jobs.job_store import JobStore
+
+    return JobStore(scheduler_address="", db_url=db_url)
+
+
+@pytest.fixture
+def job_db(tmp_path):
+    return f"sqlite+aiosqlite:///{tmp_path / 'test_stickiness.db'}"
+
+
+@pytest.fixture(autouse=True)
+def clear_event_store_caches():
+    from aiq_api.jobs.event_store import EventStore
+
+    EventStore._tables_initialized.clear()
+    yield
+    EventStore._tables_initialized.clear()
 
 
 class TestTerminalStatusStickiness:
     @pytest.mark.asyncio
     @pytest.mark.parametrize("terminal_status", ["success", "failure", "interrupted"])
-    async def test_success_write_skipped_when_already_terminal(self, terminal_status):
-        """A reaped/cancelled job must keep its terminal verdict."""
+    async def test_success_write_skipped_when_already_terminal(self, job_db, terminal_status):
+        """A reaped/cancelled job must keep its terminal verdict — and its payload."""
         from nat.front_ends.fastapi.async_jobs.job_store import JobStatus
 
-        job_store = _job_store(terminal_status)
+        _seed_job(job_db, "job-1", terminal_status)
+        store = _make_store(job_db)
 
-        written = await _update_status_if_not_terminal(job_store, "job-1", JobStatus.SUCCESS, output={"report": "r"})
+        written = await _update_status_if_not_terminal(store, "job-1", JobStatus.SUCCESS, output={"report": "r"})
 
         assert written is False
-        job_store.update_status.assert_not_awaited()
+        job = await store.get_job("job-1")
+        assert job.status == terminal_status
+        assert job.output is None
+        assert job.error is None
 
     @pytest.mark.asyncio
-    async def test_failure_write_skipped_when_already_interrupted(self):
+    async def test_failure_write_skipped_when_already_interrupted(self, job_db):
         """The worker's failure path must not clobber a user cancellation."""
         from nat.front_ends.fastapi.async_jobs.job_store import JobStatus
 
-        job_store = _job_store("interrupted")
+        _seed_job(job_db, "job-1", "interrupted")
+        store = _make_store(job_db)
+        await store.update_status("job-1", JobStatus.INTERRUPTED, error="cancelled by user")
 
-        written = await _update_status_if_not_terminal(job_store, "job-1", JobStatus.FAILURE, error="boom")
+        written = await _update_status_if_not_terminal(store, "job-1", JobStatus.FAILURE, error="boom")
 
         assert written is False
-        job_store.update_status.assert_not_awaited()
+        job = await store.get_job("job-1")
+        assert job.status == "interrupted"
+        assert job.error == "cancelled by user"
 
     @pytest.mark.asyncio
-    async def test_writes_when_job_still_running(self):
+    async def test_writes_when_job_still_running(self, job_db):
         from nat.front_ends.fastapi.async_jobs.job_store import JobStatus
 
-        job_store = _job_store("running")
+        _seed_job(job_db, "job-1", "running")
+        store = _make_store(job_db)
 
-        written = await _update_status_if_not_terminal(job_store, "job-1", JobStatus.SUCCESS, output={"report": "r"})
+        written = await _update_status_if_not_terminal(store, "job-1", JobStatus.SUCCESS, output={"report": "r"})
 
         assert written is True
-        job_store.update_status.assert_awaited_once_with("job-1", JobStatus.SUCCESS, output={"report": "r"})
+        job = await store.get_job("job-1")
+        assert job.status == "success"
+        assert json.loads(job.output) == {"report": "r"}
 
     @pytest.mark.asyncio
-    async def test_writes_when_current_status_unreadable(self):
-        """Fail open: an unreadable current status must not lose the terminal write."""
+    async def test_running_to_running_write_is_allowed(self, job_db):
+        """The runner's start guard (RUNNING over SUBMITTED/RUNNING) still writes."""
         from nat.front_ends.fastapi.async_jobs.job_store import JobStatus
 
-        job_store = SimpleNamespace(
-            get_job=AsyncMock(side_effect=ConnectionError("db down")),
-            update_status=AsyncMock(),
+        _seed_job(job_db, "job-1", "running")
+        store = _make_store(job_db)
+
+        assert await _update_status_if_not_terminal(store, "job-1", JobStatus.RUNNING) is True
+        assert (await store.get_job("job-1")).status == "running"
+
+    @pytest.mark.asyncio
+    async def test_missing_job_raises_value_error(self, job_db):
+        """Same contract as NAT's update_status: writing a missing job raises."""
+        from nat.front_ends.fastapi.async_jobs.job_store import JobStatus
+
+        _ensure_job_info_table(job_db)
+        store = _make_store(job_db)
+
+        with pytest.raises(ValueError, match="job-missing"):
+            await _update_status_if_not_terminal(store, "job-missing", JobStatus.FAILURE, error="boom")
+
+    @pytest.mark.asyncio
+    async def test_basemodel_output_serialized_like_nat(self, job_db):
+        """A guarded write stores byte-identical values to the unguarded one."""
+        from pydantic import BaseModel
+
+        from nat.front_ends.fastapi.async_jobs.job_store import JobStatus
+
+        class _Out(BaseModel):
+            report: str
+
+        _seed_job(job_db, "job-1", "running")
+        _seed_job(job_db, "job-2", "running")
+        store = _make_store(job_db)
+
+        await _update_status_if_not_terminal(store, "job-1", JobStatus.SUCCESS, output=_Out(report="r"))
+        await store.update_status("job-2", JobStatus.SUCCESS, output=_Out(report="r"))
+
+        assert (await store.get_job("job-1")).output == (await store.get_job("job-2")).output
+
+
+class TestTerminalStickinessUnderRace:
+    """Backlog item 6 ratchet: the reaper's FAILURE landing anywhere around the
+    runner's SUCCESS write must never be silently flipped — in either order,
+    and when the two writes truly race. Separate JobStore instances per writer:
+    in prod these are separate connections (Dask worker vs. web tier)."""
+
+    _REAPER_ERROR = "Job timed out (no heartbeat received from worker)"
+
+    @pytest.mark.asyncio
+    async def test_reaper_failure_before_runner_write_stays_failure(self, job_db):
+        """The exact reported race: reaper FAILURE lands, the runner's late
+        SUCCESS must lose and leave the reaper's payload untouched."""
+        from nat.front_ends.fastapi.async_jobs.job_store import JobStatus
+
+        _seed_job(job_db, "job-1", "running")
+
+        reaped = await _update_status_if_not_terminal(
+            _make_store(job_db), "job-1", JobStatus.FAILURE, error=self._REAPER_ERROR
+        )
+        assert reaped is True
+
+        finalized = await _update_status_if_not_terminal(
+            _make_store(job_db), "job-1", JobStatus.SUCCESS, output={"report": "late"}
+        )
+        assert finalized is False
+
+        job = await _make_store(job_db).get_job("job-1")
+        assert job.status == "failure"
+        assert job.error == self._REAPER_ERROR
+        assert job.output is None
+
+    @pytest.mark.asyncio
+    async def test_runner_success_before_reaper_write_stays_success(self, job_db):
+        """The mirror race: a SUCCESS committed first must not be flipped back
+        to FAILURE by a reaper acting on a stale detection."""
+        from nat.front_ends.fastapi.async_jobs.job_store import JobStatus
+
+        _seed_job(job_db, "job-1", "running")
+
+        finalized = await _update_status_if_not_terminal(
+            _make_store(job_db), "job-1", JobStatus.SUCCESS, output={"report": "r"}
+        )
+        assert finalized is True
+
+        reaped = await _update_status_if_not_terminal(
+            _make_store(job_db), "job-1", JobStatus.FAILURE, error=self._REAPER_ERROR
+        )
+        assert reaped is False
+
+        job = await _make_store(job_db).get_job("job-1")
+        assert job.status == "success"
+        assert json.loads(job.output) == {"report": "r"}
+        assert job.error is None
+
+    @pytest.mark.asyncio
+    async def test_concurrent_terminal_writes_have_exactly_one_winner(self, job_db):
+        """Both writers racing at once: exactly one wins, and the stored
+        payload always belongs to the winner — never a mixed row."""
+        from nat.front_ends.fastapi.async_jobs.job_store import JobStatus
+
+        _seed_job(job_db, "job-1", "running")
+
+        results = await asyncio.gather(
+            _update_status_if_not_terminal(_make_store(job_db), "job-1", JobStatus.SUCCESS, output={"report": "r"}),
+            _update_status_if_not_terminal(_make_store(job_db), "job-1", JobStatus.FAILURE, error=self._REAPER_ERROR),
         )
 
-        written = await _update_status_if_not_terminal(job_store, "job-1", JobStatus.FAILURE, error="boom")
+        assert sorted(results) == [False, True]
 
-        assert written is True
-        job_store.update_status.assert_awaited_once_with("job-1", JobStatus.FAILURE, error="boom")
-
-    @pytest.mark.asyncio
-    async def test_writes_when_job_missing(self):
-        from nat.front_ends.fastapi.async_jobs.job_store import JobStatus
-
-        job_store = _job_store(None)
-
-        written = await _update_status_if_not_terminal(job_store, "job-1", JobStatus.SUCCESS)
-
-        assert written is True
-        job_store.update_status.assert_awaited_once_with("job-1", JobStatus.SUCCESS)
+        job = await _make_store(job_db).get_job("job-1")
+        if job.status == "success":
+            assert json.loads(job.output) == {"report": "r"}
+            assert job.error is None
+        else:
+            assert job.status == "failure"
+            assert job.error == self._REAPER_ERROR
+            assert job.output is None
 
 
 class TestCancellationMonitorStopStatuses:
@@ -209,6 +386,18 @@ class TestSanitizeJobError:
         assert message == "run exceeded the configured completion-token budget of 50000"
 
 
+class TestBudgetMessagesSurvive:
+    """The one failure a person can act on themselves must say so."""
+
+    def test_organization_budget_exhaustion_keeps_its_actionable_message(self) -> None:
+        from aiq_agent.common.cost_tracking import BudgetExceededError
+
+        message = sanitize_job_error(BudgetExceededError("organization"))
+
+        assert "budget is exhausted" in message
+        assert "raise limits" in message
+
+
 class TestResolveDeepResearchCheckpointer:
     """Async-job checkpointer seam (T3-8): restart-safe deep-research jobs.
 
@@ -220,8 +409,8 @@ class TestResolveDeepResearchCheckpointer:
 
     @pytest.mark.asyncio
     async def test_returns_none_for_non_deep_research_agent(self):
-        """Other agent types (e.g. shallow_research_agent) are never given a checkpointer."""
-        fn_config = SimpleNamespace(type="shallow_research_agent", checkpoint_db="./checkpoints.db")
+        """Other agent types (e.g. research_agent) are never given a checkpointer."""
+        fn_config = SimpleNamespace(type="research_agent", checkpoint_db="./checkpoints.db")
 
         result = await _resolve_deep_research_checkpointer(fn_config)
 
@@ -428,6 +617,36 @@ class TestExtractSkillsActivated:
         assert _extract_skills_activated(SimpleNamespace(skills_activated=[])) is None
         assert _extract_skills_activated(SimpleNamespace(skills_activated="oib")) is None
         assert _extract_skills_activated(SimpleNamespace(skills_activated=[None, 3, "ok"])) == ["ok"]
+
+
+class TestCardFailureIsADegradedReason:
+    """A run whose proposals could not be derived says so, beside the agent's own reasons."""
+
+    def test_appends_after_the_agent_reasons_without_duplicating(self) -> None:
+        transparency: dict = {"degraded_reasons": ["no_valid_citations"]}
+
+        _mark_degraded(transparency, "cards_generation_failed")
+        _mark_degraded(transparency, "cards_generation_failed")
+
+        assert transparency["degraded_reasons"] == ["no_valid_citations", "cards_generation_failed"]
+
+    def test_creates_the_list_when_the_agent_recorded_none(self) -> None:
+        transparency: dict = {"research_truncated": True}
+
+        _mark_degraded(transparency, "cards_generation_failed")
+
+        assert transparency == {"research_truncated": True, "degraded_reasons": ["cards_generation_failed"]}
+
+    @pytest.mark.asyncio
+    async def test_generate_grid_cards_reports_a_lost_attempt(self) -> None:
+        with patch(
+            "aiq_agent.cards.generate.generate_cards_result",
+            AsyncMock(side_effect=RuntimeError("the worker has no card model")),
+        ):
+            result = await _generate_grid_cards(MagicMock(), "q", "report")
+
+        assert result.cards is None
+        assert result.failed is True
 
 
 class TestExtractAnswerTransparency:
@@ -681,3 +900,34 @@ class TestTransparencyReachesBothSurfaces:
             )
 
         assert post.await_args_list[-1].kwargs["text"] == "# Report"
+
+
+class TestWorkerHeaderTextEncoding:
+    """Free-text worker headers must survive Starlette's latin-1 encoding.
+
+    Regression: the project context was injected raw into the worker's request
+    headers, so a German „quote (U+201E) in the project profile killed every
+    async job for that project with UnicodeEncodeError — before the agent
+    emitted a single event, which is why the research panel stayed empty.
+    """
+
+    GERMAN_CONTEXT = "Projekt: Holzbau Wien\nNotiz: Der Nachweis „GK 5 — Fluchtniveau 12 m“ fehlt noch."
+
+    def test_raw_german_text_is_not_header_safe(self) -> None:
+        """Pins the constraint: Starlette Headers accept latin-1 only."""
+        from starlette.datastructures import Headers
+
+        with pytest.raises(UnicodeEncodeError):
+            Headers(headers={"x-grid-project-context": self.GERMAN_CONTEXT})
+
+    def test_encoded_text_is_header_safe_and_round_trips(self) -> None:
+        """The runner's encoding reaches the reader with the text intact."""
+        from starlette.datastructures import Headers
+
+        from aiq_agent.project_context import GridRequestContext
+
+        encoded = _b64url_encode_text(self.GERMAN_CONTEXT)
+        assert encoded.isascii()
+        headers = Headers(headers={"x-grid-project-context": encoded})
+        ctx = GridRequestContext.from_headers(dict(headers))
+        assert ctx.project_context == self.GERMAN_CONTEXT

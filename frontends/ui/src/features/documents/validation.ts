@@ -109,8 +109,14 @@ export interface ValidationContext {
   existingFileNames: Set<string>
   /**
    * Durable project / Archiv corpus. Those shelves are bounded by storage
-   * quota, not by the chat-session file count — applying `maxFileCount` here
-   * made the tenth Dateiablage upload fail (#432).
+   * quota, not by the chat-session caps — applying `maxFileCount` here made the
+   * tenth Dateiablage upload fail (#432), and the batch TOTAL SIZE cap, left on
+   * by oversight when that one was lifted, made a 100 MB ceiling reject a real
+   * Einreichung wholesale in an organization with terabytes to spare.
+   *
+   * Both batch caps are therefore session-only. The PER-FILE size limit is not:
+   * that one is about what the ingest pipeline can chew through, which is a
+   * fact about the file rather than about which shelf it lands on.
    */
   durableCorpus?: boolean
 }
@@ -329,8 +335,17 @@ export function validateFileUpload(
       ? config.maxIfcFileSize
       : config.maxTotalSize
 
-  // Check total size constraint
-  if (totalSize > totalCeiling) {
+  // Check total size constraint. Session attachments only, for exactly the
+  // reason stated on the file-count cap below: a project or Archiv corpus is
+  // bounded by the ORGANIZATION'S QUOTA, which is checked server-side twice —
+  // once before any bytes move and once inside the admitting transaction under
+  // a per-organization lock (ADR-0042). This cap is the leftover session limit,
+  // and leaving it on a durable corpus made it the binding one: a 100 MB batch
+  // ceiling rejects an Einreichung WHOLESALE, as a batch error, in an
+  // organization with terabytes of quota left. The two caps were exempted
+  // inconsistently, not deliberately — nothing argues for bounding a project
+  // upload by a number that has no relationship to what the tenant has bought.
+  if (!context.durableCorpus && totalSize > totalCeiling) {
     const availableSpace = Math.max(0, totalCeiling - context.existingTotalSize)
     batchErrors.push({
       code: 'TOTAL_SIZE_EXCEEDED',

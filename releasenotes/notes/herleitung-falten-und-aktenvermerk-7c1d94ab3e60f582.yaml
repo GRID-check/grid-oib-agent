@@ -1,0 +1,24 @@
+---
+features:
+  - >
+    Hat Piloti für eine Antwort mehrmals gesucht, lässt sich jeder Suchschritt
+    der Herleitung jetzt zuklappen: Ein Klick auf den Schritt ersetzt die
+    gefundenen Dateien durch ihre Anzahl, ein zweiter holt sie zurück. Ab drei
+    Suchschritten kommt die Herleitung bereits zusammengeklappt und zeigt nur
+    den jüngsten offen — damit bleibt der Stand am Ende sichtbar, ohne scrollen
+    zu müssen.
+  - >
+    Unter einer längeren Antwort in einem Projekt steht jetzt der Vorschlag
+    „Als Aktenvermerk schreiben". Er füllt die Eingabezeile mit der passenden
+    Bitte, abgeschickt wird sie wie jede andere — Piloti schreibt daraufhin
+    einen Entwurf in die Projektdateien.
+improvements:
+  - >
+    Der leere Chat in einem Projekt sagt in einem Satz, dass Piloti nicht nur
+    antwortet, sondern auf Zuruf auch Aktenvermerke, Notizen und Entwürfe
+    schreibt. Bisher fand das nur, wer seine Bitte zufällig als Auftrag
+    formuliert hat.
+fixes:
+  - >
+    Auf dem Telefon lief die Dokumentart im Kopf der Dateivorschau unter die
+    Schaltflächen daneben. Sie wird jetzt gekürzt, statt sich zu überlagern.

@@ -33,11 +33,11 @@ def test_converter_omits_answer_confidence_when_absent():
 def test_converter_preserves_all_extras_together():
     response = _create_chat_response("The answer.", response_id="r", model="m")
     response.cards = [{"type": "summary"}]
-    response.deep_research_job_id = "job-1"
+    response.run_id = "run-1"
     response.answer_confidence = "medium"
 
     chunk = _chat_response_to_chunk(response)
 
     assert getattr(chunk, "cards", None) == [{"type": "summary"}]
-    assert getattr(chunk, "deep_research_job_id", None) == "job-1"
+    assert getattr(chunk, "run_id", None) == "run-1"
     assert getattr(chunk, "answer_confidence", None) == "medium"

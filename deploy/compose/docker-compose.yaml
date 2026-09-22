@@ -77,7 +77,7 @@ services:
       - SEAWEED_ACCESS_KEY=${SEAWEED_READONLY_ACCESS_KEY:-grid-backend-read}
       - SEAWEED_SECRET_KEY=${SEAWEED_READONLY_SECRET_KEY:?set it in deploy/.env — see the SeaweedFS section of deploy/.env.example}
       - SEAWEED_BUCKET=${SEAWEED_BUCKET:-grid-documents}
-      # LlamaIndex persistence (used by config_web_default_llamaindex.yml)
+      # LlamaIndex persistence (the Chroma store config_oib_openrouter.yml reads)
       - AIQ_CHROMA_DIR=${AIQ_CHROMA_DIR:-/app/data/chroma_data}
       # Server config
       # Grid OIB config (default)
@@ -100,6 +100,9 @@ services:
       - "${PORT:-8000}:8000"
     volumes:
       - ../../configs:/app/configs:ro
+      # Operator-provided OIB corpus; ships empty (data/oib/README.md). Read-only
+      # on purpose: an admin removes a document through the UI, which records an
+      # exclusion, rather than by deleting a file the mount would restore.
       - ../../data/oib:/app/data/oib:ro
       - aiq-data:/app/data
       - chroma_data:/app/data/chroma_data
@@ -361,6 +364,12 @@ services:
     command: ["node", "server.js"]
     environment:
       - REQUIRE_AUTH=${REQUIRE_AUTH:-false}
+      # The commit this deployment is running. Stamped into the image as a
+      # build arg by publish-images.yml, so it is normally already set inside
+      # the container and this line only matters for a locally built or
+      # hand-tagged image. It appears in the `[boot]` log line and on the health
+      # endpoints, and it is what makes a pilot report nameable.
+      - GRID_GIT_SHA=${GRID_GIT_SHA:-}
       # APP_ENV lets the internal memory route distinguish dev from prod: the
       # well-known dev default GRID_INTERNAL_API_TOKEN is only accepted when
       # APP_ENV is development/dev/local (NODE_ENV is always 'production' in
@@ -383,6 +392,10 @@ services:
       - WORKOS_API_KEY=${WORKOS_API_KEY}
       - NEXT_PUBLIC_WORKOS_REDIRECT_URI=${NEXT_PUBLIC_WORKOS_REDIRECT_URI:-${WORKOS_REDIRECT_URI:-http://localhost:3000/api/auth/callback}}
       - WORKOS_COOKIE_PASSWORD=${WORKOS_COOKIE_PASSWORD}
+      # PostHog product analytics (fail-open: unset means no events leave the
+      # browser — see frontends/ui/src/lib/analytics/posthog.ts).
+      - NEXT_PUBLIC_POSTHOG_HOST=${NEXT_PUBLIC_POSTHOG_HOST:-}
+      - NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN=${NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN:-}
       # BYOK LLM credentials (ADR-0022): secret backend for tenant API keys.
       # Default: WorkOS Vault when WORKOS_API_KEY is set, else local AES-GCM
       # under GRID_BYOK_LOCAL_KEK (32 bytes, base64).
@@ -418,9 +431,6 @@ services:
       # The catalog endpoint works unauthenticated; the key (same one the
       # backend uses) scopes the listing to account availability when set.
       - OPENROUTER_API_KEY=${OPENROUTER_API_KEY:-}
-      # Euros per 1 USD for comparing EUR budget limits against the USD costs
-      # OpenRouter reports (docs/architecture/usage-budgets.md).
-      - GRID_BUDGET_EUR_PER_USD=${GRID_BUDGET_EUR_PER_USD:-0.86}
       # Platform tier (ADR-0016): break-glass owner bootstrap, platform-org
       # external id override, and the self-serve org creation gate.
       - GRID_PLATFORM_OWNER_EMAILS=${GRID_PLATFORM_OWNER_EMAILS:-}
@@ -431,8 +441,20 @@ services:
       # the WS-upgrade rate limiter. Unset = per-process in-memory fallback.
       - REDIS_URL=${REDIS_URL:-redis://dragonfly:6379/0}
       - GRID_WS_UPGRADE_RATE_LIMIT=${GRID_WS_UPGRADE_RATE_LIMIT:-30}
+      # The commit this deployment is running. Stamped into the image as a
+      # build arg by publish-images.yml, so it is normally already set inside
+      # the container and this line only matters for a locally built or
+      # hand-tagged image. It appears in the `[boot]` log line and on the health
+      # endpoints, and it is what makes a pilot report nameable.
+      - GRID_GIT_SHA=${GRID_GIT_SHA:-}
       # ── Agent Skills (ADR-0046): dark-launch gate + save-time cron validation ──
       - GRID_SKILLS_ENABLED=${GRID_SKILLS_ENABLED:-false}
+      # Flag ENFORCEMENT itself. It was on the skill-scheduler and NOT here,
+      # which meant `enforcementOn()` in the BFF read an unset variable no
+      # matter what the operator had configured — the frontend and the
+      # scheduler could disagree about whether WorkOS flags decide anything.
+      # Same default, so nothing moves until an operator sets it.
+      - GRID_ENFORCE_FEATURE_FLAGS=${GRID_ENFORCE_FEATURE_FLAGS:-false}
       - GRID_SKILL_MIN_INTERVAL_MINUTES=${GRID_SKILL_MIN_INTERVAL_MINUTES:-15}
       # ── Collaboration (ADR-0032…0035): shared chats, @-mentions, the inbox ──
       # Dark-launch gate, default-deny: with it off the inbox nav entry, the

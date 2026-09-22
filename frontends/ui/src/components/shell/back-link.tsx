@@ -80,7 +80,7 @@ export function BackLink({ fallbackHref, fallbackLabel, className }: BackLinkPro
           // it, but say only "Back" rather than inventing a name for it.
           tCommon('actions.back')
 
-  const handleClick = (event: MouseEvent<HTMLAnchorElement>): void => {
+  const handleClick = (event: MouseEvent<HTMLAnchorElement | HTMLButtonElement>): void => {
     if (!previous) return
     // Leave modified clicks (new tab/window, download) to the browser, which is
     // why this stays an anchor with a real href rather than a button.
@@ -106,24 +106,57 @@ export function BackLink({ fallbackHref, fallbackLabel, className }: BackLinkPro
   }
 
   return (
-    <Link
+    <BackControl
       href={previous?.path ?? fallbackHref}
+      label={label}
       onClick={handleClick}
-      data-testid="back-link"
-      className={cn(
-        // 36px, and it is the one way out of the page — on a phone, where there
-        // is no rail beside it to fall back on, that matters more than anywhere
-        // else. It stands alone above the page header with nothing to collide
-        // with, so the padding grows for real rather than overhanging.
-        'text-muted-foreground hover:bg-accent/60 hover:text-foreground group inline-flex w-fit items-center gap-2 rounded-full py-1.5 pl-1.5 pr-3.5 text-sm pointer-coarse:py-2.5 pointer-coarse:pl-2.5 pointer-coarse:pr-4',
-        'transition-[color,background-color,transform] duration-quick ease-out active:scale-[0.98] motion-reduce:transition-none',
-        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60 focus-visible:ring-offset-2 focus-visible:ring-offset-background',
-        className
-      )}
-    >
-      {/* A raised disc rather than a bare glyph: the same "catches the light"
-          treatment the empty-state icon uses, so the one way out of the page
-          reads as a control instead of a caption. */}
+      className={className}
+      testId="back-link"
+    />
+  )
+}
+
+/**
+ * "Back to <somewhere>", as a shape rather than as a destination.
+ *
+ * Split out of {@link BackLink} because a second thing needed to look like it
+ * and had no route to give it: going up a level inside the Dateien folder tree,
+ * where "back" is a folder, not a page. Two controls that mean the same thing
+ * and are drawn by two files drift on the first token retune — so the shell is
+ * one component and the callers bring their own answer to "back to what".
+ *
+ * It renders an anchor when there is an `href`, so a page destination keeps
+ * middle-click and copy-link, and a button when the destination is not a route
+ * of its own.
+ */
+export function BackControl({
+  href,
+  label,
+  onClick,
+  className,
+  testId,
+}: {
+  /** A real route, or omitted when the destination is not addressable on its own. */
+  href?: string
+  label: string
+  onClick?: (event: MouseEvent<HTMLAnchorElement | HTMLButtonElement>) => void
+  className?: string
+  testId?: string
+}): JSX.Element {
+  // 36px, and it is the one way out — on a phone, where there is no rail beside
+  // it to fall back on, that matters more than anywhere else.
+  const shell = cn(
+    'text-muted-foreground hover:bg-accent/60 hover:text-foreground group inline-flex w-fit items-center gap-2 rounded-full py-1.5 pl-1.5 pr-3.5 text-sm pointer-coarse:py-2.5 pointer-coarse:pl-2.5 pointer-coarse:pr-4',
+    'transition-[color,background-color,transform] duration-quick ease-out active:scale-[0.98] motion-reduce:transition-none',
+    'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60 focus-visible:ring-offset-2 focus-visible:ring-offset-background',
+    className
+  )
+
+  // A raised disc rather than a bare glyph: the same "catches the light"
+  // treatment the empty-state icon uses, so the one way out reads as a control
+  // instead of a caption.
+  const body = (
+    <>
       <span
         aria-hidden
         className="bg-card border-border/80 shadow-2xs flex size-6 shrink-0 items-center justify-center rounded-full border"
@@ -131,6 +164,20 @@ export function BackLink({ fallbackHref, fallbackLabel, className }: BackLinkPro
         <ArrowLeft className="size-3.5" />
       </span>
       {label}
+    </>
+  )
+
+  if (href === undefined) {
+    return (
+      <button type="button" onClick={onClick} data-testid={testId} className={shell}>
+        {body}
+      </button>
+    )
+  }
+
+  return (
+    <Link href={href} onClick={onClick} data-testid={testId} className={shell}>
+      {body}
     </Link>
   )
 }

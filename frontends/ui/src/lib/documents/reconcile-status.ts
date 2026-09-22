@@ -60,6 +60,18 @@ export interface ReconcilableDocument {
    * compile rather than silently reconciling as if a person had uploaded it.
    */
   authoredBy: DocumentAuthor
+  /**
+   * The version the item's storage columns mirror, or `null` (ADR-0054).
+   *
+   * REQUIRED for the same reason `authoredBy` is, and it became necessary the
+   * day a machine-authored row could own backend state after all: a published
+   * Piloti document HAS a file in the collection list and must be enriched from
+   * it, while a draft of the same document still owns nothing. Authorship alone
+   * can no longer tell those apart, so `collectionFileRef` asks both — and a row
+   * type that cannot answer fails to compile rather than reconciling as if it
+   * had.
+   */
+  publishedVersionId: string | null
   errorMessage: string | null
   metadata?: unknown
 }
@@ -299,6 +311,73 @@ const resolveFromCollection = (
   if (file.status === 'success') return { status: 'completed', errorMessage: null }
   if (file.status === 'failed') return { status: 'failed', errorMessage: file.error_message ?? null }
   return null
+}
+
+/**
+ * What the backend knows about one document's ingestion, asked live.
+ *
+ * The retry half of `reconcileDocumentStatuses`' read half: the reconciler
+ * answers "what should this row SAY" on every listing read, this answers "is
+ * anything still WORKING on it" at the moment a person asks to retry. Same
+ * sources (job batch, then the collection file list), same authorship gate —
+ * one implementation of what the backend knows, read two ways.
+ *
+ *  - `in-progress`: a job is running, or a file under this name is mid-flight.
+ *    Retrying now would double the work, so the caller must refuse.
+ *  - `terminal`: the backend finished but the row was never reconciled (a read
+ *    has not landed since). The caller should persist this and NOT retry —
+ *    re-dispatching a finished document churns the chunks citations point at.
+ *  - `absent`: no job and no file. The backend has no record of this document
+ *    — a restart wiped the job registry, or the detached IFC extraction died
+ *    with the process — and retrying re-dispatches work that exists nowhere.
+ *  - `unreachable`: the backend could not be asked. Fail-closed: the caller
+ *    must refuse, because "unknown" is not "absent" and a retry now risks the
+ *    double-dispatch `in-progress` exists to prevent.
+ *
+ * An ambiguous filename (two files, one name) reads as `in-progress`: the join
+ * cannot attribute the file to this row, so retrying would be a guess about
+ * someone else's ingestion.
+ */
+export type BackendIngestKnowledge =
+  | { state: 'in-progress' }
+  | { state: 'terminal'; resolution: TerminalResolution }
+  | { state: 'absent' }
+  | { state: 'unreachable' }
+
+export async function describeBackendIngestState(row: {
+  metadata?: unknown
+  collectionName: string
+  filename: string
+  authoredBy: DocumentAuthor
+  publishedVersionId: string | null
+}): Promise<BackendIngestKnowledge> {
+  const jobId = extractIngestJobId(row.metadata)
+  if (jobId) {
+    const statuses = await fetchJobStatuses([jobId])
+    if (statuses === null) return { state: 'unreachable' }
+    const result = resolveFromJobStatus(statuses.get(jobId))
+    if (result.kind === 'terminal') return { state: 'terminal', resolution: result.resolution }
+    if (result.kind === 'in_progress') return { state: 'in-progress' }
+    // Unknown: the backend forgot the job (registry restart). Fall through to
+    // the file list — the work may still have landed.
+  }
+
+  const ref = collectionFileRef(row)
+  if (!ref) {
+    // Nothing attributable in any collection list, and either no job or one
+    // the backend already disowned above. For a machine-authored row that is
+    // the expected shape (never dispatched); the dispatch guard, not this
+    // function, decides whether it may ingest.
+    return { state: 'absent' }
+  }
+  const files = await loadCollectionFilesFresh(row.collectionName)
+  if (files === null) return { state: 'unreachable' }
+  if (files.ambiguousNames.has(ref.filename)) return { state: 'in-progress' }
+  const resolution = resolveFromCollection(files, ref)
+  if (resolution) return { state: 'terminal', resolution }
+  const file = files.byName.get(ref.filename)
+  if (file) return { state: 'in-progress' }
+  return { state: 'absent' }
 }
 
 /**

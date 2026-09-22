@@ -26,6 +26,7 @@ import { summarizeValidation } from '../lib/validation-messages'
 import { UploadOrchestrator } from '../orchestrator'
 import type { PendingJob } from '../orchestrator'
 import { markSessionHasCollection } from '../persistence'
+import { notifyDocumentsChanged } from '@/lib/documents/document-changes'
 
 /** The durable-upload endpoints' response (`/api/documents/upload`, `/api/archiv/documents/upload`). */
 interface UploadDocumentResponse {
@@ -66,8 +67,30 @@ interface UseFileUploadOptions {
   onError?: (error: Error) => void
 }
 
+/** Per-call overrides for one batch. */
+export interface UploadFilesOptions {
+  /**
+   * Target this collection instead of the memoized one.
+   *
+   * For callers that just created the session and upload in the same tick: the
+   * hook's `collectionName` is captured from the PREVIOUS render and is still
+   * undefined at that point.
+   */
+  collectionOverride?: string
+  /**
+   * Where each file is filed, decided per file rather than per batch.
+   *
+   * The hook's own `folderId` is the folder the reader is standing in, which is
+   * the right answer for every upload except the one this exists for: a FOLDER
+   * upload reproduces a directory tree, so its files go to as many folders as
+   * the tree has. Returning `null` files at the project root — distinct from
+   * returning `undefined`, which defers to the batch's own folder.
+   */
+  folderIdFor?: (file: File) => string | null | undefined
+}
+
 interface UseFileUploadReturn {
-  uploadFiles: (files: File[], collectionOverride?: string) => Promise<void>
+  uploadFiles: (files: File[], options?: UploadFilesOptions) => Promise<void>
   cancelUpload: () => void
   /** Abort one in-flight file, leaving the rest of the batch running. */
   cancelFile: (fileId: string) => void
@@ -193,14 +216,11 @@ export const useFileUpload = (options: UseFileUploadOptions = {}): UseFileUpload
   )
 
   const uploadFiles = useCallback(
-    async (files: File[], collectionOverride?: string) => {
+    async (files: File[], options?: UploadFilesOptions) => {
       if (files.length === 0) return
 
-      // `collectionOverride` lets callers that just created the session
-      // (ensureSession() immediately followed by an upload) target it without
-      // waiting for a re-render: the memoized `collectionName` is captured
-      // from the PREVIOUS render and is still undefined at that point.
-      const targetCollection = collectionOverride ?? collectionName
+      // See `UploadFilesOptions.collectionOverride`.
+      const targetCollection = options?.collectionOverride ?? collectionName
       if (!targetCollection) {
         const uploadError = new Error('Collection name required for upload')
         setError(uploadError.message)
@@ -303,9 +323,22 @@ export const useFileUpload = (options: UseFileUploadOptions = {}): UseFileUpload
             const formData = new FormData()
             if (projectId) {
               formData.append('projectId', projectId)
-              if (folderId) formData.append('folderId', folderId)
+              // Per file when the caller filed the batch (a folder upload),
+              // otherwise the folder the reader is standing in. `undefined`
+              // defers; `null` is a deliberate "the project root".
+              const target = options?.folderIdFor ? options.folderIdFor(file) : folderId
+              const resolved = target === undefined ? folderId : target
+              if (resolved) formData.append('folderId', resolved)
             }
             formData.append('file', file)
+            // Where the file sat before it came here. Set by a folder INPUT
+            // (`webkitdirectory`) and stamped onto a dropped tree's files by
+            // `asPathStampedFiles`, so one property covers both ways of
+            // choosing a folder. Absent for a picked file, which genuinely has
+            // no origin path — the server records null rather than a guess.
+            if (file.webkitRelativePath) {
+              formData.append('originPath', file.webkitRelativePath)
+            }
 
             let lastEmitted = 0
             try {
@@ -347,6 +380,16 @@ export const useFileUpload = (options: UseFileUploadOptions = {}): UseFileUpload
               abortControllersRef.current.delete(tracked.id)
             }
           })
+
+          // Once, after the batch — not per file inside the fan-out. The
+          // document listings held for the page lifetime are now stale: until
+          // something fired this, a file uploaded mid-conversation was
+          // invisible to the citation resolver, and the answer cited it while
+          // the chip said there was nothing to open (#623, on the path its fix
+          // missed). Firing it fifty times for a fifty-file folder upload would
+          // make every surface that mounts during the batch refetch four
+          // listings again for each one.
+          notifyDocumentsChanged()
 
           const firstFailure = results.find((result) => result.status === 'rejected')
           if (firstFailure && firstFailure.status === 'rejected') {
@@ -397,6 +440,9 @@ export const useFileUpload = (options: UseFileUploadOptions = {}): UseFileUpload
                 bytesUploaded: file.size,
               })
             })
+            // Same staleness, the other upload path — which is already one
+            // request for the whole batch, so one notification.
+            notifyDocumentsChanged()
           } finally {
             abortControllersRef.current.delete(batchKey)
           }

@@ -158,13 +158,15 @@ describe('nested card fields are validated, not waved through', () => {
     expect(Object.keys(CARD_PREVIEW_FIXTURES).sort()).toEqual(previewable.sort())
   })
 
-  it('drops the malformed card and keeps the rest of the answer', () => {
+  it('holds the position of the malformed card and keeps the rest of the answer', () => {
     // The failure mode this whole line of work is about: one bad card must
-    // cost one card, not the thread.
+    // cost one card, not the thread — and not the positions after it, which
+    // `[[card:N]]` markers and persisted decisions address by index.
     const kept = validateGridCards([
       { type: 'verdict_header', subject: 'a', verdict: 'b', reference: 'banana' },
       { type: 'summary', title: 'Zusammenfassung', content: 'Alles gut.' },
     ])
-    expect(kept.map((card) => card.type)).toEqual(['summary'])
+    expect(kept).toHaveLength(2)
+    expect(kept.map((card) => card?.type)).toEqual([undefined, 'summary'])
   })
 })

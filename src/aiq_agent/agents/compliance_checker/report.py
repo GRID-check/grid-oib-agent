@@ -1,66 +1,73 @@
-"""Deterministic German Markdown rendering for the assembled ComplianceMatrix.
-
-Stage 3 -- pure Python, no LLM calls. See ``agent.py`` for where this is
-invoked after ``_assemble_matrix``.
-"""
+"""German Markdown rendering for an assembled ``ComplianceMatrix`` (Stage 3, no LLM)."""
 
 from __future__ import annotations
 
-from datetime import UTC
 from datetime import datetime
 
-from .models import ComplianceCheckRequest
+from .models import UNJUDGED_STATUS
 from .models import ComplianceMatrix
+from .models import GapItem
 
 _STATUS_LABELS: dict[str, str] = {
     "erfuellt": "Erfuellt",
     "teilweise": "Teilweise erfuellt",
     "nicht_erfuellt": "Nicht erfuellt",
     "kein_nachweis": "Kein Nachweis",
+    UNJUDGED_STATUS: "Nicht geprueft",
 }
 
-_RISK_LABELS: dict[str, str] = {
-    "hoch": "Hoch",
-    "mittel": "Mittel",
-    "niedrig": "Niedrig",
-}
+_CONFIDENCE_LABELS: dict[str, str] = {"high": "hoch", "medium": "mittel", "low": "niedrig"}
 
 
 def _status_label(status: str) -> str:
     return _STATUS_LABELS.get(status, status)
 
 
+def _summary(matrix: ComplianceMatrix) -> list[str]:
+    if not matrix.status_counts:
+        return []
+    counts = ", ".join(f"{_status_label(status)}: {count}" for status, count in sorted(matrix.status_counts.items()))
+    return [f"**Zusammenfassung:** {counts}", ""]
+
+
+def _notices(matrix: ComplianceMatrix) -> list[str]:
+    if not matrix.notices:
+        return []
+    return ["## Hinweise", "", *(f"- {notice}" for notice in matrix.notices), ""]
+
+
 def _matrix_table(matrix: ComplianceMatrix) -> list[str]:
-    lines = [
+    header = [
         "| Richtlinie | Punkt | Anforderung | Status | Konfidenz | Nachweis |",
         "|---|---|---|---|---|---|",
     ]
     if not matrix.findings:
-        lines.append("| - | - | *Keine bewerteten Anforderungen* | - | - | - |")
-        return lines
+        return [*header, "| - | - | *Keine bewerteten Anforderungen* | - | - | - |"]
+    rows = []
     for row in matrix.findings:
-        evidence_cell = "; ".join(row.evidence_quotes) if row.evidence_quotes else "-"
-        sources_cell = ", ".join(row.source_files) if row.source_files else ""
-        nachweis = f"{evidence_cell} ({sources_cell})" if sources_cell else evidence_cell
-        requirement_cell = row.requirement.replace("|", "\\|")
-        lines.append(
-            f"| {row.richtlinie} | {row.punkt} | {requirement_cell} | "
+        quotes = "; ".join(row.evidence_quotes) if row.evidence_quotes else "-"
+        sources = ", ".join(row.source_files)
+        nachweis = f"{quotes} ({sources})" if sources else quotes
+        requirement = row.requirement.replace("|", "\\|")
+        rows.append(
+            f"| {row.richtlinie} | {row.punkt} | {requirement} | "
             f"{_status_label(row.status)} | {row.confidence} | {nachweis} |"
         )
-    return lines
+    return [*header, *rows]
+
+
+def _gap_line(gap: GapItem) -> str:
+    confidence = _CONFIDENCE_LABELS.get(gap.confidence, gap.confidence)
+    return (
+        f"- **[{_status_label(gap.status)}, Konfidenz {confidence}]** "
+        f"OIB-Richtlinie {gap.richtlinie}, Punkt {gap.punkt} -- {gap.requirement}. {gap.rationale}"
+    )
 
 
 def _gap_list(matrix: ComplianceMatrix) -> list[str]:
     if not matrix.gaps:
         return ["Keine offenen Luecken identifiziert."]
-    lines: list[str] = []
-    for gap in matrix.gaps:
-        lines.append(
-            f"- **[{_RISK_LABELS.get(gap.risk_level, gap.risk_level)}, Risiko {gap.risk_score}]** "
-            f"OIB-Richtlinie {gap.richtlinie}, Punkt {gap.punkt} -- {gap.requirement} "
-            f"(Status: {_status_label(gap.status)}). {gap.rationale}"
-        )
-    return lines
+    return [_gap_line(gap) for gap in matrix.gaps]
 
 
 def _open_questions_list(matrix: ComplianceMatrix) -> list[str]:
@@ -72,46 +79,32 @@ def _open_questions_list(matrix: ComplianceMatrix) -> list[str]:
 def _not_applicable_list(matrix: ComplianceMatrix) -> list[str]:
     if not matrix.not_applicable:
         return []
-    lines = ["", "## Nicht anwendbare Anforderungen", ""]
-    for requirement in matrix.not_applicable:
-        lines.append(f"- OIB-Richtlinie {requirement.richtlinie}, Punkt {requirement.punkt}: {requirement.rationale}")
-    return lines
+    items = [f"- OIB-Richtlinie {r.richtlinie}, Punkt {r.punkt}: {r.rationale}" for r in matrix.not_applicable]
+    return ["", "## Nicht anwendbare Anforderungen", "", *items]
 
 
-def render_compliance_report(request: ComplianceCheckRequest, matrix: ComplianceMatrix) -> str:
-    """Render the assembled ComplianceMatrix as a German Markdown compliance report."""
-    title = request.project_name or "OIB-Compliance-Check"
-    generated = datetime.now(UTC).strftime("%Y-%m-%d %H:%M UTC")
-    richtlinien_label = ", ".join(str(r) for r in request.richtlinien)
-
-    status_summary = ", ".join(
-        f"{_status_label(status)}: {count}" for status, count in sorted(matrix.status_counts.items())
-    )
-
-    lines: list[str] = [
-        f"# {title}: Soll-Ist-Abgleich",
+def render_compliance_report(matrix: ComplianceMatrix, *, generated_at: datetime) -> str:
+    """Render the assembled matrix as a German Markdown compliance report."""
+    generated = generated_at.strftime("%Y-%m-%d %H:%M UTC")
+    richtlinien = ", ".join(str(r) for r in matrix.richtlinien)
+    lines = [
+        "# OIB-Compliance-Check: Soll-Ist-Abgleich",
         "",
-        f"*Erstellt: {generated} | Geprueft: OIB-Richtlinien {richtlinien_label}*",
+        f"*Erstellt: {generated} | Geprueft: OIB-Richtlinien {richtlinien}*",
         "",
+        *_summary(matrix),
+        *_notices(matrix),
+        "## Compliance-Matrix",
+        "",
+        *_matrix_table(matrix),
+        "",
+        "## Risikogewichtete Lueckenliste",
+        "",
+        *_gap_list(matrix),
+        "",
+        "## Offene Fragen",
+        "",
+        *_open_questions_list(matrix),
+        *_not_applicable_list(matrix),
     ]
-    if status_summary:
-        lines.append(f"**Zusammenfassung:** {status_summary}")
-        lines.append("")
-
-    lines.append("## Compliance-Matrix")
-    lines.append("")
-    lines.extend(_matrix_table(matrix))
-    lines.append("")
-
-    lines.append("## Risikogewichtete Lueckenliste")
-    lines.append("")
-    lines.extend(_gap_list(matrix))
-    lines.append("")
-
-    lines.append("## Offene Fragen")
-    lines.append("")
-    lines.extend(_open_questions_list(matrix))
-
-    lines.extend(_not_applicable_list(matrix))
-
     return "\n".join(lines) + "\n"

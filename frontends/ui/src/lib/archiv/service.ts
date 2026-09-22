@@ -37,11 +37,21 @@ import {
   joinHitsToFiles,
   type SearchedDocument,
 } from '@/lib/documents/service'
-import { collectionDocumentsUrl, collectionFileRef } from '@/lib/documents/collection-file-ref'
+import { collectionFileRef, purgeIngestedChunks } from '@/lib/documents/collection-file-ref'
+import { contentDigest } from '@/lib/documents/content-digest'
+import { documentNameKey } from '@/lib/documents/name-match'
 import { deleteBimDerivedObjects } from '@/lib/bim/service'
 import { assertWithinStorageQuota } from '@/lib/storage/service'
-import { admitOrDiscard } from '@/lib/storage/admission'
+import { admitOrDiscard, admitReplacementOrDiscard } from '@/lib/storage/admission'
 import { reconcileDocumentStatuses, type DocumentMetadata } from '@/lib/documents/reconcile-status'
+import { findLiveDocumentByFilename } from '@/lib/documents/repository'
+import { deleteDocumentObjects } from '@/lib/documents/object-cleanup'
+import {
+  nextVersionNumber,
+  recordUploadedVersion,
+} from '@/lib/documents/lifecycle'
+import { versionedStorageKey } from '@/lib/documents/version-content'
+import { listDocumentVersionObjects } from '@/lib/documents/version-repository'
 import type { DocumentListRow } from '@/lib/documents/repository'
 import type { AuthorizedSession } from '@/lib/auth/types'
 import { archivCollectionName } from './collection'
@@ -121,15 +131,39 @@ export async function uploadArchivDocument(
   // bytes, so it must not be a way around the quota (ADR-0042).
   await assertWithinStorageQuota(session.organizationId, file.size)
 
-  const documentId = crypto.randomUUID()
   const collectionName = archivCollectionName(session.organizationId)
-  const storageKey = buildArchivStorageKey(session.organizationId, documentId, file.name)
+  // Same replace-on-re-upload rule as the project path, for the same reason and
+  // through the same helpers — see `uploadDocument`. The Archiv is not a
+  // different filing system; it is the same table with `scope = 'archiv'`, so a
+  // second upload of one filename left the same paid-for ghost here.
+  // One Unicode form, for the same reason and through the same helper as the
+  // project shelf: this is the same table and the same unique name, so a
+  // decomposed name off a Mac would put a second row here too. See
+  // `@/lib/documents/name-match`.
+  const filename = documentNameKey(file.name)
+  const superseded = await findLiveDocumentByFilename(session.organizationId, collectionName, filename)
+  const documentId = superseded?.id ?? crypto.randomUUID()
+  // A re-upload writes new bytes under a new `v<n>/` key, so the version it
+  // replaces keeps an object a reader can open (ADR-0054). Version 1 keeps
+  // today's key exactly.
+  const versionNumber = superseded
+    ? await nextVersionNumber(documentId, session.organizationId)
+    : 1
+  const storageKey = versionedStorageKey(
+    buildArchivStorageKey(session.organizationId, documentId, filename),
+    versionNumber,
+  )
 
   // Same provisioning step as the project path (ADR-0043): the Archiv shares
   // the tenant's bucket, because it shares the tenant's bytes.
   const storageBucket = await ensureTenantBucketChecked(bucketAdminS3Client, session.organizationId)
 
   const bytes = Buffer.from(await file.arrayBuffer())
+  // The same digest the project corpus records, from the same helper. The
+  // Archiv has no folder upload of its own today; the column still describes
+  // the bytes on every shelf, so a row here is not the one that has to be
+  // explained later.
+  const contentHash = contentDigest(bytes)
   await s3Client.send(
     new PutObjectCommand({
       Bucket: storageBucket,
@@ -143,21 +177,41 @@ export async function uploadArchivDocument(
   // refusal (ADR-0042). The Archiv shares the tenant's bytes, so it must not be
   // a way around the limit — including under concurrency, which is what the
   // pre-check above cannot cover.
-  await admitOrDiscard(storageBucket, storageKey, {
-    id: documentId,
-    organizationId: session.organizationId,
-    projectId: null,
-    scope: 'archiv',
-    folderId: null,
-    createdBy: session.userId,
-    filename: file.name,
-    storageKey,
-    storageBucket,
-    collectionName,
-    fileSize: file.size,
-    contentType: file.type || null,
-    status: 'uploaded',
-  })
+  if (superseded) {
+    await admitReplacementOrDiscard(storageBucket, storageKey, session.organizationId, documentId, {
+      storageKey,
+      storageBucket,
+      fileSize: file.size,
+      contentType: file.type || null,
+      contentHash,
+      folderId: null,
+      createdBy: session.userId,
+    })
+    // Nothing is discarded: the previous bytes are the previous VERSION's now
+    // (ADR-0054) and its row still names them. They go with the document.
+  } else {
+    await admitOrDiscard(storageBucket, storageKey, {
+      id: documentId,
+      organizationId: session.organizationId,
+      projectId: null,
+      scope: 'archiv',
+      folderId: null,
+      createdBy: session.userId,
+      filename,
+      storageKey,
+      storageBucket,
+      collectionName,
+      fileSize: file.size,
+      contentType: file.type || null,
+      contentHash,
+      status: 'uploaded',
+    })
+  }
+
+  // The version, through the same transition table every other shelf uses
+  // (ADR-0054): born `published` and born approved, because the person who
+  // uploaded it is the assertion.
+  await recordUploadedVersion(session, documentId, request)
 
   // Same dispatcher as every other shelf: the STEP source of an IFC is never
   // embedded, so an uploaded model is parsed and its digest is what reaches the
@@ -166,7 +220,7 @@ export async function uploadArchivDocument(
     organizationId: session.organizationId,
     projectId: null,
     documentId,
-    filename: file.name,
+    filename,
     storageKey,
     storageBucket,
     collectionName,
@@ -179,11 +233,11 @@ export async function uploadArchivDocument(
     action: 'archiv.document.uploaded',
     targetType: 'document',
     targetId: documentId,
-    metadata: { filename: file.name.slice(0, 200), fileSize: file.size, collectionName },
+    metadata: { filename: filename.slice(0, 200), fileSize: file.size, collectionName },
     request,
   })
 
-  return { documentId, jobId, status, filename: file.name }
+  return { documentId, jobId, status, filename }
 }
 
 /**
@@ -212,17 +266,18 @@ export async function deleteArchivDocument(
   // filename. `null` here means "not ours to purge", which is the right answer
   // for a row that owns no chunks whatever put it in this scope.
   const purgeRef = collectionFileRef(doc)
-  if (purgeRef) {
-    try {
-      await fetch(collectionDocumentsUrl(getBackendUrl(), purgeRef), {
-        method: 'DELETE',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ file_ids: [purgeRef.filename] }),
-        signal: AbortSignal.timeout(BACKEND_FETCH_TIMEOUT_MS),
-      })
-    } catch {
-      // ignore — chunks may linger until the next collection reconcile/purge
-    }
+  // `null`: nothing of its own to purge. `false`: the backend did not confirm,
+  // and the audit row says so — the platform vector reconcile is the sweep.
+  const chunksPurged = purgeRef
+    ? await purgeIngestedChunks(getBackendUrl(), purgeRef, BACKEND_FETCH_TIMEOUT_MS)
+    : null
+
+  // Every VERSION's objects, not only the live one (ADR-0054) — see the same
+  // loop in `deleteDocument` for why a superseded version's bytes would
+  // otherwise stay in the bucket, invisible and still charged.
+  for (const version of await listDocumentVersionObjects(documentId, session.organizationId)) {
+    if (version.storageKey === doc.storageKey) continue
+    await deleteDocumentObjects(version).catch(() => undefined)
   }
 
   if (doc.storageKey) {
@@ -254,7 +309,7 @@ export async function deleteArchivDocument(
     action: 'archiv.document.deleted',
     targetType: 'document',
     targetId: documentId,
-    metadata: { filename: doc.filename.slice(0, 200), collectionName: doc.collectionName },
+    metadata: { filename: doc.filename.slice(0, 200), collectionName: doc.collectionName, chunksPurged },
     request,
   })
 }

@@ -14,9 +14,12 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 import urllib.error
 import urllib.parse
 import urllib.request
+from contextvars import ContextVar
+from contextvars import Token
 
 logger = logging.getLogger(__name__)
 
@@ -64,6 +67,36 @@ class _NoRedirectHandler(urllib.request.HTTPRedirectHandler):
 _opener = urllib.request.build_opener(_NoRedirectHandler)
 
 
+#: What the ``remember`` tool wrote during THIS turn, per turn. The
+#: post-answer reflection stage reflects against the digest the agent saw at
+#: the start of the turn, so without this a fact the tool recorded mid-turn
+#: is proposed again minutes later — and lands as a second row whenever the
+#: BFF's dedup gates disagree on kind or wording. Same shape as the card
+#: registry: bound per turn, never module-level state (AGENTS.md).
+_turn_memory_writes: ContextVar[list[str] | None] = ContextVar("turn_memory_writes", default=None)
+
+
+def begin_turn_memory_log() -> Token:
+    """Start recording this turn's memory writes; reset with the token."""
+    return _turn_memory_writes.set([])
+
+
+def end_turn_memory_log(token: Token) -> None:
+    _turn_memory_writes.reset(token)
+
+
+def record_turn_memory_write(content: str) -> None:
+    """Note a write that landed this turn. No-op outside a turn."""
+    writes = _turn_memory_writes.get()
+    if writes is not None and content:
+        writes.append(content)
+
+
+def turn_memory_writes() -> tuple[str, ...]:
+    """The contents written this turn, in order; empty outside a turn."""
+    return tuple(_turn_memory_writes.get() or ())
+
+
 def _internal_base_url() -> str:
     url = os.environ.get("FRONTEND_INTERNAL_URL") or os.environ.get("FRONTEND_URL") or "http://frontend:3000"
     return url.rstrip("/")
@@ -100,6 +133,7 @@ def fetch_memory_digest(
     project_id: str | None,
     organization_id: str | None,
     query: str | None = None,
+    conversation_id: str | None = None,
 ) -> str | None:
     """Fetch the CURRENT core-memory digest via the internal BFF endpoint.
 
@@ -108,13 +142,30 @@ def fetch_memory_digest(
     mid-session never reaches the agent until a reconnect. Calling this at the
     start of a turn re-serves the up-to-date digest.
 
+    The channel carries three blocks, not one: ``PROJECT_MEMORY``,
+    ``PROPOSAL_DECISIONS`` and — when this turn belongs to a conversation —
+    ``REVIEW_DECISIONS``, what a person decided about the drafts that
+    conversation filed. ``conversation_id`` defaults to the ACTIVE conversation
+    read off the NAT context rather than to nothing, so a caller that has one
+    need not thread it through: the digest fetch is per turn and the turn always
+    knows which conversation it is. Pass it explicitly to override, or pass
+    ``""`` to ask for no review block at all.
+
     Returns the digest string, or ``None`` when there is no active memory (a valid
     empty result). Raises RuntimeError on configuration problems and urllib errors
     on transport failures, so the caller can fall back to the frozen header digest
-    instead of dropping memory entirely. Blocking; call via ``asyncio.to_thread``.
+    instead of dropping memory entirely. Blocking; call via ``asyncio.to_thread``
+    — which copies the current context, so the default read below still sees it.
     """
     if not project_id and not organization_id:
         return None
+    if conversation_id is None:
+        # Imported here rather than at module scope: `project_context` is the
+        # header layer and this module is a knowledge one, and the four other
+        # readers of the NAT context in this package do the same.
+        from aiq_agent.project_context import get_conversation_id_from_context
+
+        conversation_id = get_conversation_id_from_context()
 
     token = os.environ.get("GRID_INTERNAL_API_TOKEN")
     if not token:
@@ -131,6 +182,12 @@ def fetch_memory_digest(
         # the digest is exactly what it was before. Bounded here as well as
         # there — a caller must not be able to post a transcript as a param.
         params["query"] = query.strip()[:2000]
+    if conversation_id and conversation_id.strip():
+        # Scopes the REVIEW_DECISIONS block. Not an authorization input on the
+        # BFF side — the tenant is pinned from the project/organization above —
+        # so an id that names nothing yields an empty block, which is also what
+        # a conversation that has filed nothing looks like.
+        params["conversationId"] = conversation_id.strip()[:200]
     query_string = urllib.parse.urlencode(params)
 
     request = urllib.request.Request(
@@ -143,6 +200,42 @@ def fetch_memory_digest(
         body = json.loads(response.read().decode("utf-8"))
     digest = body.get("digest")
     return digest if isinstance(digest, str) and digest.strip() else None
+
+
+# A memory row is durable, tenant-wide within its scope, and read into every
+# later prompt, so a finding that carries a person's contact details or a
+# secret must not be written by EITHER writer. This guard used to live only in
+# the reflection stage; the in-turn ``remember`` tool wrote whatever the model
+# handed it. It sits here now, on the one path both writers share.
+#
+# Shapes, not meanings: an email address, a run of digits long enough to be a
+# number to call, an IBAN, an SSN-shaped triple, and the handful of secret
+# words a leaked credential travels with. And one carve-out that the phone
+# pattern needs: a date is a run of digits with separators too, and a permit
+# deadline written 12/03/2027 was being dropped as a phone number — precisely
+# the class of fact a project memory exists to carry.
+_DATE_SHAPE_RE = re.compile(r"(?<!\d)(?:\d{1,2}[./-]\d{1,2}[./-]\d{2,4}|\d{4}-\d{2}-\d{2})(?!\d)")
+_PERSONAL_DATA_PATTERNS = (
+    re.compile(r"[\w.+-]+@[\w-]+\.[\w.-]+"),  # email address
+    re.compile(r"(?<!\d)(?:\+?\d[\d ()/-]{7,}\d)(?!\d)"),  # phone/fax-shaped digit run
+    re.compile(r"\b[A-Z]{2}\d{2}[A-Z0-9]{10,30}\b"),  # IBAN
+    re.compile(r"\b\d{3}-?\d{2}-?\d{4}\b"),  # SSN-shaped
+    re.compile(
+        r"\b(?:password|passwort|api[_ -]?key|secret|token|bearer|"
+        r"sozialversicherungsnummer|steuernummer|personalausweis)\b",
+        re.IGNORECASE,
+    ),
+)
+
+
+def looks_like_personal_data(content: str) -> bool:
+    """Whether a memory finding matches a coarse personal-data or secret shape.
+
+    A denylist of shapes, not a privacy guarantee (audit S4). Dates are blanked
+    before the digit-run pattern looks, so a deadline survives.
+    """
+    scrubbed = _DATE_SHAPE_RE.sub(" ", content or "")
+    return any(pattern.search(scrubbed) for pattern in _PERSONAL_DATA_PATTERNS)
 
 
 def insert_memory_item(
@@ -185,6 +278,11 @@ def insert_memory_item(
         raise ValueError(f"Invalid confidence '{confidence}'. Must be one of: {sorted(VALID_CONFIDENCES)}")
     if provenance_type not in VALID_PROVENANCES:
         provenance_type = "agent"
+    if looks_like_personal_data(content):
+        # Not recorded, and not an error: the caller is told nothing was
+        # written, the same way it is for an unknown project.
+        logger.info("Memory item not recorded: content matches a personal-data shape (scope=%s)", scope)
+        return None
 
     token = os.environ.get("GRID_INTERNAL_API_TOKEN")
     if not token:
@@ -224,7 +322,10 @@ def insert_memory_item(
     try:
         with _opener.open(request, timeout=_REQUEST_TIMEOUT_SECONDS) as response:
             body = json.loads(response.read().decode("utf-8"))
-            return body.get("item", {}).get("id")
+            item_id = body.get("item", {}).get("id")
+            if item_id:
+                record_turn_memory_write(content)
+            return item_id
     except urllib.error.HTTPError as exc:
         if exc.code == 404:
             # Unknown project — nothing recorded, not a transport failure.

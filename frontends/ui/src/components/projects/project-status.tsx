@@ -14,6 +14,7 @@
 
 import type { CSSProperties } from 'react'
 import { Activity } from 'lucide-react'
+import { Chip } from '@/components/ui/chip'
 import type { Project } from '@/lib/db/schema'
 import { useTranslations } from '@/i18n'
 
@@ -42,6 +43,14 @@ const STATUS_STYLE: Record<ProjectStatus, CSSProperties> = {
   },
 }
 
+/**
+ * Chip variant per status. `active` is the project-green family (`success`);
+ * the mapping stays explicit so a second status lands here, not in a call site.
+ */
+const STATUS_VARIANT: Record<ProjectStatus, 'success' | 'muted'> = {
+  active: 'success',
+}
+
 interface ProjectStatusChipProps {
   status: ProjectStatus
 }
@@ -49,13 +58,16 @@ interface ProjectStatusChipProps {
 /** Small tinted status chip (Aktiv / Active) shown on every project card. */
 export function ProjectStatusChip({ status }: ProjectStatusChipProps): JSX.Element {
   const t = useTranslations('projects')
+  // `Chip size="md"` owns the geometry (`h-6 px-2.5 text-xs rounded-md`,
+  // `size-3.5` icon) — identical outer box to the hand-rolled span it replaces
+  // (the 2px larger icon is paid for by the chip's 2px tighter icon gap, so the
+  // width does not move). `STATUS_STYLE` rides as the inline override so the
+  // `--status-active` tokens win where they exist, with the `success` variant
+  // as the theme-aware fallback either way.
   return (
-    <span
-      className="inline-flex h-6 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-md px-2.5 text-xs font-medium"
-      style={STATUS_STYLE[status]}
-    >
-      <Activity className="size-3" strokeWidth={2.4} aria-hidden />
+    <Chip variant={STATUS_VARIANT[status]} size="md" style={STATUS_STYLE[status]}>
+      <Activity aria-hidden />
       {t(`card.status.${status}`)}
-    </span>
+    </Chip>
   )
 }

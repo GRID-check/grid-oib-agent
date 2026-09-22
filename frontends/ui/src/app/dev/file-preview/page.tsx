@@ -8,14 +8,21 @@
  * exercised: on the mobile sheet ALL metadata must be reachable below the capped
  * preview, and on desktop the split's two columns must scroll independently.
  *
- * A module-scope fetch shim (browser + dev only) serves the preview URL and the
- * visual-details payload so the pane renders fully backend-free. Not linked from
- * anywhere and 404s outside development.
+ * A module-scope fetch shim (browser + dev only) serves the preview URL, the
+ * visual-details payload and — for `?variant=review` — the version listing, so
+ * the pane renders fully backend-free. Not linked from anywhere and 404s outside
+ * development.
+ *
+ * `?variant=review` is the one that answers "has anybody opened the review rail
+ * on a phone?" (ledger 40): it passes the `lifecyclePermissions` the pane needs
+ * before it mounts „Freigabe und Fassungen", which no preview had ever done, so
+ * the section shipped unphotographed at every width.
  */
 
 import { notFound } from 'next/navigation'
-import { use } from 'react'
+import { use, useEffect } from 'react'
 import { FilePreviewDialog } from '@/features/documents/components/file-preview-dialog'
+import { FilePreviewPane } from '@/features/documents/components/file-preview-pane'
 import type { FileItem } from '@/features/documents/components/project-file-workspace'
 
 // A visible "document page" so the left preview renders something real (not a
@@ -69,6 +76,11 @@ const FIXTURE: FileItem = {
     'Nutzungssicherheit/Barrierefreiheit',
     'Schallschutz',
   ],
+  // Somebody is on the hook for this document. `Unvergeben` is the other state
+  // and the generated fixture below keeps it, so one run photographs both.
+  assignees: [
+    { userId: 'u-1', name: 'Miriam Hofer', email: 'm.hofer@example.at', profilePictureUrl: null },
+  ],
 }
 
 /**
@@ -114,6 +126,112 @@ const GENERATED_FIXTURE: FileItem = {
   contentTypes: [],
   tags: [],
 }
+
+/**
+ * The three text-shaped documents, which are the formats that had no viewer at
+ * all: they drew the same grey "download it to read it" page mock as a `.dwg`,
+ * although the bytes ARE the content. Three fixtures rather than one, because
+ * the whole argument for rendering them separately is that a Markdown checklist
+ * read as headings and boxes is a checklist and read as asterisks is a diff.
+ */
+const TEXT_FIXTURES: Record<'markdown' | 'csv' | 'text', FileItem> = {
+  markdown: {
+    id: 'dev-doc-md',
+    filename: 'Bueroablauf_Einreichplanung.md',
+    displayName: null,
+    fileSize: 2_140,
+    contentType: 'text/markdown',
+    status: 'ready',
+    folderId: null,
+    createdAt: '2026-06-14T09:00:00Z',
+    errorMessage: null,
+    summary: 'Interne Checkliste für die Einreichplanung, Stand Juni 2026.',
+    pageCount: null,
+    chunkCount: 4,
+    contentTypes: ['text'],
+    tags: ['Checkliste'],
+  },
+  csv: {
+    id: 'dev-doc-csv',
+    filename: 'U-Werte_Bauteilkatalog.csv',
+    displayName: null,
+    fileSize: 860,
+    contentType: 'text/csv',
+    status: 'ready',
+    folderId: null,
+    createdAt: '2026-06-14T09:00:00Z',
+    errorMessage: null,
+    summary: 'Bauteilkatalog mit U-Werten und den zugehörigen OIB-Anforderungen.',
+    pageCount: null,
+    chunkCount: 2,
+    contentTypes: ['text', 'table'],
+    tags: [],
+  },
+  text: {
+    id: 'dev-doc-txt',
+    filename: 'Protokoll_Bauverhandlung.txt',
+    displayName: null,
+    fileSize: 1_180,
+    contentType: 'text/plain',
+    status: 'ready',
+    folderId: null,
+    createdAt: '2026-06-14T09:00:00Z',
+    errorMessage: null,
+    summary: null,
+    pageCount: null,
+    chunkCount: 1,
+    contentTypes: ['text'],
+    tags: [],
+  },
+}
+
+const MARKDOWN_BODY = `# Einreichplanung — Bürocheckliste
+
+Gilt für alle Einreichungen in Oberösterreich ab **Juni 2026**.
+
+## Vor der Abgabe
+
+- [x] Lageplan mit Höhenkoten, Maßstab 1:500
+- [x] Grundrisse aller Geschosse, 1:100
+- [ ] Energieausweis nach OIB-RL 6
+- [ ] Nachweis der zwei Fluchtwege je Nutzungseinheit (OIB-RL 2)
+
+## Häufige Rückfragen der Behörde
+
+| Thema | Fundstelle | Anmerkung |
+| --- | --- | --- |
+| Fluchtweglänge | OIB-RL 2, Pkt. 5.1.1 | max. 40 m im notwendigen Flur |
+| Anleiterbarkeit | OIB-RL 2, Pkt. 5.2 | Ostfassade, Aufstellfläche prüfen |
+
+> Bei Gebäudeklasse 4 ist das Sicherheitstreppenhaus früh mit der Feuerwehr
+> abzustimmen — Nachbesserungen kosten hier regelmäßig zwei Wochen.
+`
+
+const CSV_BODY = `Bauteil;U-Wert [W/m²K];Anforderung OIB-6;Bewertung
+Außenwand gegen Außenluft;0,20;0,35;erfüllt
+Oberste Geschossdecke;0,15;0,20;erfüllt
+Fenster (Uw);1,10;1,40;erfüllt
+Kellerdecke;0,38;0,40;"knapp erfüllt, Nachweis beilegen"
+Eingangstür;1,60;1,70;erfüllt
+`
+
+const TEXT_BODY = `Protokoll der Bauverhandlung
+Wohnbau Nord, Linz — 14.06.2026, 09:00 Uhr
+
+Anwesend:
+  Bauwerberin      Wohnbau Nord GmbH, vertreten durch DI Huber
+  Sachverständiger Amt der Oö. Landesregierung, DI Mayrhofer
+  Nachbarn         Grundstück 412/3 und 412/7
+
+Verhandlungsgegenstand
+  Neubau eines Wohngebaeudes der Gebaeudeklasse 4 mit vier Wohneinheiten
+  je Regelgeschoss, Errichtung in Brettsperrholz-Bauweise.
+
+Ergebnis
+  Keine Einwendungen der Nachbarn zur Bebauungshoehe. Der Sachverständige
+  fordert die Vorlage des Rauchableitungsnachweises fuer das Treppenhaus
+  binnen vier Wochen nach.
+`
 
 // Install the fetch shim at module scope (before any component effect fires) so
 /**
@@ -196,6 +314,106 @@ const DEV_STRUCTURED = {
   },
 }
 
+/**
+ * A version IN REVIEW, so the rail carries the whole decision set.
+ *
+ * `in_review` is the state the rail exists for — Freigeben / Änderungen
+ * anfordern / Piloti überarbeiten lassen / Ablehnen, four
+ * controls that have to wrap legibly in a 280px desktop rail and again in a
+ * 390px phone column. A `draft` would show one button and photograph nothing.
+ */
+/**
+ * The document the review rail is mounted on: an ordinary indexed project file,
+ * plus the two listing columns that make the HEADER badge speak.
+ *
+ * `versionState`/`versionCount` are what `showsVersionStateBadge` reads, and
+ * the rule is deliberately quiet on a one-version human upload — so without
+ * them the chip beside the name is correctly absent and this target would
+ * photograph the rail's half of the story only.
+ */
+const REVIEW_FIXTURE: FileItem = {
+  ...FIXTURE,
+  id: 'dev-doc-review',
+  versionState: 'in_review',
+  versionCount: 2,
+}
+
+/**
+ * Scroll the review section into view before the shot — at every viewport.
+ *
+ * The harness captures a page at rest, and „Freigabe und Fassungen" is not at
+ * rest's top any more: it is LAST in the rail, under the summary and the facts,
+ * because a review apparatus is not what a reader opens a file for. At 390px
+ * the rail also stacks under the document. Either way the panel is a scroll
+ * away, and a shot of the top of the rail is evidence of the identity block
+ * rather than of the thing this target exists to show.
+ *
+ * It used to run only under 640px, on the reasoning that the desktop rail is
+ * its own column and the controls are therefore already visible. That was true
+ * while the section led the rail and stopped being true when it moved; the
+ * width check went with it rather than being adjusted, because the panel's
+ * position in the rail is the thing that decides this and the viewport is not.
+ *
+ * Idempotent through a module-scope flag and a poll that stops once the panel
+ * is in view, because `reactStrictMode` mounts every effect twice — the
+ * `/dev/citation-interaction` pattern.
+ */
+let scrolledIntoView = false
+
+function ScrollRailIntoView(): null {
+  useEffect(() => {
+    const timer = setInterval(() => {
+      if (scrolledIntoView) return clearInterval(timer)
+      const panel = document.querySelector('[data-testid="document-lifecycle-panel"]')
+      if (!panel) return
+      panel.scrollIntoView({ block: 'start', behavior: 'instant' })
+      const box = panel.getBoundingClientRect()
+      if (box.top >= 0 && box.top < window.innerHeight) {
+        scrolledIntoView = true
+        clearInterval(timer)
+      }
+    }, 120)
+    return () => clearInterval(timer)
+  }, [])
+  return null
+}
+
+/** What the reader in this fixture may do — enough for all five decisions. */
+const REVIEW_PERMISSIONS = [
+  'project:view',
+  'project:edit',
+  'project:documents:write',
+] as const
+
+const REVIEW_VERSIONS = {
+  documentId: 'dev-doc-review',
+  lifecycle: 'active',
+  publishedVersionId: null,
+  versions: [
+    {
+      id: 'ver_1',
+      documentId: 'dev-doc-review',
+      versionNumber: 1,
+      state: 'in_review',
+      contentType: 'text/markdown',
+      fileSize: 18_400,
+      contentHash: 'sha256:1',
+      submittedBy: 'u-2',
+      submittedAt: '2026-09-03T10:15:00.000Z',
+      reviewedBy: null,
+      reviewedAt: null,
+      approvedBy: null,
+      approvedAt: null,
+      publishedBy: null,
+      publishedAt: null,
+      reviewComment: null,
+      createdBy: 'u-2',
+      createdAt: '2026-09-02T07:30:00.000Z',
+      updatedAt: '2026-09-03T10:15:00.000Z',
+    },
+  ],
+}
+
 // the pane's preview / visual-details fetches always resolve. Idempotent +
 // dev/browser-guarded.
 if (typeof window !== 'undefined' && process.env.NODE_ENV === 'development') {
@@ -208,6 +426,35 @@ if (typeof window !== 'undefined' && process.env.NODE_ENV === 'development') {
         typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url
       if (/\/api\/documents\/.+\/preview$/.test(url)) {
         return Response.json({ url: PAGE_SVG })
+      }
+      // The text route answers with the CONTENT, not a URL — the object store
+      // publishes no CORS policy, so a presigned link is unreadable to a fetch.
+      const textMatch = /\/api\/documents\/(.+)\/text$/.exec(url)
+      if (textMatch) {
+        const body =
+          textMatch[1] === 'dev-doc-csv'
+            ? CSV_BODY
+            : textMatch[1] === 'dev-doc-txt'
+              ? TEXT_BODY
+              : MARKDOWN_BODY
+        return Response.json({ text: body, truncated: textMatch[1] === 'dev-doc-txt' })
+      }
+      // ── the review rail ─────────────────────────────────────────────────
+      // `?variant=review` mounts `DocumentLifecyclePanel` INSIDE the pane's
+      // rail, which is the only place it actually ships and the one place it
+      // had never been photographed (ledger 40). The panel reaches the network
+      // through the typed client, so the fixture goes here rather than through
+      // a prop: `FilePreviewPane` deliberately does not forward a client.
+      if (/\/api\/documents\/.+\/versions\/reviewers$/.test(url)) {
+        return Response.json({
+          candidates: [
+            { userId: 'u-1', name: 'Miriam Hofer' },
+            { userId: 'u-2', name: 'Anna Berger' },
+          ],
+        })
+      }
+      if (/\/api\/documents\/.+\/versions$/.test(url)) {
+        return Response.json(REVIEW_VERSIONS)
       }
       if (/\/api\/documents\/.+\/visual-details$/.test(url)) {
         return Response.json({
@@ -261,14 +508,66 @@ export default function FilePreviewDevPage({
   // `?authored=agent` swaps in the document Piloti wrote. One route rather than
   // two so the two states are photographed through the same dialog, with the
   // same shim and the same props — the only variable is the file.
-  const authored = use(searchParams).authored
+  //
+  // `?variant=markdown|csv|text` swaps in a text-shaped document, for the same
+  // reason: same dialog, same shim, the file is the only variable. The `text`
+  // one is served truncated on purpose — a viewer that silently shows the first
+  // half of a document is worse than one that shows none of it, so the notice
+  // under the page is part of the surface and has to be photographed.
+  const params = use(searchParams)
+  const authored = params.authored
+  const variant = typeof params.variant === 'string' ? params.variant : undefined
+  const textFixture =
+    variant === 'markdown' || variant === 'csv' || variant === 'text'
+      ? TEXT_FIXTURES[variant]
+      : null
+
+  // `?variant=review` mounts the pane the way the surface that OWNS the review
+  // rail mounts it (ledger 40).
+  //
+  // Not through `FilePreviewDialog`: that mount forwards neither
+  // `lifecyclePermissions` nor `viewerUserId`, so „Freigabe und Fassungen" can
+  // never appear inside it — the rail ships through `file-preview-host`, which
+  // renders `FilePreviewPane` directly in a `h-[85vh] w-[min(960px,…)]` box.
+  // The box below is that box, so the preview photographs the geometry the
+  // reader actually gets: two scrolling columns on a desktop, and at 390px one
+  // column with the rail stacked under the document.
+  // The host's own geometry, to the pixel: `h-[85vh]`, `w-[min(960px,
+  // calc(100% - 2rem))]`, centred on the page — and no page padding of its own.
+  // An extra `p-4` here would make the pane 32px narrower than the real one,
+  // and 32px is the difference between the type chip fitting in the header and
+  // being truncated at phone width: a preview narrower than production
+  // photographs a squeeze the reader never sees.
+  if (variant === 'review') {
+    return (
+      <main className="bg-muted/40 flex min-h-dvh items-center justify-center">
+        <ScrollRailIntoView />
+        <div className="bg-popover text-popover-foreground h-[85vh] w-[min(960px,calc(100%-2rem))] overflow-hidden rounded-2xl border shadow-lg">
+          <FilePreviewPane
+            file={REVIEW_FIXTURE}
+            projectId="proj-demo"
+            projectName="Wohnbau Nord — Linz"
+            canManage
+            canCollaborate
+            lifecyclePermissions={REVIEW_PERMISSIONS}
+            viewerUserId="u-1"
+            onClose={() => {}}
+          />
+        </div>
+      </main>
+    )
+  }
 
   return (
     <FilePreviewDialog
-      file={authored === 'agent' ? GENERATED_FIXTURE : FIXTURE}
+      file={textFixture ?? (authored === 'agent' ? GENERATED_FIXTURE : FIXTURE)}
       projectId="proj-demo"
       projectName="Wohnbau Nord — Linz"
       canManage
+      // The rail's identity block holds „Verantwortlich" — the faces plus the
+      // Zuweisen popover — and it renders only for a collaborating viewer, so
+      // without this the one shot of the pane never photographed the row.
+      canCollaborate
       // Keep the modal open for the screenshot (fixture state is constant).
       onClose={() => {}}
     />

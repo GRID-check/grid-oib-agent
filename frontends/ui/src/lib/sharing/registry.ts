@@ -197,7 +197,8 @@ const documentDescriptor: ShareableDescriptor = {
         : { kind: 'organization', id: row.organizationId },
       visibility: row.visibility,
       createdBy: row.createdBy,
-      deletedAt: row.deletedAt,
+      // Documents are hard-deleted (0077): a row that exists is live.
+      deletedAt: null,
     }
   },
   allowedVisibilities: DOCUMENT_VISIBILITIES,

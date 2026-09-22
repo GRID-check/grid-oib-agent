@@ -3,6 +3,8 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
+  cancelBackendJob,
+  JobCancelError,
   JobSubmitError,
   JobSubmitSkippedError,
   submitJob,
@@ -19,6 +21,8 @@ const payload: JobSubmitPayload = {
   data_sources: null,
   collection_scope: ['oib_knowledge', 'proj_abc'],
   project_context: null,
+  project_memory: null,
+  memory_reflection_enabled: false,
   organization_id: 'org-1',
   user_id: 'creator-9',
   project_id: 'proj-1',
@@ -72,6 +76,11 @@ describe('submitJob', () => {
     })
   })
 
+  it('accepts the backend snake_case job_id (SkillSubmitResponse)', async () => {
+    fetchMock.mockResolvedValue(new Response(JSON.stringify({ job_id: 'job-2' }), { status: 200 }))
+    await expect(submitJob(payload, {})).resolves.toEqual({ jobId: 'job-2' })
+  })
+
   it('maps a 429 to SkippedError carrying Retry-After', async () => {
     fetchMock.mockResolvedValue(
       new Response('cap', { status: 429, headers: { 'retry-after': '13' } })
@@ -85,5 +94,39 @@ describe('submitJob', () => {
     await expect(submitJob(payload, {})).rejects.toBeInstanceOf(JobSubmitError)
     fetchMock.mockRejectedValue(new TypeError('network down'))
     await expect(submitJob(payload, {})).rejects.toMatchObject({ status: 503 })
+  })
+})
+
+describe('cancelBackendJob', () => {
+  it('posts the cancel the browser proxy makes, as the caller, and resolves on 2xx', async () => {
+    fetchMock.mockResolvedValue(
+      new Response(JSON.stringify({ job_id: 'job 1', status: 'interrupted' }), { status: 200 }),
+    )
+    await expect(cancelBackendJob('job 1', 'tok')).resolves.toBeUndefined()
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit]
+    expect(url).toBe('http://backend:8000/v1/jobs/async/job/job%201/cancel')
+    expect(init.method).toBe('POST')
+    expect(headersOf(init).Authorization).toBe('Bearer tok')
+  })
+
+  it('sends no bearer when the session has none (REQUIRE_AUTH=false)', async () => {
+    fetchMock.mockResolvedValue(new Response('{}', { status: 200 }))
+    await cancelBackendJob('job-1', null)
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit]
+    expect(headersOf(init)).not.toHaveProperty('Authorization')
+  })
+
+  it('carries the backend’s status and its own words on a refusal', async () => {
+    // A body reads once, so each call gets its own response.
+    fetchMock.mockImplementation(
+      async () => new Response('Job not cancellable: job-1 (status: success)', { status: 400 }),
+    )
+    await expect(cancelBackendJob('job-1', 'tok')).rejects.toBeInstanceOf(JobCancelError)
+    await expect(cancelBackendJob('job-1', 'tok')).rejects.toMatchObject({
+      status: 400,
+      message: 'Job not cancellable: job-1 (status: success)',
+    })
+    fetchMock.mockRejectedValue(new TypeError('network down'))
+    await expect(cancelBackendJob('job-1', 'tok')).rejects.toMatchObject({ status: 503 })
   })
 })

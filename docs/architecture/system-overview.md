@@ -8,24 +8,27 @@
 >
 > Altitude: **context → containers → components → flows.** Not a route/endpoint
 > reference (see `docs/api/` for that). Last reconciled against the code
-> 2026-07-05.
+> 2026-09-13.
 
 ---
 
 ## 1. Executive summary
 
-GRID is an **AI compliance assistant for Austrian building regulations** (the
-OIB Richtlinien). Architects work inside **projects**; within a project they
-chat with a multi-agent AI that answers building-code questions with **cited
-sources**, searches their uploaded plans, runs deep research, and **remembers
-what it learns** about the project across conversations.
+Piloti is the **workspace in which a planning office runs a building project**.
+Piloti the agent is a **member of that office**. Architects work inside
+**projects**; chat is how they talk to the agent, and **tasks** (Aufgaben)
+are how they hand it work — a task is the work object, a job the recurring
+schedule behind it (§5.12). Every **normative claim** is grounded in a passage retrieved this
+turn from the project, the office archive, or the Austrian building-regulation
+corpus. Not every answer is a ruling. Piloti does not replace the
+Entwurfsverfasser or the Behörde.
 
 Architecturally, GRID is a **two-tier system**:
 
 - A **stateful BFF** (Next.js) owns identity, the application database, file
   storage, and access control — everything tenant-specific and durable.
 - A **stateless AI backend** (Python / NeMo Agent Toolkit + LangGraph) owns
-  orchestration — intent routing, retrieval, research, and answer generation —
+  orchestration — retrieval, research, escalation and answer generation —
   and holds no long-lived tenant state of its own.
 
 Everything the backend needs about *who is asking* and *what they can see*
@@ -42,11 +45,11 @@ provider (the reference config uses OpenAI GPT-5.6 Luna via OpenRouter).
 
 ```mermaid
 flowchart TB
-    Architect["👤 Architect / Org member<br/>asks OIB questions, uploads plans"]
+    Architect["👤 Architect / Org member<br/>works in a project, talks to Piloti"]
     Admin["👤 Org admin<br/>manages projects, members, memory"]
 
     subgraph GRID["GRID"]
-        SYS["Multi-agent compliance assistant"]
+        SYS["Workspace for planning offices"]
     end
 
     WorkOS["WorkOS<br/>AuthKit SSO + FGA authorization"]
@@ -116,7 +119,7 @@ flowchart TB
 | Container | Tech | Responsibility |
 |---|---|---|
 | **frontend** | Next.js 16, React 18, TypeScript | The UI, the BFF (all `/api/*`), and the `server.js` gateway. System of record for `grid_app`. |
-| **aiq-agent** | Python 3.13, FastAPI, NAT, LangGraph, Dask | Stateless AI orchestration; owns the vector store and the job/checkpoint DBs. |
+| **aiq-agent** | Python 3.14, FastAPI, NAT, LangGraph, Dask | Stateless AI orchestration; owns the vector store and the job/checkpoint DBs. |
 | **postgres** | PostgreSQL 16 | Three logical DBs: `grid_app` (app state), `aiq_jobs` (jobs/events/summaries), `aiq_checkpoints` (LangGraph state). |
 | **seaweedfs** | SeaweedFS (S3-compatible) | Object storage for OIB PDFs and uploaded documents (`grid-documents` bucket). |
 | **ChromaDB** | in-process in aiq-agent | Vector store (collections persisted to a volume). Not a separate container. |
@@ -158,9 +161,11 @@ or security, and every tenant-data mutation goes through one audited layer.
 
 ### 5.1 Chat & the agent pipeline
 Chat is **WebSocket-only** (ADR 0009). A turn runs through a LangGraph workflow
-(`chat_deepresearcher_agent`): **intent classification → {meta answer | shallow
-research | clarifier → deep research}**, with an escalation path from shallow to
-deep. Shallow research answers directly from retrieval; deep research is
+(`chat_deepresearcher_agent`): **one answering agent on every turn, with its
+full tool set → (escalate?) → clarifier → deep research** (ADR-0052). There is
+no classifier in front of it: the agent decides per turn, in its answer
+envelope, whether to reply directly, to research and cite, or to hand off to
+deep research. Research answers directly from retrieval; deep research is
 dispatched as an async job (§5.5). Responses stream back through a monkeypatched
 NAT WebSocket handler that lifts structured fields (cards, deep-research job id)
 onto the message. → `docs/architecture/backend-deep-dive.md` §2.
@@ -211,11 +216,14 @@ and users curate them on the project page. Itemized rows (`project_memory`) with
 provenance, confidence, and verification; a bounded digest is injected each turn.
 Written only through the internal single-writer API. → `docs/architecture/project-memory-design.md`.
 
-### 5.5 Deep research (async jobs)
-Deep research runs as a **Dask job** on the backend, streamed to the UI over SSE
-(the only surviving SSE path). Progress, thinking, citations, and the final
-report populate a research panel. The turn that dispatches a job returns a
-structured `deep_research_job_id` so the UI opens the panel reliably.
+### 5.5 Deep research (a commissioned run)
+Deep research runs as a **backend job**, streamed to the UI over SSE (the only
+surviving SSE path). It is commissioned as a RUN: one `task_runs` row and one
+message in the thread that asked, carrying the ledger the run block renders
+(ADR-0062). The turn that commissions it answers with nothing but `run_id` and
+`run_message_id` — the block is the narration, and the report lands on it. These
+backend async jobs are not the BFF `jobs` schedule table — that naming
+collision is unpacked in §5.12.
 
 ### 5.6 Documents & ingestion
 Uploads go to SeaweedFS (server-side) under a tenant-scoped key
@@ -262,6 +270,51 @@ The agent emits intermediate steps (thinking, tool calls, `remember` writes) to
 the UI trace view, plus token/cost accounting (`tokenomics`) and structured
 logging. Memory capture is silent but observable in these traces.
 
+### 5.12 Delegated work — Aufgaben: Definitions and Runs (the unified model)
+Delegated work has two nouns since migration 0086, and they are not
+interchangeable (ADR-0051):
+
+- A **definition** (`task_definitions`) is the standing intent: what was asked,
+  by whom, and what makes it run. `trigger` is `manual` (only a person presses
+  Run now), `once` (a one-off — a chat handover, or a single run at a due date)
+  or `schedule` (a cron; `next_run_at` is live). The plan — prompt, pinned skill
+  snapshot, data sources, the requester's goal — is frozen on it.
+- A **run** (`task_runs`) is one attempt, including the attempts that never
+  reached the agent: the status vocabulary is the worker's
+  (`queued → running → succeeded | failed | interrupted`) PLUS the submission's
+  (`skipped | error`), filing and review live here because they belong to a
+  result, and `backend_job_id` is the one id the worker holds. A job-spawned
+  attempt and a chat delegation are the same row.
+
+`fireJob` inserts the run and submits it; a chat delegation (`create_task`:
+`compliance_check | einreichcheck | document | revision`) does the same with
+`trigger: delegated`, and with an optional cadence it writes a `schedule`
+definition instead and dispatches nothing — the scheduler fires it. Reviewer
+rejections of earlier runs of the same definition are quoted into the next
+fire. The worker's outcome closes the run and, for a finished one, files its
+report as the requester.
+
+The **Aufgaben list is primary**: the Automation section shows Aufgaben
+(`TasksPanel` root, `TaskList` rendering recurring schedules on top and single
+runs below) and Skills (the org toolbox) as tabs, with Aufgaben the default.
+The Jobs tab retired into Aufgaben; `?tab=jobs` still lands there. Review
+happens in the inbox, where the person was told about the result.
+
+Two naming collisions to keep straight. The `task_definitions`/`task_runs`
+tables live in `grid_app` (the collapsed successor of `jobs`/`job_runs`/
+`tasks`); the backend async/Dask jobs live in `aiq_jobs` (deep-research runs,
+§5.5) — a `task_runs.backend_job_id` value names one of the latter. And
+`compliance_check` is a **task kind**, not a chat tool: the `compliance_check`
+direct tool
+binding (workflow config, chat tool list, plugin entry point) is retired —
+the implementation, tests and README under
+`src/aiq_agent/agents/compliance_checker/` stay in place — and a full
+Soll-Ist now runs as a task of kind `compliance_check` through delegation.
+
+→ `docs/architecture/where-is-what.md` § Delegated work,
+`docs/roadmap/agentic-workspace-architecture.md` §6,
+`docs/api/bff-routes.md` (tasks + jobs routes).
+
 ---
 
 ## 6. Key flows
@@ -269,7 +322,7 @@ logging. Memory capture is silent but observable in these traces.
 **A chat turn.** Browser opens a WebSocket → `server.js` resolves the session and
 attaches `X-Grid-Collection-Scope` + `x-grid-project-context` +
 `x-grid-project-memory` (base64url) → proxies the upgrade to the backend → the
-LangGraph workflow classifies intent, retrieves in scope, verifies citations,
+LangGraph workflow retrieves in scope (or replies directly), verifies citations,
 generates the answer + any cards → streams back → the UI renders text, sources,
 and cards.
 
@@ -295,8 +348,8 @@ marks it purged. Restore is possible only while the row is un-claimed.
 
 | Store | Owner | Holds |
 |---|---|---|
-| **`grid_app`** (Postgres) | BFF (single writer) | projects, conversations, messages, documents, folders, **project_memory**, **platform_lessons** (+ reports/events), **deletion_queue**, **legal_holds**, user_preferences |
-| **`aiq_jobs`** (Postgres) | backend | job info/access/events (deep research), document summaries |
+| **`grid_app`** (Postgres) | BFF (single writer) | projects, conversations, messages, documents, folders, **project_memory**, **platform_lessons** (+ reports/events), **deletion_queue**, **legal_holds**, user_preferences, **tasks** (the work object), **jobs** (recurring triggers) + **job_runs** (receipts), **skills** |
+| **`aiq_jobs`** (Postgres) | backend | backend async-run info/access/events (deep research) — not the BFF `jobs` schedule table (§5.12), document summaries |
 | **`aiq_checkpoints`** (Postgres) | backend | LangGraph conversation checkpoints (thread state) |
 | **SeaweedFS** (`grid-documents`) | BFF writes, backend/purger read | OIB PDFs + uploaded documents, keyed by org/project |
 | **ChromaDB** | backend | vector collections: `oib_knowledge` (global), `archiv_<org>` (org Archiv), `proj_<id>` (per project), `s_<conversation>` (session). Memory and lessons are not in Chroma — they live in `grid_app`, with row-resident embeddings for recall ([semantic-notes.md](./semantic-notes.md)). |
@@ -337,7 +390,7 @@ frontend start). → `docs/database/`.
 | Relational DB | PostgreSQL 16 (Drizzle ORM on the BFF side) |
 | Object storage | SeaweedFS (S3-compatible) |
 | Identity / authz | WorkOS AuthKit (SSO) + WorkOS FGA |
-| Packaging / deploy | Docker Compose (backend Python 3.13; frontend Node 22) |
+| Packaging / deploy | Docker Compose (backend Python 3.14; frontend Node 22) |
 
 ---
 
@@ -399,4 +452,4 @@ What lives where in the checkout.
 | `skills/` | API-consumer skill examples |
 | `scripts/` | Utility scripts, including `scripts/ingest_oib.py` |
 | `releasenotes/` | reno release notes — one YAML file per user-visible change, published to piloti.at/changelog |
-| `data/oib/` | OIB Richtlinien PDFs, tracked with Git LFS |
+| `data/oib/` | Where the OIB Richtlinien PDFs go. Operator-provided and gitignored: the directory ships empty and is filled by an admin upload or by dropping files in before first boot |

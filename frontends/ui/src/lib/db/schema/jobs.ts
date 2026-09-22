@@ -10,6 +10,7 @@ import {
 } from 'drizzle-orm/pg-core'
 import { relations } from 'drizzle-orm'
 import { projects } from './projects'
+import { skillCategories } from './skill-categories'
 import type { SkillSnapshot } from '@/lib/skills/types'
 
 /**
@@ -46,7 +47,7 @@ export type SkillOrigin = (typeof SKILL_ORIGINS)[number]
  * What a job produces — the user's choice on the job, and the only thing that
  * decides which agent runs it.
  *
- *   - `chat`          shallow_researcher; the finished run is materialised into
+ *   - `chat`          researcher; the finished run is materialised into
  *                     a real conversation the user can open and continue.
  *   - `deep-research` deep_researcher; the finished run is a report.
  *
@@ -83,6 +84,16 @@ export const skills = pgTable(
     // platform skill (cloned_from carries the platform name).
     origin: text('origin').$type<SkillOrigin>().notNull().default('org'),
     clonedFrom: text('cloned_from'),
+    /**
+     * The shelf this skill stands on — an org shelf of this organization, or a
+     * platform shelf. NULL is unsorted, which is where every existing row
+     * starts: categorising the back-catalogue is curation, not migration.
+     * SET NULL on delete, for the same reason skills survive their skill's
+     * deletion everywhere else: removing a shelf must never remove the books.
+     */
+    categoryId: uuid('category_id').references(() => skillCategories.id, {
+      onDelete: 'set null',
+    }),
     enabled: boolean('enabled').notNull().default(true),
     createdBy: text('created_by').notNull(),
     createdByEmail: text('created_by_email'),
@@ -207,6 +218,9 @@ export const jobRuns = pgTable(
     // Created via `("schedule_id","created_at" DESC)` in the SQL migration so
     // the newest-first run-history query is a plain index scan.
     jobCreatedIdx: index('idx_job_runs_job_created').on(table.scheduleId, table.createdAt),
+    // The worker reports a run's outcome by the BACKEND job id (the only id it
+    // holds), so that lookup needs its own index (migration 0073).
+    backendJobIdx: index('idx_job_runs_backend_job_id').on(table.jobId),
     projectIdx: index('idx_job_runs_project_id').on(table.projectId),
     orgIdx: index('idx_job_runs_organization_id').on(table.organizationId),
     createdIdx: index('idx_job_runs_created_at').on(table.createdAt),

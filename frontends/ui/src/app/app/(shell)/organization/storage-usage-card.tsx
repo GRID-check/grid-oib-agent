@@ -22,6 +22,7 @@
 import { useCallback, useEffect, useState, type FC } from 'react'
 import { AlertTriangle } from 'lucide-react'
 import { toast } from 'sonner'
+import { Skeleton } from '@/components/ui/skeleton'
 import { formatBytes } from '@/lib/format'
 import { useLocale, useTranslations } from '@/i18n'
 
@@ -167,10 +168,28 @@ export const StorageUsageCard: FC<StorageUsageCardProps> = ({
   }, [load])
 
   if (loading) {
+    // Skeleton shimmer mirroring the loaded geometry (meter label + track,
+    // two scope rows, footer line) — never the flat `animate-pulse` slab.
     return (
-      <div className="flex min-h-[11.5rem] flex-col gap-4" data-testid="storage-usage-loading">
-        <div className="bg-muted h-2.5 w-full animate-pulse rounded-[4px] motion-reduce:animate-none" />
-        <div className="bg-muted h-4 w-2/3 animate-pulse rounded motion-reduce:animate-none" />
+      <div className="flex min-h-[11.5rem] flex-col gap-6" data-testid="storage-usage-loading">
+        <div>
+          <div className="flex items-baseline justify-between gap-2">
+            <Skeleton className="h-4 w-24" />
+            <Skeleton className="h-3 w-32" />
+          </div>
+          <Skeleton className="mt-1.5 h-2.5 w-full rounded-[4px]" />
+        </div>
+        <div className="flex flex-col gap-2">
+          <div className="flex items-baseline justify-between gap-2">
+            <Skeleton className="h-4 w-28" />
+            <Skeleton className="h-4 w-24" />
+          </div>
+          <div className="flex items-baseline justify-between gap-2">
+            <Skeleton className="h-4 w-20" />
+            <Skeleton className="h-4 w-24" />
+          </div>
+        </div>
+        <Skeleton className="h-3 w-2/3" />
       </div>
     )
   }

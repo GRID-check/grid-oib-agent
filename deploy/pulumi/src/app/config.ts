@@ -240,10 +240,14 @@ export function backendEnv(w: AppWiring, otelServiceName = "grid-aiq-agent"): En
     { name: "AIQ_EMBED_MODEL", value: cfg.llm.embedModel },
     { name: "AIQ_EMBED_BASE_URL", value: cfg.llm.embedBaseUrl },
     srefAs("AIQ_EMBED_API_KEY", "OPENROUTER_API_KEY"),
-    srefAs("NVIDIA_API_KEY", "OPENROUTER_API_KEY"),
     { name: "AIQ_VLM_MODEL", value: cfg.llm.vlmModel },
     { name: "AIQ_VLM_BASE_URL", value: cfg.llm.vlmBaseUrl },
     srefAs("AIQ_VLM_API_KEY", "OPENROUTER_API_KEY"),
+    // Photos and figures embedded in uploaded PDFs are captioned at ingest so a
+    // search can find them and `view_knowledge_image` can be asked for the
+    // page. Off, a plan set's photos are invisible to retrieval; the compose
+    // deployment has had this on since the tool shipped.
+    { name: "AIQ_EXTRACT_IMAGES", value: "true" },
     // Object storage for the `view_knowledge_image` tool (ADR-0039): the backend
     // fetches project/Archiv document bytes directly from SeaweedFS (it resolves
     // the storage key via the internal BFF lookup first). This OVERRIDES the
@@ -316,6 +320,13 @@ export function frontendEnv(w: AppWiring): EnvVar[] {
     // route's explicit runtime override and is immune to build-time inlining.
     { name: "NEXT_PUBLIC_WORKOS_REDIRECT_URI", value: `https://${cfg.ingress.appDomain}/api/auth/callback` },
     { name: "WORKOS_REDIRECT_URI", value: `https://${cfg.ingress.appDomain}/api/auth/callback` },
+    // PostHog product analytics (fail-open: empty host/token keeps the
+    // browser client disabled — see frontends/ui/src/lib/analytics/posthog.ts).
+    // Read by the BFF per request into AppConfig, so pointing a deployment at
+    // a different project needs no rebuild (the Docker image builds with no
+    // env files; a build-time read would bake `undefined` into the bundle).
+    { name: "NEXT_PUBLIC_POSTHOG_HOST", value: cfg.posthog.host },
+    { name: "NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN", value: cfg.posthog.projectToken },
     // BYOK.
     { name: "GRID_BYOK_SECRET_BACKEND", value: cfg.auth.byokSecretBackend },
     sref("GRID_BYOK_LOCAL_KEK"),
@@ -335,9 +346,9 @@ export function frontendEnv(w: AppWiring): EnvVar[] {
     sref("SEAWEED_TENANT_ADMIN_SECRET_KEY"),
     { name: "SEAWEED_PRESIGNED_URL_TTL_SECONDS", value: String(APP_DEFAULTS.presignedUrlTtlSeconds) },
     { name: "PROJECT_PURGE_GRACE_DAYS", value: String(APP_DEFAULTS.projectPurgeGraceDays) },
-    // Model catalog + budgets.
+    // Model catalog. Pricing (margin, credit price) is a platform setting in
+    // the database (ADR-0053), not an environment variable.
     sref("OPENROUTER_API_KEY"),
-    { name: "GRID_BUDGET_EUR_PER_USD", value: cfg.llm.budgetEurPerUsd },
     // Platform tier.
     { name: "GRID_PLATFORM_OWNER_EMAILS", value: cfg.auth.platformOwnerEmails },
     { name: "GRID_PLATFORM_ORG_EXTERNAL_ID", value: cfg.auth.platformOrgExternalId },

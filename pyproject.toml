@@ -13,7 +13,7 @@ name = "aiq-agent"
 version = "2.0.0"
 description = "NVIDIA AI-Q Blueprint - An enterprise-grade agent for intelligent research assistance"
 readme = "README.md"
-requires-python = ">=3.11,<3.14"
+requires-python = ">=3.14,<3.15"
 license = {text = "Apache-2.0"}
 dependencies = [
     "nvidia-nat-core==1.7.0",
@@ -31,6 +31,11 @@ dependencies = [
     "aiofiles>=23.0.0",
     "python-multipart>=0.0.27,<0.1",
     "knowledge-layer[all]",
+    # Prompt management only (`common/prompt_store.py`): constructed with
+    # `tracing_enabled=False`, so it never registers a tracer provider or hangs
+    # a span processor on ours. Traces keep going out through NAT + the OTel
+    # collector.
+    "langfuse>=4.15.3,<5",
     # CVE version floors for transitive dependencies
     "cryptography>=50.0.0,<51",
     "pillow>=12.2.0,<13",
@@ -74,21 +79,57 @@ viz = [
 workos = "aiq_agent.auth.workos_validator:get_validators"
 
 [project.entry-points."nat.plugins"]
-aiq_chat_researcher = "aiq_agent.agents.chat_researcher.register"
-aiq_shallow_researcher = "aiq_agent.agents.shallow_researcher.register"
+# `aiq_researcher*` and not `aiq_piloti*` although the package moved to
+# `agents/piloti`: a plugin entry-point name is what a deployment's
+# `NAT_PLUGIN_*` allow/deny lists and the installed dist-info carry, and a
+# stale `<pkg>.egg-info/entry_points.txt` from an older checkout is exactly the
+# ModuleNotFoundError-from-nowhere in `docs/contributing/gotchas.md`. Only the
+# module paths move.
+aiq_researcher_conversation = "aiq_agent.agents.piloti.conversation_register"
+aiq_researcher = "aiq_agent.agents.piloti.register"
 aiq_deep_researcher = "aiq_agent.agents.deep_researcher.register"
-aiq_clarifier = "aiq_agent.agents.clarifier.register"
 aiq_data_source_registry = "aiq_agent.common.data_source_registry"
-aiq_project_memory = "aiq_agent.agents.project_memory.register"
+aiq_project_memory = "aiq_agent.memory.register"
 aiq_cards = "aiq_agent.cards.register"
-aiq_compliance_checker = "aiq_agent.agents.compliance_checker.register"
-aiq_bim = "aiq_agent.agents.bim.register"
+# RETIRED as a chat tool: the `aiq_compliance_checker` entry point
+# ("aiq_agent.agents.compliance_checker.register") was removed so NAT never
+# loads the `compliance_check` function and no agent is offered the tool. The
+# package stays in place and importable for its helpers.
+aiq_bim = "aiq_agent.tools.bim.register"
 # The spatial half of the BIM surface (`ifc_measure`). A second entry point
 # rather than an import from `register`: NAT discovers plugins by loading the
 # module a plugin names, so the fast metadata tool and the geometry tool stay
 # independently loadable — and `ifc_query` keeps working on a deployment where
 # the spatial engine (ifcopenshell, shapely) is not installed at all.
-aiq_bim_measure = "aiq_agent.agents.bim.measure_register"
+aiq_bim_measure = "aiq_agent.tools.bim.measure_register"
+# The four write-side workspace tools (move/rename/create_folder/assign). One
+# entry point for all four: they share their resolver and their card, have no
+# optional dependency between them, and a deployment that loads one loads the
+# reason for the other three.
+aiq_files = "aiq_agent.tools.files.register"
+# The working directory's two doors into the project (`file_draft`,
+# `submit_draft`). Its OTHER four verbs are stock DeepAgents tools bound
+# directly by Piloti's register and are not NAT functions at all, so
+# this entry point covers exactly the two that call the BFF.
+aiq_documents = "aiq_agent.tools.documents.register"
+# Delegation (`create_task`). Its own entry point rather than a member of
+# `aiq_documents`: the two call different BFF routes with different contracts,
+# and a deployment that turns one off must be able to keep the other.
+aiq_tasks = "aiq_agent.tools.tasks.register"
+# Grid telemetry `_type`s named in the shipped YAML. They register at import
+# via NAT decorators and used to ride in on `chat_researcher.register`. After
+# that package dissolved, `load_config` in a clean interpreter (the container's
+# `start_web.py`) raised ValidationError and the pod CrashLoopBackOff'd.
+# Discovery loads `nat.plugins`; without these they do not exist at runtime.
+# The RIS chat surface (`ris_lookup`). The three older RIS tools ride in on
+# `ris-adapter`'s own entry point (`sources/ris_adapter/pyproject.toml`); this
+# one is separate because `ris_adapter.lookup` hard-imports the knowledge layer
+# for the passage bound and the lane fan-out, and a deployment without it must
+# lose this tool alone rather than `ris_search` and `ris_fetch_document` with
+# it — the `aiq_bim_measure` split, for the same reason.
+aiq_ris_lookup = "ris_adapter.lookup"
+aiq_otel_logs = "aiq_agent.observability.otlp_logging_method"
+aiq_otel_redaction = "aiq_agent.observability.otel_header_redaction_exporter"
 
 [tool.pytest.ini_options]
 testpaths = ["tests", "sources/**/tests"]
@@ -100,6 +141,12 @@ addopts = "--import-mode=importlib"
 pythonpath = ["."]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "session"
+markers = [
+  # Calls a real model through OpenRouter. Each such test skips itself without
+  # OPENROUTER_API_KEY, which is how the default run and every PR job stay
+  # model-free; `.github/workflows/turn-shapes-live.yml` runs them with the key.
+  "live: needs a real model behind OPENROUTER_API_KEY; skipped without it",
+]
 
 
 [tool.ruff]
@@ -193,11 +240,7 @@ dev = [
     "fakeredis>=2.20.0",
     "dask[distributed]>=2024.1.0",
     # Workspace packages for testing
-    "google-scholar-paper-search",
     "tavily-web-search",
-    "exa-web-search",
-    "duckduckgo-news-search",
-    "polymarket-prediction-market",
     "ris-adapter",
     "knowledge-layer[all]",
     "aiq-api",
@@ -219,6 +262,11 @@ override-dependencies = [
     "banks>=2.4.2,<3",
     "lxml>=6.1.0,<7",
     "nltk>=3.9.4,<4",
+    # `oci` (via `nvidia-nat[langchain]`) pins crc32c==2.7.1, whose newest
+    # wheels stop at cp313: on 3.14 every install fell back to the sdist, which
+    # needs MSVC on Windows and a compiler everywhere else. 2.9.post0 ships
+    # cp314 wheels for every platform with the same public API.
+    "crc32c>=2.9.post0,<3",
     "pyasn1>=0.6.3,<0.7",
 ]
 
@@ -237,11 +285,7 @@ members = [
 
 [tool.uv.sources]
 aiq-agent = { workspace = true }
-google-scholar-paper-search = { workspace = true }
 tavily-web-search = { workspace = true }
-exa-web-search = { workspace = true }
-duckduckgo-news-search = { workspace = true }
-polymarket-prediction-market = { workspace = true }
 ris-adapter = { workspace = true }
 knowledge-layer = { workspace = true }
 aiq-api = { workspace = true }

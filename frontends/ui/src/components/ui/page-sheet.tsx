@@ -60,7 +60,7 @@ import { useDragControls, type PanInfo } from 'motion/react'
  */
 export const PAGE_SHEET_OVERLAY_CLASS = 'bg-overlay fixed inset-0 z-50 backdrop-blur-sm'
 export const PAGE_SHEET_PANEL_CLASS =
-  'bg-background fixed inset-x-0 bottom-0 top-[max(0.75rem,env(safe-area-inset-top))] z-50 flex flex-col overflow-hidden rounded-t-2xl border border-b-0 shadow-2xl outline-none md:inset-x-5 md:top-5 md:mx-auto'
+  'bg-background fixed inset-x-0 bottom-0 top-[max(0.75rem,env(safe-area-inset-top))] z-50 flex flex-col overflow-hidden rounded-t-2xl border border-b-0 shadow-xl outline-none md:inset-x-5 md:top-5 md:mx-auto'
 
 /**
  * How wide the panel may grow from `md` up. One width: a page sheet is a whole

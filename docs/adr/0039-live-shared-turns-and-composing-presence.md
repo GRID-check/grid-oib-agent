@@ -186,4 +186,4 @@ existing convergent paths, never as a new source of truth.**
 - `frontends/ui/src/features/collaboration/lib/spectator-frames.ts` — frames → view.
 - `frontends/ui/src/lib/conversations/presence.ts` — composing presence.
 - [`docs/api/collaboration-routes.md`](../api/collaboration-routes.md) — both routes.
-- Visual evidence: `frontends/ui/visual/screenshots/shared-thread-live.*.png`.
+- Visual evidence: capture `/dev/shared-thread-live` (the committed PNG this ADR cited was deleted with the screenshot harness).

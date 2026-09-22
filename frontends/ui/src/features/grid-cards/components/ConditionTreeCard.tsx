@@ -48,6 +48,7 @@ import { useTranslations, type Translator } from '@/i18n'
 import { SchematicCard, statusColor } from '../schematics/kit'
 import { cn } from '@/lib/utils'
 import { CARD_LIST_ROW, CARD_ROW_BACK_LINK } from './card-rows'
+import { CARD_NOTICE_LAW, CardDisclosurePanel } from './card-chrome'
 import type { ConditionBranchData, NormReferenceData } from '../schematics/types'
 
 interface ConditionTreeCardProps {
@@ -67,7 +68,7 @@ const BranchReference: FC<{ reference: NormReferenceData; label: string }> = ({
   reference,
   label,
 }) => (
-  <div className="flex flex-col gap-1.5 rounded-md bg-source-law-tint px-3 py-2 text-source-law-text">
+  <div className={cn(CARD_NOTICE_LAW, 'flex flex-col gap-1.5')}>
     <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs">
       <Scale className="size-3.5 shrink-0" aria-hidden="true" />
       <span className="text-[11px] font-medium uppercase tracking-wider opacity-70">{label}</span>
@@ -207,14 +208,15 @@ const BranchNode: FC<BranchNodeProps> = ({
             />
           </CollapsibleTrigger>
 
-          <CollapsibleContent className="animate-in fade-in-0 duration-base ease-out motion-reduce:animate-none">
+          <CollapsibleContent>
             <div
               className={cn(
-                'mt-1.5 flex flex-col gap-2 rounded-md border px-3 py-2.5',
                 // Chrome differs in KIND, not only in tint: a dashed outline on
                 // a muted ground for a case being looked at, a solid tinted
                 // panel for the one that applies.
-                active ? 'border-transparent' : 'border-dashed bg-muted/30',
+                active
+                  ? 'mt-1.5 flex flex-col gap-2 rounded-md border border-transparent px-3 py-2.5'
+                  : CardDisclosurePanel,
               )}
               style={
                 active
@@ -231,7 +233,7 @@ const BranchNode: FC<BranchNodeProps> = ({
               >
                 {lead}
               </span>
-              <p className="max-w-prose text-[15px] font-medium leading-snug text-foreground">
+              <p className="card-figure-15 max-w-prose text-foreground">
                 {branch.outcome}
               </p>
 

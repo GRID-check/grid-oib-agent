@@ -316,7 +316,10 @@ export function FilePreviewHost({
           canManage={context.canManage}
           scope={context.scope}
           canCollaborate={context.canCollaborate}
+          lifecyclePermissions={context.lifecyclePermissions}
+          viewerUserId={context.viewerUserId}
           showMetadataPanel={panePresentation === 'peek' ? false : context.showMetadataPanel}
+          showModels={context.showModels}
           presentation={panePresentation}
           onClose={overlay ? (mode === 'expanded' ? peek : close) : hide}
           onRenamed={(fileId, displayName) => {
@@ -336,6 +339,10 @@ export function FilePreviewHost({
             context.onTagsUpdated?.(fileId, tags)
           }}
           onAssigneesChanged={(assignees) => patchFile({ assignees })}
+          onLifecycleChanged={(fileId, summary) => {
+            if (fileId === file.id) patchFile(summary)
+            context.onLifecycleChanged?.(fileId, summary)
+          }}
         />
       </div>
     </>

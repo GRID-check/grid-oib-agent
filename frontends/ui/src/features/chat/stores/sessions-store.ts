@@ -9,6 +9,7 @@ import type {
   Conversation,
   ChatMessage,
   PendingInteraction,
+  RecoveryOutcome,
 } from '../types'
 import { useLayoutStore } from '@/features/layout/store'
 import { useDocumentsStore } from '@/features/documents/store'
@@ -29,7 +30,11 @@ import {
   clearDeepResearchSession,
 } from '../lib/deep-research-session-storage'
 import { hasActiveDeepResearchJob, hasNoUserChatMessages } from '../lib/session-activity'
-import { conversationMatchesProject, isJobConversation } from '../lib/project-scope'
+import {
+  conversationMatchesProject,
+  isHiddenJobConversation,
+  isJobConversation,
+} from '../lib/project-scope'
 import { mapServerMessagesToChatMessages } from '../lib/server-message-mapper'
 import { encodeCitations } from '../lib/citations'
 import type { CardInteractions } from '@/features/grid-cards/card-decision'
@@ -79,7 +84,7 @@ export type SessionsSlice = {
   _recoverInterruptedAssistantMessage: (
     conversationId: string,
     afterUserMessageId: string
-  ) => Promise<boolean>
+  ) => Promise<RecoveryOutcome>
   isSessionBusy: (conversationId: string) => boolean
   hasAnyBusySession: () => boolean
   _ensureConversationExists: () => Promise<void>
@@ -125,6 +130,7 @@ type PersistedChatState = {
   currentConversation: ChatState['currentConversation']
   pendingInteraction: ChatState['pendingInteraction']
   composerDrafts: ChatState['composerDrafts']
+  resolvedDeepResearchJobs: ChatState['resolvedDeepResearchJobs']
 }
 
 type PersistedChatStorageValue = StorageValue<PersistedChatState>
@@ -147,6 +153,9 @@ const prunePersistedChatState = (value: PersistedChatStorageValue): PersistedCha
       currentConversation: currentConversationId as unknown as Conversation | null,
       pendingInteraction: state.pendingInteraction ?? null,
       composerDrafts: state.composerDrafts ?? {},
+      // The settled-jobs record is what keeps a dismissed run dismissed
+      // across reloads; dropping it here would resurrect every purge.
+      resolvedDeepResearchJobs: state.resolvedDeepResearchJobs ?? {},
     },
   }
 }
@@ -221,6 +230,10 @@ export const createResilientStorage = (): PersistStorage<PersistedChatState> | u
               // Sessions were just wiped to recover from quota — drop their
               // drafts too so no orphaned draft outlives its conversation.
               composerDrafts: {},
+              // The settled-jobs record references threads that no longer
+              // exist; keeping it would only suppress future polls for
+              // recycled job ids.
+              resolvedDeepResearchJobs: {},
             },
           })
 
@@ -528,7 +541,7 @@ export const createSessionsSlice: StateCreator<ChatStore, [["zustand/devtools", 
           (c) =>
             c.userId === userId &&
             conversationMatchesProject(c, projectId) &&
-            !isJobConversation(c)
+            !isHiddenJobConversation(c)
         )
       : []
     const newCurrentConversation = shouldClearCurrent
@@ -583,15 +596,16 @@ export const createSessionsSlice: StateCreator<ChatStore, [["zustand/devtools", 
     // Scoped to the active project context; legacy sessions without a
     // projectId fail open (see lib/project-scope.ts).
     //
-    // Job conversations are excluded: they are the OUTPUT of a scheduled job,
-    // not chats this person started, and a weekly job would otherwise put 52
+    // The old PER-FIRE job conversations are excluded: they are the OUTPUT of a
+    // scheduled job, not chats this person started, and a weekly job put 52
     // threads a year into their history. They stay reachable by URL and from
-    // the job's run history — see `isJobConversation`.
+    // the job's run history. A standing task's ONE thread is not one of them and
+    // is shown — see `isHiddenJobConversation`.
     return conversations.filter(
       (c) =>
         c.userId === currentUserId &&
         conversationMatchesProject(c, projectId) &&
-        !isJobConversation(c)
+        !isHiddenJobConversation(c)
     )
   },
 
@@ -968,10 +982,13 @@ export const createSessionsSlice: StateCreator<ChatStore, [["zustand/devtools", 
     // (fail-open display rule, see lib/project-scope.ts). Sessions stamped
     // with a DIFFERENT project are never touched, so "delete all" cannot
     // silently wipe another project's history (UX-8).
-    // Job conversations are excluded for the same reason they are hidden from
-    // the list: "delete all" must mean exactly what the panel showed, and a
-    // job's output belongs to the job (and to everyone with project:view),
-    // not to whoever happens to own the job.
+    // EVERY job conversation is excluded here, including the standing task
+    // thread the list above now shows. „Delete all" usually means exactly what
+    // the panel showed; this is the one place it deliberately means less. A
+    // task's thread is the shared record of work that keeps running — it belongs
+    // to the project and to everyone with project:view — and clearing one
+    // person's chat history must not take the Wochencheck's whole history with
+    // it. Deleting it is a deliberate act on that thread, not a side effect.
     const isInScope = (c: Conversation): boolean =>
       c.userId === currentUserId &&
       conversationMatchesProject(c, projectId) &&
@@ -1315,11 +1332,11 @@ export const createSessionsSlice: StateCreator<ChatStore, [["zustand/devtools", 
         // refetch yields nothing do we fall back to today's interrupted banner.
         const interruptedUserId = lastMeaningful.id
         void (async () => {
-          const recovered = await get()._recoverInterruptedAssistantMessage(
+          const outcome = await get()._recoverInterruptedAssistantMessage(
             conversation.id,
             interruptedUserId
           )
-          if (!recovered) {
+          if (outcome === 'nothing') {
             // No explicit message: ErrorBanner localizes the registry default
             // via `agent.response_interrupted`'s messageKey.
             get().addErrorCard('agent.response_interrupted')
@@ -1332,7 +1349,7 @@ export const createSessionsSlice: StateCreator<ChatStore, [["zustand/devtools", 
   _recoverInterruptedAssistantMessage: async (
     conversationId: string,
     afterUserMessageId: string
-  ): Promise<boolean> => {
+  ): Promise<RecoveryOutcome> => {
     // Signal the "checking for a finished answer" UI (FIX 3) for the duration
     // of the fetch. Both callers (restoreSessionState on mount, and the
     // reconnect handler in use-websocket-chat) go through here, so the calmer
@@ -1348,7 +1365,7 @@ export const createSessionsSlice: StateCreator<ChatStore, [["zustand/devtools", 
       const target = conversations.find((c) => c.id === conversationId)
       // A live stream (or a deleted session) supersedes recovery: never fold
       // stale server history over newer local state.
-      if (!target || isStreaming) return false
+      if (!target || isStreaming) return 'superseded'
 
       const localIds = new Set(target.messages.map((m) => m.id))
 
@@ -1357,10 +1374,14 @@ export const createSessionsSlice: StateCreator<ChatStore, [["zustand/devtools", 
       // already in local history.
       const userIdx = mapped.findIndex((m) => m.id === afterUserMessageId)
       const searchSpace = userIdx >= 0 ? mapped.slice(userIdx + 1) : mapped
-      const recovered = searchSpace.find(
-        (m) => m.role === 'assistant' && !localIds.has(m.id)
-      )
-      if (!recovered) return false
+      const answers = searchSpace.filter((m) => m.role === 'assistant')
+      const recovered = answers.find((m) => !localIds.has(m.id))
+      // The server HAS an answer for this turn and it is already on screen —
+      // a concurrent recovery got there first (mount and reconnect can both run
+      // this within a second of each other). That is not "nothing to show", and
+      // reporting it as one puts „bitte erneut senden" directly under the
+      // answer the other call had just recovered.
+      if (!recovered) return answers.length > 0 ? 'superseded' : 'nothing'
 
       const merged: Conversation = {
         ...target,
@@ -1374,10 +1395,13 @@ export const createSessionsSlice: StateCreator<ChatStore, [["zustand/devtools", 
         false,
         'recoverInterruptedAssistantMessage'
       )
-      return true
+      return 'recovered'
     } catch (err) {
       console.warn('[recoverInterruptedAssistantMessage] Failed:', err)
-      return false
+      // Could not establish that an answer exists. The turn really did stall on
+      // this side, so the banner stands — but say `nothing` rather than invent
+      // a fourth outcome nobody would branch on.
+      return 'nothing'
     } finally {
       set({ isRecoveryPending: false }, false, 'recoveryPending:end')
     }
@@ -1440,6 +1464,9 @@ export const createSessionsSlice: StateCreator<ChatStore, [["zustand/devtools", 
           ...(message.errorData && { errorData: message.errorData }),
           ...(message.fileData && { fileData: message.fileData }),
           ...(message.cards && { cards: message.cards }),
+          // The answer's structured anatomy — sanitized at the wire boundary
+          // on write and re-sanitized by the mapper on read, like `cards`.
+          ...(message.answerMeta && { answerMeta: message.answerMeta }),
           ...(message.cardInteractions && { cardInteractions: message.cardInteractions }),
           ...(message.enabledDataSources && { enabledDataSources: message.enabledDataSources }),
           ...(message.messageFiles && { messageFiles: message.messageFiles }),
@@ -1469,6 +1496,13 @@ export const createSessionsSlice: StateCreator<ChatStore, [["zustand/devtools", 
           ...(() => {
             const citations = encodeCitations(message.citations)
             return citations ? { citations } : {}
+          })(),
+          // Retrieved-but-uncited documents, same envelope as the citations:
+          // they have to outlive the tab for the reloaded thread to say what
+          // else the turn read.
+          ...(() => {
+            const readSources = encodeCitations(message.readSources)
+            return readSources ? { readSources } : {}
           })(),
         },
         createdAt: message.timestamp instanceof Date
@@ -1550,7 +1584,6 @@ export const createSessionsSlice: StateCreator<ChatStore, [["zustand/devtools", 
       if (assistantMessage.routingDecision) {
         provenance.routingDecision = assistantMessage.routingDecision
       }
-      if (assistantMessage.routingReason) provenance.routingReason = assistantMessage.routingReason
       if (assistantMessage.escalationReason) {
         provenance.escalationReason = assistantMessage.escalationReason
       }
@@ -1572,6 +1605,11 @@ export const createSessionsSlice: StateCreator<ChatStore, [["zustand/devtools", 
         provenance.deepResearchJobId = assistantMessage.deepResearchJobId
       }
       if (assistantMessage.showViewReport) provenance.showViewReport = true
+      // The backend's account of the turn's rounds, already bounded at the
+      // wire boundary; the sanitizer re-bounds it on write.
+      if (assistantMessage.retrievalLedger && assistantMessage.retrievalLedger.length > 0) {
+        provenance.retrievalLedger = assistantMessage.retrievalLedger
+      }
 
       if (Object.keys(provenance).length > 0) targets.push([assistantMessage.id, provenance])
     }

@@ -9,6 +9,7 @@ const mockGetJobReport = vi.fn()
 const mockGetJobState = vi.fn()
 const mockCreateDeepResearchClient = vi.fn()
 const mockSetReportContent = vi.fn()
+const mockAddDeepResearchCitation = vi.fn()
 const mockAddDeepResearchToolCall = vi.fn()
 const mockCompleteDeepResearchToolCall = vi.fn()
 const mockClearDeepResearch = vi.fn()
@@ -58,6 +59,8 @@ let mockStoreState: {
   reportContent: string
   isDeepResearchStreaming: boolean
   projectId: string | null
+  deepResearchCitations: Array<Record<string, unknown>>
+  addDeepResearchCitation: typeof mockAddDeepResearchCitation
 } = {
   currentConversation: {
     id: 'conv-1',
@@ -69,6 +72,8 @@ let mockStoreState: {
   reportContent: '',
   isDeepResearchStreaming: false,
   projectId: 'proj-1',
+  deepResearchCitations: [],
+  addDeepResearchCitation: mockAddDeepResearchCitation,
 }
 
 type MockChatSelectorState = {
@@ -162,7 +167,32 @@ describe('useLoadJobData', () => {
       reportContent: '',
       isDeepResearchStreaming: false,
       projectId: 'proj-1',
+      deepResearchCitations: [],
+      addDeepResearchCitation: mockAddDeepResearchCitation,
     }
+  })
+
+  test('numbers the report sources on the fast path, which has no citation events', async () => {
+    mockGetJobStatus.mockResolvedValue({ job_id: 'job-123', status: 'success', error: null })
+    const numbered = { file_name: 'oib-rl_2_ausgabe_mai_2023.pdf', page: 7, number: 3 }
+    mockGetJobReport.mockResolvedValue({
+      job_id: 'job-123',
+      has_report: true,
+      report: 'Loaded report [3]',
+      sources: [numbered],
+    })
+    mockGetJobState.mockResolvedValue({ job_id: 'job-123', has_state: false, artifacts: null })
+
+    const { result } = renderHook(() => useLoadJobData())
+
+    await act(async () => {
+      await result.current.loadResearchPanelTab('job-123', 'report')
+    })
+
+    // The state endpoint knows tools and outputs but no sources, so without
+    // this the Report tab's list for a run opened from the history had no
+    // rows — or rows without the `[N]` the report cites them by.
+    expect(mockAddDeepResearchCitation).toHaveBeenCalledWith(numbered, true)
   })
 
   test('loads report tab data through the report endpoint without replaying the full stream', async () => {

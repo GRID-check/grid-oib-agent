@@ -1,31 +1,32 @@
-"""Per-run skill runtime: prompt blocks + the ``use_skill`` tool.
+"""Per-run skill runtime: the L1 catalog + the ``use_skill`` tool.
 
 Skills are progressive disclosure: L1 is the description list (never expanded
 further than a line each), L2 is the full body, loaded ONLY through the
 ``use_skill`` tool. The runtime is per run (ADR-0018 — never cached on a
 shared agent instance): it owns the ordered activation list that surfaces as
-``skills_activated`` on the terminal frame, and records which skills were
-FORCED for a turn vs. invoked by the model.
+``skills_activated`` on the terminal frame.
 
-FORCED IS NOT ACTIVATED. Forcing a skill puts its NAME in the prompt's
-"Active skills" block and nothing else — the body travels through exactly one
-path, the ``use_skill`` closure below, and a model that never calls the tool
-never reads a word of it. So forcing is recorded as a force, and activation is
-recorded when the body is handed over. ``skills_activated`` is read by the
-"Skills used" disclosure as *what shaped this answer*; a skill that was only
-offered has not shaped anything, and saying it did is a false statement about
-the answer's provenance in a product whose proposition is traceability. The
-two facts are both kept — :attr:`SkillRuntime.forced` and
-:attr:`SkillRuntime.activated` — and their difference,
-:attr:`SkillRuntime.forced_not_activated`, is the honest name for "we told it
-to, and it did not".
+A SKILL IS AN OFFER. Nothing in this module can put a skill's instructions in
+front of the model: the catalog carries one line per skill and the body travels
+through exactly one path, the ``use_skill`` closure below, called because the
+model decided the skill applies. There is no way to mark a skill as required,
+for a deployment or for one request, and that is the point — a working method
+the model was ordered to open is a standing instruction wearing a tool's
+clothes. Standing instructions belong in prompt text that says what must be
+true of the answer (the platform prompt, and the office's own instruction
+block), where they cost no tool call and cannot be half-applied.
+
+So ``activated`` means one thing only: the body was handed over. It is read by
+the "Skills used" disclosure as *what shaped this answer*, and in a product
+whose proposition is traceability a skill that was merely listed has shaped
+nothing.
 
 Activation is also ANNOUNCED as it happens (``skills.events``) rather than only
 reported at the end of the turn -- a skill rewrites how the answer is made, so
 the reader learns which working method is being applied while it still matters.
 That announcement rides on the same fact for the same reason: it fires when the
-body is delivered, not when the skill is forced, so the live line cannot say a
-working method is being applied before the model has read it.
+body is delivered, so the live line cannot say a working method is being
+applied before the model has read it.
 
 All scaffolding here is ENGLISH. The agent answers in the user's language —
 that is decided per turn from the question, not baked into the machinery — and a
@@ -42,18 +43,11 @@ import logging
 
 from .models import Skill
 from .models import preferred_cards
-from .models import skill_auto_invoke
 
 logger = logging.getLogger(__name__)
 
 _L1_HEADING = "## Available skills"
 _L1_DOCTRINE = "Call `use_skill` to load a skill's full instructions before following them."
-_FORCED_HEADING = "## Active skills (required for this turn)"
-_FORCED_DOCTRINE = (
-    "The following skills are ACTIVE for this request and must be applied. Call "
-    "`use_skill` for each of them as soon as its instructions become relevant — "
-    "for a skill that governs how you WRITE, that is before you write the answer."
-)
 
 _TOOL_NAME = "use_skill"
 _TOOL_DESCRIPTION = (
@@ -104,99 +98,28 @@ class SkillRuntime:
 
     Attributes:
         skills: The resolved skill set for this run (builtin + org, allowlisted).
-        force_names: Skill names the user's request forced for this run.
-        activated: Skill names whose BODY was delivered this run — forced ones
-            first, in force order, then the model's own, in call order. Never a
-            name that was merely forced; see the module docstring.
+        activated: Skill names whose BODY was delivered this run, in call order.
     """
 
-    def __init__(self, skills: tuple[Skill, ...] = (), force_names: list[str] | None = None) -> None:
+    def __init__(self, skills: tuple[Skill, ...] = ()) -> None:
         self._skills: tuple[Skill, ...] = skills
         self._by_name: dict[str, Skill] = {s.name: s for s in skills}
-        self._forced: list[str] = []
-        self._forced_seen: set[str] = set()
-        self._standard: list[str] = []
         self._activated: list[str] = []
         self._activated_seen: set[str] = set()
-        # A STANDARD skill is applied, not offered. `delivery: standard` already
-        # means "resolved for every organization, no decision to make" — but
-        # resolving it only put its one-line description in the catalog, and a
-        # description the model may or may not open is not fleet policy. Forcing
-        # it is what makes the tier mean what it says.
-        #
-        # This is a property of the skill, deliberately not a list of names in
-        # this file: the platform owner publishes a standard skill in the
-        # dashboard and it takes effect, with no deploy and nothing here to keep
-        # in sync with a row somebody can rename.
-        #
-        # The user's own `/name` forces come first, so the forced block reads in
-        # the order they asked for; standard skills follow, because they are the
-        # floor rather than the request.
-        #
-        # What is recorded here is the FORCE, not an activation. Both kinds of
-        # force still converge on one list so the forced block and the
-        # `offered` event read from a single source — but neither says the
-        # skill ran. A forced skill joins `activated` at the same site a
-        # model-invoked one does: when `use_skill` hands over its body.
-        standard = [s.name for s in skills if s.standard and s.name not in (force_names or ())]
-        for name in list(force_names or ()) + standard:
-            if name in self._by_name and name not in self._forced_seen:
-                self._forced.append(name)
-                self._forced_seen.add(name)
-        self._standard = [name for name in self._forced if self._by_name[name].standard]
 
     @property
     def skills(self) -> tuple[Skill, ...]:
         return self._skills
 
     @property
-    def forced(self) -> tuple[str, ...]:
-        return tuple(self._forced)
-
-    @property
     def activated(self) -> tuple[str, ...]:
-        """Skills whose BODY reached the model — forced first, then invoked.
+        """Skills whose BODY reached the model, in the order it asked for them.
 
         This is what ``skills_activated`` reports and what the disclosure
-        renders as "what shaped this answer". A forced skill the model never
-        opened is NOT here — see :attr:`forced_not_activated`.
-
-        MEMBERSHIP is delivery; ORDER is not. Raw delivery order is not a fact
-        worth reporting: a model opens both house skills in ONE parallel batch
-        and the tool node runs them concurrently, so which body lands first is
-        scheduling noise that would reorder the reader's panel between two
-        identical turns. The order is therefore the one the forced block reads
-        in — what the user asked for, then the fleet floor, then what the model
-        chose. Only the membership changed.
+        renders as "what shaped this answer". A skill the model never opened is
+        not here, whoever listed it in the catalog.
         """
-        forced_first = [name for name in self._forced if name in self._activated_seen]
-        return tuple(forced_first + [name for name in self._activated if name not in self._forced_seen])
-
-    @property
-    def forced_not_activated(self) -> tuple[str, ...]:
-        """Forced skills the model never opened, in force order.
-
-        The turn told the model to apply these and it did not call
-        ``use_skill`` for them, so not one word of their instructions was in
-        front of it. Kept as its own fact rather than folded into either list:
-        it is neither "this shaped the answer" (it did not) nor nothing at all
-        (the platform owner or the user asked for it, and the ask was ignored),
-        and it is the number worth counting per deployment.
-        """
-        return tuple(name for name in self._forced if name not in self._activated_seen)
-
-    @property
-    def standard_count(self) -> int:
-        """How many skills this run is forced to carry as fleet policy.
-
-        A ``delivery: standard`` skill is the deployment's floor, not the
-        question's: nobody asked for it on this turn and the model has to spend
-        a ``use_skill`` call to satisfy it. The research budget reserves that
-        many iterations so a deployment publishing a second standard skill does
-        not silently shorten every research chain by one (see
-        ``ShallowResearcherAgent.reserved_tool_iterations``).
-        """
-        return len(self._standard)
+        return tuple(self._activated)
 
     @property
     def hidden_activated(self) -> tuple[str, ...]:
@@ -207,8 +130,7 @@ class SkillRuntime:
         as much as on the live line. This is the subset the frontend de-emphasises
         until the reader opens the reasoning view, so the panel is not dominated
         by an instruction the reader cannot act on. Resolved HERE rather than
-        client-side because only the runtime holds each skill's metadata; a
-        standard skill is excluded from the invocable list the disclosure reads.
+        client-side because only the runtime holds each skill's metadata.
         """
         from .models import skill_hidden
 
@@ -223,9 +145,7 @@ class SkillRuntime:
 
         The single place a skill becomes active this run — and it is reached
         from exactly one caller, the ``use_skill`` closure, because that is the
-        only path a body travels. Whether the skill was forced or chosen is
-        looked UP here rather than passed in: it is a fact about who decided,
-        and the decider does not change what delivery means.
+        only path a body travels.
 
         Re-activation is a no-op -- including the announcement, so a model that
         calls ``use_skill`` three times for the same skill does not say so
@@ -239,34 +159,29 @@ class SkillRuntime:
         if skill is not None:
             from .events import emit_skill_activated
 
-            emit_skill_activated(skill, forced=name in self._forced_seen)
+            emit_skill_activated(skill)
 
     def prompt_block(self) -> str | None:
         """L1: the progressive-disclosure catalog section, or None when empty.
 
-        One line per skill the model may pick unprompted (name + description);
-        the model must opt IN via ``use_skill`` to see a body. Skills whose
-        ``grid-auto-invoke`` is off are omitted here — they remain resolved,
-        remain in the ``/`` picker, and remain loadable when forced. A forced
-        skill is listed even when auto-invoke is off, because the turn already
-        named it and the description is what tells the model *why*.
+        One line per resolved skill (name + description); the model must opt IN
+        via ``use_skill`` to see a body.
+
+        EVERY resolved skill is listed. ``grid-auto-invoke`` used to cut rows
+        out of here, which made the catalog a thing a person edited rather than
+        the model's own inventory — the same shape ADR-0060 removed everywhere
+        else. Its author-facing switch is gone, so honouring a stored ``false``
+        would now hide a skill from every turn with nobody able to bring it
+        back. The key is still accepted on a document (an old row must not
+        start erroring); nothing reads it.
 
         ``None`` when nothing belongs in the catalog — callers then render no
         skills section at all.
         """
-        listed = [s for s in self._skills if skill_auto_invoke(s.metadata) or s.name in self._forced_seen]
-        if not listed:
+        if not self._skills:
             return None
         lines = [_L1_HEADING, _L1_DOCTRINE, ""]
-        lines.extend(f"- `{s.name}`: {s.description}" for s in listed)
-        return "\n".join(lines)
-
-    def forced_block(self) -> str | None:
-        """L1 block naming the skills FORCED for this turn, or None."""
-        if not self._forced:
-            return None
-        lines = [_FORCED_HEADING, _FORCED_DOCTRINE, ""]
-        lines.extend(f"- `{name}`" for name in self._forced)
+        lines.extend(f"- `{s.name}`: {s.description}" for s in self._skills)
         return "\n".join(lines)
 
     def build_tools(self) -> list[object]:

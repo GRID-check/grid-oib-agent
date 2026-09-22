@@ -1,0 +1,8 @@
+---
+fixes:
+  - >
+    Die Beschreibung unter "Dateien" wird nicht mehr zu einer schmalen Spalte
+    aus ein bis zwei Wörtern zusammengedrückt. Die Bedienelemente daneben haben
+    sich ihre volle Breite genommen und den Rest der Überschrift überlassen;
+    jetzt hat der Titelbereich eine Mindestbreite und die Bedienelemente
+    umbrechen stattdessen in eine zweite Zeile.

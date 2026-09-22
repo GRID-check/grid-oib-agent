@@ -61,7 +61,9 @@ describe('listProjects', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     listProjectsInOrg.mockResolvedValue([ALPHA, BETA, GAMMA])
-    delete process.env.GRID_AUTHZ_CACHE_TTL_MS
+    // These tests are about the listing, not the cache: each mocks `check`
+    // differently, so a cached verdict from the previous one would lie.
+    process.env.GRID_AUTHZ_CACHE_TTL_MS = '0'
   })
 
   it('returns ONLY the projects the member holds project:view on', async () => {

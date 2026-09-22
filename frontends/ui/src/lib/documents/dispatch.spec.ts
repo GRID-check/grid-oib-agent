@@ -66,6 +66,11 @@ let fetchSpy: ReturnType<typeof vi.fn>
 beforeEach(() => {
   fetchSpy = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ job_id: 'job-1' }) })
   vi.stubGlobal('fetch', fetchSpy)
+  // An ordinary human upload, before every test. `vi.clearAllMocks()` clears
+  // calls and not implementations, so without this a row set by one test is
+  // still the row the next one reads — which is how a suite comes to depend on
+  // the order its cases happen to run in.
+  vi.mocked(findDocumentInOrg).mockResolvedValue(makeDocument({ authoredBy: 'user' }))
 })
 
 afterEach(() => {
@@ -98,6 +103,92 @@ describe('dispatchDocument', () => {
     expect(fetchSpy).not.toHaveBeenCalled()
     expect(runBimExtraction).not.toHaveBeenCalled()
     expect(setDocumentIngestJob).not.toHaveBeenCalled()
+  })
+
+  /**
+   * The one clause ADR-0054 added, and everything it deliberately does not
+   * cover.
+   *
+   * The rule is a COMPARISON — `published_version_id === the dispatched
+   * version` — rather than a list of allowed states, which is why every state a
+   * version can be in that is not "the published one" fails here without being
+   * enumerated in the production code. Enumerating them in the SPEC is the
+   * point: a reader has to be able to see that `approved` (approved on Tuesday,
+   * not yet issued) is refused exactly as `draft` is.
+   */
+  describe('the published-version clause', () => {
+    const agentRow = (publishedVersionId: string | null) =>
+      makeDocument({
+        authoredBy: 'agent',
+        authoredByProducer: 'agent_document',
+        authoredByRef: 'conv_1-aktenvermerk',
+        authoredByRefKind: 'answer_artifact',
+        filename: 'piloti/doc-1/aktenvermerk-2026-09-01.md',
+        publishedVersionId,
+      })
+
+    it('admits the published version of an agent-authored document', async () => {
+      vi.mocked(findDocumentInOrg).mockResolvedValue(agentRow('ver_2'))
+
+      await expect(
+        dispatchDocument({ ...input('aktenvermerk.md'), versionId: 'ver_2' }),
+      ).resolves.toEqual({ jobId: 'job-1', status: 'pending' })
+    })
+
+    /**
+     * Every state that is not the published version, by the id it dispatches
+     * with. A draft, an in-review version, a changes-requested one, an approved
+     * one and a rejected one are all versions the row's pointer does not name;
+     * a superseded one is the version the pointer named until the last publish
+     * moved it. The pointer is `null` while nothing has ever been published,
+     * which is the first three rows.
+     */
+    const refused: Array<[string, string | null, string | null]> = [
+      ['a draft, before anything was ever published', null, 'ver_1'],
+      ['an in-review version', null, 'ver_1'],
+      ['a changes-requested version', null, 'ver_1'],
+      ['a rejected version', null, 'ver_1'],
+      ['an approved version that nobody has published yet', null, 'ver_2'],
+      ['a superseded version, after the pointer moved on', 'ver_3', 'ver_2'],
+      ['a draft alongside a published version', 'ver_2', 'ver_3'],
+      ['a caller that names no version at all (a re-index)', 'ver_2', null],
+    ]
+
+    it.each(refused)('refuses %s', async (_case, pointer, dispatched) => {
+      vi.mocked(findDocumentInOrg).mockResolvedValue(agentRow(pointer))
+
+      await expect(
+        dispatchDocument({ ...input('aktenvermerk.md'), versionId: dispatched }),
+      ).rejects.toThrow(/must not be indexed/)
+
+      expect(fetchSpy).not.toHaveBeenCalled()
+      expect(setDocumentIngestJob).not.toHaveBeenCalled()
+    })
+
+    it('does not let a caller assert the pointer: the ROW decides', async () => {
+      // The version id travels in the input because the row cannot supply it —
+      // "are these the published version's bytes" is not a question a row
+      // answers alone. What the row DOES supply is the pointer, and a caller
+      // naming a version the row does not point at is refused however
+      // plausible the id looks.
+      vi.mocked(findDocumentInOrg).mockResolvedValue(agentRow(null))
+
+      await expect(
+        dispatchDocument({ ...input('aktenvermerk.md'), versionId: 'ver_2' }),
+      ).rejects.toThrow(/must not be indexed/)
+    })
+
+    it('leaves a human upload admitted with no version named at all', async () => {
+      // Every upload shelf and every re-ingest dispatches without a version:
+      // the clause widened the rule for machine-authored rows and changed
+      // nothing for a person's.
+      vi.mocked(findDocumentInOrg).mockResolvedValue(makeDocument({ authoredBy: 'user' }))
+
+      await expect(dispatchDocument(input('plan.pdf'))).resolves.toEqual({
+        jobId: 'job-1',
+        status: 'pending',
+      })
+    })
   })
 
   it('refuses even when the filename would route to IFC extraction', async () => {
@@ -185,6 +276,73 @@ describe('the ingest dispatch sends the document folder path', () => {
     await dispatchDocument({ ...input('plan.pdf'), folderPath: 'Brandschutz/Fluchtwege' })
 
     expect(bodyOf(0).folder_path).toBe('Brandschutz/Fluchtwege')
+  })
+
+  it('states the row’s own filename as the chunk join key', async () => {
+    // Without it the backend derives the name from the presigned URL's last
+    // path segment — the OBJECT KEY's basename, which `storageKeySegment` has
+    // already sanitised. For a namespaced Piloti document those are different
+    // strings, and chunks filed under the derived one are chunks no purge can
+    // ever address, because every purge asks by `documents.filename`.
+    vi.mocked(findDocumentInOrg).mockResolvedValue(
+      makeDocument({
+        authoredBy: 'agent',
+        authoredByProducer: 'agent_document',
+        authoredByRef: 'conv_1-x',
+        authoredByRefKind: 'answer_artifact',
+        filename: 'piloti/doc-1/aktenvermerk-2026-09-01.md',
+        publishedVersionId: 'ver_2',
+      }),
+    )
+
+    await dispatchDocument({ ...input('aktenvermerk.md'), versionId: 'ver_2' })
+
+    expect(bodyOf(0).file_name).toBe('piloti/doc-1/aktenvermerk-2026-09-01.md')
+  })
+
+  it('sends the four provenance keys for a published Piloti document', async () => {
+    // The backend twin is `frontends/aiq_api/tests/test_ingest_provenance.py`,
+    // which asserts the same four keys reach the ingest job config. They are
+    // spelled in `src/aiq_agent/common/provenance.py` and nowhere else.
+    vi.mocked(findDocumentInOrg).mockResolvedValue(
+      makeDocument({
+        authoredBy: 'agent',
+        authoredByProducer: 'agent_document',
+        authoredByRef: 'conv_1-x',
+        authoredByRefKind: 'answer_artifact',
+        filename: 'piloti/doc-1/aktenvermerk-2026-09-01.md',
+        publishedVersionId: 'ver_2',
+      }),
+    )
+
+    await dispatchDocument({
+      ...input('aktenvermerk.md'),
+      versionId: 'ver_2',
+      provenance: {
+        authored_by: 'agent',
+        approved_by: 'Maria Huber',
+        approved_at: '2026-09-01T10:00:00.000Z',
+        producer: 'agent_document',
+      },
+    })
+
+    expect(bodyOf(0)).toMatchObject({
+      authored_by: 'agent',
+      approved_by: 'Maria Huber',
+      approved_at: '2026-09-01T10:00:00.000Z',
+      producer: 'agent_document',
+    })
+  })
+
+  it('sends no provenance keys for a human document', async () => {
+    await dispatchDocument(input('plan.pdf'))
+
+    // Absent, not null-valued: `parse_agent_provenance` returns None for
+    // anything unmarked, and every human document must stay byte-for-byte what
+    // it was through the whole pipeline.
+    const body = bodyOf(0)
+    expect(body).not.toHaveProperty('authored_by')
+    expect(body).not.toHaveProperty('approved_by')
   })
 
   it('sends null for a document at the project root', async () => {

@@ -3,8 +3,8 @@ import userEvent from '@testing-library/user-event'
 import { vi, describe, test, expect, beforeEach } from 'vitest'
 import { AgentResponse } from './AgentResponse'
 import { asStoreState, type DeepPartial, type StoreSelector } from '@/test-utils/store-fixtures'
-import type { LayoutStore } from '@/features/layout/types'
 import type { ChatStoreWithHydration } from '../store'
+import type { SourcePreviewChipProps } from './SourcePreview'
 import type { MessageStages } from '@/lib/conversations/message-stages'
 
 /**
@@ -19,31 +19,12 @@ const NOTED: MessageStages = {
   },
 }
 
-// Mock the layout store
-const mockOpenRightPanel = vi.fn()
-const mockSetResearchPanelTab = vi.fn()
-
-vi.mock('@/features/layout/store', () => ({
-  useLayoutStore: vi.fn((selector?: StoreSelector<LayoutStore>) => {
-    const state: DeepPartial<LayoutStore> = {
-      openRightPanel: mockOpenRightPanel,
-      setResearchPanelTab: mockSetResearchPanelTab,
-    }
-    return selector ? selector(asStoreState<LayoutStore>(state)) : state
-  }),
-}))
-
 // Mock the chat store
 vi.mock('../store', () => ({
   useChatStore: vi.fn((selector?: StoreSelector<ChatStoreWithHydration>) => {
     const state: DeepPartial<ChatStoreWithHydration> = {
-      reportContent: '',
-      deepResearchJobId: null,
-      isDeepResearchStreaming: false,
-      deepResearchStreamLoaded: false,
       currentConversation: null,
       patchConversationMessage: vi.fn(),
-      reconnectToActiveJob: vi.fn(),
     }
     return selector ? selector(asStoreState<ChatStoreWithHydration>(state)) : state
   }),
@@ -61,29 +42,22 @@ vi.mock('@/adapters/auth', () => ({
   }),
 }))
 
-// Mock the useLoadJobData hook
-const mockImportJobStream = vi.fn()
-const mockLoadResearchPanelTab = vi.fn()
-
-// The typing reveal is off under vitest (see `use-typed-reveal.ts`), so the one
-// thing this component does with it — treat a half-shown answer as still
-// arriving — has to be driven explicitly. `text: null` means "whatever the
-// component was handed", which is what every other test in this file wants.
-const { reveal } = vi.hoisted(() => ({ reveal: { text: null as string | null, isTyping: false } }))
-vi.mock('../hooks/use-typed-reveal', () => ({
-  useTypedReveal: (content: string) => ({ text: reveal.text ?? content, isTyping: reveal.isTyping }),
-}))
-
-vi.mock('../hooks', () => ({
-  useLoadJobData: () => ({
-    loadReport: vi.fn(),
-    importJobStream: mockImportJobStream,
-    loadResearchPanelTab: mockLoadResearchPanelTab,
-    isLoading: false,
-    error: null,
-    clearError: vi.fn(),
-  }),
-}))
+// The provenance chips render their tint as a CSS-var inline style, which
+// jsdom's CSS parser drops — so the hue-budget tests below read the signal
+// off a wrapper around the REAL chip instead of off the DOM. Rendering stays
+// real (links, badges, popovers), which is why every other test in this file
+// is unaffected.
+vi.mock('./SourcePreview', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./SourcePreview')>()
+  return {
+    ...actual,
+    SourcePreviewChip: (props: SourcePreviewChipProps) => (
+      <span data-signal={props.citation.document.tint}>
+        <actual.SourcePreviewChip {...props} />
+      </span>
+    ),
+  }
+})
 
 // Mock MarkdownRenderer to render content as plain text for testing
 vi.mock('@/shared/components/MarkdownRenderer', () => ({
@@ -93,10 +67,6 @@ vi.mock('@/shared/components/MarkdownRenderer', () => ({
 describe('AgentResponse', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    mockImportJobStream.mockClear()
-    mockLoadResearchPanelTab.mockClear()
-    reveal.text = null
-    reveal.isTyping = false
   })
 
   test('renders response content', () => {
@@ -119,41 +89,33 @@ describe('AgentResponse', () => {
     expect(screen.queryByTestId('markdown')).not.toBeInTheDocument()
   })
 
-  test('displays timestamp when provided', () => {
+  test('displays timestamp when provided', async () => {
+    const user = userEvent.setup()
     const timestamp = new Date('2024-01-15T14:30:00')
 
     render(<AgentResponse content="Response" timestamp={timestamp} />)
+    await user.click(screen.getByTestId('answer-details-trigger'))
 
     expect(screen.getByText(/\d{1,2}:\d{2}/)).toBeInTheDocument()
   })
 
-  test('handles ISO string timestamp', () => {
-    render(<AgentResponse content="Response" timestamp="2024-01-15T14:30:00Z" />)
-
-    expect(screen.getByText(/\d{1,2}:\d{2}/)).toBeInTheDocument()
-  })
-
-  test('shows "View Report" button when showViewReport is true', () => {
-    render(<AgentResponse content="Response" showViewReport={true} />)
-
-    expect(screen.getByRole('button', { name: 'View Report' })).toBeInTheDocument()
-  })
-
-  test('hides "View Report" button when showViewReport is false', () => {
-    render(<AgentResponse content="Response" showViewReport={false} />)
-
-    expect(screen.queryByRole('button', { name: 'View Report' })).not.toBeInTheDocument()
-  })
-
-  test('clicking "View Report" opens research panel with report tab', async () => {
+  test('handles ISO string timestamp', async () => {
     const user = userEvent.setup()
+    render(<AgentResponse content="Response" timestamp="2024-01-15T14:30:00Z" />)
+    await user.click(screen.getByTestId('answer-details-trigger'))
 
-    render(<AgentResponse content="Response" showViewReport={true} />)
+    expect(screen.getByText(/\d{1,2}:\d{2}/)).toBeInTheDocument()
+  })
 
-    await user.click(screen.getByRole('button', { name: 'View Report' }))
+  // An answer card sends the reader nowhere. The report of a run is this same
+  // card drawn under the run's block in the thread that commissioned it
+  // (ADR-0062), so a control offering a second place to read it would be a door
+  // over the thing it points at.
+  test('offers no way out of the thread', () => {
+    render(<AgentResponse content="Response" />)
 
-    expect(mockSetResearchPanelTab).toHaveBeenCalledWith('report')
-    expect(mockOpenRightPanel).toHaveBeenCalledWith('research')
+    expect(screen.queryByRole('button', { name: /report|bericht/i })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /progress|fortschritt/i })).not.toBeInTheDocument()
   })
 
   test('renders without timestamp', () => {
@@ -173,19 +135,11 @@ describe('AgentResponse', () => {
     expect(container.textContent).toContain('This is a very long response. ')
   })
 
-  test('uses shared research panel loader when clicking "View Report" with jobId', async () => {
+  test('renders the confidence chip for each level', async () => {
+    // The chip lives behind the answer-details disclosure — open it first.
     const user = userEvent.setup()
-
-    render(<AgentResponse content="Response" showViewReport={true} jobId="test-job-123" />)
-
-    await user.click(screen.getByRole('button', { name: 'View Report' }))
-
-    expect(mockLoadResearchPanelTab).toHaveBeenCalledWith('test-job-123', 'report')
-    expect(mockImportJobStream).not.toHaveBeenCalled()
-  })
-
-  test('renders the confidence chip for each level', () => {
     const { rerender } = render(<AgentResponse content="Answer" answerConfidence="high" />)
+    await user.click(screen.getByTestId('answer-details-trigger'))
     expect(screen.getByText('Confidence: high')).toBeInTheDocument()
 
     rerender(<AgentResponse content="Answer" answerConfidence="medium" />)
@@ -200,8 +154,10 @@ describe('AgentResponse', () => {
     expect(screen.queryByText(/Confidence:/)).not.toBeInTheDocument()
   })
 
-  test('renders the confidence chip in the inline variant too', () => {
+  test('renders the confidence chip in the inline variant too', async () => {
+    const user = userEvent.setup()
     render(<AgentResponse content="Answer" variant="inline" answerConfidence="high" />)
+    await user.click(screen.getByTestId('answer-details-trigger'))
     expect(screen.getByText('Confidence: high')).toBeInTheDocument()
   })
 
@@ -221,7 +177,7 @@ describe('AgentResponse', () => {
     expect(screen.getByText('Answer')).toBeInTheDocument()
   })
 
-  test('renders SummaryCard and LegalBasisCard from cards prop', () => {
+  test('renders SummaryCard framed and an unplaced legal_basis flat from cards prop', () => {
     const cards = [
       {
         type: 'summary' as const,
@@ -241,15 +197,20 @@ describe('AgentResponse', () => {
       },
     ]
 
-    render(<AgentResponse content="Response with cards" cards={cards} />)
+    const { container } = render(<AgentResponse content="Response with cards" cards={cards} />)
 
     expect(screen.getByText('Summary Title')).toBeInTheDocument()
     expect(screen.getByText('Summary content')).toBeInTheDocument()
     expect(screen.getByText('Point one')).toBeInTheDocument()
+    // An unplaced legal_basis is not a fallback-grid item: it renders flat
+    // above the prose (`EvidenceBlock`) — eyebrow, one Fundstelle line, quote
+    // and disclaimer, but never the framed card's plain-language summary.
     expect(screen.getByText('Legal basis')).toBeInTheDocument()
-    expect(screen.getByText('GDPR')).toBeInTheDocument()
-    expect(screen.getByText('Summary of the legal basis')).toBeInTheDocument()
+    expect(screen.getByText('GDPR · 5 · 1')).toBeInTheDocument()
     expect(screen.getByText('Original legal text')).toBeInTheDocument()
+    expect(screen.queryByText('Summary of the legal basis')).not.toBeInTheDocument()
+    const text = container.textContent ?? ''
+    expect(text.indexOf('Legal basis')).toBeLessThan(text.indexOf('Response with cards'))
   })
 
   // Cards used to open the answer, which is the one place they cannot help: two
@@ -360,8 +321,9 @@ describe('AgentResponse', () => {
     })
   })
 
-  // The provenance footer is ONE tinted zone with two parts: the sources block
-  // and a single meta row (confidence + memory left, thumbs + timestamp right).
+  // The provenance footer is ONE tinted zone with three parts: the sources
+  // block, the copy actions, and a single details disclosure (confidence +
+  // memory + skills + notes + full feedback + timestamp behind one trigger).
   describe('merged provenance footer (default card)', () => {
     const citations = [
       {
@@ -373,8 +335,10 @@ describe('AgentResponse', () => {
       },
     ]
 
-    test('keeps the memory chip when confidence, feedback and timestamp are all absent', () => {
-      // Memory is the only thing the row has to hold — it must still mount.
+    test('keeps the memory chip behind the details disclosure', async () => {
+      // Memory is no longer in the visible row — it mounts when the reader
+      // opens the disclosure.
+      const user = userEvent.setup()
       render(
         <AgentResponse
           content="Answer"
@@ -385,6 +349,11 @@ describe('AgentResponse', () => {
         />
       )
 
+      expect(screen.getByTestId('answer-details-trigger')).toBeInTheDocument()
+      expect(screen.queryByText('Piloti noted')).not.toBeInTheDocument()
+
+      await user.click(screen.getByTestId('answer-details-trigger'))
+
       expect(screen.getByText('Piloti noted')).toBeInTheDocument()
     })
 
@@ -394,16 +363,18 @@ describe('AgentResponse', () => {
       expect(screen.queryByText('Piloti noted')).not.toBeInTheDocument()
       expect(screen.queryByText(/\d{1,2}:\d{2}/)).not.toBeInTheDocument()
       expect(screen.queryByText('Was this helpful?')).not.toBeInTheDocument()
+      expect(screen.queryByTestId('answer-details-trigger')).not.toBeInTheDocument()
     })
 
     test('the meta row of a bare answer holds the copy action and nothing else', () => {
       // No confidence level, no messageId for the thumbs row, no timestamp and
-      // no memory. The row used to be a bare spacer here and therefore did not
-      // mount at all; a completed answer can always be copied, so the copy
-      // action is now what keeps it from being empty — and it is alone in it.
+      // no memory. A completed answer can always be copied, so the copy action
+      // is what keeps the row from being empty — and there is no details
+      // trigger, because the disclosure would hold nothing.
       render(<AgentResponse content="Answer" />)
 
       expect(screen.getByRole('button', { name: 'Copy answer' })).toBeInTheDocument()
+      expect(screen.queryByTestId('answer-details-trigger')).not.toBeInTheDocument()
       expect(screen.queryByText('Piloti noted')).not.toBeInTheDocument()
       expect(screen.queryByText('Was this helpful?')).not.toBeInTheDocument()
       expect(screen.queryByText(/\d{1,2}:\d{2}/)).not.toBeInTheDocument()
@@ -423,41 +394,89 @@ describe('AgentResponse', () => {
 
       const reserved = container.querySelector('.min-h-6')
       expect(reserved).not.toBeNull()
-      // Empty reserve only — the delayed fade starts once there is content.
+      // Empty reserve only — the fade starts once there is content.
       expect(reserved?.className).not.toContain('animation-delay')
     })
 
-    test('holds confidence, memory, the thumbs row and the timestamp in ONE row', () => {
+    test('holds confidence, memory and the timestamp behind ONE disclosure — feedback stays out', async () => {
+      const user = userEvent.setup()
+      // Local-only, uncited turn: no conversationId means no Word export, so
+      // the plain-copy fallback keeps the row from going silent (AnswerActions
+      // shows it only when the turn has neither sources nor an export).
       render(
         <AgentResponse
           content="Answer"
           messageId="m1"
-          conversationId="conv-1"
           stages={NOTED}
           answerConfidence="high"
           timestamp={new Date('2026-07-17T10:30:00')}
         />
       )
 
-      // The timestamp lives inside the meta row — no longer a span floating
-      // outside the card. It sits in the row's acting cluster, which is a
-      // `display: contents` wrapper above `sm`, so on a desktop it is not a
-      // box: everything is still one row.
-      const metaRow = screen.getByText(/^\d{1,2}:\d{2}/).closest('.min-h-6')
+      // The visible row holds the copy action, the thumbs and the trigger —
+      // rating the answer costs no click. Confidence, memory and time wait
+      // behind the disclosure.
+      const metaRow = screen.getByRole('button', { name: 'Copy answer' }).closest('.min-h-6')
       expect(metaRow).not.toBeNull()
-      expect(metaRow).toContainElement(screen.getByText('Confidence: high'))
-      expect(metaRow).toContainElement(screen.getByText('Piloti noted'))
+      expect(metaRow).toContainElement(screen.getByTestId('answer-details-trigger'))
       expect(metaRow).toContainElement(
         screen.getByRole('button', { name: 'Mark this answer as helpful' })
       )
+      expect(screen.queryByText('Confidence: high')).not.toBeInTheDocument()
+      expect(screen.queryByText('Piloti noted')).not.toBeInTheDocument()
+
+      await user.click(screen.getByTestId('answer-details-trigger'))
+
+      // Opened: everything else the turn carries is in the document.
+      expect(screen.getByText('Confidence: high')).toBeInTheDocument()
+      expect(screen.getByText('Piloti noted')).toBeInTheDocument()
+      expect(screen.getByText(/^\d{1,2}:\d{2}/)).toBeInTheDocument()
     })
 
-    // ── the row at phone width ──────────────────────────────────────────────
-    // jsdom does no layout, so the wrap itself cannot be observed. What CAN be
-    // asserted is the thing that decides it: whether a line break is even
-    // possible between the copy actions and the thumbs. It is not, because they
-    // are not siblings in the wrapping row any more — they are one flex item.
-    test('the copy actions and the thumbs cannot wrap apart at phone width', () => {
+    test('a down-vote opens its disclosure as the meta row\'s own next line', async () => {
+      // The layout defect this holds: the row is `items-center`, so one box
+      // holding both the thumbs and their open form made the row as tall as the
+      // form and centred the copy actions against it — two icons floating in
+      // the middle of an otherwise empty left half, with the reason chips and
+      // the note hanging off the row's right end. The row and the disclosure are
+      // therefore two ITEMS of the meta row, not one nested block.
+      const user = userEvent.setup()
+      // The vote is persisted optimistically and reverted when the write fails,
+      // so the disclosure only stays open if the POST resolves.
+      vi.stubGlobal(
+        'fetch',
+        vi.fn().mockResolvedValue({ ok: true, status: 200, json: async () => ({ feedback: [] }) })
+      )
+      try {
+        render(
+          <AgentResponse
+            content="Answer"
+            messageId="m1"
+            conversationId="conv-1"
+            citations={citations}
+          />
+        )
+
+        const thumb = screen.getByRole('button', { name: 'Mark this answer as not helpful' })
+        await user.click(thumb)
+
+        const metaRow = screen
+          .getByRole('button', { name: 'Copy answer with full source references' })
+          .closest('.min-h-6')
+        const disclosure = (await screen.findByText('What was the problem?')).closest('.w-full')
+
+        // Both hang off the meta row itself, so the row lays them out on two
+        // lines instead of centring its short items against a tall one.
+        expect(disclosure?.parentElement).toBe(metaRow)
+        expect(thumb.closest('.min-h-6')?.parentElement).toBe(metaRow)
+        // The thumbs keep their own 24px line — the form is not inside it.
+        expect(disclosure).not.toContainElement(thumb)
+      } finally {
+        vi.unstubAllGlobals()
+      }
+    })
+
+    test('the export actions, the thumbs and the details trigger share the wrapping meta row', () => {
       render(
         <AgentResponse
           content="Answer"
@@ -469,27 +488,21 @@ describe('AgentResponse', () => {
         />
       )
 
-      const copy = screen.getByRole('button', { name: 'Copy answer' })
+      // A cited answer offers the with-sources copy (not the plain fallback).
+      const copy = screen.getByRole('button', { name: 'Copy answer with full source references' })
+      const trigger = screen.getByTestId('answer-details-trigger')
       const thumb = screen.getByRole('button', { name: 'Mark this answer as helpful' })
+      // All hang off the one wrapping row — the row breaks before any of
+      // them, never between copy and rating at phone width.
       const metaRow = copy.closest('.min-h-6')
       expect(metaRow).not.toBeNull()
-
-      // Both controls hang off ONE element that is not the wrapping row.
-      const cluster = copy.parentElement?.parentElement
-      expect(cluster).not.toBe(metaRow)
-      expect(cluster).toContainElement(thumb)
-      expect(cluster).toContainElement(screen.getByText(/^\d{1,2}:\d{2}/))
-
-      // Below `sm` that element is a full-width, non-wrapping flex line, so the
-      // row breaks before it and never inside it; above `sm` it is
-      // `display: contents` and the row is exactly what it was.
-      expect(cluster?.className).toContain('max-sm:flex')
-      expect(cluster?.className).toContain('max-sm:w-full')
-      expect(cluster?.className).toContain('max-sm:flex-nowrap')
-      expect(cluster?.className).toContain('contents')
+      expect(metaRow).toContainElement(trigger)
+      expect(metaRow).toContainElement(thumb)
+      expect(metaRow?.className).toContain('flex-wrap')
     })
 
-    test('the acting cluster still leaves the pills in the wrapping row', () => {
+    test('the pills stay out of the visible row until the disclosure opens', async () => {
+      const user = userEvent.setup()
       render(
         <AgentResponse
           content="Answer"
@@ -500,25 +513,39 @@ describe('AgentResponse', () => {
         />
       )
 
-      const metaRow = screen.getByText('Confidence: high').closest('.min-h-6')
-      const cluster = metaRow?.querySelector('.contents')
-      expect(cluster).not.toBeNull()
-      // The pills stay OUT of the acting cluster, so the row's one wrap point
-      // is between the two halves — which is where it belongs.
-      expect(cluster).not.toContainElement(screen.getByText('Confidence: high'))
-      expect(cluster).not.toContainElement(screen.getByText('Piloti noted'))
-      expect(metaRow?.className).toContain('flex-wrap')
+      expect(screen.queryByText('Confidence: high')).not.toBeInTheDocument()
+      expect(screen.queryByText('Piloti noted')).not.toBeInTheDocument()
+
+      await user.click(screen.getByTestId('answer-details-trigger'))
+
+      expect(screen.getByText('Confidence: high')).toBeInTheDocument()
+      expect(screen.getByText('Piloti noted')).toBeInTheDocument()
     })
 
-    test('renders the thumbs row in its compact inline layout inside the card', () => {
-      render(<AgentResponse content="Answer" messageId="m1" conversationId="conv-1" />)
+    test('renders the feedback row in the open, beside the export actions', async () => {
+      const user = userEvent.setup()
+      // Local-only, uncited turn with a timestamp: the fallback copy keeps the
+      // row from going silent, and the timestamp gives the disclosure something
+      // to hold so the trigger exists to prove feedback stays out of it.
+      render(
+        <AgentResponse
+          content="Answer"
+          messageId="m1"
+          timestamp={new Date('2026-07-17T10:30:00')}
+        />
+      )
 
-      const feedbackRoot = screen
-        .getByRole('button', { name: 'Mark this answer as helpful' })
-        .closest('div')?.parentElement
-      // compact = wrap beside the other meta items, not a stacked full-width band.
-      expect(feedbackRoot?.className).toContain('flex-wrap')
-      expect(feedbackRoot?.className).not.toContain('flex-col')
+      // No click needed: the question and both thumbs are in the visible row,
+      // next to the fallback copy of this sourceless answer.
+      expect(screen.getByText('Was this helpful?')).toBeInTheDocument()
+      expect(
+        screen.getByRole('button', { name: 'Mark this answer as helpful' })
+      ).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'Copy answer' })).toBeInTheDocument()
+
+      // And the disclosure holds none of it — only the details.
+      await user.click(screen.getByTestId('answer-details-trigger'))
+      expect(screen.getAllByText('Was this helpful?')).toHaveLength(1)
     })
 
     test('the sources row draws no divider inside the card (the body hairline already separates)', () => {
@@ -677,6 +704,63 @@ describe('AgentResponse', () => {
       expect(screen.getByText('Result')).toBeInTheDocument()
       expect(screen.queryByText('Note')).not.toBeInTheDocument()
     })
+
+    test('kind=direct wears the "Note" tab even on a shallow route', () => {
+      render(
+        <AgentResponse
+          content="Hello there"
+          routingDecision="shallow"
+          answerMeta={{ v: 1, kind: 'direct', summary: 'Kurz die Lage.' }}
+        />
+      )
+
+      expect(screen.getByText('Note')).toBeInTheDocument()
+      expect(screen.queryByText('Result')).not.toBeInTheDocument()
+    })
+
+    test('kind=walkthrough wears the "Answer" tab, not "Result"', () => {
+      render(
+        <AgentResponse
+          content="So legen Sie den Ordner an."
+          routingDecision="shallow"
+          answerMeta={{ v: 1, kind: 'walkthrough', summary: 'Pläne unter Einreichung ablegen.' }}
+        />
+      )
+
+      expect(screen.getByText('Answer')).toBeInTheDocument()
+      expect(screen.queryByText('Result')).not.toBeInTheDocument()
+      expect(screen.queryByText('Note')).not.toBeInTheDocument()
+    })
+
+    test('kind=ruling keeps the "Result" tab', () => {
+      render(
+        <AgentResponse
+          content="REI 60 gilt."
+          routingDecision="shallow"
+          answerMeta={{
+            v: 1,
+            kind: 'ruling',
+            verdict: { value: 'REI 60', subject: 'Feuerwiderstand tragender Bauteile' },
+          }}
+        />
+      )
+
+      expect(screen.getByText('Result')).toBeInTheDocument()
+      expect(screen.queryByText('Answer')).not.toBeInTheDocument()
+    })
+
+    test('kind=handoff wears the "Note" tab, not "Result"', () => {
+      render(
+        <AgentResponse
+          content="Dafür starte ich eine Tiefenrecherche."
+          routingDecision="shallow"
+          answerMeta={{ v: 1, kind: 'handoff' }}
+        />
+      )
+
+      expect(screen.getByText('Note')).toBeInTheDocument()
+      expect(screen.queryByText('Result')).not.toBeInTheDocument()
+    })
   })
 
   describe('lede typesetting', () => {
@@ -762,33 +846,257 @@ describe('AgentResponse', () => {
     })
   })
 
-  describe('the typing reveal', () => {
-    // The answer is finished before its first delta leaves the agent, so
-    // `isStreaming` lasts a frame or two and the WRITING is this reveal. Every
-    // affordance that acts on a whole answer has to follow it rather than the
-    // socket, or it lands over half an answer.
-    test('an answer half revealed shows only what has been revealed', () => {
-      reveal.text = 'Die Antwort'
-      reveal.isTyping = true
+  describe('the answer anatomy (answerMeta)', () => {
+    // Native answer fields, never cards: the verdict renders ABOVE the prose,
+    // the callout and the takeaways after it, in that fixed order — the model
+    // owns content, the frontend owns placement.
+    const answerMeta = {
+      v: 1,
+      summary: 'In GK 4 gilt REI 60; maßgeblich ist das Fluchtniveau.',
+      verdict: { value: 'REI 60', subject: 'Feuerwiderstand tragender Bauteile' },
+      callout: { kind: 'frist' as const, text: 'Binnen sechs Wochen anzuberaumen.' },
+      takeaways: [
+        { text: 'Maßgeblich ist das Fluchtniveau' },
+        { text: 'Tragende Bauteile mindestens REI 60' },
+      ],
+    }
 
-      render(<AgentResponse content="Die Antwort ist ja, ab GK4." />)
-
-      expect(screen.getByText('Die Antwort')).toBeInTheDocument()
-      expect(screen.queryByText('Die Antwort ist ja, ab GK4.')).not.toBeInTheDocument()
+    test('renders the masthead above the prose and the rest after it', () => {
+      const { container } = render(
+        <AgentResponse content="REI 60 gilt, und maßgeblich ist das Fluchtniveau." answerMeta={answerMeta} />
+      )
+      const text = container.textContent ?? ''
+      expect(text).toContain('REI 60')
+      expect(text).toContain('Binnen sechs Wochen anzuberaumen.')
+      expect(text).toContain('Maßgeblich ist das Fluchtniveau')
+      // Fixed order: verdict then summary (the masthead) before the prose,
+      // the callout and takeaways after it.
+      expect(text.indexOf('REI 60')).toBeLessThan(text.indexOf('In GK 4 gilt REI 60'))
+      expect(text.indexOf('In GK 4 gilt REI 60')).toBeLessThan(text.indexOf('REI 60 gilt,'))
+      expect(text.indexOf('REI 60 gilt,')).toBeLessThan(text.indexOf('Binnen sechs Wochen'))
+      expect(text.indexOf('Binnen sechs Wochen')).toBeLessThan(text.indexOf('Maßgeblich ist das Fluchtniveau'))
     })
 
-    test('an answer still being revealed cannot be copied', () => {
-      reveal.text = 'Die Antwort'
-      reveal.isTyping = true
+    test('a summary holds the lede emphasis alone — the first paragraph stays body-sized', () => {
+      // Long enough to clear the lede threshold on its own; with a summary in
+      // the masthead the first paragraph must NOT also be enlarged.
+      const longBody = `${'Ein ausreichend langer erster Absatz. '.repeat(20)}\n\nZweiter Absatz.`
+      const { container } = render(<AgentResponse content={longBody} answerMeta={answerMeta} />)
+      expect(container.querySelector('[class*="first-child\\]:text-"]')).toBeNull()
 
-      render(<AgentResponse content="Die Antwort ist ja, ab GK4." />)
+      // Without a summary the lede styling still fires as before.
+      const { verdict, callout, takeaways } = answerMeta
+      const { container: plain } = render(
+        <AgentResponse content={longBody} answerMeta={{ v: 1, verdict, callout, takeaways }} />
+      )
+      expect(plain.querySelector('[class*="first-child\\]:text-"]')).not.toBeNull()
+    })
+
+    test('an answer without anatomy renders exactly as before', () => {
+      const { container } = render(<AgentResponse content="Nur Prosa." />)
+      expect(container.textContent).toContain('Nur Prosa.')
+    })
+
+    test('the below-prose anatomy waits for the stream like unclaimed cards do', () => {
+      const { container } = render(
+        <AgentResponse content="REI 60 gilt." answerMeta={answerMeta} isStreaming />
+      )
+      expect(container.textContent).not.toContain('Binnen sechs Wochen')
+    })
+
+    test('a walkthrough does not wear the verdict gavel even if a verdict is present', () => {
+      const { container } = render(
+        <AgentResponse
+          content="So legen Sie den Ordner an."
+          answerMeta={{
+            v: 1,
+            kind: 'walkthrough',
+            summary: 'Legen Sie die Pläne unter Einreichung ab.',
+            verdict: { value: 'REI 60', subject: 'Feuerwiderstand tragender Bauteile' },
+          }}
+        />
+      )
+      expect(container.textContent).toContain('Legen Sie die Pläne unter Einreichung ab.')
+      expect(container.textContent).not.toContain('Feuerwiderstand tragender Bauteile')
+    })
+
+    test('a body that claims the callout with [[callout]] takes it out of the after-prose block', () => {
+      // `MarkdownRenderer` is stubbed here, so the SPLICE itself cannot be
+      // seen (card-markers.spec.tsx proves it against the real parser and
+      // DOM); what this surface owns is the other half of the contract — a
+      // claimed callout must not ALSO render after the prose.
+      const { container } = render(
+        <AgentResponse
+          content={'Erster Absatz.\n\n[[callout]]\n\nZweiter Absatz.'}
+          answerMeta={answerMeta}
+        />
+      )
+      const text = container.textContent ?? ''
+      expect(text).not.toContain('Binnen sechs Wochen')
+      // The takeaways still close the answer.
+      expect(text).toContain('Maßgeblich ist das Fluchtniveau')
+    })
+
+    test('a summary that restates the body’s opening is dropped from the masthead', () => {
+      // The same statement twice: the body states it once, so the masthead —
+      // with no verdict and no topic — renders nothing at all.
+      const { container } = render(
+        <AgentResponse
+          content="In GK 4 gilt REI 60."
+          answerMeta={{ v: 1, kind: 'walkthrough', summary: 'In GK 4 gilt REI 60.' }}
+        />
+      )
+      expect(container.textContent?.match(/In GK 4 gilt REI 60\./g)).toHaveLength(1)
+      expect(container.querySelector('header')).toBeNull()
+    })
+
+    test('a citation-suffixed restatement is dropped too', () => {
+      const { container } = render(
+        <AgentResponse
+          content="In GK 4 gilt REI 60."
+          answerMeta={{ v: 1, kind: 'walkthrough', summary: 'In GK 4 gilt REI 60. [1]' }}
+        />
+      )
+      expect(container.querySelector('header')).toBeNull()
+      expect(container.textContent).toContain('In GK 4 gilt REI 60.')
+    })
+
+    test('the inline variant drops a restating summary from the masthead too', () => {
+      // The dedup gate is variant-independent: the inline rendering carries
+      // the same masthead, so a summary the body already states once must not
+      // headline it twice there either.
+      const { container } = render(
+        <AgentResponse
+          content="In GK 4 gilt REI 60."
+          variant="inline"
+          answerMeta={{ v: 1, kind: 'walkthrough', summary: 'In GK 4 gilt REI 60.' }}
+        />
+      )
+      expect(container.textContent?.match(/In GK 4 gilt REI 60\./g)).toHaveLength(1)
+      expect(container.querySelector('header')).toBeNull()
+    })
+
+    test('a genuinely different summary still headlines the answer', () => {
+      const { container } = render(
+        <AgentResponse content="REI 60 gilt, und maßgeblich ist das Fluchtniveau." answerMeta={answerMeta} />
+      )
+      expect(container.querySelector('header')?.textContent).toContain('In GK 4 gilt REI 60')
+    })
+  })
+
+  describe('the provenance row always keeps its lane tints', () => {
+    const citations = [
+      {
+        id: 'hue-c1',
+        content: '[KB] oib-rl_2.pdf, p.12',
+        timestamp: new Date('2026-08-18T09:00:00Z'),
+        title: 'OIB-Richtlinie 2',
+        citationKey: 'oib-rl_2.pdf, p.12',
+        fileName: 'oib-rl_2.pdf',
+        collection: 'oib_knowledge',
+        kind: 'baurecht' as const,
+        origin: 'kb' as const,
+        page: 12,
+        number: 1,
+        isCited: true,
+      },
+    ]
+    const takeaways = [
+      { text: 'Maßgeblich ist das Fluchtniveau' },
+      { text: 'Tragende Bauteile mindestens REI 60' },
+    ]
+    const legalBasis = {
+      type: 'legal_basis' as const,
+      law: 'OIB-Richtlinie 2',
+      lane: 'baurecht_oib' as const,
+      edition: 'Ausgabe Mai 2023',
+      article: '3.1.1',
+      section: '2.3',
+      summary: 'Tragende Bauteile in GK 4: mindestens REI 60.',
+      original_text: 'Tragende Bauteile sind in REI 60 auszuführen.',
+    }
+
+    const chipSignal = (container: HTMLElement): string | null =>
+      container.querySelector('[data-signal]')?.getAttribute('data-signal') ?? null
+
+    test('one chromatic accent keeps the chips tinted', async () => {
+      // Takeaways alone spend one hue — the Baurecht chip keeps its lane tint
+      // (the OIB accent, resolved off the fixture's filename).
+      const { container } = render(
+        <AgentResponse
+          content="Maßgeblich ist das Fluchtniveau."
+          citations={citations}
+          answerMeta={{ v: 1, kind: 'walkthrough', takeaways }}
+        />
+      )
+      expect(chipSignal(container)).toBe('oib')
+    })
+
+    test('evidence plus takeaways keep the chips tinted', async () => {
+      // Lane tint is provenance, not decoration: the evidence block and the
+      // takeaways spend the hue budget elsewhere, never by muting the source
+      // signal.
+      const { container } = render(
+        <AgentResponse
+          content="Die Antwort steht in der Richtlinie."
+          citations={citations}
+          cards={[legalBasis]}
+          answerMeta={{ v: 1, kind: 'walkthrough', takeaways }}
+        />
+      )
+      expect(chipSignal(container)).toBe('oib')
+    })
+
+    test('a frist callout plus takeaways keep the chips tinted', async () => {
+      // Same: a frist callout spends its alarm hue beside tinted chips.
+      const { container } = render(
+        <AgentResponse
+          content="Maßgeblich ist das Fluchtniveau."
+          citations={citations}
+          answerMeta={{
+            v: 1,
+            kind: 'walkthrough',
+            callout: { kind: 'frist' as const, text: 'Binnen sechs Wochen anzuberaumen.' },
+            takeaways,
+          }}
+        />
+      )
+      expect(chipSignal(container)).toBe('oib')
+    })
+
+    test('a hinweis callout plus takeaways keep the chips tinted', async () => {
+      // Hinweis rides the neutral tier — it spends no hue, so the spend stays
+      // at one and the chips keep their tint.
+      const { container } = render(
+        <AgentResponse
+          content="Maßgeblich ist das Fluchtniveau."
+          citations={citations}
+          answerMeta={{
+            v: 1,
+            kind: 'walkthrough',
+            callout: { kind: 'hinweis' as const, text: 'Die Frist läuft ab Zustellung.' },
+            takeaways,
+          }}
+        />
+      )
+      expect(chipSignal(container)).toBe('oib')
+    })
+  })
+
+  describe('a streaming answer', () => {
+    // The client-side typewriter was removed: the full text paints as soon as
+    // it arrives, and `isStreaming` — the real socket window — is the only
+    // "still arriving" state left. Affordances that act on a whole answer
+    // still have to wait for it.
+    test('an answer still streaming cannot be copied', () => {
+      render(<AgentResponse content="Die Antwort ist ja, ab GK4." isStreaming />)
 
       expect(screen.queryByRole('button', { name: 'Copy answer' })).not.toBeInTheDocument()
     })
 
-    test('a card no marker claimed waits for the reveal to finish', () => {
+    test('a card no marker claimed waits for the stream to finish', () => {
       // "Unplaced" is read off the body SO FAR. A card whose `[[card:N]]` has
-      // not been typed out yet looks unplaced, and drawing it here would put it
+      // not arrived yet looks unplaced, and drawing it mid-stream would put it
       // below the prose for a second and then jump it up the answer.
       const cards = [
         {
@@ -798,19 +1106,13 @@ describe('AgentResponse', () => {
           key_points: null,
         },
       ]
-      reveal.text = 'Die '
-      reveal.isTyping = true
 
-      const midReveal = render(<AgentResponse content="Die Antwort." cards={cards} />)
-      expect(midReveal.container.textContent).not.toContain('Nachgestellte Karte')
-      midReveal.unmount()
+      const midStream = render(<AgentResponse content="Die " cards={cards} isStreaming />)
+      expect(midStream.container.textContent).not.toContain('Nachgestellte Karte')
+      midStream.unmount()
 
-      // A second render rather than a rerender: the component is memoized on
-      // its props, and the reveal is not one of them.
-      reveal.text = null
-      reveal.isTyping = false
-      const revealed = render(<AgentResponse content="Die Antwort." cards={cards} />)
-      expect(revealed.container.textContent).toContain('Nachgestellte Karte')
+      const finished = render(<AgentResponse content="Die Antwort." cards={cards} />)
+      expect(finished.container.textContent).toContain('Nachgestellte Karte')
     })
   })
 })

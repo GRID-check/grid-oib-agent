@@ -1,0 +1,7 @@
+---
+fixes:
+  - >
+    Das Erwähnen einer Kollegin mit "@" funktioniert jetzt auch im ersten
+    Moment eines neuen Chatfensters. Bisher fragte die Auswahlliste nach einer
+    Unterhaltung, die es auf dem Server noch gar nicht gab, und blieb danach für
+    den Rest des Threads leer — es erschien überhaupt keine Liste.

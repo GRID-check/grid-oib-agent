@@ -79,7 +79,7 @@ dotenv -f deploy/.env run nat eval \
 Other harness configs:
 
 - `frontends/benchmarks/freshqa/configs/config_full_workflow.yml`
-- `frontends/benchmarks/freshqa/configs/config_shallow_research_only.yml`
+- `frontends/benchmarks/freshqa/configs/config_research_only.yml`
 - `frontends/benchmarks/deepsearch_qa/configs/config_deepsearch_qa.yml`
 - `frontends/benchmarks/oib_compliance/configs/config_oib_compliance_eval.yml` —
   golden OIB-compliance eval suite (backlog T4-5, 2026-07-16): 4 fixed cases
@@ -94,8 +94,8 @@ data sources, so they need the relevant API keys present in `deploy/.env`.
 ## Running the backend for a manual check
 
 ```bash
-./scripts/start_cli.sh        # CLI mode (configs/config_cli_default.yml)
-nat serve --config_file configs/config_cli_default.yml --port 8000
+./scripts/start_cli.sh        # CLI mode (configs/config_oib_openrouter.yml)
+nat serve --config_file configs/config_oib_openrouter.yml --port 8000
 ```
 
 The backend API serves at `http://localhost:8000`.

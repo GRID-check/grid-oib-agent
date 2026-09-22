@@ -31,7 +31,7 @@ docker compose -f deploy/compose/docker-compose.yaml --env-file deploy/.env exec
 ```
 sync()
   │
-  ├─ 1. Scan data/oib/ for *.pdf files (recursive)
+  ├─ 1. Scan data/oib/ and data/oib_uploads/ for *.pdf (recursive; may be empty)
   │
   ├─ 2. Load data/oib_registry.json (SHA-256 → filename mapping)
   │
@@ -131,7 +131,8 @@ Base/project collections like `oib_knowledge` are **never** subject to TTL auto-
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `OIB_DOCUMENTS_DIR` | `data/oib` | Directory containing OIB PDFs |
+| `OIB_DOCUMENTS_DIR` | `data/oib` | Operator-provided OIB PDFs, bind-mounted read-only. Gitignored and empty in a fresh clone |
+| `OIB_UPLOADS_DIR` | `data/oib_uploads` | PDFs uploaded through the platform-admin UI, on the persistent volume |
 | `OIB_REGISTRY_PATH` | `data/oib_registry.json` | Path to SHA-256 registry file |
 | `OIB_COLLECTION_NAME` | `oib_knowledge` | Target ChromaDB collection |
 | `AIQ_CHROMA_DIR` | `/tmp/chroma_data` | ChromaDB persistence directory |

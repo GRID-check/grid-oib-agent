@@ -27,6 +27,18 @@ export const answerExport = {
   /** File-name stem when the conversation carries no title. */
   fileName: 'answer',
   /**
+   * The export failed — said so that the reader can do something about it.
+   *
+   * `useDownloadPdfRoute` used to surface `response.statusText`, so a reader
+   * who had waited twelve minutes for a Deep-Research-Bericht pressed „PDF"
+   * and was shown „Bad Request" (#624): the wrong language, no explanation,
+   * and no next step. These two are the whole vocabulary of that path — a
+   * refusal the DOCUMENT earned, and everything else.
+   */
+  pdfFailed: 'The PDF could not be created. Please try again.',
+  pdfTooLong:
+    'This report is too large to export as a PDF. Download it as Markdown, or export it section by section.',
+  /**
    * The marking on a document Piloti wrote and nobody has reviewed.
    *
    * It is a dictionary entry rather than a string in the renderer for the

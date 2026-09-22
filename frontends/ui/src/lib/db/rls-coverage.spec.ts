@@ -57,6 +57,30 @@ const BOUNDARY_MIGRATIONS = [
   // event trail. No tenant data (provenance is a feedback uuid + an org hash),
   // so PLATFORM tables: every tenant reads, only the platform role writes.
   '0068_platform_lessons.sql',
+  // Adds tasks — the durable unit of delegated work (ADR-0051). Project-scoped
+  // tenant data, secured the way jobs is.
+  '0075_tasks.sql',
+  // Adds platform_pricing_versions — the platform's price list (ADR-0053). No
+  // tenant data, so a PLATFORM table: every tenant reads, only the platform
+  // role writes.
+  '0079_pricing_and_credits.sql',
+  // Adds document_versions — one history for every document plus the publish
+  // door (ADR-0054). Tenant data; the predicate widens `tasks`' shape by a NULL
+  // arm, because the Archiv and session shelves have no project.
+  '0082_document_versions.sql',
+  // Collapses jobs/job_runs/tasks into task_definitions + task_runs
+  // (follow-up to PR #659). Both tables are project-scoped tenant data; the
+  // old three keep their 0043/0075 entries until a later migration drops them.
+  '0086_task_definitions.sql',
+  // Adds organization_instructions — one standing instruction block per tenant,
+  // sent to the agent on every turn. Keyed directly by the organization, so it
+  // is secured exactly as `organizations` and `curated_skill_activations` are.
+  '0087_organization_instructions.sql',
+  // Adds skill_categories — the shelves skills stand on. Mixed ownership:
+  // NULL organization_id is a platform shelf (readable by every tenant),
+  // a set one is that org's own, so the predicate carries a NULL arm.
+  // Renumbered from 0087: develop took 0087 and 0088 first.
+  '0089_skill_categories.sql',
 ]
 
 const MIGRATION_SOURCES = BOUNDARY_MIGRATIONS.map((file) =>
@@ -197,6 +221,7 @@ describe('row-level security coverage', () => {
       'platform_lesson_reports',
       'platform_lessons',
       'platform_model_defaults',
+      'platform_pricing_versions',
       'platform_reasoning_efforts',
       'platform_retrieval_settings',
       'platform_skills',

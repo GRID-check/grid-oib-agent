@@ -38,7 +38,7 @@ export const files = {
     row: {
       queued: 'Waiting',
       uploading: 'Sending',
-      processing: 'Reading',
+      processing: 'Processing',
       ready: 'Citable',
       canceled: 'Canceled',
       failed: 'Failed',
@@ -95,6 +95,8 @@ export const files = {
     goneUndo: 'Undo',
     tryAgain: 'Try again',
     noInlinePreview: 'No inline preview for this file type. Download it to view the full document.',
+    textTruncated:
+      'Only the beginning of this file is shown. Download it to read the whole thing.',
     status: 'Status',
     // Heading for the rail's fact list (what the FILE is), distinct from
     // "Detailed information" below it (what the VLM saw on each page).
@@ -103,6 +105,9 @@ export const files = {
     summaryLess: 'Show less',
     type: 'Type',
     size: 'Size',
+    originPath: 'Came from',
+    originPathCopied: 'Path copied',
+    originPathCopyFailed: "Path couldn't be copied",
     tags: 'Tags',
     noTags: 'No tags',
     tagsSaveError: "Tags couldn't be saved. Please try again.",
@@ -224,6 +229,7 @@ export const files = {
     noMatchDescription:
       'Try a different name, tag or description, or clear the search to see every file.',
     clearSearch: 'Clear search',
+    clearFilters: 'Clear filters',
     resetSearch: 'Reset search',
     recentlyUploaded: 'Recently uploaded',
     semantic: {
@@ -260,10 +266,18 @@ export const files = {
     newFolderName: 'New folder name',
     creating: 'Creating folder…',
     allFiles: 'All Files',
+    // The way up, named. The breadcrumb says where you ARE, which is a map,
+    // and three levels deep the parent is a truncated word mid-row.
+    backTo: 'Back to {name}',
     newFolder: 'New folder',
+    newInside: 'New folder inside',
+    open: 'Open',
+    move: 'Move to folder',
     items: '{count} item(s)',
     openFolder: 'Open folder “{name}”',
     breadcrumb: 'Folder path',
+    movedFolder: '“{name}” moved to “{parent}”.',
+    moveFolderError: 'The folder could not be moved. Please try again.',
   },
   workspace: {
     renameFolderError: 'The folder could not be renamed. Please try again.',
@@ -295,6 +309,9 @@ export const files = {
       relevance: 'Relevance',
       name: 'Name',
       status: 'Status',
+      // The editorial state (Freigabe), beside the ingestion status: the column
+      // that makes bulk approval state visible where bulk work happens.
+      approval: 'Approval',
       pages: 'Pages',
       size: 'Size',
       added: 'Added',
@@ -311,13 +328,16 @@ export const files = {
     label: 'File actions for “{name}”',
     menuLabel: 'File actions',
     download: 'Download',
+    open: 'Open',
+    ask: 'Ask about this',
+    copyOriginPath: 'Copy origin path',
     rename: 'Rename…',
     delete: 'Delete…',
   },
   rename: {
     title: 'Rename document',
     description:
-      'Changes the name shown everywhere in Grid, including on citations. The file itself and everything indexed from it stay as they are.',
+      'Changes the name shown everywhere in Piloti, including on citations. The file itself and everything indexed from it stay as they are.',
     label: 'Name',
     hint: 'The file extension stays as it is.',
     save: 'Rename',
@@ -343,9 +363,70 @@ export const files = {
     success: '“{name}” was removed from the project',
     error: 'The document could not be deleted',
   },
+  /**
+   * The folder-upload plan — the dialog a dropped directory tree opens before
+   * anything moves. `folderUpload.*` rather than under `upload.*` because it
+   * describes a PLAN, not the transfer: the words here name what is about to
+   * happen to documents that already exist.
+   */
+  folderUpload: {
+    title: 'Upload “{name}”?',
+    titleGeneric: 'Upload this folder?',
+    destination: 'Its folder structure is recreated inside “{folder}”.',
+    // The re-sync fold: the dropped folder IS the folder they are standing in,
+    // so its contents go in rather than a folder of the same name inside it.
+    destinationMerged: 'Its contents go straight into “{folder}” — the folders inside it are matched.',
+    planning: 'Comparing with what is already here…',
+    counts: {
+      new: 'new documents',
+      update: 'already here, changed',
+      unchanged: 'unchanged, skipped',
+      foldersCreated: 'folders created',
+      foldersMatched: '{count} matched',
+    },
+    // What the project calls the document a row is about to touch, when
+    // somebody has renamed it here and the name in the drop no longer says so.
+    alreadyHereAs: 'here as “{name}”',
+    updatePrompt: 'Update the {count} document(s) that already exist',
+    updateExplain:
+      'They keep their name, their citations and everything assigned to them — only the file behind them is replaced.',
+    refiled: '{count} of them are filed elsewhere at the moment and move to where this folder puts them.',
+    // The unchanged ones send no bytes, so nothing about the upload would move
+    // them — they are moved on their own, or the tree is not really recreated.
+    moving: '{count} unchanged document(s) are filed elsewhere and are moved to where this folder puts them.',
+    duplicates: '{count} file(s) are already in the project under a different name',
+    duplicatesExplain:
+      'Uploading them would add a second copy rather than replace anything, so they are not sent. Rename the document here, or the file on disk, so the two agree.',
+    collisions: '{count} files share a name with another file in this upload',
+    collisionsExplain:
+      'A project holds one document per filename, so these are not uploaded. Rename them and drop them again.',
+    showAll: 'Show all {count} files',
+    action: {
+      new: 'New',
+      update: 'Update',
+      unchanged: 'Unchanged',
+      collision: 'Conflict',
+      duplicate: 'Already here',
+      skipped: 'Skipped',
+    },
+    confirm: 'Upload {count} file(s)',
+    // Nothing to upload, but the tree still says these belong elsewhere.
+    confirmMoveOnly: 'Move {count} document(s)',
+    nothingToDo: 'Nothing to upload',
+    cancel: 'Cancel',
+    // The summary after the plan has been applied.
+    done: '{uploaded} file(s) uploaded, {skipped} unchanged.',
+    doneMoved: '{uploaded} file(s) uploaded, {skipped} unchanged, {moved} moved.',
+    foldersError: 'The folders for this upload could not be created. Nothing was uploaded.',
+    // Distinct from `foldersError`: the folders were made and the upload itself
+    // is what went wrong, which is a different thing to retry.
+    applyError: 'This folder could not be uploaded completely. Check the list and try again.',
+  },
   upload: {
     uploading: 'Uploading…',
     upload: 'Upload',
+    uploadFolder: 'Upload folder',
+    uploadFiles: 'Choose files',
   },
   errors: {
     validation: {
@@ -376,10 +457,54 @@ export const files = {
    * rendered as responsibility. A generated report is an ordinary UNASSIGNED
    * file, so the footer still says `Unassigned` beside this line.
    */
+  /**
+   * The Files header's filter/sort menu.
+   *
+   * Replaces the open filter strip: the header already carried a view switch, a
+   * search field and an upload button, and had no room left for the filters
+   * people asked for. The count on the button is the price of hiding them — a
+   * filter nobody can see is worse than a crowded strip.
+   */
+  filters: {
+    label: 'Filter',
+    labelActive: 'Filters ({count} active)',
+    reset: 'Reset filters',
+    // What the reader is missing when type or status emptied the level: the
+    // fact that a filter, and not an empty folder, is the reason.
+    emptyTitle: 'No file matches these filters',
+    emptyDescription:
+      'This folder holds documents, but none matches the current selection. Reset the filters to see everything again.',
+    sortLabel: 'Sort',
+    ascending: 'Ascending',
+    descending: 'Descending',
+    statusLabel: 'Status',
+    // The three questions actually asked, not the ten pipeline states that
+    // differ only in which stage reported them.
+    status: {
+      failed: 'Failed',
+      processing: 'Processing',
+      ready: 'Citable',
+    },
+    originLabel: 'Origin',
+    kindLabel: 'File type',
+    kind: {
+      floorplan: 'Floor plan',
+      section: 'Section / elevation',
+      siteplan: 'Site plan',
+      notice: 'Official notice',
+      photo: 'Photo',
+      model: '3D model (IFC)',
+      document: 'Document',
+    },
+  },
   authorship: {
     byPiloti: 'Created by Piloti',
     /** Filter chip beside All · Mine · Unassigned. */
     filter: 'By Piloti',
+    /** The question this filter left unanswered: WHICH files those would be. */
+    emptyTitle: 'Piloti has filed nothing here yet',
+    emptyDescription:
+      'This is where the files Piloti wrote itself appear: filed research reports and diagrams. Documents you uploaded do not count, even where Piloti has read them.',
     /**
      * Why Ask is disabled on a generated report — and it is disabled, not
      * hidden, following the pattern the citable-yet case already set. The
@@ -387,6 +512,182 @@ export const files = {
      * purpose, so that the agent cannot cite its own writing back as evidence.
      */
     notInKnowledge: 'Created by Piloti — not in the knowledge base',
+  },
+  /**
+   * Freigabe und Fassungen — the editorial state of a document (ADR-0054).
+   *
+   * A separate vocabulary from `status`, which is where a document is in the
+   * INGESTION pipeline. „Freigegeben" and „Zitierbar" answer different
+   * questions, and the two word lists must not borrow from each other.
+   */
+  lifecycle: {
+    title: 'Approval and versions',
+    /** Hover text on the badge; the state word is interpolated. */
+    badgeTitle: 'Version status: {state}',
+    /** The filter chip, beside By Piloti. */
+    filter: 'Awaiting approval',
+    /** The one filter that WIDENS: retired files are not in the listing at all. */
+    archivedFilter: 'Also show retired',
+    states: {
+      draft: 'Draft',
+      inReview: 'In review',
+      changesRequested: 'Changes requested',
+      approved: 'Approved',
+      published: 'Published',
+      rejected: 'Rejected',
+      superseded: 'Superseded',
+      /**
+       * NOT "archived". This product's Archiv is the office archive, where a
+       * document is placed so that it BECOMES cross-project office knowledge.
+       * This state is the opposite: the file leaves the working set and its
+       * knowledge-base entries are purged. One word for both would be the same
+       * verb for a thing and its inverse. The column value stays `archived` —
+       * that is wire and database, not the reader's language.
+       */
+      archived: 'Retired',
+    },
+    actions: {
+      submit: 'Submit for approval',
+      approve: 'Approve',
+      requestChanges: 'Request changes',
+      /** The same decision, plus one thing: Piloti writes the next version. */
+      delegateRevision: 'Have Piloti revise it',
+      reject: 'Reject',
+      publish: 'Publish',
+      archive: 'Retire',
+    },
+    /** Who should release the version. Everyone who may is the default. */
+    reviewer: {
+      every: 'All editors',
+    },
+    /**
+     * Submitting for approval is a liability-adjacent act: the submitter names
+     * a reviewer and states the order in one sentence. Both gate the button —
+     * a disabled button with its reason, never a silent refusal or an open
+     * round nobody was told about.
+     */
+    submit: {
+      reviewerLabel: 'Reviewer',
+      reviewerPlaceholder: 'Choose a reviewer',
+      orderLabel: 'Order for the reviewer',
+      orderPlaceholder: 'In one sentence: what should be checked?',
+      dueLabel: 'Due date (optional)',
+      needReviewer: 'Choose who should review this version.',
+      needOrder: 'State the order in one sentence.',
+      selfReviewNote:
+        'No other editors — the approval will be recorded as a self-review.',
+    },
+    /**
+     * Approving is the office asserting the content, so it is never one click:
+     * the act names its stand (version + date), the acting person and the
+     * moment, and the checkbox is the signature.
+     */
+    approveConfirm: {
+      stand: 'Version {number} · as of {date}',
+      actingWithName: 'Acting: {name} · {date}',
+      actingDateOnly: 'Acting: {date}',
+      checkbox: 'I release this version',
+    },
+    /**
+     * Publication is its own act in its own section — never a sibling button
+     * beside approval. Approving asserts the content; publishing issues it to
+     * the submission set / the authority.
+     */
+    publishSection: {
+      heading: 'Publication',
+      blurb: 'Target: submission set / authority — version {number} is issued.',
+    },
+    /**
+     * Archiving is the one act in this section that cannot be taken back from
+     * inside the product: the knowledge-base entries are purged and no route
+     * brings them back. So it stands apart and states its consequences before
+     * it runs — never a fifth button in a row of review decisions.
+     */
+    archiveSection: {
+      heading: 'Take out of the working set',
+      blurb:
+        'Retiring removes the file from the file list and from the knowledge base. Nothing is deleted.',
+      confirmTitle: 'Retire this file?',
+      confirmTitleNamed: 'Retire “{filename}”?',
+      consequences: {
+        listing:
+          'The file leaves the file list. The “Also show retired” filter brings it back into view.',
+        knowledge: 'Piloti stops citing it: its knowledge-base entries are removed.',
+        kept: 'The file and every version are kept — this is not a delete.',
+        permanent: 'This cannot be undone here.',
+      },
+    },
+    /**
+     * A control that is not offered is a muted line, never nothing: the reader
+     * sees what the version is waiting for and — where that is a known fact —
+     * who submitted it. Who was ASKED is server-side (the reviewer chain), so
+     * no name is invented for them.
+     */
+    waiting: {
+      draft: 'Draft — waiting to be submitted for approval.',
+      inReview: 'In review — waiting for approval.',
+      inReviewBy: 'In review — waiting for approval · submitted by {name}.',
+      changesRequested: 'Changes requested — waiting for a new version.',
+      approved: 'Approved — waiting to be published.',
+      published: 'Published — no further step.',
+      rejected: 'Rejected — no further step.',
+      superseded: 'Superseded by a newer version.',
+      archived: 'Retired — no longer in the working set.',
+      none: 'No version yet.',
+    },
+    comment: {
+      /** Rejecting needs a reason; asking for changes needs the changes. */
+      reasonLabel: 'Reason for rejection',
+      changesLabel: 'What needs to change',
+      /** Said where the decision is taken, not in a tooltip. */
+      delegateNote: 'Piloti then drafts the next version and submits it for approval.',
+      placeholder: 'The next version reads this.',
+      cancel: 'Cancel',
+    },
+    versions: {
+      title: 'Versions',
+      number: 'Version {number}',
+      /** The version the document currently serves. */
+      live: 'Current',
+      open: 'Open',
+      compare: 'Compare with {number}',
+      comparing: 'Loading both versions…',
+      compareFailed: 'The two versions could not be loaded.',
+      /**
+       * The line diff. No red and no green anywhere in it: chroma belongs to
+       * provenance, and an editorial change is not provenance, so a changed line
+       * is marked by a left rule, a `+`/`−` gutter and its ink weight instead.
+       * `addedLine` / `removedLine` are the screen-reader words behind the two
+       * markers — nothing here may depend on seeing a glyph.
+       */
+      diff: {
+        heading: 'What changed',
+        between: 'Version {from} → version {to}',
+        added: '{count, plural, one {# line added} other {# lines added}}',
+        removed: '{count, plural, one {# line removed} other {# lines removed}}',
+        gap: '{count, plural, one {# line unchanged} other {# lines unchanged}}',
+        identical: 'The two versions are identical, line for line.',
+        truncated: 'This comparison is long — showing the first {count} lines.',
+        addedLine: 'added',
+        removedLine: 'removed',
+      },
+      submitted: 'Submitted',
+      approved: 'Approved',
+      published: 'Published',
+      // Refusals leave milestones too: a version sent back must name who sent
+      // it and when, or the refusal is invisible in the history.
+      changesRequested: 'Changes requested',
+      rejected: 'Rejected',
+      byAt: 'by {name}, {time}',
+      you: 'you',
+      someone: 'someone',
+    },
+    errors: {
+      /** The compare-and-swap lost: somebody decided first, so re-read. */
+      conflict: 'This has moved on — reloading the current state.',
+      actionFailed: 'That did not go through. Nothing has changed.',
+      loadFailed: 'The version history could not be loaded.',
+    },
   },
   assignment: {
     unassigned: 'Unassigned',
@@ -398,9 +699,12 @@ export const files = {
     filterUnassigned: 'Unassigned',
     emptyUnassigned: 'Every file has someone',
     emptyMine: 'Nothing is assigned to you yet',
+    emptyDescription:
+      'Another filter brings back every file in this folder.',
     responsible: 'Responsible',
-    ask: 'Ask Piloti',
-    askDisabled: 'Once the file is citable',
+    // One word for one gesture, on all three surfaces: the file pane, the report
+    // card and the inbox row.
+    discuss: 'Discuss',
     askColleague: 'Ask a colleague',
     copyLink: 'Copy link',
     linkCopied: 'Link copied',

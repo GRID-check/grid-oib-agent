@@ -344,13 +344,13 @@ class TestGenericUrlExtractor:
         assert entries[0].url == "https://a.com"
         assert entries[1].url == "https://b.com"
 
-    def test_paper_search_markdown_format(self):
+    def test_scholar_search_markdown_format(self):
         content = (
             "1. **Attention Is All You Need** (2017)\n"
             "   - **Publication**: NeurIPS\n"
             "   - **Link**: https://arxiv.org/abs/1706.03762"
         )
-        entries = extract_sources_from_tool_result("paper_search_tool", content)
+        entries = extract_sources_from_tool_result("scholar_search_tool", content)
         assert len(entries) == 1
         assert entries[0].url == "https://arxiv.org/abs/1706.03762"
 
@@ -375,7 +375,7 @@ class TestGenericUrlExtractor:
     def test_no_results_status_with_source_id_is_not_citable(self):
         """source_id does not make source status text citable evidence."""
         entries = extract_sources_from_tool_result(
-            "duckduckgo_news_search_tool",
+            "news_search_tool",
             "News search returned no results",
             source_id="news_search",
         )
@@ -383,7 +383,7 @@ class TestGenericUrlExtractor:
 
     def test_error_status_is_not_citable(self):
         entries = extract_sources_from_tool_result(
-            "duckduckgo_news_search_tool",
+            "news_search_tool",
             "Error: News search failed",
             source_id="news_search",
         )
@@ -504,7 +504,7 @@ class TestGenericUrlExtractor:
             "2. **Spider: A Large-Scale Dataset** (2018)\n"
             "   - Link: https://arxiv.org/abs/2308.15363"
         )
-        entries = extract_sources_from_tool_result("paper_search_tool", content)
+        entries = extract_sources_from_tool_result("scholar_search_tool", content)
         assert len(entries) == 2
         # Each URL should have its own title, not both sharing the first title
         titles = {e.url: e.title for e in entries}
@@ -616,6 +616,28 @@ class TestParserDispatcher:
         entries = extract_sources_from_tool_result("future_tool", "See https://example.com for details")
         assert len(entries) == 1
         assert entries[0].url == "https://example.com"
+
+    def test_a_knowledge_text_without_a_citation_line_yields_nothing(self):
+        """A URL in a knowledge result is not a source, and never was.
+
+        The knowledge parser used to hand a citation-less text to the generic
+        URL extractor. A rejected tool call carries pydantic's link to its own
+        error index, so the Herleitung drew a web source card for
+        ``errors.pydantic.dev`` on a turn whose search had not run.
+        """
+        content = (
+            "Error: the call was rejected. punkt: Input should be a valid string. "
+            "For further information visit https://errors.pydantic.dev/2.13/v/missing"
+        )
+
+        for tool_name in ("knowledge_search", "ris_lookup", "read_passage"):
+            assert extract_sources_from_tool_result(tool_name, content, source_id="knowledge_layer") == []
+
+    def test_a_tool_with_no_parser_still_gives_up_its_urls(self):
+        """The generic extractor is what a web search is read with; it stays."""
+        entries = extract_sources_from_tool_result("advanced_web_search_tool", "Treffer: https://www.oib.or.at/rl2")
+
+        assert [entry.url for entry in entries] == ["https://www.oib.or.at/rl2"]
 
     def test_custom_parser_takes_priority(self):
         """Registered parsers take priority over generic fallback."""
@@ -954,7 +976,7 @@ class TestVerifyCitations:
         assert "Finding [1][3]." in result.verified_report
 
     def test_references_with_dashes(self, registry):
-        """Shallow researcher uses '- [N] Title - URL' format."""
+        """Piloti uses '- [N] Title - URL' format."""
         report = "Finding [1].\n\n**References:**\n- [1] Article 1 - https://valid.com/article1"
         result = verify_citations(report, registry)
         assert len(result.valid_citations) == 1
@@ -1755,6 +1777,32 @@ class TestSourceLane:
         entry = SourceEntry(citation_key="einreichplan_rev04.pdf, p.1", source_type="knowledge_layer")
         assert source_lane(entry) == ("projekt", "Projektwissen")
 
+    def test_the_shelf_the_entry_carries_beats_the_default_class(self):
+        # Ingestion stamps ``sonstiges`` on an unclassified upload; on the
+        # user's own shelf that says nothing, so the stated shelf decides.
+        entry = SourceEntry(
+            citation_key="einreichplan_rev04.pdf, p.1",
+            source_type="knowledge_layer",
+            collection="x9",
+            doc_class="sonstiges",
+            shelf="project",
+        )
+        assert source_lane(entry) == ("projekt", "Projektwissen")
+
+    def test_the_stated_shelf_beats_the_default_class_and_an_opaque_collection(self):
+        # ``sonstiges`` is what ingestion stamps on an unclassified upload; on the
+        # user's own shelf it says nothing a person decided. The shelf travels on
+        # the entry (ADR-0047), so the resolver must not guess it back from a
+        # collection id that carries no prefix.
+        entry = SourceEntry(
+            citation_key="Plan.pdf, p.2",
+            source_type="knowledge_layer",
+            collection="c_9f2a",
+            doc_class="sonstiges",
+            shelf="project",
+        )
+        assert source_lane(entry) == ("projekt", "Projektwissen")
+
     def test_ris_url_without_registry_match_is_ris_lane(self):
         entry = SourceEntry(url="https://www.ris.bka.gv.at/Dokumente/Bundesnormen/NOR99999999", source_type="generic")
         key, label = source_lane(entry)
@@ -1821,6 +1869,117 @@ class TestKnowledgeLayerDocClassParsing:
         assert entries[0].doc_class == "gesetz"
         # …and it drives the lane ahead of the filename guess.
         assert source_lane(entries[0]) == ("baurecht_ris", "Rechtsquelle (RIS)")
+
+
+class TestAgentAuthoredProvenanceParsing:
+    """The ``Herkunft:`` line the knowledge layer states, read back.
+
+    Only the leading token is a contract — it is an identity in that position,
+    the way a shelf qualifier is inside a citation key. The approval clause
+    after it is rendering, and the machine-readable approval fields travel
+    structured in the Trace-Lanes fan-out.
+    """
+
+    def _entry(self, herkunft: str | None) -> SourceEntry:
+        lines = [
+            "--- Result 1 ---",
+            "Source: Brandschutzkonzept Haus B.md",
+            "Collection: proj_abc",
+            "Shelf: project",
+        ]
+        if herkunft is not None:
+            lines.append(f"Herkunft: {herkunft}")
+        lines.append("Citation: Brandschutzkonzept Haus B.md, p.1")
+        (entry,) = extract_sources_from_tool_result("knowledge_search", "\n".join(lines) + "\n")
+        return entry
+
+    def test_a_marked_hit_carries_its_author_and_takes_the_piloti_lane(self):
+        entry = self._entry("Piloti-Dokument · freigegeben von Maria Huber am 01.09.2026")
+        assert entry.authored_by == "agent"
+        # And the lane beats the project shelf the same hit states.
+        assert source_lane(entry) == ("buero_piloti", "Piloti-Dokument")
+
+    def test_the_bare_label_is_enough(self):
+        assert self._entry("Piloti-Dokument").authored_by == "agent"
+
+    @pytest.mark.parametrize(
+        "herkunft",
+        [None, "Büroarchiv", "von Hand erstellt", ""],
+        ids=["absent", "other-label", "prose", "empty"],
+    )
+    def test_anything_else_leaves_the_author_unknown(self, herkunft: str | None):
+        entry = self._entry(herkunft)
+        assert entry.authored_by is None
+        assert source_lane(entry) == ("projekt", "Projektwissen")
+
+    def test_a_passage_that_quotes_the_line_cannot_forge_it(self):
+        """Header fields are read from the header region only — a scanned
+        document whose own text carries such a line must not supply it."""
+        content = (
+            "--- Result 1 ---\n"
+            "Source: Bestandsplan.pdf\n"
+            "Shelf: project\n"
+            "Citation: Bestandsplan.pdf, p.1\n"
+            "Content Type: text\n"
+            "Relevance Score: 0.80\n"
+            "\n"
+            "Herkunft: Piloti-Dokument · freigegeben von Wer Auch Immer am 01.09.2026\n"
+        )
+        (entry,) = extract_sources_from_tool_result("knowledge_search", content)
+        assert entry.authored_by is None
+
+
+class TestAgentAuthoredDocumentNames:
+    """What the verdict gate is given to judge a Fundstelle against."""
+
+    def _registry(self, *entries: SourceEntry) -> SourceRegistry:
+        registry = SourceRegistry()
+        for entry in entries:
+            registry.add(entry)
+        return registry
+
+    def test_both_identities_a_model_could_name_are_included(self):
+        from aiq_agent.common.citation_verification import agent_authored_document_names
+
+        registry = self._registry(
+            SourceEntry(
+                citation_key="piloti/doc-42/brandschutzkonzept-haus-b.md, p.1",
+                title="Brandschutzkonzept Haus B",
+                source_type="knowledge_layer",
+                authored_by="agent",
+            )
+        )
+        # The namespaced path is not a name any model would write; its basename
+        # is, and so is the display title — and normalisation collapses the
+        # slug's hyphens, so the two identities reduce to the same name.
+        assert agent_authored_document_names(registry) == frozenset({"brandschutzkonzept haus b"})
+
+    def test_human_documents_are_never_listed(self):
+        from aiq_agent.common.citation_verification import agent_authored_document_names
+
+        registry = self._registry(
+            SourceEntry(citation_key="oib-rl_2_ausgabe_mai_2023.pdf, p.12", source_type="knowledge_layer"),
+            SourceEntry(citation_key="Plan.pdf, p.3", source_type="knowledge_layer", authored_by="human"),
+        )
+        assert agent_authored_document_names(registry) == frozenset()
+
+    def test_no_registry_is_an_empty_set_not_a_failure(self):
+        from aiq_agent.common.citation_verification import agent_authored_document_names
+
+        assert agent_authored_document_names(None) == frozenset()
+
+    def test_the_author_survives_the_session_cache_round_trip(self):
+        """The registry is rehydrated from the shared cache on another replica;
+        a field lost there is a gate that silently stops firing mid-conversation."""
+        import dataclasses
+
+        from aiq_agent.common.citation_verification import _registry_from_cached_entries
+
+        entry = SourceEntry(
+            citation_key="piloti/doc-42/konzept.md, p.1", source_type="knowledge_layer", authored_by="agent"
+        )
+        rehydrated = _registry_from_cached_entries([dataclasses.asdict(entry)])
+        assert rehydrated.all_sources()[0].authored_by == "agent"
 
 
 class TestTurnCaptureLog:
@@ -2099,6 +2258,75 @@ class TestSanitizeReportExposesRenumberMap:
         assert sanitize_report("Just prose, no sources.").renumber_map == {}
 
 
+class TestSanitizeReportExposesDeaths:
+    """sanitize_report must return the [N] numbers it deleted.
+
+    The deep researcher puts verify_citations numbers on the wire as trusted
+    clickable chips. sanitize_report deletes shortened/unsafe/truncated source
+    lines AFTER verification, so without the death set the wire keeps chips
+    at removed URLs. Fail-closed: deaths are returned, the wire drops them.
+    """
+
+    def test_shortened_url_death_is_reported_and_orphan_stripped(self):
+        report = (
+            "Good [1]. Short [2].\n\n## Sources\n[1] Good: https://example.com/good\n[2] Short: https://bit.ly/abc123"
+        )
+        result = sanitize_report(report)
+        assert result.removed_citation_numbers == {2}
+        assert result.shortened_urls_removed == ["https://bit.ly/abc123"]
+        assert "bit.ly" not in result.sanitized_report
+        # Prose has no orphan: the deleted [2] marker is stripped, survivor stays.
+        assert "[2]" not in result.sanitized_report
+        assert "[1]" in result.sanitized_report
+        assert result.renumber_map == {1: 1}
+
+    def test_unsafe_url_death_is_reported_and_orphan_stripped(self):
+        report = (
+            "Good [1]. Evil [2].\n\n"
+            "## Sources\n"
+            "[1] Good: https://example.com/good\n"
+            "[2] Evil: https://192.168.1.1/malware"
+        )
+        result = sanitize_report(report)
+        assert result.removed_citation_numbers == {2}
+        assert len(result.unsafe_urls_removed) == 1
+        assert "192.168.1.1" not in result.sanitized_report
+        assert "[2]" not in result.sanitized_report
+        assert "[1]" in result.sanitized_report
+
+    def test_truncated_url_death_is_reported(self):
+        report = "Finding [1].\n\n## Sources\n[1] Paper: https://arxiv.org/abs/1706.037..."
+        result = sanitize_report(report)
+        assert result.removed_citation_numbers == {1}
+        assert len(result.truncated_urls_removed) == 1
+        assert "[1]" not in result.sanitized_report
+
+    def test_mixed_deaths_renumber_survivor_and_report_all_deaths(self):
+        report = (
+            "A [1] B [2] C [3] D [4].\n\n"
+            "## Sources\n"
+            "[1] Good: https://example.com/good\n"
+            "[2] Short: https://bit.ly/abc\n"
+            "[3] Evil: https://10.0.0.1/x\n"
+            "[4] Also good: https://example.com/other"
+        )
+        result = sanitize_report(report)
+        assert result.removed_citation_numbers == {2, 3}
+        assert "bit.ly" not in result.sanitized_report
+        assert "10.0.0.1" not in result.sanitized_report
+        # Survivors close the gap: old [4] is now [2], no orphan [3]/[4] left.
+        assert "D [2]" in result.sanitized_report
+        assert "[3]" not in result.sanitized_report
+        assert "[4]" not in result.sanitized_report
+        assert result.renumber_map == {1: 1, 4: 2}
+
+    def test_no_deletions_reports_empty_deaths(self):
+        report = "A [1].\n\n## Sources\n[1] Good: https://example.com/good"
+        result = sanitize_report(report)
+        assert result.removed_citation_numbers == set()
+        assert result.renumber_map == {1: 1}
+
+
 class TestKnowledgeLayerFieldsAreBlockScoped:
     """Optional header fields must bind to THEIR hit, never to a later one.
 
@@ -2177,6 +2405,23 @@ class TestKnowledgeLayerFieldsAreBlockScoped:
         second = self._entries()[1]
         assert "Trace-Lanes" not in (second.chunk_text or "")
         assert "lanes" not in (second.chunk_text or "")
+
+    def test_every_producer_of_the_grammar_is_read_as_evidence(self):
+        """Three tools render this grammar, and all three must parse as passages.
+
+        ``read_passage`` used to miss: the parser is registered on the substring
+        "knowledge" and that name does not contain it, so the locator's output
+        fell to the non-URL fallback and registered ONE source whose citation key
+        was the string "read_passage". Every citation to a passage the turn had
+        OPENED rather than searched was then dropped as
+        ``citation_key_not_in_registry``.
+        """
+        from aiq_agent.common.citation_verification import extract_sources_from_tool_result
+
+        content = "--- Result 1 ---\nSource: real.pdf\nCitation: real.pdf, p.1\nRelevance Score: 0.9\n\nbody\n"
+        for tool_name in ("knowledge_search", "ris_lookup", "read_passage"):
+            entries = extract_sources_from_tool_result(tool_name, content)
+            assert [(e.citation_key, e.source_type) for e in entries] == [("real.pdf, p.1", "knowledge_layer")]
 
     def test_block_without_a_citation_field_is_skipped(self):
         from aiq_agent.common.citation_verification import extract_sources_from_tool_result
@@ -2651,6 +2896,38 @@ class TestKnowledgeLayerChunkTextCapture:
         hydrated = _registry_from_cached_entries([dataclasses.asdict(original)])
         assert hydrated.all_sources()[0].chunk_text == "round trip body"
 
+    def test_every_field_a_later_turn_reads_survives_the_cache(self):
+        """``punkt`` and ``score`` used not to, and both reach the wire.
+
+        A conversation that moved replica lost the locus and the match strength
+        off chips it had shown a minute earlier, and nothing failed: both fields
+        are optional everywhere they are read.
+        """
+        import dataclasses
+
+        from aiq_agent.common.citation_verification import SourceEntry
+        from aiq_agent.common.citation_verification import _registry_from_cached_entries
+
+        original = SourceEntry(
+            citation_key="oib-rl_2.pdf, p.12",
+            title="OIB-Richtlinie 2",
+            source_type="knowledge_layer",
+            tool_name="knowledge_search",
+            collection="oib_knowledge",
+            shelf="base",
+            doc_class="oib_richtlinie",
+            authored_by="agent",
+            chunk_text="Brandabschnitte sind so auszubilden.",
+            punkt="3.5.2",
+            score=0.87,
+            rank="oib_richtlinie",
+            binding_status="bindend",
+        )
+
+        hydrated = _registry_from_cached_entries([dataclasses.asdict(original)])
+
+        assert dataclasses.asdict(hydrated.all_sources()[0]) == dataclasses.asdict(original)
+
 
 class TestDocumentIdentityIsCollectionAndFilename:
     """A document is `(collection, filename)` — the PRIMARY KEY of document_metadata.
@@ -2802,6 +3079,25 @@ class TestQualifiedKeysSurviveVerification:
         assert is_kl is True
         # Canonical spelling, so the key matches regardless of how the LLM cased it.
         assert key == "Plan.pdf (Büroarchiv), p.3"
+
+    def test_a_title_in_front_of_the_filename_is_dropped_without_a_registry(self):
+        """The shape test alone read "OIB-Richtlinie 2 – file.pdf, p.1" as ONE
+        long filename, because `.+\\.ext` is satisfied by the whole line. With
+        a registry the line resolves through the registry scan; without one
+        (a legacy path, a unit caller) the key carried the title and met no
+        document anywhere. The tail after a dash or colon is tried first."""
+        for line in (
+            "OIB-Richtlinie 2 – oib-rl_2_ausgabe_mai_2023.pdf, p.1",
+            "OIB-Richtlinie 2 — oib-rl_2_ausgabe_mai_2023.pdf, p.1",
+            "OIB-Richtlinie 2 - oib-rl_2_ausgabe_mai_2023.pdf, p.1",
+            "OIB-Richtlinie 2: oib-rl_2_ausgabe_mai_2023.pdf, p.1",
+        ):
+            is_kl, key = _is_knowledge_citation(line, None)
+            assert is_kl is True, line
+            assert key == "oib-rl_2_ausgabe_mai_2023.pdf, p.1", line
+        # A hyphen INSIDE a filename is not a separator: no surrounding spaces.
+        is_kl, key = _is_knowledge_citation("oib-rl_2_ausgabe_mai_2023.pdf, p.1", None)
+        assert (is_kl, key) == (True, "oib-rl_2_ausgabe_mai_2023.pdf, p.1")
 
     def test_an_annotation_is_still_trimmed(self):
         # "(Internal)" is not a shelf; it must keep being treated as noise.
@@ -3064,3 +3360,153 @@ class TestWireCarriesBindingStatus:
         wire = source_entry_to_wire(entry)
         assert wire["binding_status"] == "unbekannt"
         assert "rank" not in wire
+
+
+class TestQuoteWordElision:
+    """A quote that drops or inserts a whole word is a different sentence.
+
+    T2-CIT1 (quote-verification-calibration-2026-07.md): the elision budget is a
+    LENGTH budget calibrated on OCR noise, and a meaning-inverting word can be
+    five characters. Tuning the budget down accuses correct answers, so the
+    matcher asks what it skips: sub-word noise is tolerated, a whole word is
+    not — without consulting any vocabulary.
+    """
+
+    CHUNK = (
+        "Tragende Bauteile muessen nicht brennbar sein, wenn das Gebaeude mehr als "
+        "zwei oberirdische Geschosse hat. Abweichungen sind nur mit Nachweis zulaessig."
+    )
+
+    def _registry(self) -> SourceRegistry:
+        from aiq_agent.common.citation_verification import SourceEntry
+
+        reg = SourceRegistry()
+        reg.add(
+            SourceEntry(
+                citation_key="rl2.pdf, p.4",
+                source_type="knowledge_layer",
+                tool_name="knowledge_search",
+                chunk_text=self.CHUNK,
+            )
+        )
+        return reg
+
+    def test_a_dropped_nicht_is_not_a_verified_quote(self):
+        from aiq_agent.common.citation_verification import verify_quoted_spans
+
+        answer = (
+            "Die Richtlinie sagt: „Tragende Bauteile muessen brennbar sein, wenn das "
+            'Gebaeude mehr als zwei oberirdische Geschosse hat" [1].\n\n## Sources\n[1] rl2.pdf, p.4'
+        )
+        unverified = verify_quoted_spans(answer, self._registry())
+        assert [q.quote for q in unverified] == [
+            "Tragende Bauteile muessen brennbar sein, wenn das Gebaeude mehr als zwei oberirdische Geschosse hat"
+        ]
+
+    def test_an_inserted_nicht_is_not_a_verified_quote_either(self):
+        from aiq_agent.common.citation_verification import verify_quoted_spans
+
+        answer = 'Es gilt: „Abweichungen sind nicht nur mit Nachweis zulaessig" [1].\n\n## Sources\n[1] rl2.pdf, p.4'
+        assert len(verify_quoted_spans(answer, self._registry())) == 1
+
+    def test_the_verbatim_negated_sentence_still_verifies(self):
+        from aiq_agent.common.citation_verification import verify_quoted_spans
+
+        answer = (
+            "Es gilt: „Tragende Bauteile muessen nicht brennbar sein, wenn das Gebaeude "
+            'mehr als zwei oberirdische Geschosse hat" [1].\n\n## Sources\n[1] rl2.pdf, p.4'
+        )
+        assert verify_quoted_spans(answer, self._registry()) == []
+
+    def test_sub_word_noise_is_still_tolerated(self):
+        """The OCR tolerance the calibration doc measured must survive: a lost
+        inflection ending and a swapped character are noise, not an edit."""
+        from aiq_agent.common.citation_verification import verify_quoted_spans
+
+        answer = (
+            "Es gilt: „Tragende Bauteil muessen nicht brennbar sein, wenn das Gebaeude "
+            'mehr als zwei oberirdische Gesch0sse hat" [1].\n\n## Sources\n[1] rl2.pdf, p.4'
+        )
+        assert verify_quoted_spans(answer, self._registry()) == []
+
+    def test_a_dropped_article_is_an_edit_too(self):
+        """No vocabulary decides which words matter; any whole word does."""
+        from aiq_agent.common.citation_verification import verify_quoted_spans
+
+        answer = (
+            "Es gilt: „Tragende Bauteile muessen nicht brennbar sein, wenn Gebaeude "
+            'mehr als zwei oberirdische Geschosse hat" [1].\n\n## Sources\n[1] rl2.pdf, p.4'
+        )
+        assert len(verify_quoted_spans(answer, self._registry())) == 1
+
+
+class TestPunktAndScoreReachTheWire:
+    """The chunker's Punkt and the retrieval score were printed for the model and
+    dropped before the citation the reader sees. Both now ride the entry, fold
+    sensibly under page dedup, and reach the wire."""
+
+    BLOCK = (
+        "--- Result 1 ---\n"
+        "Source: OIB-RL 2 Brandschutz\n"
+        "Collection: oib_knowledge\n"
+        "Shelf: base\n"
+        "Dokumentart: oib_richtlinie\n"
+        "Page: 7\n"
+        "Punkt: 3.5.2\n"
+        "Citation: oib_rl2.pdf, p.7\n"
+        "Content Type: text\n"
+        "Relevance Score: 0.87\n"
+        "\n"
+        "Tragende Bauteile muessen nicht brennbar sein.\n"
+    )
+
+    def test_punkt_and_score_are_parsed_from_a_knowledge_block(self):
+        from aiq_agent.common.citation_verification import extract_sources_from_tool_result
+
+        entries = extract_sources_from_tool_result("knowledge_search", self.BLOCK)
+        assert len(entries) == 1
+        assert entries[0].punkt == "3.5.2"
+        assert entries[0].score == 0.87
+
+    def test_a_block_without_a_punkt_line_carries_none(self):
+        from aiq_agent.common.citation_verification import extract_sources_from_tool_result
+
+        block = self.BLOCK.replace("Punkt: 3.5.2\n", "")
+        entries = extract_sources_from_tool_result("knowledge_search", block)
+        assert entries[0].punkt is None
+        assert entries[0].score == 0.87
+
+    def test_page_dedup_keeps_the_first_punkt_and_the_best_score(self):
+        from aiq_agent.common.citation_verification import SourceEntry
+
+        registry = SourceRegistry()
+        registry.add(
+            SourceEntry(citation_key="oib_rl2.pdf, p.7", source_type="knowledge_layer", chunk_text="a", score=0.61)
+        )
+        registry.add(
+            SourceEntry(
+                citation_key="oib_rl2.pdf, p.7",
+                source_type="knowledge_layer",
+                chunk_text="b",
+                punkt="3.5.2",
+                score=0.87,
+            )
+        )
+        entries = registry.all_sources()
+        assert len(entries) == 1
+        assert entries[0].punkt == "3.5.2"
+        assert entries[0].score == 0.87
+
+    def test_the_wire_carries_both_and_omits_them_when_absent(self):
+        from aiq_agent.common.citation_verification import SourceEntry
+        from aiq_agent.common.citation_verification import source_entry_to_wire
+
+        with_punkt = SourceEntry(
+            citation_key="oib_rl2.pdf, p.7", source_type="knowledge_layer", punkt="3.5.2", score=0.87
+        )
+        wire = source_entry_to_wire(with_punkt)
+        assert wire["punkt"] == "3.5.2"
+        assert wire["score"] == 0.87
+        bare = SourceEntry(url="https://example.at/x", source_type="web")
+        assert "punkt" not in source_entry_to_wire(bare)
+        assert "score" not in source_entry_to_wire(bare)

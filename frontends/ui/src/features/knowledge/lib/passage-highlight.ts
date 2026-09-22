@@ -19,11 +19,13 @@
  * every surviving character, which text run it came from and where in that run,
  * which is what turns a match back into pixels.
  *
- * Three matchers run in order of decreasing confidence, because a wrong
+ * Four matchers run in order of decreasing confidence, because a wrong
  * highlight is worse than none: exact substring, then anchoring on the first
  * and last few words (the middle of a snippet is where extractors disagree
- * most), then a word-overlap window with a score floor. Below the floor we
- * return nothing and the viewer just opens at the page.
+ * most), then a word-overlap window with a score floor, then the two halves of
+ * the snippet on their own — for a passage that straddles a page break, or one
+ * whose window tied and withdrew. Below all four we return nothing and the
+ * viewer just opens at the page.
  */
 
 /**
@@ -52,7 +54,7 @@ export interface HighlightRect {
  * — a reader who is verifying a citation needs to know whether the highlight is
  * the passage or the software's best guess at it.
  */
-export type PassageMatcher = 'exact' | 'anchored' | 'windowed'
+export type PassageMatcher = 'exact' | 'anchored' | 'windowed' | 'partial'
 
 export interface PassageMatch {
   rects: HighlightRect[]
@@ -107,6 +109,13 @@ const STEM_LENGTH = 6
 const ANCHOR_WORDS = [8, 6, 4, 3]
 
 /**
+ * Shortest half the partial matcher will look for on its own. Below this a
+ * half is a clause every page has a copy of, and the snippet as a whole must
+ * be at least two of them — so a short snippet never goes partial at all.
+ */
+export const MIN_PARTIAL_HALF = 24
+
+/**
  * Characters `foldChar`'s generic rule would get wrong.
  *
  * The dashes fold to a plain hyphen so a word wrapped with a typographic dash
@@ -151,6 +160,22 @@ const isLetter = (ch: string): boolean => /\p{L}/u.test(ch)
  * compound, and is turned into a boundary there once that decision is made.
  */
 const foldChar = (raw: string): string => {
+  // Latin-1 is a lookup, and the lookup is built BY the slow path below, so it
+  // cannot drift from it: the table is the same function, memoized over the
+  // 256 code points that make up essentially all of an Austrian legal text.
+  //
+  // It is the difference between a dialog opening and a tab freezing. The slow
+  // path runs `normalize` and two Unicode regexes PER CHARACTER, which is free
+  // on a PDF page and is two million of each on a consolidated law — 700 ms on
+  // the main thread, inside the `useMemo` that renders the reader.
+  if (raw.length === 1) {
+    const code = raw.charCodeAt(0)
+    if (code < 256) return LATIN1_FOLDED[code]!
+  }
+  return foldSlowly(raw)
+}
+
+const foldSlowly = (raw: string): string => {
   const folded = CHARACTER_FOLDING[raw]
   if (folded !== undefined) return folded
   // NFKD, not NFKC. Folding happens one SOURCE character at a time, so a
@@ -166,6 +191,11 @@ const foldChar = (raw: string): string => {
   // reader typed, and dropping it lets `ﬀ`-style expansions stay aligned.
   return normalized.replace(/\p{M}/gu, '').replace(/[^\p{L}\p{N}\s-]/gu, ' ')
 }
+
+/** Every Latin-1 code point, folded once at import. See {@link foldChar}. */
+const LATIN1_FOLDED: readonly string[] = Array.from({ length: 256 }, (_, code) =>
+  foldSlowly(String.fromCharCode(code))
+)
 
 /**
  * Collapse the raw folded stream into letters, digits and single spaces, and
@@ -381,6 +411,40 @@ const windowMatch = (haystack: string, needle: string): { range: Range; score: n
   return rival ? null : best
 }
 
+/**
+ * Half the snippet, when the whole of it is not on this page.
+ *
+ * Two failures the stricter tiers share: a passage that straddles a page break
+ * puts only one half on the cited page, and the anchors need words from BOTH
+ * ends; a window that finds its twin elsewhere on the page withdraws rather
+ * than choose. Splitting at the word boundary nearest the middle and searching
+ * each half with the certain tiers — exact, then anchored — recovers the half
+ * that IS here. Longest half first: it is the more distinctive of the two.
+ */
+const partialMatch = (haystack: string, needle: string): Range | null => {
+  if (needle.length < MIN_PARTIAL_HALF * 2) return null
+
+  const middle = Math.floor(needle.length / 2)
+  let split = -1
+  for (let distance = 0; distance <= middle && split === -1; distance += 1) {
+    if (needle[middle - distance] === ' ') split = middle - distance
+    else if (needle[middle + distance] === ' ') split = middle + distance
+  }
+  if (split === -1) return null
+
+  const halves = [needle.slice(0, split).trim(), needle.slice(split + 1).trim()]
+    .filter((half) => half.length >= MIN_PARTIAL_HALF)
+    .sort((a, b) => b.length - a.length)
+
+  for (const half of halves) {
+    const exact = haystack.indexOf(half)
+    if (exact !== -1) return { start: exact, end: exact + half.length }
+    const anchored = anchorMatch(haystack, half)
+    if (anchored) return anchored
+  }
+  return null
+}
+
 /** Resolve a normalised character range back to the runs it covers. */
 const rangeToRects = (index: PassageIndex, range: Range): HighlightRect[] => {
   const spans = new Map<number, { from: number; to: number }>()
@@ -469,7 +533,145 @@ export function findPassage(index: PassageIndex, snippet: string): PassageMatch 
     if (rects.length) return { rects, matcher: 'windowed', score: windowed.score }
   }
 
+  const partial = partialMatch(index.haystack, needle)
+  if (partial) {
+    const rects = rangeToRects(index, partial)
+    // Half the snippet is half the evidence, and the score says so.
+    if (rects.length) return { rects, matcher: 'partial', score: 0.5 }
+  }
+
   return null
+}
+
+/**
+ * The same search, over a PLAIN STRING, answering in that string's own offsets.
+ *
+ * The RIS reader has no geometry: it renders text, so what it needs is a
+ * character range to wrap, not rectangles to draw. Everything else about the
+ * problem is identical — the snippet was produced by the retrieval extractor
+ * and the text by the RIS HTML converter, so the two disagree about
+ * hyphenation, ligatures, quotes and whitespace in exactly the ways this
+ * module's folding exists to absorb.
+ *
+ * Which is why it lives here rather than beside the reader. A second
+ * normalisation written for text would be a fork of these rules: locally
+ * correct, silently divergent, and impossible to notice — the two would agree
+ * on every passage anyone tested and disagree on the wrapped compound nobody
+ * did.
+ *
+ * Only the two confident tiers apply. `windowMatch` and `partialMatch` earn
+ * their place on a PDF page, where the alternative is a reader hunting a
+ * paragraph on a rendered sheet; here the passage is in a scrollable text and a
+ * confidently wrong highlight over a legal quotation is worse than none.
+ */
+export function locatePassageInText(
+  text: string,
+  snippet: string
+): { start: number; end: number } | null {
+  const needle = normalizePassage(snippet)
+  if (needle.length < 8 || !text) return null
+
+  const { haystack, offsets } = foldWholeText(text)
+  if (!haystack.length) return null
+
+  const exact = haystack.indexOf(needle)
+  const range =
+    exact !== -1 ? { start: exact, end: exact + needle.length } : anchorMatch(haystack, needle)
+  if (!range) return null
+
+  // Back to source offsets, skipping the synthetic boundaries the fold inserts
+  // (which carry no offset of their own).
+  let start = -1
+  let end = -1
+  for (let i = range.start; i < range.end && i < offsets.length; i += 1) {
+    const offset = offsets[i]!
+    if (offset < 0) continue
+    if (start === -1) start = offset
+    end = offset + 1
+  }
+  return start === -1 ? null : { start, end }
+}
+
+/**
+ * `foldChar` + `collapse` over one contiguous string, into parallel arrays.
+ *
+ * Same rules as the chunked path, and deliberately not the same DATA STRUCTURE.
+ * A PDF page is a few thousand characters, so an `IndexedChar[]` there costs
+ * nothing; this path is handed a whole consolidated law. At the two
+ * million characters the reader route used to return, two million
+ * three-property objects — twice, raw and then collapsed — measured 670 ms and
+ * ~317 MB of heap, on the main thread, inside the `useMemo` that renders the
+ * dialog. That is a freeze on a laptop and an out-of-memory tab on a phone, and
+ * it was invisible in review because the same code is correct and cheap on
+ * every input the tests use. (`MAX_DOCUMENT_TEXT_CHARS` came down to one
+ * million on the strength of these numbers; this side had to come down too, or
+ * the cap would be the only thing holding it up.)
+ *
+ * A character plus a number, in two flat arrays, is the same information
+ * without the object headers. The rules stay in one place: the two passes below
+ * are `foldChar` and `collapse` verbatim — if you change either there, change
+ * it here, and `passage-highlight.spec.ts` pins the two against each other.
+ */
+const foldWholeText = (text: string): { haystack: string; offsets: number[] } => {
+  const rawChars: string[] = []
+  const rawOffsets: number[] = []
+  for (let offset = 0; offset < text.length; offset += 1) {
+    // `charCodeAt` rather than `text[offset]`: indexing allocates a fresh
+    // one-character string per source character, and the table entry it would
+    // be compared against already exists. Same UTF-16 unit either way, so a
+    // lone surrogate behaves exactly as it did.
+    const code = text.charCodeAt(offset)
+    const folded = code < 256 ? LATIN1_FOLDED[code]! : foldChar(text[offset]!)
+    // The overwhelmingly common case, kept out of the iterator: `for…of` over a
+    // one-character string yields a NEW string, so the array ends up holding
+    // two million distinct objects instead of two million pointers to the 256
+    // in the table. Multi-character folds (a ligature, a decomposition) still
+    // go the long way.
+    if (folded.length === 1) {
+      rawChars.push(folded)
+      rawOffsets.push(offset)
+      continue
+    }
+    for (const ch of folded) {
+      rawChars.push(ch)
+      rawOffsets.push(offset)
+    }
+  }
+
+  const chars: string[] = []
+  const offsets: number[] = []
+  const pushBoundary = (): void => {
+    if (!chars.length || chars[chars.length - 1] === ' ') return
+    chars.push(' ')
+    offsets.push(-1)
+  }
+
+  for (let i = 0; i < rawChars.length; i += 1) {
+    const ch = rawChars[i]!
+    if (ch === '-') {
+      let j = i + 1
+      while (j < rawChars.length && isWhitespace(rawChars[j]!)) j += 1
+      const broke = j > i + 1
+      const previous = chars[chars.length - 1]
+      if (broke && previous && isLetter(previous) && j < rawChars.length && isLetter(rawChars[j]!)) {
+        i = j - 1
+        continue
+      }
+      pushBoundary()
+      continue
+    }
+    if (isWhitespace(ch)) {
+      pushBoundary()
+      continue
+    }
+    chars.push(ch)
+    offsets.push(rawOffsets[i]!)
+  }
+  while (chars.length && chars[chars.length - 1] === ' ') {
+    chars.pop()
+    offsets.pop()
+  }
+  return { haystack: chars.join(''), offsets }
 }
 
 /** Convenience wrapper for callers holding raw runs. */

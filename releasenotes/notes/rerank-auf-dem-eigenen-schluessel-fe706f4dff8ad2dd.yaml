@@ -1,0 +1,17 @@
+---
+improvements:
+  - >
+    Die Verbrauchsübersicht zeigt jetzt auch die Modellaufrufe, mit denen Piloti
+    die gefundenen Textstellen sortiert, bevor es antwortet. Bisher fehlten sie
+    dort vollständig: pro Suche lief ein solcher Aufruf, der auf keiner
+    Abrechnung auftauchte und in keinem Budget zählte.
+  - >
+    Organisationen mit eigenem Modellschlüssel verwenden ihn dafür ab sofort
+    auch. Diese Aufrufe liefen bisher immer über den Schlüssel der Plattform,
+    unabhängig davon, was hinterlegt war.
+  - >
+    Erweitert Piloti eine Suche selbst um andere Formulierungen, weil die ersten
+    Treffer die Frage nicht abdecken, weiß es das jetzt auch selbst und kann
+    darauf reagieren — bisher bekam es die zusätzlichen Treffer wortlos
+    untergeschoben. Ebenso sieht es bei einer nachgebesserten Antwort, welche
+    Fundstelle und welches Zitat die Prüfung nicht bestanden haben.

@@ -74,11 +74,11 @@ export const metadata: Metadata = {
   title: {
     // Bare landing/auth routes render this; nested routes (e.g. a project)
     // override `template` so their titles read "<Section> — Piloti".
-    default: `${PRODUCT_NAME} — OIB Compliance Assistant`,
+    default: `${PRODUCT_NAME} — Workspace for planning offices`,
     template: `%s — ${PRODUCT_NAME}`,
   },
   description:
-    'AI compliance assistant for Austrian building regulations (OIB Richtlinien) — searches, interprets, and cites building-code requirements.',
+    'Workspace for planning offices. Chat with Piloti about the project; answers are grounded in its files, the office archive, and Austrian building regulations.',
   icons: {
     icon: '/favicon.ico',
   },
@@ -147,6 +147,14 @@ const getAppConfig = async (): Promise<AppConfig> => {
       vlmAvailable,
       ifcUploadEnabled,
     }),
+    // Read server-side per request: the Docker image builds with no env
+    // files, so a client-side `process.env.NEXT_PUBLIC_*` read would bake
+    // `undefined` into the bundle and silently disable analytics on every
+    // deployed environment. Empty values keep the client disabled (fail-open).
+    posthog: {
+      host: process.env.NEXT_PUBLIC_POSTHOG_HOST ?? '',
+      projectToken: process.env.NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN ?? '',
+    },
   }
 }
 

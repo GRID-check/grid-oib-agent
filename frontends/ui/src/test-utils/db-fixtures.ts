@@ -60,6 +60,7 @@ export const makeMemoryItem = (
   provenanceType: 'agent',
   sourceConversationId: null,
   supersedesId: null,
+  conflictsWithId: null,
   salience: 0.5,
   pinned: false,
   createdBy: null,
@@ -106,8 +107,16 @@ export const makeDocument = (overrides: Partial<Document> = {}): Document => ({
   collectionName: 'proj_abc',
   fileSize: 1024,
   contentType: 'application/pdf',
+  // Null is the honest default: only a folder upload records where a file came
+  // from, and the fixture is a single picked file.
+  originPath: null,
+  contentHash: null,
   status: 'completed',
-  deletedAt: null,
+  // Nothing published, and `active`, which is what a row written before
+  // migration 0082 means and what the backfill then gives it. A test that cares
+  // about the lifecycle sets both explicitly.
+  publishedVersionId: null,
+  lifecycle: 'active',
   createdAt: new Date('2026-01-01T00:00:00Z'),
   updatedAt: new Date('2026-01-02T00:00:00Z'),
   errorMessage: null,

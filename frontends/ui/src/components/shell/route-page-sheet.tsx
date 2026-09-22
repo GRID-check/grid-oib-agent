@@ -66,6 +66,10 @@ export function RoutePageSheet({
 
   const handleExitComplete = React.useCallback(() => {
     if (standalone) router.push(fallbackHref)
+    // Same guard as BackLink: with no history entry to return to, `back()`
+    // would leave the app — push the fallback instead.
+    else if (typeof window !== 'undefined' && window.history.length <= 1)
+      router.push(fallbackHref)
     else router.back()
   }, [standalone, fallbackHref, router])
 

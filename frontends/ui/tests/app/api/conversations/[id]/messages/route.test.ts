@@ -94,6 +94,7 @@ describe('/api/conversations/[id]/messages', () => {
         role: 'user',
         // Written before authorship existed — attribution happens on read.
         authorUserId: null,
+        runId: null,
         content: 'hello',
         metadata: null,
         createdAt: new Date(),
@@ -104,6 +105,7 @@ describe('/api/conversations/[id]/messages', () => {
         conversationId: 's_conv_1',
         role: 'assistant',
         authorUserId: null,
+        runId: null,
         content: 'hi there',
         metadata: null,
         createdAt: new Date(),

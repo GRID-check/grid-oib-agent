@@ -27,6 +27,7 @@ import {
   type AnswerFeedbackVerdict,
 } from '@/lib/db/schema'
 import { isConversationTagKey, type ConversationTagKey } from '@/lib/conversations/tags'
+import { executeRows } from '@/lib/db/execute-rows'
 
 /** Hard cap for the per-conversation hydration list. */
 export const CONVERSATION_FEEDBACK_LIST_LIMIT = 200
@@ -314,7 +315,7 @@ export function parseFeedbackWindowDays(raw: string | null): number {
  * downstream; this only gets us to the array.
  */
 function rowsOf(result: unknown): Record<string, unknown>[] {
-  return (result as { rows?: Record<string, unknown>[] })?.rows ?? []
+  return executeRows(result)
 }
 
 /** Start of the health window, as an ISO instant. */

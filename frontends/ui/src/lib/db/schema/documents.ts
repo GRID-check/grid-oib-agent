@@ -9,6 +9,7 @@ import {
   foreignKey,
   index,
   unique,
+  uniqueIndex,
 } from 'drizzle-orm/pg-core'
 import { sql } from 'drizzle-orm'
 import { projects } from './projects'
@@ -76,11 +77,13 @@ import {
   type AuthoredRefKind,
   type DocumentAuthor,
 } from '@/lib/documents/document-authors'
+import { DOCUMENT_LIFECYCLES, type DocumentLifecycle } from '@/lib/documents/lifecycle-types'
 
 // Re-exported so `@/lib/db/schema` stays the one import site every existing
 // caller already uses; the declaration itself lives outside the schema so a
 // route can validate against it without importing the database.
 export { AUTHORED_REF_KINDS, DOCUMENT_AUTHORS, type AuthoredRefKind, type DocumentAuthor }
+export { DOCUMENT_LIFECYCLES, type DocumentLifecycle }
 
 export const documents = pgTable('documents', {
   id: uuid('id').primaryKey().defaultRandom(),
@@ -274,6 +277,43 @@ export const documents = pgTable('documents', {
   fileSize: integer('file_size'),
   contentType: text('content_type'),
   /**
+   * Where this file sat before it was uploaded, as the browser reported it —
+   * e.g. `Wohnbau Nord/03_Einreichung/Grundrisse/EG.pdf` (migration 0072).
+   *
+   * Only a folder upload has one; a file chosen through the picker genuinely
+   * does not, and NULL says so rather than a guess derived from the filename.
+   * Written once at upload and never rewritten.
+   *
+   * NOT `folderId` / the materialised folder path (ADR-0049). Those are
+   * Piloti's own filing: navigable, renameable, owned by whoever files the
+   * document HERE. This is a fact about the file's origin, and the two must not
+   * share a column even when they agree — renaming a Piloti folder must not
+   * rewrite history, and re-filing a document must not claim it moved on the
+   * office server.
+   */
+  originPath: text('origin_path'),
+  /**
+   * A digest of the stored bytes — `sha256:<64 hex>` — or NULL when unknown
+   * (migration 0078).
+   *
+   * It exists to answer one question, at the one moment it is asked: a folder
+   * re-upload arrives carrying 500 files, and this is how the browser learns
+   * that 492 of them are byte-identical to what is already filed and need not
+   * cross the wire at all. Written with the bytes, rewritten when the bytes
+   * are replaced.
+   *
+   * NULL means "unknown", not "empty": every row written before 0078 has none,
+   * and the planner must treat such a file as an UPDATE rather than assume it
+   * unchanged. Getting that backwards would silently drop a corrected plan.
+   *
+   * NOT an identity. Two documents in one project may hold identical bytes —
+   * the same DIN sheet filed under two disciplines is a filing decision, not a
+   * duplicate — and a document is still identified by its filename within a
+   * collection (migration 0074). This column decides only whether an upload has
+   * anything new to say.
+   */
+  contentHash: text('content_hash'),
+  /**
    * Where ingestion got to: `pending → processing → processed | error`, plus
    * `stored`, which is none of those (migration 0063).
    *
@@ -308,7 +348,50 @@ export const documents = pgTable('documents', {
    * adds no DDL for this value.
    */
   status: text('status').notNull().default('pending'),
-  deletedAt: timestamp('deleted_at', { withTimezone: true }),
+  /**
+   * The version whose bytes the storage columns above mirror, or NULL when
+   * nothing has been published yet (migration 0082, ADR-0054).
+   *
+   * A POINTER, not a second copy of the state: `document_versions` holds every
+   * version and its editorial state, and this column says which one is live.
+   * The item's `storageKey`, `storageBucket`, `fileSize`, `contentType` and
+   * `contentHash` mirror that version's, which is what makes every existing
+   * reader — preview, download, thumbnail, ingest, the quota ledger — work
+   * unchanged after versioning arrived.
+   *
+   * NOT an inline `.references()`: the real constraint is composite on
+   * `(published_version_id, id)` against `document_versions (id, document_id)`,
+   * the `documents_folder_id_project_id_fkey` shape, so a document can only ever
+   * point at a version OF ITSELF. `ON DELETE SET NULL`, because discarding a
+   * version must not take the item with it.
+   *
+   * The constraint lives ONLY in migration 0082: declaring it here would make
+   * `documents.ts` and `document-versions.ts` import each other, and the version
+   * table already carries the composite key in the other direction. Same
+   * arrangement, and the same reason, as the partial indexes above.
+   */
+  publishedVersionId: uuid('published_version_id'),
+  /**
+   * Whether the item is in the working set or has left the default listings
+   * (migration 0082).
+   *
+   *   - `active`   — every row written before this column, and the default.
+   *   - `archived` — the office is done with it. The bytes stay, every version
+   *                  stays, and the chunks are purged so it stops answering
+   *                  questions; it is NOT a delete and there is no soft delete
+   *                  on this table (0077 dropped the one that existed).
+   *
+   * A CHECK on the value here rather than the plain `text` `scope` and `status`
+   * have, because this column gates a LISTING: a third value nothing knows how
+   * to render would silently hide documents, and the failure would look like
+   * data loss to the person whose file vanished.
+   */
+  lifecycle: text('lifecycle').$type<DocumentLifecycle>().notNull().default('active'),
+  // No `deletedAt`: documents have no soft delete. Every delete is a hard
+  // DELETE, and the column 0009 added was never written by anything, so 0077
+  // dropped it — a read-only predicate over a dead column would have hidden
+  // rows the day something wrote it. `projects` and `conversations` keep
+  // theirs and use them.
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   errorMessage: text('error_message'),
@@ -332,6 +415,37 @@ export const documents = pgTable('documents', {
   collectionIdx: index('documents_collection_idx').on(table.collectionName),
   statusIdx: index('documents_status_idx').on(table.status),
   orgScopeIdx: index('documents_org_scope_idx').on(table.organizationId, table.scope),
+  /**
+   * One live document per filename in a collection, over every row that can own
+   * chunks (migrations 0074, restated by 0077, widened by 0083).
+   *
+   * The ingest pipeline replaces passages by filename, so a second row under
+   * one name is a ghost; `findLiveDocumentByFilename` is the probe that makes
+   * the upload paths replace instead, and this is that probe's WHERE clause as
+   * a constraint, for the concurrent first upload the probe misses. "Live"
+   * means "exists": there is no soft delete on this table (0077 dropped the
+   * `deleted_at IS NULL` half).
+   *
+   * The predicate is a UNION of two disjoint sets, and it is disjoint by
+   * construction rather than by luck:
+   *
+   *   - `authored_by = 'user'` — 0074's original rule. A machine-authored row
+   *     outside the namespace carries a model-chosen name, owns no chunks, and
+   *     must coexist with a person's file of the same name.
+   *   - `filename LIKE 'piloti/%'` — the namespace a publishable Piloti
+   *     document is filed under (ADR-0054, `documents/agent-namespace.ts`). A
+   *     published version of such a row IS indexed, so it needs exactly the
+   *     rule the first arm gives a human upload. No browser produces a filename
+   *     containing `/`, so no upload shelf can present a name in this arm — the
+   *     two arms cannot meet, and widening the index therefore changes nothing
+   *     a person can do.
+   *
+   * Drizzle's index builder can express the predicate but not a `LIKE`, so the
+   * `sql` fragment below is the whole of it and the migration is the authority.
+   */
+  liveNamePerCollectionUidx: uniqueIndex('uniq_documents_live_name_per_collection')
+    .on(table.organizationId, table.collectionName, table.filename)
+    .where(sql`${table.authoredBy} = 'user' OR ${table.filename} LIKE 'piloti/%'`),
   /**
    * A document's folder must belong to the document's own project (migration
    * 0030). The project is pinned to the tenant by its row-level-security
@@ -450,6 +564,12 @@ export const documents = pgTable('documents', {
    * question this constraint protects is only ever asked of the rows no person
    * wrote.
    */
+  /**
+   * The listing gate's vocabulary, as a database invariant (migration 0082).
+   * See the column for why this one has a CHECK where `scope` and `status` do
+   * not.
+   */
+  lifecycleKnown: check('documents_lifecycle_known', sql`${table.lifecycle} IN ('active', 'archived')`),
   authorshipRequiresProvenance: check(
     'documents_authorship_requires_provenance',
     sql`${table.authoredBy} = 'user' OR (${table.authoredByProducer} IS NOT NULL AND ${table.authoredByRef} IS NOT NULL AND ${table.authoredByRefKind} IS NOT NULL)`

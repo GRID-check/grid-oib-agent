@@ -42,6 +42,33 @@ export interface PageHeaderProps extends Omit<React.HTMLAttributes<HTMLElement>,
 const TITLE_ROW_CLASS =
   'flex min-w-0 flex-col items-stretch gap-3 sm:flex-row sm:items-end sm:justify-between sm:gap-4'
 
+/**
+ * The floor the title column refuses to go below, and the reason the action can
+ * shrink at all.
+ *
+ * Stacking fixed the phone. It did not fix the laptop, because in the row the
+ * old rule still held: the action was `sm:shrink-0`, so it kept its natural
+ * width at every width above 640px and the title column was still the only
+ * thing that could give. Project → Dateien is the case that shows it — a view
+ * toggle, four filter chips, a `lg:w-72` search field and an upload button want
+ * about 1100px, and inside a sidebar the header gets ~900px — so at 900px the
+ * Dateien subtitle rendered as a one-to-two-word column beside a row that had
+ * spare capacity it would not use.
+ *
+ * Two changes, and they only work together. The title gets a minimum, so the
+ * squeeze stops at something readable rather than at one word. The action stops
+ * being `shrink-0`, so it is the side that yields once the title is at its
+ * floor — and yielding is not damage there, because these action rows are
+ * `flex-wrap`: they answer a narrower box with a second line. That wrap was
+ * already written and was dead code, since `shrink-0` meant the box was never
+ * narrower than its content.
+ *
+ * 14rem is two-thirds of the widest section subtitle at `text-sm`: enough for
+ * three or four words a line, which reads as a paragraph. Below `sm` it does
+ * not apply — the row is stacked there and the title already owns the width.
+ */
+const TITLE_COLUMN_CLASS = 'min-w-0 sm:min-w-56'
+
 export function PageHeader({
   title,
   subtitle,
@@ -51,13 +78,13 @@ export function PageHeader({
 }: PageHeaderProps): JSX.Element {
   return (
     <header className={cn('min-w-0', TITLE_ROW_CLASS, className)} {...props}>
-      <div className="min-w-0">
+      <div className={TITLE_COLUMN_CLASS}>
         <h1 className="text-balance text-xl font-semibold tracking-tight">{title}</h1>
         {subtitle && (
           <p className="mt-1 text-pretty text-sm text-muted-foreground">{subtitle}</p>
         )}
       </div>
-      {action ? <div className="sm:shrink-0">{action}</div> : null}
+      {action ? <div className="min-w-0">{action}</div> : null}
     </header>
   )
 }

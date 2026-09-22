@@ -9,7 +9,7 @@ The visual language is **warm paper monochrome + provenance signal colors** (ado
 ## Principles
 
 1. **Restraint is the aesthetic.** Warm paper surfaces (`#f6f6f4`-family, warm charcoal in dark mode), a near-black ink ramp, and **no brand accent color on actions**: the primary action is ink (`#1f2023`, white text; paper-white on ink in dark mode). If everything is highlighted, nothing is. Blue is *not* the action color — it belongs to the Baurecht provenance signal.
-2. **Provenance is (almost) the only color.** The one place chroma exists BY MEANING is the source signal system (`--source-law` blue, `--source-project` green, `--source-office` gold, `--source-auto` gray, `--signal-error` red). It runs through composer, citations, history filters, and insights — it is the product's trust affordance. **Color never travels alone: every signal is always icon + label + color together** (a11y and legibility). Green doubles as status "Aktiv"; red is for errors only. The one exception is `--accent-pop` (product decision 2026-08-27, §"Accents vs. signals" below): the app's one general accent, sourced from the marketing site's chat mock (a moss/lime green distinct in hue from `--source-project`'s forest green). It marks a moment as live/ready rather than stating provenance — so, unlike a source signal, it carries no icon/label requirement — and it stays rare: today it lives on the composer, and any new use should be judged by the same restraint, not spread by default.
+2. **Provenance is (almost) the only color.** The one place chroma exists BY MEANING is the source signal system (`--source-law` blue, `--source-project` green, `--source-office` gold, `--source-auto` gray, `--signal-error` red). It runs through composer, citations, history filters, and insights — it is the product's trust affordance. **Color never travels alone: every signal is always icon + label + color together** (a11y and legibility). Green doubles as status "Aktiv"; red is for errors only. There is no general accent: `--accent-pop` was carved out for one in 2026-08 and withdrawn in 2026-09 (§"Accent pop" below has the reasoning, and it is worth reading before proposing another one).
 3. **Authority through precision.** This tool cites Austrian building law. Citations, legal-basis, and document provenance must look verifiable and exact — monospace for identifiers, clear source attribution, never decorative.
 4. **Hierarchy over density.** Dense is fine (architects handle complex data), but every screen has ONE clear focal point and a legible reading order. Whitespace does the separating, not boxes-within-boxes.
 5. **Motion with a reason.** Movement here is an argument, not an ornament: it says where something came from, that a press landed, or that a change took. Entrance fades with a slight rise for arriving content; smooth height for accordions and thinking steps; skeleton→content. **Springs are allowed where the motion's trajectory carries information the endpoint does not** — a panel arriving from an edge, a toggle thumb clicking into its detent, a dropped file landing, a row gliding to its new group. They are physics, not personality: the overshoot budget is **1–2 pixels of visible travel**, so the spring is chosen by distance, never by taste. Everything else — colour, opacity, hover, system-initiated entrance — is a tween, 120–240ms. Never a spring on colour, on legal content, on errors, or on anything repeating more than about five times per screen. Respect `prefers-reduced-motion` absolutely: motion must be droppable with no loss of information.
@@ -83,27 +83,34 @@ badge carrying that whole distinction alone. Resolve it with `accentForLane`
 the "Belegt durch" chips cannot drift. The type is `SourceTint = SourceSignal |
 'oib'`; an accent always keeps its stratum's icon.
 
-**Accent pop — the one non-provenance exception (product decision,
-2026-08-27).** `--accent-pop(-tint/-text/-foreground)` is a moss/lime green
-(hue ~126), sourced from the marketing site's own chat mock (`frontends/web`
-`--color-accent-400/500`) — deliberately a different hue from
-`--source-project`'s forest green (hue ~152) so the two are never read as the
-same signal. It is the app's one general accent: not a provenance signal, and
-not fixed to any single surface by rule, but reached for rarely, and only for
-a moment that wants to feel live/ready rather than state a fact. Today that
-is the composer — the focus ring when typing, the send button once a message
-is armed — echoing the same green the marketing site's own chat mock already
-uses for its caret and step numbers. Unlike a provenance signal it is NOT
-paired with an icon or a text label, because there is no fact it is
-reporting. Reach for it sparingly: a genuinely similar "live/ready" moment
-elsewhere is fine, but a surface that wants color for a FACT wants a real
-provenance signal, not this one borrowed for its warmth — and if it starts
-showing up on more than a small handful of surfaces, that is the signal to
-revisit this rule, not to keep adding call sites under it quietly.
+**Accent pop — tried, and withdrawn (2026-08-27 to 2026-09-01).** There was
+one carved-out general accent: `--accent-pop`, a moss/lime green (hue ~126)
+taken from the marketing site's chat mock, deliberately a different hue from
+`--source-project`'s forest green (hue ~152) so the two would not be read as
+the same signal. It marked a moment as live/ready rather than stating a fact,
+and it lived on the composer — the focus ring while typing, the send button
+once a message was armed.
 
-| Token family | Light base | Meaning | Icon/label required? |
-|---|---|---|---|
-| `--accent-pop(-tint/-text/-foreground)` | moss/lime, hue 126 | The app's one general accent — used sparingly | No — not a provenance signal |
+It is gone, and the tokens with it. Two reasons, in the order they matter:
+
+1. **It contradicted Principle 1**, which this document opens with: no brand
+   accent color on actions, the primary action is ink. The exception was
+   written knowing that, and the composer is precisely where the rule earns
+   its keep — the send button IS the primary action.
+2. **A different hue is not a different signal to a reader.** The composer's
+   ring is on screen for the entire time somebody is composing, directly above
+   an answer whose provenance chips are green. Two greens a few degrees of hue
+   apart, one meaning "project source" and one meaning nothing at all, is not a
+   distinction anyone makes at a glance — and the one carrying no icon and no
+   label is the one that cannot explain itself. Reported as such by the product
+   stakeholder, who asked for the grey/black it had been.
+
+The lesson is the one the section already tried to state and could not enforce:
+a control that wants to stand out wants contrast, not chroma. The armed send
+button reads as armed because it goes from muted to solid and becomes
+pressable — the colour was carrying a distinction the contrast had already
+made. **Do not reintroduce a general accent token.** If a future surface needs
+"live/ready", say it with contrast, weight or motion.
 
 ## Type ramp (Tailwind classes — use verbatim)
 
@@ -127,7 +134,8 @@ The ramp targets the dummy's 9.5–24px scale: **20px page titles**, **23px hero
 - **Page container:** `mx-auto w-full max-w-5xl px-4 py-8 md:px-8` (content pages). Chat/full-bleed surfaces are exceptions.
 - **Vertical section gap:** `space-y-8` between major sections; `space-y-4` within a section; `gap-3` in tight lists.
 - **Card padding:** `p-6` for feature cards, `p-5` for stat cards, `px-4 py-3` for list rows.
-- **Radius:** cards `rounded-lg` (var --radius, 12px — inside the dummy's 7–14px range), inputs/buttons follow shadcn defaults, pills/badges `rounded-md`.
+- **Radius ladder:** controls `rounded-md` (8px — buttons, fields, badges, chips, tooltips, inner panels, selection bars), cards `rounded-lg` (12px, `--radius`), floating panels `rounded-xl` (16px — dialogs, popovers, select content). Radius is paint: a radius-only change moves no layout box.
+- **Glyph sizes:** the glyph sits two steps below its well — `size-3.5` in badges/chips, `size-4` free-floating UI glyphs (pagination chevrons, dialog close, `size-9` wells), `size-3.5` in `size-7` wells, `size-5` in the empty-state/confirm discs. A new well picks the glyph its size already owns; it does not invent one.
 - **Borders:** hairline `border` (border-border — alpha ink, composites on any surface). Prefer a single border + `bg-card` over nested boxes. Use `divide-y` for list groups inside one bordered container. Depth = surface step + layered soft shadow (`shadow-xs/sm/md/lg` are bound to `--elevation-*`), never a heavy border.
 
 ## Touch
@@ -172,9 +180,11 @@ not one, since a touch tablet past `md` drops to 14px and zooms as a phone would
 Enter does, and a field that matches strings turns off autocapitalize and
 autocorrect so the phone cannot edit a query on its way into a matcher.
 
-Measured, not eyeballed: `task fe:touch-audit`. Held statically by
-`frontends/ui/src/components/ui/touch-target.spec.ts` and
-`frontends/ui/src/components/ui/mobile-affordances.spec.ts`.
+Held statically by `frontends/ui/src/components/ui/touch-target.spec.ts` and
+`frontends/ui/src/components/ui/mobile-affordances.spec.ts`. The browser
+measurement that once backed these (`task fe:touch-audit`) went with the
+screenshot harness; capture a 390x844 viewport and look, until it is rewritten
+(`docs/contributing/testing-and-verification.md`).
 
 ## Component layers (atomic design)
 
@@ -216,6 +226,61 @@ get the fifth hand-rolled copy of `rounded-b-[10px] bg-card shadow-xs`.
 The layer names carry weight in review. "Make it an atom" and "that belongs in
 the kit" are the two most common notes on a UI diff.
 
+## Overlays: pick by what the content IS
+
+The rule was already written, in two file headers nobody finds until they are
+already editing one (`components/ui/sheet.tsx`, `components/ui/page-sheet.tsx`).
+It lives here now, because the question it answers — "should this be a modal?" —
+arrives from outside the code, and the honest answer is that SIZE is not the
+criterion. All three of these are the same Radix Dialog underneath, so focus
+trapping, Escape and scroll locking are identical; what differs is intent.
+
+| Use | When the content is | Example |
+|---|---|---|
+| `Dialog` | One question with an answer — confirm, rename, a short form — or one artifact you look at with full attention. What is behind it does not matter while it is open. | `ConfirmDialog`, `skill-editor-dialog.tsx`, the PDF viewer |
+| `Sheet` (side) | The DETAIL of a row the reader just selected. The list stays put behind it and keeps updating. | `task-detail.tsx`, `schedule-detail.tsx`, `skill-detail.tsx` |
+| `PageSheet` | A whole PLACE, independent of wherever the reader is standing. Route-backed, reached from the org nav. | Postfach, Archiv, chat history |
+| `Popover` | A transient choice attached to the control that opened it. Never a panel with its own header and scroll region. | the `/` command picker, filter menus |
+| `Collapsible` | More of THIS row, in place. No scrim, nothing dimmed. | the wizard's „Erweitert", the document lifecycle panel |
+| No overlay | A multi-step flow that owns its section, or a second pane you read the first pane AGAINST. | `ScheduleWizard` inline in Tasks, the file peek |
+
+Two corollaries that are the whole reason the table exists:
+
+**An editor form is a `Dialog`, never a `Sheet`.** An edit is a question, and a
+question wants the page behind it to stop mattering. A `Sheet` full of fields
+with a Save footer is a form pretending to be a detail view, and it gets the
+one behaviour a form must not have: Escape and a scrim click discard the edit
+with nothing asked.
+
+**One viewer per kind of thing viewed.** Not "one viewer per surface that
+happens to show it". The same stored file opened from Files and from the Archiv
+must be the same component; two of them drift on the first change to either,
+and each looks locally correct while doing so.
+
+**Stacking.** One `Dialog` over one `Sheet` is fine — a confirm inside a detail
+drawer is the shape people expect. Two drawers is not: two stacked modal focus
+traps, and the reader cannot tell which list they are going back to.
+
+**Getting back out.** Every overlay closes on Escape, on its own X, and on a
+scrim click, and Escape does exactly ONE thing: close this overlay.
+
+The one exception is the reason editor forms are `Dialog`s at all: **an editor
+with unsaved changes does not close on any of the three.** All of them route
+through the same discard confirmation, because a form that throws work away on
+a stray Escape has the failure the rule above was written to prevent, and it has
+it whichever gesture triggers it. A clean editor — nothing typed, or everything
+saved — closes like any other overlay; the confirmation is about the unsaved
+edit, not about the form.
+
+An overlay whose state is worth sending to a colleague puts that state on the
+URL with `push`, so browser Back closes it. One whose state is not worth sharing
+stays off the URL entirely. `replaceState` is the option that looks like a
+compromise and is not: it produces a URL that promises a link and a Back button
+that lies. When the URL carries the state, ONE place owns writing it: the
+overlay opening pushes, the overlay closing replaces, and the reader's own
+navigation is followed rather than fought. Two effects each pulling one way is
+how Back ends up doing nothing.
+
 ## Component patterns
 
 **Project card** — "a project, listed" has ONE component: `ProjectCard`
@@ -226,6 +291,23 @@ arrangement (the dense projects-home row) is composed from
 Never hand-roll a lookalike — two of them drift on the first token retune. The
 inventory, the honesty constraints on status and timestamps, and the decision
 procedure are in **`docs/design/project-surfaces.md`**.
+
+**Status on a card is a SWATCH — a 10px rounded square on the title line.**
+Never a coloured rail down the card's edge, and never a tint across the whole
+sheet. Both were tried on the task card and both fail the same way, by making
+the status the loudest thing on a card whose subject is its title: a rail is a
+third material on an anatomy that has two (a white sheet laid into a tray), and
+a tint shouts — a red card is a red card even when the failure it names is four
+days old and already understood.
+
+The swatch is the quiet version of the same signal, and it is a shape this
+product already uses to mean "this colour stands for this row": the timetable's
+legend and the schedule cards pair exactly this square with a name. Reusing it
+costs nothing to learn. `features/tasks/components/task-card.tsx`
+(`STATUS_SWATCH`) is the reference.
+
+Colour is never the only carrier. The swatch is a scan anchor; the status is
+always also stated in words, in the chip under the title.
 
 **Page header** — every content page opens with `PageHeader`
 (`frontends/ui/src/components/ui/page-header.tsx`), so the title stays on-spec
@@ -274,11 +356,11 @@ The Archiv and the Postfach are NOT this case since the org-nav redesign: they r
 
 Tabbed shells (Organisation, Platform) are **one place**, not a stack of submenus. Switching Models → Knowledge `replace`s the URL and collapses those siblings on the trail, so Back leaves the shell and returns to the project — it does not walk the previous settings tab. Project sections stay a real stack: Files → Chat is a step.
 
-**Stat** — `rounded-lg border bg-card p-5`, number in `text-2xl font-semibold tabular-nums`, label in `text-sm text-muted-foreground` below.
+**Stat** — `rounded-lg border bg-card p-5 shadow-xs`, number in `text-2xl font-semibold tabular-nums`, label in `text-sm text-muted-foreground` below. A leading icon sits in a `StatCardIcon` well (`components/ui/stat-card.tsx`: the chip tint pairs plus the office provenance tint, `size-9`/`size-7`). Stat vs charter Figure (§A2): a Stat is a dashboard tile whose number *is* the content; a Figure is the one emphasized answer *inside* an evidence card. A tile never carries a Figure, a card never carries a Stat.
 
 **Search** — `SearchField` (`components/ui/search-field.tsx`) is the one magnifier + input + clear control. Archiv composes it inside `FileSearchBar` (sticky band, run button, result banner). Files composes the bare `FileSearchField` in the page header instead — no sticky band, no run button (Enter alone commits the semantic search), no banner (the results are the report); `useFileSearch` owns the two-mode query state one level above both the field and `FileBrowserPane`. Admin lists compose `SearchField` inside `DataToolbar`. Do not hand-roll another `relative` + `Search` icon + `Input`.
 
-**Exclusive / multi filters** — `ToggleGroup` (`components/ui/toggle-group.tsx`). Segmented icon clusters (Files view switcher) use `segmented`. Inverted pills (folder / category chips) use `variant="inverted"`. Exclusive form choices with a description (job output) use `RadioGroup`, not a toggle row.
+**Exclusive / multi filters** — `ToggleGroup` (`components/ui/toggle-group.tsx`). Segmented icon clusters (Files view switcher) use `segmented`. Inverted pills (folder / category chips) use `variant="inverted"`. Exclusive form choices with a description (the wizard's cadence: einmal / wiederkehrend / nur manuell) use `RadioGroup`, not a toggle row. A `segmented` cluster **hugs its segments** (`w-fit`) and scrolls rather than overflowing when they do not fit — `flex` alone is block-level, which left a tray stretched across a `max-w-3xl` column with a dead zone bolted to its right, and at phone width ran the last segment off the card where nobody could press it.
 
 **Form field** — `Field` + `FieldLabel` + `FieldDescription` + `FieldError`. TanStack-backed forms wrap the same anatomy through `FieldShell`. Raw `<label>` next to an `Input` is a leftover.
 
@@ -298,7 +380,7 @@ surface that already has a border.
                   border bg-card text-muted-foreground/70 shadow-sm">
     <Icon className="size-5" aria-hidden />
   </div>
-  <p className="text-balance text-[15px] font-semibold tracking-tight text-foreground">{title}</p>
+  <p className="text-balance text-sm font-semibold tracking-tight text-foreground">{title}</p>
   <p className="mt-1.5 max-w-sm text-pretty text-sm leading-relaxed text-muted-foreground">{whyAndWhatToDo}</p>
   <div className="mt-5">{primaryAction}</div>
 </div>
@@ -379,6 +461,18 @@ which on a 38px row pitch is the pill barging into the row above its target.
 overshoot is in budget at *any* distance (0.44px at 288px, 0.69px at 448px)
 rather than up to a ceiling. It shares `springDrawer`'s natural frequency, so
 only the landing differs, not the arrival time.
+
+**A `layoutId` is global, so it has to be scoped by hand.** `layoutId` names
+ONE travelling element across the entire React tree, not one per component —
+two mounted at once are the same element, and the pill flies between them. This
+shipped twice: `ToggleGroup` used the constant `"toggle-pill"` while the Tasks
+tab mounts two segmented groups together (the view switcher above the status
+filter row), and `Tabs` used `"tabs-pill"` for every strip on the page. Both
+now take a `React.useId()` per instance, the way the nav rail already keyed its
+own pill by rail width (`railActivePillId`). The rule: **one shared-layout id
+per mounted group, never a module constant.** Since the id never reaches the
+DOM, both atoms mirror it onto `data-pill-id` so a collision is visible in
+devtools and assertable in a test rather than only in the animation.
 
 **And why a sheet takes a tween.** Past roughly 300px of travel there is no
 spring left to pick: anything with a perceptible overshoot percentage is out of
@@ -470,5 +564,6 @@ More than one ambient loop on screen. `ease-linear`. `transition-all`.
 - No emojis anywhere in UI. Icons are lucide-react only.
 - No hardcoded colors — tokens only, so dark mode is free.
 - No nested cards (card-inside-card). Flatten with borders/dividers/spacing.
-- No purple/generic-AI aesthetic. **Provenance signals are almost the only chroma** — no blue active states (actions and focus are ink app-wide), and a source color is never used outside its meaning or without its icon + label. The one carved-out exception is `--accent-pop` (see §"Accent pop" above), used sparingly for a live/ready moment — it does not license reaching for color as a default whenever a control wants to stand out.
+- No status stripe down a card's edge, and no status tint across a whole card. Status is a 10px rounded swatch on the title line — see **Component patterns**.
+- No purple/generic-AI aesthetic. **Provenance signals are the only chroma** — no blue active states (actions and focus are ink app-wide), and a source color is never used outside its meaning or without its icon + label. No general accent token: one existed briefly and was withdrawn (see §"Accent pop" above). A control that wants to stand out wants contrast, not chroma.
 - No touch size on a `md:` breakpoint, no reveal that only hover can open, no `touch-action` that takes the page scroll from a surface that does not own the gesture. See [Touch](#touch).

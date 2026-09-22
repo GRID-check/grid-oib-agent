@@ -1,6 +1,7 @@
 [
   {
     "number": 1,
+    "document_id": "doc:oib_knowledge:oib-rl_2_ausgabe_mai_2023.pdf",
     "content": "[KB] oib-rl_2_ausgabe_mai_2023.pdf, p.12",
     "title": "OIB-Richtlinie 2, Ausgabe Mai 2023",
     "citation_key": "oib-rl_2_ausgabe_mai_2023.pdf, p.12",
@@ -13,10 +14,13 @@
     "lane_label": "OIB-Richtlinie",
     "binding_status": "verbindlich_erklaert",
     "file_name": "oib-rl_2_ausgabe_mai_2023.pdf",
-    "page": 12
+    "page": 12,
+    "score": 0.87,
+    "snippet": "Brandabschnitte sind so auszubilden, dass eine Brandausbreitung begrenzt wird."
   },
   {
     "number": 2,
+    "document_id": "doc:proj_abc:einreichplan_og.pdf",
     "content": "[KB] einreichplan_og.pdf, p.4",
     "title": "einreichplan_og.pdf",
     "citation_key": "einreichplan_og.pdf, p.4",
@@ -29,6 +33,8 @@
     "lane_label": "Projektwissen",
     "binding_status": "unbekannt",
     "file_name": "einreichplan_og.pdf",
-    "page": 4
+    "page": 4,
+    "score": 0.87,
+    "snippet": "Der Einreichplan zeigt die Lage der Fluchtwege im Obergeschoss."
   }
 ]

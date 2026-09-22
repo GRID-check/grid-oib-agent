@@ -47,6 +47,7 @@ describe('/api/v1/[...path] proxy — control-plane path blocking', () => {
     ['POST', POST, ['admin', 'oib', 'sync']],
     ['DELETE', DELETE, ['admin', 'oib', 'sync']],
     ['POST', POST, ['maintenance', 'purge-project-resources']],
+    ['POST', POST, ['maintenance', 'reconcile-summaries']],
   ])(
     '%s blocks the internal control-plane path %s with 404 and never forwards upstream',
     async (_method, handler, path) => {

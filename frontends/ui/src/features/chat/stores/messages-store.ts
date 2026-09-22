@@ -185,20 +185,20 @@ export type MessagesSlice = {
   addAgentResponse: (
     content: string,
     showViewReport?: boolean,
-    cards?: GridCard[],
+    cards?: (GridCard | undefined)[],
     answerConfidence?: 'low' | 'medium' | 'high',
     citations?: CitationSource[],
     transparency?: AnswerTransparency
   ) => void
   appendAgentResponseDelta: (
     content: string,
-    cards?: GridCard[],
+    cards?: (GridCard | undefined)[],
     answerConfidence?: 'low' | 'medium' | 'high',
     citations?: CitationSource[]
   ) => void
   finalizeAgentResponse: (
     content: string,
-    cards?: GridCard[],
+    cards?: (GridCard | undefined)[],
     answerConfidence?: 'low' | 'medium' | 'high',
     citations?: CitationSource[],
     transparency?: AnswerTransparency
@@ -230,8 +230,19 @@ export type MessagesSlice = {
     content: string,
     showViewReport: boolean,
     meta: Partial<ChatMessage>,
-    cards?: GridCard[]
+    cards?: (GridCard | undefined)[]
   ) => string
+  /**
+   * Put a run's own message into the open thread, exactly as the server wrote
+   * it (ADR-0062).
+   *
+   * Its id is the SERVER's, not a fresh one: the run's message already exists —
+   * the BFF minted it when the run was commissioned — so this adopts a row
+   * rather than creating one, and a second copy with a local id would be a
+   * second block for one run. Idempotent by that id: a reload that raced this
+   * changes nothing.
+   */
+  adoptRunMessage: (message: ChatMessage) => void
   patchConversationMessage: (
     conversationId: string,
     messageId: string,
@@ -613,7 +624,7 @@ const buildAgentResponseMessage = (
   content: string,
   opts: {
     showViewReport?: boolean
-    cards?: GridCard[]
+    cards?: (GridCard | undefined)[]
     answerConfidence?: 'low' | 'medium' | 'high'
     citations?: CitationSource[]
     isStreaming?: boolean
@@ -674,9 +685,6 @@ const buildAgentResponseMessage = (
     ...(opts.transparency?.routingDecision
       ? { routingDecision: opts.transparency.routingDecision }
       : {}),
-    ...(opts.transparency?.routingReason
-      ? { routingReason: opts.transparency.routingReason }
-      : {}),
     ...(opts.transparency?.escalationReason
       ? { escalationReason: opts.transparency.escalationReason }
       : {}),
@@ -689,7 +697,21 @@ const buildAgentResponseMessage = (
     ...(opts.transparency?.citationsRemoved
       ? { citationsRemoved: opts.transparency.citationsRemoved }
       : {}),
+    // Retrieved-but-uncited documents for the "Gelesen, nicht zitiert"
+    // disclosure. Absent when everything retrieved was cited.
+    ...(opts.transparency?.readSources && opts.transparency.readSources.length > 0
+      ? { readSources: opts.transparency.readSources }
+      : {}),
     ...(opts.transparency?.researchTruncated ? { researchTruncated: true as const } : {}),
+    // The answer's structured anatomy — already sanitized at the wire boundary.
+    ...(opts.transparency?.answerMeta ? { answerMeta: opts.transparency.answerMeta } : {}),
+    // The backend's account of this turn's retrieval rounds — already
+    // sanitized at the wire boundary (which guarantees a non-empty array or
+    // nothing). Spread like every other extra so a turn without one stays
+    // byte-identical to a pre-ledger message.
+    ...(opts.transparency?.retrievalLedger
+      ? { retrievalLedger: opts.transparency.retrievalLedger }
+      : {}),
     // The CAUSE and the degradations ride alongside the flag, and are copied
     // independently of it: a run can be degraded without being truncated, and
     // gating them on the flag drops exactly the case the reader most needs.
@@ -719,7 +741,7 @@ export const createMessagesSlice: StateCreator<ChatStore, [["zustand/devtools", 
   // synchronously so `append` then a synchronous read still observes the text.
   let pendingDeltaText = ''
   let pendingDeltaMeta: {
-    cards?: GridCard[]
+    cards?: (GridCard | undefined)[]
     answerConfidence?: 'low' | 'medium' | 'high'
     citations?: CitationSource[]
   } = {}
@@ -1387,7 +1409,7 @@ export const createMessagesSlice: StateCreator<ChatStore, [["zustand/devtools", 
   addAgentResponse: (
     content: string,
     showViewReport?: boolean,
-    cards?: GridCard[],
+    cards?: (GridCard | undefined)[],
     answerConfidence?: 'low' | 'medium' | 'high',
     citations?: CitationSource[],
     transparency?: AnswerTransparency
@@ -1441,7 +1463,7 @@ export const createMessagesSlice: StateCreator<ChatStore, [["zustand/devtools", 
 
   appendAgentResponseDelta: (
     content: string,
-    cards?: GridCard[],
+    cards?: (GridCard | undefined)[],
     answerConfidence?: 'low' | 'medium' | 'high',
     citations?: CitationSource[]
   ) => {
@@ -1502,7 +1524,7 @@ export const createMessagesSlice: StateCreator<ChatStore, [["zustand/devtools", 
 
   finalizeAgentResponse: (
     content: string,
-    cards?: GridCard[],
+    cards?: (GridCard | undefined)[],
     answerConfidence?: 'low' | 'medium' | 'high',
     citations?: CitationSource[],
     transparency?: AnswerTransparency
@@ -1546,7 +1568,6 @@ export const createMessagesSlice: StateCreator<ChatStore, [["zustand/devtools", 
         ...(citations && citations.length > 0 ? { citations } : {}),
         // Transparency extras ride the terminal frame; attach only what's present.
         ...(transparency?.routingDecision ? { routingDecision: transparency.routingDecision } : {}),
-        ...(transparency?.routingReason ? { routingReason: transparency.routingReason } : {}),
         ...(transparency?.escalationReason ? { escalationReason: transparency.escalationReason } : {}),
         ...(transparency?.answerConfidenceCappedReason
           ? { answerConfidenceCappedReason: transparency.answerConfidenceCappedReason }
@@ -1555,7 +1576,11 @@ export const createMessagesSlice: StateCreator<ChatStore, [["zustand/devtools", 
           ? { answerConfidenceReason: transparency.answerConfidenceReason }
           : {}),
         ...(transparency?.citationsRemoved ? { citationsRemoved: transparency.citationsRemoved } : {}),
+        ...(transparency?.readSources && transparency.readSources.length > 0
+          ? { readSources: transparency.readSources }
+          : {}),
         ...(transparency?.researchTruncated ? { researchTruncated: true as const } : {}),
+        ...(transparency?.answerMeta ? { answerMeta: transparency.answerMeta } : {}),
         ...(transparency?.truncationReason ? { truncationReason: transparency.truncationReason } : {}),
         ...(transparency?.degradedReasons?.length
           ? { degradedReasons: transparency.degradedReasons }
@@ -1742,7 +1767,7 @@ export const createMessagesSlice: StateCreator<ChatStore, [["zustand/devtools", 
     content: string,
     showViewReport: boolean,
     meta: Partial<ChatMessage>,
-    cards?: GridCard[]
+    cards?: (GridCard | undefined)[]
   ): string => {
     const { currentConversation, conversations } = get()
     if (!currentConversation) return ''
@@ -1777,6 +1802,27 @@ export const createMessagesSlice: StateCreator<ChatStore, [["zustand/devtools", 
     )
 
     return messageId
+  },
+
+  adoptRunMessage: (message: ChatMessage) => {
+    const { currentConversation, conversations } = get()
+    if (!currentConversation) return
+    if (currentConversation.messages.some((existing) => existing.id === message.id)) return
+
+    const updatedConversation: Conversation = {
+      ...currentConversation,
+      messages: [...currentConversation.messages, message],
+      updatedAt: new Date(),
+    }
+
+    set(
+      {
+        currentConversation: updatedConversation,
+        conversations: updateConversationInList(conversations, updatedConversation),
+      },
+      false,
+      'adoptRunMessage'
+    )
   },
 
   patchConversationMessage: (

@@ -106,6 +106,67 @@ the dense A/B, is the load-bearing evidence for the chunking change.
   by a second Austrian building-law reader. Treat absolute values as provisional; the
   before/after deltas are what this set is for.
 
+### The overview golden set (broad queries)
+
+`fixtures/oib_golden_overview.json` — 30 German entries in three cohorts: `overview`
+(10 broad "was weißt du über die oib N" questions carrying no usable lexical
+signal), `exact-id` (10 §-refs, RL designations, filenames), `paraphrase`
+(10 everyday wordings of the same intents). Labels are corpus FILES (real
+`data/oib` names), scored as recall@16 (production `top_k`) + MRR by
+`src/oib_retrieval_eval/overview.py`. CI runs it as
+`tests/benchmarks/test_oib_overview_recall.py`; humans run `task be:eval:overview`.
+
+**Two columns, and reading the wrong one is how a regression shipped.**
+`recall@k` scores the deterministic channels (exact `$contains` + German sparse)
+against a synthetic in-memory fixture corpus. `vector@k` scores the vector
+channel, RECORDED by `task be:eval:record-vector` — real `data/oib` pages and
+the golden questions embedded with production's `openai/text-embedding-3-large`,
+written to `fixtures/vector_channel_recorded.json` so CI stays offline. They are
+reported side by side and never fused: one is measured on the real corpus, the
+other on the synthetic mirror.
+
+Baseline (2026-09-03):
+
+| cohort | `recall@k` (deterministic) | `vector@k` (recorded) |
+|---|---|---|
+| overview | 0.150 | **0.933** |
+| exact-id | 0.700 | **1.000** |
+| paraphrase | 1.000 | **1.000** |
+
+The overview cohort is unserved *by the deterministic channels* and answered by
+the vector channel. It is **not** a "vector-only failure class" — that was an
+assumption, and when it was finally measured it turned out to be backwards. The
+same measurement retires the "literal filenames score ~0 until a filename-aware
+lookup exists" gap: the filename is in the embedded text on purpose
+(`EMBED_EXCLUDED_METADATA_KEYS` keeps `file_name` because "those are what users
+actually ask by"), so the vector channel already serves them.
+
+Two guards exist because recall alone could not catch what happened here. A
+change once widened the exact channel to a term matching most of the corpus and
+read as overview 0.150 → 0.583. The six "oib N" questions had produced ONE
+ranking between them, so the "lift" was only where each question's labels fell
+in it, and reordering the fixture moved it to 0.750.
+
+* the overview `recall@k` assert is a **ceiling**, not a floor. A lift there is
+  a claim to be argued, not a pass.
+* **distinguishability**: the six "oib N" questions must not share one ranking.
+  One ranking for many questions means the corpus was returned, not searched.
+
+Re-record the vector fixture when the embedding model, the corpus or the
+questions change. The golden test pins the recorded model against the deployed
+one, so a stale fixture fails CI rather than scoring the wrong embedder.
+
+Item 14 (HyDE-as-channel, experiment, default off) is measured here as
+`overview.run(..., hyde_drafter=...)`: for the identifier-free queries the
+draft is ranked through the draft's deterministic channels and fused beside
+the original via the production RRF. Measured 2026-09-03 with no draft model
+in the loop (fail-open): on is byte-identical to off on all three cohorts —
+no lift, no regression — so the channel stays off. A lift claim needs
+RECORDED drafts from the real draft model (never hand-written passages);
+`tests/benchmarks/test_oib_hyde.py` pins the gating, the fail-open identity,
+and the fusion order. See that module's docstring for what the on-mode can
+and cannot measure (no dense arm offline).
+
 ## Layout
 
 | Path | Purpose |
@@ -147,6 +208,12 @@ OIB_RETRIEVAL_MODEL_CACHE=~/.cache/huggingface \
 PYTHONPATH=src:frontends/benchmarks/oib_retrieval/src \
   ./.venv/bin/python -m oib_retrieval_eval.runner --embedder e5
 ```
+
+The structural arm is also the **regression gate** CI runs on every change to the
+chunker, the German analyzer, the harness or the corpus (`task be:eval:retrieval`,
+the `retrieval-eval` job): `--fail-below 95` fails the build when the Punkt arm's
+citable-unit share drops under 95%. The measured baseline on the current corpus is
+98.3% (`punkt` arm, 744 of 744 located leaf Punkte), against 5.2% for page cutting.
 
 The offline unit tests live at the repo root and are keyless, model-free and CI-safe:
 

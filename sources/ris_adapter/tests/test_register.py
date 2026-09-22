@@ -103,14 +103,22 @@ class TestBuildSearchParams:
 
 
 class TestFormatHit:
-    def test_contains_citation_and_fetch_hint(self):
+    def test_contains_the_citation_and_the_address_of_the_full_text(self):
+        """A hit states an ADDRESS, never a next call.
+
+        The trailer used to read "Fetch full text: ris_fetch_document with
+        'NOR…'" — one of the four places that taught the search→fetch sequence.
+        The sequence now lives inside `ris_lookup`; these three tools are deep
+        research's, and a deep researcher needs the address, not an imperative.
+        """
         output = _format_hit(1, _sample_hit())
 
         assert "--- Result 1 ---" in output
         assert "Title: Garagengesetz" in output
         assert "Document number: NOR40217157" in output
         assert "Source: https://www.ris.bka.gv.at/Dokumente/Bundesnormen/NOR40217157/NOR40217157.html" in output
-        assert "ris_fetch_document with 'NOR40217157'" in output
+        assert "Full text at document number: NOR40217157" in output
+        assert "ris_fetch_document" not in output
         assert "Entire consolidated law" in output
         assert "§ 5" in output
 
@@ -206,7 +214,8 @@ class TestRisSearchTool:
 
         assert "Found 42 RIS document(s)" in output
         assert "Garagengesetz" in output
-        assert "ris_fetch_document" in output
+        assert "These are references." in output
+        assert "ris_fetch_document" not in output
         assert fake_client.search_calls[0]["application"] == "BrKons"
         assert fake_client.search_calls[0]["params"] == {"Suchworte": "Garage Stellplatz"}
 
@@ -667,8 +676,9 @@ class TestRisCatalogLookupTool:
         assert "1 verified match(es)" in output
         assert "NOR12345678" in output
         assert "Entire consolidated law" in output
-        assert "ris_fetch_document" in output
-        assert "No ris_search needed" in output
+        assert "an address each, not the text at it" in output
+        assert "ris_fetch_document" not in output
+        assert "no live RIS search is needed" in output
 
     async def test_no_match_guides_to_ris_search(self, fake_catalog):
         async with ris_catalog_lookup(RisCatalogLookupToolConfig(), MagicMock()) as info:
@@ -758,7 +768,8 @@ class TestRisSearchCatalogShortcut:
         assert "Curated RIS catalog match(es)" in output
         assert "no live search performed" in output
         assert "NOR12345678" in output
-        assert "ris_fetch_document" in output
+        assert "an address each, not the text at it" in output
+        assert "ris_fetch_document" not in output
         assert fake_client.search_calls == []
 
     async def test_match_with_matching_explicit_application_shortcuts(self, fake_client, fake_catalog):
@@ -936,3 +947,119 @@ class TestPlatformRetrievalSettings:
         assert "1 verified match(es)" in output
         assert "NOR12345678" in output
         assert "NOR87654321" not in output
+
+
+class TestLaneCapture:
+    """Shown RIS hits reach the per-round ledger with their round stamp.
+
+    The capture reads the structured hits, never the prose: the ledger join
+    must not depend on formatting.
+    """
+
+    async def test_search_hits_are_captured_with_the_round(self, fake_client):
+        """Shown search hits are captured with the active round."""
+        from aiq_agent.common import turn_status
+
+        fake_client.search_result = RisSearchResult(hits=[_sample_hit()], total=1, page=1, page_size=20)
+        token = turn_status.begin_lane_capture()
+        try:
+            with turn_status.retrieval_round_scope(2):
+                async with ris_search(RisSearchToolConfig(), MagicMock()) as info:
+                    await _call(info, query="Garage Stellplatz")
+            hits = turn_status.get_lane_captures()
+        finally:
+            turn_status.end_lane_capture(token)
+        assert hits == [
+            {
+                "round": 2,
+                "name": "https://www.ris.bka.gv.at/Dokumente/Bundesnormen/NOR40217157/NOR40217157.html",
+                "title": "Garagengesetz",
+                "detail": "NOR40217157",
+            }
+        ]
+
+    async def test_catalog_shortcut_hits_are_captured(self, fake_client, fake_catalog):
+        """Catalog shortcut hits are captured like live hits."""
+        from aiq_agent.common import turn_status
+
+        token = turn_status.begin_lane_capture()
+        try:
+            with turn_status.retrieval_round_scope(0):
+                async with ris_search(RisSearchToolConfig(), MagicMock()) as info:
+                    await _call(info, query="bauordnung wien")
+            hits = turn_status.get_lane_captures()
+        finally:
+            turn_status.end_lane_capture(token)
+        assert hits == [
+            {
+                "round": 0,
+                "name": "https://www.ris.bka.gv.at/eli/lgbl/WI/1930/11",
+                "title": "Bauordnung für Wien",
+                "detail": "NOR12345678",
+            }
+        ]
+
+    async def test_fetch_captures_the_document_url(self, fake_client):
+        """A fetched document is captured by URL."""
+        from aiq_agent.common import turn_status
+
+        fake_client.fetch_result = RisDocument(
+            url="https://www.ris.bka.gv.at/Dokumente/Bundesnormen/NOR1/NOR1.html",
+            title="Garagengesetz",
+            text="§ 1 Text des Gesetzes",
+        )
+        token = turn_status.begin_lane_capture()
+        try:
+            with turn_status.retrieval_round_scope(1):
+                config = RisFetchDocumentToolConfig(ingest_into_knowledge=False)
+                async with ris_fetch_document(config, MagicMock()) as info:
+                    await _call(
+                        info,
+                        reference="https://www.ris.bka.gv.at/Dokumente/Bundesnormen/NOR1/NOR1.html",
+                    )
+            hits = turn_status.get_lane_captures()
+        finally:
+            turn_status.end_lane_capture(token)
+        assert hits == [
+            {
+                "round": 1,
+                "name": "https://www.ris.bka.gv.at/Dokumente/Bundesnormen/NOR1/NOR1.html",
+                "title": "Garagengesetz",
+            }
+        ]
+
+    async def test_a_cached_search_still_captures_its_hits(self, fake_client):
+        """A repeat search served from cache still feeds the ledger."""
+        """A repeat search must not record a round that returned nothing.
+
+        The read-through cache short-circuits before the live path, so without
+        the hits riding along the second identical search would announce a
+        round with `docs: []` while the model received the full hit list — the
+        ledger lying on exactly the repeats it should be counting.
+        """
+        from aiq_agent.common import turn_status
+
+        fake_client.search_result = RisSearchResult(hits=[_sample_hit()], total=1, page=1, page_size=20)
+        config = RisSearchToolConfig()
+        async with ris_search(config, MagicMock()) as info:
+            first = await _call(info, query="Garage Stellplatz")
+
+        token = turn_status.begin_lane_capture()
+        try:
+            with turn_status.retrieval_round_scope(3):
+                async with ris_search(config, MagicMock()) as info:
+                    second = await _call(info, query="Garage Stellplatz")
+            hits = turn_status.get_lane_captures()
+        finally:
+            turn_status.end_lane_capture(token)
+
+        assert second == first
+        assert len(fake_client.search_calls) == 1, "the second call must be served from cache"
+        assert hits == [
+            {
+                "round": 3,
+                "name": "https://www.ris.bka.gv.at/Dokumente/Bundesnormen/NOR40217157/NOR40217157.html",
+                "title": "Garagengesetz",
+                "detail": "NOR40217157",
+            }
+        ]

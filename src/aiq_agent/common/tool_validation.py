@@ -43,7 +43,7 @@ def validate_tool_availability(
 
     Args:
         tools: List of tools to validate
-        research_type: Type of research (e.g., "shallow research", "deep research") for logging
+        research_type: Type of research (e.g., "research", "deep research") for logging
         enable_logging: Whether to log tool availability information
 
     Returns:
@@ -93,7 +93,7 @@ def format_tool_unavailability_error(
     Format an error message for unavailable tools.
 
     Args:
-        research_type: Type of research (e.g., "shallow research", "deep research")
+        research_type: Type of research (e.g., "research", "deep research")
         unavailable_tools: List of unavailable tool names with reasons
 
     Returns:
@@ -126,7 +126,7 @@ def format_user_facing_tool_error(
     deployment mode so operators can still diagnose from server logs.
 
     Args:
-        research_type: Type of research (e.g., "shallow research", "deep research")
+        research_type: Type of research (e.g., "research", "deep research")
         unavailable_tools: List of unavailable tool names with reasons
         available_count: Number of tools that passed pre-flight checks
 

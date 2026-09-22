@@ -76,7 +76,7 @@ describe('findStorageKeyByCollectionAndFilename', () => {
     // Alongside the predicates that were always there, so this test fails if the
     // where clause is rebuilt and the new one is quietly dropped.
     expect(columns).toContain('collection_name')
-    expect(columns).toContain('deleted_at')
+    expect(columns).toContain('filename')
   })
 
   it('still narrows by organization when the caller can supply one', async () => {

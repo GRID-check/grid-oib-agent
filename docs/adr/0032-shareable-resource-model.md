@@ -164,7 +164,7 @@ Documents are the second consumer (Files as a shareable resource + a
 conversation subject). The design is
 [`../superpowers/specs/2026-08-13-file-native-ownership-design.md`](../superpowers/specs/2026-08-13-file-native-ownership-design.md).
 Assignment — who is professionally on the hook — is **not** this ADR's
-`owner` role; that split is [ADR-0047](0047-assignment-is-not-access.md).
+`owner` role; that split is [ADR-0047](0059-assignment-is-not-access.md).
 
 The 2026-07-31 addendum's number still holds: a second type today would pay
 roughly twice its legitimate cost. That cost is paid **in the files change**,
@@ -193,7 +193,7 @@ whose rows can be machine-authored was not designed for and needed nothing —
 which is the substrate holding, in the sense the 2026-07-31 addendum meant.
 
 The relation that *did* need a new column is responsibility's neighbour, not
-access's: see [ADR-0047's 2026-08-20 addendum](0047-assignment-is-not-access.md).
+access's: see [ADR-0047's 2026-08-20 addendum](0059-assignment-is-not-access.md).
 A generated report arrives with zero assignees and is never rendered as
 somebody's work until a human clicks `Zuweisen`.
 

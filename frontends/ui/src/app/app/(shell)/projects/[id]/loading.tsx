@@ -19,9 +19,9 @@ export default async function ProjectSectionLoading(): Promise<JSX.Element> {
         <Skeleton className="h-4 w-80 max-w-full" />
       </div>
       <div className="mt-8 space-y-4">
-        <Skeleton className="h-28 rounded-xl" />
-        <Skeleton className="h-28 rounded-xl" />
-        <Skeleton className="h-28 rounded-xl" />
+        <Skeleton className="h-28 rounded-lg" />
+        <Skeleton className="h-28 rounded-lg" />
+        <Skeleton className="h-28 rounded-lg" />
       </div>
     </div>
   )

@@ -24,6 +24,25 @@ export const FEATURE_FLAGS = {
   modelConfiguration: 'runtime-model-config',
   /** Deep research agent mode — the expensive long-running workflow. */
   deepResearch: 'deep-research',
+  /**
+   * Delegated tasks and their schedules (ADR-0051/0054): work a chat turn hands
+   * over instead of answering, plus the recurring `cadence` form.
+   *
+   * Deliberately NOT part of `skills`, although the two shipped together and the
+   * Automation section shows both. They are not one feature. A skill is a
+   * published instruction the agent may follow inside a turn; a task is a unit
+   * of work that OUTLIVES the turn, costs the requester's budget and runs under
+   * their permissions. An organization can reasonably have the toolbox and not
+   * the right to queue work against it — which is exactly the shape the product
+   * wanted: the skills we publish stay usable in chat, the Automation tab and
+   * everything that queues work do not.
+   *
+   * It is also the second door into the workflow `deep-research` closes, since
+   * a task's agent type may be `researcher` or `deep_researcher`. Gating the
+   * escalation and leaving this open would withdraw deep research from the chat
+   * turn and leave it reachable by asking for it as a task.
+   */
+  taskAutomation: 'task-automation',
   /** Command palette + global keyboard shortcuts (workspace polish). */
   keyboardShortcuts: 'keyboard-shortcuts',
   /** Project-level knowledge-base transparency page (nav section). */
@@ -96,6 +115,28 @@ export const FEATURE_FLAGS = {
    * and degraded to the data explorer, not a deployment capability.
    */
   ifcModels: 'ifc-models',
+  /**
+   * Whether a click on an `.ifc` opens the FILE PREVIEW first, or goes straight
+   * to the full-screen model stage.
+   *
+   * Separate from `ifcModels`, which answers whether the model surfaces exist
+   * at all. This one answers what a click does when they do — and it exists
+   * because that answer used to be decided per surface rather than per product:
+   * Dateien intercepted the click and jumped to the stage, while the Archiv
+   * showed a preview it offered no way out of. Same file, two behaviours,
+   * depending on where you clicked it.
+   *
+   * ON (the default) — preview first, everywhere, with the stage one button
+   * away. An `.ifc` is then a file like every other file, and the analytical
+   * surface is something you choose rather than something you land in.
+   *
+   * OFF — the stage opens directly, everywhere, including the Archiv, which
+   * could not do it before the stage stopped requiring a project.
+   *
+   * The point of the flag is that "everywhere" holds either way: it moves both
+   * surfaces together or neither.
+   */
+  ifcPreviewFirst: 'ifc-preview-first',
   /**
    * Agent-authored documents: a finished deep-research report and a drawn
    * diagram filed into a project as `documents` rows
@@ -222,6 +263,28 @@ export function ifcModelsEnvEnabled(): boolean {
 }
 
 /**
+ * Gate for preview-first `.ifc` handling. With WorkOS flag enforcement it
+ * follows the per-org `ifc-preview-first` flag; without enforcement it follows
+ * `GRID_IFC_PREVIEW_FIRST`, which **defaults to true**.
+ *
+ * Its own env switch, the same shape as `isIfcModelsEnabled`, and for the same
+ * reason: this is an interaction change on a surface people already use, so a
+ * deployment has to be able to put it back without switching flag enforcement
+ * on for every other feature at the same time.
+ *
+ * Fail-open lands on preview-first because that is the safer of the two to be
+ * wrong about — a reader who wanted the stage is one button from it, while a
+ * reader thrown into a full-screen viewport has lost the preview entirely.
+ */
+export function isIfcPreviewFirstEnabled(session: Pick<GridSession, 'featureFlags'>): boolean {
+  if (enforcementOn()) {
+    return isFeatureEnabled(session, FEATURE_FLAGS.ifcPreviewFirst)
+  }
+  const raw = (process.env.GRID_IFC_PREVIEW_FIRST ?? '').trim().toLowerCase()
+  return raw === '' || !['false', '0', 'no', 'off'].includes(raw)
+}
+
+/**
  * Gate for agent-authored documents. With WorkOS flag enforcement it follows the
  * per-org `agent-authored-documents` flag; without enforcement it follows
  * `GRID_AGENT_AUTHORED_DOCUMENTS_ENABLED`, which **defaults to true**.
@@ -294,6 +357,28 @@ export function requireSkillsEnabled(session: Pick<GridSession, 'featureFlags'>)
     { error: 'feature-disabled', feature: FEATURE_FLAGS.skills },
     { status: 403 }
   )
+}
+
+/**
+ * Whether this session may create delegated tasks and schedules.
+ *
+ * A standard fail-open flag, the same shape as `deepResearch` and deliberately
+ * not the dark-launch shape `isSkillsEnabled` uses: tasks shipped and were
+ * available to every organization, so withdrawing them is a decision an
+ * operator makes in WorkOS, not a default a deployment inherits.
+ */
+export function isTaskAutomationEnabled(session: Pick<GridSession, 'featureFlags'>): boolean {
+  return isFeatureEnabled(session, FEATURE_FLAGS.taskAutomation)
+}
+
+/**
+ * Route guard for delegated tasks: stable-coded 403 when off, null when allowed.
+ * Usage: `const gated = requireTaskAutomationEnabled(session); if (gated) return gated`
+ */
+export function requireTaskAutomationEnabled(
+  session: Pick<GridSession, 'featureFlags'>
+): Response | null {
+  return requireFeature(session, FEATURE_FLAGS.taskAutomation)
 }
 
 /**

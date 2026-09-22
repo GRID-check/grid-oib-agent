@@ -1,0 +1,27 @@
+---
+# One entry per user-visible change. This text is PUBLISHED, in English and in
+# German machine translation, to https://piloti.at/changelog — write it for the
+# architect using Piloti, not for the reviewer of your diff.
+#
+#   - Plain sentences. No RST directives, no code blocks, no issue numbers, no
+#     file paths, no internal component names.
+#   - Say what the reader can now do, or what stopped going wrong for them.
+#   - Two sentences is usually the right length. `task release:lint` enforces
+#     the mechanical half of this.
+#
+# Delete every section you do not need — an empty one fails the lint.
+fixes:
+  - >
+    Deep research answers are now marked as preliminary when the research time
+    runs out, instead of reading like fully verified results.
+  - >
+    Answers no longer show source references that were removed during safety
+    checks, and interactive answer cards stay in place even when one card
+    cannot be displayed.
+  - >
+    Long research jobs no longer write stray or duplicate messages into the
+    chat when they are retried or time out in the background.
+security:
+  - >
+    Research jobs now refuse forged work orders when payload encryption is
+    configured, instead of accepting them.

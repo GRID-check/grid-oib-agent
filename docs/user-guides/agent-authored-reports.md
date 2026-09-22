@@ -104,22 +104,119 @@ Two filters find these files, and they combine:
 
 ### Taking responsibility
 
-**Zuweisen → Mir zuweisen.** That is the whole promotion step. Nothing about the
-document changes except who is on the hook for it — which is the entire point of
-the gesture. There is no separate "approve" or "publish" action, because being
-answerable for the content *is* the approval.
+**Zuweisen → Mir zuweisen.** Nothing about the document changes except who is on
+the hook for it — which is the entire point of the gesture.
+
+Taking responsibility is *not* the same act as approving what the report says.
+„Verantwortlich" answers who is on the hook; **Freigabe** answers whether the
+office stands behind the content. A file can be Anna's and not yet freigegeben,
+and a file can be freigegeben and still „Unvergeben". The next section is about
+the second of those.
+
+---
+
+## Freigabe und Versionen
+
+Every file in a project now has a **version history** and an **editorial state**,
+and Piloti's reports walk the same states your own uploads do. There is one
+vocabulary, not two: a reviewer does not have to know who wrote a file in order
+to know what state it is in.
+
+### The states
+
+| Badge | What it means |
+|---|---|
+| **Entwurf** | Written, not yet handed to anybody. This is where a report Piloti files starts. |
+| **In Prüfung** | Submitted. Whoever was asked has an entry in their Postfach. |
+| **Änderungen erbeten** | Sent back, with the reason written on the version. |
+| **Freigegeben** | A person has asserted the content. |
+| **Veröffentlicht** | Issued — this is the version the file now serves. |
+| **Ersetzt** | A newer version was published. The bytes stay and can still be opened. |
+| **Abgelehnt** | Refused, with a reason. |
+| **Archiviert** | The file has left the working set. Nothing is deleted. |
+
+The badge is deliberately colourless. In this product colour means provenance —
+where something came from — and an editorial state is not provenance.
+
+**You will not see a badge on most of your files, and that is correct.** A file
+you upload is *published* the moment it lands: you put it there, and that is the
+assertion. The badge appears when there is something to know — the file has more
+than one version, or Piloti wrote it. On the file's own page you always see the
+state, because there the state is what you came for.
+
+### What you can do, and when
+
+Open a file and the panel **Freigabe und Fassungen** sits in the right-hand
+column, under the byline and the „Verantwortlich" row. It offers exactly the
+steps the current state allows and that your role permits — nothing greyed out
+that could never be pressed:
+
+- **Zur Freigabe einreichen** on an Entwurf, or on one that came back for
+  changes. Whoever is asked gets a Postfach entry naming the file.
+- **Freigeben** on a version in Prüfung. **Not** available to the person who
+  submitted it: an assertion nobody but the author has read is not one.
+- **Änderungen anfordern** and **Ablehnen**, both of which ask you to type why.
+  The reason stays on the version, so „was ist noch offen" is answered by
+  reading the file rather than by remembering a conversation.
+- **Piloti überarbeiten lassen**, beside Änderungen anfordern and with the same
+  reason required. Piloti drafts the next version from your comment and submits
+  it, so the file comes back to your Postfach instead of to a colleague's desk.
+- **Veröffentlichen** on a freigegebene Fassung. Approving on Tuesday and
+  issuing with the Einreichung on Friday are two acts, so they are two buttons.
+- **Archivieren**, which takes the file out of the listings. The bytes and every
+  version stay; it is not a delete.
+
+If two people decide at the same moment, the second one is told: **„Der Stand
+hat sich geändert"**, and the panel reloads to show what actually happened. The
+database, not the screen, decides who was first.
+
+### The version list
+
+Under the controls, every version: its number and state, who submitted, approved
+and published it and when, the reviewer's words, and **Öffnen** for that
+version's own bytes — including the superseded ones. Re-uploading a corrected
+plan under the same name no longer throws the old file away; it becomes version
+N+1 and the previous one stays readable. „Was stand im März drin" is a question
+with an answer.
+
+**Mit … vergleichen** shows what changed between two versions, line by line:
+added lines are marked with a `+` and a solid rule, removed ones with a `−` and
+a dashed one, long unchanged stretches fold into a counted gap, and both
+versions' line numbers run down the left so you can see an insert push them
+apart. No red and no green — colour in Piloti means where something came from,
+never what happened to it.
+
+### Finding what is waiting
+
+The filter menu in Dateien has **Freigabe ausstehend** beside *Unvergeben* and
+*Von Piloti*, and the three combine: everything Piloti wrote, that nobody has
+taken on, that is waiting for a decision, is one query.
+
+---
+
+## Über ein Dokument sprechen
+
+**Besprechen** steht auf jeder Datei — in der Dateiablage, auf der
+Berichtskarte im Chat und auf der Freigabe-Aufforderung im Posteingang — und
+öffnet ein Gespräch, das genau um dieses Dokument geht. Es funktioniert auch bei
+einem Entwurf, den noch niemand veröffentlicht hat: Piloti liest die Fassung
+dann direkt und beantwortet Fragen wie „warum steht in Abschnitt 3 GK 4?" aus
+dem Text selbst. Aus dem Gespräch heraus lässt sich derselbe Entwurf auch
+ändern und wieder ablegen — es entsteht eine neue Fassung desselben Dokuments,
+kein zweites.
 
 ---
 
 ## Why it is not in the knowledge base
 
-Ask Piloti about a generated report and the action is **disabled**, with the
-reason on it:
+**Besprechen** works on a generated report; what it carries is a note saying
+what the conversation cannot do:
 
 > Von Piloti erstellt — nicht in der Wissensbasis
 
-This is a design decision, not a missing feature and not a wait. A report Piloti
-wrote is never indexed, so no searchable passages of it exist anywhere.
+Piloti reads the report itself when you discuss it, and it will never *retrieve*
+it. That is a design decision, not a missing feature and not a wait: a report
+Piloti wrote is never indexed, so no searchable passages of it exist anywhere.
 
 The reason is worth knowing, because it protects you. If a generated report were
 searchable, Piloti could retrieve its own earlier draft and cite it back to you
@@ -155,6 +252,21 @@ does not.
 
 The marking is in both places on purpose: the block is for the person who opens
 it, the properties are for the system that files it.
+
+### Was auf jeder Datei steht
+
+Every file Piloti produces — the filed report and a document a chat turn wrote —
+also carries a short block of the product's own words, inside the bytes rather
+than around them. One line at the top names what made the file and for which
+office („Erstellt mit Piloti für …"); two sentences say that Piloti drafted it
+and that responsibility for its content belongs to the person who gives it
+Freigabe, and to nobody before that; one line at the foot of every page repeats
+„Entwurf, nicht freigegeben" so a single sheet pulled out of a folder still says
+what it is. That block is not the „KI-generiert" marking above and does not
+replace it: the marking says how much of the document to trust, and this says
+who is answerable for it. Nothing has to be switched on, and there is nothing to
+configure — an office that later wants its own wording gets it without the
+documents changing shape.
 
 **A filed drawing is marked too.** When Piloti draws a Verfahren and you file it,
 the project gets two files and both say what they are. The **PDF** prints the

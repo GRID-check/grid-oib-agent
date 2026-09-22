@@ -43,11 +43,40 @@ export interface CoverFact {
   mono?: boolean
 }
 
+/**
+ * The branded lines a generated document carries, already resolved and already
+ * in the reader's language.
+ *
+ * Structural on purpose: `lib/documents/branding.ts` owns the WORDS and the
+ * organization override that can change them, and its `DocumentBranding`
+ * satisfies this type without either module importing the other. That keeps the
+ * copy out of the renderer — which is the whole point of that module — without
+ * making a PDF component depend on the database read that resolves it.
+ *
+ * Optional as a whole, never in part. A document either carries branding or it
+ * does not: a browser export of prose the reader has already read is not a file
+ * Piloti filed on somebody's behalf, and stamping it would make the stamp mean
+ * nothing (the same argument `MarkdownPdfOptions.marking` makes for the
+ * marking).
+ */
+export interface DocumentChrome {
+  /** „Erstellt mit Piloti für …" — printed once, at the top of the cover body. */
+  headerLine: string
+  /** Two or three sentences: what this is, who drafted it, who carries it. */
+  prose: string
+  /** One sentence about what the document is not. */
+  disclaimer: string
+  /** The line that repeats at the foot of every page. */
+  footerLine: string
+}
+
 export interface CoverInfo {
   /** The document's own name. Never empty: the caller resolves a fallback. */
   title: string
   /** Project, date, and anything else the source of the document stated. */
   facts: CoverFact[]
+  /** The branding, when this document is one Piloti produced. */
+  chrome?: DocumentChrome
   /**
    * The AI marking, when the document is machine-authored.
    *
@@ -141,6 +170,35 @@ const styles = StyleSheet.create({
   factValueMono: {
     fontFamily: 'Courier',
     fontSize: PDF_TYPE.body - 1,
+  },
+  // The branding header line. Above the marking and the facts, and set in the
+  // same subtle chrome type as the running header, because it answers the same
+  // question that header answers — what made this, and for whom.
+  coverHeaderLine: {
+    fontSize: PDF_TYPE.chrome,
+    color: PDF_THEME.subtle,
+    marginBottom: 22,
+  },
+  // The prose block. Under the facts rather than over them: the facts say what
+  // the document is ABOUT, and this says what the document IS — which is the
+  // sentence a reader wants last, on their way to deciding whether to forward
+  // it.
+  coverProse: {
+    marginTop: 26,
+    paddingTop: 12,
+    borderTopWidth: 1,
+    borderTopColor: PDF_THEME.hairline,
+  },
+  coverProseText: {
+    fontSize: PDF_TYPE.meta,
+    color: PDF_THEME.subtle,
+    lineHeight: 1.45,
+  },
+  coverDisclaimer: {
+    fontSize: PDF_TYPE.meta,
+    color: PDF_THEME.subtle,
+    lineHeight: 1.45,
+    marginTop: 6,
   },
   coverFooter: {
     position: 'absolute',
@@ -263,9 +321,13 @@ export const RunningHeader: React.FC<{ title: string }> = ({ title }) => (
  * dictionary and therefore cannot be the one English string in a German
  * document.
  */
-export const PageFooter: React.FC = () => (
+export const PageFooter: React.FC<{ line?: string }> = ({ line }) => (
   <View style={styles.footer} fixed>
     <BrandLockup size={8} color={PDF_THEME.subtle} />
+    {/* Between the mark and the numeral, because that is where a reader's eye
+        is not: the two ends of a footer are the two things they look for, and
+        „Entwurf, nicht freigegeben" is the thing they should meet on the way. */}
+    {line ? <Text style={styles.footerText}>{line}</Text> : null}
     <Text
       style={styles.pageNumber}
       render={({ pageNumber, totalPages }) => `${pageNumber} / ${totalPages}`}
@@ -294,6 +356,7 @@ export const CoverContent: React.FC<{ cover: CoverInfo }> = ({ cover }) => (
     </View>
 
     <View style={styles.coverBody}>
+      {cover.chrome ? <Text style={styles.coverHeaderLine}>{cover.chrome.headerLine}</Text> : null}
       {cover.notice ? (
         <View style={styles.coverNotice} wrap={false}>
           <Text style={styles.coverNoticeTitle}>{cover.notice.title}</Text>
@@ -308,6 +371,12 @@ export const CoverContent: React.FC<{ cover: CoverInfo }> = ({ cover }) => (
           </Text>
         </View>
       ))}
+      {cover.chrome ? (
+        <View style={styles.coverProse} wrap={false}>
+          <Text style={styles.coverProseText}>{cover.chrome.prose}</Text>
+          <Text style={styles.coverDisclaimer}>{cover.chrome.disclaimer}</Text>
+        </View>
+      ) : null}
     </View>
 
     {/* The glyph once more at the foot of the cover, with the accent rule

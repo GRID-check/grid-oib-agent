@@ -48,12 +48,6 @@ vi.mock('@/features/chat', () => ({
     }
     return selector ? selector(asStoreState<ChatStoreWithHydration>(state)) : state
   }),
-  useDeepResearch: vi.fn(() => ({
-    isResearching: false,
-    connect: vi.fn(),
-    disconnect: vi.fn(),
-    cancel: vi.fn(),
-  })),
   NoSourcesBanner: () => <div data-testid="no-sources-banner">No Sources Banner</div>,
 }))
 

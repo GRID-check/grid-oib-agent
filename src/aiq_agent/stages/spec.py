@@ -79,17 +79,21 @@ class TurnFacts:
     answer: str = ""
     #: The project-memory digest the agent actually saw this turn.
     memory_digest: str | None = None
+    #: What the ``remember`` tool wrote DURING the turn, after that digest was
+    #: built. Reflection must treat these as already recorded.
+    remembered_this_turn: tuple[str, ...] = ()
     bundesland: str | None = None
 
-    #: Classified user intent (``research`` / ``meta`` / ``error`` / …).
-    intent: str | None = None
-    #: The derived routing decision surfaced on the answer (WP-A transparency).
+    #: Which path the turn took, observed after the answer (``meta`` for a
+    #: direct reply, ``shallow``, ``deep``, ``error``); see
+    #: ``ResearchAgentState.observed_routing``.
     routing_decision: str | None = None
     #: The research loop hit its tool-iteration ceiling: the turn ran out of
     #: budget before it ran out of question.
     research_truncated: bool = False
-    #: Set when the chat turn is only a stub for an async deep-research job.
-    deep_research_job_id: str | None = None
+    #: Set when the turn commissioned a run instead of answering itself
+    #: (ADR-0062): the ``task_runs`` row that now carries the work.
+    run_id: str | None = None
     #: Card types the model emitted in-turn, so a stage can decline to duplicate
     #: something the reader already has.
     emitted_card_types: frozenset[str] = frozenset()

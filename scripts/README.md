@@ -57,7 +57,7 @@ Starts the NAT FastAPI server for deep research with async job support.
 ```bash
 ./scripts/start_server_in_debug_mode.sh
 ./scripts/start_server_in_debug_mode.sh--port 8080
-./scripts/start_server_in_debug_mode.sh --config_file configs/config_web_frag.yml
+./scripts/start_server_in_debug_mode.sh --config_file configs/config_oib_openrouter.yml
 ```
 
 **Options:**
@@ -85,7 +85,7 @@ Starts the AI-Q API backend for use by Agent Skills such as `aiq-research`. This
 ```bash
 ./scripts/start_as_skill.sh
 ./scripts/start_as_skill.sh --port 8100
-./scripts/start_as_skill.sh --config_file configs/config_web_default_llamaindex.yml
+./scripts/start_as_skill.sh --config_file configs/config_oib_openrouter.yml
 ```
 
 **Options:**
@@ -125,9 +125,7 @@ Starts both backend and frontend for full WebSocket support and HITL workflows.
 
 | Config File | Description |
 |-------------|-------------|
-| `configs/config_cli_default.yml` | CLI mode with web search (default) |
-| `configs/config_web_frag.yml` | Server/E2E mode with Foundational RAG |
-| `configs/config_web_default_llamaindex.yml` | Server/E2E mode with LlamaIndex |
+| `configs/config_oib_openrouter.yml` | The one shipped config: CLI, server and E2E modes, everything through OpenRouter (default) |
 
 ## Development Workflow
 

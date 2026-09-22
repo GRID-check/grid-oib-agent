@@ -19,7 +19,7 @@ import {
   splitAnswerBody,
   unusedDocuments,
 } from './views'
-import { citationNumbers, citedPages, isCited } from './model'
+import { CitationAccumulator, citationNumbers, citedPages, isCited } from './model'
 
 const OIB_FILE = 'oib-rl_2.1_ausgabe_mai_2023.pdf'
 const OIB_TITLE = 'OIB-Richtlinie 2.1, Ausgabe Mai 2023'
@@ -127,6 +127,87 @@ describe('buildCitationModel', () => {
     expect(docs[0]!.fileName).toBe(OIB_FILE)
   })
 
+  it('does not collapse a file that merely MENTIONS a Richtlinie onto the card naming it', () => {
+    // „OIB-Richtlinie 6 Kommentar.pdf" is somebody's commentary ABOUT a
+    // Richtlinie, not the Richtlinie. Merging them made two sources one chip
+    // whose page-9 locus opened the commentary in place of the base-law
+    // document — and the shelf rule cannot catch it, because a source known
+    // only from the answer's written list carries no shelf at all.
+    const docs = buildCitationModel({
+      entries: [
+        { number: 1, markdown: 'OIB-Richtlinie 6', sourceKind: 'kb' },
+        { number: 2, markdown: '[KB] OIB-Richtlinie 6 Kommentar.pdf, p.9', sourceKind: 'kb' },
+      ],
+    })
+
+    expect(docs).toHaveLength(2)
+    expect(docs.map((doc) => doc.title).sort()).toEqual([
+      'OIB-Richtlinie 6',
+      'OIB-Richtlinie 6 Kommentar',
+    ])
+  })
+
+  it('refuses the merge when the citation sits on another shelf', () => {
+    // A Richtlinie is base law. A card naming one must never attach itself to a
+    // project upload that carries the corpus filename — that is somebody's own
+    // copy, and the card would hand its `[N]` to it.
+    const card = { type: 'legal_basis', law: 'OIB-Richtlinie 2' } as unknown as GridCard
+    const projectCopy = {
+      id: 'c-9',
+      content: '',
+      timestamp: new Date(),
+      fileName: OIB_FILE,
+      collection: 'p_1234',
+      shelf: 'project' as const,
+      page: 3,
+      isCited: true,
+    }
+
+    expect(buildCitationModel({ citations: [projectCopy], cards: [card] })).toHaveLength(2)
+  })
+
+  it('tells a corpus Richtlinie apart from a file that merely mentions one', () => {
+    // The residue test, at the boundary it exists to hold. A name is the
+    // Richtlinie when nothing is left after removing its number and the words
+    // the key already models (role, Leitfaden, edition, month); anything else
+    // is a document ABOUT it, and merging the two hands the card's `[N]` to
+    // somebody's commentary.
+    const merges = (fileName: string, law: string): boolean => {
+      const accumulator = new CitationAccumulator()
+      accumulator.add({ identity: { fileName, collection: 'base' }, fileName })
+      accumulator.add({ identity: { label: law }, title: law })
+      return accumulator.build().length === 1
+    }
+
+    expect(merges('oib-rl_2.1_ausgabe_mai_2023.pdf', 'OIB-Richtlinie 2.1')).toBe(true)
+    expect(merges('OIB-Richtlinie 2.1, Ausgabe Mai 2023', 'OIB-Richtlinie 2.1')).toBe(true)
+    expect(merges('oib_richtlinie_3_erlaeuterungen.pdf', 'OIB-Richtlinie 3 Erläuterungen')).toBe(
+      true
+    )
+    expect(merges('oib-rl_4_leitfaden_ausgabe_2023.pdf', 'OIB-Richtlinie 4 Leitfaden')).toBe(true)
+
+    expect(merges('OIB-Richtlinie 6 Kommentar.pdf', 'OIB-Richtlinie 6')).toBe(false)
+    expect(merges('Brandschutzkonzept nach OIB-Richtlinie 2.pdf', 'OIB-Richtlinie 2')).toBe(false)
+    expect(merges('Sanierung Karlsplatz OIB 2.pdf', 'OIB-Richtlinie 2')).toBe(false)
+  })
+
+  it('applies the shelf rule to the INCOMING side too, not only the held one', () => {
+    // Producer order decides which side is which — cards run last today, so
+    // only the held side can be the file, and the incoming check cannot fire
+    // through `buildCitationModel`. Driving the accumulator directly is what
+    // makes the symmetry testable: reorder the producers and the guard that
+    // used to be one-sided is the one that keeps this from merging.
+    const accumulator = new CitationAccumulator()
+    accumulator.add({ identity: { label: 'OIB-Richtlinie 2' }, title: 'OIB-Richtlinie 2' })
+    accumulator.add({
+      identity: { fileName: OIB_FILE, collection: 'p_1234' },
+      fileName: OIB_FILE,
+      shelf: 'project',
+    })
+
+    expect(accumulator.build()).toHaveLength(2)
+  })
+
   it('separates what was read from what was used', () => {
     const lanes: TraceLaneCard[] = [
       {
@@ -154,6 +235,24 @@ describe('buildCitationModel', () => {
     const cited = answerDocuments(docs)[0]!
     expect(cited.loci).toHaveLength(1)
     expect(isCited(cited)).toBe(true)
+  })
+
+  it('gives an uncited document the shelf its trace-lane hit stated', () => {
+    // A document only the fan-out knows has no citation payload; the lane
+    // source is its one channel for the shelf, and the Herleitung colours by it.
+    const lanes: TraceLaneCard[] = [
+      {
+        key: 'projekt',
+        label: 'Projektwissen',
+        kind: 'projekt',
+        signal: 'project',
+        hitCount: 1,
+        sources: [{ name: 'Plan.pdf', detail: 'p.2', shelf: 'project' }],
+      },
+    ]
+    const docs = buildCitationModel({ citations: [], traceLanes: lanes })
+
+    expect(unusedDocuments(docs).map((doc) => doc.shelf)).toEqual(['project'])
   })
 
   it('keeps a web source linking out and tinted as web', () => {
@@ -357,7 +456,230 @@ describe('a legal_basis card in a mixed answer', () => {
     expect(docs).toHaveLength(2)
     expect(answerDocuments(docs).map((doc) => doc.title)).toContain('Bauordnung für Wien § 108')
     // …and only there: the card was never retrieved, so the Herleitung's
-    // "gelesen, nicht verwendet" half must not claim it as well.
+    // "abgerufen, nicht zitiert" half must not claim it as well.
     expect(unusedDocuments(docs)).toEqual([])
+  })
+})
+
+describe('a model-written filename spelling never doubles a chip', () => {
+  // The user-visible defect: the "Belegt durch" row showed TWO identical chips
+  // for one document — one opening the full preview, the other a dead info
+  // popover. The wire carries `oib-rl_2_ausgabe_mai_2023.pdf`; the answer's
+  // written list spells it `oib-rl-2 ausgabe mai 2023` (other separators, no
+  // extension at all), and the exact filename match made them two documents
+  // claiming the same [N].
+  const WIRE_FILE = 'oib-rl_2_ausgabe_mai_2023.pdf'
+  const wire = (number: number, page: number): CitationSource => ({
+    id: `dbl-${number}`,
+    content: `[KB] ${WIRE_FILE}, p.${page}`,
+    timestamp: new Date(0),
+    origin: 'kb',
+    kind: 'baurecht',
+    lane: 'baurecht_oib',
+    title: 'OIB-Richtlinie 2, Ausgabe Mai 2023',
+    citationKey: `${WIRE_FILE}, p.${page}`,
+    collection: 'oib_knowledge',
+    fileName: WIRE_FILE,
+    page,
+    number,
+    isCited: true,
+  })
+  const written = (number: number, markdown: string): ReportSourceEntry => ({
+    number,
+    markdown,
+    sourceKind: 'kb',
+  })
+
+  it('folds an extension-less written spelling into its wire document', () => {
+    const docs = buildCitationModel({
+      citations: [wire(1, 1), wire(3, 26)],
+      entries: [
+        written(1, '[KB] oib-rl-2 ausgabe mai 2023, p.1'),
+        written(3, '[KB] oib-rl-2 ausgabe mai 2023, p.26'),
+      ],
+    })
+
+    expect(docs).toHaveLength(1)
+    expect(citationNumbers(docs[0]!)).toEqual([1, 3])
+    // Lossless: the pages survive on their own loci. Without the fix the pair
+    // either doubled the chip (separator variants) or merged through the
+    // label-only OIB path, which drops the page onto a `whole` locus.
+    expect(docs[0]!.loci).toHaveLength(2)
+    expect(citedPages(docs[0]!)).toEqual([1, 26])
+  })
+
+  it('merges underscore/dash/case variants, with or without extension', () => {
+    for (const spelling of [
+      '[KB] oib-rl-2_ausgabe_mai_2023.pdf, p.1',
+      '[KB] OIB-RL-2-AUSGABE-MAI-2023.PDF, p.1',
+      '[KB] oib_rl_2_ausgabe_mai_2023, p.1',
+    ]) {
+      const docs = buildCitationModel({
+        citations: [wire(1, 1)],
+        entries: [written(1, spelling)],
+      })
+      expect(docs).toHaveLength(1)
+      expect(citationNumbers(docs[0]!)).toEqual([1])
+    }
+  })
+
+  it('keeps different pages of one document as one document with two loci', () => {
+    const docs = buildCitationModel({
+      citations: [wire(1, 1), wire(3, 26)],
+      entries: [
+        written(1, '[KB] oib-rl-2 ausgabe mai 2023, p.1'),
+        written(3, '[KB] oib-rl-2 ausgabe mai 2023, p.26'),
+      ],
+    })
+
+    expect(docs).toHaveLength(1)
+    expect(docs[0]!.loci).toHaveLength(2)
+    expect(citedPages(docs[0]!)).toEqual([1, 26])
+  })
+
+  it('folds a title-decorated written line into its wire document', () => {
+    // The line the deployed prompt taught the model to write: a display title,
+    // a spaced dash, then the locator. `parseKbLocator` reads the whole thing
+    // as one filename, which met no wire document, so the row showed the same
+    // Richtlinie twice — once as the real chip, once as a dead popover titled
+    // „OIB-Richtlinie 2 – oib-rl 2 ausgabe mai 2023".
+    for (const dash of ['–', '—', '-']) {
+      const docs = buildCitationModel({
+        citations: [wire(1, 1), wire(2, 26)],
+        entries: [
+          written(1, `[KB] OIB-Richtlinie 2 ${dash} oib-rl_2_ausgabe_mai_2023.pdf, p.1`),
+          written(2, `[KB] OIB-Richtlinie 2 ${dash} oib-rl_2_ausgabe_mai_2023.pdf, p.26`),
+        ],
+      })
+
+      expect(docs).toHaveLength(1)
+      expect(docs[0]!.title).toBe('OIB-Richtlinie 2, Ausgabe Mai 2023')
+      expect(citationNumbers(docs[0]!)).toEqual([1, 2])
+      expect(citedPages(docs[0]!)).toEqual([1, 26])
+    }
+  })
+
+  it('keeps a filename that genuinely contains a spaced dash when the wire spells it so', () => {
+    const dashed: CitationSource = {
+      ...wire(1, 4),
+      id: 'dbl-dash',
+      title: undefined,
+      content: '[KB] Bescheid - Kopie.pdf, p.4',
+      citationKey: 'Bescheid - Kopie.pdf, p.4',
+      collection: 'project_x',
+      fileName: 'Bescheid - Kopie.pdf',
+      lane: 'projekt',
+      kind: 'projekt',
+    }
+    const docs = buildCitationModel({
+      citations: [dashed],
+      entries: [written(1, '[KB] Bescheid - Kopie.pdf, p.4')],
+    })
+
+    expect(docs).toHaveLength(1)
+    expect(docs[0]!.fileName).toBe('Bescheid - Kopie.pdf')
+    expect(docs[0]!.loci).toHaveLength(1)
+  })
+
+  it('a written [N] the wire already numbers joins that document, whatever it says', () => {
+    // The wire's number is the backend's verified binding; the written line is
+    // the model's prose restatement of it. No spelling the line chooses can
+    // mint a second document for a `[N]` the wire has already bound.
+    const docs = buildCitationModel({
+      citations: [wire(1, 1)],
+      entries: [written(1, '[KB] irgendein-anderer-name.pdf, p.9')],
+    })
+
+    expect(docs).toHaveLength(1)
+    expect(docs[0]!.fileName).toBe(WIRE_FILE)
+    // The wire's page wins over the model's memory of it.
+    expect(citedPages(docs[0]!)).toEqual([1])
+  })
+
+  it('a RIS source cited by URL is one chip even when the written URL differs', () => {
+    // The second face of the same defect: a RIS norm arrived on the wire with
+    // its lane, its binding note and `[6]`, and the written list spelled the
+    // URL differently (a `www.`, a `FassungVom=` the model added). Identity by
+    // normalised URL made them two documents, so the row showed the norm twice
+    // — once with the Bindungswirkung card, once bare.
+    const wireRis: CitationSource = {
+      id: 'ris-6',
+      content: '[RIS] Wiener Bautechnikverordnung 2023',
+      timestamp: new Date(0),
+      origin: 'ris',
+      kind: 'baurecht',
+      lane: 'baurecht_ris',
+      laneLabel: 'Verordnung',
+      title: 'Wiener Bautechnikverordnung 2023',
+      url: 'https://ris.bka.gv.at/GeltendeFassung.wxe?Abfrage=LrW&Gesetzesnummer=20000456',
+      bindingStatus: 'binding',
+      bindingNote: 'Macht die OIB-Richtlinien in Wien verbindlich.',
+      number: 6,
+      isCited: true,
+    }
+    const docs = buildCitationModel({
+      citations: [wireRis],
+      entries: [
+        written(
+          6,
+          '[RIS] Wiener Bautechnikverordnung 2023 - https://www.ris.bka.gv.at/GeltendeFassung.wxe?Abfrage=LrW&Gesetzesnummer=20000456&FassungVom=2024-01-01'
+        ),
+      ],
+    })
+
+    expect(docs).toHaveLength(1)
+    expect(docs[0]!.bindingNote).toBe('Macht die OIB-Richtlinien in Wien verbindlich.')
+    expect(citationNumbers(docs[0]!)).toEqual([6])
+  })
+
+  it('a written line fills the page the wire left blank, and nothing more', () => {
+    const pageless: CitationSource = { ...wire(1, 1), page: undefined, citationKey: WIRE_FILE }
+    const docs = buildCitationModel({
+      citations: [pageless],
+      entries: [written(1, `[KB] ${WIRE_FILE}, p.7`)],
+    })
+
+    expect(docs).toHaveLength(1)
+    expect(citedPages(docs[0]!)).toEqual([7])
+  })
+
+  it('without a wire number, a decorated line still finds its file by name', () => {
+    // A message persisted before the wire numbered sources: the filename is the
+    // only bridge, and the title in front of it must not break the bridge.
+    const unnumbered: CitationSource = { ...wire(1, 1), number: undefined }
+    const docs = buildCitationModel({
+      citations: [unnumbered],
+      entries: [written(1, '[KB] OIB-Richtlinie 2 – oib-rl_2_ausgabe_mai_2023.pdf, p.1')],
+    })
+
+    expect(docs).toHaveLength(1)
+    expect(citationNumbers(docs[0]!)).toEqual([1])
+  })
+
+  it('without a wire number, never attaches a written line to a file it merely resembles', () => {
+    // The filename half of the bridge is load-bearing when there is no number
+    // to go on: a commentary ABOUT the Richtlinie must not hand its page to
+    // the Richtlinie itself.
+    const corpus: CitationSource = {
+      id: 'dbl-c',
+      content: '[KB] oib-rl_6_ausgabe_mai_2023.pdf, p.2',
+      timestamp: new Date(0),
+      origin: 'kb',
+      kind: 'baurecht',
+      lane: 'baurecht_oib',
+      title: 'OIB-Richtlinie 6, Ausgabe Mai 2023',
+      citationKey: 'oib-rl_6_ausgabe_mai_2023.pdf, p.2',
+      collection: 'oib_knowledge',
+      fileName: 'oib-rl_6_ausgabe_mai_2023.pdf',
+      page: 2,
+      number: undefined,
+      isCited: true,
+    }
+    const docs = buildCitationModel({
+      citations: [corpus],
+      entries: [written(1, '[KB] OIB-Richtlinie 6 Kommentar.pdf, p.9')],
+    })
+
+    expect(docs).toHaveLength(2)
   })
 })

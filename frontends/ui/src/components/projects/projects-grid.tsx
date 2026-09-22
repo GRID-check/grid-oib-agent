@@ -26,8 +26,8 @@ import { FolderOpen, Search } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { CountPill } from '@/components/ui/count-pill'
 import { EmptyState } from '@/components/ui/empty-state'
-import { Input } from '@/components/ui/input'
 import { PageHeader } from '@/components/ui/page-header'
+import { SearchField } from '@/components/ui/search-field'
 import { SectionLabel } from '@/components/ui/section-label'
 import { splitForResume } from '@/features/projects/lib/resume-selection'
 import type { Project } from '@/lib/db/schema'
@@ -111,19 +111,19 @@ export function ProjectsGrid({
         action={
           <div className="flex w-full items-center gap-2.5 sm:w-auto">
             {hasProjects && (
-              <div className="relative w-full sm:w-64">
-                <Search
-                  className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"
-                  aria-hidden
-                />
-                <Input
-                  value={query}
-                  onChange={(event) => setQuery(event.target.value)}
-                  placeholder={t('list.searchPlaceholder')}
-                  aria-label={t('list.searchAria')}
-                  className="h-9 rounded-md pl-9"
-                />
-              </div>
+              // The one search molecule — magnifier + input with the phone
+              // keyboard already told what Enter does. Its inner field is `h-9`
+              // on the canonical `rounded-xl` input, so the header keeps the
+              // height the hand-rolled `h-9` field had; `min-h-9` on the header
+              // below reserves it either way. No clear control: with none, the
+              // molecule renders no clear button, exactly like before.
+              <SearchField
+                value={query}
+                onChange={setQuery}
+                placeholder={t('list.searchPlaceholder')}
+                label={t('list.searchAria')}
+                className="w-full sm:w-64"
+              />
             )}
             {/* Primary near-black action — Button default variant consumes --primary. */}
             <CreateProjectDialog defaultOpen={autoOpenCreate} />
@@ -158,7 +158,9 @@ export function ProjectsGrid({
               <SectionHeading id="projects-results" count={rest.length}>
                 {t('list.results.heading')}
               </SectionHeading>
-              <ul className="-mx-3">{rest.map(renderRow)}</ul>
+              {/* `space-y-1`: the rows are full-border rounded pills now, so they
+                  take a 4px gap rather than touching and doubling the seam. */}
+              <ul className="-mx-3 space-y-1">{rest.map(renderRow)}</ul>
             </section>
           )
         ) : (
@@ -191,7 +193,7 @@ export function ProjectsGrid({
                 <SectionHeading id="projects-more" count={rest.length}>
                   {t('list.more.heading')}
                 </SectionHeading>
-                <ul className="-mx-3">{rest.map(renderRow)}</ul>
+                <ul className="-mx-3 space-y-1">{rest.map(renderRow)}</ul>
               </section>
             )}
           </div>

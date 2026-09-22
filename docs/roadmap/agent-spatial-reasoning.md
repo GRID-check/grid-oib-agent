@@ -507,7 +507,7 @@ description: Wie eine Frage zum BIM-Modell beantwortet wird - erst das
   Vokabular des Modells feststellen, dann filtern, Zahlen nur aus aggregate,
   und raeumliche Fragen sofort und praezise als nicht entscheidbar kennzeichnen.
 metadata:
-  grid-agents: shallow_researcher,deep_researcher
+  grid-agents: researcher,deep_researcher
   grid-cards: ifc_viewer,ifc_schedule,ifc_element
 ---
 
@@ -613,7 +613,7 @@ flowchart TB
     subgraph AGENT["Agent process (Python) — src/aiq_agent"]
         direction TB
         A1["ifc_measure<br/>configs/config_oib_openrouter.yml:481"]
-        A2["asyncio.to_thread<br/>agents/bim/measure_register.py:1256"]
+        A2["asyncio.to_thread<br/>tools/bim/measure_register.py:1256"]
         A3["ifc_spatial_client<br/>resolve · download · spill to disk"]
         A4["BFF POST /api/internal/bim/source<br/>presigned URL, tenancy, MAX_MODEL_BYTES"]
         A5["source-identity cache<br/>_HANDLE_BY_SOURCE / _PATH_BY_SOURCE<br/>2nd question = dict hit, no download"]
@@ -1157,7 +1157,7 @@ this has stayed survivable without a worker:
 **What remains true is the roadmap item, and it is not this function.** The
 worker does not exist. All of the above runs in the agent's own process:
 `ifc_measure` hands the blocking unit to `asyncio.to_thread`
-(`src/aiq_agent/agents/bim/measure_register.py:1256`), which keeps the event
+(`src/aiq_agent/tools/bim/measure_register.py:1256`), which keeps the event
 loop answering and is **not** isolation — the tessellations, the OCCT tree and
 the contact map sit in the request process's address space, so a model that
 exhausts memory takes the conversation down with it. What stands in for the

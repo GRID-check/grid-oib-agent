@@ -13,11 +13,11 @@
  * model reads while the generated Zod on this side still had no such member.
  *
  * What that costs is out of all proportion to "one card does not draw", and
- * `validate-grid-cards.spec.ts` pins the mechanism: `validateGridCards` DROPS
- * an unrecognised card and RENUMBERS what is left, while the answer's
- * `[[card:N]]` markers index into exactly that filtered array. One unknown type
- * therefore does not leave a gap — it shifts every card after it up by one, so
- * the marker the model wrote for its Frist draws a summary instead, in cards
+ * `validate-grid-cards.spec.ts` pins the mechanism: `validateGridCards` leaves
+ * an `undefined` HOLE where a card it cannot parse was, holding the wire
+ * positions of everything after it. Without the hole, one unknown type would
+ * not leave a gap — it would shift every card after it up by one, so the
+ * marker the model wrote for its Frist would draw a summary instead, in cards
  * whose own types shipped and work. Silent, and wrong in a compliance answer.
  *
  * The two assertions below are deliberately about MEMBERSHIP and nothing else,
@@ -88,9 +88,9 @@ describe('the card union covers the canonical catalog', () => {
     expect(
       missing,
       `src/shared/cards/generated.ts has no union member for card type(s) ${JSON.stringify(missing)}, ` +
-        'which shared/cards/schemas.json declares. `validateGridCards` drops a card it cannot ' +
-        'parse AND renumbers the rest, so every [[card:N]] marker after one of these draws the ' +
-        `wrong card instead of nothing. The union is generated, so do not hand-edit it: ${REGENERATE}`
+        'which shared/cards/schemas.json declares. `validateGridCards` leaves a hole where a card it cannot ' +
+        'parse was, so every [[card:N]] marker after one of these would draw nothing instead of its card. ' +
+        `The union is generated, so do not hand-edit it: ${REGENERATE}`
     ).toEqual([])
   })
 

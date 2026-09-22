@@ -16,7 +16,7 @@ import { Badge } from '@/components/ui/badge'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Spinner } from '@/components/ui/spinner'
 import { cn } from '@/lib/utils'
-import { motion, fadeRise, springGentle } from '@/components/motion'
+import { motion, fadeRise, motionEntrance } from '@/components/motion'
 import { useTranslations } from '@/i18n'
 import type { DeepResearchTodo, DeepResearchTodoStatus } from '@/features/chat/types'
 
@@ -77,7 +77,7 @@ export const TaskCard: FC<TaskCardProps> = ({ todo }) => {
   return (
     // Outer motion wrapper handles the mount fade-rise; inner div keeps the
     // `opacity-70` completed-state class (motion owns inline opacity on its own node)
-    <motion.div variants={fadeRise} initial="hidden" animate="visible" transition={springGentle}>
+    <motion.div variants={fadeRise} initial="hidden" animate="visible" transition={motionEntrance}>
       <div
         className={cn('flex items-center gap-3 rounded-lg border p-3', isComplete && 'opacity-70')}
       >

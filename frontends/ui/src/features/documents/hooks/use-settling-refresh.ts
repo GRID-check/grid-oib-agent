@@ -20,7 +20,7 @@ interface SettlingItem {
  * Re-ask while anything in a list is still being read.
  *
  * A list fetched once and never again leaves a document that finished indexing
- * after the page loaded wearing its "Wird gelesen…" badge until someone
+ * after the page loaded wearing its "Wird verarbeitet…" badge until someone
  * reloads. For a PDF that is a stale label; for an `.ifc` it hides the only
  * moment that matters. IFC extraction is DETACHED and has no ingest job at
  * upload time (`beginModelExtraction` returns a null job id), so the upload

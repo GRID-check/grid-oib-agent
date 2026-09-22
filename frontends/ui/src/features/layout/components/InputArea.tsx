@@ -23,6 +23,7 @@ import {
   useMemo,
   type ClipboardEvent,
   type KeyboardEvent,
+  type ReactNode,
 } from 'react'
 import {
   ArrowUp,
@@ -31,12 +32,12 @@ import {
   ChevronDown,
   Eye,
   FileText,
+  Loader2,
   Paperclip,
   RotateCw,
   Square,
   X,
   XCircle,
-  ZoomIn,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { Alert, AlertDescription } from '@/components/ui/alert'
@@ -47,7 +48,7 @@ import { Spinner } from '@/components/ui/spinner'
 import { Textarea } from '@/components/ui/textarea'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils'
-import { AnimatePresence, motion, easeQuiet, springSnappy } from '@/components/motion'
+import { AnimatePresence, motion, motionQuick, motionEntrance, springPress } from '@/components/motion'
 import { useWebSocketChat, useChatStore, useIsCurrentSessionBusy } from '@/features/chat'
 import { composerCapabilities } from '@/features/collaboration/lib/composer-capabilities'
 import { resolveAddressee, sendMessageOptions } from '@/features/collaboration/lib/composer-routing'
@@ -386,6 +387,16 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
   // Get current conversation for filtering files and ensureSession for auto-creation
   const currentConversation = useChatStore((state) => state.currentConversation)
   const ensureSession = useChatStore((state) => state.ensureSession)
+  /**
+   * Create the conversation ROW, not just the client-side session.
+   *
+   * `ensureSession` mints a client id and puts a session in the store; the
+   * server row is written by `_appendMessage` at send time. That is fine for
+   * everything except the mention picker, which asks the server about a
+   * conversation the server has never heard of — see the block above
+   * `mentionRetryRef` for why that 404 was terminal.
+   */
+  const ensureConversationExists = useChatStore((state) => state._ensureConversationExists)
   // The real "new session" action — the same one the logo / new-session path in
   // MainLayout uses (startNewSessionDraft). Wired to the post-research
   // "Neue Sitzung starten" button so the completed-report dead-end becomes a
@@ -479,10 +490,34 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
   })
 
   // Count of files still uploading/ingesting for the current session. Drives
-  // the "still processing" hint on the send button (send is never blocked).
+  // the "still processing" hint on the send button, and holds a submitted
+  // message until it reaches zero (`heldForUpload` below): a question sent
+  // while its attachment is still being read would be answered without it.
   const pendingCount = sessionFiles.filter(
     (f) => f.status === 'uploading' || f.status === 'ingesting'
   ).length
+
+  /**
+   * A message the composer accepted while its file was still being read.
+   *
+   * THE FILE IS THE QUESTION, AND IT WAS NOT THERE YET. Attaching a plan and
+   * asking about it in the same breath is the normal way to use this product,
+   * and it did not work: nothing about a session upload is inline — ingestion
+   * runs asynchronously behind a small worker pool with a per-page vision
+   * budget — so the turn was answered against a collection that was still
+   * empty. The agent is not told a file is in flight either (the per-turn
+   * inventory reads the summaries table, which is written only when the job
+   * finishes), so it answered confidently from everything except the document
+   * the question was about.
+   *
+   * Blocking the send was considered and rejected once already, for good
+   * reason: it makes the composer refuse a person who has something to say.
+   * Holding is the third option. The message leaves the composer exactly as if
+   * it had been sent, a line says what it is waiting for, and it goes the
+   * moment the file is readable — so the common case costs the user nothing
+   * and reads as Piloti being careful rather than as Piloti being slow.
+   */
+  const [heldForUpload, setHeldForUpload] = useState<string | null>(null)
 
   // An upload into this chat IS the thing the next send is about. Without a
   // subject the agent never receives focus_file_name and walks project +
@@ -515,7 +550,7 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
   // subject bar holds this in an effect. An inline arrow here made the bar's
   // document lookup a function of how often the user typed.
   const handleSubjectResolved = useCallback(
-    ({ title, filename, shelf }: ResolvedSubjectIdentity) => {
+    ({ title, filename, shelf, versionId, versionState }: ResolvedSubjectIdentity) => {
       // Read from the store, not a closure: the lookup is async and the user
       // may have cleared or re-bound the bar while it was in flight.
       const current = useChatStore.getState().composerSubject
@@ -525,6 +560,11 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
         ...(title ? { title } : {}),
         ...(filename ? { filename } : {}),
         ...(shelf ? { shelf } : {}),
+        // Merged on `!== undefined`, not on truthiness: `null` is the lookup
+        // saying this document has no open version, and it has to CLEAR a pair
+        // an earlier subject left behind rather than leave it standing.
+        ...(versionId !== undefined ? { versionId } : {}),
+        ...(versionState !== undefined ? { versionState } : {}),
       })
     },
     [setComposerSubject]
@@ -578,8 +618,6 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
 
   // Layout store — individual selectors for minimal re-render surface
   const knowledgeLayerAvailable = useLayoutStore((s) => s.knowledgeLayerAvailable)
-  const deepResearchIntent = useLayoutStore((s) => s.deepResearchIntent)
-  const setDeepResearchIntent = useLayoutStore((s) => s.setDeepResearchIntent)
   const applySourcePreset = useLayoutStore((s) => s.applySourcePreset)
   const projectId = useChatStore((s) => s.projectId)
 
@@ -742,10 +780,13 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
   // Dynamic placeholder based on state
   // Note: isResponseMode is checked before isBusy because the user needs to
   // see the response prompt even when the session is "busy" due to HITL.
+  // The research locks reuse their helper sentence here rather than carrying
+  // a third wording for the same fact.
   const getPlaceholder = (): string => {
     if (!isAuthenticated) return t('inputArea.signInToStart')
-    if (isResearchSessionSuccessful) return t('inputArea.researchCompletedNewSession')
+    if (isResearchSessionSuccessful) return t('inputArea.researchCompletedPopover')
     if (isResponseMode) return t('inputArea.typeResponse')
+    if (isResearchSessionInProgress) return t('inputArea.researchInProgressPopover')
     if (isBusy) return t('inputArea.pleaseWait')
     if (isResearchSessionFailed) return t('inputArea.researchFailedFollowUp')
     if (composerSubject) {
@@ -764,10 +805,54 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
   // panel flashed open and vanished, advertising a feature this deployment does
   // not have (spec NF-8). The gate has to sit on the fetch: any other placement
   // leaves the round-trip, and the flicker is the round-trip.
-  const { data: mentionData, loading: mentionsLoading } = useMentionCandidates(
-    currentSessionId ?? null,
-    canCollaborate && mentionRequested
-  )
+  const {
+    data: mentionData,
+    loading: mentionsLoading,
+    restart: restartMentionCandidates,
+  } = useMentionCandidates(currentSessionId ?? null, canCollaborate && mentionRequested)
+
+  /**
+   * A FRESH `@` IS FRESH EVIDENCE, AND THE THREAD MAY SINCE HAVE BEEN PERSISTED.
+   *
+   * A conversation row reaches the server only with its first persisted
+   * message, so a `@` typed before anything was sent reads candidates that
+   * 404. The retry ladder in the hook covers a few seconds of that; past its
+   * last rung it gives up, and nothing re-armed it — `refresh` is keyed on the
+   * conversation id, which does not change when the row finally appears, and
+   * `mentionRequested` latches true on the first `@` so the enable flag never
+   * flips either. The result was a picker that stayed dead for the rest of that
+   * thread unless the reader happened to blur and refocus the tab.
+   *
+   * Held in a ref rather than a dependency because `syncMentionQuery` runs on
+   * every keystroke and every caret move; a changing identity there would make
+   * the mention trigger a function of how fast someone types.
+   */
+  const mentionRetryRef = useRef<(() => void) | null>(null)
+  // `mentionRequested` is NOT part of this condition, and that omission is half
+  // the fix. It latches true only in `syncMentionQuery`'s own edge branch, i.e.
+  // in the same event that reads this ref — so on the FIRST `@` of a window it
+  // was still false from the previous render, the ref was null, and the re-arm
+  // could not fire on the one interaction that needed it. It could only ever
+  // help from the second fragment onward.
+  mentionRetryRef.current = mentionData === null && !mentionsLoading ? restartMentionCandidates : null
+  /**
+   * Make the conversation real before the picker asks about it.
+   *
+   * Held in a ref for the same reason the retry is: `syncMentionQuery` runs on
+   * every keystroke and every caret move, and a changing dependency there would
+   * make the mention trigger a function of how fast someone types.
+   */
+  const ensureConversationRef = useRef<() => void>(() => {})
+  ensureConversationRef.current = () => {
+    // `ensureSession` writes to the store synchronously, so the id
+    // `_ensureConversationExists` then reads is the one just minted.
+    // `ensureServerConversation` is idempotent and shares one in-flight promise
+    // per id, so the send path pays nothing extra for this.
+    ensureSession()
+    void ensureConversationExists()
+  }
+  /** Whether the caret was already inside an `@…` fragment on the last sync. */
+  const mentionFragmentOpenRef = useRef(false)
 
   /**
    * Re-evaluate whether the caret sits in an `@…` fragment. Called on every text
@@ -779,9 +864,32 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
     const range = caret === null ? null : findMentionQuery(value, caret)
     setMentionQuery(range)
     if (range) {
+      // Only on the EDGE — the keystroke that opens a fragment. Asking again on
+      // every character of `@Mar…` would be a fetch per keystroke.
+      if (!mentionFragmentOpenRef.current) {
+        // The row FIRST, then the retry.
+        //
+        // In a new window there is no conversation: the logo, the new-chat path
+        // and `?new` all null it, and typing `@` only ever created a
+        // CLIENT-SIDE session. So the picker asked
+        // `/api/conversations/<clientId>/mention-candidates` about a row that
+        // does not exist, got 404 through every rung of the retry ladder, and
+        // the hook cleared its data — which renders NO picker at all, not an
+        // empty one. Re-arming that ladder against the same missing row could
+        // only 404 again, which is why the previous fix did not help here.
+        //
+        // Scoped to this edge rather than to every first keystroke, so only
+        // readers who actually reached for the picker pay the round trip.
+        // `deleteConversation` already removes the server row, so an abandoned
+        // draft cleans up.
+        ensureConversationRef.current()
+        mentionRetryRef.current?.()
+      }
+      mentionFragmentOpenRef.current = true
       setMentionRequested(true)
       return
     }
+    mentionFragmentOpenRef.current = false
     // No fragment → nothing to dismiss; the next `@` starts clean.
     setMentionDismissed(false)
   }, [])
@@ -967,12 +1075,19 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
     !disabled &&
     (mentionsLoading || mentionData !== null)
 
-  const handleSubmit = useCallback(async () => {
-    if (!message.trim() || disabled) return
+  /**
+   * @param heldText  A message the composer HELD rather than sent (see
+   *   `heldForUpload`). Passed explicitly because it is no longer in `message`
+   *   by the time the uploads settle, and a state round-trip to put it back
+   *   would send whatever the user had started typing since.
+   */
+  const handleSubmit = useCallback(async (heldText?: string) => {
+    const source = heldText ?? message
+    if (!source.trim() || disabled) return
     // Backstop for a send that never saw a focus event (prefill, deep link). A no-op
     // when focus already declared it.
     noteSendIntent()
-    const currentMessage = message.trim()
+    const currentMessage = source.trim()
     // Capture the session up front — the draft is cleared against THIS id on a
     // successful send, even if the session changes underneath us mid-await.
     const submittingSessionId = currentConversation?.id
@@ -1000,9 +1115,17 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
     })
     const sentHumans = sent.humans
 
-    // Files may still be uploading/ingesting — we no longer gate the send behind
-    // a double-submit banner. The send button surfaces a subtle inline hint
-    // (see title below) but the user is always free to send.
+    // A file is still being read, and this message is about it. Hold rather
+    // than send: see `heldForUpload`. `heldText` means this IS the resumed
+    // send, so it must not be held a second time.
+    if (heldText === undefined && pendingCount > 0) {
+      setHeldForUpload(currentMessage)
+      setMessage('')
+      setMentionQuery(null)
+      onStoppedTyping()
+      return
+    }
+
     setMessage('')
     setMentionQuery(null)
     // The draft became a message; the claim has served its purpose and the
@@ -1029,13 +1152,15 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
           // One ternary, not a re-derivation: `sendMessageOptions` already chose
           // the case. Omitting the argument entirely is what keeps the fast path
           // the literal single-argument call it has always been.
-          const routed = sendMessageOptions(sent.routing)
-          // Resolved from the TEXT BEING SENT, not from state: the `/name` token
-          // can be edited away after it was picked, and what reaches the agent
-          // has to be what the message still says — the same discipline the
-          // mentions above follow.
-          const invoked = slash.skillsForSend(currentMessage)
-          const options = invoked ? { ...(routed ?? {}), skills: invoked } : routed
+          //
+          // A `/name` invocation adds NOTHING here any more. The picker writes
+          // the skill's name into the message text and that is the whole of it:
+          // the model reads the name and picks the skill out of its catalog,
+          // rather than the turn being handed a skill it must apply. What the
+          // office always wants applied is a standing instruction, and those
+          // live in the platform prompt and the organization's own instruction
+          // block — not in a per-message field somebody has to remember.
+          const options = sendMessageOptions(sent.routing)
           return options ? sendMessage(currentMessage, options) : sendMessage(currentMessage)
         })()
       )
@@ -1079,6 +1204,7 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
     message,
     mentions,
     disabled,
+    pendingCount,
     isResponseMode,
     respondToInteraction,
     sendMessage,
@@ -1090,10 +1216,34 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
     currentConversation,
     clearComposerDraft,
     onStoppedTyping,
-    slash,
     t,
     tCollab,
   ])
+
+  /**
+   * The held message goes the moment the file is readable — or the moment it is
+   * clear it never will be.
+   *
+   * `pendingCount === 0` covers both: an upload that succeeded and one that
+   * failed leave the pending set the same way. That is deliberate. A message
+   * must not be swallowed by a broken upload; if the file did not make it, the
+   * question is still the user's to ask, and the answer will simply be the one
+   * they would have got before this existed.
+   */
+  useEffect(() => {
+    if (heldForUpload === null || pendingCount > 0) return
+    const text = heldForUpload
+    setHeldForUpload(null)
+    void handleSubmit(text)
+  }, [heldForUpload, pendingCount, handleSubmit])
+
+  /** Give up waiting and ask now, without the file. */
+  const sendHeldNow = useCallback(() => {
+    if (heldForUpload === null) return
+    const text = heldForUpload
+    setHeldForUpload(null)
+    void handleSubmit(text)
+  }, [heldForUpload, handleSubmit])
 
   // Post-research forward action: start a fresh session draft (the real
   // new-session path) so the user can ask follow-ups after a completed report,
@@ -1206,7 +1356,7 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
       // Pass the (possibly just-created) session explicitly: the hook's
       // memoized collectionName still reflects the previous render, so the
       // first upload in a fresh session would otherwise abort.
-      await uploadFiles(files, sessionId)
+      await uploadFiles(files, { collectionOverride: sessionId })
     },
     [ensureSession, uploadFiles, cannotContribute, isUploading, isBusy]
   )
@@ -1248,6 +1398,119 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
   // search does not exist yet — spec §2.3, honest disabled option).
   const scopeLabel = projectName || tChat('composer.scopeFallback')
 
+  // Single composer hint slot: exactly one helper line below the control row —
+  // the first applicable in priority order (viewer > no-project-chat > busy >
+  // mention > awaiting > research lock). Same strings and conditions as the
+  // stacked lines this replaces. The Deep-Research intent echo is gone from
+  // here on purpose: the pill's own title already says it, so a line would
+  // state the preference twice.
+  let composerHint: ReactNode = null
+  if (canCollaborate && isViewerInSharedThread) {
+    // Read-only participant: the composer is disabled on the same fact, and
+    // this line is why.
+    composerHint = (
+      <p
+        data-testid="composer-viewer-hint"
+        className="text-muted-foreground mt-2 flex items-start gap-1.5 text-xs leading-relaxed"
+        role="note"
+      >
+        <Eye className="mt-0.5 size-3 shrink-0 opacity-70" aria-hidden="true" />
+        <span>{tCollab('thread.viewerNotice')}</span>
+      </p>
+    )
+  } else if (cannotChatInProject) {
+    // No `project:chat` in this project: the composer is dead on the same
+    // fact, and this is why. Deliberately NOT behind `canCollaborate` —
+    // this is a project permission, not a sharing one, so a tenant with
+    // collaboration off must still get the explanation.
+    composerHint = (
+      <p
+        data-testid="composer-project-chat-hint"
+        className="text-muted-foreground mt-2 flex items-start gap-1.5 text-xs leading-relaxed"
+        role="note"
+      >
+        <Eye className="mt-0.5 size-3 shrink-0 opacity-70" aria-hidden="true" />
+        <span>{tChat('composer.noProjectChatPermission')}</span>
+      </p>
+    )
+  } else if (canCollaborate && otherPersonsTurnName) {
+    // Piloti is mid-answer for SOMEBODY ELSE (spec CC-13). The composer is
+    // locked on the same fact (`otherPersonsTurnName` disables it above), and
+    // without a line here that lock is unexplained — a colleague sees a dead
+    // input and no reason for it. Only when the turn belongs to someone else:
+    // the asker has their own typing indicator and Herleitung, so telling them
+    // "Piloti is answering your question" would be noise.
+    composerHint = (
+      <p
+        data-testid="composer-busy-hint"
+        className="text-muted-foreground mt-2 flex items-start gap-1.5 text-xs leading-relaxed"
+        role="note"
+      >
+        <span>{tCollab('thread.composerBusy', { name: otherPersonsTurnName })}</span>
+      </p>
+    )
+  } else if (taggedHumans.length > 0 && !agentTagged) {
+    // The hand-off, said out loud BEFORE sending (spec MN-7/MN-8): once a
+    // person is tagged the agent will stay quiet, and the user has to know
+    // that while they can still change their mind. Suppressed when `@Piloti`
+    // is tagged too — then the agent DOES answer (MN-1) and this sentence
+    // would be false; the addressee line above names both.
+    composerHint = (
+      <p
+        data-testid="composer-mention-hint"
+        className="text-muted-foreground mt-2 flex items-start gap-1.5 text-xs leading-relaxed"
+        role="note"
+      >
+        <AtSign className="mt-0.5 size-3 shrink-0 opacity-70" aria-hidden="true" />
+        <span>
+          {/* German inflects the verb, so joining names into the singular
+              string produced "Anna Berger, Tobias Kern WIRD gefragt" — wrong
+              grammar in the primary product language. This i18n layer has no
+              plural rules, hence two keys. */}
+          {taggedHumans.length === 1
+            ? tCollab('mentions.composerHint', { name: taggedHumans[0]!.display })
+            : tCollab('mentions.composerHintMany', {
+                names: taggedHumans.map((mention) => mention.display).join(', '),
+              })}
+        </span>
+      </p>
+    )
+  } else if (canCollaborate && threadAwaitsHuman && activeMentions.length === 0) {
+    // The way BACK, exactly where it is needed: while the thread waits on a
+    // person, a plain message is a remark, so the composer says how to reach
+    // Piloti instead of leaving that to be discovered.
+    composerHint = (
+      <p
+        data-testid="composer-agent-hint"
+        className="text-muted-foreground mt-2 flex items-start gap-1.5 text-xs leading-relaxed"
+        role="note"
+      >
+        <span>{tCollab('mentions.addressee.agentHint')}</span>
+      </p>
+    )
+  } else if (isResearchSessionInProgress && !isResponseMode) {
+    // The lock explanation for the disabled send above: the in-progress
+    // research holds the composer, and this line is why.
+    composerHint = (
+      <p
+        data-testid="composer-research-hint"
+        className="text-muted-foreground mt-2 text-xs leading-relaxed"
+        role="note"
+      >
+        {t('inputArea.researchInProgressPopover')}
+      </p>
+    )
+  } else if (isResearchSessionSuccessful && !isResponseMode) {
+    // Post-research helper line — the explanation that used to live in the
+    // (no-op) send popover, now always visible next to the "Neue Sitzung
+    // starten" action so the completed-report lock is understandable.
+    composerHint = (
+      <p className="text-muted-foreground mt-2 text-xs leading-relaxed" role="note">
+        {t('inputArea.researchCompletedPopover')}
+      </p>
+    )
+  }
+
   return (
     // Narrower than the message column (max-w-5xl in ChatArea/ChatToolbar) on
     // purpose: an identical width read as the transcript's own last row
@@ -1284,18 +1547,21 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
               // still signalled by the ring on top of it, never by thickening
               // the outline. Textarea on top, hairline-separated control row
               // below.
-              // The ring is `accent-pop`, not the neutral `ring-ring` every
-              // other focus state in the app uses: this is the app's one
-              // carved-out accent (design doc §"Accent pop"), and typing is
-              // one of the rare moments it should show — a quiet green glow
-              // that says "live" rather than a fact about provenance.
+              // The ring is the neutral `ring-ring`, the same focus state every
+              // other field in the app uses. It was `accent-pop` — a green glow
+              // meant to read as "live" — and the accent was withdrawn: on the
+              // one surface where a colour is on screen for the whole time
+              // somebody is composing, green did not read as liveness so much as
+              // as a status, competing with the provenance greens the answer
+              // below it uses to mean something. See the design doc §"Accent
+              // pop" for what the accent was for and why it is gone.
               // NOT `active:scale-95`: the press response belongs on the controls a
               // reader actually presses (the chips and buttons in the row below), and
               // this div is the card that HOLDS them. With it here, putting the caret
               // in the textarea shrank the whole composer — text, chips and all — on
               // every mousedown, which reads as the surface flinching away from the
               // click rather than as a control acknowledging a press.
-              'bg-card/90 backdrop-blur-md supports-[backdrop-filter]:bg-card/85 focus-within:ring-accent-pop/45 duration-quick relative flex flex-col rounded-xl border border-input px-4 py-2.5 shadow-md transition-[box-shadow,border-color] ease-out focus-within:ring-2',
+              'bg-card/90 backdrop-blur-md supports-[backdrop-filter]:bg-card/85 focus-within:ring-ring/40 duration-quick relative flex flex-col rounded-xl border border-input px-4 py-2.5 shadow-md transition-[box-shadow,border-color] ease-out focus-within:ring-2',
               isDisabledByAuth && 'opacity-60',
               isDragging && isUnsupportedDrag
                 ? 'border-error border-2 border-dashed'
@@ -1513,7 +1779,7 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
                   initial={{ opacity: 0, y: 4 }}
                   animate={{ opacity: 1, y: 0 }}
                   exit={{ opacity: 0, y: 2 }}
-                  transition={easeQuiet}
+                  transition={motionEntrance}
                 >
                   <InvokedSkillChip
                     name={slash.invokedSkill.name}
@@ -1532,7 +1798,7 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
                   initial={{ opacity: 0, y: 8 }}
                   animate={{ opacity: 1, y: 0 }}
                   exit={{ opacity: 0, y: 4 }}
-                  transition={easeQuiet}
+                  transition={motionEntrance}
                 >
                   <Alert variant="destructive" className="mt-2">
                     <AlertDescription className="flex w-full items-start justify-between gap-2">
@@ -1649,32 +1915,35 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
                 </PopoverContent>
               </Popover> */}
 
-              {/* Deep-Research intent pill — preference, NOT a hard trigger:
-              the agent auto-escalates on its own (spec §2.2(6)) */}
-              {/* Same rebuild as the scope chip beside it. Pressed is the `default`
-              (ink) variant and resting is `outline`, so "on" is the ink fill the
-              design language reserves for the action — no third hand-rolled
-              state, and the press response comes from the primitive. */}
-              <Button
-                type="button"
-                variant={deepResearchIntent ? 'default' : 'outline'}
-                size="sm"
-                aria-pressed={deepResearchIntent}
-                aria-label={tChat('composer.deepResearchAria')}
-                title={tChat('composer.deepResearchHint')}
-                disabled={cannotContribute}
-                onClick={() => setDeepResearchIntent(!deepResearchIntent)}
-                className={cn('shrink-0', !deepResearchIntent && 'text-muted-foreground')}
-              >
-                <ZoomIn className="size-3.5" aria-hidden="true" />
-                <span className="hidden sm:inline">{tChat('composer.deepResearch')}</span>
-              </Button>
-
               {/* Who this message goes to — ALWAYS, whenever collaboration exists at
               all. The point of it being unconditional: if it only appeared in the
               unusual case, "Piloti is next" would remain something the user has to
               infer from an absence. Borderless on purpose — it is a statement
               standing among buttons, and must not read as one. */}
+              {/* The hold, said out loud. Without it the message simply
+                  vanishes from the composer and nothing arrives — which reads
+                  as a dropped send, the one impression a held message must not
+                  give. The way out is offered beside it: a reader who does not
+                  want to wait for the file can ask now and get the answer they
+                  would have got before this existed. */}
+              {heldForUpload !== null && (
+                <span
+                  className="text-muted-foreground flex items-center gap-1.5 text-xs"
+                  data-testid="composer-held-for-upload"
+                  role="status"
+                >
+                  <Loader2 className="size-3.5 animate-spin motion-reduce:animate-none" aria-hidden />
+                  {t('inputArea.heldForUpload')}
+                  <button
+                    type="button"
+                    onClick={sendHeldNow}
+                    className="text-foreground font-medium underline-offset-2 hover:underline"
+                  >
+                    {t('inputArea.heldForUploadSendNow')}
+                  </button>
+                </span>
+              )}
+
               {canCollaborate && (
                 <AddresseeIndicator
                   mentions={activeMentions}
@@ -1767,7 +2036,7 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
                   <motion.div
                     className="inline-flex"
                     whileTap={{ scale: 0.94 }}
-                    transition={springSnappy}
+                    transition={springPress}
                     tabIndex={-1}
                   >
                     <Button
@@ -1784,21 +2053,18 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
                     </Button>
                   </motion.div>
                 ) : isResearchSessionInProgress && !isResponseMode ? (
-                  <Popover>
-                    <PopoverTrigger asChild>
-                      <Button
-                        size="icon"
-                        className="size-9 rounded-lg shadow-md"
-                        aria-label={t('inputArea.researchInProgressAria')}
-                        title={t('inputArea.researchInProgress')}
-                      >
-                        <ArrowUp className="size-4" aria-hidden="true" />
-                      </Button>
-                    </PopoverTrigger>
-                    <PopoverContent side="top" align="end" className="w-auto max-w-xs p-3">
-                      <p className="text-sm">{t('inputArea.researchInProgressPopover')}</p>
-                    </PopoverContent>
-                  </Popover>
+                  // Locked while research runs: a disabled send plus the helper
+                  // line below the composer (the single hint slot) carry the
+                  // lock — no popover to open on a control that cannot act.
+                  <Button
+                    size="icon"
+                    className="size-9 rounded-lg shadow-md"
+                    disabled
+                    aria-label={t('inputArea.researchInProgressAria')}
+                    title={t('inputArea.researchInProgress')}
+                  >
+                    <ArrowUp className="size-4" aria-hidden="true" />
+                  </Button>
                 ) : isStreaming && !isResponseMode ? (
                   // Stop button (C1): while a shallow-thinking turn streams, replace
                   // the disabled send button with a stop control that cancels the
@@ -1806,7 +2072,7 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
                   <motion.div
                     className="inline-flex"
                     whileTap={{ scale: 0.94 }}
-                    transition={springSnappy}
+                    transition={springPress}
                     tabIndex={-1}
                   >
                     <Button
@@ -1829,7 +2095,7 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
                   <motion.div
                     className="inline-flex"
                     whileTap={{ scale: 0.94 }}
-                    transition={springSnappy}
+                    transition={springPress}
                     // whileTap makes framer-motion inject tabindex="0"; the wrapper must
                     // not be a tab stop — the Button inside is the real control.
                     tabIndex={-1}
@@ -1837,18 +2103,16 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
                     <Button
                       size="icon"
                       className={cn(
-                        'size-9 rounded-lg shadow-md',
-                        // The one moment the accent fills a whole control: a
-                        // message ready to send. Ink otherwise (the Button's
-                        // own `default` variant) — the accent marks READINESS,
-                        // it does not become the button's permanent identity,
-                        // which is what would have made it a second action
-                        // color rather than a one-time cue.
-                        message.trim() &&
-                          !disabled &&
-                          'bg-accent-pop text-accent-pop-foreground shadow-xs hover:bg-accent-pop/90'
+                        // Ink, in both states. The armed button used to fill
+                        // with `accent-pop`, to mark readiness — but the
+                        // disabled/armed pair already reads as readiness
+                        // (the control goes from muted to solid and becomes
+                        // pressable), so the colour was carrying a distinction
+                        // the contrast had already made, in a hue this product
+                        // uses elsewhere to mean provenance.
+                        'size-9 rounded-lg shadow-md'
                       )}
-                      onClick={handleSubmit}
+                      onClick={() => handleSubmit()}
                       disabled={!message.trim() || disabled}
                       aria-label={
                         isResponseMode ? t('inputArea.sendResponse') : t('inputArea.sendMessage')
@@ -1863,11 +2127,9 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
                         {isLoading ? (
                           <motion.span
                             key="loading"
-                            className="animate-pulse"
-                            initial={{ opacity: 0, scale: 0.8 }}
-                            animate={{ opacity: 1, scale: 1 }}
-                            exit={{ opacity: 0, scale: 0.8 }}
-                            transition={springSnappy}
+                            initial={{ opacity: 0, y: -4 }}
+                            animate={{ opacity: 1, y: 0, transition: motionEntrance }}
+                            exit={{ opacity: 0, y: 6, transition: motionQuick }}
                           >
                             ...
                           </motion.span>
@@ -1875,10 +2137,9 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
                           <motion.span
                             key="send"
                             className="inline-flex"
-                            initial={{ opacity: 0, scale: 0.8 }}
-                            animate={{ opacity: 1, scale: 1 }}
-                            exit={{ opacity: 0, scale: 0.8 }}
-                            transition={springSnappy}
+                            initial={{ opacity: 0, y: -4 }}
+                            animate={{ opacity: 1, y: 0, transition: motionEntrance }}
+                            exit={{ opacity: 0, y: 6, transition: motionQuick }}
                           >
                             <ArrowUp className="size-4" aria-hidden="true" />
                           </motion.span>
@@ -1890,105 +2151,10 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
               </div>
             </div>
 
-            {/* The hand-off, said out loud BEFORE sending (spec MN-7/MN-8): once a
-            person is tagged the agent will stay quiet, and the user has to know
-            that while they can still change their mind. Suppressed when `@Piloti`
-            is tagged too — then the agent DOES answer (MN-1) and this sentence
-            would be false; the addressee line above names both. */}
-            {taggedHumans.length > 0 && !agentTagged && (
-              <p
-                data-testid="composer-mention-hint"
-                className="text-muted-foreground mt-2 flex items-start gap-1.5 text-xs leading-relaxed"
-                role="note"
-              >
-                <AtSign className="mt-0.5 size-3 shrink-0 opacity-70" aria-hidden="true" />
-                <span>
-                  {/* German inflects the verb, so joining names into the singular
-                  string produced "Anna Berger, Tobias Kern WIRD gefragt" — wrong
-                  grammar in the primary product language. This i18n layer has no
-                  plural rules, hence two keys. */}
-                  {taggedHumans.length === 1
-                    ? tCollab('mentions.composerHint', { name: taggedHumans[0]!.display })
-                    : tCollab('mentions.composerHintMany', {
-                        names: taggedHumans.map((mention) => mention.display).join(', '),
-                      })}
-                </span>
-              </p>
-            )}
-
-            {/* The way BACK, exactly where it is needed: while the thread waits on a
-            person, a plain message is a remark, so the composer says how to reach
-            Piloti instead of leaving that to be discovered. */}
-            {canCollaborate && threadAwaitsHuman && activeMentions.length === 0 && (
-              <p
-                data-testid="composer-agent-hint"
-                className="text-muted-foreground mt-2 flex items-start gap-1.5 text-xs leading-relaxed"
-                role="note"
-              >
-                <span>{tCollab('mentions.addressee.agentHint')}</span>
-              </p>
-            )}
-
-            {/* Piloti is mid-answer for SOMEBODY ELSE (spec CC-13). The composer is
-            locked on the same fact (`otherPersonsTurnName` disables it above), and
-            without a line here that lock is unexplained — a colleague sees a dead
-            input and no reason for it. Only when the turn belongs to someone else:
-            the asker has their own typing indicator and Herleitung, so telling them
-            "Piloti is answering your question" would be noise. */}
-            {canCollaborate && otherPersonsTurnName && (
-              <p
-                data-testid="composer-busy-hint"
-                className="text-muted-foreground mt-2 flex items-start gap-1.5 text-xs leading-relaxed"
-                role="note"
-              >
-                <span>{tCollab('thread.composerBusy', { name: otherPersonsTurnName })}</span>
-              </p>
-            )}
-
-            {/* No `project:chat` in this project: the composer is dead on the same
-            fact, and this is why. Deliberately NOT behind `canCollaborate` —
-            this is a project permission, not a sharing one, so a tenant with
-            collaboration off must still get the explanation. */}
-            {cannotChatInProject && (
-              <p
-                data-testid="composer-project-chat-hint"
-                className="text-muted-foreground mt-2 flex items-start gap-1.5 text-xs leading-relaxed"
-                role="note"
-              >
-                <Eye className="mt-0.5 size-3 shrink-0 opacity-70" aria-hidden="true" />
-                <span>{tChat('composer.noProjectChatPermission')}</span>
-              </p>
-            )}
-
-            {/* Read-only participant: the composer is disabled on the same fact, and
-            this line is why. */}
-            {canCollaborate && isViewerInSharedThread && (
-              <p
-                data-testid="composer-viewer-hint"
-                className="text-muted-foreground mt-2 flex items-start gap-1.5 text-xs leading-relaxed"
-                role="note"
-              >
-                <Eye className="mt-0.5 size-3 shrink-0 opacity-70" aria-hidden="true" />
-                <span>{tCollab('thread.viewerNotice')}</span>
-              </p>
-            )}
-
-            {/* Honest Deep-Research hint: the pill records intent; escalation
-            stays automatic. Never promises a forced deep-research run. */}
-            {deepResearchIntent && (
-              <p className="text-muted-foreground mt-2 text-xs leading-relaxed" role="note">
-                {tChat('composer.deepResearchHint')}
-              </p>
-            )}
-
-            {/* Post-research helper line — the explanation that used to live in the
-            (no-op) send popover, now always visible next to the "Neue Sitzung
-            starten" action so the completed-report lock is understandable. */}
-            {isResearchSessionSuccessful && !isResponseMode && (
-              <p className="text-muted-foreground mt-2 text-xs leading-relaxed" role="note">
-                {t('inputArea.researchCompletedPopover')}
-              </p>
-            )}
+            {/* Single hint slot: the first applicable helper line, announced
+                politely. The Deep-Research intent echo was deleted — the pill's
+                title carries it — so an armed pill shows no line at all. */}
+            <div aria-live="polite">{composerHint}</div>
           </div>
         </PopoverAnchor>
 

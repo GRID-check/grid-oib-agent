@@ -27,9 +27,17 @@ import socket
 
 from . import queue
 from .runner import _purge_deep_checkpoint
+from .runner import _update_status_if_not_terminal
 from .runner import run_agent_job
 
 logger = logging.getLogger(__name__)
+
+# User-safe verdict for a quarantined queue payload. The stored blob was corrupt
+# (bad base64 / torn write), undecryptable (KEK rotation, tampered tag), forged
+# plaintext under KEK, or decoded to a non-dict — either way it can never run.
+# The full exception stays server-side in the logs; clients get this string via
+# job_info.error and the job.error event (same surfaces as runner failures).
+POISON_PAYLOAD_ERROR = "The job payload could not be decrypted or parsed and was quarantined."
 
 
 def _int_env(name: str, default: int) -> int:
@@ -102,11 +110,21 @@ class ResearchWorker:
                 return
 
     async def _run_claimed(self, claim: dict) -> None:
+        if claim.get(queue.POISON_CLAIM_MARKER):
+            # Structural backstop: poison markers are routed to _fail_poison by
+            # the poll loop and must never execute. If one arrives here, record
+            # the verdict instead of running an absent payload.
+            await self._fail_poison(claim)
+            return
         job_id = claim["job_id"]
         payload = claim["payload"]
         logger.info("Worker %s running job %s (attempt %s)", self.worker_id, job_id, claim["attempts"])
         # run_agent_job owns its own job_info status transitions + telemetry.
-        run_task = asyncio.create_task(run_agent_job(**payload))
+        # Still-owner publish gate (hardening item 10): hand our claim id to
+        # the run so a reclaimed loser publishes nothing user-visible
+        # (status/turn/notice) — the spread keeps old payloads without the key
+        # working, with our id winning over the submit-time None.
+        run_task = asyncio.create_task(run_agent_job(**{**payload, "claim_owner": self.worker_id}))
         heartbeat = asyncio.create_task(self._heartbeat_loop(job_id, run_task))
         claim_lost = False
         try:
@@ -129,18 +147,74 @@ class ResearchWorker:
             if not claim_lost:
                 await asyncio.to_thread(_purge_deep_checkpoint, job_id)
 
+    async def _fail_poison(self, claim: dict) -> None:
+        """Record the FAILURE verdict for a quarantined queue payload.
+
+        The queue row is already deleted by ``claim_next`` — this only flips
+        the durable record (``job_info``, via the sticky-terminal conditional
+        so a concurrent cancel/reaper verdict wins) and emits the ``job.error``
+        event both surfaces stream. Best-effort throughout: a poison verdict
+        must never itself kill the poll loop. There is no conversation notice
+        or outcome notify here — the payload was undecryptable, so the run's
+        conversation/usage context is unrecoverable by construction.
+        """
+        job_id = claim["job_id"]
+        logger.error(
+            "Job %s payload quarantined (%s); marking FAILURE",
+            job_id,
+            claim.get("poison_error", "undecryptable payload"),
+        )
+        from nat.front_ends.fastapi.async_jobs.job_store import JobStatus
+        from nat.front_ends.fastapi.async_jobs.job_store import JobStore
+
+        try:
+            store = JobStore(scheduler_address="", db_url=self.db_url)
+            written = await _update_status_if_not_terminal(store, job_id, JobStatus.FAILURE, error=POISON_PAYLOAD_ERROR)
+            if written:
+                logger.error("Job %s marked FAILURE after payload quarantine", job_id)
+            else:
+                logger.info("Job %s already terminal; leaving the existing verdict", job_id)
+        except Exception:
+            logger.exception("Failed to mark quarantined job %s FAILURE", job_id)
+        try:
+            from .event_store import EventStore
+
+            def _store_poison_event() -> None:
+                EventStore(self.db_url, job_id).store(
+                    {
+                        "type": "job.error",
+                        "data": {"error": POISON_PAYLOAD_ERROR, "error_type": "PoisonPayloadError"},
+                    }
+                )
+
+            await asyncio.to_thread(_store_poison_event)
+        except Exception:
+            logger.warning("Failed to store job.error event for quarantined job %s (non-fatal)", job_id, exc_info=True)
+
     async def _fail_exhausted(self) -> None:
         """Flip crashed-and-exhausted claims to FAILURE in job_info."""
         reaped = await asyncio.to_thread(queue.reap_exhausted, self.db_url, self.stale_seconds, self.max_attempts)
         if not reaped:
             return
+        from nat.front_ends.fastapi.async_jobs.job_store import JobStatus
         from nat.front_ends.fastapi.async_jobs.job_store import JobStore
 
         store = JobStore(scheduler_address="", db_url=self.db_url)
         for job_id in reaped:
             try:
-                await store.update_status(job_id, "FAILURE", error="research worker retries exhausted")
-                logger.error("Job %s marked FAILURE after retry exhaustion", job_id)
+                # Conditional: the run may have finalized itself after its
+                # claim went stale (same sticky-terminal contract as the
+                # runner and the ghost-job reaper). Also spelled as the enum,
+                # not "FAILURE": NAT's JobStatus lookup is by value
+                # ("failure"), so the old uppercase string raised ValueError
+                # and these jobs were never actually marked.
+                written = await _update_status_if_not_terminal(
+                    store, job_id, JobStatus.FAILURE, error="research worker retries exhausted"
+                )
+                if written:
+                    logger.error("Job %s marked FAILURE after retry exhaustion", job_id)
+                else:
+                    logger.info("Job %s already terminal; leaving the existing verdict", job_id)
             except Exception:
                 logger.exception("Failed to mark exhausted job %s FAILURE", job_id)
 
@@ -159,11 +233,24 @@ class ResearchWorker:
             self._running = {t for t in self._running if not t.done()}
             claimed_any = False
             while len(self._running) < self.concurrency:
-                claim = await asyncio.to_thread(
-                    queue.claim_next, self.db_url, self.worker_id, self.stale_seconds, self.max_attempts
-                )
+                try:
+                    claim = await asyncio.to_thread(
+                        queue.claim_next, self.db_url, self.worker_id, self.stale_seconds, self.max_attempts
+                    )
+                except Exception:
+                    # Transient DB error: nothing was claimed (poison rows no
+                    # longer raise — they come back as markers handled below),
+                    # so skip the tick, never kill the poll loop over it.
+                    logger.exception("Claim poll failed; skipping tick")
+                    break
                 if claim is None:
                     break
+                if claim.get(queue.POISON_CLAIM_MARKER):
+                    # Quarantined row: record FAILURE, then claim the next row
+                    # in the same tick so a healthy job behind poison runs
+                    # without waiting a poll interval.
+                    await self._fail_poison(claim)
+                    continue
                 claimed_any = True
                 self._running.add(asyncio.create_task(self._run_claimed(claim)))
             await self._fail_exhausted()

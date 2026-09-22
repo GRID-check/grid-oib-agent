@@ -87,3 +87,52 @@ describe('FollowUpsRail', () => {
     expect(railLabels).toEqual(cardLabels)
   })
 })
+
+/**
+ * „Als Aktenvermerk schreiben" (ledger 23) — the one chip the CLIENT offers.
+ *
+ * The condition lives in `lib/aktenvermerk-chip` and is tested there; what is
+ * tested here is that the offer reaches the rail, keeps the chips' one promise
+ * (fill the composer, do nothing else), and — the part a stage-only rail got
+ * wrong — that it can appear on a turn the follow-up stage never produced
+ * anything for.
+ */
+describe('FollowUpsRail — the Aktenvermerk offer', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    vi.stubGlobal('fetch', vi.fn(() => Promise.resolve({ ok: true, status: 200, json: async () => ({}) })))
+  })
+  afterEach(() => vi.unstubAllGlobals())
+
+  it('is absent unless the turn earns it', () => {
+    render(<FollowUpsRail items={items} />)
+    expect(screen.queryByTestId('follow-up-action-aktenvermerk')).toBeNull()
+  })
+
+  it('rides beside the questions, last', () => {
+    render(<FollowUpsRail items={items} offerAktenvermerk />)
+    const labels = screen.getAllByRole('button').map((b) => b.textContent)
+    expect(labels).toHaveLength(3)
+    expect(labels[2]).toContain('file note')
+  })
+
+  it('appears on a turn that produced no follow-up questions at all', () => {
+    // The rail used to be mounted only where a stage had delivered items, so an
+    // offer computed in the browser had no surface to land on.
+    render(<FollowUpsRail items={[]} offerAktenvermerk />)
+    expect(screen.getByTestId('follow-ups-rail')).toBeInTheDocument()
+    expect(screen.getAllByRole('button')).toHaveLength(1)
+  })
+
+  it('fills the composer with the ASK, not with its own label, and writes nothing', async () => {
+    render(<FollowUpsRail items={[]} offerAktenvermerk />)
+    await userEvent.click(screen.getByTestId('follow-up-action-aktenvermerk'))
+
+    expect(setComposerPrefill).toHaveBeenCalledTimes(1)
+    const [prefill] = setComposerPrefill.mock.calls[0] as [string]
+    // A chip that typed its own label would send a sentence fragment.
+    expect(prefill).not.toEqual(screen.getByTestId('follow-up-action-aktenvermerk').textContent)
+    expect(prefill.trim().endsWith('.')).toBe(true)
+    expect(fetch).not.toHaveBeenCalled()
+  })
+})

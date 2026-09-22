@@ -200,7 +200,7 @@ useful answer, not a failure, and it is the one the market's tools cannot produc
       as OpenTakeoff does, because a silently-wrong scale is every number on the sheet wrong
 - [ ] Measurements render with their interval; `nicht entscheidbar` gets its own state,
       styled as information rather than error
-- [ ] Dev preview + light/dark screenshots per `visual/registry.mjs`, as with every new component
+- [ ] Dev preview + light/dark captures attached to the PR, as with every new component
 
 ---
 

@@ -10,6 +10,7 @@ import 'server-only'
 import { findOrganization, upsertOrganization } from './repository'
 import { getWorkOS } from '@/lib/workos/client'
 import { getCached, invalidateCached } from '@/lib/cache'
+import { invalidateBackendModelConfig } from '@/lib/model-config/backend-key'
 import { PLATFORM_OWNED_SETTINGS, type Organization } from '@/lib/db/schema'
 import { ForbiddenError } from '@/lib/api/errors'
 import { recordAuditEvent } from '@/lib/audit/service'
@@ -360,6 +361,8 @@ export async function setOrgZdrOnly(
 ): Promise<boolean> {
   await updateOrgSettings(session.organizationId, { settings: { zdrOnly: enabled } })
   await invalidateCached(zdrOnlyCacheKey(session.organizationId))
+  // The backend folds ZDR into the same cached record as the model overrides.
+  await invalidateBackendModelConfig(session.organizationId)
   await recordAuditEvent({
     organizationId: session.organizationId,
     actor: { userId: session.userId, email: session.email },
@@ -382,9 +385,20 @@ export async function saveOrgSettings(
   patch: OrgSettingsPatch,
   request: Request
 ): Promise<OrgSettings> {
+  // Read before writing: the backend's shared record carries the model
+  // overrides + ZDR only, so the cross-tier delete fires solely when a
+  // backend-relevant field actually moves. A displayName/locale save — or a
+  // settings patch that leaves both fields untouched — skips it.
+  const before = await getOrgSettings(session.organizationId)
   const settings = await updateOrgSettings(session.organizationId, patch)
   await invalidateCached(webSearchCacheKey(session.organizationId))
   await invalidateCached(zdrOnlyCacheKey(session.organizationId))
+  if (
+    before.settings.zdrOnly !== settings.settings.zdrOnly ||
+    before.settings.webSearchEnabled !== settings.settings.webSearchEnabled
+  ) {
+    await invalidateBackendModelConfig(session.organizationId)
+  }
   await recordAuditEvent({
     organizationId: session.organizationId,
     actor: { userId: session.userId, email: session.email },

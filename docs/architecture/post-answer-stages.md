@@ -45,7 +45,7 @@ The three things that are already the same shape, built three times:
 
 | what | where | runs after | delivery | timeout | gate | observability |
 |---|---|---|---|---|---|---|
-| memory reflection | `src/aiq_agent/agents/project_memory/reflection.py:398` | the answer is generated | DB row → REST poll | **none** | `_reflection_answer_is_substantive` | profiler span |
+| memory reflection | `src/aiq_agent/memory/reflection.py:398` | the answer is generated | DB row → REST poll | **none** | `_reflection_answer_is_substantive` | profiler span |
 | post-hoc card generation | `src/aiq_agent/cards/generate.py:105` | the deep report is delivered | job SSE artifact re-emit | `30.0s` (`generate.py:22`) | `if not report` | none |
 | follow-ups (today) | inside the answering LLM call | — | terminal WS frame (`cards`) | — | the model's judgement | none |
 
@@ -76,9 +76,9 @@ earlier pass missed. Three separate things surface memory in the UI and only one
 of them is the reflection stage:
 
 1. **The in-turn `remember` tool** emits a `memory_proposal` card
-   (`src/aiq_agent/agents/project_memory/register.py:38-65`). That card goes into
+   (`src/aiq_agent/memory/register.py:38-65`). That card goes into
    the conversation-scoped `CardRegistry`, is lifted onto the answer as
-   `response.cards` (`chat_researcher/register.py:1204-1206`), rides
+   `response.cards` (`piloti/conversation_register.py:1204-1206`), rides
    `_STREAM_EXTRA_FIELDS` (`register.py:200-221`) onto the terminal
    `finish_reason="stop"` chunk (`register.py:337-375`), is attached to the
    WebSocket frame (`aiq_api/websocket_reconnect.py:1059-1063`) and rendered
@@ -136,11 +136,11 @@ needs the channel built. Section 4 builds it out of parts that already exist.
 
 ### 1.2 How it is scheduled and forced
 
-`chat_researcher/register.py:1222-1253`, inside the streaming generator, **after
+`piloti/conversation_register.py:1222-1253`, inside the streaming generator, **after
 the answer is fully built and before the deltas are yielded** (`register.py:1258`):
 
 ```
-if reflection_llm is not None and _reflection_flag_enabled and not deep_research_job_id:
+if reflection_llm is not None and _reflection_flag_enabled and not run_id:
     if _reflection_answer_is_substantive(result, answer_text):
         schedule_memory_reflection(llm=…, query=…, answer=…, project_id=…, …)
 ```
@@ -166,7 +166,7 @@ keeps it.
 `_reflection_answer_is_substantive` (`register.py:67-89`) skips:
 canned non-answers (`_REFLECTION_NON_ANSWERS`, `register.py:60-65`), escalation
 keywords, and `user_intent.intent in {meta, error, out_of_scope}`. The call site
-also skips deep-research job stubs (`not deep_research_job_id`) and requires a
+also skips a turn that only commissioned a run (`not run_id`) and requires a
 `project_id` (`reflection.py:420-422`).
 
 Deep-research jobs are covered separately on the worker
@@ -367,13 +367,13 @@ override, and the ADR-0022 BYOK credential swap by construction.
 ### 2.3 What a stage receives
 
 `TurnFacts` — frozen, request-context-free, captured at schedule time by the one
-call site, exactly as the reflection block does today
-(`chat_researcher/register.py:867-915`):
+call site (`piloti/conversation_register.py`, from `turn.context` and
+`turn.response.post_answer_turn_facts`):
 
 ```
 conversation_id, ws_parent_id (the turn key), organization_id, project_id, user_id,
 query, answer, memory_digest, locale, bundesland,
-intent, routing_decision, research_truncated, deep_research_job_id,
+intent, routing_decision, research_truncated, run_id,
 emitted_card_types: frozenset[str], answer_confidence
 ```
 
@@ -431,7 +431,7 @@ handler to invent output.
  Import-time registration, same shape as NAT's
 `@register_function` that the whole agent tier already uses.
 
-**One call site.** `chat_researcher/register.py:1222-1253` — the bespoke
+**One call site.** `piloti/conversation_register.py:1222-1253` — the bespoke
 reflection block — is replaced by:
 
 ```python
@@ -441,7 +441,7 @@ schedule_post_answer_stages(TurnFacts.from_turn(result, response, ctx))
 Adding a stage never touches `register.py` again. That is the test of the design.
 
 > **[as built]** The assembly is `_post_answer_turn_facts(...)` in
-> `chat_researcher/register.py`, not a `TurnFacts.from_turn` classmethod, and the
+> `piloti/conversation_register.py`, not a `TurnFacts.from_turn` classmethod, and the
 > models ride alongside it as `llms={AgentGroup.MEMORY_REFLECTION: …}`. Reading
 > graph state (`_result_field`, `user_intent`, `research_truncated`) is the
 > *caller's* knowledge; putting it on `TurnFacts` would import chat-researcher
@@ -491,7 +491,7 @@ A stage that declares `delivery="frame"` needs to push a frame down a socket the
 agent tier does not own. That inversion already exists in this repo, in the
 opposite direction: `conversation_context.register_context_appender`
 (`src/aiq_agent/conversation_context.py:52-56`, registered at
-`chat_researcher/register.py:822`) — "`aiq_api` owns the socket, `aiq_agent`
+`piloti/conversation_register.py:822`) — "`aiq_api` owns the socket, `aiq_agent`
 owns the graph".
 
 So: `src/aiq_agent/stages/delivery.py` declares
@@ -864,21 +864,19 @@ mounted.
 
 ### 6.3 The committed rationale that must be rewritten
 
-`frontends/ui/visual/registry.mjs:150-156` currently reads:
+The screenshot registry has since been deleted, and this argument went with it.
+It is kept here because the argument still has to be answered by whoever makes
+the change. `frontends/ui/visual/registry.mjs:150-156` used to read:
 
 > `answer-follow-ups` — "An inline callout mid-answer and a `follow_ups` card
 > **ENDING the answer**, with the provenance footer directly beneath it — **the
 > chips have to still read as part of the answer rather than as footer
 > chrome**."
 
-That is a committed argument for exactly the placement this change reverses, and
-a screenshot target that will no longer exist. **It must be rewritten in the same
-PR, not left contradicting the code.** The replacement target captures the new
-truth — chips as a rail *below* the answer card, in the same column, and the
-thing that is now easy to get wrong: the rail must not read as a *second answer*.
-The registry entry is also what the visual-coverage gate
-(`.github/workflows/visual-coverage.yml`) looks for when `FollowUpsRail` appears,
-so shipping the component without updating it fails the intended review anyway.
+That is an argument for exactly the placement this change reverses. The capture
+that ships with the PR has to show the new truth — chips as a rail *below* the
+answer card, in the same column, and the thing that is now easy to get wrong:
+the rail must not read as a *second answer*.
 
 The `/dev/chat-turn?variant=follow-ups` route and its fixture change with it.
 
@@ -1071,7 +1069,7 @@ each is a fact the backend already has:
 | `routing_decision not in {meta, error}` | `derive_routing_decision`, `register.py:295` | small talk and error turns have no subject to go deeper into — the existing `_FOLLOW_UPS_RULE` exception, now enforced |
 | `intent != "out_of_scope"` | `user_intent.intent` | an off-topic redirect must not be handed four ways to stay off topic |
 | `not research_truncated` | `register.py:301` | the turn ran out of budget before it ran out of question; offering four more is the wrong invitation, and the reader already gets the truncation note (`ResearchTruncatedNote`) |
-| `not deep_research_job_id` | `register.py:1183` | the chat turn is a stub; the report path is separate (§10) |
+| `not run_id` | `register.py:1183` | the turn only commissioned a run; the report path is separate (§10) |
 | `len(answer) >= 400` and answer is not a canned non-answer | `_REFLECTION_NON_ANSWERS`, `register.py:60-65` | a one-line factual answer has nothing to open up — the `_CARD_RESTRAINT` rule (`catalog.py:169-173`), enforced instead of suggested |
 | the answer does not already end in a question | cheap suffix check | "two questions competing for the same reply is how you get neither" (`catalog.py:137-140`) |
 
@@ -1303,10 +1301,10 @@ export (`lib/answer-export/cards.ts`, walked generically). They must keep workin
    > The post-hoc prompt falls **12,654 → 12,127** per finished report. All
    > figures are tiktoken `cl100k_base`, measured over the rendered strings.
 3. **Leave the pydantic model, the Zod schema and `FollowUpsCard.tsx` in place.**
-   `validateGridCards` drops anything that fails the union
-   (`shared/cards/schemas.ts:18-33`), so removing the member would make every old
-   thread lose its chips *and* log a warning per card. `GridCards.tsx:278-284`
-   keeps rendering stored ones.
+   `validateGridCards` leaves an `undefined` hole for anything that fails the
+   union (`shared/cards/schemas.ts`), so removing the member would make every
+   old thread lose its chips at those positions *and* log a warning per card.
+   `GridCards.tsx:278-284` keeps rendering stored ones.
 4. ~~**The export.**~~ **[as built] — done, and not by this slice.** The
    change this step described as "already in flight" landed in **PR #474**
    (`acb3c81f`), well before slice 4 started. `CARD_EXPORT` in

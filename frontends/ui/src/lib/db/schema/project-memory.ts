@@ -70,6 +70,14 @@ export const projectMemory = pgTable(
       .default('agent'),
     sourceConversationId: text('source_conversation_id'),
     supersedesId: uuid('supersedes_id'),
+    /**
+     * The live, human-curated note this one contradicts and was NOT allowed to
+     * retire (migration 0076). An agent finding may supersede an agent
+     * finding; a pinned, user-confirmed or user-written note it may only stand
+     * beside, and this is where "beside" is recorded so a panel can show the
+     * pair and a person can resolve it. Null for the ordinary note.
+     */
+    conflictsWithId: uuid('conflicts_with_id'),
     salience: real('salience').notNull().default(0.5),
     pinned: boolean('pinned').notNull().default(false),
     createdBy: text('created_by'),

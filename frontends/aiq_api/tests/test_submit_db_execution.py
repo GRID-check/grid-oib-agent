@@ -40,13 +40,14 @@ def _sample_payload():
         collection_scope=["c1"],
         platform_lessons='PLATFORM_LESSONS v1\n- [inaccurate | 2x] "Maße nie schätzen."',
         project_context="ctx",
+        project_memory="PROJECT_MEMORY v1\n- Atrium ist OIB 2.3",
         model_overrides={"group": "model"},
         usage_context={"identity": {"organization_id": "org"}},
         user_info={"name": "n"},
         clarifier_result="clar",
         memory_reflection_enabled=True,
         memory_reflection_llm="card_llm",
-        force_skills=["oib-thermal-check"],
+        run_id="run-1",
     )
 
 

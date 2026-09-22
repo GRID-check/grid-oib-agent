@@ -331,7 +331,7 @@ something the model cannot decide, green for what passes.
 **Element names in an answer are links.** When the assistant names a wall, the
 name is a chip — click it and the model opens with that wall selected,
 highlighted and, where it helps, with everything else ghosted. It goes the other
-way too: with an element selected on the model page, **Piloti dazu fragen**
+way too: with an element selected on the model page, **Besprechen**
 starts a chat about exactly that element, carrying its GlobalId so the
 assistant queries the same one you are looking at rather than one it guessed
 from a description.

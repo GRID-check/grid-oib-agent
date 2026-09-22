@@ -262,7 +262,15 @@ def render_visual_pages_no_vlm(
                         continue
 
                     if rendered >= max_pages:
-                        logger.debug("Visual-page render cap (%d) reached", max_pages)
+                        # Said out loud rather than inferred from a short chunk
+                        # list: capped pages still index their text layer, but
+                        # their drawings are never described — a plan set whose
+                        # later sheets show sparse facts lost them here.
+                        logger.warning(
+                            "Visual-page render cap (%d) reached for %s; remaining visual pages index as text only",
+                            max_pages,
+                            pdf_path,
+                        )
                         break
 
                     width_pt, height_pt = page.get_size()

@@ -14,6 +14,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { AlertTriangle, Boxes, CheckCircle2, Info, Layers3, Ruler, XCircle } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { CountPill } from '@/components/ui/count-pill'
 import { Input } from '@/components/ui/input'
 import { Spinner } from '@/components/ui/spinner'
 import { useLocale, useTranslations } from '@/i18n'
@@ -320,9 +321,7 @@ export function IfcSpatialTree({
                   )}
                 </span>
                 {row.elementCount > 0 && (
-                  <Badge variant="secondary" className="tabular-nums">
-                    {row.elementCount}
-                  </Badge>
+                  <CountPill>{row.elementCount}</CountPill>
                 )}
               </button>
             </li>

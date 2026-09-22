@@ -4,14 +4,14 @@ LlamaIndex adapter for the Knowledge Layer.
 This adapter provides a lightweight, no-deployment-required local solution.
 It uses:
 - ChromaDB for local vector storage (file-based, like Milvus-lite)
-- NVIDIA embeddings via LlamaIndex's NVIDIA integration
+- Embeddings via LlamaIndex's `NVIDIAEmbedding` client pointed at an OpenAI-compatible endpoint (OpenRouter by default)
 - LlamaIndex's document loaders and chunking
-- Optional multimodal extraction (tables, charts, images) with NVIDIA VLM captioning
+- Optional multimodal extraction (tables, charts, images) with VLM captioning through the same endpoint
 
 Configuration options:
     persist_dir: Directory for ChromaDB persistence (default: /tmp/chroma_data)
     embed_model: NVIDIA embedding model (default: nvidia/llama-nemotron-embed-vl-1b-v2)
-    embed_base_url: Embedding model base URL (default: https://integrate.api.nvidia.com/v1)
+    embed_base_url: Embedding model base URL (default: https://openrouter.ai/api/v1)
     chunk_size: Chunk size for text splitting (default: 1024, model supports up to 2048 tokens)
     chunk_overlap: Overlap between chunks (default: 128)
 
@@ -19,8 +19,8 @@ Multimodal options:
     extract_tables: Enable table extraction via pdfplumber (default: False)
     extract_charts: Enable chart extraction with VLM data extraction (default: False)
     extract_images: Enable image extraction with VLM captioning (default: False)
-    vlm_model: NVIDIA VLM model for captioning (default: nvidia/llama-3.2-90b-vision-instruct)
-    vlm_base_url: VLM model base URL (default: https://integrate.api.nvidia.com/v1)
+    vlm_model: VLM model for captioning (default: openai/gpt-5.6-luna)
+    vlm_base_url: VLM model base URL (default: https://openrouter.ai/api/v1)
 
 Chart extraction uses the VLM to:
 1. Classify images as charts/graphs vs regular images
@@ -62,11 +62,62 @@ from aiq_agent.knowledge.schema import RetrievalResult
 
 logger = logging.getLogger(__name__)
 
-# Default VLM model for image captioning
-# nemotron-nano is faster (12B vs 90B) - same as NV-Ingest service mode uses
-DEFAULT_VLM_MODEL = os.environ.get("AIQ_VLM_MODEL", "nvidia/nemotron-nano-12b-v2-vl")
+
+#: Sentinel for "strictly positive", which is not expressible as a `minimum`
+#: float: 0 must be rejectable for a timeout and accepted for a count.
+_POSITIVE = float("-inf")
+
+
+def _env_float(name: str, fallback: float, *, minimum: float = _POSITIVE) -> float:
+    """Read a finite float from the environment, failing open to ``fallback``.
+
+    A module-scope ``float(os.environ[...])`` makes a typo'd env var raise at IMPORT
+    time, taking down the whole knowledge layer. A misconfiguration must degrade to
+    the default, not to an unimportable module.
+
+    ``minimum`` defaults to "strictly positive", which is right for a timeout or a
+    batch size but WRONG for a count whose zero means "off": rejecting
+    ``AIQ_MAX_RENDERED_PAGES=0`` silently restored the default of 20 and the
+    deployment paid VLM cost it had explicitly opted out of. Pass ``minimum=0``
+    for those.
+    """
+    raw = os.environ.get(name, "")
+    try:
+        value = float(raw)
+    except (TypeError, ValueError):
+        if raw:
+            logger.warning("%s=%r is not a number; using %s", name, raw, fallback)
+        return fallback
+    if not math.isfinite(value):
+        logger.warning("%s=%r must be finite; using %s", name, raw, fallback)
+        return fallback
+    if minimum is _POSITIVE:
+        if value <= 0:
+            logger.warning("%s=%r must be positive and finite; using %s", name, raw, fallback)
+            return fallback
+    elif value < minimum:
+        logger.warning("%s=%r must be >= %s; using %s", name, raw, minimum, fallback)
+        return fallback
+    return value
+
+
+def _env_int(name: str, fallback: int, *, minimum: float = _POSITIVE) -> int:
+    """Integer half of :func:`_env_float`: garbage degrades to ``fallback``.
+
+    Truncates (never rounds up) so a fractional value cannot exceed the stated
+    budget. Clamping stays at the call site, where the existing ``max(1, ...)``
+    guards already live.
+    """
+    return int(_env_float(name, float(fallback), minimum=minimum))
+
+
+# Default VLM model for image captioning: the house model every deployment
+# already holds a key for, so captioning needs no second credential. It takes
+# image input (verified on OpenRouter); caption quality on OIB tables and
+# drawings is still unevaluated, like its predecessor's was.
+DEFAULT_VLM_MODEL = os.environ.get("AIQ_VLM_MODEL", "openai/gpt-5.6-luna")
 # Default VLM model base URL
-DEFAULT_VLM_BASE_URL = os.environ.get("AIQ_VLM_BASE_URL", "https://integrate.api.nvidia.com/v1")
+DEFAULT_VLM_BASE_URL = os.environ.get("AIQ_VLM_BASE_URL", "https://openrouter.ai/api/v1")
 
 
 # ---------------------------------------------------------------------------
@@ -266,17 +317,17 @@ RENDER_VISUAL_PAGES = os.environ.get("AIQ_RENDER_VISUAL_PAGES", "true").lower() 
 # or below the vision-encoder caps of current VLMs (above this the provider
 # just downsamples). Scale is computed per page from its point size so an A0
 # sheet and an A4 sheet both land near this target.
-PAGE_RENDER_MAX_DIM = int(os.environ.get("AIQ_PAGE_RENDER_MAX_DIM", "2048"))
+PAGE_RENDER_MAX_DIM = _env_int("AIQ_PAGE_RENDER_MAX_DIM", 2048)
 
 # A page is treated as "visual" (→ rendered + VLM-captioned) when its
 # watermark-stripped extractable text is shorter than this many characters...
-VISUAL_PAGE_MIN_TEXT_CHARS = int(os.environ.get("AIQ_VISUAL_PAGE_MIN_TEXT_CHARS", "200"))
+VISUAL_PAGE_MIN_TEXT_CHARS = _env_int("AIQ_VISUAL_PAGE_MIN_TEXT_CHARS", 200, minimum=0)
 # ...OR it carries at least this many vector path objects (a plan/section/
 # elevation is typically hundreds-to-tens-of-thousands of paths).
-VISUAL_PAGE_MIN_PATHS = int(os.environ.get("AIQ_VISUAL_PAGE_MIN_PATHS", "300"))
+VISUAL_PAGE_MIN_PATHS = _env_int("AIQ_VISUAL_PAGE_MIN_PATHS", 300, minimum=0)
 # Hard cap on rendered pages per document, to bound VLM cost/latency on large
 # plan sets. Excess visual pages are skipped (logged), text still indexed.
-MAX_RENDERED_PAGES = int(os.environ.get("AIQ_MAX_RENDERED_PAGES", "20"))
+MAX_RENDERED_PAGES = _env_int("AIQ_MAX_RENDERED_PAGES", 20, minimum=0)
 
 # @environment_variable AIQ_VLM_TIMEOUT_SECONDS
 # @category Knowledge Layer
@@ -294,7 +345,7 @@ MAX_RENDERED_PAGES = int(os.environ.get("AIQ_MAX_RENDERED_PAGES", "20"))
 # placeholders are skipped, not embedded. Clamped like the sibling knobs: a
 # misconfigured 0 or negative value would fail every VLM request immediately and
 # silently disable captioning altogether.
-VLM_REQUEST_TIMEOUT_SECONDS = max(1, int(os.environ.get("AIQ_VLM_TIMEOUT_SECONDS", "180")))
+VLM_REQUEST_TIMEOUT_SECONDS = max(1, _env_int("AIQ_VLM_TIMEOUT_SECONDS", 180))
 
 # @environment_variable AIQ_EMBED_BATCH_SIZE
 # @category Knowledge Layer
@@ -305,7 +356,21 @@ VLM_REQUEST_TIMEOUT_SECONDS = max(1, int(os.environ.get("AIQ_VLM_TIMEOUT_SECONDS
 # too many round-trips on large documents — a 500-chunk PDF costs ~50
 # sequential HTTP calls. Every OpenAI-compatible embeddings endpoint accepts
 # far more per call (OpenAI 2048, NVIDIA NIM 259); 64 is conservative.
-EMBED_BATCH_SIZE = max(1, int(os.environ.get("AIQ_EMBED_BATCH_SIZE", "64")))
+EMBED_BATCH_SIZE = max(1, _env_int("AIQ_EMBED_BATCH_SIZE", 64))
+
+# @environment_variable AIQ_EMBED_TIMEOUT_SECONDS
+# @category Knowledge Layer
+# @type float
+# @default 60
+# @required false
+# Per-request timeout on the embeddings client. The client's own defaults are
+# 120s with five retries, so a hung embeddings endpoint could hold the query
+# embedding, and with it the whole chat turn, for ten minutes; retrieval fails
+# open everywhere else, and this is what lets it fail open here. Two retries
+# stay for the transient 5xx a batch of EMBED_BATCH_SIZE texts occasionally
+# meets; 60s covers such a batch with room.
+EMBED_TIMEOUT_SECONDS = max(1.0, _env_float("AIQ_EMBED_TIMEOUT_SECONDS", 60.0))
+EMBED_MAX_RETRIES = 2
 
 # pypdfium2 page-object type constants (the C API values are not always exposed
 # as Python attributes across versions).
@@ -346,7 +411,7 @@ WATERMARK_LINE_PATTERNS = [
 # @default 24
 # @required false
 # Hours before stale collections are deleted by the TTL cleanup thread.
-COLLECTION_TTL_HOURS = float(os.environ.get("AIQ_COLLECTION_TTL_HOURS", "24"))
+COLLECTION_TTL_HOURS = _env_float("AIQ_COLLECTION_TTL_HOURS", 24.0)
 
 # @environment_variable AIQ_TTL_CLEANUP_INTERVAL_SECONDS
 # @category Knowledge Layer
@@ -354,7 +419,7 @@ COLLECTION_TTL_HOURS = float(os.environ.get("AIQ_COLLECTION_TTL_HOURS", "24"))
 # @default 3600
 # @required false
 # Seconds between TTL cleanup runs.
-TTL_CLEANUP_INTERVAL_SECONDS = int(os.environ.get("AIQ_TTL_CLEANUP_INTERVAL_SECONDS", "3600"))
+TTL_CLEANUP_INTERVAL_SECONDS = _env_int("AIQ_TTL_CLEANUP_INTERVAL_SECONDS", 3600)
 
 # Terminal jobs are retained this long for status polling/file listings, then
 # pruned so in-memory job tracking doesn't grow for the life of the process.
@@ -365,7 +430,7 @@ JOB_RETENTION_SECONDS = 3600  # 1 hour
 # from Chroma chunks — with a fresh id, exactly as for any never-tracked file);
 # FAILED rows drop off the listing once this window passes. Bounds self._files,
 # which otherwise grew for the life of the process (scaling review phase-2, #13).
-FILE_TRACKING_RETENTION_SECONDS = int(os.environ.get("AIQ_FILE_TRACKING_RETENTION_SECONDS", "86400"))  # 24h
+FILE_TRACKING_RETENTION_SECONDS = _env_int("AIQ_FILE_TRACKING_RETENTION_SECONDS", 86400)  # 24h
 
 # Document summarization + tag-classification input limits live in the shared
 # aiq_agent.knowledge.document_classification module (CLASSIFY_MAX_INPUT_CHARS).
@@ -556,6 +621,11 @@ EMBED_EXCLUDED_METADATA_KEYS = (
     "image_format",
     "image_width",
     "image_height",
+    # Where the stored raster lives (image_store.py): an object key and an
+    # ordinal, addressing for the view tool and not a word of what the image
+    # shows.
+    "image_key",
+    "stored_image_index",
     "drawing_type",
     "drawing_scale",
     # The v2 structured payload: multi-KB JSON for the detail view / later
@@ -565,7 +635,34 @@ EMBED_EXCLUDED_METADATA_KEYS = (
     "drawing_data",
     "segment_index",
     "segment_count",
+    # Provenance (ADR-0054). Excluded from both renderings and STORED anyway:
+    # exclusion governs what the splitter renders into the embedded text and
+    # the LLM header, not what the vector store keeps, and retrieval reads
+    # these off `Chunk.metadata` directly. A release date and a producer id
+    # carry no retrieval signal, and embedding an approver's name would shift
+    # every chunk of the document toward whoever signed it — the German line
+    # the reader and the model see is built once, in the grounding block, from
+    # the stored fields.
+    "authored_by",
+    "approved_by",
+    "approved_at",
+    "producer",
 )
+
+
+def _provenance_from_config(config: dict) -> dict[str, str]:
+    """The provenance keys a job config carries, or an empty dict.
+
+    Read through ``aiq_agent.common.provenance`` rather than by picking four
+    strings out of ``config``, so the ingest side and the retrieval side spell
+    the keys once. Empty for every human document, which is what makes the
+    stamping loop a no-op for them.
+    """
+    from aiq_agent.common.provenance import parse_agent_provenance
+    from aiq_agent.common.provenance import provenance_metadata
+
+    provenance = parse_agent_provenance(config)
+    return provenance_metadata(provenance) if provenance else {}
 
 
 def _apply_metadata_exclusions(document: Any) -> None:
@@ -726,12 +823,11 @@ def _local_chroma_where(filters: dict[str, Any]) -> dict[str, Any]:
 def _resolve_embed_api_key(base_url: str, model: str) -> str:
     """Resolve the embeddings API key through the shared credential resolver.
 
-    Chain: explicit ``AIQ_EMBED_API_KEY`` → ``NVIDIA_API_KEY`` fallback →
-    provider inference from ``base_url``. Inference only selects the KEY for the
-    configured embeddings endpoint; it NEVER changes ``base_url`` (embeddings
-    need an embeddings-capable endpoint, so the caller keeps its configured
-    base). With the default deployment (NVIDIA base, ``NVIDIA_API_KEY`` set) this
-    is byte-identical to the old ``_get_nvidia_api_key()`` behaviour.
+    Chain: explicit ``AIQ_EMBED_API_KEY`` → provider inference from
+    ``base_url`` (``OPENROUTER_API_KEY`` for the default OpenRouter host).
+    Inference only selects the KEY for the configured embeddings endpoint; it
+    NEVER changes ``base_url`` (embeddings need an embeddings-capable endpoint,
+    so the caller keeps its configured base).
 
     BYOK is intentionally NOT wired here, but no longer for want of an org id:
     ``/v1/ingest`` forwards ``x-grid-organization-id`` into the ingest thread's
@@ -744,7 +840,6 @@ def _resolve_embed_api_key(base_url: str, model: str) -> str:
 
     return resolve_llm_credential(
         primary_env="AIQ_EMBED_API_KEY",
-        fallback_envs=("NVIDIA_API_KEY",),
         default_base_url=base_url,
         default_model=model,
         organization_id=None,
@@ -762,9 +857,8 @@ def resolve_vlm_credential(organization_id: str | None = None):
          bring-your-own credential, the org's key + base URL win (never the
          model — mirrors ADR-0022/0014).
       1. explicit override           — ``AIQ_VLM_API_KEY``
-      2. platform default            — ``NVIDIA_API_KEY``
-      3. deployment provider key     — inferred from ``AIQ_VLM_BASE_URL`` (e.g.
-         ``OPENROUTER_API_KEY`` when the base URL is openrouter.ai)
+      2. deployment provider key     — inferred from ``AIQ_VLM_BASE_URL``
+         (``OPENROUTER_API_KEY`` for the default OpenRouter host)
 
     Passing ``organization_id`` is what makes per-project/Archiv uploads use the
     tenant's own key + endpoint; the org-agnostic paths (base OIB corpus sync)
@@ -774,8 +868,7 @@ def resolve_vlm_credential(organization_id: str | None = None):
 
     return resolve_llm_credential(
         primary_env="AIQ_VLM_API_KEY",
-        fallback_envs=("NVIDIA_API_KEY",),
-        default_base_url="https://integrate.api.nvidia.com/v1",
+        default_base_url=DEFAULT_VLM_BASE_URL,
         default_model=DEFAULT_VLM_MODEL,
         base_url_env="AIQ_VLM_BASE_URL",
         model_env="AIQ_VLM_MODEL",
@@ -1832,7 +1925,7 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
     Configuration options:
         persist_dir: ChromaDB persistence directory (default from AIQ_CHROMA_DIR)
         embed_model: NVIDIA embedding model name (default: nvidia/llama-nemotron-embed-vl-1b-v2)
-        embed_base_url: Embedding model base URL (default: https://integrate.api.nvidia.com/v1)
+        embed_base_url: Embedding model base URL (default: https://openrouter.ai/api/v1)
         chunk_size: Text chunk size (default: 1024, model supports up to 2048 tokens)
         chunk_overlap: Chunk overlap (default: 128)
 
@@ -1840,7 +1933,7 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
         extract_tables: Enable table extraction from PDFs (default: False)
         extract_charts: Enable chart extraction with structured data (default: False)
         extract_images: Enable image extraction with VLM captioning (default: False)
-        vlm_model: NVIDIA VLM for captioning (default: nvidia/llama-3.2-90b-vision-instruct)
+        vlm_model: VLM for captioning (default: openai/gpt-5.6-luna)
 
     Environment variables:
         AIQ_CHROMA_DIR: Default ChromaDB persistence directory
@@ -1866,18 +1959,20 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
     # @environment_variable AIQ_EMBED_MODEL
     # @category Knowledge Layer
     # @type str
-    # @default nvidia/llama-nemotron-embed-vl-1b-v2
+    # @default openai/text-embedding-3-large
     # @required false
-    # NVIDIA embedding model name for LlamaIndex vector encoding.
-    DEFAULT_EMBED_MODEL = os.environ.get("AIQ_EMBED_MODEL", "nvidia/llama-nemotron-embed-vl-1b-v2")
+    # Embedding model id for LlamaIndex vector encoding (the production
+    # compose default; ingest and query MUST share it, stored vectors are
+    # only comparable to vectors from the same model).
+    DEFAULT_EMBED_MODEL = os.environ.get("AIQ_EMBED_MODEL", "openai/text-embedding-3-large")
 
     # @environment_variable AIQ_EMBED_BASE_URL
     # @category Knowledge Layer
     # @type str
-    # @default https://integrate.api.nvidia.com/v1
+    # @default https://openrouter.ai/api/v1
     # @required false
-    # Embedding model base URL.
-    DEFAULT_EMBED_BASE_URL = os.environ.get("AIQ_EMBED_BASE_URL", "https://integrate.api.nvidia.com/v1")
+    # Embedding model base URL (OpenAI-compatible embeddings endpoint).
+    DEFAULT_EMBED_BASE_URL = os.environ.get("AIQ_EMBED_BASE_URL", "https://openrouter.ai/api/v1")
 
     # @environment_variable AIQ_EXTRACT_TABLES
     # @category Knowledge Layer
@@ -1894,7 +1989,7 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
     # @required false
     # Maximum concurrent ingestion jobs per process. Excess uploads queue
     # (job status stays PENDING) instead of each spawning a thread.
-    INGEST_MAX_WORKERS = max(1, int(os.environ.get("AIQ_INGEST_MAX_WORKERS", "2")))
+    INGEST_MAX_WORKERS = max(1, _env_int("AIQ_INGEST_MAX_WORKERS", 2))
 
     # @environment_variable AIQ_EXTRACT_IMAGES
     # @category Knowledge Layer
@@ -1983,18 +2078,20 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
         try:
             from llama_index.embeddings.nvidia import NVIDIAEmbedding
 
-            nvidia_api_key = _resolve_embed_api_key(self.embed_base_url, self.embed_model_name)
-            if not nvidia_api_key:
+            embed_api_key = _resolve_embed_api_key(self.embed_base_url, self.embed_model_name)
+            if not embed_api_key:
                 logger.error(
-                    "No embeddings API key resolved (AIQ_EMBED_API_KEY / NVIDIA_API_KEY / "
+                    "No embeddings API key resolved (AIQ_EMBED_API_KEY / "
                     "the provider key for AIQ_EMBED_BASE_URL) - ingestion/retrieval will fail."
                 )
 
             self._embed_model = NVIDIAEmbedding(
                 base_url=self.embed_base_url,
                 model=self.embed_model_name,
-                api_key=nvidia_api_key,
+                api_key=embed_api_key,
                 embed_batch_size=EMBED_BATCH_SIZE,
+                timeout=EMBED_TIMEOUT_SECONDS,
+                max_retries=EMBED_MAX_RETRIES,
             )
 
             # Ensure persist directory exists
@@ -2653,15 +2750,19 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                     if file_name in (stripped, unquote(stripped)):
                         matching_ids.append(all_results["ids"][i])
                 if not matching_ids:
-                    if not tracking_ids_to_remove:
-                        logger.warning(f"No chunks found for file_name={file_name}")
-                        return False
-                    # No chunks in ChromaDB but tracking entries exist (e.g. FAILED files).
-                    # Clean them up and report success.
-                    with self._lock:
-                        for tid in tracking_ids_to_remove:
-                            self._files.pop(tid, None)
-                    logger.info(f"Removed {len(tracking_ids_to_remove)} tracking entries for file {file_name}")
+                    # No chunks in ChromaDB. Whatever else the document left
+                    # behind — tracking entries for a FAILED file, the summary
+                    # row the inventory is built from, the lexical mirror — is
+                    # forgotten regardless: a delete that returned early here
+                    # left a file with no chunks in the agent's inventory for
+                    # good, and every later delete took the same early exit.
+                    if tracking_ids_to_remove:
+                        with self._lock:
+                            for tid in tracking_ids_to_remove:
+                                self._files.pop(tid, None)
+                        logger.info(f"Removed {len(tracking_ids_to_remove)} tracking entries for file {file_name}")
+                    else:
+                        logger.warning(f"No chunks found for file_name={file_name}; clearing its summary and text")
 
                     from aiq_agent.knowledge import unregister_summary
 
@@ -2670,7 +2771,8 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                     from aiq_agent.knowledge.chunk_text_store import get_chunk_text_store
 
                     get_chunk_text_store().delete_by_file(collection_name, file_name)
-                    return True
+                    # True only when something of the file was actually removed.
+                    return bool(tracking_ids_to_remove)
                 results = {"ids": matching_ids}
 
             collection.delete(ids=results["ids"])
@@ -2925,11 +3027,13 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
         when the document has no visual chunks.
 
         Each item: ``{page, content_type, drawing_type, scale, text, segment,
-        structured}`` where ``text`` is the caption body (the ``[DRAWING from
-        page N]`` prefix stripped), ``segment`` is the drawing's index on its
-        sheet (0 for v1 chunks and non-drawings), and ``structured`` is the
-        parsed v2 ``drawing_data`` payload (``None`` for v1 chunks and
-        non-drawings). Sorted by page, then content type, then segment.
+        segment_count, structured}`` where ``text`` is the caption body (the
+        ``[DRAWING from page N]`` prefix stripped), ``segment`` is the drawing's
+        index on its sheet (0 for v1 chunks and non-drawings), ``segment_count``
+        is how many depictions share that sheet (1 for the same legacy rows),
+        and ``structured`` is the parsed v2 ``drawing_data`` payload (``None``
+        for v1 chunks and non-drawings). Sorted by page, then content type,
+        then segment.
         """
         try:
             client = self._get_chroma_client()
@@ -2958,6 +3062,10 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                 segment = int(meta.get("segment_index") or 0)
             except (TypeError, ValueError):
                 segment = 0
+            try:
+                segment_count = max(1, int(meta.get("segment_count") or 1))
+            except (TypeError, ValueError):
+                segment_count = 1
             # The v2 structured payload rides along parsed, so the FE never
             # has to know it is stored as a JSON string in Chroma metadata.
             structured = None
@@ -2975,6 +3083,7 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                     "scale": meta.get("drawing_scale") or "",
                     "text": body.strip(),
                     "segment": segment,
+                    "segment_count": segment_count,
                     "structured": structured,
                 }
             )
@@ -3236,14 +3345,17 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                     # Explicit per-document classification ("Dokumentart").
                     # Prefer a human-set stored class over the filename guess;
                     # stamped into every chunk's metadata below and persisted to
-                    # the summaries row after ingestion. Only meaningful for
-                    # base-corpus files — a guess of "sonstiges" for project/
-                    # session uploads is harmless.
+                    # the summaries row after ingestion. The guess is for the
+                    # base corpus only: on a project, session or Büroarchiv
+                    # upload a guessed "sonstiges" is not harmless — it labelled
+                    # every user document a "Basisdokument" in the Herleitung.
                     from aiq_agent.common.norm_registry import guess_doc_class
+                    from aiq_agent.common.source_kinds import legacy_shelf_for_collection_name
                     from aiq_agent.knowledge import get_document_doc_class
 
                     stored_doc_class = get_document_doc_class(collection_name, file_name)
-                    doc_class = stored_doc_class or guess_doc_class(file_name)
+                    base_corpus = legacy_shelf_for_collection_name(collection_name) is None
+                    doc_class = stored_doc_class or (guess_doc_class(file_name) if base_corpus else None)
                     is_pdf = (
                         file_name.lower().endswith(".pdf")
                         or Path(file_path).suffix.lower() == ".pdf"
@@ -3435,6 +3547,23 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                             extract_charts=extract_charts,
                         )
 
+                        # Keep the rasters the VLM just captioned, beside the
+                        # document, so `view_knowledge_image` can show one at
+                        # its own resolution rather than as a page render.
+                        # Only a document the BFF dispatched has an id and a
+                        # prefix to store under; the corpus sync has neither
+                        # and keeps captions only. Fail-open inside.
+                        document_id = config.get("document_id")
+                        if document_id and image_results:
+                            from knowledge_layer.llamaindex import image_store as _image_store
+
+                            _image_store.store_extracted_images(
+                                image_results,
+                                document_id=str(document_id),
+                                collection=collection_name,
+                                organization_id=organization_id,
+                            )
+
                         # Build image/chart/drawing documents. An embedded raster
                         # now goes through the SAME analysis as a rendered page,
                         # so a scanned plan placed inside a PDF is indexed per
@@ -3467,6 +3596,12 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                                         "image_format": record["format"],
                                         "image_width": record["width"],
                                         "image_height": record["height"],
+                                        # Present only when the raster was stored.
+                                        **{
+                                            key: record[key]
+                                            for key in ("image_key", "stored_image_index")
+                                            if key in record
+                                        },
                                     },
                                 )
                             )
@@ -3585,8 +3720,18 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                     # chunk's metadata (next to file_name) so it survives into
                     # Chunk.metadata at retrieval and drives the lane/kind
                     # classifiers ahead of the filename guess.
+                    #
+                    # Provenance rides in the same loop and is a SEPARATE axis
+                    # (ADR-0054): who wrote the document and who released it,
+                    # never what it is. It goes on the CHUNK because that is
+                    # where retrieval reads it — `norm_registry.lane_for_hit`
+                    # and the grounding block both see a chunk, not a metadata
+                    # row — and an empty dict for every human document leaves
+                    # those chunks byte-for-byte unchanged.
+                    provenance = _provenance_from_config(config)
                     for doc in all_documents:
                         doc.metadata["doc_class"] = doc_class
+                        doc.metadata.update(provenance)
                         _apply_metadata_exclusions(doc)
 
                     # Create/update index with all documents
@@ -3701,6 +3846,18 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                         folder_path = (config.get("folder_path") or "").strip() or None
                         if folder_path:
                             set_document_folder_path(collection_name, file_name, folder_path)
+
+                        # The same four keys on the document metadata row, so a
+                        # surface that reads the row rather than a chunk — the
+                        # collection listing, the agent's inventory — sees the
+                        # author too. The row is deleted with the chunks
+                        # (`unregister_summary` in `delete_file`), which is what
+                        # makes a superseded or archived version's provenance
+                        # go with the passages it described.
+                        if provenance:
+                            from aiq_agent.knowledge import set_document_provenance
+
+                            set_document_provenance(collection_name, file_name, provenance)
 
                         # Also store in local FileInfo for backwards compatibility
                         file_id = config.get("file_id")
@@ -3837,6 +3994,12 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
 # =============================================================================
 
 
+#: Entries in the exact-term document-frequency cache before it is cleared. The live
+#: key set is a handful of terms per collection; the cap only bounds a pathological
+#: run of one-off terms.
+_EXACT_TERM_DF_CACHE_MAX = 512
+
+
 @register_retriever("llamaindex")
 class LlamaIndexRetriever(BaseRetriever):
     """
@@ -3846,7 +4009,7 @@ class LlamaIndexRetriever(BaseRetriever):
 
     Configuration options:
         persist_dir: ChromaDB persistence directory (default from AIQ_CHROMA_DIR)
-        embed_model: NVIDIA embedding model name (default from AIQ_EMBED_MODEL)
+        embed_model: Embedding model id (default from AIQ_EMBED_MODEL)
         top_k: Default number of results (default: 10)
         hybrid_search: Enable lexical+vector hybrid retrieval (default from AIQ_HYBRID_RETRIEVAL)
 
@@ -3860,15 +4023,15 @@ class LlamaIndexRetriever(BaseRetriever):
 
     # Default configuration from environment variables
     DEFAULT_PERSIST_DIR = os.environ.get("AIQ_CHROMA_DIR", "/tmp/chroma_data")
-    DEFAULT_EMBED_MODEL = os.environ.get("AIQ_EMBED_MODEL", "nvidia/llama-nemotron-embed-vl-1b-v2")
-    DEFAULT_EMBED_BASE_URL = os.environ.get("AIQ_EMBED_BASE_URL", "https://integrate.api.nvidia.com/v1")
+    DEFAULT_EMBED_MODEL = os.environ.get("AIQ_EMBED_MODEL", "openai/text-embedding-3-large")
+    DEFAULT_EMBED_BASE_URL = os.environ.get("AIQ_EMBED_BASE_URL", "https://openrouter.ai/api/v1")
     # @environment_variable AIQ_RETRIEVER_TOP_K
     # @category Knowledge Layer
     # @type int
     # @default 10
     # @required false
     # Default number of results returned by the LlamaIndex retriever.
-    DEFAULT_TOP_K = int(os.environ.get("AIQ_RETRIEVER_TOP_K", "10"))
+    DEFAULT_TOP_K = _env_int("AIQ_RETRIEVER_TOP_K", 10)
     # @environment_variable AIQ_HYBRID_RETRIEVAL
     # @category Knowledge Layer
     # @type bool
@@ -3915,6 +4078,11 @@ class LlamaIndexRetriever(BaseRetriever):
         self._embed_cache_order: list[tuple[str, str]] = []
         self._embed_cache_lock = threading.Lock()
 
+        # Document frequency of each exact term, per collection size, so the
+        # `$contains` channel's DF ceiling costs one `get` per new term rather
+        # than one per retrieval. See `_selective_exact_terms`.
+        self._exact_term_df: dict[tuple[str, int, str], int] = {}
+
         # Result cache for static corpora (the shared OIB knowledge base):
         # identical questions recur across users and conversations, and the
         # corpus only changes on re-sync. Keyed on the collection write
@@ -3932,7 +4100,7 @@ class LlamaIndexRetriever(BaseRetriever):
     # @default 512
     # @required false
     # Maximum cached query embeddings per retriever (LRU).
-    EMBED_CACHE_MAX = int(os.environ.get("AIQ_QUERY_EMBED_CACHE_SIZE", "512"))
+    EMBED_CACHE_MAX = _env_int("AIQ_QUERY_EMBED_CACHE_SIZE", 512, minimum=0)
     # @environment_variable AIQ_STATIC_RESULT_CACHE_COLLECTIONS
     # @category Knowledge Layer
     # @type str
@@ -3973,18 +4141,20 @@ class LlamaIndexRetriever(BaseRetriever):
             from llama_index.core import Settings
             from llama_index.embeddings.nvidia import NVIDIAEmbedding
 
-            nvidia_api_key = _resolve_embed_api_key(self.embed_base_url, self.embed_model_name)
-            if not nvidia_api_key:
+            embed_api_key = _resolve_embed_api_key(self.embed_base_url, self.embed_model_name)
+            if not embed_api_key:
                 logger.error(
-                    "No embeddings API key resolved (AIQ_EMBED_API_KEY / NVIDIA_API_KEY / "
+                    "No embeddings API key resolved (AIQ_EMBED_API_KEY / "
                     "the provider key for AIQ_EMBED_BASE_URL) - retrieval/ingestion will fail."
                 )
 
             self._embed_model = NVIDIAEmbedding(
                 base_url=self.embed_base_url,
                 model=self.embed_model_name,
-                api_key=nvidia_api_key,
+                api_key=embed_api_key,
                 embed_batch_size=EMBED_BATCH_SIZE,
+                timeout=EMBED_TIMEOUT_SECONDS,
+                max_retries=EMBED_MAX_RETRIES,
             )
             Settings.embed_model = self._embed_model
 
@@ -4198,6 +4368,57 @@ class LlamaIndexRetriever(BaseRetriever):
                 error_message=f"Retrieval failed: {str(e)[:500]}",
             )
 
+    def _selective_exact_terms(self, collection, collection_name: str, terms: list[str]) -> list[str]:
+        """Keep the exact terms whose document frequency leaves them worth retrieving.
+
+        One id-only ``collection.get`` per term measures it against the LIVE collection.
+        "OIB is noise" is a property of this corpus rather than of German, so the
+        frequency is measured and never listed (``german_text``'s module docstring
+        states the rule this follows). For the ubiquitous term the measurement REPLACES
+        the vector query that used to run, so the common case gets cheaper.
+
+        The cache key is ``(collection, chunk count, term)``. The term set is tiny and
+        stays stable while the corpus does, and a changed count invalidates it. An
+        in-place edit leaving the count identical keeps the old frequency. That is
+        acceptable for a noise heuristic, and it is why nothing downstream treats this
+        as a correctness gate.
+
+        It runs unlocked, unlike the caches beside it. Those keep an ordering list a
+        race would corrupt; the worst a race costs here is measuring one term twice.
+        Locking would hold the lock across a Chroma round trip and serialise the
+        per-collection fan-out this retriever exists to run in parallel.
+
+        Fails OPEN. An unmeasurable frequency keeps the term, so a Chroma that cannot
+        answer ``get`` degrades to the previous behaviour instead of to no lexical
+        channel at all.
+        """
+        from .hybrid import selective_terms
+
+        try:
+            total = collection.count()
+        except Exception as e:  # noqa: BLE001 - selectivity is an optimisation, never a gate
+            logger.warning("Exact-term frequencies unavailable (%s); keeping all terms", e)
+            return terms
+
+        frequencies: dict[str, int] = {}
+        for term in terms:
+            key = (collection_name, total, term)
+            frequency = self._exact_term_df.get(key)
+            if frequency is None:
+                try:
+                    matched = collection.get(where_document={"$contains": term}, include=[])
+                    frequency = len(matched.get("ids") or [])
+                except Exception as e:  # noqa: BLE001 - see the fail-open note above
+                    logger.warning("Frequency of exact term %r unmeasurable (%s); keeping it", term, e)
+                    frequencies[term] = 1
+                    continue
+                if len(self._exact_term_df) >= _EXACT_TERM_DF_CACHE_MAX:
+                    self._exact_term_df.clear()
+                self._exact_term_df[key] = frequency
+            frequencies[term] = frequency
+
+        return selective_terms(frequencies, total)
+
     def _hybrid_lexical_boost(
         self,
         query: str,
@@ -4227,6 +4448,13 @@ class LlamaIndexRetriever(BaseRetriever):
             # lexical pass raise, and the fail-open below turned hybrid off for exactly
             # the filtered queries, visible only in a log line.
             where = _to_chroma_where(filters)
+            # A `$contains` pass is a FILTER over the dense ranking, so a term that is
+            # on nearly every chunk hands the vector channel straight back and RRF then
+            # counts that ranking twice -- demoting every chunk only the German sparse
+            # channel found. Price the terms against the live collection first, the same
+            # rule and the same constants the sparse channel has always used.
+            if terms:
+                terms = self._selective_exact_terms(collection, collection_name, terms)
             channels: list[list[Chunk]] = [chunks]
             for term in terms:
                 raw = collection.query(

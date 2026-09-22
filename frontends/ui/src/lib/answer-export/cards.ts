@@ -173,6 +173,11 @@ export const CARD_EXPORT: Record<GridCard['type'], ExportKind> = {
   // carries no file names at all (the renderer resolves them from the live
   // model list), so on paper it is a heading asking which model you meant.
   ifc_model_picker: 'chrome',
+  // The app telling the reader „Piloti kümmert sich darum". A Behörde reading a
+  // Bauakt would find a line announcing work that had not happened yet, which is
+  // the opposite of a finding — and by the time the file is exported the task
+  // has either produced something (which is its own document) or has not.
+  task_created: 'chrome',
   // The two interactive cards (ADR-0030). Both ASK — "Remember this?", "Update
   // the project brief?" — and the answer lives in `metadata.cardInteractions`,
   // which the export never reads. So the document cannot say whether the user
@@ -180,6 +185,19 @@ export const CARD_EXPORT: Record<GridCard['type'], ExportKind> = {
   // change to the brief that may never have been applied.
   memory_proposal: 'chrome',
   project_profile_patch: 'chrome',
+  // A draft in THIS conversation's working directory — not filed, not indexed,
+  // not citable, and reachable from nowhere but the thread it was written in.
+  // Its „Ins Projekt übernehmen" is exactly the proposal awaiting a decision the
+  // export cannot report the outcome of: printed under „Befunde“ it would tell a
+  // Behörde that a document exists in the project which nobody has taken in.
+  // The draft's own CONTENT is a document in its own right and travels as one;
+  // what would land here is its path and its byte count.
+  document_draft: 'chrome',
+  // A proposed change to the file store, awaiting a decision — and after an
+  // export nobody can see whether it was ever taken. Printed under „Befunde" it
+  // would tell a Behörde that files are filed where this card only SUGGESTED
+  // putting them. The same reasoning as the two proposals above it.
+  file_operation_proposal: 'chrome',
 
   // The drawing whose source the model wrote. Same treatment as a mermaid fence
   // in the prose, deliberately: a reader must not get two different things for

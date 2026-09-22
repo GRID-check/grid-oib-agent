@@ -40,9 +40,11 @@ from aiq_agent.skills.models import preferred_cards
 from aiq_agent.skills.models import skill_hidden
 from aiq_agent.skills.models import split_metadata_list
 from aiq_agent.skills.resolver import KNOWN_AGENTS
+from aiq_agent.skills.resolver import canonical_agent
 from tests.aiq_agent.skills.seeded_skill_rows import DRIZZLE_DIR
 from tests.aiq_agent.skills.seeded_skill_rows import EFFECTIVE_SEEDS
 from tests.aiq_agent.skills.seeded_skill_rows import REPO_ROOT
+from tests.aiq_agent.skills.seeded_skill_rows import RETIRED_NAMES
 from tests.aiq_agent.skills.seeded_skill_rows import SEEDS
 from tests.aiq_agent.skills.seeded_skill_rows import effective_row as _effective_row
 
@@ -53,8 +55,21 @@ EFFECTIVE_IDS = [tag for tag, _ in EFFECTIVE_SEEDS]
 
 
 def test_the_seeds_are_found_at_all():
-    """A parser that silently matches nothing would make every test below vacuous."""
-    assert {row["name"] for _, row in SEEDS} >= {"piloti-voice", "piloti-cards"}
+    """A parser that silently matches nothing would make every test below vacuous.
+
+    Two ways to be vacuous, and the second one hides: an empty ``EFFECTIVE_SEEDS``
+    makes the tests parametrized on it report "got empty parameter set", which pytest
+    prints as a SKIP and therefore reads like a guarded test rather than a test with
+    no subject. ``EFFECTIVE_SEEDS`` IS empty today, and legitimately so —
+    ``0071_retire_piloti_house_skills.sql`` deletes both seeded names — so what is
+    worth pinning is not that it has entries but that every name missing from it is
+    missing BECAUSE a migration retired it, rather than because the parser or the
+    last-write-wins dedupe lost the row.
+    """
+    seeded = {row["name"] for _, row in SEEDS}
+    assert seeded >= {"piloti-voice", "piloti-cards"}
+    vanished = seeded - {row["name"] for _, row in EFFECTIVE_SEEDS} - RETIRED_NAMES
+    assert vanished == set(), f"seed rows dropped out of EFFECTIVE_SEEDS with no retiring migration: {vanished}"
 
 
 @pytest.mark.parametrize(("tag", "row"), EFFECTIVE_SEEDS, ids=EFFECTIVE_IDS)
@@ -113,9 +128,18 @@ def test_seeded_grid_cards_survive_the_read_path(tag: str, row: dict[str, str]):
 
 @pytest.mark.parametrize(("tag", "row"), SEEDS, ids=SEED_IDS)
 def test_seeded_grid_agents_are_agents_the_resolver_knows(tag: str, row: dict[str, str]):
-    """An unknown agent name is logged and ignored at resolve time — never here."""
+    """An unknown agent name is logged and ignored at resolve time — never here.
+
+    Through ``canonical_agent``, because a seed is history and the vocabulary
+    moved under it: ten of these rows were written when the chat agent was
+    ``shallow_researcher``, and the resolver reads them through the same alias.
+    That is the whole point of asserting against the resolver's own function
+    rather than a literal set — a name it can still resolve passes, and one it
+    cannot fails here instead of going silent in production.
+    """
     metadata = json.loads(row["metadata"])
-    assert set(split_metadata_list(metadata.get("grid-agents", ""))) <= KNOWN_AGENTS
+    named = {canonical_agent(name) for name in split_metadata_list(metadata.get("grid-agents", ""))}
+    assert named <= KNOWN_AGENTS
 
 
 @pytest.mark.parametrize(("tag", "row"), SEEDS, ids=SEED_IDS)
@@ -148,27 +172,23 @@ def test_every_seed_has_a_matching_down_migration(tag: str, row: dict[str, str])
     assert "'system'" in text
 
 
-def test_the_generic_card_seed_inlines_only_generic_cards():
-    """``piloti-cards`` pays for its shapes on EVERY turn, so the list stays short.
+def test_the_generic_card_seed_inlined_only_generic_cards():
+    """The last ``piloti-cards`` row named the six generic shapes — history now.
 
-    These are the ones that fire on an ordinary answer. ``norm_chain`` is taught
-    in the body but deliberately NOT inlined — it is the most expensive and the
-    narrowest, so it is left to a ``describe_card`` round-trip on the turns it
-    actually fires. Pinned here because widening the list is invisible in review
-    and permanent in cost.
-
-    Read off the EFFECTIVE row, not ``0054``'s: the list has changed twice since
-    (``0061`` added two, ``0062`` retired one), and an assertion anchored on the
-    first ``INSERT`` would pin a cost no database has paid since.
+    ``0071`` retired the row, so this is asserted on the raw seeded list rather
+    than through ``preferred_cards``: the read-path filter judges against
+    TODAY's catalog, where three of the six are envelope types, and a
+    retirement is supposed to leave superseded migrations naming types the
+    read path would drop.
     """
-    assert preferred_cards(json.loads(_effective_row("piloti-cards")["metadata"])) == (
+    assert split_metadata_list(json.loads(_effective_row("piloti-cards")["metadata"])["grid-cards"]) == [
         "verdict_header",
         "condition_tree",
         "typed_table",
         "key_takeaways",
         "callout",
         "process_map",
-    )
+    ]
 
 
 def test_the_generic_card_seed_carries_the_craft_the_tool_no_longer_states():
@@ -207,22 +227,35 @@ def test_the_generic_card_seed_carries_the_craft_the_tool_no_longer_states():
 #: Surfaces the seeds are asserted against. Answer shape is taught on three
 #: prompts and the split between them is what these last tests pin; the deep
 #: agent module is read for the second delivery channel it opens.
-SHALLOW_PROMPT = REPO_ROOT / "src/aiq_agent/agents/shallow_researcher/prompts/researcher.j2"
+#: Piloti's prompt is two files: the bundled static half (the platform prompt,
+#: whose live version is authored in Langfuse) and the dynamic template. These
+#: tests ask what the prompt SAYS, so they read both — asserting against
+#: `piloti.j2` alone would silently stop seeing every section above the KV-cache
+#: boundary, which is most of them.
+PILOTI_PROMPT_FILES = (
+    REPO_ROOT / "src/aiq_agent/agents/piloti/prompts/piloti_static.md",
+    REPO_ROOT / "src/aiq_agent/agents/piloti/prompts/piloti.j2",
+)
 DEEP_WRITER_PROMPT = REPO_ROOT / "src/aiq_agent/agents/deep_researcher/prompts/writer.j2"
 DEEP_AGENT = REPO_ROOT / "src/aiq_agent/agents/deep_researcher/agent.py"
 
 
-def _answer_shape_section() -> str:
-    prompt = SHALLOW_PROMPT.read_text(encoding="utf-8")
-    match = re.search(r"<answer_shape>.*?</answer_shape>", prompt, re.DOTALL)
-    assert match is not None, "the researcher prompt no longer has an <answer_shape> section"
+def _piloti_prompt_text() -> str:
+    """Both halves of Piloti's bundled prompt, in the order they are rendered."""
+    return "\n".join(path.read_text(encoding="utf-8") for path in PILOTI_PROMPT_FILES)
+
+
+def _prompt_section(name: str) -> str:
+    prompt = _piloti_prompt_text()
+    match = re.search(rf"<{name}>.*?</{name}>", prompt, re.DOTALL)
+    assert match is not None, f"Piloti's prompt no longer has a <{name}> section"
     return match.group(0)
 
 
 def _agents_with_a_delivery_surface() -> set[str]:
     """Agents that can actually be handed a resolved skill, read from the code.
 
-    Two channels exist and they are different by necessity. The chat researcher
+    Two channels exist and they are different by necessity. Piloti
     resolves per turn inside a live request, so it names the agent at the
     ``SkillResolver`` call site. Deep research runs in a Dask worker with no
     request to read an organization off, so it resolves per RUN through
@@ -259,46 +292,62 @@ def _guard_hashes(tag: str) -> list[str]:
     return re.findall(r"md5\([^)]*\)\s*=\s*'([0-9a-f]{32})'", sql)
 
 
-def test_the_voice_seed_carries_the_answer_shape_craft_the_prompt_no_longer_states():
-    """The craft moved OUT of ``<answer_shape>`` and has to have landed here.
+def test_the_prompt_carries_the_voice_craft_the_retired_seed_taught():
+    """The craft moved back INTO the prompt when ``0071`` retired the seed.
 
-    Same split as the cards (3f8c8e4a), for the same reason: the researcher
-    prompt is paid on every turn and holds what must be true for the answer to
-    be usable — the three turn types, the prose, the sources section, the one
-    confidence line. How the answer READS is judgement, and it belongs in a row
-    a platform owner rewrites without a deploy.
-
-    Asserted against each other rather than separately. Deleting a paragraph
-    from the prompt and forgetting to write its replacement into the seed costs
-    nothing visible in review and would quietly take the craft out of the
-    product; so would writing it into the seed and leaving the English standing
-    in the prompt, which is the duplication this split removed.
+    The split the voice chain built (craft in a DB row, routing in the prompt)
+    was reversed deliberately: a forced skill's body only reached the model
+    through a ``use_skill`` call it could skip, so the house voice was absent
+    from exactly the answers that never opened it. The ``<stimme>`` section is
+    unconditional. This asserts the retired body's load-bearing rules survived
+    the condensation — a dense rewrite that keeps the headings and loses a rule
+    reads fine in review and quietly stops teaching it.
     """
-    section = _answer_shape_section()
-    body = _effective_row("piloti-voice")["body"]
+    section = _prompt_section("stimme")
+    body = _unwrapped(_effective_row("piloti-voice")["body"])
 
-    # The order the reasoning is checked in, and where a caveat may NOT sit.
-    assert "Danach der Nachweis, zuletzt die Vorbehalte" in body
-    assert "Ein Vorbehalt" in body and "mitten im Absatz" in body
-    # A class is named the way the Richtlinie names it, because it gets copied.
-    assert "REI 90" in body and "GK 4" in body
-    assert "Einreichung ab" in body
-    # Headings are earned, and never open the answer.
-    assert "Überschriften erst" in body
-    assert "nie als erste Zeile" in body
+    # The answer-first rule, and where a caveat may NOT sit. Headings moved
+    # under kind=ruling so a walkthrough does not open as a Bescheid.
+    assert "Der erste Satz ist die Antwort" in section
+    assert "kind=ruling" in section
+    assert "Vorbehalte" in section
+    assert "mitten im Absatz" in section
+    # The wrong-premise correction: leads, about the Richtlinie, Fundstelle in
+    # the same sentence, no softener, and the origin of the wrong value named.
+    assert "die Berichtigung ist die Antwort" in section
+    assert "entlang der Richtlinie, nie entlang der Person" in section
+    assert 'kein „gute Frage"' in section
+    assert "Nachbarklasse, ältere Ausgabe, anderer Bauteil" in section
+    # Uncertainty once, concretely, per PART — and why the confidence line
+    # cannot carry the split.
+    assert "pro TEIL, nicht pro Antwort" in section
+    assert "richtet sich nach dem schwächeren Teil" in section
+    # Liability is identity, not a ban on helping apply a rule. A Bescheid is
+    # still not this answer; a colleague who cites and applies is.
+    assert "Entwurfsverfasser" in section
+    assert "Behörde" in section
+    assert "Bescheid" in section
+    assert "Einschätzung, nicht Empfehlung" not in section
+    # Notation: the rules a reader copies into an Einreichung.
+    assert "Dezimalkomma" in section and "Tausenderpunkt" in section
+    assert "U+00A0" in section
+    assert "EI₂ 30-C" in section
+    # The warmth rule, with its one forbidden placement.
+    assert "nie als Polster vor einem Widerspruch" in section
+    # The smallest form, and the heading rules.
+    assert "kleinste Form" in section
+    assert "nie als erste Zeile" in section
+    assert "nie ersatzweise aus einem anderen Regelwerk beantwortet" in section
 
-    # And the prompt is no longer carrying any of it.
-    assert "Lead with the answer" not in section
-    assert "Length follows the question" not in section
-    assert "Ziviltechniker" not in section
-    assert "REI 90" not in section
-    assert "never open with one" not in section
+    # Every rule asserted above must have been in the seed it condenses — the
+    # section may compress the voice, never invent a different one.
+    for rule in ("Der erste Satz ist die Antwort", "Dezimalkomma", "nie als Polster vor"):
+        assert rule in body
 
-    # What the prompt keeps is the routing — which turn type this applies to —
-    # and a pointer, in the `<cards>` idiom: read it there, not here.
-    assert "RESEARCH turn" in section
-    assert "conversational or off-topic turn" in section
-    assert "writing skill active for this turn" in section
+    # The old split's section is gone, pointer and all.
+    prompt = _piloti_prompt_text()
+    assert "<answer_shape>" not in prompt
+    assert "writing skill active for this turn" not in prompt
 
 
 #: Every migration that writes a ``piloti-voice`` body, oldest first. Spelled out
@@ -410,9 +459,9 @@ def test_the_notation_rule_and_the_prompt_formatting_rule_stay_on_their_own_ques
     craft a platform owner may rewrite. Asserted against each other so that a
     second copy of either in the other's home fails here rather than drifting.
     """
-    prompt = SHALLOW_PROMPT.read_text(encoding="utf-8")
+    prompt = _piloti_prompt_text()
     match = re.search(r"<formatting>.*?</formatting>", prompt, re.DOTALL)
-    assert match is not None, "the researcher prompt no longer has a <formatting> section"
+    assert match is not None, "Piloti's prompt no longer has a <formatting> section"
     formatting = match.group(0)
     body = _unwrapped(_effective_row("piloti-voice")["body"])
 
@@ -435,22 +484,22 @@ def test_the_notation_rule_and_the_prompt_formatting_rule_stay_on_their_own_ques
     assert "1.200 m²" in body
 
 
-def test_the_voice_carries_the_certainty_split_the_confidence_line_cannot():
-    """One marker per turn is CONTRACT; two certainties in one answer is craft.
+def test_the_voice_carries_the_certainty_split_the_confidence_field_cannot():
+    """One confidence per turn is CONTRACT; two certainties in one answer is craft.
 
-    ``[CONFIDENCE:…]`` is a single value for the whole turn and the output
-    contract says so twice, so an answer whose OIB half is settled and whose
-    Landesrecht half is not has exactly one line to spend and must spend it on
-    the weaker half. That makes the prose the only place the distinction can
-    live, which is a fact about the contract and therefore has to be asserted
-    against it — a contract that grew a second marker would leave the body
-    telling the writer something false.
+    The envelope's ``confidence`` is a single value for the whole turn, so an
+    answer whose OIB half is settled and whose Landesrecht half is not must
+    spend it on the weaker half — which makes the prose the only place the
+    distinction can live. Asserted against the contract on both carriers: the
+    prompt's ``<stimme>`` section (the live voice) and the retired seed body
+    (the history it condenses).
     """
-    prompt = SHALLOW_PROMPT.read_text(encoding="utf-8")
+    prompt = _piloti_prompt_text()
     body = _unwrapped(_effective_row("piloti-voice")["body"])
 
-    assert "Exactly one confidence line" in prompt
-    assert "exactly ONE confidence marker" in prompt
+    assert "Every researched answer carries `confidence`" in prompt
+    assert "richtet sich nach dem schwächeren Teil" in prompt
+    assert "die Teilung existiert nur in der Prosa" in prompt
 
     assert "[CONFIDENCE:…]" in body
     assert "ein Wert für den ganzen Zug" in body
@@ -477,7 +526,8 @@ def test_seeded_grid_agents_all_have_a_surface_that_delivers_the_skill(tag: str,
     delivering = _agents_with_a_delivery_surface()
     assert delivering == KNOWN_AGENTS, "an agent the resolver knows has nowhere to deliver a skill"
     metadata = json.loads(row["metadata"])
-    assert set(split_metadata_list(metadata.get("grid-agents", ""))) <= delivering
+    named = {canonical_agent(name) for name in split_metadata_list(metadata.get("grid-agents", ""))}
+    assert named <= delivering
 
 
 def test_the_card_scope_migration_changes_only_the_scope():
@@ -503,6 +553,10 @@ def test_the_card_scope_migration_changes_only_the_scope():
 
     before = json.loads(seeded["metadata"])
     after = json.loads(rescoped["metadata"])
+    # The names 0054 and 0056 actually wrote. `shallow_researcher` was renamed
+    # to `researcher` afterwards, and past migrations keep the string they
+    # shipped with: they are history, and a database that applied them already
+    # would never see an edit here.
     assert set(split_metadata_list(before["grid-agents"])) == {"shallow_researcher", "deep_researcher"}
     assert set(split_metadata_list(after["grid-agents"])) == {"shallow_researcher"}
     # Everything else about the row is 0054's, including the five inlined shapes.
@@ -518,45 +572,23 @@ def test_the_card_scope_migration_changes_only_the_scope():
     assert not _guard_hashes("0056_piloti_cards_chat_scope")
 
 
-def test_the_two_cards_the_doctrine_redirects_to_are_reachable_without_a_round_trip():
-    """``0061``: `typed_table` and `process_map` join the inlined shapes.
+def test_the_reachable_shapes_migration_added_the_two_redirect_targets():
+    """``0061``: `typed_table` and `process_map` joined the inlined shapes — history.
 
-    ``grid-cards`` is read twice and only the first reading is obvious. It is
-    the author's card PREFERENCE, and — because ``_preferred_cards_block``
-    appends ``render_card_details()`` for exactly those types — it also decides
-    which SHAPES are in context at the moment the model would emit. The five
-    inlined since 0054 did not include either card the doctrine spends its words
-    redirecting TO: ``catalog``'s trigger table sends "rows that are all true at
-    once" to ``typed_table`` and this very body works the GK 4 case through to
-    it, while ``process_map`` is the card the „wie läuft das ab" transcript was
-    supposed to produce. Both were a ``describe_card`` round trip away while
-    ``condition_tree``'s full shape sat already rendered — and the observed
-    answer took the condition_tree.
-
-    Asserted through ``preferred_cards`` rather than on the JSON text, because
-    the read path is what the runtime uses and a name it silently drops would
-    leave this passing over a list that inlines nothing.
+    Asserted on the raw seeded list: the row is retired (``0071``) and three of
+    its names are envelope types today, so the live ``preferred_cards`` filter
+    would judge a historical list against a catalog it predates. The mechanism
+    the old live assertion guarded — a ``grid-cards`` name resolving to a real
+    shape — is covered by ``test_runtime`` over live fixtures.
     """
     row = next(row for tag, row in SEEDS if tag.startswith("0061_"))
-    inlined = preferred_cards(json.loads(row["metadata"]))
+    declared = split_metadata_list(json.loads(row["metadata"])["grid-cards"])
 
-    assert "typed_table" in inlined
-    assert "process_map" in inlined
-    # The ones that were already there are still there, in their order: this
-    # migration adds, it does not re-curate. `follow_ups` is absent from what
-    # `preferred_cards` reads back and present in the raw list, because 0062
-    # retired the card without rewriting the migration that named it — which is
-    # the whole reason the read path is asserted through `preferred_cards`.
-    assert [c for c in inlined if c not in {"typed_table", "process_map"}] == [
-        "verdict_header",
-        "condition_tree",
-        "key_takeaways",
-        "callout",
-    ]
-    assert split_metadata_list(json.loads(row["metadata"])["grid-cards"])[-1] == "follow_ups"
-    # And they resolve to real shapes — an inlined name the catalog has since
-    # renamed costs the turn the shape without costing it the token budget.
-    detail = render_card_details(inlined)
+    assert "typed_table" in declared
+    assert "process_map" in declared
+    assert declared[-1] == "follow_ups"
+    # The two redirect targets still resolve to real shapes on the live surface.
+    detail = render_card_details(["typed_table", "process_map"])
     assert '"typed_table"' in detail and '"process_map"' in detail
 
 
@@ -662,8 +694,9 @@ def test_retiring_the_card_takes_its_craft_and_its_inlined_shape_together():
     after = split_metadata_list(json.loads(current["metadata"])["grid-cards"])
     assert set(before) - set(after) == {"follow_ups"}
     assert after == [c for c in before if c != "follow_ups"]
-    # Read back through the runtime's own filter, nothing is dropped any more.
-    assert preferred_cards(json.loads(current["metadata"])) == tuple(after)
+    # When 0062 shipped, the runtime's filter read this list back whole. Three
+    # of the names are envelope types TODAY, so that liveness claim ended with
+    # 0071's retirement and the raw-list assertions above are the history.
 
     # Only `grid-cards` moves in the metadata blob.
     assert {k: v for k, v in json.loads(current["metadata"]).items() if k != "grid-cards"} == {
@@ -722,31 +755,32 @@ def test_the_card_skill_is_not_promised_to_a_surface_that_emits_no_cards():
     assert "deep_researcher" in split_metadata_list(voice["grid-agents"])
 
 
-def test_the_deep_writer_keeps_its_own_lead_as_the_floor_under_the_voice():
-    """The THIRD copy of "answer first" survives the voice arriving, and says why.
+def test_the_deep_writer_carries_the_report_sized_voice():
+    """The writer prompt owns the voice now — no fetched skill stands behind it.
 
-    It used to be load-bearing because nothing else reached this agent. Now
-    ``piloti-voice`` does — ``DeepResearcherAgent._build_skill_runtime`` resolves
-    the organization's skills per run and renders them into the writer's prompt —
-    and the paragraph is load-bearing for the opposite reason: resolution
-    degrades to nothing on an anonymous run, an unset
-    ``GRID_INTERNAL_API_TOKEN``, or a BFF that does not answer, because a
-    research report must still be produced when the voice cannot be fetched.
-
-    So it is still not a duplicate to be tidied away — it is the floor under a
-    skill that may not arrive — and the reason is pinned next to it so the next
-    reader deduplicating these three surfaces deletes the one that can be
-    replaced rather than the one that cannot.
+    Until ``0071`` the deep writer's lead paragraph was the FLOOR under a
+    ``piloti-voice`` row that resolution could fail to deliver. The row is
+    retired, so the prompt is the only carrier, and it has to carry more than
+    the lead: the caveat placement, the wrong-premise correction and the
+    Austrian notation are the rules the longest answers lose most visibly.
+    The shallow ``<stimme>`` section is the full voice; this is the subset a
+    report needs, and the two must stay in sync by meaning.
     """
     writer = DEEP_WRITER_PROMPT.read_text(encoding="utf-8")
     assert "- Open with the answer." in writer
     assert "must still leave with the right answer" in writer
-    assert "must still be produced when the voice cannot be fetched" in writer
-
-    # And the voice, when it does resolve, arrives as its own required skill
-    # rather than as a second copy of this paragraph.
-    assert "{{ skills_block }}" in writer
-    assert "Active skills (required for this turn)" in writer
+    # Caveats after the finding, each on its own — and hedging per PART.
+    assert "Caveats come after the finding they qualify" in writer
+    assert "per PART" in writer
+    # The wrong-premise correction leads, with its Fundstelle.
+    assert "the correction IS the lead" in writer
+    # Assess, don't recommend.
+    assert "Assess, do not recommend" in writer
+    # Austrian notation, verbatim class codes.
+    assert "Dezimalkomma" in writer
+    assert "REI 90, GK 4" in writer
+    # The retired delivery channel's floor rationale is gone with the channel.
+    assert "must still be produced when the voice cannot be fetched" not in writer
 
 
 #: Every migration that writes a ``piloti-cards`` BODY, oldest first. ``0056`` is
@@ -1063,3 +1097,130 @@ def test_every_card_type_with_a_trigger_has_its_craft_in_the_seed():
     assert "nummerierte Liste" in body
     # And never guessing where the project stands.
     assert "nur, wenn das Gespräch ihn hergibt" in body
+
+
+# ---------------------------------------------------------------------------
+# The retirement (0071): both house skills leave the database for the prompts.
+# ---------------------------------------------------------------------------
+
+RETIREMENT = "0071_retire_piloti_house_skills"
+
+
+def test_the_house_skills_are_retired_by_a_guarded_migration():
+    """``0071`` deletes both rows, guarded on the last body each chain wrote.
+
+    The md5 guard, not ``created_by``, for the reason every link of both chains
+    states: the dashboard's update path patches ``body`` and never touches
+    ``created_by``, so a hand-edited row still reads ``system``. A row the
+    platform owner rewrote is theirs and survives the retirement; retiring it
+    is then their call in the dashboard.
+    """
+    sql = (DRIZZLE_DIR / f"{RETIREMENT}.sql").read_text(encoding="utf-8")
+    assert 'DELETE FROM "platform_skills"' in sql
+    assert "'piloti-voice'" in sql and "'piloti-cards'" in sql
+
+    voice_body = _effective_row("piloti-voice")["body"]
+    cards_body = _effective_row("piloti-cards")["body"]
+    assert _guard_hashes(RETIREMENT) == [
+        hashlib.md5(voice_body.encode("utf-8")).hexdigest(),
+        hashlib.md5(cards_body.encode("utf-8")).hexdigest(),
+    ], "0071 must guard each DELETE on the body the last seed wrote"
+
+    # The loader sees the retirement the way a live database would: neither
+    # name has an effective row any more.
+    from tests.aiq_agent.skills.seeded_skill_rows import RETIRED_NAMES
+
+    assert {"piloti-voice", "piloti-cards"} <= RETIRED_NAMES
+    assert not {row["name"] for _, row in EFFECTIVE_SEEDS} & {"piloti-voice", "piloti-cards"}
+
+
+def test_the_retirement_rollback_restores_both_rows_without_trampling():
+    """``0071.down.sql`` re-seeds 0057's and 0062's exact rows, DO NOTHING.
+
+    ``ON CONFLICT DO NOTHING`` because a row the platform owner has since
+    created or rewritten under either name is theirs. Restoring the bodies
+    byte-identically is what keeps the down migration a true inverse of the
+    guarded delete.
+    """
+    down = (DRIZZLE_DIR / f"{RETIREMENT}.down.sql").read_text(encoding="utf-8")
+    assert 'ON CONFLICT ("name") DO NOTHING' in down
+    assert _effective_row("piloti-voice")["body"] in down
+    assert _effective_row("piloti-cards")["body"] in down
+    assert _effective_row("piloti-voice")["description"] in down
+    assert _effective_row("piloti-cards")["description"] in down
+
+
+def test_the_card_craft_the_retired_seed_taught_lives_in_the_tool():
+    """The ``emit_card`` tool owns the judgement ``piloti-cards`` carried.
+
+    The craft moved from the prompt's ``<cards>`` section into the tool's own
+    doctrine, one home, beside each card's trigger; the prompt keeps only what
+    the tool cannot say (placement, and that the envelope fields are not
+    cards). Pinned against the doctrine's load-bearing sentences so a later
+    tightening cannot silently drop one.
+    """
+    from aiq_agent.cards.catalog import render_card_doctrine
+    from aiq_agent.cards.register import _build_tool_description
+
+    # The doctrine wraps its craft to the tool's column; compare on words.
+    doctrine = " ".join(render_card_doctrine().split())
+    # calculation: operands in, result computed, factor belongs to the rule.
+    assert "there is no result field, on purpose" in doctrine
+    assert "never a second operand" in doctrine
+    # document_checklist: a guessed status falsifies the tally.
+    assert "falsifies the balance" in doctrine
+    # change_impact: every consequence carries its own Fundstelle.
+    assert "its OWN Fundstelle" in doctrine
+    # The deletion test rides the tool description's opening line.
+    assert "delete the cards mentally" in _build_tool_description().lower()
+
+    section = _prompt_section("cards")
+    assert "[[card:" in section
+    assert "NOT cards" in section
+    for craft in ("does ONE row hold", "stations must CARRY", "describe_card"):
+        assert craft not in section, craft
+
+
+def test_the_answer_envelope_replaces_the_envelope_cards():
+    """The rhetorical shapes moved from tool calls into the answer contract.
+
+    Assertions across every surface, so the channel cannot half-exist: the
+    prompt teaches the envelope, the catalog withholds the types from every
+    card-generating surface, and the tool's doctrine redirects rather than
+    merely refuses.
+    """
+    from aiq_agent.cards.catalog import ENVELOPE_CARD_TYPES
+    from aiq_agent.cards.catalog import model_facing_card_types
+    from aiq_agent.cards.catalog import render_card_catalog
+    from aiq_agent.cards.register import _ENVELOPE_REFUSAL
+
+    section = _prompt_section("answer_envelope")
+    # The rhetorical fields, each with its earning condition.
+    assert "`verdict`" in section and "60 characters" in section
+    assert "`takeaways`" in section and "2 to 5" in section
+    assert "`callout`" in section and "at most ONE" in section
+    # The model owns content; placement is the platform's, with ONE granted
+    # freedom — anchoring the callout via its marker. Honesty outranks a field.
+    assert "masthead" in section
+    assert "[[callout]]" in section
+    assert "invented value here is worse than none" in section
+    # The schema is injected by the renderer from the validating models.
+    assert "{{ answer_envelope_schema }}" in section
+    # The control fields ride the same envelope.
+    assert "`confidence`" in section
+    assert "`escalate_to_deep`" in section
+
+    assert ENVELOPE_CARD_TYPES == {"summary", "verdict_header", "key_takeaways", "callout"}
+    assert model_facing_card_types().isdisjoint(ENVELOPE_CARD_TYPES)
+    # No card-generating surface offers the shapes any more — the post-hoc
+    # catalog included: one system, not a parallel card path for deep reports.
+    catalog = render_card_catalog()
+    for card_type in ("verdict_header", "key_takeaways", "callout"):
+        assert f'"{card_type}"' not in catalog
+    # And the answering tool points at the envelope — on the refusal, which is
+    # the one call that needs it, rather than in the doctrine every turn pays.
+    # The up-front sentence is the prompt's; two copies is two things to keep in
+    # step, and the doctrine's copy also reached the post-hoc surface, which has
+    # no envelope at all.
+    assert "answer_json" in _ENVELOPE_REFUSAL
+    assert "is not emitted as a card" in _ENVELOPE_REFUSAL

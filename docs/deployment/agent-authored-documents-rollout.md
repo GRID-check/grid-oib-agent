@@ -89,6 +89,13 @@ Verified against the real database, not inferred:
 
 ## 3. Register the audit schema — this one fails silently if skipped
 
+> **Document lifecycle (migration 0082) adds seven actions:** six
+> `document.version.*` (drafted, submitted, approved, changes_requested,
+> rejected, published) and `document.archived`. The same reconcile registers
+> them; a deployment that skips it has every approval, publish and archive
+> rejected by WorkOS. The version row itself is written first, so no decision
+> is lost, but the audit trail for it is.
+
 Every deployment path now runs the reconcile for you. Check that it did:
 
 | Path | What runs it | Where to look |

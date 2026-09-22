@@ -8,12 +8,13 @@
  * the scheduler container and the BFF deploy separately, so renaming the wire
  * contract would fail every scheduled run in the window between the two
  * deploys — the same hazard the `execution` -> `output` shim exists for. It
- * names a `jobs.id`.
+ * names a `task_definitions.id` since 0086 (job ids were reused for their
+ * definitions, so the scheduler's stored ids keep working).
  *
- * Loads the job with NO session (the scheduler has none) and delegates to
- * `fireScheduledJob`, which re-checks `enabled` (the row may have been disabled
- * since the claim) and the org's feature gate before firing through the single
- * `fireJob` path.
+ * Loads the definition with NO session (the scheduler has none) and delegates
+ * to `fireScheduledJob`, which re-checks `enabled` (the row may have been
+ * disabled since the claim) and the org's feature gate before firing through
+ * the single `fireJob` path.
  */
 
 import { internalApiRoute, parseJsonBody } from '@/lib/api/handler'

@@ -14,24 +14,31 @@
  * which narrows the row lookup to that org when present. Read-only: returns the
  * storage key AND its bucket, not the bytes (the backend fetches those itself
  * from SeaweedFS).
+ *
+ * With `imageIndex`, the key returned is that of the `_img/<index>.jpg` raster
+ * the ingest pipeline stored beside the document, built from the row's own
+ * storage key (`buildImageStorageKey`). The backend never names a derived key
+ * itself: the only thing it can vary is a bounded integer, so a derived read
+ * can only ever land under the owning document's prefix.
  */
 
 import { z } from 'zod'
 import { internalApiRoute, parseQuery } from '@/lib/api/handler'
 import { withOptionalTenant } from '@/lib/db/tenant-context'
 import { NotFoundError } from '@/lib/api/errors'
-import { findDocumentStorageKey } from '@/lib/documents/service'
+import { findDocumentImageStorageKey, findDocumentStorageKey } from '@/lib/documents/service'
 
 const querySchema = z.object({
   collection: z.string().min(1),
   filename: z.string().min(1),
   organizationId: z.string().min(1).optional(),
+  imageIndex: z.coerce.number().int().min(0).optional(),
 })
 
 export const GET = internalApiRoute(
   'document-file',
   async ({ request }) => {
-    const { collection, filename, organizationId } = parseQuery(request, querySchema)
+    const { collection, filename, organizationId, imageIndex } = parseQuery(request, querySchema)
     // The backend derives an organization only from an `archiv_<orgId>`
     // collection; for `proj_<uuid>` it has none to send, and the unguessable
     // collection name is the boundary the route has always relied on.
@@ -39,6 +46,11 @@ export const GET = internalApiRoute(
       organizationId,
       'document addressed by unguessable collection name, with no organization supplied',
       async () => {
+        if (imageIndex !== undefined) {
+          const image = await findDocumentImageStorageKey(collection, filename, imageIndex, organizationId)
+          if (!image) throw new NotFoundError('Document image not found')
+          return { storageKey: image.storageKey, storageBucket: image.storageBucket, contentType: image.contentType }
+        }
         const document = await findDocumentStorageKey(collection, filename, organizationId)
         if (!document) throw new NotFoundError('Document not found')
         return {

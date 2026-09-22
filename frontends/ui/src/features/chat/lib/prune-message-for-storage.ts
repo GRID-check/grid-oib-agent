@@ -7,6 +7,7 @@
 
 import type { ChatMessage } from '../types'
 import { extractTraceLanesFromPayload } from './trace-lanes'
+import { turnEventOf } from './turn-events'
 
 /**
  * Cap string content to prevent excessively large values.
@@ -44,6 +45,11 @@ export const stripThinkingStepsForStorage = (
           : payload.trim()
             ? extractTraceLanesFromPayload(payload)
             : undefined
+      // What the turn asked, and the checkpoint it concluded, kept the same
+      // way the lanes are: read off the payload here, before it is dropped.
+      // A reload, a colleague or a second device gets that record — the
+      // server mirror (ADR-0037) inherits whatever this keeps.
+      const turnEvent = turnEventOf(step)
       return {
         id: step.id,
         userMessageId: step.userMessageId,
@@ -56,6 +62,7 @@ export const stripThinkingStepsForStorage = (
         isTopLevel: step.isTopLevel,
         category: step.category,
         ...(derived && derived.length > 0 ? { traceLanes: derived } : {}),
+        ...(turnEvent ? { turnEvent } : {}),
       }
     })
 }
@@ -102,9 +109,26 @@ export const prunePlanMessages = (
  * - Deep research thinking steps (refetched from async API)
  */
 
-/** Max characters of citation `content` kept in storage — chips need the
- * metadata (kind/lane/locator), not the full captured passage. */
+/** Max characters of citation `content` kept in storage — a chip needs the
+ * locator, and `content` is a locator. */
 const MAX_CITATION_CONTENT = 300
+
+/**
+ * Max characters of the retrieved PASSAGE kept in storage.
+ *
+ * This bound is the reason the function exists and it nearly went missing: the
+ * passage used to arrive inside `content`, so capping `content` capped it. It
+ * has its own wire field now, and until this line the cap was silently defeated
+ * — a forty-source deep-research turn went from roughly 12 KB of stored
+ * citations to 60 KB, per conversation, against one origin's localStorage
+ * budget.
+ *
+ * Larger than `content` because the two are different things: one labels a
+ * chip, the other has to be FOUND in a document, and the matchers anchor on
+ * both ends of it. Clipped to 300 the tail anchor is gone, and a reload
+ * quietly demotes "the sentence is marked" to "the page is open".
+ */
+const MAX_CITATION_SNIPPET = 1200
 
 export const pruneMessageForStorage = (message: ChatMessage): ChatMessage => {
   const {
@@ -117,15 +141,21 @@ export const pruneMessageForStorage = (message: ChatMessage): ChatMessage => {
     ...prunedMessage
   } = message
 
-  // Keep the provenance chips across reload: citations are small metadata, but
-  // cap the captured-passage `content` so storage stays bounded. Deep-research
+  // Keep the provenance chips across reload: citations are small metadata, and
+  // the two free-text fields are capped so storage stays bounded. Deep-research
   // citations are still refetched from the async API and simply overwrite these.
   if (prunedMessage.citations?.length) {
-    prunedMessage.citations = prunedMessage.citations.map((c) =>
-      c.content.length > MAX_CITATION_CONTENT
-        ? { ...c, content: capString(c.content, MAX_CITATION_CONTENT) }
-        : c
-    )
+    prunedMessage.citations = prunedMessage.citations.map((c) => {
+      const content =
+        c.content.length > MAX_CITATION_CONTENT
+          ? capString(c.content, MAX_CITATION_CONTENT)
+          : c.content
+      const snippet =
+        c.snippet && c.snippet.length > MAX_CITATION_SNIPPET
+          ? capString(c.snippet, MAX_CITATION_SNIPPET)
+          : c.snippet
+      return content === c.content && snippet === c.snippet ? c : { ...c, content, snippet }
+    })
   }
 
   if (prunedMessage.thinkingSteps?.length) {

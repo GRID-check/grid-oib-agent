@@ -4,8 +4,9 @@
  * Skills tab root: the org's skills and their editor, and nothing else.
  *
  * A skill knows nothing about time. Everything schedule-shaped — what runs,
- * when, and what a run produces — lives on the Jobs tab
- * (`features/jobs`), where a skill is the optional extra a job attaches.
+ * when, and what a run produces — lives in the Aufgaben tab
+ * (`features/tasks`), where a skill is the optional extra a definition
+ * attaches.
  *
  * Authoring is gated on org:skills:manage; without it the page is read-only.
  *
@@ -13,14 +14,14 @@
  * portals into that header; this file is the toolbox and the editor only.
  */
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Plus } from 'lucide-react'
 import { ProjectSectionActions } from '@/components/shell/project-section-frame'
 import { Button } from '@/components/ui/button'
 import { useTranslations } from '@/i18n'
+import { listSkillCategories, type SkillCategoryListItem, type SkillListItem } from '@/adapters/api/skills-client'
 import { SkillEditorDialog } from './skill-editor-dialog'
 import { SkillToolbox } from './skill-toolbox'
-import type { SkillListItem } from '@/adapters/api/skills-client'
 
 interface SkillsPanelProps {
   /** Whether this member may author/delete skills (org:skills:manage). */
@@ -45,11 +46,39 @@ export function SkillsPanel({ canManageOrgSkills }: SkillsPanelProps): JSX.Eleme
   const [editorKey, setEditorKey] = useState(0)
   /** Bumped after a save so the list re-fetches and the new row shows up. */
   const [reloadKey, setReloadKey] = useState(0)
+  /**
+   * The categories on offer in the editor's picker. Fetched once per mount and
+   * refreshed whenever the toolbox reports a category change or a save lands —
+   * a picker offering a deleted category would 404 on save.
+   */
+  const [categories, setCategories] = useState<SkillCategoryListItem[]>([])
+  const [categoryRefreshKey, setShelfRefreshKey] = useState(0)
+
+  useEffect(() => {
+    let cancelled = false
+    listSkillCategories()
+      .then((shelves) => {
+        if (!cancelled) setCategories(shelves)
+      })
+      .catch(() => {
+        // The picker degrades to unsorted-only; the toolbox list is the
+        // surface that reports load failures.
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [categoryRefreshKey])
 
   const openSkillEditor = (skill: SkillListItem | null) => {
     setEditSkill(skill)
     setEditorKey((key) => key + 1)
     setEditorOpen(true)
+  }
+
+  const refreshAfterSave = () => {
+    setEditorOpen(false)
+    setReloadKey((key) => key + 1)
+    setShelfRefreshKey((key) => key + 1)
   }
 
   return (
@@ -66,16 +95,15 @@ export function SkillsPanel({ canManageOrgSkills }: SkillsPanelProps): JSX.Eleme
         canManage={canManageOrgSkills}
         onEdit={openSkillEditor}
         reloadKey={reloadKey}
+        onCategoriesChanged={() => setShelfRefreshKey((key) => key + 1)}
       />
       <SkillEditorDialog
         key={editorKey}
         open={editorOpen}
         onOpenChange={setEditorOpen}
         skill={editSkill}
-        onSaved={() => {
-          setEditorOpen(false)
-          setReloadKey((key) => key + 1)
-        }}
+        categories={categories}
+        onSaved={refreshAfterSave}
       />
     </div>
   )

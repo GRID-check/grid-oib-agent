@@ -36,7 +36,7 @@ def async_job_dispatch() -> str | None:
     ``db`` wins when both are configured: it is the queue row, not the cluster,
     that runs the job. This is THE acceptance condition — ``submit_agent_job``
     refuses exactly when this returns ``None``, and the chat dispatch gate
-    (``chat_researcher.register``) imports this same function, so the two
+    (``piloti.conversation_register``) imports this same function, so the two
     cannot drift. They once did: the chat gate read only the scheduler address,
     which no db-mode deployment sets, and every deployment that actually had
     workers researched synchronously instead.
@@ -64,6 +64,7 @@ def _build_run_agent_payload(
     auth_token,
     collection_scope,
     project_context,
+    project_memory,
     platform_lessons,
     model_overrides,
     usage_context,
@@ -71,7 +72,7 @@ def _build_run_agent_payload(
     clarifier_result,
     memory_reflection_enabled,
     memory_reflection_llm,
-    force_skills,
+    run_id,
 ) -> dict:
     """Build the JSON-serializable ``run_agent_job`` kwargs a DB worker replays.
 
@@ -110,6 +111,7 @@ def _build_run_agent_payload(
         "auth_token": auth_token,
         "collection_scope": collection_scope,
         "project_context": project_context,
+        "project_memory": project_memory,
         "platform_lessons": platform_lessons,
         "model_overrides": model_overrides,
         "usage_context": usage_context,
@@ -117,7 +119,14 @@ def _build_run_agent_payload(
         "clarifier_result": clarifier_result,
         "memory_reflection_enabled": memory_reflection_enabled,
         "memory_reflection_llm": memory_reflection_llm,
-        "force_skills": force_skills,
+        # The ``task_runs`` row this job is, when the caller knows it: the only
+        # identity the run-ledger route has, and the worker cannot look it up.
+        "run_id": run_id,
+        # No owner at submit time (unclaimed): the DB worker fills in its own
+        # worker id at replay for the runner's still-owner publish gate
+        # (hardening item 10). Travels inside the encrypted payload like the
+        # rest; the Dask path leaves it None (no claim table).
+        "claim_owner": None,
     }
 
 
@@ -337,6 +346,9 @@ async def submit_agent_job(
     auth_token: str | None = None,
     collection_scope: list[str] | None = None,
     project_context: str | None = None,
+    # The project-memory digest as of submit time, the worker's fallback when
+    # its own live fetch fails. The chat path leaves it None: the worker fetches.
+    project_memory: str | None = None,
     # Rendered PLATFORM_LESSONS block. Passed explicitly rather than resolved in
     # the worker: request contextvars do not survive into a background job, and
     # the holdout decision belongs to the turn that dispatched the job.
@@ -347,8 +359,8 @@ async def submit_agent_job(
     clarifier_result: str | None = None,
     memory_reflection_enabled: bool = False,
     memory_reflection_llm: str | None = None,
-    force_skills: list[str] | None = None,
     conversation_id: str | None = None,
+    run_id: str | None = None,
 ) -> str:
     """
     Submit an agent job to the Dask cluster.
@@ -386,12 +398,10 @@ async def submit_agent_job(
         memory_reflection_llm: Optional ``llms:`` ref for the reflection pass
             (e.g. ``card_llm``). When set and enabled, the worker records durable
             project findings from the completed report.
-        force_skills: Optional list of skill names the agent run must
-            force-activate. Travels the same path ``data_sources`` does (job
-            payload for the DB path, job_args positionally for Dask) and is
-            injected onto the worker's agent state as ``force_skills`` where
-            the agent's state model declares the field (Agent Skills feature;
-            the consumer lives in ``src/aiq_agent``).
+        run_id: Optional id of the ``task_runs`` row this job is. Carried into
+            the worker so the run can flush its ledger to its own message; a
+            job submitted without one still narrates itself on its event
+            stream and writes nothing (``jobs/run_ledger_fold.py``).
 
     Returns:
         The job ID.
@@ -580,6 +590,7 @@ async def submit_agent_job(
                 auth_token=auth_token,
                 collection_scope=collection_scope,
                 project_context=project_context,
+                project_memory=project_memory,
                 platform_lessons=platform_lessons,
                 model_overrides=model_overrides,
                 usage_context=usage_context,
@@ -587,7 +598,7 @@ async def submit_agent_job(
                 clarifier_result=clarifier_result,
                 memory_reflection_enabled=memory_reflection_enabled,
                 memory_reflection_llm=memory_reflection_llm,
-                force_skills=force_skills,
+                run_id=run_id,
             )
             await job_store._create_job(
                 config_file=config_path or None,
@@ -615,6 +626,7 @@ async def submit_agent_job(
                     auth_token,
                     collection_scope,
                     project_context,
+                    project_memory,
                     platform_lessons,
                     model_overrides,
                     usage_context,
@@ -622,7 +634,8 @@ async def submit_agent_job(
                     clarifier_result,
                     memory_reflection_enabled,
                     memory_reflection_llm,
-                    force_skills,
+                    None,  # claim_owner: no queue claim on the Dask path (see run_agent_job)
+                    run_id,
                 ],
             )
         await loop.run_in_executor(

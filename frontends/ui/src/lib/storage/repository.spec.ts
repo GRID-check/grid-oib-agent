@@ -11,9 +11,10 @@ vi.mock('server-only', () => ({}))
  * A mock that only checked "an insert happened" would pass on a version of this
  * function with no lock at all, which is the version that was already shipped.
  */
-function fakeDb(usedBytes: number) {
+function fakeDb(usedBytes: number, versionBytes = 0) {
   const statements: string[] = []
   const inserted: unknown[] = []
+  const updated: unknown[] = []
 
   const tx = {
     execute: vi.fn(async (query: { queryChunks?: unknown[] }) => {
@@ -24,7 +25,9 @@ function fakeDb(usedBytes: number) {
       from: vi.fn(() => ({
         where: vi.fn(async () => {
           statements.push('SELECT sum')
-          return [{ bytes: String(usedBytes) }]
+          // `versionBytes` rides in the SAME select (a correlated subquery), so
+          // the whole usage read stays one round trip inside the lock.
+          return [{ bytes: String(usedBytes), versionBytes: String(versionBytes) }]
         }),
       })),
     })),
@@ -35,11 +38,21 @@ function fakeDb(usedBytes: number) {
         return []
       }),
     })),
+    update: vi.fn(() => ({
+      set: vi.fn((values: unknown) => ({
+        where: vi.fn(async () => {
+          statements.push('UPDATE')
+          updated.push(values)
+          return []
+        }),
+      })),
+    })),
   }
 
   return {
     statements,
     inserted,
+    updated,
     tx,
     db: { transaction: vi.fn(async (cb: (t: typeof tx) => unknown) => cb(tx)) },
   }
@@ -51,11 +64,62 @@ vi.mock('@/lib/db/tenant-context', () => ({
   withPlatformAccess: (_reason: string, fn: () => unknown) => fn(),
 }))
 
-import { insertDocumentWithinQuota } from './repository'
+import { insertDocumentWithinQuota, replaceDocumentWithinQuota } from './repository'
 import type { NewDocument } from '@/lib/db/schema'
 
 const row = (fileSize: number): NewDocument =>
   ({ id: 'doc-1', organizationId: 'org-1', fileSize }) as unknown as NewDocument
+
+const next = (fileSize: number) => ({
+  storageKey: 'k',
+  storageBucket: 'b',
+  fileSize,
+  contentType: 'application/pdf',
+  contentHash: 'sha256:beef',
+  folderId: null,
+  createdBy: 'user-1',
+})
+
+/**
+ * The other half of the ledger (ADR-0054, correction 3).
+ *
+ * Migration 0082's header says superseded versions stay charged against the
+ * organization's quota. For a while that was a claim the code did not honour:
+ * usage summed `documents.file_size`, which is the LIVE bytes, so every
+ * superseded version and every written-to draft was invisible to the ceiling it
+ * was supposed to be measured against. An office that re-uploads a plan set
+ * weekly accumulated bytes nothing counted.
+ */
+describe('the version overhead is part of the ceiling', () => {
+  beforeEach(() => vi.clearAllMocks())
+
+  it('counts a superseded version against the quota', async () => {
+    const fake = fakeDb(5_000, 4_500)
+    getDb.mockReturnValue(fake.db)
+
+    // 5_000 live + 4_500 superseded = 9_500; a 1_000-byte upload crosses 10_000.
+    await expect(insertDocumentWithinQuota(row(1_000), 10_000)).resolves.toEqual({
+      ok: false,
+      usedBytes: 9_500,
+    })
+    expect(fake.inserted).toHaveLength(0)
+  })
+
+  it('admits the same upload when there is no version overhead', async () => {
+    const fake = fakeDb(5_000, 0)
+    getDb.mockReturnValue(fake.db)
+    await expect(insertDocumentWithinQuota(row(1_000), 10_000)).resolves.toEqual({ ok: true })
+  })
+
+  it('counts it on the REPLACE path too, minus the row being replaced', async () => {
+    const fake = fakeDb(2_000, 6_000)
+    getDb.mockReturnValue(fake.db)
+
+    await expect(
+      replaceDocumentWithinQuota('org-1', 'doc-1', next(3_000), 10_000),
+    ).resolves.toEqual({ ok: false, usedBytes: 8_000 })
+  })
+})
 
 describe('insertDocumentWithinQuota', () => {
   beforeEach(() => vi.clearAllMocks())
@@ -133,5 +197,91 @@ describe('insertDocumentWithinQuota', () => {
     // in JS only by accident; reading it as 0 is the deliberate version.
     const nullSize = { id: 'doc-1', organizationId: 'org-1' } as unknown as NewDocument
     await expect(insertDocumentWithinQuota(nullSize, 10_000)).resolves.toEqual({ ok: true })
+  })
+})
+
+
+/**
+ * The re-upload path's quota arithmetic, which is the half that can be wrong in
+ * a way nobody notices.
+ *
+ * A replace points an EXISTING row at new bytes, and that row is already
+ * counted in `sum(file_size)`. Charging the full new size against a total that
+ * still includes the old copy would refuse a corrected plan for space the
+ * correction itself frees — and it would do so with a plausible
+ * "no storage space left", which is the worst kind of wrong answer.
+ */
+describe('replaceDocumentWithinQuota', () => {
+  beforeEach(() => vi.clearAllMocks())
+
+  it('takes the same per-organization lock BEFORE reading the sum', async () => {
+    const fake = fakeDb(0)
+    getDb.mockReturnValue(fake.db)
+
+    await replaceDocumentWithinQuota('org-1', 'doc-1', next(1_000), 10_000)
+
+    expect(fake.statements).toHaveLength(3)
+    expect(fake.statements[0]).toContain('pg_advisory_xact_lock')
+    expect(fake.statements[1]).toBe('SELECT sum')
+    expect(fake.statements[2]).toBe('UPDATE')
+  })
+
+  it('shares the lock key with the insert path, so the two serialize against each other', async () => {
+    // A replace and an insert racing for the last megabyte must queue behind
+    // one lock. Two different keys would let both read the same pre-state and
+    // both admit — exactly the check-then-act this lock exists to remove.
+    const fake = fakeDb(0)
+    getDb.mockReturnValue(fake.db)
+
+    await replaceDocumentWithinQuota('org-1', 'doc-1', next(1), 10)
+    const replaceLock = fake.statements[0]
+
+    const other = fakeDb(0)
+    getDb.mockReturnValue(other.db)
+    await insertDocumentWithinQuota(row(1), 10)
+
+    expect(replaceLock).toBe(other.statements[0])
+  })
+
+  it('excludes the row being replaced from the usage it is measured against', async () => {
+    // The recorded sum here already omits the 9_000-byte row being replaced —
+    // that is what the `ne(documents.id, …)` predicate is for. A 9_500-byte
+    // replacement of a 9_000-byte file is a 500-byte increase and must be
+    // admitted, even though 9_000 + 9_500 would exceed the quota.
+    const fake = fakeDb(0)
+    getDb.mockReturnValue(fake.db)
+
+    await expect(
+      replaceDocumentWithinQuota('org-1', 'doc-1', next(9_500), 10_000)
+    ).resolves.toEqual({ ok: true })
+    expect(fake.updated).toHaveLength(1)
+  })
+
+  it('still refuses a replacement that genuinely does not fit', async () => {
+    const fake = fakeDb(9_000)
+    getDb.mockReturnValue(fake.db)
+
+    await expect(
+      replaceDocumentWithinQuota('org-1', 'doc-1', next(2_000), 10_000)
+    ).resolves.toEqual({ ok: false, usedBytes: 9_000 })
+    // Refused means UNCHANGED: the row must still point at the old bytes.
+    expect(fake.updated).toHaveLength(0)
+  })
+
+  it('skips the sum entirely when the organization has no quota', async () => {
+    const fake = fakeDb(0)
+    getDb.mockReturnValue(fake.db)
+
+    await replaceDocumentWithinQuota('org-1', 'doc-1', next(1), null)
+
+    expect(fake.statements).toEqual([expect.stringContaining('pg_advisory_xact_lock'), 'UPDATE'])
+  })
+
+  it('updates inside the transaction, not outside it', async () => {
+    const fake = fakeDb(0)
+    getDb.mockReturnValue(fake.db)
+    await replaceDocumentWithinQuota('org-1', 'doc-1', next(1), 10)
+    expect(fake.tx.update).toHaveBeenCalled()
+    expect(fake.db.transaction).toHaveBeenCalledTimes(1)
   })
 })

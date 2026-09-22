@@ -41,7 +41,7 @@ installs and runs scripts here and is never the runtime: `--bun` exports
 | Add a card type | Classify it in `CARD_INTERACTIVITY` (`features/grid-cards/card-decision.ts`) | `task fe:types` |
 | Store a card's answer | On `ChatMessage.cardInteractions` via `useCardDecision` | A reload re-applies the patch; neither endpoint is idempotent |
 | Add user-facing copy | Add the key to every dictionary in `src/i18n/dictionaries` | `key-coverage.spec.ts` |
-| Ship a user-visible surface | A `/dev/<name>` preview route, a registry target, committed PNGs from `task fe:screenshots` | `visual-coverage` |
+| Ship a user-visible surface | A `/dev/<name>` preview route, and a capture of it attached to the PR (`agent-browser` + `before-and-after`). Commit no PNGs | The **Visual evidence** workflow. [`docs/ux/visual-screenshots.md`](../../docs/ux/visual-screenshots.md) |
 
 ## Rules that need more than a row
 
@@ -68,7 +68,11 @@ check. RLS is the backstop, never the plan.
 **Put the organization in every cache key.** `getCached` returns before the
 loader runs, so a key without the organization serves whatever the first caller
 populated and never enters the tenant scope. `lib/project-profile/prompt-view.ts`
-is the pattern.
+is the pattern, and `grid/require-tenant-cache-key` is the check: a `getCached`
+or `setCached` key with no organization segment fails lint. A key that really is
+one per deployment (platform defaults, an upstream catalog) goes in
+`eslint-rules/global-cache-keys.mjs` **with the reason it is safe to share** —
+an unexplained entry there is indistinguishable from a leak somebody silenced.
 
 **The project profile has one editor, the intake wizard.** Settings shows it
 read-only and links there. Its facts are interdependent, so edits belong in the

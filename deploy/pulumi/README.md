@@ -228,8 +228,7 @@ All keys live under the `grid-oib:` namespace. **Bold** = required (no default).
 | **LLM / models** | | |
 | 🔒 **`openrouterApiKey`** / 🔒 **`tavilyApiKey`** | — | Provider keys |
 | `embedModel` / `embedBaseUrl` | text-embedding-3-large / OpenRouter | Embeddings |
-| `vlmModel` / `vlmBaseUrl` | gemma-4-31b-it / OpenRouter | Vision model |
-| `budgetEurPerUsd` | `0.86` | Budget conversion |
+| `vlmModel` / `vlmBaseUrl` | gpt-5.6-luna / OpenRouter | Vision model |
 | **Auth / platform** | | |
 | `requireAuth` | `true` | WorkOS AuthKit enforcement |
 | **`workosClientId`** / 🔒 `workosApiKey` / 🔒 `workosCookiePassword` | — | WorkOS |
@@ -250,6 +249,9 @@ All keys live under the `grid-oib:` namespace. **Bold** = required (no default).
 | `storageAlertsEnabled` | `true` | Creates the hourly `storage-alerts` CronJob, which calls `POST /api/internal/storage/alerts`. Default-**on**, unlike the dark-launch gates above: the quota already refuses the upload that crosses it, so without the alert the first person to learn about the limit is whoever breaks mid-task. An org with no quota is skipped, so on a deployment that sets none the sweep emits nothing |
 | `storageAlertThresholdPercent` | `80` | Share of quota at which an organization is warned. Reaches the frontend as `GRID_STORAGE_ALERT_THRESHOLD_PERCENT`. Escalation at 90% and 100% is automatic. **Rejected at load time** if outside `(0, 100]` — the BFF would clamp it back to 80, which is right at runtime and wrong at deploy time, where somebody is present to read the error |
 | `storageAlertSchedule` | `0 * * * *` | 5-field cron for the sweep. Hourly because the condition changes on the timescale of an ingest and a live alert suppresses re-emission, so a shorter period costs queries without telling anyone anything new |
+| **Vector maintenance** | | |
+| `vectorReconcileEnabled` | `true` | Creates the `vector-reconcile` CronJob, which calls `POST /api/internal/maintenance/reconcile-vectors`: the same sweep a platform owner can start from Platform → Vector maintenance — delete indexed chunks whose document row is gone, forget inventory (summary) rows whose chunks are gone. Default-**on**: the orphans it recovers are invisible in the product, so nobody knows to start the manual run |
+| `vectorReconcileSchedule` | `0 3 * * 0` | 5-field cron for the sweep. Weekly, Sunday 03:00 UTC: every collection is scanned each tick and the store is only written to when a past delete left something behind, so a tighter period costs scans without recovering anything sooner |
 | **Memory** | | |
 | `memoryReflectionEnabled` | `true` | Post-answer memory-reflection stage (the agent's cross-chat learning loop). Reaches the frontend as `GRID_MEMORY_REFLECTION_ENABLED`; consulted only while `enforceFeatureFlags` is `false` (with enforcement on, the per-org `memory-reflection` WorkOS flag decides). Default-on — reflection is a shipped core capability, not a dark-launched gate |
 | **Observability** (ADR-0029) | | |
@@ -259,9 +261,9 @@ All keys live under the `grid-oib:` namespace. **Bold** = required (no default).
 | 🔒 `otelOidcClientSecret` | — | Its client secret. The Gateway SecurityPolicy exchanges the code with `client_secret_basic`, so a public/PKCE-only client cannot be used |
 | 🔒 `otelPrimaryApiKey` | — | OTLP ingestion key (`x-otlp-api-key`). Held by the **dashboard and collector only** — backend/worker/frontend send unauthenticated OTLP to the collector, so this key must never be copied into app secrets |
 | `dashboardImage` | digest-pinned `mcr.microsoft.com/dotnet/aspire-dashboard@sha256:…` (13.4.2) | Dashboard image; override only for a deliberate upgrade. The trivy `image-scan` job blocks on fixable HIGH/CRITICAL in the pin, so it fails when the pin goes stale |
-| `collectorImage` | digest-pinned `otel/opentelemetry-collector-contrib@sha256:…` (0.157.0) | OTel Collector image (single OTLP ingestion point); override only for a deliberate upgrade |
+| `collectorImage` | digest-pinned `otel/opentelemetry-collector-contrib@sha256:…` (0.160.0) | OTel Collector image (single OTLP ingestion point); override only for a deliberate upgrade |
 | `dashboardMaxLogCount` / `dashboardMaxTraceCount` | `50000` / `50000` | In-memory ring-buffer limits |
-| **Langfuse** (ADR-0044) — durable LLM observability, self-hosted **free/OSS** build. No licence key is set anywhere; the visible cost is that data-retention policies are an Enterprise feature, so nothing expires and `clickhouseStorageSize` is a number to watch. Full operator guide: [`docs/deployment/kubernetes.md` §9b](../../docs/deployment/kubernetes.md) | | |
+| **Langfuse** (ADR-0044) — durable LLM observability, self-hosted **free/OSS** build. No licence key is set anywhere; the visible cost is that data-retention policies are an Enterprise feature, so trace data never expires and `clickhouseStorageSize` is a number to watch (the server's own system logs self-clean after 14 days). Full operator guide: [`docs/deployment/kubernetes.md` §9b](../../docs/deployment/kubernetes.md) | | |
 | `langfuseEnabled` | `true` | Feature flag. Deployed only when the flag is on **AND** every 🔒 key below is set **AND** `observabilityEnabled` resolves true — Langfuse has no receiver of its own, the collector feeds it. Otherwise `preview` warns naming what is missing and nothing is provisioned (no workloads, no `https-langfuse` listener, no collector exporter, no identity attributes). Default-**on**, so setting the 🔒 keys is all a stack needs; set the flag to `false` to opt out of four workloads and a PVC that grows |
 | `langfuseDomain` | `langfuse.<baseDomain>` | Public host. Register `https://<host>/oauth2/callback` as a redirect URI on the **same** WorkOS Connect application as `otelOidc*` — not a second one |
 | 🔒 `langfuseEncryptionKey` | — | `ENCRYPTION_KEY`. **64 HEX characters** — the only secret here that is not base64. `openssl rand -hex 32`. Rejected at load time otherwise, because Langfuse's own failure is a crash loop that never names the variable |
@@ -278,7 +280,7 @@ All keys live under the `grid-oib:` namespace. **Bold** = required (no default).
 | `langfuseOrgId` / `langfuseProjectId` | `grid` / `grid-oib` | Headless-init identifiers. Deliberately not derived from the hostname: headless init matches on them, so a value that moved with the domain would create a SECOND project and orphan every stored trace |
 | `langfuseWebImage` / `langfuseWorkerImage` | digest-pinned `ghcr.io/langfuse/langfuse{,-worker}@sha256:…` (3.225.1) | Two keys because upstream publishes two images — but they **must be the same version**, and digests are opaque so nothing can check it. Bump together. Both are scanned by the trivy `image-scan` job |
 | `clickhouseImage` | digest-pinned `clickhouse/clickhouse-server@sha256:…` (25.8 LTS) | Single-node analytical store. `CLICKHOUSE_CLUSTER_ENABLED=false` makes the migrator emit plain `MergeTree`, so growing to a real cluster is a migration, not a replica count |
-| `clickhouseStorageSize` | `20Gi` | The tier's one unbounded resource — see the retention note above. Growing it is a PVC patch (`volumeClaimTemplates` is immutable and `ignoreChanges`d) |
+| `clickhouseStorageSize` | `50Gi` | The trace store is the tier's unbounded resource — see the retention note above. The server's own system logs are TTL-bounded at 14 days (`system-log-ttl.xml` in `src/data/clickhouse.ts`) and cannot fill the disk the way `system.trace_log` did on dev in August 2026. Growing the PVC is a PVC patch (`volumeClaimTemplates` is immutable and `ignoreChanges`d) |
 | `langfuseQueueMaxmemory` / `langfuseQueueMemoryLimit` | `512mb` / `1Gi` | Ingestion-queue dataset cap and pod memory limit. Eviction is OFF, so "full" means ingestion stops (loudly) rather than oldest-drops (silently) |
 
 ## Validation (no target cluster required)

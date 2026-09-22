@@ -107,3 +107,32 @@ export function validateCron(
     prev = current
   }
 }
+
+/**
+ * The furthest ahead a one-shot may be scheduled. Two years is well past any
+ * planning deadline somebody sets by hand, and it bounds the damage of a typo
+ * in the year field — a task dated 2225 would otherwise sit in the list
+ * forever, never firing and never obviously wrong.
+ */
+export const MAX_DUE_AT_AHEAD_MS = 2 * 365 * 24 * 60 * 60 * 1000
+
+/**
+ * Save-time validation for a one-shot's due date: a real instant, in the
+ * future, and inside the horizon above. Throws BadRequestError (→ 400) to
+ * match `validateCron`, so both halves of "when should this run" fail the same
+ * way and the route surfaces one kind of message.
+ *
+ * `now` is a parameter rather than a call to `Date.now()` so the boundary is
+ * testable without freezing the clock.
+ */
+export function validateDueAt(dueAt: Date, now: Date = new Date()): void {
+  if (Number.isNaN(dueAt.getTime())) {
+    throw new BadRequestError('Due date is not a valid date and time.')
+  }
+  if (dueAt.getTime() <= now.getTime()) {
+    throw new BadRequestError('A one-off task must be due in the future.')
+  }
+  if (dueAt.getTime() - now.getTime() > MAX_DUE_AT_AHEAD_MS) {
+    throw new BadRequestError('A one-off task must be due within the next two years.')
+  }
+}

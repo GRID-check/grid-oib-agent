@@ -10,6 +10,7 @@ export const chat: typeof en.chat = {
     view: 'Ansehen',
     projectDocument: 'Projektunterlage',
     corpusDocument: 'Baurecht & Richtlinien',
+    risDocument: 'Rechtsquelle (RIS)',
     citedPassage: 'Fundstelle',
     cited: 'Zitiert',
     loadFailed: 'Die Quellenvorschau konnte nicht geladen werden. Bitte versuchen Sie es erneut.',
@@ -63,17 +64,37 @@ export const chat: typeof en.chat = {
     // Ruhige Quittung, wenn die Karte genau eine Datei neben dem Chat geöffnet hat.
     showing: '{label} wird angezeigt',
   },
+  // Eine Datei, die die Antwort im Fließtext beim Namen nennt („Beginnen Sie mit
+  // pd8280-2.pdf") — kein Beleg, sondern ein Zeiger auf ein Dokument, das die
+  // Leserin besitzt. Der Klick öffnet es neben der Antwort.
+  fileReference: {
+    openAria: 'Datei öffnen: {name}',
+    // Das Dokument, das Piloti lesen kann: Öffnen heißt hier zugleich, dass
+    // sich die nächste Frage darauf bezieht — eine Beschriftung, die nur die
+    // Hälfte davon nennt, überrascht genau die Leserin, für die sie da ist.
+    openAskAria: '{name} öffnen und dazu fragen',
+    open: 'Neben der Antwort öffnen',
+    openAsk: 'Öffnen und dazu fragen',
+    pages: '{count, plural, one {# Seite} other {# Seiten}}',
+    // Wenn die Antwort den Namen anders geschrieben hat als die Datei heißt.
+    writtenAs: 'Im Text: {name}',
+    // Regal, aus dem die Datei stammt — dieselbe Unterscheidung wie bei den
+    // Quellen: geteiltes Projektwissen, büroweites Archiv, private Beilage.
+    shelf: {
+      projekt: 'Projektdateien',
+      buero: 'Büroarchiv',
+      session: 'Beilage in diesem Chat',
+    },
+    notIndexed: 'Nicht indexiert — lesbar, aber nicht zitierfähig.',
+    failed: 'Die Verarbeitung dieser Datei ist fehlgeschlagen.',
+  },
   composer: {
     /** Shown when the reader holds project:view but not project:chat. */
     noProjectChatPermission:
-      'Der Recherche-Agent steht Ihnen in diesem Projekt derzeit nicht zur Verfügung. Wenn Sie nur Lesezugriff haben, kann Ihnen eine Projektadministratorin oder ein Projektadministrator die Rolle „Mitwirkender“ erteilen.',
+      'Piloti steht Ihnen in diesem Projekt derzeit nicht zur Verfügung. Wenn Sie nur Lesezugriff haben, kann Ihnen eine Projektadministratorin oder ein Projektadministrator die Rolle „Mitwirkender“ erteilen.',
     placeholder: 'Fragen Sie Piloti zu diesem Projekt …',
     sources: 'Datengrundlage',
     sourcesAria: 'Datengrundlage – {enabled} von {total} Quellen aktiv. Öffnet die Datenquellen.',
-    deepResearch: 'Deep Research',
-    deepResearchAria: 'Deep-Research-Präferenz',
-    deepResearchHint:
-      'Präferenz vermerkt – Piloti eskaliert automatisch zu Deep Research, wenn eine Frage es erfordert.',
     scopeAria: 'Suchbereich: {project}',
     scopeFallback: 'Dieses Projekt',
     scopeCurrent: 'Aktuelles Projekt',
@@ -97,15 +118,23 @@ export const chat: typeof en.chat = {
     afternoon: 'Guten Tag',
     evening: 'Guten Abend',
     withName: '{greeting}, {name}.',
+    // Der leere Chat in einem Projekt sagt EINE Sache über sich: dass Piloti
+    // nicht nur antwortet, sondern schreibt. Sonst entdeckt das nur, wer eine
+    // Bitte zufällig als Auftrag formuliert (Ledger 23). Nur im Projekt, weil
+    // ohne Projekt kein Ablageort existiert, in den ein Entwurf ginge.
+    projectWrites:
+      'Piloti beantwortet nicht nur Fragen – auf Zuruf schreibt Piloti Aktenvermerke, Notizen und Entwürfe direkt in die Projektdateien.',
   },
   // Thread role tabs (click-dummy overhaul, WS-3).
   roles: {
     input: 'Eingabe',
     result: 'Ergebnis',
     // Rollen-Tab für eine konversationelle / klärende Antwort (routing_decision
-    // = 'meta': Begrüßungen, Fähigkeits- und Rückfragen) — deutlich abgesetzt
-    // von einem inhaltlichen Baurecht-'Ergebnis'.
+    // = 'meta' oder answer_meta.kind = 'direct': Begrüßungen, Fähigkeits- und
+    // Rückfragen) — deutlich abgesetzt von einem inhaltlichen Baurecht-'Ergebnis'.
     note: 'Hinweis',
+    // Walkthrough: eine geführte Antwort ohne Urteil — nicht das Ergebnis-Dokument.
+    answer: 'Antwort',
   },
   answerSources: {
     label: 'Belegt durch',
@@ -120,6 +149,10 @@ export const chat: typeof en.chat = {
     sourceNumber: 'Quelle {number}',
     page: 'S. {page}',
     pages: 'S. {pages}',
+    // Die Fundstelle in der Zählung des Gesetzes selbst: ein Punkt der
+    // Richtlinie, wenn der Chunker einen ermittelt hat, sonst nur die Seite.
+    punkt: 'Pkt. {punkt}',
+    punktPage: 'Pkt. {punkt} · S. {page}',
     // Zitate zum Weiterverwenden — je Quelle als Fachtext, für die ganze
     // Antwort in den Formaten, die externe Werkzeuge einlesen.
     copyCitation: 'Zitat kopieren',
@@ -175,6 +208,8 @@ export const chat: typeof en.chat = {
         'Kein Recherchebericht abgelegt — diese Antwort ist die einzige Aufzeichnung des Laufs',
       no_valid_citations:
         'Keine Quellenangabe hielt der Prüfung stand — bitte prüfen Sie die Angaben vor der Verwendung selbst',
+      cards_generation_failed:
+        'Der Bericht ist vollständig, aber die daraus abgeleiteten Vorschläge konnten nicht erzeugt werden',
     },
     // Die Gründe der Zitatprüfung, in der Sprache des Lesers. Das Backend nennt
     // sie als Token (`url_not_in_registry`, …), und genau so standen sie bisher
@@ -209,6 +244,14 @@ export const chat: typeof en.chat = {
   citationPeek: {
     wholeDocument: 'Gesamtes Dokument',
     openAtPage: 'An dieser Stelle öffnen',
+    notOpenable: 'In Piloti nicht zu öffnen',
+    // Das Dokument IST da — nur sein Format kann Piloti nicht zeichnen. Ohne
+    // diesen Satz las sich das Fehlen der Öffnen-Schaltfläche als „die Datei
+    // ist weg", und genau das wurde gemeldet.
+    noInlineViewer:
+      'Dieses Dateiformat lässt sich in Piloti nicht anzeigen. Sie können das Dokument herunterladen und in Ihrem Programm öffnen.',
+    download: 'Dokument herunterladen',
+    downloading: 'Wird vorbereitet…',
     copyLink: 'Link kopieren',
     copyLinkAria: 'Link zu dieser Fundstelle kopieren: {label}',
     markerAria: 'Quelle {number}: {label} — Vorschau öffnen',
@@ -227,6 +270,11 @@ export const chat: typeof en.chat = {
   cards: {
     aiGenerated:
       'KI-generierte Zitierung — prüfen Sie den Auszug anhand der Primärquelle (OIB / RIS).',
+    // Die gedämpfte Zeile unter einer UNPLATZIERTEN Rechtsgrundlage, die flach
+    // über der Prosa steht (`EvidenceBlock`): das Zitat ist KI-generiert, wie
+    // auf der gerahmten Karte — hier kürzer, weil der Block daneben schon
+    // schlank ist.
+    evidenceQuoteDisclaimer: 'KI-generierte Zitierung — prüfen Sie den Auszug anhand der Primärquelle.',
     legalBasis: 'Rechtsgrundlage',
     // Tooltip auf dem OIB-/RIS-Abzeichen: das Abzeichen selbst ist ein
     // Eigenname und in beiden Sprachen gleich — hier steht, was er bedeutet.
@@ -294,6 +342,13 @@ export const chat: typeof en.chat = {
     followUps: {
       eyebrow: 'Weiterfragen',
       groupAria: 'Weiterführende Fragen',
+      // Der eine clientseitige Chip unter einer langen Antwort: das Angebot,
+      // das sonst niemand entdeckt — Piloti schreibt auch (Ledger 23).
+      aktenvermerk: 'Als Aktenvermerk schreiben',
+      // Was der Chip in den Eingabebereich schreibt. Bewusst nicht die
+      // Beschriftung: „Als Aktenvermerk schreiben“ ist ein Satzfragment und
+      // keine Bitte.
+      aktenvermerkPrefill: 'Schreib das als Aktenvermerk in mein Projekt.',
     },
     keyTakeaways: {
       eyebrow: 'Das Wichtigste',
@@ -332,6 +387,115 @@ export const chat: typeof en.chat = {
     // Mermaid-Block im Fließtext (`diagrams.schematicOnly`, `diagrams.fallback`).
     diagram: {
       eyebrow: 'Diagramm',
+    },
+    // Ein Dokument, das Piloti in den Arbeitsordner dieser Unterhaltung
+    // geschrieben hat. Keine Projektunterlage: nichts davon ist abgelegt,
+    // indexiert oder zitierfähig, bis eine Person es ins Projekt übernimmt —
+    // genau das wird die (noch wirkungslose) Aktion unter der Karte tun.
+    documentDraft: {
+      eyebrow: 'Entwurf',
+      // Wie oft dieser Pfad in dieser Unterhaltung geschrieben wurde. Eigenes
+      // Token neben der Größe, damit eine Sprache das „v" fallen lassen kann.
+      version: 'v{version}',
+      // Der Stand eines einmal geschriebenen Entwurfs: Ein Schreibvorgang ist
+      // keine Geschichte, also nennt die Karte den Zustand, statt ihn zu zählen.
+      draftState: 'Entwurf',
+      // Der Entwurf liegt nur in dieser Unterhaltung. „Ins Projekt ablegen"
+      // legt ihn über die Ablagetür des BFF ab, in der Sitzung der Lesenden —
+      // ein Druck, keine Bitte, keine zweite Runde. Ein namensgleiches
+      // Dokument, das schon im Projekt liegt, ist ein 409, den die Karte mit
+      // einer ausdrücklichen Bestätigung beantwortet statt mit einer stillen
+      // zweiten Kopie.
+      file: 'Ins Projekt ablegen',
+      filing: 'Wird abgelegt …',
+      fileError: 'Das Ablegen hat nicht geklappt. Bitte erneut versuchen.',
+      fileConflict: 'Ein Dokument mit diesem Namen liegt bereits im Projekt.',
+      fileAnyway: 'Trotzdem ablegen',
+      // Die Referenz ist abgelegt und eine Person hat die Version
+      // weitergereicht: nichts erneut zu versuchen und nichts zu bestätigen —
+      // ab hier ist die Dateiablage zuständig.
+      fileSubmitted: 'Dieser Entwurf ist bereits abgelegt. Weiter in der Dateiablage.',
+      // Die Lesefläche des unabgelegten Entwurfs: Die Bytes liegen im
+      // Arbeitsordner des Agenten und kommen über die Entwurfs-Vorschautür des
+      // BFF. Ein Lesen, also schreibt sie nichts und bleibt presentational.
+      preview: 'Entwurf ansehen',
+      previewLoading: 'Entwurf wird geladen …',
+      previewError: 'Der Entwurf konnte nicht geladen werden.',
+      previewRetry: 'Erneut versuchen',
+      // Ab hier liegt das Dokument im Projekt.
+      filed: 'Liegt als Entwurf im Projekt',
+      open: 'Im Projekt öffnen',
+      submit: 'Zur Freigabe einreichen',
+      submitting: 'Wird eingereicht …',
+      submitted: 'Zur Freigabe eingereicht — wartet auf eine Person',
+      // Der Zustand, den eine Person schon gesetzt hat. Kein Knopf: Was jetzt
+      // passiert, entscheidet sie in der Dateiablage.
+      inReview: 'Wartet auf Freigabe',
+      changesRequested: 'Änderungen erbeten',
+      approved: 'Freigegeben',
+      published: 'Veröffentlicht',
+      // Eine Fassung, die eine neuere überholt hat: weder Entwurf noch
+      // Freigabe — sie ist gelesen, aber nicht mehr der Stand.
+      ersetzt: 'Ersetzt',
+      error: 'Das Einreichen hat nicht geklappt. Bitte in der Dateiablage erneut versuchen.',
+    },
+    // Ein Auftrag, den Piloti nach diesem Gespräch selbständig erledigt
+    // (ADR-0051). Die Karte bietet nichts an: die Zeile existiert schon, wenn
+    // sie erscheint, und der Laufblock darunter sagt, wie es steht — die Karte
+    // ist die Quittung (was, welcher Art, bis wann) und nennt keinen Status.
+    taskCreated: {
+      eyebrow: 'Auftrag',
+      due: 'bis {date}',
+      open: 'Unterhaltung öffnen',
+      // Die vier Arten, in den Worten, in denen die Nutzerin sie beauftragt hat.
+      kind: {
+        complianceCheck: 'Normprüfung',
+        einreichcheck: 'Einreichcheck',
+        document: 'Dokument',
+        revision: 'Überarbeitung',
+      },
+    },
+    // Die Änderung an der Ablage, die Piloti VORGESCHLAGEN hat. Bis zum
+    // Annehmen ist nichts geschehen: Der Agent kann gar keine Dokumentzeile
+    // schreiben, die Karte ist also alles, was hinten passiert ist. Das
+    // Annehmen ruft dieselben Routen wie die Dateiablage — in der Sitzung der
+    // Lesenden.
+    fileOperationProposal: {
+      // Eine Augenbraue je Verb: Welche Art von Änderung das ist, gehört vor
+      // die erste Zeile und nicht dahinter.
+      eyebrow: {
+        move: 'Verschieben',
+        rename: 'Umbenennen',
+        create_folder: 'Neuer Ordner',
+        assign: 'Zuweisen',
+      },
+      // Die oberste Ebene hat keinen Pfad, aber einen Namen, den Menschen sagen.
+      root: 'Oberste Ebene',
+      prompt: 'Übernehmen?',
+      accept: 'Übernehmen',
+      reject: 'Verwerfen',
+      applying: 'Wird übernommen …',
+      applied: {
+        move: '{count, plural, one {Datei verschoben.} other {# Dateien verschoben.}}',
+        rename: '{count, plural, one {Datei umbenannt.} other {# Dateien umbenannt.}}',
+        create_folder: '{count, plural, one {Ordner angelegt.} other {# Ordner angelegt.}}',
+        assign: '{count, plural, one {Datei zugewiesen.} other {# Dateien zugewiesen.}}',
+      },
+      // Teils übernommen, teils nicht. WELCHE, wird nicht gespeichert (eine
+      // Entscheidung ist eine Entscheidung und ein Zeitpunkt) — nach dem Neuladen
+      // ist das alles, was die Karte ehrlich sagen kann, und sie sagt, wo man
+      // nachsieht, statt zu raten.
+      partial:
+        'Teilweise übernommen. Einige Einträge konnten nicht ausgeführt werden — sehen Sie in der Dateiablage nach.',
+      dismissed: 'Verworfen. Es wurde nichts geändert.',
+      error: 'Konnte nicht übernommen werden.',
+      // Der eine Fall, in dem die Karte nichts auszuführen hat. Der Vorschlag
+      // bleibt lesbar, die Schaltfläche erscheint nicht, und hier steht warum —
+      // statt beim Klick zu scheitern.
+      unavailable: {
+        noProject:
+          'Diese Unterhaltung gehört zu keinem Projekt, es gibt hier also keine Ablage zu ändern.',
+      },
     },
     processMap: {
       eyebrow: 'Verfahrensablauf',
@@ -614,12 +778,19 @@ export const chat: typeof en.chat = {
     responseCancelled: 'Recherche abgebrochen',
     responseRejected: 'Plan abgelehnt',
   },
-  agentResponse: {
-    viewProgress: 'Fortschritt anzeigen',
-    viewReport: 'Bericht anzeigen',
-    loading: 'Wird geladen …',
-    loadingLabel: 'Wird geladen',
-    errorTitle: 'Fehler: {message}',
+  // Die einzelne Aufklappung in der Antwortfußzeile für alles hinter der
+  // Quellenzeile und den Kopieraktionen (Konfidenz, Merknotiz, Skills,
+  // Prüfhinweise, Bewertung, Zeitstempel).
+  answerDetails: {
+    trigger: 'Antwortdetails',
+    triggerAria: 'Details zu dieser Antwort anzeigen',
+    // Gelesen, aber nicht zitiert: was die Recherche sonst noch gelesen hat.
+    // Nur Dokument-Chips — keine Stellen, keine neuen Aussagen.
+    readSources: {
+      label: 'Gelesen, nicht zitiert',
+      more: '+{count} weitere',
+      less: 'Weniger anzeigen',
+    },
   },
   profilePatchCard: {
     accept: 'Übernehmen',
@@ -663,14 +834,14 @@ export const chat: typeof en.chat = {
     // Rauschen. Ein nicht klassifizierbarer Schritt fällt auf die vorige
     // sinnvolle Phrase zurück, sonst auf `working` weiter oben.
     activity: {
-      // Gleiche Wörter wie die Chips darunter (`stepName.understanding` =
-      // „Einordnung“, `stepName.routing` = „Rechercheweg“): Lesende sollen ein
-      // Vokabular lernen, nicht zwei für dieselbe Sache.
+      // Gleiche Wörter wie die Chips darunter (`stepName.*`, etwa
+      // `stepName.corpus` = "Wissen"): Lesende sollen ein Vokabular
+      // lernen, nicht zwei für dieselbe Sache.
       understanding: 'Frage wird eingeordnet …',
       planning: 'Rechercheweg wird festgelegt …',
       searchingWeb: 'Web wird durchsucht …',
-      searchingKnowledge: 'OIB-Wissen wird durchsucht …',
-      searchingRis: 'RIS (österreichisches Recht) wird durchsucht …',
+      searchingKnowledge: 'Wissen wird durchsucht …',
+      searchingRis: 'RIS wird durchsucht …',
       searchingSources: 'Quellen werden durchsucht …',
       researching: 'Recherche läuft …',
       reading: 'Ergebnisse werden gelesen …',
@@ -688,10 +859,10 @@ export const chat: typeof en.chat = {
     // die vorige sinnvolle Phrase zurück. Nie den Schlüssel, nie einen
     // internen Bezeichner.
     turnStatus: {
-      // Korpus-NAMEN: „im OIB-Wissen“ ist Produkttext mit angeschweißter
+      // Korpus-NAMEN: „im Wissen“ ist Produkttext mit angeschweißter
       // Präposition, kein Eigenname. Das Backend schickt die ID.
       corpus: {
-        knowledge: 'im OIB-Wissen',
+        knowledge: 'im Wissen',
         ris: 'im RIS',
         web: 'im Web',
         documents: 'in Ihren Unterlagen',
@@ -713,27 +884,29 @@ export const chat: typeof en.chat = {
           project: 'Unterlagen aus dem Projekt werden gesichtet …',
           session: 'Unterlagen aus dieser Unterhaltung werden gesichtet …',
           several: 'Ihre Unterlagen werden gesichtet …',
-        },
-        // Die Routing-ENTSCHEIDUNG aus einer festen Auswahl. Die Begründung des
-        // Klassifikators ist Freitext in der Sprache des Modells und steht
-        // deshalb nie hier — sie wird zitiert, zugeschrieben, in der
-        // nachgeordneten Zeile `routing.line` weiter unten.
-        // Jede Zeile nennt, was die Lesenden davon haben, nicht was das System
-        // gerade aufsetzt: „wird vorbereitet“ beschreibt einen Vorgang im
-        // Inneren, „einschlägige Stellen werden gesucht“ eine Arbeitsweise, die
-        // Planende aus ihrem eigenen Alltag kennen. `meta` heißt hier wörtlich
-        // wie in der Herleitung (`routing.decision.meta`) — ein Weg, ein Wort.
-        routing: {
-          meta: 'Direktantwort — keine Recherche nötig',
-          outOfScope: 'Frage außerhalb des Fachgebiets',
-          shallow: 'Kurzrecherche: einschlägige Stellen werden gesucht',
-          deep: 'Tiefenrecherche: mehrere Quellen werden geprüft',
+          // Eine gerade hochgeladene Datei ist noch nicht fertig indiziert;
+          // die Antwort wartet kurz darauf, statt ohne sie zu antworten.
+          waiting: 'Eine neue Datei wird noch gelesen — die Antwort wartet darauf …',
         },
         // `{query}` sind die eigenen Worte der Lesenden, zurückgespiegelt —
         // nie übersetzt, und vom Backend gekürzt, damit die Zeile passt.
         retrieval: {
           withQuery: 'Sucht {corpus}: „{query}“',
           plain: 'Sucht {corpus} …',
+          // Die Fundstelle steht schon fest und wird GELESEN — deshalb nennt
+          // die Zeile das Dokument statt eines Korpus. `{document}` ist der
+          // Name, den Herausgeber oder Büro vergeben haben: ein Eigenname, der
+          // unübersetzt durchgereicht wird.
+          punkt: 'Liest {document}, Pkt. {punkt} …',
+          page: 'Liest {document}, S. {page} …',
+          // Es wird mit anderen Formulierungen weitergesucht — die Aktion,
+          // nicht das Urteil: Die Zeile sagt, was GERADE geschieht, und sie
+          // ersetzt dabei die Suchzeile der Runde, also darf sie nicht mit
+          // einem Misserfolg eröffnen. Dass die erste Trefferliste nicht
+          // reichte, steht im Schlüssel (`requery`), nicht im Satz. Die
+          // Formulierungen selbst sind die des Modells und stehen deshalb
+          // nicht in der Zeile.
+          requery: 'Sucht mit anderen Begriffen weiter …',
         },
         // Werkzeuge, die keine Recherche sind, aber vom Nutzer gewollt waren.
         // Ein Werkzeug ohne Eintrag bekommt gar keine Zeile: sein interner
@@ -741,11 +914,37 @@ export const chat: typeof en.chat = {
         action: {
           remember: 'Notiz wird gespeichert …',
           card: 'Ergebniskarte wird erstellt …',
+          // Der Arbeitsordner dieser Unterhaltung: ein Verb, eine Zeile. Kein
+          // „sucht“ — hier wird nichts gelesen, was eine Antwort belegen
+          // könnte, sondern am Dokument gearbeitet, das gerade entsteht.
+          draftList: 'Entwürfe werden durchgesehen …',
+          draftRead: 'Entwurf wird gelesen …',
+          draftWrite: 'Entwurf wird geschrieben …',
+          draftEdit: 'Entwurf wird überarbeitet …',
+          // Eine vorgeschlagene Änderung an der Ablage. Kein Verb und kein
+          // Dateiname: Die Karte sagt gleich darauf, welcher Vorgang welche
+          // Datei betrifft — mit den Schaltflächen daneben.
+          fileProposal: 'Vorschlag für Ihre Ablage wird vorbereitet …',
+          // Die zwei Schritte, die die Unterhaltung verlassen. Eigene Zeilen,
+          // weil sich hier nicht der Entwurf ändert, sondern wo er liegt — und
+          // weil Ablegen und Einreichen für die Lesenden zwei verschiedene
+          // Dinge sind: das eine legt etwas hin, das andere bittet jemanden.
+          draftFiled: 'Entwurf wird im Projekt abgelegt …',
+          draftSubmitted: 'Entwurf wird zur Freigabe eingereicht …',
+          taskCreated: 'Auftrag wird angelegt …',
         },
+        // Die Werkzeuge sind durch, die Antwort wird geschrieben. Dieselben
+        // Worte wie `activity.composing` darüber: ein Vokabular für dieselbe
+        // Sache — ob die Zeile aus einem Turn-Event oder aus der
+        // Legacy-Klassifikation kommt, darf man ihr nicht ansehen.
+        synthesis: 'Antwort wird formuliert …',
         // Das Vertrauensversprechen des Produkts, laut ausgesprochen: geprüft
         // wird nicht „irgendetwas an den Belegen“, sondern jede Fundstelle
         // gegen das, was tatsächlich abgerufen wurde.
         citations: 'Belege werden gegen die Quellen geprüft …',
+        // Ein Beleg oder ein Zitat hielt der Prüfung nicht stand; einmal wird
+        // nachrecherchiert und neu formuliert, bevor die Antwort markiert erscheint.
+        repair: 'Ein Beleg hielt der Prüfung nicht stand — wird nachrecherchiert …',
         escalation: 'Kurzrecherche reicht nicht — Tiefenrecherche startet',
       },
     },
@@ -756,25 +955,39 @@ export const chat: typeof en.chat = {
     // ihre eigene Arbeitsweise.
     skill: {
       activated: 'Skill „{skill}“ wird angewendet',
-      forced: 'Skill „{skill}“ wurde angefordert',
     },
     // Kompakte Chips „was tatsächlich gelaufen ist" in der Herleitung-Basis —
     // ein Chip pro ausgeführtem Agenten/Tool, ohne Technik-Opt-in.
     executedSteps: 'Ausgeführt:',
     stepName: {
-      understanding: 'Einordnung',
-      routing: 'Rechercheweg',
       webSearch: 'Websuche',
       ris: 'RIS',
-      corpus: 'OIB-Wissen',
+      corpus: 'Wissen',
       assistant: 'Assistent',
       reading: 'Lesen',
+      // Das Arbeitsverzeichnis der Unterhaltung: schreiben, lesen, ändern,
+      // auflisten — ein Wort für alle vier. Was Lesende interessiert, ist dass
+      // an einem Entwurf gearbeitet wurde, nicht wie oft.
+      draft: 'Entwurf',
+      // Der Entwurf verlässt das Arbeitsverzeichnis: als Projektdokument
+      // abgelegt oder zur Freigabe eingereicht.
+      filing: 'Ablage',
+      task: 'Auftrag',
+      // Die Dateiaktionen SCHLAGEN vor und schreiben nichts (ADR-0003).
+      fileProposal: 'Ablagevorschlag',
       // Ein Chip pro Skill, den dieser Turn tatsächlich angewendet hat.
       // `{name}` liefert die einzige Label-Instanz
       // (features/skills/lib/skill-activity).
       skill: 'Skill: {name}',
       // Das blanke `use_skill`-Frame ohne erkennbaren Skill dahinter.
       skillUnnamed: 'Skill',
+      model: 'Gebäudemodell',
+      measure: 'Messung',
+      drawing: 'Plan',
+      documents: 'Dateien',
+      note: 'Notiz',
+      card: 'Karte',
+      compliance: 'Normprüfung',
     },
     // Lesbare Namen für die Knoten und Werkzeuge, die das Backend meldet — für
     // das Technik-Panel (Opt-in). Auf der Leitung stehen interne Ids
@@ -839,35 +1052,65 @@ export const chat: typeof en.chat = {
     gapHit: 'Nicht im Bestand',
     // Ein Dokument, das die Recherche gelesen, die Antwort aber nicht zitiert
     // hat — ein echtes Rechercheergebnis, keine Lücke.
-    readNotUsed: 'gelesen, nicht verwendet',
+    readNotUsed: 'abgerufen, nicht zitiert',
     moreSources: '+{count} weitere',
     // Die an DIESE Nachricht angehängten Dateien. Die im Composer aktivierten
     // Datenquellen sind Verfügbarkeit, keine Aktivität, und stehen bewusst
     // nicht hier — was gelaufen ist, zeigt die `executedSteps`-Zeile darüber.
     attachedFiles: 'Angehängte Dateien:',
-    // „Warum dieser Weg?“ — die Routing-Einordnung dieses Turns (WP-A
-    // `routing_decision` + `routing_reason`), im Herleitungs-Rahmenknoten.
-    routing: {
-      whyLabel: 'Warum dieser Weg?',
-      line: 'Einordnung: {decision} — {reason}',
-      decision: {
-        meta: 'Direktantwort',
-        shallow: 'Kurzrecherche',
-        deep: 'Tiefenrecherche',
-        error: 'Fehler',
-      },
-    },
     // Einzeiler, wenn dieser Turn von der Kurz- zur Tiefenrecherche eskaliert ist.
     escalationNarration: 'Eskaliert zur Tiefenrecherche: {reason}',
     node: {
       framingTab: 'Einordnung',
       framingTitle: 'Frage verstanden',
       framingQuestion: 'Sie fragen: „{question}“',
+      // Jede Abrufschicht auf der Herleitungs-Achse, in Ausführungsreihenfolge:
+      // ein Zähler, ein Wort. Die alte Zwei-Wort-Folge (`Suche 1`, dann
+      // `Folgerung 2…`) las sich als ein Lauf, zählte aber zwei Dinge — die
+      // Werkzeugaufrufe und die Schlussfolgerungen —, sodass die Nummern eine
+      // Schicht doppelt belegen konnten. WAS die Schicht getan hat, steht als
+      // typisierte Unterzeile dabei, nie als Nummer.
+      stepTab: 'Schritt {n}',
+      // Die typisierte Unterzeile neben `stepTab`: was diese Schicht getan
+      // hat, aus Folgerung × Dateien der Runde gelesen, die die Achse ohnehin
+      // besitzt. Eine Schicht, die auf Grundlage des Abgerufenen folgert, ist
+      // ein Befund; ein nackter Abruf ohne Treffer ist eine Suche. `Lesen`
+      // übernimmt bewusst das Wort von `stepName.reading`: ein Vokabular,
+      // nicht zwei.
+      stepKindSearch: 'Suche',
+      stepKindRead: 'Lesen',
+      stepKindFinding: 'Befund',
+      stepKindConclusion: 'Schluss',
+      // Eine Schicht, die ausschließlich Passagen bereits gefundener Dateien
+      // aufgeschlagen hat: sie hat nichts Neues gesucht. Genau diese Runde von
+      // einem frischen Abruf zu unterscheiden, ist der Sinn des Wortes.
+      stepKindOpen: 'Öffnen',
+      // Zugeklappte Schicht: die Spur ihres Fächers — Anzahl plus oberste
+      // Dateinamen, nie eine nackte Zahl. Eine Zahl allein liest sich als
+      // „kein Beleg“. Weiterhin nie die Suchanfrage (PF-12).
+      roundFoldOne: '{name} · {locus}',
+      roundFoldOneBare: '{name}',
+      roundFoldTwo: '{first} · {second}',
+      roundFoldMany: '{count} Dateien · {first} u.a.',
+      // Die Fundstellen-Hälfte von `roundFoldOne`, in den Worten der Antwort
+      // (vgl. `answerSources.punktPage`): die Stelle, nicht der Mechanismus.
+      roundFoldLocusPage: 'S. {page}',
+      roundFoldLocusPunkt: 'Pkt. {punkt}',
+      roundFoldLocusPunktPage: 'Pkt. {punkt} · S. {page}',
+      // Barrierefreier Name der Schaltfläche, die die Schicht auf- und zuklappt.
+      // Der Kartentext selbst ist eine Folgerung und taugt nicht als Name.
+      roundFold: 'Schritt {n} zuklappen',
+      roundUnfold: 'Schritt {n} aufklappen',
+      // Eine Datei, die eine frühere Runde schon gezeigt hat, steht an der
+      // Stelle der Trefferzahl. Die Zahl ist die Bilanz des ganzen Turns und
+      // damit bei jeder Wiederholung dieselbe — genau das ließ ein erneutes
+      // Aufschlagen wie einen zweiten Abruf aussehen.
+      roundDocRepeat: 'bereits abgerufen',
       contextLabel: 'Kontext',
       sourcesTab: 'Quellen',
       sourcesTitle: 'Geprüfte Quellen',
-      findingsTab: 'Einschätzung',
-      // Reine Herleitungs-Info im Einschätzungsknoten: in welchen Quellenspuren
+      findingsTab: 'Stand',
+      // Reine Herleitungs-Info im Stand-Knoten: in welchen Quellenspuren
       // es Treffer gab. NICHT das Vertrauensurteil (Konfidenz/Belege) — das
       // steht einmal auf der Antwortkarte.
       findingsHits: 'Treffer in: {lanes}',
@@ -875,13 +1118,13 @@ export const chat: typeof en.chat = {
       // tatsächlich gelesen wurde, bevor die Quellenarten aufgezählt werden.
       findingsTally: '{hits} Treffer in {docs} Dokumenten',
       findingsTallyOne: '{hits} Treffer in 1 Dokument',
-      // Während der Zug streamt gibt es noch keine Einschätzung, der Graph
+      // Während der Zug streamt gibt es noch keinen Stand, der Graph
       // braucht seinen Zusammenführungspunkt aber trotzdem — sonst hängen die
       // Quellenspalten in der Luft und die Form springt, sobald die Antwort da ist.
-      findingsPendingTab: 'Einschätzung',
+      findingsPendingTab: 'Stand',
       findingsPending: 'Quellen werden abgewogen …',
       // Die Recherche lief nicht zu Ende, sondern gegen ihre Iterationsgrenze.
-      // Im Einschätzungsknoten, weil er die Frage „was lag der Antwort
+      // Im Stand-Knoten, weil er die Frage „was lag der Antwort
       // zugrunde?“ beantwortet — und dazu gehört, wo die Kette abbrach.
       // {tool} ist der zuletzt AUSGEFÜHRTE Schritt, nicht der nächste: welchen
       // das Modell als Nächstes gewählt hätte, weiß niemand — es kam nicht mehr
@@ -929,6 +1172,8 @@ export const chat: typeof en.chat = {
             'Es wurde kein Recherchebericht abgelegt — die Antwort steht nur hier im Verlauf.',
           noCitations:
             'Keine Belegstelle hielt der Prüfung stand. Bitte schlagen Sie die Angaben vor der Verwendung selbst nach.',
+          noCards:
+            'Der Bericht ist vollständig, aber die daraus abgeleiteten Vorschläge konnten nicht erzeugt werden.',
         },
       },
       branchesTab: 'Folgewege',
@@ -981,7 +1226,7 @@ export const chat: typeof en.chat = {
       // Die Offenlegung, die die Zustimmung erst echt macht. Sie steht auf dem
       // START-Banner, nicht auf dem Ergebnis: Deep Research eskaliert aus einem
       // Chat-Turn (es gibt kein Absendeformular), und ein Lauf kann beginnen,
-      // weil der Klassifikator eskaliert hat — nicht, weil jemand einen Bericht
+      // weil der Agent selbst eskaliert hat — nicht, weil jemand einen Bericht
       // bestellt hat. Der Zeitpunkt, an dem man den Lauf noch abbrechen kann,
       // ist deshalb der einzige, an dem die Angabe des Ablageorts etwas wert
       // ist. Kein Dialog, keine Rückfrage: eine Bestätigung nach dem Lauf wird
@@ -1006,6 +1251,11 @@ export const chat: typeof en.chat = {
     // Wiederholaktion bei einer fehlgeschlagenen Antwort (Designsprache:
     // „hilfreiche Meldung + erneut versuchen“).
     retry: 'Erneut versuchen',
+    // Die Kennung der fehlgeschlagenen Anfrage. Angezeigt werden die ersten
+    // acht Zeichen – genau die, die im Log stehen –, kopiert wird die ganze.
+    reference: 'Referenz für den Support',
+    referenceCopyAria: 'Referenz {id} kopieren',
+    referenceCopied: 'Referenz kopiert',
   },
   errorRegistry: {
     connectionLost: {
@@ -1135,12 +1385,15 @@ export const chat: typeof en.chat = {
     },
     // Label vor der eigenen Kurzbegründung des Modells (wortgetreu).
     reasonLabel: 'Begründung des Assistenten',
+    // Dasselbe Label, wenn die Einschätzung danach gedeckelt wurde: die
+    // Begründung beschreibt die Stufe VOR der Begrenzung, nicht die gezeigte.
+    reasonLabelBeforeCap: 'Begründung des Assistenten vor der Begrenzung',
     // Zusatzsatz, der im Tooltip erklärt, WARUM die Einschätzung gedeckelt
     // wurde, je nach `answer_confidence_capped_reason` (WP-A, PB-9).
     cappedReasons: {
       ungrounded: 'Geringe Sicherheit: Antwort nicht durch Quellen belegt.',
       quoteUnverified:
-        'Geringe Sicherheit: ein Zitat konnte nicht wörtlich in der Quelle bestätigt werden.',
+        'Ein Zitat konnte nicht wörtlich in der Quelle bestätigt werden; die Einschätzung ist entsprechend begrenzt.',
       // Die Messung belegt die Zahl, nicht die Rechtsaussage daneben — deshalb
       // bleibt die gemischte Antwort auf „gering", und der Tooltip sagt warum.
       normativeClaimUncited:

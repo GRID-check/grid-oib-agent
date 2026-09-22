@@ -125,9 +125,11 @@ export function isNeverIndexedStatus(status: string | null | undefined): boolean
 export function documentStatusLabel(status: string | null | undefined, t: Translator): string {
   const labelKey = documentStatusFacts(status)?.labelKey
   if (labelKey) return t(labelKey)
-  // An undeclared value still has to read as SOMETHING; showing it verbatim is
-  // what makes the drift visible to the person looking at the card.
-  return status ? status.charAt(0).toUpperCase() + status.slice(1) : t('status.unknown')
+  // An undeclared value is drift, not vocabulary: it renders as the generic
+  // unknown label — never the verbatim wire word — and is logged so the gap
+  // gets closed in `document-status.ts` instead of leaking into the UI.
+  if (status) console.warn(`[document-status] Undeclared status "${status}", rendering as unknown`)
+  return t('status.unknown')
 }
 
 interface DocumentStatusBadgeProps {

@@ -1,11 +1,36 @@
 /**
  * ReasoningFlow — the Herleitung rendered as a real node graph (@xyflow/react).
  *
- * Framing → the parallel Quellen fan-out → assessment → (live HITL) branches,
+ * Framing → (for two or more fetches: each checkpoint, then the files THAT
+ * fetch returned) → findings → (live HITL) branches. One retrieval stays the
+ * old fan. A second search is a new layer: conclusion, tools, then its own
+ * fan. Each layer speaks the model's thought when it wrote one, never the
+ * search query. Every layer is numbered in execution order (`Schritt N`) with
+ * a typed sublabel for what it did — tool-call ids are never shown as numbers.
+ * Files hang off the checkpoint that fetched them, and each checkpoint FOLDS:
+ * a click on the layer replaces its fan with the scent of what that fetch
+ * returned (the count plus the top filename(s)) and a second click brings it
+ * back. Every layer arrives EXPANDED — evidence hidden by default reads as no
+ * evidence, so there is no auto-fold; see `defaultFoldedRounds`. A folded
+ * layer contributes no column nodes at all, so the measured stacking pass
+ * reclaims the row rather than leaving a gap where the fan was.
  * derived from the SAME streamed props the old ReasoningChain used, so the graph
  * grows as a turn streams in. The canvas is non-interactive (no pan/zoom/drag)
  * and renders at 1:1 — its height comes from MEASURED node heights (no fitView,
  * no hardcoded guesses), so it sits inline in the chat like any other block.
+ *
+ * ## What hangs under a checkpoint
+ *
+ * The backend's `retrieval_ledger` states, per round, the documents THAT round
+ * returned and the page it read each at. When the message carries one, the fan
+ * under a round is built from its ledger round (matched by `index`): the same
+ * turn-level cards, so the chip, the preview and the markers are untouched, but
+ * each card names the locus that round read and a file an earlier round already
+ * showed says so instead of repeating the turn's hit count. Without a ledger —
+ * or for a round it does not cover — the fan is the filename match it always
+ * was. Before this, a round that re-opened four files at new pages drew four
+ * identical cards a second time, and a re-read was indistinguishable from a
+ * second fetch. See `roundFan`.
  *
  * ## Layout: columns, not an orientation flip
  *
@@ -51,8 +76,8 @@
  * That is what a conditional handle used to do here. A live turn starts with no
  * sources and no verdict, so the framing card was measured with an EMPTY handle
  * list; the first streamed source then added its bottom anchor without changing
- * the card's height, and the fan-out drew no connectors at all — unless the
- * routing line happened to land in the same tick and resize the card into a
+ * the card's height, and the fan-out drew no connectors at all — unless another
+ * framing line happened to land in the same tick and resize the card into a
  * re-measure. Hence "sometimes the connectors are mangled".
  *
  * So every node declares its FULL handle set for its whole lifetime, whether or
@@ -104,6 +129,7 @@ import {
   useRef,
   useState,
 } from 'react'
+import { ChevronDown } from 'lucide-react'
 import {
   ReactFlow,
   ReactFlowProvider,
@@ -124,12 +150,14 @@ import '@xyflow/react/dist/style.css'
 import type { Translator } from '@/i18n'
 import { useTranslations } from '@/i18n'
 import { cn } from '@/lib/utils'
+import { motionBase, staggerMaxSteps, staggerStepSeconds } from '@/components/motion'
 import { useLayoutStore } from '@/features/layout/store'
 import { TechnicalSteps } from './TechnicalSteps'
 import type { ThinkingStep, CitationSource } from '../../types'
 import { deriveTraceLanes } from '../../lib/trace-lanes'
-import { buildCitationModel, totalHits, type CitedDocument } from '../../lib/citations'
-import { SourceCard } from './SourceCard'
+import { buildCitationModel, citedLoci, totalHits, type CitedDocument, type CitationLocus } from '../../lib/citations'
+import { documentShortName } from '../../lib/document-names'
+import { BareSourceCard, SourceCard } from './SourceCard'
 import { SectionLabel } from '@/components/ui/section-label'
 import { BranchOptions } from './BranchOptions'
 import { citationChips } from './citations'
@@ -141,10 +169,21 @@ import {
   type DeepResearchCutoff,
 } from '../../lib/turn-events'
 import { stepNameLabel } from '../../lib/executed-steps'
+import { retrievalRounds, roundFan, type FanCard } from '../../lib/retrieval-rounds'
+import type { RetrievalLedger } from '@/lib/conversations/message-retrieval-ledger'
 import type { ChoicePrompt } from './citations'
 
 /** Hidden connection handle (edges anchor to it; the dot itself is invisible). */
 const H = { opacity: 0, width: 1, height: 1, minWidth: 0, minHeight: 0, border: 'none', background: 'transparent' } as const
+/**
+ * The edge ink: foreground at 18%, mixed rather than a token so it sits on any
+ * surface (muted, card, popover) in both themes without a second variable.
+ *
+ * It lived in `components/ui/timeline.tsx` while the run block drew a connected
+ * phase list with the same mix. That list is now hairline-separated rows
+ * (`ItemList`), so the graph is the only surface left that strokes an edge, and
+ * the constant lives where it is used.
+ */
 const EDGE_STROKE = 'color-mix(in oklch, var(--foreground) 18%, transparent)'
 
 /** One anchor point on a banner edge: a handle id + its x offset within the node. */
@@ -162,13 +201,17 @@ const CENTRE_TOP: HandleSpec = { id: 'c-top', left: '50%' }
 const CENTRE_OUT: HandleSpec = { id: 'out', left: '50%' }
 
 /**
- * The card entrance, in ms. Kept in code because `animatedRef` has to know when
- * the animation it started is over, and the animation itself is pure CSS
- * (`duration-base` plus an inline per-card delay) — so this constant must stay
- * equal to `--motion-base`.
+ * The card entrance, in ms. There is deliberately no literal duration here:
+ * the animation itself is pure CSS (`duration-base` plus an inline per-card
+ * delay in the column node below), so both truths live in the kit
+ * (`components/motion` — `motionBase` is the JS half of `--motion-base`,
+ * `staggerStepSeconds`/`staggerMaxSteps` the cascade vocabulary).
+ * `animatedRef` has to know when the animation it started is over, so the
+ * settle window and the per-slot delay below are DERIVED from those kit
+ * values instead of restating them — one truth, not two.
  */
-const ENTER_MS = 240
-const ENTER_STAGGER_MS = 60
+const ENTER_MS = Math.round((motionBase.duration as number) * 1000)
+const ENTER_STAGGER_MS = Math.round(staggerStepSeconds * 1000)
 
 const Eyebrow: FC<{ children: React.ReactNode }> = ({ children }) => (
   <SectionLabel as="div">{children}</SectionLabel>
@@ -178,8 +221,6 @@ const Eyebrow: FC<{ children: React.ReactNode }> = ({ children }) => (
 type FramingData = {
   label: string
   question: string
-  routingLabel?: string
-  routing?: string
   escalation?: string
   /**
    * Bottom (source) handles. Always populated — even on a turn that has not
@@ -193,7 +234,13 @@ type FramingData = {
  * collapsing the whole graph into a vertical chain.
  */
 type SourceColumnData = {
-  cards: CitedDocument[]
+  /**
+   * The slots this column carries. A slot is a card plus, when the backend's
+   * ledger accounted for the round, what THAT round did with it — see
+   * `FanCard`. The turn-level fan passes plain card slots and reads exactly as
+   * it always did.
+   */
+  cards: FanCard[]
   hitLabel: (count: number) => string
   gapLabel: string
   /**
@@ -206,10 +253,12 @@ type SourceColumnData = {
   /** Single-column (phone) layout — the cards get the grouped container. */
   grouped: boolean
   groupLabel: string
+  /** Packed column width for this fan. Falls back to `--source-w` when omitted. */
+  colW?: number
   /**
    * The turn is still running.
    *
-   * "gelesen, nicht verwendet" is a claim about the FINISHED answer, and while
+   * "abgerufen, nicht zitiert" is a claim about the FINISHED answer, and while
    * the turn streams there is no answer to make it about — so every retrieved
    * document briefly reads as discarded, including the ones the answer is about
    * to cite. The card withholds the verdict until the turn lands.
@@ -266,6 +315,40 @@ type FindingsData = {
   source: HandleSpec
 }
 type BranchesData = { prompt: ChoicePrompt; onRespond: (id: string, choice: string) => void; sub: string; targets: HandleSpec[] }
+type RoundData = {
+  /** `Schritt N` — one counter for every layer, in 1-based execution order. */
+  label: string
+  /**
+   * WHAT the layer did (Suche / Lesen / Befund / Schluss), read off
+   * reason × files — see `roundKind`. The number is the order; this is the
+   * type. Tool-call ids never appear as numbers.
+   */
+  sub: string
+  text: string
+  /** Architect-facing names of the tools this checkpoint actually called. */
+  actions: string[]
+  targets: HandleSpec[]
+  sources: HandleSpec[]
+  /**
+   * This layer has a fan to fold. A checkpoint that returned nothing has no
+   * fold: a control that removes nothing is a control that lies about what it
+   * does, and the reader learns to distrust the ones that do work.
+   */
+  foldable: boolean
+  /** Folded — the fan is gone and {@link foldSummary} stands in its place. */
+  folded: boolean
+  /**
+   * The scent of the folded fan: the count plus the top filename(s) — one
+   * file is document + its cited locus (bare name when uncited), two are
+   * both names, three or more are count + first name + "u.a."
+   * (see `foldSummary`). Never a bare count, and never
+   * the query — the same PF-12 rule as the body.
+   */
+  foldSummary: string
+  /** Accessible name of the fold control; the card's own text is the context. */
+  toggleLabel: string
+  onToggle: () => void
+}
 
 // ── node components ───────────────────────────────────────────────────────────
 const FramingFlowNode: FC<NodeProps<Node<FramingData>>> = ({ data }) => (
@@ -276,13 +359,79 @@ const FramingFlowNode: FC<NodeProps<Node<FramingData>>> = ({ data }) => (
       </span>
     </Eyebrow>
     <p className="mt-1 text-sm leading-relaxed text-foreground">{data.question}</p>
-    {data.routing && (
-      <div className="mt-2 border-t border-base pt-1.5">
-        {data.routingLabel && <Eyebrow>{data.routingLabel}</Eyebrow>}
-        <p className="mt-0.5 text-xs leading-relaxed text-muted-foreground">{data.routing}</p>
-      </div>
-    )}
     {data.escalation && <p className="mt-1.5 text-xs leading-relaxed text-warning">{data.escalation}</p>}
+    {data.sources.map((h) => (
+      <Handle key={h.id} id={h.id} type="source" position={Position.Bottom} style={{ ...H, left: h.left }} />
+    ))}
+  </div>
+)
+
+/**
+ * One checkpoint layer, and the control that folds the fan under it.
+ *
+ * The whole card is the target, because "the step" is what a reader points at —
+ * so the control is a stretched overlay button rather than a chevron in the
+ * corner. It carries its own `aria-label` (the card's body is a conclusion, not
+ * a control name) and reports the state through `aria-expanded`, which is what
+ * makes it keyboard-operable at all: React Flow is configured with
+ * `nodesFocusable={false}` and `disableKeyboardA11y`, so a node is only ever
+ * reachable through a real `<button>` inside it, exactly as `BranchOptions` is.
+ *
+ * There is deliberately no `aria-controls`: the fan is a SIBLING node in the
+ * React Flow pane, not a descendant of this card, and its column elements carry
+ * `data-id` rather than `id`. Pointing at an id that does not exist is worse
+ * than pointing at nothing.
+ */
+const RoundFlowNode: FC<NodeProps<Node<RoundData>>> = ({ data }) => (
+  <div className="relative w-[var(--banner-w)] max-w-full rounded-xl border bg-card px-4 py-3 text-left shadow-xs">
+    {data.targets.map((h) => (
+      <Handle key={h.id} id={h.id} type="target" position={Position.Top} style={{ ...H, left: h.left }} />
+    ))}
+    {data.foldable && (
+      <button
+        type="button"
+        onClick={data.onToggle}
+        aria-expanded={!data.folded}
+        aria-label={data.toggleLabel}
+        data-testid="reasoning-round-toggle"
+        className="absolute inset-0 z-10 cursor-pointer rounded-xl outline-none focus-visible:ring-2 focus-visible:ring-ring/60"
+      />
+    )}
+    <div className="flex items-start justify-between gap-2">
+      <Eyebrow>
+        {data.label} · {data.sub}
+      </Eyebrow>
+      {data.foldable && (
+        <ChevronDown
+          aria-hidden="true"
+          className={cn(
+            'mt-px size-3.5 shrink-0 text-muted-foreground transition-transform duration-quick ease-out motion-reduce:transition-none',
+            data.folded && '-rotate-90'
+          )}
+        />
+      )}
+    </div>
+    {data.text ? <p className="mt-1 text-sm leading-relaxed text-foreground">{data.text}</p> : null}
+    {data.actions.length > 0 ? (
+      <ul className="mt-1.5 flex flex-wrap gap-1">
+        {data.actions.map((action) => (
+          <li
+            key={action}
+            className="rounded-md bg-muted px-1.5 py-0.5 text-[11px] leading-snug text-muted-foreground"
+          >
+            {action}
+          </li>
+        ))}
+      </ul>
+    ) : null}
+    {/* Folded: the fan collapses to its scent — the count plus the top
+        filename(s). Not the query (PF-12), and never a bare count: evidence
+        hidden behind a number reads as no evidence. */}
+    {data.foldable && data.folded ? (
+      <p className="mt-1.5 border-t border-base pt-1.5 text-xs leading-relaxed text-muted-foreground">
+        {data.foldSummary}
+      </p>
+    ) : null}
     {data.sources.map((h) => (
       <Handle key={h.id} id={h.id} type="source" position={Position.Bottom} style={{ ...H, left: h.left }} />
     ))}
@@ -299,14 +448,17 @@ const FramingFlowNode: FC<NodeProps<Node<FramingData>>> = ({ data }) => (
 const SourceColumnFlowNode: FC<NodeProps<Node<SourceColumnData>>> = ({ data }) => {
   const stack = (
     <div role="list" aria-label={data.groupLabel} className="flex w-full flex-col">
-      {data.cards.map((card, i) => {
+      {data.cards.map((fanCard, i) => {
         // Only a card that has never animated gets the entrance. Everything else
         // is here because the fan re-packed — it was on screen a frame ago, and
         // replaying its entrance is the flash this graph used to be full of.
-        const slot = data.enterOrder.get(card.id)
+        // Keyed on the DOCUMENT, so a file two rounds both returned animates
+        // once; a bare ledger slot has no card identity and never animates.
+        const card = fanCard.card
+        const slot = card ? data.enterOrder.get(card.id) : undefined
         const entering = slot !== undefined
         return (
-          <div key={card.id} className="flex flex-col">
+          <div key={fanCard.key} className="flex flex-col">
             {i > 0 && (
               <span
                 aria-hidden="true"
@@ -322,16 +474,30 @@ const SourceColumnFlowNode: FC<NodeProps<Node<SourceColumnData>>> = ({ data }) =
               }
               style={
                 entering
-                  ? { animationDelay: `${slot * ENTER_STAGGER_MS}ms`, animationFillMode: 'backwards' }
+                  ? {
+                      // Capped at `staggerMaxSteps`: the cascade is a reading
+                      // cue, not a queue — slots past the cap start together
+                      // with the last capped one (see the kit's stagger docs).
+                      animationDelay: `${Math.min(slot, staggerMaxSteps) * ENTER_STAGGER_MS}ms`,
+                      animationFillMode: 'backwards',
+                    }
                   : undefined
               }
             >
-              <SourceCard
-                document={card}
-                hitLabel={data.hitLabel(card.loci.length)}
-                gapLabel={data.gapLabel}
-                live={data.live}
-              />
+              {card ? (
+                <SourceCard
+                  document={card}
+                  hitLabel={data.hitLabel(card.loci.length)}
+                  gapLabel={data.gapLabel}
+                  live={data.live}
+                  {...(fanCard.loci ? { loci: fanCard.loci } : {})}
+                />
+              ) : (
+                <BareSourceCard
+                  name={documentShortName(fanCard.name, fanCard.title)}
+                  {...(fanCard.loci ? { loci: fanCard.loci } : {})}
+                />
+              )}
             </div>
           </div>
         )
@@ -340,7 +506,10 @@ const SourceColumnFlowNode: FC<NodeProps<Node<SourceColumnData>>> = ({ data }) =
   )
 
   return (
-    <div className="w-[var(--source-w)] max-w-full">
+    <div
+      className="max-w-full"
+      style={{ width: data.colW !== undefined ? `${data.colW}px` : 'var(--source-w)' }}
+    >
       <Handle id="in" type="target" position={Position.Top} style={{ ...H, left: '50%' }} />
       {data.grouped ? (
         // No entrance on the container itself — the cards inside carry it, and
@@ -439,6 +608,7 @@ const BranchesFlowNode: FC<NodeProps<Node<BranchesData>>> = ({ data }) => (
 
 const nodeTypes = {
   framing: FramingFlowNode,
+  round: RoundFlowNode,
   sourceColumn: SourceColumnFlowNode,
   findings: FindingsFlowNode,
   branches: BranchesFlowNode,
@@ -451,9 +621,15 @@ export interface ReasoningFlowProps {
   citations?: CitationSource[]
   choicePrompt?: ChoicePrompt
   onChoiceRespond?: (promptId: string, choice: string) => void
-  routingDecision?: 'meta' | 'shallow' | 'deep' | 'error'
-  routingReason?: string
   escalationReason?: string
+  /**
+   * The backend's own account of this turn's retrieval rounds. When a round is
+   * in it (matched by `index`), the fan under that round is the LEDGER's docs
+   * — each at the page THAT round read, and marked when an earlier round had
+   * already shown the file. A round the ledger does not have keeps the
+   * filename match, which is what every turn before the ledger had.
+   */
+  retrievalLedger?: RetrievalLedger
   /** Turn is still streaming — edges animate and the graph keeps growing. */
   live?: boolean
 }
@@ -658,6 +834,17 @@ const MIN_REPORTED_MINUTES = 1
  * sentence pair, then what had been gathered by then — so the block stays
  * readable when a turn was both cut off and degraded.
  */
+/**
+ * Dictionary key per degradation, total over the closed set: a token added to
+ * `ANSWER_DEGRADATIONS` without a line here fails the typecheck, rather than
+ * rendering as whichever line a fallback branch happened to pick.
+ */
+const DEGRADATION_KEYS: Record<AnswerDegradation, string> = {
+  no_report_file: 'noReport',
+  no_valid_citations: 'noCitations',
+  cards_generation_failed: 'noCards',
+}
+
 function limitations(
   cutoff: DeepResearchCutoff | null,
   degradations: AnswerDegradation[],
@@ -693,8 +880,7 @@ function limitations(
   }
 
   for (const reason of degradations) {
-    const key = reason === 'no_report_file' ? 'noReport' : 'noCitations'
-    lines.push({ text: t(`${LIMIT}degraded.${key}`), warn: true })
+    lines.push({ text: t(`${LIMIT}degraded.${DEGRADATION_KEYS[reason]}`), warn: true })
   }
 
   return lines
@@ -705,6 +891,134 @@ export interface BuiltGraph {
   edges: Edge[]
   /** Row groups, top→bottom, for the measured y-stacking pass. */
   rows: string[][]
+}
+
+/**
+ * How many retrieval rounds a spine may show in full before the older layers
+ * arrive folded.
+ *
+ * RESERVED, not read: every layer currently arrives expanded, because evidence
+ * hidden by default reads as no evidence. The manual fold control stays — the
+ * reader can still close any layer by hand — and should a turn shape arrive
+ * that needs an auto-fold again, this is the dial, not a new rule.
+ */
+export const SPINE_FOLD_THRESHOLD = 3
+
+/**
+ * Which layers a spine of `count` rounds opens with, before the reader touches
+ * anything: all of them. Exported because it is the rule, not an
+ * implementation detail — `ReasoningFlow` seeds its state from it and the spec
+ * asserts it directly.
+ */
+export function defaultFoldedRounds(_count: number): Set<number> {
+  return new Set()
+}
+
+/** The tool that opens a passage of a document the turn already found. */
+const READ_PASSAGE = 'read_passage'
+
+/** Tool basename as the round records it (`tool: read_passage` → `read_passage`). */
+const toolBase = (tool: string): string => tool.trim().replace(/^tool:\s*/i, '').toLowerCase()
+
+/** This layer only opened passages — it searched for nothing new. */
+const onlyOpened = (tools: string[]): boolean =>
+  tools.length > 0 && tools.every((tool) => toolBase(tool) === READ_PASSAGE)
+
+/**
+ * WHAT a retrieval layer did, from the facts the spine already owns about it:
+ * the tools it called, whether the model wrote a Thought (it concluded
+ * something) and whether the fetch returned files. A layer that only opened
+ * passages of files the turn already had OPENED them: it searched for nothing,
+ * and a re-read at a new page is precisely the round a reader needs told apart
+ * from a fresh fetch. A layer that concluded on the back of what it fetched is
+ * a finding; a bare fetch that returned nothing is a search. The NUMBER on the
+ * layer (`Schritt N`) is the execution order; this is the type.
+ */
+function roundKind(hasThought: boolean, documentCount: number, tools: string[], t: Translator): string {
+  if (documentCount > 0 && onlyOpened(tools)) return t('thinking.node.stepKindOpen')
+  if (hasThought && documentCount > 0) return t('thinking.node.stepKindFinding')
+  if (hasThought) return t('thinking.node.stepKindConclusion')
+  if (documentCount > 0) return t('thinking.node.stepKindRead')
+  return t('thinking.node.stepKindSearch')
+}
+
+/**
+ * The locus a folded single-file layer names beside the document: the cited
+ * passage when the answer cited one, else nothing. A document the answer never
+ * cited names NO locus — its fan card already reads "abgerufen, nicht
+ * zitiert", so a fold naming a passage beside it would promise a Beleg the
+ * fan withholds. Punkt wins over page — it is the finer address.
+ */
+function foldLocusOf(doc: CitedDocument): CitationLocus | undefined {
+  const loci = citedLoci(doc)
+  if (loci.length === 0) return undefined
+  return (
+    loci.find((locus) => locus.punkt?.trim()) ??
+    loci.find((locus) => typeof locus.page === 'number') ??
+    loci[0]
+  )
+}
+
+function foldLocusLabel(doc: CitedDocument, t: Translator): string | undefined {
+  const locus = foldLocusOf(doc)
+  if (!locus) return undefined
+  const punkt = locus.punkt?.trim()
+  const page = typeof locus.page === 'number' ? locus.page : undefined
+  if (punkt && page !== undefined) return t('thinking.node.roundFoldLocusPunktPage', { punkt, page })
+  if (punkt) return t('thinking.node.roundFoldLocusPunkt', { punkt })
+  if (page !== undefined) return t('thinking.node.roundFoldLocusPage', { page })
+  return undefined
+}
+
+/** The name a fan slot folds to: the card's short name, else the ledger's own. */
+const foldName = (slot: FanCard): string =>
+  slot.card
+    ? documentShortName(slot.card.fileName ?? slot.card.title, slot.card.title)
+    : documentShortName(slot.name, slot.title)
+
+/**
+ * The locus beside a folded single file: the FIRST passage that round read,
+ * when the ledger accounted for the round. The fan under it lists them all,
+ * and a fold that fell back to the turn aggregate would name a page a
+ * different round read. Without a ledger it stays the cited passage (see
+ * `foldLocusOf`).
+ */
+const foldLocus = (slot: FanCard, t: Translator): string | undefined => {
+  if (slot.loci) return slot.loci[0]?.detail
+  return slot.card ? foldLocusLabel(slot.card, t) : undefined
+}
+
+/**
+ * The scent of a folded fan, from the round's own slots: one file is document +
+ * its locus (bare name when there is none to name — see `foldLocus`), two
+ * files are both names, three or more are count + first name + "u.a.". Short
+ * names throughout — the edition tail says nothing a folded layer needs. Empty
+ * when the fetch returned nothing (the layer is then not foldable, so this
+ * never renders).
+ */
+function foldSummary(roundCards: FanCard[], t: Translator): string {
+  const names = roundCards.map(foldName)
+  if (names.length === 0) return ''
+  if (names.length === 1) {
+    const locus = foldLocus(roundCards[0]!, t)
+    return locus
+      ? t('thinking.node.roundFoldOne', { name: names[0], locus })
+      : t('thinking.node.roundFoldOneBare', { name: names[0] })
+  }
+  if (names.length === 2) return t('thinking.node.roundFoldTwo', { first: names[0], second: names[1] })
+  return t('thinking.node.roundFoldMany', { count: names.length, first: names[0] })
+}
+
+/**
+ * The fold state of the spine, and the way back out of it.
+ *
+ * Passed in rather than held here because `buildGraph` is pure: the state lives
+ * in `ReasoningFlow` (see the note there on where it does NOT live), and a spec
+ * can build any fold configuration it wants without rendering.
+ */
+export interface SpineFolding {
+  folded: ReadonlySet<number>
+  onToggle: (index: number) => void
 }
 
 /**
@@ -722,7 +1036,13 @@ export function buildGraph(
    * default: a graph built without it animates nothing, which is the right
    * answer both for a structural test and for a rebuild that added no cards.
    */
-  enterOrder: ReadonlyMap<string, number> = new Map()
+  enterOrder: ReadonlyMap<string, number> = new Map(),
+  /**
+   * Which checkpoint layers are folded, and how to unfold one. Absent means
+   * "nothing is folded and the control does nothing" — the right answer for a
+   * structural test that is not about folding.
+   */
+  folding: SpineFolding = { folded: new Set<number>(), onToggle: () => {} }
 ): BuiltGraph {
   const { columns, colW, gap, fanX, grouped } = layout
   const hasSources = cards.length > 0 && columns.length > 0
@@ -768,15 +1088,6 @@ export function buildGraph(
   const columnIds = columns.map((_, i) => `col-${i}`)
   const columnX = (i: number) => fanX + i * (colW + gap)
 
-  const routing =
-    props.routingDecision && props.routingReason?.trim()
-      ? t('thinking.routing.line', {
-          decision: t(`thinking.routing.decision.${props.routingDecision}`),
-          reason: props.routingReason.trim(),
-        })
-      : undefined
-  const routingLabel = routing ? t('thinking.routing.whyLabel') : undefined
-
   const convergeId = hasFindings ? 'findings' : hasBranches ? 'branches' : null
 
   // ONE centred anchor on each banner, both directions. Every column edge
@@ -798,8 +1109,6 @@ export function buildGraph(
     question: props.userQuestion.trim()
       ? t('thinking.node.framingQuestion', { question: props.userQuestion.trim() })
       : t('thinking.node.framingTitle'),
-    routingLabel,
-    routing,
     escalation: props.escalationReason?.trim()
       ? t('thinking.escalationNarration', { reason: props.escalationReason.trim() })
       : undefined,
@@ -876,27 +1185,131 @@ export function buildGraph(
   const nodes: Node[] = []
   const edges: Edge[] = []
 
-  nodes.push({ id: 'framing', type: 'framing', position: { x: 0, y: 0 }, data: framingData as Record<string, unknown> })
-  columns.forEach((indices, i) => {
-    const columnData: SourceColumnData = {
-      cards: indices.map((idx) => cards[idx]!),
-      // "1 hits" on a card that is meant to prove rigour undercuts it; the
-      // translator has no plural support, so the singular is its own key.
-      hitLabel: (count: number) =>
-        count === 1 ? t('thinking.hitCountOne') : t('thinking.hitCount', { count }),
-      gapLabel: t('thinking.gapHit'),
-      enterOrder,
-      grouped,
-      groupLabel: t('thinking.sourcesFanOut'),
-      live: Boolean(props.live),
+  // One retrieval stays the old fan. Two or more are a spine: each checkpoint
+  // hangs the files THAT fetch returned, then the next conclusion. The body
+  // is the thought, never the query (PF-12). A missing Thought is an empty
+  // body, not a caption we invent. Tools sit on the checkpoint as the
+  // architect-facing names of what that round actually did.
+  const rounds = retrievalRounds(props.steps)
+  const spine = rounds.length >= 2
+  const roundIds = spine ? rounds.map((_, i) => `round-${i}`) : []
+  const hitLabel = (count: number) =>
+    count === 1 ? t('thinking.hitCountOne') : t('thinking.hitCount', { count })
+
+  const actionLabels = (tools: string[]): string[] => {
+    const out: string[] = []
+    const seen = new Set<string>()
+    for (const tool of tools) {
+      const label = stepNameLabel(tool, t)
+      if (!label || seen.has(label)) continue
+      seen.add(label)
+      out.push(label)
     }
-    nodes.push({
-      id: columnIds[i]!,
-      type: 'sourceColumn',
-      position: { x: columnX(i), y: 0 },
-      data: columnData as unknown as Record<string, unknown>,
+    return out
+  }
+
+  // A folded layer keeps its cards (the count is the whole point of the fold)
+  // and contributes NO column nodes: the fan is gone from the graph, not merely
+  // hidden with CSS, so the measured stacking pass reclaims its row and the
+  // checkpoint wires straight into the next one.
+  const fans = spine
+    ? rounds.map((round, i) => {
+        const roundCards = roundFan(round, cards, props.retrievalLedger)
+        const packed = planFan(layout.contentW, roundCards.length)
+        const folded = folding.folded.has(i)
+        return {
+          roundCards,
+          packed,
+          folded,
+          ids: folded ? [] : packed.columns.map((_, c) => `r${i}-col-${c}`),
+        }
+      })
+    : []
+
+  const pushColumns = (ids: string[], packed: FanLayout, roundCards: FanCard[]) => {
+    // Driven by the ID list, not by the packing: a FOLDED layer keeps its
+    // packing (the cards are still its cards) and is given no ids, and walking
+    // the packing here would push column nodes with an `undefined` id that
+    // nothing can wire to and the measure pass silently strands.
+    if (ids.length === 0) return
+    const xOf = (i: number) => packed.fanX + i * (packed.colW + packed.gap)
+    packed.columns.slice(0, ids.length).forEach((indices, i) => {
+      const columnData: SourceColumnData = {
+        cards: indices.map((idx) => roundCards[idx]!),
+        hitLabel,
+        gapLabel: t('thinking.gapHit'),
+        enterOrder,
+        grouped: packed.grouped,
+        groupLabel: t('thinking.sourcesFanOut'),
+        live: Boolean(props.live),
+        colW: packed.colW,
+      }
+      nodes.push({
+        id: ids[i]!,
+        type: 'sourceColumn',
+        position: { x: xOf(i), y: 0 },
+        data: columnData as unknown as Record<string, unknown>,
+      })
     })
-  })
+  }
+
+  nodes.push({ id: 'framing', type: 'framing', position: { x: 0, y: 0 }, data: framingData as Record<string, unknown> })
+  if (spine) {
+    rounds.forEach((round, i) => {
+      const text = round.reason?.trim() ?? ''
+      const fan = fans[i]!
+      // DOCUMENTS, not hits: a slot is one file with every passage this round
+      // read of it, so a round that opened five Punkte of one Richtlinie is
+      // one document — which is what „3 Dateien" has always claimed to count.
+      const documentCount = fan.roundCards.length
+      const roundData: RoundData = {
+        label: t('thinking.node.stepTab', { n: i + 1 }),
+        sub: roundKind(text.length > 0, documentCount, round.tools, t),
+        text,
+        actions: actionLabels(round.tools),
+        targets: [CENTRE_TOP],
+        sources: [CENTRE_BOTTOM],
+        foldable: documentCount > 0,
+        folded: fan.folded,
+        foldSummary: foldSummary(fan.roundCards, t),
+        toggleLabel: t(fan.folded ? 'thinking.node.roundUnfold' : 'thinking.node.roundFold', {
+          n: i + 1,
+        }),
+        onToggle: () => folding.onToggle(i),
+      }
+      nodes.push({
+        id: roundIds[i]!,
+        type: 'round',
+        position: { x: 0, y: 0 },
+        data: roundData as unknown as Record<string, unknown>,
+      })
+      pushColumns(fan.ids, fan.packed, fan.roundCards)
+    })
+  } else {
+    columns.forEach((indices, i) => {
+      const columnData: SourceColumnData = {
+        // The turn-level fan: a slot is just its card, with no round to speak
+        // for — the aggregate IS the claim there.
+        cards: indices.map((idx) => {
+          const card = cards[idx]!
+          return { key: card.id, card, name: card.fileName ?? card.title }
+        }),
+        hitLabel,
+        gapLabel: t('thinking.gapHit'),
+        enterOrder,
+        grouped,
+        groupLabel: t('thinking.sourcesFanOut'),
+        live: Boolean(props.live),
+        colW,
+      }
+      nodes.push({
+        id: columnIds[i]!,
+        type: 'sourceColumn',
+        position: { x: columnX(i), y: 0 },
+        data: columnData as unknown as Record<string, unknown>,
+      })
+    })
+  }
   if (findingsData) {
     nodes.push({ id: 'findings', type: 'findings', position: { x: 0, y: 0 }, data: findingsData as Record<string, unknown> })
   }
@@ -904,21 +1317,46 @@ export function buildGraph(
     nodes.push({ id: 'branches', type: 'branches', position: { x: 0, y: 0 }, data: branchesData as Record<string, unknown> })
   }
 
-  // Wiring: framing fans out to every column, every column converges on the
-  // assessment/branches node (parallel, never a chain). All of it through the
-  // single centred anchor on each banner, so the split and the merge are real.
-  if (hasSources) {
-    columnIds.forEach((cid) => edges.push(edge('framing', 'c-bottom', cid, 'in', 'split')))
-    if (convergeId) columnIds.forEach((cid) => edges.push(edge(cid, 'out', convergeId, 'c-top', 'merge')))
-  } else if (convergeId) {
-    edges.push(edge('framing', 'c-bottom', convergeId, 'c-top'))
+  // Wiring: a single retrieval still fans framing → columns → assessment
+  // (parallel, never a source-to-source chain). Two or more retrievals put
+  // each checkpoint above the files THAT fetch returned; the next conclusion
+  // hangs off that fan's merge.
+  if (spine) {
+    edges.push(edge('framing', 'c-bottom', roundIds[0]!, 'c-top'))
+    rounds.forEach((_, i) => {
+      const roundId = roundIds[i]!
+      const { ids } = fans[i]!
+      const next = i < rounds.length - 1 ? roundIds[i + 1]! : convergeId
+      if (ids.length > 0) {
+        ids.forEach((cid) => edges.push(edge(roundId, 'c-bottom', cid, 'in', 'split')))
+        if (next) ids.forEach((cid) => edges.push(edge(cid, 'out', next, 'c-top', 'merge')))
+      } else if (next) {
+        edges.push(edge(roundId, 'c-bottom', next, 'c-top'))
+      }
+    })
+  } else {
+    const fanFrom = 'framing'
+    if (hasSources) {
+      columnIds.forEach((cid) => edges.push(edge(fanFrom, 'c-bottom', cid, 'in', 'split')))
+      if (convergeId) columnIds.forEach((cid) => edges.push(edge(cid, 'out', convergeId, 'c-top', 'merge')))
+    } else if (convergeId) {
+      edges.push(edge(fanFrom, 'c-bottom', convergeId, 'c-top'))
+    }
   }
   if (findingsData && branchesData) edges.push(edge('findings', 'out', 'branches', 'c-top'))
 
-  // Row groups for the measured stacking pass — every column shares one row, so
-  // the assessment clears the TALLEST column.
+  // Row groups for the measured stacking pass — every column of one fan
+  // shares a row, so the next checkpoint clears the TALLEST column of this
+  // fetch, not a mix of two fetches.
   const rows: string[][] = [['framing']]
-  if (hasSources) rows.push(columnIds)
+  if (spine) {
+    fans.forEach((fan, i) => {
+      rows.push([roundIds[i]!])
+      if (fan.ids.length > 0) rows.push(fan.ids)
+    })
+  } else if (hasSources) {
+    rows.push(columnIds)
+  }
   if (findingsData) rows.push(['findings'])
   if (branchesData) rows.push(['branches'])
 
@@ -1131,9 +1569,8 @@ export const ReasoningFlow: FC<ReasoningFlowProps> = (props) => {
     citations,
     choicePrompt,
     onChoiceRespond,
-    routingDecision,
-    routingReason,
     escalationReason,
+    retrievalLedger,
     live,
   } = props
   const t = useTranslations('chat')
@@ -1162,6 +1599,40 @@ export const ReasoningFlow: FC<ReasoningFlowProps> = (props) => {
     [steps, citations]
   )
   const layout = useMemo(() => planFan(width || FALLBACK_W, cards.length), [width, cards.length])
+
+  /**
+   * Which checkpoint layers the reader has folded or unfolded BY HAND, keyed by
+   * round index. Absent means "whatever `defaultFoldedRounds` says" — which is
+   * currently nothing, so every layer arrives expanded and only a click folds
+   * one. A layer the reader folded stays folded when later rounds stream in.
+   *
+   * Component state, and not the thinking store, because there is no natural
+   * place for it there: `ReasoningFlow` is handed steps, not a message id
+   * (neither is `ChatThinking` above it), and `useLayoutStore` holds
+   * app-wide chrome — `showTechnicalReasoning` and the panels — with no
+   * per-message map to hang this on. Inventing one would mean a store key
+   * whose lifetime nothing prunes, for a preference whose whole scope is one
+   * expanded Herleitung. The panel itself already collapses on the turn's own
+   * terms (`ChatThinking`), which is the persistence that matters.
+   */
+  const [foldOverrides, setFoldOverrides] = useState<ReadonlyMap<number, boolean>>(new Map())
+  const roundCount = useMemo(() => retrievalRounds(steps).length, [steps])
+  const folding = useMemo<SpineFolding>(() => {
+    const byDefault = defaultFoldedRounds(roundCount)
+    const folded = new Set<number>()
+    for (let i = 0; i < roundCount; i++) {
+      if (foldOverrides.get(i) ?? byDefault.has(i)) folded.add(i)
+    }
+    return {
+      folded,
+      onToggle: (index: number) =>
+        setFoldOverrides((prev) => {
+          const next = new Map(prev)
+          next.set(index, !(prev.get(index) ?? defaultFoldedRounds(roundCount).has(index)))
+          return next
+        }),
+    }
+  }, [foldOverrides, roundCount])
 
   /**
    * Card ids that have already played their enter animation.
@@ -1197,7 +1668,8 @@ export const ReasoningFlow: FC<ReasoningFlowProps> = (props) => {
   }, [cards, entered])
   useEffect(() => {
     if (enterOrder.size === 0) return
-    const settle = Math.max(...enterOrder.values()) * ENTER_STAGGER_MS + ENTER_MS
+    const settle =
+      Math.min(Math.max(...enterOrder.values()), staggerMaxSteps) * ENTER_STAGGER_MS + ENTER_MS
     const timer = setTimeout(() => {
       for (const id of enterOrder.keys()) animatedRef.current.add(id)
       setEntered((n) => n + 1)
@@ -1219,9 +1691,10 @@ export const ReasoningFlow: FC<ReasoningFlowProps> = (props) => {
           citations,
           choicePrompt,
           onChoiceRespond,
-          routingDecision,
-          routingReason,
           escalationReason,
+          // The backend's account of the rounds, when this message carries one:
+          // it decides what hangs under each checkpoint.
+          ...(retrievalLedger ? { retrievalLedger } : {}),
           // Drives the pending converge node: while the turn streams the graph
           // still needs its merge point, or the source columns end in mid-air.
           live,
@@ -1229,7 +1702,8 @@ export const ReasoningFlow: FC<ReasoningFlowProps> = (props) => {
         t,
         layout,
         cards,
-        enterOrder
+        enterOrder,
+        folding
       ),
     [
       steps,
@@ -1238,14 +1712,14 @@ export const ReasoningFlow: FC<ReasoningFlowProps> = (props) => {
       citations,
       choicePrompt,
       onChoiceRespond,
-      routingDecision,
-      routingReason,
       escalationReason,
+      retrievalLedger,
       live,
       t,
       layout,
       cards,
       enterOrder,
+      folding,
     ]
   )
 
