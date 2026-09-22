@@ -1081,6 +1081,11 @@ export const chat: typeof en.chat = {
       stepKindRead: 'Lesen',
       stepKindFinding: 'Befund',
       stepKindConclusion: 'Schluss',
+      // Ein Abruf, den das Backend gesehen hat und der nichts zurückgab. Nicht
+      // „Suche": eine Schicht ohne Fächer las sich wie eine, die nichts
+      // fand, und war oft nur eine, deren Treffer der alte Draht nie stempelte.
+      // Erst das Ledger macht den Unterschied benennbar.
+      stepKindNoHits: 'Kein Treffer',
       // Eine Schicht, die ausschließlich Passagen bereits gefundener Dateien
       // aufgeschlagen hat: sie hat nichts Neues gesucht. Genau diese Runde von
       // einem frischen Abruf zu unterscheiden, ist der Sinn des Wortes.

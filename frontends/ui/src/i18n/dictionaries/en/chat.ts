@@ -1076,6 +1076,10 @@ export const chat = {
       stepKindRead: 'Reading',
       stepKindFinding: 'Finding',
       stepKindConclusion: 'Conclusion',
+      // A fetch the backend saw return nothing. Not `Search`: a layer with no
+      // fan read as one that found nothing, and was often one whose hits the
+      // old wire never stamped. Only the ledger can tell the two apart.
+      stepKindNoHits: 'No hits',
       // A layer that only opened passages of files the turn already had: it
       // searched for nothing. Telling that round apart from a fresh fetch is
       // the whole reason the word exists.

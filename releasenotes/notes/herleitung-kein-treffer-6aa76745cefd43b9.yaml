@@ -1,0 +1,7 @@
+---
+fixes:
+  - >
+    The reasoning view no longer shows empty "Search" steps for turns that
+    read the building model or put files on screen. Those steps now list the
+    model or the files they read, and a step that genuinely found nothing
+    says "No hits" instead of looking like an unfinished search.

@@ -51,6 +51,7 @@ from aiq_agent.tools.bim.measurement_evidence import EVIDENCE_PROVENANCES
 from aiq_agent.tools.bim.measurement_evidence import measurement_evidence_line
 from aiq_agent.tools.bim.measurement_sources import MeasuredElement
 from aiq_agent.tools.bim.measurement_sources import MeasurementSource
+from aiq_agent.tools.bim.measurement_sources import note_model_read
 from aiq_agent.tools.bim.measurement_sources import record_measurements
 from aiq_agent.tools.bim.rendering import listed
 from aiq_agent.tools.bim.rendering import render_unresolved
@@ -1852,6 +1853,10 @@ def _render(
     capturing.
     """
     lines = [_model_line(source or {}, handle), *_body_lines(operation, payload)]
+    # Two channels, deliberately: the measurement sources ground the answer's
+    # confidence, the lane hit only tells the Herleitung which file this round
+    # read (see ``note_model_read``).
+    note_model_read(((source or {}).get("model") or {}).get("filename"), operation, detail or None)
     record_measurements(_measurement_sources(operation, payload, source=source, detail=detail))
     if operation not in NON_MEASURING_OPERATIONS:
         lines.append(measurement_evidence_line(_measured_count(payload)))

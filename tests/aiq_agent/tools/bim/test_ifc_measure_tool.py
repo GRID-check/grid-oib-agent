@@ -563,6 +563,42 @@ class TestUndecidableIsAFindingAboutTheExport:
 
 
 class TestRendering:
+    def test_a_measurement_files_the_model_it_read_under_the_turns_round(self):
+        """The Herleitung hangs on a round the documents it returned.
+
+        An ``ifc_measure`` round is announced as a retrieval („Sucht im
+        Gebäudemodell") and used to return no document, so the layer drew as a
+        search that found nothing. The model file is that document, and the
+        operation is its locus.
+        """
+        from aiq_agent.common import turn_status
+
+        token = turn_status.begin_lane_capture()
+        try:
+            _render(
+                "measure",
+                {"value": 2.5, "unit": "m", "provenance": "computed", "tolerance": 0.005, "decidable": True},
+                source={"model": {"filename": "Haus-A_V3.ifc", "schemaVersion": "IFC4", "elements": 74}},
+                detail="clearHeight",
+            )
+            hits = turn_status.get_lane_captures()
+        finally:
+            turn_status.end_lane_capture(token)
+
+        assert [(hit["name"], hit.get("detail")) for hit in hits] == [("Haus-A_V3.ifc", "measure · clearHeight")]
+
+    def test_a_result_naming_no_model_files_nothing(self):
+        from aiq_agent.common import turn_status
+
+        token = turn_status.begin_lane_capture()
+        try:
+            _render("measure", {"value": 1.0, "unit": "m", "provenance": "computed", "decidable": True})
+            hits = turn_status.get_lane_captures()
+        finally:
+            turn_status.end_lane_capture(token)
+
+        assert hits == []
+
     def test_the_model_line_names_the_file_and_the_parsed_handle(self):
         rendered = _render(
             "measure",

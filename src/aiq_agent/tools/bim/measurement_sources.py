@@ -76,6 +76,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from aiq_agent.common.source_kinds import MEASUREMENT_SOURCE_KIND
+from aiq_agent.common.turn_status import record_lane_hit
 
 #: The fine lane a measurement is filed under, and its German sub-label. A lane
 #: is the Herleitung card's folder tab; measurements have exactly one, because
@@ -95,6 +96,31 @@ PROVENANCE_LABELS: dict[str, str] = {
     "computed": "gemessen",
     "inferred": "vermutlich",
 }
+
+
+def note_model_read(filename: str | None, operation: str, detail: str | None = None) -> None:
+    """File the model THIS call read under the turn's retrieval round.
+
+    The Herleitung draws one layer per retrieval round and hangs on it the
+    documents that round returned, read off the lane-hit capture the evidence
+    tools feed (``turn_status.record_lane_hit``). Both IFC tools are announced
+    as retrieval rounds („Sucht im Gebäudemodell …"), and until this function
+    neither returned a document to hang: a measurement turn drew one empty
+    „Suche" layer per model call, indistinguishable from a search that found
+    nothing. An ``.ifc`` is a project file and a query is a read of it, so it
+    is filed the way a passage is — the file as the document, the operation as
+    the locus where a passage carries its page.
+
+    This is NOT the measurement channel above, and the separation stands: a
+    lane hit is what the Herleitung draws, never what the citation registry
+    grounds (the module docstring says why a measurement must not reach it).
+    Best-effort by ``record_lane_hit``'s own contract: a no-op outside a turn,
+    and it never raises.
+    """
+    if not filename:
+        return
+    locus = f"{operation} · {detail}" if detail else operation
+    record_lane_hit(str(filename), detail=locus or None)
 
 
 @dataclass(frozen=True)

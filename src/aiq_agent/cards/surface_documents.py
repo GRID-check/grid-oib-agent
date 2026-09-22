@@ -30,6 +30,11 @@ _CHUNK_TOP_K = 40
 # A short choice, never a catalogue. Platform → Retrieval can lower this.
 MAX_SURFACED_FILES = 3
 
+#: A surfaced document's source kind → the shelf token a lane hit carries
+#: (``common.source_kinds.Shelf``), so the Herleitung files it beside the
+#: passages the knowledge layer records from the same shelves.
+_SHELF_OF_SOURCE: dict[str, str] = {"projekt": "project", "buero": "archiv"}
+
 # ---------------------------------------------------------------------------
 # The three constants below were calibrated against `Chunk.score` when it was
 # the vector store's raw `exp(-distance)`. `Chunk.score` is now a TRUE COSINE
@@ -438,6 +443,15 @@ async def surface_documents(tool_config: SurfaceDocumentsConfig, builder: Builde
             return "Noted, but no card channel is available in this context; continue with your written answer."
 
         registry.add(validated)
+        # The Herleitung hangs on each round the documents it returned, read
+        # off the lane-hit capture. A file put on screen is one, so it is
+        # filed like a passage would be; without this a surfacing round was
+        # announced („Sucht in Ihren Unterlagen") and drew as a search that
+        # found nothing. Best-effort by `record_lane_hit`'s own contract.
+        from aiq_agent.common.turn_status import record_lane_hit
+
+        for doc in documents:
+            record_lane_hit(str(doc["file_name"]), shelf=_SHELF_OF_SOURCE.get(str(doc.get("source") or "")))
         logger.info(
             "surface_documents: mode=%s surfaced %d file(s) query=%r filename=%r",
             effective,

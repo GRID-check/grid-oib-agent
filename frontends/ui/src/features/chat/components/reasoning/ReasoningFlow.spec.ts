@@ -1229,6 +1229,40 @@ describe('a ledger round draws its own fan', () => {
     expect(sub(1)).toBe('thinking.node.stepKindOpen')
   })
 
+  test('a ledger round that returned nothing is a miss, not a search', () => {
+    // Round 0 searched and the backend's own account says it came back
+    // empty. Before the ledger the same layer read `Suche` — the word for a
+    // bare fetch — which is also what a hit the old wire never stamped looked
+    // like, so the reader could not tell a miss from a stamping gap.
+    const empty: RetrievalLedger = [entry(0, [], [], ['knowledge_search']), ledger[1]!, ledger[2]!]
+    const g = build(empty)
+    const sub = (i: number) => (g.nodes.find((n) => n.id === `round-${i}`)!.data as { sub: string }).sub
+    expect(sub(0)).toBe('thinking.node.stepKindNoHits')
+    // The ledger's verdict wins over the Thought beside the call: a
+    // conclusion drawn from a fetch that returned nothing is still a miss.
+    const concluded: RetrievalLedger = [entry(0, [], [], ['knowledge_search']), ledger[1]!, ledger[2]!]
+    const withThought = buildGraph(
+      {
+        ...base,
+        steps: [retrievalStep(0, 'Fluchtweg', 'Die Regel steht nicht im Bestand.'), ...steps.slice(1)],
+        answerConfidence: 'high',
+        retrievalLedger: concluded,
+      },
+      t,
+      planFan(DESKTOP_W, 2),
+      [card('a'), card('b')]
+    )
+    expect((withThought.nodes.find((n) => n.id === 'round-0')!.data as { sub: string }).sub).toBe(
+      'thinking.node.stepKindNoHits'
+    )
+    // A turn stored before the ledger existed keeps `Suche`: without the
+    // backend's account an empty layer is not known to be a miss.
+    const legacy = build(undefined)
+    expect(
+      (legacy.nodes.find((n) => n.id === 'round-0')!.data as { sub: string }).sub
+    ).not.toBe('thinking.node.stepKindNoHits')
+  })
+
   test.each(['de', 'en'])('%s spells the Öffnen layer', (locale) => {
     const translator = createTranslator(locale === 'de' ? de : en, 'chat') as Translator
     const g = buildGraph(
