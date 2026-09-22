@@ -14,6 +14,7 @@ from unittest.mock import patch
 
 from aiq_agent.agents.piloti.decisions import TurnDecisions
 from aiq_agent.agents.piloti.decisions import TurnFacts
+from aiq_agent.agents.piloti.decisions import attached_card_types
 from aiq_agent.agents.piloti.decisions import decide_turn
 from aiq_agent.agents.piloti.decisions import prefetch_calls
 from aiq_agent.agents.piloti.decisions import questions_for
@@ -39,6 +40,7 @@ class TestWhatIsAsked:
         assert set(questions) == {
             "needs_evidence",
             "corpus",
+            "self_contained",
             "family_2",
             "family_4",
             "card_fire_compartment",
@@ -51,6 +53,19 @@ class TestWhatIsAsked:
         assert "Brandschutz" in questions["family_2"]["criteria"]["true"]
         # The card question carries the card's own index line.
         assert "fire compartments" in questions["card_fire_compartment"]["criteria"]["true"]
+
+    def test_skills_riding_the_prompt_get_a_choice_with_none_and_one_fits_noul_each(self):
+        facts = TurnFacts(
+            question="q", skills=[("brandschutz", "Brandabschnitt, Fluchtweg."), ("hygiene", "Aufenthaltsraum.")]
+        )
+        questions = questions_for(facts)
+        assert set(questions["skill"]["criteria"]) == {"brandschutz", "hygiene", "none"}
+        assert "fits_brandschutz" in questions and "fits_hygiene" in questions
+        assert "Brandabschnitt" in questions["fits_brandschutz"]["criteria"]["true"]
+
+    def test_the_previous_message_rides_the_state_bounded(self):
+        state = TurnFacts(question="und in GK 4?", previous_message="x" * 1000).state()
+        assert len(state["previous_message"]) == 300
 
     def test_no_model_skill_offered_means_no_model_question(self):
         facts = TurnFacts(question="q", families=FAMILIES, card_types=CARDS, offers_model_skill=False)
@@ -143,3 +158,65 @@ class TestThePrefetch:
     def test_no_evidence_or_an_unsure_corpus_prefetches_nothing(self):
         assert prefetch_calls(self._decided("baurecht", evidence=0.3), "q") == []
         assert prefetch_calls(self._decided("baurecht", p=0.4), "q") == []
+
+
+class TestTheSkillsShapes:
+    """The chosen skill's preferred cards ride the turn — what `use_skill` used to hand over."""
+
+    SKILL_CARDS = {"brandschutz": ["fire_compartment", "egress_diagram"], "hygiene": ["daylight_incidence"]}
+
+    def test_the_skills_cards_come_first_then_the_nouls_picks_capped_and_deduped(self):
+        decided = TurnDecisions(
+            decided=True,
+            skill="brandschutz",
+            skill_p=0.8,
+            skill_fit=0.9,
+            cards=(("egress_diagram", 0.9), ("stair_diagram", 0.7)),
+        )
+        assert attached_card_types(decided, self.SKILL_CARDS) == ["fire_compartment", "egress_diagram", "stair_diagram"]
+
+    def test_the_cookbooks_abstention_a_low_fit_or_none_attaches_no_skill(self):
+        low_fit = TurnDecisions(decided=True, skill="brandschutz", skill_p=0.8, skill_fit=0.2)
+        assert low_fit.chosen_skill is None and attached_card_types(low_fit, self.SKILL_CARDS) == []
+        none = TurnDecisions(decided=True, skill="none", skill_p=0.9, skill_fit=None)
+        assert none.chosen_skill is None
+        unsure = TurnDecisions(decided=True, skill="hygiene", skill_p=0.3, skill_fit=0.9)
+        assert unsure.chosen_skill is None
+
+    async def test_the_choice_and_its_fit_are_read_back(self):
+        decision = Decision(
+            answers={
+                "skill": {
+                    "type": "choice",
+                    "choice": "brandschutz",
+                    "probabilities": {"brandschutz": 0.7, "none": 0.3},
+                },
+                "fits_brandschutz": {"type": "noul", "noul": 0.85},
+                "self_contained": {"type": "noul", "noul": 0.2},
+            }
+        )
+        with patch("aiq_agent.common.decisions.decide", new_callable=AsyncMock, return_value=decision):
+            decided = await decide_turn(TurnFacts(question="und in GK 4?", skills=[("brandschutz", "b")]))
+        assert decided.chosen_skill == "brandschutz" and decided.skill_fit == 0.85
+        assert decided.self_contained == 0.2 and not decided.searchable
+
+
+class TestAFollowUpIsNotSearched:
+    def test_the_question_prefetch_waits_but_the_family_overview_still_runs(self):
+        decided = TurnDecisions(
+            decided=True,
+            needs_evidence=0.9,
+            corpus="baurecht",
+            corpus_p=0.8,
+            families=(("2", 0.9),),
+            self_contained=0.1,
+        )
+        assert prefetch_calls(decided, "und in GK 4?") == [
+            {"name": "knowledge_search", "args": {"query": "OIB-Richtlinie 2"}}
+        ]
+
+    def test_unknown_self_containment_counts_as_searchable(self):
+        decided = TurnDecisions(decided=True, needs_evidence=0.9, corpus="projekt", corpus_p=0.8)
+        assert prefetch_calls(decided, "Was steht im Bescheid?") == [
+            {"name": "knowledge_search", "args": {"query": "Was steht im Bescheid?"}}
+        ]

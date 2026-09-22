@@ -71,16 +71,26 @@ is on the ledger under the `decision` role (`common/decisions.py`).
 `register.py::_decide_turn`). One request beside the skill resolution:
 `needs_evidence`, `corpus` (baurecht / projekt / buero / modell / none), one
 noul per Richtlinien-Familie the corpus holds, one noul per content card
-type the taught envelope does not already carry, and `model`. What the
+type the taught envelope does not already carry, `model`, `self_contained`
+(whether the message can be searched without the previous one — a follow-up
+cannot, and prefetching „und in GK 4?" would hand the model a block about
+nothing), and `skill`: a choice over the skills riding the prompt with
+`none`, verified by one "fits" noul per skill, which is TypeSafe's own
+skill-suggestion cookbook (rank, then check the candidate does the specific
+thing asked; abstain under 0.30). What the
 answers may do: the question and the top families' overviews run as
 **round 0** before the first LLM call (`PilotiAgent._prefetch_node`, the
 graph's entry node), through the real tools node — announced as
 `status:retrieval:0`, captured, stamped, drawn in the Herleitung, answered
 by the duplicate-fetch guard when the model asks again, and **charged to no
-round**, because no LLM decision was spent on it; the two most likely card
-types get their full shape in this turn's prompt; a model question reads
-the one skill body too long to ride the prompt (`ifc-spatial-reasoning`,
-ADR-0063) into this turn. Every tool stays bound whatever it says.
+round**, because no LLM decision was spent on it; the chosen skill's
+preferred card shapes beyond the eight the envelope teaches — what
+`use_skill` handed over with the body before ADR-0063 moved the bodies into
+the prompt, at 1.1–1.6k tokens per skill too much to carry for all nine —
+and the two most likely card types get their full shape in this turn's
+prompt (at most five shapes); a model question reads the one skill body too
+long to ride the prompt (`ifc-spatial-reasoning`, ADR-0063) into this turn.
+Every tool stays bound whatever it says.
 
 **Use 2 — the judge's yes/no** (`knowledge_layer/decisions.py`,
 `requery_decider: jev`). One noul per passage of the fused head — "does this
@@ -122,7 +132,13 @@ project-file row; `needs_evidence` 0.81–0.97, the ruling floor held; latency
 weaker: six of 27 rows put a type over 0.6, two of them doubtful
 (`change_impact` on the high-rise question, `calculation` on a parking
 question) — harmless, since a shape attached is only a shape, and the
-reason the card threshold stays at 0.6. The judge use is measured live by
+reason the card threshold stays at 0.6. The skill choice, re-run with the
+same set: the family's method on 0.74 of the rows by the family→skill map,
+and the "misses" are abstentions the cookbook is for — `none` on the two
+overview questions and the structural one, a fit of 0.21 on the
+project-file question — so a wrong skill's shapes were attached on no row.
+`self_contained` ran 0.74–0.95 on a set with no follow-ups; the false case
+is pinned by unit test only. The judge use is measured live by
 the loop eval's `judge_calls` column once it exists (audit §8 row 1).
 Nothing here rests on a calibration study, because there is none yet; the
 numbers above are one run on German questions the product actually gets.

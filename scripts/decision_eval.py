@@ -82,6 +82,11 @@ CORPUS_FILES = [
 FAMILY_TOP1_FLOOR = 0.85
 CORPUS_FLOOR = 0.90
 
+#: Which chat skill a family's question is the subject of — for REPORTING
+#: skill top-1, not for the gate: the loop-eval rows carry no expected skill,
+#: and OIB-RL 1 has no skill of its own.
+FAMILY_SKILL = {"2": "brandschutz", "3": "hygiene", "4": "nutzungssicherheit", "5": "waermeschutz", "6": "waermeschutz"}
+
 
 @dataclass
 class Row:
@@ -98,8 +103,16 @@ class Row:
     top_card: str | None = None
     top_card_p: float = 0.0
     model_p: float | None = None
+    skill: str | None = None
+    skill_p: float = 0.0
+    skill_fit: float | None = None
+    self_contained: float | None = None
     latency_ms: int = 0
     decided: bool = False
+
+    @property
+    def expected_skill(self) -> str | None:
+        return FAMILY_SKILL.get(self.expected_family or "")
 
     @property
     def family_hit(self) -> bool | None:
@@ -133,10 +146,17 @@ async def _evaluate(questions_path: Path) -> list[Row]:
     from aiq_agent.cards.catalog import card_index_entries
     from aiq_agent.cards.envelope import ENVELOPE_SHAPE_TYPES
     from aiq_agent.common.norm_registry import oib_families
+    from aiq_agent.skills.builtin import discover_builtin_skills
+    from aiq_agent.skills.resolver import _skill_applies_to_agent
     from scripts.loop_eval import load_questions
 
     families = oib_families(CORPUS_FILES)
     cards = [entry for entry in card_index_entries() if entry[0] not in ENVELOPE_SHAPE_TYPES]
+    skills = [
+        (skill.name, " ".join(skill.description.split()))
+        for skill in discover_builtin_skills()
+        if _skill_applies_to_agent(skill, "researcher") and len(skill.body) <= 2400
+    ]
     rows: list[Row] = []
     for question in load_questions(questions_path):
         row = Row(
@@ -145,7 +165,9 @@ async def _evaluate(questions_path: Path) -> list[Row]:
             expected_family=expected_family(question.family),
             expected_corpus=expected_corpus(question.family),
         )
-        facts = TurnFacts(question=question.question, families=families, card_types=cards, offers_model_skill=True)
+        facts = TurnFacts(
+            question=question.question, families=families, card_types=cards, offers_model_skill=True, skills=skills
+        )
         decided = await decide_turn(facts)
         row.decided = decided.decided
         if decided.decided:
@@ -158,12 +180,15 @@ async def _evaluate(questions_path: Path) -> list[Row]:
             if decided.cards:
                 row.top_card, row.top_card_p = max(decided.cards, key=lambda c: c[1])
             row.model_p = decided.model
+            row.skill, row.skill_p, row.skill_fit = decided.skill, decided.skill_p, decided.skill_fit
+            row.self_contained = decided.self_contained
             row.latency_ms = decided.latency_ms
         rows.append(row)
         print(
             f"{row.id:36s} evidence={row.needs_evidence or 0:.2f} corpus={row.corpus}({row.corpus_p:.2f}) "
             f"family={row.top_family}({row.top_family_p:.2f}) expected={row.expected_family} "
-            f"card={row.top_card}({row.top_card_p:.2f}) {row.latency_ms}ms"
+            f"skill={row.skill}({row.skill_p:.2f}/fit {row.skill_fit or 0:.2f}) "
+            f"card={row.top_card}({row.top_card_p:.2f}) self={row.self_contained or 0:.2f} {row.latency_ms}ms"
         )
     return rows
 
@@ -176,10 +201,15 @@ def summarise(rows: list[Row]) -> dict[str, float | int | bool]:
     family_top1 = sum(1 for r in family_rows if r.family_hit) / len(family_rows) if family_rows else 0.0
     corpus_rate = sum(1 for r in corpus_rows if r.corpus_hit) / len(corpus_rows) if corpus_rows else 0.0
     evidence_floor_held = all((r.needs_evidence or 0.0) >= 0.5 for r in ruling_rows)
+    skill_rows = [r for r in decided if r.expected_skill is not None]
+    skill_top1 = sum(1 for r in skill_rows if r.skill == r.expected_skill) / len(skill_rows) if skill_rows else 0.0
+    self_contained_rate = sum(1 for r in decided if (r.self_contained or 0.0) >= 0.5) / len(decided) if decided else 0.0
     return {
         "questions": len(rows),
         "decided": len(decided),
         "family_top1": round(family_top1, 3),
+        "skill_top1_informational": round(skill_top1, 3),
+        "self_contained_rate": round(self_contained_rate, 3),
         "corpus_baurecht_rate": round(corpus_rate, 3),
         "ruling_evidence_floor_held": evidence_floor_held,
         "mean_latency_ms": int(sum(r.latency_ms for r in decided) / len(decided)) if decided else 0,
@@ -216,6 +246,10 @@ def write_csv(rows: list[Row], path: Path) -> None:
         "corpus",
         "corpus_p",
         "needs_evidence",
+        "skill",
+        "skill_p",
+        "skill_fit",
+        "self_contained",
         "top_card",
         "top_card_p",
         "model_p",

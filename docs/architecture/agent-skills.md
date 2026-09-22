@@ -405,7 +405,12 @@ Piloti; deep research sets neither and keeps the catalog). The inlined bodies
 render as `<skill name="…">` elements under `## Skills`, the rest as one line
 each under `### Available by name`. The model names the inlined skills it
 followed in the envelope's `skills_applied`; the runtime accepts a name only
-when that body was in the prompt, and that is what makes it `activated`. The
+when that body was in the prompt, and that is what makes it `activated`. An
+inlined skill's `grid-cards` ride as names only; the FULL shapes `use_skill`
+appends are attached per turn by the turn-start decision (ADR-0064), for the
+one skill it chose and verified, so a Brandschutz question still has
+`fire_compartment` in front of the model without every turn paying for all
+nine skills' shapes. The
 nine chat-facing platform methods fit the default budget together (~4,600
 tokens, cached with the prefix within a turn); `ifc-spatial-reasoning` and any
 long org method stay a line.

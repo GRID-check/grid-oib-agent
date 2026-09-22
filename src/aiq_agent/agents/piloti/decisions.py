@@ -21,6 +21,18 @@ whose answer can only ADD to the turn:
 - ``model``: whether the question is about the building model, which reads
   the one skill body too long to ride the prompt (``ifc-spatial-reasoning``)
   into this turn.
+- ``skill``, a choice over the skills riding the prompt with "none", and one
+  "fits" noul per skill (TypeSafe's own skill-suggestion cookbook: rank,
+  then verify the candidate does the specific thing asked; its abstention
+  is what keeps a wrong skill from being pushed). What it may do: attach
+  the chosen skill's PREFERRED CARD shapes beyond the eight the envelope
+  already teaches. That is what ``use_skill`` used to hand over with the
+  body (ADR-0063 moved the bodies into the prompt and left the shapes
+  behind, at ~1.1-1.6k tokens per skill too much to carry for all nine);
+  the body itself is already in front of the model and stays an offer.
+- ``self_contained``: whether the message can be searched on its own. A
+  follow-up („und in GK 4?") cannot, and prefetching it would hand the model
+  a grounding block about nothing; the family overviews still run.
 
 One request, every question over one state — the vendor evaluates them
 independently — and the state is built from structured fields, never the
@@ -72,6 +84,16 @@ MAX_CARD_SHAPES = 2
 #: The chosen corpus must reach this before its prefetch runs.
 CORPUS_THRESHOLD = 0.5
 MODEL_THRESHOLD = 0.6
+#: A skill's shapes are attached when the choice lands on it at this
+#: probability AND its own "fits" noul reaches ``SKILL_FIT_THRESHOLD``. The
+#: cookbook rejects a shortlist whose best fit is under 0.30; a shape attached
+#: is cheaper than a body loaded, so the bar is not higher here.
+SKILL_THRESHOLD = 0.4
+SKILL_FIT_THRESHOLD = 0.3
+#: Below this p(self_contained) the message itself is not searched.
+SELF_CONTAINED_THRESHOLD = 0.5
+#: How many card shapes the turn may attach in all (skill's plus the nouls').
+MAX_ATTACHED_SHAPES = 5
 
 #: The corpora a question can live in, with the criteria the decider reads.
 #: ``modell`` and ``none`` prefetch nothing; the others prefetch one search.
@@ -131,6 +153,10 @@ class TurnDecisions:
     families: tuple[tuple[str, float], ...] = ()
     cards: tuple[tuple[str, float], ...] = ()
     model: float | None = None
+    skill: str | None = None
+    skill_p: float = 0.0
+    skill_fit: float | None = None
+    self_contained: float | None = None
     latency_ms: int = 0
 
     @staticmethod
@@ -144,6 +170,20 @@ class TurnDecisions:
     @property
     def wants_model_skill(self) -> bool:
         return self.decided and (self.model or 0.0) >= MODEL_THRESHOLD
+
+    @property
+    def chosen_skill(self) -> str | None:
+        """The skill whose card shapes ride this turn, or None (the cookbook's abstention)."""
+        if not self.decided or not self.skill or self.skill == "none":
+            return None
+        if self.skill_p < SKILL_THRESHOLD or (self.skill_fit or 0.0) < SKILL_FIT_THRESHOLD:
+            return None
+        return self.skill
+
+    @property
+    def searchable(self) -> bool:
+        """Whether the message itself is worth a search: unknown counts as yes."""
+        return self.self_contained is None or self.self_contained >= SELF_CONTAINED_THRESHOLD
 
     def chosen_families(self) -> list[str]:
         ranked = sorted((f for f in self.families if f[1] >= FAMILY_THRESHOLD), key=lambda f: -f[1])
@@ -166,9 +206,15 @@ class TurnFacts:
     archive_files: int = 0
     card_types: Sequence[tuple[str, str]] = ()
     offers_model_skill: bool = False
+    #: ``(name, description)`` of the skills riding the prompt this turn.
+    skills: Sequence[tuple[str, str]] = ()
+    #: The user's previous message, bounded — what a follow-up refers to.
+    previous_message: str | None = None
 
     def state(self) -> dict[str, Any]:
         state: dict[str, Any] = {"message": self.question[:1000], "language": "de"}
+        if self.previous_message:
+            state["previous_message"] = self.previous_message[:300]
         if self.focus_file_name:
             state["open_document"] = self.focus_file_name
         if self.project_facts:
@@ -211,6 +257,27 @@ def questions_for(facts: TurnFacts) -> dict[str, dict[str, Any]]:
             true=f"The answer would contain exactly what this card shows: {doc}",
             false="The answer is prose, a value, or a different kind of structure.",
         )
+    questions["self_contained"] = noul(
+        "Can this message be searched for on its own, without the previous message, and still find what it asks about?",
+        true=("The message names its own subject: the rule, the document, the element, the value it asks about."),
+        false=(
+            "The message refers to something only the previous message names — 'und in GK 4?', 'was gilt "
+            "dort?', 'und das zweite?' — or is a bare follow-up word such as 'warum', 'genauer', 'mehr'."
+        ),
+    )
+    if facts.skills:
+        options = {name: description for name, description in facts.skills}
+        options["none"] = "No listed working method is about this message, or it needs none."
+        questions["skill"] = choice(
+            "Which of these working methods, if any, is the one for this message? Read what each does, not its name.",
+            options,
+        )
+        for name, description in facts.skills:
+            questions[f"fits_{name}"] = noul(
+                f"Does the working method '{name}' do the specific thing this message asks for?",
+                true=f"The message is exactly the case this method is written for: {description}",
+                false="The message is about something else, or only shares a word with the method's name.",
+            )
     if facts.offers_model_skill:
         questions["model"] = noul(
             "Is this message about the building model (IFC/BIM) rather than about a regulation or a document?",
@@ -235,6 +302,7 @@ async def decide_turn(facts: TurnFacts, *, organization_id: str | None = None) -
     cards = tuple(
         (card_type, p) for card_type, _ in facts.card_types if (p := decision.noul(f"card_{card_type}")) is not None
     )
+    skill, skill_distribution = decision.choice("skill")
     decided = TurnDecisions(
         decided=True,
         needs_evidence=decision.noul("needs_evidence"),
@@ -243,16 +311,22 @@ async def decide_turn(facts: TurnFacts, *, organization_id: str | None = None) -
         families=families,
         cards=cards,
         model=decision.noul("model"),
+        skill=skill,
+        skill_p=skill_distribution.get(skill or "", 0.0),
+        skill_fit=decision.noul(f"fits_{skill}") if skill and skill != "none" else None,
+        self_contained=decision.noul("self_contained"),
         latency_ms=decision.latency_ms,
     )
     logger.info(
-        "Turn decision in %d ms: evidence=%.2f corpus=%s(%.2f) families=%s cards=%s",
+        "Turn decision in %d ms: evidence=%.2f corpus=%s(%.2f) families=%s skill=%s cards=%s self_contained=%s",
         decided.latency_ms,
         decided.needs_evidence or 0.0,
         decided.corpus,
         decided.corpus_p,
         decided.chosen_families(),
+        decided.chosen_skill,
         decided.chosen_cards(),
+        decided.self_contained,
     )
     return decided
 
@@ -260,8 +334,9 @@ async def decide_turn(facts: TurnFacts, *, organization_id: str | None = None) -
 def prefetch_calls(decisions: TurnDecisions, question: str) -> list[dict[str, Any]]:
     """The tool calls round 0 runs, as the agent's tools node reads them.
 
-    The question itself, when the corpus is one the knowledge tool searches;
-    and, when the question is NOT itself a family overview, the chosen
+    The question itself, when the corpus is one the knowledge tool searches
+    and the message can be searched on its own (a follow-up cannot); and,
+    when the question is NOT itself a family overview, the chosen
     families' overviews — ``knowledge_search`` recognises ``OIB-Richtlinie n``
     as a family query and returns every member's scope and Gliederung. Nothing
     for the model corpus (a measurement needs the model, not a search) and
@@ -276,10 +351,28 @@ def prefetch_calls(decisions: TurnDecisions, question: str) -> list[dict[str, An
     query = " ".join((question or "").split())[:300]
     if not query:
         return []
-    calls: list[dict[str, Any]] = [{"name": KNOWLEDGE_SEARCH, "args": {"query": query}}]
+    calls: list[dict[str, Any]] = []
+    if decisions.searchable:
+        calls.append({"name": KNOWLEDGE_SEARCH, "args": {"query": query}})
     if decisions.corpus == "baurecht" and family_query_number(query) is None:
         calls.extend(
             {"name": KNOWLEDGE_SEARCH, "args": {"query": f"OIB-Richtlinie {key}"}}
             for key in decisions.chosen_families()
         )
     return calls
+
+
+def attached_card_types(decisions: TurnDecisions, skill_cards: Mapping[str, Sequence[str]]) -> list[str]:
+    """The card types whose full shape rides this turn's prompt, in order, capped.
+
+    The chosen skill's preferred cards first — the shapes ``use_skill`` used
+    to hand over with the body — then the types the card nouls picked; each
+    once, at most ``MAX_ATTACHED_SHAPES``. Types the taught envelope already
+    carries (``ENVELOPE_SHAPE_TYPES``) are left out by the caller's list.
+    """
+    ordered: list[str] = []
+    skill = decisions.chosen_skill
+    for card_type in [*(skill_cards.get(skill, ()) if skill else ()), *decisions.chosen_cards()]:
+        if card_type not in ordered:
+            ordered.append(card_type)
+    return ordered[:MAX_ATTACHED_SHAPES]

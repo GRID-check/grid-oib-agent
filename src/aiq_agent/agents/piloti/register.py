@@ -63,6 +63,7 @@ from .agent import TurnConfig
 from .decisions import MODEL_SKILL
 from .decisions import TurnDecisions
 from .decisions import TurnFacts
+from .decisions import attached_card_types
 from .decisions import decide_turn
 from .decisions import prefetch_calls
 from .models import ResearchAgentState
@@ -366,14 +367,15 @@ def _turn_facts(state: ResearchAgentState, runtime: SkillRuntime | None) -> Turn
     from aiq_agent.common.source_kinds import Shelf
     from aiq_agent.knowledge.inventory import get_norm_families
 
-    question = ""
-    for message in reversed(state.messages):
-        if isinstance(message, HumanMessage):
-            question = str(message.content) if isinstance(message.content, str) else ""
-            break
+    humans = [str(m.content) for m in state.messages if isinstance(m, HumanMessage) and isinstance(m.content, str)]
+    question = humans[-1] if humans else ""
+    previous = humans[-2] if len(humans) > 1 else None
     documents = state.available_documents or []
+    inlined = tuple(runtime.inlined) if runtime is not None else ()
     return TurnFacts(
         question=question,
+        previous_message=previous,
+        skills=[(skill.name, " ".join(skill.description.split())) for skill in inlined],
         focus_file_name=state.focus_file_name,
         project_facts={k: str(v) for k, v in facts_from_project_context(state.project_context or "").items()},
         families=get_norm_families(),
@@ -398,10 +400,22 @@ async def _decide_turn(
 
 
 def _apply_decisions(decisions: TurnDecisions, state: ResearchAgentState, runtime: SkillRuntime | None) -> None:
-    """The two prompt-side effects: the IFC skill body, and the likely card shapes."""
+    """The two prompt-side effects: the IFC skill body, and the likely card shapes.
+
+    The shapes are the chosen skill's preferred cards beyond the eight the
+    envelope teaches — what ``use_skill`` used to hand over with the body —
+    then the card nouls' picks, capped (``attached_card_types``).
+    """
+    from aiq_agent.cards.envelope import ENVELOPE_SHAPE_TYPES
+    from aiq_agent.skills.models import preferred_cards
+
     if runtime is not None and decisions.wants_model_skill:
         runtime.inline_also((MODEL_SKILL,))
-    chosen = decisions.chosen_cards()
+    skill_cards = {
+        skill.name: [card for card in preferred_cards(skill.metadata) if card not in ENVELOPE_SHAPE_TYPES]
+        for skill in (runtime.skills if runtime is not None else ())
+    }
+    chosen = attached_card_types(decisions, skill_cards)
     if chosen:
         from aiq_agent.cards.catalog import render_card_details
 

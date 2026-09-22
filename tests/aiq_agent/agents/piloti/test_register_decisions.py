@@ -47,7 +47,13 @@ class _FakeBuilder:
 
 def _ifc_runtime() -> SkillRuntime:
     ifc = Skill(name=MODEL_SKILL, description="model", body="x" * 5000, origin="platform")
-    short = Skill(name="gebaeudeklasse", description="gk", body="short", origin="platform")
+    short = Skill(
+        name="brandschutz",
+        description="Brandabschnitt, Fluchtweg.",
+        body="short",
+        metadata={"grid-cards": "fire_compartment,egress_diagram,legal_basis"},
+        origin="platform",
+    )
     return SkillRuntime(skills=(short, ifc), inline_max_body_chars=2400, inline_budget_chars=16000)
 
 
@@ -60,6 +66,8 @@ class TestTheFacts:
         )
         facts = _turn_facts(state, _ifc_runtime())
         assert facts.question == "Wie hoch?" and facts.focus_file_name == "EG.pdf"
+        # The skills riding the prompt are offered to the choice; the IFC body is not inlined yet.
+        assert facts.skills == [("brandschutz", "Brandabschnitt, Fluchtweg.")]
         assert facts.project_facts == {"gebaeudeklasse": "4"}
         assert facts.offers_model_skill
         # The card types are the content cards beyond the taught eight.
@@ -82,6 +90,22 @@ class TestTheEffects:
         )
         assert state.card_shapes_block and "fire_compartment" in state.card_shapes_block
         assert "stair_diagram" not in state.card_shapes_block
+
+    def test_the_chosen_skills_preferred_shapes_beyond_the_eight_ride_the_turn(self):
+        state = ResearchAgentState(messages=[])
+        decided = TurnDecisions(decided=True, skill="brandschutz", skill_p=0.8, skill_fit=0.9)
+        _apply_decisions(decided, state, _ifc_runtime())
+        block = state.card_shapes_block or ""
+        assert "fire_compartment" in block and "egress_diagram" in block
+        # `legal_basis` is one of the eight the envelope already teaches.
+        assert '"legal_basis"' not in block
+
+    def test_a_second_human_message_becomes_the_previous_message(self):
+        state = ResearchAgentState(
+            messages=[HumanMessage(content="Wie hoch ist die GK?"), HumanMessage(content="und in GK 4?")]
+        )
+        facts = _turn_facts(state, None)
+        assert facts.question == "und in GK 4?" and facts.previous_message == "Wie hoch ist die GK?"
 
     def test_no_decision_changes_nothing(self):
         state = ResearchAgentState(messages=[])

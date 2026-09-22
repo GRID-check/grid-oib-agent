@@ -661,6 +661,8 @@ loop-eval column that must move and the one that must not.
 | the search-before-reading round (§8.2) | ADR-0064: the turn-start decision names the question and the top families; they run as round 0 through the tools node, charged to nothing | `test_prefetch_round.py`, through the compiled graph; `test_turn_decisions.py` |
 | the frontier judge on every search (J2) | per-passage nouls decide sufficiency; the judge writes phrasings only on the insufficient case | `test_decisions_in_retrieval.py` |
 | the last skill round (`ifc-spatial-reasoning`) | the decision's `model` answer reads it into the turn | `test_register_decisions.py` |
+| the shapes the inlined skills lost (`fire_compartment`, `guardrail_check`, …) | the decision's `skill` choice, verified by a fit noul, attaches the chosen skill's shapes beyond the eight | `test_turn_decisions.py::TestTheSkillsShapes` |
+| cards dropped under 800 characters of prose | the floor was the price of a card round; the round is gone, the floor is 400 | `test_answer_pipeline_suppression.py` |
 
 **Open**, ranked:
 

@@ -615,13 +615,19 @@ def _normative_claim_uncited(content: str, grounding: _Grounding) -> bool:
 
 
 #: Short-overview card floor. Below this a non-ruling answer without a
-#: copyable verdict has not earned cards: the prose IS the answer, and the
-#: describe_card + emit_card generations (each a full-context LLM round,
-#: ~2 s in the production trace) buy the reader nothing to copy. Mirrors the
-#: takeaway floor's judgement (600) with headroom: cards are heavier than
-#: takeaways, so they are earned later. Mechanical only — the prompt doctrine
-#: that teaches WHEN to emit is untouched.
-_CARD_SUPPRESS_MIN_PROSE_CHARS = 800
+#: copyable verdict has not earned cards: the prose IS the answer and a card
+#: under it is a trailer on a one-screen reply. It was 800 while a card cost
+#: a full-context LLM round (the describe_card + emit_card generations, ~2 s
+#: in the production trace) — a cost worth refusing on a short answer. Cards
+#: travel in the answer envelope now (``cards/envelope.py``) and cost no
+#: round, so what remains of the argument is the degenerate case: a
+#: two-sentence reply with a checklist hung under it. 400 characters is
+#: about three sentences, the length at which the prompt starts owing a
+#: `summary`; below the takeaway floor (600) on purpose, because a short
+#: answer with one table is richer than the same answer without it, and a
+#: table is not a takeaway list. Mechanical only — the prompt doctrine that
+#: teaches WHEN to emit is untouched.
+_CARD_SUPPRESS_MIN_PROSE_CHARS = 400
 
 #: The marker emit_card hands back (``[[card:N]]``); stripped when cards are
 #: suppressed so the reader never meets a marker with nothing behind it.
@@ -679,7 +685,7 @@ def _suppress_cards(content: str, gated_meta: dict[str, Any] | None) -> tuple[st
     Two vetoes, both read off the registry snapshot before anything is
     cleared. System cards are the product, not the trailer: ``document_draft``
     (and every other ``SYSTEM_CARD_TYPES`` member) is pushed by the tool that
-    did the work, and a short drafting answer (kind=direct, <800 chars, no
+    did the work, and a short drafting answer (kind=direct, <400 chars, no
     verdict) matches the suppression floor exactly. Clearing the registry
     there would eat the announcement of the work just done, so any system
     card in the registry vetoes the whole suppression — cards, markers and
