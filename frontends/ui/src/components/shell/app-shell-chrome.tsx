@@ -84,7 +84,7 @@ export function AppShellChrome({
   const inProject = projectId !== null
 
   return (
-    <ProductTour>
+    <ProductTour canAccessArchiv={chrome.canAccessArchiv} canAccessInbox={chrome.canAccessInbox}>
     <div
       className={cn(
         'bg-background text-foreground flex h-dvh overflow-hidden',

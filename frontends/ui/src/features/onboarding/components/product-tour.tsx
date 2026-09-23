@@ -1,21 +1,23 @@
 'use client'
 
 /**
- * The product tour: a short, skippable walk through the org scope for someone
- * who has just created their organization.
+ * The product tours: short, skippable walks for someone new — the org scope
+ * right after they create their organization (`welcome`), and the inside of a
+ * project right after they set up their first one (`project`). Which stops each
+ * has, and why, is in `../lib/product-tour.ts`.
  *
  * Positioning, the spotlight and the overlay are bought, not built: NextStep
  * (`nextstepjs`, the maintained fork of Onborda) animates with the `motion`
  * package this app already ships and takes a custom card, so the tour is drawn
  * with our own {@link TourCard} instead of a restyled library default. What
- * this file owns is the product half: which stops exist, their copy, when the
- * tour starts, and what it reports.
+ * this file owns is the product half: copy, when a tour starts, and what it
+ * reports.
  *
- * WHEN IT RUNS. Only on the projects home, and only when asked: onboarding
- * lands on `TOUR_START_URL` once the organization exists, and the account
- * menu offers it again ({@link useStartProductTour}). There is no "seen it"
- * flag to go stale — a tour nobody asked for is the one people learn to
- * dismiss unread.
+ * WHEN IT RUNS. Only when asked: onboarding lands on `?tour=welcome`, the
+ * intake wizard's first save on `?tour=project`, and the account menu starts
+ * whichever tour belongs to the page it is opened on
+ * ({@link useStartProductTour}). There is no "seen it" flag to go stale — a
+ * tour nobody asked for is the one people learn to dismiss unread.
  *
  * LAYOUT. NextStep wraps its children in two block `div`s. The shell is
  * `h-dvh` with its own scroll container, so wrapping it whole is harmless; the
@@ -35,46 +37,50 @@ import { MOD } from '@/components/shell/shortcuts'
 import { useTranslations } from '@/i18n'
 import { capturePosthog } from '@/lib/analytics/posthog'
 import {
-  PRODUCT_TOUR,
-  TOUR_ANCHORS,
-  TOUR_HOME,
-  TOUR_STOPS,
+  ARRIVAL_ANCHOR,
+  TOURS,
+  TOUR_START_URL,
   placeStops,
-  requestsTour,
+  requestedTour,
   tourAnchorSelector,
-  tourStartUrl,
+  tourForPath,
+  type AnchorBox,
   type PlacedTourStop,
-  type TourStop,
+  type TourFlags,
+  type TourId,
 } from '../lib/product-tour'
 
-/** How long arrival waits for the projects page to render its first anchor. */
+/** How long arrival waits for the page to render the tour's first anchor. */
 const ARRIVAL_TIMEOUT_MS = 5000
 const ARRIVAL_POLL_MS = 100
+/** A beat for the page to settle before a tour that waits for nothing. */
+const ARRIVAL_SETTLE_MS = 400
 
 const StartTourContext = React.createContext<(() => void) | null>(null)
 
-export interface ProductTourProps {
+export interface ProductTourProps extends TourFlags {
   children: React.ReactNode
   /**
-   * The page the tour runs on. The product only ever uses the projects home;
-   * the `/dev/product-tour` preview passes its own path so the real tour can
-   * run against fixtures.
+   * Which tour belongs on a pathname. The product derives it from the route
+   * (`tourForPath`); the `/dev/product-tour` preview pins one so the real tour
+   * can run against fixtures on a `/dev` path.
    */
-  home?: string
+  tourAt?: (pathname: string) => TourId | null
 }
 
-export function ProductTour({ children, home = TOUR_HOME }: ProductTourProps): JSX.Element {
+export function ProductTour({ children, ...options }: ProductTourProps): JSX.Element {
   return (
     <NextStepProvider>
-      <ProductTourRunner home={home}>{children}</ProductTourRunner>
+      <ProductTourRunner {...options}>{children}</ProductTourRunner>
     </NextStepProvider>
   )
 }
 
 /**
- * Starts the tour: in place on the projects home, otherwise by navigating
- * there. Returns a no-op outside {@link ProductTour}, so a menu rendered in a
- * dev preview without the shell does not crash.
+ * Starts the tour that belongs to the current page, in place; from a page with
+ * no tour, goes to the projects home and starts the welcome tour there. A
+ * no-op outside {@link ProductTour}, so a menu rendered in a dev preview
+ * without the shell does not crash.
  */
 export function useStartProductTour(): () => void {
   return React.useContext(StartTourContext) ?? noop
@@ -82,60 +88,80 @@ export function useStartProductTour(): () => void {
 
 function noop(): void {}
 
-function ProductTourRunner({ children, home }: Required<ProductTourProps>): JSX.Element {
+function ProductTourRunner({
+  children,
+  canAccessArchiv,
+  canAccessInbox,
+  tourAt = tourForPath,
+}: ProductTourProps): JSX.Element {
   const pathname = usePathname() ?? ''
   const router = useRouter()
   const reduceMotion = useReducedMotion()
   const { startNextStep } = useNextStep()
   const t = useTranslations('onboarding.tour')
-  const [stops, setStops] = React.useState<PlacedTourStop[]>([])
+  const [active, setActive] = React.useState<{ tour: TourId; stops: PlacedTourStop[] } | null>(null)
+  const here = tourAt(pathname)
 
   // Both state updates land in one render, so NextStep sees the new steps on
   // the same pass that opens the tour.
-  const startHere = React.useCallback(() => {
-    setStops(placeStops(TOUR_STOPS, locateAnchor, window.innerWidth))
-    startNextStep(PRODUCT_TOUR)
-  }, [startNextStep])
+  const startHere = React.useCallback(
+    (tour: TourId) => {
+      const stops = placeStops(TOURS[tour], { canAccessArchiv, canAccessInbox }, locateAnchor, {
+        width: window.innerWidth,
+        height: window.innerHeight,
+      })
+      setActive({ tour, stops })
+      startNextStep(tour)
+    },
+    [canAccessArchiv, canAccessInbox, startNextStep],
+  )
 
   const start = React.useCallback(() => {
-    if (pathname === home) startHere()
-    else router.push(tourStartUrl(home))
-  }, [home, pathname, router, startHere])
+    if (here) startHere(here)
+    else router.push(TOUR_START_URL)
+  }, [here, router, startHere])
 
-  // Arrival via `?tour=welcome`: drop the parameter so a reload does not
-  // replay the tour, then wait for the page to render the first anchor. The
-  // projects home streams in behind a loading state, so "mounted" is not yet
-  // "on screen".
+  // Arrival via `?tour=`: drop the parameter so a reload does not replay the
+  // tour, then wait for the page to render what the tour points at first.
   React.useEffect(() => {
-    if (pathname !== home || !requestsTour(window.location.search)) return
-    router.replace(home, { scroll: false })
-    const firstAnchor = tourAnchorSelector(TOUR_ANCHORS.createProject)
+    const tour = requestedTour(window.location.search)
+    if (!tour || tour !== here) return
+    router.replace(pathname, { scroll: false })
+    const anchor = ARRIVAL_ANCHOR[tour]
     const startedAt = Date.now()
     const timer = window.setInterval(() => {
-      const ready = document.querySelector(firstAnchor) !== null
-      if (!ready && Date.now() - startedAt < ARRIVAL_TIMEOUT_MS) return
+      const elapsed = Date.now() - startedAt
+      const ready = anchor
+        ? locateAnchor(tourAnchorSelector(anchor)) !== null
+        : elapsed >= ARRIVAL_SETTLE_MS
+      if (!ready && elapsed < ARRIVAL_TIMEOUT_MS) return
       window.clearInterval(timer)
-      startHere()
+      startHere(tour)
     }, ARRIVAL_POLL_MS)
     return () => window.clearInterval(timer)
-  }, [home, pathname, router, startHere])
+  }, [here, pathname, router, startHere])
 
   const tours = React.useMemo(
-    () => [
-      {
-        tour: PRODUCT_TOUR,
-        steps: stops.map((stop) => ({
-          title: t(`stops.${stop.id}.title`),
-          content: <StopBody stop={stop} />,
-          selector: stop.anchor ? tourAnchorSelector(stop.anchor) : undefined,
-          side: stop.side,
-          pointerPadding: 12,
-          pointerRadius: 12,
-        })),
-      },
-    ],
-    [stops, t],
+    () =>
+      active
+        ? [
+            {
+              tour: active.tour,
+              steps: active.stops.map((stop) => ({
+                title: t(`stops.${stop.id}.title`),
+                content: <StopBody stop={stop} />,
+                selector: stop.side && stop.anchor ? tourAnchorSelector(stop.anchor) : undefined,
+                side: stop.side,
+                pointerPadding: 12,
+                pointerRadius: 12,
+              })),
+            },
+          ]
+        : [],
+    [active, t],
   )
+
+  const stopCount = active?.stops.length ?? 0
 
   return (
     <StartTourContext.Provider value={start}>
@@ -150,9 +176,14 @@ function ProductTourRunner({ children, home }: Required<ProductTourProps>): JSX.
         // library's end-of-tour `window.scrollTo` would be a no-op at best.
         scrollToTop={false}
         disableConsoleLogs
-        onComplete={() => capturePosthog('product_tour_completed', { stops: stops.length })}
-        onSkip={(step) =>
-          capturePosthog('product_tour_skipped', { step, stop: stops[step]?.id, stops: stops.length })
+        onComplete={(tour) => capturePosthog('product_tour_completed', { tour, stops: stopCount })}
+        onSkip={(step, tour) =>
+          capturePosthog('product_tour_skipped', {
+            tour,
+            step,
+            stop: active?.stops[step]?.id,
+            stops: stopCount,
+          })
         }
       >
         {children}
@@ -161,11 +192,12 @@ function ProductTourRunner({ children, home }: Required<ProductTourProps>): JSX.
   )
 }
 
-function locateAnchor(selector: string): { left: number; right: number } | null {
+/** An anchor's box, or null when it is absent or not laid out (a closed drawer). */
+function locateAnchor(selector: string): AnchorBox | null {
   const element = document.querySelector(selector)
   if (!element) return null
-  const { left, right } = element.getBoundingClientRect()
-  return { left, right }
+  const { left, right, top, bottom } = element.getBoundingClientRect()
+  return right > left && bottom > top ? { left, right, top, bottom } : null
 }
 
 function ProductTourCard({
@@ -198,35 +230,60 @@ function ProductTourCard({
   )
 }
 
-/** A stop's body. The shortcuts stop shows real keycaps, not a spelled-out "Cmd". */
-function StopBody({ stop }: { stop: TourStop }): JSX.Element {
+/**
+ * A stop's body. Most are one paragraph; the shortcuts stop shows real keycaps,
+ * and the Files-or-Archiv stop sets the two side by side, because "which one
+ * does this document go in" is the question it exists to answer.
+ */
+function StopBody({ stop }: { stop: PlacedTourStop }): JSX.Element {
   const t = useTranslations('onboarding.tour')
-  if (stop.id !== 'shortcuts') return <p>{t(`stops.${stop.id}.body`)}</p>
-
-  return (
-    <div className="space-y-3">
-      <p>{t('stops.shortcuts.body')}</p>
-      <dl className="space-y-2">
-        <ShortcutRow label={t('stops.shortcuts.palette')} segments={[{ kind: 'chord', caps: [MOD, 'K'] }]} />
-        <ShortcutRow label={t('stops.shortcuts.cheatsheet')} segments={[{ kind: 'chord', caps: ['?'] }]} />
-      </dl>
-    </div>
-  )
+  if (stop.id === 'shortcuts') {
+    return (
+      <div className="space-y-3">
+        <p>{t('stops.shortcuts.body')}</p>
+        <dl className="space-y-2">
+          <TourDetailRow term={t('stops.shortcuts.palette')}>
+            <ShortcutKeys segments={[{ kind: 'chord', caps: [MOD, 'K'] }]} />
+          </TourDetailRow>
+          <TourDetailRow term={t('stops.shortcuts.cheatsheet')}>
+            <ShortcutKeys segments={[{ kind: 'chord', caps: ['?'] }]} />
+          </TourDetailRow>
+        </dl>
+      </div>
+    )
+  }
+  if (stop.id === 'filesOrArchiv') {
+    return (
+      <div className="space-y-3">
+        <p>{t('stops.filesOrArchiv.body')}</p>
+        <dl className="space-y-2.5">
+          <TourDetailRow term={t('stops.filesOrArchiv.filesTerm')} stacked>
+            {t('stops.filesOrArchiv.filesDetail')}
+          </TourDetailRow>
+          <TourDetailRow term={t('stops.filesOrArchiv.archivTerm')} stacked>
+            {t('stops.filesOrArchiv.archivDetail')}
+          </TourDetailRow>
+        </dl>
+      </div>
+    )
+  }
+  return <p>{t(`stops.${stop.id}.body`)}</p>
 }
 
-function ShortcutRow({
-  label,
-  segments,
+/** One term and its detail inside a stop: side by side, or stacked for prose. */
+function TourDetailRow({
+  term,
+  stacked = false,
+  children,
 }: {
-  label: string
-  segments: React.ComponentProps<typeof ShortcutKeys>['segments']
+  term: string
+  stacked?: boolean
+  children: React.ReactNode
 }): JSX.Element {
   return (
-    <div className="flex items-center justify-between gap-3">
-      <dt className="text-foreground">{label}</dt>
-      <dd>
-        <ShortcutKeys segments={segments} />
-      </dd>
+    <div className={stacked ? 'space-y-0.5' : 'flex items-center justify-between gap-3'}>
+      <dt className="text-foreground font-medium">{term}</dt>
+      <dd>{children}</dd>
     </div>
   )
 }

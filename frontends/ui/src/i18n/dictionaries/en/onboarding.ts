@@ -58,11 +58,11 @@ export const onboarding = {
       },
       createProject: {
         title: 'Start with a project',
-        body: 'A project holds one building: its plans and documents, the people working on it, and a chat that answers from OIB guidelines and Austrian building law, with every source cited.',
+        body: 'A project holds one building: its plans and documents, the people working on it, and a chat that answers from OIB guidelines and Austrian building law, with every source cited. A short setup asks about the building, then we show you around inside.',
       },
       archiv: {
         title: 'Archiv',
-        body: 'Your office’s shared knowledge — reference documents and proven details, available in every project.',
+        body: 'Your office’s shared documents — standard details, specifications, templates. File something here once and every project can draw on it.',
       },
       inbox: {
         title: 'Inbox',
@@ -77,6 +77,38 @@ export const onboarding = {
         body: 'Two keys get you almost anywhere.',
         palette: 'Jump to anything',
         cheatsheet: 'All shortcuts',
+      },
+      projectWelcome: {
+        title: 'Your project is set up',
+        body: 'Piloti now knows the basics of this building. Here is where the work happens.',
+      },
+      projectChat: {
+        title: 'Ask Piloti',
+        body: 'Ask about this building in plain language: fire compartments, escape routes, accessibility, energy. Answers draw on building law, OIB guidelines and your own documents.',
+      },
+      projectFiles: {
+        title: 'Files: this project’s documents',
+        body: 'Upload plans, reports and correspondence for this building. Once a file is indexed, Piloti can quote it — only inside this project.',
+      },
+      projectArchiv: {
+        title: 'Archiv: your office’s documents',
+        body: 'The Archiv sits above your projects, and every project searches it automatically. It starts empty: admins add documents, and everyone in the organization can read and cite them.',
+      },
+      filesOrArchiv: {
+        title: 'Files or Archiv?',
+        body: 'Ask who the document belongs to.',
+        filesTerm: 'Files — this building',
+        filesDetail: 'Its plans, reports, correspondence. Cited only in this project.',
+        archivTerm: 'Archiv — the office',
+        archivDetail: 'Standard details, specifications, templates, earlier submissions worth reusing. Cited in every project.',
+      },
+      projectSources: {
+        title: 'Every answer shows its sources',
+        body: 'Each claim is marked with where it came from — Building law, Project knowledge or Office archive — and opens the passage it rests on. If Piloti has no source for something, it says so.',
+      },
+      projectSettings: {
+        title: 'Settings and members',
+        body: 'Invite the people working on this building, and revisit the project setup whenever the facts change.',
       },
     },
   },

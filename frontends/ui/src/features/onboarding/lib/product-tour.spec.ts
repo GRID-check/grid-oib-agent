@@ -1,55 +1,126 @@
 import { describe, expect, it } from 'vitest'
 import {
-  TOUR_ANCHORS,
+  ARRIVAL_ANCHOR,
+  TOURS,
   TOUR_START_URL,
-  TOUR_STOPS,
   cardSide,
   placeStops,
-  requestsTour,
+  projectTourUrl,
+  requestedTour,
+  sectionAnchor,
   tourAnchorSelector,
+  tourForPath,
   type AnchorBox,
+  type TourFlags,
 } from './product-tour'
 
-const BOX: AnchorBox = { left: 900, right: 1000 }
+const DESKTOP = { width: 1280, height: 820 }
+const PHONE = { width: 390, height: 844 }
+const ALL_ON: TourFlags = { canAccessArchiv: true, canAccessInbox: true }
+const BOX: AnchorBox = { left: 900, right: 1000, top: 20, bottom: 56 }
+const everywhere = (): AnchorBox => BOX
+const nowhere = (): AnchorBox | null => null
 
-describe('product tour stops', () => {
-  it('opens and closes on centred cards, with every anchored stop in between', () => {
-    expect(TOUR_STOPS[0]).toEqual({ id: 'welcome' })
-    expect(TOUR_STOPS.at(-1)).toEqual({ id: 'shortcuts' })
-    expect(TOUR_STOPS.filter((stop) => stop.anchor).map((stop) => stop.anchor)).toEqual(
-      Object.values(TOUR_ANCHORS),
-    )
+const ids = (stops: { id: string }[]): string[] => stops.map((stop) => stop.id)
+
+describe('welcome tour', () => {
+  it('opens and closes on centred cards, with the header controls in between', () => {
+    expect(ids(placeStops(TOURS.welcome, ALL_ON, everywhere, DESKTOP))).toEqual([
+      'welcome',
+      'createProject',
+      'archiv',
+      'inbox',
+      'account',
+      'shortcuts',
+    ])
   })
 
-  it('drops a stop whose anchor is not on screen instead of pointing at nothing', () => {
-    // An organization without the Archiv and Postfach flags.
-    const hidden = new Set([tourAnchorSelector('archiv'), tourAnchorSelector('inbox')])
-    const placed = placeStops(TOUR_STOPS, (selector) => (hidden.has(selector) ? null : BOX), 1280)
-    expect(placed.map((stop) => stop.id)).toEqual(['welcome', 'createProject', 'account', 'shortcuts'])
+  it('drops the Archiv and the Postfach for an organization without them', () => {
+    const flags = { canAccessArchiv: false, canAccessInbox: false }
+    expect(ids(placeStops(TOURS.welcome, flags, everywhere, DESKTOP))).toEqual([
+      'welcome',
+      'createProject',
+      'account',
+      'shortcuts',
+    ])
+  })
+})
+
+describe('project tour', () => {
+  it('walks chat, Files, the Archiv and the two compared, then sources and settings', () => {
+    expect(ids(placeStops(TOURS.project, ALL_ON, everywhere, DESKTOP))).toEqual([
+      'projectWelcome',
+      'projectChat',
+      'projectFiles',
+      'projectArchiv',
+      'filesOrArchiv',
+      'projectSources',
+      'projectSettings',
+    ])
   })
 
-  it('places anchored stops and leaves centred ones unplaced', () => {
-    const placed = placeStops(TOUR_STOPS, () => BOX, 1280)
-    expect(placed.find((stop) => stop.id === 'welcome')?.side).toBeUndefined()
-    expect(placed.find((stop) => stop.id === 'createProject')?.side).toBe('bottom-right')
+  it('points at the rail items the sidebar marks, by section key', () => {
+    const anchors = TOURS.project.flatMap((stop) => (stop.anchor ? [stop.anchor] : []))
+    expect(anchors).toEqual(['chat', 'files', 'archiv', 'settings'].map(sectionAnchor))
+  })
+
+  it('drops both Archiv stops when the organization has no Archiv', () => {
+    const placed = placeStops(TOURS.project, { ...ALL_ON, canAccessArchiv: false }, everywhere, DESKTOP)
+    expect(ids(placed)).not.toContain('projectArchiv')
+    expect(ids(placed)).not.toContain('filesOrArchiv')
+  })
+
+  it('keeps every stop on a phone, centred, when the rail is a closed drawer', () => {
+    // The drawer renders nothing while closed: every anchor is absent. The
+    // explanation still matters, so nothing is dropped — only the spotlight.
+    const placed = placeStops(TOURS.project, ALL_ON, nowhere, PHONE)
+    expect(placed).toHaveLength(TOURS.project.length)
+    expect(placed.every((stop) => stop.side === undefined)).toBe(true)
+  })
+
+  it('waits for nothing on arrival — the rail is shell chrome, already standing', () => {
+    expect(ARRIVAL_ANCHOR.project).toBeNull()
+    expect(ARRIVAL_ANCHOR.welcome).not.toBeNull()
   })
 })
 
 describe('cardSide', () => {
-  it('hangs the card leftwards under an anchor in the right half', () => {
-    expect(cardSide({ left: 1040, right: 1184 }, 1280)).toBe('bottom-right')
+  it('below an anchor in the right half, hangs the card leftwards', () => {
+    expect(cardSide({ left: 1040, right: 1184, top: 96, bottom: 132 }, DESKTOP, 'below')).toBe('bottom-right')
   })
 
-  it('hangs it rightwards under an anchor in the left half — the phone "New project" button', () => {
-    expect(cardSide({ left: 16, right: 158 }, 390)).toBe('bottom-left')
+  it('below an anchor in the left half — the phone "New project" button — hangs it rightwards', () => {
+    expect(cardSide({ left: 16, right: 158, top: 120, bottom: 156 }, PHONE, 'below')).toBe('bottom-left')
+  })
+
+  it('beside a rail item, centres on it wherever it is — the library never flips `right`', () => {
+    expect(cardSide({ left: 12, right: 224, top: 150, bottom: 186 }, DESKTOP, 'beside')).toBe('right')
+    expect(cardSide({ left: 12, right: 224, top: 680, bottom: 716 }, DESKTOP, 'beside')).toBe('right')
   })
 })
 
-describe('requestsTour', () => {
-  it('starts on the URL onboarding hands over to, and on nothing else', () => {
-    expect(requestsTour(new URL(TOUR_START_URL, 'http://x').search)).toBe(true)
-    expect(requestsTour('?tour=other')).toBe(false)
-    expect(requestsTour('?new=1')).toBe(false)
-    expect(requestsTour('')).toBe(false)
+describe('where tours run and how they are asked for', () => {
+  it('maps the projects home to the welcome tour and any project page to the project tour', () => {
+    expect(tourForPath('/app/projects')).toBe('welcome')
+    expect(tourForPath('/app/projects/p1')).toBe('project')
+    expect(tourForPath('/app/projects/p1/files')).toBe('project')
+    expect(tourForPath('/app/organization')).toBeNull()
+  })
+
+  it('reads the tour from the hand-over URLs, and nothing else', () => {
+    expect(requestedTour(new URL(TOUR_START_URL, 'http://x').search)).toBe('welcome')
+    expect(requestedTour(new URL(projectTourUrl('p1'), 'http://x').search)).toBe('project')
+    expect(requestedTour('?tour=other')).toBeNull()
+    expect(requestedTour('?new=1')).toBeNull()
+  })
+
+  it('sends the project hand-over straight to chat, where the tour belongs', () => {
+    // The project root is a server redirect, which would drop `?tour=`.
+    expect(new URL(projectTourUrl('p1'), 'http://x').pathname).toBe('/app/projects/p1/chat')
+    expect(tourForPath('/app/projects/p1/chat')).toBe('project')
+  })
+
+  it('builds anchor selectors the DOM can match', () => {
+    expect(tourAnchorSelector('section-files')).toBe('[data-tour="section-files"]')
   })
 })

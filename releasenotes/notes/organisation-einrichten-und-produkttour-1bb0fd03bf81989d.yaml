@@ -4,8 +4,13 @@ features:
     Wer eine neue Organisation anlegt, sieht danach eine kurze Produkttour
     durch die Projektübersicht: wo Projekte entstehen, Archiv und Postfach,
     wo Kolleginnen und Kollegen eingeladen werden, und die wichtigsten
-    Tastenkürzel. Die Tour lässt sich jederzeit überspringen und über das
-    Kontomenü unter „Produkttour“ erneut starten.
+    Tastenkürzel.
+  - >
+    Nach der Einrichtung des ersten Projekts folgt eine zweite Tour im
+    Projekt selbst: Frag Piloti, Dateien, das Archiv und worin sich die
+    beiden unterscheiden, wie Antworten ihre Quellen zeigen, und wo
+    Mitglieder eingeladen werden. Beide Touren lassen sich jederzeit
+    überspringen und über das Kontomenü unter „Produkttour“ erneut starten.
   - >
     Die Seite zum Einrichten der Organisation ist neu gestaltet: ein Feld,
     ein Knopf und drei Zeilen dazu, wie es weitergeht. Das Abmelden bleibt
