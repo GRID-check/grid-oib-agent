@@ -49,6 +49,8 @@ export interface ManagedDns {
   baselineRecords: cloudflare.DnsRecord[];
   /** Apex placeholder + dynamic-redirect ruleset, when `apexRedirectTo` is set. */
   apexRedirect?: { placeholder: cloudflare.DnsRecord; ruleset: cloudflare.Ruleset };
+  /** `www` → apex ruleset, when this stack owns the zone baseline AND serves the apex. */
+  wwwRedirect?: cloudflare.Ruleset;
 }
 
 /**
@@ -142,13 +144,18 @@ export function installDns(cfg: GridConfig): ManagedDns | undefined {
   const baselineRecords: cloudflare.DnsRecord[] = [];
   let apexRedirect: ManagedDns["apexRedirect"];
 
+  let wwwRedirect: ManagedDns["wwwRedirect"];
+
   if (dns.zoneBaseline) {
-    // Follows the apex. While the apex is a proxied redirect placeholder this
-    // MUST be proxied too — an unproxied CNAME to a proxied apex hands the
-    // client Cloudflare's edge address without the proxy state that makes the
-    // redirect rule run, so www would answer from the edge instead of
-    // redirecting. Proxied records also cannot carry an explicit TTL.
-    const wwwProxied = dns.apexRedirectTo !== undefined;
+    // www is never a Gateway listener, so it is served only by redirecting at
+    // Cloudflare's edge — to the placeholder target while no stack serves the
+    // apex, to the apex itself once this stack does. Either way the record MUST
+    // be proxied: a redirect rule only runs on traffic that reaches the edge,
+    // and an unproxied www would hand the client the Gateway's address, where
+    // no listener and no certificate answer for it. Proxied records also
+    // cannot carry an explicit TTL.
+    const servesApex = dns.hosts.includes(dns.zoneName);
+    const wwwProxied = dns.apexRedirectTo !== undefined || servesApex;
     baselineRecords.push(
       new cloudflare.DnsRecord(
         "dns-www",
@@ -235,9 +242,43 @@ export function installDns(cfg: GridConfig): ManagedDns | undefined {
 
       apexRedirect = { placeholder, ruleset };
     }
+
+    // Mutually exclusive with the ruleset above (`loadConfig` refuses
+    // `apexRedirectTo` on a stack that serves the apex), which matters because
+    // a zone holds ONE entrypoint ruleset per phase.
+    if (servesApex) {
+      wwwRedirect = new cloudflare.Ruleset(
+        "dns-www-redirect",
+        {
+          zoneId: dns.zoneId,
+          name: "www-redirect",
+          kind: "zone",
+          phase: "http_request_dynamic_redirect",
+          description: `www to the ${dns.zoneName} apex this stack serves`,
+          rules: [
+            {
+              action: "redirect",
+              expression: `http.host eq "www.${dns.zoneName}"`,
+              description: "www to apex",
+              actionParameters: {
+                fromValue: {
+                  targetUrl: { expression: `concat("https://${dns.zoneName}", http.request.uri.path)` },
+                  // 301 is safe here where the placeholder's could not be: the
+                  // target is the same site at its canonical name, so a
+                  // browser that caches it is caching the right answer.
+                  statusCode: 301,
+                  preserveQueryString: true,
+                },
+              },
+            },
+          ],
+        },
+        opts,
+      );
+    }
   }
 
-  return { provider, hostRecords, baselineRecords, apexRedirect };
+  return { provider, hostRecords, baselineRecords, apexRedirect, wwwRedirect };
 }
 
 /** Convenience for stack outputs: the FQDNs this stack put in DNS. */

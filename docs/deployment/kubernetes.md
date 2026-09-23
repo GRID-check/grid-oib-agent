@@ -335,9 +335,9 @@ from code at all while they serve it.
 | `dnsEnabled` | Master switch. Everything else is unread while false |
 | `dnsZoneId` | Cloudflare zone → Overview → API section |
 | `dnsZoneName` | The zone **apex** (`piloti.at`), which need not equal `baseDomain` — a stack may live on a subdomain of its zone |
-| 🔒 `cloudflareApiToken` | Scoped to that one zone: `Zone:DNS:Edit`, plus `Zone:Dynamic URL Redirects:Edit` when `dnsApexRedirectTo` is set |
+| 🔒 `cloudflareApiToken` | Scoped to that one zone: `Zone:DNS:Edit`, plus `Zone:Dynamic URL Redirects:Edit` on the `dnsZoneBaseline` stack |
 | `dnsTtl` | Default 600s |
-| `dnsZoneBaseline` | Whether this stack owns the zone-level records (`www`, `_dmarc`, the apex). **At most one stack** |
+| `dnsZoneBaseline` | Whether this stack owns the zone-level records (`www`, `_dmarc`, the apex). **At most one stack**, and required on the stack that serves the apex |
 | `dnsDmarc` | Value of the `_dmarc` TXT record, when the baseline is owned here |
 | `dnsApexRedirectTo` | Absolute URL the apex and `www` redirect to, for the window before any stack serves the apex |
 
@@ -382,8 +382,18 @@ stack claims the apex, and a cached 301 would keep bouncing visitors off the
 real site with no server-side way to undo it.
 
 When a stack's `baseDomain` *is* the zone apex, that stack publishes a real A
-record for it and `dnsApexRedirectTo` must be unset — `loadConfig` refuses to
-have both.
+record for it, `dnsApexRedirectTo` must be unset, and the stack must own the
+baseline — `loadConfig` refuses anything else. `www` is not a Gateway listener,
+so the owning stack keeps it proxied and redirects it to the apex with a 301
+(path and query kept).
+
+Moving the baseline between stacks is two deploys, in order: the old owner
+drops `dnsZoneBaseline` and `dnsApexRedirectTo` and deploys first, deleting its
+`www`, `_dmarc`, placeholder and ruleset; only then does the new owner deploy
+and create its own. Reversed, the new owner's `www` CNAME and redirect
+ruleset collide with records that still exist, and its deploy fails on them.
+`stack-files.spec.ts` checks the committed stack files against each other,
+because `loadConfig` sees one stack at a time.
 
 ### Cutover order
 
