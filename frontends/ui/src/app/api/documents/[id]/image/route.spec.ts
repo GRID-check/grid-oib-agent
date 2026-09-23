@@ -251,7 +251,12 @@ describe('GET /api/documents/[id]/image', () => {
     vi.mocked(s3Client.send).mockResolvedValue({
       Body: {
         transformToWebStream: () =>
-          new ReadableStream({ start: (controller) => controller.enqueue(jpeg) }),
+          new ReadableStream({
+            start: (controller) => {
+              controller.enqueue(jpeg)
+              controller.close()
+            },
+          }),
         transformToByteArray: () => Promise.resolve(jpeg),
       },
     } as never)
@@ -267,7 +272,7 @@ describe('GET /api/documents/[id]/image', () => {
     await stubDocument(imageRow)
     vi.mocked(s3Client.send).mockResolvedValue({
       Body: {
-        transformToWebStream: () => new ReadableStream(),
+        transformToWebStream: () => new ReadableStream({ start: (controller) => controller.close() }),
         transformToByteArray: () => Promise.resolve(new Uint8Array(0)),
       },
     } as never)
@@ -275,6 +280,32 @@ describe('GET /api/documents/[id]/image', () => {
     const response = await call(signedQuery(DOC, 'thumb'))
 
     await expectPlaceholder(response)
+  })
+
+  it('stops reading an oversized body without ContentLength at the upload ceiling', async () => {
+    // With no header to check up front, the read is the only place the
+    // ceiling can hold; buffering the whole object first would let one
+    // oversized object per request allocate its full size.
+    vi.stubEnv('FILE_UPLOAD_MAX_SIZE_MB', '1')
+    await stubDocument(imageRow)
+    let pulled = 0
+    vi.mocked(s3Client.send).mockResolvedValue({
+      Body: {
+        transformToWebStream: () =>
+          new ReadableStream<Uint8Array>({
+            pull: (controller) => {
+              pulled += 1
+              controller.enqueue(new Uint8Array(600_000))
+            },
+          }),
+        transformToByteArray: () => Promise.resolve(new Uint8Array(1_800_000)),
+      },
+    } as never)
+
+    const response = await call(signedQuery(DOC, 'thumb'))
+
+    await expectPlaceholder(response)
+    expect(pulled).toBeLessThanOrEqual(3)
   })
 
   it('deflects to the placeholder rather than going open when no signing secret is configured', async () => {
