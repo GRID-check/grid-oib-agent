@@ -20,12 +20,10 @@ import { formatTime } from '@/shared/utils/format-time'
 import { MarkdownRenderer } from '@/shared/components/MarkdownRenderer'
 import { BranchOptions } from './reasoning/BranchOptions'
 import { useChatStore } from '../store'
+import { isLegacyPlanPreview } from '../lib/plan-preview'
 import type { PromptType } from '../types'
 
 export type { PromptType }
-
-/** The approval envelope an old plan preview carries, either variant. */
-const APPROVAL_PROMPT_RE = /Reply\s+\*{0,2}approve\*{0,2}\s+to proceed,/i
 
 /** The fenced JSON copy of the plan an old preview carries beside its text. */
 const PLAN_FENCE_RE = /```plan_json\s*\n[\s\S]*?\n```/
@@ -110,7 +108,7 @@ export const AgentPrompt: FC<AgentPromptProps> = ({
   const t = useTranslations('chat')
   const { locale } = useLocale()
   const respondToInteractionFn = useChatStore((state) => state.respondToInteractionFn)
-  const isApprovalPrompt = APPROVAL_PROMPT_RE.test(content)
+  const isApprovalPrompt = isLegacyPlanPreview(content)
   // An old plan preview, read back from history: the fence stripped, the
   // English envelope localized. The plan's own words are the planner's.
   const bubbleContent = isApprovalPrompt

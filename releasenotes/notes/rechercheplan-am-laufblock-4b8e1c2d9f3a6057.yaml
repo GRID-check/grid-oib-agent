@@ -11,6 +11,10 @@ features:
     Dialog, in dem Sie selbst eine Frage und einen Plan anlegen. Die Recherche
     startet sofort. Die Auftragsliste zeigt je Recherche Berichtsart, Tiefe und
     Zahl der Abschnitte.
+  - >
+    „Bericht fortschreiben“ übernimmt den Rechercheplan des letzten Berichts
+    mit seinen zitierten Unterlagen und zeigt ihn am neuen Laufblock, wo er
+    nach dem Countdown startet oder angepasst werden kann.
 upgrade:
   - >
     Die Einstellung enable_plan_approval heißt jetzt plan_approval (auto, ask

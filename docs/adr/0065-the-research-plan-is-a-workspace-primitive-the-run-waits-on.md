@@ -81,9 +81,11 @@ with `planId`, the run message carrying `plan_id`), so the block exists from
 the first second. The worker does not run the agent until
 `POST /api/internal/plans/{id}/start` answers 200: the route starts an
 `approved` plan, or a `proposed` one whose `startsAt` has passed, and answers
-409 with a retry hint otherwise. While it waits, the ledger says `wartet` —
-the first producer of a status the vocabulary had reserved for exactly this,
-a run that is waiting on a person. The worker renders the plan it was given
+"not yet" as data with a retry hint otherwise. While the plan is HELD, the
+ledger says `wartet` — the first producer of a status the vocabulary had
+reserved for exactly this, a run that is waiting on a person. A countdown is
+not that, and stays `angelegt`. Every plan write is conditioned on the status
+it was decided against, in SQL, so an edit can never land on a started plan. The worker renders the plan it was given
 into the same prompt text the chat path rendered (`approved_plan_context`)
 and the same `plan_documents`, so nothing downstream of the state changes.
 
@@ -125,7 +127,7 @@ model that then guesses.
 * `plan-schema.spec.ts` regenerates the fixture and fails when stale;
   `tests/aiq_agent/common/test_research_plan.py` validates the Python model
   against it.
-* The worker's `_await_plan_start` is exercised by `test_runner_plan_start.py`
+* The worker's wait (`aiq_api/jobs/plan_start.await_plan_start`) is exercised by `frontends/aiq_api/tests/test_plan_start.py`
   (409 → wait → 200; cancel while waiting; a plan already started).
 * `test_clarify.py` asserts the turn ends without an `ask_user` call when a plan
   is produced; the reply parser no longer exists to be called.

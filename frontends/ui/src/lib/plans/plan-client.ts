@@ -85,6 +85,10 @@ export async function startPlan(projectId: string, planId: string, run: PlanFetc
 
 export interface CreatePlanInput extends ResearchPlanDraftInput {
   conversationId: string
+  /** What the run is told beside the plan, e.g. a continuation's earlier findings. */
+  context?: string
+  /** Show the plan on the block with a countdown instead of starting at once. */
+  countdown?: boolean
 }
 
 /** A plan a person wrote, and the run it commissioned. */

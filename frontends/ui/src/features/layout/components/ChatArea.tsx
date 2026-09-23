@@ -293,6 +293,11 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
     async (message: ChatMessage): Promise<void> => {
       if (!commissionRun) return
       const brief = continuationBrief(message)
+      // A run that had a plan continues on that plan, shown on the new block.
+      if (message.planId) {
+        await commissionRun.continuePlanned(brief, message.planId)
+        return
+      }
       await commissionRun.commission(brief.question, brief.context, brief.documents)
     },
     [commissionRun]

@@ -481,3 +481,36 @@ describe('hydration-aware interrupted state', () => {
     })
   })
 })
+
+describe('restoreSessionState — an old plan preview is history, not a pending question', () => {
+  const prompt = (content: string): ChatMessage =>
+    ({
+      id: 'p1',
+      role: 'assistant',
+      content,
+      timestamp: new Date('2026-09-01T10:00:00.000Z'),
+      messageType: 'prompt',
+      promptId: 'prompt-1',
+      promptParentId: 'parent-1',
+      promptInputType: 'text',
+      isPromptResponded: false,
+    }) as unknown as ChatMessage
+
+  it('restores an unanswered clarifying question as pending', () => {
+    const conv = makeConversation({ messages: [prompt('Welche Gebäudeklasse?')] })
+    mockConversationsClient.listMessages.mockResolvedValue([])
+    useChatStore.getState().restoreSessionState(conv)
+    expect(useChatStore.getState().pendingInteraction).toMatchObject({ id: 'prompt-1' })
+  })
+
+  it('never restores an unanswered plan preview: nothing listens for its answer (ADR-0065)', () => {
+    const conv = makeConversation({
+      messages: [
+        prompt('**Research Plan Preview**\n\nReply **approve** to proceed, **shallow** for a quick answer instead.'),
+      ],
+    })
+    mockConversationsClient.listMessages.mockResolvedValue([])
+    useChatStore.getState().restoreSessionState(conv)
+    expect(useChatStore.getState().pendingInteraction).toBeNull()
+  })
+})

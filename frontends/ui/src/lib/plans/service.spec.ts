@@ -191,6 +191,13 @@ describe('editPlan', () => {
       startsAt: null,
       heldAt: T0,
     })
+    // The write itself is conditioned on the plan still being editable.
+    expect(vi.mocked(repository.updatePlan).mock.calls[0][3]).toEqual(['proposed', 'held', 'approved'])
+  })
+
+  it('refuses an edit that lost the race with the worker, rather than rewriting a started plan', async () => {
+    vi.mocked(repository.updatePlan).mockResolvedValueOnce(null)
+    await expect(editPlan(session, PROJECT, 'plan-1', { genre: 'bericht' })).rejects.toBeInstanceOf(ConflictError)
   })
 
   it('leaves a held plan held and an approved plan approved', async () => {
@@ -215,6 +222,12 @@ describe('holdPlan and startPlan', () => {
     expect(vi.mocked(repository.updatePlan).mock.calls[1][2]).toEqual({ status: 'approved', startsAt: null, approvedAt: T0 })
   })
 
+  it('starting is gated like commissioning: it spends the project budget', async () => {
+    await startPlan(session, PROJECT, 'plan-1')
+    expect(requireProjectAccess).toHaveBeenCalledWith(session, PROJECT, [...COMMISSION_PERMISSIONS])
+    expect(requireProjectAccess).not.toHaveBeenCalledWith(session, PROJECT, CHAT_PERMISSIONS)
+  })
+
   it('starting a started plan changes nothing', async () => {
     vi.mocked(repository.findPlanInProject).mockResolvedValue(row({ status: 'started' }))
     await expect(startPlan(session, PROJECT, 'plan-1')).resolves.toMatchObject({ status: 'started' })
@@ -236,6 +249,14 @@ describe('claimPlanStart — the worker asks whether it may go', () => {
 
     vi.mocked(repository.findPlanById).mockResolvedValue(row({ status: 'approved', startsAt: null }))
     expect((await claimPlanStart('plan-1', T0)).started).toBe(true)
+  })
+
+  it('a hold that lands between the read and the start wins, and the worker asks again', async () => {
+    vi.mocked(repository.findPlanById).mockResolvedValue(row({ status: 'approved', startsAt: null }))
+    vi.mocked(repository.updatePlan).mockResolvedValueOnce(null)
+    const claim = await claimPlanStart('plan-1', T0)
+    expect(claim.started).toBe(false)
+    expect(vi.mocked(repository.updatePlan).mock.calls[0][3]).toEqual(['approved'])
   })
 
   it('never starts a held plan, is idempotent on a started one, and refuses a replaced one', async () => {

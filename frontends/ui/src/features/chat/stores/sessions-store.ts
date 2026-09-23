@@ -1,3 +1,4 @@
+import { isLegacyPlanPreview } from '../lib/plan-preview'
 import { v4 as uuidv4 } from 'uuid'
 import { getActiveLocale } from '@/i18n'
 import { createJSONStorage, type StorageValue, type PersistStorage } from 'zustand/middleware'
@@ -1009,9 +1010,15 @@ export const createSessionsSlice: StateCreator<
       .filter((m) => m.thinkingSteps && m.thinkingSteps.length > 0)
       .flatMap((m) => m.thinkingSteps!)
 
+    // An old research-plan preview is never pending: the plan now waits on
+    // the run block (ADR-0065) and no backend listens for its answer, so
+    // restoring it would hold the composer in answer mode for a question
+    // nobody is asking.
     const unrespondedPrompt = [...conversation.messages]
       .reverse()
-      .find((m) => m.messageType === 'prompt' && !m.isPromptResponded)
+      .find(
+        (m) => m.messageType === 'prompt' && !m.isPromptResponded && !isLegacyPlanPreview(m.content)
+      )
 
     let restoredPendingInteraction: PendingInteraction | null = null
     if (

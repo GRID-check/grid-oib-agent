@@ -83,10 +83,16 @@ async def await_plan_start(
             if waiting:
                 ledger.note_resumed()
             return claim.plan
-        if not waiting:
-            logger.info("Plan %s: waiting for its start (%s)", plan_id, claim.plan.status)
+        # Only a HELD plan is a run waiting on a person. A proposed plan
+        # counting down waits on nobody, and ``wartet`` there would put an
+        # inbox row in front of every requester for the length of the grace.
+        on_a_person = claim.plan.status == "held"
+        if on_a_person and not waiting:
+            logger.info("Plan %s: held, waiting for the reader to start it", plan_id)
             ledger.note_waiting()
-            waiting = True
+        elif waiting and not on_a_person:
+            ledger.note_resumed()
+        waiting = on_a_person
         await sleep(claim.retry_after_seconds)
 
 

@@ -62,10 +62,18 @@ reply. The path of an escalated question:
    plan is held from the start.
 4. The worker takes its slot and waits on the plan
    (`aiq_api/jobs/plan_start.py`), asking `POST /api/internal/plans/{id}/start`
-   until the plan may start. While it waits the ledger reads `wartet`. The plan
+   until the plan may start. While the plan is held the ledger reads `wartet`,
+   the status for a run waiting on a person; a countdown waits on nobody and
+   leaves it `angelegt`, so no inbox row appears for an ordinary run. The plan
    it is handed then is the plan it runs, rendered into the same prompt text
    every deep-research prompt reads (`common/research_plan.render_plan_context`).
    Once started the plan is read-only.
+
+„Bericht fortschreiben" on a run that had a plan carries that plan forward:
+the new run's plan keeps the sections, genre, depth, Rahmen and exclusions,
+adds the report's cited documents to its Grundlage, and is proposed with the
+usual countdown (`carry-forward.continuationPlan`). A run without a plan
+continues as before.
 
 A reader can also write a plan from nothing: „Recherche planen" in the thread
 header opens the same controls in a dialog (`PlanDialog.tsx`), and the plan is

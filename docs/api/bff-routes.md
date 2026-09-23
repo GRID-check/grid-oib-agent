@@ -416,11 +416,11 @@ The plan a deep research is about, and the run waits on. One contract
 
 | Method | Path | Auth | Description |
 |---|---|---|---|
-| `POST` | `/api/projects/[id]/plans` | Session, `project:edit` + `project:documents:write` | A plan a person wrote („Recherche planen"): the draft plus `conversationId`. Created `approved` and its run commissioned in the same step. `201 { plan, run }`. |
+| `POST` | `/api/projects/[id]/plans` | Session, `project:edit` + `project:documents:write` | A plan a person wrote („Recherche planen"): the draft plus `conversationId`, optionally `context` and `countdown`. Created `approved` and its run commissioned in the same step; with `countdown: true` (a continuation carrying the last plan forward) it is created `proposed` with the usual grace instead. `201 { plan, run }`. |
 | `GET` | `/api/projects/[id]/plans/[planId]` | Session, `project:view` | One plan. |
-| `PATCH` | `/api/projects/[id]/plans/[planId]` | Session, `project:view` + chat permissions | Change sections, genre, depth, Grundlage or Ausgeschlossen (documents by file name, resolved against the plan's inventory). An edit to a `proposed` plan holds it. 409 once `started`. |
+| `PATCH` | `/api/projects/[id]/plans/[planId]` | Session, `project:view` + chat permissions | Change sections, genre, depth, Grundlage or Ausgeschlossen (documents by file name, resolved against the plan's inventory). An edit to a `proposed` plan holds it. 409 once `started`, including when the worker started it between the read and the write: every plan write is conditioned on its status in SQL. |
 | `POST` | `/api/projects/[id]/plans/[planId]/hold` | Session, `project:view` + chat permissions | „Anpassen": stop the clock. Idempotent. |
-| `POST` | `/api/projects/[id]/plans/[planId]/start` | Session, `project:view` + chat permissions | „Starten": approve; the worker starts at its next claim. |
+| `POST` | `/api/projects/[id]/plans/[planId]/start` | Session, `project:view` + `project:edit` + `project:documents:write` | „Starten": approve; the worker starts at its next claim. Gated like commissioning, because under `ask` this press is the decision to spend the project's budget. |
 | `POST` | `/api/internal/plans/[planId]/start` | `x-grid-internal-token` | The worker's claim. `200 { started, plan, retryAfterSeconds? }`: starts an `approved` plan or a `proposed` one whose `startsAt` has passed, otherwise answers "not yet" as data. 409 for a `superseded` plan. Acts as nobody: the tenant is read off the plan row. |
 
 The agent proposes a plan through `POST /api/internal/tasks`, op `plan`, which

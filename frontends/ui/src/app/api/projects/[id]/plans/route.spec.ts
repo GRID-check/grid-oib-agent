@@ -45,6 +45,7 @@ describe('POST /api/projects/[id]/plans — a plan a person wrote', () => {
       conversationId: 's_conv',
       author: 'user',
       start: 'approved',
+      context: null,
       draft: {
         question: 'Fluchtwege prüfen',
         sections: ['Bestand', 'Befund'],
@@ -54,6 +55,14 @@ describe('POST /api/projects/[id]/plans — a plan a person wrote', () => {
         ausgeschlossen: [],
         unterlagen: [{ name: 'Einreichplan.pdf', shelf: 'project' }],
       },
+    })
+  })
+
+  it('a carried-forward plan counts down first and carries its context', async () => {
+    await post({ conversationId: 's_conv', question: 'Fortschreibung', sections: ['A'], context: 'Befunde', countdown: true })
+    expect(vi.mocked(proposePlannedRun).mock.calls[0][1]).toMatchObject({
+      start: { policy: 'auto' },
+      context: 'Befunde',
     })
   })
 

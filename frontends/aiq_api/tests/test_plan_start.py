@@ -106,6 +106,32 @@ class TestTheWait:
         assert ledger.moves == ["waiting", "resumed"]
         assert sleep.seen == [3.0, 3.0]
 
+    async def test_a_countdown_waits_on_nobody_and_never_says_wartet(self) -> None:
+        """A proposed plan counting down is not a person being waited on: no inbox row."""
+        ledger = FakeLedger()
+        claims = FakeClaims(
+            [
+                PlanClaim(False, _plan(status="proposed"), 3.0),
+                PlanClaim(False, _plan(status="proposed"), 3.0),
+                PlanClaim(True, _plan(status="started")),
+            ]
+        )
+        await await_plan_start("plan-1", claims, ledger, sleep=Sleeps())
+        assert ledger.moves == []
+
+    async def test_a_hold_then_a_start_moves_wartet_in_and_out(self) -> None:
+        ledger = FakeLedger()
+        claims = FakeClaims(
+            [
+                PlanClaim(False, _plan(status="proposed"), 3.0),
+                PlanClaim(False, _plan(status="held", startsAt=None), 3.0),
+                PlanClaim(False, _plan(status="approved", startsAt=None), 1.0),
+                PlanClaim(True, _plan(status="started")),
+            ]
+        )
+        await await_plan_start("plan-1", claims, ledger, sleep=Sleeps())
+        assert ledger.moves == ["waiting", "resumed"]
+
     async def test_a_replaced_plan_ends_the_wait_at_once(self) -> None:
         claims = FakeClaims([PlanReplacedError("replaced")])
         with pytest.raises(PlanReplacedError):

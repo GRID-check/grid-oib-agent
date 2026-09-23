@@ -7,5 +7,5 @@ type Params = { id: string; planId: string }
 
 export const POST = apiRoute<Params>(
   async ({ session, params }) => startPlan(session, params.id, params.planId),
-  { authz: { enforcedBy: 'startPlan (requireProjectAccess project:view + CHAT_PERMISSIONS)' } }
+  { authz: { enforcedBy: 'startPlan (requireProjectAccess project:view + COMMISSION_PERMISSIONS)' } }
 )

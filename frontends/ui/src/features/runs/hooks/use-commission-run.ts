@@ -10,10 +10,18 @@
 import { useCallback, useState } from 'react'
 import { useChatStore } from '@/features/chat/store'
 import { commissionRun } from '@/lib/runs/run-view-client'
+import { createPlan, fetchPlan } from '@/lib/plans/plan-client'
+import { continuationPlan, type RunBrief } from '../lib/carry-forward'
 import type { PlanDocuments } from '@/lib/runs/plan-documents'
 
 export interface CommissionRunHandle {
   commission: (question: string, context?: string, documents?: PlanDocuments) => Promise<boolean>
+  /**
+   * A continuation of a run that had a plan: the plan carried forward and
+   * shown on the new block with a countdown (ADR-0065). Falls back to a
+   * plain commission when the earlier plan cannot be read.
+   */
+  continuePlanned: (brief: RunBrief, previousPlanId: string) => Promise<boolean>
   pending: boolean
 }
 
@@ -41,6 +49,28 @@ export function useCommissionRun(
     },
     [projectId, conversationId, hydrate]
   )
+  const continuePlanned = useCallback(
+    async (brief: RunBrief, previousPlanId: string): Promise<boolean> => {
+      if (!projectId || !conversationId) return false
+      let previous
+      try {
+        previous = await fetchPlan(projectId, previousPlanId)
+      } catch {
+        return commission(brief.question, brief.context, brief.documents)
+      }
+      setPending(true)
+      try {
+        await createPlan(projectId, continuationPlan(brief, previous, conversationId))
+        await hydrate(conversationId)
+        return true
+      } catch {
+        return false
+      } finally {
+        setPending(false)
+      }
+    },
+    [projectId, conversationId, hydrate, commission]
+  )
   if (!projectId || !conversationId) return null
-  return { commission, pending }
+  return { commission, continuePlanned, pending }
 }

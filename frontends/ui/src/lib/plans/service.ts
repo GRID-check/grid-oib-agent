@@ -29,6 +29,7 @@ import { requireProjectAccess } from '@/lib/authz/projects'
 import type { ResearchPlanRow } from '@/lib/db/schema'
 import { withPlatformAccess, withTenant } from '@/lib/db/tenant-context'
 import {
+  EDITABLE_PLAN_STATUSES,
   MAX_PLAN_GRACE_SECONDS,
   isEditablePlanStatus,
   type PlanAuthor,
@@ -229,36 +230,46 @@ export async function editPlan(
     ...(edit.depth !== undefined ? { depth: edit.depth } : {}),
     ...resolveDocumentLists(names.grundlage, names.ausgeschlossen, row.unterlagen),
     ...hold,
-  })
-  return toWirePlan(updated ?? row)
+  }, EDITABLE_PLAN_STATUSES)
+  if (!updated) throw new ConflictError('This plan has already started')
+  return toWirePlan(updated)
 }
 
 /** Stop the clock. Idempotent: a held plan stays held. */
 export async function holdPlan(session: AuthorizedSession, projectId: string, planId: string): Promise<ResearchPlan> {
   const row = await requireEditable(session, projectId, planId)
   if (row.status === 'held') return toWirePlan(row)
-  const updated = await repository.updatePlan(planId, session.organizationId, {
-    status: 'held',
-    startsAt: null,
-    heldAt: new Date(),
-    approvedAt: null,
-  })
-  return toWirePlan(updated ?? row)
+  const updated = await repository.updatePlan(
+    planId,
+    session.organizationId,
+    { status: 'held', startsAt: null, heldAt: new Date(), approvedAt: null },
+    ['proposed', 'approved']
+  )
+  if (!updated) throw new ConflictError('This plan has already started')
+  return toWirePlan(updated)
 }
 
-/** „Starten": the run may go at the worker's next claim. */
+/**
+ * „Starten": the run may go at the worker's next claim.
+ *
+ * Gated like commissioning a run, not like chatting: under `ask` this press
+ * IS the decision to spend the project's budget, and a softer gate here would
+ * be a way around the one on the commission.
+ */
 export async function startPlan(session: AuthorizedSession, projectId: string, planId: string): Promise<ResearchPlan> {
   await requireProjectAccess(session, projectId, 'project:view')
-  await requireProjectAccess(session, projectId, CHAT_PERMISSIONS)
+  await requireProjectAccess(session, projectId, [...COMMISSION_PERMISSIONS])
   const row = await loadPlan(session, projectId, planId)
   if (row.status === 'started' || row.status === 'approved') return toWirePlan(row)
   if (row.status === 'superseded') throw new ConflictError('This plan was replaced')
-  const updated = await repository.updatePlan(planId, session.organizationId, {
-    status: 'approved',
-    startsAt: null,
-    approvedAt: new Date(),
-  })
-  return toWirePlan(updated ?? row)
+  const updated = await repository.updatePlan(
+    planId,
+    session.organizationId,
+    { status: 'approved', startsAt: null, approvedAt: new Date() },
+    ['proposed', 'held']
+  )
+  // Lost a race with the worker, which is the outcome „Starten" asked for.
+  return toWirePlan(updated ?? (await loadPlan(session, projectId, planId)))
 }
 
 /**
@@ -281,11 +292,15 @@ export async function claimPlanStart(planId: string, now: Date = new Date()): Pr
     if (row.status === 'superseded') throw new ConflictError('This plan was replaced')
     const due = row.status === 'approved' || (row.status === 'proposed' && !!row.startsAt && row.startsAt <= now)
     if (!due) return { started: false, plan: toWirePlan(row), retryAfterSeconds: PLAN_START_RETRY_SECONDS }
-    const updated = await repository.updatePlan(planId, row.organizationId, {
-      status: 'started',
-      startsAt: null,
-      startedAt: now,
-    })
-    return { started: true, plan: toWirePlan(updated ?? row) }
+    // Conditioned on the status that was read: a reader's hold that landed
+    // between the read and this write wins, and the worker asks again.
+    const updated = await repository.updatePlan(
+      planId,
+      row.organizationId,
+      { status: 'started', startsAt: null, startedAt: now },
+      [row.status]
+    )
+    if (!updated) return { started: false, plan: toWirePlan(row), retryAfterSeconds: PLAN_START_RETRY_SECONDS }
+    return { started: true, plan: toWirePlan(updated) }
   })
 }

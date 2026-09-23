@@ -1,7 +1,8 @@
+import type { ResearchPlan } from '@/lib/plans/plan-types'
 import { describe, expect, it } from 'vitest'
 import type { ChatMessage } from '@/features/chat/types'
 import type { Findings } from '@/lib/conversations/message-findings'
-import { continuationBrief, findingBrief, previousRunFindings } from './carry-forward'
+import { continuationPlan, continuationBrief, findingBrief, previousRunFindings } from './carry-forward'
 
 const findings: Findings = {
   v: 1,
@@ -106,5 +107,68 @@ describe('previousRunFindings', () => {
     ]
     expect(previousRunFindings(thread, 'c')).toBe(findings)
     expect(previousRunFindings(thread, 'a')).toBeUndefined()
+  })
+})
+
+describe('continuationPlan', () => {
+  const previous = {
+    id: 'plan-1',
+    projectId: 'proj',
+    conversationId: 's_conv',
+    runId: 'run-1',
+    author: 'agent',
+    status: 'started',
+    question: 'Fluchtwege prüfen',
+    title: 'Fluchtwege',
+    sections: ['Bestand', 'Befund'],
+    genre: 'pruefbericht',
+    depth: 'kurzpruefung',
+    grundlage: [{ name: 'Einreichplan.pdf', shelf: 'project' }],
+    ausgeschlossen: [{ name: 'Altbestand.pdf' }],
+    dataSources: ['knowledge_base'],
+    unterlagen: [{ name: 'Einreichplan.pdf', shelf: 'project' }],
+    startsAt: null,
+    heldAt: null,
+    approvedAt: null,
+    startedAt: '2026-09-22T08:00:00.000Z',
+    createdAt: '2026-09-22T08:00:00.000Z',
+    updatedAt: '2026-09-22T08:00:00.000Z',
+  } as const satisfies ResearchPlan
+
+  it('carries the last plan forward, adds the cited documents, and asks for a countdown', () => {
+    const plan = continuationPlan(
+      {
+        question: 'Fortschreibung: Fluchtwege',
+        context: 'Bisherige Befunde: …',
+        documents: {
+          grundlage: [
+            { name: 'einreichplan.pdf', shelf: 'project' },
+            { name: 'Brandschutzkonzept.pdf', shelf: 'project' },
+          ],
+          ausgeschlossen: [],
+        },
+      },
+      previous,
+      's_conv'
+    )
+    expect(plan).toEqual({
+      conversationId: 's_conv',
+      question: 'Fortschreibung: Fluchtwege',
+      title: 'Fortschreibung: Fluchtwege',
+      sections: ['Bestand', 'Befund'],
+      genre: 'pruefbericht',
+      depth: 'kurzpruefung',
+      // Named once, case-folded: the cited copy of the Einreichplan is the same document.
+      grundlage: ['Einreichplan.pdf', 'Brandschutzkonzept.pdf'],
+      ausgeschlossen: ['Altbestand.pdf'],
+      dataSources: ['knowledge_base'],
+      unterlagen: [
+        { name: 'Einreichplan.pdf', shelf: 'project' },
+        { name: 'einreichplan.pdf', shelf: 'project' },
+        { name: 'Brandschutzkonzept.pdf', shelf: 'project' },
+      ],
+      context: 'Bisherige Befunde: …',
+      countdown: true,
+    })
   })
 })
