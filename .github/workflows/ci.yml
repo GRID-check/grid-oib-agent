@@ -408,7 +408,7 @@ jobs:
       # real one from scratch on every run. It is the expensive half of this job
       # (636 tests, 3m55s measured locally) and it drags IfcOpenShell + shapely
       # wheels in, so the cache is the difference between ~4 and ~6 minutes.
-      - uses: astral-sh/setup-uv@v10.0.1
+      - uses: astral-sh/setup-uv@v10.1.0
         with:
           enable-cache: true
           cache-dependency-glob: packages/ifc-spatial-py/uv.lock
@@ -435,7 +435,7 @@ jobs:
           # The require-a-note check diffs against the merge base, so the base
           # branch has to be there. Shallow-by-default checkout has neither.
           fetch-depth: 0
-      - uses: astral-sh/setup-uv@v10.0.1
+      - uses: astral-sh/setup-uv@v10.1.0
         with:
           enable-cache: true
 
