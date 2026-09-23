@@ -10,8 +10,9 @@
  * - system_interaction -> Chat Area (AgentPrompt for user response)
  * - error -> Error handling
  *
- * Note: Research Panel (reportContent) is only populated by deep research
- * SSE events via use-deep-research.ts, not by WebSocket responses.
+ * Note: a deep-research run is a message in the thread (ADR-0062); its block
+ * follows the run's own stream (`features/runs/hooks/use-run-ledger.ts`), not
+ * WebSocket responses.
  */
 
 'use client'
@@ -52,7 +53,7 @@ import { isLikelyAuthRelatedTransportError } from '../lib/transport-auth-signals
 import { validateGridCards } from '@/shared/cards/schemas'
 import { citationsFromWireList } from '../lib/wire-citation'
 import { fetchRunMessage } from '../lib/commissioned-run'
-import { isDeepResearchLive } from '../lib/session-activity'
+import { hasLiveRun } from '../lib/session-activity'
 import type { DocumentVersionState } from '@/lib/documents/lifecycle-types'
 import type { GridCard } from '@/shared/cards/schemas'
 import type {
@@ -474,8 +475,6 @@ interface UseWebSocketChatReturn {
   selectConversation: (conversationId: string) => void
   /** Thinking steps from Details Panel */
   thinkingSteps: ThinkingStep[]
-  /** Report content from Details Panel */
-  reportContent: string
   /** Current status type */
   currentStatus: StatusType | null
   /** Pending interaction requiring user response */
@@ -734,7 +733,6 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
     isStreaming,
     isLoading,
     thinkingSteps,
-    reportContent,
     currentStatus,
     pendingInteraction,
   } = useChatStore(
@@ -745,7 +743,6 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
       isStreaming: s.isStreaming,
       isLoading: s.isLoading,
       thinkingSteps: s.thinkingSteps,
-      reportContent: s.reportContent,
       currentStatus: s.currentStatus,
       pendingInteraction: s.pendingInteraction,
     }))
@@ -778,13 +775,10 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
   const clearPendingInteraction = useChatStore((s) => s.clearPendingInteraction)
   const setLoading = useChatStore((s) => s.setLoading)
   const setStreaming = useChatStore((s) => s.setStreaming)
-  const clearReportContent = useChatStore((s) => s.clearReportContent)
   const storeCreateConversation = useChatStore((s) => s.createConversation)
   const setCurrentUser = useChatStore((s) => s.setCurrentUser)
   const storeSelectConversation = useChatStore((s) => s.selectConversation)
   const respondToPrompt = useChatStore((s) => s.respondToPrompt)
-  const addPlanMessage = useChatStore((s) => s.addPlanMessage)
-  const updatePlanMessageResponse = useChatStore((s) => s.updatePlanMessageResponse)
   const maybeGenerateConversationName = useChatStore((s) => s.maybeGenerateConversationName)
 
   // Sync authenticated user ID to store when auth state changes
@@ -1019,10 +1013,7 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
    *     progress travels on SSE, not on frames, so silence here means nothing
    *     at all. Re-armed, but NOT indefinitely — the budget in (3) is checked
    *     first, because an exemption with no ceiling locks the composer forever
-   *     the first time a terminal job event is lost. The research panel's own
-   *     recovery notice covers a stalled stream in the meantime; that one is
-   *     evidence-based already, since the backend heartbeats the SSE channel
-   *     every 30s and the client resets on it.
+   *     the first time a terminal job event is lost.
    *  3. **The socket is open and quiet** — re-arm until the whole silence
    *     budget is spent, then accuse the turn.
    *
@@ -1108,15 +1099,15 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
     const deadline = heartbeatDeadlineRef.current || STREAMING_SILENCE_BUDGET_MS
     const spent = silentFor >= deadline
 
-    // (3) A deep-research job carries this turn on a channel of its own. Scoped
-    // to the conversation that owns it: these store fields are global, so an
-    // unscoped read let a run in one thread exempt a stuck turn in another.
+    // (3) A run carries this turn on a channel of its own: its block in THIS
+    // thread is still live (read off the stored ledger, so a run in another
+    // thread cannot vouch for a stuck turn here).
     //
     // Bounded by the same deadline as branch (4), and checked BEFORE it: an
     // exemption with no ceiling locks the composer forever the first time a
     // terminal job event is lost, which is a failure the reader cannot even
     // describe.
-    if (!spent && conversation && isDeepResearchLive(state, conversation.id)) {
+    if (!spent && conversation && hasLiveRun(conversation.messages)) {
       armStreamingWatchdogRef.current?.(false)
       return
     }
@@ -1414,9 +1405,6 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
           return
         }
 
-        // reportContent is only populated by deep research SSE events
-        // (use-deep-research.ts), not by regular WebSocket responses.
-        //
         // Answer frames are routed by their frame SEMANTICS (status), not any
         // client flag: `in_progress` frames are deltas that accumulate into a
         // single bubble; the terminal `complete` frame replaces the text with
@@ -1614,16 +1602,7 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
         }
         setPendingInteraction(interaction)
 
-        // Add to local plan state FIRST so it's captured when the prompt message is
-        // saved (addAgentPrompt below snapshots planMessages for session
-        // restoration).
-        addPlanMessage({
-          text: prompt.text,
-          inputType: prompt.input_type,
-        })
-
         // Add as an agent prompt in the chat with HITL routing info for persistence
-        // This captures current planMessages (including the one just added) for session restoration
         const promptType = mapHumanPromptType(prompt.input_type)
         addAgentPrompt(
           promptType,
@@ -1924,7 +1903,6 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
     clearPendingInteraction,
     setLoading,
     setStreaming,
-    addPlanMessage,
     maybeGenerateConversationName,
     getTransportFailure,
     rotateSocket,
@@ -2202,7 +2180,6 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
     ): boolean => {
       // thinkingSteps are NOT cleared here -- they persist per userMessageId
       // so chat history still renders prior thinking blocks.
-      clearReportContent()
       clearPendingInteraction()
 
       // Reset tracking refs
@@ -2306,7 +2283,6 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
     },
     [
       addErrorCard,
-      clearReportContent,
       clearPendingInteraction,
       setCurrentStatus,
       setStreaming,
@@ -2487,15 +2463,6 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
         respondToPrompt(lastPrompt.id, response)
       }
 
-      // Update the last plan message with the user response
-      const currentPlanMessages = useChatStore.getState().planMessages
-      if (currentPlanMessages.length > 0) {
-        const lastPlanMessage = currentPlanMessages[currentPlanMessages.length - 1]
-        if (!lastPlanMessage.userResponse) {
-          updatePlanMessageResponse(lastPlanMessage.id, response)
-        }
-      }
-
       const interactionPayload: PendingOutgoing = {
         kind: 'interaction',
         interactionId: pendingInteraction.id,
@@ -2542,7 +2509,6 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
       pendingInteraction,
       currentConversation?.messages,
       respondToPrompt,
-      updatePlanMessageResponse,
       addErrorCard,
       setStreaming,
       setLoading,
@@ -2692,7 +2658,6 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
     userConversations,
     selectConversation,
     thinkingSteps,
-    reportContent,
     currentStatus,
     pendingInteraction,
   }

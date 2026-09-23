@@ -531,4 +531,9 @@ class TestTransparencyMetadataFilter:
             "answer_confidence",
             "answer_confidence_reason",
             "answer_confidence_capped_reason",
+            "answer_meta",
+            "findings",
+            "retrieval_ledger",
+            "skills_hidden",
+            "stages",
         )

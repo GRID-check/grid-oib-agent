@@ -34,6 +34,7 @@ from typing import Any
 from pydantic import BaseModel
 from pydantic import Field
 
+from aiq_agent.common.canned_replies import NON_ANSWER_PREFIXES
 from aiq_agent.common.model_overrides import AgentGroup
 from aiq_agent.stages.registry import register_stage
 from aiq_agent.stages.spec import GateDecision
@@ -43,14 +44,9 @@ from aiq_agent.stages.spec import TurnFacts
 
 logger = logging.getLogger(__name__)
 
-#: Canned error/empty answers that must never be reflected on. Moved verbatim
-#: from the chat workflow's register.
-REFLECTION_NON_ANSWERS = (
-    "No response generated.",
-    "An error occurred",
-    "The search tools did not return any results",
-    "I searched the available sources but couldn't retrieve anything usable",
-)
+#: Canned error/empty answers that must never be reflected on. Built from the
+#: constants the nodes send, so a rewording cannot unhook this gate.
+REFLECTION_NON_ANSWERS = NON_ANSWER_PREFIXES
 
 #: Phrases that make the tail of an answer an insufficiency statement rather
 #: than a finding. Only the reflection gate reads them: escalation itself

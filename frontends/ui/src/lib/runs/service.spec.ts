@@ -37,6 +37,7 @@ vi.mock('@/lib/db/tenant-context', async (importOriginal) => ({
 vi.mock('@/lib/jobs/backend-client', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/lib/jobs/backend-client')>()),
   cancelBackendJob: vi.fn(),
+  addDocumentToBackendJob: vi.fn(),
 }))
 
 import { BadRequestError, ConflictError, NotFoundError, UpstreamError } from '@/lib/api/errors'
@@ -51,11 +52,12 @@ import {
 } from '@/lib/conversations/repository'
 import type { Message, TaskRun } from '@/lib/db/schema'
 import { withTenant } from '@/lib/db/tenant-context'
-import { cancelBackendJob, JobCancelError } from '@/lib/jobs/backend-client'
+import { addDocumentToBackendJob, cancelBackendJob, JobCancelError } from '@/lib/jobs/backend-client'
 import { emitInboxItems, resolveInboxItemsFor } from '@/lib/inbox/service'
 import * as taskRepository from '@/lib/tasks/repository'
 import { emptyRunLedger } from './run-ledger'
 import {
+  addRunDocument,
   applyRunLedgerOp,
   cancelRun,
   createRunMessage,
@@ -509,5 +511,44 @@ describe('findRunMessageByBackendJobId', () => {
     } as unknown as TaskRun)
 
     await expect(findRunMessageByBackendJobId('job-9')).resolves.toBeNull()
+  })
+})
+
+/**
+ * Adding a document to a running run is the same door as the cancel: gated the
+ * same way, refused before the backend for a run with nothing to hand it to,
+ * and it writes nothing itself — the ledger lists the document through the
+ * run's own stream once the worker has taken it.
+ */
+describe('addRunDocument', () => {
+  const doc = { name: 'Einreichplan.pdf', title: 'Einreichplan', shelf: 'project' as const }
+
+  it('gates on project:view and the chat permissions, then hands the document to the backend job', async () => {
+    await expect(addRunDocument(session, 'project-1', RUN, doc)).resolves.toMatchObject({
+      runId: RUN,
+      backendJobId: 'job-9',
+      status: 'running',
+    })
+
+    expect(requireProjectAccess).toHaveBeenCalledWith(session, 'project-1', 'project:view')
+    expect(requireProjectAccess).toHaveBeenCalledWith(session, 'project-1', CHAT_PERMISSIONS)
+    expect(addDocumentToBackendJob).toHaveBeenCalledWith('job-9', doc, 'wos-token')
+    expect(mergeMessageMetadata).not.toHaveBeenCalled()
+    expect(writeMessageContent).not.toHaveBeenCalled()
+  })
+
+  it('refuses a run that has already ended without asking the backend', async () => {
+    vi.mocked(taskRepository.findRunInProject).mockResolvedValue({ ...run, status: 'succeeded' } as TaskRun)
+
+    await expect(addRunDocument(session, 'project-1', RUN, doc)).rejects.toBeInstanceOf(ConflictError)
+    expect(addDocumentToBackendJob).not.toHaveBeenCalled()
+  })
+
+  it('reads the backend’s 400 as the run having ended and any other refusal as upstream', async () => {
+    vi.mocked(addDocumentToBackendJob).mockRejectedValueOnce(new JobCancelError('Job not running', 400))
+    await expect(addRunDocument(session, 'project-1', RUN, doc)).rejects.toBeInstanceOf(ConflictError)
+
+    vi.mocked(addDocumentToBackendJob).mockRejectedValueOnce(new JobCancelError('gateway', 502))
+    await expect(addRunDocument(session, 'project-1', RUN, doc)).rejects.toBeInstanceOf(UpstreamError)
   })
 })

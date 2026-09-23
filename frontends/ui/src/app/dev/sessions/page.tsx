@@ -59,12 +59,12 @@ const SESSIONS = [
   { id: 's-3', title: 'Brandabschnitte Tiefgarage', date: minutesAgo(240), hasCompletedReport: true },
   { id: 's-4', title: 'Sicherheitstreppenhaus — Anforderungen GK5', date: daysAgo(1) },
   { id: 's-5', title: 'Barrierefreiheit Sanitärräume', date: daysAgo(1) },
-  { id: 's-6', title: 'OIB-RL 6 Energieausweis Bestand', date: daysAgo(3), hasActiveDeepResearch: true, activeDeepResearchJobId: 'job-a' },
+  { id: 's-6', title: 'OIB-RL 6 Energieausweis Bestand', date: daysAgo(3), hasActiveDeepResearch: true },
   { id: 's-7', title: 'Schallschutz Trennwände Wohnbau', date: daysAgo(3) },
   { id: 's-8', title: 'Stellplatzverpflichtung Wien Bauordnung', date: daysAgo(6) },
   { id: 's-9', title: 'Belichtung Aufenthaltsräume', date: daysAgo(6) },
   { id: 's-10', title: 'Absturzsicherung Brüstungshöhen', date: daysAgo(11) },
-  { id: 's-11', title: 'Aufzugsschacht Entrauchung', date: daysAgo(11), hasExpiredReport: true },
+  { id: 's-11', title: 'Aufzugsschacht Entrauchung', date: daysAgo(11) },
   { id: 's-12', title: 'Bauklasse und Gebäudehöhe Parzelle 1042', date: daysAgo(18) },
 ]
 

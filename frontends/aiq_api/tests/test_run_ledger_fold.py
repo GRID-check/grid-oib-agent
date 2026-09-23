@@ -272,6 +272,57 @@ class TestTheMapping:
         assert client.finishes[-1].result.file_id == "doc-7"
 
 
+class TestTheGrundlage:
+    """The documents the reader named: on the ledger from the first snapshot, extended live."""
+
+    async def test_the_named_documents_are_on_the_first_snapshot_and_the_first_append(self) -> None:
+        fold, store, client = make_fold(
+            grundlage=[
+                {"name": "Einreichplan.pdf", "title": "Einreichplan", "shelf": "project"},
+                {"name": "", "shelf": "project"},
+            ]
+        )
+        fold.observe(phase_event(PHASE_PLANNING_STARTED))
+        await fold.flush(force=True)
+
+        assert snapshots(store)[0]["grundlage"] == [
+            {"name": "Einreichplan.pdf", "title": "Einreichplan", "shelf": "project", "loci": []}
+        ]
+        assert [doc.name for doc in client.appends[0].grundlage] == ["Einreichplan.pdf"]
+        # Sent once: a quiet flush repeats neither the list nor the step.
+        await fold.flush(force=True)
+        assert all(body.grundlage is None for body in client.appends[1:])
+
+    async def test_a_document_added_while_the_run_goes_joins_the_list_once_and_flushes_at_once(self) -> None:
+        fold, store, client = make_fold(grundlage=[{"name": "Einreichplan.pdf"}])
+        fold.observe(phase_event(PHASE_RESEARCH_STARTED, batch_index=1))
+        await fold.flush(force=True)
+
+        from aiq_agent.common.plan_documents import PlanDocument
+
+        fold.add_grundlage(PlanDocument(name="Brandschutzkonzept.pdf", shelf="project"))
+        fold.add_grundlage({"name": "brandschutzkonzept.pdf"})
+        await fold.flush()
+
+        assert [doc["name"] for doc in snapshots(store)[-1]["grundlage"]] == [
+            "Einreichplan.pdf",
+            "Brandschutzkonzept.pdf",
+        ]
+        sent = [[doc.name for doc in body.grundlage] for body in client.appends if body.grundlage is not None]
+        assert sent == [["Einreichplan.pdf"], ["Einreichplan.pdf", "Brandschutzkonzept.pdf"]]
+
+    async def test_the_grundlage_validates_against_the_bff_schema(self, schema: dict[str, Any]) -> None:
+        fold, store, client = make_fold(grundlage=[{"name": "Einreichplan.pdf", "shelf": "project"}])
+        fold.observe(phase_event(PHASE_PLANNING_STARTED))
+        await fold.flush(force=True)
+
+        from aiq_agent.common.run_ledger import to_wire
+
+        validator(schema, "runLedger").validate(snapshots(store)[-1])
+        for body in client.appends:
+            validator(schema, "runLedgerRequest").validate(to_wire(body))
+
+
 class TestTheFlush:
     """When the account moves, and who is told."""
 
@@ -420,3 +471,14 @@ class TestTheContract:
         fold.observe(phase_event(PHASE_RESEARCH_STARTED, batch_index=1, conclusion="ü" * 400))
         await fold.flush(force=True)
         validator(schema, "runLedger").validate(snapshots(store)[-1])
+
+
+def test_a_repeated_claim_is_not_a_change() -> None:
+    from aiq_api.jobs.run_ledger_fold import _add_findings
+    from aiq_api.jobs.run_ledger_fold import _Step
+
+    step = _Step(id="s1", phase="research", intent="Brandschutz", started_at="t")
+    notes = json.dumps({"findings": [{"claim": "REI 60 gefordert."}]})
+    assert _add_findings(step, notes) is True
+    assert _add_findings(step, notes) is False
+    assert step.findings == ["REI 60 gefordert."]

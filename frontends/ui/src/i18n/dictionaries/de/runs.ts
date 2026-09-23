@@ -42,6 +42,7 @@ export const runs: typeof en.runs = {
     round: 'Runde {n}',
     repeat: 'bereits gelesen',
     openPoints: 'Offen:',
+    findings: 'Bisher belegt',
   },
   phaseLine: {
     planen: 'Rechercheplan erstellt',
@@ -53,6 +54,7 @@ export const runs: typeof en.runs = {
   tallies: {
     rounds: '{count, plural, one {# Runde} other {# Runden}}',
     docs: '{count, plural, one {# Dokument} other {# Dokumente}}',
+    findings: '{count, plural, one {# Befund} other {# Befunde}}',
   },
   action: {
     answer: 'Antworten',
@@ -62,6 +64,35 @@ export const runs: typeof en.runs = {
     retry: 'Erneut starten',
     openInThread: 'Im Verlauf öffnen',
     cancel: 'Abbrechen',
+    writeNow: 'Jetzt schreiben',
+    continue: 'Bericht fortschreiben',
+  },
+  unterlagen: {
+    receiptLabel: 'Für diesen Auftrag benannte Unterlagen',
+    receipt: '{read} von {total} benannten Unterlagen gelesen',
+    unread: 'nicht gelesen',
+    open: '{name} öffnen',
+    addAction: 'Unterlage hinzufügen',
+    addTitle: 'Unterlage hinzufügen',
+    addDescription:
+      'Piloti liest sie in der nächsten Recherche-Runde vollständig und führt sie bei den übrigen benannten Unterlagen.',
+    pickTitle: 'Unterlagen wählen',
+    pickDescription:
+      '„Lesen" heißt vollständig lesen, was immer die Recherche sonst findet. „Ausschließen" heißt nie verwenden, auch nicht, wenn eine Suche sie liefert.',
+    search: 'Unterlagen durchsuchen',
+    searchPlaceholder: 'Nach Namen suchen …',
+    list: 'Unterlagen',
+    loading: 'Unterlagen werden geladen …',
+    empty: 'Keine passenden Unterlagen.',
+    read: 'Lesen',
+    exclude: 'Ausschließen',
+    markRead: 'Vollständig lesen: {name}',
+    markExcluded: 'Ausschließen: {name}',
+    add: 'Hinzufügen',
+    addOne: '{name} hinzufügen',
+    alreadyNamed: 'benannt',
+    done: 'Fertig',
+    shelf: { project: 'Projekt', archiv: 'Büroarchiv', session: 'Dieser Chat', base: 'Regelwerke' },
   },
   cancel: {
     confirmTitle: 'Auftrag abbrechen?',
@@ -77,7 +108,8 @@ export const runs: typeof en.runs = {
     rejectedAnon: 'Zurückgeschickt',
   },
   connection: {
-    reconnecting: 'Die Live-Ansicht hat die Verbindung verloren und verbindet neu. Der Auftrag läuft weiter.',
+    reconnecting:
+      'Die Live-Ansicht hat die Verbindung verloren und verbindet neu. Der Auftrag läuft weiter.',
     lost: 'Die Live-Ansicht ist getrennt. Der Auftrag läuft weiter — zum Mitlesen neu laden.',
   },
   block: {

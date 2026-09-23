@@ -24,6 +24,9 @@ from aiq_agent.common.citation_verification import EmptySourceRegistryError
 from aiq_agent.common.citation_verification import get_session_registry
 from aiq_agent.common.citation_verification import reset_session_registry
 from aiq_agent.common.citation_verification import set_session_registry
+from aiq_agent.common.plan_documents import PlanDocuments
+from aiq_agent.common.plan_documents import unread_grundlage
+from aiq_agent.common.turn_status import CUTOFF_USER_REQUESTED
 from aiq_agent.common.turn_status import DEGRADED_NO_REPORT_FILE
 from aiq_agent.common.turn_status import begin_lane_capture
 from aiq_agent.common.turn_status import end_lane_capture
@@ -36,6 +39,10 @@ from aiq_agent.skills import SkillRuntime
 from aiq_agent.skills import resolve_served_skills
 from aiq_agent.skills.events import emit_skills_offered
 
+from .control import all_added_documents
+from .control import begin_write_now_record
+from .control import end_write_now_record
+from .control import write_now_honoured
 from .custom_middleware import SourceRegistryMiddleware
 from .cutoff import classify_cutoff
 from .cutoff import salvage_cutoff
@@ -136,6 +143,11 @@ def _run_scoped_callbacks(callbacks: Sequence[Any], source_registry_middleware: 
         setter = getattr(cb, "set_source_registry", None)
         if callable(setter):
             setter(source_registry_middleware.active_registry)
+        # The same refusal the registry makes, so an excluded document is not
+        # announced as a source the moment its tool returns.
+        exclusion = getattr(cb, "set_source_exclusion", None)
+        if callable(exclusion):
+            exclusion(source_registry_middleware.is_excluded)
     return scoped
 
 
@@ -169,6 +181,8 @@ class DeepResearchRunArtifacts:
     #: it already fetched. Read back once the graph has finished, to state the
     #: run's rounds beside its sources.
     rounds: RetrievalRounds
+    #: The Unterlagen the reader named, for the unread mark at the end.
+    plan_documents: PlanDocuments | None
     #: This run's resolved skills. The runtime accumulates the activation list
     #: DURING the run and ``_finalize`` reports it — a runtime that went out of
     #: scope at graph-build time is why deep research shipped
@@ -247,7 +261,11 @@ class DeepResearcherAgent:
         """
         if skill_runtime is None:
             skill_runtime = SkillRuntime()
-        source_registry_middleware = SourceRegistryMiddleware(source_tool_names=self.source_tool_names)
+        documents = state.plan_documents
+        source_registry_middleware = SourceRegistryMiddleware(
+            source_tool_names=self.source_tool_names,
+            excluded_file_names=[doc.name for doc in documents.ausgeschlossen] if documents else (),
+        )
         rounds = RetrievalRounds()
         tool_set = build_deep_research_tool_set(
             self.tools,
@@ -280,6 +298,7 @@ class DeepResearcherAgent:
             rounds=rounds,
         )
         return DeepResearchRunArtifacts(
+            plan_documents=state.plan_documents,
             graph=graph,
             source_registry_middleware=source_registry_middleware,
             tool_set=tool_set,
@@ -371,6 +390,7 @@ class DeepResearcherAgent:
         # contributions are: a Dask worker is reused across jobs and tenants,
         # and a capture left open would hang job N+1's hits under job N.
         lane_token = begin_lane_capture()
+        write_now_token = begin_write_now_record()
         try:
             config, stream_kwargs = self._invocation(artifacts.callbacks)
             outcome = await stream_with_budget(
@@ -398,6 +418,7 @@ class DeepResearcherAgent:
             if registry_token is not None:
                 reset_session_registry(registry_token)
             end_lane_capture(lane_token)
+            end_write_now_record(write_now_token)
             end_trace_contributions(contributions_token)
 
     # -- post-processing ------------------------------------------------------
@@ -417,20 +438,32 @@ class DeepResearcherAgent:
         being the banner and the flags that say it was cut off.
         """
         middleware = artifacts.source_registry_middleware
+        # A run the reader cut short by asking for the report is salvaged and
+        # marked like a cut-off run, under its own token: the banner says it
+        # was their choice. Cut short means a batch was refused; a request that
+        # arrived after the last batch cut nothing.
+        if cutoff_reason is None and write_now_honoured():
+            cutoff_reason = CUTOFF_USER_REQUESTED
         report, degraded_reasons = self._extract_report(result, middleware)
         # The writer's self-assessment comes out before ANY other reader touches
         # the text, or a stray "[CONFIDENCE:high]" reaches the PDF.
         report, self_confidence, self_confidence_reason = detect_and_strip_confidence_marker(report)
         verification = self._verify(report, middleware, self_confidence)
+        # The receipt: a Grundlage document with no passage in the registry was
+        # never read, whatever the writer wrote about it. That includes one the
+        # reader added while the run went, announced to the orchestrator or not.
+        unread = unread_grundlage(artifacts.plan_documents, middleware.read_file_names(), all_added_documents())
         finalized = finalize_report(
             verification,
             self_confidence=self_confidence,
             self_confidence_reason=self_confidence_reason,
             degraded_reasons=degraded_reasons,
             cutoff_reason=cutoff_reason,
+            grundlage_unread=[doc.name for doc in unread],
         )
         annotate_state(result, finalized, artifacts.skill_runtime)
-        record_retrieval_ledger(result, artifacts.rounds.announcements, get_lane_captures())
+        lane_hits = [hit for hit in get_lane_captures() if not middleware.is_excluded_locator(str(hit.get("name")))]
+        record_retrieval_ledger(result, artifacts.rounds.announcements, lane_hits)
         emit_final_report(artifacts.callbacks, finalized.report)
         replace_last_message_content(result, finalized.report)
         log_completion(finalized)

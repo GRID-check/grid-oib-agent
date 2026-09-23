@@ -37,6 +37,10 @@ class AnswerStrategy(_StrictContract):
     """Planner guidance for the final answer shape and synthesis logic."""
 
     answer_type: Literal[
+        "pruefbericht",
+        "aktenvermerk",
+        "vergleich",
+        "checkliste",
         "long_form_report",
         "brief_answer",
         "table",

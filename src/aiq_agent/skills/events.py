@@ -128,6 +128,8 @@ class SkillEvent(BaseModel):
         description: Truncated excerpt of the model-facing description.
         origin: ``platform`` (ships with Grid) or ``org`` (the tenant's own).
         offered_count: ``offered`` only — how many skills were in the catalog.
+        inlined_count: ``offered`` only — how many of them rode the prompt in
+            full (ADR-0063); the rest were one catalog line each.
         body_chars: ``loaded`` only — characters of instruction pulled in.
     """
 
@@ -140,6 +142,7 @@ class SkillEvent(BaseModel):
     description: str | None = None
     origin: str | None = None
     offered_count: int | None = None
+    inlined_count: int | None = None
     body_chars: int | None = None
 
 
@@ -174,6 +177,7 @@ def emit_skills_offered(runtime: SkillRuntime) -> None:
             phase="offered",
             channel=CHANNEL_TECHNICAL,
             offered_count=len(skills),
+            inlined_count=len(runtime.inlined),
         )
         push_custom_step(SELECTION_STEP_NAME, _payload(event))
     except Exception:  # noqa: BLE001 — transparency must never take a turn down

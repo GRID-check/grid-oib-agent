@@ -1,0 +1,19 @@
+---
+features:
+  - >
+    Die Tiefenrecherche hat kein Seitenpanel mehr. Ein Durchlauf ist ein Block im
+    Chat, der ihn beauftragt hat: Stand, Befunde je Runde, „Jetzt schreiben“,
+    „Abbrechen“ und am Ende der Bericht mit Befundmatrix stehen dort. Was mehr
+    Platz braucht als eine Nachricht, öffnet sich als Dialog über dem Chat.
+  - >
+    Der Chat bleibt während und nach einer Tiefenrecherche offen. Bisher war die
+    Eingabe gesperrt, solange ein Durchlauf lief, und nach einem fertigen
+    Bericht dauerhaft. Jetzt fragen Sie neben dem Durchlauf weiter, und
+    „Bericht fortschreiben“ läuft im selben Chat.
+fixes:
+  - >
+    Ein Durchlauf, dessen Ende der Browser verpasst hat, hielt den Chat fest:
+    Eingabe gesperrt, Umbenennen und Löschen ausgegraut, „Alle löschen“
+    blockiert. Der Stand eines Durchlaufs wird jetzt an seinem Block gelesen
+    und beim Neuladen vom Server geholt; ein laufender Durchlauf sperrt nichts
+    mehr. Die Schaltfläche „Blockierte Recherchen stoppen“ entfällt.

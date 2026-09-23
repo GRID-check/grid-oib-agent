@@ -11,14 +11,24 @@
  * second one here would be a second account of one run, differing from the
  * stored one exactly when something went wrong.
  *
- * ## One subscription per block, no store
+ * ## One subscription per block, no run store
  *
  * Several live runs in one thread are the normal case (a person delegates
  * three things and keeps typing), so each block holds its own subscription,
- * keyed by its run id, and drops it on unmount. Nothing here is a singleton:
- * the chat store's `deepResearchJobId` slice is the one-run-at-a-time model
- * this replaces, and it stays only for the escalated chat question, which has
- * no run message until PR 3.
+ * keyed by its run id, and drops it on unmount. Nothing here is a singleton;
+ * the chat store's one-run-at-a-time slice this replaced is gone.
+ *
+ * ## The stored ledger follows the stream
+ *
+ * The message's own `runLedger` is the account everything OUTSIDE the block
+ * reads — the composer, the toolbar's „läuft" pill, the history's row state,
+ * the watchdog that exempts a turn a run is carrying, the delete that stops a
+ * live run (`chat/lib/session-activity`). So when the stream moves the run
+ * from one status word to another, the hook writes that ledger back onto the
+ * message in the chat store. Only on a status change: a snapshot per step
+ * would bump the thread on every event for facts nobody outside reads. The
+ * server row is not touched — the worker is its writer, and a reload lands on
+ * the same terminal ledger either way.
  *
  * ## How the stream is found
  *
@@ -46,18 +56,29 @@
  */
 
 import { useCallback, useEffect, useState } from 'react'
-import { createDeepResearchClient, type DeepResearchClient } from '@/adapters/api/deep-research-client'
+import {
+  createDeepResearchClient,
+  type DeepResearchClient,
+} from '@/adapters/api/deep-research-client'
 import type { ChatMessage } from '@/features/chat/types'
+import { useChatStore } from '@/features/chat/store'
 import { sanitizeRunLedger } from '@/lib/runs/run-ledger'
 import { isTerminalRunStatus, type RunLedger } from '@/lib/runs/run-ledger-types'
-import { cancelRun, fetchRunView } from '@/lib/runs/run-view-client'
+import { addRunDocument, cancelRun, fetchRunView, writeNowRun } from '@/lib/runs/run-view-client'
+import type { PlanDocument } from '@/lib/runs/plan-documents'
 import { runDisplayStatus } from '@/lib/runs/run-vocabulary'
 
 export interface UseRunLedgerInput {
   /** The run's message; `runLedger` is the account it was loaded with. */
-  message: Pick<ChatMessage, 'runLedger'>
+  message: Pick<ChatMessage, 'id' | 'runLedger'>
   /** The project the run belongs to. Without one there is no read door, so no stream. */
   projectId?: string | null
+  /**
+   * The thread the message is in. With it, a status change on the stream is
+   * written back onto the stored message (see the module note); without it
+   * the block still follows the stream, and nothing outside it learns.
+   */
+  conversationId?: string | null
 }
 
 /**
@@ -83,6 +104,18 @@ export interface UseRunLedgerResult {
    * says the run was cancelled, never because the button was pressed.
    */
   cancel: (() => Promise<void>) | null
+  /**
+   * „Jetzt schreiben": stop researching and write from what is there. `null`
+   * on the same terms as `cancel`; the block decides whether the run is in a
+   * phase where it means anything.
+   */
+  writeNow: (() => Promise<void>) | null
+  /**
+   * „Unterlage hinzufügen": name one more document as Grundlage while the run
+   * goes. `null` on the same terms as `cancel`. The ledger lists it through
+   * the run's own stream; the view the request answers is taken as a snapshot.
+   */
+  addDocument: ((doc: PlanDocument) => Promise<void>) | null
 }
 
 /**
@@ -99,7 +132,11 @@ function notOlder(current: RunLedger | null, candidate: RunLedger): RunLedger {
   return candidate.updatedAt > current.updatedAt ? candidate : current
 }
 
-export function useRunLedger({ message, projectId }: UseRunLedgerInput): UseRunLedgerResult {
+export function useRunLedger({
+  message,
+  projectId,
+  conversationId,
+}: UseRunLedgerInput): UseRunLedgerResult {
   const stored = message.runLedger ?? null
   const [ledger, setLedger] = useState<RunLedger | null>(stored)
   const [live, setLive] = useState(false)
@@ -114,6 +151,18 @@ export function useRunLedger({ message, projectId }: UseRunLedgerInput): UseRunL
 
   const runId = ledger?.runId ?? null
   const terminal = ledger ? isTerminalRunStatus(runDisplayStatus(ledger)) : true
+
+  // Write a status change back onto the stored message, so the rest of the
+  // thread reads the run the way the block shows it.
+  const messageId = message.id
+  useEffect(() => {
+    if (!ledger || !conversationId || !messageId) return
+    if (stored && runDisplayStatus(stored) === runDisplayStatus(ledger)) return
+    if (stored && stored.updatedAt >= ledger.updatedAt) return
+    useChatStore.getState().patchConversationMessage(conversationId, messageId, {
+      runLedger: ledger,
+    })
+  }, [ledger, stored, conversationId, messageId])
 
   useEffect(() => {
     if (terminal || !runId || !projectId) return
@@ -192,11 +241,36 @@ export function useRunLedger({ message, projectId }: UseRunLedgerInput): UseRunL
     }
   }, [runId, projectId])
 
+  const writeNow = useCallback(async (): Promise<void> => {
+    if (!runId || !projectId) return
+    try {
+      const view = await writeNowRun(projectId, runId)
+      if (view.ledger) setLedger((current) => notOlder(current, view.ledger as RunLedger))
+    } catch {
+      // Fail-open, like the cancel: the run goes on and the person can try again.
+    }
+  }, [runId, projectId])
+
+  const addDocument = useCallback(
+    async (doc: PlanDocument): Promise<void> => {
+      if (!runId || !projectId) return
+      try {
+        const view = await addRunDocument(projectId, runId, doc)
+        if (view.ledger) setLedger((current) => notOlder(current, view.ledger as RunLedger))
+      } catch {
+        // Fail-open, like the cancel: the run goes on and the person can try again.
+      }
+    },
+    [runId, projectId]
+  )
+
   return {
     ledger,
     live: live && !terminal,
     // A run that has ended has nothing to reconnect to, whatever the socket did.
     connection: terminal ? null : connection,
     cancel: terminal || !runId || !projectId ? null : cancel,
+    writeNow: terminal || !runId || !projectId ? null : writeNow,
+    addDocument: terminal || !runId || !projectId ? null : addDocument,
   }
 }

@@ -4,7 +4,6 @@ import { vi, describe, test, expect, beforeEach, afterEach } from 'vitest'
 import { buildCitationModel, type CitationRef } from '../lib/citations'
 import type { CitationSource } from '../types'
 import {
-  ReportSourcePreviewChip,
   SourcePreviewChip,
   resetSourcePreviewIndexCache,
 } from './SourcePreview'
@@ -291,34 +290,6 @@ describe('SourcePreviewChip', () => {
     expect(screen.getByText('OIB-Richtlinie 2')).toBeInTheDocument()
     expect(screen.queryByRole('button')).not.toBeInTheDocument()
     expect(fetchMock).not.toHaveBeenCalled()
-  })
-})
-
-describe('ReportSourcePreviewChip', () => {
-  beforeEach(() => {
-    resetSourcePreviewIndexCache()
-    fetchMock.mockClear()
-    vi.stubGlobal('fetch', fetchMock)
-  })
-
-  afterEach(() => {
-    vi.unstubAllGlobals()
-  })
-
-  test('renders a View affordance for a resolvable base-corpus entry', async () => {
-    render(<ReportSourcePreviewChip locatorText="oib-rl_2.pdf, p.12" />)
-
-    expect(
-      await screen.findByRole('button', { name: 'Preview source: OIB-Richtlinie 2' })
-    ).toHaveTextContent('View')
-  })
-
-  test('renders nothing for an unresolvable entry', async () => {
-    const { container } = render(<ReportSourcePreviewChip locatorText="nicht-vorhanden.pdf" />)
-
-    // Give the index a tick to load; the chip must still render nothing.
-    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalled())
-    expect(container.querySelector('button')).toBeNull()
   })
 })
 

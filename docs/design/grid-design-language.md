@@ -438,7 +438,7 @@ transitions on layout-triggering properties.
 |---|---|---|---|---|
 | `springPress` | 600 / 38 / 0.6 | 1.00 | **0%** | Press and release, tap scale, checkbox. Chosen for interruptibility and velocity carry-over, not bounce — a tween cannot resolve a press interrupted mid-flight. |
 | `springSnap` | 520 / 30 / 1 | 0.658 | **6.4%** | **Travel ≤ 24px only.** Toggle thumb, segmented indicator, icon swap, landing file, snap-back. |
-| `springDrawer` | 260 / 26 / 1 | 0.806 | **1.4%** | **Travel ≤ ~145px.** Large but BOUNDED surfaces: research panel, wizard step, a card settling. |
+| `springDrawer` | 260 / 26 / 1 | 0.806 | **1.4%** | **Travel ≤ ~145px.** Large but BOUNDED surfaces: a dialog, wizard step, a card settling. |
 | `springGlide` | 260 / 29 / 1 | 0.899 | **0.157%** | **Unbounded travel.** The distance is not knowable when the transition is written: shared-layout chips, anything whose travel is the reader's route history. |
 
 `springSnapLinear` / `springDrawerLinear` are CSS `linear()` equivalents for
@@ -509,7 +509,7 @@ times stops being a physical cue and becomes texture.
 - **Chat turn entrance** — every block arriving in the transcript uses the same
   fade-and-rise: `animate-in fade-in-0 slide-in-from-bottom-1 duration-base
   ease-entrance motion-reduce:animate-none`. That includes `AgentPrompt` and the
-  `DeepResearchBanner` / `ErrorBanner` / `NoSourcesBanner` notices — a banner
+  `ErrorBanner` / `NoSourcesBanner` notices — a banner
   that pops in unanimated reads as a different class of object than the answer
   beside it.
 - **State changes inside an arrived turn are transitions, not entrances**:

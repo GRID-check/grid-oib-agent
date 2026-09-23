@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import uuid
 from collections.abc import Iterable
 from collections.abc import Mapping
 from collections.abc import Sequence
@@ -36,6 +37,7 @@ from typing import Protocol
 from typing import runtime_checkable
 
 from langchain_core.language_models import BaseChatModel
+from langchain_core.messages import AIMessage
 from langchain_core.messages import HumanMessage
 from langchain_core.messages import SystemMessage
 from langchain_core.messages import ToolMessage
@@ -65,6 +67,7 @@ from aiq_agent.common.deferred_tool_loading import DeferredToolLoadingSettings
 from aiq_agent.common.deferred_tool_loading import bind_tools_deferred
 from aiq_agent.common.grounding_block import begin_grounding_capture
 from aiq_agent.common.grounding_block import end_grounding_capture
+from aiq_agent.common.grounding_block import strip_trace_lanes
 from aiq_agent.common.prompt_caching import begin_stable_prefix
 from aiq_agent.common.prompt_caching import end_stable_prefix
 from aiq_agent.common.retrieval_rounds import assistant_checkpoint
@@ -95,6 +98,7 @@ from aiq_agent.tools.bim.measurement_sources import begin_measurement_capture
 from aiq_agent.tools.bim.measurement_sources import end_measurement_capture
 from aiq_agent.tools.bim.measurement_sources import get_measurement_captures
 
+from .answer_pipeline import CardRepairFn
 from .answer_pipeline import FinalAnswer
 from .answer_pipeline import RepairFn
 from .answer_pipeline import finalize_answer
@@ -234,6 +238,13 @@ class TurnConfig:
     #: model is told about and then refused is a fact it can say out loud,
     #: where an absent tool is one it has to infer.
     disabled_sources: frozenset[str] = frozenset()
+    #: The fetches to run as ROUND 0, before the first LLM call: what the
+    #: turn-start decision (``decisions.py``, ADR-0064) says the model's first
+    #: round would ask for anyway. Tool-call dicts (``name``, ``args``), run
+    #: through the real tools node so the guards, the capture, the round
+    #: stamp and the duplicate-fetch answer all apply; the round costs no
+    #: budget, because no LLM decision was spent on it.
+    prefetch: tuple[dict[str, Any], ...] = ()
 
 
 @dataclass(frozen=True)
@@ -258,6 +269,8 @@ class TurnBinding:
     #: :attr:`disabled_sources`, so the round the agent node charges is the
     #: round the tools node executes. 0 disables the cap.
     max_calls_per_round: int = 0
+    #: See :attr:`TurnConfig.prefetch`. Read once, in :meth:`PilotiAgent.run`.
+    prefetch: tuple[dict[str, Any], ...] = ()
     #: See :attr:`TurnConfig.disabled_sources`. Read in BOTH nodes, so the
     #: round the agent node announces is the round the tools node runs.
     disabled_sources: frozenset[str] = frozenset()
@@ -597,6 +610,16 @@ def _without_dropped_calls(state: ResearchAgentState, dropped: Sequence[Any]) ->
     return state.model_copy(update={"messages": [*state.messages[:-1], trimmed]})
 
 
+def _without_trace_lanes(message: Any) -> Any:
+    """The same tool result minus the fan-out JSON; anything else untouched."""
+    if not isinstance(message, ToolMessage) or not isinstance(message.content, str):
+        return message
+    stripped = strip_trace_lanes(message.content)
+    if stripped == message.content:
+        return message
+    return message.model_copy(update={"content": stripped})
+
+
 def _notice(call: Any, content: str) -> ToolMessage:
     """The one result a withheld call gets, addressed to the call that asked."""
     return ToolMessage(
@@ -870,6 +893,7 @@ class PilotiAgent:
         deferred_tool_loading: DeferredToolLoadingSettings | None = None,
         envelope_json_mode_with_tools: bool = False,
         repair_pass: bool = True,
+        card_repair_llm: BaseChatModel | None = None,
     ) -> None:
         """Build the agent once.
 
@@ -910,7 +934,13 @@ class PilotiAgent:
             repair_pass: One bounded repair after verification (``repair.py``).
                 Off is the pre-repair behaviour: ship the markers, never
                 re-search.
+            card_repair_llm: The small model that fixes ONE envelope card
+                whose shape the validator refused (``cards/repair.py``): a few
+                thousand tokens instead of the full-context round the
+                ``emit_card`` retry used to cost. ``None`` drops a card that
+                fails validation, and records that it did.
         """
+        self.card_repair_llm = card_repair_llm
         self.llm_provider = llm_provider
         self.tools = list(tools)
         self.max_tool_iterations = max_tool_iterations
@@ -1005,9 +1035,9 @@ class PilotiAgent:
         tools = tuple(self.tools if turn.tools is None else turn.tools)
         boot = provider is self.llm_provider and tools == self._boot.tools
         base = self._boot if boot else self._bind_turn(provider, tools)
-        if turn.disabled_sources == base.disabled_sources:
+        if turn.disabled_sources == base.disabled_sources and not turn.prefetch:
             return base
-        return replace(base, disabled_sources=frozenset(turn.disabled_sources))
+        return replace(base, disabled_sources=frozenset(turn.disabled_sources), prefetch=tuple(turn.prefetch))
 
     def _select_tools_for_query(self, messages: Sequence[Any]) -> Any:
         """Run (or replay) the tool-search retrieval for this run's question.
@@ -1097,9 +1127,14 @@ class PilotiAgent:
     def _build_graph(self) -> CompiledStateGraph:
         """Compile the two-node loop once; turns vary through the config."""
         builder = StateGraph(ResearchAgentState)
-        builder.set_entry_point("agent")
+        # Round 0 first: the fetches the turn-start decision named, run
+        # through the tools node before the model's first call (ADR-0064). A
+        # no-op step on a turn with nothing to prefetch.
+        builder.set_entry_point("prefetch")
+        builder.add_node("prefetch", self._prefetch_node)
         builder.add_node("agent", self._agent_node)
         builder.add_node("tools", self._tools_node)
+        builder.add_edge("prefetch", "agent")
         builder.add_conditional_edges("agent", tools_condition, {"tools": "tools", "__end__": "__end__"})
         builder.add_edge("tools", "agent")
         return builder.compile()
@@ -1276,6 +1311,13 @@ class PilotiAgent:
             raise RuntimeError("PilotiAgent graph invoked outside run(): no source registry is bound")
         ran_messages = list(result.get("messages", []))
         measured = self._capture_round(ran_messages, binding, registry, state)
+        # AFTER the capture, which files the sources under the bytes the tool
+        # returned: from here on the transcript, the repeat-fetch answers and
+        # the next turn's history carry the passages without the lanes JSON
+        # the model never reads (``strip_trace_lanes``). The frontend's copy is
+        # the NAT tool step, recorded when the tool returned, and unaffected.
+        ran_messages = [_without_trace_lanes(message) for message in ran_messages]
+        result = {**result, "messages": ran_messages}
         failed_ids = failed_call_ids(ran_messages)
         # Merged BEFORE the notices are built: a call repeated inside its own
         # batch is answered with the result its first occurrence just returned.
@@ -1352,6 +1394,73 @@ class PilotiAgent:
 
         return repair
 
+    def _card_repairer(self) -> CardRepairFn | None:
+        """The turn's card repair on the small model; ``None`` when none is configured."""
+        llm = self.card_repair_llm
+        if llm is None:
+            return None
+
+        async def repair(card: dict[str, Any], refusal: str, answer: str) -> dict[str, Any] | None:
+            from aiq_agent.cards.repair import repair_card
+
+            return await repair_card(llm, card, refusal, answer)
+
+        return repair
+
+    async def _prefetch_node(self, state: ResearchAgentState, config: RunnableConfig) -> dict[str, Any]:
+        """Round 0: the fetches the decision named, run before the first LLM call.
+
+        Announced and executed exactly as a round the model asked for — the
+        same ``emit_retrieval`` / ``record_round_announcement`` pair the agent
+        node writes, then the tools node itself — so the Herleitung draws it as
+        a layer, its sources are captured, its hits are stamped with its round,
+        and a model that asks for the same fetch again is answered with this
+        result by the duplicate-fetch guard. What it does NOT do is charge:
+        ``tool_iterations`` stays 0, because a round is an LLM decision that
+        emitted tool calls and none was spent here. A call to a tool this
+        turn has not bound, or to a switched-off source, is dropped before
+        anything is announced; a turn with nothing to prefetch is a no-op
+        step. A graph NODE rather than a call before the graph, because the
+        ``ToolNode`` needs the graph's runtime around it.
+        """
+        binding = self._turn_binding(config)
+        if not binding.prefetch:
+            return {}
+        bound = {tool.name for tool in binding.tools}
+        # Unique per turn, not per index: the last turn's transcript stays in the
+        # history with its calls, and a provider refuses two calls under one id.
+        turn_key = uuid.uuid4().hex[:8]
+        calls = [
+            {"name": str(call["name"]), "args": dict(call.get("args") or {}), "id": f"prefetch-{turn_key}-{index}"}
+            for index, call in enumerate(binding.prefetch, 1)
+            if isinstance(call, dict) and call.get("name") in bound
+        ]
+        if not calls:
+            return {}
+        announcement = AIMessage(content="", tool_calls=calls)
+        announced = state.model_copy(update={"messages": [*state.messages, announcement]})
+        split = _split_round(announced, binding.disabled_sources, binding.max_calls_per_round)
+        if not split.ran or not is_retrieval_round(split.ran):
+            return {}
+        searched = emit_retrieval(split.ran, round_index=state.retrieval_round, conclusion=None)
+        record = record_round_announcement(round_index=state.retrieval_round, calls=split.ran, conclusion=None)
+        # The counter moves as the agent node moves it, so the tools node
+        # derives round 0 for these calls (``_executing_retrieval_round``).
+        announced = announced.model_copy(
+            update={
+                "retrieval_round": state.retrieval_round + (1 if searched else 0),
+                "retrieval_rounds": [*state.retrieval_rounds, *([record] if record else [])],
+            }
+        )
+        result = await self._tools_node(announced, config)
+        logger.info("Prefetched %d fetch(es) as round 0", len(split.ran))
+        return {
+            **{key: value for key, value in result.items() if key != "messages"},
+            "messages": [announcement, *result.get("messages", [])],
+            "retrieval_round": announced.retrieval_round,
+            "retrieval_rounds": announced.retrieval_rounds,
+        }
+
     def _emit_final_report(self, final: FinalAnswer) -> None:
         """Hand the verified, sanitised text to the first callback that renders it
         (it overwrites the raw draft auto-emitted during ``ainvoke``)."""
@@ -1427,6 +1536,7 @@ class PilotiAgent:
             tools=binding.tools,
             repair=self._repairer(binding, graph_result),
             turn_sources=turn_sources,
+            card_repair=self._card_repairer(),
         )
         self._emit_final_report(final)
         # The "already read" digest, appended at turn end: this turn's captures

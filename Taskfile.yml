@@ -442,6 +442,14 @@ tasks:
       # this when AIQ_EMBED_MODEL, data/oib or the golden questions change.
       - '{{.PY}} -m oib_retrieval_eval.record_vector'
 
+  be:eval:decisions:
+    desc: 'Decision-model eval — does Jev pick the right OIB family, corpus and evidence need on the loop-eval questions (NEEDS OPENROUTER_API_KEY; no backend)'
+    cmds:
+      # ADR-0064's adoption gate. Needs only a key: the decision reads the
+      # question and a fixed description of the six families, ~a cent for the
+      # whole set. Exit 0 = the three floors hold; 1 = keep turn_decisions off.
+      - '{{.PY}} scripts/decision_eval.py {{.CLI_ARGS}}'
+
   be:eval:loop:
     desc: 'Agentic-loop shape eval — rounds, locator use, checkpoint source, truncation (NEEDS a running backend with the corpus; set GRID_LOOP_EVAL_URL)'
     cmds:

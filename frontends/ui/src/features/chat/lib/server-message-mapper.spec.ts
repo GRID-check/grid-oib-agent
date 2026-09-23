@@ -284,7 +284,6 @@ describe('mapServerMessageToChatMessage — the answer’s provenance', () => {
     expect(mapped!.routingDecision).toBe('shallow')
     expect(mapped!.citationsRemoved).toEqual({ count: 1, reasons: ['ungrounded'] })
     expect(mapped!.deepResearchJobId).toBe('job_1')
-    expect(mapped!.showViewReport).toBe(true)
   })
 
   it('restores the truncation note, so a reloaded answer still says it stopped early', () => {

@@ -10,6 +10,7 @@ import asyncio
 import logging
 import threading
 import time
+from collections.abc import Sequence
 from typing import Any
 
 from aiq_agent.common.db_utils import normalize_db_url as _normalize_db_url
@@ -44,6 +45,34 @@ configure_sqlalchemy_logging()
 
 ENGINE_CACHE_TTL_SECONDS = 3600
 ENGINE_CACHE_MAX_SIZE = 10
+
+
+def _events_query(
+    job_id: str, after_id: int, limit: int, event_types: Sequence[str] | None
+) -> tuple[Any, dict[str, Any]]:
+    """The page-of-events SELECT, narrowed to ``event_types`` when given."""
+    from sqlalchemy import bindparam
+    from sqlalchemy import text
+
+    params: dict[str, Any] = {"job_id": job_id, "after_id": after_id, "limit": limit}
+    if event_types is None:
+        return (
+            text(
+                "SELECT id, event_data FROM job_events "
+                "WHERE job_id = :job_id AND id > :after_id "
+                "ORDER BY id LIMIT :limit"
+            ),
+            params,
+        )
+    # Two literal statements rather than one with a spliced clause: nothing
+    # but bound parameters ever reaches the SQL text.
+    params["event_types"] = list(event_types)
+    statement = text(
+        "SELECT id, event_data FROM job_events "
+        "WHERE job_id = :job_id AND id > :after_id AND event_type IN :event_types "
+        "ORDER BY id LIMIT :limit"
+    ).bindparams(bindparam("event_types", expanding=True))
+    return statement, params
 
 
 class EventStore:
@@ -445,7 +474,14 @@ class EventStore:
         cls._tables_initialized.add(db_url)
 
     @classmethod
-    def get_events(cls, db_url: str, job_id: str, after_id: int = 0, limit: int = 100) -> list[dict]:
+    def get_events(
+        cls,
+        db_url: str,
+        job_id: str,
+        after_id: int = 0,
+        limit: int = 100,
+        event_types: Sequence[str] | None = None,
+    ) -> list[dict]:
         """
         Retrieve events for SSE streaming (sync).
 
@@ -454,26 +490,21 @@ class EventStore:
             job_id: Job ID to fetch events for
             after_id: Only return events with id > after_id
             limit: Maximum events to return
+            event_types: Only these types, when given. Filtered in the query,
+                so a reader waiting for one control event is not paged
+                through a run's token stream a hundred rows at a time.
 
         Returns:
             List of event dicts with '_id' field for cursor tracking
         """
         import json
 
-        from sqlalchemy import text
-
         try:
             cls._ensure_table_exists(db_url)
             engine = cls._get_or_create_sync_engine(db_url)
             with engine.connect() as conn:
-                result = conn.execute(
-                    text(
-                        "SELECT id, event_data FROM job_events "
-                        "WHERE job_id = :job_id AND id > :after_id "
-                        "ORDER BY id LIMIT :limit"
-                    ),
-                    {"job_id": job_id, "after_id": after_id, "limit": limit},
-                )
+                statement, params = _events_query(job_id, after_id, limit, event_types)
+                result = conn.execute(statement, params)
                 events = []
                 for row in result:
                     try:
@@ -488,7 +519,14 @@ class EventStore:
             return []
 
     @classmethod
-    async def get_events_async(cls, db_url: str, job_id: str, after_id: int = 0, limit: int = 100) -> list[dict]:
+    async def get_events_async(
+        cls,
+        db_url: str,
+        job_id: str,
+        after_id: int = 0,
+        limit: int = 100,
+        event_types: Sequence[str] | None = None,
+    ) -> list[dict]:
         """
         Async version of get_events for FastAPI SSE routes.
 
@@ -496,20 +534,12 @@ class EventStore:
         """
         import json
 
-        from sqlalchemy import text
-
         try:
             await cls._ensure_table_async(db_url)
             engine = cls._get_or_create_async_engine(db_url)
             async with engine.connect() as conn:
-                result = await conn.execute(
-                    text(
-                        "SELECT id, event_data FROM job_events "
-                        "WHERE job_id = :job_id AND id > :after_id "
-                        "ORDER BY id LIMIT :limit"
-                    ),
-                    {"job_id": job_id, "after_id": after_id, "limit": limit},
-                )
+                statement, params = _events_query(job_id, after_id, limit, event_types)
+                result = await conn.execute(statement, params)
                 events = []
                 for row in result:
                     try:
@@ -522,7 +552,7 @@ class EventStore:
         except Exception as e:
             logger.warning("Failed to get events async for job %s: %s", job_id, e)
             return await asyncio.get_running_loop().run_in_executor(
-                None, cls.get_events, db_url, job_id, after_id, limit
+                None, cls.get_events, db_url, job_id, after_id, limit, event_types
             )
 
     @classmethod

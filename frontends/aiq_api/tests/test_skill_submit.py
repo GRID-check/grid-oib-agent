@@ -271,6 +271,25 @@ def test_successful_submit_returns_job_id(client, prod_token, submit_mock):
     submit_mock.assert_awaited_once()
 
 
+def test_the_settled_plan_and_the_unterlagen_reach_the_worker(client, prod_token, submit_mock):
+    """The commissioning turn's approved plan binds the worker's planner; the named documents its reading."""
+    documents = {"grundlage": [{"name": "Einreichplan.pdf", "shelf": "project"}], "ausgeschlossen": []}
+    resp = _post(client, _valid_body(clarifier_result="Rechercheplan: Fluchtwege", documents=documents))
+    assert resp.status_code == 200
+
+    kwargs = submit_mock.await_args.kwargs
+    assert kwargs["clarifier_result"] == "Rechercheplan: Fluchtwege"
+    assert kwargs["documents"] == documents
+
+
+def test_a_run_that_settled_nothing_sends_neither(client, prod_token, submit_mock):
+    resp = _post(client, _valid_body())
+    assert resp.status_code == 200
+    kwargs = submit_mock.await_args.kwargs
+    assert kwargs["clarifier_result"] is None
+    assert kwargs["documents"] is None
+
+
 def test_successful_submit_forwards_identity_and_scope(client, prod_token, submit_mock):
     resp = _post(client, _valid_body())
     assert resp.status_code == 200

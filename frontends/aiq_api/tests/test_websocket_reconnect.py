@@ -465,6 +465,34 @@ class TestPersistTerminalMessageIfClientGone:
         persist.assert_awaited_once()
         assert persist.await_args.kwargs["text"] == "Here is your answer."
 
+    @pytest.mark.asyncio
+    async def test_the_anatomy_and_the_transparency_extras_are_persisted_too(self) -> None:
+        """A turn that finished after the tab closed must reload the way it
+        would have rendered live: with its verdict and summary, its routing, and
+        the marks the run left on it. A field the frame did not carry is not
+        written as null."""
+        handler = self._handler()
+        message = self._message(
+            {
+                "content": {"text": "REI 60."},
+                "answer_meta": {"v": 1, "kind": "ruling", "summary": "REI 60, weil GK 4."},
+                "routing_decision": "shallow",
+                "research_truncated": True,
+                "citations_removed": {"count": 1, "reasons": ["unverified"]},
+                "skills_hidden": ["house-voice"],
+            }
+        )
+        with patch("aiq_api.websocket_reconnect.persist_assistant_message") as persist:
+            persist.return_value = True
+            await handler._persist_terminal_message_if_client_gone(message, WebSocketMessageType.RESPONSE_MESSAGE)
+        assert persist.await_args.kwargs["extras"] == {
+            "answer_meta": {"v": 1, "kind": "ruling", "summary": "REI 60, weil GK 4."},
+            "routing_decision": "shallow",
+            "research_truncated": True,
+            "citations_removed": {"count": 1, "reasons": ["unverified"]},
+            "skills_hidden": ["house-voice"],
+        }
+
 
 class _FakeRestoreSocket:
     """Minimal socket mirroring starlette's `query_params` caching so the
@@ -617,6 +645,31 @@ class TestPersistAssistantMessageInternalRoute:
         assert captured["json"]["role"] == "assistant"
         assert captured["json"]["content"] == "Here is your answer."
         assert "cookie" not in {k.lower() for k in captured["headers"]}
+
+    @pytest.mark.asyncio
+    async def test_extras_land_in_the_row_metadata_by_their_wire_names(self, monkeypatch) -> None:
+        monkeypatch.setenv("FRONTEND_INTERNAL_URL", "http://frontend:3000")
+        monkeypatch.setenv("GRID_INTERNAL_API_TOKEN", "secret-token")
+        _CapturingClient.captured = {}
+        _CapturingClient.status_code = 201
+
+        with (
+            patch("aiq_api.websocket_reconnect.httpx.AsyncClient", _CapturingClient),
+            patch("aiq_api.websocket_reconnect._registry") as reg,
+        ):
+            reg.has_socket = AsyncMock(return_value=False)
+            ok = await persist_assistant_message(
+                conversation_id="conv-1",
+                parent_id="user-1",
+                text="REI 60.",
+                organization_id="org-1",
+                extras={"answer_meta": {"v": 1, "kind": "ruling"}, "research_truncated": None},
+            )
+
+        assert ok is True
+        metadata = _CapturingClient.captured["json"]["metadata"]
+        assert metadata["answer_meta"] == {"v": 1, "kind": "ruling"}
+        assert "research_truncated" not in metadata
 
     @pytest.mark.asyncio
     async def test_skips_when_service_token_unconfigured(self, monkeypatch) -> None:

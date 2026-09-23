@@ -26,6 +26,7 @@ EXPECTED = {
     ("research", "lightweight-calculation"),
     ("synthesis", "long-form-report-writer"),
     ("synthesis", "prediction-report-writer"),
+    ("synthesis", "pruefbericht-writer"),
 }
 
 

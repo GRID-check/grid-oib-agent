@@ -19,11 +19,6 @@ import type { en } from '../en'
 export const answerExport: typeof en.answerExport = {
   documentTitle: 'Antwort',
   fileName: 'antwort',
-  // Der Export ist fehlgeschlagen — und zwar so, dass die Leserin etwas damit
-  // anfangen kann. Vorher stand hier „Bad Request".
-  pdfFailed: 'Das PDF konnte nicht erstellt werden. Bitte versuchen Sie es erneut.',
-  pdfTooLong:
-    'Dieser Bericht ist zu umfangreich für den PDF-Export. Laden Sie ihn als Markdown herunter oder exportieren Sie ihn abschnittsweise.',
   aiNotice: {
     title: 'KI-generiert — nicht geprüft',
     body: 'Dieses Dokument hat Piloti erstellt; ein Mensch hat es nicht geprüft. Es ist ein Entwurf und kein Nachweis — prüfen Sie jede Angabe, bevor Sie das Dokument weitergeben oder einreichen.',
@@ -39,6 +34,20 @@ export const answerExport: typeof en.answerExport = {
   createdAt: 'Erstellt am',
   sources: 'Quellen',
   findings: 'Befunde',
+  findingsMatrix: {
+    title: 'Befundmatrix',
+    requirement: 'Anforderung',
+    value: 'Wert',
+    reference: 'Fundstelle',
+    status: {
+      label: 'Status',
+      erfuellt: 'erfüllt',
+      nicht_erfuellt: 'nicht erfüllt',
+      offen: 'offen',
+      nicht_anwendbar: 'nicht anwendbar',
+    },
+    grounding: { belegt: 'belegt', abgeleitet: 'abgeleitet', offen: 'ohne Beleg' },
+  },
   legalBasis: 'Rechtsgrundlagen',
   // Beschriftungen eines Deckblatts, keine Sätze: „Standort“ und „Erstellt
   // von“ stehen links in einer zweispaltigen Aufstellung, so wie es eine

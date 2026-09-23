@@ -1547,6 +1547,10 @@ CUTOFF_RUN_BUDGET = "run_budget"
 #: 2400-second budget overrun makes "how often do runs exhaust their budget?"
 #: unanswerable, and that question is the reason the budget is tunable.
 CUTOFF_UPSTREAM_TIMEOUT = "upstream_timeout"
+#: The reader asked for the report to be written from what was there
+#: („Jetzt schreiben"). Salvaged like the others and marked, but it is the
+#: reader's choice, not a limit, and the banner says so.
+CUTOFF_USER_REQUESTED = "user_requested"
 
 #: Ways a finished deep answer is weaker than a clean one. Also stable tokens.
 DEGRADED_NO_REPORT_FILE = "no_report_file"
@@ -1562,6 +1566,10 @@ DEGRADED_UNVERIFIED_QUOTES = "unverified_quotes"
 #: fail silently. Without this token a run whose card model timed out looked
 #: exactly like a run whose report warranted no proposals.
 DEGRADED_CARDS_GENERATION_FAILED = "cards_generation_failed"
+#: A document the reader named as Grundlage was never reached: the run has no
+#: passage from it. The report names the document; the token is what the chip
+#: and the dashboard read.
+DEGRADED_GRUNDLAGE_UNREAD = "grundlage_unread"
 
 
 def emit_deep_research_cutoff(
@@ -1648,6 +1656,69 @@ VERDICT_DROP_AGENT_AUTHORED = "agent_authored_reference"
 #: reference — and an unattributed headline on such a turn is the same claim,
 #: with the evidence that would have failed it left out.
 VERDICT_DROP_UNREFERENCED_WITH_AGENT_SOURCE = "unreferenced_with_agent_source"
+
+
+#: Slot for a card the answer envelope carried that the validator refused.
+CARD_INVALID_SLOT = "card:invalid"
+
+#: What became of the refused card. Stable tokens: they are counted, and the
+#: rate of ``repaired`` against ``dropped`` is the number that says whether the
+#: shapes the envelope teaches up front are the right eight.
+CARD_INVALID_REPAIRED = "repaired"
+CARD_INVALID_DROPPED = "dropped"
+
+
+def emit_card_invalid(*, card_type: str, index: int, outcome: str) -> None:
+    """Record that an envelope card failed validation, and what became of it.
+
+    Technical channel, no ``key``: the reader keeps the answer, and a missing
+    card is not a sentence for the live line. The operator question is the
+    one ``emit_card``'s log line used to answer — WHICH type the model reached
+    for and could not fill — plus whether the small model's repair put it
+    back. A turn whose card was silently dropped would be indistinguishable
+    from one that never earned a card.
+
+    Args:
+        card_type: The ``type`` the model declared, ``"?"`` when it declared none.
+        index: The card's position in the envelope's ``cards`` array, from 0.
+        outcome: :data:`CARD_INVALID_REPAIRED` or :data:`CARD_INVALID_DROPPED`.
+    """
+    push_custom_step(
+        f"{STATUS_STEP_PREFIX}{CARD_INVALID_SLOT}:{index}",
+        {
+            "kind": "status",
+            "channel": CHANNEL_TECHNICAL,
+            "slot": f"{CARD_INVALID_SLOT}:{index}",
+            "values": {"cardType": card_type, "outcome": outcome},
+        },
+    )
+
+
+#: Slot for any other anatomy field the envelope gate refused (summary,
+#: topic, context, takeaways). Same channel and reasoning as the verdict
+#: slot: the reader keeps the prose, the operator needs the rate. A summary
+#: dropped for length is a standfirst the reader never sees, and how often
+#: the model overshoots the limit is what decides whether the limit or the
+#: prompt wording is wrong.
+ANATOMY_DROPPED_SLOT = "anatomy:dropped"
+
+
+def emit_anatomy_dropped(*, field: str, reason: str) -> None:
+    """Record that an anatomy field other than the verdict was refused.
+
+    Args:
+        field: The envelope field, e.g. ``summary``.
+        reason: A stable token, e.g. ``too_long``; counted, not read.
+    """
+    push_custom_step(
+        f"{STATUS_STEP_PREFIX}{ANATOMY_DROPPED_SLOT}",
+        {
+            "kind": "status",
+            "channel": CHANNEL_TECHNICAL,
+            "slot": ANATOMY_DROPPED_SLOT,
+            "values": {"field": field, "reason": reason},
+        },
+    )
 
 
 def emit_verdict_dropped(*, reason: str) -> None:

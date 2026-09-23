@@ -102,6 +102,8 @@ export type TruncationReason = (typeof TRUNCATION_REASONS)[number]
  * - `no_valid_citations` nothing the answer cited survived verification.
  * - `cards_generation_failed` the report is whole, but the proposals a job
  *   derives from it afterwards could not be produced.
+ * - `grundlage_unread` a document the reader named as Grundlage was never
+ *   read; the report names which at its end.
  *
  * An EMPTY list is not a claim of "degraded in zero ways" — it is the ordinary
  * case, and it is stored as no key at all.
@@ -115,6 +117,13 @@ export interface MessageProvenance {
   answerConfidenceReason?: string
   routingDecision?: 'meta' | 'shallow' | 'deep' | 'error'
   escalationReason?: string
+  /**
+   * The skills the turn activated, and the subset the disclosure de-emphasises.
+   * Stored because the disclosure calls itself the RECORD of what shaped the
+   * answer, and a record that vanished on reload was not one.
+   */
+  skillsActivated?: string[]
+  skillsHidden?: string[]
   citationsRemoved?: { count: number; reasons: string[] }
   /**
    * The turn's research was cut off at its budget ceiling. Stored, because a
@@ -143,7 +152,6 @@ export interface MessageProvenance {
    * message row.
    */
   deepResearchJobId?: string
-  showViewReport?: boolean
   /**
    * The backend's own account of this turn's retrieval rounds. Stored beside
    * the thinking steps because it IS Herleitung data — the compact form the
@@ -160,6 +168,9 @@ const MAX_REASON_CHARS = 600
 /** `citationsRemoved.reasons` is a short list of short codes. */
 const MAX_REMOVED_REASONS = 20
 const MAX_REMOVED_REASON_CHARS = 120
+/** Skill names are short slugs; a turn activates a handful. */
+const MAX_SKILLS = 20
+const MAX_SKILL_CHARS = 80
 const MAX_TRACE_LANES = 40
 /** A turn event is one dotted key and a few short interpolation values. */
 const MAX_TURN_EVENT_KEY_CHARS = 64
@@ -177,15 +188,35 @@ export const CAPPED_REASONS = [
 ] as const
 const ROUTING_DECISIONS = ['meta', 'shallow', 'deep', 'error'] as const
 /** The cutoff causes the deep researcher records. See {@link TruncationReason}. */
-export const TRUNCATION_REASONS = ['wall_clock', 'step_limit', 'upstream_timeout'] as const
+export const TRUNCATION_REASONS = [
+  'wall_clock',
+  'step_limit',
+  'upstream_timeout',
+  'user_requested',
+] as const
 /** The degradations it records. See {@link AnswerDegradedReason}. */
-export const ANSWER_DEGRADED_REASONS = ['no_report_file', 'no_valid_citations', 'cards_generation_failed'] as const
+export const ANSWER_DEGRADED_REASONS = [
+  'no_report_file',
+  'no_valid_citations',
+  'cards_generation_failed',
+  'grundlage_unread',
+] as const
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value)
 
 const cap = (value: unknown, max: number): string | undefined =>
   typeof value === 'string' && value.length > 0 ? value.slice(0, max) : undefined
+
+/** A bounded list of bounded strings, or undefined when nothing survives. */
+const stringList = (value: unknown, maxItems: number, maxChars: number): string[] | undefined => {
+  if (!Array.isArray(value)) return undefined
+  const items = value
+    .slice(0, maxItems)
+    .map((item) => cap(item, maxChars))
+    .filter((item): item is string => item !== undefined)
+  return items.length > 0 ? items : undefined
+}
 
 const oneOf = <T extends string>(value: unknown, allowed: readonly T[]): T | undefined =>
   typeof value === 'string' && (allowed as readonly string[]).includes(value)
@@ -279,6 +310,11 @@ export function sanitizeProvenance(input: unknown): MessageProvenance | null {
   const escalationReason = cap(input.escalationReason, MAX_REASON_CHARS)
   if (escalationReason) out.escalationReason = escalationReason
 
+  const skillsActivated = stringList(input.skillsActivated, MAX_SKILLS, MAX_SKILL_CHARS)
+  if (skillsActivated) out.skillsActivated = skillsActivated
+  const skillsHidden = stringList(input.skillsHidden, MAX_SKILLS, MAX_SKILL_CHARS)
+  if (skillsHidden) out.skillsHidden = skillsHidden
+
   if (isRecord(input.citationsRemoved) && typeof input.citationsRemoved.count === 'number') {
     const reasons = Array.isArray(input.citationsRemoved.reasons)
       ? input.citationsRemoved.reasons
@@ -320,8 +356,6 @@ export function sanitizeProvenance(input: unknown): MessageProvenance | null {
 
   const jobId = cap(input.deepResearchJobId, 128)
   if (jobId) out.deepResearchJobId = jobId
-
-  if (input.showViewReport === true) out.showViewReport = true
 
   // Re-bounded on write like everything else here, through the same sanitizer
   // the wire boundary uses: one bound in one place instead of two that drift.

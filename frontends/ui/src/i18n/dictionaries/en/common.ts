@@ -45,4 +45,10 @@ export const common = {
     english: 'English',
     german: 'Deutsch',
   },
+  // GFM footnotes: the heading and the back-reference link are written by the
+  // markdown converter, so they are named here rather than left to its defaults.
+  markdown: {
+    footnotes: 'Footnotes',
+    backToReference: 'Back to reference {n}',
+  },
 }

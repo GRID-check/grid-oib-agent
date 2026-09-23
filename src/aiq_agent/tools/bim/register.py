@@ -25,6 +25,7 @@ from aiq_agent.project_context import get_project_id_from_context
 from aiq_agent.tools.bim.failures import NO_ORG_TEXT
 from aiq_agent.tools.bim.failures import NO_PROJECT_TEXT
 from aiq_agent.tools.bim.failures import QUERY_FAILURES
+from aiq_agent.tools.bim.measurement_sources import note_model_read
 from aiq_agent.tools.bim.rendering import clipped
 from aiq_agent.tools.bim.rendering import listed
 from aiq_agent.tools.bim.rendering import render_unresolved
@@ -716,6 +717,9 @@ def _render(
     model = result.get("model") or {}
     ctx = _RenderContext(project_id, model.get("filename"), gebaeudeklasse, hauptnutzung)
     op = str(result.get("op") or "")
+    # The Herleitung's account of this round: the model file, read by this
+    # operation. Only a RESOLVED result — an unresolved one read no file.
+    note_model_read(ctx.filename, op)
     lines: _Lines = [
         f"Modell: {ctx.filename}" if ctx.filename else None,
         str(result.get("summary") or ""),

@@ -34,6 +34,7 @@ from aiq_agent.common import get_zdr_only_from_context
 from aiq_agent.common import is_verbose
 from aiq_agent.common import unavailable_source_ids
 from aiq_agent.common import validate_tool_availability
+from aiq_agent.common.canned_replies import SCOPED_NO_SOURCES_MESSAGE
 from aiq_agent.common.citation_verification import EmptySourceRegistryError
 from aiq_agent.common.data_source_registry import get_all_sources
 from aiq_agent.common.deferred_tool_loading import DeferredToolLoadingSettings
@@ -60,6 +61,11 @@ from nat.data_models.function import FunctionBaseConfig
 from . import ask_user as _ask_user  # noqa: F401
 from .agent import PilotiAgent
 from .agent import TurnConfig
+from .decisions import TurnDecisions
+from .decisions import TurnFacts
+from .decisions import attached_card_types
+from .decisions import decide_turn
+from .decisions import prefetch_calls
 from .models import ResearchAgentState
 from .tool_search import ToolSearchSettings
 
@@ -124,6 +130,15 @@ class ResearchAgentConfig(FunctionBaseConfig, name="research_agent"):
             "re-verify and keep the better answer. Off ships the markers as before."
         ),
     )
+    card_repair_llm: LLMRef | None = Field(
+        default=None,
+        description=(
+            "The small model that fixes ONE card the answer envelope carried and the validator "
+            "refused (`cards/repair.py`): the failed object, the refusal and the type's shape in a "
+            "message of a few thousand tokens, instead of the full-context round the `emit_card` "
+            "retry cost. Unset drops a card that fails validation, and records that it did."
+        ),
+    )
     verbose: bool = Field(default=False, description="Whether to enable verbose logging")
     skills_enabled: bool = Field(
         default=True,
@@ -132,6 +147,34 @@ class ResearchAgentConfig(FunctionBaseConfig, name="research_agent"):
     skill_allowlist: list[str] = Field(
         default_factory=list,
         description="Optional skill-name allowlist; empty = every resolved skill is offered.",
+    )
+    skills_inline_max_body_chars: int = Field(
+        default=0,
+        description=(
+            "OPT-IN budget: a skill whose body is at most this many characters rides the system prompt "
+            "in full on every turn (ADR-0063, amended). 0, the default: no body rides by budget; the "
+            "turn-start decision (ADR-0064) reads the ONE skill the question is the subject of into the "
+            "turn, and the rest stay a catalog line behind `use_skill`."
+        ),
+    )
+    turn_decisions: bool = Field(
+        default=True,
+        description=(
+            "Ask the decision model (Jev, ADR-0064) at turn start whether the message needs evidence, "
+            "which corpus and which OIB families it needs, which skill it is the subject of and which "
+            "card types it is likely to earn — and act on the answers only by ADDING: the named fetches "
+            "run as round 0 before the first LLM call, the chosen skill's body and card shapes ride this "
+            "turn's prompt. Every tool stays bound whatever it says; "
+            "a decision that cannot run leaves the turn exactly as before. GRID_DECISIONS_ENABLED=false "
+            "is the global switch."
+        ),
+    )
+    skills_inline_budget_chars: int = Field(
+        default=0,
+        description=(
+            "OPT-IN budget: ceiling on the characters of skill bodies that ride the prompt per turn by "
+            "size alone, filled in catalog order. 0, the default: see skills_inline_max_body_chars."
+        ),
     )
     tool_search: ToolSearchSettings = Field(
         default_factory=ToolSearchSettings,
@@ -236,8 +279,11 @@ async def _resolve_skill_runtime(
         resolved = tuple(skill for skill in resolved if skill.name in allow)
     if not resolved:
         return None
-    runtime = SkillRuntime(skills=resolved)
-    emit_skills_offered(runtime)
+    runtime = SkillRuntime(
+        skills=resolved,
+        inline_max_body_chars=config.skills_inline_max_body_chars,
+        inline_budget_chars=config.skills_inline_budget_chars,
+    )
     return runtime
 
 
@@ -312,13 +358,94 @@ def _skills_block(runtime: SkillRuntime) -> str:
     return runtime.prompt_block() or ""
 
 
+def _turn_facts(state: ResearchAgentState, runtime: SkillRuntime | None) -> TurnFacts:
+    """What the decider is shown, from the state the gather already filled."""
+    from aiq_agent.cards.catalog import card_index_entries
+    from aiq_agent.cards.envelope import ENVELOPE_SHAPE_TYPES
+    from aiq_agent.common.applicability import facts_from_project_context
+    from aiq_agent.common.source_kinds import Shelf
+    from aiq_agent.knowledge.inventory import get_norm_families
+
+    humans = [str(m.content) for m in state.messages if isinstance(m, HumanMessage) and isinstance(m.content, str)]
+    question = humans[-1] if humans else ""
+    previous = humans[-2] if len(humans) > 1 else None
+    answers = [
+        str(m.content)
+        for m in state.messages
+        if isinstance(m, AIMessage) and isinstance(m.content, str) and not getattr(m, "tool_calls", None)
+    ]
+    previous_answer = answers[-1] if answers else None
+    documents = state.available_documents or []
+    offered = tuple(runtime.skills) if runtime is not None else ()
+    return TurnFacts(
+        question=question,
+        previous_message=previous,
+        previous_answer=previous_answer,
+        skills=[(skill.name, " ".join(skill.description.split())) for skill in offered],
+        focus_file_name=state.focus_file_name,
+        project_facts={k: str(v) for k, v in facts_from_project_context(state.project_context or "").items()},
+        families=get_norm_families(),
+        project_files=sum(1 for doc in documents if getattr(doc, "shelf", None) is Shelf.PROJECT),
+        archive_files=sum(1 for doc in documents if getattr(doc, "shelf", None) is Shelf.ARCHIV),
+        card_types=[entry for entry in card_index_entries() if entry[0] not in ENVELOPE_SHAPE_TYPES],
+    )
+
+
+async def _decide_turn(
+    config: ResearchAgentConfig, state: ResearchAgentState, runtime: SkillRuntime | None
+) -> TurnDecisions:
+    """The turn-start decision, or none: never raises, never blocks longer than its timeout."""
+    if not config.turn_decisions:
+        return TurnDecisions.none()
+    facts = _turn_facts(state, runtime)
+    # A first message of one or two words („Hallo", „Danke!") needs no
+    # decision: nothing to prefetch, no method to read in, and the ~0.6 s the
+    # call costs would be a third of the reply's whole latency.
+    if facts.previous_message is None and len(facts.question.split()) < 3:
+        return TurnDecisions.none()
+    try:
+        return await decide_turn(facts, organization_id=get_organization_id_from_context())
+    except Exception:  # noqa: BLE001 — a decision is worth less than the turn
+        logger.warning("Turn decision failed; running the turn as before", exc_info=True)
+        return TurnDecisions.none()
+
+
+def _apply_decisions(decisions: TurnDecisions, state: ResearchAgentState, runtime: SkillRuntime | None) -> None:
+    """The two prompt-side effects: the chosen skill's body, and the likely card shapes.
+
+    The chosen skill rides this turn's prompt in full (``inline_also``), the
+    one method the question is the subject of; the shapes are its preferred
+    cards beyond the eight the envelope teaches — what ``use_skill`` hands
+    over with the body — then the card nouls' picks, capped
+    (``attached_card_types``). Still offers: the model decides.
+    """
+    from aiq_agent.cards.envelope import ENVELOPE_SHAPE_TYPES
+    from aiq_agent.skills.models import preferred_cards
+
+    if runtime is not None and decisions.chosen_skill:
+        runtime.inline_also((decisions.chosen_skill,))
+    skill_cards = {
+        skill.name: [card for card in preferred_cards(skill.metadata) if card not in ENVELOPE_SHAPE_TYPES]
+        for skill in (runtime.skills if runtime is not None else ())
+    }
+    chosen = attached_card_types(decisions, skill_cards)
+    if chosen:
+        from aiq_agent.cards.catalog import render_card_details
+
+        state.card_shapes_block = render_card_details(chosen) or None
+
+
 def _report_skills(result: ResearchAgentState, runtime: SkillRuntime) -> None:
-    """Lift what was DELIVERED onto the result.
+    """Lift what was DELIVERED AND FOLLOWED onto the result.
 
     ``skills_activated`` is rendered to the reader as what shaped this answer,
-    so only a skill whose body the model opened belongs in it. A catalog the
-    model read past is not a miss to report: the offer was the whole mechanism.
+    so only a skill whose body reached the model belongs in it: opened through
+    ``use_skill``, or ridden in the prompt and named in the envelope's
+    ``skills_applied`` (ADR-0063), which the runtime accepts only for a body
+    it inlined. A catalog the model read past is not a miss to report: the
+    offer was the whole mechanism.
     """
+    runtime.record_applied(result.skills_applied or ())
     result.skills_activated = list(runtime.activated)
     hidden = list(runtime.hidden_activated)
     if hidden:
@@ -362,18 +489,32 @@ async def _run_turn(deployment: _Deployment, state: ResearchAgentState) -> Resea
 
     # The runtime's `use_skill` tool is folded into the tool set on every
     # turn: the model has the catalog and decides whether a skill applies,
-    # the same way it decides whether to search (ADR-0052). A skill's BODY
-    # still only travels on a `use_skill` call.
+    # the same way it decides whether to search (ADR-0052). A short body rides
+    # the prompt (ADR-0063); a long one still travels on a `use_skill` call.
     runtime = await _resolve_skill_runtime(config, state)
     # The conversation's working directory, folded in the same way: four file
     # verbs over a store namespaced by conversation, or nothing at all when the
     # turn has no conversation to namespace by (CLI, eval, worker).
-    draft_tools = await draft_tools_for_turn()
+    # The turn-start decision (ADR-0064) runs beside it: a bounded call that
+    # only adds to the turn — round-0 fetches, card shapes, the IFC skill.
+    # The provider reads (four cache-first BFF lookups) run beside them too:
+    # nothing here depends on another, so the turn pays the slowest of the
+    # three, not their sum.
+    draft_tools, decisions, llm_provider = await asyncio.gather(
+        draft_tools_for_turn(), _decide_turn(config, state, runtime), _active_provider(deployment.provider)
+    )
+    _apply_decisions(decisions, state, runtime)
+    # After the decision: the skill it inlined is part of what this turn inlined.
+    if runtime is not None:
+        emit_skills_offered(runtime)
     turn_tools = list(deployment.tools) + (list(runtime.build_tools()) if runtime is not None else []) + draft_tools
     turn = TurnConfig(
-        llm_provider=await _active_provider(deployment.provider),
+        llm_provider=llm_provider,
         tools=turn_tools,
         disabled_sources=disabled_sources,
+        prefetch=tuple(
+            prefetch_calls(decisions, _turn_facts(state, runtime).question, focus_file_name=state.focus_file_name)
+        ),
     )
     if runtime is not None:
         state.skills_block = _skills_block(runtime)
@@ -384,11 +525,7 @@ async def _run_turn(deployment: _Deployment, state: ResearchAgentState) -> Resea
         # an unhandled NAT error. Raising here became err2issue #447 and left
         # the user with no reply.
         logger.warning("Research captured no sources; returning an empty-result answer.")
-        return _reply(
-            state,
-            "I searched the available sources but couldn't retrieve anything usable. "
-            "Try a broader question, or ask without limiting to one file.",
-        )
+        return _reply(state, SCOPED_NO_SOURCES_MESSAGE)
     if runtime is not None:
         _report_skills(result, runtime)
     return result
@@ -420,6 +557,7 @@ async def research_agent(config: ResearchAgentConfig, builder: Builder):
         deferred_tool_loading=config.deferred_tool_loading,
         envelope_json_mode_with_tools=config.envelope_json_mode_with_tools,
         repair_pass=config.repair_pass,
+        card_repair_llm=(await get_langchain_llm(builder, config.card_repair_llm)) if config.card_repair_llm else None,
     )
     deployment = _Deployment(config=config, agent=agent, provider=provider, tools=tools)
 

@@ -31,7 +31,12 @@ class TestMatchPathUntouched:
         doc = _doc("oib-rl_2_ausgabe_mai_2023.pdf")
 
         assert not rp._matches(doc, "oib-rl_2.pdf".casefold())
-        assert not rp._matches(doc, "oib-richtlinie 2".casefold())
+        # The title's HEAD is not a fragment: it is the document's name without
+        # its edition, one of the exact names `_document_names` lists (with the
+        # family-member spellings), so it opens the document — and still never
+        # its sibling, because "oib-richtlinie 2" is not "oib-richtlinie 2.3".
+        assert rp._matches(doc, "oib-richtlinie 2".casefold())
+        assert not rp._matches(_doc("oib-rl_2.3_ausgabe_mai_2023.pdf"), "oib-richtlinie 2".casefold())
 
 
 class TestSuggestions:

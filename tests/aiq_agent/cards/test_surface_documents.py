@@ -243,6 +243,27 @@ class TestPlatformCounts:
         assert [doc["file_name"] for doc in card["documents"]] == ["plan.pdf"]
         assert 'Opened "plan.pdf"' in output
 
+    async def test_a_surfaced_file_is_filed_under_the_turns_round(self, monkeypatch):
+        """The Herleitung hangs on a round the documents it returned.
+
+        A surfacing round is announced as a retrieval („Sucht in Ihren
+        Unterlagen") and used to return no document to the ledger, so the
+        layer drew as a search that found nothing. The file put on screen is
+        that document, on the shelf it came from.
+        """
+        from aiq_agent.common import turn_status
+
+        self._make_env(monkeypatch)
+        token = turn_status.begin_lane_capture()
+        try:
+            async with surface_documents(SurfaceDocumentsConfig(), MagicMock()) as info:
+                await info.single_fn(info.input_schema(query="Lageplan"))
+            hits = turn_status.get_lane_captures()
+        finally:
+            turn_status.end_lane_capture(token)
+
+        assert [(hit["name"], hit.get("shelf")) for hit in hits] == [("plan.pdf", "project")]
+
     async def test_filename_skips_ambiguity(self, monkeypatch):
         _retriever, registry = self._make_env(monkeypatch)
 

@@ -22,11 +22,3 @@ const AUTH_ERROR_PATTERNS = [
 export const isLikelyAuthRelatedTransportError = (text: string): boolean => {
   return AUTH_ERROR_PATTERNS.some((pattern) => pattern.test(text))
 }
-
-/**
- * Returns true if the given stream.mode value indicates that SSE replay
- * catch-up is complete and the stream has switched to live events.
- */
-export const isDeepResearchReplayCompleteMode = (mode: string): boolean => {
-  return mode === 'live' || mode === 'pubsub'
-}

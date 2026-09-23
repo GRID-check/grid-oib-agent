@@ -2,7 +2,8 @@
  * The truncation line under the answer: the last hop, and the empty case.
  *
  * `research_truncated` on the terminal frame → `researchTruncated` on the
- * message → `AgentResponse`, which puts ONE muted line under the sources row.
+ * message → `AgentResponse`, which puts ONE muted line in the answer details,
+ * opened on its own because a cut-off is not a note to hide.
  * The sentence is not the same in both cases and that is the whole point: an
  * answer that found nothing cannot be told it rests on "the evidence gathered
  * up to that point", and cut-off-before-anything-was-found is the worst case
@@ -14,7 +15,6 @@
  */
 
 import { render, screen } from '@/test-utils'
-import userEvent from '@testing-library/user-event'
 import { de, en } from '@/i18n/dictionaries'
 import { vi, describe, test, expect, beforeEach } from 'vitest'
 import { AgentResponse } from './AgentResponse'
@@ -24,13 +24,8 @@ import type { ChatStoreWithHydration } from '../store'
 vi.mock('../store', () => ({
   useChatStore: vi.fn((selector?: StoreSelector<ChatStoreWithHydration>) => {
     const state: DeepPartial<ChatStoreWithHydration> = {
-      reportContent: '',
-      deepResearchJobId: null,
-      isDeepResearchStreaming: false,
-      deepResearchStreamLoaded: false,
       currentConversation: null,
       patchConversationMessage: vi.fn(),
-      reconnectToActiveJob: vi.fn(),
     }
     return selector ? selector(asStoreState<ChatStoreWithHydration>(state)) : state
   }),
@@ -74,7 +69,7 @@ const CITED = 'Die Antwort [1].\n\n## Quellen\n[1] OIB-Richtlinie 3 — https://
 describe.each(['default', 'inline'] as const)('the %s answer variant', (variant) => {
   test('a turn that was cut off says so, under the sources', async () => {
     render(<AgentResponse content={CITED} variant={variant} researchTruncated />)
-    await userEvent.setup().click(screen.getByTestId('answer-details-trigger'))
+    // No click: the details open themselves for a cut-off turn.
 
     const note = screen.getByText(copy.truncated)
     expect(note).toBeInTheDocument()
@@ -83,8 +78,10 @@ describe.each(['default', 'inline'] as const)('the %s answer variant', (variant)
   })
 
   test('a turn that found nothing gets the sentence that is true of it', async () => {
-    render(<AgentResponse content="Dazu habe ich nichts gefunden." variant={variant} researchTruncated />)
-    await userEvent.setup().click(screen.getByTestId('answer-details-trigger'))
+    render(
+      <AgentResponse content="Dazu habe ich nichts gefunden." variant={variant} researchTruncated />
+    )
+    // No click: the details open themselves for a cut-off turn.
 
     // The gap row above already says the answer cites nothing; promising "the
     // evidence gathered up to that point" beside it would contradict it.
@@ -101,19 +98,19 @@ describe.each(['default', 'inline'] as const)('the %s answer variant', (variant)
 })
 
 describe('both locales carry a real sentence', () => {
-  test.each([
-    ['researchTruncated'],
-    ['researchTruncatedWithoutSources'],
-  ] as const)('%s is written twice, not translated once', (key) => {
-    // German is the product's language here and English is its own sentence,
-    // not a gloss of it — so the two must differ, and neither may be a
-    // half-finished template that ships a brace to the reader.
-    expect(de.chat.answerSources[key]).not.toBe(en.chat.answerSources[key])
-    for (const text of [de.chat.answerSources[key], en.chat.answerSources[key]]) {
-      expect(text.trim().length).toBeGreaterThan(20)
-      expect(text).not.toContain('{')
+  test.each([['researchTruncated'], ['researchTruncatedWithoutSources']] as const)(
+    '%s is written twice, not translated once',
+    (key) => {
+      // German is the product's language here and English is its own sentence,
+      // not a gloss of it — so the two must differ, and neither may be a
+      // half-finished template that ships a brace to the reader.
+      expect(de.chat.answerSources[key]).not.toBe(en.chat.answerSources[key])
+      for (const text of [de.chat.answerSources[key], en.chat.answerSources[key]]) {
+        expect(text.trim().length).toBeGreaterThan(20)
+        expect(text).not.toContain('{')
+      }
     }
-  })
+  )
 
   test('the two German sentences are not the same sentence', () => {
     // The empty case is the one worth getting right; a copy-paste that left

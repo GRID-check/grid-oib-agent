@@ -8,7 +8,6 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { useChatStore } from '@/features/chat/store'
-import { useLayoutStore } from '@/features/layout/store'
 import { useFilePreviewStore } from '../stores/file-preview-store'
 import { resetFilePeekBinding } from './open-file-peek'
 import { openFiledDocument } from './open-filed-document'
@@ -34,7 +33,6 @@ function answerWith(body: unknown, ok = true): void {
 beforeEach(() => {
   resetFilePeekBinding()
   useFilePreviewStore.setState({ file: null, mode: 'modal', hidden: false, context: {} })
-  useLayoutStore.setState({ rightPanel: null })
   useChatStore.setState({ composerSubject: null })
 })
 
@@ -77,15 +75,6 @@ describe('opening the artifact Piloti just filed', () => {
     await openFiledDocument({ documentId: 'doc-9', projectId: 'proj-1' })
     expect(useChatStore.getState().composerSubject).toBeNull()
   })
-
-  it('closes the research panel, which would otherwise hide the pane', async () => {
-    // `FilePreviewHost` refuses to peek while the research panel is open, and
-    // that panel is exactly where a reader watching a deep-research run is.
-    answerWith(ROW)
-    useLayoutStore.setState({ rightPanel: 'research' })
-    await openFiledDocument({ documentId: 'doc-9', projectId: 'proj-1' })
-    expect(useLayoutStore.getState().rightPanel).toBeNull()
-  })
 })
 
 describe('when the row cannot be read', () => {
@@ -99,12 +88,5 @@ describe('when the row cannot be read', () => {
     answerWith({ error: 'nope' })
     await expect(openFiledDocument({ documentId: 'doc-9', projectId: 'proj-1' })).resolves.toBe(false)
     expect(useFilePreviewStore.getState().file).toBeNull()
-  })
-
-  it('leaves the research panel alone when it is not going to open anything', async () => {
-    answerWith(null, false)
-    useLayoutStore.setState({ rightPanel: 'research' })
-    await openFiledDocument({ documentId: 'doc-9', projectId: 'proj-1' })
-    expect(useLayoutStore.getState().rightPanel).toBe('research')
   })
 })

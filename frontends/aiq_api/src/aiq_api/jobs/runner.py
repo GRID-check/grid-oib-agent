@@ -18,15 +18,20 @@ import json
 import logging
 import os
 import uuid
+from collections.abc import Callable
 from collections.abc import Iterator
 from typing import Any
 
 from starlette.datastructures import Headers
 
+from aiq_agent.agents.deep_researcher.anatomy import ReportAnatomy
 from aiq_agent.cards.generate import CardGenerationResult
 from aiq_agent.cards.registry import CardRegistry
 from aiq_agent.cards.registry import reset_card_registry
 from aiq_agent.cards.registry import set_card_registry
+from aiq_agent.common.plan_documents import PlanDocument
+from aiq_agent.common.plan_documents import PlanDocuments
+from aiq_agent.common.plan_documents import sanitize_plan_documents
 from aiq_agent.common.turn_status import DEGRADED_CARDS_GENERATION_FAILED
 from aiq_agent.project_context import ORGANIZATION_ID_HEADER
 from aiq_agent.project_context import PROJECT_ID_HEADER
@@ -504,6 +509,17 @@ def _normalize_trace_id(trace_id: int | str | None) -> int | None:
         return int(trace_id)
 
 
+#: The job event the write-now route records and the monitor listens for.
+WRITE_NOW_EVENT_TYPE = "job.write_now_requested"
+#: The job event the documents route records when the reader adds a document
+#: to the Grundlage while the run goes; the monitor hands it to the run.
+DOCUMENT_ADDED_EVENT_TYPE = "job.document_added"
+#: What the monitor reads off the job's events. Filtered in the query: a run
+#: writes an event per streamed token, and paging through those a hundred per
+#: poll left a control request waiting behind them.
+CONTROL_EVENT_TYPES = (WRITE_NOW_EVENT_TYPE, DOCUMENT_ADDED_EVENT_TYPE)
+
+
 class CancellationMonitor:
     """
     Monitors job status for cancellation requests.
@@ -525,6 +541,18 @@ class CancellationMonitor:
         self.job_id = job_id
         self.poll_interval = poll_interval
         self._cancelled = asyncio.Event()
+        # „Jetzt schreiben": the reader asked for the report from what is there.
+        # Read off the job's own events, beside the status poll, so the request
+        # reaches a worker that holds nothing but the job id.
+        self.write_now = asyncio.Event()
+        # Documents the reader added to the Grundlage while the run goes, in
+        # arrival order, append-only: it is also the dedupe history. The
+        # research tool reads past its own cursor before a batch
+        # (``deep_researcher.control``); ``on_document_added`` is the ledger
+        # fold's hook, so the block shows the addition at once.
+        self.added_documents: list[PlanDocument] = []
+        self.on_document_added: Callable[[PlanDocument], None] | None = None
+        self._last_event_id = 0
         self._monitor_task: asyncio.Task | None = None
 
     @property
@@ -550,10 +578,38 @@ class CancellationMonitor:
                     logger.info("Cancellation detected for job %s (status: %s)", self.job_id, job.status)
                     self._cancelled.set()
                     break
+                events = await EventStore.get_events_async(
+                    self.db_url, self.job_id, after_id=self._last_event_id, event_types=CONTROL_EVENT_TYPES
+                )
+                self._note_control_events(events)
             except Exception as e:
                 logger.warning("Error checking job status for %s: %s", self.job_id, e)
 
             await asyncio.sleep(self.poll_interval)
+
+    def _note_control_events(self, events: list[dict]) -> None:
+        """Advance the cursor over the job's events and act on the reader's controls."""
+        for event in events:
+            event_id = event.get("_id")
+            if isinstance(event_id, int) and event_id > self._last_event_id:
+                self._last_event_id = event_id
+            if event.get("type") == WRITE_NOW_EVENT_TYPE:
+                logger.info("Write-now requested for job %s", self.job_id)
+                self.write_now.set()
+            elif event.get("type") == DOCUMENT_ADDED_EVENT_TYPE:
+                self._note_added_document(event.get("data"))
+
+    def _note_added_document(self, data: Any) -> None:
+        docs = sanitize_plan_documents({"grundlage": [data]}) if isinstance(data, dict) else None
+        if docs is None:
+            return
+        doc = docs.grundlage[0]
+        if any(d.name.casefold() == doc.name.casefold() for d in self.added_documents):
+            return
+        logger.info("Document added to the Grundlage of job %s: %s", self.job_id, doc.name)
+        self.added_documents.append(doc)
+        if self.on_document_added is not None:
+            self.on_document_added(doc)
 
     def start(self) -> None:
         """Start the cancellation monitor background task."""
@@ -862,6 +918,9 @@ async def run_agent_job(
     # stream and posts nothing (``jobs/run_ledger_fold.py``). Keyword-only in
     # practice: the Dask path passes positionally up to ``claim_owner``.
     run_id: str | None = None,
+    # The Unterlagen the reader named on the plan card (``plan_documents``
+    # contract), sanitised here into the agent state and the run ledger.
+    documents: dict | None = None,
 ):
     """
     Dask task to run any registered agent with cancellation support and telemetry.
@@ -1000,6 +1059,9 @@ async def run_agent_job(
             job_id=job_id,
             poll_interval=1.0,
         )
+        # The Unterlagen, sanitised ONCE here: the agent state, the ledger fold
+        # and the prompts all read this one object.
+        plan_documents = sanitize_plan_documents(documents)
 
         from aiq_agent.observability import ensure_registered as register_grid_telemetry
 
@@ -1313,7 +1375,13 @@ async def run_agent_job(
                     # documents on another office's report. Wrapping the store
                     # is what feeds it — every producer downstream keeps writing
                     # exactly as it did.
-                    run_ledger_fold = RunLedgerFold(job_id=job_id, run_id=run_id, event_store=event_store)
+                    run_ledger_fold = RunLedgerFold(
+                        job_id=job_id,
+                        run_id=run_id,
+                        event_store=event_store,
+                        grundlage=[doc.model_dump() for doc in plan_documents.grundlage] if plan_documents else None,
+                    )
+                    cancellation_monitor.on_document_added = run_ledger_fold.add_grundlage
                     event_store = run_ledger_fold.observing(event_store)
                     agent_event_callback = AgentEventCallback(event_store)
                     callbacks.append(agent_event_callback)
@@ -1391,6 +1459,7 @@ async def run_agent_job(
                             event_store=event_store,
                             user_info=user_info,
                             clarifier_result=clarifier_result,
+                            plan_documents=plan_documents,
                             project_context=agent_project_context,
                             platform_lessons=platform_lessons,
                             organization_id=_job_org_id,
@@ -1440,22 +1509,34 @@ async def run_agent_job(
                     # the thread turn and the notification waited) for up to the
                     # card timeout plus the reflection model's retries after the
                     # reader already had the report.
-                    cards_result, _ = await asyncio.gather(
+                    cards_result, anatomy, follow_ups = await asyncio.gather(
                         _generate_grid_cards(llm, input_text, report),
-                        _run_deep_research_reflection(
-                            builder=builder,
-                            job_id=job_id,
-                            # A scheduled job's submitter (the BFF) knows the flag but
-                            # not the config's LLM ref; the worker has the config.
-                            reflection_llm_ref=memory_reflection_llm or _workflow_reflection_llm_ref(config),
-                            reflection_enabled=memory_reflection_enabled,
-                            query=input_text,
-                            report=report,
-                            usage_context=usage_context,
-                            memory_digest=memory_digest,
-                            org_credential=resolved_org_credential,
-                            model_overrides=model_overrides,
-                        ),
+                        # The report's anatomy (masthead) and its findings
+                        # (Befundmatrix), read off the finished report in one
+                        # structured call, and the follow-up questions the
+                        # report just made askable. Both post hoc, both
+                        # additive: a failure costs the reader a layer, never
+                        # the report.
+                        _extract_report_anatomy(llm, input_text, report),
+                        _propose_report_follow_ups(llm, query=input_text, report=report, organization_id=_job_org_id),
+                    )
+                    # Reflection reads the report WITH its findings, after the
+                    # extraction: a Befund with its value and status lands in
+                    # project memory as a fact, an open one as an open point,
+                    # instead of both being fished back out of the prose.
+                    await _run_deep_research_reflection(
+                        builder=builder,
+                        job_id=job_id,
+                        # A scheduled job's submitter (the BFF) knows the flag but
+                        # not the config's LLM ref; the worker has the config.
+                        reflection_llm_ref=memory_reflection_llm or _workflow_reflection_llm_ref(config),
+                        reflection_enabled=memory_reflection_enabled,
+                        query=input_text,
+                        report=_reflection_text(report, anatomy.findings),
+                        usage_context=usage_context,
+                        memory_digest=memory_digest,
+                        org_credential=resolved_org_credential,
+                        model_overrides=model_overrides,
                     )
                     cards = _merge_job_cards(card_registry.snapshot(), cards_result.cards)
                     if cards:
@@ -1476,6 +1557,12 @@ async def run_agent_job(
                     transparency: dict[str, Any] = {}
                     try:
                         transparency = _extract_answer_transparency(result)
+                        if anatomy.answer_meta:
+                            transparency["answer_meta"] = anatomy.answer_meta
+                        if anatomy.findings:
+                            transparency["findings"] = anatomy.findings
+                        if follow_ups:
+                            transparency["stages"] = {"followUps": follow_ups}
                         # Post-hoc card generation is the runner's own step, so
                         # its failure is recorded here rather than by the agent:
                         # the report is whole, the proposals derived from it are
@@ -1779,6 +1866,7 @@ async def _run_agent(
     event_store: EventStore | None = None,
     user_info: dict | None = None,
     clarifier_result: str | None = None,
+    plan_documents: PlanDocuments | None = None,
     project_context: str | None = None,
     platform_lessons: str | None = None,
     organization_id: str | None = None,
@@ -1822,6 +1910,7 @@ async def _run_agent(
             for field_name, field_value in (
                 ("user_info", user_info),
                 ("clarifier_result", clarifier_result),
+                ("plan_documents", plan_documents),
                 ("project_context", project_context),
                 ("platform_lessons", platform_lessons),
                 # No request headers exist in a Dask worker, so an agent that
@@ -1863,11 +1952,25 @@ async def _run_agent(
             if platform_lessons is not None:
                 state["platform_lessons"] = platform_lessons
 
-        return await run_with_cancellation(
-            agent.run(state),
-            monitor,
-            event_store=event_store,
-        )
+        # The reader's „Jetzt schreiben" reaches the research tool through a
+        # per-run binding; the task created inside `run_with_cancellation`
+        # inherits it.
+        from aiq_agent.agents.deep_researcher.control import bind_added_documents
+        from aiq_agent.agents.deep_researcher.control import bind_write_now
+        from aiq_agent.agents.deep_researcher.control import reset_added_documents
+        from aiq_agent.agents.deep_researcher.control import reset_write_now
+
+        token = bind_write_now(monitor.write_now)
+        added_token = bind_added_documents(monitor.added_documents)
+        try:
+            return await run_with_cancellation(
+                agent.run(state),
+                monitor,
+                event_store=event_store,
+            )
+        finally:
+            reset_added_documents(added_token)
+            reset_write_now(token)
 
     raise TypeError(f"Agent {type(agent).__name__} does not have a run method")
 
@@ -1961,6 +2064,73 @@ def _merge_job_cards(emitted: list[dict[str, Any]], generated: list[Any] | None)
     """
     merged = [*emitted, *(generated or [])]
     return merged or None
+
+
+def _reflection_text(report: str, findings: dict[str, Any] | None) -> str:
+    """The report as memory reflection reads it: the prose, then its findings as lines.
+
+    One line per Befund — requirement, value, status, and the comment for an
+    open one — so the reflection model meets each fact once, in a fixed
+    shape, rather than reconstructing it from a paragraph.
+    """
+    items = (findings or {}).get("items") if isinstance(findings, dict) else None
+    if not isinstance(items, list) or not items:
+        return report
+    lines = []
+    for item in items:
+        if not isinstance(item, dict) or not item.get("requirement"):
+            continue
+        value = f" — {item['value']}" if item.get("value") else ""
+        comment = (
+            f" ({item['comment']})" if item.get("comment") and item.get("status") in ("offen", "nicht_erfuellt") else ""
+        )
+        # A row with no status states none: defaulting it to „offen" would
+        # write an open question into memory that the report never raised.
+        status = f" — {item['status']}" if item.get("status") else ""
+        lines.append(f"- {item['requirement']}{value}{status}{comment}")
+    return f"{report.rstrip()}\n\n## Befunde\n" + "\n".join(lines) if lines else report
+
+
+async def _extract_report_anatomy(llm: Any, query: str, report: str) -> ReportAnatomy:
+    """The masthead and the findings of the finished report; never raises."""
+    try:
+        from aiq_agent.agents.deep_researcher.anatomy import extract_report_anatomy
+
+        anatomy = await extract_report_anatomy(llm, query, report)
+        if anatomy.findings:
+            logger.info("Extracted %d finding(s) from the deep-research report", len(anatomy.findings["items"]))
+        return anatomy
+    except Exception as e:  # noqa: BLE001 — additive; the report is already whole
+        logger.warning("Report anatomy extraction failed (non-fatal): %s", e)
+        return ReportAnatomy(failed=True)
+
+
+async def _propose_report_follow_ups(
+    llm: Any, *, query: str, report: str, organization_id: str | None
+) -> dict[str, Any] | None:
+    """The follow-up questions a finished report makes askable, as the stage's payload.
+
+    The post-answer stage runs on chat turns and skips a turn that only
+    commissioned a run; the report message is where those questions belong,
+    so the stage's own handler is called here, under the same org flag and
+    the same bound, and its payload is written onto the message the way the
+    client would have mirrored a frame. Never raises.
+    """
+    try:
+        from aiq_agent.stages import StageContext
+        from aiq_agent.stages import TurnFacts
+        from aiq_agent.stages.flags import resolve_enabled_stages
+        from aiq_agent.stages.follow_ups import FOLLOW_UPS
+
+        enabled = await resolve_enabled_stages(organization_id=organization_id, memory_reflection_enabled=False)
+        if FOLLOW_UPS.id not in enabled:
+            return None
+        facts = TurnFacts(query=query, answer=report, organization_id=organization_id)
+        payload = await asyncio.wait_for(FOLLOW_UPS.handler(StageContext(facts=facts, llm=llm)), FOLLOW_UPS.timeout_s)
+        return payload if isinstance(payload, dict) and payload.get("items") else None
+    except Exception as e:  # noqa: BLE001 — additive; the report is already whole
+        logger.warning("Report follow-ups failed (non-fatal): %s", e)
+        return None
 
 
 async def _generate_grid_cards(llm: Any, query: str, report: str) -> CardGenerationResult:
@@ -2240,6 +2410,18 @@ def _extract_answer_transparency(result: Any) -> dict[str, Any]:
         value = field(confidence_field)
         if isinstance(value, str) and value.strip():
             transparency[confidence_field] = value
+
+    # Recorded on the deep state and, until this, dropped on the way to the
+    # message: the run's own retrieval ledger and the skills the disclosure
+    # mutes. Both ride the same dict as the rest, present or absent.
+    ledger = field("retrieval_ledger")
+    if isinstance(ledger, list) and ledger:
+        transparency["retrieval_ledger"] = ledger
+    hidden = field("skills_hidden")
+    if isinstance(hidden, list):
+        names = [name for name in hidden if isinstance(name, str) and name]
+        if names:
+            transparency["skills_hidden"] = names
 
     return transparency
 

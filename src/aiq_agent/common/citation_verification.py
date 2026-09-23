@@ -1481,6 +1481,98 @@ def _match_registry_filename(ref_text: str, registry: SourceRegistry) -> str | N
     return f"{name}, p.{page_match.group(1)}" if page_match else name
 
 
+#: A page stated after a display TITLE, the way a German answer writes it
+#: (``S. 12``) as well as the key's own ``p.12``. Read on the title branch
+#: only: ``_PAGE_RE`` is part of the citation-key grammar every key parser
+#: shares, and teaching it German would move every key's bytes.
+_TITLE_PAGE_RE = re.compile(r"[,\s]\s*(?:S\.|p\.?|page)\s*(\d+)(?=\s*(?:[,)\]]|$))", re.IGNORECASE)
+
+#: The shortest title HEAD (the title before its edition, ``OIB-Richtlinie 2``
+#: out of ``OIB-Richtlinie 2, Ausgabe Mai 2023``) a line may resolve by. A full
+#: title is specific whatever its length; a head is a prefix, and a four-letter
+#: one ("Plan") would claim every line that mentions the word.
+_MIN_TITLE_HEAD_CHARS = 10
+
+
+def _title_occurs_as_token(haystack_lower: str, title_lower: str) -> int | None:
+    """Index just past ``title_lower`` when it occurs as a whole name in the line.
+
+    Whole, not substring: the character before must not continue a word, and
+    the character after must END the name. A dot is not an end — ``OIB-Richtlinie 2``
+    inside ``OIB-Richtlinie 2.1`` is a different document, and ``.`` followed
+    by a digit is exactly how the two differ.
+    """
+    start = 0
+    while True:
+        at = haystack_lower.find(title_lower, start)
+        if at == -1:
+            return None
+        end = at + len(title_lower)
+        before_ok = at == 0 or not haystack_lower[at - 1].isalnum()
+        after = haystack_lower[end : end + 1]
+        after_ok = after == "" or after in ",;:)]" or after.isspace()
+        if before_ok and after_ok:
+            return end
+        start = at + 1
+
+
+def _registry_titles(entry: SourceEntry) -> list[str]:
+    """The names a retrieved document answers to besides its file name.
+
+    The stored title (what the tool's own ``Source:`` line printed, and so
+    what an answer copies), and its head before the edition when that head is
+    long enough to be a name. Empty for a source with no title.
+    """
+    title = (entry.title or "").strip()
+    if not title:
+        return []
+    names = [title]
+    head = title.split(",", 1)[0].strip()
+    if head != title and len(head) >= _MIN_TITLE_HEAD_CHARS:
+        names.append(head)
+    return names
+
+
+def _match_registry_title(ref_text: str, registry: SourceRegistry) -> str | None:
+    """Resolve a reference line that names a retrieved document by its TITLE.
+
+    The knowledge tools print two names for every hit — ``Source:`` carries the
+    display title, ``Citation:`` the file name — and the prompt asks for the
+    second while a German answer, naturally, copies the first
+    („OIB-Richtlinie 2, Ausgabe Mai 2023, S. 12"). The registry holds both
+    (:attr:`SourceEntry.title`), so a title-cited line is a citation to a
+    document this turn really retrieved, and removing it cost the answer its
+    source AND a repair pass (two searches and a rewrite) to put back what was
+    never missing.
+
+    Same shape as :func:`_match_registry_filename`: the longest matching name
+    wins, and the key is rebuilt from the registry's own file name plus the
+    page the line states. A title head shared by two DIFFERENT files (two
+    editions of one Richtlinie) resolves nothing: naming the edition is what
+    tells them apart, and guessing would cite the wrong one.
+    """
+    lowered = ref_text.lower()
+    matches: dict[str, set[str]] = {}
+    ends: dict[str, int] = {}
+    for entry in registry._citation_keys:
+        entry_file, _ = _parse_citation_key(entry.citation_key or "")
+        if not entry_file:
+            continue
+        for name in _registry_titles(entry):
+            end = _title_occurs_as_token(lowered, name.lower())
+            if end is None:
+                continue
+            matches.setdefault(name.lower(), set()).add(entry_file)
+            ends[name.lower()] = end
+    unambiguous = [(name, files) for name, files in matches.items() if len(files) == 1]
+    if not unambiguous:
+        return None
+    name, files = max(unambiguous, key=lambda item: len(item[0]))
+    entry_file = next(iter(files))
+    page_match = _TITLE_PAGE_RE.search(ref_text[ends[name] :])
+    return f"{entry_file}, p.{page_match.group(1)}" if page_match else entry_file
+
+
 def cited_document_entries(text: str, registry: SourceRegistry) -> list[SourceEntry]:
     """Registry documents the answer's SOURCE SECTION lists, in registry order.
 
@@ -1537,6 +1629,21 @@ def cited_document_entries(text: str, registry: SourceRegistry) -> list[SourceEn
                 continue
             seen.add(identity)
             cited.append(match)
+    # A line that names the document by its TITLE cites it just as much (see
+    # ``_match_registry_title``): the same one-line claim, in the tool's own
+    # ``Source:`` spelling. Resolved per line so an ambiguous head stays uncited.
+    for line in _CITATION_LINE_RE.findall(lowered):
+        key = _match_registry_title(line[1] if isinstance(line, tuple) else str(line), registry)
+        if not key:
+            continue
+        match = registry.entry_for_citation_key(key)
+        if match is None:
+            continue
+        identity = _document_identity(match)
+        if identity in seen:
+            continue
+        seen.add(identity)
+        cited.append(match)
     return cited
 
 
@@ -1599,7 +1706,7 @@ def _is_knowledge_citation(ref_text: str, registry: SourceRegistry | None = None
     unemphasized = re.sub(r"\*+", "", ref_text).strip()
 
     if registry is not None:
-        matched = _match_registry_filename(unemphasized, registry)
+        matched = _match_registry_filename(unemphasized, registry) or _match_registry_title(unemphasized, registry)
         if matched:
             return True, matched
 

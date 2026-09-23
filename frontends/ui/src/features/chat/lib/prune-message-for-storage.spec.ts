@@ -6,21 +6,18 @@ import {
   pruneMessageForStorage,
   capString,
   stripThinkingStepsForStorage,
-  prunePlanMessages,
 } from './prune-message-for-storage'
 import type { ChatMessage } from '../types'
 
 describe('prune-message-for-storage', () => {
   describe('pruneMessageForStorage', () => {
-    test('removes heavy refetchable fields but keeps last known todos', () => {
+    test('removes the legacy intermediate steps and keeps the compact citations', () => {
       const message: ChatMessage = {
         id: 'msg_1',
         role: 'assistant',
         content: 'Test message',
         timestamp: new Date(),
         messageType: 'agent_response',
-        // Heavy fields that should be removed
-        reportContent: 'Large report content...',
         citations: [
           {
             id: 'c1',
@@ -29,20 +26,6 @@ describe('prune-message-for-storage', () => {
             timestamp: new Date(),
             isCited: true,
           },
-        ],
-        // Todos are intentionally lightweight enough to keep as the last known task state.
-        deepResearchTodos: [{ id: 't1', content: 'Todo item', status: 'pending' }],
-        deepResearchLLMSteps: [
-          { id: 'l1', name: 'gpt-4', content: 'Step', timestamp: new Date(), isComplete: false },
-        ],
-        deepResearchAgents: [
-          { id: 'a1', name: 'Agent', startedAt: new Date(), status: 'complete' },
-        ],
-        deepResearchToolCalls: [
-          { id: 'tc1', name: 'search', timestamp: new Date(), status: 'complete' },
-        ],
-        deepResearchFiles: [
-          { id: 'f1', filename: 'file.txt', content: 'File content', timestamp: new Date() },
         ],
         intermediateSteps: [
           { id: 'i1', name: 'Step', status: 'complete', content: 'Content', timestamp: new Date() },
@@ -57,19 +40,10 @@ describe('prune-message-for-storage', () => {
       expect(pruned.content).toBe('Test message')
       expect(pruned.messageType).toBe('agent_response')
 
-      // Heavy fields removed
-      expect(pruned.reportContent).toBeUndefined()
       // Citations survive (compact) so the "Belegt durch" chips persist across
       // reload — a shallow answer's sources cannot be refetched.
       expect(pruned.citations).toHaveLength(1)
       expect(pruned.citations![0].id).toBe('c1')
-      expect(pruned.deepResearchTodos).toEqual([
-        { id: 't1', content: 'Todo item', status: 'pending' },
-      ])
-      expect(pruned.deepResearchLLMSteps).toBeUndefined()
-      expect(pruned.deepResearchAgents).toBeUndefined()
-      expect(pruned.deepResearchToolCalls).toBeUndefined()
-      expect(pruned.deepResearchFiles).toBeUndefined()
       expect(pruned.intermediateSteps).toBeUndefined()
     })
 
@@ -92,30 +66,18 @@ describe('prune-message-for-storage', () => {
             isComplete: true,
           },
         ],
-        planMessages: [
-          {
-            id: 'pm1',
-            text: 'Plan message',
-            inputType: 'approval',
-            timestamp: new Date(),
-          },
-        ],
         enabledDataSources: ['web_search'],
         messageFiles: [{ id: 'f1', fileName: 'doc.pdf' }],
         deepResearchJobId: 'job_123',
-        deepResearchJobStatus: 'success',
       }
 
       const pruned = pruneMessageForStorage(message)
 
       expect(pruned.thinkingSteps).toBeDefined()
       expect(pruned.thinkingSteps).toHaveLength(1)
-      expect(pruned.planMessages).toBeDefined()
-      expect(pruned.planMessages).toHaveLength(1)
       expect(pruned.enabledDataSources).toEqual(['web_search'])
       expect(pruned.messageFiles).toHaveLength(1)
       expect(pruned.deepResearchJobId).toBe('job_123')
-      expect(pruned.deepResearchJobStatus).toBe('success')
     })
 
     test('strips thinking step content and removes deep research steps', () => {
@@ -214,31 +176,7 @@ Citation: OIB-RL_2_Brandschutz.pdf, p.12
       ])
     })
 
-    test('caps plan message text during pruning', () => {
-      const message: ChatMessage = {
-        id: 'msg_4',
-        role: 'assistant',
-        content: 'Response',
-        timestamp: new Date(),
-        messageType: 'agent_response',
-        planMessages: [
-          {
-            id: 'pm1',
-            text: 'x'.repeat(20000),
-            inputType: 'approval',
-            timestamp: new Date(),
-            userResponse: 'y'.repeat(5000),
-          },
-        ],
-      }
-
-      const pruned = pruneMessageForStorage(message)
-
-      expect(pruned.planMessages![0].text).toHaveLength(10000)
-      expect(pruned.planMessages![0].userResponse).toHaveLength(2000)
-    })
-
-    test('handles messages without thinkingSteps or planMessages', () => {
+    test('handles messages without thinkingSteps', () => {
       const message: ChatMessage = {
         id: 'msg_5',
         role: 'user',
@@ -251,7 +189,6 @@ Citation: OIB-RL_2_Brandschutz.pdf, p.12
       expect(pruned.id).toBe('msg_5')
       expect(pruned.content).toBe('Simple message')
       expect(pruned.thinkingSteps).toBeUndefined()
-      expect(pruned.planMessages).toBeUndefined()
     })
   })
 
@@ -359,60 +296,6 @@ Citation: OIB-RL_2_Brandschutz.pdf, p.12
     test('handles empty array', () => {
       const stripped = stripThinkingStepsForStorage([])
       expect(stripped).toHaveLength(0)
-    })
-  })
-
-  describe('prunePlanMessages', () => {
-    test('caps text content in plan messages', () => {
-      const planMessages = [
-        {
-          id: 'pm1',
-          text: 'x'.repeat(20000),
-          inputType: 'approval' as const,
-          timestamp: new Date(),
-        },
-      ]
-
-      const pruned = prunePlanMessages(planMessages, 100)
-
-      expect(pruned).toHaveLength(1)
-      expect(pruned[0].text).toHaveLength(100)
-    })
-
-    test('caps user response content', () => {
-      const planMessages = [
-        {
-          id: 'pm1',
-          text: 'Plan text',
-          inputType: 'text' as const,
-          timestamp: new Date(),
-          userResponse: 'x'.repeat(5000),
-        },
-      ]
-
-      const pruned = prunePlanMessages(planMessages)
-
-      expect(pruned[0].userResponse).toHaveLength(2000)
-    })
-
-    test('keeps other plan message fields intact', () => {
-      const planMessages = [
-        {
-          id: 'pm1',
-          text: 'Short text',
-          inputType: 'multiple_choice' as const,
-          timestamp: new Date(),
-          placeholder: 'Choose an option',
-          required: true,
-        },
-      ]
-
-      const pruned = prunePlanMessages(planMessages)
-
-      expect(pruned[0].id).toBe('pm1')
-      expect(pruned[0].inputType).toBe('multiple_choice')
-      expect(pruned[0].placeholder).toBe('Choose an option')
-      expect(pruned[0].required).toBe(true)
     })
   })
 })

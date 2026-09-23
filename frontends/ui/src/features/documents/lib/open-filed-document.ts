@@ -52,7 +52,6 @@
  */
 
 import type { DocumentAuthor } from '@/lib/db/schema'
-import { useLayoutStore } from '@/features/layout/store'
 import { fileItemFromStatus } from './document-question'
 import { openFilePeek } from './open-file-peek'
 
@@ -138,12 +137,6 @@ export async function openFiledDocument(target: FiledDocumentTarget): Promise<bo
   }
   const row = statusRow(body)
   if (!row) return false
-
-  // The research panel occupies the same side of the split and `FilePreviewHost`
-  // refuses to peek while it is open. The reader asked to see the file, so the
-  // panel that was narrating the run they already finished watching steps aside.
-  const layout = useLayoutStore.getState()
-  if (layout.rightPanel === 'research') layout.closeRightPanel()
 
   const file = fileItemFromStatus(row)
   openFilePeek({

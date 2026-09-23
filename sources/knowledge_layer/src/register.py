@@ -205,7 +205,8 @@ class KnowledgeRetrievalConfig(FunctionBaseConfig, name="knowledge_retrieval"):
     reranker_provider: str | None = Field(
         default=None,
         description=(
-            "Cross-encoder reranking provider (none|openrouter). "
+            "Cross-encoder reranking provider (none|openrouter|jev). `jev` scores one decision-model "
+            "noul per candidate (ADR-0064), an option to evaluate beside the cross-encoder. "
             "None falls back to the AIQ_RERANKER_PROVIDER environment default, which is "
             "'none'. When one resolves it becomes the primary reranker and rerank_llm "
             "becomes the fallback; a missing key or any provider error degrades to the judge."
@@ -243,6 +244,24 @@ class KnowledgeRetrievalConfig(FunctionBaseConfig, name="knowledge_retrieval"):
         description=(
             "Ceiling on alternative queries the judge may propose per search when "
             "requery_llm is set. Each is one retrieval per in-scope collection."
+        ),
+    )
+    requery_decider: str = Field(
+        default="llm",
+        description=(
+            "Who answers the judge's yes/no (llm|jev). `jev` asks the decision model one noul per "
+            "passage of the head first (ADR-0064, ~300 ms, a fraction of a cent): a head it finds "
+            "sufficient costs no judge call, and only an insufficient head runs requery_llm, for the "
+            "phrasings. A decision that cannot run (no key, ZDR, breaker open) falls back to the judge."
+        ),
+    )
+    decision_sufficiency_threshold: float = Field(
+        default=0.55,
+        ge=0.0,
+        le=1.0,
+        description=(
+            "With requery_decider=jev: the head is sufficient when any passage's p(answers the question) "
+            "reaches this. Lower = fewer requeries; the decision eval sweeps it."
         ),
     )
     hyde_enabled: bool = Field(
@@ -2197,7 +2216,14 @@ async def knowledge_retrieval(config: KnowledgeRetrievalConfig, _builder: Builde
                     logger.debug("Requery gate failed open to the judge", exc_info=True)
                 from knowledge_layer.requery import judge_sufficiency
 
-                return await judge_sufficiency(requery_llm_obj, query, chunks, max_queries=config.requery_max_queries)
+                return await judge_sufficiency(
+                    requery_llm_obj,
+                    query,
+                    chunks,
+                    max_queries=config.requery_max_queries,
+                    decider=config.requery_decider,
+                    decision_threshold=config.decision_sufficiency_threshold,
+                )
 
             reranked, verdict = await asyncio.gather(_reranked(merged.chunks), _judged(merged.chunks))
             requery_queries: list[str] = []

@@ -19,6 +19,7 @@ from langchain_core.messages import AnyMessage
 from langgraph.graph.message import add_messages
 from pydantic import BaseModel
 
+from aiq_agent.common.plan_documents import PlanDocuments
 from aiq_agent.knowledge import AvailableDocument
 
 #: Which path a turn took. ``meta`` and ``shallow`` are OBSERVED off the
@@ -75,6 +76,10 @@ class ConversationState(BaseModel):
     # that did not occur.
     escalation_ask_reason: str | None = None
     clarifier_result: str | None = None
+    # The Unterlagen the reader named on the plan card (Grundlage to read in
+    # full, Ausgeschlossen never to use), resolved against this turn's
+    # inventory. Set with the hand-off, carried onto the run beside the text.
+    plan_documents: PlanDocuments | None = None
     original_query: str | None = None
     available_documents: list[AvailableDocument] | None = None
     in_flight_documents: list[str] | None = None

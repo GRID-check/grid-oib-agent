@@ -47,6 +47,8 @@ export const research: typeof en.research = {
     /** Trigger for the thread menu that holds every non-primary header action. */
     moreActions: 'Weitere Aktionen',
     renameSession: 'Chat umbenennen',
+    /** The persistent "still working" signal while a run is going in the thread. */
+    researching: 'Recherche läuft',
   },
 
   dataSources: {
@@ -143,42 +145,9 @@ export const research: typeof en.research = {
     },
   },
 
-  export: {
-    availableWhenComplete: 'Der Export ist verfügbar, sobald die Recherche abgeschlossen ist',
-    exportReport: 'Bericht exportieren',
-    noContent: 'Kein Inhalt zum Exportieren',
-    asMarkdown: 'Als Markdown exportieren',
-    asMarkdownDisabled: 'Als Markdown exportieren ({reason})',
-    asPdf: 'Als PDF exportieren',
-    asPdfDisabled: 'Als PDF exportieren ({reason})',
-    generatingPdf: 'PDF wird erstellt...',
-    generating: 'Wird erstellt...',
-    markdown: 'Markdown',
-    pdf: 'PDF',
-  },
 
-  agentCard: {
-    detailsWhenComplete: 'Details verfügbar, sobald der Agent fertig ist',
-    isRunning: '{name} läuft',
-    queriesCount: '{completed}/{total} Abfragen',
-    toolsCount: '{completed}/{total} Werkzeuge',
-    started: 'Gestartet: {time}',
-    running: 'Läuft',
-  },
 
-  agentsTab: {
-    title: 'Agenten',
-    runningCount: '{count} aktiv',
-    queriesProgress: '{completed}/{total} Abfragen',
-    description: 'Piloti plant, recherchiert und schreibt — hier steht, woran gerade gearbeitet wird.',
-    empty: 'Keine Agentenaktivität verfügbar.',
-  },
 
-  filesTab: {
-    title: 'Dateien',
-    description: 'Entwürfe, Berichte und weitere Dateien, die diese Recherche erzeugt hat.',
-    empty: 'Noch keine Dateien erzeugt.',
-  },
 
   fileCard: {
     lines: '{count, plural, one {# Zeile} other {# Zeilen}}',
@@ -229,10 +198,6 @@ export const research: typeof en.research = {
       'Piloti ist ein KI-System — Antworten können falsch sein; prüfen Sie sie anhand der zitierten Unterlagen.',
     placeholderDefault: 'Datenquellen prüfen und eine Recherchefrage stellen...',
     signInToStart: 'Melden Sie sich an, um zu beginnen',
-    researchCompletedNewSession:
-      'Recherche abgeschlossen. Erstellen Sie für weitere Fragen eine neue Sitzung.',
-    researchFailedFollowUp:
-      'Die Recherche wurde nicht abgeschlossen. Stellen Sie eine Anschlussfrage oder versuchen Sie es erneut.',
     typeResponse: 'Geben Sie Ihre Antwort an Piloti ein...',
     pleaseWait: 'Bitte warten...',
     messageNotSent: 'Nachricht nicht gesendet',
@@ -247,15 +212,6 @@ export const research: typeof en.research = {
     attachFiles: 'Dateien anhängen',
     uploadDisabledBusy: 'Datei-Upload während aktiver Vorgänge deaktiviert',
     selectFiles: 'Dateien zum Hochladen auswählen',
-    researchCompletedAria: 'Recherche abgeschlossen – neue Sitzung erstellen',
-    researchCompleted: 'Recherche abgeschlossen',
-    researchCompletedPopover:
-      'Recherche abgeschlossen. Für weitere Fragen oder Berichte erstellen Sie bitte eine neue Sitzung.',
-    startNewSession: 'Neue Sitzung starten',
-    researchInProgressAria: 'Recherche läuft – bitte warten',
-    researchInProgress: 'Recherche läuft',
-    researchInProgressPopover:
-      'Die Recherche läuft derzeit. Der Chat ist pausiert, um zu verhindern, dass mehrere Berichte gleichzeitig erstellt werden.',
     sendResponse: 'Antwort senden',
     sendMessage: 'Nachricht senden',
     sendQuery: 'Anfrage senden',
@@ -276,58 +232,9 @@ export const research: typeof en.research = {
     fileReadyStatus: 'Bereit',
   },
 
-  reportCard: {
-    reportWhenComplete: 'Der Bericht erscheint hier, sobald die Recherche abgeschlossen ist.',
-    exportAsMdPdf: 'Sie können ihn als Markdown oder PDF exportieren.',
-    draft: 'Entwurf',
-    words: '{count, plural, one {# Wort} other {# Wörter}}',
-  },
 
-  reportTab: {
-    contentWhenAvailable: 'Berichtsinhalt erscheint hier, sobald verfügbar.',
-    notesBanner: 'Zwischennotizen aus der Recherche – der finale Bericht wird noch erstellt.',
-    sourcesTitle: 'Quellen',
-    sourceBadge: {
-      kb: 'Wissensbasis',
-      web: 'Web',
-      ris: 'RIS',
-    },
-  },
 
-  /**
-   * Die Gliederung über dem fertigen Bericht: die Überschriften des Berichts
-   * als Sprungliste, mit einer Markierung auf dem Abschnitt, den die Leserin
-   * gerade liest.
-   */
-  reportOutline: {
-    label: 'Gliederung des Berichts',
-    title: 'Gliederung',
-    sectionCount: '{count, plural, one {# Abschnitt} other {# Abschnitte}}',
-    show: 'Gliederung einblenden',
-    hide: 'Gliederung ausblenden',
-  },
 
-  researchPanel: {
-    closePanel: 'Recherchebereich schließen',
-    openPanel: 'Recherchebereich öffnen',
-    signInToAccess: 'Melden Sie sich an, um auf den Recherchebereich zuzugreifen',
-    researching: 'Recherche läuft',
-    tabTasks: 'Aufgaben',
-    tabThinking: 'Denken',
-    tabReport: 'Bericht',
-    stopResearchingButton: 'Recherche stoppen',
-    stopResearching: 'Recherche stoppen',
-    stopConfirmTitle: 'Recherche stoppen?',
-    stopConfirmBody:
-      'Die laufende Recherche wird abgebrochen und kann nicht fortgesetzt werden. Der bisherige Teilfortschritt bleibt im Recherchebereich sichtbar.',
-    stopConfirmConfirm: 'Recherche stoppen',
-    noActiveResearch: 'Keine aktive Recherche',
-    loadingData: 'Recherchedaten werden geladen',
-    loadingDataEllipsis: 'Recherchedaten werden geladen...',
-    loadingReport: 'Bericht wird geladen...',
-    couldNotStop: 'Recherche konnte nicht gestoppt werden',
-    couldNotStopDesc: 'Der Recherchedurchlauf läuft möglicherweise noch. Bitte versuchen Sie es erneut.',
-  },
 
   sessionsPanel: {
     title: 'Chatverlauf',
@@ -348,18 +255,12 @@ export const research: typeof en.research = {
     deleteAllButton: 'Alle Chats löschen',
     /** Stopp-Aktion für einen blockierten Deep-Research-Durchlauf (Chatzeile, Durchlaufzeile). */
     stopResearch: 'Recherche stoppen',
-    stopResearchTitle: 'Diesen blockierten Recherchedurchlauf stoppen',
-    /** Sammelbereinigung in der Verlaufsfußzeile: stoppt alle abgebrochenen Durchläufe. */
-    purgeStuckRunsButton: 'Blockierte Recherchen stoppen',
-    purgeStuckRuns: 'Alle blockierten Recherchedurchläufe stoppen',
-    purgeDone:
-      '{count, plural, one {# blockierter Recherchedurchlauf gestoppt} other {# blockierte Recherchedurchläufe gestoppt}}',
-    purgeIdle: 'Keine blockierten Recherchedurchläufe gefunden',
-    /** Sammelbestätigung zum Bereinigen (geteilter ConfirmDialog, Warnton): die Bereinigung ist die einzige Sammelaktion, die Serverarbeit abbricht. */
-    purgeConfirmTitle: 'Blockierte Recherchen stoppen?',
-    purgeConfirmBody:
-      'Alle blockierten Recherchedurchläufe werden abgebrochen und können nicht fortgesetzt werden. Ihre Chats bleiben erhalten — nur die Durchläufe werden gestoppt.',
-    purgeConfirmConfirm: 'Blockierte Recherchen stoppen',
+    stopResearchTitle: 'Diesen Recherchedurchlauf stoppen',
+    /** Stopping cancels server-side work that cannot be resumed (shared ConfirmDialog, warning tone). */
+    stopConfirmTitle: 'Recherche stoppen?',
+    stopConfirmBody:
+      'Die laufende Recherche wird abgebrochen und kann nicht fortgesetzt werden. Der bisherige Teilfortschritt bleibt im Recherchebereich sichtbar.',
+    stopConfirmConfirm: 'Recherche stoppen',
     newSessionDisabled: 'Neuen Chat starten (während aktiver Vorgänge deaktiviert)',
     startNewSession: 'Neuen Chat starten',
     cannotCreateActive:
@@ -387,7 +288,6 @@ export const research: typeof en.research = {
     deleteDisabled: 'Chat löschen (deaktiviert)',
     deleteSession: 'Chat löschen',
     sessionActive: 'Piloti arbeitet an diesem Chat',
-    reportExpired: 'Bericht abgelaufen',
     reportCompleted: 'Bericht fertig',
     chatSession: 'Chat',
     sessionLabelBusy: 'Chat: {title} (Verarbeitung läuft)',
@@ -417,105 +317,12 @@ export const research: typeof en.research = {
     },
   },
 
-  taskCard: {
-    statusComplete: 'abgeschlossen',
-    statusInProgress: 'in Bearbeitung',
-    statusPending: 'ausstehend',
-    statusStopped: 'gestoppt',
-    inProgress: 'In Bearbeitung',
-    task: 'Aufgabe: {content}',
-  },
 
-  tasksTab: {
-    title: 'Aufgaben',
-    description:
-      'Aufschlüsselung und Fortschritt des Rechercheplans während der Deep-Research-Ausführung.',
-    empty: 'Rechercheaufgaben erscheinen hier.',
-    emptyHelp:
-      'Zeigt die Aufschlüsselung des Plans und den Fortschritt während der Deep-Research-Ausführung.',
-    progressAria: 'Fortschritt der Aufgabenerledigung',
-    elapsed: 'Läuft seit {minutes} Min.',
-    writingReport: 'Finaler Bericht wird geschrieben... Dies kann einige Minuten dauern.',
-    stalledTitle: 'Seit einer Weile keine Rückmeldung',
-    stalledBody:
-      'Die Recherche hat sich seit einiger Zeit nicht gemeldet. Sie läuft möglicherweise noch – stellen Sie die Verbindung wieder her, um die Live-Anzeige fortzusetzen.',
-    connectionLostTitle: 'Verbindung zur laufenden Recherche verloren',
-    connectionLostBody:
-      'Die Live-Verbindung wurde unterbrochen, aber die Recherche läuft möglicherweise noch auf dem Server. Stellen Sie die Verbindung wieder her, um fortzufahren, oder stoppen Sie sie über die Leiste oben.',
-    reconnect: 'Erneut verbinden',
-    // Ergebnis einer Ausführung, die hier ohne eigenen Chat-Verlauf verfolgt
-    // wird (Workflow-Ausführung) — sie hat kein Banner im Verlauf.
-    attachedRunFinished: 'Diese Ausführung ist abgeschlossen. Der Bericht steht im Reiter „Bericht“.',
-    attachedRunFailed: 'Diese Ausführung ist vor dem Abschluss fehlgeschlagen.',
-    attachedRunStopped: 'Diese Ausführung wurde vor dem Abschluss gestoppt.',
-  },
 
-  thinkingTab: {
-    tabThoughts: 'Gedanken',
-    tabAgents: 'Agenten',
-    tabTools: 'Werkzeuge',
-    tabFiles: 'Dateien',
-    tabRead: 'Gelesen',
-    tabReferenced: 'Referenziert',
-    referenced: 'Referenziert',
-    sourcesRead: 'Gelesene Quellen',
-    referencedSub: 'Im finalen Bericht referenzierte Quellen.',
-    readSub:
-      'Während der Recherche gefundene Quellen, die im finalen Bericht nicht referenziert wurden.',
-    noReferenced: 'Keine referenzierten Quellen verfügbar.',
-    noRead: 'Keine gelesenen Quellen verfügbar.',
-  },
 
-  /**
-   * Der Abschnitt eines Recherchedurchlaufs, aus dem eine Karte stammt.
-   *
-   * Die Karten gaben bisher die rohe Kennung des Backends aus („über
-   * researcher-agent“) — eine Kennung mitten im Satz, die niemand gelernt hat.
-   * Hier steht stattdessen die Arbeit, in denselben Worten wie auf der übrigen
-   * Recherchefläche. Eine Herkunft, für die dieser Build keinen Namen hat,
-   * liest „intern“ — nie die Kennung. Siehe `features/layout/lib/workflow-names`.
-   */
-  workflowName: {
-    planning: 'Planung',
-    research: 'Recherche',
-    sourceSelection: 'Quellenauswahl',
-    writing: 'Berichtstext',
-    internal: 'intern',
-    // Dieselbe Sache als Überschrift, wo kein Satz das Substantiv liefert.
-    internalStep: 'Interner Schritt',
-  },
 
-  thoughtCard: {
-    detailsWhenComplete: 'Details verfügbar, sobald die Generierung abgeschlossen ist',
-    generating: 'Generiert',
-    step: 'Schritt: {name}',
-    output: 'Ausgabe',
-  },
 
-  thoughtTracesTab: {
-    title: 'Gedankengang',
-    runningCount: '{count} aktiv',
-    description: 'Wie Piloti während der Recherche nachgedacht hat.',
-    empty: 'Kein Gedankengang verfügbar.',
-  },
 
-  toolCallCard: {
-    detailsWhenComplete: 'Details verfügbar, sobald der Werkzeugaufruf abgeschlossen ist',
-    isRunning: '{name} läuft',
-    step: 'Schritt: {name}',
-    arguments: 'Argumente',
-    result: 'Ergebnis',
-    error: 'Fehler',
-  },
 
-  toolCallsTab: {
-    title: 'Werkzeugaufrufe',
-    runningCount: '{count} aktiv',
-    description: 'Websuchen, Dateizugriffe und weitere Werkzeugaufrufe.',
-    empty: 'Keine Werkzeugaufrufe verfügbar.',
-  },
 
-  sourceCard: {
-    cited: 'Zitiert',
-  },
 }

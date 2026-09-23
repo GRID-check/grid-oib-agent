@@ -1,10 +1,9 @@
 import type { ReactNode } from 'react'
-import { render, screen, waitFor, within, fireEvent } from '@/test-utils'
+import { render, screen, waitFor, within } from '@/test-utils'
 import userEvent from '@testing-library/user-event'
 import { vi, describe, test, expect, beforeEach } from 'vitest'
 import { SessionsPanel } from './SessionsPanel'
 import type { ResearchRun } from '@/adapters/api/research-runs-client'
-import type { DeepResearchJobStatus } from '@/features/chat/types'
 import { asStoreState, type DeepPartial, type StoreSelector } from '@/test-utils/store-fixtures'
 import type { LayoutStore } from '../types'
 import type { ChatStoreWithHydration } from '@/features/chat/store'
@@ -16,6 +15,11 @@ const mockSetSessionsPanelOpen = vi.fn()
 const mockListResearchRuns = vi.fn()
 vi.mock('@/adapters/api/research-runs-client', () => ({
   listResearchRuns: (...args: unknown[]) => mockListResearchRuns(...args),
+}))
+
+const mockCancelJob = vi.fn()
+vi.mock('@/adapters/api/deep-research-client', () => ({
+  cancelJob: (...args: unknown[]) => mockCancelJob(...args),
 }))
 
 vi.mock('next/link', () => ({
@@ -73,20 +77,12 @@ const createMockChatState = (
     hasAnyBusySession?: () => boolean
     isStreaming?: boolean
     pendingInteraction?: { id: string; type: string; content: string } | null
-    refreshDeepResearchSessionStatuses?: () => Promise<void>
-    dismissDeepResearchJob?: (conversationId: string | null, jobId: string) => Promise<void>
-    purgeAbandonedDeepResearchJobs?: () => Promise<number>
-    resolvedDeepResearchJobs?: Record<string, DeepResearchJobStatus>
   } = {}
 ) => ({
   isSessionBusy: overrides.isSessionBusy ?? (() => false),
   hasAnyBusySession: overrides.hasAnyBusySession ?? (() => false),
   isStreaming: overrides.isStreaming ?? false,
   pendingInteraction: overrides.pendingInteraction ?? null,
-  refreshDeepResearchSessionStatuses: overrides.refreshDeepResearchSessionStatuses ?? vi.fn(),
-  dismissDeepResearchJob: overrides.dismissDeepResearchJob ?? vi.fn(),
-  purgeAbandonedDeepResearchJobs: overrides.purgeAbandonedDeepResearchJobs ?? vi.fn(),
-  resolvedDeepResearchJobs: overrides.resolvedDeepResearchJobs ?? {},
 })
 
 const setupChatStoreMock = (overrides: Parameters<typeof createMockChatState>[0] = {}) => {
@@ -331,60 +327,6 @@ describe('SessionsPanel', () => {
     expect(screen.getByText('Second Session')).toBeInTheDocument()
   })
 
-  test('checks persisted deep research jobs when the sessions panel opens', () => {
-    const refreshDeepResearchSessionStatuses = vi.fn().mockResolvedValue(undefined)
-    setupChatStoreMock({ refreshDeepResearchSessionStatuses })
-
-    render(<SessionsPanel sessions={mockSessions} />)
-
-    expect(refreshDeepResearchSessionStatuses).toHaveBeenCalledTimes(1)
-  })
-
-  test('does not start overlapping deep research status refreshes', async () => {
-    let isPanelOpen = true
-    let resolveRefresh: () => void = () => {}
-    const refreshDeepResearchSessionStatuses = vi.fn(
-      () =>
-        new Promise<void>((resolve) => {
-          resolveRefresh = resolve
-        })
-    )
-    setupChatStoreMock({ refreshDeepResearchSessionStatuses })
-    vi.mocked(useLayoutStore).mockImplementation((selector?: StoreSelector<LayoutStore>) => {
-      const state: DeepPartial<LayoutStore> = {
-        isSessionsPanelOpen: isPanelOpen,
-        setSessionsPanelOpen: mockSetSessionsPanelOpen,
-      }
-      return selector ? selector(asStoreState<LayoutStore>(state)) : state
-    })
-
-    const { rerender } = render(<SessionsPanel sessions={mockSessions} />)
-
-    expect(refreshDeepResearchSessionStatuses).toHaveBeenCalledTimes(1)
-
-    isPanelOpen = false
-    rerender(<SessionsPanel sessions={[...mockSessions]} />)
-    isPanelOpen = true
-    rerender(<SessionsPanel sessions={[...mockSessions]} />)
-
-    expect(refreshDeepResearchSessionStatuses).toHaveBeenCalledTimes(1)
-
-    resolveRefresh()
-    await Promise.resolve()
-    await Promise.resolve()
-    await Promise.resolve()
-
-    isPanelOpen = false
-    rerender(<SessionsPanel sessions={[...mockSessions]} />)
-    await Promise.resolve()
-    isPanelOpen = true
-    rerender(<SessionsPanel sessions={[...mockSessions]} />)
-
-    await vi.waitFor(() => {
-      expect(refreshDeepResearchSessionStatuses).toHaveBeenCalledTimes(2)
-    })
-  })
-
   test('does not show session content when panel is closed', () => {
     vi.mocked(useLayoutStore).mockImplementation((selector?: StoreSelector<LayoutStore>) => {
       const state: DeepPartial<LayoutStore> = {
@@ -400,22 +342,6 @@ describe('SessionsPanel', () => {
     // so there is no hidden copy of the history in the DOM to leak into the
     // tab order or the accessibility tree.
     expect(screen.queryByText('Chat history')).not.toBeInTheDocument()
-  })
-
-  test('does not refresh deep research job state when panel is closed', () => {
-    const refreshDeepResearchSessionStatuses = vi.fn().mockResolvedValue(undefined)
-    setupChatStoreMock({ refreshDeepResearchSessionStatuses })
-    vi.mocked(useLayoutStore).mockImplementation((selector?: StoreSelector<LayoutStore>) => {
-      const state: DeepPartial<LayoutStore> = {
-        isSessionsPanelOpen: false,
-        setSessionsPanelOpen: mockSetSessionsPanelOpen,
-      }
-      return selector ? selector(asStoreState<LayoutStore>(state)) : state
-    })
-
-    render(<SessionsPanel sessions={mockSessions} />)
-
-    expect(refreshDeepResearchSessionStatuses).not.toHaveBeenCalled()
   })
 
   // The leading icon is decorative; the row is one button whose accessible name
@@ -442,25 +368,6 @@ describe('SessionsPanel', () => {
 
     expect(
       screen.getByRole('button', { name: 'Chat: Completed Report — Report ready' })
-    ).toBeInTheDocument()
-  })
-
-  test('a chat with an expired report says so in its name', () => {
-    render(
-      <SessionsPanel
-        sessions={[
-          {
-            id: 'session-expired',
-            title: 'Expired Report',
-            date: new Date(),
-            hasExpiredReport: true,
-          },
-        ]}
-      />
-    )
-
-    expect(
-      screen.getByRole('button', { name: 'Chat: Expired Report — Report expired' })
     ).toBeInTheDocument()
   })
 
@@ -1062,32 +969,15 @@ describe('SessionsPanel - Deep Research section (FB-10)', () => {
   })
 })
 
-describe('SessionsPanel - stuck research purge', () => {
+describe('SessionsPanel - stopping a run from the history', () => {
   const today = new Date()
-  const mockDismiss = vi.fn()
-  const mockPurge = vi.fn()
-
-  const stuckSession = {
-    id: 'conv-stuck',
-    title: 'Stuck research chat',
-    date: today,
-    hasActiveDeepResearch: true,
-    activeDeepResearchJobId: 'job-stuck',
-  }
   const idleSession = { id: 'conv-idle', title: 'Idle chat', date: today }
 
   beforeEach(() => {
     vi.clearAllMocks()
-    mockDismiss.mockResolvedValue(undefined)
-    mockPurge.mockResolvedValue(0)
+    mockCancelJob.mockResolvedValue({ cancelled: true })
     mockListResearchRuns.mockResolvedValue({ jobs: [], total: 0 })
-    setupChatStoreMock({
-      dismissDeepResearchJob: mockDismiss,
-      purgeAbandonedDeepResearchJobs: mockPurge,
-      // The row's stop action renders for an *active* session: the Session
-      // prop carries the stuck run, the busy check marks the row active.
-      isSessionBusy: () => true,
-    })
+    setupChatStoreMock()
     vi.mocked(useLayoutStore).mockImplementation((selector?: StoreSelector<LayoutStore>) => {
       const state: DeepPartial<LayoutStore> = {
         isSessionsPanelOpen: true,
@@ -1097,74 +987,17 @@ describe('SessionsPanel - stuck research purge', () => {
     })
   })
 
-  test('a chat row with a stuck run offers a stop action that dismisses it', async () => {
-    const user = userEvent.setup()
-    render(<SessionsPanel sessions={[stuckSession, idleSession]} />)
-
-    // Hover reveals the overlay actions (the realistic path); the click itself
-    // goes through fireEvent because userEvent's multi-step pointer sequence
-    // re-renders the motion row mid-gesture and drops the click on the
-    // detached node — a jsdom artifact, not a production one.
-    await user.hover(screen.getByRole('button', { name: /chat: stuck research chat/i }))
-    fireEvent.click(screen.getByRole('button', { name: 'Stop research' }))
-
-    // Stopping cancels server-side work, so it confirms first through the
-    // shared dialog rather than firing off the icon.
-    expect(await screen.findByText('Stop research?')).toBeInTheDocument()
-    await user.click(screen.getByTestId('stop-research-confirm'))
-
-    await waitFor(() => {
-      expect(mockDismiss).toHaveBeenCalledWith('conv-stuck', 'job-stuck')
-    })
-  })
-
-  test('cancelling the stop confirm dismisses nothing', async () => {
-    const user = userEvent.setup()
-    render(<SessionsPanel sessions={[stuckSession, idleSession]} />)
-
-    await user.hover(screen.getByRole('button', { name: /chat: stuck research chat/i }))
-    fireEvent.click(screen.getByRole('button', { name: 'Stop research' }))
-    expect(await screen.findByText('Stop research?')).toBeInTheDocument()
-
-    await user.keyboard('{Escape}')
-    await waitFor(() => {
-      expect(screen.queryByText('Stop research?')).not.toBeInTheDocument()
-    })
-    expect(mockDismiss).not.toHaveBeenCalled()
-  })
-
-  test('an idle chat row offers no stop action', async () => {
-    const user = userEvent.setup()
-    render(<SessionsPanel sessions={[idleSession]} />)
-
-    await user.hover(screen.getByRole('button', { name: /chat: idle chat/i }))
-
+  test('a chat row offers no stop action: the run is stopped from its block', () => {
+    render(
+      <SessionsPanel
+        sessions={[{ ...idleSession, hasActiveDeepResearch: true }]}
+        showDeepResearchSection
+      />
+    )
     expect(screen.queryByRole('button', { name: /stop research/i })).not.toBeInTheDocument()
   })
 
-  test('the footer purges every stuck run when one is active', async () => {
-    const user = userEvent.setup()
-    mockPurge.mockResolvedValue(2)
-    render(<SessionsPanel sessions={[stuckSession, idleSession]} />)
-
-    await user.click(screen.getByRole('button', { name: /stop all stuck research runs/i }))
-    expect(await screen.findByText('Stop stuck research?')).toBeInTheDocument()
-    await user.click(screen.getByTestId('purge-stuck-research-confirm'))
-
-    await waitFor(() => {
-      expect(mockPurge).toHaveBeenCalledTimes(1)
-    })
-  })
-
-  test('the footer shows no purge when nothing is stuck', () => {
-    render(<SessionsPanel sessions={[idleSession]} />)
-
-    expect(
-      screen.queryByRole('button', { name: /stop all stuck research runs/i })
-    ).not.toBeInTheDocument()
-  })
-
-  test('a running research run offers a stop action that dismisses and refetches', async () => {
+  test('a running research run offers a stop action that cancels the job and refetches', async () => {
     const user = userEvent.setup()
     mockListResearchRuns.mockResolvedValue({
       jobs: [
@@ -1193,12 +1026,41 @@ describe('SessionsPanel - stuck research purge', () => {
     await user.click(screen.getByTestId('stop-research-confirm'))
 
     await waitFor(() => {
-      expect(mockDismiss).toHaveBeenCalledWith(null, 'job-live')
+      expect(mockCancelJob).toHaveBeenCalledWith('job-live')
     })
-    // Initial fetch plus the refetch after the dismiss landed.
+    // Initial fetch plus the refetch after the cancel landed.
     await waitFor(() => {
       expect(mockListResearchRuns).toHaveBeenCalledTimes(2)
     })
+  })
+
+  test('cancelling the stop confirm cancels nothing', async () => {
+    const user = userEvent.setup()
+    mockListResearchRuns.mockResolvedValue({
+      jobs: [
+        {
+          job_id: 'job-live',
+          status: 'running',
+          created_at: today.toISOString(),
+          conversation_id: null,
+          project_collection: 'proj_1',
+        },
+      ],
+      total: 1,
+    })
+    render(
+      <SessionsPanel
+        sessions={[idleSession]}
+        showDeepResearchSection
+        projectId="p1"
+        projectCollection="proj_1"
+      />
+    )
+    expect(await screen.findByText('Running')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Stop research' }))
+    expect(await screen.findByText('Stop research?')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: /^cancel$/i }))
+    expect(mockCancelJob).not.toHaveBeenCalled()
   })
 
   test('a finished research run offers no stop action', async () => {
@@ -1224,42 +1086,6 @@ describe('SessionsPanel - stuck research purge', () => {
     )
 
     expect(await screen.findByText('Report ready')).toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: /stop research/i })).not.toBeInTheDocument()
-  })
-
-  test('a dismissed run renders its recorded verdict, not the stale list status', async () => {
-    // The runs list can lag a crashed run indefinitely: the backend declared
-    // this job failed on cancel, but the list still serves it as running.
-    setupChatStoreMock({
-      dismissDeepResearchJob: mockDismiss,
-      purgeAbandonedDeepResearchJobs: mockPurge,
-      isSessionBusy: () => true,
-      resolvedDeepResearchJobs: { 'job-stale': 'failure' },
-    })
-    mockListResearchRuns.mockResolvedValue({
-      jobs: [
-        {
-          job_id: 'job-stale',
-          status: 'running',
-          created_at: today.toISOString(),
-          conversation_id: null,
-          project_collection: 'proj_1',
-        },
-      ],
-      total: 1,
-    })
-    render(
-      <SessionsPanel
-        sessions={[idleSession]}
-        showDeepResearchSection
-        projectId="p1"
-        projectCollection="proj_1"
-      />
-    )
-
-    expect(await screen.findByText('Failed')).toBeInTheDocument()
-    expect(screen.queryByText('Running')).not.toBeInTheDocument()
-    // Settled runs need no stop action.
     expect(screen.queryByRole('button', { name: /stop research/i })).not.toBeInTheDocument()
   })
 })

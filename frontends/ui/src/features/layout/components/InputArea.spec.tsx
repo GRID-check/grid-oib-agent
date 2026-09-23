@@ -4,6 +4,7 @@ import { vi, describe, test, expect, beforeEach } from 'vitest'
 import { toast } from 'sonner'
 import type { ComposerPrefill, ComposerSubject } from '@/features/chat/types'
 import { InputArea } from './InputArea'
+import { emptyRunLedger, setRunStatus } from '@/lib/runs/run-ledger'
 
 // Transient send failures surface as toasts; spy on them rather than render them.
 import {
@@ -34,9 +35,6 @@ const mockRespondToInteraction = vi.fn()
 // shared thread. Part of the hook's surface, so every stubbed return needs it.
 const mockNoteSendIntent = vi.fn()
 
-let mockIsDeepResearchStreaming = false
-let mockDeepResearchStatus: string | null = null
-let mockDeepResearchOwnerConversationId: string | null = null
 let mockConversationMessages: unknown[] | undefined = []
 // Active session id (null models the "new session draft" state with no id yet).
 let mockCurrentSessionId: string | null = 'session-1'
@@ -89,9 +87,6 @@ function mockChatState() {
     startNewSessionDraft: mockStartNewSessionDraft,
     setRespondToInteractionFn: vi.fn(),
     setChatSendFn: vi.fn(),
-    deepResearchStatus: mockDeepResearchStatus,
-    isDeepResearchStreaming: mockIsDeepResearchStreaming,
-    deepResearchOwnerConversationId: mockDeepResearchOwnerConversationId,
     composerPrefill: mockComposerPrefill,
     consumeComposerPrefill: vi.fn(() => {
       const value = mockComposerPrefill
@@ -132,10 +127,8 @@ vi.mock('@/features/chat', () => ({
 }))
 
 // Mock the layout store
-const mockOpenRightPanel = vi.fn()
 const mockSetDataSourcePanelTab = vi.fn()
 
-const mockCloseRightPanel = vi.fn()
 const mockSetDataSourcesPanelTab = vi.fn()
 const mockApplySourcePreset = vi.fn()
 let mockActiveSourcePreset: string | null = null
@@ -152,14 +145,11 @@ const mockSetEnabledDataSources = vi.fn()
 const mockFetchDataSources = vi.fn()
 
 const mockLayoutState = () => ({
-  openRightPanel: mockOpenRightPanel,
-  closeRightPanel: mockCloseRightPanel,
   setDataSourcesPanelTab: mockSetDataSourcesPanelTab,
   setDataSourcePanelTab: mockSetDataSourcePanelTab,
   enabledDataSourceIds: mockEnabledDataSourceIds,
   knowledgeLayerAvailable: true,
   availableDataSources: mockAvailableDataSources,
-  rightPanel: null as string | null,
   activeSourcePreset: mockActiveSourcePreset,
   applySourcePreset: mockApplySourcePreset,
   // Sources popover (C4) — connection toggles lifted from the old panel.
@@ -327,9 +317,6 @@ import { useMentionCandidates } from '@/features/collaboration/hooks/use-sharing
 describe('InputArea', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    mockIsDeepResearchStreaming = false
-    mockDeepResearchStatus = null
-    mockDeepResearchOwnerConversationId = null
     mockConversationMessages = []
     mockCurrentSessionId = 'session-1'
     mockComposerPrefill = null
@@ -558,26 +545,6 @@ describe('InputArea', () => {
     expect(screen.getByPlaceholderText('Please wait...')).toBeInTheDocument()
   })
 
-  test('disables input when deep research is in progress', () => {
-    vi.mocked(useIsCurrentSessionBusy).mockReturnValue(true)
-    mockIsDeepResearchStreaming = true
-    mockDeepResearchStatus = 'submitted'
-    mockDeepResearchOwnerConversationId = 'session-1'
-    render(<InputArea isAuthenticated={true} connectionMode="websocket" />)
-
-    // The research lock reuses its helper sentence as the placeholder rather
-    // than a third wording — no "Please wait..." here.
-    expect(
-      screen.getByPlaceholderText(/research is currently in progress/i)
-    ).toBeInTheDocument()
-    expect(screen.getByRole('textbox')).toBeDisabled()
-    // Locked send: a disabled button carrying the lock (no popover on a
-    // control that cannot act), plus the helper line under the composer.
-    const send = screen.getByRole('button', { name: /research in progress - please wait/i })
-    expect(send).toBeDisabled()
-    expect(screen.getByTestId('composer-research-hint')).toBeInTheDocument()
-  })
-
   test('renders attach files button', () => {
     render(<InputArea isAuthenticated={true} />)
 
@@ -789,165 +756,6 @@ describe('InputArea', () => {
     expect(screen.getByRole('textbox')).not.toBeDisabled()
   })
 
-  test('shows research completed placeholder when deep research is done', () => {
-    mockDeepResearchStatus = 'success'
-    mockIsDeepResearchStreaming = false
-    mockDeepResearchOwnerConversationId = 'session-1'
-
-    render(<InputArea isAuthenticated={true} connectionMode="websocket" />)
-
-    expect(
-      screen.getByPlaceholderText(
-        'Research completed. For further questions or reports, please create a new session.'
-      )
-    ).toBeInTheDocument()
-    expect(screen.getByRole('textbox')).toBeDisabled()
-  })
-
-  test('shows the "Start new session" forward action on the send slot when research is done', () => {
-    mockDeepResearchStatus = 'success'
-    mockIsDeepResearchStreaming = false
-    mockDeepResearchOwnerConversationId = 'session-1'
-
-    render(<InputArea isAuthenticated={true} connectionMode="websocket" />)
-
-    // The old no-op explanation popover is replaced by an actionable button.
-    expect(screen.getByRole('button', { name: /start new session/i })).toBeInTheDocument()
-  })
-
-  test('the post-research "Start new session" button starts a fresh session draft', async () => {
-    const user = userEvent.setup()
-    mockDeepResearchStatus = 'success'
-    mockIsDeepResearchStreaming = false
-    mockDeepResearchOwnerConversationId = 'session-1'
-
-    render(<InputArea isAuthenticated={true} connectionMode="websocket" />)
-
-    await user.click(screen.getByRole('button', { name: /start new session/i }))
-
-    // Wired to the real new-session action (the same startNewSessionDraft the
-    // logo / new-session path uses), turning the dead-end into a forward action.
-    expect(mockStartNewSessionDraft).toHaveBeenCalledTimes(1)
-  })
-
-  test('keeps the composer locked when a persisted message reports success', () => {
-    mockConversationMessages = [
-      {
-        messageType: 'agent_response',
-        deepResearchJobId: 'job-1',
-        deepResearchJobStatus: 'success',
-      },
-    ]
-
-    render(<InputArea isAuthenticated={true} connectionMode="websocket" />)
-
-    expect(screen.getByRole('textbox')).toBeDisabled()
-    expect(screen.getByRole('button', { name: /start new session/i })).toBeInTheDocument()
-  })
-
-  test.each(['failure', 'interrupted'] as const)(
-    'unlocks the composer after a %s run so the user can retry or follow up',
-    (status) => {
-      mockDeepResearchStatus = status
-      mockIsDeepResearchStreaming = false
-      mockDeepResearchOwnerConversationId = 'session-1'
-
-      render(<InputArea isAuthenticated={true} connectionMode="websocket" />)
-
-      // Composer is enabled with contextual follow-up guidance...
-      expect(screen.getByRole('textbox')).not.toBeDisabled()
-      expect(
-        screen.getByPlaceholderText('Research didn’t finish. Ask a follow-up or try again.')
-      ).toBeInTheDocument()
-      // ...and the normal send button is shown (no "start new session" lock).
-      expect(screen.getByRole('button', { name: /send message/i })).toBeInTheDocument()
-      expect(
-        screen.queryByRole('button', { name: /start new session/i })
-      ).not.toBeInTheDocument()
-    }
-  )
-
-  test('unlocks the composer when a persisted message reports failure', () => {
-    mockConversationMessages = [
-      {
-        messageType: 'agent_response',
-        deepResearchJobId: 'job-1',
-        deepResearchJobStatus: 'failure',
-      },
-    ]
-
-    render(<InputArea isAuthenticated={true} connectionMode="websocket" />)
-
-    expect(screen.getByRole('textbox')).not.toBeDisabled()
-    expect(
-      screen.getByPlaceholderText('Research didn’t finish. Ask a follow-up or try again.')
-    ).toBeInTheDocument()
-  })
-
-  test('a later success still locks the composer even if an earlier run failed', () => {
-    mockConversationMessages = [
-      {
-        messageType: 'agent_response',
-        deepResearchJobId: 'job-1',
-        deepResearchJobStatus: 'failure',
-      },
-      {
-        messageType: 'agent_response',
-        deepResearchJobId: 'job-2',
-        deepResearchJobStatus: 'success',
-      },
-    ]
-
-    render(<InputArea isAuthenticated={true} connectionMode="websocket" />)
-
-    expect(screen.getByRole('textbox')).toBeDisabled()
-  })
-
-  test('unlocks the composer when a later run failed after an earlier success', () => {
-    // The converse of the case above, and the one the composer used to get
-    // wrong: an "any message ever succeeded" scan saw job-1 and locked the
-    // composer for good, so a user whose most recent run FAILED was told
-    // "Research completed. Create a new session." and could not retry in place
-    // (UX-12). The latest job is the one that describes the session.
-    mockConversationMessages = [
-      {
-        messageType: 'agent_response',
-        deepResearchJobId: 'job-1',
-        deepResearchJobStatus: 'success',
-      },
-      {
-        messageType: 'agent_response',
-        deepResearchJobId: 'job-2',
-        deepResearchJobStatus: 'failure',
-      },
-    ]
-
-    render(<InputArea isAuthenticated={true} connectionMode="websocket" />)
-
-    expect(screen.getByRole('textbox')).not.toBeDisabled()
-    expect(
-      screen.getByPlaceholderText('Research didn’t finish. Ask a follow-up or try again.')
-    ).toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: /start new session/i })).not.toBeInTheDocument()
-  })
-
-  test('shows research in progress send button when deep research is active and streaming', () => {
-    vi.mocked(useIsCurrentSessionBusy).mockReturnValue(true)
-    mockIsDeepResearchStreaming = true
-    mockDeepResearchStatus = 'running'
-    mockDeepResearchOwnerConversationId = 'session-1'
-
-    render(<InputArea isAuthenticated={true} connectionMode="websocket" />)
-
-    // The research lock reuses its helper sentence as the placeholder.
-    expect(
-      screen.getByPlaceholderText(/research is currently in progress/i)
-    ).toBeInTheDocument()
-    // Locked send is a disabled button (no popover), named by the lock.
-    const send = screen.getByRole('button', { name: /research in progress - please wait/i })
-    expect(send).toBeDisabled()
-  })
-
   test('does not allow sending when session is busy', () => {
     vi.mocked(useIsCurrentSessionBusy).mockReturnValue(true)
 
@@ -1002,13 +810,47 @@ describe('InputArea', () => {
     expect(screen.getByRole('button', { name: /send response/i })).not.toHaveAttribute('tabindex')
   })
 
-  test('input enabled during HITL even when deep research is in progress', async () => {
+  test('the composer stays open while a run is going in the thread', () => {
+    // A run is a message with its own stop control (ADR-0062): the person
+    // keeps asking beside it, and a follow-up runs in the same thread.
+    mockConversationMessages = [
+      {
+        messageType: 'agent_response',
+        runLedger: setRunStatus(emptyRunLedger('run-1'), 'laeuft'),
+      },
+    ]
+
+    render(<InputArea isAuthenticated={true} connectionMode="websocket" />)
+
+    expect(screen.getByRole('textbox')).not.toBeDisabled()
+    expect(screen.getByRole('button', { name: /send message/i })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /start new session/i })).not.toBeInTheDocument()
+  })
+
+  test('the composer stays open after a run finished: a follow-up runs in the same thread', () => {
+    mockConversationMessages = [
+      {
+        messageType: 'agent_response',
+        runLedger: setRunStatus(emptyRunLedger('run-1'), 'fertig'),
+      },
+    ]
+
+    render(<InputArea isAuthenticated={true} connectionMode="websocket" />)
+
+    expect(screen.getByRole('textbox')).not.toBeDisabled()
+    expect(screen.queryByRole('button', { name: /start new session/i })).not.toBeInTheDocument()
+  })
+
+  test('input enabled during HITL even when a run is in progress', async () => {
     const user = userEvent.setup()
-    // Deep research is running AND there's a pending HITL interaction
+    // A run is going AND there's a pending HITL interaction
     vi.mocked(useIsCurrentSessionBusy).mockReturnValue(true)
-    mockIsDeepResearchStreaming = true
-    mockDeepResearchStatus = 'running'
-    mockDeepResearchOwnerConversationId = 'session-1'
+    mockConversationMessages = [
+      {
+        messageType: 'agent_response',
+        runLedger: setRunStatus(emptyRunLedger('run-1'), 'laeuft'),
+      },
+    ]
     vi.mocked(useWebSocketChat).mockReturnValue({
       sendMessage: mockSendMessage,
       isStreaming: false,
@@ -1145,7 +987,6 @@ describe('InputArea', () => {
       expect(
         screen.getByText(/what it actually used is in the derivation/i)
       ).toBeInTheDocument()
-      expect(mockOpenRightPanel).not.toHaveBeenCalled()
     })
 
     /**

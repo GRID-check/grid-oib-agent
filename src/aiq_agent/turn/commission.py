@@ -35,6 +35,7 @@ from typing import Any
 from typing import Literal
 
 from aiq_agent import project_context
+from aiq_agent.common.plan_documents import PlanDocuments
 from aiq_agent.tools.documents.filing import SignedEnvelope
 from aiq_agent.tools.tasks.client import DelegationError
 from aiq_agent.tools.tasks.client import post_task
@@ -88,7 +89,14 @@ def _envelope() -> SignedEnvelope:
     return SignedEnvelope(header=header, signature=signature)
 
 
-def _payload(project_id: str, question: str, context: str | None) -> dict[str, Any]:
+def _payload(
+    project_id: str,
+    question: str,
+    context: str | None,
+    *,
+    data_sources: list[str] | None = None,
+    documents: PlanDocuments | None = None,
+) -> dict[str, Any]:
     payload: dict[str, Any] = {
         "op": "research",
         "projectId": project_id,
@@ -97,6 +105,12 @@ def _payload(project_id: str, question: str, context: str | None) -> dict[str, A
     settled = (context or "").strip()
     if settled:
         payload["context"] = settled[:MAX_CONTEXT_CHARS]
+    # The Rahmen: the turn's Datengrundlage, which the run keeps. Without it a
+    # run drew on every source the worker has, whatever the composer showed.
+    if data_sources is not None:
+        payload["dataSources"] = list(data_sources)
+    if documents is not None and not documents.is_empty():
+        payload["documents"] = documents.model_dump(exclude_none=True)
     return payload
 
 
@@ -115,7 +129,13 @@ def _refusal_from(error: DelegationError) -> CommissionRefused:
     return CommissionRefused("unreachable", str(error))
 
 
-async def commission_research_run(question: str, *, context: str | None = None) -> CommissionedRun:
+async def commission_research_run(
+    question: str,
+    *,
+    context: str | None = None,
+    data_sources: list[str] | None = None,
+    documents: PlanDocuments | None = None,
+) -> CommissionedRun:
     """Turn this turn's question into a run, and say where it narrates itself.
 
     Raises :class:`CommissionRefused` for every refusal, so the caller has one
@@ -129,7 +149,11 @@ async def commission_research_run(question: str, *, context: str | None = None) 
     envelope = _envelope()
 
     try:
-        body = await asyncio.to_thread(post_task, _payload(project_id, question, context), envelope)
+        body = await asyncio.to_thread(
+            post_task,
+            _payload(project_id, question, context, data_sources=data_sources, documents=documents),
+            envelope,
+        )
     except DelegationError as exc:
         logger.info("Research run refused by the task API: %s", exc)
         raise _refusal_from(exc) from exc

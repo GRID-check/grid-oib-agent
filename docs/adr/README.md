@@ -122,6 +122,8 @@ Consequences, where a reader looks for them.
 | [0060](0060-three-instruction-layers-and-tools-that-answer.md) | Instructions live in three layers, and a tool delivers an answer | Accepted |
 | [0061](0061-a-grounding-hit-is-a-record-and-the-text-is-its-rendering.md) | A grounding hit is a record, and the text a tool returns is its rendering | Proposed |
 | [0062](0062-a-run-is-a-message-in-the-thread-that-commissioned-it.md) | A run is one message in the thread that commissioned it, and its ledger is what the reader sees | Proposed |
+| [0063](0063-short-skill-bodies-ride-the-prompt.md) | A short skill body rides the prompt; the catalog line is for the long ones | Proposed |
+| [0064](0064-a-decision-model-decides-and-never-withholds.md) | A decision model decides before the answer, and may only add to the turn | Proposed |
 
 > Note: 0027, 0039, 0044 and 0047 were each independently used twice, every
 > time because two people read the next number off this index instead of off

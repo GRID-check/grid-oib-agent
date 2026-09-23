@@ -843,6 +843,7 @@ const DEGRADATION_KEYS: Record<AnswerDegradation, string> = {
   no_report_file: 'noReport',
   no_valid_citations: 'noCitations',
   cards_generation_failed: 'noCards',
+  grundlage_unread: 'grundlageUnread',
 }
 
 function limitations(
@@ -933,8 +934,22 @@ const onlyOpened = (tools: string[]): boolean =>
  * from a fresh fetch. A layer that concluded on the back of what it fetched is
  * a finding; a bare fetch that returned nothing is a search. The NUMBER on the
  * layer (`Schritt N`) is the execution order; this is the type.
+ *
+ * `accounted` is whether the backend's retrieval ledger holds this round. A
+ * ledger round with no documents is a fetch the backend SAW return nothing —
+ * a miss, and the layer says so, whatever the model concluded beside it. A
+ * turn stored before the ledger existed has no such record: there an empty
+ * layer may be a miss or a hit the old wire never stamped, and `Suche` stays
+ * the honest word for not knowing which.
  */
-function roundKind(hasThought: boolean, documentCount: number, tools: string[], t: Translator): string {
+function roundKind(
+  hasThought: boolean,
+  documentCount: number,
+  tools: string[],
+  t: Translator,
+  accounted = false
+): string {
+  if (documentCount === 0 && accounted) return t('thinking.node.stepKindNoHits')
   if (documentCount > 0 && onlyOpened(tools)) return t('thinking.node.stepKindOpen')
   if (hasThought && documentCount > 0) return t('thinking.node.stepKindFinding')
   if (hasThought) return t('thinking.node.stepKindConclusion')
@@ -1262,9 +1277,10 @@ export function buildGraph(
       // read of it, so a round that opened five Punkte of one Richtlinie is
       // one document — which is what „3 Dateien" has always claimed to count.
       const documentCount = fan.roundCards.length
+      const accounted = props.retrievalLedger?.some((entry) => entry.index === round.index) ?? false
       const roundData: RoundData = {
         label: t('thinking.node.stepTab', { n: i + 1 }),
-        sub: roundKind(text.length > 0, documentCount, round.tools, t),
+        sub: roundKind(text.length > 0, documentCount, round.tools, t, accounted),
         text,
         actions: actionLabels(round.tools),
         targets: [CENTRE_TOP],

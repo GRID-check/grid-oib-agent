@@ -64,7 +64,11 @@ function finished(fileId?: string): RunLedger {
     ledger = openPhase(ledger, phase, at(90))
     ledger = closePhase(ledger, phase, at(100))
   }
-  return finishRun(ledger, { ...(fileId ? { fileId } : {}), filedAt: at(100).toISOString() }, at(100))
+  return finishRun(
+    ledger,
+    { ...(fileId ? { fileId } : {}), filedAt: at(100).toISOString() },
+    at(100)
+  )
 }
 
 function failed(): RunLedger {
@@ -104,14 +108,14 @@ describe('RunBlock — the stand', () => {
   it('leads the line with the phase while the run is going, and with the tallies behind it', () => {
     render(<RunBlock ledger={researching()} title={TITLE} />)
     expect(screen.getByTestId('run-status-line')).toHaveTextContent(
-      'Researching · 2 rounds · 3 documents',
+      'Researching · 2 rounds · 3 documents'
     )
   })
 
   it('leads the line with the word once the run is over, and says what to do next', () => {
     render(<RunBlock ledger={finished('doc-1')} title={TITLE} />)
     expect(screen.getByTestId('run-status-line')).toHaveTextContent(
-      'Done · report filed in Project › Reports',
+      'Done · report filed in Project › Reports'
     )
   })
 
@@ -165,7 +169,9 @@ describe('RunBlock — the body', () => {
     expect(steps[0]).toHaveTextContent('OIB-Richtlinie 2 · Pkt. 4.2 · S. 18')
     expect(steps[0]).toHaveTextContent('Bauordnung für Wien § 108 · § 108 Abs. 2')
     expect(steps[1]).toHaveTextContent('already read')
-    expect(screen.getByTestId('run-open-points')).toHaveTextContent('Open: Landesabweichung Wien prüfen')
+    expect(screen.getByTestId('run-open-points')).toHaveTextContent(
+      'Open: Landesabweichung Wien prüfen'
+    )
   })
 
   it('badges an OIB document and a Bauordnung by their authority, in the law family', () => {
@@ -181,7 +187,7 @@ describe('RunBlock — the body', () => {
     // `dt` and `dd` are laid out with a gap, so the text runs together — the
     // same shape the document history's acts have.
     expect(acts.querySelector('[data-phase="planen"]')).toHaveTextContent(
-      /Planning\s*Research plan drawn up · 12 sec/,
+      /Planning\s*Research plan drawn up · 12 sec/
     )
     // Recherchieren's account is the list of rounds above; repeating its tally
     // here would be the same number twice on one screen.
@@ -195,9 +201,9 @@ describe('RunBlock — the body', () => {
     let ledger = closePhase(researching(), 'recherchieren', at(60))
     ledger = openPhase(ledger, 'pruefen', at(60))
     render(<RunBlock ledger={ledger} title={TITLE} />)
-    expect(screen.getByTestId('run-phase-acts').querySelector('[data-phase="pruefen"]')).toHaveTextContent(
-      'Checking citations against the sources',
-    )
+    expect(
+      screen.getByTestId('run-phase-acts').querySelector('[data-phase="pruefen"]')
+    ).toHaveTextContent('Checking citations against the sources')
   })
 
   it('does not claim a stopped run is still checking', () => {
@@ -264,9 +270,11 @@ describe('RunBlock — the fold', () => {
 
 describe('RunBlock — the line and the affordances', () => {
   it('names the filing destination while starting, when the caller says it files', () => {
-    render(<RunBlock ledger={emptyRunLedger('run-0', T0)} title={TITLE} projectId="p1" filesToProject />)
+    render(
+      <RunBlock ledger={emptyRunLedger('run-0', T0)} title={TITLE} projectId="p1" filesToProject />
+    )
     expect(screen.getByTestId('run-status-line')).toHaveTextContent(
-      'Starting · result goes to the project',
+      'Starting · result goes to the project'
     )
   })
 
@@ -292,18 +300,26 @@ describe('RunBlock — the line and the affordances', () => {
 
   it('waiting: the line says where to answer, and Answer focuses the composer', () => {
     const onAnswer = vi.fn()
-    render(<RunBlock ledger={setRunStatus(researching(), 'wartet', at(50))} title={TITLE} onAnswer={onAnswer} />)
+    render(
+      <RunBlock
+        ledger={setRunStatus(researching(), 'wartet', at(50))}
+        title={TITLE}
+        onAnswer={onAnswer}
+      />
+    )
     expect(screen.getByTestId('run-status-line')).toHaveTextContent(
-      'Waiting for you · answer below in the thread',
+      'Waiting for you · answer below in the thread'
     )
     fireEvent.click(screen.getAllByTestId('run-action-answer')[0]!)
     expect(onAnswer).toHaveBeenCalledTimes(1)
   })
 
   it('done with a file: the line names where it was filed, and Review is the action while unreviewed', () => {
-    render(<RunBlock ledger={finished('doc-9')} title={TITLE} projectId="p1" reviewHref="/review" />)
+    render(
+      <RunBlock ledger={finished('doc-9')} title={TITLE} projectId="p1" reviewHref="/review" />
+    )
     expect(screen.getByTestId('run-status-line')).toHaveTextContent(
-      'Done · report filed in Project › Reports',
+      'Done · report filed in Project › Reports'
     )
     expect(screen.getAllByTestId('run-action-review')[0]).toHaveAttribute('href', '/review')
     expect(screen.queryByTestId('run-action-open-report')).not.toBeInTheDocument()
@@ -314,14 +330,14 @@ describe('RunBlock — the line and the affordances', () => {
     render(<RunBlock ledger={finished('doc-9')} title={TITLE} projectId="p1" />)
     expect(screen.getByTestId('run-file-link')).toHaveAttribute(
       'href',
-      '/app/projects/p1/files?doc=doc-9',
+      '/app/projects/p1/files?doc=doc-9'
     )
   })
 
   it('done inline: says the report is in the thread and offers no project link', () => {
     render(<RunBlock ledger={finished()} title={TITLE} projectId="p1" />)
     expect(screen.getByTestId('run-status-line')).toHaveTextContent(
-      'Done · the report is here in the thread',
+      'Done · the report is here in the thread'
     )
     expect(screen.queryByTestId('run-file-link')).not.toBeInTheDocument()
   })
@@ -335,7 +351,7 @@ describe('RunBlock — the line and the affordances', () => {
         review={{ decision: 'accepted', by: 'Anna Berger' }}
         reviewHref="/review"
         reportHref="/report"
-      />,
+      />
     )
     expect(screen.getAllByTestId('run-action-open-report')[0]).toHaveAttribute('href', '/report')
     expect(screen.queryByTestId('run-action-review')).not.toBeInTheDocument()
@@ -349,22 +365,26 @@ describe('RunBlock — the line and the affordances', () => {
         title={TITLE}
         defaultOpen
         review={{ decision: 'rejected', reason: 'OIB 2.3 gilt hier, nicht 2.' }}
-      />,
+      />
     )
-    expect(screen.getByTestId('run-review')).toHaveTextContent('Sent back: OIB 2.3 gilt hier, nicht 2.')
+    expect(screen.getByTestId('run-review')).toHaveTextContent(
+      'Sent back: OIB 2.3 gilt hier, nicht 2.'
+    )
     expect(screen.getByTestId('run-review')).toHaveAttribute('data-decision', 'rejected')
   })
 
   it('failed: the reason is in the line, what was done by then is in the body, Retry only when offered', () => {
     const onRetry = vi.fn()
-    const { unmount } = render(<RunBlock ledger={failed()} title={TITLE} defaultOpen onRetry={onRetry} />)
+    const { unmount } = render(
+      <RunBlock ledger={failed()} title={TITLE} defaultOpen onRetry={onRetry} />
+    )
     // The reason never hides behind the chevron: a failure the reader has to go
     // looking for is a failure nobody reads.
     expect(screen.getByTestId('run-status-line')).toHaveTextContent(
-      'Failed: Das Budget war aufgebraucht.',
+      'Failed: Das Budget war aufgebraucht.'
     )
     expect(screen.getByTestId('run-completed-before')).toHaveTextContent(
-      'Done so far: Planning, Researching (2 rounds, 3 documents)',
+      'Done so far: Planning, Researching (2 rounds, 3 documents)'
     )
     fireEvent.click(screen.getAllByTestId('run-action-retry')[0]!)
     expect(onRetry).toHaveBeenCalledTimes(1)
@@ -380,16 +400,18 @@ describe('RunBlock — the line and the affordances', () => {
         ledger={setRunStatus(researching(), 'abgebrochen', at(50))}
         title={TITLE}
         defaultOpen
-      />,
+      />
     )
     expect(screen.getByTestId('run-status-line')).toHaveTextContent(
-      'Cancelled · stopped at your request',
+      'Cancelled · stopped at your request'
     )
     expect(screen.getByTestId('run-completed-before')).toHaveTextContent('Done so far: Planning')
   })
 
   it('interrupted: says the report was written from what was there', () => {
-    render(<RunBlock ledger={setRunStatus(finished('doc-1'), 'unterbrochen', at(100))} title={TITLE} />)
+    render(
+      <RunBlock ledger={setRunStatus(finished('doc-1'), 'unterbrochen', at(100))} title={TITLE} />
+    )
     expect(screen.getByTestId('run-status-line')).toHaveTextContent('written from what was there')
     expect(screen.queryByTestId('run-completed-before')).not.toBeInTheDocument()
   })
@@ -398,12 +420,40 @@ describe('RunBlock — the line and the affordances', () => {
 describe('RunBlock — stopping a run', () => {
   it('offers the quiet stop only while the run is going, and only when a caller hands one in', () => {
     const onCancel = vi.fn()
-    const { unmount } = render(<RunBlock ledger={researching()} title={TITLE} onCancel={onCancel} />)
+    const { unmount } = render(
+      <RunBlock ledger={researching()} title={TITLE} onCancel={onCancel} />
+    )
     expect(screen.getAllByTestId('run-action-cancel').length).toBeGreaterThan(0)
     unmount()
 
     render(<RunBlock ledger={finished('doc-9')} title={TITLE} onCancel={onCancel} />)
     expect(screen.queryByTestId('run-action-cancel')).not.toBeInTheDocument()
+  })
+
+  it('offers „Jetzt schreiben" only while researching, and only when a caller hands one in', () => {
+    const onWriteNow = vi.fn()
+    const { unmount } = render(
+      <RunBlock ledger={researching()} title={TITLE} onWriteNow={onWriteNow} />
+    )
+    fireEvent.click(screen.getByTestId('run-action-write-now'))
+    expect(onWriteNow).toHaveBeenCalledTimes(1)
+    unmount()
+
+    render(<RunBlock ledger={finished('doc-9')} title={TITLE} onWriteNow={onWriteNow} />)
+    expect(screen.queryByTestId('run-action-write-now')).not.toBeInTheDocument()
+  })
+
+  it('offers „Bericht fortschreiben" on a finished run only, and only when a caller hands one in', () => {
+    const onContinue = vi.fn()
+    const { unmount } = render(
+      <RunBlock ledger={finished('doc-9')} title={TITLE} onContinue={onContinue} />
+    )
+    fireEvent.click(screen.getByTestId('run-action-continue'))
+    expect(onContinue).toHaveBeenCalledTimes(1)
+    unmount()
+
+    render(<RunBlock ledger={researching()} title={TITLE} onContinue={onContinue} />)
+    expect(screen.queryByTestId('run-action-continue')).not.toBeInTheDocument()
   })
 
   it('shows no stop at all when no caller offers one', () => {
@@ -441,7 +491,7 @@ describe('RunBlock — stopping a run', () => {
         title={TITLE}
         onAnswer={() => {}}
         onCancel={() => {}}
-      />,
+      />
     )
     expect(screen.getAllByTestId('run-action-answer').length).toBeGreaterThan(0)
     expect(screen.getAllByTestId('run-action-cancel').length).toBeGreaterThan(0)
@@ -451,10 +501,10 @@ describe('RunBlock — stopping a run', () => {
 describe('RunBlock — when the live view loses its line', () => {
   it('says the run goes on, while it is going', () => {
     const { rerender } = render(
-      <RunBlock ledger={researching()} title={TITLE} live connection="reconnecting" />,
+      <RunBlock ledger={researching()} title={TITLE} live connection="reconnecting" />
     )
     expect(screen.getByTestId('run-connection')).toHaveTextContent(
-      'The live view lost its connection and is reconnecting. The task is still running.',
+      'The live view lost its connection and is reconnecting. The task is still running.'
     )
 
     rerender(<RunBlock ledger={researching()} title={TITLE} live connection="lost" />)
@@ -463,12 +513,60 @@ describe('RunBlock — when the live view loses its line', () => {
   })
 
   it('says nothing while the line is up, and nothing once the run is over', () => {
-    const { unmount } = render(<RunBlock ledger={researching()} title={TITLE} live connection="live" />)
+    const { unmount } = render(
+      <RunBlock ledger={researching()} title={TITLE} live connection="live" />
+    )
     expect(screen.queryByTestId('run-connection')).not.toBeInTheDocument()
     unmount()
 
     // A finished run's dead stream is not news: there is nothing left to watch.
     render(<RunBlock ledger={finished('doc-9')} title={TITLE} connection="lost" />)
     expect(screen.queryByTestId('run-connection')).not.toBeInTheDocument()
+  })
+})
+
+describe('RunBlock — the documents the reader named', () => {
+  const named = (ledger: RunLedger): RunLedger => ({
+    ...ledger,
+    grundlage: [
+      { name: 'Grundriss EG', shelf: 'project', loci: [] },
+      { name: 'Einreichplan.pdf', title: 'Einreichplan EG', shelf: 'project', loci: [] },
+    ],
+  })
+
+  it('prints the receipt: every named document read with its loci, or unread', () => {
+    render(<RunBlock ledger={named(researching())} title={TITLE} />)
+    const receipt = screen.getByTestId('run-grundlage')
+    expect(receipt).toHaveTextContent('1 of 2 named documents read')
+    const docs = screen.getAllByTestId('run-grundlage-doc')
+    expect(docs[0]).toHaveAttribute('data-read', 'true')
+    expect(docs[0]).toHaveTextContent('Grundriss EG · Achse C–E')
+    expect(docs[1]).toHaveAttribute('data-read', 'false')
+    expect(docs[1]).toHaveTextContent('Einreichplan EG · not read')
+  })
+
+  it('opens a named document through the caller, as a dialog over the thread', () => {
+    const onOpenDocument = vi.fn()
+    render(<RunBlock ledger={named(researching())} title={TITLE} onOpenDocument={onOpenDocument} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Open Einreichplan EG' }))
+    expect(onOpenDocument).toHaveBeenCalledWith(expect.objectContaining({ name: 'Einreichplan.pdf' }))
+  })
+
+  it('offers „Unterlage hinzufügen" only while the run is going, and only when a caller hands one in', () => {
+    const onAddDocument = vi.fn()
+    const { unmount } = render(
+      <RunBlock ledger={researching()} title={TITLE} onAddDocument={onAddDocument} />
+    )
+    fireEvent.click(screen.getByTestId('run-action-add-document'))
+    expect(onAddDocument).toHaveBeenCalledTimes(1)
+    unmount()
+
+    render(<RunBlock ledger={finished('doc-9')} title={TITLE} onAddDocument={onAddDocument} />)
+    expect(screen.queryByTestId('run-action-add-document')).not.toBeInTheDocument()
+  })
+
+  it('says nothing about documents when none was named', () => {
+    render(<RunBlock ledger={researching()} title={TITLE} />)
+    expect(screen.queryByTestId('run-grundlage')).not.toBeInTheDocument()
   })
 })

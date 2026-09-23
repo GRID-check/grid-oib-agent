@@ -10,8 +10,6 @@ import { devtools, persist } from 'zustand/middleware'
 import type {
   LayoutState,
   LayoutStore,
-  RightPanelType,
-  ResearchPanelTab,
   DataSourcesPanelTab,
   SourcePresetId,
   ThemeMode,
@@ -21,8 +19,6 @@ import { createDataSourcesClient, type DataSourceFromAPI } from '@/adapters/api'
 const initialState: LayoutState = {
   isSessionsPanelOpen: false,
   isMobileNavOpen: false,
-  rightPanel: null,
-  researchPanelTab: 'tasks',
   dataSourcesPanelTab: 'connections',
   enabledDataSourceIds: [], // Start empty, populated when data sources are fetched
   theme: 'system',
@@ -34,7 +30,6 @@ const initialState: LayoutState = {
   dataSourcesError: null,
   activeSourcePreset: null,
   // Deprecated aliases for backwards compatibility
-  detailsPanelTab: 'report',
   dataSourcePanelTab: 'connections',
 }
 
@@ -56,14 +51,6 @@ export const useLayoutStore = create<LayoutStore>()(
 
       setMobileNavOpen: (open: boolean) =>
         set({ isMobileNavOpen: open }, false, 'setMobileNavOpen'),
-
-      openRightPanel: (panel: RightPanelType) =>
-        set({ rightPanel: panel }, false, 'openRightPanel'),
-
-      closeRightPanel: () => set({ rightPanel: null }, false, 'closeRightPanel'),
-
-      setResearchPanelTab: (tab: ResearchPanelTab) =>
-        set({ researchPanelTab: tab }, false, 'setResearchPanelTab'),
 
       setDataSourcesPanelTab: (tab: DataSourcesPanelTab) =>
         set({ dataSourcesPanelTab: tab }, false, 'setDataSourcesPanelTab'),
@@ -163,13 +150,6 @@ export const useLayoutStore = create<LayoutStore>()(
         set({ vlmAvailable: available }, false, 'setVlmAvailable'),
 
       // Deprecated actions - delegate to new ones
-      setDetailsPanelTab: (tab: ResearchPanelTab) =>
-        set(
-          { researchPanelTab: tab, detailsPanelTab: tab },
-          false,
-          'setDetailsPanelTab'
-        ),
-
       setDataSourcePanelTab: (tab: DataSourcesPanelTab) =>
         set(
           { dataSourcesPanelTab: tab, dataSourcePanelTab: tab },

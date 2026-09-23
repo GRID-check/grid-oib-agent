@@ -64,6 +64,7 @@ import re
 from collections.abc import Callable
 from dataclasses import dataclass
 from types import UnionType
+from typing import Any
 from typing import Literal
 from typing import Union
 from typing import get_args
@@ -77,6 +78,7 @@ from pydantic import field_validator
 from aiq_agent.common.provenance import normalize_document_name
 from aiq_agent.common.turn_status import VERDICT_DROP_AGENT_AUTHORED
 from aiq_agent.common.turn_status import VERDICT_DROP_UNREFERENCED_WITH_AGENT_SOURCE
+from aiq_agent.common.turn_status import emit_anatomy_dropped
 from aiq_agent.common.turn_status import emit_verdict_dropped
 
 logger = logging.getLogger(__name__)
@@ -286,6 +288,35 @@ class AnswerMeta(_EnvelopeModel):
         default=None,
         description="with escalate_to_deep: one short clause saying why, in the answer's language",
     )
+    #: CONTROL. The model's account of which of the skills in its prompt it
+    #: followed (ADR-0063): a body that rode the prompt costs no ``use_skill``
+    #: call, so this is the only way the "Skills used" disclosure can learn it
+    #: shaped the answer. Names only; the runtime accepts a name only when the
+    #: body was in the prompt (``skills/runtime.py::record_applied``).
+    skills_applied: list[str] | None = Field(
+        default=None,
+        description=(
+            "the names of the skills from the prompt's Skills section whose method this answer followed; "
+            "omit when none did"
+        ),
+    )
+    #: The model's own cards, in the same message as the answer — the card
+    #: objects ``emit_card`` takes, validated by the same adapter after
+    #: extraction (``cards/envelope.py``) and registered in the same per-turn
+    #: registry, so nothing on the wire changes. ``Any`` because the card union
+    #: is validated by its own adapter, not here; and OMITTED from the strict
+    #: provider schema (``json_schema_extra``), because a 40-way union of
+    #: nested objects is not expressible in strict mode — the forced-synthesis
+    #: call, the only one enforced that way, is the truncated turn, and a
+    #: truncated turn ships without cards rather than without an answer.
+    cards: list[Any] | None = Field(
+        default=None,
+        description=(
+            "the rich-UI cards this answer earns, as card objects (each with a `type` field), in the "
+            "same message as the answer — the contract for them follows the field list"
+        ),
+        json_schema_extra={"strict_schema": "omit"},
+    )
 
     @field_validator("kind", mode="before")
     @classmethod
@@ -311,7 +342,9 @@ class AnswerMeta(_EnvelopeModel):
             and self.callout is None
             and self.confidence is None
             and self.escalate_to_deep is None
+            and not self.skills_applied
             and self.escalation_reason is None
+            and not self.cards
         )
 
 
@@ -345,6 +378,7 @@ def _gate_summary(meta: AnswerMeta, ctx: GateContext) -> str | None:
             len(summary),
             SUMMARY_MAX_CHARS,
         )
+        emit_anatomy_dropped(field="summary", reason="too_long")
         return None
     return summary
 
@@ -361,6 +395,7 @@ def _gate_topic(meta: AnswerMeta, ctx: GateContext) -> str | None:
             len(topic),
             TOPIC_MAX_CHARS,
         )
+        emit_anatomy_dropped(field="topic", reason="too_long")
         return None
     return topic
 
@@ -377,6 +412,7 @@ def _gate_context(meta: AnswerMeta, ctx: GateContext) -> str | None:
             len(context),
             CONTEXT_MAX_CHARS,
         )
+        emit_anatomy_dropped(field="context", reason="too_long")
         return None
     return context
 
@@ -503,9 +539,11 @@ def _gate_takeaways(meta: AnswerMeta, ctx: GateContext) -> list | None:
             ctx.prose_chars,
             TAKEAWAYS_MIN_PROSE_CHARS,
         )
+        emit_anatomy_dropped(field="takeaways", reason="prose_too_short")
         return None
     if len(takeaways) < 2:
         logger.info("answer_meta takeaways gated out: a single takeaway is a sentence, not a block")
+        emit_anatomy_dropped(field="takeaways", reason="single_item")
         return None
     return [_takeaway_payload(t) for t in takeaways]
 
@@ -774,7 +812,10 @@ def _strict_property(annotation: object, *, required: bool) -> dict:
         schema = _strict_object(core)
     elif get_origin(core) is list:
         (item,) = get_args(core)
-        schema = {"type": "array", "items": _strict_object(item)}
+        # An array of one model (takeaways) or of plain strings (skills_applied);
+        # ``_strict_property`` on the item keeps a model recursive and raises on
+        # anything else the walker cannot express.
+        schema = {"type": "array", "items": _strict_property(item, required=True)}
     else:
         raise TypeError(f"envelope field type {annotation!r} has no strict-schema rendering")
 
@@ -789,6 +830,12 @@ def _strict_object(model_cls: type[BaseModel]) -> dict:
     """A model as a strict-mode object schema: all keys required, closed."""
     properties: dict[str, dict] = {}
     for name, info in model_cls.model_fields.items():
+        extra = info.json_schema_extra if isinstance(info.json_schema_extra, dict) else {}
+        if extra.get("strict_schema") == "omit":
+            # A field whose type strict mode cannot express (the cards union):
+            # taught in the prompt, validated by its own adapter, and absent
+            # from the enforced schema rather than mis-stated in it.
+            continue
         prop = _strict_property(info.annotation, required=info.is_required())
         if info.description:
             prop = {**prop, "description": info.description}
@@ -843,6 +890,7 @@ def render_envelope_schema() -> str:
         "document, many sources to read against each other, or retrieved sources that cannot support an "
         "adequate answer)",
         "escalation_reason: string (with escalate_to_deep: one short clause saying why, in the answer's language)",
+        f"skills_applied: [string] ({AnswerMeta.model_fields['skills_applied'].description})",
     ]
     field_models: dict[str, type[BaseModel] | None] = {
         "verdict": AnswerMetaVerdict,
@@ -867,4 +915,14 @@ def render_envelope_schema() -> str:
         if field.name in AnswerMeta.model_fields:
             description = AnswerMeta.model_fields[field.name].description
             lines.append(f"{field.name}: string ({description})")
-    return "\n".join(f"  {line}" for line in lines)
+    cards_description = AnswerMeta.model_fields["cards"].description
+    lines.append(f"cards: [ {{ type*: string, …the fields of that type }} ] ({cards_description})")
+    rendered = "\n".join(f"  {line}" for line in lines)
+    # The cards contract — which trigger takes which card, the index, the
+    # shapes of the common eight, the placement rule — rendered from the card
+    # catalog so it cannot drift from the validator. Imported here because the
+    # cards package validates with pydantic models of its own and never needs
+    # this module; the dependency runs one way.
+    from aiq_agent.cards.envelope import render_envelope_cards_contract
+
+    return rendered + "\n\nCARDS (the `cards` field):\n" + render_envelope_cards_contract()

@@ -89,9 +89,10 @@ class ChatDeepResearcherConfig(FunctionBaseConfig, name="chat_deepresearcher_age
             "Tokens of chat history kept before the agent runs (`history.trim_message_history`). "
             "The CONVERSATION is the one thing in the context nobody else can reconstruct: the "
             "system prompt is rendered from the template, the tool schemas come from the binding, "
-            'the retrieved passages are in the index and the „Bereits gelesen" digest carries what '
-            "was READ — but not what was SAID, and not the correction the reader made two turns "
-            "ago. The old 8 000 predates the context sizes this surface runs on: one call here "
+            "the retrieved passages are in the index (the PREVIOUS turn's ride along in full, so a "
+            'follow-up needs no fetch; older turns keep what was said) and the „Bereits gelesen" '
+            "digest carries what was READ — but not what was SAID, and not the correction the reader "
+            "made two turns ago. The old 8 000 predates the context sizes this surface runs on: one call here "
             "carries 37-84k input tokens with ~14k of static prompt in it, so the window that got "
             "cut was the only irreplaceable one, and `<project_brief>` and PROJECT_MEMORY exist "
             "partly to carry facts across the gap it created. 40 000 is a floor chosen against "

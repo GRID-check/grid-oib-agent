@@ -242,6 +242,11 @@ class ResearchAgentState(BaseModel):
     # by the register layer before ``run()`` when skills are enabled; None
     # otherwise.
     skills_block: str | None = None
+    # The full shapes of the card types the turn-start decision (ADR-0064)
+    # says this answer is likely to earn, for the types the taught envelope
+    # does not already carry. Rendered by the register before ``run()``;
+    # None renders no section.
+    card_shapes_block: str | None = None
     # Ordered names of the skills whose BODY reached the model this turn, in
     # delivery order, deduped. DELIVERED, not offered: the disclosure renders
     # this as "what shaped this answer", and a skill the model read past in the
@@ -250,6 +255,11 @@ class ResearchAgentState(BaseModel):
     # config — the chat node lifts it onto the terminal ChatResponse only when
     # present.
     skills_activated: list[str] | None = None
+    # What the ANSWER ENVELOPE said the model followed among the skills whose
+    # body rode the prompt (ADR-0063). Raw names, lifted by the ledger; the
+    # register turns the accepted ones into ``skills_activated`` after ``run()``.
+    # Never lifted to the reader itself.
+    skills_applied: list[str] | None = None
     # The subset of ``skills_activated`` marked ``grid-hidden`` — a skill that
     # runs on every answer (the house voice) is named in the disclosure but
     # de-emphasised there until the reader opens the reasoning view. Named, never

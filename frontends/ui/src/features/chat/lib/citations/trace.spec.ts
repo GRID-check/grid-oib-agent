@@ -13,6 +13,7 @@
  */
 
 import { describe, expect, test } from 'vitest'
+import { de } from '@/i18n/dictionaries'
 import type { TraceLaneCard } from '../trace-lanes'
 import { deriveTraceLanes } from '../trace-lanes'
 import { buildCitationModel } from './build'
@@ -46,6 +47,12 @@ Ein Absatz.
 {"lanes":[{"key":"projekt","label":"Projektwissen","kind":"projekt","hitCount":2,"sources":[{"name":"Brandschutzkonzept.pdf","detail":"p.4"},{"name":"Mustervorlage.pdf","detail":"p.1"}]}]}
 `
 
+/** The reader's words, from the German dictionary the card renders with. */
+const t = (key: string): string =>
+  key
+    .split('.')
+    .reduce<unknown>((node, part) => (node as Record<string, unknown>)[part], de.chat) as string
+
 describe('the fan-out is the model, grouped by document', () => {
   test('several pages of one document are one card with a Treffer count', () => {
     const docs = buildCitationModel({
@@ -63,7 +70,7 @@ describe('the fan-out is the model, grouped by document', () => {
 
     expect(docs).toHaveLength(2)
     const oib2 = docs.find((doc) => doc.fileName === 'OIB-RL_2.pdf')!
-    expect(documentTabLabel(oib2)).toBe('OIB-Richtlinie')
+    expect(documentTabLabel(oib2, t)).toBe('OIB-Richtlinie')
     expect(oib2.tint).toBe('oib')
     expect(oib2.authority).toBe('OIB')
     expect(oib2.loci).toHaveLength(2)

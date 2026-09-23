@@ -45,7 +45,18 @@ if TYPE_CHECKING:
     from nat.builder.workflow_builder import WorkflowBuilder
     from nat.front_ends.fastapi.fastapi_front_end_plugin_worker import FastApiFrontEndPluginWorker
 
+from ..jobs.runner import DOCUMENT_ADDED_EVENT_TYPE
+from ..jobs.runner import WRITE_NOW_EVENT_TYPE
+
 logger = logging.getLogger(__name__)
+
+
+class JobDocumentRequest(BaseModel):
+    """One document the reader adds to a running job's Grundlage (``plan_documents`` row)."""
+
+    name: str = Field(..., min_length=1, max_length=256, description="The file name, as the inventory lists it")
+    title: str | None = Field(None, max_length=256, description="The document's display title")
+    shelf: str | None = Field(None, max_length=64, description="Where it sits: archiv / project / session / base")
 
 
 class JobSubmitRequest(BaseModel):
@@ -815,6 +826,64 @@ async def register_job_routes(app: FastAPI, builder: WorkflowBuilder, worker: Fa
         logger.info("Cancel requested for job %s: status updated, task_cancelled=%s", job_id, task_cancelled)
 
         return {"job_id": job_id, "status": JobStatus.INTERRUPTED.value, "task_cancelled": task_cancelled}
+
+    @app.post(
+        "/v1/jobs/async/job/{job_id}/write-now",
+        tags=["async jobs"],
+        summary="Ask a running deep research to write its report from what it has",
+        description=(
+            "Records the reader's request; the worker stops researching after the current batch "
+            "and writes the report from the notes gathered so far. The job keeps running until the report is filed."
+        ),
+        responses={
+            400: {"description": "Job is not running"},
+            404: {"description": "Job not found"},
+        },
+    )
+    async def write_now(job_id: str) -> dict:
+        """Ask a running job to write its report now."""
+        principal = require_verified_principal()
+        job = await authorize_job_access(job_store, db_url, job_id, principal)
+
+        if job.status != JobStatus.RUNNING.value:
+            raise HTTPException(400, f"Job is not running: {job_id} (status: {job.status})")
+
+        def _record() -> None:
+            EventStore(db_url, job_id).store({"type": WRITE_NOW_EVENT_TYPE, "data": {"reason": "requested by user"}})
+
+        await asyncio.get_running_loop().run_in_executor(None, _record)
+        logger.info("Write-now requested for job %s", job_id)
+        return {"job_id": job_id, "write_now": True}
+
+    @app.post(
+        "/v1/jobs/async/job/{job_id}/documents",
+        tags=["async jobs"],
+        summary="Add a document to the Grundlage of a running deep research",
+        description=(
+            "Records the reader's addition; the worker plans one dedicated research query for the "
+            "document in its next batch and the run block lists it beside the other Grundlage."
+        ),
+        responses={
+            400: {"description": "Job is not running"},
+            404: {"description": "Job not found"},
+        },
+    )
+    async def add_document(job_id: str, body: JobDocumentRequest) -> dict:
+        """Add one document to the Grundlage of a running job."""
+        principal = require_verified_principal()
+        job = await authorize_job_access(job_store, db_url, job_id, principal)
+
+        if job.status != JobStatus.RUNNING.value:
+            raise HTTPException(400, f"Job is not running: {job_id} (status: {job.status})")
+
+        data = body.model_dump(exclude_none=True)
+
+        def _record() -> None:
+            EventStore(db_url, job_id).store({"type": DOCUMENT_ADDED_EVENT_TYPE, "data": data})
+
+        await asyncio.get_running_loop().run_in_executor(None, _record)
+        logger.info("Document added to the Grundlage of job %s: %s", job_id, body.name)
+        return {"job_id": job_id, "document": data}
 
     @app.get(
         "/v1/jobs/async/job/{job_id}/state",

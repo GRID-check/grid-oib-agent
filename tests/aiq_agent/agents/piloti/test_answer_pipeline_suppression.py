@@ -8,9 +8,12 @@ unearned ``emit_card`` cards on a short, non-ruling answer without a verdict:
 2. **Callout survival** — below the takeaway floor the trailer shrinks to the
    callout alone; the ``[[callout]]`` marker resolves against exactly that
    field, so dropping it would silence a warning the gates deliberately kept.
-3. **Takeaway window** — at or above the takeaway floor (600) but below the
-   card floor (800) the cards go while the gated takeaways stay (650-char
-   case).
+3. **The window between the floors** — at or above the card floor (400)
+   but below the takeaway floor (600) the cards STAY while the gate has
+   already withheld the takeaways (500-char case): a short answer with one
+   table is richer than the same answer without it. The card floor sat at
+   800, above the takeaway floor, while a card cost a full-context round;
+   cards travel in the envelope now and cost none.
 4. **Sibling probes** — every other system emitter's card type is a catalog
    member and vetoes the suppression: ``memory_proposal``, ``task_created``,
    ``document_draft`` via write/edit and via the ``file_draft`` re-push (plus
@@ -35,9 +38,9 @@ from aiq_agent.common.answer_envelope import gate_answer_meta
 from aiq_agent.common.citation_verification import SourceEntry
 from aiq_agent.common.citation_verification import SourceRegistry
 
-#: Below the card floor (800) but above the takeaway floor (600): cards go,
-#: takeaways stay.
-WINDOW_PROSE = "x" * 650
+#: Above the card floor (400) but below the takeaway floor (600): cards stay,
+#: takeaways were never gated in.
+WINDOW_PROSE = "x" * 500
 #: Below both floors: the trailer shrinks to the callout alone.
 SHORT_PROSE = "x" * 300
 
@@ -77,11 +80,11 @@ class TestShouldSuppressMetaCards:
 
     def test_prose_at_the_floor_earns_its_cards(self):
         meta = _gated({"takeaways": _TAKEAWAYS}, prose_chars=1_000)
-        assert _should_suppress_meta_cards("x" * 800, meta) is False
+        assert _should_suppress_meta_cards("x" * 400, meta) is False
 
     def test_prose_one_char_under_the_floor_drops(self):
-        meta = _gated({"takeaways": _TAKEAWAYS}, prose_chars=799)
-        assert _should_suppress_meta_cards("x" * 799, meta) is True
+        meta = _gated({"summary": "REI 60 in GK 4."}, prose_chars=399)
+        assert _should_suppress_meta_cards("x" * 399, meta) is True
 
     def test_a_verdict_vetoes(self):
         meta = _gated(
@@ -171,28 +174,36 @@ class TestCalloutSurvival:
         assert final.content is not None and final.content.count("[[callout]]") == 1
 
 
-class TestTakeawayWindow:
-    """At 650 chars the cards go while the gated takeaways stay."""
+class TestTheWindowBetweenTheFloors:
+    """At 500 chars the cards stay; the gate already withheld the takeaways."""
 
-    def test_cards_cleared_takeaways_kept_at_650_chars(self, card_registry):
-        meta = _gated({"takeaways": _TAKEAWAYS, "callout": _CALLOUT}, prose_chars=650)
-        assert meta is not None and "takeaways" in meta
+    def test_cards_kept_at_500_chars_while_takeaways_are_gated_out(self, card_registry):
+        meta = _gated({"takeaways": _TAKEAWAYS, "callout": _CALLOUT}, prose_chars=500)
+        assert meta is not None and "takeaways" not in meta and "callout" in meta
         card_registry.add({"type": "typed_table", "title": "Tabelle"})
         content = WINDOW_PROSE + "\n\n[[card:1]]\n"
 
         kept_content, kept_meta, suppressed = _suppress_cards(content, meta)
 
-        assert suppressed is True
+        assert suppressed is False
         assert kept_meta == meta
-        assert [item["text"] for item in kept_meta["takeaways"]] == [t["text"] for t in _TAKEAWAYS]
-        assert len(card_registry) == 0
-        assert "[[card:1]]" not in kept_content
+        assert len(card_registry) == 1
+        assert "[[card:1]]" in kept_content
 
-    def test_one_char_under_the_takeaway_floor_shrinks_to_the_callout(self, card_registry):
-        meta = _gated({"takeaways": _TAKEAWAYS, "callout": _CALLOUT}, prose_chars=599)
-        assert meta is not None and "takeaways" not in meta
+    def test_takeaways_at_650_chars_stay_with_their_cards(self, card_registry):
+        meta = _gated({"takeaways": _TAKEAWAYS, "callout": _CALLOUT}, prose_chars=650)
+        assert meta is not None and "takeaways" in meta
+        card_registry.add({"type": "typed_table", "title": "Tabelle"})
 
-        _, kept_meta, suppressed = _suppress_cards("x" * 599, meta)
+        _, kept_meta, suppressed = _suppress_cards("x" * 650, meta)
+
+        assert suppressed is False and kept_meta == meta and len(card_registry) == 1
+
+    def test_one_char_under_the_card_floor_shrinks_to_the_callout(self, card_registry):
+        meta = _gated({"summary": "REI 60 in GK 4.", "callout": _CALLOUT}, prose_chars=399)
+        assert meta is not None
+
+        _, kept_meta, suppressed = _suppress_cards("x" * 399, meta)
 
         assert suppressed is True
         assert kept_meta is not None and set(kept_meta) == {"v", "callout"}

@@ -164,7 +164,7 @@ keeps it.
 ### 1.3 Gating today
 
 `_reflection_answer_is_substantive` (`register.py:67-89`) skips:
-canned non-answers (`_REFLECTION_NON_ANSWERS`, `register.py:60-65`), escalation
+canned non-answers (`REFLECTION_NON_ANSWERS`, built from `common/canned_replies.py`), escalation
 keywords, and `user_intent.intent in {meta, error, out_of_scope}`. The call site
 also skips a turn that only commissioned a run (`not run_id`) and requires a
 `project_id` (`reflection.py:420-422`).
@@ -1070,7 +1070,7 @@ each is a fact the backend already has:
 | `intent != "out_of_scope"` | `user_intent.intent` | an off-topic redirect must not be handed four ways to stay off topic |
 | `not research_truncated` | `register.py:301` | the turn ran out of budget before it ran out of question; offering four more is the wrong invitation, and the reader already gets the truncation note (`ResearchTruncatedNote`) |
 | `not run_id` | `register.py:1183` | the turn only commissioned a run; the report path is separate (§10) |
-| `len(answer) >= 400` and answer is not a canned non-answer | `_REFLECTION_NON_ANSWERS`, `register.py:60-65` | a one-line factual answer has nothing to open up — the `_CARD_RESTRAINT` rule (`catalog.py:169-173`), enforced instead of suggested |
+| `len(answer) >= 400` and answer is not a canned non-answer | `REFLECTION_NON_ANSWERS`, from `common/canned_replies.py` | a one-line factual answer has nothing to open up — the `_CARD_RESTRAINT` rule (`catalog.py:169-173`), enforced instead of suggested |
 | the answer does not already end in a question | cheap suffix check | "two questions competing for the same reply is how you get neither" (`catalog.py:137-140`) |
 
 Each failed condition produces `outcome:"skipped"` with that condition as

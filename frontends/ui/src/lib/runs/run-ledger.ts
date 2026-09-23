@@ -32,6 +32,7 @@
 import {
   MAX_DOCS_PER_STEP,
   MAX_ERROR_REASON_CHARS,
+  MAX_GRUNDLAGE_DOCS,
   MAX_INTENT_CHARS,
   MAX_LOCI_PER_DOC,
   MAX_LOCUS_CHARS,
@@ -114,6 +115,23 @@ function sanitizeDoc(input: unknown): RunLedgerDoc | undefined {
   // pill.
   if (typeof input.repeat === 'boolean') doc.repeat = input.repeat
   return doc
+}
+
+/** The Grundlage rows, bounded and deduplicated by name; loci are the steps' to carry. */
+export function sanitizeGrundlage(input: unknown): RunLedgerDoc[] {
+  if (!Array.isArray(input)) return []
+  const out: RunLedgerDoc[] = []
+  const seen = new Set<string>()
+  for (const raw of input) {
+    if (out.length >= MAX_GRUNDLAGE_DOCS) break
+    const doc = sanitizeDoc(raw)
+    if (!doc) continue
+    const key = doc.name.toLocaleLowerCase()
+    if (seen.has(key)) continue
+    seen.add(key)
+    out.push({ name: doc.name, loci: [], ...(doc.title ? { title: doc.title } : {}), ...(doc.shelf ? { shelf: doc.shelf } : {}) })
+  }
+  return out
 }
 
 /**
@@ -274,6 +292,7 @@ export function sanitizeRunLedger(input: unknown): RunLedger | null {
 
   const result = sanitizeResult(input.result)
   const error = sanitizeError(input.error, phases)
+  const grundlage = sanitizeGrundlage(input.grundlage)
   const ledger: RunLedger = {
     runId,
     status: isStatus(input.status) ? input.status : deriveStatus({ error, result, steps, phases }),
@@ -284,6 +303,7 @@ export function sanitizeRunLedger(input: unknown): RunLedger | null {
   }
   if (result) ledger.result = result
   if (error) ledger.error = error
+  if (grundlage.length > 0) ledger.grundlage = grundlage
   const finishedAt = instant(input.finishedAt)
   if (finishedAt !== undefined) ledger.finishedAt = finishedAt
   return ledger
@@ -458,6 +478,7 @@ export function applyRunLedgerAppend(
     phases?: readonly RunPhaseEntry[]
     steps?: readonly RunStep[]
     status?: RunStatus
+    grundlage?: readonly RunLedgerDoc[]
   },
   at: Date = new Date(),
 ): RunLedger {
@@ -467,7 +488,29 @@ export function applyRunLedgerAppend(
     if (entry.endedAt) next = closePhase(next, entry.phase, new Date(entry.endedAt))
   }
   for (const step of patch.steps ?? []) next = appendStep(next, step, at)
+  if (patch.grundlage) next = setGrundlage(next, patch.grundlage, at)
   return patch.status ? setRunStatus(next, patch.status, at) : next
+}
+
+/**
+ * The Grundlage as it now stands. The whole list, never a diff: the producer
+ * re-sends it on a live addition, and a list is the one shape that cannot be
+ * applied twice.
+ */
+export function setGrundlage(
+  ledger: RunLedger,
+  docs: readonly RunLedgerDoc[],
+  at: Date = new Date(),
+): RunLedger {
+  const grundlage = sanitizeGrundlage(docs)
+  const same =
+    grundlage.length === (ledger.grundlage?.length ?? 0) &&
+    grundlage.every((doc, i) => doc.name === ledger.grundlage?.[i]?.name)
+  if (same) return ledger
+  const next: RunLedger = { ...ledger, updatedAt: at.toISOString() }
+  if (grundlage.length > 0) next.grundlage = grundlage
+  else delete next.grundlage
+  return next
 }
 
 /** Apply a `finish` op: exactly one of a result or an error. */

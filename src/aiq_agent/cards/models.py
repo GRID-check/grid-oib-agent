@@ -963,10 +963,9 @@ class TypedColumn(CardModel):
     """One column of a typed table, declaring how its cells are rendered."""
 
     label: str = Field(min_length=1, description="Column header, e.g. 'Bauteil', 'Mindestmaß'")
-    # NOTE: named `type` per the card spec even though the catalog renderer skips
-    # a field called `type` (it is the union discriminator everywhere else). The
-    # worked example carries the full shape, so the model still sees the field;
-    # renaming it would diverge from the documented wire contract.
+    # Named `type` per the card spec. The catalog renderer skips a card's
+    # `type` (the union discriminator, a one-value Literal) and renders this
+    # one, because it is a choice the model fills (`catalog._is_discriminator`).
     type: Literal["mass", "norm", "verdict", "date", "text"] = Field(
         description=(
             "How the frontend renders this column's cells: 'mass' (a dimension — right-aligned, tabular-nums), "

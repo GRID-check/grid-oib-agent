@@ -5,15 +5,12 @@ import type { GridCard } from '@/shared/cards/schemas'
 
 const STORAGE_KEY = 'aiq-chat-store'
 const mockLayoutState = vi.hoisted(() => ({
-  closeRightPanel: vi.fn(),
   enabledDataSourceIds: ['web_search'],
   availableDataSources: [{ id: 'web_search' }, { id: 'knowledge_base', requires_auth: true }],
   setEnabledDataSources: vi.fn(),
 }))
-const mockDeepResearchApi = vi.hoisted(() => ({
-  getJobStatus: vi.fn(),
-  cancelJob: vi.fn(),
-}))
+
+const mockDiscardSessionResources = vi.hoisted(() => vi.fn())
 
 // Mock the layout store
 vi.mock('@/features/layout/store', () => ({
@@ -21,13 +18,6 @@ vi.mock('@/features/layout/store', () => ({
     getState: () => mockLayoutState,
   },
 }))
-
-vi.mock('@/adapters/api/deep-research-client', () => ({
-  getJobStatus: mockDeepResearchApi.getJobStatus,
-  cancelJob: mockDeepResearchApi.cancelJob,
-}))
-
-const mockDiscardSessionResources = vi.hoisted(() => vi.fn())
 
 vi.mock('@/features/documents/discard-session-resources', () => ({
   discardSessionDocumentsResources: mockDiscardSessionResources,
@@ -53,7 +43,6 @@ describe('useChatStore', () => {
   beforeEach(() => {
     // Clear localStorage before each test
     localStorage.removeItem(STORAGE_KEY)
-    mockLayoutState.closeRightPanel.mockClear()
     mockLayoutState.setEnabledDataSources.mockClear()
     mockLayoutState.enabledDataSourceIds = ['web_search']
     mockLayoutState.availableDataSources = [
@@ -61,8 +50,6 @@ describe('useChatStore', () => {
       { id: 'knowledge_base', requires_auth: true },
     ]
     mockDiscardSessionResources.mockClear()
-    mockDeepResearchApi.getJobStatus.mockReset()
-    mockDeepResearchApi.cancelJob.mockReset()
     // Reset store to initial state before each test
     useChatStore.setState({
       currentUserId: null,
@@ -75,21 +62,11 @@ describe('useChatStore', () => {
       thinkingSteps: [],
       activeThinkingStepId: null,
       streamingAssistantMessageId: null,
-      reportContent: '',
       currentStatus: null,
       pendingInteraction: null,
       composerPrefill: null,
       composerSubject: null,
       composerDrafts: {},
-      // Deep-research live state is global (not per conversation): without a
-      // reset a test that leaves a stream up makes every later busy/reconnect
-      // test see a phantom run.
-      deepResearchJobId: null,
-      isDeepResearchStreaming: false,
-      deepResearchStatus: null,
-      deepResearchOwnerConversationId: null,
-      activeDeepResearchMessageId: null,
-      resolvedDeepResearchJobs: {},
     })
   })
 
@@ -111,7 +88,6 @@ describe('useChatStore', () => {
       expect(state.currentUserMessageId).toBeNull()
       expect(state.thinkingSteps).toEqual([])
       expect(state.activeThinkingStepId).toBeNull()
-      expect(state.reportContent).toBe('')
       expect(state.currentStatus).toBeNull()
       expect(state.pendingInteraction).toBeNull()
     })
@@ -141,7 +117,6 @@ describe('useChatStore', () => {
           },
         ],
         activeThinkingStepId: '1',
-        reportContent: 'Some report',
         currentStatus: 'thinking',
       })
 
@@ -150,7 +125,6 @@ describe('useChatStore', () => {
       const state = useChatStore.getState()
       expect(state.thinkingSteps).toEqual([])
       expect(state.activeThinkingStepId).toBeNull()
-      expect(state.reportContent).toBe('')
       expect(state.currentStatus).toBeNull()
     })
 
@@ -304,14 +278,12 @@ describe('useChatStore', () => {
             isComplete: false,
           },
         ],
-        reportContent: 'Old report',
       })
 
       useChatStore.getState().createConversation()
 
       const state = useChatStore.getState()
       expect(state.thinkingSteps).toEqual([])
-      expect(state.reportContent).toBe('')
     })
   })
 
@@ -592,13 +564,11 @@ describe('useChatStore', () => {
             isComplete: false,
           },
         ],
-        reportContent: 'Old',
       })
 
       useChatStore.getState().selectConversation('conv-1')
 
       expect(useChatStore.getState().thinkingSteps).toEqual([])
-      expect(useChatStore.getState().reportContent).toBe('')
     })
 
     test('selectConversation without a subject file clears leftover composerSubject', () => {
@@ -1055,210 +1025,6 @@ describe('useChatStore', () => {
       expect(stored.state.conversations).toHaveLength(0)
     })
 
-    test('refreshDeepResearchSessionStatuses marks unavailable completed reports expired without deleting sessions', async () => {
-      const expiredConversation: Conversation = {
-        id: 'conv-expired',
-        userId: 'user-1',
-        title: 'Expired Report',
-        messages: [
-          {
-            id: 'msg-expired',
-            role: 'assistant',
-            content: '',
-            timestamp: new Date(),
-            messageType: 'agent_response',
-            deepResearchJobId: 'job-expired',
-            deepResearchJobStatus: 'success',
-            showViewReport: true,
-          },
-          {
-            id: 'success-banner',
-            role: 'assistant',
-            content: '',
-            timestamp: new Date(),
-            messageType: 'deep_research_banner',
-            deepResearchBannerData: { bannerType: 'success', jobId: 'job-expired' },
-          },
-        ],
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      }
-      const reachableConversation: Conversation = {
-        id: 'conv-reachable',
-        userId: 'user-1',
-        title: 'Reachable Report',
-        messages: [
-          {
-            id: 'msg-reachable',
-            role: 'assistant',
-            content: '',
-            timestamp: new Date(),
-            messageType: 'agent_response',
-            deepResearchJobId: 'job-reachable',
-            deepResearchJobStatus: 'success',
-          },
-        ],
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      }
-      const otherUserConversation: Conversation = {
-        id: 'conv-other-user',
-        userId: 'user-2',
-        title: 'Other User Report',
-        messages: [
-          {
-            id: 'msg-other-user',
-            role: 'assistant',
-            content: '',
-            timestamp: new Date(),
-            messageType: 'agent_response',
-            deepResearchJobId: 'job-other-user',
-            deepResearchJobStatus: 'success',
-          },
-        ],
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      }
-
-      mockDeepResearchApi.getJobStatus.mockImplementation(async (jobId: string) => {
-        if (jobId === 'job-expired') {
-          throw new Error('Failed to get job status: 404')
-        }
-        return { job_id: jobId, status: 'success', error: null }
-      })
-
-      useChatStore.setState({
-        currentUserId: 'user-1',
-        currentConversation: expiredConversation,
-        conversations: [expiredConversation, reachableConversation, otherUserConversation],
-        deepResearchJobId: 'job-expired',
-        deepResearchOwnerConversationId: 'conv-expired',
-        activeDeepResearchMessageId: 'msg-expired',
-        reportContent: 'stale report',
-      })
-
-      await useChatStore.getState().refreshDeepResearchSessionStatuses()
-
-      expect(mockDeepResearchApi.getJobStatus).toHaveBeenCalledTimes(2)
-      expect(mockDeepResearchApi.getJobStatus).toHaveBeenCalledWith('job-expired')
-      expect(mockDeepResearchApi.getJobStatus).toHaveBeenCalledWith('job-reachable')
-      expect(mockDeepResearchApi.getJobStatus).not.toHaveBeenCalledWith('job-other-user')
-
-      const state = useChatStore.getState()
-      expect(state.conversations.map((c) => c.id)).toEqual([
-        'conv-expired',
-        'conv-reachable',
-        'conv-other-user',
-      ])
-      expect(state.currentConversation?.id).toBe('conv-expired')
-      expect(state.deepResearchJobId).toBeNull()
-      expect(state.deepResearchOwnerConversationId).toBeNull()
-      expect(state.activeDeepResearchMessageId).toBeNull()
-      expect(state.reportContent).toBe('')
-
-      const expiredMessage = state.conversations
-        .find((c) => c.id === 'conv-expired')
-        ?.messages.find((m) => m.id === 'msg-expired')
-      expect(expiredMessage?.deepResearchJobStatus).toBe('failure')
-      expect(expiredMessage?.isDeepResearchActive).toBe(false)
-      expect(expiredMessage?.showViewReport).toBe(false)
-      expect(expiredMessage?.deepResearchReportExpired).toBe(true)
-
-      const expiredConversationAfter = state.conversations.find((c) => c.id === 'conv-expired')
-      const reportBanners =
-        expiredConversationAfter?.messages.filter(
-          (m) =>
-            m.messageType === 'deep_research_banner' &&
-            m.deepResearchBannerData?.jobId === 'job-expired'
-        ) ?? []
-      expect(reportBanners).toHaveLength(1)
-      expect(reportBanners[0].deepResearchBannerData?.bannerType).toBe('expired')
-    })
-
-    test('refreshDeepResearchSessionStatuses keeps old chat-only sessions without backend checks', async () => {
-      const oldChatConversation: Conversation = {
-        id: 'conv-chat',
-        userId: 'user-1',
-        title: 'Old Chat Session',
-        messages: [
-          {
-            id: 'msg-user',
-            role: 'user',
-            content: 'hello',
-            timestamp: new Date(),
-            messageType: 'user',
-          },
-          {
-            id: 'msg-assistant',
-            role: 'assistant',
-            content: 'hi',
-            timestamp: new Date(),
-            messageType: 'agent_response',
-          },
-        ],
-        createdAt: new Date('2026-01-01T00:00:00Z'),
-        updatedAt: new Date('2026-01-01T00:00:00Z'),
-      }
-
-      useChatStore.setState({
-        currentUserId: 'user-1',
-        currentConversation: oldChatConversation,
-        conversations: [oldChatConversation],
-      })
-
-      await useChatStore.getState().refreshDeepResearchSessionStatuses()
-
-      expect(mockDeepResearchApi.getJobStatus).not.toHaveBeenCalled()
-      expect(useChatStore.getState().conversations.map((c) => c.id)).toEqual(['conv-chat'])
-      expect(useChatStore.getState().currentConversation?.id).toBe('conv-chat')
-    })
-
-    test('refreshDeepResearchSessionStatuses unlocks missing active jobs without marking them as expired reports', async () => {
-      const runningConversation: Conversation = {
-        id: 'conv-running',
-        userId: 'user-1',
-        title: 'Running Report',
-        messages: [
-          {
-            id: 'msg-running',
-            role: 'assistant',
-            content: '',
-            timestamp: new Date(),
-            messageType: 'agent_response',
-            deepResearchJobId: 'job-running',
-            deepResearchJobStatus: 'running',
-            isDeepResearchActive: true,
-          },
-        ],
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      }
-
-      mockDeepResearchApi.getJobStatus.mockRejectedValue(new Error('Failed to get job status: 404'))
-
-      useChatStore.setState({
-        currentUserId: 'user-1',
-        currentConversation: runningConversation,
-        conversations: [runningConversation],
-        deepResearchJobId: 'job-running',
-        deepResearchOwnerConversationId: 'conv-running',
-        activeDeepResearchMessageId: 'msg-running',
-        isDeepResearchStreaming: true,
-      })
-
-      await useChatStore.getState().refreshDeepResearchSessionStatuses()
-
-      const state = useChatStore.getState()
-      const runningMessage = state.conversations[0].messages[0]
-      expect(state.conversations.map((c) => c.id)).toEqual(['conv-running'])
-      expect(runningMessage.deepResearchJobStatus).toBe('failure')
-      expect(runningMessage.isDeepResearchActive).toBe(false)
-      expect(runningMessage.deepResearchReportExpired).toBeFalsy()
-      expect(state.deepResearchJobId).toBeNull()
-      expect(state.isDeepResearchStreaming).toBe(false)
-      expect(state.isSessionBusy('conv-running')).toBe(false)
-    })
-
     test('updateConversationTitle updates title', () => {
       const conv: Conversation = {
         id: 'conv-1',
@@ -1274,43 +1040,6 @@ describe('useChatStore', () => {
 
       expect(useChatStore.getState().currentConversation?.title).toBe('New Title')
       expect(useChatStore.getState().conversations[0].title).toBe('New Title')
-    })
-  })
-
-  describe('attachToDeepResearchJob', () => {
-    test('binds a run started elsewhere without claiming the open conversation', () => {
-      const conversation: Conversation = {
-        id: 'conv-open',
-        userId: 'user-1',
-        title: 'An unrelated chat',
-        messages: [],
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      }
-
-      useChatStore.setState({
-        currentConversation: conversation,
-        conversations: [conversation],
-        reportContent: 'Report of a previous run',
-      })
-
-      useChatStore.getState().attachToDeepResearchJob('job-workflow-1')
-
-      const state = useChatStore.getState()
-      expect(state.deepResearchJobId).toBe('job-workflow-1')
-      expect(state.isDeepResearchStreaming).toBe(true)
-      // 'running' makes the SSE connect buffer the replayed backlog instead of
-      // writing every historical event straight into the store.
-      expect(state.deepResearchStatus).toBe('running')
-      // No thread owns it — that is what keeps its banner out of the open chat.
-      expect(state.deepResearchOwnerConversationId).toBeNull()
-      expect(state.activeDeepResearchMessageId).toBeNull()
-      // Unknown start time: the elapsed indicator stays hidden.
-      expect(state.deepResearchStartedAt).toBeNull()
-      // Artifacts of whatever was shown before are cleared.
-      expect(state.reportContent).toBe('')
-      expect(state.deepResearchTodos).toEqual([])
-      expect(state.deepResearchStreamLoaded).toBe(false)
     })
   })
 
@@ -1532,22 +1261,6 @@ describe('useChatStore', () => {
     })
   })
 
-  describe('report content', () => {
-    test('setReportContent sets content', () => {
-      useChatStore.getState().setReportContent('# Report\n\nContent here')
-
-      expect(useChatStore.getState().reportContent).toBe('# Report\n\nContent here')
-    })
-
-    test('clearReportContent clears content', () => {
-      useChatStore.setState({ reportContent: 'Some content' })
-
-      useChatStore.getState().clearReportContent()
-
-      expect(useChatStore.getState().reportContent).toBe('')
-    })
-  })
-
   describe('status and prompts', () => {
     const setupConversation = () => {
       const conv: Conversation = {
@@ -1624,19 +1337,18 @@ describe('useChatStore', () => {
     test('addAgentResponse adds response message', () => {
       setupConversation()
 
-      useChatStore.getState().addAgentResponse('Here is your answer', true)
+      useChatStore.getState().addAgentResponse('Here is your answer')
 
       const messages = useChatStore.getState().currentConversation?.messages
       expect(messages).toHaveLength(1)
       expect(messages?.[0].messageType).toBe('agent_response')
       expect(messages?.[0].content).toBe('Here is your answer')
-      expect(messages?.[0].showViewReport).toBe(true)
     })
 
     test('addAgentResponse threads answerConfidence onto the message', () => {
       setupConversation()
 
-      useChatStore.getState().addAgentResponse('Grounded answer', false, undefined, 'high')
+      useChatStore.getState().addAgentResponse('Grounded answer', undefined, 'high')
 
       const messages = useChatStore.getState().currentConversation?.messages
       expect(messages?.[0].answerConfidence).toBe('high')
@@ -1652,7 +1364,7 @@ describe('useChatStore', () => {
 
       useChatStore
         .getState()
-        .addAgentResponse('Die Antwort.', false, undefined, undefined, undefined, {
+        .addAgentResponse('Die Antwort.', undefined, undefined, undefined, {
           researchTruncated: true,
           truncationReason: 'wall_clock',
           degradedReasons: ['no_valid_citations'],
@@ -1672,7 +1384,7 @@ describe('useChatStore', () => {
 
       useChatStore
         .getState()
-        .addAgentResponse('Die Antwort.', false, undefined, undefined, undefined, {
+        .addAgentResponse('Die Antwort.', undefined, undefined, undefined, {
           degradedReasons: ['no_report_file'],
         })
 
@@ -2156,171 +1868,6 @@ describe('useChatStore', () => {
       expect(messages.every((m) => m.messageType !== 'error')).toBe(true)
     })
 
-    test('restores last known deep research todos from the stored agent response', () => {
-      const storedTodos = [
-        { id: 'todo-1', content: 'Search current sources', status: 'completed' as const },
-        { id: 'todo-2', content: 'Draft report', status: 'in_progress' as const },
-      ]
-      const conv = createConversation([
-        {
-          role: 'assistant',
-          messageType: 'agent_response',
-          content: 'Report is still loading',
-          deepResearchJobId: 'job-123',
-          deepResearchTodos: storedTodos,
-          deepResearchLLMSteps: [
-            {
-              id: 'llm-1',
-              name: 'model',
-              content: 'heavy content',
-              timestamp: new Date(),
-              isComplete: true,
-            },
-          ],
-        },
-      ])
-
-      useChatStore.setState({
-        currentConversation: conv,
-        conversations: [conv],
-        deepResearchTodos: [],
-        deepResearchLLMSteps: [],
-      })
-
-      useChatStore.getState().restoreSessionState(conv)
-
-      const state = useChatStore.getState()
-      expect(state.deepResearchTodos).toEqual(storedTodos)
-      expect(state.deepResearchLLMSteps).toEqual([])
-      expect(state.deepResearchJobId).toBe('job-123')
-    })
-
-    test('persists latest deep research todos onto the active tracking message', async () => {
-      vi.useFakeTimers()
-      const conv = createConversation([
-        {
-          id: 'tracking-msg',
-          role: 'assistant',
-          messageType: 'agent_response',
-          content: '',
-          deepResearchJobId: 'job-123',
-          deepResearchJobStatus: 'running',
-          isDeepResearchActive: true,
-        },
-      ])
-
-      useChatStore.setState({
-        currentConversation: conv,
-        conversations: [conv],
-        deepResearchOwnerConversationId: conv.id,
-        activeDeepResearchMessageId: 'tracking-msg',
-      })
-
-      useChatStore.getState().setDeepResearchTodos([
-        { content: 'Search current sources', status: 'in_progress' },
-      ])
-
-      await vi.advanceTimersByTimeAsync(1000)
-
-      const trackingMessage = useChatStore
-        .getState()
-        .currentConversation?.messages.find((m) => m.id === 'tracking-msg')
-
-      expect(trackingMessage?.deepResearchTodos).toEqual([
-        {
-          id: 'todo-0-search-current-sourc',
-          content: 'Search current sources',
-          status: 'in_progress',
-        },
-      ])
-    })
-
-    test('debounces persisted deep research todo snapshots during active streams', async () => {
-      vi.useFakeTimers()
-      const conv = createConversation([
-        {
-          id: 'tracking-msg',
-          role: 'assistant',
-          messageType: 'agent_response',
-          content: '',
-          deepResearchJobId: 'job-123',
-          deepResearchJobStatus: 'running',
-          isDeepResearchActive: true,
-        },
-      ])
-
-      useChatStore.setState({
-        currentConversation: conv,
-        conversations: [conv],
-        deepResearchOwnerConversationId: conv.id,
-        activeDeepResearchMessageId: 'tracking-msg',
-      })
-
-      useChatStore.getState().setDeepResearchTodos([
-        { content: 'Search current sources', status: 'pending' },
-      ])
-      useChatStore.getState().setDeepResearchTodos([
-        { content: 'Search current sources', status: 'in_progress' },
-      ])
-
-      expect(
-        useChatStore.getState().currentConversation?.messages[0].deepResearchTodos
-      ).toBeUndefined()
-
-      await vi.advanceTimersByTimeAsync(999)
-
-      expect(
-        useChatStore.getState().currentConversation?.messages[0].deepResearchTodos
-      ).toBeUndefined()
-
-      await vi.advanceTimersByTimeAsync(1)
-
-      expect(useChatStore.getState().currentConversation?.messages[0].deepResearchTodos).toEqual([
-        {
-          id: 'todo-0-search-current-sourc',
-          content: 'Search current sources',
-          status: 'in_progress',
-        },
-      ])
-    })
-
-    test('persists stopped deep research todos onto the active tracking message', () => {
-      const conv = createConversation([
-        {
-          id: 'tracking-msg',
-          role: 'assistant',
-          messageType: 'agent_response',
-          content: '',
-          deepResearchJobId: 'job-123',
-          deepResearchJobStatus: 'running',
-          isDeepResearchActive: true,
-          deepResearchTodos: [
-            { id: 'todo-1', content: 'Running task', status: 'in_progress' },
-          ],
-        },
-      ])
-
-      useChatStore.setState({
-        currentConversation: conv,
-        conversations: [conv],
-        deepResearchOwnerConversationId: conv.id,
-        activeDeepResearchMessageId: 'tracking-msg',
-        deepResearchTodos: [
-          { id: 'todo-1', content: 'Running task', status: 'in_progress' },
-        ],
-      })
-
-      useChatStore.getState().stopAllDeepResearchSpinners(false)
-
-      const trackingMessage = useChatStore
-        .getState()
-        .currentConversation?.messages.find((m) => m.id === 'tracking-msg')
-
-      expect(trackingMessage?.deepResearchTodos).toEqual([
-        { id: 'todo-1', content: 'Running task', status: 'stopped' },
-      ])
-    })
-
     test('does NOT add error card when user message has no thinking steps', () => {
       const conv = createConversation([{ role: 'user', messageType: 'user', content: 'Hello' }])
 
@@ -2415,670 +1962,6 @@ describe('useChatStore', () => {
       expect(
         afterSecond.filter((m) => m.errorData?.errorCode === 'agent.response_interrupted')
       ).toHaveLength(1)
-    })
-  })
-
-  describe('cleanupOrphanedStartingBanners', () => {
-    const createConversation = (
-      messages: Partial<Conversation['messages'][0]>[]
-    ): Conversation => ({
-      id: 'conv-orphaned',
-      userId: 'user-1',
-      title: 'Orphaned Banner Test',
-      messages: messages.map((m, i) => ({
-        id: m.id ?? `msg-${i}`,
-        role: (m.role ?? 'assistant') as 'user' | 'assistant' | 'system',
-        content: m.content ?? '',
-        timestamp: new Date(),
-        ...m,
-      })),
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    })
-
-    test('syncs stale tracking message when terminal banner already exists', async () => {
-      const conv = createConversation([
-        {
-          id: 'tracking-msg',
-          messageType: 'agent_response',
-          deepResearchJobId: 'job-123',
-          deepResearchJobStatus: 'running',
-          isDeepResearchActive: true,
-        },
-        {
-          id: 'starting-banner',
-          messageType: 'deep_research_banner',
-          deepResearchBannerData: { bannerType: 'starting', jobId: 'job-123' },
-        },
-        {
-          id: 'failure-banner',
-          messageType: 'deep_research_banner',
-          deepResearchBannerData: { bannerType: 'failure', jobId: 'job-123' },
-        },
-      ])
-
-      useChatStore.setState({ currentConversation: conv, conversations: [conv] })
-
-      await useChatStore.getState().cleanupOrphanedStartingBanners()
-
-      const updatedMessages = useChatStore.getState().currentConversation?.messages ?? []
-      const trackingMessage = updatedMessages.find((m) => m.id === 'tracking-msg')
-
-      expect(updatedMessages.some((m) => m.id === 'starting-banner')).toBe(false)
-      expect(trackingMessage?.deepResearchJobStatus).toBe('failure')
-      expect(trackingMessage?.isDeepResearchActive).toBe(false)
-    })
-
-    test('syncs stale tracking message after REST status resolves terminal state', async () => {
-      mockDeepResearchApi.getJobStatus.mockResolvedValue({
-        job_id: 'job-456',
-        status: 'failure',
-        error: 'expired',
-      })
-
-      const conv = createConversation([
-        {
-          id: 'tracking-msg',
-          messageType: 'agent_response',
-          deepResearchJobId: 'job-456',
-          deepResearchJobStatus: 'running',
-          isDeepResearchActive: true,
-        },
-        {
-          id: 'starting-banner',
-          messageType: 'deep_research_banner',
-          deepResearchBannerData: { bannerType: 'starting', jobId: 'job-456' },
-        },
-      ])
-
-      useChatStore.setState({ currentConversation: conv, conversations: [conv] })
-
-      await useChatStore.getState().cleanupOrphanedStartingBanners()
-
-      const updatedMessages = useChatStore.getState().currentConversation?.messages ?? []
-      const trackingMessage = updatedMessages.find((m) => m.id === 'tracking-msg')
-      const terminalBanner = updatedMessages.find(
-        (m) =>
-          m.messageType === 'deep_research_banner' &&
-          m.deepResearchBannerData?.jobId === 'job-456' &&
-          m.deepResearchBannerData?.bannerType === 'failure'
-      )
-
-      expect(trackingMessage?.deepResearchJobStatus).toBe('failure')
-      expect(trackingMessage?.isDeepResearchActive).toBe(false)
-      expect(updatedMessages.some((m) => m.id === 'starting-banner')).toBe(false)
-      expect(terminalBanner).toBeTruthy()
-    })
-  })
-
-  describe('dismissDeepResearchJob / purgeAbandonedDeepResearchJobs', () => {
-    const createConversation = (
-      id: string,
-      messages: Partial<Conversation['messages'][0]>[],
-      userId = 'user-1'
-    ): Conversation => ({
-      id,
-      userId,
-      title: `Conversation ${id}`,
-      messages: messages.map((m, i) => ({
-        id: m.id ?? `${id}-msg-${i}`,
-        role: (m.role ?? 'assistant') as 'user' | 'assistant' | 'system',
-        content: m.content ?? '',
-        timestamp: new Date(),
-        ...m,
-      })),
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    })
-
-    const seedLiveIdle = (): void => {
-      useChatStore.setState({
-        deepResearchJobId: null,
-        deepResearchLastEventId: null,
-        isDeepResearchStreaming: false,
-        deepResearchStartedAt: null,
-        deepResearchStatus: null,
-        deepResearchOwnerConversationId: null,
-        activeDeepResearchMessageId: null,
-        deepResearchCitations: [],
-        deepResearchTodos: [],
-        deepResearchLLMSteps: [],
-        deepResearchAgents: [],
-        deepResearchToolCalls: [],
-        deepResearchFiles: [],
-        deepResearchCards: [],
-        deepResearchStreamLoaded: false,
-        isDeepResearchStalled: false,
-        deepResearchConnectionLost: false,
-        resolvedDeepResearchJobs: {},
-      })
-    }
-
-    test('dismiss cancels the backend job and marks the thread interrupted', async () => {
-      mockDeepResearchApi.cancelJob.mockResolvedValue({ cancelled: true })
-      const conv = createConversation('conv-dismiss', [
-        {
-          id: 'tracking-msg',
-          messageType: 'agent_response',
-          deepResearchJobId: 'job-stuck',
-          deepResearchJobStatus: 'running',
-          isDeepResearchActive: true,
-        },
-        {
-          id: 'starting-banner',
-          messageType: 'deep_research_banner',
-          deepResearchBannerData: { bannerType: 'starting', jobId: 'job-stuck' },
-        },
-      ])
-      seedLiveIdle()
-      useChatStore.setState({ currentUserId: 'user-1', currentConversation: conv, conversations: [conv] })
-
-      await useChatStore.getState().dismissDeepResearchJob('conv-dismiss', 'job-stuck')
-
-      expect(mockDeepResearchApi.cancelJob).toHaveBeenCalledWith('job-stuck')
-      const messages = useChatStore.getState().conversations[0].messages
-      expect(messages.find((m) => m.id === 'tracking-msg')?.deepResearchJobStatus).toBe('interrupted')
-      expect(messages.find((m) => m.id === 'tracking-msg')?.isDeepResearchActive).toBe(false)
-      // The starting banner is replaced by exactly one cancelled banner.
-      expect(messages.some((m) => m.id === 'starting-banner')).toBe(false)
-      const cancelled = messages.filter(
-        (m) =>
-          m.messageType === 'deep_research_banner' &&
-          m.deepResearchBannerData?.jobId === 'job-stuck' &&
-          m.deepResearchBannerData?.bannerType === 'cancelled'
-      )
-      expect(cancelled).toHaveLength(1)
-    })
-
-    test('dismiss still marks the thread terminal when the backend job is already gone', async () => {
-      mockDeepResearchApi.cancelJob.mockRejectedValue(new Error('Failed to cancel job: 404'))
-      const conv = createConversation('conv-gone', [
-        {
-          id: 'tracking-msg',
-          messageType: 'agent_response',
-          deepResearchJobId: 'job-gone',
-          deepResearchJobStatus: 'submitted',
-          isDeepResearchActive: true,
-        },
-      ])
-      seedLiveIdle()
-      useChatStore.setState({ currentUserId: 'user-1', currentConversation: conv, conversations: [conv] })
-
-      await useChatStore.getState().dismissDeepResearchJob('conv-gone', 'job-gone')
-
-      const tracking = useChatStore.getState().conversations[0].messages.find((m) => m.id === 'tracking-msg')
-      expect(tracking?.deepResearchJobStatus).toBe('interrupted')
-      expect(tracking?.isDeepResearchActive).toBe(false)
-    })
-
-    test('dismiss is idempotent: no second terminal banner', async () => {
-      mockDeepResearchApi.cancelJob.mockResolvedValue({ cancelled: true })
-      const conv = createConversation('conv-twice', [
-        {
-          id: 'tracking-msg',
-          messageType: 'agent_response',
-          deepResearchJobId: 'job-twice',
-          deepResearchJobStatus: 'running',
-          isDeepResearchActive: true,
-        },
-      ])
-      seedLiveIdle()
-      useChatStore.setState({ currentUserId: 'user-1', currentConversation: conv, conversations: [conv] })
-
-      await useChatStore.getState().dismissDeepResearchJob('conv-twice', 'job-twice')
-      await useChatStore.getState().dismissDeepResearchJob('conv-twice', 'job-twice')
-
-      const cancelled = useChatStore.getState().conversations[0].messages.filter(
-        (m) =>
-          m.messageType === 'deep_research_banner' &&
-          m.deepResearchBannerData?.jobId === 'job-twice' &&
-          m.deepResearchBannerData?.bannerType === 'cancelled'
-      )
-      expect(cancelled).toHaveLength(1)
-    })
-
-    test('dismiss of the live job stands the streaming state down', async () => {
-      mockDeepResearchApi.cancelJob.mockResolvedValue({ cancelled: true })
-      const conv = createConversation('conv-live', [
-        {
-          id: 'tracking-msg',
-          messageType: 'agent_response',
-          deepResearchJobId: 'job-live',
-          deepResearchJobStatus: 'running',
-          isDeepResearchActive: true,
-        },
-      ])
-      useChatStore.setState({
-        currentUserId: 'user-1',
-        currentConversation: conv,
-        conversations: [conv],
-        deepResearchJobId: 'job-live',
-        isDeepResearchStreaming: true,
-        deepResearchStatus: 'running',
-        deepResearchOwnerConversationId: 'conv-live',
-        activeDeepResearchMessageId: 'tracking-msg',
-        resolvedDeepResearchJobs: {},
-      })
-
-      // Headless dismiss (no thread): still cancels and clears the live state.
-      await useChatStore.getState().dismissDeepResearchJob(null, 'job-live')
-
-      expect(mockDeepResearchApi.cancelJob).toHaveBeenCalledWith('job-live')
-      const state = useChatStore.getState()
-      expect(state.deepResearchJobId).toBeNull()
-      expect(state.isDeepResearchStreaming).toBe(false)
-      expect(state.deepResearchStatus).toBeNull()
-    })
-
-    test('purge dismisses every stuck run of the current user and reports the count', async () => {
-      mockDeepResearchApi.cancelJob.mockResolvedValue({ cancelled: true })
-      const stuck = createConversation('conv-stuck', [
-        {
-          messageType: 'agent_response',
-          deepResearchJobId: 'job-a',
-          deepResearchJobStatus: 'running',
-          isDeepResearchActive: true,
-        },
-      ])
-      const bannerOnly = createConversation('conv-banner-only', [
-        {
-          messageType: 'deep_research_banner',
-          deepResearchBannerData: { bannerType: 'starting', jobId: 'job-b' },
-        },
-      ])
-      const settled = createConversation('conv-settled', [
-        {
-          messageType: 'agent_response',
-          deepResearchJobId: 'job-c',
-          deepResearchJobStatus: 'success',
-          isDeepResearchActive: false,
-        },
-      ])
-      const otherUser = createConversation(
-        'conv-other-user',
-        [
-          {
-            messageType: 'agent_response',
-            deepResearchJobId: 'job-d',
-            deepResearchJobStatus: 'running',
-            isDeepResearchActive: true,
-          },
-        ],
-        'user-2'
-      )
-      seedLiveIdle()
-      useChatStore.setState({
-        currentUserId: 'user-1',
-        currentConversation: stuck,
-        conversations: [stuck, bannerOnly, settled, otherUser],
-      })
-
-      const count = await useChatStore.getState().purgeAbandonedDeepResearchJobs()
-
-      expect(count).toBe(2)
-      expect(mockDeepResearchApi.cancelJob).toHaveBeenCalledWith('job-a')
-      expect(mockDeepResearchApi.cancelJob).toHaveBeenCalledWith('job-b')
-      expect(mockDeepResearchApi.cancelJob).not.toHaveBeenCalledWith('job-c')
-      expect(mockDeepResearchApi.cancelJob).not.toHaveBeenCalledWith('job-d')
-      const state = useChatStore.getState()
-      expect(
-        state.conversations.find((c) => c.id === 'conv-other-user')?.messages[0].isDeepResearchActive
-      ).toBe(true)
-    })
-
-    test('purge returns zero without a user and touches nothing', async () => {
-      seedLiveIdle()
-      useChatStore.setState({ currentUserId: null, conversations: [] })
-
-      await expect(useChatStore.getState().purgeAbandonedDeepResearchJobs()).resolves.toBe(0)
-      expect(mockDeepResearchApi.cancelJob).not.toHaveBeenCalled()
-    })
-
-    test('dismiss reconciles to the backend verdict carried by a failed cancel', async () => {
-      // The crashed-run case: the job already finished server-side, so cancel
-      // fails 400 naming the terminal status — and the status endpoint still
-      // serves a stale `running` for the same job.
-      mockDeepResearchApi.cancelJob.mockRejectedValue(
-        new Error(
-          'Failed to cancel job: 400 - BACKEND_ERROR - Backend returned 400: {"detail":"Job not cancellable: job-crashed (status: failure)"}'
-        )
-      )
-      mockDeepResearchApi.getJobStatus.mockResolvedValue({ job_id: 'job-crashed', status: 'running' })
-      const conv = createConversation('conv-crashed', [
-        {
-          id: 'tracking-msg',
-          messageType: 'agent_response',
-          deepResearchJobId: 'job-crashed',
-          deepResearchJobStatus: 'running',
-          isDeepResearchActive: true,
-        },
-        {
-          id: 'starting-banner',
-          messageType: 'deep_research_banner',
-          deepResearchBannerData: { bannerType: 'starting', jobId: 'job-crashed' },
-        },
-      ])
-      seedLiveIdle()
-      useChatStore.setState({ currentUserId: 'user-1', currentConversation: conv, conversations: [conv] })
-
-      await useChatStore.getState().dismissDeepResearchJob('conv-crashed', 'job-crashed')
-
-      const state = useChatStore.getState()
-      const messages = state.conversations[0].messages
-      expect(messages.find((m) => m.id === 'tracking-msg')?.deepResearchJobStatus).toBe('failure')
-      expect(
-        messages.some(
-          (m) =>
-            m.messageType === 'deep_research_banner' &&
-            m.deepResearchBannerData?.jobId === 'job-crashed' &&
-            m.deepResearchBannerData?.bannerType === 'failure'
-        )
-      ).toBe(true)
-      expect(state.resolvedDeepResearchJobs['job-crashed']).toBe('failure')
-
-      // The stale status poll must not resurrect it on the next refresh.
-      await state.refreshDeepResearchSessionStatuses()
-
-      expect(mockDeepResearchApi.getJobStatus).not.toHaveBeenCalledWith('job-crashed')
-      const after = useChatStore.getState().conversations[0].messages
-      expect(after.find((m) => m.id === 'tracking-msg')?.deepResearchJobStatus).toBe('failure')
-      expect(after.find((m) => m.id === 'tracking-msg')?.isDeepResearchActive).toBe(false)
-    })
-
-    test('dismiss marks a backend-success run success so its report stays reachable', async () => {
-      mockDeepResearchApi.cancelJob.mockRejectedValue(
-        new Error(
-          'Failed to cancel job: 400 - BACKEND_ERROR - Backend returned 400: {"detail":"Job not cancellable: job-done (status: success)"}'
-        )
-      )
-      const conv = createConversation('conv-done', [
-        {
-          id: 'tracking-msg',
-          messageType: 'agent_response',
-          deepResearchJobId: 'job-done',
-          deepResearchJobStatus: 'running',
-          isDeepResearchActive: true,
-        },
-      ])
-      seedLiveIdle()
-      useChatStore.setState({ currentUserId: 'user-1', currentConversation: conv, conversations: [conv] })
-
-      await useChatStore.getState().dismissDeepResearchJob('conv-done', 'job-done')
-
-      const messages = useChatStore.getState().conversations[0].messages
-      expect(messages.find((m) => m.id === 'tracking-msg')?.deepResearchJobStatus).toBe('success')
-      expect(
-        messages.some(
-          (m) =>
-            m.messageType === 'deep_research_banner' &&
-            m.deepResearchBannerData?.jobId === 'job-done' &&
-            m.deepResearchBannerData?.bannerType === 'success'
-        )
-      ).toBe(true)
-    })
-
-    test('reconnect does not re-attach a resolved job', async () => {
-      const conv = createConversation('conv-reconnect-resolved', [
-        {
-          id: 'tracking-msg',
-          messageType: 'agent_response',
-          deepResearchJobId: 'job-resolved',
-          deepResearchJobStatus: 'running',
-          isDeepResearchActive: true,
-        },
-      ])
-      seedLiveIdle()
-      useChatStore.setState({
-        currentUserId: 'user-1',
-        currentConversation: conv,
-        conversations: [conv],
-        resolvedDeepResearchJobs: { 'job-resolved': 'interrupted' },
-      })
-
-      await useChatStore.getState().reconnectToActiveJob()
-
-      expect(mockDeepResearchApi.getJobStatus).not.toHaveBeenCalled()
-      const tracking = useChatStore.getState().conversations[0].messages.find(
-        (m) => m.id === 'tracking-msg'
-      )
-      expect(tracking?.deepResearchJobStatus).toBe('interrupted')
-      expect(tracking?.isDeepResearchActive).toBe(false)
-    })
-
-    test('purge stands down orphaned live state even when nothing is left to dismiss', async () => {
-      const settled = createConversation('conv-settled', [
-        {
-          messageType: 'agent_response',
-          deepResearchJobId: 'job-old',
-          deepResearchJobStatus: 'interrupted',
-          isDeepResearchActive: false,
-        },
-      ])
-      seedLiveIdle()
-      useChatStore.setState({
-        currentUserId: 'user-1',
-        currentConversation: settled,
-        conversations: [settled],
-        // A crash between the last event and the terminal frame leaves exactly
-        // this orphan: streaming up, owning a thread that is already over.
-        deepResearchJobId: 'job-orphan',
-        isDeepResearchStreaming: true,
-        deepResearchStatus: 'running',
-        deepResearchOwnerConversationId: 'conv-settled',
-        activeDeepResearchMessageId: 'other-msg',
-        resolvedDeepResearchJobs: {},
-      })
-
-      const count = await useChatStore.getState().purgeAbandonedDeepResearchJobs()
-
-      expect(count).toBe(0)
-      const state = useChatStore.getState()
-      expect(state.deepResearchJobId).toBeNull()
-      expect(state.isDeepResearchStreaming).toBe(false)
-      expect(state.deepResearchStatus).toBeNull()
-    })
-
-    test('purge leaves a healthy attached run alone', async () => {
-      mockDeepResearchApi.cancelJob.mockResolvedValue({ cancelled: true })
-      const stuck = createConversation('conv-stuck-2', [
-        {
-          messageType: 'agent_response',
-          deepResearchJobId: 'job-stuck-2',
-          deepResearchJobStatus: 'running',
-          isDeepResearchActive: true,
-        },
-      ])
-      seedLiveIdle()
-      useChatStore.setState({
-        currentUserId: 'user-1',
-        currentConversation: stuck,
-        conversations: [stuck],
-        // An attached run owns no conversation: its health cannot be read off
-        // any thread, so the purge must not stand it down as a side effect.
-        deepResearchJobId: 'job-attached',
-        isDeepResearchStreaming: true,
-        deepResearchStatus: 'running',
-        deepResearchOwnerConversationId: null,
-        activeDeepResearchMessageId: null,
-        resolvedDeepResearchJobs: {},
-      })
-
-      await useChatStore.getState().purgeAbandonedDeepResearchJobs()
-
-      const state = useChatStore.getState()
-      expect(state.deepResearchJobId).toBe('job-attached')
-      expect(state.isDeepResearchStreaming).toBe(true)
-    })
-  })
-
-  describe('reconnectToActiveJob', () => {
-    const createConversation = (
-      messages: Partial<Conversation['messages'][0]>[]
-    ): Conversation => ({
-      id: 'conv-reconnect',
-      userId: 'user-1',
-      title: 'Reconnect Test',
-      messages: messages.map((m, i) => ({
-        id: m.id ?? `msg-${i}`,
-        role: (m.role ?? 'assistant') as 'user' | 'assistant' | 'system',
-        content: m.content ?? '',
-        timestamp: new Date(),
-        ...m,
-      })),
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    })
-
-    test('marks missing active job as failed when status lookup returns 404', async () => {
-      mockDeepResearchApi.getJobStatus.mockRejectedValue(new Error('Failed to get job status: 404'))
-
-      const conv = createConversation([
-        {
-          id: 'tracking-msg',
-          messageType: 'agent_response',
-          deepResearchJobId: 'job-missing',
-          deepResearchJobStatus: 'running',
-          isDeepResearchActive: true,
-        },
-        {
-          id: 'starting-banner',
-          messageType: 'deep_research_banner',
-          deepResearchBannerData: { bannerType: 'starting', jobId: 'job-missing' },
-        },
-      ])
-
-      useChatStore.setState({ currentConversation: conv, conversations: [conv] })
-
-      await useChatStore.getState().reconnectToActiveJob()
-
-      const updatedMessages = useChatStore.getState().currentConversation?.messages ?? []
-      const trackingMessage = updatedMessages.find((m) => m.id === 'tracking-msg')
-      const failureBanner = updatedMessages.find(
-        (m) =>
-          m.messageType === 'deep_research_banner' &&
-          m.deepResearchBannerData?.jobId === 'job-missing' &&
-          m.deepResearchBannerData?.bannerType === 'failure'
-      )
-
-      expect(trackingMessage?.deepResearchJobStatus).toBe('failure')
-      expect(trackingMessage?.isDeepResearchActive).toBe(false)
-      expect(updatedMessages.some((m) => m.id === 'starting-banner')).toBe(false)
-      expect(failureBanner).toBeTruthy()
-    })
-
-    test('keeps the job active when the status lookup fails transiently', async () => {
-      // A brief network blip (or 5xx) must NOT orphan the running job: the
-      // tracking message keeps isDeepResearchActive so the next
-      // reconnectToActiveJob attempt can still find and restore it.
-      mockDeepResearchApi.getJobStatus.mockRejectedValue(
-        new Error('Failed to get job status: 500 - PROXY_ERROR: fetch failed')
-      )
-
-      const conv = createConversation([
-        {
-          id: 'tracking-msg',
-          messageType: 'agent_response',
-          deepResearchJobId: 'job-transient',
-          deepResearchJobStatus: 'running',
-          isDeepResearchActive: true,
-        },
-      ])
-
-      useChatStore.setState({ currentConversation: conv, conversations: [conv] })
-
-      await useChatStore.getState().reconnectToActiveJob()
-
-      const updatedMessages = useChatStore.getState().currentConversation?.messages ?? []
-      const trackingMessage = updatedMessages.find((m) => m.id === 'tracking-msg')
-      const failureBanner = updatedMessages.find(
-        (m) =>
-          m.messageType === 'deep_research_banner' &&
-          m.deepResearchBannerData?.jobId === 'job-transient'
-      )
-
-      expect(trackingMessage?.isDeepResearchActive).toBe(true)
-      expect(trackingMessage?.deepResearchJobStatus).toBe('running')
-      expect(failureBanner).toBeUndefined()
-
-      // A later attempt (backend back up) can still restore the job.
-      mockDeepResearchApi.getJobStatus.mockResolvedValue({
-        job_id: 'job-transient',
-        status: 'running',
-        error: null,
-      })
-
-      await useChatStore.getState().reconnectToActiveJob()
-
-      expect(useChatStore.getState().deepResearchJobId).toBe('job-transient')
-      expect(useChatStore.getState().isDeepResearchStreaming).toBe(true)
-
-      // Reset streaming state so it does not leak into other tests.
-      useChatStore.setState({ isDeepResearchStreaming: false, deepResearchJobId: null })
-    })
-
-    test('seeds the elapsed-time start from the job creation timestamp', async () => {
-      const createdAt = new Date(Date.now() - 5 * 60_000).toISOString()
-      mockDeepResearchApi.getJobStatus.mockResolvedValue({
-        job_id: 'job-elapsed',
-        status: 'running',
-        error: null,
-        created_at: createdAt,
-      })
-
-      const conv = createConversation([
-        {
-          id: 'tracking-msg',
-          messageType: 'agent_response',
-          deepResearchJobId: 'job-elapsed',
-          deepResearchJobStatus: 'running',
-          isDeepResearchActive: true,
-        },
-      ])
-
-      useChatStore.setState({ currentConversation: conv, conversations: [conv] })
-
-      await useChatStore.getState().reconnectToActiveJob()
-
-      expect(useChatStore.getState().deepResearchStartedAt).toBe(Date.parse(createdAt))
-
-      useChatStore.setState({
-        isDeepResearchStreaming: false,
-        deepResearchJobId: null,
-        deepResearchStartedAt: null,
-      })
-    })
-
-    test('falls back to now when the status has no creation timestamp', async () => {
-      mockDeepResearchApi.getJobStatus.mockResolvedValue({
-        job_id: 'job-no-created-at',
-        status: 'running',
-        error: null,
-      })
-
-      const conv = createConversation([
-        {
-          id: 'tracking-msg',
-          messageType: 'agent_response',
-          deepResearchJobId: 'job-no-created-at',
-          deepResearchJobStatus: 'running',
-          isDeepResearchActive: true,
-        },
-      ])
-
-      useChatStore.setState({ currentConversation: conv, conversations: [conv] })
-
-      const before = Date.now()
-      await useChatStore.getState().reconnectToActiveJob()
-
-      const startedAt = useChatStore.getState().deepResearchStartedAt
-      expect(startedAt).not.toBeNull()
-      expect(startedAt!).toBeGreaterThanOrEqual(before)
-
-      useChatStore.setState({
-        isDeepResearchStreaming: false,
-        deepResearchJobId: null,
-        deepResearchStartedAt: null,
-      })
     })
   })
 

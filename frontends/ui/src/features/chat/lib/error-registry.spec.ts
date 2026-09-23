@@ -19,7 +19,6 @@ describe('errorConcernsTheThread', () => {
     for (const code of [
       'agent.response_failed',
       'agent.workflow_error',
-      'agent.deep_research_failed',
       'agent.response_interrupted',
       'budget.exhausted',
       'research.queue_full',

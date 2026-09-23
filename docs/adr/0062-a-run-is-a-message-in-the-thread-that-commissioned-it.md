@@ -172,12 +172,23 @@ What this deletes: `deep_research_job_id` on the state, on the two lift tables,
 on the websocket frame and in the persisted metadata; and the prose stub the
 client used to parse.
 
-What it deliberately leaves: the deep-research banner, the research panel and
-the SSE store that feed them. Nothing PRODUCES them any more — no turn starts
-that stream — but threads from before this change still hold messages that do,
-and deleting the renderers would blank those threads rather than tidy them.
-They are legacy readers now, and retiring them is its own change, once no live
-conversation needs them.
+What it left at first, and what is gone now (2026-09): the deep-research
+banner, the research side panel and the one-run-at-a-time SSE slice in the chat
+store. Nothing produced them any more, and the threads written before run
+messages existed carry their report as an ordinary answer message, so the
+renderers were deleted rather than kept as legacy readers. Everything outside
+the block that used to read that slice — the composer, the toolbar's „läuft"
+pill, the history's row state, the delete that stops a live run, the watchdog
+that exempts a turn a run is carrying — now reads the run's stored ledger on
+its message (`chat/lib/session-activity`), which the block keeps current while
+the run goes (`features/runs/hooks/use-run-ledger`). There is no right-hand
+panel left: what needs more room than a message opens as a dialog over the
+thread.
+
+The ledger also carries what the reader asked the run to read (`grundlage`,
+2026-09): the documents named on the plan card and any added while the run
+goes, so the block prints a receipt against the steps — read with its loci, or
+not. The receipt is derived, never stored twice; the loci are the steps'.
 
 ## More Information
 

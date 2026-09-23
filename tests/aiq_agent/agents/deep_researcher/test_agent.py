@@ -1835,8 +1835,9 @@ class TestDeepResearcherAgent:
             result = await agent.run(state)
 
         assert result.degraded_reasons == ["no_report_file"]
-        # The reader of the answer alone is told, too.
-        assert result.messages[-1].content.startswith("> **Hinweis:**")
+        # The reader of the answer alone is told, too — in the report's language,
+        # and this salvaged message is English.
+        assert result.messages[-1].content.startswith("> **Note:**")
         assert "did not persist a report file" in result.messages[-1].content
 
     @pytest.mark.asyncio

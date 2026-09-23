@@ -135,6 +135,35 @@ class TestBuildQuery:
 
 
 class TestRender:
+    def test_a_resolved_query_files_the_model_it_read_under_the_turns_round(self):
+        """The Herleitung hangs on a round the documents it returned.
+
+        An ``ifc_query`` round is announced as a retrieval („Sucht im
+        Gebäudemodell") and used to return no document, so the layer drew as a
+        search that found nothing. The model file is that document, and the
+        operation is its locus. An UNRESOLVED result read no file and files
+        nothing.
+        """
+        from aiq_agent.common import turn_status
+
+        token = turn_status.begin_lane_capture()
+        try:
+            _render(
+                {
+                    "resolved": True,
+                    "op": "overview",
+                    "model": {"filename": "haus-a.ifc"},
+                    "summary": "120 Bauteile auf 3 Geschoßen.",
+                    "overview": {"storeys": [{"name": "EG", "elementCount": 40}], "typeCounts": {"IfcWall": 12}},
+                }
+            )
+            _render({"resolved": False, "message": "Kein Modell hinterlegt."})
+            hits = turn_status.get_lane_captures()
+        finally:
+            turn_status.end_lane_capture(token)
+
+        assert [(hit["name"], hit.get("detail")) for hit in hits] == [("haus-a.ifc", "overview")]
+
     def test_an_unresolved_result_reports_the_reason_and_the_choices(self):
         rendered = _render(
             {

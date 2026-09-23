@@ -9,6 +9,7 @@
  */
 
 import { z } from 'zod'
+import { planDocumentsSchema } from '@/lib/runs/plan-documents'
 import { DELEGATABLE_TASK_KINDS } from '@/lib/db/schema'
 
 /**
@@ -100,6 +101,14 @@ export const internalTaskRequestSchema = z.discriminatedUnion('op', [
        * below the question, never into the title.
        */
       context: z.string().trim().min(1).max(RESEARCH_CONTEXT_MAX_CHARS).optional(),
+      /**
+       * The Rahmen: the composer's Datengrundlage at the moment the plan was
+       * approved. Absent (an older turn) leaves the run on every source the
+       * worker has; an empty list is a statement and is kept.
+       */
+      dataSources: z.array(z.string().trim().min(1).max(64)).max(32).optional(),
+      /** The Unterlagen the reader named on the plan card. */
+      documents: planDocumentsSchema.optional(),
     })
     .strict(),
 ])

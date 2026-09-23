@@ -5,7 +5,6 @@ import type { FileItem } from './project-file-workspace'
 
 const pane = vi.hoisted(() => ({ mounts: 0 }))
 const nav = vi.hoisted(() => ({ pathname: '/app/projects/p1/files' }))
-const layout = vi.hoisted(() => ({ rightPanel: null as string | null }))
 const mobile = vi.hoisted(() => ({ is: false }))
 
 vi.mock('next/navigation', () => ({
@@ -14,11 +13,6 @@ vi.mock('next/navigation', () => ({
 
 vi.mock('@/hooks/use-is-mobile', () => ({
   useIsMobile: () => mobile.is,
-}))
-
-vi.mock('@/features/layout/store', () => ({
-  useLayoutStore: (selector: (state: { rightPanel: string | null }) => unknown) =>
-    selector({ rightPanel: layout.rightPanel }),
 }))
 
 vi.mock('./file-preview-pane', async () => {
@@ -61,7 +55,6 @@ describe('FilePreviewHost', () => {
   beforeEach(() => {
     pane.mounts = 0
     nav.pathname = '/app/projects/p1/files'
-    layout.rightPanel = null
     mobile.is = false
     useFilePreviewStore.setState({
       file: null,
@@ -561,7 +554,6 @@ describe('FilePreviewHost', () => {
     })
 
     it.each([
-      ['the research panel holds that half of the row', () => { layout.rightPanel = 'research' }],
       ['the reader is on a phone', () => { mobile.is = true }],
       ['the reader has walked to another section', () => { nav.pathname = '/app/projects/p1/files' }],
       ['the peek was dismissed', () => useFilePreviewStore.getState().hide()],

@@ -113,20 +113,6 @@ export const ERROR_REGISTRY: Record<ErrorCode, ErrorMeta> = {
     defaultMessage: 'The assistant hit an unexpected error while handling your request. Please try again.',
     messageKey: 'errorRegistry.workflowError.message',
   },
-  'agent.deep_research_failed': {
-    status: 'error',
-    title: 'Deep Research Failed',
-    titleKey: 'errorRegistry.deepResearchFailed.title',
-    defaultMessage: 'The deep research process encountered an error.',
-    messageKey: 'errorRegistry.deepResearchFailed.message',
-  },
-  'agent.deep_research_load_failed': {
-    status: 'error',
-    title: 'Research Data Unavailable',
-    titleKey: 'errorRegistry.deepResearchLoadFailed.title',
-    defaultMessage: 'Unable to load research data. The job may have expired or been deleted.',
-    messageKey: 'errorRegistry.deepResearchLoadFailed.message',
-  },
 
   // ============================================================
   // Research Errors

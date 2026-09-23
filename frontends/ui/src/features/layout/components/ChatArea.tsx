@@ -30,7 +30,6 @@ import {
   AgentPrompt,
   AgentResponse,
   ErrorBanner,
-  DeepResearchBanner,
   UserMessage,
   ChatThinking,
   useElapsedSeconds,
@@ -47,7 +46,14 @@ import { FollowUpsRail } from '@/features/chat/components/FollowUpsRail'
 import { offersAktenvermerk } from '@/features/chat/lib/aktenvermerk-chip'
 // Its own module rather than a barrel, for the reason FollowUpsRail is: the
 // specs that mock `@/features/chat` must not have to know about the run block.
+import type { Finding, Findings } from '@/lib/conversations/message-findings'
 import { RunBlockMessage } from '@/features/runs/components/RunBlockMessage'
+import { useCommissionRun } from '@/features/runs/hooks/use-commission-run'
+import {
+  continuationBrief,
+  findingBrief,
+  previousRunFindings,
+} from '@/features/runs/lib/carry-forward'
 import { AGENT_MENTION_ID } from '@/lib/mentions/types'
 import { cn } from '@/lib/utils'
 import { AwaitingBanner } from '@/features/collaboration/components/AwaitingBanner'
@@ -272,6 +278,25 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
   reducedMotionRef.current = prefersReducedMotion
 
   const messages = currentConversation?.messages
+  // Commissioning from inside the thread: an open finding to clear, or a
+  // report to carry forward. Null when there is no project or conversation.
+  const commissionRun = useCommissionRun(activeProjectId ?? null, currentConversation?.id ?? null)
+  const commissionFromFinding = useCallback(
+    async (finding: Finding): Promise<boolean> => {
+      if (!commissionRun) return false
+      const brief = findingBrief(finding)
+      return commissionRun.commission(brief.question, brief.context)
+    },
+    [commissionRun]
+  )
+  const continueRun = useCallback(
+    async (message: ChatMessage): Promise<void> => {
+      if (!commissionRun) return
+      const brief = continuationBrief(message)
+      await commissionRun.commission(brief.question, brief.context, brief.documents)
+    },
+    [commissionRun]
+  )
 
   // Filter to only show displayable message types in the chat area
   // Assistant text messages (full reports) are displayed in the Details Panel instead
@@ -284,8 +309,7 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
           messageType === 'prompt' ||
           messageType === 'agent_response' ||
           messageType === 'file' ||
-          messageType === 'error' ||
-          messageType === 'deep_research_banner'
+          messageType === 'error'
         )
       }),
     [messages]
@@ -506,7 +530,8 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
    * Helper to get thinking steps for a user message.
    * First checks ephemeral store (for active session), then falls back
    * to persisted steps embedded in the message (for restored sessions).
-   * Filters out deep research steps - they're displayed in the Research Panel.
+   * Filters out deep research steps: a run's progress is the run block's
+   * (`RunBlockMessage`), not the turn's thinking trace.
    */
   const getStepsForUserMessage = (messageId: string) => {
     // First try ephemeral store (for active session)
@@ -729,7 +754,7 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
             <MessageListSkeleton />
           ) : (
             <>
-            {/* The greeting LEAVES rather than disappearing. Sending the first
+              {/* The greeting LEAVES rather than disappearing. Sending the first
                 message swaps this whole plane in one commit — greeting out,
                 transcript in, composer down to the floor — and the reader is
                 looking straight at the greeting when it happens, because it is
@@ -745,183 +770,196 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
                 The offset it is bottom-aligned against is frozen for exactly
                 this reason (see `useComposerMetrics`): every number under it
                 changes in the same tick. */}
-            <AnimatePresence initial={false} mode="popLayout">
-              {isEmpty && (
-                <motion.div
-                  key="welcome"
-                  className="flex flex-1 flex-col"
-                  exit={{ opacity: 0, y: 16 }}
-                  transition={motionSheetExit}
+              <AnimatePresence initial={false} mode="popLayout">
+                {isEmpty && (
+                  <motion.div
+                    key="welcome"
+                    className="flex flex-1 flex-col"
+                    exit={{ opacity: 0, y: 16 }}
+                    transition={motionSheetExit}
+                  >
+                    <WelcomeState
+                      isAuthenticated={isAuthenticated}
+                      onSignIn={onSignIn}
+                      inProject={Boolean(activeProjectId)}
+                    />
+                  </motion.div>
+                )}
+              </AnimatePresence>
+              {!isEmpty && (
+                // Bottom padding tracks the floating composer's REAL height (published
+                // as --composer-h by MainLayout's ResizeObserver) plus a breathing gap,
+                // so the last message/Herleitung never renders behind the composer no
+                // matter how tall it grows. The 11rem fallback matches the old pb-44.
+                <div
+                  ref={contentRef}
+                  // Top padding reserves clearance for the floating toolbar pills that
+                  // overlay the top of this scroll plane, so the first message never
+                  // renders behind them — a little extra on mobile where the pills sit
+                  // edge-to-edge over the full-width column.
+                  className="mx-auto flex w-full max-w-5xl flex-col gap-4 px-4 pt-20 sm:px-6 sm:pt-14"
+                  style={{ paddingBottom: 'calc(var(--composer-h, 11rem) + 1.5rem)' }}
                 >
-                  <WelcomeState
-                    isAuthenticated={isAuthenticated}
-                    onSignIn={onSignIn}
-                    inProject={Boolean(activeProjectId)}
-                  />
-                </motion.div>
-              )}
-            </AnimatePresence>
-            {!isEmpty && (
-            // Bottom padding tracks the floating composer's REAL height (published
-            // as --composer-h by MainLayout's ResizeObserver) plus a breathing gap,
-            // so the last message/Herleitung never renders behind the composer no
-            // matter how tall it grows. The 11rem fallback matches the old pb-44.
-            <div
-              ref={contentRef}
-              // Top padding reserves clearance for the floating toolbar pills that
-              // overlay the top of this scroll plane, so the first message never
-              // renders behind them — a little extra on mobile where the pills sit
-              // edge-to-edge over the full-width column.
-              className="mx-auto flex w-full max-w-5xl flex-col gap-4 px-4 pt-20 sm:px-6 sm:pt-14"
-              style={{ paddingBottom: 'calc(var(--composer-h, 11rem) + 1.5rem)' }}
-            >
-              <AnimatePresence initial={false}>
-                {displayableMessages.map((message, index) => {
-                  const isUserMessage = message.messageType === 'user' || message.role === 'user'
-                  const messageSteps = isUserMessage ? getStepsForUserMessage(message.id) : []
-                  const hasThinkingSteps = messageSteps.length > 0
+                  <AnimatePresence initial={false}>
+                    {displayableMessages.map((message, index) => {
+                      const isUserMessage =
+                        message.messageType === 'user' || message.role === 'user'
+                      const messageSteps = isUserMessage ? getStepsForUserMessage(message.id) : []
+                      const hasThinkingSteps = messageSteps.length > 0
 
-                  // Derive post-thinking state for user messages with thinking steps.
-                  // Priority: isThinking (active) > isWaiting (HITL) > isInterrupted > done
-                  const isCurrentlyStreaming = isStreaming && message.id === currentUserMessageId
-                  const shouldCheckPostState =
-                    isUserMessage && hasThinkingSteps && !isCurrentlyStreaming
-                  const remaining = shouldCheckPostState ? displayableMessages.slice(index + 1) : []
-                  const nextUserMessageIndex = remaining.findIndex(
-                    (m) => m.messageType === 'user' || m.role === 'user'
-                  )
-                  // Only evaluate status within this message turn (until next user message).
-                  // This prevents later turns from overriding interrupted/waiting state.
-                  const turnMessages =
-                    nextUserMessageIndex >= 0 ? remaining.slice(0, nextUserMessageIndex) : remaining
+                      // Derive post-thinking state for user messages with thinking steps.
+                      // Priority: isThinking (active) > isWaiting (HITL) > isInterrupted > done
+                      const isCurrentlyStreaming =
+                        isStreaming && message.id === currentUserMessageId
+                      const shouldCheckPostState =
+                        isUserMessage && hasThinkingSteps && !isCurrentlyStreaming
+                      const remaining = shouldCheckPostState
+                        ? displayableMessages.slice(index + 1)
+                        : []
+                      const nextUserMessageIndex = remaining.findIndex(
+                        (m) => m.messageType === 'user' || m.role === 'user'
+                      )
+                      // Only evaluate status within this message turn (until next user message).
+                      // This prevents later turns from overriding interrupted/waiting state.
+                      const turnMessages =
+                        nextUserMessageIndex >= 0
+                          ? remaining.slice(0, nextUserMessageIndex)
+                          : remaining
 
-                  // Waiting: an unresponded HITL prompt follows this user message
-                  const isWaiting =
-                    shouldCheckPostState &&
-                    turnMessages.some((m) => m.messageType === 'prompt' && !m.isPromptResponded)
+                      // Waiting: an unresponded HITL prompt follows this user message
+                      const isWaiting =
+                        shouldCheckPostState &&
+                        turnMessages.some((m) => m.messageType === 'prompt' && !m.isPromptResponded)
 
-                  // Interrupted: no actual response AND not waiting for HITL
-                  const hasResponse = turnMessages.some(
-                    (m) => m.messageType === 'assistant' || m.messageType === 'agent_response'
-                  )
-                  const isInterrupted = shouldCheckPostState && !isWaiting && !hasResponse
+                      // Interrupted: no actual response AND not waiting for HITL
+                      const hasResponse = turnMessages.some(
+                        (m) => m.messageType === 'assistant' || m.messageType === 'agent_response'
+                      )
+                      const isInterrupted = shouldCheckPostState && !isWaiting && !hasResponse
 
-                  // Real data threaded into the Herleitung assessment/next-steps
-                  // nodes: the turn's answer (confidence + citations) and any live
-                  // multiple-choice HITL prompt. Absent on streaming/shallow turns —
-                  // those nodes then hide themselves.
-                  const agentMsg = turnMessages.find(
-                    (m) => m.messageType === 'assistant' || m.messageType === 'agent_response'
-                  )
-                  const choicePromptMsg = turnMessages.find(
-                    (m) =>
-                      m.messageType === 'prompt' &&
-                      m.promptType === 'choice' &&
-                      (m.promptOptions?.length ?? 0) > 0
-                  )
-                  const choicePrompt = choicePromptMsg
-                    ? {
-                        promptId: choicePromptMsg.promptId ?? choicePromptMsg.id,
-                        text: choicePromptMsg.content,
-                        options: choicePromptMsg.promptOptions ?? [],
-                        isResponded: !!choicePromptMsg.isPromptResponded,
-                        selected: choicePromptMsg.promptResponse,
-                      }
-                    : undefined
+                      // Real data threaded into the Herleitung assessment/next-steps
+                      // nodes: the turn's answer (confidence + citations) and any live
+                      // multiple-choice HITL prompt. Absent on streaming/shallow turns —
+                      // those nodes then hide themselves.
+                      const agentMsg = turnMessages.find(
+                        (m) => m.messageType === 'assistant' || m.messageType === 'agent_response'
+                      )
+                      const choicePromptMsg = turnMessages.find(
+                        (m) =>
+                          m.messageType === 'prompt' &&
+                          m.promptType === 'choice' &&
+                          (m.promptOptions?.length ?? 0) > 0
+                      )
+                      const choicePrompt = choicePromptMsg
+                        ? {
+                            promptId: choicePromptMsg.promptId ?? choicePromptMsg.id,
+                            text: choicePromptMsg.content,
+                            options: choicePromptMsg.promptOptions ?? [],
+                            isResponded: !!choicePromptMsg.isPromptResponded,
+                            selected: choicePromptMsg.promptResponse,
+                          }
+                        : undefined
 
-                  // Whether this turn earns the „Als Aktenvermerk schreiben"
-                  // chip — a walkthrough or a ruling, in a project, long enough
-                  // that the reader is already thinking about where to put it
-                  // (`features/chat/lib/aktenvermerk-chip`).
-                  const aktenvermerk = offersAktenvermerk({
-                    kind: agentMsg?.answerMeta?.kind,
-                    projectId: activeProjectId,
-                    body: agentMsg?.content,
-                  })
+                      // Whether this turn earns the „Als Aktenvermerk schreiben"
+                      // chip — a walkthrough or a ruling, in a project, long enough
+                      // that the reader is already thinking about where to put it
+                      // (`features/chat/lib/aktenvermerk-chip`).
+                      const aktenvermerk = offersAktenvermerk({
+                        kind: agentMsg?.answerMeta?.kind,
+                        projectId: activeProjectId,
+                        body: agentMsg?.content,
+                      })
 
-                  // The just-sent question's turn is the top-anchor target on send.
-                  const isAnchorTarget = isUserMessage && message.id === currentUserMessageId
+                      // The just-sent question's turn is the top-anchor target on send.
+                      const isAnchorTarget = isUserMessage && message.id === currentUserMessageId
 
-                  const messageAuthorship = authorship.get(message.id)
+                      const messageAuthorship = authorship.get(message.id)
 
-                  return (
-                    <motion.div
-                      key={message.id}
-                      // The deep-link target (`#message-<id>`). Every message carries
-                      // it, not just mentions: an inbox item can point at any message,
-                      // and a link that resolves for some rows and not others is worse
-                      // than none.
-                      id={`message-${message.id}`}
-                      data-chat-anchor={isAnchorTarget ? 'true' : undefined}
-                      className={cn(
-                        'flex scroll-mt-20 flex-col gap-4 sm:scroll-mt-14',
-                        // The arrival mark: says "this is the one" for a beat, then
-                        // fades. A ring rather than a background, so it reads on the
-                        // user bubble and the answer card alike.
-                        highlightedMessageId === message.id &&
-                          'ring-warning/50 ring-offset-background duration-quick rounded-xl ring-2 ring-offset-4 transition-shadow ease-out motion-reduce:transition-none'
-                      )}
-                      variants={fadeRise}
-                      // Animate only genuinely new messages; hydrated ones render in place.
-                      initial={hydratedIds.has(message.id) ? false : 'hidden'}
-                      animate="visible"
-                      exit={{ opacity: 0, transition: motionQuick }}
-                      transition={motionQuick}
-                    >
-                      {/* Where the reader left off, in a shared thread (spec CC-19). */}
-                      {unreadDividerBeforeId === message.id && (
-                        <UnreadDivider label={tCollaboration('thread.unreadDivider')} />
-                      )}
+                      return (
+                        <motion.div
+                          key={message.id}
+                          // The deep-link target (`#message-<id>`). Every message carries
+                          // it, not just mentions: an inbox item can point at any message,
+                          // and a link that resolves for some rows and not others is worse
+                          // than none.
+                          id={`message-${message.id}`}
+                          data-chat-anchor={isAnchorTarget ? 'true' : undefined}
+                          className={cn(
+                            'flex scroll-mt-20 flex-col gap-4 sm:scroll-mt-14',
+                            // The arrival mark: says "this is the one" for a beat, then
+                            // fades. A ring rather than a background, so it reads on the
+                            // user bubble and the answer card alike.
+                            highlightedMessageId === message.id &&
+                              'ring-warning/50 ring-offset-background duration-quick rounded-xl ring-2 ring-offset-4 transition-shadow ease-out motion-reduce:transition-none'
+                          )}
+                          variants={fadeRise}
+                          // Animate only genuinely new messages; hydrated ones render in place.
+                          initial={hydratedIds.has(message.id) ? false : 'hidden'}
+                          animate="visible"
+                          exit={{ opacity: 0, transition: motionQuick }}
+                          transition={motionQuick}
+                        >
+                          {/* Where the reader left off, in a shared thread (spec CC-19). */}
+                          {unreadDividerBeforeId === message.id && (
+                            <UnreadDivider label={tCollaboration('thread.unreadDivider')} />
+                          )}
 
-                      {/* Render the message */}
-                      <MessageRenderer
-                        message={message}
-                        conversationId={currentConversation?.id}
-                        projectId={activeProjectId}
-                        onPromptRespond={handlePromptRespond}
-                        onErrorDismiss={dismissErrorCard}
-                        onErrorRetry={handleErrorRetry}
-                        showConfidenceChip={showConfidenceChip}
-                        showAnswerFeedback={showAnswerFeedback}
-                        showReasoning={showReasoningSkills}
-                        author={messageAuthorship?.author}
-                        grouped={messageAuthorship?.grouped}
-                        currentUserId={currentUserId}
-                        promptAddresseeName={
-                          message.promptFor ? (authorOf(message.promptFor)?.name ?? null) : null
-                        }
-                      />
+                          {/* Render the message */}
+                          <MessageRenderer
+                            message={message}
+                            conversationId={currentConversation?.id}
+                            projectId={activeProjectId}
+                            previousFindings={
+                              message.runLedger
+                                ? previousRunFindings(messages ?? [], message.id)
+                                : undefined
+                            }
+                            onCommissionFinding={commissionRun ? commissionFromFinding : undefined}
+                            onContinueRun={commissionRun ? continueRun : undefined}
+                            onPromptRespond={handlePromptRespond}
+                            onErrorDismiss={dismissErrorCard}
+                            onErrorRetry={handleErrorRetry}
+                            showConfidenceChip={showConfidenceChip}
+                            showAnswerFeedback={showAnswerFeedback}
+                            showReasoning={showReasoningSkills}
+                            author={messageAuthorship?.author}
+                            grouped={messageAuthorship?.grouped}
+                            currentUserId={currentUserId}
+                            promptAddresseeName={
+                              message.promptFor ? (authorOf(message.promptFor)?.name ?? null) : null
+                            }
+                          />
 
-                      {/* Assistant-side thread spine: the Herleitung shares the
+                          {/* Assistant-side thread spine: the Herleitung shares the
                       answer card's width and left alignment, so the reasoning and
                       the answer stack as ONE left column (the user bubble stays
                       right-aligned). Auto-expanded while the turn is live, it
                       collapses to a one-line bar once the answer lands. */}
-                      {isUserMessage && hasThinkingSteps && (
-                        <div className="w-full">
-                          <ChatThinking
-                            steps={messageSteps}
-                            isThinking={isStreaming && message.id === currentUserMessageId}
-                            autoOpen={
-                              (isStreaming && message.id === currentUserMessageId) || isWaiting
-                            }
-                            isWaiting={isWaiting}
-                            isInterrupted={isInterrupted}
-                            isRecoveryPending={isRecoveryPending}
-                            enabledDataSources={message.enabledDataSources}
-                            messageFiles={message.messageFiles}
-                            userQuestion={message.content}
-                            answerConfidence={agentMsg?.answerConfidence}
-                            citations={agentMsg?.citations}
-                            choicePrompt={choicePrompt}
-                            onChoiceRespond={handlePromptRespond}
-                            escalationReason={agentMsg?.escalationReason}
-                            retrievalLedger={agentMsg?.retrievalLedger}
-                          />
-                        </div>
-                      )}
+                          {isUserMessage && hasThinkingSteps && (
+                            <div className="w-full">
+                              <ChatThinking
+                                steps={messageSteps}
+                                isThinking={isStreaming && message.id === currentUserMessageId}
+                                autoOpen={
+                                  (isStreaming && message.id === currentUserMessageId) || isWaiting
+                                }
+                                isWaiting={isWaiting}
+                                isInterrupted={isInterrupted}
+                                isRecoveryPending={isRecoveryPending}
+                                enabledDataSources={message.enabledDataSources}
+                                messageFiles={message.messageFiles}
+                                userQuestion={message.content}
+                                answerConfidence={agentMsg?.answerConfidence}
+                                citations={agentMsg?.citations}
+                                choicePrompt={choicePrompt}
+                                onChoiceRespond={handlePromptRespond}
+                                escalationReason={agentMsg?.escalationReason}
+                                retrievalLedger={agentMsg?.retrievalLedger}
+                              />
+                            </div>
+                          )}
 
-                      {/* The questions this answer made askable, BELOW the
+                          {/* The questions this answer made askable, BELOW the
                       answer and outside its surface — the product owner's
                       ruling, and §6 of docs/architecture/post-answer-stages.md.
                       Same column, same edges, same full width as the answer and
@@ -935,7 +973,7 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
                       in the THREAD either, the answer no longer streaming, the
                       reader not already typing) is enforced where the frame
                       arrives, in `applyStageFrame`. */}
-                      {/* One more chip beside them, decided in the browser: the
+                          {/* One more chip beside them, decided in the browser: the
                       offer to file this answer as an Aktenvermerk. It rides the
                       rail rather than getting a surface of its own, because it
                       is the same gesture the questions are (fill the composer,
@@ -943,20 +981,20 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
                       answer would be a second thing to learn. `agentMsg` is
                       only resolved once the turn has an answer, so the chip
                       cannot appear mid-stream. */}
-                      {(message.stages?.followUps || aktenvermerk) && (
-                        <div className="w-full">
-                          <FollowUpsRail
-                            items={message.stages?.followUps?.items ?? []}
-                            offerAktenvermerk={aktenvermerk}
-                          />
-                        </div>
-                      )}
-                    </motion.div>
-                  )
-                })}
-              </AnimatePresence>
+                          {(message.stages?.followUps || aktenvermerk) && (
+                            <div className="w-full">
+                              <FollowUpsRail
+                                items={message.stages?.followUps?.items ?? []}
+                                offerAktenvermerk={aktenvermerk}
+                              />
+                            </div>
+                          )}
+                        </motion.div>
+                      )
+                    })}
+                  </AnimatePresence>
 
-              {/* The routing rule for a message that tags nobody (ADR-0036).
+                  {/* The routing rule for a message that tags nobody (ADR-0036).
               In `mention` mode it states the rule where the question occurs —
               "why didn't Piloti answer that?" — and offers the way back. In `ask`
               mode, which is the default and stays the default, it is silent unless
@@ -964,16 +1002,16 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
               announces: a thread must not rewire who answers next on its own.
               Above the banner because this is the standing rule while the banner
               is a transient state. */}
-              {shared && (
-                <EngagementNotice
-                  mode={engagement}
-                  suggestion={engagementSuggestion}
-                  onChange={setEngagement}
-                  canChange={myRole !== 'viewer'}
-                />
-              )}
+                  {shared && (
+                    <EngagementNotice
+                      mode={engagement}
+                      suggestion={engagementSuggestion}
+                      onChange={setEngagement}
+                      canChange={myRole !== 'viewer'}
+                    />
+                  )}
 
-              {/* The thread is WAITING on a named person (spec MN-8). Without this
+                  {/* The thread is WAITING on a named person (spec MN-8). Without this
               mounted, the agent's silence has no explanation on screen, and
               "Ohne Antwort weitermachen" — the release that ADR-0034 names as the
               mitigation for its own worst risk, a wait nobody ever answers — has no
@@ -984,31 +1022,31 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
               Mutually exclusive with the hand-back offer by construction: this
               returns null once `pending` is empty, which is exactly when the offer
               becomes eligible. */}
-              {shared && (
-                <AwaitingBanner
-                  awaiting={awaiting}
-                  onRelease={release}
-                  onAskAgent={handleAskAgent}
-                  onAskBack={handleAskBack}
-                />
-              )}
+                  {shared && (
+                    <AwaitingBanner
+                      awaiting={awaiting}
+                      onRelease={release}
+                      onAskAgent={handleAskAgent}
+                      onAskBack={handleAskBack}
+                    />
+                  )}
 
-              {/* The colleague has answered and Piloti is out of the loop — the one
+                  {/* The colleague has answered and Piloti is out of the loop — the one
               moment the thread is worth handing on, and until now the only
               transition with no affordance on screen (see HandbackOffer). Anchored
               here, directly under the answer it is about. */}
-              {showHandback && handback && (
-                <HandbackOffer
-                  people={handback.people}
-                  onAccept={handleHandback}
-                  onDismiss={() => setHandbackDismissedFor(handback.anchorId)}
-                />
-              )}
+                  {showHandback && handback && (
+                    <HandbackOffer
+                      people={handback.people}
+                      onAccept={handleHandback}
+                      onDismiss={() => setHandbackDismissedFor(handback.anchorId)}
+                    />
+                  )}
 
-              {/* Latency-gap typing indicator (before the first token arrives) */}
-              {showTypingPlaceholder && <TypingIndicator status={currentStatus} />}
+                  {/* Latency-gap typing indicator (before the first token arrives) */}
+                  {showTypingPlaceholder && <TypingIndicator status={currentStatus} />}
 
-              {/* The agent is working for SOMEONE in this thread (spec CC-13). Without
+                  {/* The agent is working for SOMEONE in this thread (spec CC-13). Without
               this an observer sees a thread where nothing appears to be happening
               and a composer that will not take their question. Suppressed while
               this client is itself streaming — the asker already has the typing
@@ -1021,49 +1059,49 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
               first moments before the first token. `spectatingLive` is the switch,
               and it only turns on once there is something to show, so the banner is
               never replaced by an empty box. */}
-              {shared &&
-                turnInFlight &&
-                !isStreaming &&
-                !showTypingPlaceholder &&
-                (spectatingLive && spectatedTurn ? (
-                  <SpectatedTurn turn={spectatedTurn} label={turnInFlightLabel} />
-                ) : (
-                  <TurnInFlightBanner label={turnInFlightLabel} />
-                ))}
+                  {shared &&
+                    turnInFlight &&
+                    !isStreaming &&
+                    !showTypingPlaceholder &&
+                    (spectatingLive && spectatedTurn ? (
+                      <SpectatedTurn turn={spectatedTurn} label={turnInFlightLabel} />
+                    ) : (
+                      <TurnInFlightBanner label={turnInFlightLabel} />
+                    ))}
 
-              {/* A colleague at a keyboard. Distinct vocabulary from the agent's
+                  {/* A colleague at a keyboard. Distinct vocabulary from the agent's
               banner above (see TypingPresence), and independent of it: somebody may
               well start writing while Piloti is still answering. */}
-              {shared && <TypingPresence typists={typists} />}
+                  {shared && <TypingPresence typists={typists} />}
 
-              {/* A colleague writing while you are reading is a change you must be able
+                  {/* A colleague writing while you are reading is a change you must be able
               to learn about without eyes. Polite, so it never interrupts. Keyed on
               the message id so a SECOND arrival from the same person is a fresh
               node — identical text in a mutated region is not re-announced. */}
-              <div
-                key={lastArrival?.messageId ?? 'none'}
-                className="sr-only"
-                role="status"
-                aria-live="polite"
-                aria-atomic="true"
-              >
-                {shared && lastArrival
-                  ? tCollaboration('thread.authorAria', {
-                      name:
-                        lastArrival.authorName ??
-                        authorOf(lastArrival.authorUserId)?.name ??
-                        tCollaboration('inbox.unknownActor'),
-                    })
-                  : ''}
-              </div>
+                  <div
+                    key={lastArrival?.messageId ?? 'none'}
+                    className="sr-only"
+                    role="status"
+                    aria-live="polite"
+                    aria-atomic="true"
+                  >
+                    {shared && lastArrival
+                      ? tCollaboration('thread.authorAria', {
+                          name:
+                            lastArrival.authorName ??
+                            authorOf(lastArrival.authorUserId)?.name ??
+                            tCollaboration('inbox.unknownActor'),
+                        })
+                      : ''}
+                  </div>
 
-              {/* Top-anchor spacer: invisible, zero-height by default, sized to a
+                  {/* Top-anchor spacer: invisible, zero-height by default, sized to a
               viewport only while a just-sent question is anchored to the top so
               it can reach the top and the answer streams downward. Released when
               the turn ends. */}
-              <div ref={anchorSpacerRef} aria-hidden="true" style={{ minHeight: 0 }} />
-            </div>
-            )}
+                  <div ref={anchorSpacerRef} aria-hidden="true" style={{ minHeight: 0 }} />
+                </div>
+              )}
             </>
           )}
         </div>
@@ -1127,6 +1165,12 @@ interface MessageRendererProps {
   currentUserId?: string | null
   /** Who a restored prompt was addressed to, for the read-only line (ADR-0037). */
   promptAddresseeName?: string | null
+  /** The previous run's findings in this thread, for a report's change marks. */
+  previousFindings?: Findings
+  /** Commission a run to clear an open finding; absent when the thread cannot. */
+  onCommissionFinding?: (finding: Finding) => Promise<boolean>
+  /** „Bericht fortschreiben" for a finished run's message. */
+  onContinueRun?: (message: ChatMessage) => Promise<void>
 }
 
 const MessageRendererComponent: FC<MessageRendererProps> = ({
@@ -1143,6 +1187,9 @@ const MessageRendererComponent: FC<MessageRendererProps> = ({
   grouped,
   currentUserId,
   promptAddresseeName,
+  previousFindings,
+  onCommissionFinding,
+  onContinueRun,
 }) => {
   const tFileStatus = useTranslations('research')
   const messageType = message.messageType || (message.role === 'user' ? 'user' : 'assistant')
@@ -1204,6 +1251,9 @@ const MessageRendererComponent: FC<MessageRendererProps> = ({
           cardInteractions={message.cardInteractions}
           stages={message.stages}
           answerMeta={message.answerMeta}
+          findings={message.findings}
+          previousFindings={previousFindings}
+          onCommissionFinding={onCommissionFinding}
           answerConfidence={message.answerConfidence}
           answerConfidenceCappedReason={message.answerConfidenceCappedReason}
           answerConfidenceReason={message.answerConfidenceReason}
@@ -1232,11 +1282,17 @@ const MessageRendererComponent: FC<MessageRendererProps> = ({
       // to reach `AgentResponse` as `jobId` and grow a "Bericht anzeigen"
       // button on the finished block — a door that opened the legacy research
       // panel OVER the run it belongs to. `AgentResponse` no longer takes those
-      // props, so the report is read where the reader already is. The banner
-      // below is the last surface that still opens the panel, and it is
-      // produced only for threads older than run messages.
+      // props, so the report is read where the reader already is.
       if (message.runLedger) {
-        return <RunBlockMessage message={message} projectId={projectId} answer={answer} />
+        return (
+          <RunBlockMessage
+            message={message}
+            projectId={projectId}
+            conversationId={conversationId}
+            answer={answer}
+            onContinue={onContinueRun ? () => onContinueRun(message) : null}
+          />
+        )
       }
       return answer
     }
@@ -1289,23 +1345,6 @@ const MessageRendererComponent: FC<MessageRendererProps> = ({
         />
       )
 
-    case 'deep_research_banner':
-      // Deep research status banners (success/failure)
-      if (!message.deepResearchBannerData) {
-        return null
-      }
-      return (
-        <DeepResearchBanner
-          bannerType={message.deepResearchBannerData.bannerType}
-          jobId={message.deepResearchBannerData.jobId}
-          toolCallCount={message.deepResearchBannerData.toolCallCount}
-          timestamp={message.timestamp}
-          escalationReason={message.deepResearchBannerData.escalationReason}
-          filedDocument={message.deepResearchBannerData.filedDocument}
-          filingFailed={message.deepResearchBannerData.filingFailed}
-        />
-      )
-
     case 'assistant':
       // Assistant messages (full reports) are not shown in chat area
       // They are displayed in the Details Panel instead
@@ -1337,6 +1376,9 @@ const areMessageRendererPropsEqual = (
   prev.message.isStreaming === next.message.isStreaming &&
   prev.conversationId === next.conversationId &&
   prev.projectId === next.projectId &&
+  prev.previousFindings === next.previousFindings &&
+  prev.onCommissionFinding === next.onCommissionFinding &&
+  prev.onContinueRun === next.onContinueRun &&
   prev.showConfidenceChip === next.showConfidenceChip &&
   prev.showAnswerFeedback === next.showAnswerFeedback &&
   prev.showReasoning === next.showReasoning &&
@@ -1462,7 +1504,10 @@ const TypingIndicator: FC<{ status?: StatusType | null }> = ({ status }) => {
           transition={{ ...motionQuick, repeat: Infinity, delay: 0.24 }}
         />
       </span>
-      <span className="text-muted-foreground/70 hidden text-xs motion-reduce:inline" aria-hidden="true">
+      <span
+        className="text-muted-foreground/70 hidden text-xs motion-reduce:inline"
+        aria-hidden="true"
+      >
         …
       </span>
       {/* Always word the wait (shimmering), and surface elapsed seconds once

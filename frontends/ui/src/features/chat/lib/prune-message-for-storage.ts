@@ -68,25 +68,8 @@ export const stripThinkingStepsForStorage = (
 }
 
 /**
- * Prune plan messages to reduce storage size.
- * Keeps plan structure but caps text content.
- * planMessages cannot be refetched (WebSocket only).
- */
-export const prunePlanMessages = (
-  planMessages: NonNullable<ChatMessage['planMessages']>,
-  maxTextLength = 10000
-): NonNullable<ChatMessage['planMessages']> => {
-  return planMessages.map((pm) => ({
-    ...pm,
-    text: capString(pm.text, maxTextLength),
-    userResponse: pm.userResponse ? capString(pm.userResponse, 2000) : pm.userResponse,
-  }))
-}
-
-/**
- * Prune a message for localStorage storage by removing heavy fields that
- * can be fetched from the backend on demand, stripping thinking step
- * content, and capping plan message text.
+ * Prune a message for localStorage storage by dropping legacy fields,
+ * stripping thinking step content and capping citation text.
  *
  * KEEPS (Essential for UI):
  * - Core message fields (id, role, content, timestamp, messageType)
@@ -94,16 +77,12 @@ export const prunePlanMessages = (
  *   content; a shallow answer's sources are NOT refetchable, so dropping them
  *   made the chips vanish on reload while the Herleitung fan-out survived)
  * - thinkingSteps (stripped: content removed, deep research steps dropped)
- * - planMessages (capped: text 10k, userResponse 2k — cannot be refetched)
  * - enabledDataSources, messageFiles (for "Selected Data Sources")
- * - deepResearchTodos (lightweight last-known task state)
- * - Deep research job metadata (for restoration)
+ * - runLedger (the run's bounded account, see `lib/runs/run-ledger-types`)
  * - HITL/prompt fields (for interaction state)
  * - Other message type data (status, file, error, banner data)
  *
- * REMOVES (Can fetch from backend via importStreamOnly):
- * - reportContent, deepResearchLLMSteps, deepResearchAgents,
- *   deepResearchToolCalls, deepResearchFiles
+ * REMOVES:
  * - intermediateSteps (legacy, unused)
  * - thinkingStep content/rawPayload (never displayed in ChatThinking)
  * - Deep research thinking steps (refetched from async API)
@@ -131,19 +110,10 @@ const MAX_CITATION_CONTENT = 300
 const MAX_CITATION_SNIPPET = 1200
 
 export const pruneMessageForStorage = (message: ChatMessage): ChatMessage => {
-  const {
-    reportContent: _reportContent,
-    deepResearchLLMSteps: _deepResearchLLMSteps,
-    deepResearchAgents: _deepResearchAgents,
-    deepResearchToolCalls: _deepResearchToolCalls,
-    deepResearchFiles: _deepResearchFiles,
-    intermediateSteps: _intermediateSteps,
-    ...prunedMessage
-  } = message
+  const { intermediateSteps: _intermediateSteps, ...prunedMessage } = message
 
   // Keep the provenance chips across reload: citations are small metadata, and
-  // the two free-text fields are capped so storage stays bounded. Deep-research
-  // citations are still refetched from the async API and simply overwrite these.
+  // the two free-text fields are capped so storage stays bounded.
   if (prunedMessage.citations?.length) {
     prunedMessage.citations = prunedMessage.citations.map((c) => {
       const content =
@@ -160,10 +130,6 @@ export const pruneMessageForStorage = (message: ChatMessage): ChatMessage => {
 
   if (prunedMessage.thinkingSteps?.length) {
     prunedMessage.thinkingSteps = stripThinkingStepsForStorage(prunedMessage.thinkingSteps)
-  }
-
-  if (prunedMessage.planMessages?.length) {
-    prunedMessage.planMessages = prunePlanMessages(prunedMessage.planMessages)
   }
 
   return prunedMessage

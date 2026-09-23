@@ -2,23 +2,21 @@
  * @vitest-environment node
  */
 /**
- * Tests for session-activity utility functions
+ * Tests for session-activity utility functions: what a thread's stored run
+ * ledgers say about it.
  */
 
 import { describe, it, expect } from 'vitest'
+import { emptyRunLedger, failRun, finishRun, setRunStatus } from '@/lib/runs/run-ledger'
+import type { RunStatus } from '@/lib/runs/run-ledger-types'
 import {
-  hasActiveDeepResearchJob,
-  hasCompletedDeepResearchReport,
-  hasExpiredDeepResearchReport,
-  getPersistedActivityFlags,
+  hasFinishedRun,
+  hasLiveRun,
   hasNoUserChatMessages,
-  isTerminalDeepResearchJobStatus,
+  liveRunMessages,
 } from './session-activity'
 import type { ChatMessage } from '../types'
 
-/**
- * Helper to create a minimal ChatMessage for testing
- */
 const makeMessage = (overrides: Partial<ChatMessage> = {}): ChatMessage => ({
   id: 'msg-1',
   role: 'assistant',
@@ -27,254 +25,81 @@ const makeMessage = (overrides: Partial<ChatMessage> = {}): ChatMessage => ({
   ...overrides,
 })
 
+const runMessage = (id: string, status: RunStatus): ChatMessage =>
+  makeMessage({
+    id,
+    messageType: 'agent_response',
+    runLedger: setRunStatus(emptyRunLedger(`run-${id}`), status),
+  })
+
 describe('hasNoUserChatMessages', () => {
   it('returns true when there are no user messages', () => {
     expect(hasNoUserChatMessages([])).toBe(true)
     expect(
       hasNoUserChatMessages([
-        makeMessage({
-          messageType: 'status',
-        }),
+        makeMessage({ messageType: 'status' }),
+        makeMessage({ id: 'a', messageType: 'agent_response' }),
       ])
     ).toBe(true)
   })
 
   it('returns false when a user message exists', () => {
-    expect(hasNoUserChatMessages([makeMessage({ messageType: 'user', content: 'hi' })])).toBe(false)
+    expect(hasNoUserChatMessages([makeMessage({ role: 'user', messageType: 'user' })])).toBe(false)
   })
 })
 
-describe('hasActiveDeepResearchJob', () => {
-  it('returns false for empty message array', () => {
-    expect(hasActiveDeepResearchJob([])).toBe(false)
+describe('hasLiveRun', () => {
+  it('is false for a thread without runs', () => {
+    expect(hasLiveRun([])).toBe(false)
+    expect(hasLiveRun([makeMessage({ messageType: 'agent_response' })])).toBe(false)
   })
 
-  it('returns false when no messages have deep research job IDs', () => {
-    const messages = [
-      makeMessage({ messageType: 'user' }),
-      makeMessage({ messageType: 'agent_response' }),
-    ]
-    expect(hasActiveDeepResearchJob(messages)).toBe(false)
+  it.each([['angelegt'], ['laeuft'], ['wartet']] as const)('is true while a run is %s', (status) => {
+    expect(hasLiveRun([runMessage('a', status)])).toBe(true)
   })
 
-  it('returns true when most recent job status is "submitted"', () => {
-    const messages = [
-      makeMessage({
-        messageType: 'agent_response',
-        deepResearchJobId: 'job-1',
-        deepResearchJobStatus: 'submitted',
-      }),
-    ]
-    expect(hasActiveDeepResearchJob(messages)).toBe(true)
-  })
-
-  it('returns true when most recent job status is "running"', () => {
-    const messages = [
-      makeMessage({
-        messageType: 'agent_response',
-        deepResearchJobId: 'job-1',
-        deepResearchJobStatus: 'running',
-      }),
-    ]
-    expect(hasActiveDeepResearchJob(messages)).toBe(true)
-  })
-
-  it('returns false when most recent job status is "success"', () => {
-    const messages = [
-      makeMessage({
-        messageType: 'agent_response',
-        deepResearchJobId: 'job-1',
-        deepResearchJobStatus: 'success',
-      }),
-    ]
-    expect(hasActiveDeepResearchJob(messages)).toBe(false)
-  })
-
-  it('returns false when most recent job status is "failure"', () => {
-    const messages = [
-      makeMessage({
-        messageType: 'agent_response',
-        deepResearchJobId: 'job-1',
-        deepResearchJobStatus: 'failure',
-      }),
-    ]
-    expect(hasActiveDeepResearchJob(messages)).toBe(false)
-  })
-
-  it('returns false when most recent job status is "interrupted"', () => {
-    const messages = [
-      makeMessage({
-        messageType: 'agent_response',
-        deepResearchJobId: 'job-1',
-        deepResearchJobStatus: 'interrupted',
-      }),
-    ]
-    expect(hasActiveDeepResearchJob(messages)).toBe(false)
-  })
-
-  it('checks MOST RECENT job message, not first', () => {
-    const messages = [
-      makeMessage({
-        id: 'msg-old',
-        messageType: 'agent_response',
-        deepResearchJobId: 'job-1',
-        deepResearchJobStatus: 'running',
-      }),
-      makeMessage({ id: 'msg-middle', messageType: 'user' }),
-      makeMessage({
-        id: 'msg-new',
-        messageType: 'agent_response',
-        deepResearchJobId: 'job-2',
-        deepResearchJobStatus: 'success',
-      }),
-    ]
-    // Most recent job (job-2) is success, so not active
-    expect(hasActiveDeepResearchJob(messages)).toBe(false)
-  })
-
-  it('returns true when most recent job is running even if older jobs are complete', () => {
-    const messages = [
-      makeMessage({
-        id: 'msg-old',
-        messageType: 'agent_response',
-        deepResearchJobId: 'job-1',
-        deepResearchJobStatus: 'success',
-      }),
-      makeMessage({ id: 'msg-user', messageType: 'user' }),
-      makeMessage({
-        id: 'msg-new',
-        messageType: 'agent_response',
-        deepResearchJobId: 'job-2',
-        deepResearchJobStatus: 'running',
-      }),
-    ]
-    expect(hasActiveDeepResearchJob(messages)).toBe(true)
-  })
-
-  it('ignores messages without deepResearchJobId', () => {
-    const messages = [
-      makeMessage({
-        messageType: 'agent_response',
-        deepResearchJobId: 'job-1',
-        deepResearchJobStatus: 'running',
-      }),
-      // Non-DR agent_response at the end — should be skipped
-      makeMessage({
-        id: 'msg-latest',
-        messageType: 'agent_response',
-        content: 'Just a regular response',
-      }),
-    ]
-    // The latest agent_response with a job ID is job-1 (running)
-    expect(hasActiveDeepResearchJob(messages)).toBe(true)
-  })
-})
-
-describe('report status helpers', () => {
-  it('returns true for completed report sessions with a visible report action', () => {
-    const messages = [
-      makeMessage({
-        messageType: 'agent_response',
-        deepResearchJobId: 'job-1',
-        deepResearchJobStatus: 'success',
-        showViewReport: true,
-      }),
-    ]
-
-    expect(hasCompletedDeepResearchReport(messages)).toBe(true)
-    expect(hasExpiredDeepResearchReport(messages)).toBe(false)
-  })
-
-  it('returns true for expired reports and does not also count them as completed', () => {
-    const messages = [
-      makeMessage({
-        messageType: 'agent_response',
-        deepResearchJobId: 'job-1',
-        deepResearchJobStatus: 'failure',
-        deepResearchReportExpired: true,
-        showViewReport: false,
-      }),
-    ]
-
-    expect(hasExpiredDeepResearchReport(messages)).toBe(true)
-    expect(hasCompletedDeepResearchReport(messages)).toBe(false)
-  })
-
-  it('uses the latest deep research job message for report state', () => {
-    const messages = [
-      makeMessage({
-        id: 'old-job',
-        messageType: 'agent_response',
-        deepResearchJobId: 'job-1',
-        deepResearchJobStatus: 'success',
-        showViewReport: true,
-      }),
-      makeMessage({
-        id: 'latest-job',
-        messageType: 'agent_response',
-        deepResearchJobId: 'job-2',
-        deepResearchJobStatus: 'failure',
-        deepResearchReportExpired: true,
-      }),
-    ]
-
-    expect(hasCompletedDeepResearchReport(messages)).toBe(false)
-    expect(hasExpiredDeepResearchReport(messages)).toBe(true)
-  })
-})
-
-describe('getPersistedActivityFlags', () => {
-  it('returns all false for empty messages and no pending interaction', () => {
-    const flags = getPersistedActivityFlags([], null)
-    expect(flags.hasActiveDeepResearch).toBe(false)
-    expect(flags.hasPendingHITL).toBe(false)
-  })
-
-  it('detects active deep research from messages', () => {
-    const messages = [
-      makeMessage({
-        messageType: 'agent_response',
-        deepResearchJobId: 'job-1',
-        deepResearchJobStatus: 'running',
-      }),
-    ]
-    const flags = getPersistedActivityFlags(messages, null)
-    expect(flags.hasActiveDeepResearch).toBe(true)
-    expect(flags.hasPendingHITL).toBe(false)
-  })
-
-  it('detects pending HITL interaction', () => {
-    const flags = getPersistedActivityFlags([], { type: 'plan_approval', content: 'Approve?' })
-    expect(flags.hasActiveDeepResearch).toBe(false)
-    expect(flags.hasPendingHITL).toBe(true)
-  })
-
-  it('detects both active deep research and pending HITL', () => {
-    const messages = [
-      makeMessage({
-        messageType: 'agent_response',
-        deepResearchJobId: 'job-1',
-        deepResearchJobStatus: 'submitted',
-      }),
-    ]
-    const flags = getPersistedActivityFlags(messages, { type: 'plan_approval' })
-    expect(flags.hasActiveDeepResearch).toBe(true)
-    expect(flags.hasPendingHITL).toBe(true)
-  })
-})
-
-describe('isTerminalDeepResearchJobStatus', () => {
-  it.each([['success'], ['failure'], ['interrupted']] as const)(
-    'treats %s as terminal',
+  it.each([['fertig'], ['fehlgeschlagen'], ['abgebrochen'], ['unterbrochen']] as const)(
+    'is false once every run is %s',
     (status) => {
-      expect(isTerminalDeepResearchJobStatus(status)).toBe(true)
+      expect(hasLiveRun([runMessage('a', status)])).toBe(false)
     }
   )
 
-  it.each([['submitted'], ['running'], [null], [undefined]] as const)(
-    'does not treat %s as terminal',
-    (status) => {
-      expect(isTerminalDeepResearchJobStatus(status)).toBe(false)
-    }
-  )
+  it('is true when ANY run in the thread is live, not only the latest', () => {
+    expect(hasLiveRun([runMessage('a', 'laeuft'), runMessage('b', 'fertig')])).toBe(true)
+  })
+
+  it('reads a ledger with no status word off its terminal fields', () => {
+    const done = makeMessage({
+      messageType: 'agent_response',
+      runLedger: finishRun(emptyRunLedger('run-x'), { filedAt: '2026-01-01T00:00:00.000Z' }),
+    })
+    const failed = makeMessage({
+      id: 'f',
+      messageType: 'agent_response',
+      runLedger: failRun(emptyRunLedger('run-y'), 'Abbruch'),
+    })
+    expect(hasLiveRun([done, failed])).toBe(false)
+  })
+})
+
+describe('liveRunMessages', () => {
+  it('returns only the run messages whose run is still live', () => {
+    const live = runMessage('a', 'laeuft')
+    const done = runMessage('b', 'fertig')
+    const chat = makeMessage({ id: 'c', messageType: 'agent_response' })
+    expect(liveRunMessages([chat, live, done])).toEqual([live])
+  })
+})
+
+describe('hasFinishedRun', () => {
+  it('is true when a run finished with a report', () => {
+    expect(hasFinishedRun([runMessage('a', 'fertig')])).toBe(true)
+  })
+
+  it('is false for a failed, stopped or still-going run', () => {
+    expect(hasFinishedRun([runMessage('a', 'fehlgeschlagen')])).toBe(false)
+    expect(hasFinishedRun([runMessage('a', 'abgebrochen')])).toBe(false)
+    expect(hasFinishedRun([runMessage('a', 'laeuft')])).toBe(false)
+  })
 })

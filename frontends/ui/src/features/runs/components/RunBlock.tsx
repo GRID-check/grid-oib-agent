@@ -66,7 +66,7 @@
 
 import { type FC, type ReactNode, useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
-import { CheckCircle2, ChevronDown, FileText, XCircle } from 'lucide-react'
+import { BookOpen, CheckCircle2, ChevronDown, FileText, XCircle } from 'lucide-react'
 
 import {
   AnimatePresence,
@@ -104,6 +104,7 @@ import {
   activePhase,
   completedBefore,
   elapsedMs,
+  grundlageReceipt,
   isLiveStatus,
   phaseDurationMs,
   phaseState,
@@ -159,6 +160,29 @@ export interface RunBlockProps {
    * block keeps saying what the ledger says until the fold says it stopped.
    */
   onCancel?: (() => void | Promise<void>) | null
+  /**
+   * „Jetzt schreiben": stop researching and write from what is there. Offered
+   * only while the run is researching — the one phase where it changes what
+   * happens — and only when a caller hands one in.
+   */
+  onWriteNow?: (() => void | Promise<void>) | null
+  /**
+   * „Unterlage hinzufügen": name one more document as Grundlage while the run
+   * goes. Offered while the run is going and a caller hands one in; opens the
+   * caller's picker, which is why it takes nothing.
+   */
+  onAddDocument?: (() => void) | null
+  /**
+   * Open one Grundlage document from the receipt — as a dialog over the thread.
+   * Absent, the receipt names the document and nothing opens.
+   */
+  onOpenDocument?: ((doc: RunLedgerDoc) => void) | null
+  /**
+   * „Bericht fortschreiben": a new run on the same subject, briefed with this
+   * run's findings, so a changed project fact re-reads the Befunde instead of
+   * re-commissioning the work from scratch. Offered on a finished report only.
+   */
+  onContinue?: (() => void | Promise<void>) | null
   /** fertig & unreviewed: „Prüfen". */
   reviewHref?: string | null
   /** fertig & reviewed: „Bericht öffnen". */
@@ -178,6 +202,7 @@ function talliesLabel(t: Translator, tallies: RunTallies): string {
   return [
     tallies.rounds > 0 ? t('tallies.rounds', { count: tallies.rounds }) : null,
     tallies.docs > 0 ? t('tallies.docs', { count: tallies.docs }) : null,
+    (tallies.findings ?? 0) > 0 ? t('tallies.findings', { count: tallies.findings ?? 0 }) : null,
   ]
     .filter((clause): clause is string => clause !== null)
     .join(' · ')
@@ -202,21 +227,24 @@ function statusLine(
   ledger: RunLedger,
   status: RunStatus,
   tallies: RunTallies,
-  filesToProject: boolean,
+  filesToProject: boolean
 ): string {
   switch (status) {
     case 'angelegt':
       return clauses(t('status.angelegt'), filesToProject ? t('line.filing') : null)
     case 'laeuft': {
       const phase = activePhase(ledger)
-      return clauses(phase ? t(`phase.${phase}`) : t('status.laeuft'), talliesLabel(t, tallies) || null)
+      return clauses(
+        phase ? t(`phase.${phase}`) : t('status.laeuft'),
+        talliesLabel(t, tallies) || null
+      )
     }
     case 'wartet':
       return clauses(t('status.wartet'), t('line.wartet'))
     case 'fertig':
       return clauses(
         t('status.fertig'),
-        ledger.result?.fileId ? t('line.fertigFiled') : t('line.fertigInline'),
+        ledger.result?.fileId ? t('line.fertigFiled') : t('line.fertigInline')
       )
     case 'fehlgeschlagen':
       return t('line.fehlgeschlagen', { reason: ledger.error?.reason ?? '' })
@@ -228,7 +256,11 @@ function statusLine(
 }
 
 /** „Bis dahin: Planen, Recherchieren (2 Runden, 6 Dokumente)". */
-function completedBeforeLabel(t: Translator, ledger: RunLedger, tallies: RunTallies): string | null {
+function completedBeforeLabel(
+  t: Translator,
+  ledger: RunLedger,
+  tallies: RunTallies
+): string | null {
   const phases = completedBefore(ledger)
   if (phases.length === 0) return null
   const named = phases.map((phase) => {
@@ -281,8 +313,8 @@ const DocChip: FC<{ doc: RunLedgerDoc; reduced: boolean }> = ({ doc, reduced }) 
     <SourceSignalChip
       signal={tint}
       className={cn(
-        'max-w-full transition-opacity duration-quick ease-out motion-reduce:transition-none',
-        doc.repeat && 'opacity-75',
+        'duration-quick max-w-full transition-opacity ease-out motion-reduce:transition-none',
+        doc.repeat && 'opacity-75'
       )}
       title={loci ? `${name} · ${loci}` : name}
     >
@@ -333,7 +365,8 @@ const RoundRow: FC<{ step: RunStep; index: number; reduced: boolean }> = ({
 }) => {
   const t = useTranslations('runs')
   const intent = step.intent.trim() || t('step.fallback', { n: index + 1 })
-  const chipDelay = (position: number): number => Math.min(position, staggerMaxSteps) * staggerStepSeconds
+  const chipDelay = (position: number): number =>
+    Math.min(position, staggerMaxSteps) * staggerStepSeconds
   const afterChips = (Math.min(step.docs.length, staggerMaxSteps) + 1) * staggerStepSeconds
   const fadeAfter = (delay: number) => (reduced ? motionInstant : { ...motionQuick, delay })
   return (
@@ -345,7 +378,7 @@ const RoundRow: FC<{ step: RunStep; index: number; reduced: boolean }> = ({
         animate="visible"
         transition={reduced ? motionInstant : motionEntrance}
       >
-        <p className="text-xs leading-snug text-foreground">
+        <p className="text-foreground text-xs leading-snug">
           <span className="font-medium tabular-nums">{t('step.round', { n: index + 1 })}</span>
           <Sep />
           {intent}
@@ -365,14 +398,33 @@ const RoundRow: FC<{ step: RunStep; index: number; reduced: boolean }> = ({
             ))}
           </div>
         )}
+        {step.findings && step.findings.length > 0 && (
+          <motion.ul
+            className="text-foreground text-[11px] leading-relaxed"
+            data-testid="run-findings"
+            variants={FADE}
+            transition={fadeAfter(afterChips)}
+            aria-label={t('step.findings')}
+          >
+            {step.findings.map((finding) => (
+              <li key={finding} className="flex gap-1.5">
+                <span aria-hidden="true" className="text-muted-foreground">
+                  ·
+                </span>
+                <span>{finding}</span>
+              </li>
+            ))}
+          </motion.ul>
+        )}
         {step.openPoints && step.openPoints.length > 0 && (
           <motion.p
-            className="text-[11px] leading-relaxed text-muted-foreground"
+            className="text-muted-foreground text-[11px] leading-relaxed"
             data-testid="run-open-points"
             variants={FADE}
             transition={fadeAfter(afterChips)}
           >
-            <span className="font-medium">{t('step.openPoints')}</span> {step.openPoints.join(' · ')}
+            <span className="font-medium">{t('step.openPoints')}</span>{' '}
+            {step.openPoints.join(' · ')}
           </motion.p>
         )}
       </motion.li>
@@ -435,11 +487,14 @@ const PhaseActs: FC<{
   })
   if (rows.length === 0) return null
   return (
-    <dl className="flex flex-col gap-0.5 border-t border-border px-3 py-2" data-testid="run-phase-acts">
+    <dl
+      className="border-border flex flex-col gap-0.5 border-t px-3 py-2"
+      data-testid="run-phase-acts"
+    >
       {rows.map(({ phase, line, duration }) => (
         <div
           key={phase}
-          className="flex gap-1.5 text-[11px] text-muted-foreground"
+          className="text-muted-foreground flex gap-1.5 text-[11px]"
           data-phase={phase}
         >
           <dt className="shrink-0 font-medium">{t(`phase.${phase}`)}</dt>
@@ -470,6 +525,10 @@ export function RunBlock({
   onAnswer,
   onRetry,
   onCancel,
+  onWriteNow,
+  onAddDocument,
+  onOpenDocument,
+  onContinue,
   connection,
   reviewHref,
   reportHref,
@@ -603,13 +662,55 @@ export function RunBlock({
       </Button>
     ) : null
 
+  const writeNow: ReactNode =
+    onWriteNow && live && activePhase(ledger) === 'recherchieren' ? (
+      <Button
+        size="sm"
+        variant="outline"
+        className="h-7 px-2 text-xs"
+        onClick={() => void onWriteNow()}
+        data-testid="run-action-write-now"
+      >
+        {t('action.writeNow')}
+      </Button>
+    ) : null
+
+  const addDocument: ReactNode =
+    onAddDocument && live ? (
+      <Button
+        size="sm"
+        variant="ghost"
+        className="text-muted-foreground h-7 gap-1 px-2 text-xs"
+        onClick={onAddDocument}
+        data-testid="run-action-add-document"
+      >
+        <BookOpen className="size-3.5" aria-hidden />
+        {t('unterlagen.addAction')}
+      </Button>
+    ) : null
+
+  const receipt = grundlageReceipt(ledger)
+
+  const carryForward: ReactNode =
+    onContinue && (status === 'fertig' || status === 'unterbrochen') ? (
+      <Button
+        size="sm"
+        variant="ghost"
+        className="text-muted-foreground h-7 px-2 text-xs"
+        onClick={() => void onContinue()}
+        data-testid="run-action-continue"
+      >
+        {t('action.continue')}
+      </Button>
+    ) : null
+
   const [confirmingCancel, setConfirmingCancel] = useState(false)
   const stop: ReactNode =
     onCancel && live ? (
       <Button
         size="sm"
         variant="ghost"
-        className="h-7 px-2 text-xs text-muted-foreground"
+        className="text-muted-foreground h-7 px-2 text-xs"
         onClick={() => setConfirmingCancel(true)}
         data-testid="run-action-cancel"
       >
@@ -657,8 +758,8 @@ export function RunBlock({
       data-testid="run-block"
       data-status={status}
       className={cn(
-        'animate-in fade-in-0 slide-in-from-bottom-1 w-full overflow-hidden rounded-xl border border-border bg-card duration-base ease-entrance motion-reduce:animate-none',
-        className,
+        'animate-in fade-in-0 slide-in-from-bottom-1 border-border bg-card duration-base ease-entrance w-full overflow-hidden rounded-xl border motion-reduce:animate-none',
+        className
       )}
     >
       <Collapsible open={open} onOpenChange={handleOpenChange}>
@@ -676,30 +777,33 @@ export function RunBlock({
                   the title — and the state is on the section's own label. */}
               <button
                 type="button"
-                className="group flex min-w-0 flex-1 basis-40 cursor-pointer items-center gap-2 rounded-md text-left outline-none transition-colors duration-snap ease-out focus-visible:ring-2 focus-visible:ring-ring/60 motion-reduce:transition-none"
+                className="duration-snap focus-visible:ring-ring/60 group flex min-w-0 flex-1 basis-40 cursor-pointer items-center gap-2 rounded-md text-left outline-none transition-colors ease-out focus-visible:ring-2 motion-reduce:transition-none"
               >
                 <RunStatusGlyph status={status} size="sm" delay={landing?.glyph ?? 0} />
                 <span
-                  className="min-w-0 flex-1 truncate text-xs font-medium text-foreground"
+                  className="text-foreground min-w-0 flex-1 truncate text-xs font-medium"
                   data-testid="run-title"
                 >
                   {name}
                 </span>
-                <ChevronDown className="size-3.5 shrink-0 text-muted-foreground transition-transform duration-quick ease-out group-data-[state=open]:rotate-180 motion-reduce:transition-none" />
+                <ChevronDown className="text-muted-foreground duration-quick size-3.5 shrink-0 transition-transform ease-out group-data-[state=open]:rotate-180 motion-reduce:transition-none" />
                 <span className="sr-only">{t('block.toggle')}</span>
               </button>
             </CollapsibleTrigger>
             <span className="ml-auto flex shrink-0 items-center gap-1">
               {elapsed && (
                 <span
-                  className="tabular-nums text-[11px] text-muted-foreground"
+                  className="text-muted-foreground text-[11px] tabular-nums"
                   aria-label={t('block.elapsedAria', { elapsed })}
                   data-testid="run-elapsed"
                 >
                   {elapsed}
                 </span>
               )}
+              {writeNow}
+              {addDocument}
               {stop}
+              {carryForward}
               {action}
             </span>
           </div>
@@ -712,7 +816,7 @@ export function RunBlock({
             active={live}
             halted={halted}
             tone={trackTone(status)}
-            className="[&>span]:transition-colors [&>span]:duration-base [&>span]:ease-out motion-reduce:[&>span]:transition-none"
+            className="[&>span]:duration-base [&>span]:transition-colors [&>span]:ease-out motion-reduce:[&>span]:transition-none"
             data-testid="run-track"
           />
 
@@ -723,7 +827,7 @@ export function RunBlock({
           <p
             className={cn(
               'text-xs leading-relaxed',
-              status === 'fehlgeschlagen' ? 'text-error' : 'text-muted-foreground',
+              status === 'fehlgeschlagen' ? 'text-error' : 'text-muted-foreground'
             )}
             role={live ? 'status' : undefined}
             data-testid="run-status-line"
@@ -739,7 +843,9 @@ export function RunBlock({
                 initial={{ opacity: 0 }}
                 animate={{
                   opacity: 1,
-                  transition: reduced ? motionInstant : { ...motionQuick, delay: landing?.word ?? 0 },
+                  transition: reduced
+                    ? motionInstant
+                    : { ...motionQuick, delay: landing?.word ?? 0 },
                 }}
                 exit={{
                   opacity: 0,
@@ -767,11 +873,75 @@ export function RunBlock({
               className="overflow-hidden"
               data-testid="run-body"
             >
+              {/* The receipt: every document the reader named, read (with where)
+                  or not. Above the rounds, because it is the promise the rounds
+                  are measured against. */}
+              {receipt.length > 0 && (
+                <div
+                  className="border-border flex flex-col gap-1 border-t px-3 py-2"
+                  data-testid="run-grundlage"
+                  aria-label={t('unterlagen.receiptLabel')}
+                >
+                  <p className="text-muted-foreground text-[11px] font-medium">
+                    {t('unterlagen.receipt', {
+                      read: receipt.filter((row) => row.read).length,
+                      total: receipt.length,
+                    })}
+                  </p>
+                  <ul className="flex flex-wrap gap-1" role="list">
+                    {receipt.map((row) => {
+                      const label = row.doc.title ?? row.doc.name
+                      const loci = row.loci.join(' · ')
+                      const body = (
+                        <>
+                          {label}
+                          {row.read && loci && <span className="opacity-70"> · {loci}</span>}
+                          {!row.read && <span className="italic"> · {t('unterlagen.unread')}</span>}
+                        </>
+                      )
+                      return (
+                        <li
+                          key={row.doc.name}
+                          className="inline-flex max-w-full"
+                          data-testid="run-grundlage-doc"
+                          data-read={row.read ? 'true' : 'false'}
+                        >
+                          {onOpenDocument ? (
+                            <button
+                              type="button"
+                              onClick={() => onOpenDocument(row.doc)}
+                              className="focus-visible:ring-ring/60 max-w-full rounded-md text-left focus-visible:outline-none focus-visible:ring-2"
+                              aria-label={t('unterlagen.open', { name: label })}
+                            >
+                              <SourceSignalChip
+                                signal={docProvenance(row.doc).tint}
+                                className={cn('max-w-full', !row.read && 'opacity-75')}
+                                title={row.doc.name}
+                              >
+                                {body}
+                              </SourceSignalChip>
+                            </button>
+                          ) : (
+                            <SourceSignalChip
+                              signal={docProvenance(row.doc).tint}
+                              className={cn('max-w-full', !row.read && 'opacity-75')}
+                              title={row.doc.name}
+                            >
+                              {body}
+                            </SourceSignalChip>
+                          )}
+                        </li>
+                      )
+                    })}
+                  </ul>
+                </div>
+              )}
+
               {/* The rounds: one hairline-separated row each, the history's own
                   shape. Keyed by step id, so an appended round is a new element
                   and the rows above it are the same ones, re-rendered. */}
               {rounds.length > 0 && (
-                <ItemList as="ol" className="rounded-none border-0 border-t border-border">
+                <ItemList as="ol" className="border-border rounded-none border-0 border-t">
                   <AnimatePresence initial={false}>
                     {rounds.map((step, index) => (
                       <RoundRow key={step.id} step={step} index={index} reduced={reduced} />
@@ -790,14 +960,16 @@ export function RunBlock({
                     opacity: 1,
                     y: 0,
                     transition:
-                      reduced || !landing ? motionInstant : { ...motionEntrance, delay: landing.footer },
+                      reduced || !landing
+                        ? motionInstant
+                        : { ...motionEntrance, delay: landing.footer },
                   }}
-                  className="flex flex-col gap-1.5 border-t border-border px-3 py-2"
+                  className="border-border flex flex-col gap-1.5 border-t px-3 py-2"
                   data-testid="run-footer"
                 >
                   {before && (
                     <p
-                      className="text-[11px] leading-relaxed text-muted-foreground"
+                      className="text-muted-foreground text-[11px] leading-relaxed"
                       data-testid="run-completed-before"
                     >
                       {before}
@@ -807,21 +979,21 @@ export function RunBlock({
                     /* The reviewer's words, quoted on the run they are about —
                        the same adjunct a version row renders under itself. */
                     <p
-                      className="flex items-start gap-1.5 border-l-2 pl-2 text-[11px] leading-[1.5] text-foreground"
+                      className="text-foreground flex items-start gap-1.5 border-l-2 pl-2 text-[11px] leading-[1.5]"
                       data-testid="run-review"
                       data-decision={review.decision}
                     >
                       {review.decision === 'accepted' ? (
-                        <CheckCircle2 className="mt-0.5 size-3 shrink-0 text-success" aria-hidden />
+                        <CheckCircle2 className="text-success mt-0.5 size-3 shrink-0" aria-hidden />
                       ) : (
-                        <XCircle className="mt-0.5 size-3 shrink-0 text-error" aria-hidden />
+                        <XCircle className="text-error mt-0.5 size-3 shrink-0" aria-hidden />
                       )}
                       <span>{reviewLine}</span>
                     </p>
                   )}
                   {connectionLine && (
                     <p
-                      className="text-[11px] leading-relaxed text-muted-foreground"
+                      className="text-muted-foreground text-[11px] leading-relaxed"
                       role="status"
                       data-testid="run-connection"
                       data-connection={connection}

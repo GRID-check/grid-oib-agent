@@ -22,13 +22,17 @@
  * `ChatArea`; a second copy here would drift on the first added prop.
  */
 
-import { useEffect, useRef, type ReactNode } from 'react'
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { motion, motionEntrance, motionInstant } from '@/components/motion'
 import type { ChatMessage } from '@/features/chat/types'
 import { useReducedMotion } from '@/hooks/use-reduced-motion'
 import type { RunStatus } from '@/lib/runs/run-ledger-types'
 import { runDisplayStatus } from '@/lib/runs/run-vocabulary'
 import { useRunLedger } from '../hooks/use-run-ledger'
+import { useProjectInventory } from '../hooks/use-project-inventory'
+import { UnterlagenDialog } from './UnterlagenDialog'
+import { openFilePeek } from '@/features/documents/lib/open-file-peek'
+import type { RunLedgerDoc } from '@/lib/runs/run-ledger-types'
 import { landingDelays } from '../lib/choreography'
 import { RunBlock } from './RunBlock'
 
@@ -39,13 +43,54 @@ export interface RunBlockMessageProps {
   message: ChatMessage
   /** The project the run belongs to; without one the block is static. */
   projectId?: string | null
+  /** The thread the message is in; lets a status change reach the stored message. */
+  conversationId?: string | null
   /** The report as the caller renders an answer. Shown only once the run has one. */
   answer?: ReactNode
+  /** „Bericht fortschreiben", when the thread can commission a run. */
+  onContinue?: (() => void | Promise<void>) | null
 }
 
-export function RunBlockMessage({ message, projectId, answer }: RunBlockMessageProps): JSX.Element | null {
-  const { ledger, live, cancel, connection } = useRunLedger({ message, projectId })
+export function RunBlockMessage({
+  message,
+  projectId,
+  conversationId,
+  answer,
+  onContinue,
+}: RunBlockMessageProps): JSX.Element | null {
+  const { ledger, live, cancel, writeNow, addDocument, connection } = useRunLedger({
+    message,
+    projectId,
+    conversationId,
+  })
   const reduced = useReducedMotion()
+  // The picker for „Unterlage hinzufügen", and the reader behind a receipt
+  // chip: both dialogs over the thread, and both read the same listing, which
+  // is fetched only once one of them is wanted.
+  const [picking, setPicking] = useState(false)
+  const [wantsInventory, setWantsInventory] = useState(false)
+  const inventory = useProjectInventory(projectId ?? null, wantsInventory)
+  // A chip clicked before the listing has arrived is remembered and opened
+  // once it does; otherwise the first click on a finished run would do nothing.
+  const [pendingDoc, setPendingDoc] = useState<RunLedgerDoc | null>(null)
+  const openDocument = useCallback((doc: RunLedgerDoc): void => {
+    setWantsInventory(true)
+    setPendingDoc(doc)
+  }, [])
+  useEffect(() => {
+    if (!pendingDoc || !inventory.documents) return
+    setPendingDoc(null)
+    const key = pendingDoc.name.trim().toLocaleLowerCase()
+    const found = inventory.documents.find((row) => row.name.trim().toLocaleLowerCase() === key)
+    if (!found) return
+    openFilePeek({
+      file: found.file,
+      source: found.source,
+      projectId: projectId ?? null,
+      presentation: 'modal',
+      bindComposerSubject: false,
+    })
+  }, [pendingDoc, inventory.documents, projectId])
   // A report that arrives while the reader is watching rises AFTER the block
   // has finished saying how the run ended: the verdict first, the document
   // second. A thread scrolled back to weeks later has both at once — nothing
@@ -70,14 +115,38 @@ export function RunBlockMessage({ message, projectId, answer }: RunBlockMessageP
         live={live}
         connection={connection}
         onCancel={cancel}
+        onWriteNow={writeNow}
+        onAddDocument={
+          addDocument
+            ? () => {
+                setWantsInventory(true)
+                setPicking(true)
+              }
+            : null
+        }
+        onOpenDocument={projectId ? openDocument : null}
+        onContinue={onContinue ?? null}
       />
+      {addDocument && (
+        <UnterlagenDialog
+          mode="add"
+          open={picking}
+          onOpenChange={setPicking}
+          documents={inventory.documents ?? []}
+          loading={inventory.loading}
+          named={(ledger.grundlage ?? []).map((doc) => doc.name)}
+          onAdd={(doc) => addDocument(doc)}
+        />
+      )}
       {showAnswer ? (
         <motion.div
           initial={rises ? { opacity: 0, y: 6 } : false}
           animate={{
             opacity: 1,
             y: 0,
-            transition: rises ? { ...motionEntrance, delay: landingDelays(status).report } : motionInstant,
+            transition: rises
+              ? { ...motionEntrance, delay: landingDelays(status).report }
+              : motionInstant,
           }}
           data-testid="run-report"
         >

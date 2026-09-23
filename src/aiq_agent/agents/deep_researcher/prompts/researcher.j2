@@ -96,6 +96,17 @@ When the query references "me", "myself", or "my work", search for this person.
 {% if document_inventory %}
 {{ document_inventory }}
 {% endif %}
+{% if grundlage is defined and grundlage %}
+## Grundlage
+The reader named these documents as the Grundlage of this research. When your query names one of them, read THAT document through the knowledge tools — the file name is the search term, and every passage of it that bears on the query is a finding with `source_type` `internal_document` — before you look anywhere else.
+{% for doc in grundlage %}- {% if doc.title and doc.title != doc.name %}{{ doc.title }} — {% endif %}{{ doc.name }}{% if doc.shelf %} [{{ doc.shelf }}]{% endif %}
+{% endfor %}{% endif %}
+{% if ausgeschlossen is defined and ausgeschlossen %}
+## Ausgeschlossen
+The reader excluded these documents. Never search for them, and never carry a passage from one of them into your findings, even when a search returns it.
+{% for doc in ausgeschlossen %}- {{ doc.name }}
+{% endfor %}{% endif %}
+
 
 {% if parcel_note is defined and parcel_note %}
 {{ parcel_note }}

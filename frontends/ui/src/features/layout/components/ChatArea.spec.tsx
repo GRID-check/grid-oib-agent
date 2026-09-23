@@ -36,6 +36,12 @@ const mockUseRunLedger = vi.fn((input: { message: ChatMessage }) => ({
 vi.mock('@/features/runs/hooks/use-run-ledger', () => ({
   useRunLedger: (input: { message: ChatMessage }) => mockUseRunLedger(input),
 }))
+// The run block's document chips read the project inventory over HTTP; nothing
+// here opens one, and an unmocked listing would reach for a server that is not
+// there.
+vi.mock('@/features/runs/hooks/use-project-inventory', () => ({
+  useProjectInventory: () => ({ documents: null, loading: false }),
+}))
 vi.mock('@/features/runs/components/RunBlock', () => ({
   RunBlock: ({ ledger, title }: { ledger: { status: string }; title?: string | null }) => (
     <div data-testid="run-block" data-status={ledger.status}>

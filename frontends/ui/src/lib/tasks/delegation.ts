@@ -53,6 +53,7 @@ import { createTaskThread, submitAgentRun } from '@/lib/jobs/service'
 import { JobSubmitError, JobSubmitSkippedError } from '@/lib/jobs/backend-client'
 import { minIntervalMinutesFromEnv, nextOccurrence, validateCron } from '@/lib/jobs/schedule'
 import { emptySkillSnapshot } from '@/lib/jobs/types'
+import { isEmptyPlanDocuments, type PlanDocuments } from '@/lib/runs/plan-documents'
 import * as repository from './repository'
 import { TASK_GOAL_MAX_CHARS } from './wire'
 
@@ -416,9 +417,15 @@ export interface CommissionResearchInput {
   /**
    * What the commissioning turn already established with the person — the
    * clarifier's exchange, verbatim. Composed BELOW the question, so the run
-   * starts where the conversation got to instead of asking it all again.
+   * starts where the conversation got to instead of asking it all again — and
+   * handed to the worker as the clarifier result, so the approved plan in it
+   * binds the planner and the writer rather than reading as context.
    */
   context?: string | null
+  /** The Rahmen: the sources the run may draw on. Null keeps the worker's default. */
+  dataSources?: string[] | null
+  /** The Unterlagen the reader named on the plan card. */
+  documents?: PlanDocuments | null
 }
 
 /** Where the commissioned run narrates itself, for the turn that commissioned it. */
@@ -477,12 +484,15 @@ export async function commissionResearchRun(
   }
 
   const context = input.context?.trim()
+  const documents = input.documents ?? null
   const plan: TaskPlan = {
     prompt: context ? `${question}\n\n${CONTEXT_HEADING}\n${context}` : question,
     skill: emptySkillSnapshot(),
-    dataSources: null,
+    dataSources: input.dataSources ?? null,
     goal: question,
     subject: null,
+    ...(context ? { context } : {}),
+    ...(documents && !isEmptyPlanDocuments(documents) ? { documents } : {}),
   }
   const queued = await repository.insertRun({
     organizationId: session.organizationId,
@@ -593,6 +603,8 @@ async function submitQueuedRun(run: TaskRun, target: DispatchTarget): Promise<Ta
       dataSources: run.plan.dataSources,
       runId: run.id,
       conversationId: conversation,
+      clarifierResult: run.plan.context ?? null,
+      documents: run.plan.documents ?? null,
     })
     return (
       (await repository.updateRun(run.id, run.organizationId, {

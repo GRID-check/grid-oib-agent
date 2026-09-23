@@ -73,6 +73,7 @@ def _build_run_agent_payload(
     memory_reflection_enabled,
     memory_reflection_llm,
     run_id,
+    documents=None,
 ) -> dict:
     """Build the JSON-serializable ``run_agent_job`` kwargs a DB worker replays.
 
@@ -122,6 +123,9 @@ def _build_run_agent_payload(
         # The ``task_runs`` row this job is, when the caller knows it: the only
         # identity the run-ledger route has, and the worker cannot look it up.
         "run_id": run_id,
+        # The Unterlagen the reader named on the plan, as the BFF handed them
+        # over; the runner sanitises them into the agent state and the ledger.
+        "documents": documents,
         # No owner at submit time (unclaimed): the DB worker fills in its own
         # worker id at replay for the runner's still-owner publish gate
         # (hardening item 10). Travels inside the encrypted payload like the
@@ -361,6 +365,7 @@ async def submit_agent_job(
     memory_reflection_llm: str | None = None,
     conversation_id: str | None = None,
     run_id: str | None = None,
+    documents: dict | None = None,
 ) -> str:
     """
     Submit an agent job to the Dask cluster.
@@ -599,6 +604,7 @@ async def submit_agent_job(
                 memory_reflection_enabled=memory_reflection_enabled,
                 memory_reflection_llm=memory_reflection_llm,
                 run_id=run_id,
+                documents=documents,
             )
             await job_store._create_job(
                 config_file=config_path or None,
@@ -636,6 +642,7 @@ async def submit_agent_job(
                     memory_reflection_llm,
                     None,  # claim_owner: no queue claim on the Dask path (see run_agent_job)
                     run_id,
+                    documents,
                 ],
             )
         await loop.run_in_executor(

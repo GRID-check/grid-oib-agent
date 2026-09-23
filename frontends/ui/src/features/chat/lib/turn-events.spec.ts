@@ -479,9 +479,12 @@ describe('answerDegradations — an answer weaker than it looks', () => {
   test('every known reason survives, in the order the backend recorded them', () => {
     expect(
       answerDegradations([
-        degraded({ degraded: true, reasons: ['no_report_file', 'no_valid_citations', 'cards_generation_failed'] }),
+        degraded({
+          degraded: true,
+          reasons: ['no_report_file', 'no_valid_citations', 'cards_generation_failed', 'grundlage_unread'],
+        }),
       ])
-    ).toEqual(['no_report_file', 'no_valid_citations', 'cards_generation_failed'])
+    ).toEqual(['no_report_file', 'no_valid_citations', 'cards_generation_failed', 'grundlage_unread'])
   })
 
   test('an unknown token is dropped, not surfaced', () => {

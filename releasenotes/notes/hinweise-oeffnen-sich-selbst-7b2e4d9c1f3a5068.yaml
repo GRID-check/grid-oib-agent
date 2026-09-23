@@ -1,0 +1,23 @@
+---
+fixes:
+  - >
+    Die Antwortdetails öffnen sich jetzt von selbst, wenn die Antwort etwas
+    trägt, das nicht übersehen werden darf: eine abgebrochene Recherche,
+    entfernte Belege oder eine geringe Sicherheit. Bisher lagen diese
+    Hinweise hinter dem zugeklappten Auslöser, und die Antwort sah wie eine
+    vollständige aus.
+  - >
+    Beim Urteil im Antwortkopf steht wieder die Sicherheit der Antwort mit
+    ihrer Begründung, und die Einordnung (Richtlinie, Ausgabe, Bundesland)
+    bleibt auch dann sichtbar, wenn kein Urteil über der Zusammenfassung
+    steht.
+  - >
+    Vorgeschlagene Anschlussfragen, die verwendeten Methoden und der
+    Antwortkopf überstehen jetzt ein Neuladen, einen Gerätewechsel und den
+    Blick einer Kollegin – auch wenn der Tab schon geschlossen war, als die
+    Antwort fertig wurde, oder die Leserin beim Eintreffen der Vorschläge
+    bereits tippte.
+  - >
+    „Antwort kopieren" und der Word-Export enthalten keine internen
+    Platzhalter mehr; bisher konnte eine Zeile „[[callout]]" in den Text
+    gelangen.

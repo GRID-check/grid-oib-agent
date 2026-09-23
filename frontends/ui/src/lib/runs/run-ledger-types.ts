@@ -113,6 +113,9 @@ export const MAX_LOCUS_CHARS = 128
 export const MAX_LOCI_PER_DOC = 20
 export const MAX_OPEN_POINTS = 20
 export const MAX_OPEN_POINT_CHARS = 200
+/** What a round established, one claim per line. Mirrors `run_ledger.MAX_FINDINGS_PER_STEP`. */
+export const MAX_FINDINGS_PER_STEP = 8
+export const MAX_FINDING_CHARS = 200
 /**
  * The run's error, as the reader sees it. Shorter than the 2000 the outcome
  * route accepts, because this one is rendered in the thread rather than stored
@@ -120,6 +123,12 @@ export const MAX_OPEN_POINT_CHARS = 200
  */
 export const MAX_ERROR_REASON_CHARS = 400
 export const MAX_REFERENCE_ID_CHARS = 128
+/**
+ * The Grundlage the reader named on the plan, mirrored onto the ledger so the
+ * block can print the receipt — read with loci, or unread — against the steps.
+ * Twenty is the plan card's own cap (`plan_documents.MAX_PLAN_DOCUMENTS`).
+ */
+export const MAX_GRUNDLAGE_DOCS = 20
 /**
  * The run's title as the block's header shows it (`metadata.run_title`): a
  * task's title or the question a deep-research run was asked. The same 200 a
@@ -191,6 +200,11 @@ export const runStepSchema = z
       .array(z.string().trim().min(1).max(MAX_OPEN_POINT_CHARS))
       .max(MAX_OPEN_POINTS)
       .optional(),
+    /** What this round established so far, in the researcher's own claims. */
+    findings: z
+      .array(z.string().trim().min(1).max(MAX_FINDING_CHARS))
+      .max(MAX_FINDINGS_PER_STEP)
+      .optional(),
   })
   .strict()
 
@@ -246,6 +260,11 @@ export const runLedgerSchema = z
     steps: z.array(runStepSchema).max(MAX_STEPS),
     result: runResultSchema.optional(),
     error: runErrorSchema.optional(),
+    /**
+     * The documents the reader named as Grundlage (`loci` empty: the receipt
+     * is read off the steps). Absent when none was named.
+     */
+    grundlage: z.array(runLedgerDocSchema).max(MAX_GRUNDLAGE_DOCS).optional(),
     startedAt: instantSchema,
     updatedAt: instantSchema,
     finishedAt: instantSchema.optional(),
@@ -273,6 +292,8 @@ export const runLedgerAppendRequestSchema = z
     steps: z.array(runStepSchema).max(MAX_STEPS).optional(),
     phases: z.array(runPhaseEntrySchema).max(RUN_PHASES.length).optional(),
     status: z.enum(RUN_STATUSES).optional(),
+    /** The whole Grundlage list as it now stands; a live addition re-sends it. */
+    grundlage: z.array(runLedgerDocSchema).max(MAX_GRUNDLAGE_DOCS).optional(),
   })
   .strict()
 

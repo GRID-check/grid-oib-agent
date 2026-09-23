@@ -35,6 +35,7 @@
 import type { Message } from '@/lib/db/schema'
 import { CAPPED_REASONS } from '@/lib/conversations/message-provenance'
 import { sanitizeAnswerMeta } from '@/lib/conversations/message-answer-meta'
+import { sanitizeFindings } from '@/lib/conversations/message-findings'
 import { sanitizeRetrievalLedger } from '@/lib/conversations/message-retrieval-ledger'
 import { sanitizeStages } from '@/lib/conversations/message-stages'
 import { sanitizeRunLedger, sanitizeRunTitle } from '@/lib/runs/run-ledger'
@@ -53,7 +54,6 @@ const MESSAGE_TYPES: ReadonlySet<string> = new Set([
   'agent_response',
   'file',
   'error',
-  'deep_research_banner',
 ])
 
 const asMessageType = (value: unknown): MessageType | undefined =>
@@ -144,6 +144,10 @@ export const mapServerMessageToChatMessage = (message: Message): ChatMessage | n
       const answerMeta = sanitizeAnswerMeta(metadata.answerMeta)
       return answerMeta ? { answerMeta } : {}
     })(),
+    ...(() => {
+      const findings = sanitizeFindings(metadata.findings)
+      return findings ? { findings } : {}
+    })(),
     // Re-sanitized on read like `answerMeta`: the backend's account of the
     // turn's retrieval rounds, written by the BFF persist path. A row from any
     // other build is still whatever it was.
@@ -219,7 +223,7 @@ const restorePrompt = (prompt: unknown, promptState: unknown): Partial<ChatMessa
     }
     if (Array.isArray(detail.promptOptions)) {
       out.promptOptions = detail.promptOptions.filter(
-        (option): option is string => typeof option === 'string',
+        (option): option is string => typeof option === 'string'
       )
     }
     if (typeof detail.promptPlaceholder === 'string') {
@@ -289,6 +293,14 @@ const restoreProvenance = (value: unknown): Partial<ChatMessage> => {
   if (typeof provenance.escalationReason === 'string') {
     out.escalationReason = provenance.escalationReason
   }
+  if (Array.isArray(provenance.skillsActivated) && provenance.skillsActivated.length > 0) {
+    out.skillsActivated = provenance.skillsActivated.filter(
+      (s): s is string => typeof s === 'string'
+    )
+  }
+  if (Array.isArray(provenance.skillsHidden) && provenance.skillsHidden.length > 0) {
+    out.skillsHidden = provenance.skillsHidden.filter((s): s is string => typeof s === 'string')
+  }
   if (
     typeof provenance.citationsRemoved === 'object' &&
     provenance.citationsRemoved !== null &&
@@ -312,7 +324,6 @@ const restoreProvenance = (value: unknown): Partial<ChatMessage> => {
   if (typeof provenance.deepResearchJobId === 'string') {
     out.deepResearchJobId = provenance.deepResearchJobId
   }
-  if (provenance.showViewReport === true) out.showViewReport = true
   // The backend's account of the turn's rounds, restored beside the thinking
   // steps it replaces reading from: re-sanitized on read, narrowed not cast.
   const ledger = sanitizeRetrievalLedger(provenance.retrievalLedger)

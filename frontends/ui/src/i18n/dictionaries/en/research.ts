@@ -46,6 +46,8 @@ export const research = {
     /** Trigger for the thread menu that holds every non-primary header action. */
     moreActions: 'More actions',
     renameSession: 'Rename chat',
+    /** The persistent "still working" signal while a run is going in the thread. */
+    researching: 'Researching',
   },
 
   dataSources: {
@@ -134,42 +136,9 @@ export const research = {
     },
   },
 
-  export: {
-    availableWhenComplete: 'Export will be available when research is complete',
-    exportReport: 'Export report',
-    noContent: 'No content to export',
-    asMarkdown: 'Export as Markdown',
-    asMarkdownDisabled: 'Export as Markdown ({reason})',
-    asPdf: 'Export as PDF',
-    asPdfDisabled: 'Export as PDF ({reason})',
-    generatingPdf: 'Generating PDF...',
-    generating: 'Generating...',
-    markdown: 'Markdown',
-    pdf: 'PDF',
-  },
 
-  agentCard: {
-    detailsWhenComplete: 'Details available when the agent completes',
-    isRunning: '{name} is running',
-    queriesCount: '{completed}/{total} queries',
-    toolsCount: '{completed}/{total} tools',
-    started: 'Started: {time}',
-    running: 'Running',
-  },
 
-  agentsTab: {
-    title: 'Agents',
-    runningCount: '{count} running',
-    queriesProgress: '{completed}/{total} queries',
-    description: 'Piloti plans, researches, and writes — this is what is running right now.',
-    empty: 'No agent activity available.',
-  },
 
-  filesTab: {
-    title: 'Files',
-    description: 'Drafts, reports and other files this research produced.',
-    empty: 'No files produced yet.',
-  },
 
   fileCard: {
     lines: '{count, plural, one {# line} other {# lines}}',
@@ -226,8 +195,6 @@ export const research = {
       'Piloti is an AI — answers can be wrong; verify them against the cited files.',
     placeholderDefault: 'Check data sources and ask a research question...',
     signInToStart: 'Sign in to start working',
-    researchCompletedNewSession: 'Research completed. Create a new session for further questions.',
-    researchFailedFollowUp: 'Research didn’t finish. Ask a follow-up or try again.',
     typeResponse: 'Type your response to Piloti...',
     pleaseWait: 'Please wait...',
     messageNotSent: 'Message not sent',
@@ -241,15 +208,6 @@ export const research = {
     attachFiles: 'Attach files',
     uploadDisabledBusy: 'File upload disabled during active operations',
     selectFiles: 'Select files to upload',
-    researchCompletedAria: 'Research completed - create new session',
-    researchCompleted: 'Research completed',
-    researchCompletedPopover:
-      'Research completed. For further questions or reports, please create a new session.',
-    startNewSession: 'Start new session',
-    researchInProgressAria: 'Research in progress - please wait',
-    researchInProgress: 'Research in progress',
-    researchInProgressPopover:
-      'Research is currently in progress. Chat is paused to prevent generating multiple reports at the same time.',
     sendResponse: 'Send response',
     sendMessage: 'Send message',
     sendQuery: 'Send query',
@@ -270,60 +228,9 @@ export const research = {
     fileReadyStatus: 'Ready',
   },
 
-  reportCard: {
-    reportWhenComplete: 'The report will appear here once research is complete.',
-    exportAsMdPdf: 'You can export it as Markdown or PDF.',
-    draft: 'Draft',
-    words: '{count, plural, one {# word} other {# words}}',
-  },
 
-  reportTab: {
-    contentWhenAvailable: 'Report content will appear here when available.',
-    notesBanner: 'Working notes from the research — the final report is still being written.',
-    // Heading for the sources list appended from run citations when the
-    // report markdown itself has no sources section.
-    sourcesTitle: 'Sources',
-    // Per-source origin badges: whether a cited source came from the trusted
-    // knowledge base, the official Austrian legal system (RIS), or the web.
-    sourceBadge: {
-      kb: 'Knowledge base',
-      web: 'Web',
-      ris: 'RIS',
-    },
-  },
 
-  // The outline above a finished report: its headings as a jump list, with the
-  // section the reader is in marked.
-  reportOutline: {
-    label: 'Report outline',
-    title: 'Outline',
-    sectionCount: '{count, plural, one {# section} other {# sections}}',
-    show: 'Show outline',
-    hide: 'Hide outline',
-  },
 
-  researchPanel: {
-    closePanel: 'Close research panel',
-    openPanel: 'Open research panel',
-    signInToAccess: 'Sign in to access research panel',
-    researching: 'Researching',
-    tabTasks: 'Tasks',
-    tabThinking: 'Thinking',
-    tabReport: 'Report',
-    stopResearchingButton: 'Stop Researching',
-    stopResearching: 'Stop researching',
-    // Confirmation dialog shown before cancelling a running deep-research job.
-    stopConfirmTitle: 'Stop research?',
-    stopConfirmBody:
-      'The running research will be cancelled and cannot be resumed. Partial progress so far stays visible in the research panel.',
-    stopConfirmConfirm: 'Stop research',
-    noActiveResearch: 'No active research',
-    loadingData: 'Loading research data',
-    loadingDataEllipsis: 'Loading research data...',
-    loadingReport: 'Loading report...',
-    couldNotStop: 'Could not stop research',
-    couldNotStopDesc: 'The research run may still be running. Please try again.',
-  },
 
   sessionsPanel: {
     title: 'Chat history',
@@ -344,17 +251,12 @@ export const research = {
     deleteAllButton: 'Delete all chats',
     /** Stop action for a stuck deep-research run (chat row, run row). */
     stopResearch: 'Stop research',
-    stopResearchTitle: 'Stop this stuck research run',
-    /** Bulk purge in the history footer: stops every abandoned run of the user. */
-    purgeStuckRunsButton: 'Stop stuck research',
-    purgeStuckRuns: 'Stop all stuck research runs',
-    purgeDone: '{count, plural, one {Stopped # stuck research run} other {Stopped # stuck research runs}}',
-    purgeIdle: 'No stuck research runs found',
-    /** Bulk-purge confirm (shared ConfirmDialog, warning tone): the purge is the one bulk action that cancels server work. */
-    purgeConfirmTitle: 'Stop stuck research?',
-    purgeConfirmBody:
-      'Every stuck research run will be cancelled and cannot be resumed. Your chats are kept — only the runs stop.',
-    purgeConfirmConfirm: 'Stop stuck research',
+    stopResearchTitle: 'Stop this research run',
+    /** Stopping cancels server-side work that cannot be resumed (shared ConfirmDialog, warning tone). */
+    stopConfirmTitle: 'Stop research?',
+    stopConfirmBody:
+      'The running research will be cancelled and cannot be resumed. Partial progress so far stays visible in the research panel.',
+    stopConfirmConfirm: 'Stop research',
     newSessionDisabled: 'Start a new chat (disabled during active operations)',
     startNewSession: 'Start a new chat',
     cannotCreateActive: 'Cannot start a new chat while this one is still answering',
@@ -381,7 +283,6 @@ export const research = {
     deleteDisabled: 'Delete chat (disabled)',
     deleteSession: 'Delete chat',
     sessionActive: 'Working on this chat',
-    reportExpired: 'Report expired',
     reportCompleted: 'Report ready',
     chatSession: 'Chat',
     sessionLabelBusy: 'Chat: {title} (processing in progress)',
@@ -411,103 +312,12 @@ export const research = {
     },
   },
 
-  taskCard: {
-    statusComplete: 'complete',
-    statusInProgress: 'in progress',
-    statusPending: 'pending',
-    statusStopped: 'stopped',
-    inProgress: 'In progress',
-    task: 'Task: {content}',
-  },
 
-  tasksTab: {
-    title: 'Tasks',
-    description: 'Research plan breakdown and progress during deep research.',
-    empty: 'Research tasks will appear here.',
-    emptyHelp: 'Shows the plan breakdown and progress during deep research.',
-    progressAria: 'Task completion progress',
-    // Coarse elapsed-time indicator for a live run (updates every 30s).
-    elapsed: 'Running for {minutes} min',
-    writingReport: 'Writing final report... This may take a few minutes.',
-    stalledTitle: 'Nothing reported for a while',
-    stalledBody:
-      'The research has not reported back in a while. It may still be running — reconnect to resume the live view.',
-    connectionLostTitle: 'Connection to the running research lost',
-    connectionLostBody:
-      'We lost the live connection, but the research may still be running on the server. Reconnect to resume, or stop it from the toolbar above.',
-    reconnect: 'Reconnect',
-    // Outcome of a run followed here without a chat thread of its own (a
-    // workflow run) — it has no thread banner to report the ending.
-    attachedRunFinished: 'This run has finished. The report is in the Report tab.',
-    attachedRunFailed: 'This run failed before it finished.',
-    attachedRunStopped: 'This run was stopped before it finished.',
-  },
 
-  thinkingTab: {
-    tabThoughts: 'Thoughts',
-    tabAgents: 'Agents',
-    tabTools: 'Tools',
-    tabFiles: 'Files',
-    tabRead: 'Read',
-    tabReferenced: 'Referenced',
-    referenced: 'Referenced',
-    sourcesRead: 'Sources Read',
-    referencedSub: 'Sources referenced in the final report.',
-    readSub:
-      'Sources discovered during research that were not referenced in the final report.',
-    noReferenced: 'No referenced sources available.',
-    noRead: 'No read sources available.',
-  },
 
-  /**
-   * The part of a research run a thought or tool-call card came from.
-   *
-   * The cards used to print the backend's raw role id ("via researcher-agent").
-   * These name the work instead, in the same words the rest of the research
-   * surface uses. An origin this build cannot name reads `internal` — never the
-   * identifier. See `features/layout/lib/workflow-names`.
-   */
-  workflowName: {
-    planning: 'Planning',
-    research: 'Research',
-    sourceSelection: 'Source selection',
-    writing: 'Report writing',
-    internal: 'internal',
-    // The same thing as a heading, where no sentence supplies the noun.
-    internalStep: 'Internal step',
-  },
 
-  thoughtCard: {
-    detailsWhenComplete: 'Details available when generation completes',
-    generating: 'Generating',
-    step: 'Step: {name}',
-    output: 'Output',
-  },
 
-  thoughtTracesTab: {
-    title: 'Train of thought',
-    runningCount: '{count} running',
-    description: 'How Piloti reasoned while researching.',
-    empty: 'No train of thought available.',
-  },
 
-  toolCallCard: {
-    detailsWhenComplete: 'Details available when the tool call completes',
-    isRunning: '{name} is running',
-    step: 'Step: {name}',
-    arguments: 'Arguments',
-    result: 'Result',
-    error: 'Error',
-  },
 
-  toolCallsTab: {
-    title: 'Tool Calls',
-    runningCount: '{count} running',
-    description: 'Web searches, file lookups, and other tool calls.',
-    empty: 'No tool calls available.',
-  },
 
-  sourceCard: {
-    cited: 'Cited',
-  },
 }

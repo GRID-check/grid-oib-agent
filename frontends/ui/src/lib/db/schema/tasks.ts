@@ -23,6 +23,7 @@
  */
 
 import { relations, sql } from 'drizzle-orm'
+import type { PlanDocuments } from '@/lib/runs/plan-documents'
 import { check, index, jsonb, numeric, pgTable, text, timestamp, uniqueIndex, uuid } from 'drizzle-orm/pg-core'
 import type { SkillSnapshot } from '@/lib/skills/types'
 import {
@@ -106,6 +107,14 @@ export interface TaskPlan {
   skill: SkillSnapshot
   /** Data sources the run was allowed to use. */
   dataSources: string[] | null
+  /**
+   * What the commissioning turn settled with the person — the clarifier's
+   * exchange and the approved plan — set on the agent state so the planner and
+   * the writer read it as binding. Absent for a scheduled or delegated run.
+   */
+  context?: string | null
+  /** The Unterlagen the reader named on the plan card (`lib/runs/plan-documents`). */
+  documents?: PlanDocuments | null
   /**
    * What the task was asked FOR, in the requester's own words. Null for a job,
    * whose `title` is the job's name and whose prompt is the whole of it.

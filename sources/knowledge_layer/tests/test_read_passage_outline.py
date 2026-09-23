@@ -57,10 +57,11 @@ def _punkt_chunk(
     chunk_id: str = "",
     file_name: str = OIB,
 ) -> Chunk:
-    """A Punkt chunk as ``punkt_documents`` writes it: depth is an int, page a string."""
+    """A Punkt chunk as ``punkt_documents`` writes it: depth is an int, page a string,
+    and the text opens with the Punkt's own heading line, the body after a blank line."""
     return Chunk(
         chunk_id=chunk_id or f"{file_name}:{punkt}",
-        content=content or f"{punkt} {title} — Text",
+        content=content or f"{punkt} {title}\n\nText zu {title}.",
         score=0.71,
         file_name=file_name,
         page_number=page,
@@ -191,13 +192,42 @@ class TestThePunktOutline:
         out = await _read(document=OIB, conclusion="Ich kenne die OIB 2 noch nicht.")
 
         assert _gliederung(out)[:6] == [
-            "- Punkt 0: Vorbemerkungen (S. 3)",
-            "- Punkt 1: Begriffsbestimmungen (S. 3)",
-            "- Punkt 2: Allgemeine Anforderungen (S. 4)",
+            "- Punkt 0: Vorbemerkungen (S. 3) — Diese Richtlinie gilt für …",
+            "- Punkt 1: Begriffsbestimmungen (S. 3) — Text zu Begriffsbestimmungen.",
+            "- Punkt 2: Allgemeine Anforderungen (S. 4) — Text zu Allgemeine Anforderungen.",
             "  - Punkt 2.1: Abstände (S. 4)",
             "  - Punkt 2.9: Löschwasser (S. 5)",
             "  - Punkt 2.10: Blitzschutz (S. 5)",
         ]
+
+    async def test_a_chapter_line_carries_its_opening_sentence_and_a_sub_punkt_does_not(self, store):
+        """What a chapter is ABOUT beside what it is called. A heading list told
+        an overview question nothing it did not know, so the model opened every
+        chapter to find out: one round of eight parallel opens per member of a
+        family, three once the fan-out crossed the per-round width cap. The
+        sentence is bounded, quoted from the body after the heading line, and
+        depth 2 stays a bare index — four members at 120 characters per chapter
+        is the whole budget."""
+        long_body = "Tragende Bauteile müssen " + "sehr " * 40 + "lange halten. Zweiter Satz."
+        store.outline_chunks = [
+            _punkt_chunk(
+                "0",
+                1,
+                "Vorbemerkungen",
+                3,
+                content="0 Vorbemerkungen\n\nDiese Richtlinie gilt für Bauwerke. Sie ersetzt nichts.",
+            ),
+            _punkt_chunk("2", 1, "Anforderungen", 4, content=f"2 Anforderungen\n\n{long_body}"),
+            _punkt_chunk("2.1", 2, "Abstände", 4),
+        ]
+
+        lines = _gliederung(await _read(document=OIB))
+
+        assert lines[0] == "- Punkt 0: Vorbemerkungen (S. 3) — Diese Richtlinie gilt für Bauwerke."
+        assert lines[1].startswith("- Punkt 2: Anforderungen (S. 4) — Tragende Bauteile müssen sehr")
+        assert lines[1].endswith("…")
+        assert len(lines[1].split(" — ", 1)[1]) <= rp._EXCERPT_CHARS + 1
+        assert lines[2] == "  - Punkt 2.1: Abstände (S. 4)"
 
     async def test_the_numbering_orders_the_index_even_when_a_page_runs_ahead(self, store):
         """An outline is an index of the document's own numbering, not a walk
@@ -211,10 +241,10 @@ class TestThePunktOutline:
         ]
 
         assert _gliederung(await _read(document=OIB)) == [
-            "- Punkt 2: Allgemeine Anforderungen (S. 4)",
+            "- Punkt 2: Allgemeine Anforderungen (S. 4) — Text zu Allgemeine Anforderungen.",
             "  - Punkt 2.1: Abstände (S. 4)",
             "  - Punkt 2.2: Löschwasser (S. 6)",
-            "- Punkt 3: Brandschutz (S. 5)",
+            "- Punkt 3: Brandschutz (S. 5) — Text zu Brandschutz.",
             rp._OUTLINE_INSTRUCTION,
         ]
 
@@ -277,7 +307,7 @@ class TestThePunktOutline:
         assert "Found 1 relevant document(s)" in head
         assert "Erstens …" in head
         assert "Zweitens …" not in head
-        assert _gliederung(out)[0] == "- Punkt 1: Begriffsbestimmungen (S. 3)"
+        assert _gliederung(out)[0] == "- Punkt 1: Begriffsbestimmungen (S. 3) — Erstens …"
 
 
 class TestTheRecheckHoldsWhenTheBackendDoesNot:
@@ -294,7 +324,10 @@ class TestTheRecheckHoldsWhenTheBackendDoesNot:
 
         lines = _gliederung(await _read(document=OIB))
 
-        assert lines[:2] == ["- Punkt 2: Allgemeine Anforderungen (S. 4)", "  - Punkt 2.1: Abstände (S. 4)"]
+        assert lines[:2] == [
+            "- Punkt 2: Allgemeine Anforderungen (S. 4) — Text zu Allgemeine Anforderungen.",
+            "  - Punkt 2.1: Abstände (S. 4)",
+        ]
         assert not any("2.1.1" in line or "2.1.2" in line for line in lines)
 
     async def test_a_depth_stored_as_a_string_still_counts(self, store):
@@ -304,7 +337,10 @@ class TestTheRecheckHoldsWhenTheBackendDoesNot:
         chunk.metadata["punkt_depth"] = "1"
         store.outline_chunks = [chunk]
 
-        assert _gliederung(await _read(document=OIB))[0] == "- Punkt 2: Allgemeine Anforderungen (S. 4)"
+        assert (
+            _gliederung(await _read(document=OIB))[0]
+            == "- Punkt 2: Allgemeine Anforderungen (S. 4) — Text zu Allgemeine Anforderungen."
+        )
 
 
 class TestTheCap:

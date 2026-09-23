@@ -32,7 +32,6 @@ describe('sanitizeProvenance', () => {
       routingDecision: 'shallow',
       citationsRemoved: { count: 2, reasons: ['ungrounded', 'duplicate'] },
       deepResearchJobId: 'job_1',
-      showViewReport: true,
     })
 
     expect(result).toEqual({
@@ -52,8 +51,20 @@ describe('sanitizeProvenance', () => {
       routingDecision: 'shallow',
       citationsRemoved: { count: 2, reasons: ['ungrounded', 'duplicate'] },
       deepResearchJobId: 'job_1',
-      showViewReport: true,
     })
+  })
+
+  it('keeps the skills the turn activated, bounded, and drops an empty list', () => {
+    expect(
+      sanitizeProvenance({
+        skillsActivated: ['piloti-cards', 'gebaeudeklasse', 42],
+        skillsHidden: ['house-voice'],
+      })
+    ).toEqual({
+      skillsActivated: ['piloti-cards', 'gebaeudeklasse'],
+      skillsHidden: ['house-voice'],
+    })
+    expect(sanitizeProvenance({ skillsActivated: [] })).toBeNull()
   })
 
   it('drops everything it does not know about', () => {
@@ -177,9 +188,9 @@ describe('the truncation flag survives storage', () => {
  */
 describe('why the run stopped, and what it cost', () => {
   it('keeps the cause beside the flag', () => {
-    expect(
-      sanitizeProvenance({ researchTruncated: true, truncationReason: 'wall_clock' })
-    ).toEqual({ researchTruncated: true, truncationReason: 'wall_clock' })
+    expect(sanitizeProvenance({ researchTruncated: true, truncationReason: 'wall_clock' })).toEqual(
+      { researchTruncated: true, truncationReason: 'wall_clock' }
+    )
     expect(sanitizeProvenance({ truncationReason: 'step_limit' })).toEqual({
       truncationReason: 'step_limit',
     })
@@ -193,9 +204,22 @@ describe('why the run stopped, and what it cost', () => {
   it('keeps the degradations, de-duplicated', () => {
     expect(
       sanitizeProvenance({
-        degradedReasons: ['no_report_file', 'no_valid_citations', 'cards_generation_failed', 'no_report_file'],
+        degradedReasons: [
+          'no_report_file',
+          'no_valid_citations',
+          'cards_generation_failed',
+          'grundlage_unread',
+          'no_report_file',
+        ],
       })
-    ).toEqual({ degradedReasons: ['no_report_file', 'no_valid_citations', 'cards_generation_failed'] })
+    ).toEqual({
+      degradedReasons: [
+        'no_report_file',
+        'no_valid_citations',
+        'cards_generation_failed',
+        'grundlage_unread',
+      ],
+    })
   })
 
   it('drops an unknown degradation without losing the ones beside it', () => {
@@ -260,7 +284,11 @@ describe('the turn event on a stored step', () => {
         step({
           turnEvent: {
             key: 'status.retrieval.plain',
-            tools: ['ifc_measure', 'knowledge_search', ...Array.from({ length: 12 }, (_, i) => `t${i}`)],
+            tools: [
+              'ifc_measure',
+              'knowledge_search',
+              ...Array.from({ length: 12 }, (_, i) => `t${i}`),
+            ],
           },
         }),
       ],
@@ -278,7 +306,9 @@ describe('the turn event on a stored step', () => {
   })
 
   it('caps every string and the number of values, and drops a keyless event', () => {
-    const values = Object.fromEntries(Array.from({ length: 20 }, (_, i) => [`k${i}`, 'v'.repeat(500)]))
+    const values = Object.fromEntries(
+      Array.from({ length: 20 }, (_, i) => [`k${i}`, 'v'.repeat(500)])
+    )
     const result = sanitizeProvenance({
       thinkingSteps: [
         step({ turnEvent: { key: 'x'.repeat(500), values } }),

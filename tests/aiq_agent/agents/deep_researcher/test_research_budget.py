@@ -488,3 +488,67 @@ class TestBudgetThroughBatchToolPath:
         assert executions == 1
         assert exc_info.value.ceiling == 1000
         assert exc_info.value.used == 1500
+
+
+class TestAddedDocumentsReachTheOrchestrator:
+    @pytest.mark.asyncio
+    async def test_a_live_addition_is_announced_on_the_next_batch_result(self):
+        from aiq_agent.agents.deep_researcher.control import bind_added_documents
+        from aiq_agent.agents.deep_researcher.control import reset_added_documents
+        from aiq_agent.agents.deep_researcher.tools.research import ADDED_DOCUMENTS_NOTICE
+        from aiq_agent.common.plan_documents import PlanDocument
+
+        runnable = _fake_runnable(_structured_response())
+        batch_tool = build_research_batch_tool(
+            researcher_runnable=runnable,
+            callbacks=[],
+            max_research_concurrency=2,
+            researcher_tool_names={"web_search_tool"},
+        )
+        queue: list[PlanDocument] = [PlanDocument(name="nachtrag.pdf", title="Nachtrag")]
+        token = bind_added_documents(queue)
+        try:
+            result = await batch_tool.ainvoke({"queries": [_make_query("first")]})
+            assert result.startswith(ADDED_DOCUMENTS_NOTICE.split("{lines}")[0].rstrip("\n"))
+            assert "- Nachtrag — nachtrag.pdf" in result
+            # The notes still follow, as JSON, after the notice.
+            payload = json.loads(result.split("\n\n", 1)[1])
+            assert payload[0]["query_topic"] == "test"
+            # Drained: the next batch says nothing about it.
+            again = await batch_tool.ainvoke({"queries": [_make_query("second")]})
+            assert not again.startswith(ADDED_DOCUMENTS_NOTICE[:20])
+        finally:
+            reset_added_documents(token)
+
+
+class TestWriteNowIsHonouredOnlyByARefusal:
+    @pytest.mark.asyncio
+    async def test_a_refused_batch_is_recorded_and_a_ran_batch_is_not(self):
+        import asyncio
+
+        from aiq_agent.agents.deep_researcher.control import begin_write_now_record
+        from aiq_agent.agents.deep_researcher.control import bind_write_now
+        from aiq_agent.agents.deep_researcher.control import end_write_now_record
+        from aiq_agent.agents.deep_researcher.control import reset_write_now
+        from aiq_agent.agents.deep_researcher.control import write_now_honoured
+        from aiq_agent.agents.deep_researcher.tools.research import WRITE_NOW_NOTICE
+
+        batch_tool = build_research_batch_tool(
+            researcher_runnable=_fake_runnable(_structured_response()),
+            callbacks=[],
+            max_research_concurrency=2,
+            researcher_tool_names={"web_search_tool"},
+        )
+        signal = asyncio.Event()
+        record = begin_write_now_record()
+        token = bind_write_now(signal)
+        try:
+            await batch_tool.ainvoke({"queries": [_make_query("first")]})
+            # A request that lands after the last batch cut nothing.
+            signal.set()
+            assert write_now_honoured() is False
+            assert await batch_tool.ainvoke({"queries": [_make_query("second")]}) == WRITE_NOW_NOTICE
+            assert write_now_honoured() is True
+        finally:
+            reset_write_now(token)
+            end_write_now_record(record)

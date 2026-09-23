@@ -67,6 +67,12 @@ describe('stripCardMarkers', () => {
     )
   })
 
+  it('takes a placed [[callout]] marker with it, line and all', () => {
+    expect(stripCardMarkers('Erster Absatz.\n\n[[callout]]\n\nZweiter Absatz.')).toBe(
+      'Erster Absatz.\n\nZweiter Absatz.'
+    )
+  })
+
   it('leaves an answer without markers byte-identical apart from trimming', () => {
     const md = '## Ergebnis\n\n| A | B |\n| --- | --- |\n| 1 | 2 |\n\n**Fett** und [1].'
     expect(stripCardMarkers(md)).toBe(md)
@@ -97,14 +103,18 @@ describe('sourcesMarkdown', () => {
     expect(out).toContain('## Quellen')
     expect(out).toContain('[1] OIB-Richtlinie 2 – Brandschutz, Ausgabe Mai 2023, S. 18')
     expect(out).toContain('oib-rl_2_ausgabe_mai_2023.pdf')
-    expect(out).toContain('[2] Wiener Bauordnung § 87 — https://www.ris.bka.gv.at/wiener-bauordnung')
+    expect(out).toContain(
+      '[2] Wiener Bauordnung § 87 — https://www.ris.bka.gv.at/wiener-bauordnung'
+    )
   })
 
   it('numbers by the marker the prose wrote, not by list position', () => {
     const documents = buildCitationModel({
       citations: [source({ ...ris, number: 7 }), source({ ...oib, number: 3 })],
     })
-    const lines = sourcesMarkdown(documents, labels).split('\n').filter((l) => l.startsWith('['))
+    const lines = sourcesMarkdown(documents, labels)
+      .split('\n')
+      .filter((l) => l.startsWith('['))
 
     expect(lines[0]).toMatch(/^\[3\] OIB-Richtlinie 2/)
     expect(lines[1]).toMatch(/^\[7\] Wiener Bauordnung/)

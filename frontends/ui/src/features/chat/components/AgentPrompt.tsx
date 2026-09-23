@@ -10,7 +10,7 @@
 
 'use client'
 
-import { type FC, useCallback } from 'react'
+import { type FC, useCallback, useMemo, useState } from 'react'
 import { MessageSquare } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { useLocale, useTranslations } from '@/i18n'
@@ -18,6 +18,14 @@ import { formatTime } from '@/shared/utils/format-time'
 import { MarkdownRenderer } from '@/shared/components/MarkdownRenderer'
 import { BranchOptions } from './reasoning/BranchOptions'
 import { useChatStore } from '../store'
+import { useLayoutStore } from '@/features/layout/store'
+import {
+  approvalReply,
+  parsePlanFence,
+  PlanChecklist,
+  stripPlanFence,
+  type PlanShape,
+} from './PlanChecklist'
 import type { PromptType } from '../types'
 
 export type { PromptType }
@@ -53,6 +61,8 @@ const APPROVAL_PROMPT_STRIP_RE = /[ \t]*Reply\s+\*{0,2}approve\*{0,2}\s+to proce
 const PLAN_HEADER_RE = /\*\*Research Plan Preview\*\*/
 const PLAN_TITLE_LABEL_RE = /\*\*Title:\*\*/
 const PLAN_SECTIONS_LABEL_RE = /\*\*Sections:\*\*/
+/** The whole sections block (label and numbered lines), for a plan drawn as controls. */
+const PLAN_SECTIONS_BLOCK_RE = /\*\*[^*\n]+\*\*\s*\n(?:\s*\d+\.\s[^\n]*\n?)+/
 
 /**
  * Keyword the user's click sent, mapped to the dictionary key of a
@@ -127,24 +137,53 @@ export const AgentPrompt: FC<AgentPromptProps> = ({
   // Replace the English envelope sentence and the English plan scaffolding
   // with localized copy; the plan title/sections themselves are already in the
   // user's language (the planner writes them that way).
+  // The plan as data, when the backend sent it beside the text: the card
+  // renders it as controls, and the approval carries the reader's edits.
+  const plan = useMemo(
+    () => (isThreeWayPrompt ? parsePlanFence(content) : null),
+    [content, isThreeWayPrompt]
+  )
+  const [editedPlan, setEditedPlan] = useState<PlanShape | null>(null)
+  const shownPlan = editedPlan ?? plan
+  // The Rahmen: the composer's Datengrundlage, read off the layout store the
+  // composer writes. The approval carries the ids; the card shows the names.
+  const enabledSourceIds = useLayoutStore((s) => s.enabledDataSourceIds)
+  const availableSources = useLayoutStore((s) => s.availableDataSources)
+  const rahmen = useMemo(() => {
+    if (!plan) return undefined
+    const ids = enabledSourceIds.filter((id) => (availableSources ?? []).some((s) => s.id === id))
+    const labels = ids.map((id) => (availableSources ?? []).find((s) => s.id === id)?.name ?? id)
+    return { ids, labels }
+  }, [plan, enabledSourceIds, availableSources])
+  // An edited approval is the keyword plus JSON; the receipt keys off the keyword.
   const displayContent = isApprovalPrompt
-    ? content
+    ? stripPlanFence(content)
         .replace(APPROVAL_PROMPT_STRIP_RE, '')
         .replace(PLAN_HEADER_RE, `**${t('agentPrompt.planPreviewHeading')}**`)
         .replace(PLAN_TITLE_LABEL_RE, `**${t('agentPrompt.planTitleLabel')}**`)
         .replace(PLAN_SECTIONS_LABEL_RE, `**${t('agentPrompt.planSectionsLabel')}**`)
         .trim()
     : content
+  // With the plan drawn as controls, the numbered list above it would say the
+  // sections twice; the text keeps the title and loses the list.
+  const bubbleContent = plan
+    ? displayContent.replace(PLAN_SECTIONS_BLOCK_RE, '').trim()
+    : displayContent
 
   // The answered bubble's echo. Approval prompts answer with wire keywords;
   // show what the click meant, not the keyword. Every other prompt echoes the
   // user's own words unchanged.
-  const responseKey = isApprovalPrompt && response ? APPROVAL_RESPONSE_KEYS[response.trim().toLowerCase()] : undefined
+  const responseKey =
+    isApprovalPrompt && response
+      ? APPROVAL_RESPONSE_KEYS[response.trim().toLowerCase().split(/\s/)[0] ?? '']
+      : undefined
   const responseLabel = responseKey ? t(responseKey) : response
 
   const handleApprove = useCallback(() => {
-    respondToInteractionFn?.('approve')
-  }, [respondToInteractionFn])
+    respondToInteractionFn?.(
+      plan && shownPlan ? approvalReply(plan, shownPlan, rahmen?.ids ?? []) : 'approve'
+    )
+  }, [respondToInteractionFn, plan, shownPlan, rahmen])
 
   const handleShallow = useCallback(() => {
     respondToInteractionFn?.('shallow')
@@ -159,24 +198,24 @@ export const AgentPrompt: FC<AgentPromptProps> = ({
   }, [respondToInteractionFn])
 
   return (
-    <div className="animate-in fade-in-0 slide-in-from-bottom-1 flex w-full justify-start duration-base ease-entrance motion-reduce:animate-none">
+    <div className="animate-in fade-in-0 slide-in-from-bottom-1 duration-base ease-entrance flex w-full justify-start motion-reduce:animate-none">
       <div className="flex max-w-[85%] flex-col">
-        <div className="flex flex-col gap-3 overflow-hidden break-words rounded-2xl rounded-bl-md bg-card p-4">
+        <div className="bg-card flex flex-col gap-3 overflow-hidden break-words rounded-2xl rounded-bl-md p-4">
           {/* Agent icon and label */}
           <div
-            className={`flex items-center gap-2 transition-opacity duration-quick ease-out motion-reduce:transition-none ${isResponded ? 'opacity-75' : ''}`}
+            className={`duration-quick flex items-center gap-2 transition-opacity ease-out motion-reduce:transition-none ${isResponded ? 'opacity-75' : ''}`}
           >
-            <MessageSquare className="size-5 text-muted-foreground" />
-            <span className="text-sm font-semibold text-muted-foreground">
+            <MessageSquare className="text-muted-foreground size-5" />
+            <span className="text-muted-foreground text-sm font-semibold">
               {isResponded ? t('agentPrompt.receivedInput') : t('agentPrompt.needsInput')}
             </span>
           </div>
 
           {/* Content - rendered as markdown */}
           <div
-            className={`prose prose-sm max-w-none transition-opacity duration-quick ease-out motion-reduce:transition-none ${isResponded ? 'opacity-75' : ''}`}
+            className={`prose prose-sm duration-quick max-w-none transition-opacity ease-out motion-reduce:transition-none ${isResponded ? 'opacity-75' : ''}`}
           >
-            <MarkdownRenderer content={displayContent} />
+            <MarkdownRenderer content={bubbleContent} />
           </div>
 
           {/* Choice prompts render as the shared Folgewege branch-picker cards
@@ -195,10 +234,19 @@ export const AgentPrompt: FC<AgentPromptProps> = ({
             />
           )}
 
+          {shownPlan && (
+            <PlanChecklist
+              plan={shownPlan}
+              disabled={isResponded || !isAddressee || !respondToInteractionFn}
+              rahmen={rahmen}
+              onChange={setEditedPlan}
+            />
+          )}
+
           {/* Why a colleague has no buttons. Without a line here the card reads as
               broken rather than as somebody else's turn. */}
           {!isAddressee && !isResponded && (
-            <p data-testid="agent-prompt-awaiting-other" className="text-xs text-muted-foreground">
+            <p data-testid="agent-prompt-awaiting-other" className="text-muted-foreground text-xs">
               {addresseeName
                 ? t('agentPrompt.awaitingOther', { name: addresseeName })
                 : t('agentPrompt.awaitingSomeone')}
@@ -209,14 +257,12 @@ export const AgentPrompt: FC<AgentPromptProps> = ({
               approval prompts, shown at the decision point (before approval). */}
           {isApprovalPrompt && !isResponded && isAddressee && (
             <div className="flex flex-col gap-1">
-              <span className="text-sm text-foreground">
+              <span className="text-foreground text-sm">
                 {isThreeWayPrompt
                   ? t('agentPrompt.approvalInstructionThreeWay')
                   : t('agentPrompt.approvalInstruction')}
               </span>
-              <span className="text-xs text-muted-foreground">
-                {t('agentPrompt.durationHint')}
-              </span>
+              <span className="text-muted-foreground text-xs">{t('agentPrompt.durationHint')}</span>
             </div>
           )}
 
@@ -299,7 +345,7 @@ const ResponseDisplay: FC<{ response?: string }> = ({ response }) => {
   if (!response) return null
 
   return (
-    <div className="flex items-center gap-2 rounded-xl bg-muted px-3 py-2">
+    <div className="bg-muted flex items-center gap-2 rounded-xl px-3 py-2">
       <MessageSquare className="text-subtle size-4" />
       <span className="text-subtle text-sm">
         {t('agentPrompt.yourResponse')} <span className="text-primary">{response}</span>

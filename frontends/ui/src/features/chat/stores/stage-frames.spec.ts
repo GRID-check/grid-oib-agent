@@ -25,7 +25,6 @@ const PARENT = 'msg_1755600000000_3'
 vi.mock('@/features/layout/store', () => ({
   useLayoutStore: {
     getState: () => ({
-      closeRightPanel: vi.fn(),
       enabledDataSourceIds: [],
       availableDataSources: [],
       setEnabledDataSources: vi.fn(),
@@ -177,14 +176,22 @@ describe('a ready frame lands on the turn it addresses', () => {
       expect(mockConversationsClient.updateMessageStages).toHaveBeenCalledWith(
         'conv-1',
         'msg-answer',
-        { followUps: { items: expect.arrayContaining([expect.objectContaining({ question: expect.any(String) })]) } },
-      ),
+        {
+          followUps: {
+            items: expect.arrayContaining([
+              expect.objectContaining({ question: expect.any(String) }),
+            ]),
+          },
+        }
+      )
     )
   })
 
   it('drops a payload its own contract rejects', () => {
     expect(
-      useChatStore.getState().applyStageFrame({ ...READY, payload: { items: [{ hint: 'nur ein Hinweis' }] } }),
+      useChatStore
+        .getState()
+        .applyStageFrame({ ...READY, payload: { items: [{ hint: 'nur ein Hinweis' }] } })
     ).toBeNull()
     expect(storedOn('msg-answer')).toBeUndefined()
   })
@@ -197,11 +204,16 @@ describe('a frame with nothing to show changes nothing', () => {
     seed(threadOf(answer()))
   })
 
-  it.each(['empty', 'failed'] as const)('%s is rendered as nothing and persisted as nothing', (status) => {
-    expect(useChatStore.getState().applyStageFrame({ ...READY, status, payload: undefined })).toBeNull()
-    expect(storedOn('msg-answer')).toBeUndefined()
-    expect(mockConversationsClient.updateMessageStages).not.toHaveBeenCalled()
-  })
+  it.each(['empty', 'failed'] as const)(
+    '%s is rendered as nothing and persisted as nothing',
+    (status) => {
+      expect(
+        useChatStore.getState().applyStageFrame({ ...READY, status, payload: undefined })
+      ).toBeNull()
+      expect(storedOn('msg-answer')).toBeUndefined()
+      expect(mockConversationsClient.updateMessageStages).not.toHaveBeenCalled()
+    }
+  )
 })
 
 describe('a frame that could move something already read is refused', () => {
@@ -214,10 +226,13 @@ describe('a frame that could move something already read is refused', () => {
     // The §8 claim — "the rail is the last element, so growing it moves nothing"
     // — is false the moment anything sits below the answer.
     seed(
-      threadOf(
-        answer(),
-        { id: 'msg-next', role: 'user', content: 'Und bei Hanglage?', timestamp: new Date(), messageType: 'user' },
-      ),
+      threadOf(answer(), {
+        id: 'msg-next',
+        role: 'user',
+        content: 'Und bei Hanglage?',
+        timestamp: new Date(),
+        messageType: 'user',
+      })
     )
     expect(useChatStore.getState().applyStageFrame(READY)).toBeNull()
     expect(storedOn('msg-answer')).toBeUndefined()
@@ -234,6 +249,25 @@ describe('a frame that could move something already read is refused', () => {
     useChatStore.setState({ composerDrafts: { 'conv-1': 'Und wenn das Dachgeschoß ' } })
     expect(useChatStore.getState().applyStageFrame(READY)).toBeNull()
     expect(storedOn('msg-answer')).toBeUndefined()
+  })
+
+  it('still mirrors a refused frame to the server row', async () => {
+    // The refusals guard the reader's scroll position, not the record: the
+    // follow-ups of a turn whose reader had started typing must still exist
+    // on reload, on another device and for a colleague.
+    seed(threadOf(answer()))
+    useChatStore.setState({ composerDrafts: { 'conv-1': 'Und wenn das Dachgeschoß ' } })
+    expect(useChatStore.getState().applyStageFrame(READY)).toBeNull()
+    expect(storedOn('msg-answer')).toBeUndefined()
+    await vi.waitFor(() =>
+      expect(mockConversationsClient.updateMessageStages).toHaveBeenCalledWith(
+        'conv-1',
+        'msg-answer',
+        {
+          followUps: READY.payload,
+        }
+      )
+    )
   })
 
   it('is not put off by whitespace left in the composer', () => {
@@ -257,7 +291,7 @@ describe('a frame addressed to no message here is dropped silently', () => {
   it('drops a frame for a conversation this tab is not looking at', () => {
     seed(threadOf(answer()))
     expect(
-      useChatStore.getState().applyStageFrame({ ...READY, conversationId: 'conv-other' }),
+      useChatStore.getState().applyStageFrame({ ...READY, conversationId: 'conv-other' })
     ).toBeNull()
     expect(storedOn('msg-answer')).toBeUndefined()
   })
@@ -273,7 +307,7 @@ describe('a frame addressed to no message here is dropped silently', () => {
         timestamp: new Date(),
         messageType: 'user',
         wsParentId: PARENT,
-      }),
+      })
     )
     expect(useChatStore.getState().applyStageFrame(READY)).toBeNull()
   })
@@ -312,9 +346,13 @@ describe('a second stage writes beside the first, not over it', () => {
     // else, which is what made the old chip per-conversation.
     useChatStore.getState().applyStageFrame(NOTED)
     await vi.waitFor(() =>
-      expect(mockConversationsClient.updateMessageStages).toHaveBeenCalledWith('conv-1', 'msg-answer', {
-        memoryReflection: { items: [expect.objectContaining({ kind: 'derived_fact' })] },
-      }),
+      expect(mockConversationsClient.updateMessageStages).toHaveBeenCalledWith(
+        'conv-1',
+        'msg-answer',
+        {
+          memoryReflection: { items: [expect.objectContaining({ kind: 'derived_fact' })] },
+        }
+      )
     )
   })
 
@@ -322,7 +360,10 @@ describe('a second stage writes beside the first, not over it', () => {
     expect(
       useChatStore
         .getState()
-        .applyStageFrame({ ...NOTED, payload: { items: [{ id: 'a', kind: 'geheim', content: 'x' }] } }),
+        .applyStageFrame({
+          ...NOTED,
+          payload: { items: [{ id: 'a', kind: 'geheim', content: 'x' }] },
+        })
     ).toBeNull()
     expect(storedOn('msg-answer')).toBeUndefined()
   })
@@ -351,7 +392,7 @@ describe('a record of a write is not held to the rules a suggestion is', () => {
         content: 'Und bei Hanglage?',
         timestamp: new Date(),
         messageType: 'user',
-      }),
+      })
     )
     expect(useChatStore.getState().applyStageFrame(NOTED)).toBe('msg-answer')
     expect(storedOn('msg-answer')?.memoryReflection?.items).toHaveLength(1)
@@ -377,7 +418,9 @@ describe('a record of a write is not held to the rules a suggestion is', () => {
     // not this message's to carry.
     seed(threadOf(answer({ wsParentId: 'msg_1755600000000_9' })))
     expect(useChatStore.getState().applyStageFrame(NOTED)).toBeNull()
-    expect(useChatStore.getState().applyStageFrame({ ...NOTED, conversationId: 'conv-other' })).toBeNull()
+    expect(
+      useChatStore.getState().applyStageFrame({ ...NOTED, conversationId: 'conv-other' })
+    ).toBeNull()
   })
 
   it('overwrites rather than appends when a reconnect replays it', () => {

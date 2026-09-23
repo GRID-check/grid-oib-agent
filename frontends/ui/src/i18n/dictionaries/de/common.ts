@@ -47,4 +47,10 @@ export const common: typeof en.common = {
     english: 'English',
     german: 'Deutsch',
   },
+  // GFM-Fußnoten: die Überschrift und den Rücksprung-Link schreibt der
+  // Markdown-Konverter, also müssen sie hier stehen, nicht auf Englisch.
+  markdown: {
+    footnotes: 'Fußnoten',
+    backToReference: 'Zurück zu Verweis {n}',
+  },
 }

@@ -151,7 +151,7 @@ The Zustand store uses the `persist` middleware with `createResilientStorage()` 
 
 - **Key**: `aiq-chat-store`
 - **Persisted fields**: `currentUserId`, `conversations`, `currentConversation`, `pendingInteraction`
-- **Pruning**: `prunePersistedChatState()` strips heavy fields (full thinking steps, research panel data) from stored messages; `currentConversation` is stored as just an ID reference
+- **Pruning**: `prunePersistedChatState()` strips heavy fields (full thinking-step payloads, legacy intermediate steps) from stored messages; `currentConversation` is stored as just an ID reference
 - **Hydration transforms**: Connection error messages are stripped on read; `currentConversation` is reconstructed from the stored ID
 - **Quota handling**: On `QuotaExceededError`, falls back to clearing all sessions as a last resort
 

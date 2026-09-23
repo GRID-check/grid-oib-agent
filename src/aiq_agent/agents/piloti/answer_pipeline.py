@@ -10,15 +10,18 @@ copies its signal fields onto the state (``ledger.assemble_result``).
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import re
 from collections.abc import Awaitable
 from collections.abc import Callable
 from collections.abc import Sequence
 from dataclasses import dataclass
+from dataclasses import replace
 from typing import Any
 
 from langchain_core.messages import AIMessage
+from langchain_core.messages import HumanMessage
 from langchain_core.messages import ToolMessage
 from langchain_core.tools import BaseTool
 
@@ -47,6 +50,7 @@ from aiq_agent.common.turn_status import emit_citation_check
 
 from .dsml import strip_and_salvage_dsml_tool_calls
 from .grounding import answer_mentions_normative_claim
+from .history import prose_history
 from .markers import detect_and_strip_confidence_marker
 from .markers import detect_and_strip_escalation_marker
 from .repair import Repair
@@ -58,6 +62,15 @@ logger = logging.getLogger(__name__)
 #: a rewrite, or ``None`` to keep the marked answer. ``None`` as the function
 #: means the repair pass is off.
 RepairFn = Callable[[str, VerificationFailures, list[Any]], Awaitable[Repair | None]]
+
+#: The card repair the agent injects: ``(card as written, the refusal with the
+#: shape, the answer prose)`` → the corrected card object, or ``None`` to drop
+#: it. ``None`` as the function means a shape miss is dropped without a repair.
+CardRepairFn = Callable[[dict[str, Any], str, str], Awaitable[dict[str, Any] | None]]
+
+#: A ``[[card:N]]`` marker, with N captured: the envelope's own cards are
+#: addressed by these, and renumbered to their registry positions.
+_CARD_MARKER_NUMBER_RE = re.compile(r"\[\[card:(\d+)\]\]")
 
 
 @dataclass(frozen=True)
@@ -96,6 +109,10 @@ class FinalAnswer:
     escalation_reason: str | None = None
     source_lookup_attempted: bool = False
     answer_meta: dict[str, Any] | None = None
+    #: The envelope's ``skills_applied``: the inlined skills the model says it
+    #: followed. Names as written; the register hands them to the skill
+    #: runtime, which accepts only those whose body was in the prompt.
+    skills_applied: tuple[str, ...] = ()
     cited: tuple[CitedSource, ...] = ()
     removed_citations: tuple[dict[str, Any], ...] = ()
     #: The retrieval of an ADOPTED repair: already in the registry, and part
@@ -212,6 +229,18 @@ class _Extracted:
     escalation_reason: str | None = None
 
 
+def _skills_applied(meta: AnswerMeta | None) -> tuple[str, ...]:
+    """The envelope's ``skills_applied`` as clean names, deduped, in the model's order."""
+    if meta is None or not meta.skills_applied:
+        return ()
+    names: list[str] = []
+    for raw in meta.skills_applied:
+        name = str(raw).strip().strip("`")
+        if name and name not in names:
+            names.append(name)
+    return tuple(names)
+
+
 def _extract(raw: str) -> _Extracted:
     """Strip DSML leaks, split the envelope, extract both control markers.
 
@@ -238,8 +267,146 @@ def _extract(raw: str) -> _Extracted:
     return _Extracted(content, meta, escalation, confidence, reason, escalation_reason)
 
 
+def _handed_markers(messages: Sequence[Any]) -> set[int]:
+    """The ``[[card:N]]`` numbers a TOOL handed the model this turn.
+
+    A tool that pushes a system card (``write_file`` → ``document_draft``,
+    ``surface_documents`` → ``document_grid``, ``emit_card`` on an older
+    prompt) answers with the marker to write, so the numbers in its replies
+    are taken. Read off the transcript rather than off the registry's size:
+    the registry says how many cards exist, the replies say which of them the
+    model was told to address by number.
+    """
+    handed: set[int] = set()
+    for message in messages:
+        if not isinstance(message, ToolMessage):
+            continue
+        for match in _CARD_MARKER_NUMBER_RE.finditer(content_to_text(message.content)):
+            handed.add(int(match.group(1)))
+    return handed
+
+
+def _renumber_envelope_markers(content: str, *, handed: set[int], positions: dict[int, int], count: int) -> str:
+    """The envelope's card markers moved from array numbers to registry positions.
+
+    The taught rule (``cards/envelope._MARKER_RULE``) numbers the ``cards``
+    array from 1, and from after the highest marker a tool handed out this
+    turn when there was one, so the model's numbers never collide with a
+    tool's. N therefore names array card ``N - offset`` (``offset`` = the
+    highest handed number, 0 when none), and that card becomes the registry
+    position it landed at (``positions``). A marker a tool handed out keeps its
+    number: it already IS a registry position. A model that ignored the offset
+    and wrote a number at or below it is read as an array number, the only
+    reading left. The marker of a card that was DROPPED is removed, so the
+    reader never meets a marker with nothing behind it and no later card
+    slides onto its neighbour's place. A marker past the array is left alone,
+    as it always was.
+    """
+    if count == 0:
+        return content
+    offset = max(handed, default=0)
+
+    def substitute(match: re.Match[str]) -> str:
+        number = int(match.group(1))
+        if number in handed:
+            return match.group(0)
+        index = number - offset if number > offset else number
+        if not 1 <= index <= count:
+            return match.group(0)
+        position = positions.get(index)
+        return f"[[card:{position}]]" if position is not None else ""
+
+    return _CARD_MARKER_NUMBER_RE.sub(substitute, content)
+
+
+async def _register_envelope_cards(
+    meta: AnswerMeta | None,
+    content: str,
+    messages: Sequence[Any],
+    card_repair: CardRepairFn | None,
+) -> str:
+    """Validate the envelope's cards into the turn's registry; the prose with its markers resolved.
+
+    The same validator and the same two closed channels ``emit_card`` runs
+    (``cards/envelope.validate_model_card``), so the envelope buys a card no
+    softer standard than the tool would. A shape miss goes to the repair once
+    — a bounded call on the small card model, never a round — and a card that
+    still fails is dropped and recorded (``status:card:invalid:N``). Cards
+    register in array order after whatever the tools pushed, and the prose's
+    markers are moved to those positions. Fail-open throughout: no registry
+    bound (a CLI run) means the answer ships without cards, as it always did.
+    """
+    from aiq_agent.cards.envelope import envelope_card_objects
+    from aiq_agent.cards.registry import get_card_registry
+
+    raw = envelope_card_objects(meta.cards if meta is not None else None)
+    if not raw:
+        return content
+    registry = get_card_registry()
+    if registry is None:
+        logger.info("answer envelope carried %d card(s) with no card registry bound; dropped", len(raw))
+        return content
+    handed = _handed_markers(messages)
+    # Repairs run side by side: each is bounded by the card model's timeout,
+    # and in series three malformed cards would hold a final answer for three
+    # of them. Registration stays in array order.
+    checked = await asyncio.gather(
+        *(_checked_envelope_card(payload, index, content, card_repair) for index, payload in enumerate(raw))
+    )
+    positions: dict[int, int] = {}
+    for index, validated in enumerate(checked):
+        if validated is None:
+            continue
+        registry.add(validated)
+        positions[index + 1] = len(registry)
+        logger.info("answer envelope registered a '%s' card as card %d", validated["type"], len(registry))
+    return _renumber_envelope_markers(content, handed=handed, positions=positions, count=len(raw))
+
+
+async def _checked_envelope_card(
+    payload: Any, index: int, content: str, card_repair: CardRepairFn | None
+) -> dict[str, Any] | None:
+    """One envelope card validated, repaired once on a shape miss, or ``None`` (recorded)."""
+    from aiq_agent.cards.envelope import REFUSED_SHAPE
+    from aiq_agent.cards.envelope import validate_model_card
+    from aiq_agent.common.turn_status import CARD_INVALID_DROPPED
+    from aiq_agent.common.turn_status import CARD_INVALID_REPAIRED
+    from aiq_agent.common.turn_status import emit_card_invalid
+
+    validated, refusal = validate_model_card(payload)
+    card_type = refusal.card_type if refusal is not None else str(validated["type"])
+    # Only a SHAPE miss is repairable: a system or envelope type is refused
+    # whatever its fields, and a non-object has no fields to fix.
+    if validated is None and refusal is not None and refusal.kind == REFUSED_SHAPE and card_repair is not None:
+        repaired = await card_repair(payload, refusal.for_repair(), content)
+        if repaired is not None:
+            validated, _ = validate_model_card(repaired)
+        if validated is not None:
+            emit_card_invalid(card_type=card_type, index=index, outcome=CARD_INVALID_REPAIRED)
+    if validated is None:
+        emit_card_invalid(card_type=card_type, index=index, outcome=CARD_INVALID_DROPPED)
+    return validated
+
+
+def this_turn(messages: Sequence[Any]) -> list[Any]:
+    """The messages of THIS turn: everything after the last human message.
+
+    The transcript now carries the previous turn's tool calls and results
+    (``conversation._answer_update`` writes the whole turn back), so a scan
+    that means "this turn" must stop at the turn boundary: a previous turn's
+    search must not count as this turn's lookup — a follow-up answered from
+    the transcript against an empty registry would otherwise ship the
+    "nothing retrieved" refusal — and a marker a tool handed out last turn
+    must not be a number this turn's cards have to skip.
+    """
+    for index in range(len(messages) - 1, -1, -1):
+        if isinstance(messages[index], HumanMessage):
+            return list(messages[index + 1 :])
+    return list(messages)
+
+
 def _source_lookup_attempted(messages: Sequence[Any]) -> bool:
-    """Whether any data-source tool ran this turn."""
+    """Whether any data-source tool ran this turn (pass this turn's messages)."""
     return any(
         isinstance(msg, ToolMessage) and get_source_id_for_tool(getattr(msg, "name", "") or "") is not None
         for msg in messages
@@ -489,13 +656,19 @@ def _normative_claim_uncited(content: str, grounding: _Grounding) -> bool:
 
 
 #: Short-overview card floor. Below this a non-ruling answer without a
-#: copyable verdict has not earned cards: the prose IS the answer, and the
-#: describe_card + emit_card generations (each a full-context LLM round,
-#: ~2 s in the production trace) buy the reader nothing to copy. Mirrors the
-#: takeaway floor's judgement (600) with headroom: cards are heavier than
-#: takeaways, so they are earned later. Mechanical only — the prompt doctrine
-#: that teaches WHEN to emit is untouched.
-_CARD_SUPPRESS_MIN_PROSE_CHARS = 800
+#: copyable verdict has not earned cards: the prose IS the answer and a card
+#: under it is a trailer on a one-screen reply. It was 800 while a card cost
+#: a full-context LLM round (the describe_card + emit_card generations, ~2 s
+#: in the production trace) — a cost worth refusing on a short answer. Cards
+#: travel in the answer envelope now (``cards/envelope.py``) and cost no
+#: round, so what remains of the argument is the degenerate case: a
+#: two-sentence reply with a checklist hung under it. 400 characters is
+#: about three sentences, the length at which the prompt starts owing a
+#: `summary`; below the takeaway floor (600) on purpose, because a short
+#: answer with one table is richer than the same answer without it, and a
+#: table is not a takeaway list. Mechanical only — the prompt doctrine that
+#: teaches WHEN to emit is untouched.
+_CARD_SUPPRESS_MIN_PROSE_CHARS = 400
 
 #: The marker emit_card hands back (``[[card:N]]``); stripped when cards are
 #: suppressed so the reader never meets a marker with nothing behind it.
@@ -553,7 +726,7 @@ def _suppress_cards(content: str, gated_meta: dict[str, Any] | None) -> tuple[st
     Two vetoes, both read off the registry snapshot before anything is
     cleared. System cards are the product, not the trailer: ``document_draft``
     (and every other ``SYSTEM_CARD_TYPES`` member) is pushed by the tool that
-    did the work, and a short drafting answer (kind=direct, <800 chars, no
+    did the work, and a short drafting answer (kind=direct, <400 chars, no
     verdict) matches the suppression floor exactly. Clearing the registry
     there would eat the announcement of the work just done, so any system
     card in the registry vetoes the whole suppression — cards, markers and
@@ -636,6 +809,7 @@ async def finalize_answer(
     tools: Sequence[BaseTool],
     repair: RepairFn | None,
     turn_sources: Sequence[SourceEntry] | None = None,
+    card_repair: CardRepairFn | None = None,
 ) -> FinalAnswer:
     """Run every post-answer stage and return the answer as the reader gets it.
 
@@ -653,11 +827,19 @@ async def finalize_answer(
     if index is None or not messages[index].content:
         return FinalAnswer(messages=list(messages), answered=False)
     extracted = _extract(content_to_text(messages[index].content))
-    lookup_attempted = _source_lookup_attempted(messages)
+    # The envelope's cards, before verification: registration is what turns
+    # the array's numbers into registry positions, and the markers have to be
+    # the reader's before the suppression floor and the callout resolver read
+    # the prose.
+    turn = this_turn(messages)
+    with_cards = await _register_envelope_cards(extracted.meta, extracted.content, turn, card_repair)
+    if with_cards != extracted.content:
+        extracted = replace(extracted, content=with_cards)
+    lookup_attempted = _source_lookup_attempted(turn)
     sources = registry.all_sources()
     if sources:
         emit_citation_check(source_count=len(sources))
-        history = [m for m in messages[:index] if not isinstance(m, ToolMessage)]
+        history = prose_history(messages[:index])
         verified = await _verify_with_repair(extracted.content, registry, repair, history)
         grounding = _ground(verified, registry, lookup_attempted=lookup_attempted)
     else:
@@ -692,6 +874,7 @@ async def finalize_answer(
         escalation_reason=extracted.escalation_reason,
         source_lookup_attempted=lookup_attempted,
         answer_meta=meta,
+        skills_applied=_skills_applied(extracted.meta),
         cited=_renumbered(grounding.cited, sanitized.renumber_map),
         removed_citations=grounding.removed_citations,
         repair_sources=grounding.repair_sources,

@@ -57,6 +57,7 @@ export const runs = {
     /** A document a step reached a second time. */
     repeat: 'already read',
     openPoints: 'Open:',
+    findings: 'Established so far',
   },
   /** The one line a finished phase folds to, and the live line of an active one. */
   phaseLine: {
@@ -69,6 +70,7 @@ export const runs = {
   tallies: {
     rounds: '{count, plural, one {# round} other {# rounds}}',
     docs: '{count, plural, one {# document} other {# documents}}',
+    findings: '{count, plural, one {# finding} other {# findings}}',
   },
   /** The one action that fits the state, at the right end of the header. */
   action: {
@@ -80,12 +82,45 @@ export const runs = {
     openInThread: 'Open in thread',
     /** The quiet way out of a run still going. Never the loud one: see `cancel`. */
     cancel: 'Stop',
+    writeNow: 'Write now',
+    continue: 'Update report',
   },
   /**
    * Stopping a run. The confirmation says what survives, because the fear that
    * stops a hand on this button is losing the two rounds already researched —
    * and they are kept.
    */
+  /**
+   * The Unterlagen: the documents the reader named for the run. The receipt
+   * says which were read and where; the picker over the thread names more.
+   */
+  unterlagen: {
+    receiptLabel: 'Documents named for this task',
+    receipt: '{read} of {total} named documents read',
+    unread: 'not read',
+    open: 'Open {name}',
+    addAction: 'Add document',
+    addTitle: 'Add a document',
+    addDescription:
+      'Piloti reads it in full in the next research round and lists it with the other documents named for this task.',
+    pickTitle: 'Choose documents',
+    pickDescription:
+      '„Read" means read in full, whatever else the research finds. „Exclude" means never used, not even when a search returns it.',
+    search: 'Search documents',
+    searchPlaceholder: 'Search by name …',
+    list: 'Documents',
+    loading: 'Loading documents …',
+    empty: 'No documents match.',
+    read: 'Read',
+    exclude: 'Exclude',
+    markRead: 'Read in full: {name}',
+    markExcluded: 'Exclude: {name}',
+    add: 'Add',
+    addOne: 'Add {name}',
+    alreadyNamed: 'named',
+    done: 'Done',
+    shelf: { project: 'Project', archiv: 'Office archive', session: 'This chat', base: 'Regulations' },
+  },
   cancel: {
     confirmTitle: 'Stop this task?',
     confirmBody:
@@ -106,7 +141,8 @@ export const runs = {
    * going. Only the line into it broke.
    */
   connection: {
-    reconnecting: 'The live view lost its connection and is reconnecting. The task is still running.',
+    reconnecting:
+      'The live view lost its connection and is reconnecting. The task is still running.',
     lost: 'The live view is disconnected. The task is still running — reload to follow it again.',
   },
   block: {

@@ -21,8 +21,6 @@ export type { AnswerFeedbackProps } from './AnswerFeedback'
 export { ErrorBanner } from './ErrorBanner'
 export type { ErrorBannerProps, ErrorCode } from './ErrorBanner'
 
-export { DeepResearchBanner } from './DeepResearchBanner'
-export type { DeepResearchBannerProps } from './DeepResearchBanner'
 
 export { NoSourcesBanner } from './NoSourcesBanner'
 

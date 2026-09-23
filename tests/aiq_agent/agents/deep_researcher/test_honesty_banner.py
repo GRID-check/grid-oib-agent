@@ -29,3 +29,21 @@ def test_a_source_that_did_not_answer_is_not_called_a_time_limit():
 
 def test_an_unknown_reason_still_says_the_report_is_partial():
     assert "unvollständig" in _banner("quota_exhausted")
+
+
+def test_an_english_report_gets_an_english_banner():
+    """The banner follows the report's language, detected off the report itself."""
+    report = "# Report\n\nThe fire resistance of the load-bearing elements is REI 60 and the escape route is compliant."
+    line = _prepend_honesty_banner(report, cutoff_reason=CUTOFF_WALL_CLOCK, degraded_reasons=["x"]).splitlines()[0]
+
+    assert line.startswith("> **Note:**")
+    assert "at the time limit" in line and "incomplete" in line
+    assert "Hinweis" not in line
+
+
+def test_an_unread_grundlage_alone_is_not_called_unverified():
+    """The unread documents have their own section; the banner does not call the report unverified."""
+    from aiq_agent.common.turn_status import DEGRADED_GRUNDLAGE_UNREAD
+
+    report = _prepend_honesty_banner("# Bericht", cutoff_reason=None, degraded_reasons=[DEGRADED_GRUNDLAGE_UNREAD])
+    assert report == "# Bericht"

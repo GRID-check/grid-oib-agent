@@ -104,6 +104,22 @@ export const chat: typeof en.chat = {
     // tiny one-line hint under the composer keeps the active source count legible.
     sourcesActiveMobile: '{count, plural, one {# Quelle} other {# Quellen}} aktiv',
   },
+  // Der Reiter einer Quellenkarte in der Herleitung: die grobe Ebene, wenn der
+  // Server keine feine Lane benannt hat, und das Regal, auf dem das Dokument
+  // laut Wire liegt (ADR-0047: Deutsch ist Darstellung, nie Transport).
+  sourceTabs: {
+    law: 'Baurecht',
+    project: 'Projektwissen',
+    office: 'Büroarchiv',
+    auto: 'Web',
+    model: 'Modellmessung',
+    shelves: {
+      archiv: 'Büroarchiv',
+      project: 'Projektwissen',
+      session: 'Private Sitzung',
+      base: 'Basiswissen',
+    },
+  },
   shortcuts: {
     label: 'Schnellzugriff',
     presetAria: 'Quellen-Voreinstellung: {label}',
@@ -136,6 +152,37 @@ export const chat: typeof en.chat = {
     // Walkthrough: eine geführte Antwort ohne Urteil — nicht das Ergebnis-Dokument.
     answer: 'Antwort',
   },
+  // Die Befundmatrix über dem Bericht: eine Zeile je Anforderung, die der
+  // Bericht gegen das Projekt gelesen hat.
+  findings: {
+    label: 'Befunde',
+    page: 'S. {page}',
+    labelResults: 'Ergebnisse',
+    columns: {
+      requirement: 'Anforderung',
+      value: 'Wert',
+      reference: 'Fundstelle',
+      status: 'Status',
+      note: 'Anmerkung',
+    },
+    status: {
+      erfuellt: 'erfüllt',
+      nicht_erfuellt: 'nicht erfüllt',
+      offen: 'offen',
+      nicht_anwendbar: 'nicht anwendbar',
+    },
+    grounding: { belegt: 'belegt', abgeleitet: 'abgeleitet', offen: 'ohne Beleg' },
+    // Ein offener Befund lässt sich als eigener Auftrag klären; der Lauf
+    // erscheint als Block in diesem Verlauf.
+    clarify: 'Klären',
+    commissioned: 'Auftrag angelegt',
+    // Gegenüber dem vorigen Bericht zum selben Thema.
+    change: {
+      new: 'neu',
+      changed: 'geändert',
+      dropped: '{count, plural, one {# Befund entfallen:} other {# Befunde entfallen:}}',
+    },
+  },
   answerSources: {
     label: 'Belegt durch',
     ariaLabel: 'Quellen, auf die sich diese Antwort stützt',
@@ -149,6 +196,10 @@ export const chat: typeof en.chat = {
     sourceNumber: 'Quelle {number}',
     page: 'S. {page}',
     pages: 'S. {pages}',
+    // Quellen jenseits der acht Chips falten sich hinter denselben Auslöser wie
+    // die gelesenen Quellen: die Zahl zuerst, jeder Name beim Aufklappen.
+    more: '+{count} weitere',
+    less: 'Weniger anzeigen',
     // Die Fundstelle in der Zählung des Gesetzes selbst: ein Punkt der
     // Richtlinie, wenn der Chunker einen ermittelt hat, sonst nur die Seite.
     punkt: 'Pkt. {punkt}',
@@ -198,6 +249,7 @@ export const chat: typeof en.chat = {
       // Zeitgrenze. Getrennt gezählt wird es nur intern.
       upstream_timeout: 'Zeitgrenze erreicht',
       step_limit: 'Schrittgrenze erreicht',
+      user_requested: 'auf Ihren Wunsch beendet',
     },
     // Wodurch diese gerettete Antwort schwächer ist als die eines sauberen
     // Laufs. Gleiches Register wie oben — leise, sachlich, über die BELEGLAGE —
@@ -210,6 +262,8 @@ export const chat: typeof en.chat = {
         'Keine Quellenangabe hielt der Prüfung stand — bitte prüfen Sie die Angaben vor der Verwendung selbst',
       cards_generation_failed:
         'Der Bericht ist vollständig, aber die daraus abgeleiteten Vorschläge konnten nicht erzeugt werden',
+      grundlage_unread:
+        'Nicht alle als Grundlage benannten Unterlagen wurden gelesen — welche fehlen, steht am Ende des Berichts',
     },
     // Die Gründe der Zitatprüfung, in der Sprache des Lesers. Das Backend nennt
     // sie als Token (`url_not_in_registry`, …), und genau so standen sie bisher
@@ -274,7 +328,8 @@ export const chat: typeof en.chat = {
     // über der Prosa steht (`EvidenceBlock`): das Zitat ist KI-generiert, wie
     // auf der gerahmten Karte — hier kürzer, weil der Block daneben schon
     // schlank ist.
-    evidenceQuoteDisclaimer: 'KI-generierte Zitierung — prüfen Sie den Auszug anhand der Primärquelle.',
+    evidenceQuoteDisclaimer:
+      'KI-generierte Zitierung — prüfen Sie den Auszug anhand der Primärquelle.',
     legalBasis: 'Rechtsgrundlage',
     // Tooltip auf dem OIB-/RIS-Abzeichen: das Abzeichen selbst ist ein
     // Eigenname und in beiden Sprachen gleich — hier steht, was er bedeutet.
@@ -744,6 +799,33 @@ export const chat: typeof en.chat = {
     },
   },
   agentPrompt: {
+    plan: {
+      points: 'Abschnitte',
+      addPoint: 'Abschnitt ergänzen',
+      addPlaceholder: 'Weiteren Abschnitt eintragen …',
+      removePoint: 'Abschnitt streichen: {point}',
+      genre: 'Art des Berichts',
+      genres: {
+        pruefbericht: 'Prüfbericht',
+        aktenvermerk: 'Aktenvermerk',
+        vergleich: 'Vergleich',
+        checkliste: 'Checkliste',
+        bericht: 'Bericht',
+      },
+      depth: 'Tiefe',
+      depths: { kurzpruefung: 'Kurzprüfung', gutachten: 'Gutachten' },
+      unterlagen: {
+        label: 'Unterlagen',
+        grundlage: 'Vollständig lesen:',
+        ausgeschlossen: 'Ausgeschlossen:',
+        none: 'Keine Unterlagen benannt – die Recherche liest, was sie findet.',
+        choose: 'Unterlagen wählen',
+        removeRead: 'Nicht mehr vollständig lesen: {name}',
+        removeExcluded: 'Nicht mehr ausgeschlossen: {name}',
+      },
+      rahmen: 'Datengrundlage',
+      rahmenNote: 'Die im Eingabefeld gewählten Quellen. Ändern Sie sie dort, bevor Sie freigeben.',
+    },
     awaitingOther: 'Piloti wartet auf {name}',
     awaitingSomeone: 'Piloti wartet auf eine andere Person',
     needsInput: 'Piloti benötigt Ihre Eingabe',
@@ -1081,6 +1163,11 @@ export const chat: typeof en.chat = {
       stepKindRead: 'Lesen',
       stepKindFinding: 'Befund',
       stepKindConclusion: 'Schluss',
+      // Ein Abruf, den das Backend gesehen hat und der nichts zurückgab. Nicht
+      // „Suche": eine Schicht ohne Fächer las sich wie eine, die nichts
+      // fand, und war oft nur eine, deren Treffer der alte Draht nie stempelte.
+      // Erst das Ledger macht den Unterschied benennbar.
+      stepKindNoHits: 'Kein Treffer',
       // Eine Schicht, die ausschließlich Passagen bereits gefundener Dateien
       // aufgeschlagen hat: sie hat nichts Neues gesucht. Genau diese Runde von
       // einem frischen Abruf zu unterscheiden, ist der Sinn des Wortes.
@@ -1174,76 +1261,13 @@ export const chat: typeof en.chat = {
             'Keine Belegstelle hielt der Prüfung stand. Bitte schlagen Sie die Angaben vor der Verwendung selbst nach.',
           noCards:
             'Der Bericht ist vollständig, aber die daraus abgeleiteten Vorschläge konnten nicht erzeugt werden.',
+          grundlageUnread:
+            'Nicht alle als Grundlage benannten Unterlagen konnten gelesen werden; ihr Inhalt ist in der Antwort nicht berücksichtigt. Welche es sind, steht am Ende des Berichts.',
         },
       },
       branchesTab: 'Folgewege',
       branchesSub: 'Wählen Sie eine Option — das Ergebnis wird für Ihre Wahl zusammengestellt.',
     },
-  },
-  deepResearch: {
-    stats: {
-      toolCalls: '{count, plural, one {# Werkzeugaufruf} other {# Werkzeugaufrufe}}',
-    },
-    success: {
-      heading: 'Bericht abgeschlossen!{stats}',
-      subheading:
-        'Die Recherche ist abgeschlossen und ein Bericht steht im Recherchebereich zur Ansicht bereit.',
-      // Steht NUR, wenn die Ablage tatsächlich stattgefunden hat und der Bericht
-      // eine Dokument-ID hat. Fehlt sie und wurde auch nichts versprochen — Chat
-      // ohne Projekt, Lauf aus der Zeit vor dieser Funktion —, schweigt das
-      // Banner, statt eine Datei zu behaupten, die es nicht gibt.
-      filedLine: 'Im Projekt abgelegt: {filename}',
-      // Die Rücknahme von `starting.filingDisclosure`, und nur dann: Das
-      // Start-Banner hat „wird abgelegt“ versprochen, der Server hat die Ablage
-      // versucht (es gab ein Projekt) und sie ist nicht zustande gekommen. Wer
-      // die Zusage gelesen hat, geht sonst in „Berichte“ und findet nichts —
-      // die einzige Spur wäre ein Serverprotokoll, das niemand hier lesen kann.
-      // Kein Grund: abgelehntes Speicherkontingent, entzogene Berechtigung
-      // „project:documents:write“ und ein zu langer Bericht sind dieselbe
-      // Tatsache — das Dokument ist nicht da; die Unterschiede sind für den
-      // Betrieb, nicht für die Ziviltechnikerin. Gleiche leise Zeile wie die
-      // Zusage, kein Rot, kein Fehlerzustand: die Recherche ist gelungen.
-      filingFailedLine: 'Der Bericht konnte nicht unter „Berichte“ abgelegt werden.',
-    },
-    failure: {
-      heading: 'Bericht konnte nicht abgeschlossen werden',
-      subheading:
-        'Etwas hat den Abschluss des Rechercheberichts verhindert. Prüfen Sie die Denkschritte für Details.',
-    },
-    cancelled: {
-      heading: 'Recherche abgebrochen',
-      subheading:
-        'Die Recherche wurde vom Benutzer gestoppt. Sie können den Teilfortschritt im Recherchebereich ansehen.',
-    },
-    expired: {
-      heading: 'Bericht abgelaufen',
-      subheading: 'Der Bericht ist abgelaufen und nicht mehr verfügbar.',
-    },
-    starting: {
-      heading: 'Deep Research wird gestartet',
-      subheading:
-        'Der Chat ist pausiert, während der Bericht erstellt wird, um zu verhindern, dass mehrere Berichte generiert werden. Sie können den Tab verlassen, während dies läuft – es kann mehrere Minuten dauern.',
-      // Die Offenlegung, die die Zustimmung erst echt macht. Sie steht auf dem
-      // START-Banner, nicht auf dem Ergebnis: Deep Research eskaliert aus einem
-      // Chat-Turn (es gibt kein Absendeformular), und ein Lauf kann beginnen,
-      // weil der Agent selbst eskaliert hat — nicht, weil jemand einen Bericht
-      // bestellt hat. Der Zeitpunkt, an dem man den Lauf noch abbrechen kann,
-      // ist deshalb der einzige, an dem die Angabe des Ablageorts etwas wert
-      // ist. Kein Dialog, keine Rückfrage: eine Bestätigung nach dem Lauf wird
-      // immer nur mit Ja beantwortet und ist damit keine Entscheidung.
-      // Erscheint nur in einem Projekt — außerhalb wird nichts abgelegt.
-      filingDisclosure: 'Der fertige Bericht wird in diesem Projekt unter „Berichte“ abgelegt.',
-    },
-    viewReport: 'Bericht anzeigen',
-    // Zweite Aktion auf dem Erfolgsbanner, wenn abgelegt wurde. Bewusst anders
-    // benannt als „Bericht anzeigen“: das öffnet den Recherchebereich, dies
-    // öffnet die Datei in der Projektablage — zwei Orte, zwei Wörter.
-    openInProject: 'Im Projekt öffnen',
-    viewThinking: 'Denkschritte anzeigen',
-    viewProgress: 'Fortschritt anzeigen',
-    // Einzeiler über dem „Deep Research wird gestartet“-Banner, wenn der Turn
-    // von der Kurz- zur Tiefenrecherche eskaliert ist (WP-A `escalation_reason`).
-    escalationNarration: 'Eskaliert zur Tiefenrecherche: {reason}',
   },
   error: {
     showDetails: 'Details anzeigen',
@@ -1292,15 +1316,6 @@ export const chat: typeof en.chat = {
       message:
         'Beim Bearbeiten Ihrer Anfrage ist beim Assistenten ein unerwarteter Fehler aufgetreten. Bitte versuchen Sie es erneut.',
     },
-    deepResearchFailed: {
-      title: 'Deep Research fehlgeschlagen',
-      message: 'Beim Deep-Research-Vorgang ist ein Fehler aufgetreten.',
-    },
-    deepResearchLoadFailed: {
-      title: 'Recherchedaten nicht verfügbar',
-      message:
-        'Recherchedaten konnten nicht geladen werden. Der Auftrag ist möglicherweise abgelaufen oder wurde gelöscht.',
-    },
     unknown: {
       title: 'Etwas ist schiefgelaufen',
       message: 'Ein unerwarteter Fehler ist aufgetreten. Bitte versuchen Sie es erneut.',
@@ -1314,23 +1329,6 @@ export const chat: typeof en.chat = {
       retryHint:
         'Bitte in etwa {seconds, plural, one {# Sekunde} other {# Sekunden}} erneut senden.',
     },
-  },
-  deepResearchErrors: {
-    interrupted: 'Die Recherche wurde vor dem Abschluss unterbrochen.',
-    reportUnavailable: 'Dieser Recherchebericht ist nicht mehr verfügbar.',
-    serviceUnreachable:
-      'Der Dienst ist derzeit nicht erreichbar. Bitte versuchen Sie es später erneut.',
-    loadFailed: 'Recherchedaten konnten nicht geladen werden.',
-  },
-  sessionActions: {
-    researchMayStillRunTitle: 'Recherche-Ausführung läuft möglicherweise noch',
-    researchMayStillRunDescription:
-      'Die Sitzung wurde gelöscht, aber der zugehörige Deep-Research-Auftrag konnte auf dem Server nicht gestoppt werden.',
-    researchRunsMayStillRunTitle: 'Möglicherweise laufen noch {count} Recherche-{runLabel}',
-    researchRunsMayStillRunDescription:
-      'Die Sitzungen wurden gelöscht, aber einige Deep-Research-Aufträge konnten auf dem Server nicht gestoppt werden.',
-    runSingular: 'Ausführung',
-    runPlural: 'Ausführungen',
   },
   budgetExhausted: {
     title: 'Budget aufgebraucht',

@@ -52,10 +52,8 @@ import { AnimatePresence, motion, motionQuick, motionEntrance, springPress } fro
 import { useWebSocketChat, useChatStore, useIsCurrentSessionBusy } from '@/features/chat'
 import { composerCapabilities } from '@/features/collaboration/lib/composer-capabilities'
 import { resolveAddressee, sendMessageOptions } from '@/features/collaboration/lib/composer-routing'
-import { latestDeepResearchJobStatus } from '@/features/chat/lib/session-activity'
 import { useLayoutStore } from '../store'
 import { computePresetSourceIds } from '../lib/source-presets'
-import { researchSessionState } from '../lib/research-session-state'
 // Withheld with the Datenbasis picker below — restore together.
 // import { SourceBasisPicker, SourceBasisTrigger } from './source-basis'
 import { FileSourcesTab } from './FileSourcesTab'
@@ -397,11 +395,6 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
    * `mentionRetryRef` for why that 404 was terminal.
    */
   const ensureConversationExists = useChatStore((state) => state._ensureConversationExists)
-  // The real "new session" action — the same one the logo / new-session path in
-  // MainLayout uses (startNewSessionDraft). Wired to the post-research
-  // "Neue Sitzung starten" button so the completed-report dead-end becomes a
-  // forward action instead of a no-op explanation popover.
-  const startNewSessionDraft = useChatStore((state) => state.startNewSessionDraft)
 
   // One-shot composer prefill from deep links (?ask=) and welcome-screen chips.
   const composerPrefill = useChatStore((state) => state.composerPrefill)
@@ -437,44 +430,6 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
   // (never on every keystroke). Pre-set by handleValueChange when a first
   // keystroke lazily creates a session, so that id transition doesn't wipe text.
   const loadedDraftSessionRef = useRef<string | undefined>(undefined)
-
-  // Deep research completion state - disables new submissions after research completes
-  const deepResearchStatus = useChatStore((state) => state.deepResearchStatus)
-  const isDeepResearchStreaming = useChatStore((state) => state.isDeepResearchStreaming)
-  const deepResearchOwnerConversationId = useChatStore(
-    (state) => state.deepResearchOwnerConversationId
-  )
-
-  /*
-    The persisted half of the research state, so the lock survives a reload or a
-    session switch that clears the ephemeral fields above.
-
-    This is the LATEST research job's status, via the same scan the session
-    store, the busy hook and `MainLayout` use — not "did any message ever report
-    X". The composer used to run three of its own `.some()` scans here, which
-    disagreed with the rest of the codebase precisely when a session ran
-    research twice: a failure after an earlier success still matched the
-    "successful" scan and locked the composer over a session with no report.
-    See `lib/research-session-state`, which owns the rule and tests it.
-
-    Selecting a primitive rather than the message array also means the composer
-    re-renders when the outcome changes, not on every streamed token.
-  */
-  const latestResearchJobStatus = useChatStore((state) =>
-    latestDeepResearchJobStatus(state.currentConversation?.messages ?? [])
-  )
-
-  const {
-    isSuccessful: isResearchSessionSuccessful,
-    isFailed: isResearchSessionFailed,
-    isInProgress: isResearchSessionInProgress,
-  } = researchSessionState({
-    latestJobStatus: latestResearchJobStatus,
-    ephemeralStatus: deepResearchStatus,
-    isStreaming: isDeepResearchStreaming,
-    streamOwnerConversationId: deepResearchOwnerConversationId,
-    conversationId: currentConversation?.id,
-  })
 
   // File upload hook - provides session files and handles validation internally
   const {
@@ -687,7 +642,6 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
     mayChatInProject: canChatInProject,
     isBusy,
     isResponseMode,
-    researchLocked: isResearchSessionSuccessful,
     otherPersonsTurn: Boolean(otherPersonsTurnName),
   })
 
@@ -784,11 +738,8 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
   // a third wording for the same fact.
   const getPlaceholder = (): string => {
     if (!isAuthenticated) return t('inputArea.signInToStart')
-    if (isResearchSessionSuccessful) return t('inputArea.researchCompletedPopover')
     if (isResponseMode) return t('inputArea.typeResponse')
-    if (isResearchSessionInProgress) return t('inputArea.researchInProgressPopover')
     if (isBusy) return t('inputArea.pleaseWait')
-    if (isResearchSessionFailed) return t('inputArea.researchFailedFollowUp')
     if (composerSubject) {
       return tFiles('assignment.askingAbout', {
         name: composerSubject.title?.trim() || tFiles('assignment.thisFile'),
@@ -1245,15 +1196,6 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
     void handleSubmit(text)
   }, [heldForUpload, handleSubmit])
 
-  // Post-research forward action: start a fresh session draft (the real
-  // new-session path) so the user can ask follow-ups after a completed report,
-  // instead of being stuck at a locked composer with a no-op explanation.
-  const handleStartNewSession = useCallback(() => {
-    startNewSessionDraft()
-    useFilePreviewStore.getState().close()
-    setMessage('')
-  }, [startNewSessionDraft])
-
   const handleKeyDown = useCallback(
     (e: KeyboardEvent<HTMLTextAreaElement>) => {
       // Mid-IME-composition, every key below belongs to the input method: the
@@ -1488,27 +1430,6 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
         <span>{tCollab('mentions.addressee.agentHint')}</span>
       </p>
     )
-  } else if (isResearchSessionInProgress && !isResponseMode) {
-    // The lock explanation for the disabled send above: the in-progress
-    // research holds the composer, and this line is why.
-    composerHint = (
-      <p
-        data-testid="composer-research-hint"
-        className="text-muted-foreground mt-2 text-xs leading-relaxed"
-        role="note"
-      >
-        {t('inputArea.researchInProgressPopover')}
-      </p>
-    )
-  } else if (isResearchSessionSuccessful && !isResponseMode) {
-    // Post-research helper line — the explanation that used to live in the
-    // (no-op) send popover, now always visible next to the "Neue Sitzung
-    // starten" action so the completed-report lock is understandable.
-    composerHint = (
-      <p className="text-muted-foreground mt-2 text-xs leading-relaxed" role="note">
-        {t('inputArea.researchCompletedPopover')}
-      </p>
-    )
   }
 
   return (
@@ -1626,13 +1547,7 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
                 !fileDockVisible && composerSubject
                   ? () => {
                       // Whatever is standing in front of the file, this control
-                      // means "show me the file". With the research panel open,
-                      // `peek()` on its own is a no-op the reader watches do
-                      // nothing — the pane has nowhere to go — so the panel that
-                      // holds the row yields to the request that was just made.
-                      if (useLayoutStore.getState().rightPanel === 'research') {
-                        useLayoutStore.getState().closeRightPanel()
-                      }
+                      // means "show me the file".
                       useFilePreviewStore.getState().peek()
                     }
                   : undefined
@@ -2024,48 +1939,9 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
                   <Paperclip className="size-4" aria-hidden="true" />
                 </Button>
 
-                {/* Send button - wrapped in Popover when research session is complete/in-progress.
-                Exception: isResponseMode always shows the normal send button so users can
-                submit HITL responses (approve/reject) even during active research. */}
-                {isResearchSessionSuccessful && !isResponseMode ? (
-                  // Completed research is a dead-end for the locked composer: replace
-                  // the old no-op explanation popover with an explicit forward action
-                  // that starts a fresh session (the real new-session path). A short
-                  // helper line below the composer carries the "why" the popover used
-                  // to hide.
-                  <motion.div
-                    className="inline-flex"
-                    whileTap={{ scale: 0.94 }}
-                    transition={springPress}
-                    tabIndex={-1}
-                  >
-                    <Button
-                      size="sm"
-                      className="h-9 gap-1.5 rounded-lg px-3 shadow-md"
-                      onClick={handleStartNewSession}
-                      aria-label={t('inputArea.startNewSession')}
-                      title={t('inputArea.startNewSession')}
-                    >
-                      <RotateCw className="size-3.5" aria-hidden="true" />
-                      <span className="text-xs font-semibold">
-                        {t('inputArea.startNewSession')}
-                      </span>
-                    </Button>
-                  </motion.div>
-                ) : isResearchSessionInProgress && !isResponseMode ? (
-                  // Locked while research runs: a disabled send plus the helper
-                  // line below the composer (the single hint slot) carry the
-                  // lock — no popover to open on a control that cannot act.
-                  <Button
-                    size="icon"
-                    className="size-9 rounded-lg shadow-md"
-                    disabled
-                    aria-label={t('inputArea.researchInProgressAria')}
-                    title={t('inputArea.researchInProgress')}
-                  >
-                    <ArrowUp className="size-4" aria-hidden="true" />
-                  </Button>
-                ) : isStreaming && !isResponseMode ? (
+                {/* Send button. isResponseMode always shows the normal send button so
+                users can submit HITL responses (approve/reject) mid-turn. */}
+                {isStreaming && !isResponseMode ? (
                   // Stop button (C1): while a shallow-thinking turn streams, replace
                   // the disabled send button with a stop control that cancels the
                   // in-flight turn via the chat store's stopStreaming action.

@@ -532,6 +532,21 @@ class TestSummaryGate:
         assert payload is not None
         assert "summary" not in payload and payload["verdict"]["value"] == "REI 60"
 
+    def test_the_length_drop_is_counted_under_its_field_and_reason(self, monkeypatch):
+        """The reader keeps the prose; the operator gets the rate. A dropped
+        summary is a standfirst nobody sees, and only a count says whether the
+        limit or the prompt wording is wrong."""
+        pushed: list[tuple[str, dict]] = []
+        monkeypatch.setattr(
+            "aiq_agent.common.turn_status.push_custom_step",
+            lambda name, payload: pushed.append((name, payload)),
+        )
+        meta = AnswerMeta.model_validate({"summary": "x" * (SUMMARY_MAX_CHARS + 1), "verdict": _VERDICT})
+        gate_answer_meta(meta, prose_chars=100)
+        assert [(name, payload["values"]) for name, payload in pushed] == [
+            ("status:anatomy:dropped", {"field": "summary", "reason": "too_long"})
+        ]
+
     def test_blank_is_absent_not_empty(self):
         meta = AnswerMeta.model_validate({"summary": "   ", "verdict": _VERDICT})
         payload = gate_answer_meta(meta, prose_chars=100)
@@ -641,3 +656,22 @@ class TestTopicContextRegistry:
         assert payload is not None
         assert payload["topic"] == "Brandschutz"
         assert payload["context"] == "OIB-RL 2, Ausgabe Mai 2023 · Wien"
+
+
+class TestSkillsApplied:
+    """A CONTROL field (ADR-0063): taught, enforced, never on the reader's wire."""
+
+    def test_it_parses_and_never_reaches_the_wire(self):
+        from aiq_agent.common.answer_envelope import gate_answer_meta
+
+        _content, meta = extract_answer_envelope(
+            _fenced({"answer": _PROSE, "kind": "walkthrough", "skills_applied": ["brandschutz"]})
+        )
+        assert meta is not None and meta.skills_applied == ["brandschutz"]
+        gated = gate_answer_meta(meta, prose_chars=len(_PROSE)) or {}
+        assert "skills_applied" not in json.dumps(gated)
+
+    def test_it_is_taught_and_enforced_as_an_array_of_strings(self):
+        assert "skills_applied: [string]" in render_envelope_schema()
+        prop = render_envelope_response_format()["json_schema"]["schema"]["properties"]["skills_applied"]
+        assert prop["items"] == {"type": "string"}

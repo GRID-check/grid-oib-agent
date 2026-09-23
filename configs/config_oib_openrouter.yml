@@ -566,6 +566,16 @@ functions:
     # Fail-open: any judge error keeps the first pool.
     requery_llm: rerank_llm
     requery_max_queries: 2
+    # Who answers the judge's yes/no (ADR-0064). `jev` asks the decision model
+    # one noul per passage of the fused head — ~300 ms in parallel, a fraction
+    # of a cent — and runs `requery_llm` only when the head is insufficient,
+    # for the phrasings a decision model cannot write. The hidden frontier
+    # call on EVERY search becomes a frontier call on the insufficient
+    # minority. No key, ZDR org, breaker open: the judge runs as before.
+    # `reranker_provider: jev` is the same model as a reranker, an option to
+    # evaluate beside the cross-encoder, not the default.
+    requery_decider: jev
+    decision_sufficiency_threshold: 0.55
 
   # The locator beside the search: open the passage a conclusion NAMED
   # (document + Punkt, or document + page) instead of searching for it again.
@@ -847,9 +857,32 @@ functions:
     # verification, one more retrieval aimed at the failing text and one rewrite,
     # re-verified; the better answer ships. Off = ship the markers as before.
     repair_pass: true
+    # A card the answer envelope carried and the validator refused is fixed
+    # ONCE on the card model — the failed object, the refusal and the type's
+    # shape in a few thousand tokens — instead of costing the full-context
+    # round the `emit_card` retry used to. Unset = drop it and record it.
+    card_repair_llm: card_llm
     # Agent skills (progressive-disclosure `use_skill` tool) active on research
     # turns. Empty allowlist = every resolved skill (builtin + org) is offered.
     skills_enabled: true
+    # No skill body rides the prompt by size (ADR-0063, amended): all nine
+    # chat methods together were ~4 600 tokens on every call, for methods most
+    # turns never use. The turn-start decision below picks the ONE method the
+    # question is the subject of and reads that body in (~400 tokens, or the
+    # IFC method on a model question); the rest stay a catalog line behind
+    # `use_skill`. These two are an opt-in budget for an org that wants a
+    # method on every turn regardless.
+    skills_inline_max_body_chars: 0
+    skills_inline_budget_chars: 0
+    # The turn-start decision (ADR-0064): one decision-model request beside
+    # the skill resolution — does the message need evidence, which corpus and
+    # which OIB families, which skill, which card types — acted on by ADDING
+    # only: the named fetches run as round 0 before the first LLM call (no
+    # budget spent, answered by the duplicate guard when the model asks
+    # again), the chosen skill's body and card shapes ride this turn's prompt. Every tool stays bound whatever it
+    # says (ADR-0052). `scripts/decision_eval.py` is the adoption gate;
+    # GRID_DECISIONS_ENABLED=false switches every decision off at once.
+    turn_decisions: true
     skill_allowlist: []
     # Retrieval-based tool narrowing. OFF, deliberately — the block below is the
     # tested configuration, not a suggestion, and it is commented out because on

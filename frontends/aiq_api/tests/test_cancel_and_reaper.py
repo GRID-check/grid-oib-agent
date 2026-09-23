@@ -294,3 +294,152 @@ class TestCancelRoute:
 
         assert response.status_code == 400
         job_store.update_status.assert_not_awaited()
+
+
+class TestWriteNowRoute:
+    @pytest.mark.asyncio
+    async def test_a_running_job_records_the_request_and_keeps_running(self, cancel_app, db_url):
+        app, job_store = cancel_app
+        job_store.get_job.return_value = _job("running")
+
+        with TestClient(app) as client:
+            response = client.post("/v1/jobs/async/job/job-1/write-now")
+
+        assert response.status_code == 200
+        assert response.json() == {"job_id": "job-1", "write_now": True}
+        job_store.update_status.assert_not_awaited()
+        events = EventStore.get_events(db_url, "job-1")
+        assert [event["type"] for event in events] == ["job.write_now_requested"]
+
+    @pytest.mark.asyncio
+    async def test_a_job_that_is_not_running_is_refused(self, cancel_app):
+        app, job_store = cancel_app
+        job_store.get_job.return_value = _job("submitted")
+
+        with TestClient(app) as client:
+            response = client.post("/v1/jobs/async/job/job-1/write-now")
+
+        assert response.status_code == 400
+
+
+class TestAddDocumentRoute:
+    @pytest.mark.asyncio
+    async def test_a_running_job_records_the_document(self, cancel_app, db_url):
+        app, job_store = cancel_app
+        job_store.get_job.return_value = _job("running")
+
+        with TestClient(app) as client:
+            response = client.post(
+                "/v1/jobs/async/job/job-1/documents",
+                json={"name": "Einreichplan.pdf", "title": "Einreichplan", "shelf": "project"},
+            )
+
+        assert response.status_code == 200
+        assert response.json() == {
+            "job_id": "job-1",
+            "document": {"name": "Einreichplan.pdf", "title": "Einreichplan", "shelf": "project"},
+        }
+        job_store.update_status.assert_not_awaited()
+        events = EventStore.get_events(db_url, "job-1")
+        assert [event["type"] for event in events] == ["job.document_added"]
+        assert events[0]["data"]["name"] == "Einreichplan.pdf"
+
+    @pytest.mark.asyncio
+    async def test_a_job_that_is_not_running_is_refused(self, cancel_app):
+        app, job_store = cancel_app
+        job_store.get_job.return_value = _job("success")
+
+        with TestClient(app) as client:
+            response = client.post("/v1/jobs/async/job/job-1/documents", json={"name": "Einreichplan.pdf"})
+
+        assert response.status_code == 400
+
+    @pytest.mark.asyncio
+    async def test_a_body_without_a_name_is_refused(self, cancel_app):
+        app, job_store = cancel_app
+        job_store.get_job.return_value = _job("running")
+
+        with TestClient(app) as client:
+            response = client.post("/v1/jobs/async/job/job-1/documents", json={"title": "Einreichplan"})
+
+        assert response.status_code == 422
+
+
+class TestTheMonitorHearsTheRequest:
+    def test_the_write_now_event_sets_the_signal_and_advances_the_cursor(self):
+        from aiq_api.jobs.runner import WRITE_NOW_EVENT_TYPE
+        from aiq_api.jobs.runner import CancellationMonitor
+
+        monitor = CancellationMonitor(scheduler_address="tcp://x", db_url="sqlite://", job_id="job-1")
+        monitor._note_control_events([{"_id": 3, "type": "job.heartbeat"}, {"_id": 4, "type": WRITE_NOW_EVENT_TYPE}])
+        assert monitor.write_now.is_set()
+        assert monitor._last_event_id == 4
+
+    def test_a_document_event_joins_the_added_list_once_and_calls_the_hook(self):
+        from aiq_api.jobs.runner import DOCUMENT_ADDED_EVENT_TYPE
+        from aiq_api.jobs.runner import CancellationMonitor
+
+        monitor = CancellationMonitor(scheduler_address="tcp://x", db_url="sqlite://", job_id="job-1")
+        seen: list[str] = []
+        monitor.on_document_added = lambda doc: seen.append(doc.name)
+        monitor._note_control_events(
+            [
+                {"_id": 5, "type": DOCUMENT_ADDED_EVENT_TYPE, "data": {"name": "Einreichplan.pdf", "shelf": "project"}},
+                {"_id": 6, "type": DOCUMENT_ADDED_EVENT_TYPE, "data": {"name": "einreichplan.pdf"}},
+                {"_id": 7, "type": DOCUMENT_ADDED_EVENT_TYPE, "data": {"title": "kein Name"}},
+                {"_id": 8, "type": DOCUMENT_ADDED_EVENT_TYPE, "data": "not a row"},
+            ]
+        )
+        assert [doc.name for doc in monitor.added_documents] == ["Einreichplan.pdf"]
+        assert seen == ["Einreichplan.pdf"]
+        assert monitor._last_event_id == 8
+        assert not monitor.write_now.is_set()
+
+    def test_a_document_taken_by_the_research_tool_is_still_not_added_twice(self):
+        from aiq_agent.agents.deep_researcher.control import bind_added_documents
+        from aiq_agent.agents.deep_researcher.control import reset_added_documents
+        from aiq_agent.agents.deep_researcher.control import take_added_documents
+        from aiq_api.jobs.runner import DOCUMENT_ADDED_EVENT_TYPE
+        from aiq_api.jobs.runner import CancellationMonitor
+
+        monitor = CancellationMonitor(scheduler_address="tcp://x", db_url="sqlite://", job_id="job-1")
+        seen: list[str] = []
+        monitor.on_document_added = lambda doc: seen.append(doc.name)
+        token = bind_added_documents(monitor.added_documents)
+        try:
+            monitor._note_control_events([{"_id": 1, "type": DOCUMENT_ADDED_EVENT_TYPE, "data": {"name": "a.pdf"}}])
+            assert [d.name for d in take_added_documents()] == ["a.pdf"]
+            monitor._note_control_events([{"_id": 2, "type": DOCUMENT_ADDED_EVENT_TYPE, "data": {"name": "A.pdf"}}])
+            assert take_added_documents() == []
+        finally:
+            reset_added_documents(token)
+        assert seen == ["a.pdf"]
+
+    @pytest.mark.asyncio
+    async def test_the_poll_reads_only_the_control_events(self, tmp_path):
+        """A token stream ahead of the request must not page it out of reach."""
+        from aiq_api.jobs.event_store import EventStore
+        from aiq_api.jobs.runner import CONTROL_EVENT_TYPES
+        from aiq_api.jobs.runner import WRITE_NOW_EVENT_TYPE
+
+        db_url = f"sqlite+aiosqlite:///{tmp_path / 'events.db'}"
+        EventStore._tables_initialized.discard(db_url)
+        store = EventStore(db_url, "job-1")
+        for _ in range(150):
+            store.store({"type": "llm.chunk", "data": {}})
+        store.store({"type": WRITE_NOW_EVENT_TYPE, "data": {}})
+
+        events = await EventStore.get_events_async(db_url, "job-1", after_id=0, event_types=CONTROL_EVENT_TYPES)
+        assert [e["type"] for e in events] == [WRITE_NOW_EVENT_TYPE]
+        assert len(EventStore.get_events(db_url, "job-1")) == 100
+        assert [e["type"] for e in EventStore.get_events(db_url, "job-1", event_types=["llm.chunk"], limit=500)] == [
+            "llm.chunk"
+        ] * 150
+
+    def test_other_events_leave_the_signal_alone(self):
+        from aiq_api.jobs.runner import CancellationMonitor
+
+        monitor = CancellationMonitor(scheduler_address="tcp://x", db_url="sqlite://", job_id="job-1")
+        monitor._note_control_events([{"_id": 9, "type": "job.phase"}])
+        assert not monitor.write_now.is_set()
+        assert monitor._last_event_id == 9

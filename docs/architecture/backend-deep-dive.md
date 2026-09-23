@@ -466,7 +466,7 @@ definition). The card only proposes: the user's Accept posts the JSON-Patch to
 full fact objects (`source: 'user_confirmed'` — accepting IS the confirmation),
 applies them through the shared patch engine, and prunes unknowns the patch
 just answered. `GridCards` receives the chat store's `projectId` in both the
-chat bubble (`AgentResponse.tsx`) and the research report (`ReportTab.tsx`), so
+chat bubble and the run block's report (both `AgentResponse.tsx`), so
 Accept is live wherever the card renders.
 
 Summary generation: the intake wizard fires
@@ -1610,9 +1610,10 @@ answer are unaffected, and the fallback says so.
   from the route) falls back to researching IN PROCESS, the same path a
   deployment with no worker takes: what is lost is the block, never the work. A
   full queue is the exception — it is told to the reader with its retry hint.
-- Job data (progress, thinking, citations, report) streams via SSE from backend
-  `/v1/jobs/async/*` through the BFF proxy `/api/jobs/async/[...path]` into the
-  `ResearchPanel` (Tasks / Thinking / Report tabs).
+- The run's ledger snapshots stream via SSE from backend `/v1/jobs/async/*`
+  through the BFF proxy `/api/jobs/async/[...path]` into the run block in the
+  thread (`features/runs`, ADR-0062); the report and its findings land on the
+  run's message.
 
 **Open items**: synchronous inline deep-research answers (no Dask) do not
 carry Grid cards (§3; the async job path generates them post-hoc in the

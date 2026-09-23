@@ -23,6 +23,7 @@ import {
   type RunPhase,
   type RunStatus,
   type RunStep,
+  type RunLedgerDoc,
 } from './run-ledger-types'
 
 /** The three ways a phase reads on the rail and in the list. */
@@ -34,6 +35,12 @@ export interface RunTallies {
   rounds: number
   /** Distinct document names across every step, whatever phase reached them. */
   docs: number
+  /**
+   * Claims the rounds established so far — the number that says the run is
+   * producing. Optional because a task summary from the database carries the
+   * two counts above and not this one.
+   */
+  findings?: number
 }
 
 const STATUS_SET: ReadonlySet<string> = new Set<string>(RUN_STATUSES)
@@ -84,12 +91,44 @@ export function stepsInPhase(ledger: RunLedger, phase: RunPhase): RunStep[] {
   return ledger.steps.filter((step) => step.phase === phase)
 }
 
+/**
+ * One Grundlage document against the steps: read (with the loci the steps
+ * reached it at) or not. The receipt principle: every document the reader
+ * named is either read, with where, or reported unread — never silently
+ * dropped.
+ */
+export interface GrundlageReceiptRow {
+  doc: RunLedgerDoc
+  read: boolean
+  loci: string[]
+}
+
+export function grundlageReceipt(ledger: RunLedger): GrundlageReceiptRow[] {
+  const named = ledger.grundlage ?? []
+  if (named.length === 0) return []
+  const reached = new Map<string, string[]>()
+  for (const step of ledger.steps) {
+    for (const doc of step.docs) {
+      const key = doc.name.toLocaleLowerCase()
+      const loci = reached.get(key) ?? []
+      for (const locus of doc.loci) if (!loci.includes(locus)) loci.push(locus)
+      reached.set(key, loci)
+    }
+  }
+  return named.map((doc) => {
+    const loci = reached.get(doc.name.toLocaleLowerCase())
+    return { doc, read: loci !== undefined, loci: loci ?? [] }
+  })
+}
+
 export function runTallies(ledger: RunLedger): RunTallies {
   const names = new Set<string>()
+  let findings = 0
   for (const step of ledger.steps) {
     for (const doc of step.docs) names.add(doc.name)
+    findings += step.findings?.length ?? 0
   }
-  return { rounds: stepsInPhase(ledger, 'recherchieren').length, docs: names.size }
+  return { rounds: stepsInPhase(ledger, 'recherchieren').length, docs: names.size, findings }
 }
 
 /**
@@ -102,7 +141,7 @@ export function runTallies(ledger: RunLedger): RunTallies {
 export function completedBefore(ledger: RunLedger): RunPhase[] {
   const done = new Set<RunPhase>(
     ledger.error?.completedBefore ??
-      ledger.phases.filter((entry) => entry.endedAt).map((entry) => entry.phase),
+      ledger.phases.filter((entry) => entry.endedAt).map((entry) => entry.phase)
   )
   return RUN_PHASES.filter((phase) => done.has(phase))
 }

@@ -442,6 +442,44 @@ describe('commissionResearchRun — an escalated question becomes a run', () => 
     expect(inserted.title).toBe('Gilt für das Atrium in Haus A OIB 2 oder OIB 2.3?')
   })
 
+  it('carries the Rahmen and the Unterlagen onto the run and to the worker, and the context as the clarifier result', async () => {
+    const documents = {
+      grundlage: [{ name: 'Einreichplan.pdf', title: 'Einreichplan EG', shelf: 'project' }],
+      ausgeschlossen: [{ name: 'alt.pdf' }],
+    }
+    await commissionResearchRun(session, {
+      projectId: PROJECT,
+      conversationId: THREAD,
+      question: QUESTION,
+      context: 'Frage: Welches Geschoss? Antwort: Das Erdgeschoss.',
+      dataSources: ['knowledge_base'],
+      documents,
+    })
+
+    const inserted = vi.mocked(repository.insertRun).mock.calls[0][0]
+    expect(inserted.plan).toMatchObject({
+      dataSources: ['knowledge_base'],
+      context: 'Frage: Welches Geschoss? Antwort: Das Erdgeschoss.',
+      documents,
+    })
+    expect(vi.mocked(submitAgentRun).mock.calls[0][0]).toMatchObject({
+      dataSources: ['knowledge_base'],
+      clarifierResult: 'Frage: Welches Geschoss? Antwort: Das Erdgeschoss.',
+      documents,
+    })
+  })
+
+  it('records no Unterlagen when the lists are empty', async () => {
+    await commissionResearchRun(session, {
+      projectId: PROJECT,
+      conversationId: THREAD,
+      question: QUESTION,
+      documents: { grundlage: [], ausgeschlossen: [] },
+    })
+    const inserted = vi.mocked(repository.insertRun).mock.calls[0][0]
+    expect(inserted.plan).not.toHaveProperty('documents')
+  })
+
   it('asks for the same permissions handing over a task asks for', async () => {
     await commissionResearchRun(session, { projectId: PROJECT, conversationId: THREAD, question: QUESTION })
     expect(requireProjectAccess).toHaveBeenCalledWith(session, PROJECT, [

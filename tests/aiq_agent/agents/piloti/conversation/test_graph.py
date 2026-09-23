@@ -623,3 +623,114 @@ class TestEscalation:
 
         assert not result.escalate_to_deep
         assert result.routing_decision == "shallow"
+
+
+class TestTheWholeTurnIsWrittenBack:
+    """The next turn has the passages the last answer was written from."""
+
+    async def test_tool_results_reach_the_conversation_and_the_answer_stays_last(self):
+        from langchain_core.messages import ToolMessage
+
+        from aiq_agent.agents.piloti.conversation import _finalize_answer
+
+        call = {"name": "read_passage", "args": {"document": "OIB-RL 2"}, "id": "c1"}
+        turn = [
+            AIMessage(content="", tool_calls=[call]),
+            ToolMessage(content="Passage aus OIB-RL 2", tool_call_id="c1", name="read_passage"),
+            AIMessage(content="Die Antwort."),
+        ]
+        result = ResearchAgentState(messages=[HumanMessage(content="Q"), *turn], source_lookup_attempted=True)
+
+        update = _finalize_answer(turn[-1], result, turn_messages=turn)
+
+        assert [type(m).__name__ for m in update["messages"]] == ["AIMessage", "ToolMessage", "AIMessage"]
+        assert update["messages"][-1].content == "Die Antwort."
+        assert update["messages"][1].content == "Passage aus OIB-RL 2"
+
+    async def test_the_written_back_results_are_cut_to_the_cited_passages(self):
+        from langchain_core.messages import ToolMessage
+
+        from aiq_agent.agents.piloti.conversation import _finalize_answer
+        from aiq_agent.agents.piloti.history import UNCITED_PASSAGE_NOTE
+
+        call = {"name": "knowledge_search", "args": {"query": "REI"}, "id": "c1"}
+        content = (
+            "Found 2 relevant document(s):\n\n"
+            "--- Result 1 ---\nSource: OIB 2\nCitation: oib-rl_2.pdf, p.1\n\nREI 60.\n\n"
+            "--- Result 2 ---\nSource: OIB 2\nCitation: oib-rl_2.pdf, p.9\n\nNie zitiert.\n"
+        )
+        turn = [
+            AIMessage(content="", tool_calls=[call]),
+            ToolMessage(content=content, tool_call_id="c1", name="knowledge_search"),
+            AIMessage(content="REI 60 [1]."),
+        ]
+        result = ResearchAgentState(
+            messages=[HumanMessage(content="Q"), *turn],
+            source_lookup_attempted=True,
+            verified_sources=[{"number": 1, "citation_key": "oib-rl_2.pdf, p.1"}],
+        )
+
+        update = _finalize_answer(turn[-1], result, turn_messages=turn)
+
+        kept = update["messages"][1].content
+        assert "REI 60." in kept and "Nie zitiert." not in kept
+        assert "Citation: oib-rl_2.pdf, p.9" in kept and UNCITED_PASSAGE_NOTE in kept
+
+    def test_the_next_turns_history_prunes_the_turn_before_last(self):
+        from langchain_core.messages import ToolMessage
+
+        async def research(state_input):
+            return _research_result(state_input.messages, "x")
+
+        async def deep(state):
+            return DeepResearchAgentState(messages=list(state.messages))
+
+        async def clarifier(request):
+            return ClarifyResult(research_context="", outcome="approved")
+
+        graph = ConversationGraph(research_fn=research, deep_research_fn=deep, clarifier_fn=clarifier)
+        call = {"name": "read_passage", "args": {"document": "OIB-RL 2"}, "id": "c1"}
+        old_turn = [
+            HumanMessage(content="Q1"),
+            AIMessage(content="", tool_calls=[call]),
+            ToolMessage(content="P1", tool_call_id="c1", name="read_passage"),
+            AIMessage(content="A1"),
+        ]
+        last_turn = [
+            HumanMessage(content="Q2"),
+            AIMessage(content="", tool_calls=[{**call, "id": "c2"}]),
+            ToolMessage(content="P2", tool_call_id="c2", name="read_passage"),
+            AIMessage(content="A2"),
+        ]
+        state = ConversationState(messages=[*old_turn, *last_turn, HumanMessage(content="und in GK 4?")])
+
+        trimmed = graph._trimmed(state)
+
+        contents = [m.content for m in trimmed]
+        assert "P2" in contents and "P1" not in contents
+        assert contents[:2] == ["Q1", "A1"]
+
+
+class TestAFollowUpAnsweredFromTheTranscript:
+    async def test_a_previous_turns_search_is_not_this_turns_lookup(self):
+        """Against an empty registry, a follow-up answered from the transcript is an
+        answer — not the "nothing retrieved" refusal the previous turn's search
+        would trigger if it counted as this turn's."""
+        from langchain_core.messages import ToolMessage
+
+        from aiq_agent.agents.piloti.answer_pipeline import finalize_answer
+        from aiq_agent.common.citation_verification import SourceRegistry
+
+        call = {"name": "knowledge_search", "args": {"query": "Fluchtweg"}, "id": "c1"}
+        messages = [
+            HumanMessage(content="Wie lang darf der Fluchtweg sein?"),
+            AIMessage(content="", tool_calls=[call]),
+            ToolMessage(content="Keine Treffer.", tool_call_id="c1", name="knowledge_search"),
+            AIMessage(content="Dazu habe ich nichts gefunden."),
+            HumanMessage(content="Und in GK 4?"),
+            AIMessage(content="Auch dazu liegt nichts vor; die Frage bleibt offen."),
+        ]
+
+        final = await finalize_answer(messages, registry=SourceRegistry(), tools=[], repair=None)
+
+        assert final.answered and not final.source_lookup_attempted

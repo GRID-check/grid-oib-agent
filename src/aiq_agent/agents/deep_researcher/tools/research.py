@@ -30,12 +30,31 @@ from aiq_agent.common.turn_status import fetch_signature
 from aiq_agent.common.turn_status import record_round_announcement
 from aiq_agent.common.turn_status import retrieval_round_scope
 
+from ..control import note_write_now_honoured
+from ..control import take_added_documents
+from ..control import write_now_requested
 from ..models import ResearchGap
 from ..models import ResearchNotes
 from ..models import ResearchQuery
 from ..models import last_message_text
 
 _NO_TOOL_RUNTIME = cast(ToolRuntime, None)
+
+#: What the orchestrator reads instead of notes once the reader asked for the
+#: report: no further research, write from the notes already on /shared.
+#: Prepended to a batch result when the reader added documents to the
+#: Grundlage while the run went: the orchestrator plans them next, one query
+#: each, exactly like a Grundlage named before the run.
+ADDED_DOCUMENTS_NOTICE = (
+    "The reader added documents to the Grundlage during this run. Each MUST be read in full: plan ONE "
+    "dedicated ResearchQuery per document in the NEXT batch, naming the file exactly, knowledge tool first.\n{lines}"
+)
+
+WRITE_NOW_NOTICE = (
+    "The reader asked for the report to be written now. Do not run further research batches: "
+    "proceed to the writer with the research notes already under /shared and state in the report "
+    "which planned components were not researched."
+)
 logger = logging.getLogger(__name__)
 _NOTE_SLUG_MAX_LENGTH = 64
 
@@ -601,6 +620,9 @@ def build_research_batch_tool(
         """
         if not queries:
             return "[]"
+        if write_now_requested():
+            note_write_now_honoured()
+            return WRITE_NOW_NOTICE
         _assert_batch_size(queries, max_research_concurrency)
         _assert_preferred_tools_available(queries, researcher_tool_names)
         calls = [_query_call(query, conclusion) for query in queries]
@@ -633,11 +655,16 @@ def build_research_batch_tool(
                     persisted=backend is not None,
                 )
             )
-        return json.dumps(
+        result = json.dumps(
             [note.model_dump(mode="json", exclude_none=True) for note in notes]
             + _withheld_notes(repeated, retrieval.results),
             indent=2,
             ensure_ascii=False,
         )
+        added = take_added_documents()
+        if added:
+            lines = "\n".join(f"- {doc.label} — {doc.name}" if doc.title else f"- {doc.name}" for doc in added)
+            return f"{ADDED_DOCUMENTS_NOTICE.format(lines=lines)}\n\n{result}"
+        return result
 
     return run_research_batch

@@ -112,6 +112,21 @@ export const chat = {
     sourcesActiveMobile: '{count, plural, one {# source} other {# sources}} active',
   },
   // Source-preset shortcut chips under the composer (empty thread).
+  // A source card's provenance tab in the Herleitung: the coarse stratum when
+  // the backend named no fine lane, and the shelf the wire stated.
+  sourceTabs: {
+    law: 'Building law',
+    project: 'Project knowledge',
+    office: 'Office archive',
+    auto: 'Web',
+    model: 'Model measurement',
+    shelves: {
+      archiv: 'Office archive',
+      project: 'Project knowledge',
+      session: 'Private session',
+      base: 'Base knowledge',
+    },
+  },
   shortcuts: {
     label: 'Shortcuts',
     presetAria: 'Source preset: {label}',
@@ -148,6 +163,35 @@ export const chat = {
     answer: 'Answer',
   },
   // "Belegt durch" provenance chip row under answers that carry source data.
+  // The findings matrix over a report: one row per requirement the report
+  // read against the project.
+  findings: {
+    label: 'Findings',
+    page: 'p. {page}',
+    /** The same table when the report states rows without judging them. */
+    labelResults: 'Results',
+    columns: {
+      requirement: 'Requirement',
+      value: 'Value',
+      reference: 'Reference',
+      status: 'Status',
+      note: 'Note',
+    },
+    status: {
+      erfuellt: 'met',
+      nicht_erfuellt: 'not met',
+      offen: 'open',
+      nicht_anwendbar: 'not applicable',
+    },
+    grounding: { belegt: 'sourced', abgeleitet: 'derived', offen: 'unsourced' },
+    clarify: 'Clarify',
+    commissioned: 'Run commissioned',
+    change: {
+      new: 'new',
+      changed: 'changed',
+      dropped: '{count, plural, one {# finding dropped:} other {# findings dropped:}}',
+    },
+  },
   answerSources: {
     label: 'Sources',
     ariaLabel: 'Sources this answer is backed by',
@@ -161,6 +205,10 @@ export const chat = {
     sourceNumber: 'Source {number}',
     page: 'p. {page}',
     pages: 'pp. {pages}',
+    // Sources past the eight chips fold behind the same control the read
+    // sources use: the count first, every name on expand.
+    more: '+{count} more',
+    less: 'Show fewer',
     punkt: 'Pkt. {punkt}',
     punktPage: 'Pkt. {punkt} · p. {page}',
     // Citations the user can actually paste somewhere — per source (Fachtext)
@@ -209,6 +257,7 @@ export const chat = {
       // two are only counted apart internally.
       upstream_timeout: 'time limit reached',
       step_limit: 'step limit reached',
+      user_requested: 'stopped at your request',
     },
     // Ways a salvaged answer is weaker than one from a finished run. Same
     // register as the lines above — muted, factual, about the EVIDENCE — but
@@ -220,6 +269,8 @@ export const chat = {
         'No citation survived verification — please check the figures yourself before relying on them',
       cards_generation_failed:
         'The report is complete, but the proposals derived from it could not be produced',
+      grundlage_unread:
+        'Not every document named as the basis was read — the end of the report lists which',
     },
     // The verification's own reasons for dropping a citation, in the reader's
     // words. The backend states them as tokens (`url_not_in_registry`, …) and
@@ -287,7 +338,8 @@ export const chat = {
     // The muted line under an UNPLACED legal basis surfaced flat above the
     // prose (`EvidenceBlock`): the quote is model-generated, like the framed
     // card's — shorter here, because the block beside it is spare already.
-    evidenceQuoteDisclaimer: 'AI-generated citation — check the excerpt against the primary source.',
+    evidenceQuoteDisclaimer:
+      'AI-generated citation — check the excerpt against the primary source.',
     conditionTree: {
       eyebrow: 'Condition tree',
       dependsOn: 'Depends on',
@@ -497,8 +549,7 @@ export const chat = {
       // reads; the control does not appear, and this says why rather than
       // failing on click.
       unavailable: {
-        noProject:
-          'This chat is not attached to a project, so there is no file store to change.',
+        noProject: 'This chat is not attached to a project, so there is no file store to change.',
       },
     },
     processMap: {
@@ -743,6 +794,34 @@ export const chat = {
     },
   },
   agentPrompt: {
+    plan: {
+      points: 'Sections',
+      addPoint: 'Add a section',
+      addPlaceholder: 'Add another section …',
+      removePoint: 'Remove section: {point}',
+      genre: 'Kind of report',
+      genres: {
+        pruefbericht: 'Compliance review',
+        aktenvermerk: 'Memo',
+        vergleich: 'Comparison',
+        checkliste: 'Checklist',
+        bericht: 'Report',
+      },
+      depth: 'Depth',
+      depths: { kurzpruefung: 'Short review', gutachten: 'Full opinion' },
+      /** The documents the reader names for the run, and the sources it may use. */
+      unterlagen: {
+        label: 'Documents',
+        grundlage: 'Read in full:',
+        ausgeschlossen: 'Excluded:',
+        none: 'No documents named — the research reads what it finds.',
+        choose: 'Choose documents',
+        removeRead: 'No longer read in full: {name}',
+        removeExcluded: 'No longer excluded: {name}',
+      },
+      rahmen: 'Sources',
+      rahmenNote: 'The sources selected in the composer. Change them there before approving.',
+    },
     needsInput: 'Piloti needs your input',
     receivedInput: 'Piloti received your input',
     /**
@@ -1076,6 +1155,10 @@ export const chat = {
       stepKindRead: 'Reading',
       stepKindFinding: 'Finding',
       stepKindConclusion: 'Conclusion',
+      // A fetch the backend saw return nothing. Not `Search`: a layer with no
+      // fan read as one that found nothing, and was often one whose hits the
+      // old wire never stamped. Only the ledger can tell the two apart.
+      stepKindNoHits: 'No hits',
       // A layer that only opened passages of files the turn already had: it
       // searched for nothing. Telling that round apart from a fresh fetch is
       // the whole reason the word exists.
@@ -1164,76 +1247,15 @@ export const chat = {
             'No research report was filed — the answer exists only here in the conversation.',
           noCitations:
             'No citation held up under checking. Please verify the figures yourself before using them.',
-          noCards: 'The report is complete, but the proposals derived from it could not be produced.',
+          noCards:
+            'The report is complete, but the proposals derived from it could not be produced.',
+          grundlageUnread:
+            'Not every document named as the basis could be read; the answer does not reflect its contents. The end of the report lists which.',
         },
       },
       branchesTab: 'Next steps',
       branchesSub: 'Pick one option — the answer is assembled for your choice.',
     },
-  },
-  deepResearch: {
-    stats: {
-      toolCalls: '{count, plural, one {# tool call} other {# tool calls}}',
-    },
-    success: {
-      heading: 'Report Completed!{stats}',
-      subheading: 'Research has finished and a report is ready to view in the research panel.',
-      // Rendered ONLY when the report really was filed and has a document id.
-      // Absent with nothing having been promised — no project, a run older than
-      // the feature — the banner says nothing rather than claiming a file that
-      // does not exist.
-      filedLine: 'Filed in the project: {filename}',
-      // The retraction of `starting.filingDisclosure`, and only that: the
-      // starting banner promised „wird abgelegt", the server attempted the
-      // filing (there was a project) and it did not land. A reader who saw the
-      // promise otherwise walks to Berichte, finds nothing, and the only record
-      // is a server log they cannot read. No reason travels — a refused quota,
-      // a revoked `project:documents:write` and a report too long to render are
-      // one fact here: the document is not there. Same quiet line as the
-      // promise, no red and no error state: the research itself succeeded. The
-      // folder is named in German because that is what the folder is called.
-      filingFailedLine: 'The report could not be filed under “Berichte”.',
-    },
-    failure: {
-      heading: 'Report Failed to Complete',
-      subheading:
-        'Something prevented the research report from completing. Check the thinking for details.',
-    },
-    cancelled: {
-      heading: 'Research Cancelled',
-      subheading:
-        'Research was stopped by user. You can view any partial progress in the research panel.',
-    },
-    expired: {
-      heading: 'Report Expired',
-      subheading: 'The report has expired and is no longer available.',
-    },
-    starting: {
-      heading: 'Starting Deep Research',
-      subheading:
-        'Chat is paused while the report is created to prevent generating multiple reports. You can click away while this runs — it may take several minutes.',
-      // The disclosure that makes the authorization real. It sits on the
-      // STARTING banner rather than the outcome: deep research escalates out of
-      // a chat turn (there is no submit form), and a run can begin because the
-      // agent itself escalated rather than because anybody ordered a report. The
-      // moment the run can still be stopped is therefore the only moment at
-      // which naming the destination is worth anything. No dialog and no
-      // confirmation: a modal asked after the fact is only ever answered yes,
-      // which makes it a ritual rather than a decision. Shown inside a project
-      // only — outside one nothing is filed. The folder is named in German
-      // because that is literally what the folder in the file tree is called.
-      filingDisclosure: 'The finished report will be filed in this project under “Berichte”.',
-    },
-    viewReport: 'View Report',
-    // The success banner's second action, when something was filed. Worded
-    // apart from "View Report" on purpose: that opens the research panel, this
-    // opens the file in the project — two places, two words.
-    openInProject: 'Open in project',
-    viewThinking: 'View Thinking',
-    viewProgress: 'View Progress',
-    // One-liner above the "Starting Deep Research" banner when the turn
-    // escalated from shallow to deep research (WP-A `escalation_reason`).
-    escalationNarration: 'Escalated to deep research: {reason}',
   },
   error: {
     showDetails: 'Show details',
@@ -1282,14 +1304,6 @@ export const chat = {
       message:
         'The assistant hit an unexpected error while handling your request. Please try again.',
     },
-    deepResearchFailed: {
-      title: 'Deep Research Failed',
-      message: 'The deep research process encountered an error.',
-    },
-    deepResearchLoadFailed: {
-      title: 'Research Data Unavailable',
-      message: 'Unable to load research data. The job may have expired or been deleted.',
-    },
     unknown: {
       title: 'Something Went Wrong',
       message: 'An unexpected error occurred. Please try again.',
@@ -1301,26 +1315,6 @@ export const chat = {
       message: 'The research queue is currently full. Please resend your request in a moment.',
       retryHint: 'Please try again in about {seconds, plural, one {# second} other {# seconds}}.',
     },
-  },
-  // User-facing deep-research error copy raised from the SSE hook and the
-  // job-data loading hook (use-load-job-data.ts).
-  deepResearchErrors: {
-    interrupted: 'Research was interrupted before completion.',
-    reportUnavailable: 'This research report is no longer available.',
-    serviceUnreachable: 'The service is currently unreachable. Please try again later.',
-    loadFailed: 'Research data could not be loaded.',
-  },
-  // Toasts fired when a session is deleted but its deep-research job could not
-  // be cancelled on the server.
-  sessionActions: {
-    researchMayStillRunTitle: 'Research run may still be running',
-    researchMayStillRunDescription:
-      'The session was deleted, but its deep-research job could not be stopped on the server.',
-    researchRunsMayStillRunTitle: '{count} research {runLabel} may still be running',
-    researchRunsMayStillRunDescription:
-      'Sessions were deleted, but some deep-research jobs could not be stopped on the server.',
-    runSingular: 'run',
-    runPlural: 'runs',
   },
   budgetExhausted: {
     title: 'Budget exhausted',
@@ -1382,7 +1376,8 @@ export const chat = {
     // capped, keyed by `answer_confidence_capped_reason` (WP-A, PB-9).
     cappedReasons: {
       ungrounded: 'Low confidence: answer not backed by sources.',
-      quoteUnverified: 'A quote could not be verified verbatim against the source; the assessment is capped accordingly.',
+      quoteUnverified:
+        'A quote could not be verified verbatim against the source; the assessment is capped accordingly.',
       // The measurement backs the number, not the legal statement beside it —
       // so the mixed answer stays at "low" and the tooltip says why.
       normativeClaimUncited:

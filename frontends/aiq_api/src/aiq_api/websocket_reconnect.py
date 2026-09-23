@@ -8,6 +8,7 @@ import logging
 import os
 import time
 import uuid
+from collections.abc import Mapping
 from datetime import UTC
 from datetime import datetime
 from typing import Any
@@ -594,6 +595,22 @@ _TRANSPARENCY_EXTRA_FIELDS = (
 # lift so the frontend can mute a house-voice row without dropping it.
 _SKILLS_EXTRA_FIELDS = ("skills_activated", "skills_hidden")
 
+# The extras the server-side persist writes onto the row when the client is
+# gone, beyond the ones ``persist_assistant_message`` names in its signature.
+# Each is one the BFF decodes on rehydrate (``agent-answer-metadata.ts``) or
+# stores as provenance: without them a turn that finished after the tab
+# closed reloaded with no verdict, summary, takeaways or callout, a ``meta``
+# turn reloaded as a researched answer with the "Ohne Quellenbeleg" gap row,
+# and a truncated or citation-stripped answer reloaded as a clean one.
+_PERSISTED_EXTRA_FIELDS = (
+    "routing_decision",
+    "escalation_reason",
+    "citations_removed",
+    "research_truncated",
+    "answer_meta",
+    "skills_hidden",
+)
+
 
 def latest_user_text(message: WebSocketUserMessage) -> str | None:
     """The last non-empty text part of a ``user_message`` frame, or ``None``.
@@ -840,6 +857,7 @@ async def persist_assistant_message(
     read_sources: Any = None,
     skills_activated: Any = None,
     retrieval_ledger: Any = None,
+    extras: Mapping[str, Any] | None = None,
 ) -> bool:
     """Persist a finished assistant turn to the BFF when the client is gone.
 
@@ -884,6 +902,9 @@ async def persist_assistant_message(
         metadata["skills_activated"] = skills_activated
     if retrieval_ledger:
         metadata["retrieval_ledger"] = retrieval_ledger
+    # Present-only, like the lifts above: the BFF renders every extra on
+    # presence and a null would read as a fact.
+    metadata.update({name: value for name, value in (extras or {}).items() if value is not None})
 
     # The write itself belongs to the shared producer: base URL, service token,
     # organization precondition, wire shape and the never-raise contract all
@@ -1437,6 +1458,7 @@ class ReconnectableWebSocketMessageHandler(WebSocketMessageHandler):
             read_sources = dump.get("read_sources")
             skills_activated = dump.get("skills_activated")
             retrieval_ledger = dump.get("retrieval_ledger")
+            extras = {name: dump[name] for name in _PERSISTED_EXTRA_FIELDS if dump.get(name) is not None}
 
             if not (text and text.strip()) and not cards:
                 return
@@ -1454,6 +1476,7 @@ class ReconnectableWebSocketMessageHandler(WebSocketMessageHandler):
                 read_sources=read_sources,
                 skills_activated=skills_activated,
                 retrieval_ledger=retrieval_ledger,
+                extras=extras,
             )
         except Exception:  # noqa: BLE001 — never let persistence crash the handler
             logger.warning("Unexpected error while persisting terminal message", exc_info=True)

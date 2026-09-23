@@ -19,6 +19,7 @@ from aiq_agent.agents.piloti.conversation import ConversationGraph
 from aiq_agent.agents.piloti.conversation import _finalize_answer
 from aiq_agent.agents.piloti.models import ConversationState
 from aiq_agent.agents.piloti.models import ResearchAgentState
+from aiq_agent.common.canned_replies import GENERIC_ERROR_MESSAGE
 from aiq_agent.common.citation_verification import EmptySourceRegistryError
 
 
@@ -96,7 +97,7 @@ class TestFinalizeAnswer:
         update = _finalize_answer(AIMessage(content="  \n[CONFIDENCE:high]"), _signals())
         assert update["routing_decision"] == "error"
         assert update["escalate_to_deep"] is False
-        assert "An error occurred" in update["messages"][0].content
+        assert update["messages"][0].content == GENERIC_ERROR_MESSAGE
 
 
 class TestConfidenceEndToEnd:

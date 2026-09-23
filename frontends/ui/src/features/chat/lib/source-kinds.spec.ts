@@ -2,6 +2,7 @@
  * @vitest-environment node
  */
 import { describe, test, expect } from 'vitest'
+import { de, en } from '@/i18n/dictionaries'
 import {
   AGENT_AUTHORED_LANE,
   AGENT_AUTHORED_LANE_LABEL,
@@ -13,7 +14,6 @@ import {
   authorityTag,
   kindForLane,
   scopeForQualifier,
-  shelfLabel,
   type Shelf,
   type SourceKind,
 } from './source-kinds'
@@ -43,7 +43,6 @@ describe('KIND_TO_SIGNAL', () => {
     expect(KIND_TO_SIGNAL.projekt).toBe('project')
     expect(KIND_TO_SIGNAL.web).toBe('auto')
   })
-
 })
 
 describe('authorityTag', () => {
@@ -130,23 +129,23 @@ describe('Shelf (ADR-0047)', () => {
   })
 })
 
-describe('shelfLabel', () => {
-  test('renders each shelf in German', () => {
-    expect(shelfLabel('archiv')).toBe('Büroarchiv')
-    expect(shelfLabel('project')).toBe('Projektwissen')
-    expect(shelfLabel('base')).toBe('Basiswissen')
+describe('the shelf labels in the dictionary', () => {
+  // The labels live in `chat.sourceTabs.shelves` (rendering only, ADR-0047 §5)
+  // and are resolved where the card renders; this pins the two invariants the
+  // old German table pinned.
+  test('every shelf has a distinct label, in both languages', () => {
+    for (const dictionary of [de.chat.sourceTabs.shelves, en.chat.sourceTabs.shelves]) {
+      const labels = SHELVES.map((shelf: Shelf) => dictionary[shelf])
+      expect(labels.every((label) => typeof label === 'string' && label.length > 0)).toBe(true)
+      expect(new Set(labels).size).toBe(SHELVES.length)
+    }
   })
 
-  test('a private session attachment is NOT labelled Projektwissen', () => {
+  test('a private session attachment is NOT labelled as project knowledge', () => {
     // The headline defect: a file the user attached to one chat was told to the
     // user as a "Private Sitzung" and then cited as project knowledge.
-    expect(shelfLabel('session')).toBe('Private Sitzung')
-    expect(shelfLabel('session')).not.toBe(shelfLabel('project'))
-  })
-
-  test('every shelf has a distinct label', () => {
-    const labels = SHELVES.map((shelf: Shelf) => shelfLabel(shelf))
-    expect(new Set(labels).size).toBe(SHELVES.length)
+    expect(de.chat.sourceTabs.shelves.session).toBe('Private Sitzung')
+    expect(de.chat.sourceTabs.shelves.session).not.toBe(de.chat.sourceTabs.shelves.project)
   })
 })
 

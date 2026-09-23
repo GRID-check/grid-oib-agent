@@ -123,6 +123,22 @@ moment, so the SPOKEN word is a plain `sr-only` copy beside it and the moving
 pair is `aria-hidden`: a reader must never hear the run called two things in one
 breath.
 
+## What a round shows while it runs
+
+A round used to show only what it read. It now also shows what it established:
+the claims the researchers' notes state, up to eight per round, under the
+document chips and before the open points, and the header counts them
+(„3 Runden · 9 Dokumente · 4 Befunde"). A twelve-minute run is readable at
+minute three. The fold copies each `ResearchNotes.findings[].claim` off the
+researcher's own output (`run_ledger_fold._add_findings`); the ledger's
+`findings` field is the contract on both sides, pinned by the schema fixture.
+
+When the reader named documents on the plan card, the block carries a receipt
+under the phases: each Grundlage row, read — with the pages or Punkte the
+rounds reached, derived from the steps (`grundlageReceipt`) — or not yet read.
+The ledger's `grundlage` field is the list; the loci are never stored twice.
+A row opens the document as a dialog over the thread, never a pane beside it.
+
 ## The actions
 
 One action fits each state — „Antworten", „Prüfen", „Bericht öffnen", „Erneut
@@ -133,6 +149,26 @@ things sit beside it rather than instead of it:
   so it never competes; always in the same slot, so it is never hunted for. It
   asks first, and the question is phrased around what SURVIVES: the rounds
   already researched stay in the block, only the report goes unwritten.
+- **„Jetzt schreiben"**, while the run is *researching* and only when a caller
+  offers it. The opposite of „Abbrechen": stop researching after the current
+  batch and write the report from what is there. No confirmation — nothing is
+  lost by it. The request travels as a job event
+  (`POST /v1/jobs/async/job/{id}/write-now`), the worker's monitor sets a
+  per-run signal the research tool reads before every batch
+  (`deep_researcher/control.py`), and the report lands marked
+  `unterbrochen` with a banner that says it was the reader's choice.
+- **„Dokument hinzufügen"**, while the run is *researching*, when a caller
+  offers it: a dialog over the thread lists the project's and the Archiv's
+  documents, and one press names one as Grundlage. The addition travels as a
+  job event (`POST /v1/jobs/async/job/{id}/documents`), the research tool
+  plans it into its next batch, and the receipt shows the row at once, unread
+  until a round reaches it. A row already named offers no second add.
+- **„Bericht fortschreiben"**, on a finished or interrupted run, when a caller
+  offers it: a new run on the same subject, briefed with this report's
+  findings, so a changed project fact re-reads the Befunde instead of starting
+  over, and with the report's cited project and Archiv documents as its
+  Grundlage. The new block lands in the same thread; its matrix marks what
+  changed.
 - **The connection line**, when the live view loses its stream. It leads with the
   run („Der Auftrag läuft weiter"), because that is the fact the reader fears.
   Silence there would read as a run that stopped.
@@ -158,7 +194,11 @@ Three surfaces, one organism:
 
 1. **The thread** (`RunBlockMessage`). The only one that holds a subscription —
    this is where a live run is watched, where „Abbrechen" is offered, and where
-   a `wartet` question is answered.
+   a `wartet` question is answered. When the stream moves the run from one
+   status word to the next, the block writes that ledger back onto its message
+   in the chat store, so everything outside the block — the composer, the
+   toolbar's „läuft" pill, the history's row, the delete that stops a live run
+   — reads the same account (`chat/lib/session-activity`).
 2. **The Aufträge drawer** (`TaskDetail`). The block again, fetched once through
    `GET /api/projects/[id]/runs/[runId]` and re-read only when the panel's poll
    moves the row. Opened rather than folded: the click on the row IS the request
