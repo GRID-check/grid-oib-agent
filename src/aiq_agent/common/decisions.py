@@ -89,7 +89,7 @@ URL_ENV = "GRID_DECISIONS_URL"
 # @required false
 # A dedicated key for the Decisions endpoint. Falls back to OPENROUTER_API_KEY
 # through the shared credential resolver, BYOK first.
-API_KEY_ENV = "GRID_DECISIONS_API_KEY"  # pragma: allowlist secret
+DEDICATED_ENV = "GRID_DECISIONS_API_KEY"  # pragma: allowlist secret
 
 DEFAULT_MODEL = "typesafe/jev-1.13"
 DEFAULT_PATH = "/api/alpha/decisions"
@@ -293,7 +293,7 @@ def _resolve_endpoint_blocking(organization_id: str | None) -> tuple[_Endpoint |
         from aiq_agent.common.credential_resolution import resolve_llm_credential
 
         resolved = resolve_llm_credential(
-            primary_env=API_KEY_ENV,
+            primary_env=DEDICATED_ENV,
             fallback_envs=(_FALLBACK_KEY_ENV,),
             default_base_url=_DEFAULT_BASE_URL,
             default_model=model,
@@ -302,7 +302,7 @@ def _resolve_endpoint_blocking(organization_id: str | None) -> tuple[_Endpoint |
         api_key, base_url, byok = resolved.api_key, resolved.base_url, resolved.source == "byok"
     except Exception:  # noqa: BLE001 — type only; the message can carry the key
         logger.warning("Decision credential resolution failed; trying the environment directly")
-        api_key = os.environ.get(API_KEY_ENV, "") or os.environ.get(_FALLBACK_KEY_ENV, "")
+        api_key = os.environ.get(DEDICATED_ENV, "") or os.environ.get(_FALLBACK_KEY_ENV, "")
         base_url, byok = _DEFAULT_BASE_URL, False
     if not api_key:
         return None, SKIPPED_NO_KEY
