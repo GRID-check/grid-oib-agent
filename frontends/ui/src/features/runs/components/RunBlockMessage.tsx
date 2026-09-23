@@ -86,22 +86,27 @@ export function RunBlockMessage({
         ),
       }
     : undefined
-  const openDocument = useCallback(
-    (doc: RunLedgerDoc): void => {
-      setWantsInventory(true)
-      const key = foldName(doc.name)
-      const found = inventory.documents?.find((row) => foldName(row.name) === key)
-      if (!found) return
-      openFilePeek({
-        file: found.file,
-        source: found.shelf === 'archiv' ? 'buero' : 'projekt',
-        projectId: projectId ?? null,
-        presentation: 'modal',
-        bindComposerSubject: false,
-      })
-    },
-    [inventory.documents, projectId]
-  )
+  // A chip clicked before the listing has arrived is remembered and opened
+  // once it does; otherwise the first click on a finished run would do nothing.
+  const [pendingDoc, setPendingDoc] = useState<RunLedgerDoc | null>(null)
+  const openDocument = useCallback((doc: RunLedgerDoc): void => {
+    setWantsInventory(true)
+    setPendingDoc(doc)
+  }, [])
+  useEffect(() => {
+    if (!pendingDoc || !inventory.documents) return
+    setPendingDoc(null)
+    const key = foldName(pendingDoc.name)
+    const found = inventory.documents.find((row) => foldName(row.name) === key)
+    if (!found) return
+    openFilePeek({
+      file: found.file,
+      source: found.shelf === 'archiv' ? 'buero' : 'projekt',
+      projectId: projectId ?? null,
+      presentation: 'modal',
+      bindComposerSubject: false,
+    })
+  }, [pendingDoc, inventory.documents, projectId])
   // A report that arrives while the reader is watching rises AFTER the block
   // has finished saying how the run ended: the verdict first, the document
   // second. A thread scrolled back to weeks later has both at once — nothing

@@ -2,6 +2,8 @@
 
 import asyncio
 import logging
+import re
+from collections.abc import Callable
 from collections.abc import Iterable
 from collections.abc import Mapping
 from collections.abc import Sequence
@@ -361,6 +363,15 @@ class SourceRegistryMiddleware(AgentMiddleware):
         # from the web, stays available: the confinement is to the reader's
         # files, never to the measure the report holds them against.
         self._only_keys = {self._locator_key(name) for name in only_file_names if name and name.strip()}
+        # The documents THIS run captured a passage from. Not the active
+        # registry: in conversation mode that is the session's, and a document
+        # read in an earlier turn would count as read by this run.
+        self._read_keys: set[str] = set()
+        # Keys „Nur diese" refused on a passage this run saw. The confinement
+        # is decided per entry (it needs the shelf); a bare citation key or a
+        # lane hit carries none, so a key refused once is remembered here and
+        # the locator check can refuse it everywhere else.
+        self._confined_keys: set[str] = set()
         self._lock = asyncio.Lock()
 
     def is_excluded(self, entry: SourceEntry) -> bool:
@@ -384,15 +395,15 @@ class SourceRegistryMiddleware(AgentMiddleware):
         return (parse_shelf(entry.shelf) or legacy_shelf_for_collection_name(entry.collection)) in _READER_SHELVES
 
     def read_file_names(self) -> set[str]:
-        """The file names (page-stripped, lowercased) the run has a passage from."""
-        names: set[str] = set()
-        for entry in self.active_registry().all_sources():
-            if entry.url or not entry.citation_key:
-                continue
-            key = self._entry_key(entry)
-            if key:
-                names.add(key)
-        return names
+        """The file names (page-stripped, lowercased) this run captured a passage from."""
+        return set(self._read_keys)
+
+    def is_excluded_locator(self, locator: str) -> bool:
+        """Whether a citation key or file name names a document the reader excluded or confined away."""
+        if not self._excluded_keys and not self._confined_keys:
+            return False
+        key = self._locator_key(locator)
+        return key in self._excluded_keys or key in self._confined_keys
 
     def active_registry(self) -> SourceRegistry:
         """Return the session-scoped registry if set, otherwise the instance registry."""
@@ -467,17 +478,23 @@ class SourceRegistryMiddleware(AgentMiddleware):
         if tool_name not in self._source_tool_names:
             return result
         source_id = get_source_id_for_tool(tool_name)
-        sources = extract_sources_from_tool_result(tool_name, str(result.content), source_id=source_id)
-        refused = [s for s in sources if self.is_excluded(s)]
-        if refused:
-            logger.info(
-                "[CitationRegistry] Refused %d source(s) from %s: excluded by the reader", len(refused), tool_name
-            )
-            sources = [s for s in sources if not self.is_excluded(s)]
+        # Parsed off the text the tool returned, before anything is cut: the
+        # structured records are filed under the hash of exactly these bytes.
+        extracted = extract_sources_from_tool_result(tool_name, str(result.content), source_id=source_id)
+        sources = [s for s in extracted if not self.is_excluded(s)]
+        self._confined_keys.update(
+            key
+            for key in (self._entry_key(s) for s in extracted if self.is_excluded(s))
+            if key and key not in self._excluded_keys
+        )
+        result = self._without_excluded_passages(result, tool_name)
         async with self._lock:
             active_registry = self.active_registry()
             for source in sources:
                 active_registry.add(source)
+            self._read_keys.update(
+                key for key in (self._entry_key(s) for s in sources if not s.url and s.citation_key) if key
+            )
         if sources:
             logger.info(
                 "[CitationRegistry] Captured %d source(s) from %s: %s",
@@ -486,6 +503,21 @@ class SourceRegistryMiddleware(AgentMiddleware):
                 [s.url or s.citation_key for s in sources],
             )
         return result
+
+    def _without_excluded_passages(self, result: ToolMessage, tool_name: str) -> ToolMessage:
+        """The result with every passage from an excluded document cut out.
+
+        Refusing the source at the registry is not enough on its own: the
+        researcher model reads this ToolMessage, and a passage it has read it
+        can paraphrase without citing. So the passage never reaches it.
+        """
+        if not (self._excluded_keys or self._confined_keys) or not isinstance(result.content, str):
+            return result
+        content, cut = _without_results(result.content, self.is_excluded_locator)
+        if not cut:
+            return result
+        logger.info("[CitationRegistry] Cut %d passage(s) from %s: excluded or confined by the plan", cut, tool_name)
+        return result.model_copy(update={"content": content})
 
     def get_source_entries(self, mode: str = "compact") -> list[SourceEntry]:
         """Return the source entries represented by the writer-facing source list.
@@ -499,6 +531,31 @@ class SourceRegistryMiddleware(AgentMiddleware):
             return sources
         compact_sources = [source for source in sources if self._entry_key(source) in self._compact_source_keys]
         return compact_sources or sources
+
+
+#: A ``--- Result N ---`` hit of the grounding grammar (``common/grounding_block.py``).
+_RESULT_HEADER_RE = re.compile(r"^--- Result \d+ ---$", re.MULTILINE)
+#: Where a hit ends: the next hit, the lanes line, or the batch separator that
+#: opens the next query's section (``source_tool_batching``). A bare ``---``
+#: alone is NOT an end, because a passage body may carry a markdown rule.
+_RESULT_END_RE = re.compile(r"^(?:--- Result \d+ ---$|## Trace-Lanes$|---\n\n## Query:)", re.MULTILINE)
+_CITATION_LINE_RE = re.compile(r"^Citation: (.+)$", re.MULTILINE)
+
+
+def _without_results(content: str, refused: Callable[[str], bool]) -> tuple[str, int]:
+    """``content`` without the hits whose ``Citation:`` key ``refused`` names, and how many went."""
+    kept: list[str] = []
+    cursor = cut = 0
+    for header in _RESULT_HEADER_RE.finditer(content):
+        end_match = _RESULT_END_RE.search(content, header.end())
+        end = end_match.start() if end_match else len(content)
+        citation = _CITATION_LINE_RE.search(content, header.end(), end)
+        if citation is None or not refused(citation.group(1).strip()):
+            continue
+        kept.append(content[cursor : header.start()])
+        cursor, cut = end, cut + 1
+    kept.append(content[cursor:])
+    return "".join(kept), cut
 
 
 _TRUNCATION_SUFFIX = "\n\n[... truncated ...]"

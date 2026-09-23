@@ -310,8 +310,15 @@ export const deepResearchCutoff = (steps: TurnEventStep[]): DeepResearchCutoff |
  * verification found nothing it could stand behind, so nothing in the answer is
  * provably grounded. `cards_generation_failed` — the report is whole, but the
  * proposals a job derives from it afterwards could not be produced.
+ * `grundlage_unread` — a document the reader named as Grundlage was never read,
+ * so the answer is silent about it; the report names which at its end.
  */
-export const ANSWER_DEGRADATIONS = ['no_report_file', 'no_valid_citations', 'cards_generation_failed'] as const
+export const ANSWER_DEGRADATIONS = [
+  'no_report_file',
+  'no_valid_citations',
+  'cards_generation_failed',
+  'grundlage_unread',
+] as const
 export type AnswerDegradation = (typeof ANSWER_DEGRADATIONS)[number]
 
 /**

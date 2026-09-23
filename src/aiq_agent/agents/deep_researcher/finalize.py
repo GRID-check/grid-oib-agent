@@ -200,7 +200,9 @@ def _prepend_honesty_banner(
             if english
             else f"Diese Recherche wurde{cause_clause} vorzeitig beendet, der folgende Bericht ist daher unvollständig."
         )
-    if degraded_reasons:
+    # An unread Grundlage is said by its own section at the foot of the report
+    # (`_append_unread_grundlage`); it is not a verification failure.
+    if any(reason != DEGRADED_GRUNDLAGE_UNREAD for reason in degraded_reasons or ()):
         sentences.append(
             "The statements could not be fully verified and are only partly reliable."
             if english

@@ -1,8 +1,8 @@
 # Chat
 
-The chat interface supports two communication modes: SSE (Server-Sent Events) streaming for simple conversations, and WebSocket for real-time interaction with full HITL (human-in-the-loop) support.
+The chat talks to the agent over a WebSocket, for real-time interaction with full HITL (human-in-the-loop) support.
 
-On small screens (below the `md` breakpoint) the chat is mobile-first: the sessions and data-sources panels open as full-width overlays capped at their desktop width, the research panel takes over the whole viewport while open, and the project sidebar is replaced by a top bar with a navigation drawer.
+On small screens (below the `md` breakpoint) the chat is mobile-first: the sessions and data-sources panels open as full-width overlays capped at their desktop width, and the project sidebar is replaced by a top bar with a navigation drawer.
 
 ## Starting a conversation
 
@@ -22,7 +22,7 @@ Before the line is *status*, and none of it is clickable. Who can read the chat 
 - **shared with the whole project or organization** → an **access chip** (`Projekt`, `Organisation`) and *no* faces. That audience is a rule, not a list — it changes as people join the project — so avatars would show a handful of people and imply only they can read it.
 - **private, just you** → neither. There is nothing to report.
 
-Alongside it, while deep research is running, a spinner — so the "still working" signal survives scrolling past the thread's own progress banner.
+Alongside it, while deep research is running, a spinner — so the "still working" signal survives scrolling past the run block in the thread.
 
 Either way the full picture (the rule *and* anyone individually invited) is in the sharing surface, one click away in the menu. On small screens the faces and the access chip are hidden below the `sm` breakpoint, so the same picture also lives at the top of the **…** menu, where it is never further than one tap away.
 
@@ -32,11 +32,10 @@ After the line is *action*. **New chat** is the only one kept in the open. The r
 |---|---|
 | **Rename chat** | there is a chat to rename — it opens the same in-place editor a click on the title opens (the menu entry is how you find it; the click is the shortcut). Enter or clicking away commits, Escape cancels — the same rename action as the chat-history panel |
 | **Share** | collaboration is enabled and this thread is reachable — the one door to the sharing surface, for every participant, not only owners. On a brand-new chat the thread only reaches the server with its first message, so this entry arrives a moment after you send it rather than being there from the first keystroke |
-| **Research report** | this thread already has a report, one is running, or the panel is open |
 
 Everything in this pill comes and goes during a conversation — the participants resolve a moment after the chat opens, research starts and finishes, the menu appears with the first thing worth listing — so arrivals animate: the pill grows into its new width and the buttons slide rather than jumping. If your system is set to reduce motion, they simply appear.
 
-If none of them applies, there is no menu button either. The main way into a report is still the "view report" action on the answer that produced it — the menu entry is for coming back after you have closed the panel and scrolled on — and the panel closes with its own ✕ or Escape.
+If none of them applies, there is no menu button either. There is no report entry here: a research report is read in the run block of the thread that commissioned it (see [Deep research vs simple chat](#deep-research-vs-simple-chat) below).
 
 The whole header is hidden on an empty chat that has not started yet, apart from the sessions and navigation doors.
 
@@ -136,22 +135,6 @@ Switching chats is blocked during shallow thinking (WebSocket stream) or a HITL 
 
 ## Communication modes
 
-### SSE streaming (/api/chat)
-
-POST `/api/chat` proxies to the backend's `/chat/stream` endpoint. The response is an SSE stream of text chunks. The frontend appends chunks to the last assistant message until the stream completes.
-
-### SSE streaming (/api/generate)
-
-POST `/api/generate` proxies to `/generate/stream`. This endpoint emits richer typed SSE events:
-
-| Event type | Purpose |
-|---|---|
-| `thinking` | Intermediate thoughts displayed in the Thinking tab |
-| `complete` | End of stream marker |
-| `error` | Error during generation |
-| `prompt` | Agent asking for user input (HITL) |
-| `intermediate` | Partial content for the Details Panel |
-
 ### WebSocket
 
 A persistent WebSocket connection to `ws://<host>/websocket` enables real-time bidirectional communication. The `NATWebSocketClient` connects automatically when the user sends a message. Messages follow the NAT protocol:
@@ -167,7 +150,7 @@ The WebSocket supports auto-reconnection with exponential backoff (3 attempts, 1
 
 ## Deep research vs simple chat
 
-Simple chat sends a single message through the SSE or WebSocket path and streams the assistant response back.
+Simple chat sends a single message over the WebSocket and streams the assistant response back.
 
 Deep research commissions a run, and the run is one block in the thread that
 asked for it: a stand naming where the run is (Planen · Recherchieren · Prüfen
@@ -346,8 +329,6 @@ Clicking a source chip opens a preview of the source instead of doing nothing:
 - **The toolbar says which page you are on**, not how long the file is, and it follows you as you scroll — so a passage you have scrolled away from still has an address. **Zur Fundstelle / Go to passage** takes you back to the marked one.
 - **The cited passage is marked in the document itself.** When the citation carries passage text, the viewer finds that passage in the page's text layer, scrolls to it, and lights it up — a short pulse on arrival that settles into a highlighter mark in the source's own tint. A **Zur Fundstelle / Go to passage** button in the viewer toolbar brings you back to it after scrolling away or after jumping to another Fundstelle on the rail. Matching is deliberately conservative: it tolerates line-break hyphenation, ligatures, punctuation and German inflection, but when a page offers two passages that fit equally well it marks neither and simply opens at the page — a mark on the wrong sentence is worse than no mark. When the cited page does not hold the passage at all, the page either side is searched as well, because the page number counts sheets and a document with a cover page numbers itself differently; when those come up empty too, one more page out in each direction, for a title sheet plus a table of contents. Further than that is a different passage that happens to read alike, and is not looked at. Scanned pages with no text layer open at the page without a mark. Whenever the search comes up empty on every page it could have looked at, the viewer says so in the toolbar rather than leaving you to guess whether the passage is missing, the page is wrong, or the feature is broken.
 - **Anything unresolvable** (unknown document, non-previewable file type) shows a light popover with the source's origin, title, and passage instead — never a broken viewer. Chips with nothing beyond their label stay plain.
-
-The same affordance appears in the deep-research report's sources list: `[KB]` entries that resolve to an openable document get a small **View / Ansehen** button next to the entry.
 
 ## Human-in-the-loop (HITL)
 

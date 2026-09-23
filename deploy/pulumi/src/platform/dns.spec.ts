@@ -37,6 +37,12 @@ type RedirectRule = {
   actionParameters: { fromValue: { statusCode: number; targetUrl: { value: string } } };
 };
 
+/** The www rule's target is an expression (path kept), not a fixed URL. */
+type WwwRedirectRule = {
+  expression: string;
+  actionParameters: { fromValue: { statusCode: number; targetUrl: { expression: string } } };
+};
+
 /** The stack config a working Cloudflare setup needs, on top of the shared base. */
 function dnsConfig(overrides: Record<string, string> = {}): Record<string, string> {
   return {
@@ -73,6 +79,9 @@ async function install(values: Record<string, string>) {
     );
     if (result.apexRedirect) {
       await new Promise((resolve) => result.apexRedirect!.ruleset.name.apply(resolve));
+    }
+    if (result.wwwRedirect) {
+      await new Promise((resolve) => result.wwwRedirect!.name.apply(resolve));
     }
   }
   return { result, records: RESOURCES.filter((r) => r.type.endsWith(":DnsRecord")) };
@@ -230,6 +239,38 @@ describe("installDns", () => {
 
     expect(result?.apexRedirect).toBeDefined();
   });
+
+  it("serves the apex for real and 301s www to it, when the baseline stack IS the apex", async () => {
+    const { result, records } = await install({
+      ...dnsConfig(),
+      "grid-oib:baseDomain": ZONE,
+      "grid-oib:dnsZoneBaseline": "true",
+    });
+
+    // The apex is one of this stack's own hosts: a real, unproxied A record.
+    const apex = records.filter((r) => r.inputs.name === ZONE);
+    expect(apex).toHaveLength(1);
+    expect(apex[0].inputs.content).toBe("203.0.113.10");
+    expect(apex[0].inputs.proxied).toBe(false);
+    expect(result?.apexRedirect).toBeUndefined();
+
+    // www has no Gateway listener or certificate. Unproxied it would reach the
+    // Gateway and fail TLS; proxied, the edge answers it with the redirect.
+    const www = records.find((r) => r.inputs.name === `www.${ZONE}`);
+    expect(www?.inputs.proxied).toBe(true);
+    expect(www?.inputs.ttl).toBe(TTL_AUTOMATIC);
+
+    const rulesets = RESOURCES.filter((r) => r.type.endsWith(":Ruleset"));
+    // One entrypoint ruleset per phase per zone: never both redirects at once.
+    expect(rulesets).toHaveLength(1);
+    const rule = (rulesets[0].inputs.rules as WwwRedirectRule[])[0];
+    expect(rule.expression).toBe(`http.host eq "www.${ZONE}"`);
+    expect(rule.actionParameters.fromValue.targetUrl.expression).toBe(
+      `concat("https://${ZONE}", http.request.uri.path)`,
+    );
+    expect(rule.actionParameters.fromValue.statusCode).toBe(301);
+    expect(result?.wwwRedirect).toBeDefined();
+  });
 });
 
 describe("loadConfig refuses DNS configurations that would deploy cleanly and be wrong", () => {
@@ -268,6 +309,16 @@ describe("loadConfig refuses DNS configurations that would deploy cleanly and be
       "grid-oib:dnsApexRedirectTo": "https://elsewhere.test",
     });
     expect(error?.message).toContain("already serves the apex");
+  });
+
+  it("refuses a stack that serves the apex without owning the zone baseline", async () => {
+    // How piloti.at kept redirecting to dev after prod shipped: prod wrote the
+    // apex, the dev stack still owned www and the redirect ruleset.
+    const error = await loadWith({
+      ...dnsConfig(),
+      "grid-oib:baseDomain": ZONE,
+    });
+    expect(error?.message).toContain("grid-oib:dnsZoneBaseline must be true");
   });
 
   it("refuses an apex redirect from a stack that does not own the zone baseline", async () => {

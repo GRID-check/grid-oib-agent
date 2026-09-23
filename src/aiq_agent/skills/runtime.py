@@ -205,7 +205,7 @@ class SkillRuntime:
 
         For a body the caps keep out (``ifc-spatial-reasoning`` at 17k chars)
         on a turn something already knows is its subject — the turn-start
-        decision's ``model`` answer (ADR-0064). Still an offer: it moves where
+        decision's ``skill`` choice (ADR-0064). Still an offer: it moves where
         the body is read, not whether the model follows it. Unknown names and
         skills already inlined are ignored.
         """

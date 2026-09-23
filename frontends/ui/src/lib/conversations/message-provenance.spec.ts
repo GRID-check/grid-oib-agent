@@ -208,11 +208,17 @@ describe('why the run stopped, and what it cost', () => {
           'no_report_file',
           'no_valid_citations',
           'cards_generation_failed',
+          'grundlage_unread',
           'no_report_file',
         ],
       })
     ).toEqual({
-      degradedReasons: ['no_report_file', 'no_valid_citations', 'cards_generation_failed'],
+      degradedReasons: [
+        'no_report_file',
+        'no_valid_citations',
+        'cards_generation_failed',
+        'grundlage_unread',
+      ],
     })
   })
 

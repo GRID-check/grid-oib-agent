@@ -87,7 +87,7 @@ config:
   # dynamically from the merge commit — prod merge shas never have GHCR images;
 
   # only develop tips do.
-  grid-oib:imageTag: sha-6013dca8ee3ce30e8b964bf3f429982f831aa771
+  grid-oib:imageTag: sha-9150f95df04ddc393507dd2dca7bb69415062b38
   # ── Storage (provider CSI, NVMe/TCP) ──
 
   # Classes offered by the provider (see `kubectl get storageclass`):
@@ -141,7 +141,7 @@ config:
 
   #   pulumi config set        grid-oib:dnsZoneName example.com
 
-  #   esc env set matthiasbigl/grid-oib/prod pulumiConfig.grid-oib:cloudflareApiToken "<Zone:DNS:Edit, scoped to that zone>" --secret
+  #   esc env set matthiasbigl/grid-oib/prod pulumiConfig.grid-oib:cloudflareApiToken "<Zone:DNS:Edit + Zone:Dynamic URL Redirects:Edit, scoped to that zone>" --secret
 
   #   pulumi config set        grid-oib:dnsEnabled  true
 
@@ -395,7 +395,14 @@ config:
   grid-oib:seaweedfsPerOrgBuckets: "true"
   grid-oib:dnsZoneName: piloti.at
   grid-oib:dnsZoneId: 66de14f8d07a729634f5d230418bb907 # pragma: allowlist secret (public zone id, Cloudflare zone Overview page)
-  grid-oib:dnsZoneBaseline: "false"
+  # Prod serves the apex, so it owns the zone-level records: the apex A record,
+  # www (proxied, 301 to the apex) and _dmarc. Taken over from the dev stack,
+  # which parked the apex on a redirect to dev.piloti.at until prod existed.
+  grid-oib:dnsZoneBaseline: "true"
+  # Carried over verbatim from GoDaddy, via the dev stack. The domain has no MX
+  # records; `v=DMARC1; p=reject;` plus `v=spf1 -all` would be the stronger
+  # posture, but that is a mail-policy decision, not a deployment one.
+  grid-oib:dnsDmarc: "v=DMARC1; p=quarantine; adkim=r; aspf=r; rua=mailto:dmarc_rua@onsecureserver.net;"
   grid-oib:langfuseInitUserEmail: matthias@bigls.net
   grid-oib:langfuseOrgId: grid
   grid-oib:langfuseProjectId: grid-oib

@@ -8,6 +8,10 @@
 import { z } from 'zod'
 import { planDocumentsSchema } from '@/lib/runs/plan-documents'
 import { apiRoute, parseJsonBody } from '@/lib/api/handler'
+import { NotFoundError } from '@/lib/api/errors'
+import { FEATURE_FLAGS, requireFeature } from '@/lib/authz/feature-flags'
+import { findConversationInOrg } from '@/lib/conversations/repository'
+import { requireResourceAccess } from '@/lib/sharing/access'
 import { TASK_GOAL_MAX_CHARS } from '@/lib/tasks/delegation'
 import { commissionResearchRun } from '@/lib/tasks/delegation'
 
@@ -23,7 +27,17 @@ const commissionRunSchema = z.object({
 
 export const POST = apiRoute<Params>(
   async ({ session, params, request }) => {
+    // The same capability `POST /api/jobs/async/submit` and the agent's door
+    // (`api/internal/tasks`) gate: a third way in must not be the way around it.
+    const gated = requireFeature(session, FEATURE_FLAGS.deepResearch)
+    if (gated) return gated
     const input = await parseJsonBody(request, commissionRunSchema)
+    // The internal route takes the thread from a signed envelope; here it is a
+    // body field, so it is authorized like any other post to a thread: the
+    // caller contributes to it, and it belongs to the project in the path.
+    await requireResourceAccess(session, 'conversation', input.conversationId, 'collaborator')
+    const conversation = await findConversationInOrg(input.conversationId, session.organizationId)
+    if (conversation?.projectId !== params.id) throw new NotFoundError()
     const run = await commissionResearchRun(session, {
       projectId: params.id,
       conversationId: input.conversationId,
@@ -41,7 +55,8 @@ export const POST = apiRoute<Params>(
   {
     status: 201,
     authz: {
-      enforcedBy: 'commissionResearchRun (requireProjectAccess COMMISSION_PERMISSIONS)',
+      enforcedBy:
+        'requireFeature deepResearch; requireResourceAccess conversation collaborator; commissionResearchRun (requireProjectAccess COMMISSION_PERMISSIONS)',
     },
   }
 )

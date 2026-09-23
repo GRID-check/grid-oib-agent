@@ -137,6 +137,16 @@ class TestRoundZero:
         assert ai and ai[0].tool_calls[0]["name"] == "knowledge_search"
         assert result.tool_iterations == 0
 
+    async def test_two_turns_never_share_a_prefetch_call_id(self):
+        """The last turn's transcript keeps its calls; a provider refuses two
+        calls under one id, so the next turn's prefetch must not reuse it."""
+        ids = []
+        for _ in range(2):
+            calls: list = []
+            await _run(_agent(ANSWER, llm_calls=calls))
+            ids += [c["id"] for m in calls[0] if isinstance(m, AIMessage) for c in m.tool_calls]
+        assert len(ids) == 2 and len(set(ids)) == 2
+
     async def test_the_round_is_announced_as_zero_and_costs_no_budget(self, steps):
         result = await _run(_agent(ANSWER, llm_calls=[]))
         assert any(s["step"] == "status:retrieval:0" for s in steps)

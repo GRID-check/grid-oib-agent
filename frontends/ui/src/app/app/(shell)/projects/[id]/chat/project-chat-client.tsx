@@ -297,10 +297,10 @@ const ProjectChatContent = ({
 }
 
 /**
- * Client half of the project chat route. The server page computes the two
- * chat feature flags and passes them here; they are prop-drilled to the
- * feature-flagged surfaces (ReportTab badges, AgentResponse confidence chip)
- * via MainLayout.
+ * Client half of the project chat route. The server page computes the chat
+ * feature flags and passes them here; they are prop-drilled to the
+ * feature-flagged surfaces (AgentResponse confidence chip and feedback row,
+ * the sessions panel's research section) via MainLayout.
  */
 export const ProjectChatClient = (props: ProjectChatClientProps): ReactNode => {
   return (

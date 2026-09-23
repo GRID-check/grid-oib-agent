@@ -51,6 +51,9 @@ def test_added_documents_are_drained_once_and_the_binding_is_per_run():
         queue.append(PlanDocument(name="nachtrag.pdf", title="Nachtrag"))
         assert [d.name for d in take_added_documents()] == ["nachtrag.pdf"]
         assert take_added_documents() == []
+        # The list itself is left whole: it is the monitor's dedupe history
+        # and the finalizer's account of every addition.
+        assert [d.name for d in queue] == ["nachtrag.pdf"]
     finally:
         reset_added_documents(token)
     assert take_added_documents() == []
@@ -70,3 +73,40 @@ def test_the_report_names_the_grundlage_it_never_reached():
     )
     assert "## Documents not read" in english and english.rstrip().endswith("- plan.pdf")
     assert _append_unread_grundlage("# Bericht", []) == "# Bericht"
+
+
+def test_every_addition_stays_countable_after_it_was_taken():
+    from aiq_agent.agents.deep_researcher.control import all_added_documents
+    from aiq_agent.agents.deep_researcher.control import bind_added_documents
+    from aiq_agent.agents.deep_researcher.control import reset_added_documents
+    from aiq_agent.agents.deep_researcher.control import take_added_documents
+    from aiq_agent.common.plan_documents import PlanDocument
+
+    queue = [PlanDocument(name="a.pdf")]
+    token = bind_added_documents(queue)
+    try:
+        take_added_documents()
+        queue.append(PlanDocument(name="b.pdf"))
+        assert [d.name for d in all_added_documents()] == ["a.pdf", "b.pdf"]
+        assert [d.name for d in take_added_documents()] == ["b.pdf"]
+    finally:
+        reset_added_documents(token)
+    assert all_added_documents() == []
+
+
+def test_a_request_is_honoured_only_once_a_batch_was_refused():
+    from aiq_agent.agents.deep_researcher.control import begin_write_now_record
+    from aiq_agent.agents.deep_researcher.control import end_write_now_record
+    from aiq_agent.agents.deep_researcher.control import note_write_now_honoured
+    from aiq_agent.agents.deep_researcher.control import write_now_honoured
+
+    note_write_now_honoured()  # nothing recording: a no-op
+    assert write_now_honoured() is False
+    token = begin_write_now_record()
+    try:
+        assert write_now_honoured() is False
+        note_write_now_honoured()
+        assert write_now_honoured() is True
+    finally:
+        end_write_now_record(token)
+    assert write_now_honoured() is False

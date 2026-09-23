@@ -262,6 +262,8 @@ export const chat: typeof en.chat = {
         'Keine Quellenangabe hielt der Prüfung stand — bitte prüfen Sie die Angaben vor der Verwendung selbst',
       cards_generation_failed:
         'Der Bericht ist vollständig, aber die daraus abgeleiteten Vorschläge konnten nicht erzeugt werden',
+      grundlage_unread:
+        'Nicht alle als Grundlage benannten Unterlagen wurden gelesen — welche fehlen, steht am Ende des Berichts',
     },
     // Die Gründe der Zitatprüfung, in der Sprache des Lesers. Das Backend nennt
     // sie als Token (`url_not_in_registry`, …), und genau so standen sie bisher
@@ -1327,6 +1329,8 @@ export const chat: typeof en.chat = {
             'Keine Belegstelle hielt der Prüfung stand. Bitte schlagen Sie die Angaben vor der Verwendung selbst nach.',
           noCards:
             'Der Bericht ist vollständig, aber die daraus abgeleiteten Vorschläge konnten nicht erzeugt werden.',
+          grundlageUnread:
+            'Nicht alle als Grundlage benannten Unterlagen konnten gelesen werden; ihr Inhalt ist in der Antwort nicht berücksichtigt. Welche es sind, steht am Ende des Berichts.',
         },
       },
       branchesTab: 'Folgewege',

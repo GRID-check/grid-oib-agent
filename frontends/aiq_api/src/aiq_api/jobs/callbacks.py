@@ -234,6 +234,9 @@ class AgentEventCallback(BaseCallbackHandler):
         self._agent_run_ids: dict[str, str] = {}  # {run_id: name}
 
         self._source_registry = source_registry
+        # The run's refusal of the reader's Ausgeschlossen (deep research sets
+        # it); an excluded document is neither a citation_source nor mirrored.
+        self._source_excluded: Callable[[SourceEntry], bool] | None = None
         # Last-resort mirror of what this run's tools actually returned; see
         # _mirror_sources.
         self._mirrored_registry = SourceRegistry()
@@ -377,6 +380,10 @@ class AgentEventCallback(BaseCallbackHandler):
         rather than pinned to whatever was current at wiring time.
         """
         self._source_registry = source_registry
+
+    def set_source_exclusion(self, excluded: Callable[[SourceEntry], bool]) -> None:
+        """Attach the run's predicate for sources from documents the reader excluded."""
+        self._source_excluded = excluded
 
     def _get_source_registry(self) -> SourceRegistry | None:
         """Return the SourceRegistry a cited source must be validated against.
@@ -897,6 +904,8 @@ class AgentEventCallback(BaseCallbackHandler):
         if not useful and self._is_search_tool(tool_name):
             for url in self._extract_urls(output):
                 useful.append(SourceEntry(url=url, source_type="generic", tool_name=tool_name))
+        if self._source_excluded is not None:
+            useful = [entry for entry in useful if not self._source_excluded(entry)]
 
         # Mirror BEFORE the per-entry emit loop: that loop skips entries whose
         # citation_source artifact was already emitted, but the mirror wants

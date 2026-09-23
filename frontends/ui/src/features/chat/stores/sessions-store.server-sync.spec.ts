@@ -6,7 +6,6 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 
 const mockLayoutState = vi.hoisted(() => ({
-  closeRightPanel: vi.fn(),
   enabledDataSourceIds: ['web_search'],
   availableDataSources: [{ id: 'web_search' }],
   setEnabledDataSources: vi.fn(),

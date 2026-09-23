@@ -269,6 +269,8 @@ export const chat = {
         'No citation survived verification — please check the figures yourself before relying on them',
       cards_generation_failed:
         'The report is complete, but the proposals derived from it could not be produced',
+      grundlage_unread:
+        'Not every document named as the basis was read — the end of the report lists which',
     },
     // The verification's own reasons for dropping a citation, in the reader's
     // words. The backend states them as tokens (`url_not_in_registry`, …) and
@@ -1317,6 +1319,8 @@ export const chat = {
             'No citation held up under checking. Please verify the figures yourself before using them.',
           noCards:
             'The report is complete, but the proposals derived from it could not be produced.',
+          grundlageUnread:
+            'Not every document named as the basis could be read; the answer does not reflect its contents. The end of the report lists which.',
         },
       },
       branchesTab: 'Next steps',

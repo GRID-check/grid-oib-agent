@@ -39,6 +39,20 @@ step "backend venv (uv sync --group dev)"
 uv venv .venv
 uv sync --group dev
 
+# The container's uv (0.8.x) knows no 3.14 newer than 3.14.0rc2, and pydantic
+# does not import on that release candidate, so every backend test dies at
+# collection (docs/contributing/gotchas.md, `prefer_fwd_module`). A current uv
+# from PyPI, which the proxy allows where the GitHub API is not, installs 3.14
+# final and the venv is rebuilt on it.
+if ! .venv/bin/python -c 'import sys; sys.exit(sys.version_info.releaselevel != "final")'; then
+  step "backend venv is on a pre-release Python; rebuilding on 3.14 final"
+  UV_CURRENT="${TMPDIR:-/tmp}/uv-current"
+  python3 -m venv "$UV_CURRENT"
+  "$UV_CURRENT/bin/pip" install --quiet --upgrade uv
+  "$UV_CURRENT/bin/uv" python install 3.14
+  "$UV_CURRENT/bin/uv" sync --group dev --python '>=3.14.1,<3.15'
+fi
+
 step "UI dependencies (bun)"
 # Bun is the INSTALLER and script runner only, never the runtime — see
 # `fe:install`. Do not add `--bun`.

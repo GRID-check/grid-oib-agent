@@ -127,10 +127,8 @@ vi.mock('@/features/chat', () => ({
 }))
 
 // Mock the layout store
-const mockOpenRightPanel = vi.fn()
 const mockSetDataSourcePanelTab = vi.fn()
 
-const mockCloseRightPanel = vi.fn()
 const mockSetDataSourcesPanelTab = vi.fn()
 const mockApplySourcePreset = vi.fn()
 let mockActiveSourcePreset: string | null = null
@@ -147,14 +145,11 @@ const mockSetEnabledDataSources = vi.fn()
 const mockFetchDataSources = vi.fn()
 
 const mockLayoutState = () => ({
-  openRightPanel: mockOpenRightPanel,
-  closeRightPanel: mockCloseRightPanel,
   setDataSourcesPanelTab: mockSetDataSourcesPanelTab,
   setDataSourcePanelTab: mockSetDataSourcePanelTab,
   enabledDataSourceIds: mockEnabledDataSourceIds,
   knowledgeLayerAvailable: true,
   availableDataSources: mockAvailableDataSources,
-  rightPanel: null as string | null,
   activeSourcePreset: mockActiveSourcePreset,
   applySourcePreset: mockApplySourcePreset,
   // Sources popover (C4) — connection toggles lifted from the old panel.
@@ -992,7 +987,6 @@ describe('InputArea', () => {
       expect(
         screen.getByText(/what it actually used is in the derivation/i)
       ).toBeInTheDocument()
-      expect(mockOpenRightPanel).not.toHaveBeenCalled()
     })
 
     /**

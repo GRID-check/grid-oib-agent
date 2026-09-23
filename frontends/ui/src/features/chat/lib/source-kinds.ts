@@ -168,7 +168,7 @@ export const asShelf = (value: string | null | undefined): Shelf | undefined => 
  * shelf field (every message persisted before ADR-0047).
  *
  * FROZEN wire values, pinned byte-for-byte against the backend's writer, and
- * deliberately independent of {@link shelfLabel}: display copy may be reworded
+ * deliberately independent of the shelf's display label: display copy may be reworded
  * freely, these may not — renaming a label must not change what a stored key
  * parses to, nor what today's keys strip to.
  */
@@ -184,9 +184,9 @@ export const CITATION_KEY_QUALIFIERS: ReadonlyArray<readonly [qualifier: string,
   // the legacy three fails to strip `(Private Sitzung)` — the key then misses
   // `FILENAME_RE` and the whole citation resolves to null.
   //
-  // So: German is rendering for DISPLAY (see `shelfLabel`), but a citation key
+  // So: German is rendering for DISPLAY (see `documentShelfLabel`), but a citation key
   // is a human-readable identity and still carries a qualifier to stay unique.
-  // Both runtimes must agree on this set; `shelfLabel` may be reworded freely,
+  // Both runtimes must agree on this set; the display label may be reworded freely,
   // this may not.
   ['Private Sitzung', 'session'],
 ]

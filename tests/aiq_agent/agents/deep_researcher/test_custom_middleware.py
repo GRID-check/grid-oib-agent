@@ -833,3 +833,79 @@ class TestExcludedDocumentsNeverBecomeSources:
         assert not mw.is_excluded(SourceEntry(url="https://www.ris.bka.gv.at/x", title="BO Wien"))
         # A shelf nobody stated is not refused: it could be a norm.
         assert not mw.is_excluded(SourceEntry(citation_key="unklar.pdf, p.1"))
+
+    @pytest.mark.asyncio
+    async def test_the_model_never_reads_an_excluded_passage(self):
+        """Refusing the source is not enough: the ToolMessage is what the researcher reads."""
+        mw = SourceRegistryMiddleware(source_tool_names={"knowledge_search"}, excluded_file_names=["alt.pdf"])
+        content = (
+            "## Query: Brandschutz\n2 results\n\n"
+            "--- Result 1 ---\nSource: alt.pdf\nPage: 5\nCitation: alt.pdf, p.5\nRelevance Score: 0.90\n\n"
+            "Geheimer Absatz.\n---\nNoch ein Absatz.\n\n"
+            "--- Result 2 ---\nSource: neu.pdf\nPage: 2\nCitation: neu.pdf, p.2\nRelevance Score: 0.80\n\n"
+            "Erlaubter Text.\n\n## Trace-Lanes\n{}\n"
+            "\n---\n\n## Query: Fluchtweg\n1 results\n\n"
+            "--- Result 1 ---\nSource: alt.pdf\nPage: 9\nCitation: alt.pdf, p.9\nRelevance Score: 0.70\n\n"
+            "Zweiter geheimer Absatz.\n\n## Trace-Lanes\n{}\n"
+        )
+        handler = AsyncMock(return_value=ToolMessage(content=content, tool_call_id="tc1", id="m1"))
+
+        result = await mw.awrap_tool_call(self._make_request("knowledge_search"), handler)
+
+        assert "geheimer" not in result.content.lower() and "Noch ein Absatz" not in result.content
+        assert "Erlaubter Text." in result.content
+        assert "## Query: Fluchtweg" in result.content and result.content.count("## Trace-Lanes") == 2
+        assert (result.tool_call_id, result.id) == ("tc1", "m1")
+        assert [s.citation_key for s in mw.registry.all_sources()] == ["neu.pdf, p.2"]
+
+    @pytest.mark.asyncio
+    async def test_the_model_never_reads_a_passage_nur_diese_confines_away(self):
+        """„Nur diese" cuts the reader's other documents from the result; a norm stays in it."""
+        mw = SourceRegistryMiddleware(source_tool_names={"knowledge_search"}, only_file_names=["plan.pdf"])
+        content = (
+            "--- Result 1 ---\nSource: statik.pdf\nShelf: project\nPage: 3\nCitation: statik.pdf, p.3\n"
+            "Relevance Score: 0.90\n\nFremder Absatz.\n\n"
+            "--- Result 2 ---\nSource: plan.pdf\nShelf: project\nPage: 2\nCitation: plan.pdf, p.2\n"
+            "Relevance Score: 0.85\n\nPlan-Text.\n\n"
+            "--- Result 3 ---\nSource: OIB-RL 2.pdf\nShelf: base\nPage: 4\nCitation: OIB-RL 2.pdf, p.4\n"
+            "Relevance Score: 0.80\n\nNorm-Text.\n\n## Trace-Lanes\n{}\n"
+        )
+        handler = AsyncMock(return_value=ToolMessage(content=content, tool_call_id="tc1"))
+
+        result = await mw.awrap_tool_call(self._make_request("knowledge_search"), handler)
+
+        assert "Fremder Absatz" not in result.content
+        assert "Plan-Text." in result.content and "Norm-Text." in result.content
+        assert sorted(s.citation_key for s in mw.registry.all_sources()) == ["OIB-RL 2.pdf, p.4", "plan.pdf, p.2"]
+        # Remembered, so a lane hit or a streamed citation naming it is refused too.
+        assert mw.is_excluded_locator("statik.pdf, p.3")
+        assert not mw.is_excluded_locator("OIB-RL 2.pdf, p.4")
+
+    @pytest.mark.asyncio
+    async def test_a_result_with_nothing_excluded_is_returned_as_it_came(self):
+        mw = SourceRegistryMiddleware(source_tool_names={"knowledge_search"}, excluded_file_names=["alt.pdf"])
+        message = ToolMessage(
+            content="--- Result 1 ---\nSource: neu.pdf\nCitation: neu.pdf, p.2\n\nText.", tool_call_id="tc1"
+        )
+        result = await mw.awrap_tool_call(self._make_request("knowledge_search"), AsyncMock(return_value=message))
+        assert result is message
+
+    @pytest.mark.asyncio
+    async def test_a_document_read_in_an_earlier_turn_is_not_read_by_this_run(self):
+        """In conversation mode the active registry is the session's, which spans turns."""
+        from aiq_agent.common.citation_verification import SourceRegistry
+        from aiq_agent.common.citation_verification import reset_session_registry
+        from aiq_agent.common.citation_verification import set_session_registry
+
+        session = SourceRegistry()
+        session.add(SourceEntry(citation_key="frueher.pdf, p.1", title="frueher.pdf"))
+        token = set_session_registry(session)
+        try:
+            mw = SourceRegistryMiddleware(source_tool_names={"knowledge_search"})
+            content = "--- Result 1 ---\nSource: neu.pdf\nPage: 2\nCitation: neu.pdf, p.2\n\nText."
+            handler = AsyncMock(return_value=ToolMessage(content=content, tool_call_id="tc1"))
+            await mw.awrap_tool_call(self._make_request("knowledge_search"), handler)
+        finally:
+            reset_session_registry(token)
+
+        assert mw.read_file_names() == {"neu.pdf"}

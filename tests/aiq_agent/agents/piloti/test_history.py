@@ -143,6 +143,41 @@ class TestPruneToolResults:
         assert pruned[1].content == "Ich prüfe." and pruned[1].tool_calls == []
         assert pruned[2].content == "A1"
 
+    def test_a_responses_api_call_block_leaves_with_its_result(self):
+        """On the Responses API the call is ALSO a ``function_call`` block in
+        ``content``; left behind, it is a call with no result and the provider
+        answers 400."""
+        call = {"name": "read_passage", "args": {}, "id": "c-1"}
+        calls_only = AIMessage(
+            content=[{"type": "function_call", "call_id": "c-1", "name": "read_passage", "arguments": "{}"}],
+            tool_calls=[call],
+        )
+        with_prose = AIMessage(
+            content=[
+                {"type": "text", "text": "Ich prüfe."},
+                {"type": "function_call", "call_id": "c-2", "name": "read_passage", "arguments": "{}"},
+            ],
+            tool_calls=[{**call, "id": "c-2"}],
+        )
+        history = [
+            HumanMessage(content="Q1"),
+            calls_only,
+            ToolMessage(content="P1", tool_call_id="c-1"),
+            with_prose,
+            ToolMessage(content="P1b", tool_call_id="c-2"),
+            AIMessage(content="A1"),
+            *_turn("Q2", "P2", "A2"),
+            HumanMessage(content="Q3"),
+        ]
+        pruned = prune_tool_results(history)
+        older = pruned[: pruned.index(history[6])]
+        blocks = [b for m in older if isinstance(m.content, list) for b in m.content]
+        assert all(b.get("type") != "function_call" for b in blocks)
+        assert len(older) == 3
+        kept = pruned[1]
+        assert kept.content == [{"type": "text", "text": "Ich prüfe."}] and kept.tool_calls == []
+        assert pruned[2].content == "A1"
+
     def test_one_previous_turn_is_untouched(self):
         history = [*_turn("Q1", "P1", "A1"), HumanMessage(content="Q2")]
         assert prune_tool_results(history) == history
@@ -191,3 +226,15 @@ class TestCompactToolResults:
 
         messages = [ToolMessage(content="No relevant documents found for query: 'x'", tool_call_id="c1")]
         assert compact_tool_results(messages, {"k1"})[0].content == messages[0].content
+
+
+def test_prose_history_carries_no_call_without_its_result():
+    """The repair rewrite gets the thread without tool results, so it must not
+    get their calls either: a provider refuses a call with no result."""
+    from aiq_agent.agents.piloti.history import prose_history
+
+    turn = _turn("Q1", "P1", "A1", thought="Ich prüfe.")
+    kept = prose_history([*turn, *_turn("Q2", "P2", "A2")])
+    assert [type(m).__name__ for m in kept] == ["HumanMessage", "AIMessage", "AIMessage", "HumanMessage", "AIMessage"]
+    assert all(not getattr(m, "tool_calls", None) for m in kept)
+    assert kept[1].content == "Ich prüfe."

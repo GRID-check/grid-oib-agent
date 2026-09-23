@@ -284,7 +284,6 @@ async def _resolve_skill_runtime(
         inline_max_body_chars=config.skills_inline_max_body_chars,
         inline_budget_chars=config.skills_inline_budget_chars,
     )
-    emit_skills_offered(runtime)
     return runtime
 
 
@@ -505,6 +504,9 @@ async def _run_turn(deployment: _Deployment, state: ResearchAgentState) -> Resea
         draft_tools_for_turn(), _decide_turn(config, state, runtime), _active_provider(deployment.provider)
     )
     _apply_decisions(decisions, state, runtime)
+    # After the decision: the skill it inlined is part of what this turn inlined.
+    if runtime is not None:
+        emit_skills_offered(runtime)
     turn_tools = list(deployment.tools) + (list(runtime.build_tools()) if runtime is not None else []) + draft_tools
     turn = TurnConfig(
         llm_provider=llm_provider,

@@ -63,6 +63,12 @@ class TestUnread:
         assert [d.name for d in unread_grundlage(docs, {"a.pdf"})] == ["b.pdf"]
         assert unread_grundlage(None, set()) == []
 
+    def test_a_live_addition_is_grundlage_too_and_named_once(self):
+        docs = PlanDocuments(grundlage=[PlanDocument(name="a.pdf"), PlanDocument(name="b.pdf")])
+        added = [PlanDocument(name="C.pdf"), PlanDocument(name="B.PDF"), PlanDocument(name="d.pdf")]
+        assert [d.name for d in unread_grundlage(docs, {"a.pdf", "d.pdf"}, added)] == ["b.pdf", "C.pdf"]
+        assert [d.name for d in unread_grundlage(None, set(), added)] == ["C.pdf", "B.PDF", "d.pdf"]
+
 
 def test_nur_grundlage_survives_only_with_a_grundlage():
     from aiq_agent.common.plan_documents import sanitize_plan_documents

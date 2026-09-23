@@ -14,7 +14,7 @@ import type { CitationSource } from '../types'
 
 vi.mock('@/features/layout/store', () => ({
   useLayoutStore: vi.fn((selector?: (s: Record<string, unknown>) => unknown) => {
-    const state = { openRightPanel: vi.fn(), setResearchPanelTab: vi.fn(), showTechnicalReasoning: false }
+    const state = { showTechnicalReasoning: false }
     return selector ? selector(state) : state
   }),
 }))

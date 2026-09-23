@@ -1009,6 +1009,13 @@ class TestTheFindingsRideIntoMemory:
             "- Fluchtweg — offen (Fluchtniveau unbekannt.)"
         )
 
+    def test_a_row_without_a_status_states_none(self) -> None:
+        """``exclude_none`` drops an absent status; it must not come back as „offen"."""
+        from aiq_api.jobs.runner import _reflection_text
+
+        text = _reflection_text("Bericht.", {"items": [{"requirement": "Stellplätze", "value": "12"}]})
+        assert text == "Bericht.\n\n## Befunde\n- Stellplätze — 12"
+
     def test_no_findings_leaves_the_report_as_it_was(self) -> None:
         from aiq_api.jobs.runner import _reflection_text
 

@@ -19,7 +19,6 @@ const STORAGE_KEY = 'aiq-chat-store'
 vi.mock('@/features/layout/store', () => ({
   useLayoutStore: {
     getState: () => ({
-      closeRightPanel: vi.fn(),
       enabledDataSourceIds: [],
       availableDataSources: [],
       setEnabledDataSources: vi.fn(),

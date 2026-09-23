@@ -44,7 +44,6 @@ vi.mock('./store', () => ({
 }))
 
 const mockLayoutStore = {
-  openRightPanel: vi.fn(),
   setDataSourcesPanelTab: vi.fn(),
   knowledgeLayerAvailable: true,
 }

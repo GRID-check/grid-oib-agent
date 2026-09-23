@@ -30,7 +30,7 @@
 'use client'
 
 import { useEffect, useRef, useState, type CSSProperties, type FC, type ReactNode } from 'react'
-import { ChevronDown, ChevronUp, Download, ExternalLink, FileSearch, Link2 } from 'lucide-react'
+import { ChevronDown, ChevronUp, Download, ExternalLink, Link2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
 import { useTranslations } from '@/i18n'
@@ -55,7 +55,6 @@ import { CopySourceCitationButton } from './CopyCitation'
 import { toQuoteList } from '../lib/source-citation'
 import { CopyCitationLinkButton } from './CopyCitationLink'
 import {
-  buildCitationModel,
   citationNumbers,
   openAtLocus,
   resolveCitationTarget,
@@ -258,7 +257,7 @@ export type CitationVariant = 'chip' | 'card'
 /**
  * How much of a citation's chrome the card layout prints.
  *
- * `full` is the roomy technical list (the research panel): provenance icon,
+ * `full` is the roomy technical row, and the default: provenance icon,
  * authority badge, the `[N]`, and the raw locator as the Fundstelle.
  *
  * `name-only` is for a surface that ALREADY states all of that around the
@@ -1409,7 +1408,7 @@ export interface SourcePreviewChipProps {
   className?: string
   /**
    * Layout shape. `chip` is the compact "Belegt durch" pill; `card` is the
-   * full-width list row used by the research panel's source list. Behaviour —
+   * full-width list row (the Herleitung source cards). Behaviour —
    * tint, authority badge, target resolution, click — is identical in both.
    */
   variant?: CitationVariant
@@ -1589,69 +1588,6 @@ export const SourcePreviewChip: FC<SourcePreviewChipProps> = ({
       {doc.authority && <AuthorityTag>{doc.authority}</AuthorityTag>}
       {label}
     </SourceSignalChip>
-  )
-}
-
-// ---------------------------------------------------------------------------
-// Report sources list affordance (ReportTab) — KB entries become openable
-// ---------------------------------------------------------------------------
-
-export interface ReportSourcePreviewChipProps {
-  /** The source entry's text (origin token already stripped by the parser). */
-  locatorText: string
-}
-
-/**
- * Small "Ansehen"/"View" affordance next to a [KB] entry in the report's
- * sources list. Renders only when the entry resolves to an actually openable
- * document — unresolvable entries stay plain text.
- *
- * The entry goes through `buildCitationModel` rather than being parsed here, so
- * this affordance resolves a document by exactly the rules the chips use. It is
- * the same producer the answer's provenance row feeds on (a written source
- * entry), just with one entry in it.
- */
-export const ReportSourcePreviewChip: FC<ReportSourcePreviewChipProps> = ({ locatorText }) => {
-  const projectId = useChatStore((s) => s.projectId)
-  const conversationId = useConversationId()
-  const [doc] = buildCitationModel({
-    entries: [{ number: 0, markdown: locatorText }],
-  })
-  const index = useSourcePreviewIndex(projectId, conversationId, !!doc?.fileName)
-
-  if (!doc || !index) return null
-  const target = resolveCitationTarget(doc, {
-    storedDocuments: index.storedDocuments,
-    baseCorpusFiles: index.baseCorpusFiles,
-  })
-  if (target.kind !== 'document') return null
-  return <ReportSourceDocumentButton target={target} document={doc} />
-}
-
-const ReportSourceDocumentButton: FC<{ target: DocumentTarget; document: CitedDocument }> = ({
-  target,
-  document: doc,
-}) => {
-  const t = useTranslations('chat')
-  const { isResolving, openPreview, dialog } = useDocumentPreview(target, { document: doc })
-  const signal: SourceTint = doc.tint
-  return (
-    <>
-      <button
-        type="button"
-        className={cn(chipButtonClasses, 'self-center')}
-        style={sourceSignalStyle(signal)}
-        onClick={() => void openPreview()}
-        disabled={isResolving}
-        aria-busy={isResolving}
-        aria-haspopup="dialog"
-        aria-label={t('sourcePreview.chipAria', { label: target.title })}
-      >
-        <FileSearch aria-hidden="true" />
-        {t('sourcePreview.view')}
-      </button>
-      {dialog}
-    </>
   )
 }
 

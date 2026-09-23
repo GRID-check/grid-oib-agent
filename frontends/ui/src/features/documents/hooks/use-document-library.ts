@@ -54,10 +54,19 @@ export function toLibraryDocument(row: DocumentWireRow, shelf: LibraryShelf): Li
   return { name: file.filename, ...(shown !== file.filename ? { title: shown } : {}), shelf, file }
 }
 
+const EMPTY_FOLDERS: FolderItem[] = []
+
 export function useDocumentLibrary(projectId: string | null, enabled: boolean): DocumentLibrary {
-  const [documents, setDocuments] = useState<LibraryDocument[] | null>(null)
-  const [folders, setFolders] = useState<FolderItem[]>([])
+  // Keyed by the project it was read for: a block reused under another
+  // project must not list the previous project's files as this one's.
+  const [loaded, setLoaded] = useState<{
+    projectId: string
+    documents: LibraryDocument[]
+    folders: FolderItem[]
+  } | null>(null)
   const [loading, setLoading] = useState(false)
+  const current = loaded && loaded.projectId === projectId ? loaded : null
+  const documents = current?.documents ?? null
 
   useEffect(() => {
     if (!enabled || !projectId || documents !== null) return
@@ -70,11 +79,14 @@ export function useDocumentLibrary(projectId: string | null, enabled: boolean): 
       read<FolderItem>(`/api/projects/${project}/folders`, 'folders'),
     ]).then(([own, archiv, projectFolders]) => {
       if (cancelled) return
-      setDocuments([
-        ...own.map((row) => toLibraryDocument(row, 'project')),
-        ...archiv.map((row) => toLibraryDocument(row, 'archiv')),
-      ])
-      setFolders(projectFolders)
+      setLoaded({
+        projectId,
+        documents: [
+          ...own.map((row) => toLibraryDocument(row, 'project')),
+          ...archiv.map((row) => toLibraryDocument(row, 'archiv')),
+        ],
+        folders: projectFolders,
+      })
       setLoading(false)
     })
     return () => {
@@ -82,5 +94,5 @@ export function useDocumentLibrary(projectId: string | null, enabled: boolean): 
     }
   }, [enabled, projectId, documents])
 
-  return { documents, folders, loading }
+  return { documents, folders: current?.folders ?? EMPTY_FOLDERS, loading }
 }

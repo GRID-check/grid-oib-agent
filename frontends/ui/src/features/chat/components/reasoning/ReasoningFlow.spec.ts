@@ -753,11 +753,14 @@ describe('a deep run that was cut off or degraded says so under the assessment',
   })
 
   test('a degraded answer is marked as one the reader should check', () => {
-    const g = build([degradedStep(['no_report_file', 'no_valid_citations', 'cards_generation_failed'])])
+    const g = build([
+      degradedStep(['no_report_file', 'no_valid_citations', 'cards_generation_failed', 'grundlage_unread']),
+    ])
     expect(limits(g)?.lines).toEqual([
       { text: 'thinking.node.limits.degraded.noReport', warn: true },
       { text: 'thinking.node.limits.degraded.noCitations', warn: true },
       { text: 'thinking.node.limits.degraded.noCards', warn: true },
+      { text: 'thinking.node.limits.degraded.grundlageUnread', warn: true },
     ])
   })
 

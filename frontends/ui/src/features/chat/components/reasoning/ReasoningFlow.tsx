@@ -843,6 +843,7 @@ const DEGRADATION_KEYS: Record<AnswerDegradation, string> = {
   no_report_file: 'noReport',
   no_valid_citations: 'noCitations',
   cards_generation_failed: 'noCards',
+  grundlage_unread: 'grundlageUnread',
 }
 
 function limitations(

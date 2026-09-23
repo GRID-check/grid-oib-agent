@@ -81,7 +81,7 @@ describe('KB tool output → Herleitung fan-out', () => {
   })
 })
 
-describe('verified report → ReportTab sources section', () => {
+describe('verified report → its sources section (splitReportSources)', () => {
   const split = splitReportSources(VERIFIED_REPORT)
 
   test('the German heading and both surviving entries are extracted', () => {

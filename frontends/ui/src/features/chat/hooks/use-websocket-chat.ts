@@ -10,8 +10,9 @@
  * - system_interaction -> Chat Area (AgentPrompt for user response)
  * - error -> Error handling
  *
- * Note: a deep-research run is a message in the thread (ADR-0062); it is fed by
- * SSE events via use-deep-research.ts, not by WebSocket responses.
+ * Note: a deep-research run is a message in the thread (ADR-0062); its block
+ * follows the run's own stream (`features/runs/hooks/use-run-ledger.ts`), not
+ * WebSocket responses.
  */
 
 'use client'
@@ -1012,10 +1013,7 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
    *     progress travels on SSE, not on frames, so silence here means nothing
    *     at all. Re-armed, but NOT indefinitely — the budget in (3) is checked
    *     first, because an exemption with no ceiling locks the composer forever
-   *     the first time a terminal job event is lost. The research panel's own
-   *     recovery notice covers a stalled stream in the meantime; that one is
-   *     evidence-based already, since the backend heartbeats the SSE channel
-   *     every 30s and the client resets on it.
+   *     the first time a terminal job event is lost.
    *  3. **The socket is open and quiet** — re-arm until the whole silence
    *     budget is spent, then accuse the turn.
    *

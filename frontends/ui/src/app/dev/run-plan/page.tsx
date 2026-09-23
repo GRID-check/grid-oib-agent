@@ -6,16 +6,16 @@
  *
  *   1. proposed: the brief and the countdown; the reader owes nothing, and
  *      the run starts on its own,
- *   2. held: „Anpassen" pressed, the plan open as numbered steps with the
- *      optional document step, „Starten",
- *   3. a plan confined to its documents („Nur ausgewählte"), approved,
+ *   2. held: „Anpassen" pressed, the plan open as its three steps with the
+ *      optional „Was Piloti liest", „Starten",
+ *   3. a plan confined to its documents („Nur diese"), approved,
  *   4. started: the brief the run is running, read-only.
  *
  * Fetch-free for the blocks: edits go through `applyPlanEdit`, the client's
  * own guess of the BFF's answer, so every block is clickable in dev. The
  * document picker lists the project's documents from `/api/documents`, which
- * answers nothing here (the picker then offers the plan's own inventory); a
- * capture routes it. Not linked from anywhere; 404s outside
+ * answers nothing here, so the picker is empty unless a capture routes the
+ * listing (and `/api/documents/{id}/thumbnail` for the page images). Not linked from anywhere; 404s outside
  * development. Pinned to German, the product's primary language, so a
  * capture carries the copy that ships.
  */
@@ -121,7 +121,7 @@ export default function RunPlanPreviewPage() {
         />
         <Block
           testId="dev-only"
-          label="3 · Eigener Plan, nur ausgewählte Unterlagen, freigegeben"
+          label="3 · Eigener Plan, nur diese Unterlagen, freigegeben"
           initial={{
             ...BASE,
             author: 'user',
