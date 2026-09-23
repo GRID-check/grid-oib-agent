@@ -204,9 +204,16 @@ export class JobCancelError extends Error {
  * would name nobody.
  *
  * Resolves on a 2xx and throws `JobCancelError` for everything else; a network
- * failure is a 503.
+ * failure is a 503. The resolved `alreadyTerminal` is the idempotent cancel's
+ * (#632) verdict that the job had ended before the cancel landed, so nothing
+ * was stopped: the same race a pre-#632 backend reports as a 400. It is false
+ * when the body does not say, which is how an older backend's 2xx reads — that
+ * backend only answered 2xx for a cancel that took.
  */
-export async function cancelBackendJob(backendJobId: string, accessToken: string | null): Promise<void> {
+export async function cancelBackendJob(
+  backendJobId: string,
+  accessToken: string | null,
+): Promise<{ alreadyTerminal: boolean }> {
   let response: Response
   try {
     response = await fetch(
@@ -226,4 +233,8 @@ export async function cancelBackendJob(backendJobId: string, accessToken: string
   if (!response.ok) {
     throw new JobCancelError(await readBody(response), response.status)
   }
+  const body: unknown = await response.json().catch(() => null)
+  const alreadyTerminal =
+    typeof body === 'object' && body !== null && (body as { already_terminal?: unknown }).already_terminal === true
+  return { alreadyTerminal }
 }

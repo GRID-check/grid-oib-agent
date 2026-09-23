@@ -407,8 +407,9 @@ export async function cancelRun(
   if (!isActiveTaskRunStatus(run.status)) throw new ConflictError('This run has already ended')
   if (!run.backendJobId) throw new ConflictError('This run has no backend job to cancel')
 
+  let cancelled: { alreadyTerminal: boolean }
   try {
-    await cancelBackendJob(run.backendJobId, session.accessToken ?? null)
+    cancelled = await cancelBackendJob(run.backendJobId, session.accessToken ?? null)
   } catch (error) {
     if (!(error instanceof JobCancelError)) throw error
     // The backend's verdict on a race: the job finished between the row read
@@ -418,5 +419,8 @@ export async function cancelRun(
     if (error.status === 404) throw new NotFoundError('Unknown run')
     throw new UpstreamError('The run could not be cancelled')
   }
+  // The same race answered by a backend with the idempotent cancel (#632): a
+  // 200 that stopped nothing. The run's contract is unchanged by it.
+  if (cancelled.alreadyTerminal) throw new ConflictError('This run has already ended')
   return runView(run)
 }

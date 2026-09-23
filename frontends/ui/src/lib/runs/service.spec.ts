@@ -118,6 +118,7 @@ beforeEach(() => {
   vi.mocked(taskRepository.findRunById).mockResolvedValue(run)
   vi.mocked(taskRepository.findRunInProject).mockResolvedValue(run)
   vi.mocked(taskRepository.findRunByBackendJobId).mockResolvedValue(run)
+  vi.mocked(cancelBackendJob).mockResolvedValue({ alreadyTerminal: false })
   vi.mocked(writeMessageContent).mockResolvedValue(message(null))
   vi.mocked(findMessageInConversation).mockResolvedValue(
     message({ [`run_ledger`]: emptyRunLedger(RUN, T0) }),
@@ -430,6 +431,13 @@ describe('cancelRun', () => {
 
     vi.mocked(cancelBackendJob).mockRejectedValueOnce(new JobCancelError('network down', 503))
     await expect(cancelRun(session, 'project-1', RUN)).rejects.toBeInstanceOf(UpstreamError)
+  })
+
+  it('reads an idempotent cancel that stopped nothing as „already ended“, as the old 400 was (#632)', async () => {
+    // The backend now answers the same race 200 with `already_terminal`. The
+    // run endpoint's contract predates that and must not turn into a success.
+    vi.mocked(cancelBackendJob).mockResolvedValueOnce({ alreadyTerminal: true })
+    await expect(cancelRun(session, 'project-1', RUN)).rejects.toBeInstanceOf(ConflictError)
   })
 })
 

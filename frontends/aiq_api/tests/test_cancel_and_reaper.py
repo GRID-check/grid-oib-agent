@@ -268,6 +268,7 @@ class TestCancelRoute:
         assert response.status_code == 200
         body = response.json()
         assert body["status"] == "interrupted"
+        assert body["already_terminal"] is False
         conditional_write = runner._update_status_if_not_terminal
         conditional_write.assert_awaited_once_with(job_store, "job-1", JobStatus.INTERRUPTED, error="cancelled by user")
         job_store.update_status.assert_not_awaited()
@@ -313,6 +314,7 @@ class TestCancelRoute:
         assert body["job_id"] == "job-1"
         assert body["status"] == terminal_status
         assert body["task_cancelled"] is False
+        assert body["already_terminal"] is True
         # Nothing mutated: no status flip, so no cancellation event either.
         runner._update_status_if_not_terminal.assert_not_awaited()
         job_store.update_status.assert_not_awaited()
@@ -343,6 +345,7 @@ class TestCancelRoute:
         assert body["job_id"] == "job-1"
         assert body["status"] == "success"
         assert body["task_cancelled"] is False
+        assert body["already_terminal"] is True
         job_store.update_status.assert_not_awaited()
         cancel_dask.assert_not_awaited()
         assert EventStore.get_events(db_url, "job-1") == []

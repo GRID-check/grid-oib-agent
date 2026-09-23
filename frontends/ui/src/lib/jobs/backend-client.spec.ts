@@ -102,7 +102,7 @@ describe('cancelBackendJob', () => {
     fetchMock.mockResolvedValue(
       new Response(JSON.stringify({ job_id: 'job 1', status: 'interrupted' }), { status: 200 }),
     )
-    await expect(cancelBackendJob('job 1', 'tok')).resolves.toBeUndefined()
+    await expect(cancelBackendJob('job 1', 'tok')).resolves.toEqual({ alreadyTerminal: false })
     const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit]
     expect(url).toBe('http://backend:8000/v1/jobs/async/job/job%201/cancel')
     expect(init.method).toBe('POST')
@@ -114,6 +114,16 @@ describe('cancelBackendJob', () => {
     await cancelBackendJob('job-1', null)
     const [, init] = fetchMock.mock.calls[0] as [string, RequestInit]
     expect(headersOf(init)).not.toHaveProperty('Authorization')
+  })
+
+  it('reports an idempotent cancel of an already-ended job (#632)', async () => {
+    fetchMock.mockResolvedValue(
+      new Response(
+        JSON.stringify({ job_id: 'job-1', status: 'success', task_cancelled: false, already_terminal: true }),
+        { status: 200 },
+      ),
+    )
+    await expect(cancelBackendJob('job-1', 'tok')).resolves.toEqual({ alreadyTerminal: true })
   })
 
   it('carries the backend’s status and its own words on a refusal', async () => {

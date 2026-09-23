@@ -771,7 +771,9 @@ async def register_job_routes(app: FastAPI, builder: WorkflowBuilder, worker: Fa
         description=(
             "Request cancellation of a submitted or running job. The job status will be set to INTERRUPTED. "
             "Cancelling an already-terminal job is an idempotent no-op success returning its status, "
-            "not an error: the UI races completion with user cancel, session-delete and purge cancels."
+            "not an error: the UI races completion with user cancel, session-delete and purge cancels. "
+            "`already_terminal` tells the two apart: `task_cancelled` cannot, because DB-claimed execution "
+            "reports it false for a cancel that did take, and `status` cannot for a job already INTERRUPTED."
         ),
         responses={
             404: {"description": "Job not found"},
@@ -794,7 +796,7 @@ async def register_job_routes(app: FastAPI, builder: WorkflowBuilder, worker: Fa
             # more") already holds, so nothing is mutated: no status write, no
             # event, no queue or Dask touch.
             logger.info("Cancel no-op for already-terminal job %s (status: %s)", job_id, job.status)
-            return {"job_id": job_id, "status": job.status, "task_cancelled": False}
+            return {"job_id": job_id, "status": job.status, "task_cancelled": False, "already_terminal": True}
 
         from ..jobs.runner import _update_status_if_not_terminal
 
@@ -814,7 +816,7 @@ async def register_job_routes(app: FastAPI, builder: WorkflowBuilder, worker: Fa
                 job_id,
                 current.status,
             )
-            return {"job_id": job_id, "status": current.status, "task_cancelled": False}
+            return {"job_id": job_id, "status": current.status, "task_cancelled": False, "already_terminal": True}
 
         def _record_cancellation_event() -> None:
             # EventStore construction and store() are blocking DB I/O — keep
@@ -843,7 +845,12 @@ async def register_job_routes(app: FastAPI, builder: WorkflowBuilder, worker: Fa
 
         logger.info("Cancel requested for job %s: status updated, task_cancelled=%s", job_id, task_cancelled)
 
-        return {"job_id": job_id, "status": JobStatus.INTERRUPTED.value, "task_cancelled": task_cancelled}
+        return {
+            "job_id": job_id,
+            "status": JobStatus.INTERRUPTED.value,
+            "task_cancelled": task_cancelled,
+            "already_terminal": False,
+        }
 
     @app.get(
         "/v1/jobs/async/job/{job_id}/state",
