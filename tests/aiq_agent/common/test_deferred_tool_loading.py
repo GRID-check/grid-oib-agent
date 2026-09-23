@@ -12,6 +12,8 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock
 from unittest.mock import MagicMock
 
+import httpx
+import openai
 import pytest
 from langchain_core.tools import tool
 
@@ -660,7 +662,7 @@ async def test_the_probe_runs_at_most_once_per_model():
     create = llm.root_async_client.responses.with_raw_response.create
     for _ in range(5):
         await ensure_model_verdict(llm, settings=ON)
-    assert create.await_count == 1
+    assert create.await_count == 2  # one probe = baseline + ballast request
 
 
 async def test_a_400_rejection_is_a_durable_unsupported_verdict():
@@ -732,8 +734,8 @@ async def test_an_unreachable_model_is_given_up_on_rather_than_probed_forever():
     assert create.await_count == 3
 
 
-async def test_a_listed_model_is_never_probed_at_all():
-    llm = FakeOpenRouterLLM(model_name="openai/gpt-5.6-luna")
+async def test_a_denied_model_is_never_probed_at_all():
+    llm = FakeOpenRouterLLM(model_name="x-ai/grok-4.6")
     llm.root_async_client = _probe_client(_accepted_body())
     await ensure_model_verdict(llm, settings=ON)
     assert llm.root_async_client.responses.with_raw_response.create.await_count == 0
@@ -827,6 +829,76 @@ async def test_concurrent_bindings_of_one_unknown_model_cost_a_single_probe():
     settings = DeferredToolLoadingSettings(enabled=True, models=DeferredToolLoadingModels(allow=[], deny=[]))
     for _ in range(5):
         bind_tools_deferred(llm, TOOLS, settings=settings)
-    for _ in range(4):
+    for _ in range(10):
         await asyncio.sleep(0)
-    assert llm.root_async_client.responses.with_raw_response.create.await_count == 1
+    # One probe is two requests (baseline + ballast), never five probes.
+    assert llm.root_async_client.responses.with_raw_response.create.await_count == 2
+
+
+# ------------------------------------------------- the saving, not the echo
+
+
+def _openrouter_over_httpx(*, base_tokens: int | None, ballast_tokens: int | None) -> tuple[openai.AsyncOpenAI, list]:
+    """A real AsyncOpenAI client whose transport answers like OpenRouter did.
+
+    It echoes the namespace with ``defer_loading`` intact either way — the echo
+    is not what separates the two verdicts, the billed ``input_tokens`` is.
+    """
+    seen: list[dict] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content)
+        seen.append(body)
+        namespace = next(t for t in body["tools"] if t["type"] == "namespace")
+        names = [f["name"] for f in namespace["tools"]]
+        tokens = ballast_tokens if "grid_probe_ballast" in names else base_tokens
+        usage = {} if tokens is None else {"usage": {"input_tokens": tokens, "output_tokens": 5}}
+        return httpx.Response(200, json={"object": "response", "status": "completed", "tools": [namespace], **usage})
+
+    client = openai.AsyncOpenAI(
+        api_key="test",
+        base_url="https://openrouter.ai/api/v1",
+        http_client=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
+    )
+    return client, seen
+
+
+async def test_an_echoed_deferral_that_is_still_billed_binds_full_schemas_without_failing_the_build(caplog):
+    # Measured 2026-09-23: luna echoed defer_loading and billed 187 -> 4 100 for
+    # the deferred ballast. That is the silent failure; it must not pass.
+    llm = FakeOpenRouterLLM(model_name="openai/gpt-5.6-luna")
+    llm.root_async_client, seen = _openrouter_over_httpx(base_tokens=187, ballast_tokens=4100)
+    with caplog.at_level(logging.WARNING):
+        await verify_deferred_tool_loading(llm, settings=ON)
+    assert len(seen) == 2
+    assert all(f["defer_loading"] is True for f in seen[1]["tools"][1]["tools"])
+    assert "+3913" in caplog.text and "does NOT honour" in caplog.text
+    # ...and it outranks the allowlist, which was measured on the echo.
+    assert model_supports_deferred_tool_loading(llm, ON) is False
+    assert not isinstance(_bind(llm), DeferredToolBinding)
+
+
+async def test_a_deferral_that_keeps_the_ballast_off_the_bill_is_verified():
+    llm = FakeOpenRouterLLM(model_name="openai/gpt-5.6-luna")
+    llm.root_async_client, seen = _openrouter_over_httpx(base_tokens=187, ballast_tokens=230)
+    await verify_deferred_tool_loading(llm, settings=ON)
+    assert len(seen) == 2
+    assert cached_model_verdict("openai/gpt-5.6-luna") is True
+    assert isinstance(_bind(llm), DeferredToolBinding)
+
+
+async def test_the_probe_measures_an_allowlisted_model_off_the_request_path_too():
+    # An override-seam model on the allowlist gets the same saving check.
+    llm = FakeOpenRouterLLM(model_name="anthropic/claude-sonnet-5")
+    llm.root_async_client, seen = _openrouter_over_httpx(base_tokens=847, ballast_tokens=6034)
+    assert await ensure_model_verdict(llm, settings=ON) is False
+    assert len(seen) == 2
+    await ensure_model_verdict(llm, settings=ON)
+    assert len(seen) == 2  # cached per model, not re-probed
+
+
+async def test_a_probe_without_usage_is_inconclusive_not_a_verdict():
+    llm = FakeOpenRouterLLM(model_name="brand/usage-less-model")
+    llm.root_async_client, _ = _openrouter_over_httpx(base_tokens=None, ballast_tokens=None)
+    assert await ensure_model_verdict(llm, settings=ON) is None
+    assert cached_model_verdict("brand/usage-less-model") is None
