@@ -75,18 +75,41 @@ async def test_sound_cards_register_in_array_order_and_the_markers_stay(card_reg
 
 @pytest.mark.asyncio
 async def test_the_array_lands_after_the_tool_cards_and_its_markers_follow(card_registry):
-    """A draft the turn filed sits at position 1; the model's two cards become 2 and 3."""
+    """A draft the turn filed sits at position 1. The model follows the taught
+    rule and numbers its two cards after the handed marker, 2 and 3; each
+    lands on its own card, and the draft keeps its marker."""
     card_registry.add({"type": "document_draft", "title": "Aktenvermerk"})
     handed = "Draft written. Write [[card:1]] where the file belongs."
+    prose = (
+        "x" * 900
+        + " Die Antwort [1].\n\n[[card:1]]\n\n[[card:2]]\n\nWeiter.\n\n[[card:3]]\n\n## References\n- [1] https://example.com"
+    )
+    envelope = {"answer": prose, "kind": "walkthrough", "cards": [BASIS, TABLE_RIGHT]}
+    messages = [
+        ToolMessage(content=handed, name="write_file", tool_call_id="t0"),
+        AIMessage(content="```answer_json\n" + json.dumps(envelope, ensure_ascii=False) + "\n```"),
+    ]
+
+    final = await finalize_answer(messages, registry=_sources(), tools=[], repair=None)
+
+    assert [card["type"] for card in card_registry.snapshot()] == ["document_draft", "legal_basis", "typed_table"]
+    body = final.content
+    assert body.index("[[card:1]]") < body.index("[[card:2]]") < body.index("Weiter.") < body.index("[[card:3]]")
+
+
+@pytest.mark.asyncio
+async def test_a_model_that_ignores_the_offset_is_read_by_array_number(card_registry):
+    """Numbers at or below the handed marker that a tool did not hand out can
+    only be array numbers; a clash with a handed number stays the tool's."""
+    card_registry.add({"type": "document_draft", "title": "Aktenvermerk"})
+    card_registry.add({"type": "document_draft", "title": "Protokoll"})
+    handed = "Drafts written. Write [[card:2]] where the file belongs."
 
     final = await finalize_answer(_messages([BASIS, TABLE_RIGHT], handed), registry=_sources(), tools=[], repair=None)
 
-    assert [card["type"] for card in card_registry.snapshot()] == ["document_draft", "legal_basis", "typed_table"]
-    # `[[card:1]]` was handed by the tool and stays the draft's; `[[card:2]]` is
-    # the array's second card, now at position 3.
-    assert "[[card:1]]" in final.content
-    assert "[[card:3]]" in final.content
-    assert "[[card:2]]" not in final.content
+    # `[[card:1]]` is array card 1 (legal_basis, position 3); `[[card:2]]` was handed.
+    assert "[[card:3]]" in final.content and "[[card:2]]" in final.content
+    assert "[[card:1]]" not in final.content
 
 
 @pytest.mark.asyncio

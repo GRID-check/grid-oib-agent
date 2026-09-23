@@ -10,6 +10,7 @@ copies its signal fields onto the state (``ledger.assemble_result``).
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import re
 from collections.abc import Awaitable
@@ -49,6 +50,7 @@ from aiq_agent.common.turn_status import emit_citation_check
 
 from .dsml import strip_and_salvage_dsml_tool_calls
 from .grounding import answer_mentions_normative_claim
+from .history import prose_history
 from .markers import detect_and_strip_confidence_marker
 from .markers import detect_and_strip_escalation_marker
 from .repair import Repair
@@ -287,25 +289,31 @@ def _handed_markers(messages: Sequence[Any]) -> set[int]:
 def _renumber_envelope_markers(content: str, *, handed: set[int], positions: dict[int, int], count: int) -> str:
     """The envelope's card markers moved from array numbers to registry positions.
 
-    The model numbers its ``cards`` array from 1 (the taught rule), and the
-    array is registered AFTER whatever tools pushed this turn, so array number
-    N becomes the registry position it landed at (``positions``). A marker a
-    tool handed out keeps its number: it already IS a registry position, and a
-    number both channels could claim resolves to the tool's card — the model
-    copied that one from a reply, and the envelope card lands after the
-    answer instead of in the wrong place. The marker of a card that was
-    DROPPED is removed, so the reader never meets a marker with nothing behind
-    it and no later card slides onto its neighbour's place. A marker past the
-    array is left alone, as it always was.
+    The taught rule (``cards/envelope._MARKER_RULE``) numbers the ``cards``
+    array from 1, and from after the highest marker a tool handed out this
+    turn when there was one, so the model's numbers never collide with a
+    tool's. N therefore names array card ``N - offset`` (``offset`` = the
+    highest handed number, 0 when none), and that card becomes the registry
+    position it landed at (``positions``). A marker a tool handed out keeps its
+    number: it already IS a registry position. A model that ignored the offset
+    and wrote a number at or below it is read as an array number, the only
+    reading left. The marker of a card that was DROPPED is removed, so the
+    reader never meets a marker with nothing behind it and no later card
+    slides onto its neighbour's place. A marker past the array is left alone,
+    as it always was.
     """
     if count == 0:
         return content
+    offset = max(handed, default=0)
 
     def substitute(match: re.Match[str]) -> str:
         number = int(match.group(1))
-        if number in handed or not 1 <= number <= count:
+        if number in handed:
             return match.group(0)
-        position = positions.get(number)
+        index = number - offset if number > offset else number
+        if not 1 <= index <= count:
+            return match.group(0)
+        position = positions.get(index)
         return f"[[card:{position}]]" if position is not None else ""
 
     return _CARD_MARKER_NUMBER_RE.sub(substitute, content)
@@ -328,13 +336,8 @@ async def _register_envelope_cards(
     markers are moved to those positions. Fail-open throughout: no registry
     bound (a CLI run) means the answer ships without cards, as it always did.
     """
-    from aiq_agent.cards.envelope import REFUSED_SHAPE
     from aiq_agent.cards.envelope import envelope_card_objects
-    from aiq_agent.cards.envelope import validate_model_card
     from aiq_agent.cards.registry import get_card_registry
-    from aiq_agent.common.turn_status import CARD_INVALID_DROPPED
-    from aiq_agent.common.turn_status import CARD_INVALID_REPAIRED
-    from aiq_agent.common.turn_status import emit_card_invalid
 
     raw = envelope_card_objects(meta.cards if meta is not None else None)
     if not raw:
@@ -344,25 +347,45 @@ async def _register_envelope_cards(
         logger.info("answer envelope carried %d card(s) with no card registry bound; dropped", len(raw))
         return content
     handed = _handed_markers(messages)
+    # Repairs run side by side: each is bounded by the card model's timeout,
+    # and in series three malformed cards would hold a final answer for three
+    # of them. Registration stays in array order.
+    checked = await asyncio.gather(
+        *(_checked_envelope_card(payload, index, content, card_repair) for index, payload in enumerate(raw))
+    )
     positions: dict[int, int] = {}
-    for index, payload in enumerate(raw):
-        validated, refusal = validate_model_card(payload)
-        card_type = refusal.card_type if refusal is not None else str(validated["type"])
-        # Only a SHAPE miss is repairable: a system or envelope type is refused
-        # whatever its fields, and a non-object has no fields to fix.
-        if validated is None and refusal is not None and refusal.kind == REFUSED_SHAPE and card_repair is not None:
-            repaired = await card_repair(payload, refusal.for_repair(), content)
-            if repaired is not None:
-                validated, _ = validate_model_card(repaired)
-            if validated is not None:
-                emit_card_invalid(card_type=card_type, index=index, outcome=CARD_INVALID_REPAIRED)
+    for index, validated in enumerate(checked):
         if validated is None:
-            emit_card_invalid(card_type=card_type, index=index, outcome=CARD_INVALID_DROPPED)
             continue
         registry.add(validated)
         positions[index + 1] = len(registry)
         logger.info("answer envelope registered a '%s' card as card %d", validated["type"], len(registry))
     return _renumber_envelope_markers(content, handed=handed, positions=positions, count=len(raw))
+
+
+async def _checked_envelope_card(
+    payload: Any, index: int, content: str, card_repair: CardRepairFn | None
+) -> dict[str, Any] | None:
+    """One envelope card validated, repaired once on a shape miss, or ``None`` (recorded)."""
+    from aiq_agent.cards.envelope import REFUSED_SHAPE
+    from aiq_agent.cards.envelope import validate_model_card
+    from aiq_agent.common.turn_status import CARD_INVALID_DROPPED
+    from aiq_agent.common.turn_status import CARD_INVALID_REPAIRED
+    from aiq_agent.common.turn_status import emit_card_invalid
+
+    validated, refusal = validate_model_card(payload)
+    card_type = refusal.card_type if refusal is not None else str(validated["type"])
+    # Only a SHAPE miss is repairable: a system or envelope type is refused
+    # whatever its fields, and a non-object has no fields to fix.
+    if validated is None and refusal is not None and refusal.kind == REFUSED_SHAPE and card_repair is not None:
+        repaired = await card_repair(payload, refusal.for_repair(), content)
+        if repaired is not None:
+            validated, _ = validate_model_card(repaired)
+        if validated is not None:
+            emit_card_invalid(card_type=card_type, index=index, outcome=CARD_INVALID_REPAIRED)
+    if validated is None:
+        emit_card_invalid(card_type=card_type, index=index, outcome=CARD_INVALID_DROPPED)
+    return validated
 
 
 def this_turn(messages: Sequence[Any]) -> list[Any]:
@@ -816,7 +839,7 @@ async def finalize_answer(
     sources = registry.all_sources()
     if sources:
         emit_citation_check(source_count=len(sources))
-        history = [m for m in messages[:index] if not isinstance(m, ToolMessage)]
+        history = prose_history(messages[:index])
         verified = await _verify_with_repair(extracted.content, registry, repair, history)
         grounding = _ground(verified, registry, lookup_attempted=lookup_attempted)
     else:

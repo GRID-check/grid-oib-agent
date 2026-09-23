@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import uuid
 from collections.abc import Iterable
 from collections.abc import Mapping
 from collections.abc import Sequence
@@ -1426,8 +1427,11 @@ class PilotiAgent:
         if not binding.prefetch:
             return {}
         bound = {tool.name for tool in binding.tools}
+        # Unique per turn, not per index: the last turn's transcript stays in the
+        # history with its calls, and a provider refuses two calls under one id.
+        turn_key = uuid.uuid4().hex[:8]
         calls = [
-            {"name": str(call["name"]), "args": dict(call.get("args") or {}), "id": f"prefetch-{index}"}
+            {"name": str(call["name"]), "args": dict(call.get("args") or {}), "id": f"prefetch-{turn_key}-{index}"}
             for index, call in enumerate(binding.prefetch, 1)
             if isinstance(call, dict) and call.get("name") in bound
         ]

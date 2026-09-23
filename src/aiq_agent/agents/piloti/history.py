@@ -9,6 +9,7 @@ import json
 import logging
 import re
 from collections.abc import Callable
+from collections.abc import Sequence
 from functools import lru_cache
 from typing import Any
 
@@ -117,12 +118,51 @@ def prune_tool_results(messages: list[BaseMessage], *, keep_turns: int = 1) -> l
         if isinstance(message, ToolMessage):
             continue
         if getattr(message, "tool_calls", None):
-            text = _message_text(message).strip()
-            if not text:
+            prose = _prose_only(message)
+            if prose is None:
                 continue
-            message = message.model_copy(update={"tool_calls": []})
+            message = prose
         pruned.append(message)
     return pruned
+
+
+def prose_history(messages: Sequence[BaseMessage]) -> list[BaseMessage]:
+    """The messages with every tool call and tool result gone: what was said.
+
+    For a request that must not carry the turn's calls at all, such as the
+    repair rewrite, which gets the thread without the tool results.
+    """
+    kept: list[BaseMessage] = []
+    for message in messages:
+        if isinstance(message, ToolMessage):
+            continue
+        if isinstance(message, AIMessage) and getattr(message, "tool_calls", None):
+            prose = _prose_only(message)
+            if prose is None:
+                continue
+            message = prose
+        kept.append(message)
+    return kept
+
+
+def _prose_only(message: AIMessage) -> AIMessage | None:
+    """The message's prose with its tool calls gone, or ``None`` when it had none.
+
+    On the Responses API the calls ALSO live in ``content``, as
+    ``function_call`` blocks beside the text blocks, and langchain-openai sends
+    those blocks whatever ``tool_calls`` says. Clearing ``tool_calls`` alone
+    would leave a call with no result, which the provider refuses with a 400.
+    """
+    content = message.content
+    if isinstance(content, str):
+        kept: str | list = content
+        text = content
+    else:
+        kept = [block for block in content if isinstance(block, str) or block.get("type") == "text"]
+        text = "".join(block if isinstance(block, str) else str(block.get("text") or "") for block in kept)
+    if not text.strip():
+        return None
+    return message.model_copy(update={"content": kept, "tool_calls": [], "invalid_tool_calls": []})
 
 
 #: The block delimiter ``grounding_block.render_grounding_block`` writes.
