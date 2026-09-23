@@ -856,7 +856,7 @@ def _openrouter_over_httpx(*, base_tokens: int | None, ballast_tokens: int | Non
         return httpx.Response(200, json={"object": "response", "status": "completed", "tools": [namespace], **usage})
 
     client = openai.AsyncOpenAI(
-        api_key="test",
+        api_key="test",  # pragma: allowlist secret
         base_url="https://openrouter.ai/api/v1",
         http_client=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
     )

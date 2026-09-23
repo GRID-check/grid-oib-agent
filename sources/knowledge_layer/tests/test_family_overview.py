@@ -497,7 +497,8 @@ class TestOneRoundNotFive:
 def _ranked_many() -> list[Chunk]:
     """What a real family query ranks around the overview: many passages, mostly guidance."""
     return [
-        _punkt_chunk(MEMBERS["2"], f"3.{i}", 2, f"Abschnitt {i}", 10 + i, content=f"Passage {i} …") for i in range(1, 11)
+        _punkt_chunk(MEMBERS["2"], f"3.{i}", 2, f"Abschnitt {i}", 10 + i, content=f"Passage {i} …")
+        for i in range(1, 11)
     ]
 
 

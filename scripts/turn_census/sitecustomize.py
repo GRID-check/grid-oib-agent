@@ -5,7 +5,12 @@ imports ``sitecustomize`` at start-up), so the agent runs unmodified. It
 wraps ``httpx``'s ``send`` for the model hosts only and appends one JSON line
 per call to ``$REC_OUT``. Never loaded by the application itself.
 """
-import json, os, time, itertools
+
+import itertools
+import json
+import os
+import time
+
 import httpx
 
 _OUT = os.environ["REC_OUT"]

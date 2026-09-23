@@ -78,7 +78,11 @@ def run_once(question: str, out: Path, conversation_id: str) -> Path:
     log = out / f"{conversation_id}.log"
     record.unlink(missing_ok=True)
     env = {**os.environ, "REC_OUT": str(record), "PYTHONPATH": str(HERE)}
-    nat = [sys.executable, "-m", "nat.cli.main"] if not (ROOT / ".venv/bin/nat").exists() else [str(ROOT / ".venv/bin/nat")]
+    nat = (
+        [sys.executable, "-m", "nat.cli.main"]
+        if not (ROOT / ".venv/bin/nat").exists()
+        else [str(ROOT / ".venv/bin/nat")]
+    )
     cmd = [*nat, "run", "--config_file", str(CONFIG), "--input", question, "--conversation_id", conversation_id]
     with log.open("w") as sink:
         proc = subprocess.Popen(cmd, cwd=ROOT, env=env, stdout=sink, stderr=subprocess.STDOUT)
