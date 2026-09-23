@@ -1,20 +1,16 @@
-/** onboarding namespace — populated during component i18n. */
+/** onboarding namespace — the organization setup screen and the product tour. */
 export const onboarding = {
   validation: {
     nameRequired: 'Organization name is required.',
     nameTooLong: 'Organization name must be at most 100 characters.',
   },
-  steps: {
-    createOrg: 'Create your organization',
-    makeAdmin: 'Make you the workspace admin',
-    openProject: 'Open Piloti and your first project',
-  },
   inviteOnly: {
+    eyebrow: 'Invitation required',
     title: 'This platform is invite-only',
     description:
-      'New organizations are created by the platform team. Ask your organization\u2019s admin for an invitation \u2014 once invited, you\u2019ll land directly in their workspace.',
+      'New organizations are created by the platform team. Ask your organization’s admin for an invitation — once invited, you’ll land directly in their workspace.',
     wrongAccount:
-      'Signed in with the wrong account? Sign out below and sign in with the one that received the invitation.',
+      'Signed in with the wrong account? Sign out and sign in with the one that received the invitation.',
   },
   account: {
     signedInAs: 'Signed in as {email}',
@@ -26,31 +22,62 @@ export const onboarding = {
     generic: 'Something went wrong.',
     title: 'Organization setup failed',
   },
-  intro: {
-    eyebrow: 'first workspace',
-    title: 'Set your organization before Piloti handles project data.',
+  form: {
+    eyebrow: 'New organization',
+    title: 'Name your organization',
     description:
-      'Your organization is the private boundary for your building projects — documents, members, and OIB/RIS research all live inside it. You become its admin.',
+      'Your organization is the private space for your office’s building projects, documents and colleagues. You’ll be its admin.',
+    nameLabel: 'Organization name',
+    namePlaceholder: 'Musterarchitektur ZT GmbH',
+    nameHint: 'Usually your office or practice name.',
+    submit: 'Create organization',
     invitedHint:
-      'Expecting to join an existing organization? Ask its admin for an invitation instead — invited members never see this step.',
+      'Expecting to join an existing organization? Ask its admin for an invitation instead — invited members skip this step.',
   },
-  features: {
-    privateTenant: 'Private environment',
-    adminAccess: 'Admin access',
-    projectsReady: 'Projects ready',
+  next: {
+    heading: 'What happens next',
+    private: 'Documents, chats and research stay inside your organization.',
+    admin: 'As admin, you invite colleagues and decide what they can do.',
+    tour: 'A one-minute tour shows you around.',
   },
   success: {
-    eyebrow: 'workspace ready',
-    title: 'You’re all set',
-    description: 'Your organization is created and you’re the admin.',
-    redirecting: 'Taking you to your projects…',
+    title: 'Organization created',
+    description: '{name} is ready, and you’re its admin.',
+    redirecting: 'Opening your workspace…',
   },
-  form: {
-    eyebrow: 'organization setup',
-    title: 'Name your organization',
-    description: 'Use your office, practice, or client organization name.',
-    nameLabel: 'Organization name',
-    namePlaceholder: 'Piloti Bauphysik Vienna',
-    submit: 'Create organization',
+  tour: {
+    progress: '{current} of {total}',
+    next: 'Next',
+    back: 'Back',
+    done: 'Get started',
+    close: 'Close tour',
+    stops: {
+      welcome: {
+        title: 'Welcome to Piloti',
+        body: 'Your organization is ready. Here is a quick look at where things live — it takes about a minute.',
+      },
+      createProject: {
+        title: 'Start with a project',
+        body: 'A project holds one building: its plans and documents, the people working on it, and a chat that answers from OIB guidelines and Austrian building law, with every source cited.',
+      },
+      archiv: {
+        title: 'Archiv',
+        body: 'Your office’s shared knowledge — reference documents and proven details, available in every project.',
+      },
+      inbox: {
+        title: 'Inbox',
+        body: 'Mentions, requests and updates from your colleagues arrive here.',
+      },
+      account: {
+        title: 'Your organization',
+        body: 'Invite colleagues and manage roles under Organization. Theme, language and this tour live here too.',
+      },
+      shortcuts: {
+        title: 'Move faster',
+        body: 'Two keys get you almost anywhere.',
+        palette: 'Jump to anything',
+        cheatsheet: 'All shortcuts',
+      },
+    },
   },
 }

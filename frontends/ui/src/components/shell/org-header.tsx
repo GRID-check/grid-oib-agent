@@ -9,6 +9,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { useInboxBadge } from '@/features/collaboration/hooks/use-inbox'
 import { InboxBadge } from '@/features/collaboration/components'
 import { useTranslations } from '@/i18n'
+import { TOUR_ANCHORS, type TourAnchor } from '@/features/onboarding/lib/product-tour'
 import { cn } from '@/lib/utils'
 import { SidebarUserMenu, type SidebarUser } from './sidebar-user-menu'
 
@@ -72,6 +73,7 @@ export function OrgHeader({
             href="/app/archiv"
             label={t('sections.archiv')}
             icon={Archive}
+            tourAnchor={TOUR_ANCHORS.archiv}
             active={pathname === '/app/archiv' || pathname.startsWith('/app/archiv/')}
           />
         )}
@@ -80,6 +82,7 @@ export function OrgHeader({
             href="/app/inbox"
             label={tCollaboration('inbox.navLabel')}
             icon={Inbox}
+            tourAnchor={TOUR_ANCHORS.inbox}
             active={pathname === '/app/inbox' || pathname.startsWith('/app/inbox/')}
             badgeCount={inboxPending}
           />
@@ -96,6 +99,7 @@ export function OrgHeader({
           canManageOrganization={canManageOrganization}
           canViewOrganization={canViewOrganization}
           canManagePlatform={canManagePlatform}
+          tourAnchor={TOUR_ANCHORS.account}
         />
       </div>
     </header>
@@ -108,12 +112,15 @@ function OrgHeaderIconLink({
   icon: Icon,
   active,
   badgeCount = 0,
+  tourAnchor,
 }: {
   href: string
   label: string
   icon: React.ComponentType<{ className?: string }>
   active: boolean
   badgeCount?: number
+  /** Marks the link as a product-tour stop. */
+  tourAnchor?: TourAnchor
 }): JSX.Element {
   return (
     <Tooltip>
@@ -122,6 +129,7 @@ function OrgHeaderIconLink({
           href={href}
           aria-label={label}
           aria-current={active ? 'page' : undefined}
+          data-tour={tourAnchor}
           className={cn(
             'focus-visible:ring-ring/60 relative flex size-9 items-center justify-center rounded-lg transition-colors duration-quick ease-out focus-visible:outline-none focus-visible:ring-2 motion-reduce:transition-none',
             active

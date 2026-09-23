@@ -35,6 +35,7 @@
 import * as React from 'react'
 import { usePathname } from 'next/navigation'
 
+import { ProductTour } from '@/features/onboarding/components/product-tour'
 import { cn } from '@/lib/utils'
 import { AppSidebar } from './app-sidebar'
 import { OrgHeader } from './org-header'
@@ -83,6 +84,7 @@ export function AppShellChrome({
   const inProject = projectId !== null
 
   return (
+    <ProductTour>
     <div
       className={cn(
         'bg-background text-foreground flex h-dvh overflow-hidden',
@@ -119,5 +121,6 @@ export function AppShellChrome({
       {children}
       {overlay}
     </div>
+    </ProductTour>
   )
 }
