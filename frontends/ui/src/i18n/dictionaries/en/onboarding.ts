@@ -56,6 +56,14 @@ export const onboarding = {
         title: 'Welcome to Piloti',
         body: 'Your organization is ready. Here is a quick look at where things live — it takes about a minute.',
       },
+      welcomeJoined: {
+        title: 'Welcome to Piloti',
+        body: 'This is where your team works on its building projects. Here is a quick look at where things live — it takes about a minute.',
+      },
+      createProjectJoined: {
+        title: 'Your projects',
+        body: 'Projects appear here as colleagues add you to them. You can also start one yourself: a project holds one building, its documents, the people on it, and a chat that answers from OIB guidelines and Austrian building law.',
+      },
       createProject: {
         title: 'Start with a project',
         body: 'A project holds one building: its plans and documents, the people working on it, and a chat that answers from OIB guidelines and Austrian building law, with every source cited. A short setup asks about the building, then we show you around inside.',
@@ -72,6 +80,10 @@ export const onboarding = {
         title: 'Your organization',
         body: 'Invite colleagues and manage roles under Organization. Theme, language and this tour live here too.',
       },
+      accountMember: {
+        title: 'Your account',
+        body: 'Your profile, theme and language, and this tour whenever you want it again. Members and roles are managed by your organization’s admins.',
+      },
       shortcuts: {
         title: 'Move faster',
         body: 'Two keys get you almost anywhere.',
@@ -81,6 +93,10 @@ export const onboarding = {
       projectWelcome: {
         title: 'Your project is set up',
         body: 'Piloti now knows the basics of this building. Here is where the work happens.',
+      },
+      projectWelcomeJoined: {
+        title: 'Inside a project',
+        body: 'Every building gets a space like this one. Here is where the work happens.',
       },
       projectChat: {
         title: 'Ask Piloti',

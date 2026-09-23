@@ -62,6 +62,7 @@ export default async function AppShellLayout({
       canAccessInbox={chrome.navFlags.canAccessInbox}
       showSkills={chrome.showSkills}
       showModels={chrome.showModels}
+      tours={chrome.tours}
       overlay={overlay}
     >
       {/* `relative` is load-bearing for the docked chat panels: they position

@@ -1,22 +1,28 @@
 import { describe, expect, it } from 'vitest'
 import {
   ARRIVAL_ANCHOR,
+  NO_TOURS,
   TOURS,
+  TOUR_SEEN_KEYS,
   TOUR_START_URL,
   cardSide,
+  isSetupPage,
   placeStops,
   projectTourUrl,
   requestedTour,
   sectionAnchor,
   tourAnchorSelector,
+  tourEligibility,
   tourForPath,
+  withoutTourRequest,
   type AnchorBox,
-  type TourFlags,
+  type TourReader,
 } from './product-tour'
 
 const DESKTOP = { width: 1280, height: 820 }
 const PHONE = { width: 390, height: 844 }
-const ALL_ON: TourFlags = { canAccessArchiv: true, canAccessInbox: true }
+/** The creator, handed over: every feature on, organization admin. */
+const ALL_ON: TourReader = { canAccessArchiv: true, canAccessInbox: true, canManageOrganization: true, handover: true }
 const BOX: AnchorBox = { left: 900, right: 1000, top: 20, bottom: 56 }
 const everywhere = (): AnchorBox => BOX
 const nowhere = (): AnchorBox | null => null
@@ -36,8 +42,8 @@ describe('welcome tour', () => {
   })
 
   it('drops the Archiv and the Postfach for an organization without them', () => {
-    const flags = { canAccessArchiv: false, canAccessInbox: false }
-    expect(ids(placeStops(TOURS.welcome, flags, everywhere, DESKTOP))).toEqual([
+    const reader = { ...ALL_ON, canAccessArchiv: false, canAccessInbox: false }
+    expect(ids(placeStops(TOURS.welcome, reader, everywhere, DESKTOP))).toEqual([
       'welcome',
       'createProject',
       'account',
@@ -122,5 +128,68 @@ describe('where tours run and how they are asked for', () => {
 
   it('builds anchor selectors the DOM can match', () => {
     expect(tourAnchorSelector('section-files')).toBe('[data-tour="section-files"]')
+  })
+})
+
+describe('the joiner', () => {
+  const joiner: TourReader = { ...ALL_ON, handover: false }
+
+  it('is told projects arrive as colleagues add them — their page may still be empty', () => {
+    expect(ids(placeStops(TOURS.welcome, joiner, everywhere, DESKTOP))).toContain('createProjectJoined')
+  })
+
+  it('is welcomed to the organization, not told it is ready', () => {
+    expect(ids(placeStops(TOURS.welcome, joiner, everywhere, DESKTOP))[0]).toBe('welcomeJoined')
+    expect(ids(placeStops(TOURS.welcome, ALL_ON, everywhere, DESKTOP))[0]).toBe('welcome')
+  })
+
+  it('is welcomed to the project, not told they set it up', () => {
+    expect(ids(placeStops(TOURS.project, joiner, everywhere, DESKTOP))[0]).toBe('projectWelcomeJoined')
+    expect(ids(placeStops(TOURS.project, ALL_ON, everywhere, DESKTOP))[0]).toBe('projectWelcome')
+  })
+
+  it('is not promised organization management they do not hold', () => {
+    const member = { ...joiner, canManageOrganization: false }
+    expect(ids(placeStops(TOURS.welcome, member, everywhere, DESKTOP))).toContain('accountMember')
+    expect(ids(placeStops(TOURS.welcome, joiner, everywhere, DESKTOP))).toContain('account')
+  })
+
+  it('keeps the spotlight on a variant stop — only the words change', () => {
+    const member = { ...joiner, canManageOrganization: false }
+    const account = placeStops(TOURS.welcome, member, everywhere, DESKTOP).find((stop) => stop.id === 'accountMember')
+    expect(account?.anchor).toBe('account-menu')
+    expect(account?.side).toBeDefined()
+  })
+})
+
+describe('tourEligibility — which tours start by themselves', () => {
+  it('starts both for someone new here who has seen neither', () => {
+    expect(tourEligibility({}, false)).toEqual({ welcome: true, project: true })
+  })
+
+  it('starts only the one not yet seen', () => {
+    const prefs = { [TOUR_SEEN_KEYS.welcome]: '2026-09-23T10:00:00.000Z' }
+    expect(tourEligibility(prefs, false)).toEqual({ welcome: false, project: true })
+  })
+
+  it('starts nothing for someone who has already written here — every member before this shipped', () => {
+    expect(tourEligibility({}, true)).toEqual(NO_TOURS)
+  })
+})
+
+describe('isSetupPage', () => {
+  it('marks the intake wizard, which no tour interrupts — its first save hands over by itself', () => {
+    expect(isSetupPage('/app/projects/p1/intake')).toBe(true)
+    expect(isSetupPage('/app/projects/p1/chat')).toBe(false)
+    expect(isSetupPage('/app/projects')).toBe(false)
+  })
+})
+
+describe('withoutTourRequest', () => {
+  it('takes the tour request out and keeps everything else', () => {
+    expect(withoutTourRequest('/app/projects', '?tour=welcome')).toBe('/app/projects')
+    expect(withoutTourRequest('/dev/product-tour', '?variant=project&tour=project')).toBe(
+      '/dev/product-tour?variant=project',
+    )
   })
 })

@@ -13,11 +13,19 @@
  * this file owns is the product half: copy, when a tour starts, and what it
  * reports.
  *
- * WHEN IT RUNS. Only when asked: onboarding lands on `?tour=welcome`, the
- * intake wizard's first save on `?tour=project`, and the account menu starts
- * whichever tour belongs to the page it is opened on
- * ({@link useStartProductTour}). There is no "seen it" flag to go stale — a
- * tour nobody asked for is the one people learn to dismiss unread.
+ * WHEN IT RUNS. Three ways in, one start:
+ *
+ * - HAND-OVER: onboarding lands on `?tour=welcome`, the intake wizard's first
+ *   save on `?tour=project` — the creator's road.
+ * - FIRST VISIT: the server marks a tour `eligible` for someone new here who
+ *   has not seen it — the joiner's road, since an invitation or a project role
+ *   assignment passes through no URL of ours. Never on the intake wizard
+ *   ({@link isSetupPage}).
+ * - REPLAY: the account menu starts whichever tour belongs to the page it is
+ *   opened on ({@link useStartProductTour}).
+ *
+ * Every start records the tour as seen in the reader's preferences, so a tour
+ * starts by itself at most once per person.
  *
  * LAYOUT. NextStep wraps its children in two block `div`s. The shell is
  * `h-dvh` with its own scroll container, so wrapping it whole is harmless; the
@@ -36,16 +44,22 @@ import { ShortcutKeys } from '@/components/shell/shortcut-keys'
 import { MOD } from '@/components/shell/shortcuts'
 import { useTranslations } from '@/i18n'
 import { capturePosthog } from '@/lib/analytics/posthog'
+import { patchUserPreferences } from '@/lib/user-preferences/client'
 import {
   ARRIVAL_ANCHOR,
+  NO_TOURS,
   TOURS,
+  TOUR_SEEN_KEYS,
   TOUR_START_URL,
+  isSetupPage,
   placeStops,
   requestedTour,
   tourAnchorSelector,
   tourForPath,
+  withoutTourRequest,
   type AnchorBox,
   type PlacedTourStop,
+  type TourEligibility,
   type TourFlags,
   type TourId,
 } from '../lib/product-tour'
@@ -60,6 +74,8 @@ const StartTourContext = React.createContext<(() => void) | null>(null)
 
 export interface ProductTourProps extends TourFlags {
   children: React.ReactNode
+  /** Which tours start by themselves for this reader (server-decided). */
+  eligible?: TourEligibility
   /**
    * Which tour belongs on a pathname. The product derives it from the route
    * (`tourForPath`); the `/dev/product-tour` preview pins one so the real tour
@@ -92,6 +108,8 @@ function ProductTourRunner({
   children,
   canAccessArchiv,
   canAccessInbox,
+  canManageOrganization,
+  eligible = NO_TOURS,
   tourAt = tourForPath,
 }: ProductTourProps): JSX.Element {
   const pathname = usePathname() ?? ''
@@ -100,46 +118,49 @@ function ProductTourRunner({
   const { startNextStep } = useNextStep()
   const t = useTranslations('onboarding.tour')
   const [active, setActive] = React.useState<{ tour: TourId; stops: PlacedTourStop[] } | null>(null)
+  // Tours started in this tab. `eligible` came from the server when the frame
+  // was first rendered, and the frame does not re-render on navigation, so it
+  // goes stale the moment a tour starts; this is what keeps a first-visit
+  // tour from starting again on the next page of the same scope.
+  const startedRef = React.useRef(new Set<TourId>())
   const here = tourAt(pathname)
 
   // Both state updates land in one render, so NextStep sees the new steps on
   // the same pass that opens the tour.
   const startHere = React.useCallback(
-    (tour: TourId) => {
-      const stops = placeStops(TOURS[tour], { canAccessArchiv, canAccessInbox }, locateAnchor, {
+    (tour: TourId, handover: boolean) => {
+      const reader = { canAccessArchiv, canAccessInbox, canManageOrganization, handover }
+      const stops = placeStops(TOURS[tour], reader, locateAnchor, {
         width: window.innerWidth,
         height: window.innerHeight,
       })
       setActive({ tour, stops })
       startNextStep(tour)
+      if (!startedRef.current.has(tour)) {
+        startedRef.current.add(tour)
+        void patchUserPreferences({ [TOUR_SEEN_KEYS[tour]]: new Date().toISOString() })
+      }
     },
-    [canAccessArchiv, canAccessInbox, startNextStep],
+    [canAccessArchiv, canAccessInbox, canManageOrganization, startNextStep],
   )
 
   const start = React.useCallback(() => {
-    if (here) startHere(here)
+    if (here) startHere(here, false)
     else router.push(TOUR_START_URL)
   }, [here, router, startHere])
 
-  // Arrival via `?tour=`: drop the parameter so a reload does not replay the
-  // tour, then wait for the page to render what the tour points at first.
+  // Hand-over via `?tour=`, or a first visit the server marked eligible. Drop
+  // the parameter so a reload does not replay the tour, then wait for the page
+  // to render what the tour points at first.
+  const autoStart = here !== null && eligible[here] && !isSetupPage(pathname)
   React.useEffect(() => {
-    const tour = requestedTour(window.location.search)
-    if (!tour || tour !== here) return
-    router.replace(pathname, { scroll: false })
-    const anchor = ARRIVAL_ANCHOR[tour]
-    const startedAt = Date.now()
-    const timer = window.setInterval(() => {
-      const elapsed = Date.now() - startedAt
-      const ready = anchor
-        ? locateAnchor(tourAnchorSelector(anchor)) !== null
-        : elapsed >= ARRIVAL_SETTLE_MS
-      if (!ready && elapsed < ARRIVAL_TIMEOUT_MS) return
-      window.clearInterval(timer)
-      startHere(tour)
-    }, ARRIVAL_POLL_MS)
-    return () => window.clearInterval(timer)
-  }, [here, pathname, router, startHere])
+    const requested = requestedTour(window.location.search)
+    const handover = requested !== null && requested === here
+    if (requested) router.replace(withoutTourRequest(pathname, window.location.search), { scroll: false })
+    const tour = handover ? requested : autoStart ? here : null
+    if (!tour || (!handover && startedRef.current.has(tour))) return
+    return waitForArrival(tour, () => startHere(tour, handover))
+  }, [autoStart, here, pathname, router, startHere])
 
   const tours = React.useMemo(
     () =>
@@ -190,6 +211,25 @@ function ProductTourRunner({
       </NextStep>
     </StartTourContext.Provider>
   )
+}
+
+/**
+ * Run `start` once the page has rendered what the tour points at first — or
+ * after a short settle for a tour whose anchors are already standing, or after
+ * a timeout, so a slow page delays the tour rather than losing it. Returns the
+ * cleanup for the effect that called it.
+ */
+function waitForArrival(tour: TourId, start: () => void): () => void {
+  const anchor = ARRIVAL_ANCHOR[tour]
+  const startedAt = Date.now()
+  const timer = window.setInterval(() => {
+    const elapsed = Date.now() - startedAt
+    const ready = anchor ? locateAnchor(tourAnchorSelector(anchor)) !== null : elapsed >= ARRIVAL_SETTLE_MS
+    if (!ready && elapsed < ARRIVAL_TIMEOUT_MS) return
+    window.clearInterval(timer)
+    start()
+  }, ARRIVAL_POLL_MS)
+  return () => window.clearInterval(timer)
 }
 
 /** An anchor's box, or null when it is absent or not laid out (a closed drawer). */

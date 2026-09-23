@@ -2,13 +2,30 @@
  * The product tours: their stops, where each one runs, and the rules for
  * which stops a reader gets.
  *
- * Two tours, one per scope, because a new customer meets the product in two
+ * Two tours, one per scope, because a new person meets the product in two
  * steps and each step has its own screen to explain:
  *
- * - `welcome` runs on the projects home right after the organization exists.
- * - `project` runs inside the first project once its setup (the intake wizard)
- *   is saved — the moment Files, Ask Piloti and the Archiv stop being names
- *   and start being places with something to do in them.
+ * - `welcome` runs on the projects home.
+ * - `project` runs inside a project — the moment Files, Ask Piloti and the
+ *   Archiv stop being names and start being places with something to do in them.
+ *
+ * Two kinds of new person reach them, by different roads:
+ *
+ * - The CREATOR is handed over: onboarding lands on `?tour=welcome`, the first
+ *   intake save on `?tour=project`. Those are events, so no record is needed.
+ * - The JOINER — invited into the organization, or added to a project someone
+ *   else set up — passes through neither. WorkOS accepts the invitation and the
+ *   sign-in callback lands on the projects home like any other sign-in, and a
+ *   project role assignment notifies nobody. There is no event to hang a tour
+ *   on, so the server decides instead (`lib/onboarding/tour-eligibility.ts`):
+ *   a tour starts by itself for someone who has never written in this
+ *   organization and has not seen it, and seeing it is recorded in their user
+ *   preferences ({@link TOUR_SEEN_KEYS}).
+ *
+ * The creator and the joiner get the same stops with different first words:
+ * "your organization is ready" is true for one of them only
+ * ({@link TourStop.arrivalId}), and so is "invite colleagues and manage roles"
+ * ({@link TourStop.memberId}).
  *
  * Pure data and pure functions: which element a stop points at is named here
  * as a `data-tour` anchor, and the component that owns the element carries the
@@ -69,10 +86,21 @@ export type TourPlacement = 'below' | 'beside'
 
 export type TourSide = 'bottom-left' | 'bottom-right' | 'right'
 
-/** The feature flags that decide whether a stop's place exists at all. */
+/** What the reader can reach and do — decides which stops exist and their copy. */
 export interface TourFlags {
   canAccessArchiv: boolean
   canAccessInbox: boolean
+  canManageOrganization: boolean
+}
+
+/** Who is being toured, and how they got here. */
+export interface TourReader extends TourFlags {
+  /**
+   * Started by its hand-over (`?tour=`): the reader just created the
+   * organization, or just set up this project. Otherwise they arrived — a
+   * joiner, or someone replaying the tour from the account menu.
+   */
+  handover: boolean
 }
 
 export interface TourStop {
@@ -82,7 +110,11 @@ export interface TourStop {
   anchor?: TourAnchor
   placement?: TourPlacement
   /** The flag the stop's place is behind; dropped when it is off. */
-  gate?: keyof TourFlags
+  gate?: 'canAccessArchiv' | 'canAccessInbox'
+  /** Copy for a reader who arrived rather than being handed over. */
+  arrivalId?: string
+  /** Copy for a reader who cannot manage the organization. */
+  memberId?: string
 }
 
 /** A stop placed against the page as it is rendered right now. */
@@ -96,11 +128,11 @@ export interface PlacedTourStop extends TourStop {
  * org-wide doorways, where the organization is managed, and how to move fast.
  */
 const WELCOME_STOPS: readonly TourStop[] = [
-  { id: 'welcome' },
-  { id: 'createProject', anchor: TOUR_ANCHORS.createProject, placement: 'below' },
+  { id: 'welcome', arrivalId: 'welcomeJoined' },
+  { id: 'createProject', anchor: TOUR_ANCHORS.createProject, placement: 'below', arrivalId: 'createProjectJoined' },
   { id: 'archiv', anchor: TOUR_ANCHORS.archiv, placement: 'below', gate: 'canAccessArchiv' },
   { id: 'inbox', anchor: TOUR_ANCHORS.inbox, placement: 'below', gate: 'canAccessInbox' },
-  { id: 'account', anchor: TOUR_ANCHORS.account, placement: 'below' },
+  { id: 'account', anchor: TOUR_ANCHORS.account, placement: 'below', memberId: 'accountMember' },
   { id: 'shortcuts' },
 ]
 
@@ -112,7 +144,7 @@ const WELCOME_STOPS: readonly TourStop[] = [
  * is managed.
  */
 const PROJECT_STOPS: readonly TourStop[] = [
-  { id: 'projectWelcome' },
+  { id: 'projectWelcome', arrivalId: 'projectWelcomeJoined' },
   { id: 'projectChat', anchor: TOUR_ANCHORS.sectionChat, placement: 'beside' },
   { id: 'projectFiles', anchor: TOUR_ANCHORS.sectionFiles, placement: 'beside' },
   { id: 'projectArchiv', anchor: TOUR_ANCHORS.sectionArchiv, placement: 'beside', gate: 'canAccessArchiv' },
@@ -146,6 +178,49 @@ export function tourForPath(pathname: string): TourId | null {
   if (pathname === TOUR_HOME) return 'welcome'
   if (/^\/app\/projects\/[^/]+(\/|$)/.test(pathname)) return 'project'
   return null
+}
+
+/**
+ * Whether this page is the intake wizard, where no tour starts by itself: a
+ * creator lands there straight from "New project", mid-task, and the tour of
+ * the project rail would bury the form they came to fill in. The wizard's own
+ * first save hands over to the tour when it is done.
+ */
+export function isSetupPage(pathname: string): boolean {
+  return /^\/app\/projects\/[^/]+\/intake(\/|$)/.test(pathname)
+}
+
+/**
+ * Where "seen this tour" is kept, in the reader's user preferences — an ISO
+ * timestamp, written when the tour starts. Starting rather than finishing: a
+ * tour closed by a reload halfway through was still seen, and greeting the
+ * reader again from the top is the worse failure. Per person rather than per
+ * browser, so a second device does not greet them again.
+ */
+export const TOUR_SEEN_KEYS = {
+  welcome: 'tourWelcomeSeenAt',
+  project: 'tourProjectSeenAt',
+} as const satisfies Record<TourId, string>
+
+/** Which tours may start by themselves for this reader. */
+export type TourEligibility = Record<TourId, boolean>
+
+export const NO_TOURS: TourEligibility = { welcome: false, project: false }
+
+/**
+ * The rule the server applies: a tour starts by itself for someone new here
+ * — nothing written in this organization yet — who has not already seen it.
+ *
+ * "New here" is the test, not "seen it", because the seen record did not
+ * exist before this shipped: every existing member lacks it, and without the
+ * first condition all of them would be welcomed to a product they use daily.
+ */
+export function tourEligibility(prefs: Record<string, unknown>, hasWritten: boolean): TourEligibility {
+  if (hasWritten) return NO_TOURS
+  return {
+    welcome: !prefs[TOUR_SEEN_KEYS.welcome],
+    project: !prefs[TOUR_SEEN_KEYS.project],
+  }
 }
 
 export function tourAnchorSelector(anchor: TourAnchor): string {
@@ -202,20 +277,42 @@ export function cardSide(box: AnchorBox, viewport: Viewport, placement: TourPlac
  * `locate` returns null for an anchor that is absent or has no box. The flags
  * decide existence, never the DOM, because the DOM cannot tell "off" from
  * "in a closed drawer".
+ *
+ * A placed stop's `id` is the copy to show: the arrival or member variant
+ * where one applies to this reader.
  */
 export function placeStops(
   stops: readonly TourStop[],
-  flags: TourFlags,
+  reader: TourReader,
   locate: (selector: string) => AnchorBox | null,
   viewport: Viewport,
 ): PlacedTourStop[] {
   return stops.flatMap((stop): PlacedTourStop[] => {
-    if (stop.gate && !flags[stop.gate]) return []
-    if (!stop.anchor) return [stop]
+    if (stop.gate && !reader[stop.gate]) return []
+    const id = copyFor(stop, reader)
+    if (!stop.anchor) return [{ id }]
     const box = locate(tourAnchorSelector(stop.anchor))
-    if (!box) return [{ id: stop.id }]
-    return [{ ...stop, side: cardSide(box, viewport, stop.placement ?? 'below') }]
+    if (!box) return [{ id }]
+    return [{ id, anchor: stop.anchor, side: cardSide(box, viewport, stop.placement ?? 'below') }]
   })
+}
+
+function copyFor(stop: TourStop, reader: TourReader): string {
+  if (stop.arrivalId && !reader.handover) return stop.arrivalId
+  if (stop.memberId && !reader.canManageOrganization) return stop.memberId
+  return stop.id
+}
+
+/**
+ * The URL with the tour request taken out and everything else kept — so a
+ * reload does not replay the tour, and no other parameter the page was given
+ * is lost on the way.
+ */
+export function withoutTourRequest(pathname: string, search: string): string {
+  const params = new URLSearchParams(search)
+  params.delete(TOUR_QUERY_PARAM)
+  const rest = params.toString()
+  return rest ? `${pathname}?${rest}` : pathname
 }
 
 /** The tour a URL's search string asks for, if any. */

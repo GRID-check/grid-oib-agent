@@ -42,6 +42,7 @@ import { OrgHeader } from './org-header'
 import { projectIdFromPathname } from './org-sections'
 import type { ProjectSwitcherProject } from './project-switcher'
 import type { SidebarUser } from './sidebar-user-menu'
+import type { TourEligibility } from '@/features/onboarding/lib/product-tour'
 
 const OVERLAY_ROUTES = ['/app/archiv', '/app/inbox'] as const
 
@@ -61,6 +62,8 @@ export interface AppShellChromeProps {
   canAccessInbox: boolean
   showSkills: boolean
   showModels: boolean
+  /** Which product tours start by themselves for this reader. */
+  tours: TourEligibility
   /** The `(shell)` layout's `<main>` (with the page inside). */
   children: React.ReactNode
   /** The `@overlay` parallel slot — the Archiv/Postfach sheet, or null. */
@@ -84,7 +87,12 @@ export function AppShellChrome({
   const inProject = projectId !== null
 
   return (
-    <ProductTour canAccessArchiv={chrome.canAccessArchiv} canAccessInbox={chrome.canAccessInbox}>
+    <ProductTour
+      canAccessArchiv={chrome.canAccessArchiv}
+      canAccessInbox={chrome.canAccessInbox}
+      canManageOrganization={chrome.canManageOrganization}
+      eligible={chrome.tours}
+    >
     <div
       className={cn(
         'bg-background text-foreground flex h-dvh overflow-hidden',

@@ -30,6 +30,7 @@ const baseProps = {
   canAccessInbox: true,
   showSkills: false,
   showModels: false,
+  tours: { welcome: false, project: false },
   overlay: null,
 }
 

@@ -58,6 +58,14 @@ export const onboarding: typeof en.onboarding = {
         title: 'Willkommen bei Piloti',
         body: 'Ihre Organisation ist bereit. Ein kurzer Rundgang zeigt, wo was liegt — er dauert etwa eine Minute.',
       },
+      welcomeJoined: {
+        title: 'Willkommen bei Piloti',
+        body: 'Hier arbeitet Ihr Team an seinen Bauprojekten. Ein kurzer Rundgang zeigt, wo was liegt — er dauert etwa eine Minute.',
+      },
+      createProjectJoined: {
+        title: 'Ihre Projekte',
+        body: 'Projekte erscheinen hier, sobald Kolleginnen und Kollegen Sie hinzufügen. Sie können auch selbst eines anlegen: Ein Projekt umfasst ein Gebäude, seine Unterlagen, die Beteiligten und einen Chat, der aus OIB-Richtlinien und österreichischem Baurecht antwortet.',
+      },
       createProject: {
         title: 'Alles beginnt mit einem Projekt',
         body: 'Ein Projekt umfasst ein Gebäude: Pläne und Dokumente, die Beteiligten und einen Chat, der aus OIB-Richtlinien und österreichischem Baurecht antwortet — jede Quelle belegt. Eine kurze Einrichtung fragt nach dem Gebäude, danach zeigen wir Ihnen das Projekt.',
@@ -74,6 +82,10 @@ export const onboarding: typeof en.onboarding = {
         title: 'Ihre Organisation',
         body: 'Unter „Organisation“ laden Sie Kolleginnen und Kollegen ein und verwalten Rollen. Design, Sprache und diese Tour finden Sie ebenfalls hier.',
       },
+      accountMember: {
+        title: 'Ihr Konto',
+        body: 'Ihr Profil, Design und Sprache, und diese Tour, wann immer Sie sie wieder brauchen. Mitglieder und Rollen verwalten die Administratoren Ihrer Organisation.',
+      },
       shortcuts: {
         title: 'Schneller ans Ziel',
         body: 'Zwei Tasten bringen Sie fast überallhin.',
@@ -83,6 +95,10 @@ export const onboarding: typeof en.onboarding = {
       projectWelcome: {
         title: 'Ihr Projekt ist eingerichtet',
         body: 'Piloti kennt jetzt die Eckdaten dieses Gebäudes. Hier findet die Arbeit statt.',
+      },
+      projectWelcomeJoined: {
+        title: 'In einem Projekt',
+        body: 'Jedes Gebäude bekommt einen Raum wie diesen. Hier findet die Arbeit statt.',
       },
       projectChat: {
         title: 'Frag Piloti',
