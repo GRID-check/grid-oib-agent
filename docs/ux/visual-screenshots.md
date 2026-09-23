@@ -145,7 +145,11 @@ Both skills carry their own instructions and fire on their own. Read them rather
 than this file for command detail; this page is the repo's policy, they are the
 tools' manuals.
 
-CI enforces this. A PR touching `components/`, `features/`, `app/` or a
+**Paused.** The check step in `.github/workflows/visual-evidence.yml` is
+commented out: the job runs and passes, and the capture is a reviewer's ask
+rather than a gate. Restoring the two commented lines re-enables what follows.
+
+When enforced, a PR touching `components/`, `features/`, `app/` or a
 stylesheet fails the **Visual evidence** workflow unless its body carries a
 non-empty `before-and-after` block. That workflow also wakes on a description
 edit, so adding the block clears the check without needing another commit —

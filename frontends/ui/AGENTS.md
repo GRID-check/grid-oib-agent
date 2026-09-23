@@ -41,7 +41,7 @@ installs and runs scripts here and is never the runtime: `--bun` exports
 | Add a card type | Classify it in `CARD_INTERACTIVITY` (`features/grid-cards/card-decision.ts`) | `task fe:types` |
 | Store a card's answer | On `ChatMessage.cardInteractions` via `useCardDecision` | A reload re-applies the patch; neither endpoint is idempotent |
 | Add user-facing copy | Add the key to every dictionary in `src/i18n/dictionaries` | `key-coverage.spec.ts` |
-| Ship a user-visible surface | A `/dev/<name>` preview route, and a capture of it attached to the PR (`agent-browser` + `before-and-after`). Commit no PNGs | The **Visual evidence** workflow. [`docs/ux/visual-screenshots.md`](../../docs/ux/visual-screenshots.md) |
+| Ship a user-visible surface | A `/dev/<name>` preview route, and a capture of it attached to the PR (`agent-browser` + `before-and-after`). Commit no PNGs | Review; the **Visual evidence** workflow is paused (its check is commented out). [`docs/ux/visual-screenshots.md`](../../docs/ux/visual-screenshots.md) |
 
 ## Rules that need more than a row
 
