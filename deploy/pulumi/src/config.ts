@@ -168,7 +168,7 @@ export interface GridConfig {
      * and to check that every managed host actually falls inside this zone.
      */
     zoneName: string;
-    /** Token with Zone:DNS:Edit (plus Zone:Dynamic URL Redirects:Edit when `apexRedirectTo` is set). */
+    /** Token with Zone:DNS:Edit, plus Zone:Dynamic URL Redirects:Edit on the baseline stack (it writes the apex or www redirect). */
     apiToken: pulumi.Output<string>;
     /** Address every host record points at — the Envoy LoadBalancer's external IP. */
     targetIp: string;
@@ -181,7 +181,8 @@ export interface GridConfig {
     ttl: number;
     /**
      * Whether THIS stack owns the zone-level records (`www`, `_dmarc`, and the
-     * apex redirect) rather than just its own hosts.
+     * apex or www redirect) rather than just its own hosts. Required on the
+     * stack that serves the apex.
      *
      * At most one stack may set it. Two stacks that both claim the zone do not
      * conflict in any way Cloudflare reports — the later `pulumi up` overwrites
@@ -2001,6 +2002,18 @@ export function loadConfig(): GridConfig {
           "Cloudflare sends it to the browser as a Location header verbatim.",
       );
     }
+    // The apex is a zone-level record, so the stack that serves it owns the
+    // baseline. Anything else splits the zone: this stack writes the apex while
+    // another writes www — and that other stack's www either still redirects
+    // away from the site (how piloti.at kept bouncing to dev after prod shipped)
+    // or points unproxied at a Gateway with no listener for it.
+    if (webDomain === dnsZoneName && !dnsZoneBaseline) {
+      throw new Error(
+        `grid-oib:dnsZoneBaseline must be true on the stack that serves the apex ` +
+          `("${webDomain}"). The apex, www and _dmarc have one owner, and the apex's server is it — ` +
+          "set it here and remove dnsZoneBaseline and dnsApexRedirectTo from the stack that held them.",
+      );
+    }
   }
 
   // ── err2issue (ADR-0031): same availability = flag AND capability rule ─────
@@ -2364,7 +2377,7 @@ export function loadConfig(): GridConfig {
     observability: {
       enabled: observabilityEnabled,
       otelDomain,
-      // Digest-pinned (supply chain): 13.4.2 and 0.160.0 respectively. Bump
+      // Digest-pinned (supply chain): 13.4.2 and 0.161.0 respectively. Bump
       // deliberately via config when upgrading — the pins are scanned by the
       // trivy job in .github/workflows/security.yml, which blocks on fixable
       // HIGH/CRITICAL, so a stale pin surfaces as a failing check.
@@ -2373,7 +2386,7 @@ export function loadConfig(): GridConfig {
         "mcr.microsoft.com/dotnet/aspire-dashboard@sha256:d71f709233fdd53092a9a562ca6fb74264aec7c16c9aff03da94091f18ea2394",
       collectorImage:
         cfg.get("collectorImage") ??
-        "otel/opentelemetry-collector-contrib@sha256:799dc6cf12c96192af37b5bdba804da8c10b3bc563b43cb90c3f3c58d9572ad6",
+        "otel/opentelemetry-collector-contrib@sha256:fd328de2552466ad78385e1b1289c3f2402b1c45f265b252aab1955b42845ac1",
       telemetryLimits: {
         maxLogCount: num(cfg, "dashboardMaxLogCount", 50000),
         maxTraceCount: num(cfg, "dashboardMaxTraceCount", 50000),
