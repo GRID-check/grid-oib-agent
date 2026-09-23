@@ -492,3 +492,52 @@ class TestOneRoundNotFive:
         out = await _search()
 
         assert _citations(out).count(f"{MEMBERS['2']}, p.2") == 1
+
+
+def _ranked_many() -> list[Chunk]:
+    """What a real family query ranks around the overview: many passages, mostly guidance."""
+    return [
+        _punkt_chunk(MEMBERS["2"], f"3.{i}", 2, f"Abschnitt {i}", 10 + i, content=f"Passage {i} …") for i in range(1, 11)
+    ]
+
+
+class TestTheOverviewIsNotBuriedInRankedHits:
+    async def test_only_a_few_ranked_passages_ride_beside_the_overview(self, corpus):
+        """The overview answers; sixteen ranked passages beside it were half the block."""
+        reg = importlib.import_module("knowledge_layer.register")
+        corpus(MEMBERS, ranked=_ranked_many())
+
+        out = await _search()
+
+        citations = _citations(out)
+        assert citations[:4] == [f"{MEMBERS[number]}, p.2" for number in ("2", "2.1", "2.2", "2.3")]
+        assert len(citations) == 4 + reg._FAMILY_RANKED_HITS
+
+    async def test_an_ordinary_search_keeps_its_full_budget(self, corpus):
+        corpus(MEMBERS, ranked=_ranked_many())
+
+        out = await _search(query=TOPIC_QUERY)
+
+        assert len(_citations(out)) == 8
+
+
+class TestAnOverviewQuestionIsNotJudged:
+    async def test_the_requery_judge_never_runs_on_a_family_query(self, corpus, monkeypatch):
+        """The judge counts a scope note as not answering; on an overview it said no by construction."""
+        corpus(MEMBERS)
+        calls: list = []
+
+        class _Judge:
+            async def ainvoke(self, *args, **kwargs):
+                calls.append(args)
+                return SimpleNamespace(content='{"sufficient": false, "queries": ["andere Frage"]}')
+
+        async def _resolve(_builder, _name):
+            return _Judge()
+
+        monkeypatch.setattr("aiq_agent.common.get_langchain_llm", _resolve)
+        async with knowledge_retrieval(_config(requery_llm="judge"), MagicMock()) as info:
+            out = await info.single_fn(info.input_schema(query=FAMILY_QUERY))
+
+        assert calls == []
+        assert "Umformulierungen" not in out

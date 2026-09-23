@@ -1677,6 +1677,14 @@ class _FamilyBranch:
 #: No family branch ran: an ordinary search, with nothing to say about one.
 _NO_FAMILY_BRANCH = _FamilyBranch()
 
+#: Ranked passages kept BESIDE a family overview. The overview already opens
+#: every part at its Geltungsbereich and lists its Gliederung; the ranked
+#: search around it is context, not the answer. Measured on „Was weißt du über
+#: die OIB 2?" (2026-09-23, live): with the full sixteen, the block was 25.5k
+#: characters (~7.4k tokens), half of it Leitfaden and Erläuterungen excerpts
+#: that an overview answer never cites, re-sent on every later call of the turn.
+_FAMILY_RANKED_HITS = 4
+
 
 async def _family_branch(entries, family_key: str) -> _FamilyBranch:
     """The family branch, fail-open: a broken overview keeps the ordinary search.
@@ -2195,6 +2203,15 @@ async def knowledge_retrieval(config: KnowledgeRetrievalConfig, _builder: Builde
                     from knowledge_layer.requery import requery_already_fired
                     from knowledge_layer.requery import should_skip_judge
 
+                    if family_key:
+                        # An overview question is answered by the overview. The
+                        # judge's own criterion counts a scope note and a
+                        # Gliederung as NOT answering, so on this shape it said
+                        # "insufficient" by construction and fanned out two more
+                        # retrievals into a block that already held every part.
+                        requery_skipped_reason = "family"
+                        logger.info("Retrieval loop judge skipped (family) for %r", query[:60])
+                        return None
                     if requery_already_fired():
                         requery_skipped_reason = "already_fired"
                         logger.info("Retrieval loop judge skipped (already_fired) for %r", query[:60])
@@ -2339,9 +2356,8 @@ async def knowledge_retrieval(config: KnowledgeRetrievalConfig, _builder: Builde
                 overview = None
             family_note = overview.preamble if overview is not None else ""
             if overview is not None:
-                merged = merged.model_copy(
-                    update={"chunks": [*overview.chunks, *_without_chunks(merged.chunks, overview.chunks)]}
-                )
+                ranked = _without_chunks(merged.chunks, overview.chunks)[:_FAMILY_RANKED_HITS]
+                merged = merged.model_copy(update={"chunks": [*overview.chunks, *ranked]})
 
             # The picking, as a first-class observation (ADR-0044): one
             # `retrieve.knowledge_search` span carrying query, collections,
