@@ -42,6 +42,9 @@ from aiq_agent.common.job_admission import JobAdmissionError
 from aiq_agent.common.plan_documents import PlanDocuments
 from aiq_agent.common.platform_lessons import render_lessons_block
 from aiq_agent.common.profiler import profiled_node
+from aiq_agent.common.research_plan import PlanStart
+from aiq_agent.common.research_plan import ResearchPlanDraft
+from aiq_agent.common.research_plan import render_plan_context
 from aiq_agent.common.tool_validation import format_user_facing_tool_error
 from aiq_agent.common.turn_status import emit_escalation
 from aiq_agent.knowledge.inventory import set_listing_shelf
@@ -62,22 +65,6 @@ from .models import ResearchAgentState
 
 logger = logging.getLogger(__name__)
 
-PLAN_CANCELLED_MESSAGE = (
-    "In Ordnung, ich habe die geplante Recherche verworfen. "
-    "Wenn Sie doch eine Antwort möchten, stellen Sie Ihre Frage einfach erneut – "
-    "ich beantworte sie dann direkt, ohne einen neuen Rechercheplan vorzuschlagen."
-)
-"""The receipt for an explicit plan cancellation.
-
-German because the product is German-first and this string reaches the user
-verbatim (there is no UI envelope to localize it, unlike the plan preview).
-It must say two things: that nothing is being researched — the turn really is
-over, by the user's own choice, not by a failure — and how to get an answer
-after all. The second half is literally true: the cancellation sets
-``deep_research_declined`` on the conversation, so re-asking the question
-routes straight to Piloti instead of producing plan number two.
-"""
-
 # Reader-facing text, and therefore left verbatim by the rename: it is what
 # `escalation_reason` carries onto the wire when the model asked to escalate
 # without saying why, so it is already stored in turns from before this commit.
@@ -91,8 +78,8 @@ DEEP_RESEARCH_UNAVAILABLE_NOTE = (
 )
 """Appended when Piloti asks to escalate and the tenant has no deep research.
 
-German for the same reason as :data:`PLAN_CANCELLED_MESSAGE`: it reaches the
-reader verbatim. It exists because the ask and the ANSWER are one message. A
+German because the product is German-first and it reaches the reader
+verbatim. It exists because the ask and the ANSWER are one message. A
 turn that asks to escalate writes either a partial answer (the insufficiency
 case) or a single sentence naming what it will research (the commissioned
 case), and suppressing the route silently would leave the second one as a
@@ -104,8 +91,9 @@ normal path.
 #: State fields that survive the turn boundary. Everything else is reset on
 #: every ``run()`` so nothing from a previous turn's checkpoint — a stale job
 #: id, a prior self-assessment, last turn's routing — can leak onto this one.
-#: ``deep_research_declined`` is STICKY for the conversation on purpose: the
-#: user said no to a research plan once and should not have to say it again.
+#: ``deep_research_declined`` is STICKY for the conversation on purpose: a
+#: conversation whose reader declined a plan (before ADR-0065 made the plan a
+#: row the reader stops from the run block) keeps that answer.
 CONVERSATION_SCOPED_FIELDS: frozenset[str] = frozenset({"messages", "deep_research_declined", "already_read_digest"})
 TURN_SCOPED_FIELDS: frozenset[str] = frozenset(ConversationState.model_fields) - CONVERSATION_SCOPED_FIELDS
 
@@ -296,8 +284,9 @@ def _deep_handoff(
     escalation_reason: str | None,
     clarifier_result: str | None = None,
     *,
-    data_sources: list[str] | None = None,
     plan_documents: PlanDocuments | None = None,
+    plan_draft: ResearchPlanDraft | None = None,
+    plan_start: PlanStart | None = None,
 ) -> Command:
     update: dict[str, Any] = {
         "original_query": original_query,
@@ -306,51 +295,33 @@ def _deep_handoff(
     }
     if clarifier_result is not None:
         update["clarifier_result"] = clarifier_result
-    # The Rahmen the reader approved the plan under replaces the turn's own
-    # sources: it IS the composer's Datengrundlage at the moment of approval.
-    if data_sources is not None:
-        update["data_sources"] = data_sources
     if plan_documents is not None:
         update["plan_documents"] = plan_documents
+    # The drafted plan (ADR-0065): the commissioner posts it as the plan the
+    # run waits on; the inline path renders it and runs at once.
+    if plan_draft is not None:
+        update["plan_draft"] = plan_draft
+        update["plan_start"] = plan_start
     return Command(goto="deep_research", update=update)
 
 
-def _plan_cancelled(original_query: str | None) -> Command:
-    """An explicit cancellation is the one refusal that may end the turn without
-    an answer: the user chose it over the shallow option sitting right next to
-    it. It still gets a receipt — a silent end reads as a crash — and declines
-    deep for the rest of the conversation, so re-asking yields the answer."""
-    logger.info("Conversation: Plan cancelled by user, ending the turn with a receipt")
-    return Command(
-        goto=END,
-        update={
-            "messages": [AIMessage(content=PLAN_CANCELLED_MESSAGE)],
-            "original_query": original_query,
-            "deep_research_declined": True,
-            # A receipt, not an answer: neither path was taken.
-            "routing_decision": "meta",
-            "escalation_reason": None,
-            "escalate_to_deep": False,
-        },
-    )
+def _inline_plan_context(state: ConversationState) -> str | None:
+    """What the deep researcher reads when it runs in process: the Q&A and the plan.
 
-
-def _plan_rejected(original_query: str | None) -> Command:
-    """A rejected plan is not a cancelled question. The question is right there
-    in the messages and Piloti can answer it; ending here told a user
-    who had just said "no" twice to retype the question the product was already
-    holding. Fall through to Piloti and remember the rejection for the
-    rest of the conversation so ``_should_escalate`` never offers plan two."""
-    logger.info("Conversation: Plan rejected by user, answering on the shallow path instead")
-    return Command(
-        goto="shallow_research",
-        update={
-            "original_query": original_query,
-            "deep_research_declined": True,
-            "escalation_reason": None,
-            "escalate_to_deep": False,
-        },
+    There is no worker to wait on a plan here, so the drafted plan runs as
+    drafted. A deployment without a worker has no run block to edit it on.
+    """
+    draft = state.plan_draft
+    if draft is None:
+        return state.clarifier_result
+    plan_text = render_plan_context(
+        title=draft.title or draft.question,
+        genre=draft.genre,
+        depth=draft.depth,
+        sections=list(draft.sections),
+        documents=state.plan_documents,
     )
+    return f"{state.clarifier_result}\n\n{plan_text}" if state.clarifier_result else plan_text
 
 
 class ConversationGraph:
@@ -418,16 +389,15 @@ class ConversationGraph:
                 project_context=state.project_context,
             )
         )
-        if result.outcome == "cancelled":
-            return _plan_cancelled(original_query)
-        if result.outcome == "shallow":
-            return _plan_rejected(original_query)
+        # No verdict to wait for: the plan, when there is one, is shown on the
+        # run block and the run waits on it there (ADR-0065).
         return _deep_handoff(
             original_query,
             escalation_reason,
             result.research_context,
-            data_sources=result.data_sources,
             plan_documents=result.documents,
+            plan_draft=result.draft,
+            plan_start=result.start,
         )
 
     def _research_input(self, state: ConversationState, trimmed: list[BaseMessage]) -> ResearchAgentState:
@@ -554,7 +524,7 @@ class ConversationGraph:
         deep_state = DeepResearchAgentState(
             messages=self._trimmed(state) + [HumanMessage(content=research_query)],
             data_sources=state.data_sources,
-            clarifier_result=state.clarifier_result,
+            clarifier_result=_inline_plan_context(state),
             plan_documents=state.plan_documents,
             available_documents=state.available_documents,
             user_info=state.user_info,

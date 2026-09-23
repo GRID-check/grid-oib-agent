@@ -124,6 +124,7 @@ Consequences, where a reader looks for them.
 | [0062](0062-a-run-is-a-message-in-the-thread-that-commissioned-it.md) | A run is one message in the thread that commissioned it, and its ledger is what the reader sees | Proposed |
 | [0063](0063-short-skill-bodies-ride-the-prompt.md) | A short skill body rides the prompt; the catalog line is for the long ones | Proposed |
 | [0064](0064-a-decision-model-decides-and-never-withholds.md) | A decision model decides before the answer, and may only add to the turn | Proposed |
+| [0065](0065-the-research-plan-is-a-workspace-primitive-the-run-waits-on.md) | The research plan is a workspace primitive the run waits on, not a reply the reader owes | Proposed |
 
 > Note: 0027, 0039, 0044 and 0047 were each independently used twice, every
 > time because two people read the next number off this index instead of off

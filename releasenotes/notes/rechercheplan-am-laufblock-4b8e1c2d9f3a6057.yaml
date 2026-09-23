@@ -1,0 +1,18 @@
+---
+features:
+  - >
+    Eine Tiefenrecherche wartet nicht mehr auf Ihre Freigabe im Verlauf. Der
+    Rechercheplan steht am Laufblock und die Recherche startet nach einem
+    kurzen Countdown von selbst. „Anpassen“ hält sie an und öffnet den Plan:
+    Abschnitte, Berichtsart, Tiefe und Unterlagen lassen sich ändern, bevor
+    Sie mit „Starten“ freigeben.
+  - >
+    „Recherche planen“ in der Kopfzeile eines Projektverlaufs öffnet einen
+    Dialog, in dem Sie selbst eine Frage und einen Plan anlegen. Die Recherche
+    startet sofort. Die Auftragsliste zeigt je Recherche Berichtsart, Tiefe und
+    Zahl der Abschnitte.
+upgrade:
+  - >
+    Die Einstellung enable_plan_approval heißt jetzt plan_approval (auto, ask
+    oder off) mit plan_grace_seconds. Der alte Schlüssel wird weiterhin als
+    auto gelesen.

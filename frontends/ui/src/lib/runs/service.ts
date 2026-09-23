@@ -76,11 +76,19 @@ export const RUN_LEDGER_METADATA_KEY = 'run_ledger'
  * merged over — the ledger route writes `run_ledger` and nothing else.
  */
 export const RUN_TITLE_METADATA_KEY = 'run_title'
+/**
+ * Where the run's plan id lives on the message (ADR-0065): the block fetches
+ * the plan by it and shows the plan as controls while the run waits. Set once
+ * at mint time, like the title.
+ */
+export const RUN_PLAN_METADATA_KEY = 'plan_id'
 
 /** What `createRunMessage` takes beside the two ids. */
 export interface CreateRunMessageOptions {
   /** The block's header line. Sanitised to one line of at most 200 characters. */
   title?: string | null
+  /** The research plan the run waits on, when it has one. */
+  planId?: string | null
   at?: Date
 }
 
@@ -133,6 +141,7 @@ export async function createRunMessage(
         messageType: 'agent_response',
         [RUN_LEDGER_METADATA_KEY]: emptyRunLedger(runId, at),
         ...(title ? { [RUN_TITLE_METADATA_KEY]: title } : {}),
+        ...(options.planId ? { [RUN_PLAN_METADATA_KEY]: options.planId } : {}),
       },
       createdAt: at,
     },

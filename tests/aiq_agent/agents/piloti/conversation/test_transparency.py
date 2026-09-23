@@ -252,7 +252,7 @@ async def _deep(state):
 
 
 async def _clarifier(request):
-    return ClarifyResult(research_context="log", outcome="approved")
+    return ClarifyResult(research_context="log")
 
 
 def _agent(research_fn=None, *, deep_fn=None, commissioner=None):

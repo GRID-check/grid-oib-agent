@@ -26,18 +26,14 @@ from pydantic import Field
 from pydantic import model_validator
 
 from aiq_agent.common.plan_documents import PlanDocuments
-
-PlanDecision = Literal["approved", "shallow", "cancelled", "feedback"]
-"""What one reply to the plan preview asks for. ``feedback`` means "revise it"."""
-
-PlanOutcome = Literal["approved", "shallow", "cancelled"]
+from aiq_agent.common.research_plan import PlanStart
+from aiq_agent.common.research_plan import ResearchPlanDraft
 
 PlanGenre = Literal["pruefbericht", "aktenvermerk", "vergleich", "checkliste", "bericht"]
 """The document genre a run writes. Office genres, not whitepaper shapes."""
 
 PlanDepth = Literal["kurzpruefung", "gutachten"]
 """How deep the report goes: the smallest complete form, or the full derivation."""
-"""Where the plan preview ended. ``PlanDecision`` minus the one that loops."""
 
 
 class _StrictContract(BaseModel):
@@ -165,22 +161,18 @@ class ClarifyRequest:
 
 @dataclass(frozen=True)
 class ClarifyResult:
-    """How the dialog ended, and the text deep research reads if it runs.
+    """How the dialog ended, and what deep research reads if it runs.
 
-    One outcome instead of three mutually-exclusive booleans that could
-    contradict each other, and one finished string instead of a title, a
-    section list and a caller that concatenated them: ``research_context``
-    already carries the Q&A transcript and, when a plan was approved, that
-    plan. ``outcome`` is None when plan approval is off — the questions were
-    asked, no plan was ever shown, and deep research proceeds.
+    ``research_context`` is the Q&A transcript. When planning is on, ``plan``
+    is the drafted plan and ``draft`` the same plan as the BFF's plan
+    primitive takes it (ADR-0065); nothing was asked about it, because the
+    reader changes, holds or starts it on the run block while the run waits.
+    Both are None when planning is off.
     """
 
     research_context: str
-    outcome: PlanOutcome | None = None
-    #: The Rahmen the reader approved the plan under: the composer's
-    #: Datengrundlage at the moment of approval, carried onto the run. None
-    #: when the reply named none (an older client), and the turn's own stays.
-    data_sources: list[str] | None = None
-    #: The Unterlagen the reader named on the plan, resolved against the turn's
-    #: inventory. None when none were named.
+    plan: PlanResponse | None = None
+    #: The Unterlagen the plan named, resolved against the turn's inventory.
     documents: PlanDocuments | None = None
+    draft: ResearchPlanDraft | None = None
+    start: PlanStart | None = None

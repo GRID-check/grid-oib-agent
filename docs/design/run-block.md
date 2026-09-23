@@ -139,6 +139,24 @@ rounds reached, derived from the steps (`grundlageReceipt`) — or not yet read.
 The ledger's `grundlage` field is the list; the loci are never stored twice.
 A row opens the document as a dialog over the thread, never a pane beside it.
 
+## The plan on the block
+
+A run commissioned with a research plan shows it first in its body
+(`RunPlan.tsx`, ADR-0065), because what the run is about comes before what it
+did. One row, three readings, and none of them is a question:
+
+- **Proposed** — one line (genre, depth, number of sections) and a countdown.
+  Doing nothing is a complete answer: the run starts on its own. „Anpassen"
+  stops the clock and opens the plan as controls; „Jetzt starten" skips the
+  wait.
+- **Held** — the plan open as controls, every edit saved as it is made, and
+  „Starten". The ledger reads `wartet` meanwhile, so the header's clock stops
+  and the inbox tells the requester.
+- **Started** — the brief the run is running, folded and read-only.
+
+A plan the reader wrote in „Recherche planen" reads „Ihr Rechercheplan" and
+starts at once.
+
 ## The actions
 
 One action fits each state — „Antworten", „Prüfen", „Bericht öffnen", „Erneut

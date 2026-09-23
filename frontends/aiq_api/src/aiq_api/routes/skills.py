@@ -181,6 +181,14 @@ class SkillSubmitPayload(BaseModel):
             "ausgeschlossen: [...]}. Sanitised in the worker; absent when none were named."
         ),
     )
+    plan_id: str | None = Field(
+        None,
+        max_length=64,
+        description=(
+            "The research plan this run waits on (ADR-0065). The worker does not start the agent "
+            "until the plan does, and reads the plan from the BFF at that instant."
+        ),
+    )
     owner_email: str | None = Field(None, description="Skill owner's email (job ownership)")
     budget_header: str | None = Field(
         None,
@@ -351,6 +359,7 @@ def add_skill_routes(router: APIRouter) -> None:
                 run_id=body.run_id,
                 clarifier_result=body.clarifier_result,
                 documents=body.documents,
+                plan_id=body.plan_id,
             )
         except JobAdmissionError as exc:
             raise HTTPException(429, str(exc), headers={"Retry-After": str(exc.retry_after_seconds)})

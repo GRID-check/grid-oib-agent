@@ -100,6 +100,18 @@ export type TaskFilingStatus = (typeof TASK_FILING_STATUSES)[number]
  * What the task was asked to do, frozen at creation so the row explains
  * itself after the job it came from changed or vanished.
  */
+/**
+ * The research plan a run waits on (ADR-0065), as the task card shows it.
+ * A frozen copy: the worker reads the live plan by `planId` when it starts.
+ */
+export interface TaskPlanResearch {
+  planId: string
+  title: string
+  genre: string
+  depth: string
+  sections: string[]
+}
+
 export interface TaskPlan {
   /** The prompt exactly as it was submitted, skill body included. */
   prompt: string
@@ -115,6 +127,8 @@ export interface TaskPlan {
   context?: string | null
   /** The Unterlagen the reader named on the plan card (`lib/runs/plan-documents`). */
   documents?: PlanDocuments | null
+  /** The research plan this run waits on, frozen for the task card. */
+  research?: TaskPlanResearch | null
   /**
    * What the task was asked FOR, in the requester's own words. Null for a job,
    * whose `title` is the job's name and whose prompt is the whole of it.

@@ -44,6 +44,7 @@ import {
   requireVerifiedContext,
 } from '@/lib/api/internal-envelope'
 import { withTenant } from '@/lib/db/tenant-context'
+import { proposePlannedRun } from '@/lib/plans/service'
 import { commissionResearchRun, delegateTask } from '@/lib/tasks/delegation'
 import { internalTaskRequestSchema, parseTaskDue } from '@/lib/tasks/wire'
 
@@ -71,16 +72,44 @@ export const POST = internalApiRoute(
     // sentence on purpose: `create_task` relays the envelope's `error` verbatim
     // to the model, which relays it to the reader.
     const allowed =
-      body.op === 'research'
+      body.op === 'research' || body.op === 'plan'
         ? await isDeepResearchEnabledForOrg(context.organizationId)
         : await isTaskAutomationEnabledForOrg(context.organizationId)
     if (!allowed) {
       throw new ForbiddenError(
-        body.op === 'research'
+        body.op === 'research' || body.op === 'plan'
           ? 'Eine Tiefenrecherche steht in diesem Arbeitsbereich nicht zur Verfügung.'
           : 'Aufträge und Zeitpläne stehen in diesem Arbeitsbereich nicht zur Verfügung. ' +
             'Die Frage lässt sich nur direkt im Chat beantworten.',
       )
+    }
+
+    if (body.op === 'plan') {
+      // The plan and its run, in one step (ADR-0065). The thread comes from
+      // the signed envelope for the same reason it does for `research`.
+      if (!context.conversationId) {
+        throw new ConflictError('A planned run needs the thread it was asked in')
+      }
+      const conversationId = context.conversationId
+      return withTenant({ organizationId: context.organizationId }, async () => {
+        const { plan, run } = await proposePlannedRun(session, {
+          projectId: body.projectId,
+          conversationId,
+          draft: body.plan,
+          author: 'agent',
+          start: body.start,
+          context: body.context ?? null,
+        })
+        return {
+          runId: run.runId,
+          runMessageId: run.runMessageId,
+          conversationId: run.conversationId,
+          status: run.status,
+          planId: plan.id,
+          planStatus: plan.status,
+          startsAt: plan.startsAt,
+        }
+      })
     }
 
     if (body.op === 'research') {

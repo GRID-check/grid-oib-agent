@@ -15,6 +15,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('@/lib/tasks/delegation', () => ({ delegateTask: vi.fn(), commissionResearchRun: vi.fn() }))
+vi.mock('@/lib/plans/service', () => ({ proposePlannedRun: vi.fn() }))
 vi.mock('@/lib/auth/pinned-session', () => ({ resolvePinnedRequesterSession: vi.fn() }))
 // Partial: the factory itself opens a request-scoped slot, and replacing that
 // would test a handler the app does not run.
@@ -31,6 +32,7 @@ import {
   GRID_REQUEST_CONTEXT_MAX_AGE_MS,
 } from '@/lib/request-context'
 import { DELEGATABLE_TASK_KINDS } from '@/lib/db/schema'
+import { proposePlannedRun } from '@/lib/plans/service'
 import { commissionResearchRun, delegateTask } from '@/lib/tasks/delegation'
 import { internalTaskRequestSchema, parseTaskDue } from '@/lib/tasks/wire'
 import { POST } from './route'
@@ -176,13 +178,14 @@ describe('tenancy', () => {
 })
 
 describe('the op set', () => {
-  it('is the two asking verbs and nothing else', () => {
-    // A machine may ASK for work, in either shape. Judging it is `reviewTask`,
-    // a session route: a machine that could accept its own output would close
-    // the loop ADR-0051 exists to open.
+  it('is the three asking verbs and nothing else', () => {
+    // A machine may ASK for work, in any of three shapes. Judging it is
+    // `reviewTask`, a session route: a machine that could accept its own output
+    // would close the loop ADR-0051 exists to open.
     expect(internalTaskRequestSchema.options.map((option) => option.shape.op.value)).toEqual([
       'create',
       'research',
+      'plan',
     ])
   })
 
@@ -366,5 +369,70 @@ describe('the research op — an escalated question becomes a run', () => {
 
     expect(response.status).toBe(409)
     expect(commissionResearchRun).not.toHaveBeenCalled()
+  })
+})
+
+describe('the plan op — the clarifier proposes a plan and the run that waits on it (ADR-0065)', () => {
+  const PLAN = {
+    op: 'plan',
+    projectId: PROJECT,
+    plan: {
+      question: 'Gilt für das Atrium OIB 2 oder OIB 2.3?',
+      title: 'Atrium: OIB 2 oder 2.3',
+      sections: ['Bestand', 'Anforderungen', 'Befund'],
+      genre: 'pruefbericht',
+      grundlage: ['Einreichplan.pdf'],
+      unterlagen: [{ name: 'Einreichplan.pdf', shelf: 'project' }],
+    },
+    start: { policy: 'auto', graceSeconds: 45 },
+  }
+
+  beforeEach(() => {
+    vi.mocked(proposePlannedRun).mockResolvedValue({
+      plan: { id: 'plan-1', status: 'proposed', startsAt: '2026-09-22T08:00:45.000Z' },
+      run: { runId: 'run-1', runMessageId: 'msg-run-1', conversationId: 's_conv_1', status: 'running' },
+    } as never)
+  })
+
+  it('proposes the plan as the agent, in the thread the envelope names, and answers both ids', async () => {
+    const response = await call(PLAN)
+    expect(response.status).toBe(201)
+    expect(await response.json()).toEqual({
+      runId: 'run-1',
+      runMessageId: 'msg-run-1',
+      conversationId: 's_conv_1',
+      status: 'running',
+      planId: 'plan-1',
+      planStatus: 'proposed',
+      startsAt: '2026-09-22T08:00:45.000Z',
+    })
+    expect(vi.mocked(proposePlannedRun).mock.calls[0][1]).toEqual({
+      projectId: PROJECT,
+      conversationId: 's_conv_1',
+      author: 'agent',
+      start: { policy: 'auto', graceSeconds: 45 },
+      context: null,
+      draft: {
+        question: PLAN.plan.question,
+        title: PLAN.plan.title,
+        sections: PLAN.plan.sections,
+        genre: 'pruefbericht',
+        depth: 'gutachten',
+        grundlage: ['Einreichplan.pdf'],
+        ausgeschlossen: [],
+        unterlagen: [{ name: 'Einreichplan.pdf', shelf: 'project' }],
+      },
+    })
+    expect(withTenant).toHaveBeenCalledWith({ organizationId: 'org_1' }, expect.any(Function))
+    expect(commissionResearchRun).not.toHaveBeenCalled()
+  })
+
+  it('refuses a plan with no sections, before the service is asked', async () => {
+    expect((await call({ ...PLAN, plan: { ...PLAN.plan, sections: [] } })).status).toBe(400)
+    expect(proposePlannedRun).not.toHaveBeenCalled()
+  })
+
+  it('refuses a start policy the contract does not know', async () => {
+    expect((await call({ ...PLAN, start: { policy: 'never' } })).status).toBe(400)
   })
 })

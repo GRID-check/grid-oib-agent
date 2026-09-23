@@ -31,6 +31,9 @@ import { runDisplayStatus } from '@/lib/runs/run-vocabulary'
 import { useRunLedger } from '../hooks/use-run-ledger'
 import { useProjectInventory } from '../hooks/use-project-inventory'
 import { UnterlagenDialog } from './UnterlagenDialog'
+import { RunPlan } from './RunPlan'
+import { usePlan } from '../hooks/use-plan'
+import { useLayoutStore } from '@/features/layout/store'
 import { openFilePeek } from '@/features/documents/lib/open-file-peek'
 import type { RunLedgerDoc } from '@/lib/runs/run-ledger-types'
 import { landingDelays } from '../lib/choreography'
@@ -70,6 +73,15 @@ export function RunBlockMessage({
   const [picking, setPicking] = useState(false)
   const [wantsInventory, setWantsInventory] = useState(false)
   const inventory = useProjectInventory(projectId ?? null, wantsInventory)
+  const plan = usePlan(projectId ?? null, message.planId ?? null)
+  const availableSources = useLayoutStore((state) => state.availableDataSources)
+  const rahmen = plan.plan?.dataSources
+    ? {
+        labels: plan.plan.dataSources.map(
+          (id) => (availableSources ?? []).find((source) => source.id === id)?.name ?? id
+        ),
+      }
+    : undefined
   const openDocument = useCallback(
     (doc: RunLedgerDoc): void => {
       setWantsInventory(true)
@@ -121,6 +133,18 @@ export function RunBlockMessage({
         }
         onOpenDocument={projectId ? openDocument : null}
         onContinue={onContinue ?? null}
+        plan={
+          plan.plan ? (
+            <RunPlan
+              plan={plan.plan}
+              rahmen={rahmen}
+              pending={plan.pending}
+              onEdit={plan.edit}
+              onHold={plan.hold}
+              onStart={plan.start}
+            />
+          ) : null
+        }
       />
       {addDocument && (
         <UnterlagenDialog

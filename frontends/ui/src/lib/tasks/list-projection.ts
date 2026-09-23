@@ -49,6 +49,9 @@ export function toTaskWireRow(
     // The requester's own sentence, when there was one. A job-fired run has the
     // job's prompt and no goal, and the title is the job's name.
     goal: task.plan.goal?.trim() || null,
+    // The plan the run waits on, frozen at commission (ADR-0065): what the
+    // card says the run is about, beside the goal.
+    research: task.plan.research ?? null,
     status: task.status,
     review: task.review ?? null,
     reviewReason: task.reviewReason,

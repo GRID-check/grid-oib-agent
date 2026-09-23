@@ -169,6 +169,12 @@ export const mapServerMessageToChatMessage = (message: Message): ChatMessage | n
       const runTitle = sanitizeRunTitle(metadata.run_title)
       return runTitle ? { runTitle } : {}
     })(),
+    // The plan the run waits on (ADR-0065): an id the block fetches the plan
+    // by. Bounded like every id this tier reads back.
+    ...(() => {
+      const planId = metadata.plan_id
+      return typeof planId === 'string' && planId.length > 0 && planId.length <= 64 ? { planId } : {}
+    })(),
     // Restored WITH their answers: a card whose patch was already applied must
     // not come back offering the button again (see card-decision.ts). Narrowed
     // rather than cast — this jsonb blob is the only card state not written by

@@ -36,6 +36,8 @@ from typing import Literal
 
 from aiq_agent import project_context
 from aiq_agent.common.plan_documents import PlanDocuments
+from aiq_agent.common.research_plan import PlanStart
+from aiq_agent.common.research_plan import ResearchPlanDraft
 from aiq_agent.tools.documents.filing import SignedEnvelope
 from aiq_agent.tools.tasks.client import DelegationError
 from aiq_agent.tools.tasks.client import post_task
@@ -158,6 +160,10 @@ async def commission_research_run(
         logger.info("Research run refused by the task API: %s", exc)
         raise _refusal_from(exc) from exc
 
+    return _commissioned(body)
+
+
+def _commissioned(body: dict[str, Any]) -> CommissionedRun:
     run_id = body.get("runId")
     conversation_id = body.get("conversationId")
     if not isinstance(run_id, str) or not run_id or not isinstance(conversation_id, str):
@@ -168,3 +174,37 @@ async def commission_research_run(
         run_message_id=message_id if isinstance(message_id, str) and message_id else None,
         conversation_id=conversation_id,
     )
+
+
+async def commission_planned_run(
+    draft: ResearchPlanDraft,
+    *,
+    start: PlanStart | None = None,
+    context: str | None = None,
+) -> CommissionedRun:
+    """Propose the drafted plan and commission the run that waits on it (ADR-0065).
+
+    One call for both, so a plan without a run and a run without a plan are
+    impossible. The run's block appears at once, with the plan on it; the
+    worker starts when the plan's clock passes or the reader presses Starten.
+    ``context`` is the clarifier's Q&A, which the plan does not carry.
+    """
+    project_id = project_context.get_project_id_from_context()
+    if not project_id:
+        raise CommissionRefused("no_project", "this conversation is not in a project")
+    envelope = _envelope()
+    payload: dict[str, Any] = {
+        "op": "plan",
+        "projectId": project_id,
+        "plan": draft.to_wire(),
+        "start": (start or PlanStart()).model_dump(exclude_none=True),
+    }
+    settled = (context or "").strip()
+    if settled:
+        payload["context"] = settled[:MAX_CONTEXT_CHARS]
+    try:
+        body = await asyncio.to_thread(post_task, payload, envelope)
+    except DelegationError as exc:
+        logger.info("Planned run refused by the task API: %s", exc)
+        raise _refusal_from(exc) from exc
+    return _commissioned(body)

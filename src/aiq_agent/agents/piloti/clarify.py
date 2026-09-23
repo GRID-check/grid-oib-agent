@@ -1,4 +1,4 @@
-"""The clarification step: ask, then confirm a plan, before deep research runs.
+"""The clarification step: ask, then draft a plan, before deep research runs.
 
 One step of the conversation graph, not an agent. It has exactly one caller
 (``conversation.ConversationGraph._clarifier_node``), it is handed a state that
@@ -11,8 +11,10 @@ persisted in ``platform_models.agent_group``.
 
 Shape of the step, in one paragraph: ask at most ``max_turns`` focused
 questions (the model may search first, and may offer pickable options), then —
-when plan approval is on — show a research plan and take the user's verdict,
-revising it while the reply is feedback. The dialog is a loop rather than a
+when planning is on — draft a research plan and hand it back WITHOUT asking.
+The plan is not a question the reader owes an answer to: it becomes a row of
+the BFF's plan primitive, shown on the run block, where the reader may change,
+hold or start it while the run waits on it (ADR-0065). The dialog is a loop rather than a
 LangGraph because that is all it ever was: no checkpoint, no persistence, no
 node name that reaches a reader. What the reader DOES see is one trace row, and
 :data:`TRACE_STEP_NAME` still emits it under the name the frontend already maps.
@@ -36,6 +38,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+from typing import Literal
 from typing import Self
 from typing import TypeVar
 
@@ -50,6 +53,7 @@ from langchain_core.tools import BaseTool
 from pydantic import BaseModel
 from pydantic import Field
 from pydantic import ValidationError
+from pydantic import model_validator
 
 from aiq_agent.common import AgentGroup
 from aiq_agent.common import LLMProvider
@@ -74,9 +78,15 @@ from aiq_agent.common import is_verbose
 from aiq_agent.common import load_prompt
 from aiq_agent.common import render_prompt_template
 from aiq_agent.common import strict_json_response_format
-from aiq_agent.common.plan_documents import MAX_PLAN_DOCUMENTS
+from aiq_agent.common.plan_documents import PlanDocument
 from aiq_agent.common.plan_documents import PlanDocuments
 from aiq_agent.common.plan_documents import documents_from_plan
+from aiq_agent.common.research_plan import MAX_PLAN_QUESTION_CHARS
+from aiq_agent.common.research_plan import MAX_PLAN_TITLE_CHARS
+from aiq_agent.common.research_plan import PlanStart
+from aiq_agent.common.research_plan import PlanStartPolicy
+from aiq_agent.common.research_plan import ResearchPlanDraft
+from aiq_agent.common.research_plan import render_plan_context
 from aiq_agent.common.turn_status import push_custom_step
 from aiq_agent.project_context import get_organization_id_from_context
 from nat.builder.builder import Builder
@@ -89,8 +99,6 @@ from nat.data_models.component_ref import LLMRef
 from .models.clarify import ClarificationResponse
 from .models.clarify import ClarifyRequest
 from .models.clarify import ClarifyResult
-from .models.clarify import PlanDecision
-from .models.clarify import PlanOutcome
 from .models.clarify import PlanResponse
 from .plan_decisions import PlanShape
 from .plan_decisions import decide_plan_shape
@@ -118,25 +126,6 @@ deploy.
 
 SKIP_COMMANDS = frozenset({"skip", "done", "exit", "quit", "proceed", "continue", "no", "n", ""})
 """Replies to a clarification QUESTION that mean "stop asking and get on with it"."""
-
-PLAN_REPLIES: dict[str, PlanDecision] = {
-    # The three tokens the plan envelope names, and the only three the UI's
-    # buttons send (frontends/ui .../AgentPrompt.tsx).
-    "approve": "approved",
-    "shallow": "shallow",
-    "cancel": "cancelled",
-    # A bare refusal, typed rather than picked. Kept, and kept to single words,
-    # because dropping it re-opens the transcript where the user said "no", was
-    # handed a second plan, said "reject", and only then got out. Anything
-    # longer is plan FEEDBACK on purpose: "no, only Wien" is a revision.
-    "no": "shallow",
-    "nein": "shallow",
-    "nope": "shallow",
-    "reject": "shallow",
-    "stop": "cancelled",
-    "abbrechen": "cancelled",
-}
-"""Literal reply -> decision. Everything else is feedback for a plan revision."""
 
 FALLBACK_PLAN_TITLE = "Research Report"
 FALLBACK_PLAN_SECTIONS = ("Introduction", "Background", "Analysis", "Findings", "Conclusion")
@@ -196,14 +185,32 @@ class ClarifierSettings(BaseModel):
         description="Tool names to exclude when inheriting from registry.",
     )
     max_turns: int = Field(default=3, description="Maximum number of clarification Q&A turns")
-    enable_plan_approval: bool = Field(
-        default=False,
-        description="Whether to enable plan preview and approval after clarification",
+    plan_approval: Literal["off", "auto", "ask"] = Field(
+        default="off",
+        description=(
+            "Whether a research plan is drafted after clarification, and how it starts (ADR-0065): "
+            "off = no plan; auto = shown on the run block and started after plan_grace_seconds unless "
+            "the reader holds or edits it; ask = held until the reader presses Starten."
+        ),
     )
-    max_plan_iterations: int = Field(
-        default=10,
-        description="Maximum number of plan feedback iterations before auto-approving",
+    plan_grace_seconds: int = Field(
+        default=45,
+        ge=0,
+        le=600,
+        description="How long an auto plan waits on the run block before the run starts on its own.",
     )
+
+    @model_validator(mode="before")
+    @classmethod
+    def _legacy_approval_flag(cls, data: Any) -> Any:
+        """``enable_plan_approval: true`` from a deployment YAML predating ADR-0065 means ``auto``."""
+        if isinstance(data, dict) and "enable_plan_approval" in data:
+            data = dict(data)
+            legacy = data.pop("enable_plan_approval")
+            data.pop("max_plan_iterations", None)
+            data.setdefault("plan_approval", "auto" if legacy else "off")
+        return data
+
     log_response_max_chars: int = Field(default=2000, description="Max characters to log from LLM responses")
     verbose: bool = Field(default=False, description="Whether to enable verbose logging")
 
@@ -217,8 +224,8 @@ class ClarifyDeps:
     tools: Mapping[str, BaseTool]
     ask_user: AskUser
     max_turns: int
-    enable_plan_approval: bool
-    max_plan_iterations: int
+    plan_approval: str
+    plan_grace_seconds: int
     callbacks: tuple[Any, ...] = ()
 
     @property
@@ -269,86 +276,6 @@ def unwrap_query(reply: str) -> str:
     return reply
 
 
-def parse_plan_reply(reply: str) -> tuple[PlanDecision, str]:
-    """Read one reply to the plan preview.
-
-    Returns:
-        ``("approved", "")`` run deep research on this plan;
-        ``("approved", json)`` run it on the plan as the reader EDITED it on
-        the plan card — the sections, the genre, the depth — as a JSON object
-        after the keyword (:func:`apply_plan_edits`);
-        ``("shallow", "")`` answer now without the plan;
-        ``("cancelled", "")`` stop the turn, no answer wanted;
-        ``("feedback", text)`` revise the plan with this text.
-    """
-    text = unwrap_query(reply).strip()
-    decision = PLAN_REPLIES.get(text.lower())
-    if decision is not None:
-        return decision, ""
-    head, _, rest = text.partition(" ")
-    if head.lower() == "approve" and rest.strip().startswith("{"):
-        return "approved", rest.strip()
-    return "feedback", text
-
-
-MAX_PLAN_SECTIONS = 12
-
-
-def _parse_edits(edits_json: str) -> dict[str, Any] | None:
-    try:
-        edits = json.loads(edits_json)
-    except ValueError:
-        logger.warning("Plan edits did not parse; running the plan as shown")
-        return None
-    return edits if isinstance(edits, dict) else None
-
-
-def _names(value: Any) -> list[str]:
-    if not isinstance(value, list):
-        return []
-    return [v.strip() for v in value if isinstance(v, str) and v.strip()][:MAX_PLAN_DOCUMENTS]
-
-
-def apply_plan_edits(plan: PlanResponse, edits_json: str) -> PlanResponse:
-    """The plan as the reader left it on the card; the original on anything unreadable.
-
-    The Unterlagen lists are taken as named; :func:`plan_documents` resolves
-    them against the inventory, which is where a name nobody can find falls out.
-    """
-    edits = _parse_edits(edits_json)
-    if edits is None:
-        return plan
-    data = plan.model_dump()
-    sections = edits.get("sections")
-    if isinstance(sections, list):
-        kept = [s.strip()[:200] for s in sections if isinstance(s, str) and s.strip()][:MAX_PLAN_SECTIONS]
-        if kept:
-            data["sections"] = kept
-    for key in ("genre", "depth"):
-        if isinstance(edits.get(key), str):
-            data[key] = edits[key]
-    for key in ("grundlage", "ausgeschlossen"):
-        if isinstance(edits.get(key), list):
-            data[key] = _names(edits[key])
-    try:
-        return PlanResponse.model_validate(data)
-    except ValidationError as exc:
-        logger.warning("Plan edits did not validate (%s); running the plan as shown", exc)
-        return plan
-
-
-def plan_data_sources(edits_json: str) -> list[str] | None:
-    """The Rahmen the reply carries: the composer's Datengrundlage at approval.
-
-    ``None`` when the reply names none — an older client — so the turn's own
-    sources stay. An empty list is a statement (no sources) and is kept.
-    """
-    edits = _parse_edits(edits_json) if edits_json else None
-    if edits is None or not isinstance(edits.get("data_sources"), list):
-        return None
-    return [s.strip() for s in edits["data_sources"] if isinstance(s, str) and s.strip()]
-
-
 def plan_documents(plan: PlanResponse, inventory: list[dict[str, Any]] | None) -> PlanDocuments | None:
     """The plan's Unterlagen, resolved against what this turn can actually read."""
     return documents_from_plan(plan.grundlage, plan.ausgeschlossen, inventory)
@@ -371,39 +298,14 @@ def _inventory_rows(inventory: list[dict[str, Any]] | None) -> list[dict[str, An
     return rows
 
 
-#: The plan card lists what the run can read. Two hundred rows is more than a
-#: card can show and more than a project usually holds; beyond it the picker
-#: still resolves a typed name against the full inventory server-side.
+#: The plan lists what the run can read. Two hundred rows is more than the block
+#: can show and more than a project usually holds.
 MAX_PLAN_INVENTORY_ROWS = 200
 
 
-def format_plan_for_user(plan: PlanResponse, inventory: list[dict[str, Any]] | None = None) -> str:
-    """Render the plan preview the user replies to."""
-    sections_text = "\n".join(f"  {i + 1}. {s}" for i, s in enumerate(plan.sections))
-    # The footer sentence is a byte-stable envelope: the UI detects it,
-    # strips it, and renders localized action buttons in its place
-    # (frontends/ui .../AgentPrompt.tsx). Changing a byte here requires
-    # changing the regexes there in the same commit.
-    # The same plan as data, for the plan card: the client strips the fence
-    # and renders the sections, the genre and the depth as controls; a client
-    # that does not know the fence shows the list above and the fence stays
-    # readable. The envelope sentence below it is untouched.
-    payload: dict[str, Any] = plan.model_dump()
-    rows = _inventory_rows(inventory)
-    if rows:
-        # What the run can read, so the card's picker needs no second fetch
-        # and can only ever name a document this turn could find.
-        payload["unterlagen"] = rows
-    plan_json = json.dumps(payload, ensure_ascii=False)
-    return (
-        f"**Research Plan Preview**\n\n"
-        f"**Title:** {plan.title}\n\n"
-        f"**Sections:**\n{sections_text}\n\n"
-        f"```plan_json\n{plan_json}\n```\n\n"
-        f"---\n"
-        f"Reply **approve** to proceed, **shallow** for a quick answer instead, "
-        f"**cancel** to dismiss, or provide feedback to revise the plan."
-    )
+def inventory_documents(inventory: list[dict[str, Any]] | None) -> list[PlanDocument]:
+    """The turn's inventory as the plan names it: the picker's rows."""
+    return [PlanDocument(**row) for row in _inventory_rows(inventory)]
 
 
 def fallback_clarification(query: str | None) -> ClarificationResponse:
@@ -444,39 +346,11 @@ def question_for(response: ClarificationResponse | None, messages: Sequence[Base
     return fallback_clarification(get_latest_user_query(list(messages)))
 
 
-def _document_lines(docs: list[Any]) -> str:
-    lines = []
-    for doc in docs:
-        where = f" [{doc.shelf}]" if doc.shelf else ""
-        title = f"{doc.title} — " if doc.title and doc.title != doc.name else ""
-        lines.append(f"- {title}{doc.name}{where}")
-    return "\n".join(lines)
-
-
 def approved_plan_context(plan: PlanResponse, documents: PlanDocuments | None = None) -> str:
-    """The approved plan as deep research reads it.
-
-    The orchestrator, the planner and the writer all receive it
-    (``factory.py`` ``prompt_values``): the sections become the required
-    components in this order, the genre the answer type, the depth the length,
-    and the Unterlagen what must be read and what may not be used.
-    """
-    sections_text = "\n".join(f"- {s}" for s in plan.sections)
-    text = (
-        f"**Approved Research Plan**\n\nTitle: {plan.title}\nGenre: {plan.genre}\nDepth: {plan.depth}\n\n"
-        f"Sections (required components, in this order):\n{sections_text}"
+    """The plan as deep research reads it (:func:`render_plan_context`)."""
+    return render_plan_context(
+        title=plan.title, genre=plan.genre, depth=plan.depth, sections=list(plan.sections), documents=documents
     )
-    if documents and documents.grundlage:
-        text += (
-            "\n\nGrundlage (documents to read in full, each through its own research query; "
-            f"a report that could not reach one names it as unread):\n{_document_lines(documents.grundlage)}"
-        )
-    if documents and documents.ausgeschlossen:
-        text += (
-            "\n\nAusgeschlossen (documents that may not be used: never searched, never cited):\n"
-            f"{_document_lines(documents.ausgeschlossen)}"
-        )
-    return text
 
 
 def _fallback_plan() -> PlanResponse:
@@ -573,9 +447,7 @@ async def gather_clarification(request: ClarifyRequest, deps: ClarifyDeps) -> st
     return log
 
 
-async def generate_plan(
-    request: ClarifyRequest, deps: ClarifyDeps, log: str, feedback_history: list[str]
-) -> PlanResponse:
+async def generate_plan(request: ClarifyRequest, deps: ClarifyDeps, log: str) -> PlanResponse:
     """One planner call, anchored on the CURRENT request.
 
     The anchor exists because the planner otherwise drifts to an earlier turn's
@@ -588,7 +460,6 @@ async def generate_plan(
         PLAN_GENERATION_PROMPT,
         project_context=request.project_context,
         clarifier_context=log,
-        feedback_history=feedback_history or None,
         preselected=_preselection_text(shape),
         available_documents=request.available_documents or [],
     )
@@ -618,47 +489,39 @@ def _preselection_text(shape: PlanShape) -> str | None:
     return "\n".join(lines) or None
 
 
-def _outcome(
-    log: str,
-    plan: PlanResponse,
-    outcome: PlanOutcome,
-    *,
-    inventory: list[dict[str, Any]] | None = None,
-    data_sources: list[str] | None = None,
-) -> ClarifyResult:
-    """One finished plan preview, as the conversation graph reads it."""
-    if outcome != "approved":
-        return ClarifyResult(research_context=log, outcome=outcome)
-    documents = plan_documents(plan, inventory)
-    return ClarifyResult(
-        research_context=f"{log}\n\n{approved_plan_context(plan, documents)}",
-        outcome="approved",
-        data_sources=data_sources,
-        documents=documents,
+def plan_draft(request: ClarifyRequest, plan: PlanResponse, *, query: str | None) -> ResearchPlanDraft:
+    """The plan as the BFF's plan primitive takes it: names, not resolved documents.
+
+    The BFF resolves the names against ``unterlagen`` once, for every client;
+    the Rahmen is the turn's own data sources.
+    """
+    question = " ".join((query or plan.title).split())[:MAX_PLAN_QUESTION_CHARS] or plan.title
+    return ResearchPlanDraft(
+        question=question,
+        title=plan.title[:MAX_PLAN_TITLE_CHARS],
+        sections=[section[:200] for section in plan.sections][:12],
+        genre=plan.genre,
+        depth=plan.depth,
+        grundlage=list(plan.grundlage),
+        ausgeschlossen=list(plan.ausgeschlossen),
+        dataSources=list(request.data_sources) if request.data_sources is not None else None,
+        unterlagen=inventory_documents(request.available_documents),
     )
 
 
-async def preview_plan(request: ClarifyRequest, deps: ClarifyDeps, log: str) -> ClarifyResult:
-    """Show a plan, take the user's verdict, revise on feedback."""
-    feedback_history: list[str] = []
-    plan = _fallback_plan()
-
-    for _ in range(deps.max_plan_iterations):
-        plan = await generate_plan(request, deps, log, feedback_history)
-        shown = format_plan_for_user(plan, request.available_documents)
-        decision, feedback = parse_plan_reply(await deps.ask_user(shown, ()))
-        if decision != "feedback":
-            data_sources = None
-            if decision == "approved" and feedback:
-                plan = apply_plan_edits(plan, feedback)
-                data_sources = plan_data_sources(feedback)
-            logger.info("Clarifier: plan %s by user", decision)
-            return _outcome(log, plan, decision, inventory=request.available_documents, data_sources=data_sources)
-        logger.info("Clarifier: User provided feedback, regenerating plan")
-        feedback_history.append(feedback)
-
-    logger.warning("Clarifier: Max plan iterations reached, auto-approving")
-    return _outcome(log, plan, "approved", inventory=request.available_documents)
+async def draft_plan(request: ClarifyRequest, deps: ClarifyDeps, log: str) -> ClarifyResult:
+    """Draft the plan and hand it back. Nothing is asked: the plan waits on the run block."""
+    plan = await generate_plan(request, deps, log)
+    documents = plan_documents(plan, request.available_documents)
+    policy: PlanStartPolicy = "ask" if deps.plan_approval == "ask" else "auto"
+    logger.info("Clarifier: plan drafted (%d sections, start=%s)", len(plan.sections), policy)
+    return ClarifyResult(
+        research_context=log,
+        plan=plan,
+        documents=documents,
+        draft=plan_draft(request, plan, query=get_latest_user_query(list(request.messages))),
+        start=PlanStart(policy=policy, graceSeconds=deps.plan_grace_seconds),
+    )
 
 
 async def clarify(request: ClarifyRequest, deps: ClarifyDeps) -> ClarifyResult:
@@ -678,9 +541,9 @@ async def clarify(request: ClarifyRequest, deps: ClarifyDeps) -> ClarifyResult:
     # the first question blocks the turn rather than after the dialog ends.
     push_custom_step(TRACE_STEP_NAME, {"kind": "clarification", "max_turns": deps.max_turns})
     log = await gather_clarification(request, deps)
-    if not deps.enable_plan_approval:
+    if deps.plan_approval == "off":
         return ClarifyResult(research_context=log)
-    return await preview_plan(request, deps, log)
+    return await draft_plan(request, deps, log)
 
 
 # -- wiring --------------------------------------------------------------------
@@ -752,8 +615,8 @@ def build_deps(
         tools={tool.name: tool for tool in tools},
         ask_user=ask_user,
         max_turns=settings.max_turns,
-        enable_plan_approval=settings.enable_plan_approval,
-        max_plan_iterations=settings.max_plan_iterations,
+        plan_approval=settings.plan_approval,
+        plan_grace_seconds=settings.plan_grace_seconds,
         callbacks=callbacks,
     )
 

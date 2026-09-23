@@ -94,6 +94,28 @@ export const runs = {
    * The Unterlagen: the documents the reader named for the run. The receipt
    * says which were read and where; the picker over the thread names more.
    */
+  plan: {
+    heading: 'Research plan',
+    headingOwn: 'Your research plan',
+    summary: '{genre} · {depth} · {count, plural, one {# section} other {# sections}}',
+    startsIn: 'Starts on its own in {seconds} s. Adjust it first if you like.',
+    startsNow: 'Starting …',
+    held: 'Waiting for you. The research starts when you start it.',
+    approved: 'Approved. The research starts in a moment.',
+    started: 'The research runs on this plan.',
+    adjust: 'Adjust',
+    startNow: 'Start now',
+    start: 'Start',
+    dialogTitle: 'Plan a research',
+    dialogDescription:
+      'Write the question and the sections the report should cover. The research starts as soon as you create the plan.',
+    question: 'Question',
+    questionPlaceholder: 'What should the research find out?',
+    create: 'Create plan and start',
+    cancel: 'Cancel',
+    createFailed: 'The plan could not be created. Try again.',
+    openDialog: 'Plan a research',
+  },
   unterlagen: {
     receiptLabel: 'Documents named for this task',
     receipt: '{read} of {total} named documents read',

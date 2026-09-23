@@ -235,12 +235,26 @@ describe('AgentPrompt', () => {
     // The raw backend envelope sentence is stripped from the rendered content…
     expect(screen.getByTestId('markdown')).not.toHaveTextContent(/reply/i)
     expect(screen.getByTestId('markdown')).toHaveTextContent('Here is the plan.')
-    // …and a localized instruction plus a duration/quota expectation appear
-    // at the decision point (English fallback without an i18n provider).
-    expect(
-      screen.getByText('Choose "Approve" to start the research or "Reject" to cancel.')
-    ).toBeInTheDocument()
-    expect(screen.getByText(/several minutes.*quota/i)).toBeInTheDocument()
+    // …and nothing offers to answer it: a plan is no longer a prompt (ADR-0065),
+    // it waits on the run block, so an old preview reads as history.
+    expect(screen.queryByRole('button')).not.toBeInTheDocument()
+  })
+
+  test('an old preview hides its fenced copy of the plan', () => {
+    render(
+      <AgentPrompt
+        id="prompt-1"
+        type="approval"
+        isResponded
+        response="approve"
+        content={
+          '**Research Plan Preview**\n\n**Title:** T\n\n```plan_json\n{"title":"T","sections":["A"]}\n```\n\n---\nReply **approve** to proceed, **shallow** for a quick answer instead, **cancel** to dismiss, or provide feedback to revise the plan.'
+        }
+      />
+    )
+    expect(screen.getByTestId('markdown')).not.toHaveTextContent('plan_json')
+    expect(screen.getByTestId('markdown')).not.toHaveTextContent(/reply/i)
+    expect(screen.getByText('Research started')).toBeInTheDocument()
   })
 
   test('keeps non-approval prompt content untouched', () => {
@@ -270,30 +284,6 @@ describe('AgentPrompt', () => {
     expect(screen.getByTestId('markdown')).not.toHaveTextContent(/provide feedback/i)
   })
 
-  test('tabs through plan approval actions in DOM order', async () => {
-    const user = userEvent.setup()
-    useChatStore.setState({ respondToInteractionFn: vi.fn() })
-
-    render(
-      <AgentPrompt
-        id="prompt-1"
-        type="approval"
-        content="Reply **approve** to proceed, **reject** to cancel"
-      />
-    )
-
-    const approveButton = screen.getByRole('button', { name: /approve plan/i })
-    const rejectButton = screen.getByRole('button', { name: /reject plan/i })
-
-    expect(approveButton).not.toHaveAttribute('tabindex')
-    expect(rejectButton).not.toHaveAttribute('tabindex')
-
-    // DOM order: Reject (secondary) first, Approve (primary) last/right.
-    await user.tab()
-    expect(rejectButton).toHaveFocus()
-    await user.tab()
-    expect(approveButton).toHaveFocus()
-  })
 })
 
 /**
@@ -312,33 +302,6 @@ describe('AgentPrompt — three-way plan decision', () => {
 
   beforeEach(() => {
     useChatStore.setState({ respondToInteractionFn: null })
-  })
-
-  test('renders all three actions and sends the wire keyword for each', async () => {
-    const user = userEvent.setup()
-    const respond = vi.fn()
-    useChatStore.setState({ respondToInteractionFn: respond })
-
-    render(<AgentPrompt id="prompt-1" type="approval" content={THREE_WAY_CONTENT} />)
-
-    await user.click(screen.getByRole('button', { name: /cancel the research/i }))
-    await user.click(screen.getByRole('button', { name: /answer the question briefly/i }))
-    await user.click(screen.getByRole('button', { name: /approve plan/i }))
-
-    expect(respond.mock.calls.map((c) => c[0])).toEqual(['cancel', 'shallow', 'approve'])
-  })
-
-  test('shows the three-way instruction, not the legacy approve/reject one', () => {
-    useChatStore.setState({ respondToInteractionFn: vi.fn() })
-
-    render(<AgentPrompt id="prompt-1" type="approval" content={THREE_WAY_CONTENT} />)
-
-    expect(
-      screen.getByText(
-        'Start the research, have your question answered briefly instead, or cancel.'
-      )
-    ).toBeInTheDocument()
-    expect(screen.queryByText(/Choose "Approve"/)).not.toBeInTheDocument()
   })
 
   test('strips the whole envelope line and localizes the plan scaffolding', () => {
@@ -495,102 +458,6 @@ describe('AgentPrompt — the plan card', () => {
 
   beforeEach(() => {
     useChatStore.setState({ respondToInteractionFn: null })
-  })
-
-  test('renders the sections, the genre and the depth as controls, and hides the fence', () => {
-    useChatStore.setState({ respondToInteractionFn: vi.fn() })
-    render(<AgentPrompt id="prompt-1" type="approval" content={CONTENT} />)
-    expect(screen.getAllByTestId('plan-point').map((li) => li.textContent)).toEqual([
-      'Gebäudeklasse',
-      'Fluchtwege',
-    ])
-    expect(screen.getByRole('radio', { name: 'Compliance review' })).toHaveAttribute(
-      'aria-checked',
-      'true'
-    )
-    expect(screen.getByRole('radio', { name: 'Short review' })).toHaveAttribute(
-      'aria-checked',
-      'true'
-    )
-    expect(screen.queryByText(/plan_json/)).not.toBeInTheDocument()
-  })
-
-  test('an untouched plan approves with the bare keyword', async () => {
-    const respond = vi.fn()
-    useChatStore.setState({ respondToInteractionFn: respond })
-    render(<AgentPrompt id="prompt-1" type="approval" content={CONTENT} />)
-    await userEvent.setup().click(screen.getByRole('button', { name: /approve plan/i }))
-    expect(respond).toHaveBeenCalledWith('approve')
-  })
-
-  test('a struck point, a new point and a changed depth travel with the approval', async () => {
-    const user = userEvent.setup()
-    const respond = vi.fn()
-    useChatStore.setState({ respondToInteractionFn: respond })
-    render(<AgentPrompt id="prompt-1" type="approval" content={CONTENT} />)
-    await user.click(screen.getByRole('button', { name: 'Remove section: Fluchtwege' }))
-    await user.type(
-      screen.getByRole('textbox', { name: 'Add a section' }),
-      'Landesabweichungen{enter}'
-    )
-    await user.click(screen.getByRole('radio', { name: 'Full opinion' }))
-    await user.click(screen.getByRole('button', { name: /approve plan/i }))
-    const reply = respond.mock.calls[0]?.[0] as string
-    expect(reply.startsWith('approve {')).toBe(true)
-    expect(JSON.parse(reply.slice('approve '.length))).toEqual({
-      sections: ['Gebäudeklasse', 'Landesabweichungen'],
-      genre: 'pruefbericht',
-      depth: 'gutachten',
-      grundlage: [],
-      ausgeschlossen: [],
-    })
-  })
-
-  test('the composer’s sources travel with the approval as the Rahmen', async () => {
-    const respond = vi.fn()
-    useChatStore.setState({ respondToInteractionFn: respond })
-    useLayoutStore.setState({
-      enabledDataSourceIds: ['knowledge_base'],
-      availableDataSources: [
-        { id: 'knowledge_base', name: 'Wissensbasis' },
-        { id: 'web_search', name: 'Web' },
-      ],
-    })
-    try {
-      render(<AgentPrompt id="prompt-1" type="approval" content={CONTENT} />)
-      expect(screen.getByTestId('plan-rahmen')).toHaveTextContent('Wissensbasis')
-      expect(screen.getByTestId('plan-rahmen')).not.toHaveTextContent('Web')
-      await userEvent.setup().click(screen.getByRole('button', { name: /approve plan/i }))
-      const reply = respond.mock.calls[0]?.[0] as string
-      expect(JSON.parse(reply.slice('approve '.length))).toMatchObject({
-        data_sources: ['knowledge_base'],
-      })
-    } finally {
-      useLayoutStore.setState({ enabledDataSourceIds: [], availableDataSources: null })
-    }
-  })
-
-  test('the documents the reader names travel with the approval', async () => {
-    const user = userEvent.setup()
-    const respond = vi.fn()
-    useChatStore.setState({ respondToInteractionFn: respond })
-    const content = CONTENT.replace(
-      '"depth":"kurzpruefung"',
-      '"depth":"kurzpruefung","grundlage":[],"ausgeschlossen":[],"unterlagen":[{"name":"Einreichplan.pdf","title":"Einreichplan EG","shelf":"project"},{"name":"alt.pdf","shelf":"archiv"}]'
-    )
-    render(<AgentPrompt id="prompt-1" type="approval" content={content} />)
-    await user.click(screen.getByTestId('plan-unterlagen-pick'))
-    await user.click(screen.getByRole('button', { name: 'Read in full: Einreichplan EG' }))
-    await user.click(screen.getByRole('button', { name: 'Exclude: alt.pdf' }))
-    await user.click(screen.getByRole('button', { name: 'Done' }))
-    expect(screen.getByTestId('plan-grundlage')).toHaveTextContent('Einreichplan EG')
-    expect(screen.getByTestId('plan-ausgeschlossen')).toHaveTextContent('alt.pdf')
-    await user.click(screen.getByRole('button', { name: /approve plan/i }))
-    const reply = respond.mock.calls[0]?.[0] as string
-    expect(JSON.parse(reply.slice('approve '.length))).toMatchObject({
-      grundlage: ['Einreichplan.pdf'],
-      ausgeschlossen: ['alt.pdf'],
-    })
   })
 
   test('the receipt of an edited approval still reads as approved', () => {

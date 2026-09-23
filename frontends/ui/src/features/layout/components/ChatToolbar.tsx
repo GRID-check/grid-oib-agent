@@ -10,6 +10,7 @@ import {
   useState,
 } from 'react'
 import {
+  ListChecks,
   Menu,
   MessageSquareText,
   MoreHorizontal,
@@ -38,6 +39,7 @@ import { ShareDialog } from '@/features/collaboration/components/ShareDialog'
 import { useInboxBadge } from '@/features/collaboration/hooks/use-inbox'
 import { useSharing } from '@/features/collaboration/hooks/use-sharing'
 import { SectionLabel } from '@/components/ui/section-label'
+import { PlanDialog } from '@/features/runs/components/PlanDialog'
 import { cn } from '@/lib/utils'
 import { useTranslations } from '@/i18n'
 import { useLayoutStore } from '../store'
@@ -82,6 +84,8 @@ interface ChatToolbarProps {
   isCollaborationEnabled?: boolean
   /** The signed-in user, so the roster can mark "you" and Leave knows its target. */
   currentUserId?: string | null
+  /** The project this thread sits in; enables „Recherche planen" (ADR-0065). */
+  projectId?: string | null
 }
 
 export const ChatToolbar: FC<ChatToolbarProps> = memo(function ChatToolbar({
@@ -92,6 +96,7 @@ export const ChatToolbar: FC<ChatToolbarProps> = memo(function ChatToolbar({
   conversationId = null,
   isCollaborationEnabled = false,
   currentUserId = null,
+  projectId = null,
 }) {
   const { isAuthenticated } = useAuth()
   const t = useTranslations('research')
@@ -116,6 +121,12 @@ export const ChatToolbar: FC<ChatToolbarProps> = memo(function ChatToolbar({
   )
   const sharing = useSharing('conversation', conversationId ?? null, isSharingReachable)
   const [isShareOpen, setIsShareOpen] = useState(false)
+  // Plan a research: a plan the reader writes, and the run that waits on it
+  // (ADR-0065). Offered where a run can be commissioned: in a project thread,
+  // to a signed-in reader.
+  const [isPlanOpen, setIsPlanOpen] = useState(false)
+  const canPlan = Boolean(isAuthenticated && projectId && conversationId)
+  const tRuns = useTranslations('runs')
   // Only render the collaboration affordances once the server has actually told us
   // about this thread. A chip guessing "Privat" before the answer arrives would be
   // a claim about access control made without evidence.
@@ -525,7 +536,30 @@ export const ChatToolbar: FC<ChatToolbarProps> = memo(function ChatToolbar({
         </AnimatePresence>
 
         {/* ── CONTROLS ─────────────────────────────────────────────────────────
-            New chat: the one action frequent enough to stay in the open. */}
+            Plan a research, then New chat: the one action frequent enough to
+            stay in the open. */}
+        {canPlan && (
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-11 gap-1.5 rounded-md px-3 sm:h-7 sm:px-2"
+            onClick={() => setIsPlanOpen(true)}
+            aria-label={tRuns('plan.openDialog')}
+            title={tRuns('plan.openDialog')}
+            data-testid="plan-research"
+          >
+            <ListChecks className="size-4" aria-hidden="true" />
+            <span className="hidden text-xs font-medium lg:inline">{tRuns('plan.openDialog')}</span>
+          </Button>
+        )}
+        {canPlan && projectId && conversationId && (
+          <PlanDialog
+            open={isPlanOpen}
+            onOpenChange={setIsPlanOpen}
+            projectId={projectId}
+            conversationId={conversationId}
+          />
+        )}
         <Button
           variant="ghost"
           size="sm"

@@ -316,7 +316,7 @@ class RunLedgerFold:
         self._grundlage: list[RunLedgerDoc] = [doc for doc in map(_grundlage_doc, grundlage or []) if doc][
             :MAX_GRUNDLAGE_DOCS
         ]
-        self._sent_grundlage: int = 0
+        self._sent_grundlage: tuple[str, ...] = ()
 
         self._dirty = False
         self._flush_now = False
@@ -343,6 +343,47 @@ class RunLedgerFold:
             if len(self._grundlage) >= MAX_GRUNDLAGE_DOCS:
                 return
             self._grundlage.append(wire)
+            self._updated_at = _now()
+            self._dirty = True
+            self._flush_now = True
+        self._schedule_flush()
+
+    def replace_grundlage(self, docs: list[Any]) -> None:
+        """The Grundlage as the plan says it at start (ADR-0065).
+
+        A plan the reader edited while the run waited names other documents
+        than the payload did; the plan read at start is the one the run runs.
+        """
+        wires = [wire for wire in (_grundlage_doc(_as_row(doc)) for doc in docs) if wire][:MAX_GRUNDLAGE_DOCS]
+        with self._lock:
+            self._grundlage = wires
+            self._updated_at = _now()
+            self._dirty = True
+            self._flush_now = True
+        self._schedule_flush()
+
+    def note_waiting(self) -> None:
+        """The run waits on its plan: ``wartet``, flushed at once (ADR-0065).
+
+        The one producer of the status the vocabulary reserved for a run that
+        waits on a person. The BFF turns it into the inbox row and the block
+        stops its clock.
+        """
+        with self._lock:
+            if self._status in ("wartet", "laeuft"):
+                return
+            self._status = "wartet"
+            self._updated_at = _now()
+            self._dirty = True
+            self._flush_now = True
+        self._schedule_flush()
+
+    def note_resumed(self) -> None:
+        """The plan started: back to ``angelegt`` until the first phase opens."""
+        with self._lock:
+            if self._status != "wartet":
+                return
+            self._status = "angelegt"
             self._updated_at = _now()
             self._dirty = True
             self._flush_now = True
@@ -463,7 +504,7 @@ class RunLedgerFold:
         # same inference (``openPhase``); making it here too is what keeps the
         # live snapshot and the stored ledger from telling the reader two
         # different things about the same instant.
-        if self._status == "angelegt":
+        if self._status in ("angelegt", "wartet"):
             self._status = "laeuft"
         now = _now()
         for entry in self._phases:
@@ -604,7 +645,8 @@ class RunLedgerFold:
         phases = [entry.wire() for entry in self._phases if self._sent_phases.get(entry.phase, "") != entry.ended_at]
         steps = [step.wire() for step in self._steps if step is not self._open_step and step.id not in self._sent_steps]
         status = self._status if self._status != self._sent_status else None
-        grundlage = list(self._grundlage) if len(self._grundlage) != self._sent_grundlage else None
+        names = tuple(doc.name for doc in self._grundlage)
+        grundlage = list(self._grundlage) if names != self._sent_grundlage else None
         if not phases and not steps and status is None and grundlage is None:
             return None
         return RunLedgerAppendRequest(steps=steps or None, phases=phases or None, status=status, grundlage=grundlage)
@@ -626,7 +668,7 @@ class RunLedgerFold:
             if body.status is not None:
                 self._sent_status = body.status
             if body.grundlage is not None:
-                self._sent_grundlage = len(body.grundlage)
+                self._sent_grundlage = tuple(doc.name for doc in body.grundlage)
 
     def _emit_snapshot(self, ledger: dict[str, Any] | None) -> None:
         """Put the whole ledger on the job's own stream, for whoever is watching."""
@@ -672,6 +714,10 @@ class FoldingEventStore:
         flush = getattr(self._event_store, "flush", None)
         if flush is not None:
             flush()
+
+
+def _as_row(doc: Any) -> Any:
+    return doc.model_dump() if hasattr(doc, "model_dump") else doc
 
 
 def _grundlage_doc(row: Any) -> RunLedgerDoc | None:

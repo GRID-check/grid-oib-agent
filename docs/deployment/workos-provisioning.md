@@ -329,7 +329,7 @@ delivered in the AuthKit JWT `feature_flags` claim (registry:
 | Flag slug | Gates |
 |---|---|
 | `runtime-model-config` | Runtime AI model configuration (org page card + all 4 API routes) |
-| `deep-research` | Deep-research runs, on all three paths that reach one: job submission (`POST /api/jobs/async/submit`), the commissioned run (`POST /api/internal/tasks`, op `research`), and — since the agent reads it per turn — whether a run is OFFERED at all, so the escalation and its plan-approval card never appear for a tenant without it. **OFF for all organizations in Production since 2026-09-18**; ON in Staging |
+| `deep-research` | Deep-research runs, on all three paths that reach one: job submission (`POST /api/jobs/async/submit`), the commissioned run (`POST /api/internal/tasks`, op `research`), and — since the agent reads it per turn — whether a run is OFFERED at all, so the escalation and its research plan never appear for a tenant without it. The plan primitive (`POST /api/internal/tasks`, op `plan`) is gated the same way. **OFF for all organizations in Production since 2026-09-18**; ON in Staging |
 | `byok-llm` | BYOK LLM credentials (ADR-0022): org page card, all `/api/organization/llm-credentials` routes, and the internal resolution endpoint (under enforcement) |
 | `web-search` | Platform-layer web-search gate (ADR-0022). Evaluated live per org at the WS upgrade (like `memory-reflection`), combined with the tenant's own `settings.webSearchEnabled` toggle |
 | `source-origin-badges` | Retired 2026-09 with the research side panel (its only reader was `ReportTab`). The flag still exists in WorkOS; nothing evaluates it |

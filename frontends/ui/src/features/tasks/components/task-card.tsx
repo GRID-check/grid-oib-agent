@@ -135,6 +135,8 @@ export interface TaskCardProps {
 
 export function TaskCard({ projectId, task, onSelect }: TaskCardProps): JSX.Element {
   const t = useTranslations('tasks')
+  const tRuns = useTranslations('runs')
+  const tChat = useTranslations('chat')
   const { locale } = useLocale()
   const ReviewIcon = task.review ? REVIEW_ICON[task.review] : null
   const result = taskResultTarget(projectId, task)
@@ -253,6 +255,18 @@ export function TaskCard({ projectId, task, onSelect }: TaskCardProps): JSX.Elem
               {task.goal && (
                 <p className="text-muted-foreground line-clamp-2 text-sm leading-relaxed">
                   {task.goal}
+                </p>
+              )}
+
+              {/* The plan the run waits on or ran on (ADR-0065): what the
+                  report will be, one line, the same words the block uses. */}
+              {task.research && (
+                <p className="text-muted-foreground truncate text-xs" data-testid="task-card-plan">
+                  {tRuns('plan.summary', {
+                    genre: tChat(`agentPrompt.plan.genres.${task.research.genre}`),
+                    depth: tChat(`agentPrompt.plan.depths.${task.research.depth}`),
+                    count: task.research.sections.length,
+                  })}
                 </p>
               )}
 

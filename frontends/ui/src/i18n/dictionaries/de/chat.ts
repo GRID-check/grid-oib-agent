@@ -822,30 +822,14 @@ export const chat: typeof en.chat = {
         removeExcluded: 'Nicht mehr ausgeschlossen: {name}',
       },
       rahmen: 'Datengrundlage',
-      rahmenNote: 'Die im Eingabefeld gewählten Quellen. Ändern Sie sie dort, bevor Sie freigeben.',
     },
     awaitingOther: 'Piloti wartet auf {name}',
     awaitingSomeone: 'Piloti wartet auf eine andere Person',
     needsInput: 'Piloti benötigt Ihre Eingabe',
     receivedInput: 'Piloti hat Ihre Eingabe erhalten',
-    approve: 'Genehmigen',
-    reject: 'Ablehnen',
-    approvePlan: 'Plan genehmigen',
-    rejectPlan: 'Plan ablehnen',
     // The current three-way plan decision (start / answer briefly / cancel).
-    startResearch: 'Recherche starten',
-    answerShallow: 'Kurz beantworten',
-    answerShallowAria: 'Frage kurz beantworten, ohne Deep Research',
-    cancelResearch: 'Abbrechen',
-    cancelResearchAria: 'Recherche abbrechen',
     selectOption: 'Option auswählen: {option}',
     yourResponse: 'Ihre Antwort:',
-    approvalInstruction:
-      'Wählen Sie „Genehmigen“, um die Recherche zu starten, oder „Ablehnen“, um abzubrechen.',
-    approvalInstructionThreeWay:
-      'Starten Sie die Recherche, lassen Sie Ihre Frage stattdessen kurz beantworten, oder brechen Sie ab.',
-    durationHint:
-      'Die Deep-Research-Ausführung kann mehrere Minuten dauern und verbraucht Kontingent.',
     // The plan bubble's scaffolding, localized in place of the backend's
     // byte-stable English headers.
     planPreviewHeading: 'Rechercheplan',

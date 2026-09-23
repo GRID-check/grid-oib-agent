@@ -46,6 +46,7 @@ import type {
   NewTaskDefinition,
   TaskDefinition,
   TaskPlan,
+  TaskPlanResearch,
   TaskRun,
 } from '@/lib/db/schema'
 import { DELEGATABLE_TASK_KINDS } from '@/lib/db/schema'
@@ -426,6 +427,12 @@ export interface CommissionResearchInput {
   dataSources?: string[] | null
   /** The Unterlagen the reader named on the plan card. */
   documents?: PlanDocuments | null
+  /**
+   * The research plan this run waits on (ADR-0065), frozen onto the row so
+   * the task card can say what the run is about. The worker reads the live
+   * plan by id when it may start; this copy is for the list.
+   */
+  plan?: TaskPlanResearch | null
 }
 
 /** Where the commissioned run narrates itself, for the turn that commissioned it. */
@@ -485,6 +492,7 @@ export async function commissionResearchRun(
 
   const context = input.context?.trim()
   const documents = input.documents ?? null
+  const research = input.plan ?? null
   const plan: TaskPlan = {
     prompt: context ? `${question}\n\n${CONTEXT_HEADING}\n${context}` : question,
     skill: emptySkillSnapshot(),
@@ -493,6 +501,7 @@ export async function commissionResearchRun(
     subject: null,
     ...(context ? { context } : {}),
     ...(documents && !isEmptyPlanDocuments(documents) ? { documents } : {}),
+    ...(research ? { research } : {}),
   }
   const queued = await repository.insertRun({
     organizationId: session.organizationId,
@@ -500,7 +509,7 @@ export async function commissionResearchRun(
     // No definition: see above.
     definitionId: null,
     kind: 'deep-research',
-    title: researchTitle(question),
+    title: research?.title ?? researchTitle(question),
     plan,
     requesterUserId: session.userId,
     requesterEmail: session.email,
@@ -605,6 +614,7 @@ async function submitQueuedRun(run: TaskRun, target: DispatchTarget): Promise<Ta
       conversationId: conversation,
       clarifierResult: run.plan.context ?? null,
       documents: run.plan.documents ?? null,
+      planId: run.plan.research?.planId ?? null,
     })
     return (
       (await repository.updateRun(run.id, run.organizationId, {
