@@ -4,7 +4,6 @@ import { vi, describe, test, expect, beforeEach } from 'vitest'
 import { AgentPrompt } from './AgentPrompt'
 import { en } from '@/i18n/dictionaries'
 import { useChatStore } from '../store'
-import { useLayoutStore } from '@/features/layout/store'
 
 // Mock MarkdownRenderer
 vi.mock('@/shared/components/MarkdownRenderer', () => ({
