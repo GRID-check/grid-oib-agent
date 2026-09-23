@@ -10,13 +10,19 @@ vi.mock('@/lib/auth/require-auth', () => ({
     organizationId: 'org_1',
     email: 'p@grid.test',
     role: 'admin',
+    featureFlags: [],
   }),
 }))
+vi.mock('@/lib/sharing/access', () => ({ requireResourceAccess: vi.fn() }))
+vi.mock('@/lib/conversations/repository', () => ({ findConversationInOrg: vi.fn() }))
 vi.mock('@/lib/tasks/delegation', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/lib/tasks/delegation')>()
   return { ...actual, commissionResearchRun: vi.fn() }
 })
 
+import { NotFoundError } from '@/lib/api/errors'
+import { findConversationInOrg } from '@/lib/conversations/repository'
+import { requireResourceAccess } from '@/lib/sharing/access'
 import { commissionResearchRun } from '@/lib/tasks/delegation'
 import { POST } from './route'
 
@@ -33,7 +39,12 @@ const post = (body: unknown) =>
   )
 
 beforeEach(() => {
+  vi.unstubAllEnvs()
   vi.mocked(commissionResearchRun).mockReset()
+  vi.mocked(requireResourceAccess).mockReset().mockResolvedValue({} as never)
+  vi.mocked(findConversationInOrg)
+    .mockReset()
+    .mockResolvedValue({ id: 's_conv', projectId: PROJECT } as never)
 })
 
 describe('POST /api/projects/[id]/runs', () => {
@@ -94,6 +105,36 @@ describe('POST /api/projects/[id]/runs', () => {
   it('refuses a body without a question', async () => {
     const response = await post({ conversationId: 's_conv', question: '' })
     expect(response.status).toBe(400)
+    expect(commissionResearchRun).not.toHaveBeenCalled()
+  })
+
+  it('answers 403 when deep research is off for the org', async () => {
+    vi.stubEnv('GRID_ENFORCE_FEATURE_FLAGS', 'true')
+    const response = await post({ conversationId: 's_conv', question: 'Fluchtweg klären' })
+    expect(response.status).toBe(403)
+    expect(commissionResearchRun).not.toHaveBeenCalled()
+  })
+
+  it('refuses a thread the caller may not post to', async () => {
+    vi.mocked(requireResourceAccess).mockRejectedValue(new NotFoundError())
+    const response = await post({ conversationId: 's_other', question: 'Fluchtweg klären' })
+    expect(response.status).toBe(404)
+    expect(requireResourceAccess).toHaveBeenCalledWith(
+      expect.objectContaining({ userId: 'user_1' }),
+      'conversation',
+      's_other',
+      'collaborator'
+    )
+    expect(commissionResearchRun).not.toHaveBeenCalled()
+  })
+
+  it('refuses a thread that belongs to another project', async () => {
+    vi.mocked(findConversationInOrg).mockResolvedValue({
+      id: 's_conv',
+      projectId: '22222222-2222-4222-8222-222222222222',
+    } as never)
+    const response = await post({ conversationId: 's_conv', question: 'Fluchtweg klären' })
+    expect(response.status).toBe(404)
     expect(commissionResearchRun).not.toHaveBeenCalled()
   })
 })
