@@ -55,17 +55,23 @@ def _events_query(
     from sqlalchemy import text
 
     params: dict[str, Any] = {"job_id": job_id, "after_id": after_id, "limit": limit}
-    type_clause = ""
-    if event_types is not None:
-        type_clause = "AND event_type IN :event_types "
-        params["event_types"] = list(event_types)
+    if event_types is None:
+        return (
+            text(
+                "SELECT id, event_data FROM job_events "
+                "WHERE job_id = :job_id AND id > :after_id "
+                "ORDER BY id LIMIT :limit"
+            ),
+            params,
+        )
+    # Two literal statements rather than one with a spliced clause: nothing
+    # but bound parameters ever reaches the SQL text.
+    params["event_types"] = list(event_types)
     statement = text(
         "SELECT id, event_data FROM job_events "
-        f"WHERE job_id = :job_id AND id > :after_id {type_clause}"
+        "WHERE job_id = :job_id AND id > :after_id AND event_type IN :event_types "
         "ORDER BY id LIMIT :limit"
-    )
-    if event_types is not None:
-        statement = statement.bindparams(bindparam("event_types", expanding=True))
+    ).bindparams(bindparam("event_types", expanding=True))
     return statement, params
 
 
