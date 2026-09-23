@@ -80,7 +80,9 @@ def read_api_key_env(name: str) -> str:
     """
     value = os.environ.get(name, "")
     if value.startswith("${") and value.endswith("}"):
-        logger.error("%s contains an unresolved placeholder %r - treating as unset", name, value)
+        # The name, never the value: this reads API-key variables, and a value
+        # that merely looks like a placeholder is still what the variable holds.
+        logger.error("%s contains an unresolved ${...} placeholder - treating as unset", name)
         return ""
     return value
 
