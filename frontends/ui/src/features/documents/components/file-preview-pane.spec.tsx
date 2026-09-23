@@ -299,6 +299,59 @@ describe('FilePreviewPane', () => {
       expect(screen.queryByRole('button', { name: /detailed information/i })).toBeNull()
     })
 
+    it('marks which of the sheet\'s depictions a row is when a sheet carries several', async () => {
+      // Issue #440: two floor plans side by side index as two rows. Without
+      // the position they read as one drawing stated twice.
+      vi.spyOn(globalThis, 'fetch').mockImplementation(async (input: RequestInfo | URL) => {
+        const url = String(input)
+        if (url.includes('/visual-details')) {
+          return {
+            ok: true,
+            json: async () => ({
+              details: [
+                {
+                  page: 1,
+                  contentType: 'drawing',
+                  drawingType: 'floor_plan',
+                  scale: '1:100',
+                  text: 'Erdgeschoss.',
+                  segment: 0,
+                  segmentCount: 2,
+                },
+                {
+                  page: 1,
+                  contentType: 'drawing',
+                  drawingType: 'floor_plan',
+                  scale: '1:100',
+                  text: 'Obergeschoss.',
+                  segment: 1,
+                  segmentCount: 2,
+                },
+              ],
+            }),
+          } as Response
+        }
+        return {
+          ok: true,
+          json: async () => ({ url: 'https://example.test/plan.pdf' }),
+        } as Response
+      })
+
+      render(
+        <FilePreviewPane
+          file={{ ...mockFile, contentTypes: ['text', 'drawing'] }}
+          projectId="proj-1"
+        />
+      )
+
+      await userEvent.click(screen.getByRole('button', { name: /detailed information/i }))
+      expect(await screen.findByText('Erdgeschoss.')).toBeDefined()
+      expect(screen.getByText('Obergeschoss.')).toBeDefined()
+      // Language-neutral by construction: `1/2` needs no dictionary.
+      expect(screen.getByText('· 1/2')).toBeDefined()
+      expect(screen.getByText('· 2/2')).toBeDefined()
+    })
+
     /** The structured half of the analysis — rooms, assemblies, quantities,
      * provenance — behind a second, advanced disclosure. */
     const mockVisualDetails = (details: unknown[]) => {
