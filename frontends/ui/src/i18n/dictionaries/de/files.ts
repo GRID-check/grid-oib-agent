@@ -2,6 +2,37 @@ import type { en } from '../en'
 
 /** files namespace — populated during component i18n. */
 export const files: typeof en.files = {
+  // Die Dokumentauswahl: ein Öffnen-Fenster über der Seite, für jede Stelle,
+  // an der Unterlagen benannt werden.
+  picker: {
+    places: 'Orte',
+    folders: 'Ordner',
+    recent: 'Zuletzt',
+    selected: 'Ausgewählt',
+    shelves: { project: 'Projekt', archiv: 'Büroarchiv', session: 'Dieser Chat', base: 'Regelwerke' },
+    back: 'Zurück',
+    forward: 'Vorwärts',
+    path: 'Pfad',
+    viewList: 'Als Liste',
+    viewGrid: 'Als Symbole',
+    search: 'Dokumente durchsuchen',
+    searchPlaceholder: 'In „{place}“ suchen',
+    clearSearch: 'Suche leeren',
+    items: 'Dokumente',
+    columns: { name: 'Name', date: 'Hinzugefügt', size: 'Größe', kind: 'Art' },
+    folderCount: '{count, plural, one {# Dokument} other {# Dokumente}}',
+    loading: 'Dokumente werden geladen …',
+    empty: 'Hier liegen keine Dokumente.',
+    noMatches: 'Keine Treffer für „{query}“.',
+    selectedEmpty: 'Noch nichts ausgewählt.',
+    preview: 'Vorschau',
+    previewEmpty: 'Klicken Sie ein Dokument an, um es hier zu sehen.',
+    facts: { shelf: 'Ablage', kind: 'Art', size: 'Größe', pages: 'Seiten', added: 'Hinzugefügt', contains: 'Enthält' },
+    nothingSelected: 'Nichts ausgewählt',
+    selectedCount: '{count, plural, one {# Dokument} other {# Dokumente}} ausgewählt',
+    clear: 'Auswahl aufheben',
+    cancel: 'Abbrechen',
+  },
   uploadZone: {
     clickToUpload: 'Zum Hochladen klicken',
     orDragAndDrop: ' oder per Drag-and-drop ablegen',

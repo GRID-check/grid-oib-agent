@@ -25,6 +25,9 @@ from aiq_agent.common.citation_verification import extract_sources_from_tool_res
 from aiq_agent.common.citation_verification import get_session_registry
 from aiq_agent.common.cost_tracking import BudgetExceededError
 from aiq_agent.common.deferred_tool_loading import tool_payload_name
+from aiq_agent.common.source_kinds import Shelf
+from aiq_agent.common.source_kinds import legacy_shelf_for_collection_name
+from aiq_agent.common.source_kinds import parse_shelf
 
 logger = logging.getLogger(__name__)
 
@@ -310,6 +313,10 @@ class ToolVisibilityMiddleware(AgentMiddleware):
         return await handler(request.override(tools=self._filter_tools(request.tools)))
 
 
+#: The shelves that hold the reader's own documents: what „Nur diese" confines.
+_READER_SHELVES = frozenset({Shelf.PROJECT, Shelf.ARCHIV, Shelf.SESSION})
+
+
 class SourceRegistryMiddleware(AgentMiddleware):
     """Intercepts tool call results to build a registry of actual sources.
 
@@ -339,6 +346,7 @@ class SourceRegistryMiddleware(AgentMiddleware):
         source_tool_names: set[str] | None = None,
         *,
         excluded_file_names: Iterable[str] = (),
+        only_file_names: Iterable[str] = (),
     ) -> None:
         self.registry = SourceRegistry()
         self._source_tool_names = source_tool_names or set()
@@ -348,14 +356,32 @@ class SourceRegistryMiddleware(AgentMiddleware):
         # it can neither be cited nor quoted and a citation to it is stripped
         # like one to a source that never existed.
         self._excluded_keys = {self._locator_key(name) for name in excluded_file_names if name and name.strip()}
+        # „Nur diese": of the reader's OWN documents only these may be used.
+        # Refused by shelf, so a norm or a law on the base shelf, and anything
+        # from the web, stays available: the confinement is to the reader's
+        # files, never to the measure the report holds them against.
+        self._only_keys = {self._locator_key(name) for name in only_file_names if name and name.strip()}
         self._lock = asyncio.Lock()
 
     def is_excluded(self, entry: SourceEntry) -> bool:
-        """Whether the reader excluded the document this entry came from."""
-        if not self._excluded_keys:
+        """Whether the reader excluded the document this entry came from.
+
+        Two ways: the document is on the Ausgeschlossen, or the plan confines
+        the reader's own documents to its Grundlage and this one is theirs
+        and not on it. A passage whose shelf nobody stated is not refused by
+        the confinement: refusing it could refuse a norm, and the plan never
+        said to stop reading those.
+        """
+        if not self._excluded_keys and not self._only_keys:
             return False
         key = self._entry_key(entry)
-        return key is not None and key in self._excluded_keys
+        if key is None:
+            return False
+        if key in self._excluded_keys:
+            return True
+        if not self._only_keys or entry.url or key in self._only_keys:
+            return False
+        return (parse_shelf(entry.shelf) or legacy_shelf_for_collection_name(entry.collection)) in _READER_SHELVES
 
     def read_file_names(self) -> set[str]:
         """The file names (page-stripped, lowercased) the run has a passage from."""

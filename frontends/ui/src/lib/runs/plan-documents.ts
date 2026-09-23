@@ -29,6 +29,12 @@ export const planDocumentsSchema = z
   .object({
     grundlage: z.array(planDocumentSchema).max(MAX_PLAN_DOCUMENTS).default([]),
     ausgeschlossen: z.array(planDocumentSchema).max(MAX_PLAN_DOCUMENTS).default([]),
+    /**
+     * „Nur diese": of the reader's own documents only the Grundlage. Snake
+     * case because this is the Python model's own wire shape
+     * (`PlanDocuments.nur_grundlage`), which the agent sends as it is.
+     */
+    nur_grundlage: z.boolean().optional(),
   })
   .strict()
 
@@ -48,7 +54,11 @@ export const isEmptyPlanDocuments = (docs: PlanDocuments | null | undefined): bo
  */
 export function sanitizePlanDocuments(input: unknown): PlanDocuments | null {
   const parsed = z
-    .object({ grundlage: z.array(z.unknown()).optional(), ausgeschlossen: z.array(z.unknown()).optional() })
+    .object({
+      grundlage: z.array(z.unknown()).optional(),
+      ausgeschlossen: z.array(z.unknown()).optional(),
+      nur_grundlage: z.unknown().optional(),
+    })
     .safeParse(input)
   if (!parsed.success) return null
   const seen = new Set<string>()
@@ -69,5 +79,7 @@ export function sanitizePlanDocuments(input: unknown): PlanDocuments | null {
   const ausgeschlossen = take(parsed.data.ausgeschlossen)
   const grundlage = take(parsed.data.grundlage)
   if (grundlage.length === 0 && ausgeschlossen.length === 0) return null
-  return { grundlage, ausgeschlossen }
+  // A confinement to nothing would refuse every document the reader owns.
+  const nur = grundlage.length > 0 && parsed.data.nur_grundlage === true
+  return { grundlage, ausgeschlossen, ...(nur ? { nur_grundlage: true } : {}) }
 }

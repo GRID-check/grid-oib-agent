@@ -92,12 +92,33 @@ Prüfpunkt in a fixed shape, which is also what the findings extraction reads.
 
 ### Unterlagen: what the run reads, and what it may not
 
-The plan names documents as well as sections. It carries the turn's inventory
-(`unterlagen`, the project's and the Archiv's documents by name, title and
-shelf), and a dialog over the plan (`UnterlagenDialog.tsx`, mode `pick`) lets
-the reader mark each one:
+The plan names documents as well as sections. By default a deep research may
+read every document it can find, and naming documents is optional. The plan
+carries the turn's inventory (`unterlagen`, the project's and the Archiv's
+documents by name, title and shelf). Its document step (`PlanUnterlagen.tsx`,
+on the block and in „Recherche planen") opens the document picker
+(`DocumentPickerDialog`, [`run-block.md`](../design/run-block.md#the-document-picker)),
+which offers the whole project listing with its folders and the Büroarchiv,
+loaded when a picker first opens. A document picked from that listing travels
+with the edit (`edit.unterlagen`),
+so an agent's plan drafted without an inventory can still be told what to
+read. The step offers a choice of scope:
 
-- **Grundlage** — read in full, whatever else the research finds. The planner
+- **Alle Unterlagen**, the default. A marked document is a Schwerpunkt: it is
+  read first and in full, and the research still reads anything else it finds.
+- **Nur ausgewählte** (`nurGrundlage`). Of the reader's own documents on the
+  project, Archiv and chat shelves, the research uses the marked ones and no
+  other. `SourceRegistryMiddleware` enforces it: a passage from one of those
+  shelves that is not in the Grundlage is refused before it becomes a source.
+  Norms and laws on the base shelf and the web stay available, and so does a
+  passage whose shelf nobody stated, because refusing it could refuse a norm.
+  The switch is never on without a Grundlage: the table's CHECK
+  (`research_plans_nur_has_grundlage`) holds that, and the BFF and both
+  sanitisers drop the switch with the last document.
+
+What each mark does:
+
+- **Grundlage**: read in full, whatever else the research finds. The planner
   is told to plan one dedicated query per document; the finalizer marks any it
   never opened (`## Nicht gelesene Unterlagen`, degraded token
   `grundlage_unread`), and the block's receipt lists each one as read, with
@@ -115,8 +136,8 @@ the plan's own inventory once, for every client (`lib/plans/service.ts`
 `resolveNamedDocuments`). The worker reads the resolved lists off the plan it
 is handed at start. `MAX_PLAN_DOCUMENTS` (20) bounds each list on every side.
 
-While the run goes, „Dokument hinzufügen" on the block opens the same dialog
-in mode `add`: the addition travels as a job event
+While the run goes, „Dokument hinzufügen" on the block opens a dialog
+(the same `DocumentPickerDialog`, with documents already named ruled out): each addition travels as a job event
 (`POST /v1/jobs/async/job/{id}/documents` → `job.document_added`), the
 worker's monitor hands it to the research tool before its next batch
 (`deep_researcher/control.py` — `take_added_documents`, an

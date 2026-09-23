@@ -5,13 +5,14 @@
  * thread is re-read so the new run's block appears.
  */
 
-import { fireEvent, render, screen, waitFor } from '@/test-utils'
+import { fireEvent, render, screen, waitFor, within } from '@/test-utils'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('@/lib/plans/plan-client', () => ({ createPlan: vi.fn() }))
-vi.mock('../hooks/use-project-inventory', () => ({
-  useProjectInventory: () => ({
-    documents: [{ name: 'Einreichplan.pdf', title: 'Einreichplan', shelf: 'project', file: {}, source: 'projekt' }],
+vi.mock('@/features/documents/hooks/use-document-library', () => ({
+  useDocumentLibrary: () => ({
+    documents: [{ name: 'Einreichplan.pdf', title: 'Einreichplan', shelf: 'project', file: {} }],
+    folders: [],
     loading: false,
   }),
 }))
@@ -53,10 +54,40 @@ describe('PlanDialog', () => {
       depth: 'gutachten',
       grundlage: [],
       ausgeschlossen: [],
+      nurGrundlage: false,
       dataSources: ['knowledge_base'],
       unterlagen: [{ name: 'Einreichplan.pdf', title: 'Einreichplan', shelf: 'project' }],
     })
     expect(hydrate).toHaveBeenCalledWith('s_conv')
+  })
+
+  it('starts from a ready outline, and says what is still missing', () => {
+    render(<PlanDialog open onOpenChange={vi.fn()} projectId="proj" conversationId="s_conv" />)
+    const missing = screen.getByTestId('plan-dialog-missing')
+    expect(missing.querySelectorAll('[data-met]')).toHaveLength(0)
+    fireEvent.click(screen.getByTestId('plan-use-template'))
+    expect(screen.getAllByTestId('plan-point')).toHaveLength(5)
+    expect(missing.querySelectorAll('[data-met]')).toHaveLength(1)
+    // The preview shows the outline as the block will.
+    expect(screen.getByTestId('plan-dialog-preview')).toHaveTextContent('Starting point')
+  })
+
+  it('sends „Nur ausgewählte" with the documents it confines to', async () => {
+    render(<PlanDialog open onOpenChange={vi.fn()} projectId="proj" conversationId="s_conv" />)
+    fireEvent.change(screen.getByTestId('plan-dialog-question'), { target: { value: 'Frage' } })
+    fireEvent.click(screen.getByTestId('plan-use-template'))
+    fireEvent.click(screen.getByRole('radio', { name: /only selected/i }))
+    // With nothing chosen yet, „Nur ausgewählte" opens the picker.
+    const picker = screen.getByTestId('document-picker')
+    fireEvent.click(within(picker).getAllByTestId('picker-doc')[0])
+    fireEvent.click(within(picker).getByTestId('picker-confirm'))
+    fireEvent.click(screen.getByTestId('plan-dialog-submit'))
+    await waitFor(() => expect(createPlan).toHaveBeenCalled())
+    expect(vi.mocked(createPlan).mock.calls[0][1]).toMatchObject({
+      grundlage: ['Einreichplan.pdf'],
+      ausgeschlossen: [],
+      nurGrundlage: true,
+    })
   })
 
   it('says so when the plan could not be created, and stays open', async () => {

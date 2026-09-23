@@ -27,6 +27,7 @@ const plan = (overrides: Partial<ResearchPlan> = {}): ResearchPlan => ({
   depth: 'gutachten',
   grundlage: [],
   ausgeschlossen: [],
+  nurGrundlage: false,
   dataSources: null,
   unterlagen: [{ name: 'Einreichplan.pdf', shelf: 'project' }],
   startsAt: new Date(T0.getTime() + 30_000).toISOString(),
@@ -90,6 +91,28 @@ describe('RunPlan', () => {
     expect(screen.queryByTestId('plan-checklist')).not.toBeInTheDocument()
   })
 
+  it('places the plan on its lifecycle once the clock has stopped, and says edits are saved', () => {
+    render(<RunPlan plan={plan({ status: 'held', startsAt: null })} onEdit={vi.fn()} onStart={vi.fn()} />)
+    expect(screen.getByTestId('run-plan-lifecycle')).toHaveAttribute('data-stage', 'held')
+    expect(screen.getByTestId('run-plan-saved')).toHaveTextContent('Every change is saved at once.')
+    expect(screen.queryByTestId('run-plan-countdown')).not.toBeInTheDocument()
+  })
+
+  it('shows a plan confined to its documents as such', () => {
+    render(
+      <RunPlan
+        plan={plan({
+          status: 'started',
+          startsAt: null,
+          nurGrundlage: true,
+          grundlage: [{ name: 'Einreichplan.pdf', shelf: 'project' }],
+        })}
+      />
+    )
+    expect(screen.getByTestId('run-plan-toggle')).toHaveTextContent('only 1 document')
+    expect(screen.getByTestId('run-plan-grundlage')).toHaveTextContent('Only these:')
+  })
+
   it('names a plan the reader wrote as theirs', () => {
     render(<RunPlan plan={plan({ author: 'user', status: 'approved', startsAt: null })} />)
     expect(screen.getByTestId('run-plan-toggle')).toHaveTextContent('Your research plan')
@@ -97,6 +120,19 @@ describe('RunPlan', () => {
 })
 
 describe('planEdit', () => {
+  it('sends a document picked from the project listing with the names, and the scope when it changes', () => {
+    const before = planShapeOf(plan())
+    const statik = { name: 'Statik.pdf', shelf: 'project' }
+    expect(
+      planEdit(before, {
+        ...before,
+        grundlage: ['Statik.pdf'],
+        nurGrundlage: true,
+        unterlagen: [...before.unterlagen, statik],
+      })
+    ).toEqual({ grundlage: ['Statik.pdf'], nurGrundlage: true, unterlagen: [statik] })
+  })
+
   it('is empty for an untouched plan and names only the changed fields', () => {
     const before = planShapeOf(plan())
     expect(planEdit(before, before)).toEqual({})

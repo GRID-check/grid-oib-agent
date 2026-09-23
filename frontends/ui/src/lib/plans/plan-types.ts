@@ -85,6 +85,12 @@ export const researchPlanSchema = z
     depth: z.enum(PLAN_DEPTHS),
     grundlage: z.array(planDocumentSchema).max(MAX_PLAN_DOCUMENTS),
     ausgeschlossen: z.array(planDocumentSchema).max(MAX_PLAN_DOCUMENTS),
+    /**
+     * „Nur diese": of the reader's own documents only the Grundlage may be
+     * used. Off, the run reads whatever it finds and the Grundlage is its
+     * focus. Never true without a Grundlage (the table's CHECK says so).
+     */
+    nurGrundlage: z.boolean(),
     /** The Rahmen: the sources the run may draw on. Null keeps the worker's default. */
     dataSources: dataSourcesSchema.nullable(),
     /** What the card may name: the inventory the plan was drafted against. */
@@ -116,6 +122,7 @@ export const researchPlanDraftSchema = z
     depth: z.enum(PLAN_DEPTHS).default('gutachten'),
     grundlage: documentNamesSchema.default([]),
     ausgeschlossen: documentNamesSchema.default([]),
+    nurGrundlage: z.boolean().default(false),
     dataSources: dataSourcesSchema.nullable().optional(),
     unterlagen: z.array(planDocumentSchema).max(MAX_PLAN_INVENTORY_ROWS).default([]),
   })
@@ -137,6 +144,14 @@ export const researchPlanEditSchema = z
     depth: z.enum(PLAN_DEPTHS).optional(),
     grundlage: documentNamesSchema.optional(),
     ausgeschlossen: documentNamesSchema.optional(),
+    nurGrundlage: z.boolean().optional(),
+    /**
+     * Documents the reader named from the project's own listing that the
+     * inventory the plan was drafted against does not hold. Merged into
+     * `unterlagen` before the names resolve, so a plan the agent drafted with
+     * no inventory can still be told what to read.
+     */
+    unterlagen: z.array(planDocumentSchema).max(MAX_PLAN_DOCUMENTS * 2).optional(),
   })
   .strict()
 

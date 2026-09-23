@@ -16,10 +16,13 @@
 
 import { useEffect, useState, type FC } from 'react'
 import {
-  BookOpen,
+  Ban,
   ChevronDown,
   CircleCheck,
+  Crosshair,
+  CloudCheck,
   ListOrdered,
+  LoaderCircle,
   Play,
   SlidersHorizontal,
 } from 'lucide-react'
@@ -27,21 +30,23 @@ import { Button } from '@/components/ui/button'
 import { useTranslations } from '@/i18n'
 import type { ResearchPlan, ResearchPlanEdit } from '@/lib/plans/plan-types'
 import { cn } from '@/lib/utils'
+import { PlanBrief } from './PlanBrief'
 import { PlanChecklist, planShapeOf, type PlanRahmen, type PlanShape } from './PlanChecklist'
 import {
   CountdownBar,
   DEPTH_ICON,
   GENRE_ICON,
   GenreWell,
-  OutlineRail,
-  PlanDocChip,
   PlanEyebrow,
   PlanFacts,
+  PlanLifecycle,
 } from './plan-atoms'
 
 export interface RunPlanProps {
   plan: ResearchPlan
   rahmen?: PlanRahmen
+  /** The project whose listing the document step offers. */
+  projectId?: string | null
   pending?: boolean
   onEdit?: ((edit: ResearchPlanEdit) => void | Promise<void>) | null
   onHold?: (() => void | Promise<void>) | null
@@ -51,14 +56,25 @@ export interface RunPlanProps {
 const sameList = (a: readonly string[], b: readonly string[]): boolean =>
   a.length === b.length && a.every((item, index) => item === b[index])
 
-/** Only what changed, so an edit never re-sends what the reader left alone. */
+const fold = (name: string): string => name.trim().toLocaleLowerCase()
+
+/**
+ * Only what changed, so an edit never re-sends what the reader left alone.
+ * A document named from the project listing, which the plan's inventory did
+ * not hold, travels with the names so the BFF can resolve it.
+ */
 export function planEdit(before: PlanShape, after: PlanShape): ResearchPlanEdit {
+  const known = new Set(before.unterlagen.map((doc) => fold(doc.name)))
+  const named = new Set([...after.grundlage, ...after.ausgeschlossen].map(fold))
+  const brought = after.unterlagen.filter((doc) => !known.has(fold(doc.name)) && named.has(fold(doc.name)))
   return {
     ...(sameList(before.sections, after.sections) ? {} : { sections: after.sections }),
     ...(before.genre === after.genre ? {} : { genre: after.genre }),
     ...(before.depth === after.depth ? {} : { depth: after.depth }),
     ...(sameList(before.grundlage, after.grundlage) ? {} : { grundlage: after.grundlage }),
     ...(sameList(before.ausgeschlossen, after.ausgeschlossen) ? {} : { ausgeschlossen: after.ausgeschlossen }),
+    ...(before.nurGrundlage === after.nurGrundlage ? {} : { nurGrundlage: after.nurGrundlage }),
+    ...(brought.length > 0 ? { unterlagen: brought } : {}),
   }
 }
 
@@ -91,7 +107,15 @@ function remainingFraction(plan: ResearchPlan, now: number): number | null {
 /** Rows of the outline shown while the plan is folded. */
 const PREVIEW_ROWS = 4
 
-export const RunPlan: FC<RunPlanProps> = ({ plan, rahmen, pending = false, onEdit, onHold, onStart }) => {
+export const RunPlan: FC<RunPlanProps> = ({
+  plan,
+  rahmen,
+  projectId = null,
+  pending = false,
+  onEdit,
+  onHold,
+  onStart,
+}) => {
   const t = useTranslations('runs')
   const tc = useTranslations('chat')
   const shape = planShapeOf(plan)
@@ -112,9 +136,17 @@ export const RunPlan: FC<RunPlanProps> = ({ plan, rahmen, pending = false, onEdi
     { icon: DEPTH_ICON[plan.depth], label: tc(`agentPrompt.plan.depths.${plan.depth}`) },
     { icon: ListOrdered, label: t('plan.sections', { count: plan.sections.length }) },
     ...(plan.grundlage.length > 0
-      ? [{ icon: BookOpen, label: t('plan.documents', { count: plan.grundlage.length }) }]
+      ? [
+          plan.nurGrundlage
+            ? { icon: CircleCheck, label: t('plan.documentsOnly', { count: plan.grundlage.length }) }
+            : { icon: Crosshair, label: t('plan.documents', { count: plan.grundlage.length }) },
+        ]
+      : []),
+    ...(plan.ausgeschlossen.length > 0
+      ? [{ icon: Ban, label: t('plan.excluded', { count: plan.ausgeschlossen.length }) }]
       : []),
   ]
+  const editing = open && editable && Boolean(onEdit)
 
   const line =
     plan.status === 'proposed'
@@ -191,8 +223,22 @@ export const RunPlan: FC<RunPlanProps> = ({ plan, rahmen, pending = false, onEdi
         </span>
       </div>
 
-      <div className="flex flex-col gap-1.5 pl-12">
-        {remaining !== null && <CountdownBar remaining={remaining} label={line} />}
+      <div className="flex flex-col gap-1.5 sm:pl-12">
+        {remaining !== null ? (
+          <CountdownBar remaining={remaining} label={line} />
+        ) : (
+          plan.status !== 'superseded' && (
+            <PlanLifecycle
+              stage={plan.status}
+              labels={{
+                proposed: t('plan.stage.proposed'),
+                held: t('plan.stage.held'),
+                approved: t('plan.stage.approved'),
+                started: t('plan.stage.started'),
+              }}
+            />
+          )
+        )}
         <p
           className="text-muted-foreground text-xs"
           role={counting ? 'timer' : 'status'}
@@ -200,40 +246,39 @@ export const RunPlan: FC<RunPlanProps> = ({ plan, rahmen, pending = false, onEdi
         >
           {line}
         </p>
+        {editing && (
+          <p className="text-muted-foreground inline-flex items-center gap-1 text-[11px]" data-testid="run-plan-saved">
+            {pending ? (
+              <LoaderCircle className="size-3 animate-spin motion-reduce:animate-none" aria-hidden />
+            ) : (
+              <CloudCheck className="size-3" aria-hidden />
+            )}
+            {pending ? t('plan.saving') : t('plan.saved')}
+          </p>
+        )}
       </div>
 
-      <div className="pl-12">
-        {open && editable && onEdit ? (
+      <div className="sm:pl-12">
+        {editing && onEdit ? (
           <PlanChecklist
             plan={shape}
-            disabled={pending}
             rahmen={rahmen}
+            projectId={projectId}
             onChange={(next) => {
               const edit = planEdit(shape, next)
               if (Object.keys(edit).length > 0) void onEdit(edit)
             }}
           />
         ) : (
-          <div className="flex flex-col gap-2.5">
-            <OutlineRail
-              label={tc('agentPrompt.plan.points')}
-              items={plan.sections}
-              limit={open ? undefined : PREVIEW_ROWS}
-              moreLabel={(count) => t('plan.more', { count })}
-              onMore={() => setOpen(true)}
-              testId={open ? 'run-plan-sections' : 'run-plan-preview'}
-            />
-            {plan.grundlage.length > 0 && (
-              <div className="flex flex-wrap items-center gap-1.5">
-                <span className="text-muted-foreground text-xs">
-                  {tc('agentPrompt.plan.unterlagen.grundlage')}
-                </span>
-                {plan.grundlage.map((doc) => (
-                  <PlanDocChip key={doc.name} doc={doc} />
-                ))}
-              </div>
-            )}
-          </div>
+          <PlanBrief
+            sections={plan.sections}
+            grundlage={plan.grundlage}
+            ausgeschlossen={plan.ausgeschlossen}
+            nurGrundlage={plan.nurGrundlage}
+            limit={open ? undefined : PREVIEW_ROWS}
+            onMore={() => setOpen(true)}
+            testId={open ? 'run-plan-sections' : 'run-plan-preview'}
+          />
         )}
       </div>
     </div>

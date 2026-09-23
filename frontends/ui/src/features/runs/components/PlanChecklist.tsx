@@ -1,18 +1,24 @@
 /**
- * The Rechercheplan as controls: the sections as a checklist the reader can
- * strike and extend, the genre and depth as choices, the Unterlagen through
- * the picker. Fully controlled — every edit is `onChange` with the whole
- * shape — so the caller decides where an edit goes. On the run block it goes
- * to the plan primitive (ADR-0065); in the „Auftrag planen" dialog it stays
- * local until the plan is created.
+ * The Rechercheplan as controls, walked as numbered steps: what the report
+ * covers, what it looks like, which Unterlagen it reads (optional), and where
+ * it searches (fixed, shown for the record). Each step says in one line what
+ * deciding it does, so a reader who has never seen a plan needs no manual.
+ *
+ * Fully controlled — every edit is `onChange` with the whole shape — so the
+ * caller decides where an edit goes. On the run block it goes to the plan
+ * primitive (ADR-0065); in „Recherche planen" it stays local until the plan
+ * is created.
  */
 
-import { useState, type FC } from 'react'
-import { BookOpen, Database, Plus } from 'lucide-react'
+import { useMemo, useState, type FC } from 'react'
+import { Database, Lock, Plus, Sparkles } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Chip } from '@/components/ui/chip'
 import { Input } from '@/components/ui/input'
-import { UnterlagenDialog } from './UnterlagenDialog'
+import type { PickerDocument } from '@/features/documents/components/document-picker/DocumentPickerDialog'
+import type { FolderItem } from '@/features/documents/components/project-file-workspace'
+import { useDocumentLibrary } from '@/features/documents/hooks/use-document-library'
+import { PlanUnterlagen } from './PlanUnterlagen'
 import {
   DEPTH_ICON,
   GENRE_ICON,
@@ -20,20 +26,21 @@ import {
   OptionTiles,
   OutlineAddDisc,
   OutlineRail,
-  PlanDocChip,
-  PlanGroup,
+  PlanStep,
   RowRemove,
   Segmented,
+  SuggestionChip,
 } from './plan-atoms'
 import { useTranslations } from '@/i18n'
 import {
+  MAX_PLAN_SECTIONS,
   PLAN_DEPTHS,
   PLAN_GENRES,
   type PlanDepth,
   type PlanGenre,
   type ResearchPlan,
 } from '@/lib/plans/plan-types'
-import { planDocumentLabel, type PlanDocument } from '@/lib/runs/plan-documents'
+import type { PlanDocument } from '@/lib/runs/plan-documents'
 
 export { PLAN_DEPTHS, PLAN_GENRES, type PlanDepth, type PlanGenre }
 
@@ -47,6 +54,8 @@ export interface PlanShape {
   grundlage: string[]
   /** File names the run may not use. */
   ausgeschlossen: string[]
+  /** „Nur diese": of the reader's own documents, only the Grundlage. Off, it is the run's focus. */
+  nurGrundlage: boolean
   /** What the run can read: the inventory the plan was drafted against. */
   unterlagen: PlanDocument[]
 }
@@ -65,6 +74,7 @@ export function planShapeOf(plan: ResearchPlan): PlanShape {
     depth: plan.depth,
     grundlage: plan.grundlage.map((doc) => doc.name),
     ausgeschlossen: plan.ausgeschlossen.map((doc) => doc.name),
+    nurGrundlage: plan.nurGrundlage,
     // A named document the inventory no longer lists stays nameable.
     unterlagen: [...plan.unterlagen, ...plan.grundlage, ...plan.ausgeschlossen].filter(
       (doc, index, all) => all.findIndex((other) => other.name === doc.name) === index
@@ -72,174 +82,235 @@ export function planShapeOf(plan: ResearchPlan): PlanShape {
   }
 }
 
+/** How many section templates each genre offers. */
+const TEMPLATE_COUNT = 5
+/** Suggestions shown beside a plan that already has sections. */
+const SUGGESTION_LIMIT = 4
+
+const fold = (name: string): string => name.trim().toLocaleLowerCase()
+
+/** Two inventories as one, the first one's rows winning a name both hold. */
+export function mergeDocuments<T extends PlanDocument>(first: readonly T[], second: readonly T[]): T[] {
+  const seen = new Set<string>()
+  return [...first, ...second].filter((doc) => {
+    const key = fold(doc.name)
+    if (seen.has(key)) return false
+    seen.add(key)
+    return true
+  })
+}
+
 export const PlanChecklist: FC<{
   plan: PlanShape
   disabled?: boolean
   /** The sources the run searches, shown read-only. */
   rahmen?: PlanRahmen
+  /** The project whose listing the document picker offers, loaded when it first opens. */
+  projectId?: string | null
+  /** A listing the caller already holds; the checklist then loads none of its own. */
+  inventory?: { documents: readonly PickerDocument[]; folders?: readonly FolderItem[]; loading: boolean }
+  /** The numeral of the first step, when the caller puts one of its own above. */
+  firstStep?: number
   onChange: (plan: PlanShape) => void
-}> = ({ plan, disabled = false, rahmen, onChange }) => {
+}> = ({ plan, disabled = false, rahmen, projectId = null, inventory, firstStep = 1, onChange }) => {
   const t = useTranslations('chat')
   const [draft, setDraft] = useState('')
-  const [picking, setPicking] = useState(false)
-  const docOf = (name: string): PlanDocument => {
-    const key = name.trim().toLocaleLowerCase()
-    return plan.unterlagen.find((row) => row.name.trim().toLocaleLowerCase() === key) ?? { name }
-  }
-  const dropName = (list: 'grundlage' | 'ausgeschlossen', name: string): void =>
-    onChange({ ...plan, [list]: plan[list].filter((item) => item !== name) })
+  const [browsing, setBrowsing] = useState(false)
+  const library = useDocumentLibrary(inventory ? null : projectId, browsing)
+  // The listing's rows first: they carry the file a picker's columns and
+  // preview read. A document only the plan's inventory names stays nameable.
+  const documents = useMemo(
+    () => mergeDocuments<PickerDocument>(inventory?.documents ?? library.documents ?? [], plan.unterlagen),
+    [plan.unterlagen, inventory?.documents, library.documents]
+  )
 
   const remove = (index: number) =>
     onChange({ ...plan, sections: plan.sections.filter((_, i) => i !== index) })
+  const addSection = (text: string) => {
+    const section = text.trim()
+    if (!section || plan.sections.length >= MAX_PLAN_SECTIONS) return
+    onChange({ ...plan, sections: [...plan.sections, section] })
+  }
   const add = () => {
-    const text = draft.trim()
-    if (!text) return
-    onChange({ ...plan, sections: [...plan.sections, text] })
+    addSection(draft)
     setDraft('')
   }
-  const hasDocuments = plan.unterlagen.length > 0 || plan.grundlage.length > 0 || plan.ausgeschlossen.length > 0
+
+  const templates = Array.from({ length: TEMPLATE_COUNT }, (_, index) =>
+    t(`agentPrompt.plan.sectionTemplates.${plan.genre}.s${index + 1}`)
+  )
+  const taken = new Set(plan.sections.map(fold))
+  const suggestions = templates.filter((template) => !taken.has(fold(template))).slice(0, SUGGESTION_LIMIT)
+  const full = plan.sections.length >= MAX_PLAN_SECTIONS
+  const genreLabel = t(`agentPrompt.plan.genres.${plan.genre}`)
+
+  let step = firstStep
 
   return (
-    <div className="flex flex-col gap-5" data-testid="plan-checklist">
-      <PlanGroup label={t('agentPrompt.plan.points')}>
-        <OutlineRail
-          label={t('agentPrompt.plan.points')}
-          items={plan.sections}
-          itemTestId="plan-point"
-          action={
-            !disabled && plan.sections.length > 1
-              ? (index, section) => (
-                  <RowRemove
-                    label={t('agentPrompt.plan.removePoint', { point: section })}
-                    onClick={() => remove(index)}
-                  />
-                )
-              : undefined
-          }
-          footer={
-            disabled ? undefined : (
-              <>
-                <OutlineAddDisc />
-                <Input
-                  value={draft}
-                  onChange={(event) => setDraft(event.target.value)}
-                  onKeyDown={(event) => {
-                    if (event.key === 'Enter') {
-                      event.preventDefault()
-                      add()
-                    }
-                  }}
-                  placeholder={t('agentPrompt.plan.addPlaceholder')}
-                  aria-label={t('agentPrompt.plan.addPoint')}
-                  className="h-8 flex-1 text-sm"
-                />
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="ghost"
-                  className="h-8 px-2"
-                  onClick={add}
-                  disabled={!draft.trim()}
-                  aria-label={t('agentPrompt.plan.addPoint')}
-                >
-                  <Plus className="size-3.5" aria-hidden />
-                </Button>
-              </>
-            )
-          }
-        />
-      </PlanGroup>
-
-      <PlanGroup label={t('agentPrompt.plan.genre')}>
-        <OptionTiles label={t('agentPrompt.plan.genre')}>
-          {PLAN_GENRES.map((genre) => (
-            <OptionTile
-              key={genre}
-              icon={GENRE_ICON[genre]}
-              label={t(`agentPrompt.plan.genres.${genre}`)}
-              hint={t(`agentPrompt.plan.genreHints.${genre}`)}
-              selected={plan.genre === genre}
-              disabled={disabled}
-              onSelect={() => onChange({ ...plan, genre })}
-            />
-          ))}
-        </OptionTiles>
-      </PlanGroup>
-
-      <PlanGroup label={t('agentPrompt.plan.depth')}>
-        <Segmented
-          label={t('agentPrompt.plan.depth')}
-          options={PLAN_DEPTHS.map((depth) => ({
-            value: depth,
-            label: t(`agentPrompt.plan.depths.${depth}`),
-            icon: DEPTH_ICON[depth],
-          }))}
-          value={plan.depth}
-          disabled={disabled}
-          onPick={(depth) => onChange({ ...plan, depth })}
-        />
-        <span className="text-muted-foreground text-xs">{t(`agentPrompt.plan.depthHints.${plan.depth}`)}</span>
-      </PlanGroup>
-
-      {/* The Unterlagen: what the run must read, and what it may not use. A
-          picker over the thread names them; the chips here are the receipt of
-          that choice, each one strikable. Shown whenever the plan has something
-          to name, so the section is where the reader learns it can be done. */}
-      {hasDocuments && (
-        <PlanGroup label={t('agentPrompt.plan.unterlagen.label')} testId="plan-unterlagen">
-          <DocRow
-            label={t('agentPrompt.plan.unterlagen.grundlage')}
-            names={plan.grundlage}
-            docOf={docOf}
-            disabled={disabled}
-            removeLabel={(label) => t('agentPrompt.plan.unterlagen.removeRead', { name: label })}
-            onRemove={(name) => dropName('grundlage', name)}
-            testId="plan-grundlage"
-          />
-          <DocRow
-            label={t('agentPrompt.plan.unterlagen.ausgeschlossen')}
-            names={plan.ausgeschlossen}
-            docOf={docOf}
-            excluded
-            disabled={disabled}
-            removeLabel={(label) => t('agentPrompt.plan.unterlagen.removeExcluded', { name: label })}
-            onRemove={(name) => dropName('ausgeschlossen', name)}
-            testId="plan-ausgeschlossen"
-          />
-          {plan.grundlage.length === 0 && plan.ausgeschlossen.length === 0 && (
-            <span className="text-muted-foreground text-xs">{t('agentPrompt.plan.unterlagen.none')}</span>
-          )}
-          {!disabled && plan.unterlagen.length > 0 && (
-            <div>
+    <div className="flex flex-col gap-6" data-testid="plan-checklist">
+      <PlanStep
+        n={step++}
+        title={t('agentPrompt.plan.steps.sections.title')}
+        hint={t('agentPrompt.plan.steps.sections.hint')}
+        aside={
+          <span className="text-muted-foreground text-xs tabular-nums">
+            {plan.sections.length}/{MAX_PLAN_SECTIONS}
+          </span>
+        }
+        testId="plan-step-sections"
+      >
+        <div className="flex flex-col gap-2.5">
+          {plan.sections.length === 0 && !disabled && (
+            <div className="border-border flex flex-col items-start gap-2 rounded-md border border-dashed px-3 py-3">
+              <span className="text-muted-foreground text-xs">
+                {t('agentPrompt.plan.emptySections')}
+              </span>
               <Button
                 type="button"
                 size="sm"
                 variant="outline"
                 className="h-8 gap-1.5 px-2.5 text-xs"
-                onClick={() => setPicking(true)}
-                data-testid="plan-unterlagen-pick"
+                onClick={() => onChange({ ...plan, sections: templates })}
+                data-testid="plan-use-template"
               >
-                <BookOpen className="size-3.5" aria-hidden />
-                {t('agentPrompt.plan.unterlagen.choose')}
+                <Sparkles className="size-3.5" aria-hidden />
+                {t('agentPrompt.plan.useTemplate', { genre: genreLabel })}
               </Button>
-              <UnterlagenDialog
-                mode="pick"
-                open={picking}
-                onOpenChange={setPicking}
-                documents={plan.unterlagen}
-                grundlage={plan.grundlage}
-                ausgeschlossen={plan.ausgeschlossen}
-                onChange={(next) => onChange({ ...plan, ...next })}
-              />
             </div>
           )}
-        </PlanGroup>
-      )}
+          <OutlineRail
+            label={t('agentPrompt.plan.points')}
+            items={plan.sections}
+            itemTestId="plan-point"
+            action={
+              !disabled && plan.sections.length > 1
+                ? (index, section) => (
+                    <RowRemove
+                      label={t('agentPrompt.plan.removePoint', { point: section })}
+                      onClick={() => remove(index)}
+                    />
+                  )
+                : undefined
+            }
+            footer={
+              disabled || full ? undefined : (
+                <>
+                  <OutlineAddDisc />
+                  <Input
+                    value={draft}
+                    onChange={(event) => setDraft(event.target.value)}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter') {
+                        event.preventDefault()
+                        add()
+                      }
+                    }}
+                    placeholder={t('agentPrompt.plan.addPlaceholder')}
+                    aria-label={t('agentPrompt.plan.addPoint')}
+                    className="h-8 flex-1 text-sm"
+                  />
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="ghost"
+                    className="h-8 px-2"
+                    onClick={add}
+                    disabled={!draft.trim()}
+                    aria-label={t('agentPrompt.plan.addPoint')}
+                  >
+                    <Plus className="size-3.5" aria-hidden />
+                  </Button>
+                </>
+              )
+            }
+          />
+          {!disabled && !full && plan.sections.length > 0 && suggestions.length > 0 && (
+            <div className="flex flex-wrap items-center gap-1.5" data-testid="plan-suggestions">
+              <span className="text-muted-foreground text-xs">
+                {t('agentPrompt.plan.suggestions', { genre: genreLabel })}
+              </span>
+              {suggestions.map((suggestion) => (
+                <SuggestionChip
+                  key={suggestion}
+                  label={suggestion}
+                  ariaLabel={t('agentPrompt.plan.suggest', { point: suggestion })}
+                  onClick={() => addSection(suggestion)}
+                />
+              ))}
+            </div>
+          )}
+        </div>
+      </PlanStep>
+
+      <PlanStep
+        n={step++}
+        title={t('agentPrompt.plan.steps.form.title')}
+        hint={t('agentPrompt.plan.steps.form.hint')}
+        testId="plan-step-form"
+      >
+        <div className="flex flex-col gap-3">
+          <OptionTiles label={t('agentPrompt.plan.genre')}>
+            {PLAN_GENRES.map((genre) => (
+              <OptionTile
+                key={genre}
+                icon={GENRE_ICON[genre]}
+                label={t(`agentPrompt.plan.genres.${genre}`)}
+                hint={t(`agentPrompt.plan.genreHints.${genre}`)}
+                selected={plan.genre === genre}
+                disabled={disabled}
+                onSelect={() => onChange({ ...plan, genre })}
+              />
+            ))}
+          </OptionTiles>
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
+            <Segmented
+              label={t('agentPrompt.plan.depth')}
+              options={PLAN_DEPTHS.map((depth) => ({
+                value: depth,
+                label: t(`agentPrompt.plan.depths.${depth}`),
+                icon: DEPTH_ICON[depth],
+              }))}
+              value={plan.depth}
+              disabled={disabled}
+              onPick={(depth) => onChange({ ...plan, depth })}
+            />
+            <span className="text-muted-foreground text-xs">{t(`agentPrompt.plan.depthHints.${plan.depth}`)}</span>
+          </div>
+        </div>
+      </PlanStep>
+
+      <PlanStep
+        n={step++}
+        title={t('agentPrompt.plan.steps.documents.title')}
+        hint={t('agentPrompt.plan.steps.documents.hint')}
+        tag={t('agentPrompt.plan.optional')}
+        testId="plan-step-documents"
+      >
+        <PlanUnterlagen
+          documents={documents}
+          folders={inventory?.folders ?? library.folders}
+          loading={inventory?.loading ?? library.loading}
+          grundlage={plan.grundlage}
+          ausgeschlossen={plan.ausgeschlossen}
+          nurGrundlage={plan.nurGrundlage}
+          disabled={disabled}
+          onBrowse={() => setBrowsing(true)}
+          onChange={({ picked, ...choice }) =>
+            onChange({ ...plan, ...choice, unterlagen: mergeDocuments(plan.unterlagen, picked) })
+          }
+        />
+      </PlanStep>
 
       {/* The Rahmen: read-only, because the run's tools were chosen by it when
           the run was commissioned. */}
       {rahmen && rahmen.labels.length > 0 && (
-        <PlanGroup label={t('agentPrompt.plan.rahmen')} testId="plan-rahmen">
+        <PlanStep
+          n={step++}
+          title={t('agentPrompt.plan.steps.rahmen.title')}
+          hint={t('agentPrompt.plan.steps.rahmen.hint')}
+          aside={<Lock className="text-muted-foreground size-3.5" aria-hidden />}
+          testId="plan-rahmen"
+        >
           <div className="flex flex-wrap gap-1.5">
             {rahmen.labels.map((label) => (
               <Chip key={label} size="sm" variant="secondary">
@@ -248,38 +319,8 @@ export const PlanChecklist: FC<{
               </Chip>
             ))}
           </div>
-        </PlanGroup>
+        </PlanStep>
       )}
-    </div>
-  )
-}
-
-const DocRow: FC<{
-  label: string
-  names: readonly string[]
-  docOf: (name: string) => PlanDocument
-  excluded?: boolean
-  disabled: boolean
-  removeLabel: (label: string) => string
-  onRemove: (name: string) => void
-  testId: string
-}> = ({ label, names, docOf, excluded = false, disabled, removeLabel, onRemove, testId }) => {
-  if (names.length === 0) return null
-  return (
-    <div className="flex flex-wrap items-center gap-1.5" data-testid={testId}>
-      <span className="text-muted-foreground text-xs">{label}</span>
-      {names.map((name) => {
-        const doc = docOf(name)
-        return (
-          <PlanDocChip
-            key={name}
-            doc={doc}
-            excluded={excluded}
-            removeLabel={removeLabel(planDocumentLabel(doc))}
-            onRemove={disabled ? undefined : () => onRemove(name)}
-          />
-        )
-      })}
     </div>
   )
 }

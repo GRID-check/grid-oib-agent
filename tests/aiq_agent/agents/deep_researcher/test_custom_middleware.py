@@ -821,3 +821,15 @@ class TestExcludedDocumentsNeverBecomeSources:
             ]
         )
         assert [e.citation_key for e in mw.get_source_entries()] == ["neu.pdf, p.2"]
+
+    def test_nur_diese_confines_the_readers_documents_and_leaves_the_norms(self):
+        """„Nur diese": of the reader's own shelves only the Grundlage; the base shelf and the web stay open."""
+        mw = SourceRegistryMiddleware(source_tool_names={"knowledge_search"}, only_file_names=["Plan.pdf"])
+        assert not mw.is_excluded(SourceEntry(citation_key="plan.pdf, p.2", shelf="project"))
+        assert mw.is_excluded(SourceEntry(citation_key="statik.pdf, p.1", shelf="project"))
+        assert mw.is_excluded(SourceEntry(citation_key="vorlage.pdf, p.1", shelf="archiv"))
+        assert mw.is_excluded(SourceEntry(citation_key="skizze.pdf, p.1", shelf="session"))
+        assert not mw.is_excluded(SourceEntry(citation_key="OIB-RL 2.pdf, p.4", shelf="base"))
+        assert not mw.is_excluded(SourceEntry(url="https://www.ris.bka.gv.at/x", title="BO Wien"))
+        # A shelf nobody stated is not refused: it could be a norm.
+        assert not mw.is_excluded(SourceEntry(citation_key="unklar.pdf, p.1"))

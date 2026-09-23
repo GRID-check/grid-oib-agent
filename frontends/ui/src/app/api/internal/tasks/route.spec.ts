@@ -420,6 +420,7 @@ describe('the plan op — the clarifier proposes a plan and the run that waits o
         depth: 'gutachten',
         grundlage: ['Einreichplan.pdf'],
         ausgeschlossen: [],
+        nurGrundlage: false,
         unterlagen: [{ name: 'Einreichplan.pdf', shelf: 'project' }],
       },
     })

@@ -53,6 +53,7 @@ describe('POST /api/projects/[id]/plans — a plan a person wrote', () => {
         depth: 'gutachten',
         grundlage: ['Einreichplan.pdf'],
         ausgeschlossen: [],
+        nurGrundlage: false,
         unterlagen: [{ name: 'Einreichplan.pdf', shelf: 'project' }],
       },
     })

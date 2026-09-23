@@ -69,6 +69,7 @@ const row = (overrides: Partial<ResearchPlanRow> = {}): ResearchPlanRow => ({
   depth: 'gutachten',
   grundlage: [inventory[0]],
   ausgeschlossen: [],
+  nurGrundlage: false,
   dataSources: null,
   unterlagen: inventory,
   startsAt: new Date(T0.getTime() + 45_000),
@@ -88,6 +89,7 @@ const draft = {
   genre: 'pruefbericht' as const,
   depth: 'gutachten' as const,
   grundlage: ['einreichplan', 'Unbekannt.pdf', 'Altbestand.pdf'],
+  nurGrundlage: false,
   ausgeschlossen: ['altbestand.pdf'],
   dataSources: ['knowledge_search'],
   unterlagen: inventory,
@@ -187,12 +189,34 @@ describe('editPlan', () => {
       sections: ['Bestand'],
       grundlage: [inventory[2]],
       ausgeschlossen: [],
+      nurGrundlage: false,
       status: 'held',
       startsAt: null,
       heldAt: T0,
     })
     // The write itself is conditioned on the plan still being editable.
     expect(vi.mocked(repository.updatePlan).mock.calls[0][3]).toEqual(['proposed', 'held', 'approved'])
+  })
+
+  it('reads a document the reader named from the project listing, which the plan was not drafted with', async () => {
+    const added = { name: 'Statik.pdf', title: 'Statik', shelf: 'project' }
+    await editPlan(session, PROJECT, 'plan-1', { grundlage: ['Einreichplan.pdf', 'Statik.pdf'], unterlagen: [added] })
+    const patch = vi.mocked(repository.updatePlan).mock.calls[0][2]
+    expect(patch.grundlage).toEqual([inventory[0], added])
+    expect(patch.unterlagen).toContainEqual(added)
+    // Without the addition the same name is unknown, and dropped.
+    vi.mocked(repository.updatePlan).mockClear()
+    await editPlan(session, PROJECT, 'plan-1', { grundlage: ['Statik.pdf'] })
+    expect(vi.mocked(repository.updatePlan).mock.calls[0][2]).toMatchObject({ grundlage: [] })
+    expect(vi.mocked(repository.updatePlan).mock.calls[0][2]).not.toHaveProperty('unterlagen')
+  })
+
+  it('„Nur diese" confines the plan while it has a Grundlage, and falls with the last document', async () => {
+    await editPlan(session, PROJECT, 'plan-1', { nurGrundlage: true })
+    expect(vi.mocked(repository.updatePlan).mock.calls[0][2]).toMatchObject({ nurGrundlage: true })
+    vi.mocked(repository.findPlanInProject).mockResolvedValue(row({ nurGrundlage: true }))
+    await editPlan(session, PROJECT, 'plan-1', { grundlage: [] })
+    expect(vi.mocked(repository.updatePlan).mock.calls[1][2]).toMatchObject({ grundlage: [], nurGrundlage: false })
   })
 
   it('refuses an edit that lost the race with the worker, rather than rewriting a started plan', async () => {

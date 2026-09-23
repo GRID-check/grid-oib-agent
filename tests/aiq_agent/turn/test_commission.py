@@ -92,6 +92,8 @@ class TestWhatItAsksFor:
         assert payload["documents"] == {
             "grundlage": [{"name": "Einreichplan.pdf", "title": "Einreichplan EG", "shelf": "project"}],
             "ausgeschlossen": [{"name": "alt.pdf"}],
+            # The BFF's documents schema accepts it: `lib/runs/plan-documents.ts`.
+            "nur_grundlage": False,
         }
 
     async def test_an_empty_unterlagen_list_is_absent(self, commissioning):
@@ -224,6 +226,7 @@ class TestAPlannedRun:
                     "depth": "gutachten",
                     "grundlage": [],
                     "ausgeschlossen": [],
+                    "nurGrundlage": False,
                     "unterlagen": [],
                 },
                 "start": {"policy": "ask", "graceSeconds": 30},

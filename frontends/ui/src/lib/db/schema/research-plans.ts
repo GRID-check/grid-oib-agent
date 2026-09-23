@@ -8,7 +8,7 @@
  */
 
 import { sql } from 'drizzle-orm'
-import { check, index, jsonb, pgTable, text, timestamp, uuid } from 'drizzle-orm/pg-core'
+import { boolean, check, index, jsonb, pgTable, text, timestamp, uuid } from 'drizzle-orm/pg-core'
 import type { PlanDocument } from '@/lib/runs/plan-documents'
 import {
   PLAN_AUTHORS,
@@ -45,6 +45,8 @@ export const researchPlans = pgTable(
     depth: text('depth').$type<PlanDepth>().notNull().default('gutachten'),
     grundlage: jsonb('grundlage').$type<PlanDocument[]>().notNull().default([]),
     ausgeschlossen: jsonb('ausgeschlossen').$type<PlanDocument[]>().notNull().default([]),
+    /** „Nur diese": the reader's own documents are confined to the Grundlage (migration 0093). */
+    nurGrundlage: boolean('nur_grundlage').notNull().default(false),
     dataSources: jsonb('data_sources').$type<string[]>(),
     unterlagen: jsonb('unterlagen').$type<PlanDocument[]>().notNull().default([]),
     /** When a proposed plan may start on its own; null while it waits for a person. */
@@ -65,6 +67,10 @@ export const researchPlans = pgTable(
     authorKnown: check('research_plans_author_known', sql`${table.author} IN (${known(PLAN_AUTHORS)})`),
     genreKnown: check('research_plans_genre_known', sql`${table.genre} IN (${known(PLAN_GENRES)})`),
     depthKnown: check('research_plans_depth_known', sql`${table.depth} IN (${known(PLAN_DEPTHS)})`),
+    nurHasGrundlage: check(
+      'research_plans_nur_has_grundlage',
+      sql`NOT ${table.nurGrundlage} OR jsonb_array_length(${table.grundlage}) > 0`
+    ),
     heldHasNoClock: check(
       'research_plans_held_has_no_clock',
       sql`${table.status} <> 'held' OR ${table.startsAt} IS NULL`

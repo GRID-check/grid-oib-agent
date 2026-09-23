@@ -146,20 +146,62 @@ A run commissioned with a research plan shows it first in its body
 did. One row, three readings, and none of them is a question:
 
 - **Proposed** — the brief at a glance: the genre's glyph in a well, the
-  plan's title, a line of facts (genre, depth, sections, documents to read),
-  the first four sections as a numbered outline and the Grundlage in their
-  provenance colours, over a bar draining toward the start. Doing nothing is
+  plan's title, a line of facts (genre, depth, sections, Schwerpunkte or „nur
+  n Unterlagen", exclusions), the first four sections as a numbered outline and
+  the named documents in their provenance colours, over a bar draining toward
+  the start. Doing nothing is
   a complete answer: the run starts on its own. „Anpassen" stops the clock and
   opens the plan as controls; „Jetzt starten" skips the wait.
-- **Held** — the plan open as controls (the outline with its add row, the
-  genres as tiles that say what each report is, depth as a segmented choice),
-  every edit saved as it is made, and „Starten". The ledger reads `wartet` meanwhile, so the header's clock stops
+- **Held** — the plan open as numbered steps, each with one line saying what
+  deciding it does: *Was der Bericht behandelt* (the outline with its add row
+  and section suggestions for the chosen genre), *Wie er aussieht* (genres as
+  tiles, depth as a segmented choice), *Welche Unterlagen* (optional; the
+  scope „Alle Unterlagen" or „Nur ausgewählte", the choice so far as chips,
+  and „Schwerpunkte wählen …" / „Ausschließen …", which open the document
+  picker) and *Worin gesucht wird* (the Rahmen, locked). Once the clock has stopped a lifecycle track
+  (Angehalten → Freigegeben → Läuft) shows where the plan is. Every edit is
+  saved as it is made, applied to the block at once (`applyPlanEdit`) so the
+  next edit is diffed against it, and a line says so. Then „Starten". The ledger reads `wartet` meanwhile, so the header's clock stops
   and the inbox tells the requester.
 - **Started** — the brief the run is running, folded and read-only.
 
 A plan the reader wrote in „Recherche planen" reads „Ihr Rechercheplan" and
-starts at once. The pieces are the plan's own atom kit
-(`features/runs/components/plan-atoms.tsx`); the dialog composes the same ones.
+starts at once. The dialog asks the question as step 1 and then shows the same
+steps. An empty outline offers the genre's ready outline in one press. Beside
+the steps a preview shows the brief as the block will show it. The footer
+ticks off what is still missing (a question, a section), so the reader is not
+left guessing why the button is grey. The pieces are the plan's own atom kit
+(`features/runs/components/plan-atoms.tsx`) and `PlanBrief.tsx`; the block and
+the dialog compose the same ones.
+
+## The document picker
+
+Every place that asks the reader to name documents opens the same modal:
+the plan's Schwerpunkte, its „Nur ausgewählte" and its exclusions, „Dokument
+hinzufügen" on a running block, and whatever asks next
+(`features/documents/components/document-picker/DocumentPickerDialog.tsx`,
+preview at `/dev/document-picker`). It is laid out as an open panel, because
+every reader has used one:
+
+- **Places** on the left: Zuletzt, the project with its folders, the
+  Büroarchiv, and Ausgewählt, which lists what is chosen across all of them.
+  On a phone the places become a row under the toolbar.
+- **Toolbar**: back and forward, the path (each folder a step back up), list
+  or symbol view, and search, which reaches down through the place, flat.
+- **Documents**: folders first, a double click opens one; the list sorts by
+  name, date or size; each file is drawn by its kind, with the Files page's own
+  sketches. A click marks a document with an ink disc. A document the caller
+  rules out („Ausgeschlossen", „bereits benannt") says why and cannot be
+  marked.
+- **Preview** on the right: the document in focus, its shelf, kind, size,
+  pages, date and summary.
+- **Footer**: how many are chosen, „Auswahl aufheben", the caller's own
+  control, „Abbrechen" and the caller's button („Übernehmen", „Hinzufügen").
+
+The keyboard walks it: the arrows move, the space bar marks, Enter confirms
+or opens a folder, Backspace goes up. The picker knows nothing of what a
+choice means; the caller names the button and the reasons. Its listing comes
+from `useDocumentLibrary`, read only while a picker is open.
 
 ## The actions
 

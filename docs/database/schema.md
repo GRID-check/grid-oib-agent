@@ -591,6 +591,8 @@ reader owed; the run now waits on this row instead.
   created before the run and outlives it), `author` (`agent` | `user`),
   `status`, `question`, `title`, `sections` (jsonb, 1–12 strings), `genre`,
   `depth`, `grundlage` / `ausgeschlossen` (jsonb, resolved documents, ≤20 each),
+  `nur_grundlage` (boolean, migration 0093: the reader's own documents are
+  confined to the Grundlage),
   `data_sources` (jsonb, the Rahmen, null keeps the worker's default),
   `unterlagen` (jsonb, the inventory the plan was drafted against, ≤200),
   `starts_at`, `held_at`, `approved_at`, `started_at`, `created_by`,
@@ -598,8 +600,11 @@ reader owed; the run now waits on this row instead.
 - **Lifecycle:** `proposed` (with a clock, `starts_at`) → `held` (no clock) →
   `approved` → `started`, or `superseded`. `started` is read-only.
 - **CHECKs:** the status, author, genre and depth vocabularies, derived from
-  the tuples in `lib/plans/plan-types.ts`; and `research_plans_held_has_no_clock`
-  (`status <> 'held' OR starts_at IS NULL`).
+  the tuples in `lib/plans/plan-types.ts`; `research_plans_held_has_no_clock`
+  (`status <> 'held' OR starts_at IS NULL`); and
+  `research_plans_nur_has_grundlage` (`NOT nur_grundlage OR
+  jsonb_array_length(grundlage) > 0`), so a plan can never confine a run to
+  none of the reader's documents.
 - **Indexes:** `(project_id, created_at)`, `(organization_id)`, and the partial
   `idx_research_plans_run_id` (`WHERE run_id IS NOT NULL`), migration-only.
 - **RLS:** secured like `task_runs`: the organization AND the project's

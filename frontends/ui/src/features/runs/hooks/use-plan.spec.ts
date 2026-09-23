@@ -18,7 +18,15 @@ import type { ResearchPlan } from '@/lib/plans/plan-types'
 import { PLAN_POLL_MS, usePlan } from './use-plan'
 
 const plan = (status: ResearchPlan['status']): ResearchPlan =>
-  ({ id: 'plan-1', status, sections: ['A'] }) as unknown as ResearchPlan
+  ({
+    id: 'plan-1',
+    status,
+    sections: ['A'],
+    grundlage: [],
+    ausgeschlossen: [],
+    nurGrundlage: false,
+    unterlagen: [],
+  }) as unknown as ResearchPlan
 
 beforeEach(() => {
   vi.clearAllMocks()
@@ -51,6 +59,20 @@ describe('usePlan', () => {
     vi.mocked(startPlan).mockResolvedValue(plan('approved'))
     await act(() => result.current.start?.() ?? Promise.resolve())
     expect(result.current.plan?.status).toBe('approved')
+  })
+
+  it('shows an edit at once, so the next one is diffed against it rather than the plan before it', async () => {
+    vi.mocked(fetchPlan).mockResolvedValue(plan('held'))
+    const { result } = renderHook(() => usePlan('proj', 'plan-1'))
+    await waitFor(() => expect(result.current.plan).not.toBeNull())
+    let answer: (value: ResearchPlan) => void = () => undefined
+    vi.mocked(editPlan).mockReturnValue(new Promise((resolve) => (answer = resolve)))
+    act(() => {
+      void result.current.edit?.({ sections: ['A', 'B'] })
+    })
+    expect(result.current.plan?.sections).toEqual(['A', 'B'])
+    await act(async () => answer({ ...plan('held'), sections: ['A', 'B'] }))
+    expect(result.current.plan?.sections).toEqual(['A', 'B'])
   })
 
   it('stops polling and offers nothing once the plan has started', async () => {

@@ -94,6 +94,11 @@ def render_plan_context(
             "\n\nGrundlage (documents to read in full, each through its own research query; "
             f"a report that could not reach one names it as unread):\n{_document_lines(documents.grundlage)}"
         )
+    if documents and documents.nur_grundlage and documents.grundlage:
+        text += (
+            "\n\nNur Grundlage (of the reader's own documents — project, Archiv, this chat — use ONLY the "
+            "Grundlage above; any other of their documents is refused. Norms and laws stay available.)"
+        )
     if documents and documents.ausgeschlossen:
         text += (
             "\n\nAusgeschlossen (documents that may not be used: never searched, never cited):\n"
@@ -114,6 +119,7 @@ class ResearchPlanDraft(BaseModel):
     depth: PlanDepth = "gutachten"
     grundlage: list[str] = Field(default_factory=list, max_length=MAX_PLAN_DOCUMENTS)
     ausgeschlossen: list[str] = Field(default_factory=list, max_length=MAX_PLAN_DOCUMENTS)
+    nurGrundlage: bool = False
     dataSources: list[str] | None = Field(default=None, max_length=MAX_PLAN_DATA_SOURCES)
     unterlagen: list[PlanDocument] = Field(default_factory=list, max_length=MAX_PLAN_INVENTORY_ROWS)
 
@@ -140,6 +146,7 @@ class ResearchPlan(BaseModel):
     depth: PlanDepth
     grundlage: list[PlanDocument] = Field(default_factory=list, max_length=MAX_PLAN_DOCUMENTS)
     ausgeschlossen: list[PlanDocument] = Field(default_factory=list, max_length=MAX_PLAN_DOCUMENTS)
+    nurGrundlage: bool = False
     dataSources: list[str] | None = Field(default=None, max_length=MAX_PLAN_DATA_SOURCES)
     unterlagen: list[PlanDocument] = Field(default_factory=list, max_length=MAX_PLAN_INVENTORY_ROWS)
     startsAt: str | None = None
@@ -151,7 +158,11 @@ class ResearchPlan(BaseModel):
 
     def documents(self) -> PlanDocuments | None:
         """The Unterlagen as the agent state carries them, or None when none were named."""
-        docs = PlanDocuments(grundlage=list(self.grundlage), ausgeschlossen=list(self.ausgeschlossen))
+        docs = PlanDocuments(
+            grundlage=list(self.grundlage),
+            ausgeschlossen=list(self.ausgeschlossen),
+            nur_grundlage=self.nurGrundlage and bool(self.grundlage),
+        )
         return None if docs.is_empty() else docs
 
     def context(self) -> str:

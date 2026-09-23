@@ -58,6 +58,7 @@ describe('research plan JSON Schema', () => {
       depth: 'gutachten',
       grundlage: [],
       ausgeschlossen: [],
+      nurGrundlage: false,
       dataSources: null,
       unterlagen: [],
       startsAt: null,

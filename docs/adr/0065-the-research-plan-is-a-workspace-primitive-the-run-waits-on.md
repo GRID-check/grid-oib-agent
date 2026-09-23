@@ -93,6 +93,12 @@ and the same `plan_documents`, so nothing downstream of the state changes.
 `PlanChecklist` the message card used, backed by `PATCH` instead of an
 approval reply. Grundlage and Ausgeschlossen are named by file name and
 resolved against the plan's own inventory on the BFF, once, for every client.
+A document the reader picks from the project's listing, which that inventory
+lacks, travels with the edit (`unterlagen`) and joins it. Naming documents is
+optional, because the run may read every document it finds. The Grundlage is
+its focus unless the plan says `nurGrundlage` („Nur ausgewählte"). Then the
+reader's own shelves are confined to it in the source registry, and norms and
+laws stay available.
 The `plan_json` fence, the `approve {json}` reply, `parse_plan_reply`,
 `apply_plan_edits` and the feedback-regeneration loop are deleted: a reader
 who wants a different plan changes it, they do not describe the change to a

@@ -139,6 +139,8 @@ export function continuationPlan(
     depth: previous.depth,
     grundlage: grundlage.slice(0, MAX_PLAN_DOCUMENTS),
     ausgeschlossen: previous.ausgeschlossen.map((doc) => doc.name),
+    // A plan confined to its documents stays confined; the cited ones join them.
+    nurGrundlage: previous.nurGrundlage,
     dataSources: previous.dataSources,
     unterlagen: unterlagen.slice(0, MAX_PLAN_INVENTORY_ROWS),
     ...(brief.context ? { context: brief.context } : {}),

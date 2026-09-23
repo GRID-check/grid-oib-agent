@@ -18,6 +18,7 @@ const plan = {
   depth: 'gutachten',
   grundlage: [],
   ausgeschlossen: [],
+  nurGrundlage: false,
   dataSources: null,
   unterlagen: [],
   startsAt: '2026-09-22T08:00:45.000Z',

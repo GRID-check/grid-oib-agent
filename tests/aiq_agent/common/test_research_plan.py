@@ -87,3 +87,12 @@ class TestTheWire:
         assert _plan(grundlage=[], ausgeschlossen=[]).documents() is None
         docs = _plan().documents()
         assert docs is not None and [d.name for d in docs.grundlage] == ["Einreichplan.pdf"]
+
+    def test_nur_diese_reaches_the_run_and_its_prompt(self) -> None:
+        docs = _plan(nurGrundlage=True).documents()
+        assert docs is not None and docs.nur_grundlage is True
+        assert "Nur Grundlage" in _plan(nurGrundlage=True).context()
+        assert "Nur Grundlage" not in _plan().context()
+        # Nothing to confine to: the switch does not reach the run.
+        bare = _plan(nurGrundlage=True, grundlage=[], ausgeschlossen=[PlanDocument(name="Alt.pdf")]).documents()
+        assert bare is not None and bare.nur_grundlage is False

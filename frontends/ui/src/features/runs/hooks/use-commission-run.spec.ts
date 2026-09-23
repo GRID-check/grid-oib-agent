@@ -24,6 +24,7 @@ const previous = {
   depth: 'gutachten',
   grundlage: [],
   ausgeschlossen: [],
+  nurGrundlage: false,
   dataSources: null,
   unterlagen: [],
 } as unknown as ResearchPlan

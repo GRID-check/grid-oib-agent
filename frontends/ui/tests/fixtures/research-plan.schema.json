@@ -149,6 +149,9 @@
           },
           "maxItems": 20
         },
+        "nurGrundlage": {
+          "type": "boolean"
+        },
         "dataSources": {
           "anyOf": [
             {
@@ -260,6 +263,7 @@
         "depth",
         "grundlage",
         "ausgeschlossen",
+        "nurGrundlage",
         "dataSources",
         "unterlagen",
         "startsAt",
@@ -327,6 +331,9 @@
             "maxLength": 256
           },
           "maxItems": 20
+        },
+        "nurGrundlage": {
+          "type": "boolean"
         },
         "dataSources": {
           "anyOf": [
@@ -430,6 +437,37 @@
             "maxLength": 256
           },
           "maxItems": 20
+        },
+        "nurGrundlage": {
+          "type": "boolean"
+        },
+        "unterlagen": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 256
+              },
+              "title": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 256
+              },
+              "shelf": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 64
+              }
+            },
+            "required": [
+              "name"
+            ],
+            "additionalProperties": false
+          },
+          "maxItems": 40
         }
       },
       "additionalProperties": false

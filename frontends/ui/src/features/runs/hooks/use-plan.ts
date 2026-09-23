@@ -17,6 +17,7 @@ import {
   holdPlan as postHold,
   startPlan as postStart,
 } from '@/lib/plans/plan-client'
+import { applyPlanEdit } from '@/lib/plans/plan-edit'
 import { isEditablePlanStatus, type ResearchPlan, type ResearchPlanEdit } from '@/lib/plans/plan-types'
 
 /** How often a plan that can still start is re-read. */
@@ -70,7 +71,13 @@ export function usePlan(projectId: string | null, planId: string | null): UsePla
   return {
     plan,
     pending,
-    edit: live ? (next) => act(() => patchPlan(projectId as string, planId as string, next)) : null,
+    edit: live
+      ? (next) => {
+          // Optimistic: the next edit is diffed against this one, not the plan before it.
+          setPlan((current) => (current ? applyPlanEdit(current, next) : current))
+          return act(() => patchPlan(projectId as string, planId as string, next))
+        }
+      : null,
     hold: live ? () => act(() => postHold(projectId as string, planId as string)) : null,
     start: live ? () => act(() => postStart(projectId as string, planId as string)) : null,
   }

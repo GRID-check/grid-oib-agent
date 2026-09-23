@@ -31,6 +31,7 @@ import { withPlatformAccess, withTenant } from '@/lib/db/tenant-context'
 import {
   EDITABLE_PLAN_STATUSES,
   MAX_PLAN_GRACE_SECONDS,
+  MAX_PLAN_INVENTORY_ROWS,
   isEditablePlanStatus,
   type PlanAuthor,
   type PlanStartPolicy,
@@ -88,6 +89,7 @@ export function toWirePlan(row: ResearchPlanRow): ResearchPlan {
     depth: row.depth,
     grundlage: row.grundlage,
     ausgeschlossen: row.ausgeschlossen,
+    nurGrundlage: row.nurGrundlage,
     dataSources: row.dataSources ?? null,
     unterlagen: row.unterlagen,
     startsAt: iso(row.startsAt),
@@ -120,6 +122,27 @@ export function resolveNamedDocuments(names: readonly string[], inventory: reado
     seen.add(fold(doc.name))
     out.push(doc)
     if (out.length >= MAX_PLAN_DOCUMENTS) break
+  }
+  return out
+}
+
+/**
+ * The plan's inventory with the documents a reader brought from the project
+ * listing. What the plan already names comes first and the additions next,
+ * so neither is the row the cap drops.
+ */
+function mergeInventory(
+  row: Pick<ResearchPlan, 'grundlage' | 'ausgeschlossen' | 'unterlagen'>,
+  added: readonly PlanDocument[]
+): PlanDocument[] {
+  const seen = new Set<string>()
+  const out: PlanDocument[] = []
+  for (const doc of [...row.grundlage, ...row.ausgeschlossen, ...added, ...row.unterlagen]) {
+    const key = fold(doc.name)
+    if (seen.has(key)) continue
+    seen.add(key)
+    out.push(doc)
+    if (out.length >= MAX_PLAN_INVENTORY_ROWS) break
   }
   return out
 }
@@ -166,6 +189,7 @@ export async function proposePlannedRun(session: AuthorizedSession, input: Propo
     depth: draft.depth,
     grundlage: documents.grundlage,
     ausgeschlossen: documents.ausgeschlossen,
+    nurGrundlage: draft.nurGrundlage && documents.grundlage.length > 0,
     dataSources: draft.dataSources ?? null,
     unterlagen: draft.unterlagen,
     createdBy: session.userId,
@@ -223,12 +247,18 @@ export async function editPlan(
     ausgeschlossen: edit.ausgeschlossen ?? row.ausgeschlossen.map((doc) => doc.name),
   }
   const hold = row.status === 'proposed' ? { status: 'held' as const, startsAt: null, heldAt: new Date() } : {}
+  const inventory = edit.unterlagen ? mergeInventory(row, edit.unterlagen) : row.unterlagen
+  const documents = resolveDocumentLists(names.grundlage, names.ausgeschlossen, inventory)
+  // „Nur diese" with nothing left to read is no confinement: the switch falls with its last document.
+  const nurGrundlage = (edit.nurGrundlage ?? row.nurGrundlage) && documents.grundlage.length > 0
   const updated = await repository.updatePlan(planId, session.organizationId, {
     ...(edit.title !== undefined ? { title: edit.title } : {}),
     ...(edit.sections !== undefined ? { sections: edit.sections } : {}),
     ...(edit.genre !== undefined ? { genre: edit.genre } : {}),
     ...(edit.depth !== undefined ? { depth: edit.depth } : {}),
-    ...resolveDocumentLists(names.grundlage, names.ausgeschlossen, row.unterlagen),
+    ...(edit.unterlagen ? { unterlagen: inventory } : {}),
+    ...documents,
+    nurGrundlage,
     ...hold,
   }, EDITABLE_PLAN_STATUSES)
   if (!updated) throw new ConflictError('This plan has already started')

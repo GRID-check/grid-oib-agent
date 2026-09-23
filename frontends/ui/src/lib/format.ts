@@ -163,6 +163,16 @@ export const formatTimeOfDay = (isoDate: string, locale?: string): string => {
 }
 
 /**
+ * Localized calendar date ("14 Jul 2026" / "14.07.2026"), for a column that
+ * says when something was added and has no room for the hour.
+ */
+export const formatCalendarDate = (isoDate: string, locale?: string): string => {
+  const date = new Date(isoDate)
+  if (Number.isNaN(date.getTime())) return isoDate
+  return new Intl.DateTimeFormat(locale, { dateStyle: 'medium' }).format(date)
+}
+
+/**
  * Localized absolute date/time ("14 Jul 2026, 09:30"), used as the hover
  * tooltip that pins a relative timestamp to an exact moment.
  */

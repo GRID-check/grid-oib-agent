@@ -652,6 +652,13 @@
       "when": 1790294400006,
       "tag": "0092_research_plans",
       "breakpoints": true
+    },
+    {
+      "idx": 93,
+      "version": "7",
+      "when": 1790380800006,
+      "tag": "0093_research_plan_nur_grundlage",
+      "breakpoints": true
     }
   ]
 }

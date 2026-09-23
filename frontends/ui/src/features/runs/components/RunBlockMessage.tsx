@@ -29,8 +29,9 @@ import { useReducedMotion } from '@/hooks/use-reduced-motion'
 import type { RunStatus } from '@/lib/runs/run-ledger-types'
 import { runDisplayStatus } from '@/lib/runs/run-vocabulary'
 import { useRunLedger } from '../hooks/use-run-ledger'
-import { useProjectInventory } from '../hooks/use-project-inventory'
-import { UnterlagenDialog } from './UnterlagenDialog'
+import { DocumentPickerDialog } from '@/features/documents/components/document-picker/DocumentPickerDialog'
+import { useDocumentLibrary } from '@/features/documents/hooks/use-document-library'
+import { useTranslations } from '@/i18n'
 import { RunPlan } from './RunPlan'
 import { usePlan } from '../hooks/use-plan'
 import { useLayoutStore } from '@/features/layout/store'
@@ -72,7 +73,9 @@ export function RunBlockMessage({
   // is fetched only once one of them is wanted.
   const [picking, setPicking] = useState(false)
   const [wantsInventory, setWantsInventory] = useState(false)
-  const inventory = useProjectInventory(projectId ?? null, wantsInventory)
+  const inventory = useDocumentLibrary(projectId ?? null, wantsInventory)
+  const t = useTranslations('runs')
+  const named = new Set((ledger?.grundlage ?? []).map((doc) => doc.name.trim().toLocaleLowerCase()))
   const plan = usePlan(projectId ?? null, message.planId ?? null)
   const availableSources = useLayoutStore((state) => state.availableDataSources)
   const rahmen = plan.plan?.dataSources
@@ -90,7 +93,7 @@ export function RunBlockMessage({
       if (!found) return
       openFilePeek({
         file: found.file,
-        source: found.source,
+        source: found.shelf === 'archiv' ? 'buero' : 'projekt',
         projectId: projectId ?? null,
         presentation: 'modal',
         bindComposerSubject: false,
@@ -138,6 +141,7 @@ export function RunBlockMessage({
             <RunPlan
               plan={plan.plan}
               rahmen={rahmen}
+              projectId={projectId ?? null}
               pending={plan.pending}
               onEdit={plan.edit}
               onHold={plan.hold}
@@ -147,14 +151,19 @@ export function RunBlockMessage({
         }
       />
       {addDocument && (
-        <UnterlagenDialog
-          mode="add"
+        <DocumentPickerDialog
           open={picking}
           onOpenChange={setPicking}
+          title={t('unterlagen.addTitle')}
+          description={t('unterlagen.addDescription')}
           documents={inventory.documents ?? []}
+          folders={inventory.folders}
           loading={inventory.loading}
-          named={(ledger.grundlage ?? []).map((doc) => doc.name)}
-          onAdd={(doc) => addDocument(doc)}
+          disabledReason={(doc) => (named.has(doc.name.trim().toLocaleLowerCase()) ? t('unterlagen.alreadyNamed') : null)}
+          confirmLabel={t('unterlagen.add')}
+          onConfirm={(docs) => {
+            for (const doc of docs) void addDocument({ name: doc.name, ...(doc.title ? { title: doc.title } : {}), ...(doc.shelf ? { shelf: doc.shelf } : {}) })
+          }}
         />
       )}
       {showAnswer ? (

@@ -125,6 +125,7 @@ describe('continuationPlan', () => {
     depth: 'kurzpruefung',
     grundlage: [{ name: 'Einreichplan.pdf', shelf: 'project' }],
     ausgeschlossen: [{ name: 'Altbestand.pdf' }],
+    nurGrundlage: false,
     dataSources: ['knowledge_base'],
     unterlagen: [{ name: 'Einreichplan.pdf', shelf: 'project' }],
     startsAt: null,
@@ -161,6 +162,7 @@ describe('continuationPlan', () => {
       // Named once, case-folded: the cited copy of the Einreichplan is the same document.
       grundlage: ['Einreichplan.pdf', 'Brandschutzkonzept.pdf'],
       ausgeschlossen: ['Altbestand.pdf'],
+      nurGrundlage: false,
       dataSources: ['knowledge_base'],
       unterlagen: [
         { name: 'Einreichplan.pdf', shelf: 'project' },

@@ -2,9 +2,9 @@
 
 /**
  * The research plan's own atom kit (ADR-0065). One decision each, no domain
- * logic: the organisms — `PlanChecklist` on the block and in the „Recherche
- * planen" dialog, `RunPlan` around it — compose these and reach for no
- * Tailwind of their own.
+ * logic: the organisms — `PlanChecklist` and `PlanUnterlagen` on the
+ * block and in the „Recherche planen" dialog, `RunPlan` and `PlanDialog`
+ * around them — compose these.
  *
  * The material follows the design language: ink and paper, hairlines, one
  * surface step. The only chroma is provenance, on the document chips, and it
@@ -15,6 +15,7 @@ import type { FC, ReactNode } from 'react'
 import {
   Ban,
   Check,
+  Circle,
   ClipboardCheck,
   Columns2,
   FileText,
@@ -22,12 +23,14 @@ import {
   Layers,
   ListChecks,
   NotebookPen,
+  Plus,
   Timer,
   X,
   type LucideIcon,
 } from 'lucide-react'
 import { motion, motionEntrance } from '@/components/motion'
 import { Progress } from '@/components/ui/progress'
+import { StageTrack } from '@/components/ui/stage-track'
 import { SourceSignalChip } from '@/features/layout/components/SourceSignalChip'
 import type { PlanDepth, PlanGenre } from '@/lib/plans/plan-types'
 import { planDocumentLabel, type PlanDocument } from '@/lib/runs/plan-documents'
@@ -55,18 +58,6 @@ export const PlanEyebrow: FC<{ children: ReactNode; className?: string }> = ({ c
   >
     {children}
   </span>
-)
-
-/** A group of the plan: an eyebrow and what it labels. */
-export const PlanGroup: FC<{ label: string; children: ReactNode; testId?: string }> = ({
-  label,
-  children,
-  testId,
-}) => (
-  <section className="flex flex-col gap-2" data-testid={testId} aria-label={label}>
-    <PlanEyebrow>{label}</PlanEyebrow>
-    {children}
-  </section>
 )
 
 /** The genre as the plan's emblem: its glyph in a quiet well. */
@@ -239,7 +230,7 @@ export function Segmented<T extends string>({
   onPick: (value: T) => void
 }): JSX.Element {
   return (
-    <div className="bg-muted inline-flex w-fit gap-0.5 rounded-md p-0.5" role="radiogroup" aria-label={label}>
+    <div className="bg-muted inline-flex w-fit shrink-0 gap-0.5 rounded-md p-0.5" role="radiogroup" aria-label={label}>
       {options.map(({ value: option, label: optionLabel, icon: Icon }) => {
         const selected = option === value
         return (
@@ -251,7 +242,7 @@ export function Segmented<T extends string>({
             disabled={disabled}
             onClick={() => onPick(option)}
             className={cn(
-              'flex h-7 items-center gap-1.5 rounded-[6px] px-2.5 text-xs font-medium pointer-coarse:h-11',
+              'flex h-7 items-center gap-1.5 whitespace-nowrap rounded-[6px] px-2.5 text-xs font-medium pointer-coarse:h-11',
               'transition-[background-color,color,box-shadow] duration-quick ease-out motion-reduce:transition-none',
               'focus-visible:ring-ring/60 focus-visible:outline-none focus-visible:ring-2',
               selected ? 'bg-card text-foreground shadow-xs' : 'text-muted-foreground hover:text-foreground',
@@ -281,6 +272,33 @@ export const CountdownBar: FC<{ remaining: number; label: string }> = ({ remaini
     />
   </div>
 )
+
+/**
+ * A line of named documents under its label — the plan's Schwerpunkt, its
+ * „Nur diese", its exclusions — each strikable where the plan can still change.
+ */
+export const PlanDocLine: FC<{
+  label: string
+  docs: readonly PlanDocument[]
+  excluded?: boolean
+  removeLabel?: (label: string) => string
+  onRemove?: (doc: PlanDocument) => void
+  testId: string
+}> = ({ label, docs, excluded = false, removeLabel, onRemove, testId }) =>
+  docs.length === 0 ? null : (
+    <div className="flex flex-wrap items-center gap-1.5" data-testid={testId}>
+      <span className="text-muted-foreground text-xs">{label}</span>
+      {docs.map((doc) => (
+        <PlanDocChip
+          key={doc.name}
+          doc={doc}
+          excluded={excluded}
+          removeLabel={removeLabel?.(planDocumentLabel(doc))}
+          onRemove={onRemove ? () => onRemove(doc) : undefined}
+        />
+      ))}
+    </div>
+  )
 
 /**
  * A named document: in its provenance family when it is read, struck through
@@ -322,3 +340,133 @@ export const PlanDocChip: FC<{
     </SourceSignalChip>
   )
 }
+
+/**
+ * One step of the plan: a numeral, what the step decides, and the one line
+ * that says what deciding it does. The numerals are the order a reader who
+ * has never seen a plan walks it in; the line is so they need no manual.
+ */
+export const PlanStep: FC<{
+  n: number
+  title: string
+  hint: string
+  /** A quiet tag beside the title, „optional" where skipping is the default. */
+  tag?: string
+  /** Something at the header's end: a count, a toggle. */
+  aside?: ReactNode
+  testId?: string
+  children?: ReactNode
+}> = ({ n, title, hint, tag, aside, testId, children }) => (
+  <section className="flex flex-col gap-2.5" data-testid={testId} aria-label={title}>
+    <header className="flex items-start gap-2.5">
+      <span
+        className="border-foreground/70 text-foreground mt-px flex size-5 shrink-0 items-center justify-center rounded-full border font-mono text-[10.5px] font-medium tabular-nums"
+        aria-hidden
+      >
+        {n}
+      </span>
+      <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+        <span className="flex items-center gap-2">
+          <span className="text-foreground text-sm font-semibold">{title}</span>
+          {tag && (
+            <span className="border-border text-muted-foreground rounded-full border px-1.5 py-px text-[10.5px] leading-none">
+              {tag}
+            </span>
+          )}
+        </span>
+        <span className="text-muted-foreground text-xs leading-snug">{hint}</span>
+      </span>
+      {aside && <span className="shrink-0">{aside}</span>}
+    </header>
+    {children && <div className="pl-7.5">{children}</div>}
+  </section>
+)
+
+/** Where a plan is in its life, as a track the reader can place it on. */
+export type PlanStage = 'proposed' | 'held' | 'approved' | 'started'
+
+export const PlanLifecycle: FC<{
+  stage: PlanStage
+  labels: { proposed: string; held: string; approved: string; started: string }
+}> = ({ stage, labels }) => {
+  const reached = stage === 'started' ? 2 : stage === 'approved' ? 1 : 0
+  const words = [stage === 'held' ? labels.held : labels.proposed, labels.approved, labels.started]
+  return (
+    <div className="flex flex-col gap-1" data-testid="run-plan-lifecycle" data-stage={stage}>
+      <StageTrack
+        stages={['plan', 'freigabe', 'lauf']}
+        reached={reached}
+        active={stage !== 'held'}
+        halted={stage === 'held'}
+      />
+      <span className="grid grid-cols-3 gap-1 text-[10.5px]">
+        {words.map((word, index) => (
+          <span
+            key={word}
+            className={cn(
+              'truncate',
+              index === reached ? 'text-foreground font-medium' : 'text-muted-foreground',
+              index === 1 && 'text-center',
+              index === 2 && 'text-right'
+            )}
+            aria-current={index === reached ? 'step' : undefined}
+          >
+            {word}
+          </span>
+        ))}
+      </span>
+    </div>
+  )
+}
+
+/** A proposal the reader can take with one press: a dashed chip with a plus. */
+export const SuggestionChip: FC<{ label: string; ariaLabel: string; onClick: () => void; disabled?: boolean }> = ({
+  label,
+  ariaLabel,
+  onClick,
+  disabled = false,
+}) => (
+  <button
+    type="button"
+    onClick={onClick}
+    disabled={disabled}
+    aria-label={ariaLabel}
+    data-testid="plan-suggestion"
+    className={cn(
+      'border-border text-muted-foreground inline-flex h-7 max-w-full items-center gap-1 rounded-full border border-dashed px-2.5 text-xs',
+      'hover:text-foreground hover:border-foreground/40 hover:bg-accent/50 transition-colors duration-quick motion-reduce:transition-none',
+      'focus-visible:ring-ring/60 focus-visible:outline-none focus-visible:ring-2 pointer-coarse:h-11',
+      'disabled:pointer-events-none disabled:opacity-50'
+    )}
+  >
+    <Plus className="size-3 shrink-0" aria-hidden />
+    <span className="truncate">{label}</span>
+  </button>
+)
+
+/** The dialog's preview pane: one quiet surface step, sticky beside the controls. */
+export const PlanPreviewFrame: FC<{ label: string; children: ReactNode }> = ({ label, children }) => (
+  <aside
+    className="bg-muted/40 border-border flex h-fit flex-col gap-3 rounded-lg border p-3 md:sticky md:top-0"
+    aria-label={label}
+    data-testid="plan-dialog-preview"
+  >
+    <PlanEyebrow>{label}</PlanEyebrow>
+    {children}
+  </aside>
+)
+
+/** One thing a plan still needs, ticked when it has it. */
+export const PlanRequirement: FC<{ met: boolean; label: string }> = ({ met, label }) => (
+  <li className={cn('inline-flex items-center gap-1', met && 'text-foreground')} data-met={met || undefined}>
+    {met ? <Check className="size-3.5" aria-hidden /> : <Circle className="size-3" aria-hidden />}
+    {label}
+  </li>
+)
+
+/** A line of small print closing a surface: what happens next. */
+export const PlanNote: FC<{ children: ReactNode; ruled?: boolean }> = ({ children, ruled = false }) => (
+  <p className={cn('text-muted-foreground text-[11px] leading-snug', ruled && 'border-border border-t pt-2.5')}>
+    {children}
+  </p>
+)
