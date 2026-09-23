@@ -204,3 +204,30 @@ class TestTheTurn:
             await info.single_fn(ResearchAgentState(messages=[HumanMessage(content="Hallo")]))
             await gen.aclose()
         assert agent.run.await_args.kwargs["turn"].prefetch == ()
+
+
+class TestTheBuildingModelToolsNeedAProject:
+    """Outside a project `ifc_query`/`ifc_measure` can only say "no project"; they are not sent."""
+
+    @staticmethod
+    def _tools():
+        from types import SimpleNamespace
+
+        return [SimpleNamespace(name=n) for n in ("knowledge_search", "ifc_query", "ifc_measure", "read_passage")]
+
+    def test_a_turn_without_a_project_is_not_sent_them(self, monkeypatch):
+        from aiq_agent.agents.piloti import register
+
+        monkeypatch.setattr(register, "get_project_id_from_context", lambda: None)
+        assert [t.name for t in register._tools_in_scope(self._tools())] == ["knowledge_search", "read_passage"]
+
+    def test_a_project_turn_keeps_them(self, monkeypatch):
+        from aiq_agent.agents.piloti import register
+
+        monkeypatch.setattr(register, "get_project_id_from_context", lambda: "proj-1")
+        assert [t.name for t in register._tools_in_scope(self._tools())] == [
+            "knowledge_search",
+            "ifc_query",
+            "ifc_measure",
+            "read_passage",
+        ]

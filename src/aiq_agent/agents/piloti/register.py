@@ -6,7 +6,9 @@ skills as a ``use_skill`` tool, the model override) as a :class:`TurnConfig`
 and hands it to ``agent.run``; nothing is compiled, read or re-indexed per turn.
 The tool SET no longer varies with the data-source toggles — a switched-off
 source keeps its tool and refuses the call (``common/data_sources.py``), so
-every turn of an org sends the same tool payload to the same cache shard.
+every turn of an org sends the same tool payload to the same cache shard —
+except that a turn without a project is not sent the building-model tools
+(``_tools_in_scope``), which cannot run there.
 """
 
 import asyncio
@@ -40,6 +42,7 @@ from aiq_agent.common.data_source_registry import get_all_sources
 from aiq_agent.common.deferred_tool_loading import DeferredToolLoadingSettings
 from aiq_agent.common.deferred_tool_loading import verify_deferred_tool_loading
 from aiq_agent.project_context import get_organization_id_from_context
+from aiq_agent.project_context import get_project_id_from_context
 from aiq_agent.skills import SkillResolver
 from aiq_agent.skills import SkillRuntime
 from aiq_agent.skills.events import emit_skills_offered
@@ -410,6 +413,27 @@ async def _decide_turn(
         return TurnDecisions.none()
 
 
+#: Tools that read the PROJECT's building model. Outside a project they can
+#: only answer "no project" (``tools/bim/failures.NO_PROJECT_TEXT``), and
+#: their two schemas are ~8 200 of the ~17 000 tool tokens every call of the
+#: turn re-sends (measured 2026-09-23 on the live request; deferral did not
+#: reduce what was billed).
+_PROJECT_MODEL_TOOLS = frozenset({"ifc_query", "ifc_measure"})
+
+
+def _tools_in_scope(tools: list[Any]) -> list[Any]:
+    """The turn's tools less those that cannot run in its scope.
+
+    The tool payload still does not vary with the data-source toggles (the
+    cache shard stays one per org); it varies with one fact the turn cannot
+    change — whether there is a project — so an org has two shards, not one
+    per combination.
+    """
+    if get_project_id_from_context():
+        return tools
+    return [tool for tool in tools if getattr(tool, "name", None) not in _PROJECT_MODEL_TOOLS]
+
+
 def _apply_decisions(decisions: TurnDecisions, state: ResearchAgentState, runtime: SkillRuntime | None) -> None:
     """The two prompt-side effects: the chosen skill's body, and the likely card shapes.
 
@@ -507,13 +531,17 @@ async def _run_turn(deployment: _Deployment, state: ResearchAgentState) -> Resea
     # After the decision: the skill it inlined is part of what this turn inlined.
     if runtime is not None:
         emit_skills_offered(runtime)
-    turn_tools = list(deployment.tools) + (list(runtime.build_tools()) if runtime is not None else []) + draft_tools
+    turn_tools = _tools_in_scope(
+        list(deployment.tools) + (list(runtime.build_tools()) if runtime is not None else []) + draft_tools
+    )
     turn = TurnConfig(
         llm_provider=llm_provider,
         tools=turn_tools,
         disabled_sources=disabled_sources,
         prefetch=tuple(
             prefetch_calls(decisions, _turn_facts(state, runtime).question, focus_file_name=state.focus_file_name)
+            if config.turn_decisions
+            else ()
         ),
     )
     if runtime is not None:

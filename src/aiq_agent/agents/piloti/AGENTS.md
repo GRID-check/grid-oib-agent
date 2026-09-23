@@ -20,7 +20,10 @@ the org's `use_skill` closure, the data sources this conversation switched off â
 travels as a `TurnConfig` into `agent.run`. A switched-off source does NOT
 narrow the binding: the tool stays bound and the call is refused at the
 `ToolNode` boundary, so the tool payload (and the prompt-cache shard keyed on
-it) is the same for every turn of an org. Anything you add that reads a file, compiles a
+it) is the same for every turn of an org â€” with ONE exception, scope: a turn
+without a project is not sent `ifc_query` / `ifc_measure` (`_tools_in_scope`),
+which can only say "no project" there and are ~8k tokens of every call. Two
+shards per org, never one per toggle combination. Anything you add that reads a file, compiles a
 graph or builds an index belongs in the boot half.
 `tests/aiq_agent/agents/piloti/test_build_once.py` counts it.
 

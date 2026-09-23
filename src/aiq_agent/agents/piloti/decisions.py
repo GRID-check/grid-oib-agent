@@ -344,8 +344,17 @@ def prefetch_calls(
     families' overviews — ``knowledge_search`` recognises ``OIB-Richtlinie n``
     as a family query and returns every member's scope and Gliederung. Nothing
     for the model corpus (a measurement needs the model, not a search) and
-    nothing when the decision did not run or said no evidence is needed.
+    nothing when the decision said no evidence is needed.
+
+    When the decision did NOT run, a question that names an OIB family
+    („Was weißt du über die OIB 2?") still prefetches its own search: that
+    is the evidence question by construction, and the decision rarely lands
+    in time — measured 2026-09-23 against the live endpoint, p50 2.7 s
+    against a 1.5 s budget, 10 of 12 over — so without this the prefetch
+    silently vanished and the model paid a whole round for the same search.
     """
+    if not decisions.decided:
+        return _undecided_prefetch(question)
     if not decisions.wants_evidence or not decisions.searchable:
         return []
     if decisions.corpus not in {"baurecht", "projekt", "buero"} or decisions.corpus_p < CORPUS_THRESHOLD:
@@ -365,6 +374,16 @@ def prefetch_calls(
             for key in decisions.chosen_families()
         )
     return calls
+
+
+def _undecided_prefetch(question: str) -> list[dict[str, Any]]:
+    """The prefetch a question earns without a decision: its own search, when it names a family."""
+    from aiq_agent.common.norm_registry import family_query_number
+
+    query = " ".join((question or "").split())[:300]
+    if not query or family_query_number(query) is None:
+        return []
+    return [{"name": KNOWLEDGE_SEARCH, "args": {"query": query}}]
 
 
 def attached_card_types(decisions: TurnDecisions, skill_cards: Mapping[str, Sequence[str]]) -> list[str]:

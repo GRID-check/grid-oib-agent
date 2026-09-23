@@ -153,6 +153,16 @@ class TestThePrefetch:
         assert prefetch_calls(self._decided("baurecht", evidence=0.3), "q") == []
         assert prefetch_calls(self._decided("baurecht", p=0.4), "q") == []
 
+    def test_a_decision_that_missed_its_budget_still_prefetches_a_family_question(self):
+        """The decider rarely lands in 1.5 s; the family question is evidence by construction."""
+        assert prefetch_calls(TurnDecisions.none(), "Was weißt du über die OIB 2?") == [
+            {"name": "knowledge_search", "args": {"query": "Was weißt du über die OIB 2?"}}
+        ]
+
+    def test_without_a_decision_nothing_else_is_guessed(self):
+        assert prefetch_calls(TurnDecisions.none(), "Wie lang darf der Fluchtweg sein?") == []
+        assert prefetch_calls(TurnDecisions.none(), "Hallo, was kannst du?") == []
+
 
 class TestTheSkillsShapes:
     """The chosen skill's preferred cards ride the turn — what `use_skill` used to hand over."""

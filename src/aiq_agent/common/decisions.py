@@ -496,10 +496,14 @@ async def decide(
     endpoint, skipped = await _endpoint(organization_id)
     if endpoint is None:
         _record(slot, {"skipped": skipped})
+        logger.info("Decision %s did not run: %s", slot, skipped)
         return None
     outcome = await _post(endpoint, state, questions, timeout=timeout, transport=transport)
     if outcome.decision is None:
         _record(slot, {"skipped": outcome.skipped, **({"detail": outcome.detail} if outcome.detail else {})})
+        # INFO, not DEBUG: a decision that silently misses its budget looks,
+        # in every log, exactly like a turn that never asked for one.
+        logger.info("Decision %s did not run: %s", slot, outcome.skipped)
         return None
     decision = outcome.decision
     _record(
