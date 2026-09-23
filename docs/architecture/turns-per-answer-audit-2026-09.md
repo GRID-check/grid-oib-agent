@@ -31,6 +31,57 @@
 
 ---
 
+## Measured, 2026-09-23
+
+The sections below were a reconstruction. This one is a measurement:
+`task be:eval:turn-census` (`scripts/turn_census/`) ran the real agent over
+the published OIB 2023 corpus with `openai/gpt-5.6-luna`, no project, and
+recorded every model call as the provider billed it. Where it contradicts a
+later section, it wins.
+
+| „Was weißt du über die OIB 2?" | before the fixes below (5 runs) | after (4 runs) |
+|---|---|---|
+| research calls | 1, 2, 1, 1, 2 | 1, 1, 1, 1 |
+| input tokens per research call | 34–45 k | 33.4 k, of which 26.1 k cached prefix |
+| requery judge + 2 extra retrievals | fired in 2 of 5 | 0 |
+| parts in the family overview | 2 or 3 (2.2 never) | 2, 2.1, 2.2, 2.3 |
+| wall time | 20–24 s | 15–20 s |
+
+What the census found, each closed at its cause:
+
+- **Tool schemas were 38 % of every call and deferral saved nothing.**
+  Replaying the research call: 40 154 input tokens with `defer_loading`
+  true, 40 154 with it false; the provider echoes the flag and bills the
+  schemas. Probed on luna, sol, sonnet-5 and gemini-3.7-flash: none honours
+  it. The probe now measures the saving (ADR-0048), and a turn without a
+  project is not sent `ifc_query`/`ifc_measure` (~8.2 k tokens), which can
+  only answer "no project" there.
+- **The turn decision mostly misses its budget.** Jev on OpenRouter's alpha
+  endpoint: p50 2.7 s, 10 of 12 calls over the 1.5 s timeout on a warm
+  client; in live turns it landed in about half. A miss was silent and took
+  the prefetch with it, so the model paid a round for the same search. A
+  miss is now logged, and a question that names an OIB family prefetches
+  its own search without a decision. The decision's value on the remaining
+  shapes (a ruling like „Feuerwiderstand tragende Wände GK 5": 3 research
+  calls when it misses) is bounded by that latency, not by its thresholds.
+- **The family search carried sixteen ranked hits and a judge.** Half of
+  the 25.5 k-character block was Leitfaden and Erläuterungen; the judge,
+  whose criterion counts a scope note as not answering, called every
+  overview insufficient. The overview now keeps four ranked hits and is not
+  judged (`knowledge_layer/register.py`).
+- **OIB 2.2 was invisible.** The OIB publishes it as `oib-richtlinie_2.2_…`;
+  nothing recognised that spelling, and the exclusion list named an
+  Änderungen file that does not exist, so the 2.2 diff leaked into
+  retrieval. `norm_registry.canonical_oib_file_name` now feeds every parser.
+
+Still open, measured but not changed: the static prefix is 17.7 k tokens,
+6.1 k of it the cards contract (cached, so cheap in money, not in the cold
+first call of a turn); `emit_card` is 2.8 k tokens of tool schema whose
+description repeats that contract; the research call at `reasoning_effort:
+medium` is 8–14 s of the turn. And these numbers are one model and no
+project: a project turn adds the inventory and the building-model tools
+back, and the platform's live default model is admin-set.
+
 ## 0. The claim, in one table
 
 "Turns" is four different currencies, and the product feels each one

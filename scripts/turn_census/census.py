@@ -111,7 +111,9 @@ def main(argv: list[str] | None = None) -> int:
         print("OPENROUTER_API_KEY is not set; a census needs the real models.", file=sys.stderr)
         return 2
     args.out.mkdir(parents=True, exist_ok=True)
-    stamp = time.strftime("%H%M%S")
+    # Unique per process: the conversation id keys the local checkpointer, and
+    # two censuses sharing one would answer the second run with the first's history.
+    stamp = f"{time.strftime('%H%M%S')}-{os.getpid()}"
     for index in range(args.runs):
         record = run_once(args.question, args.out, f"census-{stamp}-{index + 1}")
         _print(record.stem, summarize(record))
