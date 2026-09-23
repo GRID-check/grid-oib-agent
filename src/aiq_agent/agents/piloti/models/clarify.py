@@ -31,13 +31,13 @@ PlanDecision = Literal["approved", "shallow", "cancelled", "feedback"]
 """What one reply to the plan preview asks for. ``feedback`` means "revise it"."""
 
 PlanOutcome = Literal["approved", "shallow", "cancelled"]
+"""Where the plan preview ended. ``PlanDecision`` minus the one that loops."""
 
 PlanGenre = Literal["pruefbericht", "aktenvermerk", "vergleich", "checkliste", "bericht"]
 """The document genre a run writes. Office genres, not whitepaper shapes."""
 
 PlanDepth = Literal["kurzpruefung", "gutachten"]
 """How deep the report goes: the smallest complete form, or the full derivation."""
-"""Where the plan preview ended. ``PlanDecision`` minus the one that loops."""
 
 
 class _StrictContract(BaseModel):
