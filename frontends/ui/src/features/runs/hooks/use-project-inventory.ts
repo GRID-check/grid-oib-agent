@@ -50,8 +50,13 @@ export function useProjectInventory(projectId: string | null, enabled: boolean):
   documents: InventoryDocument[] | null
   loading: boolean
 } {
-  const [documents, setDocuments] = useState<InventoryDocument[] | null>(null)
+  // Keyed by the project it was read for: a block reused under another
+  // project must not list the previous project's files as this one's.
+  const [loaded, setLoaded] = useState<{ projectId: string; documents: InventoryDocument[] } | null>(
+    null
+  )
   const [loading, setLoading] = useState(false)
+  const documents = loaded && loaded.projectId === projectId ? loaded.documents : null
 
   useEffect(() => {
     if (!enabled || !projectId || documents !== null) return
@@ -62,7 +67,10 @@ export function useProjectInventory(projectId: string | null, enabled: boolean):
       listing('/api/archiv/documents'),
     ]).then(([project, archiv]) => {
       if (cancelled) return
-      setDocuments([...toInventory(project, 'projekt'), ...toInventory(archiv, 'buero')])
+      setLoaded({
+        projectId,
+        documents: [...toInventory(project, 'projekt'), ...toInventory(archiv, 'buero')],
+      })
       setLoading(false)
     })
     return () => {

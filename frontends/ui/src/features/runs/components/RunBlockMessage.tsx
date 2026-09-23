@@ -70,22 +70,27 @@ export function RunBlockMessage({
   const [picking, setPicking] = useState(false)
   const [wantsInventory, setWantsInventory] = useState(false)
   const inventory = useProjectInventory(projectId ?? null, wantsInventory)
-  const openDocument = useCallback(
-    (doc: RunLedgerDoc): void => {
-      setWantsInventory(true)
-      const key = doc.name.trim().toLocaleLowerCase()
-      const found = inventory.documents?.find((row) => row.name.trim().toLocaleLowerCase() === key)
-      if (!found) return
-      openFilePeek({
-        file: found.file,
-        source: found.source,
-        projectId: projectId ?? null,
-        presentation: 'modal',
-        bindComposerSubject: false,
-      })
-    },
-    [inventory.documents, projectId]
-  )
+  // A chip clicked before the listing has arrived is remembered and opened
+  // once it does; otherwise the first click on a finished run would do nothing.
+  const [pendingDoc, setPendingDoc] = useState<RunLedgerDoc | null>(null)
+  const openDocument = useCallback((doc: RunLedgerDoc): void => {
+    setWantsInventory(true)
+    setPendingDoc(doc)
+  }, [])
+  useEffect(() => {
+    if (!pendingDoc || !inventory.documents) return
+    setPendingDoc(null)
+    const key = pendingDoc.name.trim().toLocaleLowerCase()
+    const found = inventory.documents.find((row) => row.name.trim().toLocaleLowerCase() === key)
+    if (!found) return
+    openFilePeek({
+      file: found.file,
+      source: found.source,
+      projectId: projectId ?? null,
+      presentation: 'modal',
+      bindComposerSubject: false,
+    })
+  }, [pendingDoc, inventory.documents, projectId])
   // A report that arrives while the reader is watching rises AFTER the block
   // has finished saying how the run ended: the verdict first, the document
   // second. A thread scrolled back to weeks later has both at once — nothing
