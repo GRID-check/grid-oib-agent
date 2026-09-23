@@ -102,6 +102,8 @@ export type TruncationReason = (typeof TRUNCATION_REASONS)[number]
  * - `no_valid_citations` nothing the answer cited survived verification.
  * - `cards_generation_failed` the report is whole, but the proposals a job
  *   derives from it afterwards could not be produced.
+ * - `grundlage_unread` a document the reader named as Grundlage was never
+ *   read; the report names which at its end.
  *
  * An EMPTY list is not a claim of "degraded in zero ways" — it is the ordinary
  * case, and it is stored as no key at all.
@@ -197,6 +199,7 @@ export const ANSWER_DEGRADED_REASONS = [
   'no_report_file',
   'no_valid_citations',
   'cards_generation_failed',
+  'grundlage_unread',
 ] as const
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>

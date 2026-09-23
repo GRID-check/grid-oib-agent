@@ -5,7 +5,6 @@ import type { GridCard } from '@/shared/cards/schemas'
 
 const STORAGE_KEY = 'aiq-chat-store'
 const mockLayoutState = vi.hoisted(() => ({
-  closeRightPanel: vi.fn(),
   enabledDataSourceIds: ['web_search'],
   availableDataSources: [{ id: 'web_search' }, { id: 'knowledge_base', requires_auth: true }],
   setEnabledDataSources: vi.fn(),
@@ -44,7 +43,6 @@ describe('useChatStore', () => {
   beforeEach(() => {
     // Clear localStorage before each test
     localStorage.removeItem(STORAGE_KEY)
-    mockLayoutState.closeRightPanel.mockClear()
     mockLayoutState.setEnabledDataSources.mockClear()
     mockLayoutState.enabledDataSourceIds = ['web_search']
     mockLayoutState.availableDataSources = [

@@ -286,11 +286,8 @@ export const ChatToolbar: FC<ChatToolbarProps> = memo(function ChatToolbar({
     // where a fixed width costs the title nothing.
     //
     // The other half of the crowding was duplicate doors. This header does not
-    // own the research report — the answer card that produced it does
-    // (`AgentResponse`'s "view report", which reconnects the right job and picks
-    // the right tab), and the panel closes from its own X and from Escape. So
-    // the toggle here is the *re-entry* for a report you already have, and it
-    // appears only when this thread actually has one.
+    // own the research report: a run is read in the thread that commissioned
+    // it, in its run block (ADR-0062), so there is no report toggle here.
     <header className="pointer-events-none absolute inset-x-0 top-0 z-20 min-h-12 px-4 pb-2 pt-[max(0.5rem,env(safe-area-inset-top))] sm:px-6">
       {/* The SAME wide column as the message list and composer (max-w-5xl,
           mx-auto), so the pills stay aligned with the chat window's edges. */}

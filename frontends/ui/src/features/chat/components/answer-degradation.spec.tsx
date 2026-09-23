@@ -31,7 +31,10 @@ import { createTranslator } from '@/i18n/translate'
 import { vi, describe, test, expect } from 'vitest'
 import { AgentResponse } from './AgentResponse'
 import { normalizeAgentAnswerMetadata } from '@/lib/conversations/agent-answer-metadata'
-import type { MessageProvenance } from '@/lib/conversations/message-provenance'
+import {
+  ANSWER_DEGRADED_REASONS,
+  type MessageProvenance,
+} from '@/lib/conversations/message-provenance'
 import { asStoreState, type DeepPartial, type StoreSelector } from '@/test-utils/store-fixtures'
 import type { ChatStoreWithHydration } from '../store'
 
@@ -251,7 +254,9 @@ describe('every token this build accepts has words in BOTH locales', () => {
   // the reader when an entry is missing. This is that guard, for these groups.
   test.each([
     ['truncationReason', ['wall_clock', 'step_limit']],
-    ['degradedReason', ['no_report_file', 'no_valid_citations', 'cards_generation_failed']],
+    // Read off the closed list itself, so a token added there without words
+    // fails here instead of being silently dropped from the reader's view.
+    ['degradedReason', ANSWER_DEGRADED_REASONS],
     [
       'citationsRemovedReason',
       [
@@ -279,6 +284,30 @@ describe('every token this build accepts has words in BOTH locales', () => {
         expect(text).not.toContain(token)
       }
     }
+  })
+})
+
+describe('an unread Grundlage is named as such, not as a generic check', () => {
+  test('its line says a named document went unread, in both locales', () => {
+    for (const dictionary of [de, en]) {
+      const line = dictionary.chat.answerSources.degradedReason.grundlage_unread
+      const limit = dictionary.chat.thinking.node.limits.degraded.grundlageUnread
+      for (const text of [line, limit]) {
+        expect(text).not.toBe(dictionary.chat.answerSources.degradedReason.no_valid_citations)
+      }
+    }
+    expect(de.chat.answerSources.degradedReason.grundlage_unread).toMatch(/Grundlage/)
+    expect(de.chat.thinking.node.limits.degraded.grundlageUnread).toMatch(/Grundlage/)
+    expect(en.chat.answerSources.degradedReason.grundlage_unread).toMatch(/basis/)
+  })
+
+  test('it reaches the reader as its own line under the answer', async () => {
+    render(<AgentResponse content={CITED} degradedReasons={['grundlage_unread']} />)
+    await openAnswerDetails()
+
+    expect(
+      screen.getByText(en.chat.answerSources.degradedReason.grundlage_unread)
+    ).toHaveAttribute('role', 'note')
   })
 })
 

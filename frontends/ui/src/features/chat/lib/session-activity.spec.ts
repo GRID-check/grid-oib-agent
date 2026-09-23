@@ -14,7 +14,6 @@ import {
   hasLiveRun,
   hasNoUserChatMessages,
   liveRunMessages,
-  runMessages,
 } from './session-activity'
 import type { ChatMessage } from '../types'
 
@@ -84,12 +83,11 @@ describe('hasLiveRun', () => {
   })
 })
 
-describe('liveRunMessages / runMessages', () => {
-  it('returns the run messages, and the live ones among them', () => {
+describe('liveRunMessages', () => {
+  it('returns only the run messages whose run is still live', () => {
     const live = runMessage('a', 'laeuft')
     const done = runMessage('b', 'fertig')
     const chat = makeMessage({ id: 'c', messageType: 'agent_response' })
-    expect(runMessages([chat, live, done])).toEqual([live, done])
     expect(liveRunMessages([chat, live, done])).toEqual([live])
   })
 })

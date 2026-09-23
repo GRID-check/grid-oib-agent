@@ -173,8 +173,7 @@ export const MarkdownRenderer: FC<MarkdownRendererProps> = memo(
      * and runs whenever React decides to run it. So it is settled here, by a
      * pure pass over the same string `ReactMarkdown` is handed, and the
      * callbacks only look their answer up. See {@link markdownHeadings} for why
-     * every counting variant of this fails, and `report-outline` for the other
-     * caller — the outline offers exactly the ids this map assigns.
+     * every counting variant of this fails.
      */
     const headingIds = useMemo(() => {
       const byLine = new Map<number, string>()

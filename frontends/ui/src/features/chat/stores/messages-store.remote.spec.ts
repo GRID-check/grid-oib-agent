@@ -13,7 +13,6 @@ import type { ChatMessage, Conversation } from '../types'
 import type { MessagesSlice } from './messages-store'
 
 const mockLayoutState = vi.hoisted(() => ({
-  closeRightPanel: vi.fn(),
   enabledDataSourceIds: ['web_search'],
   availableDataSources: [{ id: 'web_search' }],
   setEnabledDataSources: vi.fn(),

@@ -428,15 +428,9 @@ export async function cancelRun(
 }
 
 /**
- * „Jetzt schreiben": the run stops researching after its current batch and
- * writes the report from what is there. Same gate as a cancel, the same run
- * row, the same view answered — the ledger turns `unterbrochen` when the
- * report lands, never because the button was pressed.
- */
-/**
  * Add a document to a running run's Grundlage on a person's request. Same
- * gate and the same refusals as „Jetzt schreiben"; the ledger lists the
- * document through the run's own stream, never here.
+ * gate and the same refusals as „Jetzt schreiben" ({@link writeNowRun}); the
+ * ledger lists the document through the run's own stream, never here.
  */
 export async function addRunDocument(
   session: AuthorizedSession,
@@ -462,6 +456,12 @@ export async function addRunDocument(
   return runView(run)
 }
 
+/**
+ * „Jetzt schreiben": the run stops researching after its current batch and
+ * writes the report from what is there. Same gate as a cancel, the same run
+ * row, the same view answered — the ledger turns `unterbrochen` when the
+ * report lands, never because the button was pressed.
+ */
 export async function writeNowRun(
   session: AuthorizedSession,
   projectId: string,
@@ -479,7 +479,7 @@ export async function writeNowRun(
   } catch (error) {
     if (!(error instanceof JobCancelError)) throw error
     // The backend's verdict on a race: the job finished between the row read
-    // and the cancel. Its 404 is „not yours or not there", and it says which
+    // and the request. Its 404 is „not yours or not there", and it says which
     // to nobody on purpose.
     if (error.status === 400) throw new ConflictError('This run has already ended')
     if (error.status === 404) throw new NotFoundError('Unknown run')

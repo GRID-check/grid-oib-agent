@@ -65,30 +65,6 @@ Proxies to: `{BACKEND_URL}/chat/stream`. Forwards `Authorization`, `X-Grid-Colle
 
 Source: `frontends/ui/src/app/api/chat/route.ts`
 
-## Generate
-
-| Method | Path | Auth | Description | Request Body | Response |
-|--------|------|------|-------------|-------------|----------|
-| `POST` | `/api/generate` | Varies | Proxy to `POST /generate/stream`. Rich SSE stream with typed events: `thinking`, `complete`, `error`, `prompt`, `intermediate`. | `{ query, projectId?, conversationId?, data_sources?, ... }` | SSE stream (`text/event-stream`) |
-| `POST` | `/api/generate/respond` | Varies | Proxy to `POST /generate/respond`. Sends HITL prompt responses (approve/reject/input) from the frontend. | `{ promptId, response, conversationId?, projectId? }` | JSON `{}` |
-
-Source: `frontends/ui/src/app/api/generate/route.ts`, `frontends/ui/src/app/api/generate/respond/route.ts`
-
-## PDF export
-
-| Method | Path | Auth | Description | Request Body | Response |
-|--------|------|------|-------------|-------------|----------|
-| `POST` | `/api/generate-pdf` | Session only | Render caller-supplied Markdown as a PDF the browser downloads — the PDF a finished run's report is filed as (`lib/documents/research-report.ts`) and `use-download-pdf.ts`. No backend, no database, no object store: the bytes come from the request and go straight back. **Not** the filed-report renderer — this one prints no AI notice and no provenance line, because it is a person exporting prose they have read on screen (`MarkdownPdfOptions.aiProvenance` is opt-in for exactly that reason; the report filed into a project turns it on). Two bounds, both explicit because the App Router supplies neither: the JSON body is refused ahead of `request.json()` past **1 MiB** (`413 PAYLOAD_TOO_LARGE`, the ceiling the Pages Router used to apply for free), and the document is admitted on its estimated LAYOUT COST rather than its character count (**450 560**, `MAX_MARKDOWN_PDF_CHARS`; `markdownRenderCost` = characters + 64 per markdown table cell). The schema now bounds only the transport; the renderer owns the document refusal (`MarkdownTooLongError`) and the route returns it as `413 REPORT_TOO_LONG`, which `use-download-pdf.ts` turns into a sentence a reader can act on. A character cap priced every report as a table and refused the shape this product actually writes: re-measured 2026-09-04, prose costs 0.6 s at 32 KiB, 2.6 s at 128 KiB and 7.6 s at 256 KiB, while four-column tables cost 5.6 s at 32 KiB, 20.4 s at 64 KiB and 41.0 s at 96 KiB — so a long Deep-Research-Bericht was rejected while a document sixteen times more expensive to lay out was admitted (#624). The budget is the cost of the most expensive document the old cap ever let through (64 KiB of tables), so a table-heavy document is still refused at very nearly its old size. The cap is an ADMISSION control, not a performance tweak: `renderToStream`'s layout pass is one synchronous block, so a timeout cannot enforce anything (a 3 s timer armed before a 128 KiB table-heavy render fired at 32.5 s and the work ran to completion anyway) and Node serves nobody else meanwhile. Memory is the sharper edge: at 256 KiB the table shape reaches 141.7 s and 1.19 GB peak RSS, which is an OOM rather than a slow response — which is why the budget is pinned to a shape the bound already admitted rather than raised outright. Rate-limited by the factory's `DEFAULT_MUTATION_LIMIT` (300/min, burst 40/2s) per member. `authz: { sessionOnly }`: it reads nothing and owns nothing, so there is no resource to authorize against — only a rendering cost that must not be free to the internet. | `{ markdown }` (non-empty; bounded by the 1 MiB body ceiling, admitted on layout cost) | `application/pdf` bytes, `Content-Disposition: attachment; filename="report.pdf"`, `Cache-Control: no-store` |
-
-Moved out of `src/pages/api/generate-pdf.ts` on 2026-08-20 at the same path. The
-Pages handler had **no session check at all** and was invisible to
-`app/api/authz-coverage.spec.ts`, which walks `app/api/**/route.ts`; `src/pages/`
-is gone entirely so the next handler cannot land in the same blind spot.
-
-Source: `frontends/ui/src/app/api/generate-pdf/route.ts` (renderer:
-`frontends/ui/src/lib/pdf/markdown-pdf.ts`, which owns `MAX_MARKDOWN_PDF_CHARS`
-and the measurements behind it)
-
 ## Conversations
 
 | Method | Path | Auth | Description | Request Body / Params | Response |

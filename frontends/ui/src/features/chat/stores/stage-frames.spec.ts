@@ -25,7 +25,6 @@ const PARENT = 'msg_1755600000000_3'
 vi.mock('@/features/layout/store', () => ({
   useLayoutStore: {
     getState: () => ({
-      closeRightPanel: vi.fn(),
       enabledDataSourceIds: [],
       availableDataSources: [],
       setEnabledDataSources: vi.fn(),

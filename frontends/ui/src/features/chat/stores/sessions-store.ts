@@ -367,10 +367,16 @@ const messagePlainText = (message: ChatMessage): string => (message.content ?? '
  * effort: the worker would otherwise keep researching for a message nobody
  * can read any more. A refused cancel is logged and the delete goes ahead —
  * the run ends on its own terms and files its report against the project.
+ * A run belongs to the project its thread is stamped with; the active project
+ * is the fallback for a legacy thread that carries none.
  */
-const cancelLiveRuns = (conversations: Conversation[], projectId: string | null): void => {
-  if (!projectId) return
+const cancelLiveRuns = (
+  conversations: Conversation[],
+  activeProjectId: string | null
+): void => {
   for (const conversation of conversations) {
+    const projectId = conversation.projectId ?? activeProjectId
+    if (!projectId) continue
     for (const message of liveRunMessages(conversation.messages)) {
       const runId = message.runLedger?.runId
       if (!runId) continue

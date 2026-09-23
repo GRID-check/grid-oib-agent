@@ -138,7 +138,7 @@ export interface CitedDocument {
    *
    * It ARRIVES AS DATA on the citation payload; it is never derived from the
    * collection id, and the German label a surface renders is derived FROM it
-   * (`shelfLabel`), not the other way round. A legacy key's `(Büroarchiv)`
+   * (`documentShelfLabel`), not the other way round. A legacy key's `(Büroarchiv)`
    * qualifier is the only fallback, for messages persisted before the wire
    * carried the field.
    *

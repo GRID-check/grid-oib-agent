@@ -22,21 +22,15 @@ import type { ChatMessage } from '../types'
 export const hasNoUserChatMessages = (messages: ChatMessage[]): boolean =>
   !messages.some((message) => message.messageType === 'user')
 
-/** The run messages of a thread, in thread order. */
-export const runMessages = (messages: ChatMessage[]): ChatMessage[] =>
-  messages.filter((message) => Boolean(message.runLedger))
-
-/** A run in this thread is still doing, or waiting for, something. */
-export const hasLiveRun = (messages: ChatMessage[]): boolean =>
-  messages.some(
-    (message) => message.runLedger && isLiveStatus(runDisplayStatus(message.runLedger))
-  )
+const isLiveRunMessage = (message: ChatMessage): boolean =>
+  Boolean(message.runLedger && isLiveStatus(runDisplayStatus(message.runLedger)))
 
 /** The thread's run messages whose ledger says the run is still live. */
 export const liveRunMessages = (messages: ChatMessage[]): ChatMessage[] =>
-  messages.filter(
-    (message) => message.runLedger && isLiveStatus(runDisplayStatus(message.runLedger))
-  )
+  messages.filter(isLiveRunMessage)
+
+/** A run in this thread is still doing, or waiting for, something. */
+export const hasLiveRun = (messages: ChatMessage[]): boolean => messages.some(isLiveRunMessage)
 
 /** A run in this thread finished with a report. */
 export const hasFinishedRun = (messages: ChatMessage[]): boolean =>

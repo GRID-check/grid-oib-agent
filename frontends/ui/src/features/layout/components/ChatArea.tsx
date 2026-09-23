@@ -530,7 +530,8 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
    * Helper to get thinking steps for a user message.
    * First checks ephemeral store (for active session), then falls back
    * to persisted steps embedded in the message (for restored sessions).
-   * Filters out deep research steps - they're displayed in the Research Panel.
+   * Filters out deep research steps: a run's progress is the run block's
+   * (`RunBlockMessage`), not the turn's thinking trace.
    */
   const getStepsForUserMessage = (messageId: string) => {
     // First try ephemeral store (for active session)
@@ -1281,9 +1282,7 @@ const MessageRendererComponent: FC<MessageRendererProps> = ({
       // to reach `AgentResponse` as `jobId` and grow a "Bericht anzeigen"
       // button on the finished block — a door that opened the legacy research
       // panel OVER the run it belongs to. `AgentResponse` no longer takes those
-      // props, so the report is read where the reader already is. The banner
-      // below is the last surface that still opens the panel, and it is
-      // produced only for threads older than run messages.
+      // props, so the report is read where the reader already is.
       if (message.runLedger) {
         return (
           <RunBlockMessage

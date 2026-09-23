@@ -5,7 +5,7 @@
  *
  * Heading ids have to be unique per document: a report with two „Bewertung"
  * sections gave both `id="bewertung"`, so `getElementById` found the first one
- * and every link to the second — an outline entry, an in-page citation anchor —
+ * and every link to the second — an in-page citation anchor, a pasted `#` —
  * scrolled to the wrong section without ever failing.
  *
  * The renderer assigns its ids inside per-heading component callbacks, so the
@@ -30,10 +30,9 @@
  * answer for two instances showing the same document, and cannot be disturbed
  * by re-entrant or interrupted rendering.
  *
- * It buys one thing more, which is the point: {@link extractReportOutline}
- * already had to do this exact scan to build the report outline, and it now
- * calls THIS function. The outline and the renderer cannot spell an id two
- * ways, because there is only one spelling.
+ * Anything that links to a heading must take its id from THIS function, never
+ * re-derive it: then a link and the renderer cannot spell an id two ways,
+ * because there is only one spelling.
  *
  * Inline markdown is resolved here by hand rather than by a parser. `remark`
  * is a devDependency — it exists for the specs, not for the bundle — and a
@@ -103,8 +102,8 @@ const INLINE_LINK_RE = /!?\[([^\]]*)\]\([^)]*\)/g
  * The single leading `[\s/]` is what keeps the autolink exclusion above: a
  * tag's name is followed by whitespace, a slash or `>`, while `<https://oib.at>`
  * has a colon there, so the group cannot open and the match fails. A bare
- * `[^>]*` is linear too, and swallows every autolink — the regression the
- * outline spec now catches.
+ * `[^>]*` is linear too, and swallows every autolink — the regression
+ * `headings.spec.ts` catches.
  */
 const HTML_TAG_RE = /<\/?[A-Za-z][A-Za-z0-9-]*(?:[\s/][^>]*)?>/g
 
@@ -164,7 +163,7 @@ const stripHtmlTags = (text: string): string => {
   return current.replace(/</g, '')
 }
 
-export const headingDisplayText = (raw: string): string =>
+const headingDisplayText = (raw: string): string =>
   stripHtmlTags(raw.replace(INLINE_LINK_RE, '$1'))
     .replace(CODE_SPAN_RE, '$1')
     .replace(STRIKE_RE, '$1')
@@ -204,21 +203,6 @@ const claimHeadingId = (base: string, taken: Set<string>, counts: Map<string, nu
 }
 
 /**
- * The id for a heading THIS document renders outside the markdown, given the
- * ids the markdown already spoke for.
- *
- * The report's sources section is the one such heading: `ReportTab` lifts it
- * out of the markdown and renders it itself, so react-markdown never sees it
- * and cannot number it along with the rest. Returns `''` when the text has no
- * id to give — a heading of pure punctuation slugifies to nothing.
- */
-export const uniqueHeadingId = (text: string, taken: Iterable<string>): string => {
-  const base = headingAnchorId(text)
-  if (!base) return ''
-  return claimHeadingId(base, new Set(taken), new Map())
-}
-
-/**
  * Every `#`–`####` heading of a markdown document, in document order, with the
  * id the renderer will give it.
  *
@@ -230,7 +214,7 @@ export const uniqueHeadingId = (text: string, taken: Iterable<string>): string =
  *
  * Setext headings (`Bewertung` over `---`) are deliberately not scanned. They
  * fall through to the renderer's own text-derived id, which is what they had
- * before — the outline never lists them, so nothing links to one, and teaching
+ * before — nothing links to one by a pre-computed id, and teaching
  * this scan to recognise `---` would also have to tell it apart from a
  * thematic break and a table delimiter.
  */

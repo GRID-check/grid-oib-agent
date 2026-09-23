@@ -26,7 +26,6 @@ import type { Conversation } from '../types'
 vi.mock('@/features/layout/store', () => ({
   useLayoutStore: {
     getState: () => ({
-      closeRightPanel: vi.fn(),
       enabledDataSourceIds: [],
       availableDataSources: [],
       setEnabledDataSources: vi.fn(),
