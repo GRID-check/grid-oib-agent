@@ -249,7 +249,9 @@ mode and the dev-indicator badge that lands in your shot:
 There is no coverage workflow and no committed gallery. Both were removed: the
 gallery was 348 MB of git history that nothing ever compared, and the workflow
 only checked that a PNG file had appeared, never what was in it. A reviewer
-looking at an attachment is the check.
+looking at an attachment is the check. The **Visual evidence** workflow that
+asked for the block in the PR body is paused (its check step is commented out
+in `.github/workflows/visual-evidence.yml`).
 
 ## Mobile evidence
 
