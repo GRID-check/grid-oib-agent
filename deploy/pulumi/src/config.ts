@@ -168,7 +168,7 @@ export interface GridConfig {
      * and to check that every managed host actually falls inside this zone.
      */
     zoneName: string;
-    /** Token with Zone:DNS:Edit (plus Zone:Dynamic URL Redirects:Edit when `apexRedirectTo` is set). */
+    /** Token with Zone:DNS:Edit, plus Zone:Dynamic URL Redirects:Edit on the baseline stack (it writes the apex or www redirect). */
     apiToken: pulumi.Output<string>;
     /** Address every host record points at — the Envoy LoadBalancer's external IP. */
     targetIp: string;
@@ -181,7 +181,8 @@ export interface GridConfig {
     ttl: number;
     /**
      * Whether THIS stack owns the zone-level records (`www`, `_dmarc`, and the
-     * apex redirect) rather than just its own hosts.
+     * apex or www redirect) rather than just its own hosts. Required on the
+     * stack that serves the apex.
      *
      * At most one stack may set it. Two stacks that both claim the zone do not
      * conflict in any way Cloudflare reports — the later `pulumi up` overwrites
@@ -1999,6 +2000,18 @@ export function loadConfig(): GridConfig {
       throw new Error(
         `grid-oib:dnsApexRedirectTo must be an absolute URL (got "${dnsApexRedirectTo}"). ` +
           "Cloudflare sends it to the browser as a Location header verbatim.",
+      );
+    }
+    // The apex is a zone-level record, so the stack that serves it owns the
+    // baseline. Anything else splits the zone: this stack writes the apex while
+    // another writes www — and that other stack's www either still redirects
+    // away from the site (how piloti.at kept bouncing to dev after prod shipped)
+    // or points unproxied at a Gateway with no listener for it.
+    if (webDomain === dnsZoneName && !dnsZoneBaseline) {
+      throw new Error(
+        `grid-oib:dnsZoneBaseline must be true on the stack that serves the apex ` +
+          `("${webDomain}"). The apex, www and _dmarc have one owner, and the apex's server is it — ` +
+          "set it here and remove dnsZoneBaseline and dnsApexRedirectTo from the stack that held them.",
       );
     }
   }
