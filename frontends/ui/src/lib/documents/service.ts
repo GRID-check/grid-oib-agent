@@ -2181,16 +2181,60 @@ export async function streamDocumentImage(
 
   // No ContentLength on the response — some gateways omit it — so decide from
   // the bytes rather than the header: a present object with an unknown length
-  // is not a missing one. Buffering is bounded to this ambiguous branch only;
-  // the common path above still streams.
-  const bytes =
-    object?.Body && typeof object.Body.transformToByteArray === 'function'
-      ? await object.Body.transformToByteArray().catch(() => null)
-      : null
+  // is not a missing one. Buffering is confined to this ambiguous branch, and
+  // with no header to check up front the read itself enforces the upload
+  // ceiling, so an oversized object is dropped before it is held in memory.
+  const { maxFileSize } = getFileUploadConfigFromEnv(process.env)
+  const bytes = object?.Body ? await readBodyWithin(object.Body, maxFileSize) : null
+  if (bytes === 'oversize') return serveImageFallback(documentId, 'oversize-object')
   if (!bytes || bytes.byteLength === 0) return serveImageFallback(documentId, 'empty-object')
   // Copied: the SDK may hand back a view over a shared pool, and the response
   // takes ownership of what it is given.
   return tenantImageResponse(Buffer.from(bytes), contentType)
+}
+
+/** The two ways an object-store body can be read, either of which may be absent. */
+interface ReadableObjectBody {
+  transformToWebStream?: () => ReadableStream<Uint8Array>
+  transformToByteArray?: () => Promise<Uint8Array>
+}
+
+/**
+ * Read an object-store body into memory, giving up once it passes `limit`
+ * bytes. Null when it cannot be read.
+ *
+ * The stream is preferred because it can be cut off mid-read. A body offering
+ * only the buffer API is read whole and checked afterwards: there is nothing
+ * to stop part-way through.
+ */
+async function readBodyWithin(
+  body: ReadableObjectBody,
+  limit: number
+): Promise<Uint8Array | 'oversize' | null> {
+  if (typeof body.transformToWebStream !== 'function') {
+    if (typeof body.transformToByteArray !== 'function') return null
+    const whole = await body.transformToByteArray().catch(() => null)
+    if (whole && whole.byteLength > limit) return 'oversize'
+    return whole
+  }
+  const reader = body.transformToWebStream().getReader()
+  const chunks: Uint8Array[] = []
+  let total = 0
+  try {
+    for (;;) {
+      const { done, value } = await reader.read()
+      if (done) break
+      total += value.byteLength
+      if (total > limit) {
+        await reader.cancel().catch(() => undefined)
+        return 'oversize'
+      }
+      chunks.push(value)
+    }
+  } catch {
+    return null
+  }
+  return Buffer.concat(chunks, total)
 }
 
 /**

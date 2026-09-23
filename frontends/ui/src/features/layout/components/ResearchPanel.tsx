@@ -20,6 +20,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { cancelJob } from '@/adapters/api'
 import { readTerminalVerdictFromCancelResult } from '@/features/chat/lib/deep-research-errors'
+import { isTerminalDeepResearchJobStatus } from '@/features/chat/lib/session-activity'
 import { useChatStore, useLoadJobData } from '@/features/chat'
 import { useAuth } from '@/adapters/auth'
 import { useIsMobile } from '@/hooks/use-is-mobile'
@@ -120,14 +121,18 @@ export const ResearchPanel: FC<ResearchPanelProps> = memo(function ResearchPanel
   useEscapeKey(isOpen, handleEscape)
 
   const handleStopResearch = useCallback(async () => {
-    if (!deepResearchJobId) return
-    const cancelledJobId = deepResearchJobId
     // #632: the Stop confirmation dialog leaves a window between the press
-    // and the confirm in which the run can finish. This callback re-binds on
-    // every streaming-flag change, so a completion that lands while the
-    // dialog is open is observed here — cancelling a settled run is a
-    // backend no-op, so do not even send it.
-    if (!isDeepResearchStreaming) return
+    // and the confirm in which the run can finish. Read the store fresh, not
+    // the render this callback closed over: `onJobStatus` writes the terminal
+    // status before `completeDeepResearch()` clears the streaming flag, and
+    // no re-render need have committed in between. Cancelling a settled run
+    // is a backend no-op, so do not even send it.
+    const {
+      deepResearchJobId: cancelledJobId,
+      deepResearchStatus: currentStatus,
+      isDeepResearchStreaming: streamingNow,
+    } = useChatStore.getState()
+    if (!cancelledJobId || !streamingNow || isTerminalDeepResearchJobStatus(currentStatus)) return
     try {
       const result = await cancelJob(cancelledJobId, idToken || undefined)
       // The cancel carries the backend's own verdict when it lands after
@@ -172,7 +177,7 @@ export const ResearchPanel: FC<ResearchPanelProps> = memo(function ResearchPanel
         description: t('researchPanel.couldNotStopDesc'),
       })
     }
-  }, [deepResearchJobId, isDeepResearchStreaming, idToken, t])
+  }, [idToken, t])
 
   const handleTabChange = useCallback(
     (value: string) => {

@@ -52,6 +52,7 @@ const mockAddDeepResearchBanner = vi.fn()
 const mockStopAllDeepResearchSpinners = vi.fn()
 const mockCompleteDeepResearch = vi.fn()
 const mockSetStreaming = vi.fn()
+let mockDeepResearchStatus: string | null = null
 let mockFallbackState: {
   isDeepResearchStreaming: boolean
   deepResearchJobId: string | null
@@ -78,6 +79,7 @@ vi.mock('@/features/chat', () => ({
       getState: () => ({
         isDeepResearchStreaming: mockFallbackState?.isDeepResearchStreaming ?? mockIsDeepResearchStreaming,
         deepResearchJobId: mockFallbackState?.deepResearchJobId ?? mockDeepResearchJobId,
+        deepResearchStatus: mockDeepResearchStatus,
         deepResearchOwnerConversationId: mockFallbackState?.deepResearchOwnerConversationId ?? null,
         activeDeepResearchMessageId: mockFallbackState?.activeDeepResearchMessageId ?? null,
         reportContent: mockFallbackState?.reportContent ?? '',
@@ -120,6 +122,7 @@ describe('ResearchPanel', () => {
     mockRightPanel = 'research'
     mockResearchPanelTab = 'tasks'
     mockIsDeepResearchStreaming = false
+    mockDeepResearchStatus = null
     mockDeepResearchJobId = null
     mockDeepResearchStreamLoaded = false
     mockIsLoadJobDataLoading = false
@@ -365,6 +368,24 @@ describe('ResearchPanel', () => {
       // change below stands in for that re-render (the panel is memo).
       mockIsDeepResearchStreaming = false
       rerender(<ResearchPanel showSourceBadges={false} />)
+
+      await user.click(screen.getByTestId('stop-research-confirm'))
+      expect(cancelJob).not.toHaveBeenCalled()
+    })
+
+    test('confirming after the terminal status landed does not send a cancel, even before a re-render', async () => {
+      // #632: onJobStatus writes the terminal status before completeDeepResearch
+      // clears the streaming flag, and nothing guarantees a render commits in
+      // between. The confirm must read the store, not the closed-over render.
+      const user = userEvent.setup()
+      const { cancelJob } = await import('@/adapters/api')
+      mockIsDeepResearchStreaming = true
+      mockDeepResearchJobId = 'job-123'
+
+      render(<ResearchPanel />)
+
+      await user.click(screen.getByTestId('research-panel-stop'))
+      mockDeepResearchStatus = 'success'
 
       await user.click(screen.getByTestId('stop-research-confirm'))
       expect(cancelJob).not.toHaveBeenCalled()
