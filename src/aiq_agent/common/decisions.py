@@ -333,7 +333,23 @@ async def _endpoint(organization_id: str | None) -> tuple[_Endpoint | None, str 
     zdr = await asyncio.to_thread(_zdr_only_blocking)
     if zdr:
         return None, SKIPPED_ZDR
-    return await asyncio.to_thread(_resolve_endpoint_blocking, organization_id)
+    return await asyncio.to_thread(_resolve_endpoint_blocking, organization_id or _context_organization_id())
+
+
+def _context_organization_id() -> str | None:
+    """The request's organization, for a caller that did not name one.
+
+    The knowledge layer decides without an organization id in hand; without
+    this, the resolver would skip BYOK and send that org's passages to the
+    platform endpoint under the platform key, the one thing the BYOK-host
+    guard exists to prevent.
+    """
+    try:
+        from aiq_agent.project_context import get_organization_id_from_context
+
+        return get_organization_id_from_context()
+    except Exception:  # noqa: BLE001 — no request context is no organization
+        return None
 
 
 #: The keep-alive client, one per event loop. Measured on 2026-09-22 against

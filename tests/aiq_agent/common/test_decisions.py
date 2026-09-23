@@ -173,6 +173,16 @@ class TestFailOpen:
             endpoint, skipped = _RESOLVE_ENDPOINT("org-1")
         assert endpoint is None and skipped == "byok_host"
 
+    async def test_a_caller_without_an_organization_resolves_under_the_requests_one(self):
+        """The knowledge layer decides without an org id; BYOK must still see the org."""
+        with (
+            patch("aiq_agent.project_context.get_organization_id_from_context", return_value="org-ctx"),
+            patch.object(decisions, "_resolve_endpoint_blocking", return_value=(_ENDPOINT, None)) as resolve,
+        ):
+            await decisions._endpoint(None)
+            await decisions._endpoint("org-given")
+        assert [c.args[0] for c in resolve.call_args_list] == ["org-ctx", "org-given"]
+
     async def test_the_breaker_opens_after_repeated_server_failures(self, records):
         transport = _transport(lambda r: httpx.Response(503))
         for _ in range(decisions._BREAKER_THRESHOLD):
