@@ -50,6 +50,137 @@
       ]
     },
     {
+      "id": "2026-09-22",
+      "kind": "date",
+      "version": null,
+      "date": "2026-09-22",
+      "summary": null,
+      "sections": [
+        {
+          "key": "features",
+          "notes": [
+            {
+              "en": "Answers with cards (a legal basis, a table, a checklist, a process) arrive in one pass. The assistant now writes its cards together with the answer instead of in a separate step before it, so a card no longer adds a wait of its own, and a card whose details came out wrong is fixed quietly in the background rather than costing another pass.",
+              "de": "Answers with cards (a legal basis, a table, a checklist, a process) arrive in one pass. The assistant now writes its cards together with the answer instead of in a separate step before it, so a card no longer adds a wait of its own, and a card whose details came out wrong is fixed quietly in the background rather than costing another pass."
+            },
+            {
+              "en": "Befunde eines Berichts leben im Projekt weiter: ein offener Befund lässt sich mit „Klären“ als eigener Auftrag anstoßen, dessen Lauf im selben Verlauf erscheint, und ein fertiger Bericht bietet „Bericht fortschreiben“ an. Der neue Bericht kennzeichnet je Befund, was neu, geändert oder entfallen ist.",
+              "de": "Befunde eines Berichts leben im Projekt weiter: ein offener Befund lässt sich mit „Klären“ als eigener Auftrag anstoßen, dessen Lauf im selben Verlauf erscheint, und ein fertiger Bericht bietet „Bericht fortschreiben“ an. Der neue Bericht kennzeichnet je Befund, was neu, geändert oder entfallen ist."
+            },
+            {
+              "en": "Die Befunde eines Berichts wandern als Fakten und offene Punkte ins Projektgedächtnis.",
+              "de": "Die Befunde eines Berichts wandern als Fakten und offene Punkte ins Projektgedächtnis."
+            },
+            {
+              "en": "Ein Bericht der Tiefenrecherche kommt jetzt mit Kopf und Befundmatrix: oben das Urteil, die Zusammenfassung und das Wichtigste wie bei jeder Antwort, darunter eine Zeile je geprüfter Anforderung – Wert, Fundstelle mit Sprung zur Quelle, Status erfüllt / nicht erfüllt / offen / nicht anwendbar – und unter dem Bericht Anschlussfragen. Der Word-Export enthält dieselbe Tabelle.",
+              "de": "Ein Bericht der Tiefenrecherche kommt jetzt mit Kopf und Befundmatrix: oben das Urteil, die Zusammenfassung und das Wichtigste wie bei jeder Antwort, darunter eine Zeile je geprüfter Anforderung – Wert, Fundstelle mit Sprung zur Quelle, Status erfüllt / nicht erfüllt / offen / nicht anwendbar – und unter dem Bericht Anschlussfragen. Der Word-Export enthält dieselbe Tabelle."
+            },
+            {
+              "en": "Während die Recherche läuft, zeigt der Auftragsblock je Runde, was bereits belegt ist, und zählt die Befunde im Kopf mit. Neu daneben: „Jetzt schreiben“ lässt Piloti die Recherche nach der laufenden Runde beenden und den Bericht aus dem Vorhandenen schreiben – der Bericht sagt dann, dass das Ihr Wunsch war.",
+              "de": "Während die Recherche läuft, zeigt der Auftragsblock je Runde, was bereits belegt ist, und zählt die Befunde im Kopf mit. Neu daneben: „Jetzt schreiben“ lässt Piloti die Recherche nach der laufenden Runde beenden und den Bericht aus dem Vorhandenen schreiben – der Bericht sagt dann, dass das Ihr Wunsch war."
+            },
+            {
+              "en": "The assistant starts reading before it starts thinking. A fast decision model looks at each question first and, when the answer lives in a regulation or a project file, fetches the likely passages and the Gliederung of the OIB-Richtlinien it needs before the first reasoning step, so most questions answer one step sooner. The reasoning view shows this as the first search step.",
+              "de": "The assistant starts reading before it starts thinking. A fast decision model looks at each question first and, when the answer lives in a regulation or a project file, fetches the likely passages and the Gliederung of the OIB-Richtlinien it needs before the first reasoning step, so most questions answer one step sooner. The reasoning view shows this as the first search step."
+            },
+            {
+              "en": "Searches judge their own results faster: whether the first hits already answer the question is decided by the same fast decision model instead of a full language-model call, and only a search that came up short still asks for other wordings.",
+              "de": "Searches judge their own results faster: whether the first hits already answer the question is decided by the same fast decision model instead of a full language-model call, and only a search that came up short still asks for other wordings."
+            },
+            {
+              "en": "Follow-up questions („und in Gebäudeklasse 4?\") answer from what the previous answer already read: the passages of the last exchange stay with the conversation instead of being fetched again, so a follow-up is one step, and the assistant no longer searches for the fragment.",
+              "de": "Follow-up questions („und in Gebäudeklasse 4?\") answer from what the previous answer already read: the passages of the last exchange stay with the conversation instead of being fetched again, so a follow-up is one step, and the assistant no longer searches for the fragment."
+            },
+            {
+              "en": "Die Tiefenrecherche hat kein Seitenpanel mehr. Ein Durchlauf ist ein Block im Chat, der ihn beauftragt hat: Stand, Befunde je Runde, „Jetzt schreiben“, „Abbrechen“ und am Ende der Bericht mit Befundmatrix stehen dort. Was mehr Platz braucht als eine Nachricht, öffnet sich als Dialog über dem Chat.",
+              "de": "Die Tiefenrecherche hat kein Seitenpanel mehr. Ein Durchlauf ist ein Block im Chat, der ihn beauftragt hat: Stand, Befunde je Runde, „Jetzt schreiben“, „Abbrechen“ und am Ende der Bericht mit Befundmatrix stehen dort. Was mehr Platz braucht als eine Nachricht, öffnet sich als Dialog über dem Chat."
+            },
+            {
+              "en": "Der Chat bleibt während und nach einer Tiefenrecherche offen. Bisher war die Eingabe gesperrt, solange ein Durchlauf lief, und nach einem fertigen Bericht dauerhaft. Jetzt fragen Sie neben dem Durchlauf weiter, und „Bericht fortschreiben“ läuft im selben Chat.",
+              "de": "Der Chat bleibt während und nach einer Tiefenrecherche offen. Bisher war die Eingabe gesperrt, solange ein Durchlauf lief, und nach einem fertigen Bericht dauerhaft. Jetzt fragen Sie neben dem Durchlauf weiter, und „Bericht fortschreiben“ läuft im selben Chat."
+            },
+            {
+              "en": "Shorter answers keep their cards. A three-sentence reply with a table, a checklist or a diagram under it used to lose the card; the card stays from about three sentences of prose upward, and the working methods' own cards (fire compartments, guardrails, setbacks) are back in front of the assistant on the questions they belong to.",
+              "de": "Shorter answers keep their cards. A three-sentence reply with a table, a checklist or a diagram under it used to lose the card; the card stays from about three sentences of prose upward, and the working methods' own cards (fire compartments, guardrails, setbacks) are back in front of the assistant on the questions they belong to."
+            },
+            {
+              "en": "Questions that follow one of the office's working methods (Gebäudeklasse, Brandschutz, Einreichcheck, Bestand and the others) answer faster: a fast decision model recognises which method a question is the subject of and puts that one in front of the assistant from the start, instead of the assistant loading it in a separate step; the \"Skills used\" disclosure still names the ones it followed.",
+              "de": "Questions that follow one of the office's working methods (Gebäudeklasse, Brandschutz, Einreichcheck, Bestand and the others) answer faster: a fast decision model recognises which method a question is the subject of and puts that one in front of the assistant from the start, instead of the assistant loading it in a separate step; the \"Skills used\" disclosure still names the ones it followed."
+            },
+            {
+              "en": "Der Rechercheplan vor einer Tiefenrecherche ist jetzt eine Checkliste: Abschnitte lassen sich streichen und ergänzen, die Art des Berichts (Prüfbericht, Aktenvermerk, Vergleich, Checkliste, Bericht) und die Tiefe (Kurzprüfung, Gutachten) sind wählbar.",
+              "de": "Der Rechercheplan vor einer Tiefenrecherche ist jetzt eine Checkliste: Abschnitte lassen sich streichen und ergänzen, die Art des Berichts (Prüfbericht, Aktenvermerk, Vergleich, Checkliste, Bericht) und die Tiefe (Kurzprüfung, Gutachten) sind wählbar."
+            },
+            {
+              "en": "Was Sie im Rechercheplan freigeben, bindet die Recherche: die Abschnitte werden in dieser Reihenfolge zu denen des Berichts, und ein Prüfbericht trägt je Prüfpunkt einen Befund mit Wert, Fundstelle und Status.",
+              "de": "Was Sie im Rechercheplan freigeben, bindet die Recherche: die Abschnitte werden in dieser Reihenfolge zu denen des Berichts, und ein Prüfbericht trägt je Prüfpunkt einen Befund mit Wert, Fundstelle und Status."
+            },
+            {
+              "en": "Im Rechercheplan wählen Sie unter „Unterlagen“ aus Projekt und Büroarchiv, was die Tiefenrecherche vollständig liest („Lesen“) und was sie nie verwendet („Ausschließen“); die Chips unter „Rahmen“ zeigen die durchsuchten Quellen. Ausgeschlossene Dokumente werden auch dann nicht zitiert, wenn eine Suche sie findet.",
+              "de": "Im Rechercheplan wählen Sie unter „Unterlagen“ aus Projekt und Büroarchiv, was die Tiefenrecherche vollständig liest („Lesen“) und was sie nie verwendet („Ausschließen“); die Chips unter „Rahmen“ zeigen die durchsuchten Quellen. Ausgeschlossene Dokumente werden auch dann nicht zitiert, wenn eine Suche sie findet."
+            },
+            {
+              "en": "Während ein Auftrag läuft, fügt „Dokument hinzufügen“ am Laufblock eine weitere Unterlage hinzu. Der Block zeigt für jede benannte Unterlage, ob und wo sie gelesen wurde; ein Bericht, der eine nicht erreicht hat, nennt sie unter „Nicht gelesene Unterlagen“. „Bericht fortschreiben“ übernimmt die zitierten Unterlagen als Grundlage.",
+              "de": "Während ein Auftrag läuft, fügt „Dokument hinzufügen“ am Laufblock eine weitere Unterlage hinzu. Der Block zeigt für jede benannte Unterlage, ob und wo sie gelesen wurde; ein Bericht, der eine nicht erreicht hat, nennt sie unter „Nicht gelesene Unterlagen“. „Bericht fortschreiben“ übernimmt die zitierten Unterlagen als Grundlage."
+            },
+            {
+              "en": "Eine Ergebnistabelle in einem Vergleich oder Aktenvermerk trägt kein Urteil mehr, das der Bericht nicht gefällt hat: sie heißt „Ergebnisse“ statt „Befunde“ und zeigt Wert, Fundstelle und Anmerkung.",
+              "de": "Eine Ergebnistabelle in einem Vergleich oder Aktenvermerk trägt kein Urteil mehr, das der Bericht nicht gefällt hat: sie heißt „Ergebnisse“ statt „Befunde“ und zeigt Wert, Fundstelle und Anmerkung."
+            }
+          ]
+        },
+        {
+          "key": "fixes",
+          "notes": [
+            {
+              "en": "Ein deutscher Bericht endet mit „Quellen“ statt „Sources“, und der Hinweis über einem abgebrochenen Bericht folgt der Sprache des Berichts.",
+              "de": "Ein deutscher Bericht endet mit „Quellen“ statt „Sources“, und der Hinweis über einem abgebrochenen Bericht folgt der Sprache des Berichts."
+            },
+            {
+              "en": "The reasoning view no longer shows empty \"Search\" steps for turns that read the building model or put files on screen. Those steps now list the model or the files they read, and a step that genuinely found nothing says \"No hits\" instead of looking like an unfinished search.",
+              "de": "The reasoning view no longer shows empty \"Search\" steps for turns that read the building model or put files on screen. Those steps now list the model or the files they read, and a step that genuinely found nothing says \"No hits\" instead of looking like an unfinished search."
+            },
+            {
+              "en": "Die wenigen festen Hinweise, die Piloti ohne Recherche sendet – ein Fehler bei der Bearbeitung, eine Suche ohne verwertbare Quellen, eine vorübergehend nicht verfügbare Suchfunktion – erscheinen jetzt auf Deutsch und in derselben Ansprache wie der Rest der Antworten. Bisher kamen sie auf Englisch.",
+              "de": "Die wenigen festen Hinweise, die Piloti ohne Recherche sendet – ein Fehler bei der Bearbeitung, eine Suche ohne verwertbare Quellen, eine vorübergehend nicht verfügbare Suchfunktion – erscheinen jetzt auf Deutsch und in derselben Ansprache wie der Rest der Antworten. Bisher kamen sie auf Englisch."
+            },
+            {
+              "en": "Die Antwortdetails öffnen sich jetzt von selbst, wenn die Antwort etwas trägt, das nicht übersehen werden darf: eine abgebrochene Recherche, entfernte Belege oder eine geringe Sicherheit. Bisher lagen diese Hinweise hinter dem zugeklappten Auslöser, und die Antwort sah wie eine vollständige aus.",
+              "de": "Die Antwortdetails öffnen sich jetzt von selbst, wenn die Antwort etwas trägt, das nicht übersehen werden darf: eine abgebrochene Recherche, entfernte Belege oder eine geringe Sicherheit. Bisher lagen diese Hinweise hinter dem zugeklappten Auslöser, und die Antwort sah wie eine vollständige aus."
+            },
+            {
+              "en": "Beim Urteil im Antwortkopf steht wieder die Sicherheit der Antwort mit ihrer Begründung, und die Einordnung (Richtlinie, Ausgabe, Bundesland) bleibt auch dann sichtbar, wenn kein Urteil über der Zusammenfassung steht.",
+              "de": "Beim Urteil im Antwortkopf steht wieder die Sicherheit der Antwort mit ihrer Begründung, und die Einordnung (Richtlinie, Ausgabe, Bundesland) bleibt auch dann sichtbar, wenn kein Urteil über der Zusammenfassung steht."
+            },
+            {
+              "en": "Vorgeschlagene Anschlussfragen, die verwendeten Methoden und der Antwortkopf überstehen jetzt ein Neuladen, einen Gerätewechsel und den Blick einer Kollegin – auch wenn der Tab schon geschlossen war, als die Antwort fertig wurde, oder die Leserin beim Eintreffen der Vorschläge bereits tippte.",
+              "de": "Vorgeschlagene Anschlussfragen, die verwendeten Methoden und der Antwortkopf überstehen jetzt ein Neuladen, einen Gerätewechsel und den Blick einer Kollegin – auch wenn der Tab schon geschlossen war, als die Antwort fertig wurde, oder die Leserin beim Eintreffen der Vorschläge bereits tippte."
+            },
+            {
+              "en": "„Antwort kopieren\" und der Word-Export enthalten keine internen Platzhalter mehr; bisher konnte eine Zeile „[[callout]]\" in den Text gelangen.",
+              "de": "„Antwort kopieren\" und der Word-Export enthalten keine internen Platzhalter mehr; bisher konnte eine Zeile „[[callout]]\" in den Text gelangen."
+            },
+            {
+              "en": "Ein Durchlauf, dessen Ende der Browser verpasst hat, hielt den Chat fest: Eingabe gesperrt, Umbenennen und Löschen ausgegraut, „Alle löschen“ blockiert. Der Stand eines Durchlaufs wird jetzt an seinem Block gelesen und beim Neuladen vom Server geholt; ein laufender Durchlauf sperrt nichts mehr. Die Schaltfläche „Blockierte Recherchen stoppen“ entfällt.",
+              "de": "Ein Durchlauf, dessen Ende der Browser verpasst hat, hielt den Chat fest: Eingabe gesperrt, Umbenennen und Löschen ausgegraut, „Alle löschen“ blockiert. Der Stand eines Durchlaufs wird jetzt an seinem Block gelesen und beim Neuladen vom Server geholt; ein laufender Durchlauf sperrt nichts mehr. Die Schaltfläche „Blockierte Recherchen stoppen“ entfällt."
+            },
+            {
+              "en": "Die Zeile „Belegt durch“ zeigt jetzt bei mehr als acht Quellen „+N weitere“ und klappt auf Wunsch alle auf; „Alle Quellen kopieren“ übernimmt stets jede Quelle der Antwort, nicht nur die sichtbaren.",
+              "de": "Die Zeile „Belegt durch“ zeigt jetzt bei mehr als acht Quellen „+N weitere“ und klappt auf Wunsch alle auf; „Alle Quellen kopieren“ übernimmt stets jede Quelle der Antwort, nicht nur die sichtbaren."
+            },
+            {
+              "en": "Fußnoten in einer Antwort tragen ihre Überschrift und Rücksprünge in der Sprache der Leserin, und die Sprungmarken führen wieder zur Fußnote. Die Reiter der Quellenkarten in der Herleitung folgen ebenfalls der eingestellten Sprache.",
+              "de": "Fußnoten in einer Antwort tragen ihre Überschrift und Rücksprünge in der Sprache der Leserin, und die Sprungmarken führen wieder zur Fußnote. Die Reiter der Quellenkarten in der Herleitung folgen ebenfalls der eingestellten Sprache."
+            },
+            {
+              "en": "Anschlussfragen kommen schneller: die Vorentscheidung zu Beginn einer Antwort läuft über eine offen gehaltene Verbindung und parallel zu den übrigen Vorbereitungen, und ins Gespräch wandern nur noch die belegten Fundstellen der letzten Antwort in voller Länge.",
+              "de": "Anschlussfragen kommen schneller: die Vorentscheidung zu Beginn einer Antwort läuft über eine offen gehaltene Verbindung und parallel zu den übrigen Vorbereitungen, und ins Gespräch wandern nur noch die belegten Fundstellen der letzten Antwort in voller Länge."
+            }
+          ]
+        }
+      ]
+    },
+    {
       "id": "2026-09-18",
       "kind": "date",
       "version": null,
