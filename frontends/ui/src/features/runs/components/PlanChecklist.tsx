@@ -8,10 +8,23 @@
  */
 
 import { useState, type FC } from 'react'
-import { BookOpen, Plus, X } from 'lucide-react'
+import { BookOpen, Database, Plus } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Chip } from '@/components/ui/chip'
+import { Input } from '@/components/ui/input'
 import { UnterlagenDialog } from './UnterlagenDialog'
+import {
+  DEPTH_ICON,
+  GENRE_ICON,
+  OptionTile,
+  OptionTiles,
+  OutlineAddDisc,
+  OutlineRail,
+  PlanDocChip,
+  PlanGroup,
+  RowRemove,
+  Segmented,
+} from './plan-atoms'
 import { useTranslations } from '@/i18n'
 import {
   PLAN_DEPTHS,
@@ -21,7 +34,6 @@ import {
   type ResearchPlan,
 } from '@/lib/plans/plan-types'
 import { planDocumentLabel, type PlanDocument } from '@/lib/runs/plan-documents'
-import { cn } from '@/lib/utils'
 
 export { PLAN_DEPTHS, PLAN_GENRES, type PlanDepth, type PlanGenre }
 
@@ -70,10 +82,9 @@ export const PlanChecklist: FC<{
   const t = useTranslations('chat')
   const [draft, setDraft] = useState('')
   const [picking, setPicking] = useState(false)
-  const labelOf = (name: string): string => {
+  const docOf = (name: string): PlanDocument => {
     const key = name.trim().toLocaleLowerCase()
-    const doc = plan.unterlagen.find((row) => row.name.trim().toLocaleLowerCase() === key)
-    return doc ? planDocumentLabel(doc) : name
+    return plan.unterlagen.find((row) => row.name.trim().toLocaleLowerCase() === key) ?? { name }
   }
   const dropName = (list: 'grundlage' | 'ausgeschlossen', name: string): void =>
     onChange({ ...plan, [list]: plan[list].filter((item) => item !== name) })
@@ -86,111 +97,117 @@ export const PlanChecklist: FC<{
     onChange({ ...plan, sections: [...plan.sections, text] })
     setDraft('')
   }
+  const hasDocuments = plan.unterlagen.length > 0 || plan.grundlage.length > 0 || plan.ausgeschlossen.length > 0
 
   return (
-    <div className="flex flex-col gap-3" data-testid="plan-checklist">
-      <div className="flex flex-col gap-1.5">
-        <span className="text-muted-foreground text-xs font-medium">
-          {t('agentPrompt.plan.points')}
-        </span>
-        <ul className="flex flex-col gap-1" aria-label={t('agentPrompt.plan.points')}>
-          {plan.sections.map((section, index) => (
-            <li
-              key={`${index}-${section}`}
-              className="flex items-center gap-2 text-sm"
-              data-testid="plan-point"
-            >
-              <span className="flex-1">{section}</span>
-              {!disabled && plan.sections.length > 1 && (
-                <button
+    <div className="flex flex-col gap-5" data-testid="plan-checklist">
+      <PlanGroup label={t('agentPrompt.plan.points')}>
+        <OutlineRail
+          label={t('agentPrompt.plan.points')}
+          items={plan.sections}
+          itemTestId="plan-point"
+          action={
+            !disabled && plan.sections.length > 1
+              ? (index, section) => (
+                  <RowRemove
+                    label={t('agentPrompt.plan.removePoint', { point: section })}
+                    onClick={() => remove(index)}
+                  />
+                )
+              : undefined
+          }
+          footer={
+            disabled ? undefined : (
+              <>
+                <OutlineAddDisc />
+                <Input
+                  value={draft}
+                  onChange={(event) => setDraft(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter') {
+                      event.preventDefault()
+                      add()
+                    }
+                  }}
+                  placeholder={t('agentPrompt.plan.addPlaceholder')}
+                  aria-label={t('agentPrompt.plan.addPoint')}
+                  className="h-8 flex-1 text-sm"
+                />
+                <Button
                   type="button"
-                  onClick={() => remove(index)}
-                  aria-label={t('agentPrompt.plan.removePoint', { point: section })}
-                  className="rounded-xs text-muted-foreground hover:text-foreground focus-visible:ring-ring/60 focus-visible:outline-none focus-visible:ring-2"
+                  size="sm"
+                  variant="ghost"
+                  className="h-8 px-2"
+                  onClick={add}
+                  disabled={!draft.trim()}
+                  aria-label={t('agentPrompt.plan.addPoint')}
                 >
-                  <X className="size-3.5" aria-hidden />
-                </button>
-              )}
-            </li>
-          ))}
-        </ul>
-        {!disabled && (
-          <div className="flex items-center gap-2">
-            <input
-              value={draft}
-              onChange={(event) => setDraft(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === 'Enter') {
-                  event.preventDefault()
-                  add()
-                }
-              }}
-              placeholder={t('agentPrompt.plan.addPlaceholder')}
-              aria-label={t('agentPrompt.plan.addPoint')}
-              className="border-border bg-background h-7 flex-1 rounded-md border px-2 text-sm"
+                  <Plus className="size-3.5" aria-hidden />
+                </Button>
+              </>
+            )
+          }
+        />
+      </PlanGroup>
+
+      <PlanGroup label={t('agentPrompt.plan.genre')}>
+        <OptionTiles label={t('agentPrompt.plan.genre')}>
+          {PLAN_GENRES.map((genre) => (
+            <OptionTile
+              key={genre}
+              icon={GENRE_ICON[genre]}
+              label={t(`agentPrompt.plan.genres.${genre}`)}
+              hint={t(`agentPrompt.plan.genreHints.${genre}`)}
+              selected={plan.genre === genre}
+              disabled={disabled}
+              onSelect={() => onChange({ ...plan, genre })}
             />
-            <Button
-              type="button"
-              size="sm"
-              variant="ghost"
-              className="h-7 px-2"
-              onClick={add}
-              aria-label={t('agentPrompt.plan.addPoint')}
-            >
-              <Plus className="size-3.5" aria-hidden />
-            </Button>
-          </div>
-        )}
-      </div>
-      <ChoiceRow
-        label={t('agentPrompt.plan.genre')}
-        options={PLAN_GENRES}
-        value={plan.genre}
-        disabled={disabled}
-        labelFor={(genre) => t(`agentPrompt.plan.genres.${genre}`)}
-        onPick={(genre) => onChange({ ...plan, genre })}
-      />
-      <ChoiceRow
-        label={t('agentPrompt.plan.depth')}
-        options={PLAN_DEPTHS}
-        value={plan.depth}
-        disabled={disabled}
-        labelFor={(depth) => t(`agentPrompt.plan.depths.${depth}`)}
-        onPick={(depth) => onChange({ ...plan, depth })}
-      />
+          ))}
+        </OptionTiles>
+      </PlanGroup>
+
+      <PlanGroup label={t('agentPrompt.plan.depth')}>
+        <Segmented
+          label={t('agentPrompt.plan.depth')}
+          options={PLAN_DEPTHS.map((depth) => ({
+            value: depth,
+            label: t(`agentPrompt.plan.depths.${depth}`),
+            icon: DEPTH_ICON[depth],
+          }))}
+          value={plan.depth}
+          disabled={disabled}
+          onPick={(depth) => onChange({ ...plan, depth })}
+        />
+        <span className="text-muted-foreground text-xs">{t(`agentPrompt.plan.depthHints.${plan.depth}`)}</span>
+      </PlanGroup>
+
       {/* The Unterlagen: what the run must read, and what it may not use. A
           picker over the thread names them; the chips here are the receipt of
-          that choice, each one strikable. Shown whenever the turn has something
+          that choice, each one strikable. Shown whenever the plan has something
           to name, so the section is where the reader learns it can be done. */}
-      {(plan.unterlagen.length > 0 || plan.grundlage.length > 0 || plan.ausgeschlossen.length > 0) && (
-        <div className="flex flex-col gap-1.5" data-testid="plan-unterlagen">
-          <span className="text-muted-foreground text-xs font-medium">
-            {t('agentPrompt.plan.unterlagen.label')}
-          </span>
-          <NamedRow
+      {hasDocuments && (
+        <PlanGroup label={t('agentPrompt.plan.unterlagen.label')} testId="plan-unterlagen">
+          <DocRow
             label={t('agentPrompt.plan.unterlagen.grundlage')}
             names={plan.grundlage}
-            labelOf={labelOf}
+            docOf={docOf}
             disabled={disabled}
-            variant="default"
-            removeLabel={(name) => t('agentPrompt.plan.unterlagen.removeRead', { name })}
+            removeLabel={(label) => t('agentPrompt.plan.unterlagen.removeRead', { name: label })}
             onRemove={(name) => dropName('grundlage', name)}
             testId="plan-grundlage"
           />
-          <NamedRow
+          <DocRow
             label={t('agentPrompt.plan.unterlagen.ausgeschlossen')}
             names={plan.ausgeschlossen}
-            labelOf={labelOf}
+            docOf={docOf}
+            excluded
             disabled={disabled}
-            variant="destructive"
-            removeLabel={(name) => t('agentPrompt.plan.unterlagen.removeExcluded', { name })}
+            removeLabel={(label) => t('agentPrompt.plan.unterlagen.removeExcluded', { name: label })}
             onRemove={(name) => dropName('ausgeschlossen', name)}
             testId="plan-ausgeschlossen"
           />
           {plan.grundlage.length === 0 && plan.ausgeschlossen.length === 0 && (
-            <span className="text-muted-foreground text-xs">
-              {t('agentPrompt.plan.unterlagen.none')}
-            </span>
+            <span className="text-muted-foreground text-xs">{t('agentPrompt.plan.unterlagen.none')}</span>
           )}
           {!disabled && plan.unterlagen.length > 0 && (
             <div>
@@ -198,7 +215,7 @@ export const PlanChecklist: FC<{
                 type="button"
                 size="sm"
                 variant="outline"
-                className="h-7 gap-1 px-2 text-xs"
+                className="h-8 gap-1.5 px-2.5 text-xs"
                 onClick={() => setPicking(true)}
                 data-testid="plan-unterlagen-pick"
               >
@@ -216,102 +233,53 @@ export const PlanChecklist: FC<{
               />
             </div>
           )}
-        </div>
+        </PlanGroup>
       )}
+
       {/* The Rahmen: read-only, because the run's tools were chosen by it when
           the run was commissioned. */}
       {rahmen && rahmen.labels.length > 0 && (
-        <div className="flex flex-col gap-1.5" data-testid="plan-rahmen">
-          <span className="text-muted-foreground text-xs font-medium">
-            {t('agentPrompt.plan.rahmen')}
-          </span>
+        <PlanGroup label={t('agentPrompt.plan.rahmen')} testId="plan-rahmen">
           <div className="flex flex-wrap gap-1.5">
             {rahmen.labels.map((label) => (
               <Chip key={label} size="sm" variant="secondary">
+                <Database className="size-3" aria-hidden />
                 {label}
               </Chip>
             ))}
           </div>
-        </div>
+        </PlanGroup>
       )}
     </div>
   )
 }
 
-const NamedRow: FC<{
+const DocRow: FC<{
   label: string
   names: readonly string[]
-  labelOf: (name: string) => string
+  docOf: (name: string) => PlanDocument
+  excluded?: boolean
   disabled: boolean
-  variant: 'default' | 'destructive'
-  removeLabel: (name: string) => string
+  removeLabel: (label: string) => string
   onRemove: (name: string) => void
   testId: string
-}> = ({ label, names, labelOf, disabled, variant, removeLabel, onRemove, testId }) => {
+}> = ({ label, names, docOf, excluded = false, disabled, removeLabel, onRemove, testId }) => {
   if (names.length === 0) return null
   return (
     <div className="flex flex-wrap items-center gap-1.5" data-testid={testId}>
-      <span className="text-muted-foreground text-[11px]">{label}</span>
-      {names.map((name) => (
-        <Chip key={name} size="sm" variant={variant} title={name}>
-          {labelOf(name)}
-          {!disabled && (
-            <button
-              type="button"
-              onClick={() => onRemove(name)}
-              aria-label={removeLabel(labelOf(name))}
-              className="rounded-xs ml-0.5 opacity-70 hover:opacity-100 focus-visible:outline-none"
-            >
-              <X className="size-3" aria-hidden />
-            </button>
-          )}
-        </Chip>
-      ))}
-    </div>
-  )
-}
-
-function ChoiceRow<T extends string>({
-  label,
-  options,
-  value,
-  disabled,
-  labelFor,
-  onPick,
-}: {
-  label: string
-  options: readonly T[]
-  value: T
-  disabled: boolean
-  labelFor: (option: T) => string
-  onPick: (option: T) => void
-}): JSX.Element {
-  return (
-    <div className="flex flex-col gap-1.5">
-      <span className="text-muted-foreground text-xs font-medium">{label}</span>
-      <div className="flex flex-wrap gap-1.5" role="radiogroup" aria-label={label}>
-        {options.map((option) => {
-          const selected = option === value
-          return (
-            <button
-              key={option}
-              type="button"
-              role="radio"
-              aria-checked={selected}
-              disabled={disabled}
-              onClick={() => onPick(option)}
-              className={cn(
-                'focus-visible:ring-ring/60 rounded-md focus-visible:outline-none focus-visible:ring-2',
-                disabled && 'cursor-default'
-              )}
-            >
-              <Chip size="md" variant={selected ? 'default' : 'outline'}>
-                {labelFor(option)}
-              </Chip>
-            </button>
-          )
-        })}
-      </div>
+      <span className="text-muted-foreground text-xs">{label}</span>
+      {names.map((name) => {
+        const doc = docOf(name)
+        return (
+          <PlanDocChip
+            key={name}
+            doc={doc}
+            excluded={excluded}
+            removeLabel={removeLabel(planDocumentLabel(doc))}
+            onRemove={disabled ? undefined : () => onRemove(name)}
+          />
+        )
+      })}
     </div>
   )
 }

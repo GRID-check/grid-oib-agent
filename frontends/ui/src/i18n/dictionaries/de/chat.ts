@@ -812,6 +812,17 @@ export const chat: typeof en.chat = {
       },
       depth: 'Tiefe',
       depths: { kurzpruefung: 'Kurzprüfung', gutachten: 'Gutachten' },
+      genreHints: {
+        pruefbericht: 'Je Prüfpunkt ein Befund: Wert, Fundstelle, Status.',
+        aktenvermerk: 'Knapp festgehalten, was gilt und warum.',
+        vergleich: 'Varianten oder Regelwerke nebeneinander, Kriterium für Kriterium.',
+        checkliste: 'Abhakbare Punkte für die nächsten Schritte.',
+        bericht: 'Zusammenhängende Darstellung mit ihren Quellen.',
+      },
+      depthHints: {
+        kurzpruefung: 'Das Wesentliche, in der kürzesten vollständigen Form.',
+        gutachten: 'Die volle Herleitung, mit allen Fundstellen.',
+      },
       unterlagen: {
         label: 'Unterlagen',
         grundlage: 'Vollständig lesen:',

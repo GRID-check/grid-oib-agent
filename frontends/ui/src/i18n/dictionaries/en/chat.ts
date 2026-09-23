@@ -807,6 +807,17 @@ export const chat = {
       },
       depth: 'Depth',
       depths: { kurzpruefung: 'Short review', gutachten: 'Full opinion' },
+      genreHints: {
+        pruefbericht: 'One finding per check: value, reference, status.',
+        aktenvermerk: 'A short record of what applies and why.',
+        vergleich: 'Options or rules side by side, criterion by criterion.',
+        checkliste: 'Items to tick off for the next steps.',
+        bericht: 'A connected account with its sources.',
+      },
+      depthHints: {
+        kurzpruefung: 'The essentials, in the shortest complete form.',
+        gutachten: 'The full derivation, with every reference.',
+      },
       /** The documents the reader names for the run, and the sources it may use. */
       unterlagen: {
         label: 'Documents',

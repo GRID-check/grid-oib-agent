@@ -106,6 +106,9 @@ export const runs = {
     adjust: 'Adjust',
     startNow: 'Start now',
     start: 'Start',
+    sections: '{count, plural, one {# section} other {# sections}}',
+    documents: '{count, plural, one {# document to read} other {# documents to read}}',
+    more: '+ {count} more',
     dialogTitle: 'Plan a research',
     dialogDescription:
       'Write the question and the sections the report should cover. The research starts as soon as you create the plan.',

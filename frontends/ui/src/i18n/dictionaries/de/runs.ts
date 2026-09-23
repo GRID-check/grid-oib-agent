@@ -79,6 +79,9 @@ export const runs: typeof en.runs = {
     adjust: 'Anpassen',
     startNow: 'Jetzt starten',
     start: 'Starten',
+    sections: '{count, plural, one {# Abschnitt} other {# Abschnitte}}',
+    documents: '{count, plural, one {# Unterlage zu lesen} other {# Unterlagen zu lesen}}',
+    more: '+ {count} weitere',
     dialogTitle: 'Recherche planen',
     dialogDescription:
       'Schreiben Sie die Frage und die Abschnitte, die der Bericht abdecken soll. Die Recherche beginnt, sobald Sie den Plan anlegen.',
