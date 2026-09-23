@@ -67,6 +67,15 @@ def test_read_api_key_env_treats_unresolved_placeholder_as_unset(monkeypatch):
 # ---------------------------------------------------------------------------
 
 
+def test_read_api_key_env_logs_the_name_never_the_value(monkeypatch, caplog):
+    """A key variable's value stays out of the log, even when it looks like a placeholder."""
+    monkeypatch.setenv("SOME_API_KEY", "${sk-live-not-a-placeholder}")
+    with caplog.at_level(logging.ERROR, logger=credential_resolution.__name__):
+        assert read_api_key_env("SOME_API_KEY") == ""
+    assert "SOME_API_KEY" in caplog.text
+    assert "sk-live-not-a-placeholder" not in caplog.text
+
+
 def test_primary_env_wins(monkeypatch):
     monkeypatch.setenv("PRIMARY_KEY", "primary")
     monkeypatch.setenv("FALLBACK_A", "fallback")
