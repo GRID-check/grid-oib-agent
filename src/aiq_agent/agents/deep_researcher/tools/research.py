@@ -30,6 +30,7 @@ from aiq_agent.common.turn_status import fetch_signature
 from aiq_agent.common.turn_status import record_round_announcement
 from aiq_agent.common.turn_status import retrieval_round_scope
 
+from ..control import note_write_now_honoured
 from ..control import take_added_documents
 from ..control import write_now_requested
 from ..models import ResearchGap
@@ -620,6 +621,7 @@ def build_research_batch_tool(
         if not queries:
             return "[]"
         if write_now_requested():
+            note_write_now_honoured()
             return WRITE_NOW_NOTICE
         _assert_batch_size(queries, max_research_concurrency)
         _assert_preferred_tools_available(queries, researcher_tool_names)

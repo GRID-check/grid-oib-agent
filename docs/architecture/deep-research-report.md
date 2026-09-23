@@ -18,7 +18,8 @@ report is delivered around a list of them rather than as one wall of Markdown.
 The extraction is post hoc on purpose: the writer's contract and the citation
 verification stay untouched, the extraction cannot change a word of the report,
 and a failure costs the reader the masthead and the matrix, never the report.
-It runs beside the post-hoc cards and the memory reflection, in one gather.
+It runs beside the post-hoc cards and the follow-ups, in one gather; the
+memory reflection runs after that gather, because it reads the findings.
 
 ## The findings contract
 
@@ -73,9 +74,14 @@ title and shelf), and a dialog over the card (`UnterlagenDialog.tsx`, mode
   `grundlage_unread`), and the block's receipt lists each one as read, with
   the loci the rounds reached, or unread (`run-vocabulary.grundlageReceipt`).
 - **Ausgeschlossen** — never used, not even when a search returns it. Enforced
-  at the root, in the source registry: `SourceRegistryMiddleware` refuses the
-  file name before it becomes a citable source, so no prompt discipline is
-  relied on. An exclusion beats a Grundlage mark for the same name.
+  in `SourceRegistryMiddleware`, on the tool result, not in a prompt: a
+  passage from an excluded file is refused as a source (a citation to it is
+  stripped like a fabricated one) and cut out of the `--- Result N ---` text
+  before the researcher model reads it. The same predicate keeps it out of
+  the live `citation_source` events and the run's `retrieval_ledger`. What
+  remains is the file NAME in the result's `## Trace-Lanes` line and in the
+  Herleitung's raw tool step, not its text. An exclusion beats a Grundlage
+  mark for the same name.
 - **Rahmen** — the composer's data-source toggles at the moment of approval,
   shown as chips on the card and carried as `data_sources` in the approval.
 
@@ -93,7 +99,9 @@ in mode `add`: the addition travels as a job event
 worker's monitor hands it to the research tool before its next batch
 (`deep_researcher/control.py` — `take_added_documents`, an
 `ADDED_DOCUMENTS_NOTICE` on the batch result) and to the ledger fold, so the
-receipt shows the new row at once. „Bericht fortschreiben" names the last
+receipt shows the new row at once. An addition that lands after the last
+batch, or after „Jetzt schreiben", reaches no batch; the finalizer counts it
+as Grundlage all the same and marks it unread. „Bericht fortschreiben" names the last
 report's cited project and Archiv documents as the next run's Grundlage
 (`carry-forward.ts` — `reportDocuments`).
 
@@ -103,9 +111,11 @@ Each research round's notes state claims; the run ledger fold copies them onto
 the round (`RunStep.findings`), so the block shows what has been established
 so far and counts it in the header. The reader has one lever, „Jetzt
 schreiben": the report is written from what is there
-([`docs/design/run-block.md`](../design/run-block.md), *The actions*). The run
-lands `unterbrochen`, with the truncation reason `user_requested` and a banner
-that names the reader's choice rather than a limit.
+([`docs/design/run-block.md`](../design/run-block.md), *The actions*). When
+the request made the research tool refuse a batch, the run lands
+`unterbrochen`, with the truncation reason `user_requested` and a banner that
+names the reader's choice rather than a limit. A request that arrives after the
+last batch cut nothing, and the report is not marked.
 
 ## The report's afterlife
 

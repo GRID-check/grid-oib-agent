@@ -697,11 +697,13 @@ def _add_findings(step: _Step, content: Any) -> bool:
     carries a ``claim``. Appended and de-duplicated rather than replaced: one
     round runs several researchers, and each one's notes arrive on their own.
     Anything that is not that JSON is not a finding and changes nothing.
+    Returns whether a claim was added, so a repeat does not re-emit the block.
     """
+    before = len(step.findings)
     for claim in _claims(content):
         if claim not in step.findings and len(step.findings) < MAX_FINDINGS_PER_STEP:
             step.findings.append(claim)
-    return bool(step.findings)
+    return len(step.findings) > before
 
 
 def _claims(content: Any) -> list[str]:

@@ -471,3 +471,14 @@ class TestTheContract:
         fold.observe(phase_event(PHASE_RESEARCH_STARTED, batch_index=1, conclusion="ü" * 400))
         await fold.flush(force=True)
         validator(schema, "runLedger").validate(snapshots(store)[-1])
+
+
+def test_a_repeated_claim_is_not_a_change() -> None:
+    from aiq_api.jobs.run_ledger_fold import _add_findings
+    from aiq_api.jobs.run_ledger_fold import _Step
+
+    step = _Step(id="s1", phase="research", intent="Brandschutz", started_at="t")
+    notes = json.dumps({"findings": [{"claim": "REI 60 gefordert."}]})
+    assert _add_findings(step, notes) is True
+    assert _add_findings(step, notes) is False
+    assert step.findings == ["REI 60 gefordert."]

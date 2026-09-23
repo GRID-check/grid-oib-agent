@@ -514,6 +514,10 @@ WRITE_NOW_EVENT_TYPE = "job.write_now_requested"
 #: The job event the documents route records when the reader adds a document
 #: to the Grundlage while the run goes; the monitor hands it to the run.
 DOCUMENT_ADDED_EVENT_TYPE = "job.document_added"
+#: What the monitor reads off the job's events. Filtered in the query: a run
+#: writes an event per streamed token, and paging through those a hundred per
+#: poll left a control request waiting behind them.
+CONTROL_EVENT_TYPES = (WRITE_NOW_EVENT_TYPE, DOCUMENT_ADDED_EVENT_TYPE)
 
 
 class CancellationMonitor:
@@ -542,7 +546,8 @@ class CancellationMonitor:
         # reaches a worker that holds nothing but the job id.
         self.write_now = asyncio.Event()
         # Documents the reader added to the Grundlage while the run goes, in
-        # arrival order. The research tool drains this list before a batch
+        # arrival order, append-only: it is also the dedupe history. The
+        # research tool reads past its own cursor before a batch
         # (``deep_researcher.control``); ``on_document_added`` is the ledger
         # fold's hook, so the block shows the addition at once.
         self.added_documents: list[PlanDocument] = []
@@ -573,7 +578,9 @@ class CancellationMonitor:
                     logger.info("Cancellation detected for job %s (status: %s)", self.job_id, job.status)
                     self._cancelled.set()
                     break
-                events = await EventStore.get_events_async(self.db_url, self.job_id, after_id=self._last_event_id)
+                events = await EventStore.get_events_async(
+                    self.db_url, self.job_id, after_id=self._last_event_id, event_types=CONTROL_EVENT_TYPES
+                )
                 self._note_control_events(events)
             except Exception as e:
                 logger.warning("Error checking job status for %s: %s", self.job_id, e)
@@ -2077,7 +2084,10 @@ def _reflection_text(report: str, findings: dict[str, Any] | None) -> str:
         comment = (
             f" ({item['comment']})" if item.get("comment") and item.get("status") in ("offen", "nicht_erfuellt") else ""
         )
-        lines.append(f"- {item['requirement']}{value} — {item.get('status', 'offen')}{comment}")
+        # A row with no status states none: defaulting it to „offen" would
+        # write an open question into memory that the report never raised.
+        status = f" — {item['status']}" if item.get("status") else ""
+        lines.append(f"- {item['requirement']}{value}{status}{comment}")
     return f"{report.rstrip()}\n\n## Befunde\n" + "\n".join(lines) if lines else report
 
 

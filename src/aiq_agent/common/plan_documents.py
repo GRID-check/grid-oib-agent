@@ -24,6 +24,7 @@ that nobody can find.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from typing import Any
 
 from pydantic import BaseModel
@@ -168,9 +169,21 @@ def documents_from_plan(
     return None if docs.is_empty() else docs
 
 
-def unread_grundlage(documents: PlanDocuments | None, read_names: set[str]) -> list[PlanDocument]:
-    """The Grundlage the run did not reach, given the file names it did read."""
-    if documents is None:
-        return []
-    read = {_fold(name) for name in read_names}
-    return [doc for doc in documents.grundlage if _fold(doc.name) not in read]
+def unread_grundlage(
+    documents: PlanDocuments | None, read_names: set[str], added: Sequence[PlanDocument] = ()
+) -> list[PlanDocument]:
+    """The Grundlage the run did not reach, given the file names it did read.
+
+    ``added`` is what the reader added while the run went: Grundlage too, and
+    as easily left unread. Each document is named once.
+    """
+    grundlage = [*(documents.grundlage if documents is not None else ()), *added]
+    seen = {_fold(name) for name in read_names}
+    unread: list[PlanDocument] = []
+    for doc in grundlage:
+        key = _fold(doc.name)
+        if key in seen:
+            continue
+        seen.add(key)
+        unread.append(doc)
+    return unread

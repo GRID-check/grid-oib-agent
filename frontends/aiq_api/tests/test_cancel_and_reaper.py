@@ -395,6 +395,47 @@ class TestTheMonitorHearsTheRequest:
         assert monitor._last_event_id == 8
         assert not monitor.write_now.is_set()
 
+    def test_a_document_taken_by_the_research_tool_is_still_not_added_twice(self):
+        from aiq_agent.agents.deep_researcher.control import bind_added_documents
+        from aiq_agent.agents.deep_researcher.control import reset_added_documents
+        from aiq_agent.agents.deep_researcher.control import take_added_documents
+        from aiq_api.jobs.runner import DOCUMENT_ADDED_EVENT_TYPE
+        from aiq_api.jobs.runner import CancellationMonitor
+
+        monitor = CancellationMonitor(scheduler_address="tcp://x", db_url="sqlite://", job_id="job-1")
+        seen: list[str] = []
+        monitor.on_document_added = lambda doc: seen.append(doc.name)
+        token = bind_added_documents(monitor.added_documents)
+        try:
+            monitor._note_control_events([{"_id": 1, "type": DOCUMENT_ADDED_EVENT_TYPE, "data": {"name": "a.pdf"}}])
+            assert [d.name for d in take_added_documents()] == ["a.pdf"]
+            monitor._note_control_events([{"_id": 2, "type": DOCUMENT_ADDED_EVENT_TYPE, "data": {"name": "A.pdf"}}])
+            assert take_added_documents() == []
+        finally:
+            reset_added_documents(token)
+        assert seen == ["a.pdf"]
+
+    @pytest.mark.asyncio
+    async def test_the_poll_reads_only_the_control_events(self, tmp_path):
+        """A token stream ahead of the request must not page it out of reach."""
+        from aiq_api.jobs.event_store import EventStore
+        from aiq_api.jobs.runner import CONTROL_EVENT_TYPES
+        from aiq_api.jobs.runner import WRITE_NOW_EVENT_TYPE
+
+        db_url = f"sqlite+aiosqlite:///{tmp_path / 'events.db'}"
+        EventStore._tables_initialized.discard(db_url)
+        store = EventStore(db_url, "job-1")
+        for _ in range(150):
+            store.store({"type": "llm.chunk", "data": {}})
+        store.store({"type": WRITE_NOW_EVENT_TYPE, "data": {}})
+
+        events = await EventStore.get_events_async(db_url, "job-1", after_id=0, event_types=CONTROL_EVENT_TYPES)
+        assert [e["type"] for e in events] == [WRITE_NOW_EVENT_TYPE]
+        assert len(EventStore.get_events(db_url, "job-1")) == 100
+        assert [e["type"] for e in EventStore.get_events(db_url, "job-1", event_types=["llm.chunk"], limit=500)] == [
+            "llm.chunk"
+        ] * 150
+
     def test_other_events_leave_the_signal_alone(self):
         from aiq_api.jobs.runner import CancellationMonitor
 

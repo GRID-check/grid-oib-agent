@@ -371,3 +371,21 @@ class TestCitedIsClaimedOnlyForTheVerifiedReport:
             callback.emit_final_report(FINAL_REPORT)
 
         assert [item["type"] for item in emitted] == [ArtifactType.OUTPUT]
+
+
+class TestAnExcludedDocumentIsNeverAnnounced:
+    """The reader's Ausgeschlossen stay out of the live ``citation_source`` stream too."""
+
+    def test_the_runs_exclusion_drops_the_source_before_it_is_emitted(self):
+        callback = AgentEventCallback()
+        callback.set_source_exclusion(lambda entry: (entry.citation_key or "").startswith("alt.pdf"))
+        emitted, patcher = _capture(callback)
+        output = (
+            "--- Result 1 ---\nSource: alt.pdf\nPage: 5\nCitation: alt.pdf, p.5\nContent Type: pdf\n\nText.\n"
+            "--- Result 2 ---\nSource: neu.pdf\nPage: 2\nCitation: neu.pdf, p.2\nContent Type: pdf\n\nText."
+        )
+        with patcher:
+            callback._emit_structured_citation_sources("knowledge_search", output, agent_id=None, workflow=None)
+
+        keys = [item.get("citation_key") for item in emitted if item["type"] == ArtifactType.CITATION_SOURCE]
+        assert keys == ["neu.pdf, p.2"]
