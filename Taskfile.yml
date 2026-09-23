@@ -450,6 +450,15 @@ tasks:
       # whole set. Exit 0 = the three floors hold; 1 = keep turn_decisions off.
       - '{{.PY}} scripts/decision_eval.py {{.CLI_ARGS}}'
 
+  be:eval:turn-census:
+    desc: 'Turn census — run a chat question through the real agent and count every model call, token and second it cost (NEEDS OPENROUTER_API_KEY and the corpus ingested locally)'
+    cmds:
+      # The measurement the turns audit could only reconstruct. Runs `nat run`
+      # with a recorder on httpx; no backend, no BFF. Example:
+      #   task be:eval:turn-census -- "Was weißt du über die OIB 2?" --runs 3
+      #   task be:eval:turn-census -- --report /tmp/turn_census/*.jsonl
+      - '{{.PY}} scripts/turn_census/census.py {{.CLI_ARGS}}'
+
   be:eval:loop:
     desc: 'Agentic-loop shape eval — rounds, locator use, checkpoint source, truncation (NEEDS a running backend with the corpus; set GRID_LOOP_EVAL_URL)'
     cmds:
