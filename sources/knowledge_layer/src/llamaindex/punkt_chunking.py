@@ -565,13 +565,14 @@ def richtlinie_key(file_name: str) -> str:
     The edition suffix is dropped, matched generically (any month, any year) — the
     same shape ``guess_display_title`` reads it with, so the key and the title agree
     on what an edition looks like. A document whose stem carries no Richtlinie
-    number keeps its stem.
+    number keeps its stem. The stem is read in both spellings the OIB publishes:
+    ``oib-rl_`` and, for 2.2, ``oib-richtlinie_``.
     """
     stem = file_name
     for suffix in (".pdf", ".PDF"):
         if stem.endswith(suffix):
             stem = stem[: -len(suffix)]
-    stem = re.sub(r"^(oib-rl|oib_rl)[_-]", "", stem)
+    stem = re.sub(r"^(oib-rl|oib_rl|oib-richtlinie)[_-]", "", stem)
     stem = re.sub(r"[_-]ausgabe[_-][^_-]+[_-]\d{4}.*$", "", stem, flags=re.IGNORECASE)
     return stem.replace("_", "-") or file_name
 

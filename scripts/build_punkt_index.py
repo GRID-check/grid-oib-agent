@@ -127,7 +127,9 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 DEFAULT_CORPUS_DIR = "data/oib"
-DEFAULT_PATTERN = "oib-rl_"
+#: Every spelling the OIB publishes a Richtlinie under: ``oib-rl_<n>_…`` for most
+#: parts, ``oib-richtlinie_2.2_…`` for OIB-RL 2.2 (see ``canonical_oib_file_name``).
+DEFAULT_PREFIXES = ("oib-rl_", "oib-richtlinie_")
 DEFAULT_OUT = "frontends/benchmarks/oib_retrieval/fixtures/punkt_index.json"
 
 #: A numbered heading: up to four dot-separated levels, then a non-space title.
@@ -394,7 +396,7 @@ def richtlinie_key(file_name: str) -> str:
         for suffix in (".pdf", ".PDF"):
             if stem.endswith(suffix):
                 stem = stem[: -len(suffix)]
-        stem = re.sub(r"^(oib-rl|oib_rl)[_-]", "", stem)
+        stem = re.sub(r"^(oib-rl|oib_rl|oib-richtlinie)[_-]", "", stem)
         stem = re.sub(r"[_-]ausgabe[_-][^_-]+[_-]\d{4}.*$", "", stem, flags=re.IGNORECASE)
         return stem.replace("_", "-") or file_name
     return shared_key(file_name)
@@ -496,8 +498,8 @@ def build_index(
     return index, no_numbering, gap_reports, collisions, stats
 
 
-def collect_pdfs(corpus_dir: str, prefix: str) -> list[str]:
-    """Every ``prefix*.pdf`` in ``corpus_dir``, sorted for a reproducible index."""
+def collect_pdfs(corpus_dir: str, prefix: str | tuple[str, ...]) -> list[str]:
+    """Every ``<prefix>*.pdf`` in ``corpus_dir`` (any of ``prefix`` when a tuple), sorted."""
     if not os.path.isdir(corpus_dir):
         return []
     return sorted(
@@ -513,7 +515,9 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--corpus-dir", default=DEFAULT_CORPUS_DIR, help=f"PDF directory (default: {DEFAULT_CORPUS_DIR})"
     )
     parser.add_argument(
-        "--prefix", default=DEFAULT_PATTERN, help=f"File-name prefix to index (default: {DEFAULT_PATTERN})"
+        "--prefix",
+        action="append",
+        help=f"File-name prefix to index; repeatable (default: {', '.join(DEFAULT_PREFIXES)})",
     )
     parser.add_argument("--out", default=DEFAULT_OUT, help=f"Output JSON path (default: {DEFAULT_OUT})")
     parser.add_argument("--dry-run", action="store_true", help="Report what would be indexed; write nothing.")
@@ -528,9 +532,10 @@ def main(argv: list[str] | None = None) -> int:
         format="%(levelname)s %(message)s",
     )
 
-    file_paths = collect_pdfs(args.corpus_dir, args.prefix)
+    prefixes = tuple(args.prefix or DEFAULT_PREFIXES)
+    file_paths = collect_pdfs(args.corpus_dir, prefixes)
     if not file_paths:
-        logger.error("No %s*.pdf found under %s", args.prefix, args.corpus_dir)
+        logger.error("No %s*.pdf found under %s", "|".join(prefixes), args.corpus_dir)
         return 2
 
     page_reader = make_page_reader()

@@ -786,9 +786,36 @@ _LANE_LABELS: dict[str, str] = {
 }
 
 
+# The OIB does not publish its corpus under one spelling. Most 2023 files are
+# ``oib-rl_<n>_…``, ``erlaeuterungen_oib-rl_<n>_…`` and
+# ``aenderungen_oib-rl_<n>_…``, but OIB-RL 2.2 ships as
+# ``oib-richtlinie_2.2_…``, ``erlaeuterungen-zu-oib-richtlinie_2.2_…`` and
+# ``aenderungen_oib-richtlinie_2.2_…`` (oib.or.at, Ausgabe Mai 2023). Every
+# filename reader below parses the canonical form this rewrites to, so a
+# spelling variant is one alternation here rather than a branch in each reader.
+# Anchored at the start and bound to the ``oib-`` stem, so only a name that
+# already says it is an OIB-Richtlinie is rewritten.
+_OIB_PUBLISHED_STEM_RE = re.compile(r"^(?:(erlaeuterungen|aenderungen)(?:_|-zu-))?oib-(?:rl|richtlinie)_")
+
+
+def canonical_oib_file_name(file_name: str) -> str:
+    """Lower-cased ``file_name`` with a published OIB spelling rewritten to ``oib-rl_``.
+
+    ``oib-richtlinie_2.2_ausgabe_mai_2023.pdf`` -> ``oib-rl_2.2_ausgabe_mai_2023.pdf``;
+    ``erlaeuterungen-zu-oib-richtlinie_2.2_…`` -> ``erlaeuterungen_oib-rl_2.2_…``.
+    Any other name comes back lower-cased and otherwise unchanged.
+    """
+    low = file_name.lower()
+    match = _OIB_PUBLISHED_STEM_RE.match(low)
+    if not match:
+        return low
+    role = f"{match.group(1)}_" if match.group(1) else ""
+    return f"{role}oib-rl_{low[match.end() :]}"
+
+
 def oib_doc_class(file_name: str) -> str | None:
     """OIB document class derived from the corpus filename convention, or None."""
-    name = file_name.lower()
+    name = canonical_oib_file_name(file_name)
     if not (name.startswith("oib-rl_") or name.startswith("aenderungen_") or name.startswith("erlaeuterungen_")):
         return None
     for prefix, doc_class in _OIB_CLASS_PREFIXES:
@@ -873,13 +900,15 @@ def guess_display_title(file_name: str) -> str | None:
         oib-rl_2.3_ausgabe_mai_2023.pdf      -> "OIB-Richtlinie 2.3, Ausgabe Mai 2023"
         oib-rl_6-leitfaden_...pdf            -> "OIB-Richtlinie 6 – Leitfaden, Ausgabe Mai 2023"
         erlaeuterungen_oib-rl_2_...pdf       -> "Erläuterungen zu OIB-Richtlinie 2, Ausgabe Mai 2023"
+        oib-richtlinie_2.2_...pdf            -> "OIB-Richtlinie 2.2, Ausgabe Mai 2023"
+        erlaeuterungen-zu-oib-richtlinie_2.2_...pdf -> "Erläuterungen zu OIB-Richtlinie 2.2, Ausgabe Mai 2023"
     """
     if not file_name:
         return None
     stem = Path(Path(file_name).name).stem
     # Normalise the one known separator inconsistency (`6-leitfaden` vs
     # `2_leitfaden`) so the rest of the parse is uniform.
-    low = stem.lower().replace("-leitfaden", "_leitfaden")
+    low = canonical_oib_file_name(stem).replace("-leitfaden", "_leitfaden")
 
     role_prefix = ""
     for marker, german in _OIB_TITLE_ROLE_PREFIXES:
@@ -943,8 +972,9 @@ def guess_display_title(file_name: str) -> str | None:
 # ---------------------------------------------------------------------------
 
 #: The Richtlinie number inside an OIB corpus filename, after the `oib-rl_`
-#: prefix: `2`, `2.1`, `6`. Anchored, so an edition or a revision that follows
-#: cannot be read as part of the number.
+#: prefix (a published `oib-richtlinie_` spelling is canonicalised first):
+#: `2`, `2.1`, `6`. Anchored, so an edition or a revision that follows cannot
+#: be read as part of the number.
 _OIB_FAMILY_NUMBER_RE = re.compile(r"^(\d+(?:\.\d+)?)(?:[_-]|$)")
 
 
@@ -976,7 +1006,7 @@ def oib_family_member(file_name: str) -> str | None:
     they are read WITH a Richtlinie, and counting them as parts of it would
     make an overview answer look complete for having opened a reading aid.
     """
-    name = Path(file_name or "").name.lower()
+    name = canonical_oib_file_name(Path(file_name or "").name)
     if oib_doc_class(name) != "richtlinie":
         return None
     match = _OIB_FAMILY_NUMBER_RE.match(name[len("oib-rl_") :])
@@ -1046,6 +1076,7 @@ _FAMILY_BLOCKER_RE = re.compile(
             r"\banhang",
             r"\.pdf\b",
             r"oib-rl_",
+            r"oib-richtlinie_",
         )
     ),
     re.IGNORECASE,
