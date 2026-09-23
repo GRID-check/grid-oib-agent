@@ -92,10 +92,12 @@ const Section = ({ label, children }: { label: string; children: ReactNode }) =>
 )
 
 export default function ResearchReportPreviewPage() {
+  // Hooks first: a hook after a conditional exit is called on some renders and
+  // not others, which is what the rules of hooks forbid.
+  const [plan, setPlan] = useState<PlanShape>(PLAN)
   if (process.env.NODE_ENV !== 'development') {
     notFound()
   }
-  const [plan, setPlan] = useState<PlanShape>(PLAN)
 
   return (
     <I18nProvider initialLocale="de" fixedLocale>

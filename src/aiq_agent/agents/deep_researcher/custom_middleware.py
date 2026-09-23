@@ -505,8 +505,11 @@ class SourceRegistryMiddleware(AgentMiddleware):
         return result
 
     def _without_excluded_passages(self, result: ToolMessage, tool_name: str) -> ToolMessage:
-        """The result with every passage from an excluded document cut out.
+        """The result with every passage the plan refuses cut out.
 
+        Two kinds: a document on the Ausgeschlossen, and one of the reader's
+        own documents „Nur diese" confines away (its key remembered in
+        ``_confined_keys`` when ``awrap_tool_call`` refused its entry).
         Refusing the source at the registry is not enough on its own: the
         researcher model reads this ToolMessage, and a passage it has read it
         can paraphrase without citing. So the passage never reaches it.
