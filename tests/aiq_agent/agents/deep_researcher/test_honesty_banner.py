@@ -39,3 +39,11 @@ def test_an_english_report_gets_an_english_banner():
     assert line.startswith("> **Note:**")
     assert "at the time limit" in line and "incomplete" in line
     assert "Hinweis" not in line
+
+
+def test_an_unread_grundlage_alone_is_not_called_unverified():
+    """The unread documents have their own section; the banner does not call the report unverified."""
+    from aiq_agent.common.turn_status import DEGRADED_GRUNDLAGE_UNREAD
+
+    report = _prepend_honesty_banner("# Bericht", cutoff_reason=None, degraded_reasons=[DEGRADED_GRUNDLAGE_UNREAD])
+    assert report == "# Bericht"
