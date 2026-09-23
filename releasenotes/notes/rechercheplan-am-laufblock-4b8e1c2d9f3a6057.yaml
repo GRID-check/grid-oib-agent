@@ -12,15 +12,16 @@ features:
     startet sofort. Die Auftragsliste zeigt je Recherche Berichtsart, Tiefe und
     Zahl der Abschnitte.
   - >
-    Der Rechercheplan führt jetzt in nummerierten Schritten durch Gliederung,
-    Berichtsart und Unterlagen, mit Gliederungsvorschlägen je Berichtsart.
-    Unterlagen sind optional: als Schwerpunkt, ausgeschlossen oder mit „Nur
-    ausgewählte“ als einzige Ihrer Unterlagen. Regelwerke bleiben verfügbar.
+    Der Rechercheplan führt in drei Schritten durch Gliederung, Berichtsart
+    und Unterlagen, mit Gliederungsvorschlägen je Berichtsart. Unterlagen sind
+    optional: Piloti durchsucht die Quellen des Auftrags. Gewählte Unterlagen
+    liest die Recherche zuerst; mit „Nur diese verwenden“ nur diese Ihrer
+    Unterlagen. Ausschließen ist unter „Unterlagen ausschließen“ möglich.
   - >
-    Unterlagen wählen Sie jetzt in einem Auswahlfenster mit Ordnern,
-    Büroarchiv, Suche, Listen- und Symbolansicht, Vorschau und
-    Tastatursteuerung. Es öffnet sich im Rechercheplan und bei „Dokument
-    hinzufügen“ an einer laufenden Recherche.
+    Unterlagen wählen Sie in einem Auswahlfenster mit den Dateikarten und der
+    Liste aus „Dateien“, samt echter Vorschaubilder, Ordnern, Büroarchiv und
+    Suche. Es öffnet sich im Rechercheplan und bei „Unterlage hinzufügen“ an
+    einer laufenden Recherche.
   - >
     „Bericht fortschreiben“ übernimmt den Rechercheplan des letzten Berichts
     mit seinen zitierten Unterlagen und zeigt ihn am neuen Laufblock, wo er

@@ -17,9 +17,9 @@
 import { useEffect, useState, type FC } from 'react'
 import {
   Ban,
+  BookOpenCheck,
   ChevronDown,
   CircleCheck,
-  Crosshair,
   CloudCheck,
   ListOrdered,
   LoaderCircle,
@@ -28,8 +28,10 @@ import {
 } from 'lucide-react'
 import { AnimatePresence, Swap } from '@/components/motion'
 import { Button } from '@/components/ui/button'
+import { SectionLabel } from '@/components/ui/section-label'
 import { useTranslations } from '@/i18n'
 import type { ResearchPlan, ResearchPlanEdit } from '@/lib/plans/plan-types'
+import { foldName } from '@/lib/text/fold'
 import { cn } from '@/lib/utils'
 import { PlanBrief } from './PlanBrief'
 import { PlanChecklist, planShapeOf, type PlanRahmen, type PlanShape } from './PlanChecklist'
@@ -38,10 +40,9 @@ import {
   DEPTH_ICON,
   GENRE_ICON,
   GenreWell,
-  PlanEyebrow,
   PlanFacts,
   PlanAction,
-  PlanLifecycle,
+  PlanEndBar,
 } from './plan-atoms'
 
 export interface RunPlanProps {
@@ -58,17 +59,15 @@ export interface RunPlanProps {
 const sameList = (a: readonly string[], b: readonly string[]): boolean =>
   a.length === b.length && a.every((item, index) => item === b[index])
 
-const fold = (name: string): string => name.trim().toLocaleLowerCase()
-
 /**
  * Only what changed, so an edit never re-sends what the reader left alone.
  * A document named from the project listing, which the plan's inventory did
  * not hold, travels with the names so the BFF can resolve it.
  */
 export function planEdit(before: PlanShape, after: PlanShape): ResearchPlanEdit {
-  const known = new Set(before.unterlagen.map((doc) => fold(doc.name)))
-  const named = new Set([...after.grundlage, ...after.ausgeschlossen].map(fold))
-  const brought = after.unterlagen.filter((doc) => !known.has(fold(doc.name)) && named.has(fold(doc.name)))
+  const known = new Set(before.unterlagen.map((doc) => foldName(doc.name)))
+  const named = new Set([...after.grundlage, ...after.ausgeschlossen].map(foldName))
+  const brought = after.unterlagen.filter((doc) => !known.has(foldName(doc.name)) && named.has(foldName(doc.name)))
   return {
     ...(sameList(before.sections, after.sections) ? {} : { sections: after.sections }),
     ...(before.genre === after.genre ? {} : { genre: after.genre }),
@@ -139,9 +138,10 @@ export const RunPlan: FC<RunPlanProps> = ({
     { icon: ListOrdered, label: t('plan.sections', { count: plan.sections.length }) },
     ...(plan.grundlage.length > 0
       ? [
-          plan.nurGrundlage
-            ? { icon: CircleCheck, label: t('plan.documentsOnly', { count: plan.grundlage.length }) }
-            : { icon: Crosshair, label: t('plan.documents', { count: plan.grundlage.length }) },
+          {
+            icon: BookOpenCheck,
+            label: t(plan.nurGrundlage ? 'plan.documentsOnly' : 'plan.documents', { count: plan.grundlage.length }),
+          },
         ]
       : []),
     ...(plan.ausgeschlossen.length > 0
@@ -149,6 +149,7 @@ export const RunPlan: FC<RunPlanProps> = ({
       : []),
   ]
   const editing = open && editable && Boolean(onEdit)
+  const waiting = plan.status === 'proposed' || plan.status === 'held'
 
   const line =
     plan.status === 'proposed'
@@ -177,11 +178,11 @@ export const RunPlan: FC<RunPlanProps> = ({
           data-testid="run-plan-toggle"
         >
           <span className="flex items-center gap-1.5">
-            <PlanEyebrow>{t(plan.author === 'user' ? 'plan.headingOwn' : 'plan.heading')}</PlanEyebrow>
+            <SectionLabel>{t(plan.author === 'user' ? 'plan.headingOwn' : 'plan.heading')}</SectionLabel>
             {started && <CircleCheck className="text-muted-foreground size-3" aria-hidden />}
           </span>
           <span className="text-foreground flex w-full min-w-0 items-center gap-1 text-sm font-semibold">
-            <span className="truncate">{plan.title}</span>
+            <span className="line-clamp-2">{plan.title}</span>
             <ChevronDown
               className={cn(
                 'text-muted-foreground size-3.5 shrink-0 transition-transform duration-quick ease-out motion-reduce:transition-none',
@@ -235,47 +236,35 @@ export const RunPlan: FC<RunPlanProps> = ({
       </div>
 
       <div className="flex flex-col gap-1.5 sm:pl-12">
-        {/* The clock while it runs, then where the plan stands: one gives way
-            to the other in the same place. The line changes with the status,
-            not with every second the clock ticks. */}
-        <Swap swapKey={remaining !== null ? `clock-${plan.startsAt}` : `stage-${plan.status}`} distance={0}>
-          {remaining !== null ? (
-            <CountdownBar remaining={remaining} seconds={seconds ?? 0} label={line} />
-          ) : (
-            plan.status !== 'superseded' && (
-              <PlanLifecycle
-                stage={plan.status}
-                labels={{
-                  proposed: t('plan.stage.proposed'),
-                  held: t('plan.stage.held'),
-                  approved: t('plan.stage.approved'),
-                  started: t('plan.stage.started'),
-                }}
-              />
-            )
-          )}
+        {/* The clock while it runs; it leaves when the plan stops waiting. The
+            line under it says where the plan stands, and while the plan is
+            open as controls it also says that each edit is kept — one line,
+            not a second status beside it. It changes with the status, not
+            with every second the clock ticks. */}
+        <Swap swapKey={remaining !== null ? `clock-${plan.startsAt}` : 'still'} distance={0}>
+          {remaining !== null && <CountdownBar remaining={remaining} seconds={seconds ?? 0} label={line} />}
         </Swap>
         <Swap swapKey={plan.status}>
           <p
-            className="text-muted-foreground text-xs"
+            className="text-muted-foreground flex flex-wrap items-center gap-x-1.5 text-xs"
             role={counting ? 'timer' : 'status'}
             data-testid="run-plan-line"
           >
-            {line}
+            <span>{line}</span>
+            {editing && (
+              <span className="inline-flex items-center gap-1" data-testid="run-plan-saved">
+                <Swap swapKey={pending ? 'saving' : 'saved'} distance={0} className="flex">
+                  {pending ? (
+                    <LoaderCircle className="size-3 animate-spin motion-reduce:animate-none" aria-hidden />
+                  ) : (
+                    <CloudCheck className="size-3" aria-hidden />
+                  )}
+                </Swap>
+                {pending ? t('plan.saving') : t('plan.saved')}
+              </span>
+            )}
           </p>
         </Swap>
-        {editing && (
-          <p className="text-muted-foreground inline-flex items-center gap-1 text-[11px]" data-testid="run-plan-saved">
-            <Swap swapKey={pending ? 'saving' : 'saved'} distance={0} className="flex">
-              {pending ? (
-                <LoaderCircle className="size-3 animate-spin motion-reduce:animate-none" aria-hidden />
-              ) : (
-                <CloudCheck className="size-3" aria-hidden />
-              )}
-            </Swap>
-            {pending ? t('plan.saving') : t('plan.saved')}
-          </p>
-        )}
       </div>
 
       {/* The brief gives way to its editor at once when „Anpassen" is pressed:
@@ -283,15 +272,33 @@ export const RunPlan: FC<RunPlanProps> = ({
           over it. */}
       <Swap swapKey={editing ? 'editor' : 'brief'} mode="popLayout" className="relative sm:pl-12">
         {editing && onEdit ? (
-          <PlanChecklist
-            plan={shape}
-            rahmen={rahmen}
-            projectId={projectId}
-            onChange={(next) => {
-              const edit = planEdit(shape, next)
-              if (Object.keys(edit).length > 0) void onEdit(edit)
-            }}
-          />
+          <div className="flex flex-col gap-5">
+            <PlanChecklist
+              plan={shape}
+              rahmen={rahmen}
+              projectId={projectId}
+              onChange={(next) => {
+                const edit = planEdit(shape, next)
+                if (Object.keys(edit).length > 0) void onEdit(edit)
+              }}
+            />
+            {/* The reader who worked down the plan finds „Starten" where they
+                finished, not back at the top. */}
+            {waiting && onStart && (
+              <PlanEndBar>
+                <Button
+                  size="sm"
+                  className="gap-1"
+                  disabled={pending}
+                  onClick={() => void onStart()}
+                  data-testid="run-plan-start-end"
+                >
+                  <Play className="size-3.5" aria-hidden />
+                  {t('plan.start')}
+                </Button>
+              </PlanEndBar>
+            )}
+          </div>
         ) : (
           <PlanBrief
             sections={plan.sections}

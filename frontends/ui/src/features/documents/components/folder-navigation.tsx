@@ -62,9 +62,16 @@ export interface FolderNavProps {
   folders: FolderItem[]
   currentFolderId: string | null
   onNavigate: (id: string | null) => void
-  onCreateFolder: (name: string, parentId?: string) => Promise<boolean>
-  onRenameFolder: (folderId: string, name: string) => Promise<boolean>
-  onDeleteFolder: (folderId: string) => Promise<boolean>
+  /**
+   * The three edits. All optional, and absent together on a surface that
+   * BROWSES folders without owning them — the document picker walks the
+   * project's tree to choose from it, and a rename offered there would be a
+   * second place to file documents from. Without them the tiles and the path
+   * row are read-only: no ⋯ menu, no „Neuer Ordner".
+   */
+  onCreateFolder?: (name: string, parentId?: string) => Promise<boolean>
+  onRenameFolder?: (folderId: string, name: string) => Promise<boolean>
+  onDeleteFolder?: (folderId: string) => Promise<boolean>
 }
 
 /**
@@ -207,7 +214,7 @@ export function FolderBreadcrumbRow({
       </div>
       <div className="flex shrink-0 items-center gap-2">
         {children}
-        <NewFolderControl currentFolderId={currentFolderId} onCreateFolder={onCreateFolder} />
+        {onCreateFolder && <NewFolderControl currentFolderId={currentFolderId} onCreateFolder={onCreateFolder} />}
       </div>
     </div>
   )
@@ -221,7 +228,7 @@ export function FolderBreadcrumbRow({
 function NewFolderControl({
   currentFolderId,
   onCreateFolder,
-}: Pick<FolderNavProps, 'currentFolderId' | 'onCreateFolder'>): JSX.Element {
+}: Pick<FolderNavProps, 'currentFolderId'> & { onCreateFolder: NonNullable<FolderNavProps['onCreateFolder']> }): JSX.Element {
   const t = useTranslations('files')
   const [open, setOpen] = useState(false)
   const [name, setName] = useState('')
@@ -283,8 +290,9 @@ interface FolderTileProps {
   /** Most recent child's timestamp — the "last change" for this folder, like file cards show file time. */
   lastModified?: string | null
   onOpen: (id: string) => void
-  onRenameFolder: FolderNavProps['onRenameFolder']
-  onDeleteFolder: FolderNavProps['onDeleteFolder']
+  /** Absent, with `onDeleteFolder`, on a read-only surface: no ⋯ menu, no rename. */
+  onRenameFolder?: FolderNavProps['onRenameFolder']
+  onDeleteFolder?: FolderNavProps['onDeleteFolder']
   /** Replaces the built-in ⋯ when the caller owns the menu (right-click + overflow). */
   actions?: ReactNode
   /** Controlled rename; omit to keep the in-place editor private to the tile. */
@@ -313,7 +321,7 @@ function FolderNameEditor({
   className,
 }: {
   folder: FolderItem
-  onRenameFolder: FolderNavProps['onRenameFolder']
+  onRenameFolder: NonNullable<FolderNavProps['onRenameFolder']>
   onDone: () => void
   className?: string
 }): JSX.Element {
@@ -371,7 +379,7 @@ function FolderActionsMenu({
 }: {
   folder: FolderItem
   onStartRename: () => void
-  onDeleteFolder: FolderNavProps['onDeleteFolder']
+  onDeleteFolder: NonNullable<FolderNavProps['onDeleteFolder']>
 }): JSX.Element {
   const t = useTranslations('files')
   return (
@@ -460,15 +468,18 @@ export function FolderCard({
       {...(onDropFolder ? folderDragProps(folder.id) : {})}
       {...drop.dropProps}
     >
+      {(actions || onDeleteFolder) && (
       <div
         className="absolute right-1.5 top-1.5 z-[1] md:opacity-0 md:group-hover:opacity-100 group-focus-within:opacity-100 has-[[data-state=open]]:opacity-100 transition-opacity duration-quick ease-out motion-reduce:transition-none"
         onClick={(e) => e.stopPropagation()}
         onPointerDown={(e) => e.stopPropagation()}
       >
-        {actions ?? (
-          <FolderActionsMenu folder={folder} onStartRename={() => setEditing(true)} onDeleteFolder={onDeleteFolder} />
-        )}
+        {actions ??
+          (onDeleteFolder && (
+            <FolderActionsMenu folder={folder} onStartRename={() => setEditing(true)} onDeleteFolder={onDeleteFolder} />
+          ))}
       </div>
+      )}
       <button
         type="button"
         onClick={() => onOpen(folder.id)}
@@ -501,7 +512,7 @@ export function FolderCard({
             <Folder className="size-10 text-muted-foreground/60" strokeWidth={1.4} aria-hidden />
           </GridTileMedia>
           <div className="px-3.5 pb-3 pt-[11px]">
-            {editing ? (
+            {editing && onRenameFolder ? (
               <FolderNameEditor folder={folder} onRenameFolder={onRenameFolder} onDone={() => setEditing(false)} />
             ) : (
               <p className="truncate text-sm font-medium leading-tight text-foreground" title={folder.name}>
@@ -559,7 +570,7 @@ export function FolderRow({
     disabled: !onDropDocument && !onDropFolder,
   })
 
-  if (editing) {
+  if (editing && onRenameFolder) {
     return (
       <motion.div
         initial={{ opacity: 0, y: -4 }}
@@ -634,13 +645,10 @@ export function FolderRow({
           </>
         )}
       </button>
-      {actions ?? (
-        <FolderActionsMenu
-          folder={folder}
-          onStartRename={() => setEditing(true)}
-          onDeleteFolder={onDeleteFolder}
-        />
-      )}
+      {actions ??
+        (onDeleteFolder && (
+          <FolderActionsMenu folder={folder} onStartRename={() => setEditing(true)} onDeleteFolder={onDeleteFolder} />
+        ))}
       <ChevronRight
         className="text-muted-foreground/40 group-hover:text-muted-foreground size-3.5 shrink-0 transition-colors duration-quick ease-out motion-reduce:transition-none"
         aria-hidden

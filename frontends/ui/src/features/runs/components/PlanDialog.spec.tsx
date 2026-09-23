@@ -6,16 +6,31 @@
  */
 
 import { fireEvent, render, screen, waitFor, within } from '@/test-utils'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('@/lib/plans/plan-client', () => ({ createPlan: vi.fn() }))
-vi.mock('@/features/documents/hooks/use-document-library', () => ({
-  useDocumentLibrary: () => ({
-    documents: [{ name: 'Einreichplan.pdf', title: 'Einreichplan', shelf: 'project', file: {} }],
+vi.mock('@/features/documents/hooks/use-document-library', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/features/documents/hooks/use-document-library')>()
+  const library = {
+    documents: [
+      actual.toLibraryDocument(
+        {
+          id: 'doc-einreichplan',
+          filename: 'Einreichplan.pdf',
+          displayName: 'Einreichplan',
+          fileSize: 2048,
+          contentType: 'application/pdf',
+          status: 'ready',
+          createdAt: '2026-09-01T00:00:00Z',
+        },
+        'project'
+      ),
+    ],
     folders: [],
     loading: false,
-  }),
-}))
+  }
+  return { ...actual, useDocumentLibrary: () => library }
+})
 
 import { useChatStore } from '@/features/chat/store'
 import { useLayoutStore } from '@/features/layout/store'
@@ -27,9 +42,15 @@ const hydrate = vi.fn(async () => undefined)
 beforeEach(() => {
   vi.clearAllMocks()
   useChatStore.setState({ hydrateConversationMessages: hydrate } as never)
-  useLayoutStore.setState({ enabledDataSourceIds: ['knowledge_base'] } as never)
+  useLayoutStore.setState({
+    enabledDataSourceIds: ['knowledge_base'],
+    availableDataSources: [{ id: 'knowledge_base', name: 'Wissensbasis' }],
+  } as never)
+  vi.stubGlobal('fetch', vi.fn(async () => new Response(null, { status: 404 })))
   vi.mocked(createPlan).mockResolvedValue({ plan: {}, run: {} } as never)
 })
+
+afterEach(() => vi.unstubAllGlobals())
 
 describe('PlanDialog', () => {
   it('creates the plan and its run, then re-reads the thread and closes', async () => {
@@ -72,14 +93,19 @@ describe('PlanDialog', () => {
     expect(screen.getByTestId('plan-dialog-preview')).toHaveTextContent('Starting point')
   })
 
-  it('sends „Nur ausgewählte" with the documents it confines to', async () => {
+  it('names the sources the plan will search, from the composer', () => {
+    render(<PlanDialog open onOpenChange={vi.fn()} projectId="proj" conversationId="s_conv" />)
+    expect(screen.getByTestId('plan-unterlagen-default')).toHaveTextContent('Wissensbasis')
+  })
+
+  it('sends „Nur diese" with the documents it confines to', async () => {
     render(<PlanDialog open onOpenChange={vi.fn()} projectId="proj" conversationId="s_conv" />)
     fireEvent.change(screen.getByTestId('plan-dialog-question'), { target: { value: 'Frage' } })
     fireEvent.click(screen.getByTestId('plan-use-template'))
-    fireEvent.click(screen.getByRole('radio', { name: /only selected/i }))
-    // With nothing chosen yet, „Nur ausgewählte" opens the picker.
+    fireEvent.click(screen.getByTestId('plan-unterlagen-pick'))
     const picker = screen.getByTestId('document-picker')
-    fireEvent.click(within(picker).getAllByTestId('picker-doc')[0])
+    fireEvent.click(within(picker).getAllByTestId('file-card')[0])
+    fireEvent.click(within(picker).getByTestId('plan-only-these'))
     fireEvent.click(within(picker).getByTestId('picker-confirm'))
     fireEvent.click(screen.getByTestId('plan-dialog-submit'))
     await waitFor(() => expect(createPlan).toHaveBeenCalled())

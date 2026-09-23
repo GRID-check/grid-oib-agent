@@ -1,8 +1,9 @@
 /**
- * The Rechercheplan as controls, walked as numbered steps: what the report
- * covers, what it looks like, which Unterlagen it reads (optional), and where
- * it searches (fixed, shown for the record). Each step says in one line what
- * deciding it does, so a reader who has never seen a plan needs no manual.
+ * The Rechercheplan as controls, in three steps: what the report covers, what
+ * it looks like, and which Unterlagen it reads (optional — the sources it
+ * searches close that step's sentence, fixed when the run was commissioned).
+ * Each step says in one line what deciding it does, so a reader who has never
+ * seen a plan needs no manual.
  *
  * Fully controlled — every edit is `onChange` with the whole shape — so the
  * caller decides where an edit goes. On the run block it goes to the plan
@@ -11,9 +12,9 @@
  */
 
 import { useMemo, useState, type FC } from 'react'
-import { Database, Lock, Plus, Sparkles } from 'lucide-react'
+import { Plus, Sparkles } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { Chip } from '@/components/ui/chip'
+import { ChoiceCard, ChoiceCards } from '@/components/ui/choice-card'
 import { Input } from '@/components/ui/input'
 import type { PickerDocument } from '@/features/documents/components/document-picker/DocumentPickerDialog'
 import type { FolderItem } from '@/features/documents/components/project-file-workspace'
@@ -22,8 +23,6 @@ import { PlanUnterlagen } from './PlanUnterlagen'
 import {
   DEPTH_ICON,
   GENRE_ICON,
-  OptionTile,
-  OptionTiles,
   OutlineAddDisc,
   OutlineRail,
   PlanEmptyOutline,
@@ -43,6 +42,7 @@ import {
   type ResearchPlan,
 } from '@/lib/plans/plan-types'
 import type { PlanDocument } from '@/lib/runs/plan-documents'
+import { foldName } from '@/lib/text/fold'
 
 export { PLAN_DEPTHS, PLAN_GENRES, type PlanDepth, type PlanGenre }
 
@@ -89,13 +89,11 @@ const TEMPLATE_COUNT = 5
 /** Suggestions shown beside a plan that already has sections. */
 const SUGGESTION_LIMIT = 4
 
-const fold = (name: string): string => name.trim().toLocaleLowerCase()
-
 /** Two inventories as one, the first one's rows winning a name both hold. */
 export function mergeDocuments<T extends PlanDocument>(first: readonly T[], second: readonly T[]): T[] {
   const seen = new Set<string>()
   return [...first, ...second].filter((doc) => {
-    const key = fold(doc.name)
+    const key = foldName(doc.name)
     if (seen.has(key)) return false
     seen.add(key)
     return true
@@ -111,19 +109,17 @@ export const PlanChecklist: FC<{
   projectId?: string | null
   /** A listing the caller already holds; the checklist then loads none of its own. */
   inventory?: { documents: readonly PickerDocument[]; folders?: readonly FolderItem[]; loading: boolean }
-  /** The numeral of the first step, when the caller puts one of its own above. */
-  firstStep?: number
   onChange: (plan: PlanShape) => void
-}> = ({ plan, disabled = false, rahmen, projectId = null, inventory, firstStep = 1, onChange }) => {
+}> = ({ plan, disabled = false, rahmen, projectId = null, inventory, onChange }) => {
   const t = useTranslations('chat')
   const [draft, setDraft] = useState('')
   const [browsing, setBrowsing] = useState(false)
   const library = useDocumentLibrary(inventory ? null : projectId, browsing)
-  // The listing's rows first: they carry the file a picker's columns and
-  // preview read. A document only the plan's inventory names stays nameable.
-  const documents = useMemo(
-    () => mergeDocuments<PickerDocument>(inventory?.documents ?? library.documents ?? [], plan.unterlagen),
-    [plan.unterlagen, inventory?.documents, library.documents]
+  // The picker offers the listing; a document only the plan's own inventory
+  // names still shows under its title in the chips.
+  const listing = useMemo(
+    () => inventory?.documents ?? library.documents ?? [],
+    [inventory?.documents, library.documents]
   )
 
   const remove = (index: number) =>
@@ -141,17 +137,21 @@ export const PlanChecklist: FC<{
   const templates = Array.from({ length: TEMPLATE_COUNT }, (_, index) =>
     t(`agentPrompt.plan.sectionTemplates.${plan.genre}.s${index + 1}`)
   )
-  const taken = new Set(plan.sections.map(fold))
-  const suggestions = templates.filter((template) => !taken.has(fold(template))).slice(0, SUGGESTION_LIMIT)
+  // A suggestion whose first word an existing section already opens with is a
+  // near-duplicate („Rechtsrahmen und Einstufung" beside „Rechtsrahmen und
+  // Gebäudeklasse"), and offering it reads as the plan not having been read.
+  const openingWord = (text: string): string => foldName(text).split(/\s+/)[0] ?? ''
+  const taken = new Set(plan.sections.map(foldName))
+  const openings = new Set(plan.sections.map(openingWord))
+  const suggestions = templates
+    .filter((template) => !taken.has(foldName(template)) && !openings.has(openingWord(template)))
+    .slice(0, SUGGESTION_LIMIT)
   const full = plan.sections.length >= MAX_PLAN_SECTIONS
   const genreLabel = t(`agentPrompt.plan.genres.${plan.genre}`)
-
-  let step = firstStep
 
   return (
     <div className="flex flex-col gap-6" data-testid="plan-checklist">
       <PlanStep
-        n={step++}
         title={t('agentPrompt.plan.steps.sections.title')}
         hint={t('agentPrompt.plan.steps.sections.hint')}
         aside={
@@ -162,12 +162,16 @@ export const PlanChecklist: FC<{
         testId="plan-step-sections"
       >
         <div className="flex flex-col gap-2.5">
-          <PlanEmptyOutline show={plan.sections.length === 0 && !disabled} hint={t('agentPrompt.plan.emptySections')}>
+          <PlanEmptyOutline
+            show={plan.sections.length === 0 && !disabled}
+            title={t('agentPrompt.plan.emptySectionsTitle')}
+            hint={t('agentPrompt.plan.emptySections')}
+          >
             <Button
               type="button"
               size="sm"
               variant="outline"
-              className="h-8 gap-1.5 px-2.5 text-xs"
+              className="gap-1.5"
               onClick={() => onChange({ ...plan, sections: templates })}
               data-testid="plan-use-template"
             >
@@ -238,25 +242,27 @@ export const PlanChecklist: FC<{
       </PlanStep>
 
       <PlanStep
-        n={step++}
         title={t('agentPrompt.plan.steps.form.title')}
         hint={t('agentPrompt.plan.steps.form.hint')}
         testId="plan-step-form"
       >
         <div className="flex flex-col gap-3">
-          <OptionTiles label={t('agentPrompt.plan.genre')}>
+          <ChoiceCards
+            value={plan.genre}
+            onValueChange={(genre) => onChange({ ...plan, genre: genre as PlanGenre })}
+            disabled={disabled}
+            aria-label={t('agentPrompt.plan.genre')}
+          >
             {PLAN_GENRES.map((genre) => (
-              <OptionTile
+              <ChoiceCard
                 key={genre}
+                value={genre}
                 icon={GENRE_ICON[genre]}
                 label={t(`agentPrompt.plan.genres.${genre}`)}
                 hint={t(`agentPrompt.plan.genreHints.${genre}`)}
-                selected={plan.genre === genre}
-                disabled={disabled}
-                onSelect={() => onChange({ ...plan, genre })}
               />
             ))}
-          </OptionTiles>
+          </ChoiceCards>
           <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
             <Segmented
               label={t('agentPrompt.plan.depth')}
@@ -275,19 +281,19 @@ export const PlanChecklist: FC<{
       </PlanStep>
 
       <PlanStep
-        n={step++}
         title={t('agentPrompt.plan.steps.documents.title')}
-        hint={t('agentPrompt.plan.steps.documents.hint')}
         tag={t('agentPrompt.plan.optional')}
         testId="plan-step-documents"
       >
         <PlanUnterlagen
-          documents={documents}
+          library={listing}
+          known={plan.unterlagen}
           folders={inventory?.folders ?? library.folders}
           loading={inventory?.loading ?? library.loading}
           grundlage={plan.grundlage}
           ausgeschlossen={plan.ausgeschlossen}
           nurGrundlage={plan.nurGrundlage}
+          sources={rahmen?.labels}
           disabled={disabled}
           onBrowse={() => setBrowsing(true)}
           onChange={({ picked, ...choice }) =>
@@ -295,27 +301,6 @@ export const PlanChecklist: FC<{
           }
         />
       </PlanStep>
-
-      {/* The Rahmen: read-only, because the run's tools were chosen by it when
-          the run was commissioned. */}
-      {rahmen && rahmen.labels.length > 0 && (
-        <PlanStep
-          n={step++}
-          title={t('agentPrompt.plan.steps.rahmen.title')}
-          hint={t('agentPrompt.plan.steps.rahmen.hint')}
-          aside={<Lock className="text-muted-foreground size-3.5" aria-hidden />}
-          testId="plan-rahmen"
-        >
-          <div className="flex flex-wrap gap-1.5">
-            {rahmen.labels.map((label) => (
-              <Chip key={label} size="sm" variant="secondary">
-                <Database className="size-3" aria-hidden />
-                {label}
-              </Chip>
-            ))}
-          </div>
-        </PlanStep>
-      )}
     </div>
   )
 }

@@ -60,6 +60,7 @@ import { z } from 'zod'
 
 import { FieldShell, useAppForm } from '@/components/form'
 import { Alert, AlertDescription } from '@/components/ui/alert'
+import { ChoiceCard, ChoiceCards } from '@/components/ui/choice-card'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Chip } from '@/components/ui/chip'
@@ -845,40 +846,23 @@ function ScheduleStep({
       {/* Cards, not chips, because each answer needs a sentence: "once" and
           "recurring" are indistinguishable from their one-word labels alone,
           and a reader choosing between them is choosing between behaviours. */}
-      <div
-        role="radiogroup"
-        aria-labelledby="cadence-label"
-        className="grid gap-2 sm:grid-cols-3"
+      <ChoiceCards
+        value={cadence}
+        onValueChange={(next) => onCadenceChange(next as typeof cadence)}
+        aria-label={t('builder.cadence.label')}
+        className="sm:grid-cols-3 lg:grid-cols-3"
         data-testid="cadence-choice"
       >
-        <span id="cadence-label" className="sr-only">
-          {t('builder.cadence.label')}
-        </span>
         {CADENCES.map((option) => (
-          <button
+          <ChoiceCard
             key={option}
-            type="button"
-            role="radio"
-            aria-checked={cadence === option}
-            onClick={() => onCadenceChange(option)}
+            value={option}
+            label={t(`builder.cadence.${option}`)}
+            hint={t(`builder.cadence.${option}Hint`)}
             data-testid={`cadence-${option}`}
-            className={cn(
-              'border-border rounded-lg border px-3 py-2.5 text-left transition-colors duration-fast',
-              'focus-visible:ring-ring focus-visible:ring-2 focus-visible:outline-none',
-              cadence === option
-                ? 'border-primary bg-primary-subtle'
-                : 'hover:border-muted-foreground/40',
-            )}
-          >
-            <span className="text-foreground block text-sm font-medium">
-              {t(`builder.cadence.${option}`)}
-            </span>
-            <span className="text-muted-foreground mt-0.5 block text-xs leading-relaxed">
-              {t(`builder.cadence.${option}Hint`)}
-            </span>
-          </button>
+          />
         ))}
-      </div>
+      </ChoiceCards>
 
       {cadence === 'once' && (
         <div className="animate-in fade-in-0 mt-5 space-y-5 duration-base ease-out motion-reduce:animate-none">

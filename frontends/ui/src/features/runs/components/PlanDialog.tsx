@@ -30,6 +30,7 @@ import { useTranslations } from '@/i18n'
 import { createPlan } from '@/lib/plans/plan-client'
 import { MAX_PLAN_QUESTION_CHARS } from '@/lib/plans/plan-types'
 import type { PlanDocument } from '@/lib/runs/plan-documents'
+import { foldName } from '@/lib/text/fold'
 import { cn } from '@/lib/utils'
 import { useDocumentLibrary } from '@/features/documents/hooks/use-document-library'
 import { PlanBrief } from './PlanBrief'
@@ -63,8 +64,6 @@ const EMPTY: PlanShape = {
   unterlagen: [],
 }
 
-const fold = (name: string): string => name.trim().toLocaleLowerCase()
-
 export const PlanDialog: FC<PlanDialogProps> = ({ open, onOpenChange, projectId, conversationId }) => {
   const t = useTranslations('runs')
   const tc = useTranslations('chat')
@@ -75,6 +74,17 @@ export const PlanDialog: FC<PlanDialogProps> = ({ open, onOpenChange, projectId,
   const library = useDocumentLibrary(projectId, open)
   const hydrate = useChatStore((state) => state.hydrateConversationMessages)
   const enabledSources = useLayoutStore((state) => state.enabledDataSourceIds)
+  const availableSources = useLayoutStore((state) => state.availableDataSources)
+  // The sources the plan will search are the ones the composer has on: named
+  // in the document step's sentence, fixed once the plan is created.
+  const rahmen =
+    enabledSources.length > 0
+      ? {
+          labels: enabledSources.map(
+            (id) => (availableSources ?? []).find((source) => source.id === id)?.name ?? id
+          ),
+        }
+      : undefined
   const unterlagen: PlanDocument[] = (library.documents ?? []).map(({ name, title, shelf }) => ({
     name,
     ...(title ? { title } : {}),
@@ -85,7 +95,7 @@ export const PlanDialog: FC<PlanDialogProps> = ({ open, onOpenChange, projectId,
   const ready = hasQuestion && hasSections && !pending
 
   const named = (names: readonly string[]): PlanDocument[] =>
-    names.flatMap((name) => unterlagen.filter((doc) => fold(doc.name) === fold(name)).slice(0, 1))
+    names.flatMap((name) => unterlagen.filter((doc) => foldName(doc.name) === foldName(name)).slice(0, 1))
 
   const submit = async (): Promise<void> => {
     setPending(true)
@@ -124,7 +134,7 @@ export const PlanDialog: FC<PlanDialogProps> = ({ open, onOpenChange, projectId,
 
         <div className="grid gap-6 md:grid-cols-[minmax(0,1fr)_17rem]">
           <div className="flex min-w-0 flex-col gap-6">
-            <PlanStep n={1} title={t('plan.question')} hint={t('plan.questionHint')} testId="plan-step-question">
+            <PlanStep title={t('plan.question')} hint={t('plan.questionHint')} testId="plan-step-question">
               <Textarea
                 value={question}
                 maxLength={MAX_PLAN_QUESTION_CHARS}
@@ -139,7 +149,7 @@ export const PlanDialog: FC<PlanDialogProps> = ({ open, onOpenChange, projectId,
               plan={{ ...shape, unterlagen }}
               disabled={pending}
               inventory={{ documents: library.documents ?? [], folders: library.folders, loading: library.loading }}
-              firstStep={2}
+              rahmen={rahmen}
               onChange={setShape}
             />
           </div>

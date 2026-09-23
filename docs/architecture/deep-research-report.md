@@ -102,11 +102,13 @@ which offers the whole project listing with its folders and the Büroarchiv,
 loaded when a picker first opens. A document picked from that listing travels
 with the edit (`edit.unterlagen`),
 so an agent's plan drafted without an inventory can still be told what to
-read. The step offers a choice of scope:
+read. By default the research reads everything it was given; the step says
+so, naming the sources. Choosing documents narrows it in two steps:
 
-- **Alle Unterlagen**, the default. A marked document is a Schwerpunkt: it is
-  read first and in full, and the research still reads anything else it finds.
-- **Nur ausgewählte** (`nurGrundlage`). Of the reader's own documents on the
+- **Zuerst gelesen**, the default for a choice. A chosen document is read
+  first and in full, and the research still reads anything else it finds.
+- **Nur diese** (`nurGrundlage`, the „Nur diese verwenden" checkbox in the
+  picker's footer). Of the reader's own documents on the
   project, Archiv and chat shelves, the research uses the marked ones and no
   other. `SourceRegistryMiddleware` enforces it: a passage from one of those
   shelves that is not in the Grundlage is refused before it becomes a source.

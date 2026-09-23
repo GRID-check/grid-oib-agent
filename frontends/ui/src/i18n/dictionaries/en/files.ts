@@ -1,39 +1,15 @@
 /** files namespace — populated during component i18n. */
 export const files = {
   picker: {
-    places: 'Places',
-    folders: 'Folders',
-    recent: 'Recent',
-    selected: 'Selected',
-    shelves: { project: 'Project', archiv: 'Office archive', session: 'This chat', base: 'Regulations' },
-    back: 'Back',
-    forward: 'Forward',
-    path: 'Path',
-    view: 'View',
-    openFolder: 'Open folder',
-    select: 'Select',
-    selectedOne: 'Selected',
-    keys: { space: 'Space', move: 'move', mark: 'mark', confirm: 'apply' },
-    viewList: 'As list',
-    viewGrid: 'As icons',
-    search: 'Search documents',
-    searchPlaceholder: 'Search in „{place}“',
-    clearSearch: 'Clear search',
-    items: 'Documents',
-    columns: { name: 'Name', date: 'Added', size: 'Size', kind: 'Kind' },
-    folderCount: '{count, plural, one {# document} other {# documents}}',
-    loading: 'Loading documents …',
-    empty: 'No documents here.',
-    noMatches: 'Nothing matches „{query}“.',
-    selectedEmpty: 'Nothing selected yet.',
-    preview: 'Preview',
-    previewEmpty: 'Click a document to see it here.',
-    facts: { shelf: 'Shelf', kind: 'Kind', size: 'Size', pages: 'Pages', added: 'Added', contains: 'Contains' },
+    placesLabel: 'Places',
+    places: { project: 'Project', archiv: 'Office archive', selected: 'Selected' },
+    choose: 'Select {name}',
     nothingSelected: 'Nothing selected',
     selectedCount: '{count, plural, one {# document} other {# documents}} selected',
     clear: 'Clear selection',
     cancel: 'Cancel',
   },
+
   uploadZone: {
     clickToUpload: 'Click to upload',
     orDragAndDrop: ' or drag and drop',
@@ -340,6 +316,7 @@ export const files = {
   // Explorer detail view — column headings for the sortable listing.
   list: {
     columns: {
+      choose: 'Select',
       relevance: 'Relevance',
       name: 'Name',
       status: 'Status',

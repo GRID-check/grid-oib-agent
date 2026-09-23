@@ -91,11 +91,19 @@ describe('RunPlan', () => {
     expect(screen.queryByTestId('plan-checklist')).not.toBeInTheDocument()
   })
 
-  it('places the plan on its lifecycle once the clock has stopped, and says edits are saved', () => {
+  it('once the clock has stopped, says in one line where the plan stands and that edits are saved', () => {
     render(<RunPlan plan={plan({ status: 'held', startsAt: null })} onEdit={vi.fn()} onStart={vi.fn()} />)
-    expect(screen.getByTestId('run-plan-lifecycle')).toHaveAttribute('data-stage', 'held')
-    expect(screen.getByTestId('run-plan-saved')).toHaveTextContent('Every change is saved at once.')
+    const line = screen.getByTestId('run-plan-line')
+    expect(line).toHaveTextContent('Waiting for you')
+    expect(within(line).getByTestId('run-plan-saved')).toHaveTextContent('Every change is saved at once.')
     expect(screen.queryByTestId('run-plan-countdown')).not.toBeInTheDocument()
+  })
+
+  it('offers „Start" again at the end of the open plan, where the reader finished', () => {
+    const onStart = vi.fn()
+    render(<RunPlan plan={plan({ status: 'held', startsAt: null })} onEdit={vi.fn()} onStart={onStart} />)
+    fireEvent.click(screen.getByTestId('run-plan-start-end'))
+    expect(onStart).toHaveBeenCalled()
   })
 
   it('shows a plan confined to its documents as such', () => {

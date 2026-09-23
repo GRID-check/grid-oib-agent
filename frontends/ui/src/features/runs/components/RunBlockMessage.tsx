@@ -32,6 +32,7 @@ import { useRunLedger } from '../hooks/use-run-ledger'
 import { DocumentPickerDialog } from '@/features/documents/components/document-picker/DocumentPickerDialog'
 import { useDocumentLibrary } from '@/features/documents/hooks/use-document-library'
 import { useTranslations } from '@/i18n'
+import { foldName } from '@/lib/text/fold'
 import { RunPlan } from './RunPlan'
 import { usePlan } from '../hooks/use-plan'
 import { useLayoutStore } from '@/features/layout/store'
@@ -75,7 +76,7 @@ export function RunBlockMessage({
   const [wantsInventory, setWantsInventory] = useState(false)
   const inventory = useDocumentLibrary(projectId ?? null, wantsInventory)
   const t = useTranslations('runs')
-  const named = new Set((ledger?.grundlage ?? []).map((doc) => doc.name.trim().toLocaleLowerCase()))
+  const named = new Set((ledger?.grundlage ?? []).map((doc) => foldName(doc.name)))
   const plan = usePlan(projectId ?? null, message.planId ?? null)
   const availableSources = useLayoutStore((state) => state.availableDataSources)
   const rahmen = plan.plan?.dataSources
@@ -88,8 +89,8 @@ export function RunBlockMessage({
   const openDocument = useCallback(
     (doc: RunLedgerDoc): void => {
       setWantsInventory(true)
-      const key = doc.name.trim().toLocaleLowerCase()
-      const found = inventory.documents?.find((row) => row.name.trim().toLocaleLowerCase() === key)
+      const key = foldName(doc.name)
+      const found = inventory.documents?.find((row) => foldName(row.name) === key)
       if (!found) return
       openFilePeek({
         file: found.file,
@@ -159,10 +160,10 @@ export function RunBlockMessage({
           documents={inventory.documents ?? []}
           folders={inventory.folders}
           loading={inventory.loading}
-          disabledReason={(doc) => (named.has(doc.name.trim().toLocaleLowerCase()) ? t('unterlagen.alreadyNamed') : null)}
+          disabledReason={(doc) => (named.has(foldName(doc.name)) ? t('unterlagen.alreadyNamed') : null)}
           confirmLabel={t('unterlagen.add')}
           onConfirm={(docs) => {
-            for (const doc of docs) void addDocument({ name: doc.name, ...(doc.title ? { title: doc.title } : {}), ...(doc.shelf ? { shelf: doc.shelf } : {}) })
+            for (const { name, title, shelf } of docs) void addDocument({ name, ...(title ? { title } : {}), shelf })
           }}
         />
       )}

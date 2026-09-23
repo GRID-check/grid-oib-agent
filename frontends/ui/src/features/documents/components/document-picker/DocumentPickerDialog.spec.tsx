@@ -1,33 +1,28 @@
 /**
- * The document picker. Pinned: it opens on the project with the caller's
- * choice marked; a click marks, a double click opens a folder; the path and
- * back/forward move through places; a document the caller rules out says why
- * and cannot be marked; confirm hands back the chosen documents in the order
- * they were chosen; a single-choice picker confirms on a double click.
+ * The document picker. Pinned: it is the Files browser in a dialog — the same
+ * `FileCard`s and detail list, the same read-only folder navigation — with a
+ * checkbox on every document. It opens on the project with the caller's
+ * choice checked; a click toggles; places and folders move through the
+ * listing; a document the caller rules out says why and cannot be checked;
+ * confirm hands back the chosen documents in the order they were chosen; a
+ * choice taken back entirely can still be confirmed, which is how a list is
+ * cleared; a single-choice picker confirms on the click.
  */
 
 import { fireEvent, render, screen, waitFor, within } from '@/test-utils'
-import { describe, expect, it, vi } from 'vitest'
-import type { FolderItem } from '@/features/documents/components/project-file-workspace'
+import { folder, libraryDocument } from '@/test-utils/library-fixtures'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { DocumentPickerDialog, type PickerDocument } from './DocumentPickerDialog'
 
-const folders: FolderItem[] = [{ id: 'f-plans', parentId: null, name: 'Pläne', path: '/Pläne' }]
-const file = (folderId: string | null) => ({
-  folderId,
-  createdAt: '2026-09-01T00:00:00Z',
-  fileSize: 2048,
-  contentType: 'application/pdf',
-  pageCount: 4,
-  summary: null,
-  tags: null,
-})
+const folders = [folder('f-plans', 'Pläne')]
 const documents: PickerDocument[] = [
-  { name: 'baubeschreibung.pdf', title: 'Baubeschreibung', shelf: 'project', file: file(null) },
-  { name: 'Grundriss EG.pdf', shelf: 'project', file: file('f-plans') },
-  { name: 'Leitfaden OIB 2.pdf', shelf: 'archiv', file: file(null) },
+  libraryDocument('baubeschreibung.pdf', { title: 'Baubeschreibung' }),
+  libraryDocument('Grundriss EG.pdf', { folderId: 'f-plans' }),
+  libraryDocument('Leitfaden OIB 2.pdf', { shelf: 'archiv' }),
 ]
 
-const docs = () => screen.getAllByTestId('picker-doc')
+const cards = () => screen.getAllByTestId('file-card')
+const checks = () => screen.getAllByTestId('file-card-check')
 const renderPicker = (props: Partial<Parameters<typeof DocumentPickerDialog>[0]> = {}) => {
   const onConfirm = vi.fn()
   const onOpenChange = vi.fn()
@@ -47,35 +42,48 @@ const renderPicker = (props: Partial<Parameters<typeof DocumentPickerDialog>[0]>
 }
 
 describe('DocumentPickerDialog', () => {
-  it('opens on the project, with folders first and the caller’s choice marked', () => {
+  // Every card asks for its page thumbnail; here none exists, so each falls back.
+  const fetchMock = vi.fn(async () => new Response(null, { status: 404 }))
+  beforeEach(() => vi.stubGlobal('fetch', fetchMock))
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    fetchMock.mockClear()
+  })
+
+  it('shows each document by its real page thumbnail, not a drawn stand-in', async () => {
+    renderPicker()
+    await waitFor(() =>
+      expect(fetchMock).toHaveBeenCalledWith(expect.stringContaining('/api/documents/doc-baubeschreibung.pdf/thumbnail'))
+    )
+  })
+
+  it('opens on the project as file cards, its folder beside them and the caller’s choice checked', () => {
     renderPicker({ initialSelected: ['Baubeschreibung.pdf'] })
-    expect(screen.getByTestId('picker-path')).toHaveTextContent('Project')
-    expect(screen.getAllByTestId('picker-folder')[0]).toHaveTextContent('Pläne')
-    expect(docs()[0]).toHaveAttribute('aria-selected', 'true')
+    expect(screen.getByTestId('picker-place-project')).toHaveAttribute('aria-current', 'page')
+    expect(screen.getByTestId('folder-card-f-plans')).toHaveTextContent('Pläne')
+    expect(cards()).toHaveLength(1)
+    expect(cards()[0]).toHaveTextContent('Baubeschreibung')
+    expect(checks()[0]).toHaveAttribute('data-state', 'checked')
     expect(screen.getByTestId('picker-summary')).toHaveTextContent('1 document selected')
   })
 
-  // A place's content slides out while the next slides in, so each step waits for the exit.
-  it('opens a folder on a double click, and back and the path return', async () => {
+  it('browses folders read-only: no new folder, no folder menu', async () => {
     renderPicker()
-    fireEvent.doubleClick(screen.getByTestId('picker-folder'))
-    expect(screen.getByTestId('picker-path')).toHaveTextContent('Pläne')
-    await waitFor(() => expect(docs()).toHaveLength(1))
-    fireEvent.click(screen.getByTestId('picker-back'))
-    expect(screen.getByTestId('picker-path')).not.toHaveTextContent('Pläne')
-    fireEvent.click(screen.getByTestId('picker-forward'))
-    fireEvent.click(within(screen.getByTestId('picker-path')).getByRole('button', { name: 'Project' }))
-    await waitFor(() => expect(screen.getAllByTestId('picker-folder')).toHaveLength(1))
+    expect(screen.queryByTestId('folder-actions-f-plans')).toBeNull()
+    fireEvent.click(within(screen.getByTestId('folder-card-f-plans')).getAllByRole('button')[0])
+    await waitFor(() => expect(cards().map((card) => card.textContent)).toEqual([expect.stringContaining('Grundriss')]))
+    fireEvent.click(screen.getByTestId('folder-back'))
+    await waitFor(() => expect(cards()[0]).toHaveTextContent('Baubeschreibung'))
   })
 
-  it('hands back what was marked, across places, in the order it was marked', async () => {
+  it('hands back what was checked, across places, in the order it was checked', async () => {
     const { onConfirm, onOpenChange } = renderPicker()
     fireEvent.click(screen.getByTestId('picker-place-archiv'))
-    await waitFor(() => expect(docs().map((row) => row.textContent)).toEqual([expect.stringContaining('Leitfaden')]))
-    fireEvent.click(docs()[0])
+    await waitFor(() => expect(cards().map((card) => card.textContent)).toEqual([expect.stringContaining('Leitfaden')]))
+    fireEvent.click(cards()[0])
     fireEvent.click(screen.getByTestId('picker-place-project'))
-    await waitFor(() => expect(docs().map((row) => row.textContent)).toEqual([expect.stringContaining('Baubeschreibung')]))
-    fireEvent.click(docs()[0])
+    await waitFor(() => expect(cards()[0]).toHaveTextContent('Baubeschreibung'))
+    fireEvent.click(checks()[0])
     fireEvent.click(screen.getByTestId('picker-confirm'))
     expect(onConfirm.mock.calls[0][0].map((doc: PickerDocument) => doc.name)).toEqual([
       'Leitfaden OIB 2.pdf',
@@ -84,76 +92,48 @@ describe('DocumentPickerDialog', () => {
     expect(onOpenChange).toHaveBeenCalledWith(false)
   })
 
-  it('says why a document cannot be chosen, and does not mark it', () => {
+  it('says why a document cannot be chosen, and does not check it', () => {
     renderPicker({ disabledReason: (doc) => (doc.name === 'baubeschreibung.pdf' ? 'Already named' : null) })
-    expect(docs()[0]).toHaveTextContent('Already named')
-    fireEvent.click(docs()[0])
-    expect(docs()[0]).toHaveAttribute('aria-selected', 'false')
+    expect(screen.getByTestId('file-card-reason')).toHaveTextContent('Already named')
+    expect(cards()[0]).toHaveAttribute('aria-disabled', 'true')
+    fireEvent.click(cards()[0])
+    expect(checks()[0]).toHaveAttribute('data-state', 'unchecked')
+    expect(checks()[0]).toBeDisabled()
     expect(screen.getByTestId('picker-confirm')).toBeDisabled()
   })
 
-  it('searches through the place, and „Selected" shows the choice', async () => {
-    renderPicker()
-    fireEvent.change(screen.getByRole('textbox', { name: 'Search documents' }), { target: { value: 'grundriss' } })
-    expect(docs()).toHaveLength(1)
-    fireEvent.click(docs()[0])
+  it('„Selected" lists the choice; taking it all back still confirms, as an empty list', async () => {
+    const { onConfirm } = renderPicker({ initialSelected: ['Grundriss EG.pdf'] })
     fireEvent.click(screen.getByTestId('picker-place-selected'))
-    fireEvent.change(screen.getByRole('textbox', { name: 'Search documents' }), { target: { value: '' } })
-    await waitFor(() => expect(docs()).toHaveLength(1))
-    expect(docs()[0]).toHaveTextContent('Grundriss EG.pdf')
+    await waitFor(() => expect(cards().map((card) => card.textContent)).toEqual([expect.stringContaining('Grundriss')]))
+    fireEvent.click(screen.getByRole('button', { name: 'Clear selection' }))
+    expect(screen.getByTestId('picker-summary')).toHaveTextContent('Nothing selected')
+    fireEvent.click(screen.getByTestId('picker-confirm'))
+    expect(onConfirm).toHaveBeenCalledWith([])
   })
 
-  it('switches to icons, and previews the document in focus with a toggle of its own', async () => {
+  it('nothing chosen and nothing changed: there is nothing to confirm', () => {
     renderPicker()
-    fireEvent.click(docs()[0])
-    const preview = screen.getByTestId('picker-preview')
-    expect(preview).toHaveTextContent('Baubeschreibung')
-    expect(preview).toHaveTextContent('4')
-    // The preview's button says the document is chosen, and unchooses it.
-    expect(within(preview).getByTestId('picker-preview-toggle')).toHaveTextContent('Selected')
-    fireEvent.click(within(preview).getByTestId('picker-preview-toggle'))
-    expect(docs()[0]).toHaveAttribute('aria-selected', 'false')
-    fireEvent.click(screen.getByTestId('picker-view-grid'))
-    expect(screen.getByTestId('picker-view-grid')).toHaveAttribute('data-state', 'on')
-    await waitFor(() => expect(docs()).toHaveLength(1))
+    expect(screen.getByTestId('picker-confirm')).toBeDisabled()
   })
 
-  it('shows the shape of the listing while it loads, not an empty folder', () => {
-    renderPicker({ documents: [], folders: [], loading: true })
-    expect(screen.getByTestId('picker-skeleton')).toBeInTheDocument()
-    expect(screen.queryByRole('listbox')).toBeNull()
+  it('shows the detail list with a checkbox column, and a row toggles', async () => {
+    renderPicker()
+    fireEvent.click(screen.getByTestId('picker-view-list'))
+    await waitFor(() => expect(screen.getByTestId('file-list-view')).toBeInTheDocument())
+    const row = screen.getAllByTestId('file-list-row')[0]
+    fireEvent.click(row)
+    expect(within(row).getByTestId('file-list-check')).toHaveAttribute('data-state', 'checked')
   })
 
-  it('folds a deep path into its ends, and „…" steps up one level', async () => {
-    const deep: FolderItem[] = [
-      { id: 'a', parentId: null, name: 'A', path: '/A' },
-      { id: 'b', parentId: 'a', name: 'B', path: '/A/B' },
-      { id: 'c', parentId: 'b', name: 'C', path: '/A/B/C' },
-    ]
-    renderPicker({ folders: deep, documents: [{ name: 'x.pdf', shelf: 'project', file: file('c') }] })
-    for (const name of ['A', 'B', 'C']) {
-      await waitFor(() => expect(screen.getByTestId('picker-folder')).toHaveTextContent(name))
-      fireEvent.doubleClick(screen.getByTestId('picker-folder'))
-    }
-    const path = screen.getByTestId('picker-path')
-    await waitFor(() => expect(path).toHaveTextContent(/Project.*….*C/))
-    expect(path).not.toHaveTextContent('B')
-    fireEvent.click(within(path).getByRole('button', { name: '…' }))
-    expect(screen.getByTestId('picker-path')).toHaveTextContent(/Project.*A.*B/)
-  })
-
-  it('choosing one confirms on a double click', () => {
+  it('choosing one confirms on the click', () => {
     const { onConfirm } = renderPicker({ multiple: false })
-    fireEvent.doubleClick(docs()[0])
+    fireEvent.click(cards()[0])
     expect(onConfirm.mock.calls[0][0][0].name).toBe('baubeschreibung.pdf')
   })
 
-  it('walks with the keyboard: arrows move, space marks, Enter confirms', () => {
-    const { onConfirm } = renderPicker()
-    const list = screen.getByRole('listbox')
-    fireEvent.keyDown(list, { key: 'ArrowDown' })
-    fireEvent.keyDown(list, { key: ' ' })
-    fireEvent.keyDown(list, { key: 'Enter' })
-    expect(onConfirm.mock.calls[0][0][0].name).toBe('baubeschreibung.pdf')
+  it('offers the caller’s own control beside the summary', () => {
+    renderPicker({ footer: <span data-testid="caller-footer">mine</span> })
+    expect(screen.getByTestId('caller-footer')).toBeInTheDocument()
   })
 })

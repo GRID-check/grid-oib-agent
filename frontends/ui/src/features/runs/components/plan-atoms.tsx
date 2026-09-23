@@ -36,6 +36,7 @@ import {
   Gauge,
   Layers,
   ListChecks,
+  ListPlus,
   NotebookPen,
   Plus,
   Timer,
@@ -55,7 +56,9 @@ import {
   staggerStepSeconds,
   useReducedMotion,
 } from '@/components/motion'
-import { StageTrack } from '@/components/ui/stage-track'
+import { Chip } from '@/components/ui/chip'
+import { EmptyState } from '@/components/ui/empty-state'
+import { SectionLabel } from '@/components/ui/section-label'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import { SourceSignalChip } from '@/features/layout/components/SourceSignalChip'
 import type { PlanDepth, PlanGenre } from '@/lib/plans/plan-types'
@@ -76,15 +79,6 @@ export const DEPTH_ICON: Record<PlanDepth, LucideIcon> = {
   kurzpruefung: Gauge,
   gutachten: Layers,
 }
-
-/** The uppercase label the design language uses above a group. */
-export const PlanEyebrow: FC<{ children: ReactNode; className?: string }> = ({ children, className }) => (
-  <span
-    className={cn('text-muted-foreground text-[10.5px] font-medium uppercase tracking-wider', className)}
-  >
-    {children}
-  </span>
-)
 
 /** The genre as the plan's emblem: its glyph in a quiet well. */
 export const GenreWell: FC<{ genre: PlanGenre }> = ({ genre }) => {
@@ -256,60 +250,6 @@ export const RowRemove: FC<{ label: string; onClick: () => void }> = ({ label, o
 )
 
 /**
- * One option as a tile: glyph, name, and the one line that says what choosing
- * it means. Selection is contrast — an ink hairline and a check — never chroma.
- */
-export const OptionTile: FC<{
-  icon: LucideIcon
-  label: string
-  hint: string
-  selected: boolean
-  disabled?: boolean
-  onSelect: () => void
-}> = ({ icon: Icon, label, hint, selected, disabled = false, onSelect }) => (
-  <button
-    type="button"
-    role="radio"
-    aria-checked={selected}
-    disabled={disabled}
-    onClick={onSelect}
-    className={cn(
-      'bg-card relative flex min-h-16 flex-col items-start gap-1 rounded-md border px-3 py-2.5 text-left',
-      'transition-[border-color,box-shadow,background-color] duration-quick ease-out motion-reduce:transition-none',
-      'focus-visible:ring-ring/60 focus-visible:outline-none focus-visible:ring-2',
-      selected ? 'border-foreground shadow-xs' : 'border-border hover:bg-accent/60',
-      disabled && 'cursor-default opacity-60 hover:bg-card'
-    )}
-  >
-    <span className="flex w-full items-center gap-1.5">
-      <Icon className={cn('size-4 shrink-0', selected ? 'text-foreground' : 'text-muted-foreground')} aria-hidden />
-      <span className="text-foreground text-sm font-medium">{label}</span>
-      <AnimatePresence initial={false}>
-        {selected && (
-          <motion.span
-            key="check"
-            className="ml-auto flex"
-            initial={{ opacity: 0, scale: 0.4 }}
-            animate={{ opacity: 1, scale: 1, transition: springSnap }}
-            exit={{ opacity: 0, scale: 0.4, transition: motionQuickExit }}
-            aria-hidden
-          >
-            <Check className="text-foreground size-3.5" />
-          </motion.span>
-        )}
-      </AnimatePresence>
-    </span>
-    <span className="text-muted-foreground text-xs leading-snug">{hint}</span>
-  </button>
-)
-
-export const OptionTiles: FC<{ label: string; children: ReactNode }> = ({ label, children }) => (
-  <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3" role="radiogroup" aria-label={label}>
-    {children}
-  </div>
-)
-
-/**
  * Two or three options in one well, the chosen one on a pill that travels to
  * it — the kit's segmented `ToggleGroup`, so this control moves exactly like
  * every other segmented control in the product.
@@ -363,6 +303,11 @@ export const CountdownBar: FC<{
   label: string
 }> = ({ remaining, seconds, label }) => {
   const start = Math.max(0, Math.min(1, remaining))
+  // Reduced motion zeroes transforms' transitions, which would drop a draining
+  // bar straight to empty with forty seconds left: the bar would then say the
+  // opposite of the words beside it. So it is set to where the grace stands on
+  // every tick instead, which carries the same information without motion.
+  const reduced = useReducedMotion()
   return (
     <div className="flex items-center gap-2.5" data-testid="run-plan-countdown">
       <Timer className="text-muted-foreground size-3.5 shrink-0" aria-hidden />
@@ -380,8 +325,8 @@ export const CountdownBar: FC<{
         <motion.span
           className="bg-foreground absolute inset-0 origin-left rounded-full"
           initial={{ scaleX: start }}
-          animate={{ scaleX: 0 }}
-          transition={motionCountdown(seconds)}
+          animate={{ scaleX: reduced ? start : 0 }}
+          transition={reduced ? { duration: 0 } : motionCountdown(seconds)}
         />
       </div>
     </div>
@@ -455,21 +400,18 @@ export const PlanDocChip: FC<{
       type="button"
       onClick={onRemove}
       aria-label={removeLabel}
-      className="-mr-1 ml-0.5 inline-flex size-4 shrink-0 items-center justify-center rounded-full opacity-70 hover:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+      className="-mr-1 ml-0.5 inline-flex size-4 shrink-0 items-center justify-center rounded-full opacity-70 hover:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 pointer-coarse:size-8 pointer-coarse:-my-2"
     >
       <X className="size-3" aria-hidden />
     </button>
   ) : null
   if (excluded) {
     return (
-      <span
-        className="border-border bg-muted text-muted-foreground inline-flex h-6 max-w-full items-center gap-1 rounded-full border px-2.5 text-xs font-medium"
-        title={doc.name}
-      >
-        <Ban className="size-3 shrink-0" aria-hidden />
+      <Chip variant="muted" className="max-w-full" title={doc.name}>
+        <Ban aria-hidden />
         <span className="truncate line-through">{label}</span>
         {remove}
-      </span>
+      </Chip>
     )
   }
   return (
@@ -481,82 +423,39 @@ export const PlanDocChip: FC<{
 }
 
 /**
- * One step of the plan: a numeral, what the step decides, and the one line
- * that says what deciding it does. The numerals are the order a reader who
- * has never seen a plan walks it in; the line is so they need no manual.
+ * One step of the plan: what the step decides, as the product's section label,
+ * and the one line that says what deciding it does. No numeral: the outline
+ * inside the first step is numbered, and two columns of numbered discs read
+ * as one list.
  */
 export const PlanStep: FC<{
-  n: number
   title: string
-  hint: string
+  hint?: ReactNode
   /** A quiet tag beside the title, „optional" where skipping is the default. */
   tag?: string
-  /** Something at the header's end: a count, a toggle. */
+  /** Something at the header's end: a count, a lock. */
   aside?: ReactNode
   testId?: string
   children?: ReactNode
-}> = ({ n, title, hint, tag, aside, testId, children }) => (
-  <section className="flex flex-col gap-2.5" data-testid={testId} aria-label={title}>
-    <header className="flex items-start gap-2.5">
-      <span
-        className="border-foreground/70 text-foreground mt-px flex size-5 shrink-0 items-center justify-center rounded-full border font-mono text-[10.5px] font-medium tabular-nums"
-        aria-hidden
-      >
-        {n}
-      </span>
-      <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+}> = ({ title, hint, tag, aside, testId, children }) => (
+  <section className="flex flex-col gap-3" data-testid={testId} aria-label={title}>
+    <header className="flex items-start gap-2">
+      <span className="flex min-w-0 flex-1 flex-col gap-1">
         <span className="flex items-center gap-2">
-          <span className="text-foreground text-sm font-semibold">{title}</span>
+          <SectionLabel as="h3">{title}</SectionLabel>
           {tag && (
-            <span className="border-border text-muted-foreground rounded-full border px-1.5 py-px text-[10.5px] leading-none">
+            <Chip size="sm" variant="outline" className="text-muted-foreground">
               {tag}
-            </span>
+            </Chip>
           )}
         </span>
-        <span className="text-muted-foreground text-xs leading-snug">{hint}</span>
+        {hint && <span className="text-muted-foreground text-sm leading-relaxed">{hint}</span>}
       </span>
       {aside && <span className="shrink-0">{aside}</span>}
     </header>
-    {children && <div className="pl-7.5">{children}</div>}
+    {children}
   </section>
 )
-
-/** Where a plan is in its life, as a track the reader can place it on. */
-export type PlanStage = 'proposed' | 'held' | 'approved' | 'started'
-
-export const PlanLifecycle: FC<{
-  stage: PlanStage
-  labels: { proposed: string; held: string; approved: string; started: string }
-}> = ({ stage, labels }) => {
-  const reached = stage === 'started' ? 2 : stage === 'approved' ? 1 : 0
-  const words = [stage === 'held' ? labels.held : labels.proposed, labels.approved, labels.started]
-  return (
-    <div className="flex flex-col gap-1" data-testid="run-plan-lifecycle" data-stage={stage}>
-      <StageTrack
-        stages={['plan', 'freigabe', 'lauf']}
-        reached={reached}
-        active={stage !== 'held'}
-        halted={stage === 'held'}
-      />
-      <span className="grid grid-cols-3 gap-1 text-[10.5px]">
-        {words.map((word, index) => (
-          <span
-            key={word}
-            className={cn(
-              'truncate',
-              index === reached ? 'text-foreground font-medium' : 'text-muted-foreground',
-              index === 1 && 'text-center',
-              index === 2 && 'text-right'
-            )}
-            aria-current={index === reached ? 'step' : undefined}
-          >
-            {word}
-          </span>
-        ))}
-      </span>
-    </div>
-  )
-}
 
 /** A proposal the reader can take with one press: a dashed chip with a plus. */
 export const SuggestionChip = forwardRef<
@@ -615,7 +514,12 @@ export const PlanSuggestions: FC<{ label: string; show: boolean; children: React
 )
 
 /** An outline with no rows yet: what to do about it, in a dashed well that leaves once it is done. */
-export const PlanEmptyOutline: FC<{ show: boolean; hint: string; children: ReactNode }> = ({ show, hint, children }) => (
+export const PlanEmptyOutline: FC<{ show: boolean; title: string; hint: string; children: ReactNode }> = ({
+  show,
+  title,
+  hint,
+  children,
+}) => (
   <AnimatePresence initial={false}>
     {show && (
       <motion.div
@@ -623,10 +527,8 @@ export const PlanEmptyOutline: FC<{ show: boolean; hint: string; children: React
         initial={{ opacity: 0, y: 4 }}
         animate={{ opacity: 1, y: 0, transition: motionEntrance }}
         exit={{ opacity: 0, transition: motionQuickExit }}
-        className="border-border flex flex-col items-start gap-2 rounded-md border border-dashed px-3 py-3"
       >
-        <span className="text-muted-foreground text-xs">{hint}</span>
-        {children}
+        <EmptyState size="sm" icon={ListPlus} title={title} description={hint} action={children} />
       </motion.div>
     )}
   </AnimatePresence>
@@ -639,7 +541,7 @@ export const PlanPreviewFrame: FC<{ label: string; children: ReactNode }> = ({ l
     aria-label={label}
     data-testid="plan-dialog-preview"
   >
-    <PlanEyebrow>{label}</PlanEyebrow>
+    <SectionLabel>{label}</SectionLabel>
     {children}
   </aside>
 )
@@ -700,4 +602,27 @@ export const PlanNote: FC<{ children: ReactNode; ruled?: boolean }> = ({ childre
   <p className={cn('text-muted-foreground text-[11px] leading-snug', ruled && 'border-border border-t pt-2.5')}>
     {children}
   </p>
+)
+
+/** The end of an open plan: its closing action, where the reader finished working down it. */
+export const PlanEndBar: FC<{ children: ReactNode }> = ({ children }) => (
+  <div className="border-border flex justify-end border-t pt-3">{children}</div>
+)
+
+/**
+ * The document step's opening sentence: what the run reads when nobody names
+ * anything — the sources it searches, as chips, inside the sentence.
+ */
+export const PlanSourcesLine: FC<{ children: ReactNode; testId?: string }> = ({ children, testId }) => (
+  <p
+    className="text-muted-foreground flex flex-wrap items-center gap-1.5 text-sm leading-relaxed"
+    data-testid={testId}
+  >
+    {children}
+  </p>
+)
+
+/** A row of a step's own actions, left-aligned under what they change. */
+export const PlanActions: FC<{ children: ReactNode }> = ({ children }) => (
+  <div className="flex flex-wrap items-center gap-2">{children}</div>
 )

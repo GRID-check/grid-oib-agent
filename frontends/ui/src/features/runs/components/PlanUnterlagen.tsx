@@ -1,32 +1,39 @@
 'use client'
 
 /**
- * The plan's document step: optional, because the research may read every
- * document it can find. What the step offers is how far to steer it:
+ * The plan's Unterlagen — optional, and said as a sentence rather than a
+ * setting: Piloti searches the sources the run was given and picks what fits
+ * the question. Nothing here needs touching for that to happen.
  *
- * - **Alle Unterlagen** (the default). Documents chosen through
- *   „Schwerpunkte wählen" are read first and in full; the research still
- *   reads whatever else it finds. „Ausschließen …" keeps documents out.
- * - **Nur ausgewählte.** Of the reader's own documents the research uses the
- *   chosen ones and no other. Norms and laws stay available: the confinement
- *   is to the reader's files, never to the measure they are held against.
+ * What the step offers, in the order a first-time reader needs it:
  *
- * Choosing happens in the document picker (`DocumentPickerDialog`), the one
- * open panel every surface uses; this step shows the choice as chips the
- * reader can strike, so it reads as done without opening anything.
+ * 1. „Bestimmte Unterlagen zuerst lesen …" — the one main action. The chosen
+ *    documents are read in full before anything else. Inside the picker, one
+ *    checkbox narrows it further: „Nur diese verwenden" confines the reader's
+ *    own documents to the chosen ones (norms and laws stay available). That
+ *    choice lives with the documents it is about, not in a switch beside them.
+ * 2. „Unterlagen ausschließen" — rare, so behind the product's one disclosure
+ *    (`Advanced`), with a summary on its trigger when something is set.
+ *
+ * The sources the run searches close the sentence as locked chips: they are
+ * what „alles" means, fixed when the run was commissioned.
  */
 
 import { useState, type FC } from 'react'
-import { Ban, CircleCheck, FolderSearch, Library } from 'lucide-react'
+import { Ban, BookOpenCheck, Database } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { Chip } from '@/components/ui/chip'
+import { Advanced } from '@/components/ui/step-form'
 import {
   DocumentPickerDialog,
   type PickerDocument,
 } from '@/features/documents/components/document-picker/DocumentPickerDialog'
+import { PickerFooterCheck } from '@/features/documents/components/document-picker/picker-atoms'
 import type { FolderItem } from '@/features/documents/components/project-file-workspace'
 import { useTranslations } from '@/i18n'
 import type { PlanDocument } from '@/lib/runs/plan-documents'
-import { PlanDocLine, PlanNote, Segmented } from './plan-atoms'
+import { foldName } from '@/lib/text/fold'
+import { PlanActions, PlanDocLine, PlanNote, PlanSourcesLine } from './plan-atoms'
 
 export interface PlanDocumentChoice {
   grundlage: string[]
@@ -36,11 +43,7 @@ export interface PlanDocumentChoice {
   picked: PlanDocument[]
 }
 
-type Scope = 'alle' | 'nur'
-/** What the open picker chooses: a focus, the only documents, or exclusions. */
-type Picking = 'focus' | 'only' | 'ausgeschlossen' | null
-
-const fold = (name: string): string => name.trim().toLocaleLowerCase()
+type Picking = 'first' | 'excluded' | null
 
 /** A picked document as the plan names it: the contract's three fields, nothing of the file row. */
 const asPlanDocument = (doc: PickerDocument): PlanDocument => ({
@@ -50,26 +53,50 @@ const asPlanDocument = (doc: PickerDocument): PlanDocument => ({
 })
 
 export const PlanUnterlagen: FC<{
-  /** Everything that can be named: the plan's inventory and the project's listing, merged. */
-  documents: readonly PickerDocument[]
+  /** What the picker offers: the project's and the Archiv's listing. */
+  library: readonly PickerDocument[]
+  /** How a named document is shown when the listing does not hold it (the plan's own inventory). */
+  known: readonly PlanDocument[]
   folders?: readonly FolderItem[]
   loading?: boolean
   grundlage: readonly string[]
   ausgeschlossen: readonly string[]
   nurGrundlage: boolean
+  /** The sources the run searches, by name; what „alles" means. */
+  sources?: readonly string[]
   disabled?: boolean
   /** Called when a picker opens, so the caller can load the listing. */
   onBrowse?: () => void
   onChange: (choice: PlanDocumentChoice) => void
-}> = ({ documents, folders, loading = false, grundlage, ausgeschlossen, nurGrundlage, disabled = false, onBrowse, onChange }) => {
+}> = ({
+  library,
+  known,
+  folders,
+  loading = false,
+  grundlage,
+  ausgeschlossen,
+  nurGrundlage,
+  sources = [],
+  disabled = false,
+  onBrowse,
+  onChange,
+}) => {
   const t = useTranslations('chat')
   const tr = useTranslations('runs')
   const [picking, setPicking] = useState<Picking>(null)
-  const scope: Scope = nurGrundlage ? 'nur' : 'alle'
+  // „Nur diese" is decided in the picker, beside the documents it is about,
+  // and committed with them.
+  const [onlyDraft, setOnlyDraft] = useState(nurGrundlage)
+
   const docOf = (name: string): PlanDocument => {
-    const doc = documents.find((row) => fold(row.name) === fold(name))
-    return doc ? asPlanDocument(doc) : { name }
+    const key = foldName(name)
+    const fromLibrary = library.find((doc) => foldName(doc.name) === key)
+    if (fromLibrary) return asPlanDocument(fromLibrary)
+    return known.find((doc) => foldName(doc.name) === key) ?? { name }
   }
+  const inList = (list: readonly string[], doc: PickerDocument) =>
+    list.some((name) => foldName(name) === foldName(doc.name))
+
   const emit = (next: Partial<Omit<PlanDocumentChoice, 'picked'>>, picked: PlanDocument[] = []): void =>
     onChange({
       grundlage: [...(next.grundlage ?? grundlage)],
@@ -80,127 +107,155 @@ export const PlanUnterlagen: FC<{
 
   const open = (which: Exclude<Picking, null>): void => {
     onBrowse?.()
+    setOnlyDraft(nurGrundlage)
     setPicking(which)
   }
 
-  const setScope = (next: Scope): void => {
-    // Under „Nur ausgewählte" every unchosen document is out already; a
-    // separate exclusion list would only be a second way of saying it.
-    emit({ nurGrundlage: next === 'nur', ausgeschlossen: next === 'nur' ? [] : [...ausgeschlossen] })
-    if (next === 'nur' && grundlage.length === 0) open('only')
-  }
-
-  const inList = (list: readonly string[], doc: PickerDocument) => list.some((name) => fold(name) === fold(doc.name))
+  const firstLabel = nurGrundlage
+    ? t('agentPrompt.plan.unterlagen.onlyThese')
+    : t('agentPrompt.plan.unterlagen.readFirst')
 
   return (
-    <div className="flex flex-col gap-2.5" data-testid="plan-unterlagen" data-scope={scope}>
-      <div className="flex flex-col gap-1.5">
-        <Segmented<Scope>
-          label={t('agentPrompt.plan.unterlagen.scope')}
-          value={scope}
-          disabled={disabled}
-          onPick={setScope}
-          options={[
-            { value: 'alle', icon: Library, label: t('agentPrompt.plan.unterlagen.scopeAll') },
-            { value: 'nur', icon: CircleCheck, label: t('agentPrompt.plan.unterlagen.scopeOnly') },
-          ]}
-        />
-        <PlanNote>
-          <span data-testid="plan-unterlagen-scope-hint">
-            {scope === 'nur'
-              ? grundlage.length > 0
-                ? t('agentPrompt.plan.unterlagen.scopeOnlyHint', { count: grundlage.length })
-                : t('agentPrompt.plan.unterlagen.scopeOnlyEmpty')
-              : t('agentPrompt.plan.unterlagen.scopeAllHint')}
-          </span>
-        </PlanNote>
-      </div>
+    <div className="flex flex-col gap-3" data-testid="plan-unterlagen" data-scope={nurGrundlage ? 'nur' : 'alle'}>
+      <PlanSourcesLine testId="plan-unterlagen-default">
+        {sources.length > 0 ? (
+          <>
+            <span>{t('agentPrompt.plan.unterlagen.searchesLead')}</span>
+            {sources.map((source) => (
+              <Chip key={source} size="sm" variant="secondary">
+                <Database aria-hidden />
+                {source}
+              </Chip>
+            ))}
+            <span>{t('agentPrompt.plan.unterlagen.searchesTail')}</span>
+          </>
+        ) : (
+          t('agentPrompt.plan.unterlagen.searchesAll')
+        )}
+      </PlanSourcesLine>
 
       <PlanDocLine
-        label={
-          scope === 'nur' ? t('agentPrompt.plan.unterlagen.grundlageOnly') : t('agentPrompt.plan.unterlagen.grundlage')
-        }
+        label={firstLabel}
         docs={grundlage.map(docOf)}
         removeLabel={(label) => t('agentPrompt.plan.unterlagen.removeRead', { name: label })}
-        onRemove={disabled ? undefined : (doc) => emit({ grundlage: grundlage.filter((name) => fold(name) !== fold(doc.name)) })}
+        onRemove={
+          disabled
+            ? undefined
+            : (doc) => {
+                const rest = grundlage.filter((name) => foldName(name) !== foldName(doc.name))
+                emit({ grundlage: rest, nurGrundlage: nurGrundlage && rest.length > 0 })
+              }
+        }
         testId="plan-grundlage"
       />
-      <PlanDocLine
-        label={t('agentPrompt.plan.unterlagen.ausgeschlossen')}
-        docs={ausgeschlossen.map(docOf)}
-        excluded
-        removeLabel={(label) => t('agentPrompt.plan.unterlagen.removeExcluded', { name: label })}
-        onRemove={
-          disabled ? undefined : (doc) => emit({ ausgeschlossen: ausgeschlossen.filter((name) => fold(name) !== fold(doc.name)) })
-        }
-        testId="plan-ausgeschlossen"
-      />
+      {nurGrundlage && grundlage.length > 0 && (
+        <PlanNote>{t('agentPrompt.plan.unterlagen.onlyTheseNote')}</PlanNote>
+      )}
 
       {!disabled && (
-        <div className="flex flex-wrap gap-2">
+        <PlanActions>
           <Button
             type="button"
             size="sm"
             variant="outline"
-            className="h-8 gap-1.5 px-2.5 text-xs"
-            onClick={() => open(scope === 'nur' ? 'only' : 'focus')}
+            className="gap-1.5"
+            onClick={() => open('first')}
             data-testid="plan-unterlagen-pick"
           >
-            <FolderSearch className="size-3.5" aria-hidden />
-            {scope === 'nur' ? t('agentPrompt.plan.unterlagen.chooseOnly') : t('agentPrompt.plan.unterlagen.chooseFocus')}
+            <BookOpenCheck className="size-4" aria-hidden />
+            {grundlage.length > 0
+              ? t('agentPrompt.plan.unterlagen.changeFirst')
+              : t('agentPrompt.plan.unterlagen.chooseFirst')}
           </Button>
-          {scope === 'alle' && (
+        </PlanActions>
+      )}
+
+      <Advanced
+        label={t('agentPrompt.plan.unterlagen.excludeLabel')}
+        summary={
+          ausgeschlossen.length > 0
+            ? t('agentPrompt.plan.unterlagen.excludedSummary', { count: ausgeschlossen.length })
+            : null
+        }
+        data-testid="plan-unterlagen-advanced"
+      >
+        <PlanNote>
+          {nurGrundlage
+            ? t('agentPrompt.plan.unterlagen.excludeWithOnly')
+            : t('agentPrompt.plan.unterlagen.excludeHint')}
+        </PlanNote>
+        <PlanDocLine
+          label={t('agentPrompt.plan.unterlagen.neverUsed')}
+          docs={ausgeschlossen.map(docOf)}
+          excluded
+          removeLabel={(label) => t('agentPrompt.plan.unterlagen.removeExcluded', { name: label })}
+          onRemove={
+            disabled
+              ? undefined
+              : (doc) => emit({ ausgeschlossen: ausgeschlossen.filter((name) => foldName(name) !== foldName(doc.name)) })
+          }
+          testId="plan-ausgeschlossen"
+        />
+        {!disabled && (
+          <PlanActions>
             <Button
               type="button"
               size="sm"
               variant="ghost"
-              className="h-8 gap-1.5 px-2.5 text-xs"
-              onClick={() => open('ausgeschlossen')}
+              className="gap-1.5"
+              onClick={() => open('excluded')}
               data-testid="plan-unterlagen-exclude"
             >
-              <Ban className="size-3.5" aria-hidden />
+              <Ban className="size-4" aria-hidden />
               {t('agentPrompt.plan.unterlagen.chooseExcluded')}
             </Button>
-          )}
-        </div>
-      )}
+          </PlanActions>
+        )}
+      </Advanced>
 
       <DocumentPickerDialog
         open={picking !== null}
         onOpenChange={(next) => !next && setPicking(null)}
         title={
-          picking === 'ausgeschlossen'
+          picking === 'excluded'
             ? t('agentPrompt.plan.unterlagen.pickExcludedTitle')
-            : picking === 'only'
-              ? t('agentPrompt.plan.unterlagen.pickOnlyTitle')
-              : t('agentPrompt.plan.unterlagen.pickFocusTitle')
+            : t('agentPrompt.plan.unterlagen.pickFirstTitle')
         }
         description={
-          picking === 'ausgeschlossen'
+          picking === 'excluded'
             ? t('agentPrompt.plan.unterlagen.pickExcludedDescription')
-            : picking === 'only'
-              ? t('agentPrompt.plan.unterlagen.pickOnlyDescription')
-              : t('agentPrompt.plan.unterlagen.pickFocusDescription')
+            : t('agentPrompt.plan.unterlagen.pickFirstDescription')
         }
-        documents={documents}
+        documents={library}
         folders={folders}
         loading={loading}
-        initialSelected={picking === 'ausgeschlossen' ? ausgeschlossen : grundlage}
+        initialSelected={picking === 'excluded' ? ausgeschlossen : grundlage}
         disabledReason={(doc) =>
-          picking === 'ausgeschlossen'
+          picking === 'excluded'
             ? inList(grundlage, doc)
-              ? tr('unterlagen.isFocus')
+              ? tr('unterlagen.isFirst')
               : null
             : inList(ausgeschlossen, doc)
               ? tr('unterlagen.isExcluded')
               : null
         }
         confirmLabel={tr('unterlagen.apply')}
+        footer={
+          picking === 'first' ? (
+            <PickerFooterCheck
+              id="plan-only-these"
+              label={t('agentPrompt.plan.unterlagen.onlyTheseToggle')}
+              checked={onlyDraft}
+              onCheckedChange={setOnlyDraft}
+              testId="plan-only-these"
+            />
+          ) : undefined
+        }
         onConfirm={(docs) => {
           const names = docs.map((doc) => doc.name)
           const picked = docs.map(asPlanDocument)
-          if (picking === 'ausgeschlossen') emit({ ausgeschlossen: names }, picked)
-          else emit({ grundlage: names, ...(picking === 'only' ? { nurGrundlage: true, ausgeschlossen: [] } : {}) }, picked)
+          if (picking === 'excluded') emit({ ausgeschlossen: names }, picked)
+          else emit({ grundlage: names, nurGrundlage: onlyDraft && names.length > 0 }, picked)
         }}
       />
     </div>

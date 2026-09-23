@@ -17,6 +17,7 @@ import {
   type PickerDocument,
 } from '@/features/documents/components/document-picker/DocumentPickerDialog'
 import type { FolderItem } from '@/features/documents/components/project-file-workspace'
+import { toLibraryDocument } from '@/features/documents/hooks/use-document-library'
 import { I18nProvider } from '@/i18n'
 
 const FOLDERS: FolderItem[] = [
@@ -26,40 +27,77 @@ const FOLDERS: FolderItem[] = [
   { id: 'f-modelle', parentId: null, name: '07 Modelle', path: '/07 Modelle' },
 ]
 
-const file = (folderId: string | null, day: number, kb: number, pages: number | null, summary: string | null = null) => ({
-  folderId,
-  createdAt: `2026-09-${String(day).padStart(2, '0')}T09:30:00Z`,
-  fileSize: kb * 1024,
-  contentType: null,
-  pageCount: pages,
-  summary,
-  tags: null,
-})
+const TYPE: Record<string, string> = {
+  pdf: 'application/pdf',
+  xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  jpg: 'image/jpeg',
+  ifc: 'application/x-step',
+}
+
+/** One listing row, projected exactly as the live listing projects it. */
+const doc = (
+  filename: string,
+  shelf: 'project' | 'archiv',
+  {
+    title,
+    folderId = null,
+    day,
+    kb,
+    pages = null,
+    summary = null,
+  }: { title?: string; folderId?: string | null; day: number; kb: number; pages?: number | null; summary?: string | null }
+): PickerDocument =>
+  toLibraryDocument(
+    {
+      id: `dev-${filename}`,
+      filename,
+      displayName: title ?? null,
+      fileSize: kb * 1024,
+      contentType: TYPE[filename.split('.').pop() ?? ''] ?? null,
+      status: 'ready',
+      folderId,
+      createdAt: `2026-09-${String(day).padStart(2, '0')}T09:30:00Z`,
+      pageCount: pages,
+      summary,
+    },
+    shelf
+  )
 
 const DEV_PICKER_DOCUMENTS: PickerDocument[] = [
-  { name: 'Baubeschreibung.pdf', shelf: 'project', file: file(null, 2, 840, 14) },
-  { name: 'Raumbuch.xlsx', shelf: 'project', file: file(null, 11, 96, null) },
-  { name: 'Fotodoku_Bestand.jpg', title: 'Fotodokumentation Bestand', shelf: 'project', file: file(null, 4, 3200, null) },
-  {
-    name: 'Grundriss_EG.pdf',
+  doc('Baubeschreibung.pdf', 'project', { day: 2, kb: 840, pages: 14 }),
+  doc('Raumbuch.xlsx', 'project', { day: 11, kb: 96 }),
+  doc('Fotodoku_Bestand.jpg', 'project', { title: 'Fotodokumentation Bestand', day: 4, kb: 3200 }),
+  doc('Grundriss_EG.pdf', 'project', {
     title: 'Grundriss EG',
-    shelf: 'project',
-    file: file('f-plaene', 18, 2300, 1, 'Erdgeschoss mit Stiegenhaus, zwei Wohnungen und Müllraum; Maßstab 1:100.'),
-  },
-  { name: 'Grundriss_OG1.pdf', title: 'Grundriss 1. OG', shelf: 'project', file: file('f-plaene', 18, 2100, 1) },
-  { name: 'Schnitt_A-A.pdf', title: 'Schnitt A–A', shelf: 'project', file: file('f-plaene', 19, 1200, 1) },
-  { name: 'Lageplan.pdf', shelf: 'project', file: file('f-einreichung', 16, 900, 1) },
-  { name: 'Baubescheid_2025.pdf', title: 'Baubescheid 2025', shelf: 'project', file: file('f-einreichung', 20, 310, 6) },
-  {
-    name: 'Brandschutzkonzept_v2.pdf',
+    folderId: 'f-plaene',
+    day: 18,
+    kb: 2300,
+    pages: 1,
+    summary: 'Erdgeschoss mit Stiegenhaus, zwei Wohnungen und Müllraum; Maßstab 1:100.',
+  }),
+  doc('Grundriss_OG1.pdf', 'project', { title: 'Grundriss 1. OG', folderId: 'f-plaene', day: 18, kb: 2100, pages: 1 }),
+  doc('Schnitt_A-A.pdf', 'project', { title: 'Schnitt A–A', folderId: 'f-plaene', day: 19, kb: 1200, pages: 1 }),
+  doc('Lageplan.pdf', 'project', { folderId: 'f-einreichung', day: 16, kb: 900, pages: 1 }),
+  doc('Baubescheid_2025.pdf', 'project', { title: 'Baubescheid 2025', folderId: 'f-einreichung', day: 20, kb: 310, pages: 6 }),
+  doc('Brandschutzkonzept_v2.pdf', 'project', {
     title: 'Brandschutzkonzept v2',
-    shelf: 'project',
-    file: file('f-gutachten', 21, 1800, 32, 'Brandschutzkonzept für GK 4 mit Fluchtwegen, Brandabschnitten und Rauchableitung.'),
-  },
-  { name: 'Brandschutzkonzept_v1.pdf', title: 'Brandschutzkonzept v1 (überholt)', shelf: 'project', file: file('f-gutachten', 3, 1700, 29) },
-  { name: 'Architekturmodell.ifc', title: 'Architekturmodell', shelf: 'project', file: file('f-modelle', 22, 48000, null) },
-  { name: 'OIB-RL 2 Leitfaden.pdf', title: 'Leitfaden OIB 2', shelf: 'archiv', file: file(null, 1, 1500, 48) },
-  { name: 'Musterstellungnahme.docx', title: 'Musterstellungnahme Brandschutz', shelf: 'archiv', file: file(null, 7, 64, 5) },
+    folderId: 'f-gutachten',
+    day: 21,
+    kb: 1800,
+    pages: 32,
+    summary: 'Brandschutzkonzept für GK 4 mit Fluchtwegen, Brandabschnitten und Rauchableitung.',
+  }),
+  doc('Brandschutzkonzept_v1.pdf', 'project', {
+    title: 'Brandschutzkonzept v1 (überholt)',
+    folderId: 'f-gutachten',
+    day: 3,
+    kb: 1700,
+    pages: 29,
+  }),
+  doc('Architekturmodell.ifc', 'project', { title: 'Architekturmodell', folderId: 'f-modelle', day: 22, kb: 48000 }),
+  doc('OIB-RL 2 Leitfaden.pdf', 'archiv', { title: 'Leitfaden OIB 2', day: 1, kb: 1500, pages: 48 }),
+  doc('Musterstellungnahme.docx', 'archiv', { title: 'Musterstellungnahme Brandschutz', day: 7, kb: 64, pages: 5 }),
 ]
 
 export default function DocumentPickerPreviewPage() {
@@ -81,8 +119,8 @@ export default function DocumentPickerPreviewPage() {
         <DocumentPickerDialog
           open={open}
           onOpenChange={setOpen}
-          title="Schwerpunkte wählen"
-          description="Diese Unterlagen liest die Recherche zuerst und vollständig. Alle anderen bleiben verfügbar."
+          title="Welche Unterlagen soll Piloti zuerst lesen?"
+          description="Die gewählten liest die Recherche vollständig, bevor sie weitersucht. Alle anderen bleiben verfügbar."
           documents={DEV_PICKER_DOCUMENTS}
           folders={FOLDERS}
           initialSelected={chosen}
