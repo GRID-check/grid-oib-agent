@@ -50,7 +50,10 @@ if ! .venv/bin/python -c 'import sys; sys.exit(sys.version_info.releaselevel != 
   python3 -m venv "$UV_CURRENT"
   "$UV_CURRENT/bin/pip" install --quiet --upgrade uv
   "$UV_CURRENT/bin/uv" python install 3.14
-  "$UV_CURRENT/bin/uv" sync --group dev --python '>=3.14.1,<3.15'
+  # Copy, as the Dockerfile does: uv's default hardlinks every package file,
+  # and the ingest path's pathsec guard refuses a multiply-linked file (the
+  # NLTK stopword list llama-index reads), so every PDF ingest fails.
+  UV_LINK_MODE=copy "$UV_CURRENT/bin/uv" sync --group dev --python '>=3.14.1,<3.15'
 fi
 
 step "UI dependencies (bun)"
