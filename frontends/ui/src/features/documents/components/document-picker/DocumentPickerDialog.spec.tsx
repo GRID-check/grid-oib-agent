@@ -6,7 +6,7 @@
  * they were chosen; a single-choice picker confirms on a double click.
  */
 
-import { fireEvent, render, screen, within } from '@/test-utils'
+import { fireEvent, render, screen, waitFor, within } from '@/test-utils'
 import { describe, expect, it, vi } from 'vitest'
 import type { FolderItem } from '@/features/documents/components/project-file-workspace'
 import { DocumentPickerDialog, type PickerDocument } from './DocumentPickerDialog'
@@ -55,23 +55,26 @@ describe('DocumentPickerDialog', () => {
     expect(screen.getByTestId('picker-summary')).toHaveTextContent('1 document selected')
   })
 
-  it('opens a folder on a double click, and back and the path return', () => {
+  // A place's content slides out while the next slides in, so each step waits for the exit.
+  it('opens a folder on a double click, and back and the path return', async () => {
     renderPicker()
     fireEvent.doubleClick(screen.getByTestId('picker-folder'))
     expect(screen.getByTestId('picker-path')).toHaveTextContent('Pläne')
-    expect(docs()).toHaveLength(1)
+    await waitFor(() => expect(docs()).toHaveLength(1))
     fireEvent.click(screen.getByTestId('picker-back'))
     expect(screen.getByTestId('picker-path')).not.toHaveTextContent('Pläne')
     fireEvent.click(screen.getByTestId('picker-forward'))
     fireEvent.click(within(screen.getByTestId('picker-path')).getByRole('button', { name: 'Project' }))
-    expect(screen.getAllByTestId('picker-folder')).toHaveLength(1)
+    await waitFor(() => expect(screen.getAllByTestId('picker-folder')).toHaveLength(1))
   })
 
-  it('hands back what was marked, across places, in the order it was marked', () => {
+  it('hands back what was marked, across places, in the order it was marked', async () => {
     const { onConfirm, onOpenChange } = renderPicker()
     fireEvent.click(screen.getByTestId('picker-place-archiv'))
+    await waitFor(() => expect(docs().map((row) => row.textContent)).toEqual([expect.stringContaining('Leitfaden')]))
     fireEvent.click(docs()[0])
     fireEvent.click(screen.getByTestId('picker-place-project'))
+    await waitFor(() => expect(docs().map((row) => row.textContent)).toEqual([expect.stringContaining('Baubeschreibung')]))
     fireEvent.click(docs()[0])
     fireEvent.click(screen.getByTestId('picker-confirm'))
     expect(onConfirm.mock.calls[0][0].map((doc: PickerDocument) => doc.name)).toEqual([
@@ -89,25 +92,54 @@ describe('DocumentPickerDialog', () => {
     expect(screen.getByTestId('picker-confirm')).toBeDisabled()
   })
 
-  it('searches through the place, and „Selected" shows the choice', () => {
+  it('searches through the place, and „Selected" shows the choice', async () => {
     renderPicker()
     fireEvent.change(screen.getByRole('textbox', { name: 'Search documents' }), { target: { value: 'grundriss' } })
     expect(docs()).toHaveLength(1)
     fireEvent.click(docs()[0])
     fireEvent.click(screen.getByTestId('picker-place-selected'))
     fireEvent.change(screen.getByRole('textbox', { name: 'Search documents' }), { target: { value: '' } })
-    expect(docs()).toHaveLength(1)
+    await waitFor(() => expect(docs()).toHaveLength(1))
     expect(docs()[0]).toHaveTextContent('Grundriss EG.pdf')
   })
 
-  it('switches to icons, and previews the document in focus', () => {
+  it('switches to icons, and previews the document in focus with a toggle of its own', async () => {
     renderPicker()
     fireEvent.click(docs()[0])
-    expect(screen.getByTestId('picker-preview')).toHaveTextContent('Baubeschreibung')
-    expect(screen.getByTestId('picker-preview')).toHaveTextContent('4')
+    const preview = screen.getByTestId('picker-preview')
+    expect(preview).toHaveTextContent('Baubeschreibung')
+    expect(preview).toHaveTextContent('4')
+    // The preview's button says the document is chosen, and unchooses it.
+    expect(within(preview).getByTestId('picker-preview-toggle')).toHaveTextContent('Selected')
+    fireEvent.click(within(preview).getByTestId('picker-preview-toggle'))
+    expect(docs()[0]).toHaveAttribute('aria-selected', 'false')
     fireEvent.click(screen.getByTestId('picker-view-grid'))
-    expect(screen.getByTestId('picker-view-grid')).toHaveAttribute('aria-pressed', 'true')
-    expect(docs()).toHaveLength(1)
+    expect(screen.getByTestId('picker-view-grid')).toHaveAttribute('data-state', 'on')
+    await waitFor(() => expect(docs()).toHaveLength(1))
+  })
+
+  it('shows the shape of the listing while it loads, not an empty folder', () => {
+    renderPicker({ documents: [], folders: [], loading: true })
+    expect(screen.getByTestId('picker-skeleton')).toBeInTheDocument()
+    expect(screen.queryByRole('listbox')).toBeNull()
+  })
+
+  it('folds a deep path into its ends, and „…" steps up one level', async () => {
+    const deep: FolderItem[] = [
+      { id: 'a', parentId: null, name: 'A', path: '/A' },
+      { id: 'b', parentId: 'a', name: 'B', path: '/A/B' },
+      { id: 'c', parentId: 'b', name: 'C', path: '/A/B/C' },
+    ]
+    renderPicker({ folders: deep, documents: [{ name: 'x.pdf', shelf: 'project', file: file('c') }] })
+    for (const name of ['A', 'B', 'C']) {
+      await waitFor(() => expect(screen.getByTestId('picker-folder')).toHaveTextContent(name))
+      fireEvent.doubleClick(screen.getByTestId('picker-folder'))
+    }
+    const path = screen.getByTestId('picker-path')
+    await waitFor(() => expect(path).toHaveTextContent(/Project.*….*C/))
+    expect(path).not.toHaveTextContent('B')
+    fireEvent.click(within(path).getByRole('button', { name: '…' }))
+    expect(screen.getByTestId('picker-path')).toHaveTextContent(/Project.*A.*B/)
   })
 
   it('choosing one confirms on a double click', () => {

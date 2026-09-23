@@ -441,6 +441,20 @@ transitions on layout-triggering properties.
 | `springDrawer` | 260 / 26 / 1 | 0.806 | **1.4%** | **Travel ≤ ~145px.** Large but BOUNDED surfaces: a dialog, wizard step, a card settling. |
 | `springGlide` | 260 / 29 / 1 | 0.899 | **0.157%** | **Unbounded travel.** The distance is not knowable when the transition is written: shared-layout chips, anything whose travel is the reader's route history. |
 
+**`motionCountdown(seconds)` is the one linear one-shot.** A countdown is a
+clock, and a clock passes time at a constant rate: eased, it drains fast and
+then dawdles, and the reader's sense of what is left comes from the curve.
+Stepped once a second on a tween, it stutters. So it is set once, from where
+the grace stands to empty, over the seconds that remain. `seconds` is data,
+which is why it is a function and not a constant.
+
+**`Swap` is one thing replacing another in the same place** — a status line,
+an icon, a brief giving way to its editor. The old leaves on the exit curve one
+step shorter than the new arrives. `mode="wait"` (default) for a small change
+in place; `mode="popLayout"` when a press opens something and waiting out the
+exit would read as the press not landing. Not for list rows (they enter and
+leave on their own) and not for text that changes every second.
+
 `springSnapLinear` / `springDrawerLinear` are CSS `linear()` equivalents for
 Radix-driven, class-only cases (`Switch`). A zero-overshoot spring needs none —
 it *is* an ease-out.

@@ -26,6 +26,7 @@ import {
   Play,
   SlidersHorizontal,
 } from 'lucide-react'
+import { AnimatePresence, Swap } from '@/components/motion'
 import { Button } from '@/components/ui/button'
 import { useTranslations } from '@/i18n'
 import type { ResearchPlan, ResearchPlanEdit } from '@/lib/plans/plan-types'
@@ -39,6 +40,7 @@ import {
   GenreWell,
   PlanEyebrow,
   PlanFacts,
+  PlanAction,
   PlanLifecycle,
 } from './plan-atoms'
 
@@ -190,75 +192,96 @@ export const RunPlan: FC<RunPlanProps> = ({
           </span>
           <PlanFacts facts={facts} />
         </button>
+        {/* The actions change with the status: „Anpassen" leaves once the clock
+            is stopped, „Jetzt starten" becomes the primary „Starten". Each
+            enters and leaves on its own; the other glides over. */}
         <span className="flex shrink-0 gap-1">
-          {plan.status === 'proposed' && onHold && (
-            <Button
-              size="sm"
-              variant="ghost"
-              className="h-7 gap-1 px-2 text-xs"
-              disabled={pending}
-              onClick={() => {
-                setOpen(true)
-                void onHold()
-              }}
-              data-testid="run-plan-hold"
-            >
-              <SlidersHorizontal className="size-3.5" aria-hidden />
-              {t('plan.adjust')}
-            </Button>
-          )}
-          {(plan.status === 'proposed' || plan.status === 'held') && onStart && (
-            <Button
-              size="sm"
-              variant={plan.status === 'held' ? 'default' : 'outline'}
-              className="h-7 gap-1 px-2 text-xs"
-              disabled={pending}
-              onClick={() => void onStart()}
-              data-testid="run-plan-start"
-            >
-              <Play className="size-3.5" aria-hidden />
-              {plan.status === 'held' ? t('plan.start') : t('plan.startNow')}
-            </Button>
-          )}
+          <AnimatePresence initial={false} mode="popLayout">
+            {plan.status === 'proposed' && onHold && (
+              <PlanAction key="hold">
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="h-7 gap-1 px-2 text-xs"
+                  disabled={pending}
+                  onClick={() => {
+                    setOpen(true)
+                    void onHold()
+                  }}
+                  data-testid="run-plan-hold"
+                >
+                  <SlidersHorizontal className="size-3.5" aria-hidden />
+                  {t('plan.adjust')}
+                </Button>
+              </PlanAction>
+            )}
+            {(plan.status === 'proposed' || plan.status === 'held') && onStart && (
+              <PlanAction key={plan.status === 'held' ? 'start' : 'start-now'}>
+                <Button
+                  size="sm"
+                  variant={plan.status === 'held' ? 'default' : 'outline'}
+                  className="h-7 gap-1 px-2 text-xs"
+                  disabled={pending}
+                  onClick={() => void onStart()}
+                  data-testid="run-plan-start"
+                >
+                  <Play className="size-3.5" aria-hidden />
+                  {plan.status === 'held' ? t('plan.start') : t('plan.startNow')}
+                </Button>
+              </PlanAction>
+            )}
+          </AnimatePresence>
         </span>
       </div>
 
       <div className="flex flex-col gap-1.5 sm:pl-12">
-        {remaining !== null ? (
-          <CountdownBar remaining={remaining} label={line} />
-        ) : (
-          plan.status !== 'superseded' && (
-            <PlanLifecycle
-              stage={plan.status}
-              labels={{
-                proposed: t('plan.stage.proposed'),
-                held: t('plan.stage.held'),
-                approved: t('plan.stage.approved'),
-                started: t('plan.stage.started'),
-              }}
-            />
-          )
-        )}
-        <p
-          className="text-muted-foreground text-xs"
-          role={counting ? 'timer' : 'status'}
-          data-testid="run-plan-line"
-        >
-          {line}
-        </p>
+        {/* The clock while it runs, then where the plan stands: one gives way
+            to the other in the same place. The line changes with the status,
+            not with every second the clock ticks. */}
+        <Swap swapKey={remaining !== null ? `clock-${plan.startsAt}` : `stage-${plan.status}`} distance={0}>
+          {remaining !== null ? (
+            <CountdownBar remaining={remaining} seconds={seconds ?? 0} label={line} />
+          ) : (
+            plan.status !== 'superseded' && (
+              <PlanLifecycle
+                stage={plan.status}
+                labels={{
+                  proposed: t('plan.stage.proposed'),
+                  held: t('plan.stage.held'),
+                  approved: t('plan.stage.approved'),
+                  started: t('plan.stage.started'),
+                }}
+              />
+            )
+          )}
+        </Swap>
+        <Swap swapKey={plan.status}>
+          <p
+            className="text-muted-foreground text-xs"
+            role={counting ? 'timer' : 'status'}
+            data-testid="run-plan-line"
+          >
+            {line}
+          </p>
+        </Swap>
         {editing && (
           <p className="text-muted-foreground inline-flex items-center gap-1 text-[11px]" data-testid="run-plan-saved">
-            {pending ? (
-              <LoaderCircle className="size-3 animate-spin motion-reduce:animate-none" aria-hidden />
-            ) : (
-              <CloudCheck className="size-3" aria-hidden />
-            )}
+            <Swap swapKey={pending ? 'saving' : 'saved'} distance={0} className="flex">
+              {pending ? (
+                <LoaderCircle className="size-3 animate-spin motion-reduce:animate-none" aria-hidden />
+              ) : (
+                <CloudCheck className="size-3" aria-hidden />
+              )}
+            </Swap>
             {pending ? t('plan.saving') : t('plan.saved')}
           </p>
         )}
       </div>
 
-      <div className="sm:pl-12">
+      {/* The brief gives way to its editor at once when „Anpassen" is pressed:
+          the editor is there under the reader's hand while the brief fades out
+          over it. */}
+      <Swap swapKey={editing ? 'editor' : 'brief'} mode="popLayout" className="relative sm:pl-12">
         {editing && onEdit ? (
           <PlanChecklist
             plan={shape}
@@ -280,7 +303,7 @@ export const RunPlan: FC<RunPlanProps> = ({
             testId={open ? 'run-plan-sections' : 'run-plan-preview'}
           />
         )}
-      </div>
+      </Swap>
     </div>
   )
 }

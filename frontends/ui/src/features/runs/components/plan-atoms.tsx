@@ -9,9 +9,23 @@
  * The material follows the design language: ink and paper, hairlines, one
  * surface step. The only chroma is provenance, on the document chips, and it
  * never travels without its icon and label.
+ *
+ * Motion lives here too, so every surface that composes these moves the same
+ * way (`docs/design/run-block.md`, *Motion*):
+ *
+ * - a section or a chip ARRIVES with a fade and a short rise on the entrance
+ *   curve, and LEAVES one step shorter on the exit curve; its neighbours glide
+ *   to their new places (`layout`, a tween: the travel is a row, not a panel);
+ * - a mark that lands under the reader's hand — the tile's check, a met
+ *   requirement, the genre's glyph — lands on `springSnap`, all under 24px;
+ * - the chosen segment's pill travels on the kit's `ToggleGroup`;
+ * - the countdown drains as a clock (`motionCountdown`), not in steps.
+ *
+ * Provenance (the document chips) never springs: it is a tween, like every
+ * other evidentiary mark.
  */
 
-import type { FC, ReactNode } from 'react'
+import { forwardRef, useEffect, useRef, type FC, type ReactNode } from 'react'
 import {
   Ban,
   Check,
@@ -28,9 +42,21 @@ import {
   X,
   type LucideIcon,
 } from 'lucide-react'
-import { motion, motionEntrance } from '@/components/motion'
-import { Progress } from '@/components/ui/progress'
+import {
+  AnimatePresence,
+  motion,
+  motionBase,
+  motionCountdown,
+  motionEntrance,
+  motionQuick,
+  motionQuickExit,
+  springSnap,
+  staggerMaxSteps,
+  staggerStepSeconds,
+  useReducedMotion,
+} from '@/components/motion'
 import { StageTrack } from '@/components/ui/stage-track'
+import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import { SourceSignalChip } from '@/features/layout/components/SourceSignalChip'
 import type { PlanDepth, PlanGenre } from '@/lib/plans/plan-types'
 import { planDocumentLabel, type PlanDocument } from '@/lib/runs/plan-documents'
@@ -65,10 +91,21 @@ export const GenreWell: FC<{ genre: PlanGenre }> = ({ genre }) => {
   const Icon = GENRE_ICON[genre]
   return (
     <span
-      className="bg-muted text-foreground flex size-9 shrink-0 items-center justify-center rounded-md"
+      className="bg-muted text-foreground flex size-9 shrink-0 items-center justify-center overflow-hidden rounded-md"
       aria-hidden
     >
-      <Icon className="size-4" />
+      {/* A new genre's glyph lands in the well: a 16px icon, inside springSnap's 24px. */}
+      <AnimatePresence mode="popLayout" initial={false}>
+        <motion.span
+          key={genre}
+          initial={{ opacity: 0, scale: 0.6 }}
+          animate={{ opacity: 1, scale: 1, transition: springSnap }}
+          exit={{ opacity: 0, scale: 0.6, transition: motionQuickExit }}
+          className="flex"
+        >
+          <Icon className="size-4" />
+        </motion.span>
+      </AnimatePresence>
     </span>
   )
 }
@@ -88,11 +125,26 @@ export const PlanFacts: FC<{ facts: { icon: LucideIcon; label: string }[] }> = (
   </span>
 )
 
+/** Keys that survive an edit: the section's text, and which occurrence of it. */
+function stableKeys(items: readonly string[]): string[] {
+  const seen = new Map<string, number>()
+  return items.map((item) => {
+    const n = seen.get(item) ?? 0
+    seen.set(item, n + 1)
+    return `${item}\u0000${n}`
+  })
+}
+
 /**
  * The sections as an outline: numbered discs on a hairline rail, the way a
  * report's table of contents reads. `limit` folds a long outline into its
  * first rows and a „+n" line; `action` puts a control at a row's end; a
  * trailing `footer` row carries the add field in the editor.
+ *
+ * Motion: the rows that are there when the outline first paints arrive as a
+ * capped cascade (a reading cue, done inside 200ms). After that, a row added
+ * rises in where it lands, a struck row folds away to the left, and the rows
+ * below glide up into its place — so the reader sees which one went.
  */
 export const OutlineRail: FC<{
   items: readonly string[]
@@ -108,46 +160,75 @@ export const OutlineRail: FC<{
 }> = ({ items, limit, moreLabel, onMore, action, footer, itemTestId, testId, label }) => {
   const shown = limit !== undefined ? items.slice(0, limit) : items
   const hidden = items.length - shown.length
+  const keys = stableKeys(shown)
+  const painted = useRef(false)
+  const reduced = useReducedMotion()
+  useEffect(() => {
+    painted.current = true
+  }, [])
+  const delay = (index: number): number =>
+    painted.current || reduced ? 0 : Math.min(index, staggerMaxSteps) * staggerStepSeconds
   return (
     <ol className="relative flex flex-col" aria-label={label} data-testid={testId}>
       {/* The rail: one hairline behind the discs, so the list reads as one sequence. */}
       <span className="bg-border absolute bottom-3 left-[9.5px] top-3 w-px" aria-hidden />
-      {shown.map((item, index) => (
-        <motion.li
-          key={`${index}-${item}`}
-          initial={{ opacity: 0, y: 3 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ ...motionEntrance, delay: Math.min(index, 6) * 0.03 }}
-          className="relative flex min-h-7 items-center gap-2.5 py-0.5"
-          data-testid={itemTestId}
-        >
-          <span
-            className="bg-card border-border text-muted-foreground relative flex size-5 shrink-0 items-center justify-center rounded-full border font-mono text-[10.5px] tabular-nums"
-            aria-hidden
+      <AnimatePresence initial={!reduced} mode="popLayout">
+        {shown.map((item, index) => (
+          <motion.li
+            key={keys[index]}
+            layout="position"
+            initial={{ opacity: 0, y: 4 }}
+            animate={{ opacity: 1, y: 0, transition: { ...motionEntrance, delay: delay(index) } }}
+            exit={{ opacity: 0, x: -8, transition: motionQuickExit }}
+            transition={{ layout: motionBase }}
+            className="relative flex min-h-7 items-center gap-2.5 py-0.5"
+            data-testid={itemTestId}
           >
-            {index + 1}
-          </span>
-          <span className="text-foreground min-w-0 flex-1 text-sm leading-snug">{item}</span>
-          {action?.(index, item)}
-        </motion.li>
-      ))}
-      {hidden > 0 && moreLabel && (
-        <li className="text-muted-foreground relative flex min-h-6 items-center gap-2.5 text-xs">
-          <span className="bg-card border-border relative size-5 shrink-0 rounded-full border border-dashed" aria-hidden />
-          {onMore ? (
-            <button
-              type="button"
-              onClick={onMore}
-              className="hover:text-foreground focus-visible:ring-ring/60 rounded-md underline-offset-2 transition-colors hover:underline focus-visible:outline-none focus-visible:ring-2"
+            <span
+              className="bg-card border-border text-muted-foreground relative flex size-5 shrink-0 items-center justify-center rounded-full border font-mono text-[10.5px] tabular-nums"
+              aria-hidden
             >
-              {moreLabel(hidden)}
-            </button>
-          ) : (
-            moreLabel(hidden)
-          )}
-        </li>
-      )}
-      {footer && <li className="relative flex min-h-8 items-center gap-2.5 pt-1">{footer}</li>}
+              {index + 1}
+            </span>
+            <span className="text-foreground min-w-0 flex-1 text-sm leading-snug">{item}</span>
+            {action?.(index, item)}
+          </motion.li>
+        ))}
+        {hidden > 0 && moreLabel && (
+          <motion.li
+            key="more"
+            layout="position"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1, transition: motionQuick }}
+            exit={{ opacity: 0, transition: motionQuickExit }}
+            transition={{ layout: motionBase }}
+            className="text-muted-foreground relative flex min-h-6 items-center gap-2.5 text-xs"
+          >
+            <span className="bg-card border-border relative size-5 shrink-0 rounded-full border border-dashed" aria-hidden />
+            {onMore ? (
+              <button
+                type="button"
+                onClick={onMore}
+                className="hover:text-foreground focus-visible:ring-ring/60 rounded-md underline-offset-2 transition-colors hover:underline focus-visible:outline-none focus-visible:ring-2"
+              >
+                {moreLabel(hidden)}
+              </button>
+            ) : (
+              moreLabel(hidden)
+            )}
+          </motion.li>
+        )}
+        {footer && (
+          <motion.li
+            key="footer"
+            layout="position"
+            transition={{ layout: motionBase }}
+            className="relative flex min-h-8 items-center gap-2.5 pt-1"
+          >
+            {footer}
+          </motion.li>
+        )}
+      </AnimatePresence>
     </ol>
   )
 }
@@ -203,7 +284,20 @@ export const OptionTile: FC<{
     <span className="flex w-full items-center gap-1.5">
       <Icon className={cn('size-4 shrink-0', selected ? 'text-foreground' : 'text-muted-foreground')} aria-hidden />
       <span className="text-foreground text-sm font-medium">{label}</span>
-      {selected && <Check className="text-foreground ml-auto size-3.5" aria-hidden />}
+      <AnimatePresence initial={false}>
+        {selected && (
+          <motion.span
+            key="check"
+            className="ml-auto flex"
+            initial={{ opacity: 0, scale: 0.4 }}
+            animate={{ opacity: 1, scale: 1, transition: springSnap }}
+            exit={{ opacity: 0, scale: 0.4, transition: motionQuickExit }}
+            aria-hidden
+          >
+            <Check className="text-foreground size-3.5" />
+          </motion.span>
+        )}
+      </AnimatePresence>
     </span>
     <span className="text-muted-foreground text-xs leading-snug">{hint}</span>
   </button>
@@ -215,7 +309,11 @@ export const OptionTiles: FC<{ label: string; children: ReactNode }> = ({ label,
   </div>
 )
 
-/** Two or three options in one well, the chosen one raised onto the card. */
+/**
+ * Two or three options in one well, the chosen one on a pill that travels to
+ * it — the kit's segmented `ToggleGroup`, so this control moves exactly like
+ * every other segmented control in the product.
+ */
 export function Segmented<T extends string>({
   label,
   options,
@@ -230,31 +328,26 @@ export function Segmented<T extends string>({
   onPick: (value: T) => void
 }): JSX.Element {
   return (
-    <div className="bg-muted inline-flex w-fit shrink-0 gap-0.5 rounded-md p-0.5" role="radiogroup" aria-label={label}>
-      {options.map(({ value: option, label: optionLabel, icon: Icon }) => {
-        const selected = option === value
-        return (
-          <button
-            key={option}
-            type="button"
-            role="radio"
-            aria-checked={selected}
-            disabled={disabled}
-            onClick={() => onPick(option)}
-            className={cn(
-              'flex h-7 items-center gap-1.5 whitespace-nowrap rounded-[6px] px-2.5 text-xs font-medium pointer-coarse:h-11',
-              'transition-[background-color,color,box-shadow] duration-quick ease-out motion-reduce:transition-none',
-              'focus-visible:ring-ring/60 focus-visible:outline-none focus-visible:ring-2',
-              selected ? 'bg-card text-foreground shadow-xs' : 'text-muted-foreground hover:text-foreground',
-              disabled && 'cursor-default'
-            )}
-          >
-            <Icon className="size-3.5" aria-hidden />
-            {optionLabel}
-          </button>
-        )
-      })}
-    </div>
+    <ToggleGroup
+      type="single"
+      segmented
+      variant="outline"
+      size="sm"
+      value={value}
+      disabled={disabled}
+      aria-label={label}
+      // Radix clears a single group when its chosen item is pressed again;
+      // a segmented choice always has one, so that press changes nothing.
+      onValueChange={(next) => next && onPick(next as T)}
+      className="shrink-0 bg-muted"
+    >
+      {options.map(({ value: option, label: optionLabel, icon: Icon }) => (
+        <ToggleGroupItem key={option} value={option} aria-label={optionLabel} className="h-7 gap-1.5 px-2.5">
+          <Icon className="size-3.5" aria-hidden />
+          {optionLabel}
+        </ToggleGroupItem>
+      ))}
+    </ToggleGroup>
   )
 }
 
@@ -262,16 +355,38 @@ export function Segmented<T extends string>({
  * The grace running out: a bar that drains as the plan's clock runs down,
  * with the words beside it. Determinate, so it is progress, not an ambient loop.
  */
-export const CountdownBar: FC<{ remaining: number; label: string }> = ({ remaining, label }) => (
-  <div className="flex items-center gap-2.5" data-testid="run-plan-countdown">
-    <Timer className="text-muted-foreground size-3.5 shrink-0" aria-hidden />
-    <Progress
-      value={Math.max(0, Math.min(100, remaining * 100))}
-      className="h-1 flex-1"
-      aria-label={label}
-    />
-  </div>
-)
+export const CountdownBar: FC<{
+  /** How much of the grace is left when the bar mounts, 0–1. */
+  remaining: number
+  /** Seconds until the clock runs out; the bar drains over exactly these. */
+  seconds: number
+  label: string
+}> = ({ remaining, seconds, label }) => {
+  const start = Math.max(0, Math.min(1, remaining))
+  return (
+    <div className="flex items-center gap-2.5" data-testid="run-plan-countdown">
+      <Timer className="text-muted-foreground size-3.5 shrink-0" aria-hidden />
+      <div
+        className="bg-secondary relative h-1 flex-1 overflow-hidden rounded-full"
+        role="progressbar"
+        aria-label={label}
+        aria-valuemin={0}
+        aria-valuemax={100}
+        aria-valuenow={Math.round(start * 100)}
+      >
+        {/* Set once and left to run: from where the grace stands to empty,
+            at the rate time passes (`motionCountdown`). A re-render does not
+            restart it — its target never changes. */}
+        <motion.span
+          className="bg-foreground absolute inset-0 origin-left rounded-full"
+          initial={{ scaleX: start }}
+          animate={{ scaleX: 0 }}
+          transition={motionCountdown(seconds)}
+        />
+      </div>
+    </div>
+  )
+}
 
 /**
  * A line of named documents under its label — the plan's Schwerpunkt, its
@@ -284,21 +399,45 @@ export const PlanDocLine: FC<{
   removeLabel?: (label: string) => string
   onRemove?: (doc: PlanDocument) => void
   testId: string
-}> = ({ label, docs, excluded = false, removeLabel, onRemove, testId }) =>
-  docs.length === 0 ? null : (
-    <div className="flex flex-wrap items-center gap-1.5" data-testid={testId}>
-      <span className="text-muted-foreground text-xs">{label}</span>
-      {docs.map((doc) => (
-        <PlanDocChip
-          key={doc.name}
-          doc={doc}
-          excluded={excluded}
-          removeLabel={removeLabel?.(planDocumentLabel(doc))}
-          onRemove={onRemove ? () => onRemove(doc) : undefined}
-        />
-      ))}
-    </div>
-  )
+}> = ({ label, docs, excluded = false, removeLabel, onRemove, testId }) => (
+  <AnimatePresence initial={false}>
+    {docs.length > 0 && (
+      <motion.div
+        key="line"
+        layout="position"
+        initial={{ opacity: 0, y: 4 }}
+        animate={{ opacity: 1, y: 0, transition: motionEntrance }}
+        exit={{ opacity: 0, transition: motionQuickExit }}
+        transition={{ layout: motionBase }}
+        className="flex flex-wrap items-center gap-1.5"
+        data-testid={testId}
+      >
+        <span className="text-muted-foreground text-xs">{label}</span>
+        {/* Provenance is evidence: chips come and go on tweens, never a spring. */}
+        <AnimatePresence initial={false} mode="popLayout">
+          {docs.map((doc) => (
+            <motion.span
+              key={doc.name}
+              layout="position"
+              initial={{ opacity: 0, scale: 0.94 }}
+              animate={{ opacity: 1, scale: 1, transition: motionQuick }}
+              exit={{ opacity: 0, scale: 0.94, transition: motionQuickExit }}
+              transition={{ layout: motionBase }}
+              className="inline-flex max-w-full"
+            >
+              <PlanDocChip
+                doc={doc}
+                excluded={excluded}
+                removeLabel={removeLabel?.(planDocumentLabel(doc))}
+                onRemove={onRemove ? () => onRemove(doc) : undefined}
+              />
+            </motion.span>
+          ))}
+        </AnimatePresence>
+      </motion.div>
+    )}
+  </AnimatePresence>
+)
 
 /**
  * A named document: in its provenance family when it is read, struck through
@@ -420,18 +559,22 @@ export const PlanLifecycle: FC<{
 }
 
 /** A proposal the reader can take with one press: a dashed chip with a plus. */
-export const SuggestionChip: FC<{ label: string; ariaLabel: string; onClick: () => void; disabled?: boolean }> = ({
-  label,
-  ariaLabel,
-  onClick,
-  disabled = false,
-}) => (
-  <button
+export const SuggestionChip = forwardRef<
+  HTMLButtonElement,
+  { label: string; ariaLabel: string; onClick: () => void; disabled?: boolean }
+>(({ label, ariaLabel, onClick, disabled = false }, ref) => (
+  <motion.button
+    ref={ref}
     type="button"
     onClick={onClick}
     disabled={disabled}
     aria-label={ariaLabel}
     data-testid="plan-suggestion"
+    layout="position"
+    initial={{ opacity: 0, scale: 0.94 }}
+    animate={{ opacity: 1, scale: 1, transition: motionQuick }}
+    exit={{ opacity: 0, scale: 0.94, transition: motionQuickExit }}
+    transition={{ layout: motionBase }}
     className={cn(
       'border-border text-muted-foreground inline-flex h-7 max-w-full items-center gap-1 rounded-full border border-dashed px-2.5 text-xs',
       'hover:text-foreground hover:border-foreground/40 hover:bg-accent/50 transition-colors duration-quick motion-reduce:transition-none',
@@ -441,7 +584,52 @@ export const SuggestionChip: FC<{ label: string; ariaLabel: string; onClick: () 
   >
     <Plus className="size-3 shrink-0" aria-hidden />
     <span className="truncate">{label}</span>
-  </button>
+  </motion.button>
+))
+SuggestionChip.displayName = 'SuggestionChip'
+
+/**
+ * The suggestions beside an outline: a label and the chips, each chip leaving
+ * as it is taken while the row it became rises into the outline above.
+ */
+export const PlanSuggestions: FC<{ label: string; show: boolean; children: ReactNode }> = ({ label, show, children }) => (
+  <AnimatePresence initial={false}>
+    {show && (
+      <motion.div
+        key="suggestions"
+        layout="position"
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1, transition: motionQuick }}
+        exit={{ opacity: 0, transition: motionQuickExit }}
+        transition={{ layout: motionBase }}
+        className="flex flex-wrap items-center gap-1.5"
+        data-testid="plan-suggestions"
+      >
+        <span className="text-muted-foreground text-xs">{label}</span>
+        <AnimatePresence initial={false} mode="popLayout">
+          {children}
+        </AnimatePresence>
+      </motion.div>
+    )}
+  </AnimatePresence>
+)
+
+/** An outline with no rows yet: what to do about it, in a dashed well that leaves once it is done. */
+export const PlanEmptyOutline: FC<{ show: boolean; hint: string; children: ReactNode }> = ({ show, hint, children }) => (
+  <AnimatePresence initial={false}>
+    {show && (
+      <motion.div
+        key="empty"
+        initial={{ opacity: 0, y: 4 }}
+        animate={{ opacity: 1, y: 0, transition: motionEntrance }}
+        exit={{ opacity: 0, transition: motionQuickExit }}
+        className="border-border flex flex-col items-start gap-2 rounded-md border border-dashed px-3 py-3"
+      >
+        <span className="text-muted-foreground text-xs">{hint}</span>
+        {children}
+      </motion.div>
+    )}
+  </AnimatePresence>
 )
 
 /** The dialog's preview pane: one quiet surface step, sticky beside the controls. */
@@ -458,11 +646,54 @@ export const PlanPreviewFrame: FC<{ label: string; children: ReactNode }> = ({ l
 
 /** One thing a plan still needs, ticked when it has it. */
 export const PlanRequirement: FC<{ met: boolean; label: string }> = ({ met, label }) => (
-  <li className={cn('inline-flex items-center gap-1', met && 'text-foreground')} data-met={met || undefined}>
-    {met ? <Check className="size-3.5" aria-hidden /> : <Circle className="size-3" aria-hidden />}
+  <li
+    className={cn('inline-flex items-center gap-1 transition-colors duration-quick ease-out', met && 'text-foreground')}
+    data-met={met || undefined}
+  >
+    <span className="relative flex size-3.5 items-center justify-center" aria-hidden>
+      <AnimatePresence mode="popLayout" initial={false}>
+        {met ? (
+          <motion.span
+            key="met"
+            className="flex"
+            initial={{ opacity: 0, scale: 0.4 }}
+            animate={{ opacity: 1, scale: 1, transition: springSnap }}
+            exit={{ opacity: 0, transition: motionQuickExit }}
+          >
+            <Check className="size-3.5" />
+          </motion.span>
+        ) : (
+          <motion.span
+            key="open"
+            className="flex"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1, transition: motionQuick }}
+            exit={{ opacity: 0, transition: motionQuickExit }}
+          >
+            <Circle className="size-3" />
+          </motion.span>
+        )}
+      </AnimatePresence>
+    </span>
     {label}
   </li>
 )
+
+/** One of the block's actions: arrives and leaves on its own, the others glide over. */
+export const PlanAction = forwardRef<HTMLSpanElement, { children: ReactNode }>(({ children }, ref) => (
+  <motion.span
+    ref={ref}
+    layout="position"
+    initial={{ opacity: 0, scale: 0.96 }}
+    animate={{ opacity: 1, scale: 1, transition: motionQuick }}
+    exit={{ opacity: 0, scale: 0.96, transition: motionQuickExit }}
+    transition={{ layout: motionBase }}
+    className="flex"
+  >
+    {children}
+  </motion.span>
+))
+PlanAction.displayName = 'PlanAction'
 
 /** A line of small print closing a surface: what happens next. */
 export const PlanNote: FC<{ children: ReactNode; ruled?: boolean }> = ({ children, ruled = false }) => (

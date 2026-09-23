@@ -18,10 +18,11 @@
  * and why, and may put its own control beside the selection summary.
  */
 
-import { useEffect, useMemo, useState, type FC, type KeyboardEvent, type ReactNode } from 'react'
+import { useEffect, useId, useMemo, useState, type FC, type KeyboardEvent, type ReactNode } from 'react'
 import {
   Archive,
   BookMarked,
+  Check,
   ChevronLeft,
   ChevronRight,
   CircleCheck,
@@ -31,12 +32,15 @@ import {
   LayoutGrid,
   List,
   MessageSquare,
+  Plus,
   SearchX,
   type LucideIcon,
 } from 'lucide-react'
+import { AnimatePresence, Swap } from '@/components/motion'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog'
 import { SearchField } from '@/components/ui/search-field'
+import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import type { FolderItem } from '@/features/documents/components/project-file-workspace'
 import { fileExtensionLabel } from '@/features/documents/document-kind'
 import { useI18n, useTranslations } from '@/i18n'
@@ -46,11 +50,16 @@ import {
   PickerEmpty,
   PickerFacts,
   PickerFooter,
+  PickerFooterAction,
+  PickerHeader,
   PickerIconButton,
   PickerItems,
+  PickerKeyHints,
   PickerListHeader,
+  PickerNavGroup,
   PickerPath,
   PickerPlaceStrip,
+  PickerPreviewBody,
   PickerPreviewNote,
   PickerPreviewPane,
   PickerPreviewTitle,
@@ -58,6 +67,7 @@ import {
   PickerSidebar,
   PickerSidebarGroup,
   PickerSidebarItem,
+  PickerSkeletonRows,
   PickerSummary,
   PickerTile,
   PickerToolbar,
@@ -133,6 +143,10 @@ export const DocumentPickerDialog: FC<DocumentPickerDialogProps> = ({
   )
   const home: PickerPlace = { kind: 'shelf', shelf: 'project', folderId: null }
   const [history, setHistory] = useState<{ stack: PickerPlace[]; index: number }>({ stack: [home], index: 0 })
+  // Which way the reader last went: +1 deeper or forward, −1 back or up, 0 a new place.
+  const [direction, setDirection] = useState(0)
+  const sidebarPillId = useId()
+  const stripPillId = useId()
   const place = history.stack[history.index] ?? home
   const [view, setView] = useState<'list' | 'grid'>('list')
   const [query, setQuery] = useState('')
@@ -163,9 +177,19 @@ export const DocumentPickerDialog: FC<DocumentPickerDialogProps> = ({
   ]
   const focused = items[Math.min(focus, items.length - 1)]
 
+  const depthOf = (target: PickerPlace): number =>
+    target.kind === 'shelf' ? folderTrail(target.folderId, folders).length : 0
   const go = (next: PickerPlace): void => {
     if (samePlace(next, place)) return
+    // Within one shelf the trajectory follows the folder depth; a new place is a crossfade.
+    const sameShelf = next.kind === 'shelf' && place.kind === 'shelf' && next.shelf === place.shelf
+    setDirection(sameShelf ? Math.sign(depthOf(next) - depthOf(place)) : 0)
     setHistory(({ stack, index }) => ({ stack: [...stack.slice(0, index + 1), next], index: index + 1 }))
+    setFocus(0)
+  }
+  const step = (by: -1 | 1): void => {
+    setDirection(by)
+    setHistory((h) => ({ ...h, index: Math.min(h.stack.length - 1, Math.max(0, h.index + by)) }))
     setFocus(0)
   }
   const up = (): void => {
@@ -239,7 +263,7 @@ export const DocumentPickerDialog: FC<DocumentPickerDialogProps> = ({
       : target.kind === 'selected'
         ? t('picker.selected')
         : t(`picker.shelves.${target.shelf}`)
-  const path =
+  const fullPath: { label: string; onClick?: () => void }[] =
     place.kind === 'shelf'
       ? [
           { label: placeLabel({ ...place, folderId: null }), onClick: () => go({ ...place, folderId: null }) },
@@ -249,6 +273,15 @@ export const DocumentPickerDialog: FC<DocumentPickerDialogProps> = ({
           })),
         ]
       : [{ label: placeLabel(place) }]
+  // Deep paths keep their ends — the place and where the reader is — and fold
+  // the middle into „…", which steps up one level, the way Finder's title does.
+  const path =
+    fullPath.length > 3
+      ? [fullPath[0], { label: '…', onClick: fullPath[fullPath.length - 2].onClick }, fullPath[fullPath.length - 1]]
+      : fullPath
+
+  const placeKey =
+    place.kind === 'shelf' ? `${place.shelf}/${place.folderId ?? ''}/${view}` : `${place.kind}/${view}`
 
   const date = (doc: PickerDocument): string =>
     doc.file?.createdAt ? formatCalendarDate(doc.file.createdAt, locale) : '—'
@@ -344,19 +377,19 @@ export const DocumentPickerDialog: FC<DocumentPickerDialogProps> = ({
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
-        className="flex h-[min(44rem,calc(100dvh-2rem))] flex-col gap-0 overflow-hidden p-0 sm:max-w-5xl"
+        className="flex h-[min(46rem,calc(100dvh-2rem))] flex-col gap-0 overflow-hidden p-0 sm:max-w-5xl"
         data-testid="document-picker"
       >
-        <div className="border-border flex flex-col gap-0.5 border-b px-4 py-3 pr-12">
-          <DialogTitle className="text-base">{title}</DialogTitle>
+        <PickerHeader>
+          <DialogTitle className="text-[15px] font-semibold tracking-tight">{title}</DialogTitle>
           {description ? (
             <DialogDescription className="text-xs">{description}</DialogDescription>
           ) : (
             <DialogDescription className="sr-only">{title}</DialogDescription>
           )}
-        </div>
+        </PickerHeader>
 
-        <div className="grid min-h-0 flex-1 md:grid-cols-[12.5rem_minmax(0,1fr)] lg:grid-cols-[12.5rem_minmax(0,1fr)_15rem]">
+        <div className="grid min-h-0 flex-1 md:grid-cols-[13rem_minmax(0,1fr)] lg:grid-cols-[13rem_minmax(0,1fr)_16rem]">
           <PickerSidebar label={t('picker.places')}>
             <PickerSidebarGroup label={t('picker.places')}>
               {places.map(({ target, icon, count, testId }) => (
@@ -371,6 +404,7 @@ export const DocumentPickerDialog: FC<DocumentPickerDialogProps> = ({
                       : samePlace(target, place)
                   }
                   onClick={() => go(target)}
+                  pillId={sidebarPillId}
                   testId={testId}
                 />
               ))}
@@ -388,6 +422,7 @@ export const DocumentPickerDialog: FC<DocumentPickerDialogProps> = ({
                       count={folderCount(folder.id, documents, folders)}
                       active={place.kind === 'shelf' && place.folderId === folder.id}
                       onClick={() => go({ kind: 'shelf', shelf: 'project', folderId: folder.id })}
+                      pillId={sidebarPillId}
                     />
                   ))}
               </PickerSidebarGroup>
@@ -396,37 +431,40 @@ export const DocumentPickerDialog: FC<DocumentPickerDialogProps> = ({
 
           <div className="flex min-h-0 min-w-0 flex-col">
             <PickerToolbar>
-              <PickerIconButton
-                icon={ChevronLeft}
-                label={t('picker.back')}
-                disabled={history.index === 0}
-                onClick={() => setHistory((h) => ({ ...h, index: Math.max(0, h.index - 1) }))}
-                testId="picker-back"
-              />
-              <PickerIconButton
-                icon={ChevronRight}
-                label={t('picker.forward')}
-                disabled={history.index >= history.stack.length - 1}
-                onClick={() => setHistory((h) => ({ ...h, index: Math.min(h.stack.length - 1, h.index + 1) }))}
-                testId="picker-forward"
-              />
+              <PickerNavGroup label={t('picker.path')}>
+                <PickerIconButton
+                  icon={ChevronLeft}
+                  label={t('picker.back')}
+                  disabled={history.index === 0}
+                  onClick={() => step(-1)}
+                  testId="picker-back"
+                />
+                <PickerIconButton
+                  icon={ChevronRight}
+                  label={t('picker.forward')}
+                  disabled={history.index >= history.stack.length - 1}
+                  onClick={() => step(1)}
+                  testId="picker-forward"
+                />
+              </PickerNavGroup>
               <PickerPath segments={path} label={t('picker.path')} />
-              <span className="flex shrink-0 items-center">
-                <PickerIconButton
-                  icon={List}
-                  label={t('picker.viewList')}
-                  pressed={view === 'list'}
-                  onClick={() => setView('list')}
-                  testId="picker-view-list"
-                />
-                <PickerIconButton
-                  icon={LayoutGrid}
-                  label={t('picker.viewGrid')}
-                  pressed={view === 'grid'}
-                  onClick={() => setView('grid')}
-                  testId="picker-view-grid"
-                />
-              </span>
+              <ToggleGroup
+                type="single"
+                segmented
+                variant="outline"
+                size="icon-sm"
+                value={view}
+                onValueChange={(next) => next && setView(next as 'list' | 'grid')}
+                aria-label={t('picker.view')}
+                className="shrink-0 bg-muted"
+              >
+                <ToggleGroupItem value="list" aria-label={t('picker.viewList')} title={t('picker.viewList')} data-testid="picker-view-list">
+                  <List className="size-4" aria-hidden />
+                </ToggleGroupItem>
+                <ToggleGroupItem value="grid" aria-label={t('picker.viewGrid')} title={t('picker.viewGrid')} data-testid="picker-view-grid">
+                  <LayoutGrid className="size-4" aria-hidden />
+                </ToggleGroupItem>
+              </ToggleGroup>
               <SearchField
                 value={query}
                 onChange={(value) => {
@@ -436,7 +474,7 @@ export const DocumentPickerDialog: FC<DocumentPickerDialogProps> = ({
                 placeholder={t('picker.searchPlaceholder', { place: path[path.length - 1]?.label ?? '' })}
                 label={t('picker.search')}
                 clearLabel={t('picker.clearSearch')}
-                className="w-full sm:w-44 lg:w-52"
+                className="w-full sm:w-40 lg:w-48"
               />
             </PickerToolbar>
             <PickerPlaceStrip>
@@ -448,43 +486,57 @@ export const DocumentPickerDialog: FC<DocumentPickerDialogProps> = ({
                   count={count}
                   active={target.kind === 'shelf' ? place.kind === 'shelf' && place.shelf === target.shelf : samePlace(target, place)}
                   onClick={() => go(target)}
+                  pillId={stripPillId}
                 />
               ))}
             </PickerPlaceStrip>
-            <PickerItems
-              label={t('picker.items')}
-              view={view}
-              multiple={multiple}
-              onKeyDown={onKeyDown}
-              header={
-                view === 'list' && items.length > 0 ? (
-                  <PickerListHeader columns={columns} sort={sort} onSort={onSort} />
-                ) : undefined
-              }
-            >
-              {items.length === 0 ? (
-                <PickerEmpty icon={query ? SearchX : FolderOpen}>{empty}</PickerEmpty>
-              ) : (
-                items.map(renderItem)
-              )}
-            </PickerItems>
+            {loading && documents.length === 0 ? (
+              <PickerSkeletonRows />
+            ) : (
+              <PickerItems
+                label={t('picker.items')}
+                view={view}
+                multiple={multiple}
+                placeKey={placeKey}
+                direction={direction}
+                onKeyDown={onKeyDown}
+                header={
+                  view === 'list' && items.length > 0 ? (
+                    <PickerListHeader columns={columns} sort={sort} onSort={onSort} />
+                  ) : undefined
+                }
+              >
+                {items.length === 0 ? (
+                  <PickerEmpty icon={query ? SearchX : FolderOpen}>{empty}</PickerEmpty>
+                ) : (
+                  items.map(renderItem)
+                )}
+              </PickerItems>
+            )}
           </div>
 
           <PickerPreviewPane label={t('picker.preview')}>
             {!focused ? (
               <PickerPreviewNote>{t('picker.previewEmpty')}</PickerPreviewNote>
             ) : focused.type === 'folder' ? (
-              <>
+              <PickerPreviewBody focusKey={`folder-${focused.folder.id}`}>
                 <KindGlyph name={focused.folder.name} folder size="lg" />
                 <PickerPreviewTitle title={focused.folder.name} />
                 <PickerFacts
                   facts={[
-                    { label: t('picker.facts.contains'), value: t('picker.folderCount', { count: folderCount(focused.folder.id, documents, folders) }) },
+                    {
+                      label: t('picker.facts.contains'),
+                      value: t('picker.folderCount', { count: folderCount(focused.folder.id, documents, folders) }),
+                    },
                   ]}
                 />
-              </>
+                <Button variant="outline" size="sm" className="gap-1.5" onClick={() => activate(focused)}>
+                  <FolderOpen className="size-3.5" aria-hidden />
+                  {t('picker.openFolder')}
+                </Button>
+              </PickerPreviewBody>
             ) : (
-              <>
+              <PickerPreviewBody focusKey={`doc-${focused.doc.name}`}>
                 <KindGlyph
                   name={focused.doc.name}
                   contentType={focused.doc.file?.contentType}
@@ -495,6 +547,26 @@ export const DocumentPickerDialog: FC<DocumentPickerDialogProps> = ({
                   title={pickerLabel(focused.doc)}
                   subtitle={focused.doc.title && focused.doc.title !== focused.doc.name ? focused.doc.name : undefined}
                 />
+                {reasonOf(focused.doc) ? (
+                  <PickerPreviewNote>{reasonOf(focused.doc)}</PickerPreviewNote>
+                ) : (
+                  <Button
+                    variant={selectedSet.has(fold(focused.doc.name)) ? 'secondary' : 'outline'}
+                    size="sm"
+                    className="gap-1.5"
+                    onClick={() => toggle(focused.doc)}
+                    data-testid="picker-preview-toggle"
+                  >
+                    <Swap swapKey={selectedSet.has(fold(focused.doc.name)) ? 'on' : 'off'} distance={0} className="flex">
+                      {selectedSet.has(fold(focused.doc.name)) ? (
+                        <Check className="size-3.5" aria-hidden />
+                      ) : (
+                        <Plus className="size-3.5" aria-hidden />
+                      )}
+                    </Swap>
+                    {selectedSet.has(fold(focused.doc.name)) ? t('picker.selectedOne') : t('picker.select')}
+                  </Button>
+                )}
                 <PickerFacts
                   facts={[
                     { label: t('picker.facts.shelf'), value: t(`picker.shelves.${shelfOf(focused.doc)}`) },
@@ -509,7 +581,7 @@ export const DocumentPickerDialog: FC<DocumentPickerDialogProps> = ({
                   ]}
                 />
                 {focused.doc.file?.summary && <PickerPreviewNote>{focused.doc.file.summary}</PickerPreviewNote>}
-              </>
+              </PickerPreviewBody>
             )}
           </PickerPreviewPane>
         </div>
@@ -520,12 +592,19 @@ export const DocumentPickerDialog: FC<DocumentPickerDialogProps> = ({
               <PickerSummary>
                 {selected.length > 0 ? t('picker.selectedCount', { count: selected.length }) : t('picker.nothingSelected')}
               </PickerSummary>
-              {selected.length > 0 && (
-                <Button variant="link" size="sm" className="h-auto p-0 text-xs" onClick={() => setSelected([])}>
-                  {t('picker.clear')}
-                </Button>
-              )}
+              <AnimatePresence initial={false}>
+                {selected.length > 0 && (
+                  <PickerFooterAction key="clear" label={t('picker.clear')} onClick={() => setSelected([])} />
+                )}
+              </AnimatePresence>
               {footer}
+              <PickerKeyHints
+                hints={[
+                  { keys: '↑↓', label: t('picker.keys.move') },
+                  { keys: t('picker.keys.space'), label: t('picker.keys.mark') },
+                  { keys: '↵', label: t('picker.keys.confirm') },
+                ]}
+              />
             </>
           }
           end={

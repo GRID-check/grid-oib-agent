@@ -26,7 +26,9 @@ import {
   OptionTiles,
   OutlineAddDisc,
   OutlineRail,
+  PlanEmptyOutline,
   PlanStep,
+  PlanSuggestions,
   RowRemove,
   Segmented,
   SuggestionChip,
@@ -160,24 +162,19 @@ export const PlanChecklist: FC<{
         testId="plan-step-sections"
       >
         <div className="flex flex-col gap-2.5">
-          {plan.sections.length === 0 && !disabled && (
-            <div className="border-border flex flex-col items-start gap-2 rounded-md border border-dashed px-3 py-3">
-              <span className="text-muted-foreground text-xs">
-                {t('agentPrompt.plan.emptySections')}
-              </span>
-              <Button
-                type="button"
-                size="sm"
-                variant="outline"
-                className="h-8 gap-1.5 px-2.5 text-xs"
-                onClick={() => onChange({ ...plan, sections: templates })}
-                data-testid="plan-use-template"
-              >
-                <Sparkles className="size-3.5" aria-hidden />
-                {t('agentPrompt.plan.useTemplate', { genre: genreLabel })}
-              </Button>
-            </div>
-          )}
+          <PlanEmptyOutline show={plan.sections.length === 0 && !disabled} hint={t('agentPrompt.plan.emptySections')}>
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              className="h-8 gap-1.5 px-2.5 text-xs"
+              onClick={() => onChange({ ...plan, sections: templates })}
+              data-testid="plan-use-template"
+            >
+              <Sparkles className="size-3.5" aria-hidden />
+              {t('agentPrompt.plan.useTemplate', { genre: genreLabel })}
+            </Button>
+          </PlanEmptyOutline>
           <OutlineRail
             label={t('agentPrompt.plan.points')}
             items={plan.sections}
@@ -224,21 +221,19 @@ export const PlanChecklist: FC<{
               )
             }
           />
-          {!disabled && !full && plan.sections.length > 0 && suggestions.length > 0 && (
-            <div className="flex flex-wrap items-center gap-1.5" data-testid="plan-suggestions">
-              <span className="text-muted-foreground text-xs">
-                {t('agentPrompt.plan.suggestions', { genre: genreLabel })}
-              </span>
-              {suggestions.map((suggestion) => (
-                <SuggestionChip
-                  key={suggestion}
-                  label={suggestion}
-                  ariaLabel={t('agentPrompt.plan.suggest', { point: suggestion })}
-                  onClick={() => addSection(suggestion)}
-                />
-              ))}
-            </div>
-          )}
+          <PlanSuggestions
+            label={t('agentPrompt.plan.suggestions', { genre: genreLabel })}
+            show={!disabled && !full && plan.sections.length > 0 && suggestions.length > 0}
+          >
+            {suggestions.map((suggestion) => (
+              <SuggestionChip
+                key={suggestion}
+                label={suggestion}
+                ariaLabel={t('agentPrompt.plan.suggest', { point: suggestion })}
+                onClick={() => addSection(suggestion)}
+              />
+            ))}
+          </PlanSuggestions>
         </div>
       </PlanStep>
 

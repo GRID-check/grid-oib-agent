@@ -174,6 +174,30 @@ left guessing why the button is grey. The pieces are the plan's own atom kit
 (`features/runs/components/plan-atoms.tsx`) and `PlanBrief.tsx`; the block and
 the dialog compose the same ones.
 
+### How the plan moves
+
+Every motion below comes from the kit (`components/motion`) and the rules in
+[`grid-design-language.md`](grid-design-language.md#motion-vocabulary); the
+atoms carry it (`features/runs/components/plan-atoms.tsx`), so the block and
+„Recherche planen" move the same way.
+
+| What happens | How it moves | Why |
+|---|---|---|
+| The grace runs down | The bar drains once, linearly, over the seconds left (`motionCountdown`) | A clock passes time at a constant rate. Stepping it once a second on a 320ms tween read as a stutter |
+| The clock stops, the plan is held or started | The bar gives way to the lifecycle track; the status line swaps (`Swap`) | A new state in the same place. The line swaps with the status, not with every tick |
+| „Anpassen" | The editor is there at once, the brief fades out over it (`Swap`, `popLayout`) | Waiting out an exit would read as the press not landing |
+| „Anpassen" leaves, „Starten" takes its place | Each action fades in or out; the other glides over (`PlanAction`) | The reader sees which control went and which stayed |
+| A section is added, struck or taken from a suggestion | The row rises in where it lands; a struck row folds away left; the rows below glide up (`layout`, `motionBase`) | The travel is a row, not a panel, so a tween; the glide shows which one went |
+| The outline first paints | A capped cascade (`staggerMaxSteps`) | A reading cue, finished inside 200ms |
+| A genre is chosen | The tile's check and the well's glyph land on `springSnap` | A mark landing under the hand, under 24px of travel |
+| Depth, document scope | The chosen segment's pill travels (`ToggleGroup`, `springGlide`) | The same segmented control as everywhere else |
+| A document is named or struck | The chip fades and scales in or out, its neighbours glide (tweens only) | Provenance is evidence: it never springs |
+| A requirement in the dialog is met | Its tick lands on `springSnap` | Confirmation of the reader's own input |
+
+Reduced motion drops all of it: the kit's `MotionConfig` zeroes transforms, the
+cascade's delays go to zero (`useReducedMotion`), and every state still reads
+from its words.
+
 ## The document picker
 
 Every place that asks the reader to name documents opens the same modal:
@@ -199,7 +223,30 @@ every reader has used one:
   control, „Abbrechen" and the caller's button („Übernehmen", „Hinzufügen").
 
 The keyboard walks it: the arrows move, the space bar marks, Enter confirms
-or opens a folder, Backspace goes up. The picker knows nothing of what a
+or opens a folder, Backspace goes up. The footer says so in keycaps, and the
+focus ring shows only while the keyboard is driving the list.
+
+The selection mark is a rounded square. Chosen, it fills with ink and a check
+draws itself into it. In the icon view a chosen document's sketch takes an ink
+ring and its name an ink label, as an open panel marks an icon. A deep path
+keeps its two ends and folds the middle into „…", which steps up one level.
+While the listing loads, skeleton rows hold its shape.
+
+How it moves (`picker-atoms.tsx`):
+
+| What happens | How it moves | Why |
+|---|---|---|
+| A place is chosen in the sidebar | The highlight travels to it (`springGlide`) | One highlight, not one switching off and another on; its travel is the reader's route, unknowable in advance |
+| Into a folder, forward | The place's documents slide in from the right, 16px, on tweens | Direction of travel: the reader must know they went deeper |
+| Back, or up the path | From the left | The same, the other way |
+| A new place from the sidebar | A crossfade | No direction to tell |
+| A place arrives | Its rows cascade in, capped | A reading cue, not a queue |
+| A document is marked | The square fills on a tween, the check draws (`motionSnap`) | The checkbox-tick duration; nothing in a list of thirty springs |
+| Focus moves | The preview fades to the new document, with no exit | Holding an arrow key must never queue animations behind the reader |
+| List ↔ icons | The toggle's pill travels; the view slides like a new place | The same segmented control as everywhere else |
+
+A place that is leaving takes no clicks.
+ The picker knows nothing of what a
 choice means; the caller names the button and the reasons. Its listing comes
 from `useDocumentLibrary`, read only while a picker is open.
 
