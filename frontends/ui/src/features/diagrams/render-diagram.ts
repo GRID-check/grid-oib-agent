@@ -232,7 +232,7 @@ export function flattenComputedStyles(root: SVGElement): void {
  * would put all of it in the chat bundle; this puts **zero** bytes there and
  * the 214 KB on the first answer that actually contains a diagram.
  */
-const renderMermaid: DiagramRenderer = async ({ source, id, theme }) => {
+const renderMermaidNow: DiagramRenderer = async ({ source, id, theme }) => {
   const mermaid = (await import('mermaid')).default
   const variables = diagramThemeVariables(theme)
 
@@ -302,6 +302,30 @@ const renderMermaid: DiagramRenderer = async ({ source, id, theme }) => {
     host.remove()
   }
 }
+
+/**
+ * The render queue: one mermaid render at a time.
+ *
+ * `mermaid.initialize` sets GLOBAL configuration and `mermaid.render` awaits
+ * before it reads it. In dark mode every drawing renders twice — the dark
+ * screen copy and the light file copy — so an answer with several drawings
+ * interleaved them: one render's `initialize` landed between another's
+ * `initialize` and its read, and from the third drawing on the screen copies
+ * came out in the LIGHT palette, which puts light-theme ink (dark) on the dark
+ * card. Measured on /dev/answer-blocks: the first two drawings dark, the rest
+ * light. Serialising costs nothing a reader sees; the renders were never
+ * parallel inside mermaid anyway.
+ */
+export function serialized<A, R>(task: (argument: A) => Promise<R>): (argument: A) => Promise<R> {
+  let queue: Promise<unknown> = Promise.resolve()
+  return (argument) => {
+    const run = queue.then(() => task(argument))
+    queue = run.catch(() => undefined)
+    return run
+  }
+}
+
+const renderMermaid: DiagramRenderer = serialized(renderMermaidNow)
 
 /**
  * Which source kinds this client can draw.
