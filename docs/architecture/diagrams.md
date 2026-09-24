@@ -315,11 +315,68 @@ it adds the three things a fence cannot have:
   rows, and ADR-0030 says the answer to a card that writes something is
   conversation history and belongs on the `ChatMessage`. `MermaidDiagram` holds
   its filing state in component-local `useState` — the exact defect ADR-0030 was
-  written about — so the card is classified `interactive` and its renderer must
-  drive the lifecycle from `useCardDecision`.
+  written about. That was the argument; the card ended up `presentational`
+  after all, because filing turned out idempotent (next section).
 
 The fence stays, and stays supported: it is the fallback for everything the card
 refuses, and every diagram already stored in a thread is one.
+
+### Since 2026-09-24: the fence first
+
+The chat prompt now teaches the fence as THE way to draw
+(`piloti_static.md` <formatting>), and the chat envelope no longer teaches the
+`diagram` card (`catalog.MARKDOWN_CARD_TYPES`). Each of the card's three
+arguments above was re-checked against the fence:
+
+- **The catalog entry** is the prompt's own list: which shape of answer takes
+  which grammar (a Verfahren that forks → `flowchart TD`, who hands what to
+  whom → `sequenceDiagram`, the parts of a Regelwerk → `mindmap`, …). The
+  model is asked to draw whenever the answer HAS such a shape, not only when a
+  Diagramm is requested; that was the reason drawings almost never appeared.
+- **Validation** was never what failed. The fence failed in the envelope
+  PARSER: `_ANSWER_JSON_FENCE_RE` ended the ```` ```answer_json ```` block at the
+  first ```` ``` ```` after it, which is the drawing's own fence inside the
+  `answer` string, so the reader got raw JSON. That is fixed
+  (`answer_envelope._envelope_blocks`), and a fence that mermaid cannot parse
+  degrades to its source with one quiet line, exactly as before.
+- **Filing across a reload** is idempotent on (answer, source hash, producer)
+  — `use-diagram-filing.ts` — so a fence filed twice finds the same document.
+
+The card stays valid and rendered for stored messages and for surfaces with
+no answer to hold a fence (deep research's `emit_card`). Its grammar set and
+the prompt's are the same six.
+
+### Which grammars, and how that is decided
+
+`/dev/answer-blocks` draws one fence per grammar through the real renderer;
+`?grammars=all` adds the ones left out. A grammar is taught only when it draws
+there AND its browser capture in `lib/diagrams/__fixtures__/` prints through
+`svg-to-pdf.spec.tsx`:
+
+| grammar | on screen | PDF | taught |
+|---|---|---|---|
+| `flowchart` (TD) | drawn | prints | yes |
+| `sequenceDiagram` | drawn | prints | yes |
+| `stateDiagram-v2` | drawn | prints | yes |
+| `pie` | drawn | prints | yes |
+| `gantt` | drawn | prints | yes — only on dates a project document states |
+| `mindmap` | drawn | prints | yes |
+| `timeline` | drawn | prints | no — lays out sideways, 1 390 px for five entries |
+| `quadrantChart`, `xychart-beta` | drawn | untested | no — invite invented scores and values |
+| `classDiagram`, `erDiagram` | drawn | untested | no — model software, not buildings |
+| `journey`, `block-beta`, `sankey-beta` | refused | — | no — emit `<foreignObject>` |
+
+`gantt` and `mindmap` needed the PDF converter to resolve `dy`, `em` units and
+a `<tspan>` that inherits its line's `y` (`svg-to-pdf.tsx`, `textOrigin` /
+`tspanPositions`); before that, gantt ticks printed on the axis and mindmap
+labels rode out of their boxes. Flowchart labels were riding high too and
+nobody had noticed.
+
+**A drawing is shown at its own width.** Mermaid's `style="max-width: …"` does
+not survive the SVG allow-list, so every drawing used to take the column's
+width: small ones blew up, wide ones shrank to unreadable. The frame now takes
+the viewBox width, capped by the column, and shrinks at most to 0.75 before it
+scrolls (`features/diagrams/diagram-size.ts`).
 
 ## Measured cost of the dependency
 
@@ -351,9 +408,10 @@ and the server already accepts it, so adding a renderer later is one entry in
 
 ## Known limits
 
-- **`journey` diagrams do not draw.** Mermaid emits `<foreignObject>` for them
-  regardless of `htmlLabels`, so they are refused and degrade to their source.
-  Flowchart, sequence, state and pie were verified end to end.
+- **`journey`, `block-beta` and `sankey-beta` do not draw.** Mermaid emits
+  `<foreignObject>` for them regardless of `htmlLabels`, so they are refused
+  and degrade to their source. The six taught grammars are verified end to end
+  (table above).
 - **Typefaces are not preserved in the PDF.** `@react-pdf/renderer` knows the
   standard PDF fonts and nothing else; every `font-family` lands on Helvetica,
   varying only weight and slant. Asking it for mermaid's `"trebuchet ms"` throws
@@ -366,6 +424,11 @@ and the server already accepts it, so adding a renderer later is one entry in
 - **Drop shadows, `<use>`/`<symbol>` icons and CSS are dropped by the producer**,
   because none of them survives into the PDF — and the answer, the stored SVG
   and the PDF have to show the same drawing.
-- **An answer containing a mermaid fence still exports raw mermaid source into
-  the `.docx`** (`lib/answer-export/markdown.ts` maps every `code` token to a
-  monospace paragraph). Not fixed here; see the note in that file's owner's area.
+- **The `.docx` export and the research-report PDF do not draw a diagram.**
+  The `.docx` carries a label and the mermaid source
+  (`lib/answer-export/markdown.ts`); the report PDF prints a placeholder
+  (`lib/pdf/markdown-pdf.ts`). Both run on the server, which has no DOM to lay
+  a graph out. The fix is for the browser to send the SVG it already drew
+  (the same bytes filing sends) with the export request; the report PDF can
+  then draw it through `svg-to-pdf.tsx`, and the `.docx` needs an image part.
+  Not built yet. Filing from the answer is the path that yields a real drawing.

@@ -1293,12 +1293,14 @@
           "title": "Caption"
         },
         "diagram_type": {
-          "description": "Which mermaid grammar `source` is written in: 'flowchart' (a path that forks and rejoins, or a dependency), 'sequence' (parties exchanging things in order), 'state' (a stage that can be returned to), 'pie' (a split the answer has already established). These four are verified end to end; every other mermaid type either fails to draw or fails to file, so an answer needing one writes prose instead",
+          "description": "Which mermaid grammar `source` is written in: 'flowchart' (a path that forks and rejoins, or a dependency), 'sequence' (parties exchanging things in order), 'state' (a stage that can be returned to), 'pie' (a split the answer has already established), 'gantt' (phases on dates a project document states), 'mindmap' (the parts of one Regelwerk around it). These six are verified end to end; every other mermaid type either fails to draw or fails to file, so an answer needing one writes prose instead",
           "enum": [
             "flowchart",
             "sequence",
             "state",
-            "pie"
+            "pie",
+            "gantt",
+            "mindmap"
           ],
           "title": "Diagram Type",
           "type": "string"
@@ -1316,7 +1318,7 @@
           "description": "The Bestimmung the depicted Verfahren rests on, e.g. the Land's Bauordnung. A procedure differs by Bundesland, so a drawing of one without its Fundstelle is a procedure from nowhere"
         },
         "source": {
-          "description": "The mermaid source, starting with its own declaration line ('flowchart TD', 'sequenceDiagram', 'stateDiagram-v2', 'pie') \u2014 a source that declares nothing draws nothing. Labels in the answer's language and in Sie-Form; no label may carry a claim the answer has not grounded, because the drawing leaves the page without the paragraph that qualified it. Five to nine nodes: past that nobody reads the picture",
+          "description": "The mermaid source, starting with its own declaration line ('flowchart TD', 'sequenceDiagram', 'stateDiagram-v2', 'pie', 'gantt', 'mindmap') \u2014 a source that declares nothing draws nothing. Labels in the answer's language and in Sie-Form; no label may carry a claim the answer has not grounded, because the drawing leaves the page without the paragraph that qualified it. Five to nine nodes: past that nobody reads the picture",
           "maxLength": 4000,
           "minLength": 1,
           "title": "Source",

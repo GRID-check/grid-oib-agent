@@ -392,11 +392,17 @@ says in the same words — cut the card, keep the sentence. That second case is 
 facts: three Lagen with their Anforderung and Fundstelle as a table is not a restatement of three
 sentences, it is the same facts in a shape prose cannot hold. Shared facts alone never cut a card."""
 
-#: Content cards whose whole content a Markdown table or list already holds.
+#: Content cards whose whole content the answer's own Markdown already holds.
 #: The chat answer writes these IN its prose (``piloti_static.md`` <formatting>):
 #: a table with a Status column renders its status words as marks, so a
 #: checklist, a comparison, a document list or rows of Lage/Anforderung/
 #: Fundstelle need no second channel, no shape in the prompt and no repair.
+#: ``diagram`` joined on 2026-09-24: its payload IS a mermaid source, and a
+#: ```mermaid fence in the answer draws through the same renderer, files
+#: through the same idempotent button, and sits where it belongs in the prose
+#: instead of after it. It could not before: the envelope parser ended the
+#: block at the fence's own backticks and showed the reader raw JSON
+#: (``answer_envelope._envelope_blocks``).
 #: They stay valid card types — old messages render them, deep research's
 #: ``emit_card`` still offers them — but the chat envelope no longer teaches
 #: them (``render_card_doctrine(markdown_first=True)``).
@@ -409,15 +415,17 @@ MARKDOWN_CARD_TYPES: frozenset[str] = frozenset(
         "deadline_timeline",
         "norm_chain",
         "change_impact",
+        "diagram",
     }
 )
 
 _MARKDOWN_FIRST = """\
-MARKDOWN FIRST. Tables, checks, comparisons, document lists, Fristen in sequence, a norm hierarchy
-and what-if consequences are written in the answer itself, as Markdown (<formatting> says how): a
-table with a Status column already renders as a checklist. A card is for what Markdown cannot show:
-a drawing, a schematic, the Fundstelle as a quotable excerpt, a decision tree or a Verfahren the
-reader walks through."""
+MARKDOWN FIRST. Tables, checks, comparisons, document lists, Fristen in sequence, a norm hierarchy,
+what-if consequences and drawings of relations are written in the answer itself (<formatting> says
+how): a table with a Status column already renders as a checklist, and a ```mermaid fence already
+renders as a drawing the reader can file. A card is for what those cannot carry: a schematic drawn
+to scale from measurements, the Fundstelle as a quotable excerpt, a decision on one factor with
+this project's branch marked, a Verfahren with its Fristen and where this project stands."""
 
 _CARD_RESTRAINT_MARKDOWN_FIRST = """\
 WHEN NOT TO. One card is usually the right number, two the ceiling, none the normal case for a
@@ -1371,19 +1379,19 @@ def _diagram_note() -> str:
         "  screenshotted into an Einreichung. Naming a threshold in a branch condition\n"
         "  („Fluchtniveau > 22 m\u201c) is not that artefact: it is a label the answer has already\n"
         "  grounded, and nobody reads a rounded rectangle as a section.\n"
-        "  Four grammars are verified end to end: flowchart, sequence, state, pie. A journey is\n"
-        "  refused before the reader sees it — mermaid emits a foreignObject element for it whatever\n"
-        "  htmlLabels says, the SVG allow-list refuses that element, and the diagram degrades to its\n"
-        "  own source text in the middle of your answer. The rest are untested through the PDF\n"
-        "  converter, and a drawing that previews and then prints blank is worse than none.\n"
+        "  Six grammars are verified end to end: flowchart, sequence, state, pie, gantt, mindmap. A\n"
+        "  journey is refused before the reader sees it — mermaid emits a foreignObject element for it\n"
+        "  whatever htmlLabels says, the SVG allow-list refuses that element, and the diagram degrades\n"
+        "  to its own source text in the middle of your answer. A timeline draws but lays out sideways,\n"
+        "  wider than the answer column; the rest are untested through the PDF converter.\n"
         "  At most ONE per answer. A diagram earns its place by showing a fork, an ordering or a\n"
         "  dependency that prose cannot hold; a decorative one in a compliance answer costs the\n"
         "  reader trust in every drawing beside it. Labels in the answer's language and in Sie-Form,\n"
         "  and no label may carry a claim the answer has not grounded — the drawing leaves the page\n"
         "  without the paragraph that qualified it.\n"
-        "  When the user asks for a Diagramm, Schaubild or Grafik BY NAME, a drawing card answers\n"
-        "  it — this one, or the purpose-built card whose shape fits (`process_map` for a line,\n"
-        "  `condition_tree` for a fan). Never prose alone, never ASCII art, never a raw fence."
+        "  When the user asks for a Diagramm, Schaubild or Grafik BY NAME, a drawing answers it —\n"
+        "  this card, a ```mermaid fence in the answer, or the purpose-built card whose shape fits\n"
+        "  (`process_map` for a line, `condition_tree` for a fan). Never prose alone, never ASCII art."
     )
 
 

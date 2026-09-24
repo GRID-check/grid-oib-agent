@@ -84,6 +84,7 @@ import { SectionLabel } from '@/components/ui/section-label'
 import { Skeleton } from '@/components/ui/skeleton'
 import { CodeBlock } from '@/shared/components/CodeBlock'
 import { useTranslations } from '@/i18n'
+import { diagramFrameStyle } from '@/features/diagrams/diagram-size'
 import { useRenderedDiagram } from '@/features/diagrams/use-rendered-diagram'
 import { useDiagramFiling } from '@/features/diagrams/use-diagram-filing'
 import { DiagramFilingControls } from '@/features/diagrams/components/diagram-filing-controls'
@@ -134,7 +135,7 @@ export const DiagramCard: FC<DiagramCardProps> = ({ title, source, caption, refe
   const state = failed ? 'failed' : svg ? 'drawn' : 'drawing'
 
   return (
-    <Card data-testid="diagram-card" data-state={state} className="gap-3 p-5 shadow-xs">
+    <Card data-testid="diagram-card" data-state={state} className="shadow-xs gap-3 p-5">
       <SectionLabel icon={Workflow}>{t('cards.diagram.eyebrow')}</SectionLabel>
       <p className="card-title text-foreground">{title}</p>
 
@@ -147,7 +148,7 @@ export const DiagramCard: FC<DiagramCardProps> = ({ title, source, caption, refe
             maxLines={SOURCE_MAX_LINES}
           />
         ) : (
-          <div className="overflow-x-auto rounded-md border border-border p-3 [&_svg]:h-auto [&_svg]:max-w-full">
+          <div className="border-border overflow-x-auto rounded-md border p-3 [&_svg]:h-auto [&_svg]:max-w-full">
             {svg ? (
               <div
                 // Safe because of what produced the string, not because of where
@@ -159,6 +160,8 @@ export const DiagramCard: FC<DiagramCardProps> = ({ title, source, caption, refe
                 // scanner cannot see — a false positive, argued out the same way
                 // as `scripts/release_notes.py`.
                 // nosemgrep: typescript.react.security.audit.react-dangerouslysetinnerhtml.react-dangerouslysetinnerhtml
+                // Its own width, not the column's: see `diagram-size.ts`.
+                style={diagramFrameStyle(svg)}
                 dangerouslySetInnerHTML={{ __html: svg }}
               />
             ) : (
@@ -168,7 +171,9 @@ export const DiagramCard: FC<DiagramCardProps> = ({ title, source, caption, refe
         )}
 
         <figcaption className="flex flex-col gap-1">
-          {caption && <p className="card-body max-w-prose text-pretty text-foreground">{caption}</p>}
+          {caption && (
+            <p className="card-body text-foreground max-w-prose text-pretty">{caption}</p>
+          )}
           {/* The doctrine, where the reader is — and on a failure the line that
               says why they are looking at source instead of a picture. Never
               both: „Schematisch — ohne Maßangabe." is a statement about a
@@ -180,7 +185,7 @@ export const DiagramCard: FC<DiagramCardProps> = ({ title, source, caption, refe
               outrank "save this". Outside a project the control is absent, not
               disabled: `DiagramFilingControls` renders nothing without a
               target. */}
-          <p className="card-caption flex flex-wrap items-center gap-x-3 text-muted-foreground">
+          <p className="card-caption text-muted-foreground flex flex-wrap items-center gap-x-3">
             {state === 'failed' ? tDiagrams('fallback') : tDiagrams('schematicOnly')}
             {/* A drawing that could not be laid out has no bytes to file, so
                 the control appears only on a real picture — the same rule the

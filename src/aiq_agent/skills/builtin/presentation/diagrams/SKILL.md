@@ -19,31 +19,38 @@ This deployment's contract only. Mermaid itself you already know.
 
 ## Route
 
-- A line of stations: `process_map`. A fan on one factor: `condition_tree`.
-  "Was ändert sich, wenn X": `change_impact`. Anything measured: a schematic
-  card, never mermaid. The rest — fork that rejoins, parties exchanging, a
-  stage that loops back, a dependency — is the `diagram` card.
-- A named diagram request is answered by a drawing card. Never prose alone,
-  ASCII art, or a raw fence.
+- A line of stations with Fristen and where this project stands:
+  `process_map`. A decision on one factor with this project's branch marked:
+  `condition_tree`. Anything measured: a schematic card, never mermaid.
+- Everything else — a fork that rejoins, parties exchanging in order, a stage
+  that loops back, the chain of instruments, the parts of a Regelwerk, a
+  Bauzeitplan — is a ```mermaid fence IN the answer, where it belongs. It draws
+  through the same renderer as the `diagram` card and files with the same
+  button. The card is only for a surface without an answer to put a fence in.
+- A named diagram request is answered by a drawing. Never prose alone, never
+  ASCII art.
 
 ## Hard limits
 
-- Four grammars survive screen, SVG check and PDF: `flowchart`,
-  `sequenceDiagram`, `stateDiagram-v2`, `pie`. `diagram_type` must match the
-  source's first line or the card is refused. Everything else (`journey`,
-  `gantt`, `mindmap`, ...) degrades to a grey source box — write prose instead.
+- Six grammars survive screen, SVG check and PDF: `flowchart`,
+  `sequenceDiagram`, `stateDiagram-v2`, `pie`, `gantt`, `mindmap`. `journey`,
+  `block-beta` and `sankey-beta` degrade to a grey source box; `timeline` lays
+  out sideways, wider than the answer column. Write prose or a table instead.
+- `flowchart TD`, not LR, past four boxes in a row: the column is 680 px.
+- `gantt` only on dates a project document states, never dates computed from
+  a Frist.
 - A parse error draws nothing; a styling error draws anyway, silently dropped.
   Meaning goes in edge labels (`-->|abgelehnt|`), never in colour.
-- Quote a label carrying (), :, a comma or #. Never name a node `end`.
+- Quote every label (`A["Einreichung (§ 63)"]`). Never name a node `end`. No
+  `click`, no HTML, no `<br>`.
 - No label may claim what the answer has not grounded: the reader files the
   drawing as SVG/PDF without the paragraph that qualified it. Labels in the
   answer's language, Sie-Form.
-- Five to nine nodes; the caption says what is left out. One diagram per
-  answer.
+- Five to twelve nodes. One drawing per answer, two for a long overview.
 
 ## Emit
 
-`emit_card` with `type: "diagram"`, `diagram_type`, `source`; `caption` only
-where it adds; `reference` to the Bestimmung (a Verfahren differs by Land).
-`[[card:N]]` on its own line where the drawing belongs. Always write the prose
-too; no duplicate mermaid fence of the same drawing.
+A fence: ```` ```mermaid ````, the grammar on its first line, placed in the
+answer where the drawing belongs, next to the table that carries the values.
+Only without an answer to hold it: `emit_card` with `type: "diagram"`,
+`diagram_type`, `source`, `reference` to the Bestimmung.

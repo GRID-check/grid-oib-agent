@@ -1895,23 +1895,26 @@ class ChangeImpactCard(CardModel):
 # `lib/diagrams/diagram-sources.ts`.
 
 
-DiagramGrammar = Literal["flowchart", "sequence", "state", "pie"]
-"""The four mermaid grammars verified end to end: drawn, filed AND printed.
+DiagramGrammar = Literal["flowchart", "sequence", "state", "pie", "gantt", "mindmap"]
+"""The mermaid grammars verified end to end: drawn, filed AND printed.
 
-Not "the four we like" — the four that survive the whole pipeline. A diagram in
+Not "the ones we like" — the ones that survive the whole pipeline. A diagram in
 this product is rendered in the browser, re-serialised through the SERVER's SVG
 allow-list before it is even shown, and then converted to PDF for an
 Einreichung; a grammar that fails at any of those three is a card that renders
-as a grey code block in an answer.
+as a grey code block in an answer. Each one here has a real browser capture in
+`frontends/ui/src/lib/diagrams/__fixtures__/` that the PDF test prints
+(`svg-to-pdf.spec.tsx`); `gantt` and `mindmap` joined on 2026-09-24, once the
+converter learned to place `dy`/`em` text offsets.
 
 `journey` is the instructive exclusion. Mermaid emits `<foreignObject>` for it
 whatever `htmlLabels` says, and `<foreignObject>` is arbitrary HTML inside a
 file that gets served back to browsers, so the SVG validator refuses it — in the
 browser, before the drawing is shown, which is why a journey degrades to its own
-source text rather than drawing and then failing to file. `gantt`, `erDiagram`,
-`classDiagram` and `mindmap` are simply unverified: nobody has put one through
-the PDF converter, and a diagram that previews and then prints blank is worse
-than one that never drew.
+source text rather than drawing and then failing to file. `block-beta` and
+`sankey-beta` fail the same way. `timeline`, `erDiagram` and `classDiagram` draw
+and print, and are left out on purpose: a timeline lays out sideways, wider than
+the answer column, and the other two model software, not buildings.
 """
 
 # The declaration keywords mermaid accepts, mapped to the grammar they select.
@@ -1926,6 +1929,8 @@ _DIAGRAM_DECLARATIONS: dict[str, str] = {
     "statediagram": "state",
     "statediagram-v2": "state",
     "pie": "pie",
+    "gantt": "gantt",
+    "mindmap": "mindmap",
 }
 
 #: `--- title: … ---` front matter, the one preamble mermaid allows above the
@@ -1946,11 +1951,9 @@ _MERMAID_DIRECTIVE = re.compile(r"%%\{.*?\}%%", re.DOTALL)
 _UNSUPPORTED_DECLARATIONS = frozenset(
     {
         "journey",
-        "gantt",
         "erdiagram",
         "classdiagram",
         "classdiagram-v2",
-        "mindmap",
         "timeline",
         "gitgraph",
         "quadrantchart",
@@ -2049,9 +2052,10 @@ class DiagramCard(CardModel):
         description=(
             "Which mermaid grammar `source` is written in: 'flowchart' (a path that forks and "
             "rejoins, or a dependency), 'sequence' (parties exchanging things in order), 'state' (a "
-            "stage that can be returned to), 'pie' (a split the answer has already established). "
-            "These four are verified end to end; every other mermaid type either fails to draw or "
-            "fails to file, so an answer needing one writes prose instead"
+            "stage that can be returned to), 'pie' (a split the answer has already established), "
+            "'gantt' (phases on dates a project document states), 'mindmap' (the parts of one "
+            "Regelwerk around it). These six are verified end to end; every other mermaid type "
+            "either fails to draw or fails to file, so an answer needing one writes prose instead"
         )
     )
     source: str = Field(
@@ -2059,7 +2063,7 @@ class DiagramCard(CardModel):
         max_length=4000,
         description=(
             "The mermaid source, starting with its own declaration line ('flowchart TD', "
-            "'sequenceDiagram', 'stateDiagram-v2', 'pie') — a source that declares nothing draws "
+            "'sequenceDiagram', 'stateDiagram-v2', 'pie', 'gantt', 'mindmap') — a source that declares nothing draws "
             "nothing. Labels in the answer's language and in Sie-Form; no label may carry a claim "
             "the answer has not grounded, because the drawing leaves the page without the paragraph "
             "that qualified it. Five to nine nodes: past that nobody reads the picture"
@@ -2131,28 +2135,29 @@ class DiagramCard(CardModel):
             raise ValueError(
                 "`source` declares no diagram type: it is nothing but front matter, a directive or "
                 "comments. Its first real line must be the mermaid declaration itself — "
-                "'flowchart TD', 'sequenceDiagram', 'stateDiagram-v2' or 'pie'."
+                "'flowchart TD', 'sequenceDiagram', 'stateDiagram-v2', 'pie', 'gantt' or 'mindmap'."
             )
         keyword = statement.split()[0].lower().rstrip(":")
         if keyword in _UNSUPPORTED_DECLARATIONS:
             raise ValueError(
-                f"`source` is a '{keyword}' diagram, which this product cannot draw or file: only "
-                "flowchart, sequence, state and pie survive rendering, the SVG allow-list and the "
-                "PDF conversion. Rewrite it as one of those four, or write the answer as prose."
+                f"`source` is a '{keyword}' diagram, which this product does not draw or file: only "
+                "flowchart, sequence, state, pie, gantt and mindmap survive rendering, the SVG "
+                "allow-list and the PDF conversion at the answer's width. Rewrite it as one of "
+                "those, or write the answer as prose."
             )
         declared = _DIAGRAM_DECLARATIONS.get(keyword)
         if declared is None:
             raise ValueError(
                 f"`source` declares no diagram type: it opens with {statement[:60]!r}. The first "
                 "real line must be the declaration itself — 'flowchart TD', 'sequenceDiagram', "
-                "'stateDiagram-v2' or 'pie'. Without it mermaid has no grammar to read the rest "
+                "'stateDiagram-v2', 'pie', 'gantt' or 'mindmap'. Without it mermaid has no grammar to read the rest "
                 "with and nothing is drawn."
             )
         if declared != self.diagram_type:
             raise ValueError(
                 f"`diagram_type` is '{self.diagram_type}' but `source` declares '{declared}'. "
-                "Make them agree, and note that only flowchart, sequence, state and pie are "
-                "supported — any other mermaid type is refused before it reaches the reader."
+                "Make them agree, and note that only flowchart, sequence, state, pie, gantt and "
+                "mindmap are supported — any other mermaid type is refused before it reaches the reader."
             )
         return self
 

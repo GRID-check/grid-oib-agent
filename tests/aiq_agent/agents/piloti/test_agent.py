@@ -747,18 +747,24 @@ class TestPilotiAgent:
 
         Asked for a diagram the model drew ASCII box art into a bare fence, and
         the answer promised a drawing and printed a listing. The formatting rule
-        now routes a named diagram request to the drawing CARDS — the surface
-        with the caption, the Fundstelle and the PDF path — keeps the ban on box
-        art, and leaves the tagged mermaid fence only as the last resort.
+        routes a drawing to a TAGGED mermaid fence (the envelope parser now
+        survives one) or to the shaped card whose fields it needs, and keeps
+        the ban on box art.
         """
         rendered = self._render_default_prompt(mock_llm_provider, real_tool)
         formatting = rendered.split("<formatting>")[1].split("</formatting>")[0]
-        assert "A picture is a CARD" in formatting
-        assert "`diagram`" in formatting
+        # Since 2026-09-24 a drawing is a tagged mermaid fence in the answer,
+        # reached for whenever the answer HAS a shape, not only when asked;
+        # the shaped cards keep what their fields carry, and anything measured
+        # stays with the schematic cards.
+        assert "```mermaid" in formatting
+        assert "not only when asked" in formatting
+        assert "`process_map`" in formatting and "`condition_tree`" in formatting
+        assert "schematic card" in formatting
         # The box-art ban must survive the rewrite: the third field
         # transcript drew box-drawing characters where a diagram was asked.
-        assert "never draw with them" in formatting
-        # And the fallback still names the notation that renders.
+        assert "are never a drawing" in formatting
+        # And it names the notation that renders.
         assert "flowchart TD" in formatting
         # And the consequence, so an edit that keeps the rule and drops the
         # reason still fails: a listing where a drawing was promised.
@@ -2855,8 +2861,11 @@ class TestTheModelCardsAreActuallyAskedFor:
         assert "Most turns never touch a model." in rendered
         from aiq_agent.cards.catalog import MODEL_BACKED_CARD_TYPES
 
+        # The SECTION, opened on its own line. `split("<cards>")[1]` read the text
+        # between the first two MENTIONS of the tag, which prose makes freely.
+        section = rendered.split("\n<cards>\n")[1].split("</cards>")[0]
         for card_type in MODEL_BACKED_CARD_TYPES:
-            assert card_type not in rendered.split("<cards>")[1].split("</cards>")[0], card_type
+            assert card_type not in section, card_type
 
     def test_every_model_backed_card_is_named_in_the_skill(self):
         from aiq_agent.cards.catalog import MODEL_BACKED_CARD_TYPES

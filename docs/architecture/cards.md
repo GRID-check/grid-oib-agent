@@ -310,12 +310,16 @@ with a status, comparisons, document lists, Fristen in sequence, a norm
 hierarchy and what-if consequences are written in the answer as Markdown, not
 as a card (`catalog.MARKDOWN_CARD_TYPES`: `typed_table`, `comparison_table`,
 `requirement_checklist`, `document_checklist`, `deadline_timeline`,
-`norm_chain`, `change_impact`). The envelope contract omits them from the
-trigger table, the index and the taught shapes (6 083 → 3 479 tokens), and the
+`norm_chain`, `change_impact`, and `diagram`, whose content is a
+```` ```mermaid ```` fence in the answer; see
+[diagrams.md](diagrams.md#since-2026-09-24-the-fence-first)). The envelope contract omits them from the
+trigger table, the index and the taught shapes (6 083 → 3 405 tokens), and the
 Jev turn facts no longer offer them. The types stay in the catalog, so a
 tool, `emit_card` or a stored message that carries one still validates and
-renders. A card is for what Markdown cannot show: a drawing, a schematic, the
-Fundstelle as a quotable excerpt, a decision tree, a Verfahren to walk. The
+renders. A card is for what Markdown cannot carry: a schematic drawn to scale,
+the Fundstelle as a quotable excerpt, a decision on one factor with this
+project's branch marked, a Verfahren with its Fristen and where the project
+stands. The
 renderer meets the prose halfway: a table cell that holds exactly one status
 word (`erfüllt`, `nicht erfüllt`, `teilweise`, `offen`, `erforderlich`,
 `bedingt`, `vorhanden`, `fehlt`, and the English set) renders as a toned chip

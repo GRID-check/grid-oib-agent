@@ -77,7 +77,7 @@ class TestTheDeclarationIsHonoured:
         with pytest.raises(ValidationError, match="but `source` declares 'flowchart'"):
             grid_card_adapter.validate_python(_card(diagram_type="sequence"))
 
-    @pytest.mark.parametrize("keyword", ["journey", "gantt", "erDiagram", "mindmap"])
+    @pytest.mark.parametrize("keyword", ["journey", "timeline", "erDiagram", "classDiagram"])
     def test_a_grammar_this_pipeline_cannot_carry_is_refused_by_name(self, keyword):
         """Named, because the fix differs from the fix for a missing header.
 
@@ -89,6 +89,18 @@ class TestTheDeclarationIsHonoured:
         """
         with pytest.raises(ValidationError, match=f"is a '{keyword.lower()}' diagram"):
             grid_card_adapter.validate_python(_card(source=f"{keyword}\n  title Etwas"))
+
+    @pytest.mark.parametrize(
+        ("grammar", "source"),
+        [
+            ("gantt", "gantt\n  dateFormat YYYY-MM-DD\n  Vorprüfung :a1, 2026-10-01, 14d"),
+            ("mindmap", "mindmap\n  root((OIB-RL 2))\n    Garagen"),
+        ],
+    )
+    def test_the_grammars_verified_through_the_pdf_are_accepted(self, grammar, source):
+        # Each has a real browser capture that `svg-to-pdf.spec.tsx` prints.
+        card = grid_card_adapter.validate_python(_card(diagram_type=grammar, source=source))
+        assert card.diagram_type == grammar
 
 
 class TestTheSourceSurvivesTheCardPipeline:

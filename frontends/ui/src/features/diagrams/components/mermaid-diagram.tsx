@@ -55,6 +55,7 @@
 import { CodeBlock } from '@/shared/components/CodeBlock'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useTranslations } from '@/i18n'
+import { diagramFrameStyle } from '../diagram-size'
 import { useRenderedDiagram } from '../use-rendered-diagram'
 import { useDiagramFiling } from '../use-diagram-filing'
 import { DiagramFilingControls } from './diagram-filing-controls'
@@ -110,7 +111,7 @@ export function MermaidDiagram({ source, isStreaming = false }: MermaidDiagramPr
     return (
       <div data-testid="mermaid-diagram" data-state={failed ? 'failed' : 'streaming'}>
         <CodeBlock value={source} language="mermaid" collapsible={lineCount > 15} maxLines={15} />
-        {failed ? <p className="mt-1 text-xs text-muted-foreground">{t('fallback')}</p> : null}
+        {failed ? <p className="text-muted-foreground mt-1 text-xs">{t('fallback')}</p> : null}
       </div>
     )
   }
@@ -121,7 +122,7 @@ export function MermaidDiagram({ source, isStreaming = false }: MermaidDiagramPr
           whatever surface it is lying on, which is the card — in both themes.
           A hairline frame is all it needs to read as a figure rather than as
           loose marks in the prose. */}
-      <div className="overflow-x-auto rounded-lg border border-border p-3 [&_svg]:h-auto [&_svg]:max-w-full">
+      <div className="border-border overflow-x-auto rounded-lg border p-3 [&_svg]:h-auto [&_svg]:max-w-full">
         {svg ? (
           <div
             // Safe because of what produced the string, not because of where it is
@@ -132,13 +133,15 @@ export function MermaidDiagram({ source, isStreaming = false }: MermaidDiagramPr
             // producer, which the scanner cannot see — a false positive, argued
             // out the same way as `scripts/release_notes.py`.
             // nosemgrep: typescript.react.security.audit.react-dangerouslysetinnerhtml.react-dangerouslysetinnerhtml
+            // Its own width, not the column's: see `diagram-size.ts`.
+            style={diagramFrameStyle(svg)}
             dangerouslySetInnerHTML={{ __html: svg }}
           />
         ) : (
           <DrawingSkeleton />
         )}
       </div>
-      <figcaption className="mt-1 flex flex-wrap items-center gap-x-3 text-xs text-muted-foreground">
+      <figcaption className="text-muted-foreground mt-1 flex flex-wrap items-center gap-x-3 text-xs">
         {/* The doctrine, where the reader is. Fifteen schematic cards in this
             product compute their geometry so they cannot disagree with their
             own numbers; a model-authored diagram has no such guarantee, so it

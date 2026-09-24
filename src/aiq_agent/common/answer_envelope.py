@@ -97,7 +97,17 @@ ENVELOPE_FENCE = "answer_json"
 # bare JSON object with an "answer" key, because that is the most common way a
 # model drops the fence and the answer inside it must not be lost to a
 # formatting slip.
+#
+# The block ENDS where its JSON object ends, not at the first ``` after it. The
+# `answer` string is Markdown and may carry a fence of its own — a ```mermaid
+# drawing, a listing — and a lazy match stopped at that inner fence, so the
+# object was cut mid-string, failed to parse, and the reader got the raw JSON
+# instead of the answer. `_envelope_blocks` finds the object's end with the
+# same string-aware brace scan `_parse_object` uses, and only falls back to
+# the first closing fence for an object that never closes (a truncated reply).
+_ANSWER_JSON_OPEN_RE = re.compile(rf"```{ENVELOPE_FENCE}[ \t]*\n")
 _ANSWER_JSON_FENCE_RE = re.compile(rf"```{ENVELOPE_FENCE}[ \t]*\n(.*?)\n?```", re.DOTALL)
+_FENCE_CLOSE_RE = re.compile(r"[ \t]*\n?```")
 
 #: A verdict is a VALUE — a number, a class, a short ruling. Anything longer is
 #: a sentence pressed into a header. 60 chars fits „Nicht geregelt (Wiener
@@ -577,22 +587,12 @@ ANATOMY_FIELDS: tuple[AnatomyField, ...] = (
 # ---------------------------------------------------------------------------
 
 
-def _parse_object(raw: str) -> dict | None:
-    """One JSON object out of ``raw``, tolerating trailing junk; None if none.
+def _object_end(raw: str, start: int) -> int | None:
+    """The index just past the JSON object opening at ``raw[start]``, or None.
 
-    ``strict=False`` for the same reason ``emit_card`` uses it: a raw newline
-    inside a JSON string is how a model writes a two-sentence detail. When a
-    direct parse fails, a brace-balanced re-scan from the first ``{`` recovers
-    the common failure of text before/after an otherwise well-formed object.
+    String-aware, so a brace or a fence inside a string value is text, not
+    structure. None when the object never closes.
     """
-    try:
-        payload = json.loads(raw, strict=False)
-        return payload if isinstance(payload, dict) else None
-    except (json.JSONDecodeError, TypeError):
-        pass
-    start = raw.find("{")
-    if start == -1:
-        return None
     depth = 0
     in_string = False
     escaped = False
@@ -613,12 +613,71 @@ def _parse_object(raw: str) -> dict | None:
         elif char == "}":
             depth -= 1
             if depth == 0:
-                try:
-                    payload = json.loads(raw[start : i + 1], strict=False)
-                except (json.JSONDecodeError, TypeError):
-                    return None
-                return payload if isinstance(payload, dict) else None
+                return i + 1
     return None
+
+
+def _envelope_blocks(content: str) -> list[tuple[int, int, str]]:
+    """Every fenced envelope as ``(start, end, body)``, in order.
+
+    ``body`` is the JSON object; ``start``/``end`` span the whole block, fences
+    included, so the trailer form can cut it out of the prose.
+    """
+    blocks: list[tuple[int, int, str]] = []
+    position = 0
+    while opening := _ANSWER_JSON_OPEN_RE.search(content, position):
+        body_start = opening.end()
+        brace = content.find("{", body_start)
+        end = _object_end(content, brace) if brace != -1 else None
+        if end is None:
+            lazy = _ANSWER_JSON_FENCE_RE.match(content, opening.start())
+            if lazy is None:
+                break
+            blocks.append((lazy.start(), lazy.end(), lazy.group(1)))
+            position = lazy.end()
+            continue
+        close = _FENCE_CLOSE_RE.match(content, end)
+        block_end = close.end() if close else end
+        blocks.append((opening.start(), block_end, content[body_start:end]))
+        position = block_end
+    return blocks
+
+
+def _without_blocks(content: str, blocks: list[tuple[int, int, str]]) -> str:
+    """``content`` with every envelope block cut out."""
+    kept: list[str] = []
+    position = 0
+    for start, end, _ in blocks:
+        kept.append(content[position:start])
+        position = end
+    kept.append(content[position:])
+    return "".join(kept)
+
+
+def _parse_object(raw: str) -> dict | None:
+    """One JSON object out of ``raw``, tolerating trailing junk; None if none.
+
+    ``strict=False`` for the same reason ``emit_card`` uses it: a raw newline
+    inside a JSON string is how a model writes a two-sentence detail. When a
+    direct parse fails, a brace-balanced re-scan from the first ``{`` recovers
+    the common failure of text before/after an otherwise well-formed object.
+    """
+    try:
+        payload = json.loads(raw, strict=False)
+        return payload if isinstance(payload, dict) else None
+    except (json.JSONDecodeError, TypeError):
+        pass
+    start = raw.find("{")
+    if start == -1:
+        return None
+    end = _object_end(raw, start)
+    if end is None:
+        return None
+    try:
+        payload = json.loads(raw[start:end], strict=False)
+    except (json.JSONDecodeError, TypeError):
+        return None
+    return payload if isinstance(payload, dict) else None
 
 
 def _validated_meta(payload: dict) -> AnswerMeta | None:
@@ -655,9 +714,9 @@ def extract_answer_envelope(content: object) -> tuple[object, AnswerMeta | None]
     if not isinstance(content, str):
         return content, None
 
-    matches = list(_ANSWER_JSON_FENCE_RE.finditer(content))
-    if matches:
-        payload = _parse_object(matches[-1].group(1))
+    blocks = _envelope_blocks(content)
+    if blocks:
+        payload = _parse_object(blocks[-1][2])
         if payload is None:
             logger.warning("answer_json envelope is not parseable JSON; leaving the reply untouched")
             return content, None
@@ -665,7 +724,7 @@ def extract_answer_envelope(content: object) -> tuple[object, AnswerMeta | None]
         if isinstance(answer, str) and answer.strip():
             return answer.strip(), _validated_meta(payload)
         # Trailer form: the prose lives outside the fence.
-        stripped = _ANSWER_JSON_FENCE_RE.sub("", content).strip()
+        stripped = _without_blocks(content, blocks).strip()
         if stripped:
             return stripped, _validated_meta(payload)
         logger.warning("answer_json envelope has no usable answer field; leaving the reply untouched")

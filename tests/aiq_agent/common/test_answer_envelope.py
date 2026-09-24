@@ -108,6 +108,33 @@ class TestExtraction:
         assert prose == _PROSE
         assert meta is None
 
+    def test_a_fence_inside_the_answer_does_not_end_the_envelope(self):
+        # The answer is Markdown, and Markdown carries fences: a ```mermaid
+        # drawing, a listing. The envelope used to end at the FIRST ``` after
+        # it, which is that inner fence, so the object was cut mid-string and
+        # the reader got raw JSON. It ends where its JSON object ends.
+        answer = 'Der Ablauf [1].\n\n```mermaid\nflowchart TD\n  A["Einreichung"] --> B\n```\n\nDanach [1].'
+        prose, meta = extract_answer_envelope(_fenced({"answer": answer, "verdict": _VERDICT}))
+        assert prose == answer
+        assert meta is not None and meta.verdict is not None
+
+    def test_a_fence_written_with_raw_newlines_does_not_end_it_either(self):
+        # `strict=False` exists because models write raw newlines inside JSON
+        # strings, so the inner fence can sit at the start of a real line.
+        content = (
+            '```answer_json\n{"answer": "Der Ablauf.\n\n```mermaid\nflowchart TD\n  A --> B\n```\n\nEnde.", '
+            '"verdict": {"value": "REI 60", "subject": "Feuerwiderstand"}}\n```'
+        )
+        prose, meta = extract_answer_envelope(content)
+        assert prose == "Der Ablauf.\n\n```mermaid\nflowchart TD\n  A --> B\n```\n\nEnde."
+        assert meta is not None and meta.verdict is not None
+
+    def test_the_trailer_form_keeps_a_fenced_drawing_in_the_outside_prose(self):
+        outside = "Der Ablauf.\n\n```mermaid\nflowchart TD\n  A --> B\n```"
+        prose, meta = extract_answer_envelope(outside + "\n\n" + _fenced({"verdict": _VERDICT}))
+        assert prose == outside
+        assert meta is not None and meta.verdict is not None
+
     def test_non_string_content_passes_through(self):
         content = [{"type": "text", "text": "hi"}]
         prose, meta = extract_answer_envelope(content)
