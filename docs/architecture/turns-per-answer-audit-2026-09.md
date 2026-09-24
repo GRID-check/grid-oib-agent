@@ -74,6 +74,15 @@ What the census found, each closed at its cause:
   Änderungen file that does not exist, so the 2.2 diff leaked into
   retrieval. `norm_registry.canonical_oib_file_name` now feeds every parser.
 
+**The model decides the round count as much as the code does.** Moving the
+defaults to `openai/gpt-6-luna` (2026-09-24, same census, same corpus): the
+OIB 2 overview took 2 research calls in 3 of 3 runs — given the same round-0
+state where 5.6-luna answers, 6-luna opens four or five Punkte with
+`read_passage` first — at 34–39 s wall and roughly half the per-token price;
+the GK 5 ruling took 1–2 with the decision landing (0.65–2.2 s that day,
+`brandschutz` inlined). A round count reported from production is a count
+for that deployment's admin-set model.
+
 Still open, measured but not changed: the static prefix is 17.7 k tokens,
 6.1 k of it the cards contract (cached, so cheap in money, not in the cold
 first call of a turn); `emit_card` is 2.8 k tokens of tool schema whose

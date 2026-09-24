@@ -120,7 +120,7 @@ llms:
   # Shallow Research — fast retrieval + synthesis (the quick-answer tier).
   research_llm:
     _type: openai
-    model_name: ${GRID_DEFAULT_MODEL:-openai/gpt-5.6-luna}
+    model_name: ${GRID_DEFAULT_MODEL:-openai/gpt-6-luna}
     base_url: "https://openrouter.ai/api/v1"
     api_key: ${OPENROUTER_API_KEY}
     temperature: 1.0
@@ -180,7 +180,7 @@ llms:
   # HITL Clarification & Planning — clarify ambiguity, generate the research plan.
   clarifier_llm:
     _type: openai
-    model_name: ${GRID_DEFAULT_MODEL:-openai/gpt-5.6-luna}
+    model_name: ${GRID_DEFAULT_MODEL:-openai/gpt-6-luna}
     base_url: "https://openrouter.ai/api/v1"
     api_key: ${OPENROUTER_API_KEY}
     temperature: 1.0
@@ -193,7 +193,7 @@ llms:
   # Deep Researcher — Orchestrator (also the report writer): top-level control.
   deep_orchestrator_llm:
     _type: openai
-    model_name: ${GRID_DEFAULT_MODEL:-openai/gpt-5.6-luna}
+    model_name: ${GRID_DEFAULT_MODEL:-openai/gpt-6-luna}
     base_url: "https://openrouter.ai/api/v1"
     api_key: ${OPENROUTER_API_KEY}
     temperature: 1.0
@@ -210,7 +210,7 @@ llms:
   # Deep Researcher — Planning sub-agents.
   deep_planner_llm:
     _type: openai
-    model_name: ${GRID_DEFAULT_MODEL:-openai/gpt-5.6-luna}
+    model_name: ${GRID_DEFAULT_MODEL:-openai/gpt-6-luna}
     base_url: "https://openrouter.ai/api/v1"
     api_key: ${OPENROUTER_API_KEY}
     temperature: 1.0
@@ -223,7 +223,7 @@ llms:
   # Deep Researcher — Researcher sub-agents (parallel investigations).
   deep_researcher_llm:
     _type: openai
-    model_name: ${GRID_DEFAULT_MODEL:-openai/gpt-5.6-luna}
+    model_name: ${GRID_DEFAULT_MODEL:-openai/gpt-6-luna}
     base_url: "https://openrouter.ai/api/v1"
     api_key: ${OPENROUTER_API_KEY}
     temperature: 1.0
@@ -236,7 +236,7 @@ llms:
   # Deep Researcher — source routing (which source to query). Lighter decision.
   deep_router_llm:
     _type: openai
-    model_name: ${GRID_DEFAULT_MODEL:-openai/gpt-5.6-luna}
+    model_name: ${GRID_DEFAULT_MODEL:-openai/gpt-6-luna}
     base_url: "https://openrouter.ai/api/v1"
     api_key: ${OPENROUTER_API_KEY}
     temperature: 1.0
@@ -252,7 +252,7 @@ llms:
   # which is also the deep-research source_router_llm where medium still matters.
   ris_planner_llm:
     _type: openai
-    model_name: ${GRID_DEFAULT_MODEL:-openai/gpt-5.6-luna}
+    model_name: ${GRID_DEFAULT_MODEL:-openai/gpt-6-luna}
     base_url: "https://openrouter.ai/api/v1"
     api_key: ${OPENROUTER_API_KEY}
     temperature: 1.0
@@ -265,7 +265,7 @@ llms:
   # Card generation — structured rich-UI compliance cards.
   card_llm:
     _type: openai
-    model_name: ${GRID_DEFAULT_MODEL:-openai/gpt-5.6-luna}
+    model_name: ${GRID_DEFAULT_MODEL:-openai/gpt-6-luna}
     base_url: "https://openrouter.ai/api/v1"
     api_key: ${OPENROUTER_API_KEY}
     temperature: 1.0
@@ -287,7 +287,7 @@ llms:
   # already dead when the bound fired.
   follow_ups_llm:
     _type: openai
-    model_name: ${GRID_DEFAULT_MODEL:-openai/gpt-5.6-luna}
+    model_name: ${GRID_DEFAULT_MODEL:-openai/gpt-6-luna}
     base_url: "https://openrouter.ai/api/v1"
     api_key: ${OPENROUTER_API_KEY}
     temperature: 1.0
@@ -301,7 +301,7 @@ llms:
   # judging (structured outputs; ~10-16 calls per full 6-Richtlinien check).
   compliance_llm:
     _type: openai
-    model_name: ${GRID_DEFAULT_MODEL:-openai/gpt-5.6-luna}
+    model_name: ${GRID_DEFAULT_MODEL:-openai/gpt-6-luna}
     base_url: "https://openrouter.ai/api/v1"
     api_key: ${OPENROUTER_API_KEY}
     temperature: 1.0
@@ -314,7 +314,7 @@ llms:
   # Document / project summaries — trivial one-liners.
   summary_llm:
     _type: openai
-    model_name: ${GRID_DEFAULT_MODEL:-openai/gpt-5.6-luna}
+    model_name: ${GRID_DEFAULT_MODEL:-openai/gpt-6-luna}
     base_url: "https://openrouter.ai/api/v1"
     api_key: ${OPENROUTER_API_KEY}
     temperature: 1.0
@@ -349,7 +349,7 @@ llms:
   # can be silently inert on a given model; `seed` is set for the same reason.
   rerank_llm:
     _type: openai
-    model_name: ${GRID_DEFAULT_MODEL:-openai/gpt-5.6-luna}
+    model_name: ${GRID_DEFAULT_MODEL:-openai/gpt-6-luna}
     base_url: "https://openrouter.ai/api/v1"
     api_key: ${OPENROUTER_API_KEY}
     temperature: 0
@@ -929,13 +929,13 @@ functions:
     # fails the build.
     #
     # Measured 2026-09-23. A replayed Piloti research call to
-    # openai/gpt-5.6-luna (19 functions, all defer_loading: true, echoed back
+    # openai/gpt-6-luna (19 functions, all defer_loading: true, echoed back
     # on every one) billed 40 154 input tokens with defer_loading true AND
     # false; dropping three large tools from the namespace cut 10 012. The
     # earlier "14 023 -> 437" saving recorded here no longer holds. The probe:
     #
     #                                  canary   + deferred ballast    growth
-    #   openai/gpt-5.6-luna              187          4 100           +3 913
+    #   openai/gpt-6-luna              187          4 100           +3 913
     #   openai/gpt-5.6-sol               187          4 100           +3 913
     #   anthropic/claude-sonnet-5        847          6 034           +5 187
     #   google/gemini-3.7-flash          175          5 072           +4 897

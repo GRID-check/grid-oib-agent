@@ -68,7 +68,7 @@ import { getPlatformModelDefaults, savePlatformModelDefaults } from './platform-
  * the fleet under Platform → Models, which validates, audits and takes effect
  * without a redeploy.
  */
-export const BOOTSTRAP_DEFAULT_MODEL = 'openai/gpt-5.6-luna'
+export const BOOTSTRAP_DEFAULT_MODEL = 'openai/gpt-6-luna'
 
 /** Actor recorded on bootstrapped rows — not a WorkOS user id. */
 export const BOOTSTRAP_ACTOR = 'system:bootstrap'

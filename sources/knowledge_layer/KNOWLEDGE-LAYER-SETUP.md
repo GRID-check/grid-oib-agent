@@ -152,7 +152,7 @@ By default, LlamaIndex ingests text only and calls the embedding and VLM models 
 | `AIQ_EXTRACT_IMAGES` | `false` | Extract embedded images from PDFs and caption them with a VLM. For a BFF-dispatched document the raster is also stored beside the file (`_img/<index>.jpg`, via the BFF presign route) so `view_knowledge_image` can show it at its own resolution |
 | `AIQ_EXTRACT_CHARTS` | `false` | Classify images as charts and extract structured data (chart type, axis labels, data points) |
 | **Vision Model** | | |
-| `AIQ_VLM_MODEL` | `openai/gpt-5.6-luna` | VLM for image captioning — house model, image input verified on OpenRouter; caption quality on OIB tables/drawings still unevaluated (TODO) |
+| `AIQ_VLM_MODEL` | `openai/gpt-6-luna` | VLM for image captioning — house model, image input verified on OpenRouter; caption quality on OIB tables/drawings still unevaluated (TODO) |
 | `AIQ_VLM_BASE_URL` | `https://openrouter.ai/api/v1` | VLM API base URL (any OpenAI-compatible chat endpoint that takes images) |
 
 You can also set these in `deploy/.env`:
@@ -306,7 +306,7 @@ When `generate_summary: true`, you **must** configure `summary_model` to referen
 llms:
   summary_llm:
     _type: openai
-    model_name: ${GRID_DEFAULT_MODEL:-openai/gpt-5.6-luna}
+    model_name: ${GRID_DEFAULT_MODEL:-openai/gpt-6-luna}
     base_url: "https://openrouter.ai/api/v1"
     api_key: ${OPENROUTER_API_KEY}
     temperature: 0.3
