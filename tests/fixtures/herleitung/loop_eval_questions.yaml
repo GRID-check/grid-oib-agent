@@ -55,6 +55,10 @@
 #                           alternatives, e.g. [EI2 30, EI₂ 30])
 #             not_mentions: phrases that must not (a false claim seen live)
 #             shape:        tabs | table | diagram, or a list of acceptable ones
+#             kind_also:    kinds the suite accepts besides `kind`, when a
+#                           second reading is as right (a list the law
+#                           prescribes is a walkthrough AND a ruling); the
+#                           other evals keep reading `kind` alone
 #           Same discipline as `punkt`: a value is one read off the corpus
 #           (the PDF, a retrieved passage), never one remembered.
 #
@@ -235,6 +239,10 @@ questions:
     family: Bauordnung
     punkt: null
     kind: walkthrough
+    expect:
+      # Five runs, 2026-09-24: three ruled on § 63 as a list of what it
+      # requires, two walked through it. Both carry the same §§ and items.
+      kind_also: [ruling]
 
   # Four more Bauordnung rows. One row out of twenty-three could not measure a
   # retrieval path, and RIS is the half of the corpus the punkt_index cannot

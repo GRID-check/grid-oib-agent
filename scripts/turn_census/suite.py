@@ -241,7 +241,8 @@ def check(question: dict, run: Run, envelope: dict | None) -> dict[str, bool]:
     """The question's expectations against what the turn delivered. Each key is one fact."""
     checks: dict[str, bool] = {"envelope": envelope is not None}
     if question.get("kind"):
-        checks["kind"] = run.kind == question["kind"]
+        accepted = [question["kind"], *((question.get("expect") or {}).get("kind_also") or [])]
+        checks["kind"] = run.kind in accepted
     family = _family_number(question.get("family"))
     if family:
         checks["family_cited"] = family in run.cited_families

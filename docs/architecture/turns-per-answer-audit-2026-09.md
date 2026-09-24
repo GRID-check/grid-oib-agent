@@ -168,6 +168,20 @@ two-variant Fluchtweg question is the outlier at 91 s (72-109), 3-4 research
 calls with up to eleven tool calls, and reasoning spikes of 2 950-3 710 tokens.
 It answers correctly and in tabs; it is the question to work on next.
 
+**Full sweep, then the Bauordnung rows** (27 questions, 2026-09-24). The two
+RIS questions were the slowest in the set, 87-100 s over 4-5 serial
+`ris_lookup` rounds, each ending in a repair pass. The agent's own
+checkpoints named the cause ("der Auszug bricht bei lit. f ab"): a named §
+arrived as its first 2 500 characters, a third of them RIS's screen-reader
+twins, beside a header stub of the same §. With the whole § (bounded at
+8 000), the twins dropped and the stub folded in, three runs each: 87 → 29 s
+and 88 → 33 s, no repair in six runs. The repair itself was the answer
+copying the block's `Source URL:` (the whole law, the same for every §) as a
+citation; the line is gone, and a key-cited line that carries a link is now
+verified by its key. The same sweep showed a turn whose envelope lost its
+opening `{"answer": "` and leaked its JSON tail as text, now salvaged and
+counted (`envelope_salvaged`).
+
 Decided against: a reasoning level that changes from round to round (e.g.
 `medium` for the first round, `low` after). A turn runs at ONE level, the one
 its role is configured with; the level is a property of the run, not of a

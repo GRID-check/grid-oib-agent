@@ -148,3 +148,11 @@ def test_a_handoff_to_deep_research_is_not_a_crash(tmp_path):
     log.write_text("INFO Clarifier: Starting clarification\nERROR Workflow failed: \n")
     run = suite.observe(QUESTION, 1, record, log)
     assert "escalated" in run.signals and run.error == "" and run.kind == "ruling"
+
+
+def test_a_second_kind_the_question_accepts_holds(tmp_path):
+    run = suite.observe(QUESTION, 1, *_recorded_turn(tmp_path))
+    run.kind = "walkthrough"
+    assert suite.check(QUESTION, run, run.envelope)["kind"] is False
+    both = {**QUESTION, "expect": {**QUESTION["expect"], "kind_also": ["walkthrough"]}}
+    assert suite.check(both, run, run.envelope)["kind"] is True
