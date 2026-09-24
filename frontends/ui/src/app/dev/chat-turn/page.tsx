@@ -399,7 +399,7 @@ const FIRE_SOURCES = `## Quellen
 // A Markdown-first answer: the shape the static prompt's STRUCTURE block
 // teaches — the first line answers with the value in bold, ### headings that
 // state, a table per set of cases with a Fundstelle column, a Status column in
-// the fixed vocabulary (rendered as chips), and a Verfahren as numbered steps.
+// the fixed vocabulary (rendered as chips), a drawing where the Verfahren forks, and a task list.
 // Everything here used to be a typed_table, requirement_checklist and
 // deadline_timeline card. The values show the form, not the Richtlinie: read
 // Tabelle 1b before quoting any of them.
@@ -426,11 +426,18 @@ const structuredAnswer = `Tragende Bauteile in Gebäudeklasse 5 brauchen **R 90*
 | Wohnungstrennwände | REI 60 | nicht erfüllt | [1] |
 | Dachdecke | nicht beschrieben | offen | [1] |
 
-### Wenn die Trennwände abweichen sollen
+### Eine Abweichung entscheidet die Behörde
 
-1. Abweichung im Brandschutzkonzept begründen, gleichwertiges Schutzniveau nachweisen [1].
-2. Mit dem Bauansuchen einreichen, die Behörde entscheidet **im Baubewilligungsverfahren** [2].
-3. Ohne Bewilligung der Abweichung gilt **REI 90**.
+\`\`\`mermaid
+flowchart TD
+  K["Abweichung im Brandschutzkonzept begründen"] --> E["Mit dem Bauansuchen einreichen"]
+  E --> B{"Gleichwertiges Schutzniveau?"}
+  B -->|ja| J["Bewilligt mit der Baubewilligung"]
+  B -->|nein| N["REI 90 ausführen"]
+\`\`\`
+
+- [x] Brandschutzkonzept, Stand 3
+- [ ] Nachweis der Gleichwertigkeit für die Wohnungstrennwände
 
 ${FIRE_SOURCES}`
 
@@ -859,7 +866,7 @@ function AnswerLayer({ variant }: { variant: AnswerVariant }) {
   if (variant === 'structured') {
     return (
       <AnswerTurn
-        label="↓ MARKDOWN FIRST — tables with a Fundstelle column, status words as chips, Verfahren as numbered steps; no card"
+        label="↓ MARKDOWN FIRST — tables with a Fundstelle column, status words as chips, a drawing where the answer forks, a task list; no card"
         question={structuredQuestion}
         answer={structuredAnswer}
         citations={fireCitations}
