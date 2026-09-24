@@ -192,6 +192,13 @@ two rows that still escalate here, Tragwerk and Schallschutz, ask about OIB-RL
 name. And a skill the turn decision picks wrongly costs a round: "Bauklasse I"
 chose `gebaeudeklasse`, and the agent loaded `bebauung` itself.
 
+**The prose streams** (ADR-0066, core set, two runs each): every check held
+but one `kind` split the variants row already had, and the new "First text s"
+column is what the reader waits for now: 19-35 s on the five single-answer
+rows against walls of 24-40 s, the first words 4-9 s before the turn ends,
+with the rest written while they are read. The thinking before the final
+call's first token is the block left in front of them.
+
 Decided against: a reasoning level that changes from round to round (e.g.
 `medium` for the first round, `low` after). A turn runs at ONE level, the one
 its role is configured with; the level is a property of the run, not of a
