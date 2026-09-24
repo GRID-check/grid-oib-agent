@@ -234,3 +234,25 @@ def test_the_first_text_column_reads_the_final_call(tmp_path):
     assert run.first_text_s == 21.5
     report = suite.render([run], [], {"started": "t", "runs_per_question": 1})
     assert "| First text s |" in report and "| 21.5 |" in report
+
+
+def test_an_empty_inventory_refuses_to_measure(tmp_path):
+    # A suite started outside the ingest's directory read ./summaries.db as an
+    # empty file and measured an agent with no inventory, no family overviews
+    # and no quote checks, 7 s per turn slower, without an error.
+    import sqlite3
+
+    empty = tmp_path / "empty.db"
+    assert suite.inventory_ready(empty) is False
+
+    filled = tmp_path / "filled.db"
+    with sqlite3.connect(filled) as db:
+        db.execute("CREATE TABLE document_metadata (collection TEXT, filename TEXT)")
+        db.execute("INSERT INTO document_metadata VALUES ('oib_knowledge', 'oib-rl_2_ausgabe_mai_2023.pdf')")
+    assert suite.inventory_ready(filled) is True
+
+
+def test_the_inventory_path_is_resolved_absolutely(monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("AIQ_SUMMARY_DB", raising=False)
+    assert suite.inventory_database() == tmp_path / "summaries.db"

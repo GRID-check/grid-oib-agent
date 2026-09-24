@@ -434,6 +434,40 @@ def _corpus_ready() -> bool:
         return False
 
 
+def inventory_database() -> Path | None:
+    """The SQLite file the runs will read the document inventory from, or None when it is not SQLite.
+
+    ``AIQ_SUMMARY_DB`` or the config's default, ``./summaries.db``, which is
+    relative to the working directory: a suite started anywhere but where the
+    ingest ran reads an empty inventory.
+    """
+    url = os.environ.get("AIQ_SUMMARY_DB") or "sqlite+aiosqlite:///./summaries.db"
+    prefix = "sqlite+aiosqlite:///"
+    return Path(url[len(prefix) :]).resolve() if url.startswith(prefix) else None
+
+
+def inventory_ready(path: Path | None) -> bool:
+    """Whether the runs will see the corpus's documents: an inventory, family overviews, quote checks.
+
+    Not optional. Without it every run answers blind to what the corpus holds
+    and verifies no quote, and does it without an error: a worktree run once
+    measured 38.5 s per turn against 31.3 s for the same code with the
+    inventory, and every search-round number with it.
+    """
+    if path is None:
+        return True  # not SQLite: the deployment's own store, not ours to check
+    import sqlite3
+
+    try:
+        with sqlite3.connect(f"file:{path}?mode=ro", uri=True) as db:
+            (count,) = db.execute(
+                "SELECT count(*) FROM document_metadata WHERE collection = 'oib_knowledge'"
+            ).fetchone()
+    except sqlite3.Error:
+        return False
+    return count > 0
+
+
 def run_suite(
     questions: list[dict], runs: int, out: Path, workers: int, overrides: list[list[str]] | None
 ) -> list[Run]:
@@ -495,6 +529,16 @@ def main(argv: list[str] | None = None) -> int:
     if not _corpus_ready():
         print(
             "The OIB corpus is not ingested into AIQ_CHROMA_DIR. Put the PDFs in data/oib and run with --ingest.",
+            file=sys.stderr,
+        )
+        return 2
+
+    database = inventory_database()
+    if not inventory_ready(database):
+        print(
+            f"The document inventory at {database} lists no corpus documents: runs would have no inventory, "
+            "no family overviews and no quote checks. Point AIQ_SUMMARY_DB at the database the ingest wrote "
+            "(sqlite+aiosqlite:////absolute/path/summaries.db).",
             file=sys.stderr,
         )
         return 2

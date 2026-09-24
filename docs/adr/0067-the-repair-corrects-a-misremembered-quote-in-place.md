@@ -107,7 +107,11 @@ without `card_repair_llm` the repair is off.
   question was answered with a question back (which Bundesland), and two
   `kind` checks flipped. Wall and final-call medians moved by about a second
   (42.0 to 42.7 s, 18.4 to 19.6 s). What the suite cannot show yet is a
-  misquote: it had none to repair.
+  misquote: it had none to repair. Both runs ran from worktrees, whose relative
+  `./summaries.db` was empty: no document inventory and no family overviews,
+  equally on both sides, so the comparison holds and the absolute seconds do
+  not (31.3 s per turn with the inventory, 38.5 s without). The suite now
+  refuses to start on an empty inventory.
 
 ## More Information
 
