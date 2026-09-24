@@ -31,6 +31,20 @@ overrides = [
 ]
 
 [[package]]
+name = "a2ui-core"
+version = "0.1.1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "jsonschema" },
+    { name = "pydantic" },
+    { name = "referencing" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/d9/51/477ea2d173f77d54f1a3b963fafc811a228427d077442bc7b6cc7409787d/a2ui_core-0.1.1.tar.gz", hash = "sha256:591df9357cd84a3ccf409132a741eb1fbb060be73de0eebb3dcfdd4c7b33180d", size = 84241, upload-time = "2026-07-08T03:49:36.958Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/2e/14/2344f6edc4b381db477d4387a28d1c84a56614962cc16f55074be981a12a/a2ui_core-0.1.1-py3-none-any.whl", hash = "sha256:8857e1942b8b1bab530efa0c20f6f9048c5771b47b3b98b3bc1ca28d39480069", size = 75389, upload-time = "2026-07-08T03:49:35.698Z" },
+]
+
+[[package]]
 name = "accessible-pygments"
 version = "0.0.5"
 source = { registry = "https://pypi.org/simple" }
@@ -153,6 +167,7 @@ name = "aiq-agent"
 version = "2.0.0"
 source = { editable = "." }
 dependencies = [
+    { name = "a2ui-core" },
     { name = "aiofiles" },
     { name = "aiosqlite" },
     { name = "asyncpg" },
@@ -223,6 +238,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "a2ui-core", specifier = "==0.1.1" },
     { name = "aiofiles", specifier = ">=23.0.0" },
     { name = "aiosqlite", specifier = ">=0.19.0" },
     { name = "asyncpg", specifier = ">=0.29.0" },

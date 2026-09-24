@@ -1,0 +1,17 @@
+---
+features:
+  - >
+    Eine Antwort kann mehrere Karten zusammenstellen: Varianten, die Sie
+    vergleichen (zwei Entwurfslösungen, zwei Bundesländer, Bestand und
+    Umbau), erscheinen als Reiter, zusammengehörige Karten auf breiten
+    Bildschirmen nebeneinander. Im Word-Export stehen alle Varianten
+    untereinander, jede mit ihrem Reitertitel.
+fixes:
+  - >
+    Skizzen sind auf dem Telefon lesbar: Maße und Beschriftungen erscheinen
+    nicht mehr in 5 bis 7 Pixel Größe. Breite Tabellen, Vergleiche und
+    Diagramme zeigen am Rand an, dass es seitlich weitergeht.
+  - >
+    Diagramme erscheinen im dunklen Modus durchgehend dunkel; bisher
+    wechselten mehrere Diagramme in einer Antwort ab dem dritten in die
+    helle Palette, und Achsen, Titel und Legenden wurden unsichtbar.

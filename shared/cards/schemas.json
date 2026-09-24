@@ -4313,6 +4313,45 @@
       "title": "SummaryCard",
       "type": "object"
     },
+    "SurfaceCard": {
+      "description": "Several cards composed into one A2UI surface: variants as tabs, related cards side by side.\n\n`components` is an A2UI v0.9 component list (a2ui.org): flat, each entry\n`{\"id\", \"component\", \u2026props}`, children referenced by id, exactly one\n`\"id\": \"root\"`. Containers are `Row` and `Column` (`children`: ids) and\n`Tabs` (`tabs`: `[{title, child}]`); every other component is a card, named\nby its type, with that card's own fields as props. Validated twice: the\nstructure by `a2ui-core` (unique ids, a root, no dangling reference, no\ncycle, no orphan), each card by its own model.",
+      "properties": {
+        "components": {
+          "description": "The A2UI component list: one container with id 'root' (Row, Column or Tabs) and the cards it holds, each `{\"id\", \"component\": <card type>, \u2026that card's fields}`.",
+          "items": {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "minItems": 3,
+          "title": "Components",
+          "type": "array"
+        },
+        "title": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Optional heading over the whole surface, e.g. 'Zwei Varianten des zweiten Fluchtwegs'",
+          "title": "Title"
+        },
+        "type": {
+          "const": "surface",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "components"
+      ],
+      "title": "SurfaceCard",
+      "type": "object"
+    },
     "SurfacedDocument": {
       "description": "One real document surfaced by a corpus search, with its match evidence.",
       "properties": {
@@ -4736,6 +4775,7 @@
       "setback_plan": "#/$defs/SetbackPlanCard",
       "stair_diagram": "#/$defs/StairDiagramCard",
       "summary": "#/$defs/SummaryCard",
+      "surface": "#/$defs/SurfaceCard",
       "task_created": "#/$defs/TaskCreatedCard",
       "thermal_envelope": "#/$defs/ThermalEnvelopeCard",
       "typed_table": "#/$defs/TypedTableCard",
@@ -4875,6 +4915,9 @@
     },
     {
       "$ref": "#/$defs/IfcModelPickerCard"
+    },
+    {
+      "$ref": "#/$defs/SurfaceCard"
     }
   ]
 }

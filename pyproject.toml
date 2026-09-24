@@ -40,6 +40,7 @@ dependencies = [
     "cryptography>=50.0.0,<51",
     "pillow>=12.2.0,<13",
     "pygments>=2.20.0,<3",
+    "a2ui-core==0.1.1",
 ]
 
 [project.optional-dependencies]

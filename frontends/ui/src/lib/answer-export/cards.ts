@@ -143,8 +143,12 @@ const VOCABULARIES = new Map<string, Set<string>>(
  *     mermaid under „Origin“ as if the answer had meant to state it.
  *   - `chrome` — the app addressing the reader, not the answer recording a
  *     finding. Emitted as nothing at all.
+ *   - `composite` — a `surface` (ADR-0065): cards composed side by side or in
+ *     tabs. A document has neither, so its cards are exported in document
+ *     order, each tab's title set above its card — every variant the reader
+ *     could open on screen is on the page.
  */
-type ExportKind = 'content' | 'live' | 'diagram' | 'chrome'
+type ExportKind = 'content' | 'live' | 'diagram' | 'chrome' | 'composite'
 
 /**
  * ⚠️ ADDING A CARD TYPE? YOU MUST CLASSIFY IT HERE. ⚠️
@@ -244,6 +248,7 @@ export const CARD_EXPORT: Record<GridCard['type'], ExportKind> = {
   elevator_requirement: 'content',
   parking_requirement: 'content',
   document_grid: 'content',
+  surface: 'composite',
 }
 
 /**
@@ -748,6 +753,7 @@ export function cardBlocks(value: unknown, t: Translator): DocBlock[] {
   // with no questions under it would still put the app's own chrome inside the
   // findings section.
   if (kind === 'chrome') return []
+  if (kind === 'composite') return surfaceBlocks(card, t)
 
   const heading: DocBlock = { kind: 'heading', level: 3, text: cardHeading(card, type, t) }
 
@@ -875,6 +881,39 @@ export function cardBlocks(value: unknown, t: Translator): DocBlock[] {
 
   body.flush()
   return compact([heading, ...body.blocks])
+}
+
+/**
+ * A `surface`'s cards, walked from its root in document order. A tab's title
+ * is set above its card; Row and Column contribute nothing of their own.
+ */
+function surfaceBlocks(card: Record<string, unknown>, t: Translator): DocBlock[] {
+  const components = Array.isArray(card.components) ? card.components.filter(isRecord) : []
+  const byId = new Map(components.map((component) => [String(component.id), component]))
+  const title = typeof card.title === 'string' && card.title.trim() ? card.title.trim() : null
+  const blocks: DocBlock[] = title ? [{ kind: 'heading', level: 3, text: title }] : []
+  const seen = new Set<string>()
+  const walk = (id: string) => {
+    const component = byId.get(id)
+    if (!component || seen.has(id)) return
+    seen.add(id)
+    const name = String(component.component)
+    if (name === 'Row' || name === 'Column') {
+      for (const child of Array.isArray(component.children) ? component.children : []) walk(String(child))
+      return
+    }
+    if (name === 'Tabs') {
+      for (const tab of Array.isArray(component.tabs) ? component.tabs.filter(isRecord) : []) {
+        if (typeof tab.title === 'string') blocks.push({ kind: 'paragraph', runs: [{ text: tab.title, bold: true }] })
+        walk(String(tab.child))
+      }
+      return
+    }
+    const { id: _id, component: _component, ...props } = component
+    blocks.push(...cardBlocks({ ...props, type: name }, t))
+  }
+  walk('root')
+  return blocks
 }
 
 /** Render every card on an answer, in the order the answer emitted them. */

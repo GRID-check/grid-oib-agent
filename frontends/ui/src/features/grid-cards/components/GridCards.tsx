@@ -51,6 +51,7 @@ import {
 } from './IfcDataCards'
 import type { SurfacedDocument } from '@/features/documents/hooks/use-surfaced-documents'
 import { FadeIn } from '@/components/motion'
+import { A2uiCard } from '@/features/a2ui/A2uiCard'
 
 interface GridCardsProps {
   /**
@@ -109,6 +110,12 @@ interface GridCardItemProps {
 }
 
 /**
+ * One card, drawn directly: the per-type dispatch.
+ *
+ * Since ADR-0065 this is what A2UI's catalog calls for each card component
+ * (`GridCardItem` below hands it to `A2uiCard`), and what a card falls back to
+ * when A2UI will not draw it. Callers draw cards with `GridCardItem`.
+ *
  * One card, dispatched on its type.
  *
  * Split out of the stack so a card can also be drawn ALONE, wherever the answer
@@ -117,7 +124,7 @@ interface GridCardItemProps {
  * card has no position in a list to be inferred from, and its identity must
  * still be the one the persisted decisions were keyed under.
  */
-export const GridCardItem: FC<GridCardItemProps> = ({
+export const GridCardView: FC<GridCardItemProps> = ({
   card,
   index,
   projectId,
@@ -127,6 +134,27 @@ export const GridCardItem: FC<GridCardItemProps> = ({
   // Doubles as the React key and as the identity an interactive card's
   // persisted decision is stored under, so the two cannot drift apart.
   const key = cardKey(card, index)
+
+  if (card.type === 'surface') {
+    // A composition has no single view: it is A2UI's to draw (ADR-0065).
+    // Reached only when a caller hands a surface to the view directly rather
+    // than through `GridCardItem`.
+    return (
+      <A2uiCard
+        card={card}
+        surfaceKey={`${messageId ?? 'card'}:${index}`}
+        render={(leaf) => (
+          <GridCardView
+            card={leaf}
+            index={index}
+            projectId={projectId}
+            messageId={messageId}
+            decisionsMustPersist={decisionsMustPersist}
+          />
+        )}
+      />
+    )
+  }
 
   if (card.type === 'summary') {
     return (
@@ -754,6 +782,31 @@ export const GridCardItem: FC<GridCardItemProps> = ({
 
   return null
 }
+
+/**
+ * One card slot, drawn through A2UI (ADR-0065).
+ *
+ * A lone card or a composed `surface`: `A2uiCard` turns it into an A2UI
+ * surface on the Piloti catalog and draws it, and every card component in that
+ * catalog comes back here, to `GridCardView`, for the pixels. Props and
+ * identity are unchanged, so every caller keeps working and every stored
+ * message renders through the same path.
+ */
+export const GridCardItem: FC<GridCardItemProps> = ({ card, index, projectId, messageId, decisionsMustPersist }) => (
+  <A2uiCard
+    card={card}
+    surfaceKey={`${messageId ?? 'card'}:${index}`}
+    render={(leaf) => (
+      <GridCardView
+        card={leaf}
+        index={index}
+        projectId={projectId}
+        messageId={messageId}
+        decisionsMustPersist={decisionsMustPersist}
+      />
+    )}
+  />
+)
 
 /**
  * Renders a list of Grid cards in a vertical stack: the structured cards

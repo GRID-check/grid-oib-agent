@@ -154,6 +154,8 @@ export const ifcDiffCardSchema = z.object({ "base_model_file": z.string().min(1)
 
 export const ifcModelPickerCardSchema = z.object({ "note": z.union([z.string(), z.null()]).describe("Optional one-line clarification under the tiles").default(null), "title": z.string().min(1).describe("Short heading, e.g. 'Welches Modell möchten Sie öffnen?'"), "type": z.literal("ifc_model_picker") }).describe("A clickable list of the project's IFC models — pick one to open in the viewer.\n\nEmit for \"zeig mir das Modell\" / \"welches Modell\" when the user wants to SEE\nor OPEN the building and the project may hold several models. The old answer\nto that was a prose bullet list of file names the user had to read and retype;\nthis card renders each model as a tile that opens the BIM viewer on click,\nclient-side, with no second turn.\n\nIt carries only WHICH view to offer — never a list of file names. The renderer\nreads the project's actual models from the live model list (the same source\nthe viewer resolves against), so the model here cannot name a file that does\nnot exist: there is nothing to invent. An empty project renders nothing and\nthe written answer stands on its own, which is the fail-open the prose gave.")
 
+export const surfaceCardSchema = z.object({ "components": z.array(z.record(z.string(), z.any())).min(3).describe("The A2UI component list: one container with id 'root' (Row, Column or Tabs) and the cards it holds, each `{\"id\", \"component\": <card type>, …that card's fields}`."), "title": z.union([z.string(), z.null()]).describe("Optional heading over the whole surface, e.g. 'Zwei Varianten des zweiten Fluchtwegs'").default(null), "type": z.literal("surface") }).describe("Several cards composed into one A2UI surface: variants as tabs, related cards side by side.\n\n`components` is an A2UI v0.9 component list (a2ui.org): flat, each entry\n`{\"id\", \"component\", …props}`, children referenced by id, exactly one\n`\"id\": \"root\"`. Containers are `Row` and `Column` (`children`: ids) and\n`Tabs` (`tabs`: `[{title, child}]`); every other component is a card, named\nby its type, with that card's own fields as props. Validated twice: the\nstructure by `a2ui-core` (unique ids, a root, no dangling reference, no\ncycle, no orphan), each card by its own model.")
+
 export const gridCardSchema = z.discriminatedUnion('type', [
   summaryCardSchema,
   legalBasisCardSchema,
@@ -199,4 +201,5 @@ export const gridCardSchema = z.discriminatedUnion('type', [
   ifcElementCardSchema,
   ifcDiffCardSchema,
   ifcModelPickerCardSchema,
+  surfaceCardSchema,
 ])

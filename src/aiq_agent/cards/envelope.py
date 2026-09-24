@@ -75,6 +75,25 @@ ENVELOPE_REFUSAL = (
     "answer envelope (verdict, summary, takeaways, callout)."
 )
 
+#: Composition (ADR-0065). Taught as prose plus one worked shape rather than
+#: through `render_card_details`: the model's `components` field is an A2UI
+#: list of objects, and the rendered field line ("list[object]") says nothing
+#: a model could fill it from.
+_COMPOSE_RULE = (
+    "COMPOSE. Cards that belong together travel as ONE `surface` card, an A2UI v0.9 component "
+    "list: variants the reader compares (two designs, two Bundesländer, Bestand against Umbau) "
+    "as `Tabs`, one tab per variant; cards that read together as `Row` (side by side where the "
+    'screen is wide) or `Column` (in order). The container has id "root"; every other component '
+    "is a card named by its type, carrying that card's own fields; children are referenced by id. "
+    "Two to six content cards inside, never an interactive or tool card, and a surface counts as "
+    "one card against the ceiling. A surface of one card is that card on its own.\n"
+    '{"type": "surface", "title": "Zweiter Fluchtweg — zwei Varianten", "components": ['
+    '{"id": "root", "component": "Tabs", "tabs": [{"title": "Außentreppe", "child": "a"}, '
+    '{"title": "Zweites Treppenhaus", "child": "b"}]}, '
+    '{"id": "a", "component": "process_map", "title": "…", "steps": […]}, '
+    '{"id": "b", "component": "process_map", "title": "…", "steps": […]}]}'
+)
+
 #: The marker rule the envelope's cards carry. Stated once, here, and rendered
 #: into the taught schema: it is about the ANSWER (where a card is drawn), and
 #: the envelope is where the answer is written.
@@ -111,6 +130,7 @@ def render_envelope_cards_contract() -> str:
             )
             if shapes
             else "",
+            _COMPOSE_RULE,
             _MARKER_RULE,
         )
         if part

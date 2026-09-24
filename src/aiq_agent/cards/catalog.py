@@ -436,6 +436,36 @@ table, cut the card."""
 # instead of discovering it through repeated validation failures. Keys are the
 # card ``type`` values; values are validated in the card model tests.
 CARD_EXAMPLES: dict[str, dict] = {
+    # The one card whose shape is a GRAPH (ADR-0065): a container with id
+    # "root" and the cards it holds, each referenced by id. The example is the
+    # shape the COMPOSE rule in `cards/envelope.py` teaches, filled in.
+    "surface": {
+        "type": "surface",
+        "title": "Tragende Bauteile — nach Gebäudeklasse",
+        "components": [
+            {
+                "id": "root",
+                "component": "Tabs",
+                "tabs": [{"title": "GK 4", "child": "gk4"}, {"title": "GK 5", "child": "gk5"}],
+            },
+            {
+                "id": "gk4",
+                "component": "legal_basis",
+                "law": "OIB-Richtlinie 2",
+                "article": "3.1",
+                "section": "Tabelle 1b",
+                "summary": "In GK 4 genügt REI 60 für tragende Bauteile oberirdisch.",
+            },
+            {
+                "id": "gk5",
+                "component": "legal_basis",
+                "law": "OIB-Richtlinie 2",
+                "article": "3.1",
+                "section": "Tabelle 1b",
+                "summary": "In GK 5 verlangen tragende Bauteile R 90.",
+            },
+        ],
+    },
     # The one card whose element ids must be REAL: they come from ifc_query in
     # the same turn, and an invented GlobalId highlights nothing. Worth an
     # example so the model sees that `global_ids` is a list of opaque strings it

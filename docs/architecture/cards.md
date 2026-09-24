@@ -671,6 +671,39 @@ lines of prose.
 The frontend validates the wire cards (`validateGridCards`) and renders them
 through the `features/grid-cards/` component set — one renderer per card type.
 
+### Every card is drawn through A2UI
+
+Since ADR-0065 a card reaches the screen through
+[A2UI](https://a2ui.org) v0.9: `GridCardItem` hands it to `A2uiCard`
+(`features/a2ui/`), which turns it into an A2UI surface (a stored card is a
+one-component surface whose root is the card) and draws it with
+`@a2ui/react` on the Piloti catalog. The catalog registers one A2UI component
+per card type, named by the type and validated by that card's generated Zod
+schema, plus `Row`, `Column` and `Tabs` in the basic catalog's shapes. Each
+card component calls back into `GridCardView`, the per-type dispatch that used
+to be `GridCardItem`, so the pixels are the same components as before.
+
+- **Composition.** A `surface` card carries an A2UI component list: a
+  container with id `root` and the content cards it holds. `SurfaceCard` in
+  `cards/models.py` checks the structure with `a2ui-core` (unique ids, a root,
+  no dangling reference, no cycle, no orphan) and each card with its own
+  model; tool, interactive and envelope cards may not be leaves. The model is
+  taught the shape in the envelope contract's COMPOSE paragraph. A `Row` sits
+  side by side only above 44rem of its own width, so in the answer column it
+  stacks; `Tabs` show one variant at a time.
+- **Never the library's placeholder.** `A2uiSurface` cannot render on the
+  server and draws "[Loading root...]" for its first frame, so the card is
+  drawn directly until A2UI's copy, mounted invisibly behind it, reports its
+  first component from a layout effect; the two swap before paint.
+- **Never a card lost to the library.** `preflight` checks every component
+  against the catalog before A2UI sees it (A2UI would draw an unknown one as
+  red text), and a render that throws inside A2UI falls back to the direct
+  component. A refused surface falls back to its cards stacked in order.
+- **Export** walks a surface from its root and prints its cards in order, a
+  tab's title above its card (`answer-export/cards.ts`, kind `composite`).
+- `/dev/a2ui` draws every fixture and two compositions through this path;
+  each section says whether A2UI drew it.
+
 ### Where a card lands: `[[card:N]]`
 
 Cards used to be drawn as a block, all of them, after the whole answer — so the

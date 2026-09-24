@@ -2712,6 +2712,164 @@ class IfcModelPickerCard(CardModel):
     note: str | None = Field(default=None, description="Optional one-line clarification under the tiles")
 
 
+# ── A composed surface (A2UI) ────────────────────────────────────────────────
+# ADR-0065. A card is drawn through A2UI; this is the one card whose payload
+# IS an A2UI component list, so an answer can put cards in relation.
+
+#: The layout components a surface may use, named and shaped as in A2UI's
+#: basic catalog (v0.9): Row and Column take `children`, Tabs takes `tabs`.
+SURFACE_LAYOUTS: frozenset[str] = frozenset({"Row", "Column", "Tabs"})
+
+#: Which props of each layout component hold child ids, in `a2ui-core`'s shape:
+#: (single-reference fields, list-reference fields). A tab's `child` is one
+#: level down, so `_tabs_as_references` lifts the tabs' children into
+#: `tabs[].child` for the check.
+_SURFACE_REF_FIELDS: dict[str, tuple[set[str], set[str]]] = {
+    "Row": (set(), {"children"}),
+    "Column": (set(), {"children"}),
+    "Tabs": (set(), {"tabs[].child"}),
+}
+
+#: Card types that may not be a leaf. System cards are pushed by tools, the
+#: envelope's own fields are not cards, and an interactive card's decision is
+#: keyed by its position in the message (`card-decision.ts`), which a card
+#: inside a surface does not have. A surface inside a surface is a Column.
+SURFACE_EXCLUDED_LEAVES: frozenset[str] = frozenset(
+    {
+        "surface",
+        "summary",
+        "verdict_header",
+        "key_takeaways",
+        "callout",
+        "follow_ups",
+        "memory_proposal",
+        "document_grid",
+        "document_draft",
+        "task_created",
+        "file_operation_proposal",
+        "project_profile_patch",
+    }
+)
+
+_SURFACE_MAX_LEAVES = 6
+_SURFACE_MAX_CHILDREN = 4
+
+
+def _check_layout(component: dict[str, Any]) -> None:
+    """A layout component's own props: static child ids, a sane count, nothing else."""
+    name, component_id = component["component"], component["id"]
+    if name in ("Row", "Column"):
+        extra = set(component) - {"id", "component", "children", "justify", "align"}
+        children = component.get("children")
+        if not isinstance(children, list) or not all(isinstance(child, str) for child in children):
+            raise ValueError(f"'{component_id}' ({name}): `children` must be a list of component ids.")
+        if not 2 <= len(children) <= _SURFACE_MAX_CHILDREN:
+            raise ValueError(
+                f"'{component_id}' ({name}): {len(children)} children; a {name} holds 2 to "
+                f"{_SURFACE_MAX_CHILDREN}. One child is that child, and more do not fit a column."
+            )
+    else:
+        extra = set(component) - {"id", "component", "tabs"}
+        tabs = component.get("tabs")
+        if not isinstance(tabs, list) or not 2 <= len(tabs) <= 6:
+            raise ValueError(f"'{component_id}' (Tabs): `tabs` must list 2 to 6 tabs.")
+        for tab in tabs:
+            if not isinstance(tab, dict) or set(tab) != {"title", "child"}:
+                raise ValueError(f"'{component_id}' (Tabs): every tab is exactly {{title, child}}.")
+            if not isinstance(tab["title"], str) or not tab["title"].strip() or not isinstance(tab["child"], str):
+                raise ValueError(f"'{component_id}' (Tabs): a tab's `title` is text and its `child` an id.")
+    if extra:
+        raise ValueError(f"'{component_id}' ({name}) does not take {sorted(extra)}.")
+
+
+def _checked_leaf(component: dict[str, Any]) -> dict[str, Any]:
+    """A card component, validated as the card it is; returned normalised, id and name kept."""
+    name, component_id = component["component"], component["id"]
+    if name in SURFACE_EXCLUDED_LEAVES:
+        raise ValueError(f"'{component_id}': a '{name}' cannot sit inside a surface.")
+    props = {key: value for key, value in component.items() if key not in ("id", "component")}
+    try:
+        card = grid_card_adapter.validate_python({**props, "type": name})
+    except Exception as exc:  # the adapter's own clauses, prefixed with where they happened
+        from aiq_agent.common.tool_errors import render_error_detail
+
+        raise ValueError(f"'{component_id}' ({name}): {render_error_detail(exc)}") from exc
+    normalised = card.model_dump(exclude_none=True)
+    normalised.pop("type")
+    return {"id": component_id, "component": name, **normalised}
+
+
+def _tabs_as_references(component: dict[str, Any]) -> dict[str, Any]:
+    """Tabs' child ids where `a2ui-core` looks for a single reference."""
+    if component.get("component") != "Tabs":
+        return component
+    return {**component, "tabs[].child": [tab["child"] for tab in component["tabs"]]}
+
+
+class SurfaceCard(CardModel):
+    """Several cards composed into one A2UI surface: variants as tabs, related cards side by side.
+
+    `components` is an A2UI v0.9 component list (a2ui.org): flat, each entry
+    `{"id", "component", …props}`, children referenced by id, exactly one
+    `"id": "root"`. Containers are `Row` and `Column` (`children`: ids) and
+    `Tabs` (`tabs`: `[{title, child}]`); every other component is a card, named
+    by its type, with that card's own fields as props. Validated twice: the
+    structure by `a2ui-core` (unique ids, a root, no dangling reference, no
+    cycle, no orphan), each card by its own model.
+    """
+
+    type: Literal["surface"]
+    title: str | None = Field(
+        default=None,
+        description="Optional heading over the whole surface, e.g. 'Zwei Varianten des zweiten Fluchtwegs'",
+    )
+    components: list[dict[str, Any]] = Field(
+        min_length=3,
+        description=(
+            "The A2UI component list: one container with id 'root' (Row, Column or Tabs) and the "
+            'cards it holds, each `{"id", "component": <card type>, …that card\'s fields}`.'
+        ),
+    )
+
+    @model_validator(mode="after")
+    def _is_a_valid_a2ui_surface(self) -> "SurfaceCard":
+        from a2ui.core.validating.integrity_checker import validate_component_integrity
+        from a2ui.core.validating.topology_analyzer import analyze_topology
+
+        for index, component in enumerate(self.components):
+            if not isinstance(component.get("id"), str) or not isinstance(component.get("component"), str):
+                raise ValueError(f"components.{index} needs a string `id` and a string `component`.")
+        by_id = {component["id"]: component for component in self.components}
+        root = by_id.get("root")
+        if root is None or root["component"] not in SURFACE_LAYOUTS:
+            raise ValueError(
+                "The component with id 'root' must be a Row, Column or Tabs; a surface of one card "
+                "is that card, emitted on its own."
+            )
+
+        checked: list[dict[str, Any]] = []
+        for component in self.components:
+            if component["component"] in SURFACE_LAYOUTS:
+                _check_layout(component)
+                checked.append(component)
+            else:
+                checked.append(_checked_leaf(component))
+        leaves = sum(1 for component in checked if component["component"] not in SURFACE_LAYOUTS)
+        if not 2 <= leaves <= _SURFACE_MAX_LEAVES:
+            raise ValueError(f"A surface holds 2 to {_SURFACE_MAX_LEAVES} cards; this one holds {leaves}.")
+
+        # `a2ui-core` reads references by field name; a tab's child sits one
+        # level down, so it is lifted into a list field for the check.
+        structural = [_tabs_as_references(component) for component in checked]
+        try:
+            validate_component_integrity(structural, _SURFACE_REF_FIELDS)
+            analyze_topology(structural, _SURFACE_REF_FIELDS)
+        except Exception as exc:
+            raise ValueError(f"The component list is not a valid A2UI surface: {exc}") from exc
+        self.components = checked
+        return self
+
+
 GridCard = (
     SummaryCard
     | LegalBasisCard
@@ -2757,6 +2915,7 @@ GridCard = (
     | IfcElementCard
     | IfcDiffCard
     | IfcModelPickerCard
+    | SurfaceCard
 )
 
 # Discriminated-union adapter — the canonical validator for a raw card dict.

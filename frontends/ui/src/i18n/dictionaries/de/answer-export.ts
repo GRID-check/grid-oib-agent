@@ -110,6 +110,7 @@ export const answerExport: typeof en.answerExport = {
     document_checklist: 'Unterlagen',
     deadline_timeline: 'Fristen',
     diagram: 'Diagramm',
+    surface: 'Gegenüberstellung',
     change_impact: 'Auswirkung',
     ifc_viewer: 'Modellansicht',
     ifc_compliance: 'Modellprüfung',
