@@ -88,8 +88,15 @@ describe('when it draws', () => {
     // compute their geometry so they cannot disagree with their own numbers; a
     // model-authored diagram has no such guarantee, so it says so.
     render(<MermaidDiagram source={SOURCE} />)
-    await waitFor(() => expect(screen.getByText(/no dimensions are claimed/i)).toBeInTheDocument())
-    expect(screen.getByTestId('mermaid-diagram').querySelector('svg')).not.toBeNull()
+    await waitFor(
+      () => expect(screen.getByTestId('mermaid-diagram')).toHaveAttribute('data-state', 'drawn'),
+      { timeout: 8000 }
+    )
+    expect(screen.getByText(/no dimensions are claimed/i)).toBeInTheDocument()
+    // This product's own view when the parser reads a model, mermaid's SVG
+    // otherwise: either way, a drawing and not the source.
+    const figure = screen.getByTestId('mermaid-diagram')
+    expect(figure.hasAttribute('data-view') || figure.querySelector('svg') !== null).toBe(true)
   })
 
   it('offers no filing action outside a project', async () => {

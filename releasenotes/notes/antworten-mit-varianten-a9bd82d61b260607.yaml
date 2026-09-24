@@ -1,6 +1,14 @@
 ---
 features:
   - >
+    Diagramme in Antworten sind neu gestaltet: Abläufe erscheinen als Karten
+    mit beschrifteten Pfeilen, Entscheidungen sind hervorgehoben, ein
+    Überblick über ein Regelwerk wird als Baum gezeigt (auf dem Telefon als
+    Gliederung), wer wem was übergibt als Spalten je Beteiligtem, Termine
+    als Balken auf einer Zeitachse und Anteile als Balken mit Prozentangabe.
+    Offene und erledigte Punkte einer Aufgabenliste sind als Markierungen
+    statt als Kontrollkästchen dargestellt.
+  - >
     Eine Antwort kann mehrere Karten zusammenstellen: Varianten, die Sie
     vergleichen (zwei Entwurfslösungen, zwei Bundesländer, Bestand und
     Umbau), erscheinen als Reiter, zusammengehörige Karten auf breiten

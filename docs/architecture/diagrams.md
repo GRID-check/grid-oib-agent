@@ -346,6 +346,29 @@ The card stays valid and rendered for stored messages and for surfaces with
 no answer to hold a fence (deep research's `emit_card`). Its grammar set and
 the prompt's are the same six.
 
+### Drawn by this product, parsed by mermaid
+
+Since the second pass on 2026-09-24 a fence is no longer drawn as mermaid's
+SVG. Mermaid is the PARSER: `parse-mermaid.ts` hands the source to
+`mermaid.mermaidAPI.getDiagramFromText`, `model.ts` reads the grammar's
+database into one of five typed models, and `views/diagram-views.tsx` draws
+it in this product's design — the reasoning for each is in
+[`docs/design/answer-visuals.md`](../design/answer-visuals.md):
+
+| model | from | drawn with |
+|---|---|---|
+| flow | `flowchart`, `stateDiagram-v2` | `@xyflow/react` + `@dagrejs/dagre`, card-style nodes, dagre-routed edges |
+| map | `mindmap` | the same canvas as a left-to-right tree; an outline below 34rem |
+| handoff | `sequenceDiagram` | HTML: a column per party, a row per hand-over; a numbered list on a phone |
+| schedule | `gantt` | HTML: bars on a date axis, milestones as marks |
+| shares | `pie` | HTML: horizontal bars with the share written out |
+
+Parsing and rendering share one lock (`withMermaid`): the grammar databases
+are module-level singletons, as is the render configuration. A source the
+parser refuses, or a grammar without a view, is drawn as mermaid's SVG as
+before. The SVG is otherwise rendered only when the answer sits in a project,
+because filing still files mermaid's SVG and its PDF.
+
 ### Which grammars, and how that is decided
 
 `/dev/answer-blocks` draws one fence per grammar through the real renderer;

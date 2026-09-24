@@ -13,6 +13,7 @@
         "@citation-js/plugin-bibtex": "^0.8.2",
         "@citation-js/plugin-csl": "^0.8.2",
         "@citation-js/plugin-ris": "^0.8.2",
+        "@dagrejs/dagre": "3.1.1",
         "@ifc-lite/data": "^3.2.0",
         "@ifc-lite/geometry": "^3.6.0",
         "@ifc-lite/parser": "^3.15.0",
@@ -239,6 +240,10 @@
     "@citation-js/plugin-csl": ["@citation-js/plugin-csl@0.8.2", "", { "dependencies": { "@citation-js/date": "^0.5.0", "citeproc": "^2.4.6" }, "peerDependencies": { "@citation-js/core": "^0.8.0" } }, "sha512-MHdPrhsbsitWST4tP+bxk4vSSYoPfbxah01fZvxv23qm/FjyW6yJCEpkV/x3f2ofT+v4RN0OEBQboN/MTIyPyQ=="],
 
     "@citation-js/plugin-ris": ["@citation-js/plugin-ris@0.8.2", "", { "dependencies": { "@citation-js/date": "^0.5.0", "@citation-js/name": "^0.4.2" }, "peerDependencies": { "@citation-js/core": "^0.8.0" } }, "sha512-y10o2CAElniVN613/9KYeLGHyWy0ZUlSYKcNruWP6BmQlDjRhR3n/xDbiiWJrAXosw9Z0yF1Xicw/aRzxS1Ywg=="],
+
+    "@dagrejs/dagre": ["@dagrejs/dagre@3.1.1", "", { "dependencies": { "@dagrejs/graphlib": "4.0.5" } }, "sha512-zroZB1dFOFiGgv4Xcrn1DckB1o4aOikPqD2NDQPV0WM//CXGcS6xiD0rNkqHmw6FEg4tabt4nxPLwgCWT+Vb2A=="],
+
+    "@dagrejs/graphlib": ["@dagrejs/graphlib@4.0.5", "", {}, "sha512-7xrBTqIts3o+PMUZX97wSc+7TUbW+/rULzGNCTP6yooNVDXbzw4Wutg/H/xOutTB/c/k0YqOAavgPh4/Zk9PFA=="],
 
     "@drizzle-team/brocli": ["@drizzle-team/brocli@0.10.2", "", {}, "sha512-z33Il7l5dKjUgGULTqBsQBQwckHh5AbIuxhdsIxDDiZAzBOrZO6q9ogcWC65kU382AfynTfgNumVcNIjuIua6w=="],
 

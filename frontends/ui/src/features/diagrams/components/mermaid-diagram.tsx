@@ -58,6 +58,10 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { useTranslations } from '@/i18n'
 import { diagramFrameStyle } from '../diagram-size'
 import { useRenderedDiagram } from '../use-rendered-diagram'
+import { useDiagramModel } from '../use-diagram-model'
+import { useDiagramFilingTarget } from '../diagram-filing-context'
+import { DiagramView } from '../views/diagram-views'
+import { titleFromSource } from '../use-diagram-filing'
 import { useDiagramFiling } from '../use-diagram-filing'
 import { DiagramFilingControls } from './diagram-filing-controls'
 
@@ -98,7 +102,14 @@ export function MermaidDiagram({ source, isStreaming = false }: MermaidDiagramPr
   // which draws the same sources through the same renderer. One drive, so the
   // fresh id, the cancellation and the "a failure is not a throw" rule cannot
   // come out different on the two surfaces.
-  const { svg, fileSvg, failed } = useRenderedDiagram(source, !isStreaming)
+  // Drawn by this product's own views when mermaid's parser can read it into
+  // a model (`docs/design/answer-visuals.md`); mermaid's SVG is then only the
+  // FILE, rendered when there is a project to file into. Without a model the
+  // SVG is the picture, as before.
+  const model = useDiagramModel(source, !isStreaming)
+  const target = useDiagramFilingTarget()
+  const needsSvg = !isStreaming && (model === null || (model !== undefined && target !== null))
+  const { svg, fileSvg, failed } = useRenderedDiagram(source, needsSvg)
   // And one WRITE, shared with the card for the same reason. `fileSvg` and not
   // `svg`: the bytes that go into the project are always the paper ones.
   const filing = useDiagramFiling({ source, fileSvg })
@@ -107,13 +118,29 @@ export function MermaidDiagram({ source, isStreaming = false }: MermaidDiagramPr
   // before this component existed. NOT the "still drawing" case — that one gets
   // the skeleton below, because replacing a code block with a picture a second
   // later is a bigger jump than growing a placeholder into one.
-  if (isStreaming || failed) {
+  if (isStreaming || (!model && failed)) {
     const lineCount = source.split('\n').length
     return (
       <div data-testid="mermaid-diagram" data-state={failed ? 'failed' : 'streaming'}>
         <CodeBlock value={source} language="mermaid" collapsible={lineCount > 15} maxLines={15} />
         {failed ? <p className="text-muted-foreground mt-1 text-xs">{t('fallback')}</p> : null}
       </div>
+    )
+  }
+
+  if (model) {
+    return (
+      <figure data-testid="mermaid-diagram" data-state="drawn" data-view={model.kind} className="my-4">
+        {/* A soft plane, not a frame: the nodes are cards and read on it
+            without a box around a box. */}
+        <div className="bg-muted/40 rounded-xl p-3 @container">
+          <DiagramView model={model} label={titleFromSource(source) ?? t('schematicOnly')} />
+        </div>
+        <figcaption className="text-muted-foreground mt-1 flex flex-wrap items-center gap-x-3 text-xs">
+          <span>{t('schematicOnly')}</span>
+          <DiagramFilingControls filing={filing} />
+        </figcaption>
+      </figure>
     )
   }
 

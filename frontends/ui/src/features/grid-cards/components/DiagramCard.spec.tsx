@@ -58,7 +58,9 @@ describe('when it draws', () => {
     await waitFor(() =>
       expect(screen.getByTestId('diagram-card')).toHaveAttribute('data-state', 'drawn')
     )
-    expect(screen.getByTestId('diagram-card').querySelector('svg')).not.toBeNull()
+    // This product's own view when the parser reads a model, mermaid's SVG
+    // when it does not: either way, a drawing and not the source.
+    expect(screen.getByTestId('diagram-card').querySelector('[data-view], svg')).not.toBeNull()
     expect(screen.getByText(/no dimensions are claimed/i)).toBeInTheDocument()
   })
 

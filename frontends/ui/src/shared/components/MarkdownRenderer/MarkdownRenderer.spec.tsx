@@ -437,11 +437,14 @@ Below`}
         <MarkdownRenderer content={'- [x] Nachweis erbracht\n- [ ] Nachweis offen'} />
       )
 
-      const checkboxes = container.querySelectorAll('input[type="checkbox"]')
-      expect(checkboxes).toHaveLength(2)
-      expect((checkboxes[0] as HTMLInputElement).checked).toBe(true)
-      expect((checkboxes[1] as HTMLInputElement).checked).toBe(false)
-      // The list must not ALSO draw disc bullets beside the checkboxes.
+      // Status marks, not form controls: a disabled checkbox reads as a
+      // broken form, and the list states what is done and what is owed.
+      expect(container.querySelectorAll('input')).toHaveLength(0)
+      const marks = container.querySelectorAll('[data-testid="task-mark"]')
+      expect(marks).toHaveLength(2)
+      expect(marks[0]).toHaveAttribute('data-done', 'true')
+      expect(marks[1]).toHaveAttribute('data-done', 'false')
+      // The list must not ALSO draw disc bullets beside the marks.
       expect(container.querySelector('ul')?.className).toContain('list-none')
     })
   })

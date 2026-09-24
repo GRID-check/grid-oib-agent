@@ -1,5 +1,6 @@
 'use client'
 
+import { Circle, CircleCheck } from 'lucide-react'
 import { HorizontalScroll } from '@/components/ui/horizontal-scroll'
 import { type FC, type ReactNode, memo, useCallback, useMemo } from 'react'
 import { useTranslations } from '@/i18n'
@@ -384,25 +385,19 @@ export const MarkdownRenderer: FC<MarkdownRendererProps> = memo(
             </li>
           ),
 
-          // The task-list checkbox itself: read-only state, not a control. Sized
-          // and baseline-nudged so it reads as the line's marker; `readOnly`
-          // because react-markdown passes `checked` with no handler.
-          input: ({
-            type,
-            checked,
-            node: _node,
-            ...props
-          }: React.ComponentPropsWithoutRef<'input'> & ExtraProps) => {
+          // The task-list checkbox, drawn as a status mark rather than a form
+          // control: a disabled checkbox reads as a broken form, and the list
+          // is a statement („done", „still owed"), not an input. The same two
+          // states the Status column marks carry, with the word for readers
+          // who do not see the icon.
+          input: ({ type, checked }: React.ComponentPropsWithoutRef<'input'> & ExtraProps) => {
             if (type !== 'checkbox') return null
+            const Mark = checked ? CircleCheck : Circle
             return (
-              <input
-                {...props}
-                type="checkbox"
-                checked={checked}
-                readOnly
-                disabled
-                className="accent-brand mr-1.5 size-3.5 translate-y-px"
-              />
+              <span className="mr-2 inline-flex translate-y-[3px] align-top" data-testid="task-mark" data-done={checked ? 'true' : 'false'}>
+                <Mark aria-hidden="true" className={checked ? 'text-success size-4' : 'text-muted-foreground size-4'} />
+                <span className="sr-only">{checked ? '✓' : '○'}</span>
+              </span>
             )
           },
 

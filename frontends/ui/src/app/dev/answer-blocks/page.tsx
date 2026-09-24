@@ -52,8 +52,11 @@ sequenceDiagram
   participant B as Bauwerber
   participant P as Planer
   participant M as Baubehörde
+  participant S as Sachverständige
   B->>P: Auftrag Einreichplanung
   P->>M: Einreichung
+  M->>S: Befassung zur Begutachtung
+  S-->>M: Gutachten
   M-->>P: Verbesserungsauftrag
   P->>M: Nachreichung
   M-->>B: Bescheid`,
@@ -87,9 +90,18 @@ gantt
     source: `
 mindmap
   root((OIB-RL 2))
-    2.1 Brandschutz allgemein
+    Grundteil
+      Tragfähigkeit im Brandfall
+      Ausbreitung von Feuer und Rauch
+      Fluchtwege
+      Brandbekämpfung
+    2.1 Betriebsbauten
+      Brandabschnitte nach Fläche
     2.2 Garagen
-    2.3 Betriebsbauten
+      Überdachte Stellplätze
+      Parkdecks
+    2.3 Hohe Gebäude
+      Fluchtniveau über 22 m
     Leitfaden
       Abweichungen`,
   },

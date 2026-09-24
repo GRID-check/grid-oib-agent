@@ -325,7 +325,16 @@ export function serialized<A, R>(task: (argument: A) => Promise<R>): (argument: 
   }
 }
 
-const renderMermaid: DiagramRenderer = serialized(renderMermaidNow)
+/**
+ * The one lock on mermaid's global state. Rendering (`initialize` + `render`)
+ * and parsing (`parse-mermaid.ts`, which reads the per-grammar database the
+ * parser fills) both go through it, so neither can land inside the other.
+ */
+export const withMermaid: <T>(task: () => Promise<T>) => Promise<T> = serialized(
+  (task: () => Promise<unknown>) => task()
+) as <T>(task: () => Promise<T>) => Promise<T>
+
+const renderMermaid: DiagramRenderer = (request) => withMermaid(() => renderMermaidNow(request))
 
 /**
  * Which source kinds this client can draw.

@@ -17,13 +17,13 @@
  * and of the import cycle that would bring.
  */
 
-import { createContext, useContext, useLayoutEffect, useState, type ReactNode } from 'react'
+import { createContext, useContext, useLayoutEffect, type ReactNode } from 'react'
 import { z } from 'zod'
 import { Catalog, childList, componentId, type ComponentApi } from '@a2ui/web_core/v0_9'
 import { createComponentImplementation, type ReactComponentImplementation } from '@a2ui/react/v0_9'
 
 import { gridCardSchema, type GridCard } from '@/shared/cards/schemas'
-import { cn } from '@/lib/utils'
+import { Tabs as UiTabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 
 /** The catalog's identity on the wire; `createSurface.catalogId` must equal it. */
 export const PILOTI_CATALOG_ID = 'https://piloti.at/a2ui/catalogs/cards/v1'
@@ -149,35 +149,28 @@ const Column = createComponentImplementation(ColumnApi, ({ props, buildChild }) 
   <ColumnView ids={props.children as string[]} buildChild={buildChild} />
 ))
 
+/**
+ * Variants, one at a time: the product's own tabs atom (`components/ui/tabs`),
+ * so a composed answer switches the way every other tab strip in the app does
+ * — the gliding pill, the focus ring, the 44px touch floor.
+ */
 function TabsView({ tabs, buildChild }: { tabs: { title: string; child: string }[]; buildChild: (id: string) => ReactNode }) {
-  const [active, setActive] = useState(0)
   useReportDrawn()
-  const current = tabs[Math.min(active, tabs.length - 1)]
   return (
-    <div className="flex flex-col gap-3" data-a2ui-node="Tabs">
-      <div role="tablist" className="flex flex-wrap gap-1 border-b border-border">
-        {tabs.map((tab, index) => (
-          <button
-            key={tab.child}
-            type="button"
-            role="tab"
-            aria-selected={index === active}
-            onClick={() => setActive(index)}
-            className={cn(
-              '-mb-px border-b-2 px-3 py-1.5 text-sm transition-colors',
-              index === active
-                ? 'border-foreground font-medium text-foreground'
-                : 'border-transparent text-muted-foreground hover:text-foreground'
-            )}
-          >
+    <UiTabs defaultValue={tabs[0]?.child} className="gap-3" data-a2ui-node="Tabs">
+      <TabsList className="max-w-full justify-start overflow-x-auto">
+        {tabs.map((tab) => (
+          <TabsTrigger key={tab.child} value={tab.child} className="flex-none">
             {tab.title}
-          </button>
+          </TabsTrigger>
         ))}
-      </div>
-      <div role="tabpanel" className="min-w-0">
-        {buildChild(current.child)}
-      </div>
-    </div>
+      </TabsList>
+      {tabs.map((tab) => (
+        <TabsContent key={tab.child} value={tab.child} className="mt-0 min-w-0">
+          {buildChild(tab.child)}
+        </TabsContent>
+      ))}
+    </UiTabs>
   )
 }
 

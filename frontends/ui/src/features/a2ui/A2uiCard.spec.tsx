@@ -5,7 +5,8 @@
  * components, with the card's own fields intact, and nothing A2UI refuses
  * costs the reader a card.
  */
-import { fireEvent, render, screen, waitFor } from '@/test-utils'
+import { render, screen, waitFor } from '@/test-utils'
+import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
 
 import type { GridCard } from '@/shared/cards/schemas'
@@ -57,7 +58,7 @@ describe('a card through A2UI', () => {
     await waitFor(() => expect(screen.getByRole('tab', { name: 'Variante A' })).toBeInTheDocument())
     expect(screen.getByTestId('card-c0')).toBeInTheDocument()
     expect(screen.queryByTestId('card-c1')).toBeNull()
-    fireEvent.click(screen.getByRole('tab', { name: 'Variante B' }))
+    await userEvent.setup().click(screen.getByRole('tab', { name: 'Variante B' }))
     expect(screen.getByTestId('card-c1').textContent).toContain('5.2')
   })
 

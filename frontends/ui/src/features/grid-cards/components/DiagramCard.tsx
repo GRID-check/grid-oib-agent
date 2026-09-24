@@ -87,6 +87,9 @@ import { CodeBlock } from '@/shared/components/CodeBlock'
 import { useTranslations } from '@/i18n'
 import { diagramFrameStyle } from '@/features/diagrams/diagram-size'
 import { useRenderedDiagram } from '@/features/diagrams/use-rendered-diagram'
+import { useDiagramModel } from '@/features/diagrams/use-diagram-model'
+import { useDiagramFilingTarget } from '@/features/diagrams/diagram-filing-context'
+import { DiagramView } from '@/features/diagrams/views/diagram-views'
 import { useDiagramFiling } from '@/features/diagrams/use-diagram-filing'
 import { DiagramFilingControls } from '@/features/diagrams/components/diagram-filing-controls'
 import { NormRefFooter } from '../schematics/kit'
@@ -128,12 +131,20 @@ const DrawingSkeleton: FC = () => (
 export const DiagramCard: FC<DiagramCardProps> = ({ title, source, caption, reference }) => {
   const t = useTranslations('chat')
   const tDiagrams = useTranslations('diagrams')
-  const { svg, fileSvg, failed } = useRenderedDiagram(source)
+  // Same split as the fence (`mermaid-diagram.tsx`): this product's view when
+  // the parser yields a model, mermaid's SVG only as the file or the fallback.
+  const model = useDiagramModel(source)
+  const target = useDiagramFilingTarget()
+  const { svg, fileSvg, failed: svgFailed } = useRenderedDiagram(
+    source,
+    model === null || (model !== undefined && target !== null)
+  )
+  const failed = !model && svgFailed
   // `fileSvg`, never `svg`: the bytes that go into the project are the paper
   // ones whatever theme the reader is in. The card's own title beats anything
   // the source carries — the model wrote it for this drawing.
   const filing = useDiagramFiling({ source, fileSvg, title })
-  const state = failed ? 'failed' : svg ? 'drawn' : 'drawing'
+  const state = failed ? 'failed' : model || svg ? 'drawn' : 'drawing'
 
   return (
     <Card data-testid="diagram-card" data-state={state} className="shadow-xs gap-3 p-5">
@@ -148,6 +159,10 @@ export const DiagramCard: FC<DiagramCardProps> = ({ title, source, caption, refe
             collapsible={source.split('\n').length > SOURCE_MAX_LINES}
             maxLines={SOURCE_MAX_LINES}
           />
+        ) : model ? (
+          <div className="bg-muted/40 rounded-xl p-3" data-view={model.kind}>
+            <DiagramView model={model} label={title} />
+          </div>
         ) : (
           <HorizontalScroll className="border-border rounded-md border p-3 [&_svg]:h-auto [&_svg]:max-w-full">
             {svg ? (
