@@ -98,6 +98,17 @@ without `card_repair_llm` the repair is off.
 * `tests/aiq_agent/common/test_lost_citations.py`: a removed citation never
   calls the repair.
 
+* The answer suite, all 27 questions, before (`35454527`, the rewrite) and
+  after (`b327d221`), each from its own worktree (2026-09-24): checks 76/86 and
+  74/86. Neither run reached the repair: the before run adopted or discarded
+  no rewrite, and the after run flagged two quotes, both `uncited` (closeness
+  0.62 and 0.91), which keep their marker by design. Neither run replaced
+  settled text (`settled_replaced` 0). The two-check gap is the model: one
+  question was answered with a question back (which Bundesland), and two
+  `kind` checks flipped. Wall and final-call medians moved by about a second
+  (42.0 to 42.7 s, 18.4 to 19.6 s). What the suite cannot show yet is a
+  misquote: it had none to repair.
+
 ## More Information
 
 Amends ADR-0066, whose "Bad, because the text can still change" names the
