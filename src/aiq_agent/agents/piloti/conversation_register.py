@@ -45,6 +45,9 @@ from aiq_agent.turn.admission import answer_turn
 from aiq_agent.turn.admission import refusal_response
 from aiq_agent.turn.admission import spanned
 from aiq_agent.turn.answer_stream import AnswerStreamSink
+from aiq_agent.turn.answer_stream import Cards
+from aiq_agent.turn.answer_stream import Item
+from aiq_agent.turn.answer_stream import Masthead
 from aiq_agent.turn.answer_stream import Snapshot
 from aiq_agent.turn.answer_stream import bound_answer_stream
 from aiq_agent.turn.api_seam import skip_clarifier_requested
@@ -248,6 +251,17 @@ def _turn_state(
     )
 
 
+def _live_item_chunk(item: Item) -> ChatResponseChunk:
+    """One item of the live answer as the chunk that carries it (ADR-0066)."""
+    if isinstance(item, Snapshot):
+        return live_chunk(item.content, sources=item.sources, answer_meta=item.answer_meta)
+    if isinstance(item, Masthead):
+        return live_chunk("", answer_meta=item.answer_meta)
+    if isinstance(item, Cards):
+        return live_chunk("", cards=item.cards)
+    return live_chunk(item)
+
+
 def _answer_chunks(
     outcome: TurnOutcome[ConversationState],
     registries: TurnRegistries,
@@ -445,10 +459,7 @@ def _turn_runner(agent: ConversationGraph, config: ChatDeepResearcherConfig, sta
                     answering = asyncio.create_task(_answer_and_chunks())
                 try:
                     async for item in sink.relay(answering):
-                        if isinstance(item, Snapshot):
-                            yield live_chunk(item.content, sources=item.sources)
-                        else:
-                            yield live_chunk(item)
+                        yield _live_item_chunk(item)
                     chunks = await answering
                 finally:
                     # Only a consumer that abandoned the stream leaves it running.

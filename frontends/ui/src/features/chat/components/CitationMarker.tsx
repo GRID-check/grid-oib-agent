@@ -180,6 +180,9 @@ const PendingCitationMarker: FC<{ number: number }> = ({ number }) => {
       className={cn(
         'inline-flex items-center rounded-sm px-[3px]',
         'relative -top-[0.15em] text-[0.68em] font-semibold leading-[1.45] tabular-nums',
+        // The live pill's touch sizing too: settling changes the colour and
+        // nothing else, or the line re-wraps the moment the source arrives.
+        'pointer-coarse:min-h-[26px] pointer-coarse:justify-center pointer-coarse:px-[7px] pointer-coarse:text-[0.78em]',
         'bg-muted text-muted-foreground motion-safe:animate-pulse'
       )}
     >

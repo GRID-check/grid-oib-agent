@@ -21,12 +21,12 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections.abc import AsyncIterator
-from collections.abc import Callable
 from collections.abc import Iterator
 from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass
 from typing import Any
+from typing import Protocol
 
 from langchain_core.callbacks import AsyncCallbackHandler
 from langchain_core.callbacks.manager import AsyncCallbackManager
@@ -44,23 +44,49 @@ RELAY_WINDOW_S = 0.05
 
 @dataclass(frozen=True)
 class Snapshot:
-    """The streamed prose settled: its text so far, replacing, and the sources it cites."""
+    """The streamed prose settled: its text so far, replacing, the sources it cites, its masthead."""
 
     content: str
     sources: list[dict[str, Any]]
+    answer_meta: dict[str, Any] | None = None
 
 
-#: What settles a closed answer string: ``(prose, sources_text)`` to a
-#: :class:`Snapshot`-shaped result, or ``None``. The agent supplies it, so the
-#: verifier stays on its side of the dependency line.
-Settle = Callable[[str, str], Any]
+@dataclass(frozen=True)
+class Masthead:
+    """The fields that stand above the prose, gated, before its first word."""
+
+    answer_meta: dict[str, Any]
+
+
+@dataclass(frozen=True)
+class Cards:
+    """The answer's cards so far, in envelope order; ``None`` holds a refused card's place."""
+
+    cards: list[dict[str, Any] | None]
+
+
+Item = str | Snapshot | Masthead | Cards
+
+
+class Live(Protocol):
+    """What the agent lets the stream show before its pipeline ran (``answer_pipeline.LiveAnswer``).
+
+    The agent supplies it, so the verifier and the gates stay on its side of
+    the dependency line.
+    """
+
+    def masthead(self, fields: dict[str, Any], prose: str = "") -> dict[str, Any] | None: ...
+
+    def settle(self, prose: str, sources_text: str, fields: dict[str, Any] | None) -> Any: ...
+
+    def card(self, payload: Any) -> dict[str, Any] | None: ...
 
 
 class AnswerStreamSink:
     """The turn's live prose: pushed by the callback, relayed by the generator."""
 
     def __init__(self) -> None:
-        self._queue: asyncio.Queue[str | Snapshot] = asyncio.Queue()
+        self._queue: asyncio.Queue[Item] = asyncio.Queue()
         #: Whether any prose went out. Once it has, no later call of the turn
         #: streams: a second answer appended to the bubble would read as one.
         self.streamed = False
@@ -70,11 +96,11 @@ class AnswerStreamSink:
             self.streamed = True
             self._queue.put_nowait(delta)
 
-    def settle(self, snapshot: Snapshot) -> None:
+    def put(self, item: Snapshot | Masthead | Cards) -> None:
         self.streamed = True
-        self._queue.put_nowait(snapshot)
+        self._queue.put_nowait(item)
 
-    async def relay(self, task: asyncio.Task[Any]) -> AsyncIterator[str | Snapshot]:
+    async def relay(self, task: asyncio.Task[Any]) -> AsyncIterator[Item]:
         """Yield queued prose and snapshots, in order, until ``task`` is done.
 
         What queues up within :data:`RELAY_WINDOW_S` of a token goes out as
@@ -96,16 +122,16 @@ class AnswerStreamSink:
         for item in _coalesced(self._drain()):
             yield item
 
-    def _drain(self) -> list[str | Snapshot]:
-        items: list[str | Snapshot] = []
+    def _drain(self) -> list[Item]:
+        items: list[Item] = []
         while not self._queue.empty():
             items.append(self._queue.get_nowait())
         return items
 
 
-def _coalesced(items: list[str | Snapshot]) -> list[str | Snapshot]:
-    """Adjacent text joined into one delta; snapshots kept where they fell."""
-    out: list[str | Snapshot] = []
+def _coalesced(items: list[Item]) -> list[Item]:
+    """Adjacent text joined into one delta; every other item kept where it fell."""
+    out: list[Item] = []
     for item in items:
         if isinstance(item, str) and out and isinstance(out[-1], str):
             out[-1] += item
@@ -128,38 +154,77 @@ def bound_answer_stream(sink: AnswerStreamSink) -> Iterator[AnswerStreamSink]:
 
 
 class _ProseTokenHandler(AsyncCallbackHandler):
-    """Reads one LLM call's tokens into the sink, and settles them when the string closes."""
+    """Reads one LLM call's tokens into the sink: masthead, prose, settled prose, cards."""
 
-    def __init__(self, sink: AnswerStreamSink, settle: Settle | None) -> None:
+    def __init__(self, sink: AnswerStreamSink, live: Live | None) -> None:
         self._sink = sink
-        self._settle = settle
+        self._live = live
         self._reader: AnswerProseStream | None = None
+        self._masthead_read = False
+        self._settled = False
+        self._cards: list[dict[str, Any] | None] = []
 
     async def on_chat_model_start(self, *args: Any, **kwargs: Any) -> None:
         # A fresh reader per call (the envelope ladder retries on a rejected
         # parameter); none at all once the turn has shown prose.
         self._reader = None if self._sink.streamed else AnswerProseStream()
+        self._masthead_read = self._settled = False
+        self._cards = []
 
     async def on_llm_new_token(self, token: Any, **kwargs: Any) -> None:
         reader = self._reader
         if reader is None:
             return
-        self._sink.push(reader.feed(token_text(token)))
-        if reader.closed:
-            self._reader = None
+        delta = reader.feed(token_text(token))
+        if not self._masthead_read and reader.masthead is not None:
+            self._masthead_read = True
+            self._show_masthead(reader.masthead)
+        self._sink.push(delta)
+        if reader.closed and not self._settled:
+            self._settled = True
             self._settle_prose(reader)
+        if self._settled:
+            self._show_cards(reader.take_cards())
+
+    def _show_masthead(self, fields: dict[str, Any]) -> None:
+        """The masthead above the first word, gated as far as it can be without the prose."""
+        meta = self._guarded("masthead", lambda live: live.masthead(fields))
+        if meta:
+            self._sink.put(Masthead(answer_meta=meta))
 
     def _settle_prose(self, reader: AnswerProseStream) -> None:
         """Verify what streamed, and send it back settled; fail-open to pending markers."""
-        if self._settle is None or not reader.emitted:
+        if not reader.emitted:
             return
-        try:
-            settled = self._settle(reader.emitted, reader.sources_text)
-        except Exception:  # noqa: BLE001 - the terminal frame settles them anyway
-            logger.warning("answer_stream: settling the streamed citations failed", exc_info=True)
-            return
+        settled = self._guarded(
+            "settle", lambda live: live.settle(reader.emitted, reader.sources_text, reader.masthead)
+        )
         if settled is not None:
-            self._sink.settle(Snapshot(content=settled.content, sources=list(settled.sources)))
+            self._sink.put(
+                Snapshot(
+                    content=settled.content,
+                    sources=list(settled.sources),
+                    answer_meta=getattr(settled, "answer_meta", None),
+                )
+            )
+
+    def _show_cards(self, payloads: list[dict[str, Any]]) -> None:
+        """Each card as it closes; its place is kept even when it is refused."""
+        if not payloads:
+            return
+        for payload in payloads:
+            self._cards.append(self._guarded("card", lambda live, payload=payload: live.card(payload)))
+        if any(card is not None for card in self._cards):
+            self._sink.put(Cards(cards=list(self._cards)))
+
+    def _guarded(self, what: str, call: Any) -> Any:
+        if self._live is None:
+            return None
+        try:
+            return call(self._live)
+        except Exception:  # noqa: BLE001 - the terminal frame carries it anyway
+            logger.warning("answer_stream: the live %s failed", what, exc_info=True)
+            return None
 
 
 def token_text(token: Any) -> str:
@@ -181,12 +246,13 @@ def token_text(token: Any) -> str:
 
 
 def streaming_call(
-    llm: Any, messages_config: dict[str, Any] | None = None, *, settle: Settle | None = None
+    llm: Any, messages_config: dict[str, Any] | None = None, *, live: Live | None = None
 ) -> tuple[Any, dict[str, Any] | None]:
     """``(llm, config)`` for the answering call: streaming when the turn has a sink.
 
-    ``settle`` verifies the streamed prose once its ``answer`` string closes;
-    without it the markers stay pending until the terminal frame.
+    ``live`` gates what streams ahead of the pipeline (the masthead, the
+    settled prose, the cards); without it the prose streams alone, its
+    markers pending until the terminal frame.
 
     The handler is ADDED to the call's inherited callback manager, never
     passed as the call's own callbacks: those replace the inherited ones, and
@@ -203,5 +269,5 @@ def streaming_call(
         manager = AsyncCallbackManager(handlers=list(inherited), inheritable_handlers=list(inherited))
     else:
         manager = inherited.copy()
-    manager.add_handler(_ProseTokenHandler(sink, settle), inherit=True)
+    manager.add_handler(_ProseTokenHandler(sink, live), inherit=True)
     return llm.bind(stream=True), {**config, "callbacks": manager}

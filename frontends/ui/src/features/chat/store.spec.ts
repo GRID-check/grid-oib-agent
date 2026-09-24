@@ -2,6 +2,7 @@ import { describe, test, expect, beforeEach, afterEach, vi } from 'vitest'
 import { useChatStore } from './store'
 import type { CitationSource, Conversation, PendingInteraction, FileCardData } from './types'
 import type { GridCard } from '@/shared/cards/schemas'
+import type { AnswerMeta } from '@/lib/conversations/message-answer-meta'
 
 const STORAGE_KEY = 'aiq-chat-store'
 const mockLayoutState = vi.hoisted(() => ({
@@ -1460,6 +1461,49 @@ describe('useChatStore', () => {
         // The terminal frame still settles it.
         useChatStore.getState().finalizeAgentResponse('R 90 [1], erfunden.')
         expect(useChatStore.getState().currentConversation?.messages?.[0].isStreaming).toBe(false)
+      })
+
+      test('a masthead frame opens the bubble before the prose, and the snapshot re-gates it', () => {
+        setupConversation()
+        const head: AnswerMeta = { v: 1, kind: 'ruling', topic: 'Zweiter Fluchtweg', summary: 'Beides geht.' }
+
+        useChatStore.getState().appendAgentResponseDelta('', [], undefined, undefined, head)
+        let message = useChatStore.getState().currentConversation?.messages?.[0]
+        expect(message?.answerMeta).toEqual(head)
+        expect(message?.isStreaming).toBe(true)
+
+        useChatStore.getState().appendAgentResponseDelta('Beides geht [1].')
+        const settled: AnswerMeta = { v: 1, kind: 'ruling', topic: 'Zweiter Fluchtweg' }
+        useChatStore.getState().replaceStreamingAgentResponse('Beides geht [1].', undefined, settled)
+        message = useChatStore.getState().currentConversation?.messages?.[0]
+        expect(message?.answerMeta).toEqual(settled)
+        expect(message?.content).toBe('Beides geht [1].')
+      })
+
+      test('live cards land on the open bubble, and a terminal without them takes them back', () => {
+        setupConversation()
+        const head: AnswerMeta = { v: 1, kind: 'direct', topic: 'Kurz' }
+
+        useChatStore.getState().appendAgentResponseDelta('', [], undefined, undefined, head)
+        useChatStore.getState().appendAgentResponseDelta('Kurz.')
+        useChatStore.getState().appendAgentResponseDelta('', [card('c1')])
+        expect(useChatStore.getState().currentConversation?.messages?.[0].cards).toHaveLength(1)
+
+        // The pipeline suppressed the cards and gated the masthead out.
+        useChatStore.getState().finalizeAgentResponse('Kurz.')
+        const message = useChatStore.getState().currentConversation?.messages?.[0]
+        expect(message?.cards).toBeUndefined()
+        expect(message?.answerMeta).toBeUndefined()
+        expect(message?.isStreaming).toBe(false)
+      })
+
+      test('cards on the legacy single in_progress frame survive an empty terminal', () => {
+        setupConversation()
+        const cards = [card('c1')]
+
+        useChatStore.getState().appendAgentResponseDelta('Voll.', cards)
+        useChatStore.getState().finalizeAgentResponse('Voll.')
+        expect(useChatStore.getState().currentConversation?.messages?.[0].cards).toBe(cards)
       })
 
       test('empty complete frame does NOT wipe the accumulated bubble (just finalizes)', () => {

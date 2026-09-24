@@ -95,6 +95,23 @@ function getTextFromChildren(node: ReactNode): string {
 // Exported for its own spec. It is the one part of this module with a cost that
 // depends on the shape of the input rather than its size, so it is measured
 // directly: timing it through a React render measures the render.
+/**
+ * The body of the fence a streaming text is still inside, or `null`.
+ *
+ * The stabiliser closes a half-arrived fence so the parser can read it, which
+ * makes every fence LOOK finished. Only the last one can be unfinished, and
+ * only while the text ends inside it: every fence before it is complete and
+ * may be drawn while the answer is still arriving (ADR-0066). A diagram that
+ * waited for the whole answer showed its source for the rest of the stream.
+ */
+export function openFenceBody(raw: string): string | null {
+  const fences = [...raw.matchAll(/```/g)]
+  if (fences.length % 2 === 0) return null
+  const last = fences[fences.length - 1].index ?? 0
+  const lineEnd = raw.indexOf('\n', last)
+  return lineEnd < 0 ? '' : raw.slice(lineEnd + 1)
+}
+
 export function stabilizeStreamingMarkdown(raw: string): string {
   let content = raw
 
@@ -171,6 +188,8 @@ export const MarkdownRenderer: FC<MarkdownRendererProps> = memo(
       () => (isStreaming ? stabilizeStreamingMarkdown(content) : content),
       [isStreaming, content]
     )
+    // The one fence still being written, if any: everything else is finished.
+    const openFence = useMemo(() => (isStreaming ? openFenceBody(content) : null), [isStreaming, content])
     /**
      * The id of every heading in this document, keyed by the source line it was
      * written on.
@@ -249,7 +268,8 @@ export const MarkdownRenderer: FC<MarkdownRendererProps> = memo(
               // fence LOOK closed, so drawing it would flash a parse error per
               // token) and when the model wrote broken mermaid, which it will.
               if (isMermaidFence(codeClassName, codeContent)) {
-                return <MermaidDiagram source={codeContent} isStreaming={isStreaming} />
+                const stillWriting = openFence !== null && codeContent.trimEnd() === openFence.trimEnd()
+                return <MermaidDiagram source={codeContent} isStreaming={stillWriting} />
               }
 
               return (
@@ -566,7 +586,7 @@ export const MarkdownRenderer: FC<MarkdownRendererProps> = memo(
             />
           ),
         }) as Components,
-      [compact, headingId, isStreaming, renderInPageAnchor, renderInternalLink, renderSlot, t]
+      [compact, headingId, isStreaming, openFence, renderInPageAnchor, renderInternalLink, renderSlot, t]
     )
 
     return (

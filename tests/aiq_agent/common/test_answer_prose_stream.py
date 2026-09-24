@@ -8,6 +8,7 @@ import re
 import pytest
 
 from aiq_agent.common.answer_prose_stream import AnswerProseStream
+from aiq_agent.common.citation_verification import expand_grouped_citations
 
 PROSE = (
     "In GK 4 darf der Fluchtweg höchstens **40 m** lang sein [1], gemessen bis zum Treppenhaus [2, 3].\n\n"
@@ -18,9 +19,9 @@ PROSE = (
     "**Quellen:**\n- [1] oib-rl_2_ausgabe_mai_2023.pdf, p.12\n- [2] oib-rl_2_ausgabe_mai_2023.pdf, p.13"
 )
 ENVELOPE = "```answer_json\n" + json.dumps({"answer": PROSE, "kind": "ruling", "cards": [{"type": "x"}]}) + "\n```"
-# What may be shown: the prose with its citation markers, no card marker,
-# nothing from the sources heading on; the sources are collected instead.
-SHOWN = re.sub(r"[^\S\n]*\[\[card:\d+\]\]", "", PROSE.split("**Quellen:**", maxsplit=1)[0])
+# What may be shown: the prose with its citation and card markers, nothing
+# from the sources heading on; the sources are collected instead.
+SHOWN = expand_grouped_citations(PROSE.split("**Quellen:**", maxsplit=1)[0])
 SOURCES = "**Quellen:**" + PROSE.split("**Quellen:**", maxsplit=1)[1]
 
 
@@ -42,9 +43,12 @@ def test_every_chunking_shows_the_prose_and_nothing_it_must_withhold(size):
     assert reader.sources_text.strip() == SOURCES.strip()
     assert reader.closed
     for delta in reader.deltas:
-        assert "[[card" not in delta and "Quellen:" not in delta
-        # A marker is shown whole or not at all.
+        assert "Quellen:" not in delta
+        # A marker is shown whole or not at all: a card marker too, since the
+        # reader holds its card's place from the moment it is written.
         assert not re.search(r"\[\d+(?:,\s*\d*)?$", delta)
+        assert not re.search(r"\[\[(?:c(?:a(?:r(?:d(?::\d*\]?)?)?)?)?)?$", delta)
+        assert delta.count("[[card:") == len(re.findall(r"\[\[card:\d+\]\]", delta))
 
 
 def test_a_bare_json_envelope_streams_too():
@@ -58,8 +62,8 @@ def test_prose_outside_an_envelope_streams_nothing():
     assert shown == ""
 
 
-def test_an_envelope_that_does_not_lead_with_the_answer_streams_nothing():
-    late = json.dumps({"kind": "ruling", "cards": [{"type": "table", "rows": ["x" * 500]}], "answer": "Spät."})
+def test_an_envelope_that_puts_more_than_the_masthead_before_the_answer_streams_nothing():
+    late = json.dumps({"kind": "ruling", "cards": [{"type": "table", "rows": ["x" * 2000]}], "answer": "Spät."})
     assert _stream(late, 7)[0] == ""
 
 
@@ -67,8 +71,8 @@ def test_a_bracket_that_is_not_a_marker_is_shown_once_it_cannot_be_one():
     reader = AnswerProseStream()
     # Past the first 30 characters of the line, so only the bracket waits.
     line = "Die Anforderungen stehen im Bericht, siehe"
-    assert reader.feed('{"answer": "' + line + " [") == line
-    assert reader.feed("Anhang A]") == " [Anhang A]"
+    assert reader.feed('{"answer": "' + line + " [") == line + " "
+    assert reader.feed("Anhang A]") == "[Anhang A]"
 
 
 def test_a_heading_like_line_that_is_not_the_sources_heading_is_shown():
@@ -80,3 +84,40 @@ def test_an_escape_split_across_chunks_decodes_once():
     reader = AnswerProseStream()
     parts = ['{"answer": "A', "\\", "u00e4", "\\ud83e", "\\udde8", '\\n", "kind": "x"}']
     assert "".join(reader.feed(p) for p in parts) == "Aä🧨\n"
+
+
+def test_the_masthead_before_the_answer_is_read_as_soon_as_the_answer_begins():
+    reply = "```answer_json\n" + json.dumps(
+        {
+            "kind": "ruling",
+            "topic": "Zweiter Fluchtweg",
+            "verdict": {"value": "REI 60", "subject": "Wände"},
+            "answer": "Text.",
+        }
+    )
+    reader = AnswerProseStream()
+    before, after = reply[: reply.index('"answer"')], reply[reply.index('"answer"') :]
+    for i in range(0, len(before), 5):
+        reader.feed(before[i : i + 5])
+    assert reader.masthead is None  # not before the answer key
+    for i in range(0, len(after), 5):
+        reader.feed(after[i : i + 5])
+    assert reader.masthead == {
+        "kind": "ruling",
+        "topic": "Zweiter Fluchtweg",
+        "verdict": {"value": "REI 60", "subject": "Wände"},
+    }
+
+
+@pytest.mark.parametrize("size", [1, 3, 17])
+def test_each_card_is_read_as_soon_as_its_object_closes(size):
+    cards = [{"type": "table", "rows": [["a", "b {x}"]]}, {"type": "surface", "text": '"quoted" } und [1]'}]
+    reply = "```answer_json\n" + json.dumps({"kind": "walkthrough", "answer": "Text.", "cards": cards}) + "\n```"
+    reader = AnswerProseStream()
+    seen: list[tuple[int, str]] = []
+    for i in range(0, len(reply), size):
+        reader.feed(reply[i : i + size])
+        seen.extend((i, card["type"]) for card in reader.take_cards())
+    assert [kind for _, kind in seen] == ["table", "surface"]
+    # The first card went out before the second was written.
+    assert seen[0][0] < reply.index('"surface"')

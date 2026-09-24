@@ -1398,6 +1398,39 @@ _CITATION_LINE_RE = re.compile(r"^\s*[-*]?\s*\[(\d+)\]\s*(.+)$", re.MULTILINE)
 _ORDERED_REFERENCE_LINE_RE = re.compile(r"^(\s*)(\d+)[.)]\s+(.+)$", re.MULTILINE)
 _COLLAPSED_SOURCE_BOUNDARY_RE = re.compile(r"\s+(?=\[(\d+)\]\s+)")
 _INLINE_CITATION_RE = re.compile(r"\[(\d+)\]")
+#: A marker naming several sources at once: ``[2–5]``, ``[2, 3]``, ``[1-3, 7]``.
+_GROUPED_CITATION_RE = re.compile(r"\[(\d{1,3}(?:\s*[,–-]\s*\d{1,3})+)\]")
+#: The widest range read as citations; wider is a bracketed figure (``[1990–2020]``
+#: fails the digit bound anyway) or a slip, and stays as written.
+_MAX_CITATION_RANGE = 20
+
+
+def expand_grouped_citations(text: str) -> str:
+    """``[2–5]`` → ``[2][3][4][5]`` and ``[2, 3]`` → ``[2][3]``.
+
+    The model is told to write one marker per source and sometimes writes a
+    range. Every reader downstream knows ``[N]`` only: the verifier checked
+    none of a range's sources and removed none of them, and the chat showed
+    ``[2–5]`` as literal text beside its neighbours' pills (answer suite,
+    2026-09-24). Expanded first, each source is verified and linked alone.
+    """
+
+    def expand(match: re.Match) -> str:
+        numbers: list[int] = []
+        for part in re.split(r"\s*,\s*", match.group(1)):
+            bounds = [int(bound) for bound in re.split(r"\s*[–-]\s*", part)]
+            if len(bounds) == 1:
+                numbers.append(bounds[0])
+                continue
+            low, high = bounds[0], bounds[-1]
+            if len(bounds) != 2 or not 0 < low < high or high - low > _MAX_CITATION_RANGE:
+                return match.group(0)
+            numbers.extend(range(low, high + 1))
+        return "".join(f"[{number}]" for number in numbers)
+
+    return _GROUPED_CITATION_RE.sub(expand, text)
+
+
 _FOOTNOTE_REFERENCE_LINE_RE = re.compile(r"^\s*\[\^(\d+)\]:?\s*", re.MULTILINE)
 _FOOTNOTE_INLINE_CITATION_RE = re.compile(r"\[\^(\d+)\]")
 _SOURCE_LOCATION_CITATION_RE = re.compile(r"\[(\d+)\s*†[^\]]+\]")

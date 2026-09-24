@@ -16,6 +16,7 @@ from aiq_agent.agents.piloti.markers import detect_and_strip_confidence_marker
 from aiq_agent.common.answer_envelope import ANATOMY_FIELDS
 from aiq_agent.common.answer_envelope import CONTEXT_MAX_CHARS
 from aiq_agent.common.answer_envelope import ENVELOPE_VERSION
+from aiq_agent.common.answer_envelope import MASTHEAD_FIELDS
 from aiq_agent.common.answer_envelope import SUMMARY_MAX_CHARS
 from aiq_agent.common.answer_envelope import TOPIC_MAX_CHARS
 from aiq_agent.common.answer_envelope import AnswerMeta
@@ -484,9 +485,12 @@ class TestStrictResponseFormat:
 
         walk(render_envelope_response_format()["json_schema"]["schema"])
 
-    def test_answer_leads_and_the_enums_survive(self):
+    def test_the_masthead_leads_then_the_answer_and_the_enums_survive(self):
+        # The masthead is written first so it stands above the prose before
+        # its first word streams (ADR-0066); everything else follows the prose.
         schema = render_envelope_response_format()["json_schema"]["schema"]
-        assert next(iter(schema["properties"])) == "answer"
+        order = list(schema["properties"])
+        assert order[: len(MASTHEAD_FIELDS) + 1] == [*MASTHEAD_FIELDS, "answer"]
         assert schema["properties"]["answer"]["type"] == "string"
         callout = schema["properties"]["callout"]["anyOf"][0]
         assert callout["properties"]["kind"]["enum"] == ["hinweis", "achtung", "frist", "tipp"]

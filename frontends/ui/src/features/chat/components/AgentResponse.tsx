@@ -65,6 +65,7 @@ import type { Finding, Findings } from '@/lib/conversations/message-findings'
 import { ConfidenceChip, type AnswerConfidence } from './ConfidenceChip'
 import { AnswerFeedback } from './AnswerFeedback'
 import { AnswerActions } from './AnswerActions'
+import { CardArrival, PendingCardSlot } from './CardSlotArrival'
 
 /**
  * The first paragraph of a long answer, typeset as a lede.
@@ -86,6 +87,31 @@ const LEDE_CLASS =
   '[&>.markdown-content>p:first-child]:leading-[1.65] ' +
   '[&>.markdown-content>p:first-child]:mb-4'
 
+/**
+ * The lede is decided while the answer streams, the moment it has earned one,
+ * not flipped on at the end: decided only once the answer was complete, it
+ * reflowed the top of an answer the reader was already halfway down, in the
+ * same frame as everything else the terminal frame changes (ADR-0066). Not
+ * eased: font size is a layout property, and the motion vocabulary animates
+ * none (`grid/motion-vocabulary`).
+ */
+/** The prose wrapper's classes: the caret's inline run while streaming, and the lede. */
+const proseClass = (streaming: boolean, lede: string): string | undefined => {
+  const caret = streaming
+    ? '[&>.markdown-content>*:last-child]:inline [&>.markdown-content]:inline'
+    : ''
+  return [caret, lede].filter(Boolean).join(' ') || undefined
+}
+
+/**
+ * What lands below the prose once the answer is final (the unplaced legal
+ * basis, the takeaways, the unplaced cards) rises into place instead of
+ * appearing: it is below the reading point, so it moves nothing the reader is
+ * on, and the entrance says it is new.
+ */
+const LATE_BLOCK_ENTER =
+  'animate-in fade-in-0 slide-in-from-bottom-1 duration-base ease-entrance motion-reduce:animate-none'
+
 /** Below this, the answer is short enough to read whole — no lede. */
 const LEDE_MIN_CHARS = 600
 
@@ -97,8 +123,10 @@ const LEDE_MIN_CHARS = 600
  */
 const NON_PROSE_OPENER = /^(#{1,6}\s|[-*+]\s|\d+[.)]\s|>|\||```|\[\[card:)/
 
-function opensWithLede(body: string, isStreaming: boolean): boolean {
-  if (isStreaming || body.length < LEDE_MIN_CHARS) return false
+function opensWithLede(body: string): boolean {
+  // Not withheld while streaming: the body only grows, so once an answer
+  // earns its lede it keeps it, and the switch happens where it can be eased.
+  if (body.length < LEDE_MIN_CHARS) return false
   const trimmed = body.trimStart()
   const firstLine = trimmed.split('\n', 1)[0]
   if (!firstLine || NON_PROSE_OPENER.test(firstLine)) return false
@@ -800,7 +828,7 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
     [anatomy, body]
   )
   const ledeClass =
-    opensWithLede(body, stillArriving) && !effectiveSummary && !anatomy?.topic ? LEDE_CLASS : ''
+    opensWithLede(body) && !effectiveSummary && !anatomy?.topic ? LEDE_CLASS : ''
   // The files this answer NAMES, as opposed to the ones it cites. A sentence
   // like „Beginnen Sie mit pd8280-2.pdf" is pointing at a document the reader
   // owns, and until the index below resolved that name it was dead text. The
@@ -817,7 +845,12 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
       // While it streams, a marker with no source yet is a pending pill, not
       // a stray "[2]": the settled text names its source within seconds.
       [remarkCitationMarkers, { numbers: citationNumbers, anchorPrefix, pending: stillArriving }],
-      [remarkCardMarkers, { count: cardCount, callout: Boolean(anatomy?.callout) }],
+      // While it streams, a card marker holds its card's place until the card,
+      // written after the prose, arrives to fill it.
+      [
+        remarkCardMarkers,
+        { count: cardCount, callout: Boolean(anatomy?.callout), pending: stillArriving },
+      ],
       // AFTER the citation pass, so a filename that happens to sit inside a
       // marker's label is left alone: the pass skips `link` subtrees, and by
       // this point every `[N]` already is one.
@@ -887,13 +920,15 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
         )
       }
       const card = cards?.[index]
-      if (!card) return null
+      // Still arriving: the card is written after the prose, so its marker
+      // holds the place it will grow from rather than nothing (ADR-0066).
+      if (!card) return stillArriving ? <PendingCardSlot /> : null
       // `mb-3` is the paragraph rhythm of the markdown body: the card replaced
       // a paragraph, so it has to leave the same gap behind it. `block!` beats
       // the streaming caret's `*:last-child]:inline` rule, which would collapse
       // a card that ends the answer for as long as the answer is still arriving.
       return (
-        <div className="block! mb-3">
+        <CardArrival live={stillArriving}>
           {/* The whole answer's cards, not just this one: a card placed inline
               by a marker still has to know what ELSE the answer is carrying —
               `summary` and `verdict_header` must not both claim the top of it
@@ -901,10 +936,10 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
           <CardSetProvider cards={cardSet}>
             <GridCardItem card={card} index={index} projectId={projectId} messageId={messageId} />
           </CardSetProvider>
-        </div>
+        </CardArrival>
       )
     },
-    [cards, cardSet, projectId, messageId, anatomy?.callout]
+    [cards, cardSet, projectId, messageId, anatomy?.callout, stillArriving]
   )
   // ONE derivation for the whole answer: the inline `[N]` markers in the prose
   // and the provenance chips below are the same citations seen twice, and two
@@ -996,7 +1031,11 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
 
   // Guard against null, undefined, empty, or literal "null" string content
   // when no cards are present. Cards can render even with empty text.
-  if ((!content || !content.trim() || content === 'null') && !hasCards) {
+  // A streaming answer whose masthead arrived before its first word is not
+  // empty: the masthead stands while the prose is still being written.
+  const hasLiveMasthead =
+    stillArriving && Boolean(anatomy && (anatomy.verdict || anatomy.summary || anatomy.topic))
+  if ((!content || !content.trim() || content === 'null') && !hasCards && !hasLiveMasthead) {
     return null
   }
 
@@ -1039,11 +1078,7 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
             Cards the answer placed with a marker are spliced into this body. */}
             <MarkdownSlotProvider render={renderCardSlot}>
               <div
-                className={
-                  stillArriving
-                    ? '[&>.markdown-content>*:last-child]:inline [&>.markdown-content]:inline'
-                    : ledeClass || undefined
-                }
+                className={proseClass(stillArriving, ledeClass)}
               >
                 <MarkdownRenderer
                   content={body}
@@ -1057,9 +1092,11 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
             answer comes first (the prompt's own first rule), then the Fundstelle
             it argued from. Never in the fallback grid. */}
             {!stillArriving && evidenceCard?.type === 'legal_basis' && (
-              <CardSetProvider cards={cardSet}>
-                <EvidenceBlock card={evidenceCard} />
-              </CardSetProvider>
+              <div className={LATE_BLOCK_ENTER}>
+                <CardSetProvider cards={cardSet}>
+                  <EvidenceBlock card={evidenceCard} />
+                </CardSetProvider>
+              </div>
             )}
 
             {/* Cards no marker claimed. AFTER the body, never before it: an answer
@@ -1075,7 +1112,7 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
             {/* The anatomy below the prose: the callout (unless its marker placed
             it inline), then the takeaways. */}
             {!stillArriving && anatomyBelow.length > 0 && (
-              <div className="mt-1 flex flex-col gap-3">
+              <div className={`mt-1 flex flex-col gap-3 ${LATE_BLOCK_ENTER}`}>
                 <CardSetProvider cards={cardSet}>
                   {anatomyBelow.map((card) => (
                     <AnatomyBlock key={card.type} card={card} />
@@ -1084,7 +1121,7 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
               </div>
             )}
             {!stillArriving && cards && fallbackGridIndices.length > 0 && (
-              <div className="mt-1">
+              <div className={`mt-1 ${LATE_BLOCK_ENTER}`}>
                 <GridCards
                   cards={cards}
                   indices={fallbackGridIndices}
@@ -1248,11 +1285,7 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
               Cards the answer placed with a marker are spliced into this body. */}
               <MarkdownSlotProvider render={renderCardSlot}>
                 <div
-                  className={
-                    stillArriving
-                      ? '[&>.markdown-content>*:last-child]:inline [&>.markdown-content]:inline'
-                      : ledeClass || undefined
-                  }
+                  className={proseClass(stillArriving, ledeClass)}
                 >
                   <MarkdownRenderer
                     content={body}
@@ -1266,9 +1299,11 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
               answer comes first (the prompt's own first rule), then the Fundstelle
               it argued from. Never in the fallback grid. */}
               {!stillArriving && evidenceCard?.type === 'legal_basis' && (
-                <CardSetProvider cards={cardSet}>
-                  <EvidenceBlock card={evidenceCard} />
-                </CardSetProvider>
+                <div className={LATE_BLOCK_ENTER}>
+                  <CardSetProvider cards={cardSet}>
+                    <EvidenceBlock card={evidenceCard} />
+                  </CardSetProvider>
+                </div>
               )}
 
               {/* Cards no marker claimed. AFTER the body, never before it: an answer
@@ -1281,7 +1316,7 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
               {/* The anatomy below the prose: the callout (unless its marker placed
               it inline), then the takeaways. */}
               {!stillArriving && anatomyBelow.length > 0 && (
-                <div className="mt-1 flex flex-col gap-3">
+                <div className={`mt-1 flex flex-col gap-3 ${LATE_BLOCK_ENTER}`}>
                   <CardSetProvider cards={cardSet}>
                     {anatomyBelow.map((card) => (
                       <AnatomyBlock key={card.type} card={card} />
@@ -1290,7 +1325,7 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
                 </div>
               )}
               {!stillArriving && cards && fallbackGridIndices.length > 0 && (
-                <div className="mt-1">
+                <div className={`mt-1 ${LATE_BLOCK_ENTER}`}>
                   <GridCards
                     cards={cards}
                     indices={fallbackGridIndices}

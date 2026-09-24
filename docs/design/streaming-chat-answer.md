@@ -32,9 +32,14 @@ WS handler's persistence gating, and the frontend accumulation logic.
 
 > **Superseded for the prose by ADR-0066.** The constraint still holds and is
 > met differently: the live stream is the envelope's `answer` string, its `[N]`
-> markers rendered as PENDING pills (no source, no peek) and card markers and
-> the sources section withheld, so no unverified citation is ever shown as
-> real. The moment the string closes, a `stream_replace` snapshot carries the
+> markers rendered as PENDING pills (no source, no peek) and the sources
+> section withheld, so no unverified citation is ever shown as real. The
+> envelope writes its masthead (`kind`, `topic`, `context`, `verdict`,
+> `summary`) BEFORE `answer`, so a live frame carries it, gated, above the
+> first word; a `[[card:N]]` marker streams whole and holds its card's place
+> (`PendingCardSlot`) until the card, gated, arrives on a live `cards` frame
+> and grows into it (`CardArrival`). Live cards go out only while no tool
+> pushed a card this turn, so their numbers are the terminal's. The moment the string closes, a `stream_replace` snapshot carries the
 > verified, renumbered text and its sources; the terminal frame, which the
 > client already REPLACES the bubble with, carries the finished answer. What remains
 > true below: the terminal is authoritative, and verification needs the whole

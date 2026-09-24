@@ -262,6 +262,17 @@ describe('AgentResponse', () => {
     expect(screen.queryByText('Platzierte Karte')).not.toBeInTheDocument()
   })
 
+  test('shows the masthead of a streaming answer before its first word', () => {
+    render(
+      <AgentResponse
+        content=""
+        isStreaming
+        answerMeta={{ v: 1, kind: 'walkthrough', topic: 'Zweiter Fluchtweg in GK 4' }}
+      />
+    )
+    expect(screen.getByText('Zweiter Fluchtweg in GK 4')).toBeInTheDocument()
+  })
+
   describe('"Belegt durch" answer sources row (WS-3)', () => {
     const citations = [
       {
@@ -805,10 +816,19 @@ describe('AgentResponse', () => {
       expect(hasLede(container)).toBe(false)
     })
 
-    test('a streaming answer gets no lede — the opening is still arriving', () => {
-      const { container } = render(<AgentResponse content={longAnswer} isStreaming />)
-
+    test('a streaming answer takes its lede once it has earned it (ADR-0066)', () => {
+      // Decided at the end, the lede reflowed the top of an answer the reader
+      // was already halfway down; decided as it streams, it only ever grows.
+      const { container, rerender } = render(
+        <AgentResponse content={longAnswer.slice(0, 200)} isStreaming />
+      )
       expect(hasLede(container)).toBe(false)
+
+      rerender(<AgentResponse content={longAnswer} isStreaming />)
+      expect(hasLede(container)).toBe(true)
+
+      rerender(<AgentResponse content={longAnswer} />)
+      expect(hasLede(container)).toBe(true)
     })
   })
   // Getting the answer OUT: the copy actions live in the merged footer's meta

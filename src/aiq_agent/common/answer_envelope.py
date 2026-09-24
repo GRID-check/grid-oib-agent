@@ -1031,6 +1031,21 @@ def _strict_object(model_cls: type[BaseModel]) -> dict:
     }
 
 
+#: The fields the reader sees ABOVE the prose (the masthead, and the kind that
+#: names the answer), written before ``answer`` in this order. The reply
+#: streams as it is written (ADR-0066): a masthead written after the prose was
+#: inserted above text the reader was already reading, and moved it 80-230 px.
+MASTHEAD_FIELDS = ("kind", "topic", "context", "verdict", "summary")
+
+
+def _masthead_first(properties: dict) -> dict:
+    """``properties`` reordered: the masthead fields, then ``answer``, then the rest."""
+    head = {name: properties[name] for name in MASTHEAD_FIELDS if name in properties}
+    answer = {"answer": properties["answer"]} if "answer" in properties else {}
+    rest = {name: value for name, value in properties.items() if name not in head and name != "answer"}
+    return {**head, **answer, **rest}
+
+
 def render_envelope_response_format() -> dict:
     """The provider-enforced shape of a research reply, for ``response_format``.
 
@@ -1043,18 +1058,28 @@ def render_envelope_response_format() -> dict:
     earn takeaways); this only guarantees the syntax and the shape.
     """
     schema = _strict_object(AnswerMeta)
-    schema["properties"] = {
-        "answer": {
-            "type": "string",
-            "description": "the full written answer: markdown prose with [N] citations and the sources section",
-        },
-        **schema["properties"],
-    }
+    schema["properties"] = _masthead_first(
+        {
+            "answer": {
+                "type": "string",
+                "description": "the full written answer: markdown prose with [N] citations and the sources section",
+            },
+            **schema["properties"],
+        }
+    )
     schema["required"] = list(schema["properties"])
     return {
         "type": "json_schema",
         "json_schema": {"name": "answer_envelope", "strict": True, "schema": schema},
     }
+
+
+def _masthead_lines_first(lines: list[str]) -> list[str]:
+    """The schema lines in the order the reply is written: masthead, answer, rest."""
+    named = {line.split(":", 1)[0].rstrip("*"): line for line in lines}
+    order = [*MASTHEAD_FIELDS, "answer"]
+    head = [named[name] for name in order if name in named]
+    return head + [line for line in lines if line not in head]
 
 
 def render_envelope_schema() -> str:
@@ -1100,6 +1125,7 @@ def render_envelope_schema() -> str:
             lines.append(f"{field.name}: string ({description})")
     cards_description = AnswerMeta.model_fields["cards"].description
     lines.append(f"cards: [ {{ type*: string, …the fields of that type }} ] ({cards_description})")
+    lines = _masthead_lines_first(lines)
     rendered = "\n".join(f"  {line}" for line in lines)
     # The cards contract — which trigger takes which card, the index, the
     # shapes of the common eight, the placement rule — rendered from the card

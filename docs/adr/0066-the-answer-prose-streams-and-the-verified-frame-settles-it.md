@@ -31,6 +31,9 @@ before the turn ended, and be complete before it would otherwise have begun.
 * NAT's usage profiler rides the LLM call's inherited callbacks and bills it.
 * No new wire message, no frontend contract change: the WebSocket, the store
   and the observer relay (ADR-0039) already carry deltas then a terminal.
+* Nothing the reader is reading may move because something arrived above it.
+  A chat answer is read from its top as it grows, so an insertion above the
+  reading point (the masthead, a card) moves the very line the eye is on.
 
 ## Considered Options
 
@@ -47,16 +50,16 @@ before the turn ended, and be complete before it would otherwise have begun.
 Chosen option: "stream it with pending citations, settled at the string's
 close", because it shows the reader the prose while the model writes it, each
 citation in its place from the first moment, without ever showing an
-unverified one as real, and it needs no change to the prompt or the envelope.
-(The first cut withheld the markers until the terminal frame; they then
-appeared all at once at the end, which read as citations bolted on afterwards.)
+unverified one as real. (The first cut withheld the markers until the
+terminal frame; they then appeared all at once at the end, which read as
+citations bolted on afterwards.)
 
 The answering call runs with `bind(stream=True)`. A callback added to the
 call's inherited callback manager (never passed as the call's own callbacks,
 which replace the inherited ones and would drop the profiler) reads its tokens
 through `common/answer_prose_stream.py`: it finds the `"answer"` key, decodes
-the JSON string as it grows, streams each `[N]` marker whole, withholds
-`[[card:N]]` markers, and collects everything from the sources heading on,
+the JSON string as it grows, streams each `[N]` and `[[card:N]]` marker
+whole, and collects everything from the sources heading on,
 recognised with the verifier's own pattern. A reply that is not an envelope
 streams nothing, because a tool round can open with a line of preamble. While
 the answer streams, the client renders a marker with no source entry yet as a
@@ -71,6 +74,24 @@ pending pills become the answer's citations, or vanish if their line did not
 verify. The turn generator relays deltas in 50 ms windows while the answer
 task runs, then yields the terminal alone, which replaces the text once more
 with the same numbers.
+
+Everything that stands ABOVE or BESIDE the prose reaches the page before the
+prose moves past it. The envelope writes its masthead (`kind`, `topic`,
+`context`, `verdict`, `summary`) before `answer`, in the prompt's schema and
+the strict `response_format` alike, so the reader parses it the moment the
+`answer` key appears and a live frame carries it, gated
+(`LiveAnswer.masthead`: `gate_answer_meta` and the grounding of a verdict's
+value), above the first word; the snapshot re-gates it against the prose,
+whose restatement checks need it. A `[[card:N]]` holds a placeholder where it
+stands; each card object is read as it closes, gated
+(`validate_model_card`, its `[N]` recited to the settled numbers), and sent
+on a live `cards` frame that fills its place, growing from the placeholder.
+Cards go live only while no tool pushed a card this turn: then the model's
+numbers ARE the registry's. What the terminal omits (a suppressed card, a
+masthead gated out) it takes back. Measured on two recorded turns with the
+`/dev/stream-replay` probe, before this: the reader's anchor jumped 82-150 px
+on desktop and 104-229 px on a phone at the terminal frame, from the masthead
+inserted above it and a 580 px card spliced in after its first paragraph.
 
 ### Consequences
 
@@ -91,6 +112,11 @@ with the same numbers.
   the reasoning.
 * Neutral: `DeferredToolBinding` stays buffered, since its fallback would
   replay tokens already shown.
+* Bad, because the envelope's field order is now load-bearing: a model that
+  writes `answer` first streams its masthead at the terminal, as before, and
+  the prompt's examples and the strict schema are what keep the order.
+* Bad, because a card's placeholder is representative, not its height: the
+  card still grows by the difference when it lands, eased, above the reader.
 
 ### Confirmation
 
@@ -106,6 +132,11 @@ with the same numbers.
   the streamed call, a non-envelope round streams nothing, no second call
   streams once prose went out, Responses-API token blocks are read.
 * The answer suite's live runs record the reply the pipeline read, unchanged.
+* `test_answer_envelope.py`: the strict schema writes the masthead, then
+  `answer`. `CardSlotArrival.spec.tsx`, `card-markers.spec.tsx`: a streaming
+  marker holds its card's place, a final one with no card holds nothing.
+  `store.spec.ts`: a masthead frame opens the bubble, a terminal without live
+  cards takes them back.
 
 ## More Information
 

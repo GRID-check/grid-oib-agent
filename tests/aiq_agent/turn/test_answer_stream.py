@@ -12,6 +12,7 @@ from langchain_core.messages import HumanMessage
 from langchain_core.runnables import RunnableLambda
 
 from aiq_agent.turn.answer_stream import AnswerStreamSink
+from aiq_agent.turn.answer_stream import Cards
 from aiq_agent.turn.answer_stream import Snapshot
 from aiq_agent.turn.answer_stream import bound_answer_stream
 from aiq_agent.turn.answer_stream import streaming_call
@@ -37,9 +38,30 @@ def _text(sink: AnswerStreamSink) -> str:
     return "".join(item for item in sink._drain() if isinstance(item, str))
 
 
-async def _answer_in_a_node(llm, sink: AnswerStreamSink, parent: _Counter, settle=None) -> AIMessage:
+class _Live:
+    """A LiveAnswer double: records what it was asked, answers what the test set."""
+
+    def __init__(self, settled=None, masthead=None, card=lambda payload: payload, raises=False):
+        self.settled, self._masthead, self._card, self.raises = settled, masthead, card, raises
+        self.asked: list[tuple] = []
+
+    def masthead(self, fields, prose=""):
+        self.asked.append(("masthead", fields))
+        return self._masthead
+
+    def settle(self, prose, sources_text, fields):
+        self.asked.append(("settle", prose, sources_text, fields))
+        if self.raises:
+            raise ValueError("registry gone")
+        return self.settled
+
+    def card(self, payload):
+        return self._card(payload)
+
+
+async def _answer_in_a_node(llm, sink: AnswerStreamSink, parent: _Counter, live=None) -> AIMessage:
     async def node(_):
-        answering, config = streaming_call(llm, settle=settle)
+        answering, config = streaming_call(llm, live=live)
         return await answering.ainvoke([HumanMessage(content="Fluchtweg GK 4?")], config)
 
     with bound_answer_stream(sink):
@@ -82,36 +104,53 @@ def test_without_a_sink_the_call_is_the_buffered_one():
 
 async def test_the_closed_answer_is_settled_into_one_snapshot():
     """The markers already on screen become the answer's citations before the cards arrive."""
-    seen: list[tuple[str, str]] = []
-
-    def settle(prose: str, sources_text: str):
-        seen.append((prose, sources_text))
-        return Snapshot(
-            content="In GK 4 gilt … 40 m [1].", sources=[{"number": 1, "citation_key": "oib-rl_2.pdf, p.12"}]
-        )
-
+    live = _Live(settled=Snapshot(content="In GK 4 gilt … 40 m [1].", sources=[{"number": 1}]))
     sink = AnswerStreamSink()
-    await _answer_in_a_node(
-        GenericFakeChatModel(messages=iter([AIMessage(content=ENVELOPE)])), sink, _Counter(), settle
-    )
+    await _answer_in_a_node(GenericFakeChatModel(messages=iter([AIMessage(content=ENVELOPE)])), sink, _Counter(), live)
 
     items = sink._drain()
     snapshots = [item for item in items if isinstance(item, Snapshot)]
     assert len(snapshots) == 1 and snapshots[0].sources[0]["number"] == 1
     assert items[-1] is snapshots[0]  # after every delta it settles
-    prose, sources_text = seen[0]
+    _, prose, sources_text, _fields = live.asked[-1]
     assert prose.rstrip().endswith("40 m [1].") and sources_text.startswith("**Quellen:**")
 
 
 async def test_a_settle_that_raises_leaves_the_markers_pending():
-    def settle(prose: str, sources_text: str):
-        raise ValueError("registry gone")
-
     sink = AnswerStreamSink()
-    await _answer_in_a_node(
-        GenericFakeChatModel(messages=iter([AIMessage(content=ENVELOPE)])), sink, _Counter(), settle
-    )
+    live = _Live(raises=True)
+    await _answer_in_a_node(GenericFakeChatModel(messages=iter([AIMessage(content=ENVELOPE)])), sink, _Counter(), live)
     assert not any(isinstance(item, Snapshot) for item in sink._drain())
+
+
+async def test_the_masthead_goes_out_before_the_first_word_and_the_cards_after_the_prose():
+    reply = (
+        "```answer_json\n"
+        + json.dumps(
+            {
+                "kind": "ruling",
+                "topic": "Fluchtweg",
+                "answer": "In GK 4 gilt ein Fluchtweg von höchstens 40 m [1].\n\n**Quellen:**\n- [1] a.pdf, p.1",
+                "cards": [{"type": "table"}, {"type": "broken"}, {"type": "surface"}],
+            }
+        )
+        + "\n```"
+    )
+    live = _Live(
+        settled=Snapshot(content="…", sources=[]),
+        masthead={"v": 1, "kind": "ruling", "topic": "Fluchtweg"},
+        card=lambda payload: None if payload["type"] == "broken" else payload,
+    )
+    sink = AnswerStreamSink()
+    await _answer_in_a_node(GenericFakeChatModel(messages=iter([AIMessage(content=reply)])), sink, _Counter(), live)
+
+    items = sink._drain()
+    kinds = [type(item).__name__ for item in items]
+    assert kinds[0] == "Masthead" and items[0].answer_meta["topic"] == "Fluchtweg"
+    assert kinds.index("Snapshot") < kinds.index("Cards")
+    cards = [item for item in items if isinstance(item, Cards)][-1].cards
+    # A refused card keeps its place, so [[card:3]] still finds the surface.
+    assert [card and card["type"] for card in cards] == ["table", None, "surface"]
 
 
 async def test_the_relay_sends_a_window_of_tokens_as_one_frame_and_keeps_snapshots_in_place():
@@ -124,7 +163,7 @@ async def test_the_relay_sends_a_window_of_tokens_as_one_frame_and_keeps_snapsho
         sink.push("Satz [1] ")  # inside the window: the same frame
         await asyncio.sleep(0.2)
         sink.push("und noch einer.")  # after it: the next frame
-        sink.settle(snapshot)  # never merged into text
+        sink.put(snapshot)  # never merged into text
         return "fertig"
 
     task = asyncio.create_task(answer())

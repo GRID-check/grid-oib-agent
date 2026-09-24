@@ -29,6 +29,7 @@ import {
   type MessageStages,
 } from '@/lib/conversations/message-stages'
 import type { StageId } from '@/adapters/api/schemas'
+import type { AnswerMeta } from '@/lib/conversations/message-answer-meta'
 
 /**
  * One post-answer stage frame, narrowed to what the store acts on
@@ -190,15 +191,20 @@ export type MessagesSlice = {
     content: string,
     cards?: (GridCard | undefined)[],
     answerConfidence?: 'low' | 'medium' | 'high',
-    citations?: CitationSource[]
+    citations?: CitationSource[],
+    answerMeta?: AnswerMeta
   ) => void
   /**
    * Replace the streaming bubble's text with a settled snapshot (ADR-0066):
-   * the prose so far with its `[N]` markers verified and renumbered, and the
-   * sources they now point at. The bubble keeps streaming; the terminal frame
-   * still finalizes it.
+   * the prose so far with its `[N]` markers verified and renumbered, the
+   * sources they now point at, and the masthead re-gated against the prose.
+   * The bubble keeps streaming; the terminal frame still finalizes it.
    */
-  replaceStreamingAgentResponse: (content: string, citations?: CitationSource[]) => void
+  replaceStreamingAgentResponse: (
+    content: string,
+    citations?: CitationSource[],
+    answerMeta?: AnswerMeta
+  ) => void
   finalizeAgentResponse: (
     content: string,
     cards?: (GridCard | undefined)[],
@@ -607,7 +613,13 @@ export const createMessagesSlice: StateCreator<
     cards?: (GridCard | undefined)[]
     answerConfidence?: 'low' | 'medium' | 'high'
     citations?: CitationSource[]
+    answerMeta?: AnswerMeta
   } = {}
+  // Whether the open bubble's cards or masthead came from a LIVE frame
+  // (ADR-0066) rather than the legacy single in_progress frame. Live ones are
+  // provisional: a terminal that carries none (the cards were suppressed, the
+  // masthead gated out) takes them away again.
+  let liveMetaShown = false
   let deltaRafHandle: number | null = null
 
   const canBatchDeltas = (): boolean =>
@@ -645,6 +657,7 @@ export const createMessagesSlice: StateCreator<
     const hasMeta =
       (meta.cards && meta.cards.length > 0) ||
       !!meta.answerConfidence ||
+      !!meta.answerMeta ||
       (meta.citations && meta.citations.length > 0)
     if (text === '' && !hasMeta) return
 
@@ -672,6 +685,7 @@ export const createMessagesSlice: StateCreator<
               : {}),
             ...(meta.answerConfidence ? { answerConfidence: meta.answerConfidence } : {}),
             ...(meta.citations && meta.citations.length > 0 ? { citations: meta.citations } : {}),
+            ...(meta.answerMeta ? { answerMeta: meta.answerMeta } : {}),
           }
         : msg
     )
@@ -1310,7 +1324,8 @@ export const createMessagesSlice: StateCreator<
       content: string,
       cards?: (GridCard | undefined)[],
       answerConfidence?: 'low' | 'medium' | 'high',
-      citations?: CitationSource[]
+      citations?: CitationSource[],
+      answerMeta?: AnswerMeta
     ) => {
       const state = get()
       const { currentConversation, conversations, streamingAssistantMessageId } = state
@@ -1323,6 +1338,7 @@ export const createMessagesSlice: StateCreator<
       // from a prior turn can bleed into this fresh bubble.
       if (!streamingAssistantMessageId) {
         resetDeltaBuffer()
+        liveMetaShown = Boolean(answerMeta)
 
         const id = uuidv4()
         const message = buildAgentResponseMessage(state, id, content, {
@@ -1330,6 +1346,8 @@ export const createMessagesSlice: StateCreator<
           answerConfidence,
           citations,
           isStreaming: true,
+          // The masthead can open the bubble: it is written before the prose.
+          transparency: answerMeta ? { answerMeta } : undefined,
         })
 
         const updatedConversation: Conversation = {
@@ -1358,6 +1376,8 @@ export const createMessagesSlice: StateCreator<
       if (cards && cards.length > 0) pendingDeltaMeta.cards = cards
       if (answerConfidence) pendingDeltaMeta.answerConfidence = answerConfidence
       if (citations && citations.length > 0) pendingDeltaMeta.citations = citations
+      if (answerMeta) pendingDeltaMeta.answerMeta = answerMeta
+      if (answerMeta || (cards && cards.length > 0)) liveMetaShown = true
 
       if (canBatchDeltas()) {
         scheduleDeltaFlush()
@@ -1366,12 +1386,16 @@ export const createMessagesSlice: StateCreator<
       }
     },
 
-    replaceStreamingAgentResponse: (content: string, citations?: CitationSource[]) => {
+    replaceStreamingAgentResponse: (
+      content: string,
+      citations?: CitationSource[],
+      answerMeta?: AnswerMeta
+    ) => {
       const { currentConversation, conversations, streamingAssistantMessageId } = get()
       if (!currentConversation) return
       // No bubble yet (a turn whose first live frame is the snapshot): open it.
       if (!streamingAssistantMessageId) {
-        get().appendAgentResponseDelta(content, undefined, undefined, citations)
+        get().appendAgentResponseDelta(content, undefined, undefined, citations, answerMeta)
         return
       }
       // Buffered delta text is part of what the snapshot replaces: the backend
@@ -1381,7 +1405,12 @@ export const createMessagesSlice: StateCreator<
         ...currentConversation,
         messages: currentConversation.messages.map((msg) =>
           msg.id === streamingAssistantMessageId
-            ? { ...msg, content, ...(citations && citations.length > 0 ? { citations } : {}) }
+            ? {
+                ...msg,
+                content,
+                ...(citations && citations.length > 0 ? { citations } : {}),
+                ...(answerMeta ? { answerMeta } : {}),
+              }
             : msg
         ),
         updatedAt: new Date(),
@@ -1421,10 +1450,15 @@ export const createMessagesSlice: StateCreator<
         return
       }
 
+      // A terminal with the full text is authoritative for what the live
+      // frames showed ahead of it, absence included.
+      const retractLive = liveMetaShown && Boolean(content && content.length > 0)
+      liveMetaShown = false
       const updatedMessages = currentConversation.messages.map((msg) => {
         if (msg.id !== streamingAssistantMessageId) return msg
         return {
           ...msg,
+          ...(retractLive ? { cards: undefined, answerMeta: undefined } : {}),
           // Authoritative full text on the terminal frame equals the accumulation
           // (idempotent replace). An EMPTY terminal — the legacy synthetic
           // `complete` frame — must NOT wipe the accumulated bubble.

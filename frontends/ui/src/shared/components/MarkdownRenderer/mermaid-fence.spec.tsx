@@ -62,16 +62,28 @@ describe('routing a fence', () => {
     expect(screen.getByText(/const a = 1/)).toBeInTheDocument()
   })
 
-  it('shows a streaming mermaid fence as its source', async () => {
+  it('holds the place of the fence still being written, without its source', async () => {
     // The stabiliser auto-closes an odd number of fences, so a half-arrived
     // mermaid block reaches this override looking complete. Drawing it would
-    // flash a parse error on every token.
+    // flash a parse error on every token; showing its source was the largest
+    // jump a streamed answer made, when it turned into a picture.
     render(<MarkdownRenderer content={'```mermaid\ngraph TD\n  A -->'} isStreaming />)
     await waitFor(
       () => expect(screen.getByTestId('mermaid-diagram')).toHaveAttribute('data-state', 'streaming'),
       DYNAMIC_IMPORT_BUDGET
     )
+    expect(screen.queryByText(/graph TD/)).toBeNull()
     expect(renderer).not.toHaveBeenCalled()
+  }, 15000)
+
+  it('draws a closed fence while the answer after it is still streaming', async () => {
+    render(
+      <MarkdownRenderer content={'```mermaid\ngraph TD\n  A --> B\n```\n\nDanach folgt noch Text'} isStreaming />
+    )
+    await waitFor(
+      () => expect(screen.getByTestId('mermaid-diagram')).not.toHaveAttribute('data-state', 'streaming'),
+      DYNAMIC_IMPORT_BUDGET
+    )
   }, 15000)
 })
 

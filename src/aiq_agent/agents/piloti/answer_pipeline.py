@@ -17,6 +17,7 @@ from collections.abc import Awaitable
 from collections.abc import Callable
 from collections.abc import Sequence
 from dataclasses import dataclass
+from dataclasses import field
 from dataclasses import replace
 from typing import Any
 
@@ -24,6 +25,7 @@ from langchain_core.messages import AIMessage
 from langchain_core.messages import HumanMessage
 from langchain_core.messages import ToolMessage
 from langchain_core.tools import BaseTool
+from pydantic import ValidationError
 
 from aiq_agent.common import citation_events
 from aiq_agent.common import content_to_text
@@ -40,6 +42,7 @@ from aiq_agent.common.citation_verification import UnverifiedQuote
 from aiq_agent.common.citation_verification import agent_authored_document_names
 from aiq_agent.common.citation_verification import annotate_unverified_quotes
 from aiq_agent.common.citation_verification import drop_ungrounded_trailer_values
+from aiq_agent.common.citation_verification import expand_grouped_citations
 from aiq_agent.common.citation_verification import get_turn_captures
 from aiq_agent.common.citation_verification import lost_citations
 from aiq_agent.common.citation_verification import sanitize_report
@@ -257,6 +260,7 @@ def _extract(raw: str) -> _Extracted:
     """
     content = strip_and_salvage_dsml_tool_calls(raw)
     content, meta = extract_answer_envelope(content)
+    content = expand_grouped_citations(content)
     content, escalation = detect_and_strip_escalation_marker(content)
     content, confidence, reason = detect_and_strip_confidence_marker(content)
     escalation_reason: str | None = None
@@ -628,15 +632,87 @@ def settle_streamed_citations(prose: str, sources_text: str, registry: SourceReg
     cited = _renumbered(_cited_sources(verified.valid_citations, registry), sanitized.renumber_map)
     # The written source list travels WITH the prose, as it does in the
     # terminal frame: the reader resolves a marker against that list.
-    return SettledStream(content=sanitized.sanitized_report.rstrip(), sources=wire_sources(cited))
+    return SettledStream(
+        content=sanitized.sanitized_report.rstrip(),
+        sources=wire_sources(cited),
+        renumber_map=dict(sanitized.renumber_map or {}),
+        numbers=frozenset(source.number for source in cited if source.number is not None),
+    )
 
 
 @dataclass(frozen=True)
 class SettledStream:
-    """What :func:`settle_streamed_citations` hands the wire: text and sources."""
+    """What :func:`settle_streamed_citations` hands the wire, and what a card's markers follow."""
 
     content: str
     sources: list[dict[str, Any]]
+    renumber_map: dict[int, int] = field(default_factory=dict)
+    numbers: frozenset[int] = frozenset()
+    answer_meta: dict[str, Any] | None = None
+
+
+class LiveAnswer:
+    """What the stream may show before the pipeline has run, gated as the pipeline gates it.
+
+    Three moments of one reply (ADR-0066), each through the functions
+    :func:`finalize_answer` uses, so the stream cannot show what the finished
+    answer would refuse:
+
+    - the masthead, the moment the fields before ``answer`` are written:
+      :func:`gate_answer_meta` and the trailer grounding, everything but the
+      summary's comparison with a prose not yet written;
+    - the prose, when the ``answer`` string closes: verified, renumbered, and
+      the masthead gated again, now against the prose;
+    - each card, when its object closes: the one card validator, its ``[N]``
+      held to the settled numbers. Only while no tool has registered a card
+      this turn: the reader places ``[[card:N]]`` against the message's card
+      list, which such a card would shift.
+    """
+
+    def __init__(self, registry: SourceRegistry) -> None:
+        self._registry = registry
+        self._settled: SettledStream | None = None
+
+    def masthead(self, fields: dict[str, Any], prose: str = "") -> dict[str, Any] | None:
+        from aiq_agent.common.answer_envelope import MASTHEAD_FIELDS
+
+        try:
+            meta = AnswerMeta.model_validate({key: value for key, value in fields.items() if key in MASTHEAD_FIELDS})
+        except ValidationError:
+            return None
+        gated = gate_answer_meta(
+            meta,
+            prose_chars=len(prose),
+            prose=prose,
+            agent_authored_documents=agent_authored_document_names(self._registry),
+        )
+        if gated is None:
+            return None
+        grounded = drop_ungrounded_trailer_values(gated, get_turn_captures()) or {}
+        head = {key: value for key, value in grounded.items() if key in MASTHEAD_FIELDS}
+        return {"v": grounded.get("v"), **head} if head else None
+
+    def settle(self, prose: str, sources_text: str, fields: dict[str, Any] | None) -> SettledStream | None:
+        settled = settle_streamed_citations(prose, sources_text, self._registry)
+        if settled is None:
+            return None
+        meta = self.masthead(fields, prose_without_references(settled.content)) if fields else None
+        self._settled = replace(settled, answer_meta=meta)
+        return self._settled
+
+    def card(self, payload: Any) -> dict[str, Any] | None:
+        from aiq_agent.cards.envelope import validate_model_card
+        from aiq_agent.cards.registry import get_card_registry
+        from aiq_agent.cards.surface_citations import recite_surface
+
+        registry = get_card_registry()
+        if registry is not None and len(registry.snapshot()) > 0:
+            return None
+        card, _refusal = validate_model_card(payload)
+        if card is None:
+            return None
+        settled = self._settled or SettledStream(content="", sources=[])
+        return recite_surface(card, settled.renumber_map, settled.numbers)
 
 
 def _renumbered(cited: tuple[CitedSource, ...], renumber_map: dict[int, int] | None) -> tuple[CitedSource, ...]:

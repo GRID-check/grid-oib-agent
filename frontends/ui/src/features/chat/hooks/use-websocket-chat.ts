@@ -1429,9 +1429,18 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
         } else if (transparency?.streamReplace) {
           // The streamed prose, its citations settled (ADR-0066): the pending
           // markers on screen become the answer's own, before its cards.
-          replaceStreamingAgentResponse(content, citations)
-        } else if ((content && content.trim()) || validatedCards.length > 0) {
-          appendAgentResponseDelta(content, validatedCards, answerConfidence, citations)
+          replaceStreamingAgentResponse(content, citations, transparency.answerMeta)
+        } else if ((content && content.trim()) || validatedCards.length > 0 || transparency?.answerMeta) {
+          // A live frame may also carry the masthead, written before the
+          // prose, or the cards written after it: each lands in its place
+          // the moment it exists instead of all at once at the end.
+          appendAgentResponseDelta(
+            content,
+            validatedCards,
+            answerConfidence,
+            citations,
+            transparency?.answerMeta
+          )
         }
 
         // status: "complete" with null text signals task completion

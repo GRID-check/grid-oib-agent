@@ -8,10 +8,10 @@
  *   - **streaming** — the fence is still arriving, so nothing is drawn. The
  *     stabiliser in `MarkdownRenderer` appends a synthetic closing fence to
  *     half-arrived markdown, which means an in-flight mermaid block LOOKS
- *     complete on every token. Handing that to mermaid renders a parse error
- *     per token, so the rule is simply: while the answer is streaming, a
- *     mermaid fence is a code block. It becomes a diagram once, when the answer
- *     is finished and the text has stopped changing.
+ *     complete on every token; handing that to mermaid renders a parse error
+ *     per token. So the fence still being written (`openFenceBody`) shows the
+ *     drawing's placeholder, not its source, and every fence already closed is
+ *     drawn while the rest of the answer streams (ADR-0066).
  *   - **failed** — the model writes broken mermaid regularly, and that must
  *     cost the reader nothing they did not already have. A failure renders the
  *     source, exactly as it rendered before this component existed, plus one
@@ -118,10 +118,24 @@ export function MermaidDiagram({ source, isStreaming = false }: MermaidDiagramPr
   // before this component existed. NOT the "still drawing" case — that one gets
   // the skeleton below, because replacing a code block with a picture a second
   // later is a bigger jump than growing a placeholder into one.
-  if (isStreaming || (!model && failed)) {
+  // Still being written: the drawing's place, not its source. A code block that
+  // turned into a picture when its fence closed was the largest jump a
+  // streamed answer made; a placeholder growing into the figure is the small
+  // one the drawing state below already makes (ADR-0066).
+  if (isStreaming) {
+    return (
+      <figure data-testid="mermaid-diagram" data-state="streaming" className="my-4" aria-busy="true">
+        <div className="border-border rounded-lg border p-3">
+          <DrawingSkeleton />
+        </div>
+      </figure>
+    )
+  }
+
+  if (!model && failed) {
     const lineCount = source.split('\n').length
     return (
-      <div data-testid="mermaid-diagram" data-state={failed ? 'failed' : 'streaming'}>
+      <div data-testid="mermaid-diagram" data-state="failed">
         <CodeBlock value={source} language="mermaid" collapsible={lineCount > 15} maxLines={15} />
         {failed ? <p className="text-muted-foreground mt-1 text-xs">{t('fallback')}</p> : null}
       </div>

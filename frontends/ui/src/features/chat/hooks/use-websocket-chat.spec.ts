@@ -1587,8 +1587,33 @@ describe('useWebSocketChat', () => {
       'Partial content...',
       [],
       undefined,
+      undefined,
       undefined
     )
+    expect(mockFinalizeAgentResponse).not.toHaveBeenCalled()
+  })
+
+  test('a masthead frame with no text still lands, ahead of the prose (ADR-0066)', () => {
+    renderWebSocketHook()
+
+    mockStoreState.isStreaming = true
+    const answerMeta = { v: 1, kind: 'ruling' as const, topic: 'Zweiter Fluchtweg' }
+
+    act(() => {
+      capturedCallbacks.onResponse?.(
+        '',
+        'in_progress',
+        false,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        { answerMeta }
+      )
+    })
+
+    expect(mockAppendAgentResponseDelta).toHaveBeenCalledWith('', [], undefined, undefined, answerMeta)
     expect(mockFinalizeAgentResponse).not.toHaveBeenCalled()
   })
 
@@ -1611,9 +1636,11 @@ describe('useWebSocketChat', () => {
       )
     })
 
-    expect(mockReplaceStreamingAgentResponse).toHaveBeenCalledWith('R 90 [1].', [
-      expect.objectContaining({ fileName: 'oib-rl_2.pdf', page: 12 }),
-    ])
+    expect(mockReplaceStreamingAgentResponse).toHaveBeenCalledWith(
+      'R 90 [1].',
+      [expect.objectContaining({ fileName: 'oib-rl_2.pdf', page: 12 })],
+      undefined
+    )
     expect(mockAppendAgentResponseDelta).not.toHaveBeenCalled()
     expect(mockFinalizeAgentResponse).not.toHaveBeenCalled()
   })

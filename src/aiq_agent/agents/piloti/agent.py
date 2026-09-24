@@ -102,9 +102,9 @@ from aiq_agent.turn.answer_stream import streaming_call
 
 from .answer_pipeline import CardRepairFn
 from .answer_pipeline import FinalAnswer
+from .answer_pipeline import LiveAnswer
 from .answer_pipeline import RepairFn
 from .answer_pipeline import finalize_answer
-from .answer_pipeline import settle_streamed_citations
 from .envelope_call import ainvoke
 from .envelope_call import ainvoke_with_envelope_json_mode
 from .grounding import tool_result_is_measurement
@@ -767,10 +767,10 @@ def _turn_input_tokens() -> int:
     return tracker.prompt_tokens
 
 
-def _settle_streamed(prose: str, sources_text: str):
-    """The streamed prose's citations, verified against the registry this turn is answering from."""
+def _live_answer() -> LiveAnswer | None:
+    """What the stream may show ahead of the pipeline, gated against the registry this turn answers from."""
     registry = get_session_registry()
-    return None if registry is None else settle_streamed_citations(prose, sources_text, registry)
+    return None if registry is None else LiveAnswer(registry)
 
 
 def _turn_cutoff(state: ResearchAgentState, binding: TurnBinding) -> str | None:
@@ -1184,7 +1184,7 @@ class PilotiAgent:
         answering, call_config = (
             (llm_with_tools, None)
             if isinstance(llm_with_tools, DeferredToolBinding)
-            else streaming_call(llm_with_tools, settle=_settle_streamed)
+            else streaming_call(llm_with_tools, live=_live_answer())
         )
         if self.envelope_json_mode_with_tools:
             response = await ainvoke_with_envelope_json_mode(answering, messages, call_config)
@@ -1278,7 +1278,7 @@ class PilotiAgent:
             emit_synthesis()
         # Anchored at the end to combat "Loss in the Middle".
         messages = [SystemMessage(content=system_prompt), *state.messages, HumanMessage(content=_SYNTHESIS_ANCHOR)]
-        answering, call_config = streaming_call(binding.llm, settle=_settle_streamed)
+        answering, call_config = streaming_call(binding.llm, live=_live_answer())
         response = await ainvoke_with_envelope_json_mode(answering, messages, call_config)
         return {
             "messages": [response],

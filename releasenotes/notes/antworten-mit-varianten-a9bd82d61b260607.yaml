@@ -5,6 +5,9 @@ features:
     der Recherche. Jede Fundstelle steht sofort an ihrer Stelle, zunächst als
     „wird geprüft“, und wird zur anklickbaren Quelle, sobald der Text fertig
     und geprüft ist, noch bevor Karten und Antwort vollständig sind.
+    Titel und Kurzfassung stehen über der Antwort, bevor ihr erstes Wort
+    erscheint, und eine Karte hält ihren Platz im Text frei und wächst dort
+    hinein, statt den Text, den Sie gerade lesen, nach unten zu schieben.
   - >
     Diagramme in Antworten sind neu gestaltet: Abläufe als Karten mit
     beschrifteten Pfeilen und hervorgehobenen Entscheidungen, ein Regelwerk

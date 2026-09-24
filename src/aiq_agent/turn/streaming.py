@@ -76,14 +76,29 @@ def iter_answer_deltas(text: str, *, target_size: int = 24) -> list[str]:
     return deltas
 
 
-def live_chunk(content: str, *, sources: list | None = None) -> ChatResponseChunk:
-    """A chunk of the live prose (ADR-0066): a delta that appends, or, given
-    ``sources``, a snapshot that REPLACES the bubble's text with the settled
-    prose and names the sources its markers now point at (``stream_replace``)."""
+def live_chunk(
+    content: str,
+    *,
+    sources: list | None = None,
+    answer_meta: dict | None = None,
+    cards: list | None = None,
+) -> ChatResponseChunk:
+    """A chunk of the live answer (ADR-0066).
+
+    Plain ``content`` is a delta that appends. Given ``sources`` it is a
+    snapshot that REPLACES the bubble's text with the settled prose and names
+    the sources its markers now point at (``stream_replace``). ``answer_meta``
+    carries the masthead ahead of the prose, ``cards`` the cards written so
+    far: neither changes the text.
+    """
     chunk = ChatResponseChunk.create_streaming_chunk(content, finish_reason=None)
     if sources is not None:
         chunk.sources = sources
         chunk.stream_replace = True
+    if answer_meta is not None:
+        chunk.answer_meta = answer_meta
+    if cards is not None:
+        chunk.cards = cards
     return chunk
 
 
