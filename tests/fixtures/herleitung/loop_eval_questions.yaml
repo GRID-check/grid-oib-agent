@@ -1,4 +1,4 @@
-# Twenty-seven questions a Wiener Planungsbüro actually asks, for the loop eval.
+# Twenty-nine questions a Wiener Planungsbüro actually asks, for the loop eval.
 #
 # WHAT THIS SET IS FOR
 # --------------------
@@ -45,6 +45,19 @@
 #           there is a copyable legal value, `walkthrough` where the honest answer
 #           is prose, `direct` where nothing is retrieved at all.
 #
+# `suite`   `core` puts the question in the answer suite's default set
+#           (`scripts/turn_census/suite.py`, `task be:eval:answer-suite`), which
+#           runs through `nat run` without a backend. Keep the core set small and
+#           spread over the answer shapes: every run of it costs model calls.
+# `expect`  Optional, read only by the answer suite, checked against the answer
+#           the pipeline delivered:
+#             mentions:     values that must appear (a list inside the list is
+#                           alternatives, e.g. [EI2 30, EI₂ 30])
+#             not_mentions: phrases that must not (a false claim seen live)
+#             shape:        tabs | table | diagram, or a list of acceptable ones
+#           Same discipline as `punkt`: a value is one read off the corpus
+#           (the PDF, a retrieved passage), never one remembered.
+#
 # Adding a question: give it an id nobody else has, and leave `punkt` and
 # `paragraph` null unless you looked them up in the index / read them off a
 # committed fixture.
@@ -57,6 +70,7 @@ questions:
     family: OIB-RL 2
     punkt: "5.1"
     kind: ruling
+    suite: core
 
   - id: feuerwiderstand-gk5
     question: >-
@@ -65,6 +79,7 @@ questions:
     family: OIB-RL 2
     punkt: "2.2"
     kind: ruling
+    suite: core
 
   - id: rauchwarnmelder-wohnung
     question: Müssen wir in jeder Wohnung Rauchwarnmelder vorsehen?
@@ -93,6 +108,11 @@ questions:
     family: OIB-RL 2
     punkt: null
     kind: walkthrough
+    suite: core
+    expect:
+      # All four parts are in the corpus; a live run at low effort claimed 2.1 was not.
+      mentions: ["2.1", "2.2", "2.3"]
+      not_mentions: ["nicht enthalten"]
 
   - id: tiefgarage-entrauchung
     question: >-
@@ -141,6 +161,10 @@ questions:
     family: OIB-RL 4
     punkt: "4"
     kind: ruling
+    suite: core
+    expect:
+      # OIB-RL 4 Pkt. 4.2.1: 1,00 m, above 12 m Absturzhöhe 1,10 m.
+      mentions: ["1,10"]
 
   - id: barrierefrei-wohngebaeude
     question: >-
@@ -267,3 +291,32 @@ questions:
     family: null
     punkt: null
     kind: direct
+
+  - id: treppenhaus-gk4-tabelle
+    question: >-
+      Welche Feuerwiderstandsklasse brauchen die Wände eines Treppenhauses in
+      GK 4, und welche die Türen zu Wohnungen?
+    family: OIB-RL 2
+    punkt: null
+    kind: ruling
+    suite: core
+    expect:
+      # OIB-RL 2 Tabelle 3, rows 1.1 and 3.1, column GK 4 (pdfplumber, p. 30).
+      # The answer lives in a table, not a Punkt, hence no `punkt`.
+      mentions: ["REI 60", [EI2 30, "EI₂ 30"]]
+      shape: table
+
+  - id: fluchtweg-varianten
+    question: >-
+      Für den zweiten Fluchtweg in GK 4 überlegen wir eine Außentreppe oder ein
+      zweites Treppenhaus. Was müsste ich jeweils nachweisen?
+    family: OIB-RL 2
+    punkt: "5.1"
+    kind: walkthrough
+    suite: core
+    expect:
+      # Two designs, each with its own list of requirements: variant tabs, or
+      # one table with a column per design (both seen live, both readable).
+      # REI 60: Tabelle 3, row 1.1, GK 4.
+      mentions: ["REI 60"]
+      shape: [tabs, table]

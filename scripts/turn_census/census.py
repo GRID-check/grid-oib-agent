@@ -121,6 +121,9 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     if not args.question:
         parser.error("a question, or --report")
+    if not os.environ.get("OPENROUTER_API_KEY") and os.environ.get("OPENROUTER_KEY"):
+        # Some environments carry the key under this name (docs/contributing/gotchas.md).
+        os.environ["OPENROUTER_API_KEY"] = os.environ["OPENROUTER_KEY"]
     if not os.environ.get("OPENROUTER_API_KEY"):
         print("OPENROUTER_API_KEY is not set; a census needs the real models.", file=sys.stderr)
         return 2

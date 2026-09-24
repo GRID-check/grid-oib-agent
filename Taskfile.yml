@@ -459,6 +459,19 @@ tasks:
       #   task be:eval:turn-census -- --report /tmp/turn_census/*.jsonl
       - '{{.PY}} scripts/turn_census/census.py {{.CLI_ARGS}}'
 
+  be:eval:answer-suite:
+    desc: 'Answer suite — the reference questions through the real agent, timed and checked, with a report (NEEDS OPENROUTER_API_KEY and the corpus ingested; -- --ingest syncs it first)'
+    env:
+      PYTHONPATH: src
+    cmds:
+      # The end-to-end check: seconds, reasoning tokens and the answer's own
+      # expectations per question, medians over runs, a baseline diff.
+      #   task be:eval:answer-suite -- --out /tmp/suite/before
+      #   task be:eval:answer-suite -- --out /tmp/suite/after --baseline /tmp/suite/before/results.json
+      #   task be:eval:answer-suite -- --report /tmp/suite/after/results.json
+      # docs/contributing/testing-and-verification.md, "The answer suite".
+      - '{{.PY}} scripts/turn_census/suite.py {{.CLI_ARGS}}'
+
   be:eval:loop:
     desc: 'Agentic-loop shape eval — rounds, locator use, checkpoint source, truncation (NEEDS a running backend with the corpus; set GRID_LOOP_EVAL_URL)'
     cmds:

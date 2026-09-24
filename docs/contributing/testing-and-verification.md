@@ -278,6 +278,43 @@ writing it again against `src/app/dev/` rather than against a registry — and i
 should not be part of `verify` when it returns, because a browser pass over ~120
 surfaces is a deliberate run rather than a per-commit tax.
 
+## The answer suite
+
+`task be:eval:answer-suite` is the end-to-end check: the reference questions
+through the real agent, several runs each, timed call by call and checked
+against what the answer must say. The loop eval asks how the turn looked for
+its passage; this asks what the reader waited for and what they got.
+
+- **Questions:** the loop eval's set, the ones tagged `suite: core` by
+  default (`--all` for every question without a project; a question about an
+  office's own files needs a project and is skipped, and the report says so).
+  A question's optional `expect` block names values that must appear, claims
+  that must not, and an acceptable shape (variant tabs, a table, a drawing),
+  each read off the corpus, never remembered.
+- **Per run:** wall seconds, the final call's seconds, research calls, tool
+  calls, reasoning tokens and the largest single-call spike (seconds follow
+  reasoning tokens at ~85 tok/s, and the spike is where run-to-run variance
+  comes from), the pipeline's own signals (a repair rewrite, a gated summary,
+  a dropped mindmap, prose outside the envelope), and every check.
+- **Output:** `report.md` and `results.json` in `--out`. `--baseline` puts
+  the medians of an earlier `results.json` beside the new ones; `--report`
+  re-renders a `results.json` and re-checks it against the question set as it
+  is now, without paying for the runs again.
+
+```bash
+task be:eval:answer-suite -- --out /tmp/suite/before         # on the base branch
+task be:eval:answer-suite -- --out /tmp/suite/after --baseline /tmp/suite/before/results.json
+```
+
+It needs `OPENROUTER_API_KEY` (or `OPENROUTER_KEY`) and the corpus in
+`data/oib` ingested into `AIQ_CHROMA_DIR` (`-- --ingest` runs the sync
+first). Every run costs model calls: the core set at two runs is twelve
+turns, about four minutes three at a time. It cannot run in CI for the same
+reason as the loop eval; its bookkeeping is covered offline by
+[`tests/test_answer_suite.py`](../../tests/test_answer_suite.py). The
+September 2026 measurements it grew out of are in
+[turns-per-answer-audit-2026-09.md](../architecture/turns-per-answer-audit-2026-09.md).
+
 ## Before opening a PR
 
 - `task verify:fast` green.
