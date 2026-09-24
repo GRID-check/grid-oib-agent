@@ -1,5 +1,6 @@
 'use client'
 
+import { HorizontalScroll } from '@/components/ui/horizontal-scroll'
 import { type FC, type ReactNode, memo, useCallback, useMemo } from 'react'
 import { useTranslations } from '@/i18n'
 import dynamic from 'next/dynamic'
@@ -485,11 +486,11 @@ export const MarkdownRenderer: FC<MarkdownRendererProps> = memo(
           // comparisons and values-by-class as tables, and a column of numbers
           // or classes reads down only when the digits line up.
           table: ({ children }) => (
-            <div className="border-base my-4 overflow-x-auto rounded-xl border">
+            <HorizontalScroll className="border-base my-4 rounded-xl border">
               <table className="[&>tbody>tr:nth-child(even)]:bg-muted/30 min-w-full tabular-nums">
                 {children}
               </table>
-            </div>
+            </HorizontalScroll>
           ),
           thead: ({ children }) => <thead className="bg-muted/50">{children}</thead>,
           tbody: ({ children }) => <tbody>{children}</tbody>,

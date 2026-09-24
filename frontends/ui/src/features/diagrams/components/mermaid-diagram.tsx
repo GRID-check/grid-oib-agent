@@ -52,6 +52,7 @@
  * byte-for-byte what the filing button will send.
  */
 
+import { HorizontalScroll } from '@/components/ui/horizontal-scroll'
 import { CodeBlock } from '@/shared/components/CodeBlock'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useTranslations } from '@/i18n'
@@ -122,7 +123,7 @@ export function MermaidDiagram({ source, isStreaming = false }: MermaidDiagramPr
           whatever surface it is lying on, which is the card — in both themes.
           A hairline frame is all it needs to read as a figure rather than as
           loose marks in the prose. */}
-      <div className="border-border overflow-x-auto rounded-lg border p-3 [&_svg]:h-auto [&_svg]:max-w-full">
+      <HorizontalScroll className="border-border rounded-lg border p-3 [&_svg]:h-auto [&_svg]:max-w-full">
         {svg ? (
           <div
             // Safe because of what produced the string, not because of where it is
@@ -140,7 +141,7 @@ export function MermaidDiagram({ source, isStreaming = false }: MermaidDiagramPr
         ) : (
           <DrawingSkeleton />
         )}
-      </div>
+      </HorizontalScroll>
       <figcaption className="text-muted-foreground mt-1 flex flex-wrap items-center gap-x-3 text-xs">
         {/* The doctrine, where the reader is. Fifteen schematic cards in this
             product compute their geometry so they cannot disagree with their

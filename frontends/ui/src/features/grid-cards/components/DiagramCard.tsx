@@ -77,6 +77,7 @@
  * carry, and it is what names the file in the Files pane.
  */
 
+import { HorizontalScroll } from '@/components/ui/horizontal-scroll'
 import { type FC } from 'react'
 import { Workflow } from 'lucide-react'
 import { Card } from '@/components/ui/card'
@@ -148,7 +149,7 @@ export const DiagramCard: FC<DiagramCardProps> = ({ title, source, caption, refe
             maxLines={SOURCE_MAX_LINES}
           />
         ) : (
-          <div className="border-border overflow-x-auto rounded-md border p-3 [&_svg]:h-auto [&_svg]:max-w-full">
+          <HorizontalScroll className="border-border rounded-md border p-3 [&_svg]:h-auto [&_svg]:max-w-full">
             {svg ? (
               <div
                 // Safe because of what produced the string, not because of where
@@ -167,7 +168,7 @@ export const DiagramCard: FC<DiagramCardProps> = ({ title, source, caption, refe
             ) : (
               <DrawingSkeleton />
             )}
-          </div>
+          </HorizontalScroll>
         )}
 
         <figcaption className="flex flex-col gap-1">
