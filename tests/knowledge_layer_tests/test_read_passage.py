@@ -204,6 +204,15 @@ class TestTheFilterIsTheAnswer:
             {"page_label": {"$eq": "12"}},
         ]
 
+    async def test_a_punkt_request_drops_the_page_beside_it(self, store):
+        """Every chunk of a Punkt is filed under its first page, so a page next
+        to the number can only repeat it or empty the read."""
+        await _read(document="OIB-Richtlinie 2, Ausgabe Mai 2023", punkt="3.5.2", page=13)
+
+        (call,) = store.calls
+        assert {"punkt_id": {"$eq": "3.5.2"}} in call["filters"]["$and"]
+        assert not any("page_label" in clause for clause in call["filters"]["$and"])
+
     async def test_the_punkt_reaches_the_store_as_a_filter(self, store):
         await _read(document="OIB-Richtlinie 2, Ausgabe Mai 2023", punkt="3.5.2")
 

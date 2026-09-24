@@ -269,7 +269,14 @@ class AnswerMeta(_EnvelopeModel):
     )
     summary: str | None = Field(
         default=None,
-        description="the whole answer in 1-2 sentences: outcome plus the decisive qualifier, in the answer's language",
+        # Was "the whole answer in 1-2 sentences: outcome plus the decisive
+        # qualifier", which is a restatement by definition: every live summary
+        # in the September 2026 census restated the prose's opening and was
+        # gated out (`_summary_redundant`). The prompt's rule is the consequence.
+        description=(
+            "omit unless the answer has a consequence for this reader that its opening does not state: "
+            "what to do next or what it means for their project, 1-2 sentences, in the answer's language"
+        ),
     )
     verdict: AnswerMetaVerdict | None = None
     topic: str | None = Field(

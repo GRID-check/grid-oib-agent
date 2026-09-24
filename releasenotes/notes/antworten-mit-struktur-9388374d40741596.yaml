@@ -1,22 +1,17 @@
 ---
 features:
   - >
-    Antworten sind gegliedert statt als Fließtext geschrieben. Die erste Zeile
-    beantwortet die Frage, und der gesuchte Wert steht fett. Prüfungen,
-    Vergleiche, Unterlagenlisten und Fälle nach Gebäudeklasse erscheinen als
-    Tabellen mit einer Spalte für die Fundstelle. Eine Statusangabe wie
-    „erfüllt", „nicht erfüllt", „teilweise" oder „offen" wird als farbige
-    Markierung angezeigt. Verfahren stehen als nummerierte Schritte da, mit
-    der Frist fett, und was noch nachzureichen ist, als Aufgabenliste.
+    Antworten sind gegliedert statt als Fließtext geschrieben: die erste
+    Zeile beantwortet die Frage mit dem Wert in Fett, Prüfungen und Fälle
+    nach Gebäudeklasse erscheinen als Tabellen mit Fundstelle, ein Status
+    wie „erfüllt" oder „offen" als farbige Markierung, Verfahren als
+    nummerierte Schritte und Nachzureichendes als Aufgabenliste.
   - >
-    Piloti zeichnet jetzt von sich aus, wo eine Antwort eine Form hat, die
-    Text schlecht trägt: ein Verfahren, das sich verzweigt, wer wem was in
-    welcher Reihenfolge übergibt, wie die Teile einer Richtlinie
-    zusammenhängen, ein Bauzeitplan aus den Projektunterlagen. Die Zeichnung
-    steht an der Stelle der Antwort, zu der sie gehört, und lässt sich wie
-    bisher im Projekt ablegen. Zeichnungen erscheinen in ihrer eigenen Größe
-    statt auf Spaltenbreite gezogen, und im abgelegten PDF sitzen die
-    Beschriftungen jetzt in ihren Kästen.
+    Piloti zeichnet von sich aus, wo Text eine Form schlecht trägt: ein
+    Verfahren, das sich verzweigt, wer wem was übergibt, wie die Teile einer
+    Richtlinie zusammenhängen, ein Bauzeitplan aus den Projektunterlagen.
+    Die Zeichnung steht dort, wo sie hingehört, und lässt sich wie bisher im
+    Projekt ablegen.
 fixes:
   - >
     Eine Antwort, die eine Zeichnung oder einen Codeblock enthielt, wurde als

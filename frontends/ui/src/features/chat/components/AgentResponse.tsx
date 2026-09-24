@@ -1031,12 +1031,6 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
                 onCommission={onCommissionFinding}
               />
             )}
-            {/* An unplaced legal basis — flat above the prose, never in the fallback grid. */}
-            {!stillArriving && evidenceCard?.type === 'legal_basis' && (
-              <CardSetProvider cards={cardSet}>
-                <EvidenceBlock card={evidenceCard} />
-              </CardSetProvider>
-            )}
             {/* Response Content rendered as markdown (with streaming caret). While
             streaming, the markdown block + its last child are forced inline so
             the caret trails the final glyph instead of dropping to a new line.
@@ -1057,6 +1051,14 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
                 {stillArriving && <StreamingCaret />}
               </div>
             </MarkdownSlotProvider>
+            {/* An unplaced legal basis — flat, right after the prose it grounds: the
+            answer comes first (the prompt's own first rule), then the Fundstelle
+            it argued from. Never in the fallback grid. */}
+            {!stillArriving && evidenceCard?.type === 'legal_basis' && (
+              <CardSetProvider cards={cardSet}>
+                <EvidenceBlock card={evidenceCard} />
+              </CardSetProvider>
+            )}
 
             {/* Cards no marker claimed. AFTER the body, never before it: an answer
             that opens with three diagrams has pushed itself below the fold.
@@ -1240,12 +1242,6 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
                   onCommission={onCommissionFinding}
                 />
               )}
-              {/* An unplaced legal basis — flat above the prose, never in the fallback grid. */}
-              {!stillArriving && evidenceCard?.type === 'legal_basis' && (
-                <CardSetProvider cards={cardSet}>
-                  <EvidenceBlock card={evidenceCard} />
-                </CardSetProvider>
-              )}
               {/* Response Content rendered as markdown (with streaming caret).
               Cards the answer placed with a marker are spliced into this body. */}
               <MarkdownSlotProvider render={renderCardSlot}>
@@ -1264,6 +1260,14 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
                   {stillArriving && <StreamingCaret />}
                 </div>
               </MarkdownSlotProvider>
+              {/* An unplaced legal basis — flat, right after the prose it grounds: the
+              answer comes first (the prompt's own first rule), then the Fundstelle
+              it argued from. Never in the fallback grid. */}
+              {!stillArriving && evidenceCard?.type === 'legal_basis' && (
+                <CardSetProvider cards={cardSet}>
+                  <EvidenceBlock card={evidenceCard} />
+                </CardSetProvider>
+              )}
 
               {/* Cards no marker claimed. AFTER the body, never before it: an answer
               that opens with three diagrams has pushed itself below the fold.

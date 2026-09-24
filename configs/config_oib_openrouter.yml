@@ -724,8 +724,7 @@ functions:
     _type: research_agent
     llm: research_llm
     # Explicit list (replaces registry inheritance) so the non-data-source
-    # `remember`, `emit_card` and `ask_user` tools are included alongside
-    # search/knowledge.
+    # `remember` and `ask_user` tools are included alongside search/knowledge.
     tools:
       - web_search_tool
       - knowledge_search
@@ -740,7 +739,11 @@ functions:
       # budget shape.
       - ris_lookup_tool
       - remember
-      - emit_card
+      # No `emit_card`: every chat card travels in the answer envelope's
+      # `cards` field (cards/envelope.py), at no extra call. Bound, the tool
+      # was 2 676 tokens of schema on every call, repeating the contract the
+      # envelope schema already teaches, and a model at low effort spent a
+      # whole round on it (September 2026 census). Deep research binds its own.
       - surface_documents
       - move_document
       - rename_document
@@ -787,7 +790,7 @@ functions:
     # parallel calls is one round, so each floor is the number of think-act
     # cycles rather than the number of calls:
     #   „wie hoch ist der Keller"  use_skill, survey                        = 2
-    #     ...plus a storey-name miss repaired by briefing, plus emit_card    = 4
+    #     ...plus a storey-name miss repaired by briefing                    = 3
     #   OIB 3 Lichteinfall         use_skill, knowledge_search (the clause
     #     supplies angle_deg/swivel_deg, which light_incidence refuses to
     #     default), find_elements+relations, overhang, light_incidence       = 5
@@ -795,7 +798,7 @@ functions:
     #     find_elements, egressPath+clearWidth over the door list,
     #     fire/doorGraph                                                    = 5
     #   „was weißt du über die OIB 2"  knowledge_search, then the family
-    #     opened in one parallel batch of read_passage, then emit_card       = 3
+    #     opened in one parallel batch of read_passage                      = 2
     #
     # Truncation is still silent TO THE READER — the synthesis anchor says
     # „exhausted your research budget" to the MODEL and asks for no disclosure,

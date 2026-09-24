@@ -1022,6 +1022,14 @@ async def read_passage(config: ReadPassageConfig, _builder: Builder):
         document = (document or "").strip()
         punkt = str(punkt if punkt is not None else "").strip().strip(".") or None
         page = _coerce_page(page)
+        if punkt is not None and page is not None:
+            # A Punkt (or „Tabelle 3") names one passage in a document, and
+            # every chunk of it is filed under its FIRST page. A page beside it
+            # can only repeat that page or empty the read: a Tabelle filed
+            # under p. 30 and asked for as „page 29" (the printed page number)
+            # came back empty, and the agent searched for it for two more rounds
+            # (September 2026 census). The number decides; the page is dropped.
+            page = None
         if not document:
             return (
                 "Provide `document=` the exact name or display title of the document to open "

@@ -1,21 +1,17 @@
 ---
 features:
   - >
-    Diagramme in Antworten sind neu gestaltet: Abläufe erscheinen als Karten
-    mit beschrifteten Pfeilen, Entscheidungen sind hervorgehoben, ein
-    Überblick über ein Regelwerk wird als Baum gezeigt (auf dem Telefon als
-    Gliederung), wer wem was übergibt als Spalten je Beteiligtem, Termine
-    als Balken auf einer Zeitachse und Anteile als Balken mit Prozentangabe.
-    Offene und erledigte Punkte einer Aufgabenliste sind als Markierungen
-    statt als Kontrollkästchen dargestellt.
+    Diagramme in Antworten sind neu gestaltet: Abläufe als Karten mit
+    beschrifteten Pfeilen und hervorgehobenen Entscheidungen, ein Regelwerk
+    als Baum (auf dem Telefon als Gliederung), Übergaben als Spalten je
+    Beteiligtem, Termine als Balken auf einer Zeitachse. Aufgabenlisten
+    zeigen Markierungen statt Kontrollkästchen.
   - >
-    Eine Antwort kann mehrere Karten zusammenstellen: Varianten, die Sie
-    vergleichen (zwei Entwurfslösungen, zwei Bundesländer, Bestand und
-    Umbau), erscheinen als Reiter, zusammengehörige Karten auf breiten
-    Bildschirmen nebeneinander. Ein Reiter kann auch Text und Tabellen der
-    Antwort selbst enthalten, etwa je Variante ihre eigene Prüftabelle. Im
-    Word-Export stehen alle Varianten untereinander, jede mit ihrem
-    Reitertitel.
+    Varianten, die Sie vergleichen (zwei Entwurfslösungen, zwei
+    Bundesländer, Bestand und Umbau), erscheinen als Reiter, jede mit ihrer
+    eigenen Tabelle. Zusammengehörige Karten stehen auf breiten Bildschirmen
+    nebeneinander. Im Word-Export stehen die Varianten untereinander, jede
+    mit ihrem Reitertitel.
   - >
     Prüftabellen zeigen ihr Ergebnis vorab (etwa „2 erfüllt · 1 offen"),
     eine Fundstelle, die für alle Zeilen gleich ist, steht einmal unter der
@@ -27,6 +23,10 @@ features:
     daneben nachzeichnet, und eine Fundstelle steht je Tabellenzeile nur
     einmal.
 fixes:
+  - >
+    Werte aus den Tabellen der OIB-Richtlinien (etwa Tabelle 3 zu
+    Treppenhäusern) werden richtig gelesen und mit der Seite der Tabelle
+    zitiert; bisher verwechselte die Suche die Spalten der Gebäudeklassen.
   - >
     Die Punkte von „Das Wichtigste" stehen bündig untereinander, und
     Kopieren, Antwortdetails und Bewertung stehen unter einer Antwort in

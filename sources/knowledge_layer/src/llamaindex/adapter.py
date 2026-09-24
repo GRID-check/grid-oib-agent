@@ -372,6 +372,20 @@ EMBED_BATCH_SIZE = max(1, _env_int("AIQ_EMBED_BATCH_SIZE", 64))
 EMBED_TIMEOUT_SECONDS = max(1.0, _env_float("AIQ_EMBED_TIMEOUT_SECONDS", 60.0))
 EMBED_MAX_RETRIES = 2
 
+# @environment_variable AIQ_QUERY_EMBED_TIMEOUT_SECONDS
+# @category Knowledge Layer
+# @type float
+# @default 3
+# @required false
+# Per-request timeout for the QUERY embeddings a chat turn waits on, as opposed
+# to the ingestion batches above. A query is one short text: 0.66 s at the
+# median across 276 live calls (September 2026 census), but 8.5 s at p99 and
+# 11.8 s at worst, and a turn makes 5-15 of them before the model starts, so a
+# single tail request held a whole turn for 11 s. At 3 s the client gives up on
+# that one and retries (EMBED_MAX_RETRIES), which a fresh request answers in
+# well under a second: the worst turn pays ~4 s instead of 11.
+QUERY_EMBED_TIMEOUT_SECONDS = max(0.5, _env_float("AIQ_QUERY_EMBED_TIMEOUT_SECONDS", 3.0))
+
 # pypdfium2 page-object type constants (the C API values are not always exposed
 # as Python attributes across versions).
 _PAGEOBJ_TEXT = 1
@@ -3766,9 +3780,14 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                     # Create/update index with all documents
                     if index is None:
                         # First successful file - create new index
+                        # The model passed explicitly, not read off the global
+                        # `Settings`: a chat turn initialising the retriever in the
+                        # same process sets that global to the query model, whose
+                        # timeout is sized for one short text, not a batch.
                         index = VectorStoreIndex.from_documents(
                             all_documents,
                             storage_context=storage_context,
+                            embed_model=self._embed_model,
                             show_progress=False,
                         )
                     else:
@@ -4182,7 +4201,9 @@ class LlamaIndexRetriever(BaseRetriever):
                 model=self.embed_model_name,
                 api_key=embed_api_key,
                 embed_batch_size=EMBED_BATCH_SIZE,
-                timeout=EMBED_TIMEOUT_SECONDS,
+                # The retriever embeds queries a reader is waiting on: bounded
+                # tightly and retried, never the ingestion batch's 60 s.
+                timeout=QUERY_EMBED_TIMEOUT_SECONDS,
                 max_retries=EMBED_MAX_RETRIES,
             )
             Settings.embed_model = self._embed_model
@@ -4224,7 +4245,7 @@ class LlamaIndexRetriever(BaseRetriever):
             raise RuntimeError(f"Collection '{collection_name}' {mismatch}")
 
         vector_store = ChromaVectorStore(chroma_collection=chroma_collection)
-        index = VectorStoreIndex.from_vector_store(vector_store)
+        index = VectorStoreIndex.from_vector_store(vector_store, embed_model=self._embed_model)
         with self._index_cache_lock:
             self._index_cache[collection_name] = (now, index)
         return index
