@@ -9,12 +9,14 @@ import rehypeKatex from 'rehype-katex'
 import remarkGfm from 'remark-gfm'
 import remarkMath from 'remark-math'
 import { CodeBlock } from '@/shared/components/CodeBlock'
+import { Chip } from '@/components/ui/chip'
 import type { MarkdownRendererProps } from './types'
 import { scrollToAnchor, useInPageAnchorRenderer } from './anchor-context'
 import { MARKDOWN_SLOT_TAG, useMarkdownSlotRenderer } from './slot-context'
 import { isInternalHref, useInternalLinkRenderer } from './internal-link-context'
 import { markdownHeadings } from './headings'
 import { getLanguageFromClassName, headingAnchorId, isMermaidFence } from './utils'
+import { statusTone } from './status-marks'
 
 /**
  * A ```mermaid fence, drawn instead of printed.
@@ -479,9 +481,14 @@ export const MarkdownRenderer: FC<MarkdownRendererProps> = memo(
           hr: () => <hr className="border-base my-4" />,
 
           // Tables (GFM)
+          // Zebra rows and tabular figures: the answer writes its checks,
+          // comparisons and values-by-class as tables, and a column of numbers
+          // or classes reads down only when the digits line up.
           table: ({ children }) => (
             <div className="border-base my-4 overflow-x-auto rounded-xl border">
-              <table className="min-w-full">{children}</table>
+              <table className="[&>tbody>tr:nth-child(even)]:bg-muted/30 min-w-full tabular-nums">
+                {children}
+              </table>
             </div>
           ),
           thead: ({ children }) => <thead className="bg-muted/50">{children}</thead>,
@@ -496,13 +503,22 @@ export const MarkdownRenderer: FC<MarkdownRendererProps> = memo(
               {children}
             </th>
           ),
-          td: ({ children, align, style }: React.ComponentPropsWithoutRef<'td'> & ExtraProps) => (
-            <td
-              className={`text-foreground px-3 py-2 text-sm ${cellAlignClass(align, style) ?? ''}`}
-            >
-              {children}
-            </td>
-          ),
+          td: ({ children, align, style }: React.ComponentPropsWithoutRef<'td'> & ExtraProps) => {
+            const tone = statusTone(getTextFromChildren(children))
+            return (
+              <td
+                className={`text-foreground px-3 py-2 text-sm ${cellAlignClass(align, style) ?? ''}`}
+              >
+                {tone ? (
+                  <Chip size="sm" variant={tone} data-testid="status-mark" data-tone={tone}>
+                    {children}
+                  </Chip>
+                ) : (
+                  children
+                )}
+              </td>
+            )
+          },
 
           // Images: bounded, softened, and lazy. Without the mapping an image
           // rendered at natural size with square corners and loaded eagerly —

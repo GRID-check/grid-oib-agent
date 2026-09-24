@@ -363,6 +363,7 @@ def _skills_block(runtime: SkillRuntime) -> str:
 
 def _turn_facts(state: ResearchAgentState, runtime: SkillRuntime | None) -> TurnFacts:
     """What the decider is shown, from the state the gather already filled."""
+    from aiq_agent.cards.catalog import MARKDOWN_CARD_TYPES
     from aiq_agent.cards.catalog import card_index_entries
     from aiq_agent.cards.envelope import ENVELOPE_SHAPE_TYPES
     from aiq_agent.common.applicability import facts_from_project_context
@@ -390,7 +391,9 @@ def _turn_facts(state: ResearchAgentState, runtime: SkillRuntime | None) -> Turn
         families=get_norm_families(),
         project_files=sum(1 for doc in documents if getattr(doc, "shelf", None) == Shelf.PROJECT),
         archive_files=sum(1 for doc in documents if getattr(doc, "shelf", None) == Shelf.ARCHIV),
-        card_types=[entry for entry in card_index_entries() if entry[0] not in ENVELOPE_SHAPE_TYPES],
+        card_types=[
+            entry for entry in card_index_entries(exclude=MARKDOWN_CARD_TYPES) if entry[0] not in ENVELOPE_SHAPE_TYPES
+        ],
     )
 
 
@@ -443,13 +446,18 @@ def _apply_decisions(decisions: TurnDecisions, state: ResearchAgentState, runtim
     over with the body — then the card nouls' picks, capped
     (``attached_card_types``). Still offers: the model decides.
     """
+    from aiq_agent.cards.catalog import MARKDOWN_CARD_TYPES
     from aiq_agent.cards.envelope import ENVELOPE_SHAPE_TYPES
     from aiq_agent.skills.models import preferred_cards
 
     if runtime is not None and decisions.chosen_skill:
         runtime.inline_also((decisions.chosen_skill,))
     skill_cards = {
-        skill.name: [card for card in preferred_cards(skill.metadata) if card not in ENVELOPE_SHAPE_TYPES]
+        skill.name: [
+            card
+            for card in preferred_cards(skill.metadata)
+            if card not in ENVELOPE_SHAPE_TYPES and card not in MARKDOWN_CARD_TYPES
+        ]
         for skill in (runtime.skills if runtime is not None else ())
     }
     chosen = attached_card_types(decisions, skill_cards)

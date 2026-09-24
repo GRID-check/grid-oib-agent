@@ -300,9 +300,29 @@ or dropped and recorded (`status:card:invalid:N`). The reason is the round:
 `emit_card` is a tool call, a tool call ends a message, and every card-bearing
 answer paid one more full-context call to write the prose after it — and a
 third on a wrong shape. Nothing on the wire changed. The taught envelope
-schema carries the doctrine, the index and the full shapes of the eight common
-content cards (`ENVELOPE_SHAPE_TYPES`, ~3 500 tokens, cached with the prefix;
-the whole catalog's shapes are ~23 000 and stay on demand).
+schema carries the doctrine, the index and the full shapes of the three
+content cards answers earn most (`ENVELOPE_SHAPE_TYPES`: `legal_basis`,
+`condition_tree`, `process_map`; the whole contract is ~3 500 tokens, cached
+with the prefix; the whole catalog's shapes are ~23 000 and stay on demand).
+
+**Since 2026-09-24 the answer's own Markdown comes first.** Tables, criteria
+with a status, comparisons, document lists, Fristen in sequence, a norm
+hierarchy and what-if consequences are written in the answer as Markdown, not
+as a card (`catalog.MARKDOWN_CARD_TYPES`: `typed_table`, `comparison_table`,
+`requirement_checklist`, `document_checklist`, `deadline_timeline`,
+`norm_chain`, `change_impact`). The envelope contract omits them from the
+trigger table, the index and the taught shapes (6 083 → 3 479 tokens), and the
+Jev turn facts no longer offer them. The types stay in the catalog, so a
+tool, `emit_card` or a stored message that carries one still validates and
+renders. A card is for what Markdown cannot show: a drawing, a schematic, the
+Fundstelle as a quotable excerpt, a decision tree, a Verfahren to walk. The
+renderer meets the prose halfway: a table cell that holds exactly one status
+word (`erfüllt`, `nicht erfüllt`, `teilweise`, `offen`, `erforderlich`,
+`bedingt`, `vorhanden`, `fehlt`, and the English set) renders as a toned chip
+(`MarkdownRenderer/status-marks.ts`), and tables are zebra-striped with
+tabular figures. The shape rules for the prose (first line answers, `###`
+headings that state, a Fundstelle column, the fixed status vocabulary) live in
+the `<formatting>` block of `piloti_static.md`.
 
 Cards can still be emitted by the answering agent via the **`emit_card` tool**
 (`cards/register.py`) — for a card it must show before the answer is written,
@@ -434,8 +454,7 @@ or turning circle → `dimension_diagram`; an escape route with segments →
 `egress_diagram`; a fall height, railing or opening → `guardrail_check`; a
 U-value, HWB or energy class → `thermal_envelope` / `energy_performance`; a fire
 compartment area → `fire_compartment`; the Richtlinie the answer rests on →
-`legal_basis`; three or more pass/fail criteria → `requirement_checklist`; two
-or more options weighed against each other → `comparison_table`; a path that
+`legal_basis`; a path that
 forks and REJOINS, several Stellen exchanging in order, or a Nachweis others
 depend on → `diagram`. The reason
 travels with the rule: an answer that turns on a dimension gets its card by

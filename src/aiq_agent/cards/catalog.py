@@ -392,6 +392,38 @@ says in the same words — cut the card, keep the sentence. That second case is 
 facts: three Lagen with their Anforderung and Fundstelle as a table is not a restatement of three
 sentences, it is the same facts in a shape prose cannot hold. Shared facts alone never cut a card."""
 
+#: Content cards whose whole content a Markdown table or list already holds.
+#: The chat answer writes these IN its prose (``piloti_static.md`` <formatting>):
+#: a table with a Status column renders its status words as marks, so a
+#: checklist, a comparison, a document list or rows of Lage/Anforderung/
+#: Fundstelle need no second channel, no shape in the prompt and no repair.
+#: They stay valid card types — old messages render them, deep research's
+#: ``emit_card`` still offers them — but the chat envelope no longer teaches
+#: them (``render_card_doctrine(markdown_first=True)``).
+MARKDOWN_CARD_TYPES: frozenset[str] = frozenset(
+    {
+        "typed_table",
+        "comparison_table",
+        "requirement_checklist",
+        "document_checklist",
+        "deadline_timeline",
+        "norm_chain",
+        "change_impact",
+    }
+)
+
+_MARKDOWN_FIRST = """\
+MARKDOWN FIRST. Tables, checks, comparisons, document lists, Fristen in sequence, a norm hierarchy
+and what-if consequences are written in the answer itself, as Markdown (<formatting> says how): a
+table with a Status column already renders as a checklist. A card is for what Markdown cannot show:
+a drawing, a schematic, the Fundstelle as a quotable excerpt, a decision tree or a Verfahren the
+reader walks through."""
+
+_CARD_RESTRAINT_MARKDOWN_FIRST = """\
+WHEN NOT TO. One card is usually the right number, two the ceiling, none the normal case for a
+walkthrough. A card that shows what a table in the prose already shows is a restatement: keep the
+table, cut the card."""
+
 # One worked example per hard-to-nest card, so the model sees the exact shape
 # instead of discovering it through repeated validation failures. Keys are the
 # card ``type`` values; values are validated in the card model tests.
@@ -1377,9 +1409,11 @@ def _plain_text_note() -> str:
     )
 
 
-def _render_trigger_table(*, include_ifc_triggers: bool, include_craft: bool) -> str:
+def _render_trigger_table(*, include_ifc_triggers: bool, include_craft: bool, markdown_first: bool = False) -> str:
     """The head, then one row per trigger with its craft indented beneath it."""
     rows = (*_CARD_TRIGGERS, _MODEL_PICKER_ROW) if include_ifc_triggers else _CARD_TRIGGERS
+    if markdown_first:
+        rows = tuple(row for row in rows if row[1] not in MARKDOWN_CARD_TYPES)
     lead = (
         "The trigger, the card, and under it what fills that card well:"
         if include_craft
@@ -1397,7 +1431,9 @@ def _render_trigger_table(*, include_ifc_triggers: bool, include_craft: bool) ->
     return "\n".join(lines)
 
 
-def render_card_doctrine(*, include_ifc_triggers: bool = True, include_craft: bool = True) -> str:
+def render_card_doctrine(
+    *, include_ifc_triggers: bool = True, include_craft: bool = True, markdown_first: bool = False
+) -> str:
     """The trigger table, the craft that fills each card, and the negative default.
 
     Framing-free in the same sense as :func:`render_card_catalog`: it says which
@@ -1419,13 +1455,19 @@ def render_card_doctrine(*, include_ifc_triggers: bool = True, include_craft: bo
             generation turns it off and states its own short craft instead
             (``prompt.py``): half of what is written here is an instruction
             about an answer still being written, which that path cannot act on.
+        markdown_first: The chat envelope's surface. The rows of
+            :data:`MARKDOWN_CARD_TYPES` are dropped, because that content is
+            written in the answer's own Markdown, and the doctrine says so first.
     """
-    parts = [_render_trigger_table(include_ifc_triggers=include_ifc_triggers, include_craft=include_craft)]
-    parts.extend((_CARD_HONESTY, _CARD_RESTRAINT))
-    return "\n\n".join(parts)
+    table = _render_trigger_table(
+        include_ifc_triggers=include_ifc_triggers, include_craft=include_craft, markdown_first=markdown_first
+    )
+    if markdown_first:
+        return "\n\n".join((_MARKDOWN_FIRST, table, _CARD_HONESTY, _CARD_RESTRAINT_MARKDOWN_FIRST))
+    return "\n\n".join((table, _CARD_HONESTY, _CARD_RESTRAINT))
 
 
-def render_card_index(*, include_model_backed: bool = True) -> str:
+def render_card_index(*, include_model_backed: bool = True, exclude: frozenset[str] = frozenset()) -> str:
     """L1: one line per card type — name and purpose, no shapes, no examples.
 
     The always-on half of the card vocabulary. Rendering every shape and worked
@@ -1445,7 +1487,7 @@ def render_card_index(*, include_model_backed: bool = True) -> str:
     """
     from aiq_agent.cards.models import GridCard
 
-    withheld = SYSTEM_CARD_TYPES | ENVELOPE_CARD_TYPES
+    withheld = SYSTEM_CARD_TYPES | ENVELOPE_CARD_TYPES | exclude
     if not include_model_backed:
         withheld |= MODEL_BACKED_CARD_TYPES
 
@@ -1460,7 +1502,9 @@ def render_card_index(*, include_model_backed: bool = True) -> str:
     return "Card types:\n" + "\n".join(lines) + _interactive_note()
 
 
-def card_index_entries(*, include_model_backed: bool = False) -> list[tuple[str, str]]:
+def card_index_entries(
+    *, include_model_backed: bool = False, exclude: frozenset[str] = frozenset()
+) -> list[tuple[str, str]]:
     """``(type, first docstring line)`` per content card the answering model may emit.
 
     The same rows :func:`render_card_index` prints, as data: what a decision
@@ -1469,7 +1513,7 @@ def card_index_entries(*, include_model_backed: bool = False) -> list[tuple[str,
     """
     from aiq_agent.cards.models import GridCard
 
-    withheld = SYSTEM_CARD_TYPES | ENVELOPE_CARD_TYPES
+    withheld = SYSTEM_CARD_TYPES | ENVELOPE_CARD_TYPES | exclude
     if not include_model_backed:
         withheld |= MODEL_BACKED_CARD_TYPES
     entries: list[tuple[str, str]] = []

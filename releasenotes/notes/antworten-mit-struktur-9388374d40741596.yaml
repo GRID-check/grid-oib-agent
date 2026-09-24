@@ -1,0 +1,11 @@
+---
+features:
+  - >
+    Antworten sind gegliedert statt als Fließtext geschrieben. Die erste Zeile
+    beantwortet die Frage, und der gesuchte Wert steht fett. Prüfungen,
+    Vergleiche, Unterlagenlisten und Fälle nach Gebäudeklasse erscheinen als
+    Tabellen mit einer Spalte für die Fundstelle. Eine Statusangabe wie
+    „erfüllt", „nicht erfüllt", „teilweise" oder „offen" wird als farbige
+    Markierung angezeigt. Verfahren stehen als nummerierte Schritte da, mit
+    der Frist fett. Karten bleiben für das, was Text nicht zeigen kann: Skizzen,
+    wörtliche Fundstellen, Entscheidungsbäume und Verfahrensabläufe.

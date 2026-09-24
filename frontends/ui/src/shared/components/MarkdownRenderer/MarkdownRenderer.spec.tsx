@@ -628,4 +628,26 @@ Visit [our site](https://example.com) for more.
       expect(stabilizeStreamingMarkdown(partial)).toBe('\\| Bauteil \\| REI \\|')
     })
   })
+
+  describe('tables as checklists', () => {
+    test('a Status cell renders as a mark with its word; other cells stay text', () => {
+      const table = [
+        '| Kriterium | Status | Grund |',
+        '|---|---|---|',
+        '| Fluchtweglänge | erfüllt | 38 m ≤ 40 m |',
+        '| Zweiter Fluchtweg | offen | noch nicht geplant, offen bis zur Einreichung |',
+      ].join('\n')
+      render(<MarkdownRenderer content={table} />)
+      const marks = screen.getAllByTestId('status-mark')
+      expect(marks.map((m) => [m.textContent, m.getAttribute('data-tone')])).toEqual([
+        ['erfüllt', 'success'],
+        ['offen', 'warning'],
+      ])
+      expect(
+        screen
+          .getByText('noch nicht geplant, offen bis zur Einreichung')
+          .closest('[data-testid="status-mark"]')
+      ).toBeNull()
+    })
+  })
 })

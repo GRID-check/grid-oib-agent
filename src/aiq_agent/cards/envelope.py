@@ -39,6 +39,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from aiq_agent.cards.catalog import ENVELOPE_CARD_TYPES
+from aiq_agent.cards.catalog import MARKDOWN_CARD_TYPES
 from aiq_agent.cards.catalog import SYSTEM_CARD_TYPES
 from aiq_agent.cards.catalog import render_card_details
 from aiq_agent.cards.catalog import render_card_doctrine
@@ -50,25 +51,20 @@ logger = logging.getLogger(__name__)
 
 #: The card types whose FULL shape the envelope contract teaches up front.
 #:
-#: The whole catalog's shapes are ~23 000 tokens (measured with ``o200k_base``
-#: at this tip), far too much for a prefix that is re-sent on every call. The
-#: eight below are the content cards the trigger table names for the answers
-#: the product gives most — a ruling's Fundstelle, a table of cases or parts,
-#: a Verfahren, an Einreichliste — and together they are ~3 500 tokens, cached
-#: as part of the static prefix. Seven of twelve first attempts written from
-#: the one-line index alone failed validation (nested building blocks the
-#: index cannot convey); with the shape in front of the model the first
-#: attempt is the right one. Every other type keeps its index line, and a miss
-#: on one of those is repaired by the small model rather than by a round.
+#: The whole catalog's shapes are ~23 000 tokens (measured with ``o200k_base``),
+#: far too much for a prefix re-sent on every call. These three are the cards
+#: an answer earns most that Markdown cannot show: the Fundstelle as a
+#: quotable excerpt, a decision on one factor, a Verfahren the reader walks.
+#: Until 2026-09-24 the list also carried the five table- and list-shaped
+#: cards; their content is now written in the answer's Markdown
+#: (``catalog.MARKDOWN_CARD_TYPES``), which took ~2 000 tokens of shape out
+#: of every call and the repair round their nested building blocks invited.
+#: Every other type keeps its index line, and a miss on one of those is
+#: repaired by the small model rather than by a round.
 ENVELOPE_SHAPE_TYPES: tuple[str, ...] = (
     "legal_basis",
-    "typed_table",
-    "norm_chain",
     "condition_tree",
-    "requirement_checklist",
-    "comparison_table",
     "process_map",
-    "document_checklist",
 )
 
 #: The redirect for a model that reached for one of the envelope's OWN fields
@@ -105,10 +101,10 @@ def render_envelope_cards_contract() -> str:
     return "\n\n".join(
         part
         for part in (
-            render_card_doctrine(),
-            render_card_index(),
+            render_card_doctrine(markdown_first=True),
+            render_card_index(exclude=MARKDOWN_CARD_TYPES),
             (
-                "SHAPES. The exact shape of the eight cards answers most often earn follows; fill them "
+                "SHAPES. The exact shape of the cards answers most often earn follows; fill them "
                 "from these, and fill any other type from its index line above — a field you get wrong is "
                 "repaired, never a reason to skip a card the answer called for. Fields marked * are "
                 "required; omit optional ones rather than passing null. Numbers are plain JSON numbers.\n\n" + shapes
