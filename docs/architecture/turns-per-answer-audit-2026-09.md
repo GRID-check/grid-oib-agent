@@ -182,6 +182,16 @@ verified by its key. The same sweep showed a turn whose envelope lost its
 opening `{"answer": "` and leaked its JSON tail as text, now salvaged and
 counted (`envelope_salvaged`).
 
+The other Bauordnung rows had causes of their own. Salzburg escalated to deep
+research because the catalog held only the Bautechnikgesetz and the permit
+rules live in the Baupolizeigesetz (added, `baupolg-sbg`); it then read § 2
+one Absatz per lookup until a named Absatz came with its whole § beside it.
+Tirol returned § 8 twice because its law opens with a table of contents. The
+two rows that still escalate here, Tragwerk and Schallschutz, ask about OIB-RL
+1 and 5, which this environment's corpus lacks; the suite now skips them by
+name. And a skill the turn decision picks wrongly costs a round: "Bauklasse I"
+chose `gebaeudeklasse`, and the agent loaded `bebauung` itself.
+
 Decided against: a reasoning level that changes from round to round (e.g.
 `medium` for the first round, `low` after). A turn runs at ONE level, the one
 its role is configured with; the level is a property of the run, not of a
