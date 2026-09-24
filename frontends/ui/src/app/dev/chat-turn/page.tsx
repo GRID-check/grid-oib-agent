@@ -394,6 +394,46 @@ const FIRE_SOURCES = `## Quellen
 - [1] [KB] OIB-RL_2_Brandschutz.pdf, Tabelle 1b
 - [2] [RIS] Bauordnung für Wien §§ 60 ff. — https://www.ris.bka.gv.at/`
 
+/* --- variant: structured ------------------------------------------------- */
+
+// A Markdown-first answer: the shape the static prompt's STRUCTURE block
+// teaches — the first line answers with the value in bold, ### headings that
+// state, a table per set of cases with a Fundstelle column, a Status column in
+// the fixed vocabulary (rendered as chips), and a Verfahren as numbered steps.
+// Everything here used to be a typed_table, requirement_checklist and
+// deadline_timeline card. The values show the form, not the Richtlinie: read
+// Tabelle 1b before quoting any of them.
+const structuredQuestion =
+  'Welche Feuerwiderstandsklasse brauchen tragende Bauteile in Gebäudeklasse 5, und erfüllt unser Konzept das?'
+
+const structuredAnswer = `Tragende Bauteile in Gebäudeklasse 5 brauchen **R 90** oberirdisch und **R 90 aus A2** in den unterirdischen Geschoßen [1].
+
+### Oberirdisch und im Keller gilt nicht dasselbe
+
+| Bauteil | Anforderung | Fundstelle |
+|---|---|---|
+| Tragende Bauteile, oberirdisch | **R 90** | [1] |
+| Tragende Bauteile, unterirdisch | **R 90 und A2** | [1] |
+| Trennwände zwischen Nutzungseinheiten | **REI 90** | [1] |
+| Decken über dem obersten Geschoß | **R 30** | [1] |
+
+### Das Brandschutzkonzept deckt drei von vier Punkten
+
+| Kriterium | Konzept | Status | Fundstelle |
+|---|---|---|---|
+| Stützen und Wände oberirdisch | R 90 | erfüllt | [1] |
+| Kellerdecke | R 90, Baustoff nicht angegeben | teilweise | [1] |
+| Wohnungstrennwände | REI 60 | nicht erfüllt | [1] |
+| Dachdecke | nicht beschrieben | offen | [1] |
+
+### Wenn die Trennwände abweichen sollen
+
+1. Abweichung im Brandschutzkonzept begründen, gleichwertiges Schutzniveau nachweisen [1].
+2. Mit dem Bauansuchen einreichen, die Behörde entscheidet **im Baubewilligungsverfahren** [2].
+3. Ohne Bewilligung der Abweichung gilt **REI 90**.
+
+${FIRE_SOURCES}`
+
 /* --- variant: lede-card --------------------------------------------------- */
 
 const ledeCardQuestion =
@@ -761,6 +801,7 @@ const ANSWER_VARIANTS = [
   'memory-chip',
   'verdict-lede',
   'anatomy',
+  'structured',
 ] as const
 type AnswerVariant = (typeof ANSWER_VARIANTS)[number]
 
@@ -811,6 +852,19 @@ function AnswerLayer({ variant }: { variant: AnswerVariant }) {
         confidenceReason="Absturzhöhe am Modell gemessen, Grenzwert direkt aus OIB-RL 4 belegt"
         messageId="msg-anatomy"
         answerMeta={anatomyMeta}
+      />
+    )
+  }
+
+  if (variant === 'structured') {
+    return (
+      <AnswerTurn
+        label="↓ MARKDOWN FIRST — tables with a Fundstelle column, status words as chips, Verfahren as numbered steps; no card"
+        question={structuredQuestion}
+        answer={structuredAnswer}
+        citations={fireCitations}
+        confidenceReason="Anforderungen direkt aus OIB-RL 2 Tabelle 1b belegt"
+        messageId="msg-structured"
       />
     )
   }
