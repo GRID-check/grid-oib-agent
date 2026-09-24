@@ -81,6 +81,22 @@ class TestSplitting:
         assert [s.label for s in sections] == ["§ 65", "§ 66"]
         assert sections[1].body.endswith("§ 65 Abs. 2 gilt sinngemäß.")
 
+    def test_a_table_of_contents_entry_is_not_a_second_section(self):
+        """The Tiroler Bauordnung opens with its §§ listed, far from § 8 itself."""
+        text = (
+            "§ 7\nAbstellmöglichkeiten für Fahrräder\n§ 8\nAbstellmöglichkeiten für Kraftfahrzeuge\n"
+            "§ 7\nAbstellmöglichkeiten für Fahrräder\n(1) Beim Neubau sind Fahrradabstellplätze zu schaffen.\n"
+            "§ 8\nAbstellmöglichkeiten für Kraftfahrzeuge\n(1) Beim Neubau von Gebäuden sind Stellplätze zu schaffen."
+        )
+        sections = split_sections(text)
+        assert [s.label for s in sections] == ["§ 7", "§ 8"]
+        assert "Stellplätze zu schaffen" in sections[1].body
+        # The heading under the marker, not the table of contents' previous entry.
+        assert sections[1].heading == "Abstellmöglichkeiten für Kraftfahrzeuge"
+
+    def test_an_absatz_under_the_marker_is_not_a_heading(self):
+        assert split_sections("Dies ist Text.\n§ 1.\n(1)\nDer Inhalt.")[0].heading == ""
+
 
 class TestAbsaetze:
     def test_the_named_absatz_is_cut_out_of_the_section(self):

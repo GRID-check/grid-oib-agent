@@ -67,7 +67,7 @@ def split_sections(text: str) -> list[Section]:
         Section(
             kind="§" if match.group(1) else "Art",
             number=match.group(3),
-            heading=_heading_above(lines, index),
+            heading=_heading_above(lines, index) or _heading_below(lines, index),
             body="\n".join(lines[index : _end_of(starts, position, len(lines))]).strip(),
         )
         for position, (index, match) in enumerate(starts)
@@ -75,29 +75,28 @@ def split_sections(text: str) -> list[Section]:
     # A bare "Artikel 5" line ABOVE the section it names matches this grammar
     # too, and would otherwise contribute a section with no text in it. A
     # section whose body is only its own marker is a heading, not a provision.
-    return _collapse_header_blocks([section for section in sections if _has_text(section)])
+    return _one_section_per_label([section for section in sections if _has_text(section)])
 
 
-def _collapse_header_blocks(sections: list[Section]) -> list[Section]:
-    """One section per §, where RIS states each § twice in a row.
+def _one_section_per_label(sections: list[Section]) -> list[Section]:
+    """One section per §: the one that carries the provision.
 
-    A consolidated law renders every § as a header block (``§ 63`` / ``Text``
-    / the Überschrift) and then the provision (``§ 63.`` …). Both match the
-    grammar, so the Bauordnung für Wien parsed into 388 sections of which 183
-    were header stubs: a lookup for § 63 returned the stub as a passage of its
-    own, spending a slot and registering the same citation key twice. The
-    longer body is the provision; the stub's Überschrift survives when the
-    provision found none above itself.
+    RIS states a § more than once. The Bauordnung für Wien prints a header
+    block (``§ 63`` / ``Text`` / Überschrift) before every provision: 183 of
+    its 388 parsed sections were such stubs. The Tiroler Bauordnung opens with
+    a table of contents, ``§ 8`` / ``Abstellmöglichkeiten für Kraftfahrzeuge``,
+    far from § 8 itself. Each stub matches the grammar, so a lookup for § 63
+    returned it as a passage of its own and registered the same citation key
+    twice. The longest body is the provision; the others go, and so does their
+    "heading", which is whatever line sat above them (in a table of contents,
+    the previous entry's title).
     """
-    out: list[Section] = []
+    longest: dict[str, Section] = {}
     for section in sections:
-        previous = out[-1] if out else None
-        if previous is None or previous.label != section.label or not section.label:
-            out.append(section)
-            continue
-        kept = section if len(section.body) >= len(previous.body) else previous
-        out[-1] = Section(kept.kind, kept.number, section.heading or previous.heading, kept.body)
-    return out
+        kept = longest.get(section.label)
+        if section.label and (kept is None or len(section.body) > len(kept.body)):
+            longest[section.label] = section
+    return [section for section in sections if not section.label or longest[section.label] is section]
 
 
 def _end_of(starts: list[tuple[int, object]], position: int, total: int) -> int:
@@ -109,6 +108,17 @@ def _heading_above(lines: list[str], index: int) -> str:
     """The Überschrift on the line above a section start, when there is one."""
     previous = lines[index - 1].strip() if index > 0 else ""
     return previous if _is_heading(previous) else ""
+
+
+def _heading_below(lines: list[str], index: int) -> str:
+    """The Überschrift on the line after the marker, where a law puts it there.
+
+    The Tiroler Bauordnung writes ``§ 8`` / ``Abstellmöglichkeiten für
+    Kraftfahrzeuge`` / ``(1)``; read only above, its index was bare numbers and
+    the picker, which chooses by heading, chose blind.
+    """
+    below = lines[index + 1].strip() if index + 1 < len(lines) else ""
+    return below if _is_heading(below) and not ABSATZ_LINE_RE.match(below) else ""
 
 
 def _has_text(section: Section) -> bool:
