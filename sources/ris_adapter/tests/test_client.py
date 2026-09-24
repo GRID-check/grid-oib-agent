@@ -199,6 +199,21 @@ class TestHtmlToText:
         assert "Startseite" not in text
         assert "Impressum" not in text
 
+    def test_drops_the_screen_reader_twin_of_every_marker(self):
+        # RIS's own markup, 2026-09-24: the visible marker is aria-hidden and a
+        # spoken twin sits beside it. Kept, the twins were a third of the
+        # Bauordnung für Wien and cut § 63 off at lit. e.
+        html = (
+            "<div id='content'><span aria-hidden='true'>a)</span><span class='sr-only'>Litera a</span>"
+            "<div>Baupläne (<span aria-hidden='true'>§ 118 Abs. 1 Z 16</span>"
+            "<span class='sr-only'>Paragraph 118, Absatz eins, Ziffer 16,</span>)</div></div>"
+        )
+
+        _, text = html_to_text(html)
+
+        assert "a)" in text and "§ 118 Abs. 1 Z 16" in text
+        assert "Litera" not in text and "Paragraph 118" not in text
+
     def test_keeps_the_whole_document_when_there_is_no_container(self):
         # A ``/Dokumente/…`` page, an XML payload, or a future RIS template may
         # carry no ``#content``. Absence is not an error — the whole document is

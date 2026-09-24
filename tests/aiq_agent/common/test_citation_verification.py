@@ -1460,6 +1460,19 @@ class TestSourceOriginToken:
         entry = SourceEntry(url="https://ris.bka.gv.at/GeltendeFassung.wxe", source_type="generic")
         assert source_origin_token(entry) == "[RIS]"
 
+    def test_a_ris_lookup_passage_is_ris_not_kb(self):
+        # A grounding-block hit, so knowledge_layer; the suite saw every § go out
+        # as "[KB] Bauordnung für Wien, § 63".
+        entry = SourceEntry(
+            citation_key="Bauordnung für Wien, § 63",
+            source_type="knowledge_layer",
+            tool_name="ris_lookup_tool",
+            collection="ris/LrKons/Wien",
+        )
+        assert source_origin_token(entry) == "[RIS]"
+        hydrated = SourceEntry(citation_key="x", source_type="knowledge_layer", collection="ris/kons")
+        assert source_origin_token(hydrated) == "[RIS]"
+
     def test_non_ris_web_source_is_not_labeled_ris(self):
         # A URL that merely contains "ris" elsewhere must not be mislabeled.
         entry = SourceEntry(url="https://paris-example.com/law", source_type="generic", tool_name="web_search_tool")

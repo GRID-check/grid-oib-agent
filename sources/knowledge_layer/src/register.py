@@ -1554,7 +1554,6 @@ def _grounding_hit(chunk, *, resolved, resolved_titles, resolved_folders, ambigu
         provenance=_hit_provenance(chunk),
         stored_image_index=_stored_image_index(metadata),
         status_note=None,
-        source_url=None,
         body=content[:_CHUNK_TRUNCATE_CHARS] if truncated else content,
         body_truncated=truncated,
     )

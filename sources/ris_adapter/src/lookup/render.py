@@ -64,6 +64,12 @@ def _hit(passage: Passage) -> GroundingHit:
     stated (``base``) rather than left unknown, because RIS is the base corpus
     of law. The doc_class is known here too, which is what puts the hit in the
     Rechtsquelle lane instead of Projektwissen.
+
+    No URL is stated. The one RIS has is the WHOLE law, the same for every §,
+    and printed as ``Source URL:`` beside the citation it was what the answer
+    copied: "Bauordnung für Wien - <link>" names no § the lookup returned, the
+    verifier removed it, and a repair pass paid for it on every Bauordnung
+    question of the answer suite. The citation key is the passage's identity.
     """
     body, truncated = _cut_body(passage.body)
     return GroundingHit(
@@ -85,7 +91,6 @@ def _hit(passage: Passage) -> GroundingHit:
         # The Konsolidierte-Fassung disclaimer rides as its own header line and
         # is never inside a body: a passage body is text the answer may quote.
         status_note=passage.status_note or None,
-        source_url=passage.url,
         body=body,
         body_truncated=truncated,
     )

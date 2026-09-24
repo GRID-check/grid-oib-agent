@@ -29,7 +29,8 @@ async def test_the_block_carries_every_field_the_grounding_grammar_needs(lookup,
 
     assert "--- Result 1 ---" in output
     assert "Source: Bauordnung für Wien" in output
-    assert f"Source URL: {lookup.WIEN_URL}" in output
+    # The whole law's URL is not a citation, and printed it was copied as one.
+    assert "Source URL:" not in output and lookup.WIEN_URL not in output
     assert "Shelf: base" in output
     assert "Dokumentart: gesetz — Gesetz / Bauordnung" in output
     assert "Punkt: § 63 Abs 1" in output
@@ -75,9 +76,20 @@ async def test_the_lane_is_the_rechtsquelle_lane_not_unknown(lookup, catalog):
     assert lanes["lanes"][0]["kind"] == "baurecht"
 
 
-async def test_a_passage_is_never_longer_than_the_knowledge_layer_allows(lookup, catalog):
-    """The bound is imported from the knowledge layer, never restated here."""
-    from knowledge_layer.register import _CHUNK_TRUNCATE_CHARS
+async def test_a_named_section_arrives_whole(lookup, catalog):
+    """Seen in the answer suite: § 63 cut at the chunk bound cost three lookups."""
+    absaetze = "\n".join(f"({index}) " + "Text " * 100 for index in range(1, 12))
+    lookup.set_text(lookup.WIEN_URL, f"Bauansuchen\n§ 63. {absaetze}\n(12) Letzter Absatz.")
+
+    output = await lookup.run(question="Was verlangt § 63 BO Wien?", instrument="§ 63 BO Wien")
+
+    assert "(12) Letzter Absatz." in lookup.body_of(output)
+    assert "... [truncated]" not in output
+
+
+async def test_a_named_section_is_still_bounded(lookup, catalog):
+    """Longer than a § bound, it is cut on an Absatz and says so."""
+    from ris_adapter.lookup.grammar import SECTION_MAX_CHARS
 
     long_absatz = "\n".join(f"({index}) " + "Text " * 200 for index in range(1, 12))
     lookup.set_text(lookup.WIEN_URL, f"Bauansuchen\n§ 63. {long_absatz}")
@@ -85,6 +97,6 @@ async def test_a_passage_is_never_longer_than_the_knowledge_layer_allows(lookup,
     output = await lookup.run(question="Was verlangt § 63 BO Wien?", instrument="BO Wien")
 
     body = lookup.body_of(output)
-    assert len(body) <= _CHUNK_TRUNCATE_CHARS
+    assert len(body) <= SECTION_MAX_CHARS
     # The producer's own truncation marker, which the parser strips back off.
     assert "... [truncated]" in output

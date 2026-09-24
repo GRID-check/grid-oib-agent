@@ -24,10 +24,11 @@ features:
     einmal.
 fixes:
   - >
-    Antworten zur Bauordnung behalten ihre Fundstellen im RIS: ein zitierter
-    Paragraph verschwand bisher aus der Quellenliste, sobald die Antwort den
-    Link zum ganzen Gesetz dazuschrieb, und die Antwort wurde deshalb ein
-    zweites Mal überarbeitet.
+    Antworten zur Bauordnung behalten ihre Fundstellen im RIS und sind
+    schneller: ein genannter Paragraph kommt ganz statt nur sein Anfang, ohne
+    die doppelte Vorlesefassung des RIS, und ist als RIS statt als
+    Wissensbasis gekennzeichnet. Bisher fragte die Suche drei- bis viermal nach
+    dem Rest, und ein zitierter Paragraph konnte aus der Quellenliste fallen.
   - >
     Werte aus den Tabellen der OIB-Richtlinien (etwa Tabelle 3 zu
     Treppenhäusern) werden richtig gelesen und mit der Seite der Tabelle

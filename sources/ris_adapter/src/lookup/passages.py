@@ -13,6 +13,8 @@ from dataclasses import dataclass
 from ris_adapter.lookup.address import Address
 from ris_adapter.lookup.candidates import Candidate
 from ris_adapter.lookup.extract import Selection
+from ris_adapter.lookup.grammar import PASSAGE_MAX_CHARS
+from ris_adapter.lookup.grammar import SECTION_MAX_CHARS
 from ris_adapter.lookup.grammar import absatz_body
 from ris_adapter.lookup.grammar import cut_on_absatz
 from ris_adapter.register import _RIS_TITLE_FASSUNG_RE
@@ -62,6 +64,7 @@ def _passages_for(selection: Selection, address: Address) -> list[Passage]:
     title = document_title(candidate, document)
     status_note = _legal_status_note(document.url) or ""
     collection = collection_for(candidate)
+    limit = SECTION_MAX_CHARS if address.has_section else PASSAGE_MAX_CHARS
     out: list[Passage] = []
     for rank, (section, absatz) in enumerate(selection.picks):
         body, resolved = absatz_body(section, absatz or address.absatz)
@@ -73,7 +76,7 @@ def _passages_for(selection: Selection, address: Address) -> list[Passage]:
                 collection=collection,
                 punkt_label=label,
                 citation=citation_for(title, label, candidate.version_date),
-                body=cut_on_absatz(body),
+                body=cut_on_absatz(body, limit),
                 score=score_for(rank, address.has_section),
                 status_note=status_note,
             )

@@ -63,6 +63,24 @@ class TestSplitting:
         assert "Die Baupläne" in body
         assert "ist zu verhandeln" not in body
 
+    def test_the_header_block_before_each_section_is_folded_into_it(self):
+        """RIS prints ``§ 63`` / ``Text`` / Überschrift, then ``§ 63.`` and the text."""
+        text = (
+            "§ 63\n\nText\n\nBelege für das Baubewilligungsverfahren\n"
+            "§ 63.\n(1)\nFür das Baubewilligungsverfahren hat der Bauwerber vorzulegen:\n"
+            "§ 64\n\nText\n\nBaupläne\n§ 64.\n(1) Die Baupläne haben zu enthalten:"
+        )
+        sections = split_sections(text)
+        assert [s.label for s in sections] == ["§ 63", "§ 64"]
+        assert sections[0].heading == "Belege für das Baubewilligungsverfahren"
+        assert "hat der Bauwerber vorzulegen" in sections[0].body
+
+    def test_a_sentence_opening_with_a_cross_reference_starts_nothing(self):
+        text = "§ 65.\n(1) Baupläne müssen unterfertigt sein.\n§ 66.\n(1) Anderes.\n§ 65 Abs. 2 gilt sinngemäß."
+        sections = split_sections(text)
+        assert [s.label for s in sections] == ["§ 65", "§ 66"]
+        assert sections[1].body.endswith("§ 65 Abs. 2 gilt sinngemäß.")
+
 
 class TestAbsaetze:
     def test_the_named_absatz_is_cut_out_of_the_section(self):

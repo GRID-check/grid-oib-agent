@@ -371,6 +371,13 @@ def html_to_text(markup: str) -> tuple[str, str]:
         soup = BeautifulSoup(markup, "html.parser")
         for tag in soup(["script", "style", "noscript", "head"]):
             tag.decompose()
+        # RIS states every marker twice: ``a)`` for the eye (aria-hidden) and
+        # ``Litera a`` for a screen reader (.sr-only), and every citation again
+        # spelled out ("Paragraph 118, Absatz eins"). Kept, the spoken twin was
+        # a third of the Bauordnung für Wien and half of some §§, and it pushed
+        # the provision itself out of the passage the agent reads.
+        for tag in soup.select(".sr-only"):
+            tag.decompose()
         root = soup.select_one(_RIS_CONTENT_SELECTOR) or soup
         text = root.get_text("\n")
     except ImportError:  # pragma: no cover - bs4 is a declared dependency

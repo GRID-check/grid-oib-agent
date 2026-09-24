@@ -70,7 +70,7 @@ the lookup deterministic — no model reads the law, the paragraph is cut out by
 "Begut"/"RegV" for drafts. Leave empty for statute law — it is decided internally.
 
 Returns:
-    str: Numbered passages, each with Source, Source URL, Dokumentart, Punkt, a \
+    str: Numbered passages, each with Source, Dokumentart, Punkt, a \
 Citation key to copy verbatim, and the paragraph text. A miss says what was \
 searched, which Bundesland was assumed and where that came from, what matched but \
 was not read, and one concrete retry — never an empty result, and never a reason \

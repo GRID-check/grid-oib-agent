@@ -14,12 +14,23 @@ from dataclasses import dataclass
 
 from knowledge_layer.register import _CHUNK_TRUNCATE_CHARS as PASSAGE_MAX_CHARS
 
+#: The bound for a § the caller NAMED. A § is what a lawyer cites and what the
+#: agent asked for; cut at the corpus chunk bound above, § 63 BO Wien arrived
+#: as its first fifth and the agent spent three more lookups asking for the
+#: rest. 8000 characters (about 2k tokens) holds 187 of the 194 §§ of the
+#: Bauordnung für Wien whole; a ranked pick the agent did not name keeps the
+#: chunk bound.
+SECTION_MAX_CHARS = 8000
+
 #: § headings listed per document, for the picker and for a miss.
 MAX_HEADINGS = 120
 
 #: A line that STARTS a section of a consolidated law: "§ 63.", "§ 63a.",
-#: "Artikel 5", "Art. 5". RIS renders each of them as its own line.
-SECTION_LINE_RE = re.compile(r"^\s*(?:(§)+\s*|(Art)(?:ikel)?\.?\s*)(\d+[a-z]?)\s*\.?(?:\s|$)", re.IGNORECASE)
+#: "Artikel 5", "Art. 5". RIS renders each of them as its own line. The number
+#: ends in a period or ends the line: "§ 65 Abs. 2 gilt sinngemäß." is a
+#: sentence that happens to open with a cross-reference, and read as a section
+#: start it replaced § 65 itself wherever a lookup kept the last § of a label.
+SECTION_LINE_RE = re.compile(r"^\s*(?:(§)+\s*|(Art)(?:ikel)?\.?\s*)(\d+[a-z]?)\s*(?:\.|$)", re.IGNORECASE)
 #: An Absatz marker at the start of a line — the boundary a passage is cut on.
 ABSATZ_LINE_RE = re.compile(r"(?m)^\(\s*(\d+[a-z]?)\s*\)")
 #: The same marker where RIS runs it into the section head: "§ 63. (1) Dem …".
@@ -64,7 +75,29 @@ def split_sections(text: str) -> list[Section]:
     # A bare "Artikel 5" line ABOVE the section it names matches this grammar
     # too, and would otherwise contribute a section with no text in it. A
     # section whose body is only its own marker is a heading, not a provision.
-    return [section for section in sections if _has_text(section)]
+    return _collapse_header_blocks([section for section in sections if _has_text(section)])
+
+
+def _collapse_header_blocks(sections: list[Section]) -> list[Section]:
+    """One section per §, where RIS states each § twice in a row.
+
+    A consolidated law renders every § as a header block (``§ 63`` / ``Text``
+    / the Überschrift) and then the provision (``§ 63.`` …). Both match the
+    grammar, so the Bauordnung für Wien parsed into 388 sections of which 183
+    were header stubs: a lookup for § 63 returned the stub as a passage of its
+    own, spending a slot and registering the same citation key twice. The
+    longer body is the provision; the stub's Überschrift survives when the
+    provision found none above itself.
+    """
+    out: list[Section] = []
+    for section in sections:
+        previous = out[-1] if out else None
+        if previous is None or previous.label != section.label or not section.label:
+            out.append(section)
+            continue
+        kept = section if len(section.body) >= len(previous.body) else previous
+        out[-1] = Section(kept.kind, kept.number, section.heading or previous.heading, kept.body)
+    return out
 
 
 def _end_of(starts: list[tuple[int, object]], position: int, total: int) -> int:

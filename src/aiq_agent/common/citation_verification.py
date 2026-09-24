@@ -1775,6 +1775,10 @@ def _is_ris_source(entry: SourceEntry) -> bool:
     name = (entry.tool_name or "").lower()
     if name.startswith("ris_") or "ris_search" in name or "ris_fetch" in name:
         return True
+    # The collection ``ris_lookup`` states (``ris/LrKons/Wien``), which a
+    # registry hydrated without the tool name still carries.
+    if (entry.collection or "").lower().startswith("ris/"):
+        return True
     return bool(entry.url and _RIS_URL_HOST_RE.match(entry.url))
 
 
@@ -2089,10 +2093,13 @@ def source_origin_token(entry: SourceEntry) -> str:
     string when the origin is not cleanly identifiable, so callers emit no token
     and the frontend falls open to plain, unlabeled text.
     """
-    if entry.source_type == "knowledge_layer":
-        return "[KB]"
+    # RIS first: a ``ris_lookup`` passage is a grounding-block hit, so it is a
+    # ``knowledge_layer`` entry too, and checked second it went out as ``[KB]``
+    # on every Bauordnung answer the suite read.
     if _is_ris_source(entry):
         return "[RIS]"
+    if entry.source_type == "knowledge_layer":
+        return "[KB]"
     if entry.url:
         return "[Web]"
     return ""
