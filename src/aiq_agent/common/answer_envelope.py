@@ -374,6 +374,60 @@ class GateContext:
     #: empty set makes the verdict gate below a no-op, so a caller that cannot
     #: reach a registry loses nothing it had.
     agent_authored_documents: frozenset[str] = frozenset()
+    #: The answer's prose without its sources section. Empty where a caller has
+    #: none to give (the deep writer), which turns the gates reading it off.
+    prose: str = ""
+
+
+#: Share of a summary's content words its prose's opening paragraph may also
+#: carry before the summary counts as that paragraph said again. Calibrated on
+#: live answers (September 2026 census): three restating summaries scored 0.46
+#: to 0.53; the prompt's own consequence-summary („Danach ausschreiben …")
+#: scores 0 against its opening.
+SUMMARY_RESTATES_OVERLAP = 0.4
+
+_CONTENT_WORD = re.compile(r"[a-zäöüß0-9]{4,}")
+_NOT_PROSE_BLOCK = ("|", "```", "[[", "#", "- ", "* ", "> ", "$$")
+
+
+def _content_words(text: str) -> set[str]:
+    """Words that carry meaning, clipped to a crude stem so „Gebäude"/„Gebäuden" match."""
+    plain = re.sub(r"\[\d+\]|\*\*|\[\[[^\]]*\]\]", " ", text.lower())
+    return {word[:5] for word in _CONTENT_WORD.findall(plain)}
+
+
+def _prose_paragraphs(prose: str) -> list[str]:
+    return [
+        block.strip()
+        for block in re.split(r"\n\s*\n", prose)
+        if block.strip() and not block.lstrip().startswith(_NOT_PROSE_BLOCK)
+    ]
+
+
+def _summary_redundant(summary: str, prose: str) -> str | None:
+    """Why the prose already says what the summary says, or None.
+
+    The standfirst sits directly above the prose, and the prose is told to
+    open with the answer, so a summary earns its place only by saying what the
+    opening does not: the consequence for this reader (the prompt's
+    "Vier Fächer" rule). Two cases say it twice: a reply of two sentences or
+    fewer, which is its own summary, and a summary whose words are mostly the
+    opening paragraph's.
+    """
+    if not prose.strip():
+        return None
+    blocks = [block for block in re.split(r"\n\s*\n", prose) if block.strip()]
+    paragraphs = _prose_paragraphs(prose)
+    if paragraphs and len(paragraphs) == len(blocks):
+        sentences = re.findall(r"[^.!?]+[.!?](?:\s*\[\d+\])*(?=\s|$)", " ".join(paragraphs))
+        if len(sentences) <= 2:
+            return "short_answer"
+    if not paragraphs:
+        return None
+    words = _content_words(summary)
+    if words and len(words & _content_words(paragraphs[0])) / len(words) >= SUMMARY_RESTATES_OVERLAP:
+        return "restates_lede"
+    return None
 
 
 def _gate_summary(meta: AnswerMeta, ctx: GateContext) -> str | None:
@@ -389,6 +443,11 @@ def _gate_summary(meta: AnswerMeta, ctx: GateContext) -> str | None:
             SUMMARY_MAX_CHARS,
         )
         emit_anatomy_dropped(field="summary", reason="too_long")
+        return None
+    redundant = _summary_redundant(summary, ctx.prose)
+    if redundant:
+        logger.info("answer_meta summary gated out: %s — the prose already says it", redundant)
+        emit_anatomy_dropped(field="summary", reason=redundant)
         return None
     return summary
 
@@ -690,6 +749,11 @@ def _validated_meta(payload: dict) -> AnswerMeta | None:
     return None if meta.empty else meta
 
 
+#: Loose text beside a complete envelope past which it is a second copy of the
+#: answer rather than a stray line.
+_PROSE_OUTSIDE_WARN_CHARS = 200
+
+
 def extract_answer_envelope(content: object) -> tuple[object, AnswerMeta | None]:
     """Split a research reply into its prose and its validated anatomy.
 
@@ -722,6 +786,16 @@ def extract_answer_envelope(content: object) -> tuple[object, AnswerMeta | None]
             return content, None
         answer = payload.get("answer")
         if isinstance(answer, str) and answer.strip():
+            outside = _without_blocks(content, blocks).strip()
+            if len(outside) > _PROSE_OUTSIDE_WARN_CHARS:
+                # The reply wrote its answer twice: once loose, once in the
+                # fence. The fence wins and the reader sees it once, but every
+                # token of the loose copy was generated and paid for; the
+                # September 2026 census caught one in three doing it.
+                logger.warning(
+                    "answer_prose_outside_envelope: %d chars of prose outside the answer_json fence discarded",
+                    len(outside),
+                )
             return answer.strip(), _validated_meta(payload)
         # Trailer form: the prose lives outside the fence.
         stripped = _without_blocks(content, blocks).strip()
@@ -746,6 +820,7 @@ def gate_answer_meta(
     *,
     prose_chars: int,
     agent_authored_documents: frozenset[str] = frozenset(),
+    prose: str = "",
 ) -> dict | None:
     """Run the registry's gates and return the versioned wire payload, or None.
 
@@ -763,7 +838,7 @@ def gate_answer_meta(
     registry — the deep writer's report path, a test — behaves exactly as
     before.
     """
-    ctx = GateContext(prose_chars=prose_chars, agent_authored_documents=agent_authored_documents)
+    ctx = GateContext(prose_chars=prose_chars, agent_authored_documents=agent_authored_documents, prose=prose)
     payload: dict = {}
     for field in ANATOMY_FIELDS:
         survived = field.gate(meta, ctx)

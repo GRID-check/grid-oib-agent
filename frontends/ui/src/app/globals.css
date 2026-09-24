@@ -1181,4 +1181,52 @@ body {
   table[data-stack] > caption {
     display: block;
   }
+  table[data-stack][data-labels="above"] > tbody > tr > td {
+    display: block;
+  }
+  table[data-stack][data-labels="above"] > tbody > tr > td:not(:first-child)::before {
+    display: block;
+  }
+}
+
+/* A table whose cells hold sentences stacks at EVERY width (`data-stack="always"`,
+   `table-shape.ts`): each row a block, each cell under its column's name. */
+table[data-stack="always"] {
+  display: block;
+}
+table[data-stack="always"] > thead {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+table[data-stack="always"] > tbody,
+table[data-stack="always"] > tbody > tr {
+  display: block;
+}
+table[data-stack="always"] > tbody > tr {
+  padding: 0.75rem 1rem;
+}
+table[data-stack="always"] > tbody > tr > td {
+  display: block;
+  padding: 0.25rem 0;
+  text-align: left;
+}
+table[data-stack="always"] > tbody > tr > td::before {
+  content: attr(data-label);
+  display: block;
+  color: var(--muted-foreground);
+  font-size: 0.75rem;
+  font-weight: 500;
+}
+table[data-stack="always"] > tbody > tr > td:first-child {
+  font-weight: 600;
+}
+table[data-stack="always"] > tbody > tr > td:first-child::before {
+  display: none;
+}
+table[data-stack="always"] > caption {
+  display: block;
 }

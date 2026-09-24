@@ -14,9 +14,14 @@
  *  - **The tally of a Status column.** A check of eight criteria is read for
  *    its outcome first: `data-tally` carries the count per status word, and the
  *    table draws it above the rows.
+ *  - **A citation said twice in a row.** A row whose Fundstelle cell carries
+ *    `[2]` does not also need `[2]` at the end of its Geltungsbereich; the
+ *    trailing copy is dropped (live answers wrote both on every row).
  *  - **The label of every cell.** On a phone a four-column table does not fit;
  *    below a container width each row stacks, and a cell names its column from
- *    `data-label`, the way a form does.
+ *    `data-label`, the way a form does. A table whose cells hold sentences
+ *    (`data-stack="always"`) stacks at every width: a paragraph in a 200px
+ *    column is a tower of three-word lines on any screen.
  *
  * Pure over the hast tree, so the answer's own citation links and status words
  * are untouched: only where they sit changes.
@@ -89,6 +94,58 @@ function liftSharedSource(table: Element, head: Element[], rows: Element[][]): b
   return true
 }
 
+const CITATION = /^\[(\d+)\]$/
+const TRAILING_CITATIONS = /(?:\s*\[(\d+)\])+\s*$/
+
+/** The citation numbers a cell holds, e.g. `{2}` for a Fundstelle cell `[2]`. */
+const citationsIn = (cell: Element): Set<string> =>
+  new Set([...textOf(cell).matchAll(/\[(\d+)\]/g)].map((match) => match[1]))
+
+/** Drop the `[N]` a cell ends with when its row's Fundstelle already carries every one of them. */
+function dropTrailingCitations(cell: Element, cited: Set<string>): void {
+  const children = cell.children as ElementContent[]
+  for (;;) {
+    const last = children[children.length - 1]
+    if (!last) return
+    if (last.type === 'text') {
+      const match = last.value.match(TRAILING_CITATIONS)
+      const trimmed = last.value.replace(/\s+$/, '')
+      if (match && [...match[0].matchAll(/\[(\d+)\]/g)].every((m) => cited.has(m[1]))) {
+        last.value = last.value.slice(0, match.index).replace(/\s+$/, '')
+      } else if (trimmed !== last.value) {
+        last.value = trimmed
+      } else {
+        return
+      }
+      if (!last.value) children.pop()
+      continue
+    }
+    const marker = isElement(last) ? textOf(last).trim().match(CITATION) : null
+    if (!marker || !cited.has(marker[1])) return
+    children.pop()
+  }
+}
+
+/** A row's other cells lose the trailing citations its Fundstelle cell repeats. */
+function dropRepeatedCitations(head: Element[], rows: Element[][]): void {
+  const column = head.findIndex((cell) => SOURCE_HEADERS.has(key(cellText(cell))))
+  if (column < 0) return
+  for (const row of rows) {
+    const source = row[column]
+    if (!source) continue
+    const cited = citationsIn(source)
+    if (cited.size === 0) continue
+    row.forEach((cell, index) => {
+      if (index !== column) dropTrailingCitations(cell, cited)
+    })
+  }
+}
+
+/** A cell holding a sentence rather than a value or a phrase. */
+const PROSE_CELL_CHARS = 140
+/** A column name too long to sit beside its value in a stacked row. */
+const LONG_LABEL_CHARS = 16
+
 function findParent(root: Element, target: Element): Element | null {
   for (const child of root.children) {
     if (!isElement(child)) continue
@@ -119,10 +176,19 @@ function shapeTable(table: Element): void {
   const { head, rows } = parts
   const tally = statusTally(head, rows)
   if (tally) table.properties = { ...table.properties, dataTally: tally }
+  dropRepeatedCitations(head, rows)
   liftSharedSource(table, head, rows)
   // Labels AFTER the lift, so a cell names the column it still sits in.
   const labels = head.filter((cell) => findParent(table, cell)).map(cellText)
-  if (labels.length >= 3) table.properties = { ...table.properties, dataStack: 'true' }
+  const prose = rows.some((row) => row.some((cell) => cellText(cell).length > PROSE_CELL_CHARS))
+  if (labels.length >= 2 && prose) table.properties = { ...table.properties, dataStack: 'always' }
+  else if (labels.length >= 3) table.properties = { ...table.properties, dataStack: 'true' }
+  // A label the stacked row sets beside its value gets 38% of a phone: a long
+  // one („Was darzustellen bzw. zu belegen ist") wraps to three lines and
+  // squeezes the value, so such a table sets every label above its value.
+  if (labels.slice(1).some((label) => label.length > LONG_LABEL_CHARS)) {
+    table.properties = { ...table.properties, dataLabels: 'above' }
+  }
   for (const row of rows) {
     row
       .filter((cell) => findParent(table, cell))

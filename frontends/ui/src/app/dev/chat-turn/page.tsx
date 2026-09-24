@@ -485,6 +485,94 @@ const ledeCards: GridCard[] = [
   } as GridCard,
 ]
 
+/* --- variant: variants ---------------------------------------------------- */
+
+// A LIVE answer (September 2026 census, gpt-6-luna against the bundled prompt),
+// copied verbatim: the question weighs two designs, and each design has a list
+// of its own, so the answer carries a `surface` whose `Tabs` hold one `Text`
+// table per variant. The prose above them says what holds for both.
+const variantsQuestion =
+  'Für den zweiten Fluchtweg in GK 4 überlegen wir eine Außentreppe oder ein zweites Treppenhaus. Was müsste ich jeweils nachweisen?'
+
+const variantsAnswer = `In GK 4 verlangt Tabelle 3 für ein zweites Treppenhaus oberirdisch Wände REI 60 und Treppenläufe R 60; eine Außentreppe muss aus A2 bestehen und darf im Brandfall nicht durch Flammeneinwirkung oder gefahrbringende Strahlungswärme beeinträchtigt werden [1].
+
+Der zusätzliche Fluchtweg muss unabhängig sein und zu einem weiteren Treppenhaus oder einer weiteren Außentreppe gemäß Tabelle 3 führen; für diesen Weg ist die Gehweglänge nicht begrenzt [2]. Für beide Varianten ist außerdem nachzuweisen, dass der Ausgang zu einem sicheren Ort im Freien führt und die Treppe hinsichtlich ihrer nutzbaren Breite zur Personenzahl passt [1][3].
+
+[[card:1]]
+
+Die Übersicht geht von OIB-Richtlinie 2, Ausgabe Mai 2023, aus. Ob diese Ausgabe in Ihrem Bundesland verbindlich gilt und ob landesrechtliche Abweichungen bestehen, ist ohne Angabe des Bundeslands offen.
+
+## Quellen
+- [1] [KB] oib-rl_2_ausgabe_mai_2023.pdf, p.23
+- [2] [KB] oib-rl_2_ausgabe_mai_2023.pdf, p.13
+- [3] [KB] oib-rl_4_ausgabe_mai_2023.pdf, p.6`
+
+const variantsCards: GridCard[] = [
+  {
+    type: 'surface',
+    title: 'Nachweis je Variante',
+    components: [
+      {
+        id: 'root',
+        component: 'Tabs',
+        tabs: [
+          { title: 'Außentreppe', child: 'aussen' },
+          { title: 'Zweites Treppenhaus', child: 'innen' },
+        ],
+      },
+      {
+        id: 'aussen',
+        component: 'Text',
+        text: [
+          '| Nachweis | Was darzustellen bzw. zu belegen ist | Fundstelle |',
+          '|---|---|---|',
+          '| Unabhängiger Fluchtweg | Wegführung aus den betroffenen Geschoßen zur Außentreppe; Ausgang zu einem sicheren Ort im Freien | OIB-RL 2, Pkt. 5.1.4 und Tabelle 3 [2][1] |',
+          '| Treppenkonstruktion | Ausführung in A2; keine Beeinträchtigung durch Flammeneinwirkung oder gefahrbringende Strahlungswärme | OIB-RL 2, Tabelle 3 [1] |',
+          '| Nutzbarkeit | Lichte Treppenlaufbreite anhand der maximal gleichzeitig auf die Treppe angewiesenen Personen | OIB-RL 4, Pkt. 2.4 [3] |',
+        ].join('\n'),
+      },
+      {
+        id: 'innen',
+        component: 'Text',
+        text: [
+          '| Nachweis | Was darzustellen bzw. zu belegen ist | Fundstelle |',
+          '|---|---|---|',
+          '| Unabhängiger Fluchtweg | Wegführung aus den betroffenen Geschoßen zum zweiten Treppenhaus; Ausgang zu einem sicheren Ort im Freien | OIB-RL 2, Pkt. 5.1.4 und Pkt. 5.1.1 [2][1] |',
+          '| Wände und Decke | Oberirdisch: Wände REI 60; unterirdisch: REI 90 und A2; Decke über dem Treppenhaus REI 60 | OIB-RL 2, Tabelle 3 [1] |',
+          '| Türen und Treppenläufe | Türen gemäß Tabelle 3 nach angrenzender Nutzung; Treppenläufe R 60 | OIB-RL 2, Tabelle 3 [1] |',
+          '| Nutzbarkeit | Lichte Treppenlaufbreite anhand der maximal gleichzeitig auf die Treppe angewiesenen Personen | OIB-RL 4, Pkt. 2.4 [3] |',
+        ].join('\n'),
+      },
+    ],
+  } as unknown as GridCard,
+  {
+    type: 'legal_basis',
+    law: 'OIB-Richtlinie 2',
+    lane: 'baurecht_oib',
+    edition: 'Ausgabe Mai 2023',
+    article: '5.1.4',
+    section: 'Tabelle 3',
+    summary:
+      'Für den zusätzlichen Fluchtweg ist ein unabhängiger Weg zu einem weiteren Treppenhaus oder einer weiteren Außentreppe gemäß Tabelle 3 vorgesehen.',
+    original_text:
+      'ein unabhängiger Fluchtweg zu einem weiteren Treppenhaus oder einer weiteren Außentreppe jeweils gemäß Tabelle 3 erreichbar sein',
+  } as GridCard,
+]
+
+const variantsCitations: CitationSource[] = [1, 2, 3].map((number) => ({
+  id: `v${number}`,
+  content: '',
+  timestamp: new Date('2026-09-24T11:40:00'),
+  isCited: true,
+  kind: 'baurecht',
+  lane: 'baurecht_oib',
+  laneLabel: 'OIB-Richtlinie',
+  fileName: number === 3 ? 'oib-rl_4_ausgabe_mai_2023.pdf' : 'oib-rl_2_ausgabe_mai_2023.pdf',
+  title: number === 3 ? 'OIB-Richtlinie 4 · Nutzungssicherheit' : 'OIB-Richtlinie 2 · Brandschutz',
+  page: number === 1 ? 23 : number === 2 ? 13 : 6,
+  number,
+}))
+
 /* --- variant: two-cards --------------------------------------------------- */
 
 const twoCardsQuestion =
@@ -809,6 +897,7 @@ const ANSWER_VARIANTS = [
   'verdict-lede',
   'anatomy',
   'structured',
+  'variants',
 ] as const
 type AnswerVariant = (typeof ANSWER_VARIANTS)[number]
 
@@ -886,6 +975,20 @@ function AnswerLayer({ variant }: { variant: AnswerVariant }) {
         citations={stairCitations}
         confidenceReason="Schrittmaßregel direkt aus OIB-RL 4 belegt"
         messageId="msg-lede-card"
+      />
+    )
+  }
+
+  if (variant === 'variants') {
+    return (
+      <AnswerTurn
+        label="↓ VARIANTS (live answer) — shared prose, then Tabs holding one Text table per variant"
+        question={variantsQuestion}
+        answer={variantsAnswer}
+        cards={variantsCards}
+        citations={variantsCitations}
+        confidenceReason="OIB-Mai-2023-Anforderungen belegt; Bundesland und Nutzung sind nicht angegeben"
+        messageId="msg-variants"
       />
     )
   }

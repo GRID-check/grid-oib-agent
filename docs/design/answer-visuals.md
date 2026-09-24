@@ -91,12 +91,32 @@ new evidence:
 - **The tinted active branch in `condition_tree` / `process_map`.** Charter:
   it is what a screenshot of the card keeps as "this project's branch".
 
-Still open, named rather than done:
+## Live census, September 2026
 
-- **Redundancy between verdict, lede and takeaways.** The anatomy fixture
-  states 1,20 m four times. The gates (`TAKEAWAYS_MIN_PROSE_CHARS`, the lede
-  suppression under a verdict marker) exist; whether live answers still
-  repeat needs a census with a live model, not a fixture.
-- **A task list is not yet a task.** `- [ ] Brandschutzkonzept nachreichen`
-  renders as a mark; turning it into a project task through the tasks API
-  (ADR-0055) is the obvious next affordance and a feature of its own.
+Three reference questions through the real agent (`task be:eval:turn-census`,
+`openai/gpt-6-luna`): the OIB 2 overview, a ruling (Geländerhöhe at 13 m), and
+two design variants (Außentreppe or zweites Treppenhaus). What the fixtures
+could not show:
+
+| Found live | Cause | Now |
+|---|---|---|
+| Every `summary` restated the prose's opening paragraph, directly above it (content-word overlap 0.46–0.53) | The prose is told to open with the answer, and the summary is shown above it; the prompt's "consequence, not restatement" rule was not followed | Gated: a summary on a reply of two sentences or fewer, or sharing ≥ 40% of its words with the opening, is dropped (`answer_envelope._summary_redundant`) |
+| The overview drew a mindmap of the table's rows, and after the prompt asked for a level beneath the parts, a level repeating each part's number | The worked example itself drew the table's parts as a flowchart | The example now draws what each part covers; a mindmap whose words are ≥ 70% a table's words is removed (`piloti/answer_shape.py`) |
+| Every row cited twice: `Betriebsbauten [2] \| [2]` | Nothing said the Fundstelle column is the row's only citation | Prompt says so; the table pass drops the repeated trailing `[N]` |
+| The variants answer was one table, a row per design, a paragraph per cell | The rule "variants with a body of their own → tabs" was too abstract | Rule names its trigger (two or more requirements per variant) and the shape it replaces. **Rerun: the model answered with `Tabs`, one `Text` table per variant.** A table with sentence cells stacks at every width |
+| One reply in three wrote the whole answer twice, loose and inside the fence | — | The fence already wins; `answer_prose_outside_envelope` now logs every occurrence so the cost is counted |
+
+The value under a verdict appearing again in the first sentence is kept: the
+prose must stand alone when copied or exported, and the prompt asks only that
+it be worded differently.
+
+Still open:
+
+- **Research depth varies run to run.** The variants question took four
+  research calls (67 s) on one run and five (80 s) on the next, at ~75k input
+  tokens each. That is the model's depth decision, not the answer's shape.
+- **A task list is not yet a task, and should not become one.** A project
+  "task" here is delegated agent work (ADR-0051), so `- [ ] Brandschutzkonzept
+  nachreichen`, which a person does, has no primitive to land in. Whether it
+  gets one (ticks remembered per answer, or a project to-do list) is an open
+  product decision.

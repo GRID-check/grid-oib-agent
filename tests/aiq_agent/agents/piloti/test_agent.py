@@ -419,7 +419,7 @@ class TestPilotiAgent:
             ],
             "callout": {"kind": "achtung", "text": "Ab 12 m Absturzhöhe sind 110 cm erforderlich."},
             "confidence": {"level": "medium", "reason": "eine Fundstelle, nicht am Projekt gemessen"},
-            "summary": "Unter 12 m Absturzhöhe genügen 100 cm, gemessen ab fertigem Fußboden.",
+            "summary": "Die Terrasse ist damit ohne erhöhte Umwehrung einreichbar; Aufkantungen beim Aufmaß mitzählen.",
         }
         envelope.update(overrides)
         body = _json.dumps(envelope, ensure_ascii=False)
@@ -462,7 +462,7 @@ class TestPilotiAgent:
         assert result.answer_meta is not None
         assert result.answer_meta["v"] == 1
         assert result.answer_meta["verdict"]["value"] == "100 cm"
-        assert result.answer_meta["summary"].startswith("Unter 12 m Absturzhöhe")
+        assert result.answer_meta["summary"].startswith("Die Terrasse ist damit")
         assert result.answer_meta["verdict"]["reference"]["document"] == "OIB-Richtlinie 4"
         assert len(result.answer_meta["takeaways"]) == 2
         assert result.answer_meta["callout"]["kind"] == "achtung"

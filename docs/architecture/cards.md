@@ -11,6 +11,22 @@ not a citations feature. The agent answers in markdown by default and emits a ca
 whenever structure helps the reader. `LegalBasisCard` is one instance; the set is
 meant to grow.
 
+### Cards and A2UI: one thing, two layers
+
+A2UI did not replace cards; it is how cards are drawn. A **card** is WHAT the
+answer states: a typed, validated object (`legal_basis`, `condition_tree`,
+`stair_diagram`), checked by its Pydantic model and stored on the message.
+**A2UI** is HOW it reaches the screen: the protocol and renderer
+([ADR-0065](../adr/0065-a2ui-renders-every-card.md)) that draws a component
+list from a catalog. Our catalog IS the card types, one A2UI component per
+type, plus A2UI's own `Row`, `Column`, `Tabs` and `Text` to arrange them.
+
+So "card" is our word for a component in our A2UI catalog, and a `surface`
+card is an A2UI component list of them. What A2UI added is composition and a
+standard wire format; what the card layer keeps is the part A2UI knows
+nothing about: which content earns which card, validation against the
+sources, and the persisted decisions of interactive cards.
+
 ## Current card types
 
 Defined in `src/aiq_agent/cards/models.py` as a discriminated union (`GridCard`)

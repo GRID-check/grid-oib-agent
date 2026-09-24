@@ -48,6 +48,7 @@ from aiq_agent.common.citation_verification import verify_quoted_spans
 from aiq_agent.common.tool_validation import validate_tool_availability
 from aiq_agent.common.turn_status import emit_citation_check
 
+from .answer_shape import drop_restated_mindmaps
 from .dsml import strip_and_salvage_dsml_tool_calls
 from .grounding import answer_mentions_normative_claim
 from .history import prose_history
@@ -649,6 +650,7 @@ def _gated_meta(
     gated = gate_answer_meta(
         extracted.meta,
         prose_chars=len(prose_without_references(content)),
+        prose=prose_without_references(content),
         agent_authored_documents=agent_authored_document_names(registry),
     )
     if gated is None:
@@ -862,7 +864,7 @@ async def finalize_answer(
         grounding = _Grounding(extracted.content)
 
     sanitized = sanitize_report(grounding.content)
-    content = sanitized.sanitized_report
+    content, _ = drop_restated_mindmaps(sanitized.sanitized_report)
     cited = _renumbered(grounding.cited, sanitized.renumber_map)
     _recite_surface_cards(sanitized.renumber_map, cited)
     meta = _gated_meta(

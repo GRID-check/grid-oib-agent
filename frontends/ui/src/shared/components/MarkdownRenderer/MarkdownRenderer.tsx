@@ -489,7 +489,8 @@ export const MarkdownRenderer: FC<MarkdownRendererProps> = memo(
           // layout) is settled by `rehypeTableShape` and read off the node.
           table: ({ children, node }: React.ComponentPropsWithoutRef<'table'> & ExtraProps) => {
             const tally = parseTally(node?.properties?.dataTally)
-            const stack = node?.properties?.dataStack === 'true'
+            const stackValue = node?.properties?.dataStack
+            const stack = stackValue === 'true' || stackValue === 'always' ? stackValue : undefined
             return (
               <div className="my-4 flex flex-col gap-2 [container:answer-table/inline-size]">
                 {tally.length > 0 && (
@@ -504,7 +505,8 @@ export const MarkdownRenderer: FC<MarkdownRendererProps> = memo(
                 )}
                 <HorizontalScroll className="border-base rounded-xl border">
                   <table
-                    data-stack={stack ? 'true' : undefined}
+                    data-stack={stack}
+                    data-labels={node?.properties?.dataLabels === 'above' ? 'above' : undefined}
                     className="[&>tbody>tr:nth-child(even)]:bg-muted/30 min-w-full caption-bottom tabular-nums"
                   >
                     {children}

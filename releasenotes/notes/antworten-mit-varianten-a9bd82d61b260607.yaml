@@ -21,6 +21,11 @@ features:
     eine Fundstelle, die für alle Zeilen gleich ist, steht einmal unter der
     Tabelle statt in jeder Zeile, und auf dem Telefon werden breite Tabellen
     zeilenweise untereinander gezeigt statt seitlich zu scrollen.
+  - >
+    Antworten wiederholen sich weniger: ein Vorspann, der nur den ersten
+    Absatz wiederholt, entfällt, ebenso ein Diagramm, das nur die Tabelle
+    daneben nachzeichnet, und eine Fundstelle steht je Tabellenzeile nur
+    einmal.
 fixes:
   - >
     Die Punkte von „Das Wichtigste" stehen bündig untereinander, und
