@@ -67,7 +67,7 @@ def _passages_for(selection: Selection, address: Address) -> list[Passage]:
     limit = SECTION_MAX_CHARS if address.has_section else PASSAGE_MAX_CHARS
     out: list[Passage] = []
     for rank, (section, absatz) in enumerate(selection.picks):
-        body, resolved = absatz_body(section, absatz or address.absatz)
+        body, resolved = absatz_body(section, absatz)
         label = f"{section.label} Abs {resolved}" if resolved else section.label
         out.append(
             Passage(

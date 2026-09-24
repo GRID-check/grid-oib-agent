@@ -47,7 +47,8 @@ async def test_the_knowledge_parser_reads_it_as_evidence(lookup, catalog):
 
     entries = extract_sources_from_tool_result("ris_lookup", output)
 
-    assert len(entries) == 1
+    # The named Absatz, then the whole § under its own key (see below).
+    assert [e.citation_key for e in entries] == ["Bauordnung für Wien, § 63 Abs 1", "Bauordnung für Wien, § 63"]
     entry = entries[0]
     assert entry.citation_key == "Bauordnung für Wien, § 63 Abs 1"
     assert entry.punkt == "§ 63 Abs 1"
@@ -100,3 +101,23 @@ async def test_a_named_section_is_still_bounded(lookup, catalog):
     assert len(body) <= SECTION_MAX_CHARS
     # The producer's own truncation marker, which the parser strips back off.
     assert "... [truncated]" in output
+
+
+async def test_a_named_absatz_comes_with_its_whole_section(lookup, catalog):
+    """Asked for Abs 2 alone, the agent came back for Abs 4, 5 and 3 one lookup at a time."""
+    output = await lookup.run(question=_QUESTION, instrument="§ 63 Abs 1 BO Wien")
+
+    assert "Die Baupläne müssen von einem hierzu Befugten" not in lookup.body_of(output, 1)
+    assert "Die Baupläne müssen von einem hierzu Befugten" in lookup.body_of(output, 2)
+
+
+async def test_a_section_too_long_to_hand_over_stays_its_absatz(lookup, catalog):
+    from ris_adapter.lookup.grammar import SECTION_MAX_CHARS
+
+    absaetze = "\n".join(f"({index}) " + "Text " * 300 for index in range(1, 12))
+    assert len(absaetze) > SECTION_MAX_CHARS
+    lookup.set_text(lookup.WIEN_URL, f"Bauansuchen\n§ 63. {absaetze}")
+
+    output = await lookup.run(question=_QUESTION, instrument="§ 63 Abs 2 BO Wien")
+
+    assert output.count("--- Result ") == 1
