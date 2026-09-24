@@ -151,6 +151,9 @@ export function reduceSpectatedFrame(
         }
       }
       if (!text) return next === state ? state : next
+      // A settled snapshot (ADR-0066) REPLACES the text streamed so far; a
+      // spectator that appended it would read the answer twice.
+      if (message.stream_replace === true) return { ...next, parentId, answer: text, waitingOn: null }
       return { ...next, parentId, answer: next.answer + text, waitingOn: null }
     }
 

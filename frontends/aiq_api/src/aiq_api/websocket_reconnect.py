@@ -587,6 +587,9 @@ _TRANSPARENCY_EXTRA_FIELDS = (
     # The backend's own account of this turn's retrieval rounds, for the
     # Herleitung to read instead of reconstructing.
     "retrieval_ledger",
+    # A live frame whose text REPLACES the streaming bubble's: the prose with
+    # its citations settled mid-stream (ADR-0066). Never on the terminal.
+    "stream_replace",
 )
 
 # Agent Skills extra (the chat agent records which skills it force-activated

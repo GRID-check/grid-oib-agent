@@ -36,6 +36,7 @@ import {
 } from './SourcePreview'
 import { resolveCitationTarget } from '../lib/citations/target'
 import { useChatStore } from '../store'
+import { PENDING_CITATION_ANCHOR_PREFIX } from '@/features/layout/lib/citation-markers'
 
 /**
  * An in-page anchor that the answer recognises as one of its own citations.
@@ -49,6 +50,8 @@ export const CitationMarker: FC<{ href: string; fallback: ReactNode }> = ({ href
   const [openDocument, setOpenDocument] = useState<CitationRef | null>(null)
   const peek = useHoverPopover()
 
+  const pending = numberFromHref(href, PENDING_CITATION_ANCHOR_PREFIX)
+  if (pending != null) return <PendingCitationMarker number={pending} />
   const number = scope ? numberFromHref(href, scope.anchorPrefix) : null
   const ref = number != null ? scope?.referenceFor(number) : undefined
   if (!scope || number == null || !ref) return <>{fallback}</>
@@ -158,6 +161,30 @@ export const CitationMarker: FC<{ href: string; fallback: ReactNode }> = ({ href
         <SourceDocumentDialog citation={openDocument} onClose={() => setOpenDocument(null)} />
       )}
     </>
+  )
+}
+
+/**
+ * A citation the model has written and the backend has not settled yet
+ * (ADR-0066): the pill in its place and shape, muted and pulsing, with no
+ * peek and nothing to press. Within seconds the settled text replaces it with
+ * the real one, or drops it if its source did not verify.
+ */
+const PendingCitationMarker: FC<{ number: number }> = ({ number }) => {
+  const t = useTranslations('chat')
+  return (
+    <span
+      data-citation-pending={number}
+      role="img"
+      aria-label={t('citationPeek.pendingAria', { number })}
+      className={cn(
+        'inline-flex items-center rounded-sm px-[3px]',
+        'relative -top-[0.15em] text-[0.68em] font-semibold leading-[1.45] tabular-nums',
+        'bg-muted text-muted-foreground motion-safe:animate-pulse'
+      )}
+    >
+      {number}
+    </span>
   )
 }
 

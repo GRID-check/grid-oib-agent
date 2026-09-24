@@ -314,6 +314,7 @@ export const chat = {
     copyLink: 'Copy link',
     copyLinkAria: 'Copy a link to this passage: {label}',
     markerAria: 'Source {number}: {label} — open preview',
+    pendingAria: 'Source {number} — being checked',
     lociLabel: '{count, plural, one {# passage} other {# passages}}',
     lociAria: 'Passages in this document',
     lociPosition: '{index}/{count}',

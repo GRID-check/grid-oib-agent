@@ -18,27 +18,38 @@ PROSE = (
     "**Quellen:**\n- [1] oib-rl_2_ausgabe_mai_2023.pdf, p.12\n- [2] oib-rl_2_ausgabe_mai_2023.pdf, p.13"
 )
 ENVELOPE = "```answer_json\n" + json.dumps({"answer": PROSE, "kind": "ruling", "cards": [{"type": "x"}]}) + "\n```"
-# What may be shown: no markers, nothing from the sources heading on.
-SHOWN = re.sub(r"[^\S\n]*\[\d+(?:\s*,\s*\d+)*\]|\[\[card:\d+\]\]", "", PROSE.split("**Quellen:**", maxsplit=1)[0])
+# What may be shown: the prose with its citation markers, no card marker,
+# nothing from the sources heading on; the sources are collected instead.
+SHOWN = re.sub(r"[^\S\n]*\[\[card:\d+\]\]", "", PROSE.split("**Quellen:**", maxsplit=1)[0])
+SOURCES = "**Quellen:**" + PROSE.split("**Quellen:**", maxsplit=1)[1]
 
 
 def _stream(text: str, size: int) -> tuple[str, list[str]]:
+    reader = _reader(text, size)
+    return reader.emitted, [d for d in reader.deltas if d]
+
+
+def _reader(text: str, size: int) -> AnswerProseStream:
     reader = AnswerProseStream()
-    deltas = [reader.feed(text[i : i + size]) for i in range(0, len(text), size)]
-    return "".join(deltas), [d for d in deltas if d]
+    reader.deltas = [reader.feed(text[i : i + size]) for i in range(0, len(text), size)]
+    return reader
 
 
 @pytest.mark.parametrize("size", [1, 2, 3, 5, 8, 17, 64, 10_000])
 def test_every_chunking_shows_the_prose_and_nothing_it_must_withhold(size):
-    shown, deltas = _stream(ENVELOPE, size)
-    assert shown.rstrip() == SHOWN.rstrip()
-    for delta in deltas:
-        assert "[1]" not in delta and "[[card" not in delta and "Quellen" not in delta
+    reader = _reader(ENVELOPE, size)
+    assert reader.emitted.rstrip() == SHOWN.rstrip()
+    assert reader.sources_text.strip() == SOURCES.strip()
+    assert reader.closed
+    for delta in reader.deltas:
+        assert "[[card" not in delta and "Quellen:" not in delta
+        # A marker is shown whole or not at all.
+        assert not re.search(r"\[\d+(?:,\s*\d*)?$", delta)
 
 
 def test_a_bare_json_envelope_streams_too():
     shown, _ = _stream(json.dumps({"answer": "Hallo [1] Welt.", "kind": "ruling"}), 4)
-    assert shown == "Hallo Welt."
+    assert shown == "Hallo [1] Welt."
 
 
 def test_prose_outside_an_envelope_streams_nothing():

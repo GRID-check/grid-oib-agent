@@ -72,6 +72,16 @@ describe('reduceSpectatedFrame', () => {
     expect(state.done).toBe(true)
   })
 
+  it('lets a settled snapshot replace what streamed (ADR-0066)', () => {
+    const snapshot = {
+      ...(response('R 90 [1].\n\n## Quellen\n- [1] oib.pdf', 'in_progress') as object),
+      stream_replace: true,
+    }
+    const state = fold([response('R 90 [1', 'in_progress'), response('].', 'in_progress'), snapshot])
+    expect(state.answer).toBe('R 90 [1].\n\n## Quellen\n- [1] oib.pdf')
+    expect(state.done).toBe(false)
+  })
+
   it('keeps the streamed answer when the terminal frame is empty', () => {
     // The single most damaging failure mode available here: a backend that
     // finishes with an empty `complete` would otherwise blank a finished answer

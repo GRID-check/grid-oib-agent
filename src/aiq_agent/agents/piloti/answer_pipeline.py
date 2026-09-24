@@ -608,6 +608,37 @@ def _recite_surface_cards(renumber_map: dict[int, int] | None, cited: tuple[Cite
             registry.replace(index, recited)
 
 
+def settle_streamed_citations(prose: str, sources_text: str, registry: SourceRegistry) -> SettledStream | None:
+    """The streamed prose with its ``[N]`` markers settled, and the sources they name.
+
+    The same three steps :func:`finalize_answer` runs on the finished answer:
+    verify each source line against the registry, sanitise (which drops the
+    markers that lost their line and closes the gaps), and read the cited
+    sources off the survivors. Run the moment the envelope's ``answer`` string
+    closes, which is before the cards and the pipeline: the pending markers on
+    screen become the answer's own citations, numbered as the terminal frame
+    will number them (ADR-0066). ``None`` when there is nothing to settle.
+    """
+    from .ledger import wire_sources  # ledger imports this module
+
+    if not sources_text.strip() or not registry.all_sources():
+        return None
+    verified = verify_citations(prose.rstrip() + "\n\n" + sources_text.strip(), registry)
+    sanitized = sanitize_report(verified.verified_report)
+    cited = _renumbered(_cited_sources(verified.valid_citations, registry), sanitized.renumber_map)
+    # The written source list travels WITH the prose, as it does in the
+    # terminal frame: the reader resolves a marker against that list.
+    return SettledStream(content=sanitized.sanitized_report.rstrip(), sources=wire_sources(cited))
+
+
+@dataclass(frozen=True)
+class SettledStream:
+    """What :func:`settle_streamed_citations` hands the wire: text and sources."""
+
+    content: str
+    sources: list[dict[str, Any]]
+
+
 def _renumbered(cited: tuple[CitedSource, ...], renumber_map: dict[int, int] | None) -> tuple[CitedSource, ...]:
     """Sanitisation closes the gaps the removals left in the ``[N]`` sequence,
     so the labels captured before it must follow, or a chip is labelled [3]

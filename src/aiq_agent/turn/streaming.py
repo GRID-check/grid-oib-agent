@@ -76,6 +76,17 @@ def iter_answer_deltas(text: str, *, target_size: int = 24) -> list[str]:
     return deltas
 
 
+def live_chunk(content: str, *, sources: list | None = None) -> ChatResponseChunk:
+    """A chunk of the live prose (ADR-0066): a delta that appends, or, given
+    ``sources``, a snapshot that REPLACES the bubble's text with the settled
+    prose and names the sources its markers now point at (``stream_replace``)."""
+    chunk = ChatResponseChunk.create_streaming_chunk(content, finish_reason=None)
+    if sources is not None:
+        chunk.sources = sources
+        chunk.stream_replace = True
+    return chunk
+
+
 def chunk_content(chunk: ChatResponseChunk) -> str | None:
     """The content delta carried by a chunk, or None."""
     try:

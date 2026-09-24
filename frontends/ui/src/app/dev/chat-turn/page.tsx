@@ -530,12 +530,19 @@ const streamingFinal = `Tragende Wände in GK 5 brauchen in sonstigen oberirdisc
 
 Für GK 5 mit höchstens 6 oberirdischen Geschoßen genügt unter der Bedingung der Fußnote (5) R 60 auch in den beiden obersten Geschoßen: Die übrigen oberirdischen Geschoße müssen dann R 90 und A2 erfüllen [1].`
 
-const streamingPartial = `Tragende Wände in GK 5 brauchen in sonstigen oberirdischen Geschoßen **R 90**; im obersten Geschoß gilt **R 60**.
+const streamingPartial = `Tragende Wände in GK 5 brauchen in sonstigen oberirdischen Geschoßen **R 90**; im obersten Geschoß gilt **R 60** [1].
 
 | Lage | Feuerwiderstand | Fundstelle |
 |---|---|---|
-| Sonstige oberirdische Geschoße, bis zu 6 oberirdische Geschoße | R 90 | |
+| Sonstige oberirdische Geschoße, bis zu 6 oberirdische Geschoße | R 90 | [1] |
 | Sonstige oberirdische Geschoße, mehr als 6`
+
+// The moment the answer's text closed: verified, renumbered, its source list
+// written, and the cards still to come.
+const streamingSettled = `${streamingFinal}
+
+## Quellen
+- [1] [KB] OIB-RL_2_Brandschutz.pdf, p.12`
 
 /* --- variant: variants ---------------------------------------------------- */
 
@@ -1051,7 +1058,7 @@ function AnswerLayer({ variant }: { variant: AnswerVariant }) {
     return (
       <>
         <AnswerTurn
-          label="↓ STREAMING — the prose as the final call writes it: no [N] markers, no sources, no cards yet"
+          label="↓ STREAMING — the prose as the final call writes it; each [N] a pending pill until its source is settled"
           question={streamingQuestion}
           answer={streamingPartial}
           citations={[]}
@@ -1060,9 +1067,18 @@ function AnswerLayer({ variant }: { variant: AnswerVariant }) {
           isStreaming
         />
         <AnswerTurn
-          label="↓ SETTLED — the verified terminal frame replaced it: markers, the Fundstelle column, sources"
+          label="↓ SETTLED MID-STREAM — the text closed, its citations verified: real pills, still arriving, no cards yet"
           question={streamingQuestion}
-          answer={streamingFinal}
+          answer={streamingSettled}
+          citations={fireCitations.slice(0, 1)}
+          confidenceReason="Anforderungen direkt aus OIB-RL 2 Tabelle 1b belegt"
+          messageId="msg-streaming-settled"
+          isStreaming
+        />
+        <AnswerTurn
+          label="↓ FINAL — the terminal frame: the same numbers, the answer complete"
+          question={streamingQuestion}
+          answer={streamingSettled}
           citations={fireCitations.slice(0, 1)}
           confidenceReason="Anforderungen direkt aus OIB-RL 2 Tabelle 1b belegt"
           messageId="msg-streaming-final"

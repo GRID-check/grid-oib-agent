@@ -977,6 +977,13 @@ export interface ChatActions {
     citations?: CitationSource[]
   ) => void
   /**
+   * Replace the streaming bubble's text with a settled snapshot (ADR-0066):
+   * the prose so far with its `[N]` markers verified and renumbered, and the
+   * sources they now point at. The bubble keeps streaming; the terminal frame
+   * still finalizes it.
+   */
+  replaceStreamingAgentResponse: (content: string, citations?: CitationSource[]) => void
+  /**
    * Finalize the accumulating answer bubble on the terminal `complete` frame:
    * replace its content with the authoritative full text (idempotent — equals
    * the accumulation), attach cards/sources/confidence, and mark it final. An

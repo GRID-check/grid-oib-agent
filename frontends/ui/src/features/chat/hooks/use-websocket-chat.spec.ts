@@ -15,6 +15,7 @@ import type { RunStatus } from '@/lib/runs/run-ledger-types'
 const mockAddUserMessage = vi.fn()
 const mockAddAgentResponse = vi.fn()
 const mockAppendAgentResponseDelta = vi.fn()
+const mockReplaceStreamingAgentResponse = vi.fn()
 const mockFinalizeAgentResponse = vi.fn()
 /** The turn key crossing from the socket onto the answer (post-answer-stages §1.6). */
 const mockSetTurnWsParentId = vi.fn()
@@ -89,6 +90,7 @@ const defaultUseChatStoreImpl = (selector?: StoreSelector<ChatStoreWithHydration
     addUserMessage: mockAddUserMessage,
     addAgentResponse: mockAddAgentResponse,
     appendAgentResponseDelta: mockAppendAgentResponseDelta,
+    replaceStreamingAgentResponse: mockReplaceStreamingAgentResponse,
     finalizeAgentResponse: mockFinalizeAgentResponse,
     setTurnWsParentId: mockSetTurnWsParentId,
     applyStageFrame: mockApplyStageFrame,
@@ -1587,6 +1589,32 @@ describe('useWebSocketChat', () => {
       undefined,
       undefined
     )
+    expect(mockFinalizeAgentResponse).not.toHaveBeenCalled()
+  })
+
+  test('a settled snapshot replaces the streamed text instead of appending (ADR-0066)', () => {
+    renderWebSocketHook()
+
+    mockStoreState.isStreaming = true
+
+    act(() => {
+      capturedCallbacks.onResponse?.(
+        'R 90 [1].',
+        'in_progress',
+        false,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        [{ number: 1, citation_key: 'oib-rl_2.pdf, p.12', file_name: 'oib-rl_2.pdf', page: 12, kind: 'baurecht' }],
+        { streamReplace: true }
+      )
+    })
+
+    expect(mockReplaceStreamingAgentResponse).toHaveBeenCalledWith('R 90 [1].', [
+      expect.objectContaining({ fileName: 'oib-rl_2.pdf', page: 12 }),
+    ])
+    expect(mockAppendAgentResponseDelta).not.toHaveBeenCalled()
     expect(mockFinalizeAgentResponse).not.toHaveBeenCalled()
   })
 

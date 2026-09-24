@@ -192,6 +192,13 @@ export type MessagesSlice = {
     answerConfidence?: 'low' | 'medium' | 'high',
     citations?: CitationSource[]
   ) => void
+  /**
+   * Replace the streaming bubble's text with a settled snapshot (ADR-0066):
+   * the prose so far with its `[N]` markers verified and renumbered, and the
+   * sources they now point at. The bubble keeps streaming; the terminal frame
+   * still finalizes it.
+   */
+  replaceStreamingAgentResponse: (content: string, citations?: CitationSource[]) => void
   finalizeAgentResponse: (
     content: string,
     cards?: (GridCard | undefined)[],
@@ -1357,6 +1364,36 @@ export const createMessagesSlice: StateCreator<
       } else {
         flushDeltaBuffer()
       }
+    },
+
+    replaceStreamingAgentResponse: (content: string, citations?: CitationSource[]) => {
+      const { currentConversation, conversations, streamingAssistantMessageId } = get()
+      if (!currentConversation) return
+      // No bubble yet (a turn whose first live frame is the snapshot): open it.
+      if (!streamingAssistantMessageId) {
+        get().appendAgentResponseDelta(content, undefined, undefined, citations)
+        return
+      }
+      // Buffered delta text is part of what the snapshot replaces: the backend
+      // sends it only after every delta it settles.
+      resetDeltaBuffer()
+      const updatedConversation: Conversation = {
+        ...currentConversation,
+        messages: currentConversation.messages.map((msg) =>
+          msg.id === streamingAssistantMessageId
+            ? { ...msg, content, ...(citations && citations.length > 0 ? { citations } : {}) }
+            : msg
+        ),
+        updatedAt: new Date(),
+      }
+      set(
+        {
+          currentConversation: updatedConversation,
+          conversations: updateConversationInList(conversations, updatedConversation),
+        },
+        false,
+        'replaceStreamingAgentResponse'
+      )
     },
 
     finalizeAgentResponse: (

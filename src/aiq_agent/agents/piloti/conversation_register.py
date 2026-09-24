@@ -45,6 +45,7 @@ from aiq_agent.turn.admission import answer_turn
 from aiq_agent.turn.admission import refusal_response
 from aiq_agent.turn.admission import spanned
 from aiq_agent.turn.answer_stream import AnswerStreamSink
+from aiq_agent.turn.answer_stream import Snapshot
 from aiq_agent.turn.answer_stream import bound_answer_stream
 from aiq_agent.turn.api_seam import skip_clarifier_requested
 from aiq_agent.turn.context import TurnContext
@@ -65,6 +66,7 @@ from aiq_agent.turn.registries import turn_registries
 from aiq_agent.turn.response import build_response
 from aiq_agent.turn.response import post_answer_turn_facts
 from aiq_agent.turn.streaming import fold_chunks_to_response
+from aiq_agent.turn.streaming import live_chunk
 from aiq_agent.turn.streaming import response_to_chunks
 from aiq_agent.turn.subject_document import load_subject_document
 from nat.builder.builder import Builder
@@ -442,8 +444,11 @@ def _turn_runner(agent: ConversationGraph, config: ChatDeepResearcherConfig, sta
                 with bound_answer_stream(sink):
                     answering = asyncio.create_task(_answer_and_chunks())
                 try:
-                    async for delta in sink.relay(answering):
-                        yield ChatResponseChunk.create_streaming_chunk(delta, finish_reason=None)
+                    async for item in sink.relay(answering):
+                        if isinstance(item, Snapshot):
+                            yield live_chunk(item.content, sources=item.sources)
+                        else:
+                            yield live_chunk(item)
                     chunks = await answering
                 finally:
                     # Only a consumer that abandoned the stream leaves it running.

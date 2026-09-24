@@ -309,6 +309,7 @@ export const chat: typeof en.chat = {
     copyLink: 'Link kopieren',
     copyLinkAria: 'Link zu dieser Fundstelle kopieren: {label}',
     markerAria: 'Quelle {number}: {label} — Vorschau öffnen',
+    pendingAria: 'Quelle {number} — wird geprüft',
     lociLabel: '{count, plural, one {# Fundstelle} other {# Fundstellen}}',
     lociAria: 'Fundstellen in diesem Dokument',
     lociPosition: '{index}/{count}',

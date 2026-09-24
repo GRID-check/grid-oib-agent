@@ -1,10 +1,10 @@
 ---
 features:
   - >
-    Antworten erscheinen, während sie geschrieben werden: der Text läuft ein,
-    sobald das Modell zu schreiben beginnt, statt erst am Ende der ganzen
-    Recherche. Fundstellen, Quellen und Karten kommen dazu, sobald sie geprüft
-    sind; bis dahin zeigt die Antwort keine ungeprüfte Fundstelle.
+    Antworten erscheinen, während sie geschrieben werden, statt erst am Ende
+    der Recherche. Jede Fundstelle steht sofort an ihrer Stelle, zunächst als
+    „wird geprüft“, und wird zur anklickbaren Quelle, sobald der Text fertig
+    und geprüft ist, noch bevor Karten und Antwort vollständig sind.
   - >
     Diagramme in Antworten sind neu gestaltet: Abläufe als Karten mit
     beschrifteten Pfeilen und hervorgehobenen Entscheidungen, ein Regelwerk

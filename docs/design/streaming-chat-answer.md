@@ -3,7 +3,8 @@
 **Status:** Implemented (2026-07-18); orchestration amended by
 [ADR-0066](../adr/0066-the-answer-prose-streams-and-the-verified-frame-settles-it.md)
 (2026-09-24): the answer's prose now streams while the final call writes it,
-markers and sources withheld, and the terminal frame replaces it. The wire
+each `[N]` a pending citation until the text closes and a settled snapshot
+names its sources, and the terminal frame replaces it. The wire
 contract below is unchanged. Streaming is the default delivery; there is
 no runtime flag — the backend and frontend ship together in this monorepo, so
 the change is atomic and needs no staged rollout toggle.
@@ -30,10 +31,12 @@ WS handler's persistence gating, and the frontend accumulation logic.
 ## The citation constraint (why this was progressive rendering, not lower TTFT)
 
 > **Superseded for the prose by ADR-0066.** The constraint still holds and is
-> met differently: the live stream is the envelope's `answer` string with every
-> `[N]` and `[[card:N]]` marker and the sources section withheld, so no
-> unverified citation is ever shown, and the terminal frame, which the client
-> already REPLACES the bubble with, carries the verified answer. What remains
+> met differently: the live stream is the envelope's `answer` string, its `[N]`
+> markers rendered as PENDING pills (no source, no peek) and card markers and
+> the sources section withheld, so no unverified citation is ever shown as
+> real. The moment the string closes, a `stream_replace` snapshot carries the
+> verified, renumbered text and its sources; the terminal frame, which the
+> client already REPLACES the bubble with, carries the finished answer. What remains
 > true below: the terminal is authoritative, and verification needs the whole
 > answer. What changed: the first delta leaves while the model writes.
 

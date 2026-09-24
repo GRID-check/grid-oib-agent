@@ -1,6 +1,6 @@
 import { describe, test, expect, beforeEach, afterEach, vi } from 'vitest'
 import { useChatStore } from './store'
-import type { Conversation, PendingInteraction, FileCardData } from './types'
+import type { CitationSource, Conversation, PendingInteraction, FileCardData } from './types'
 import type { GridCard } from '@/shared/cards/schemas'
 
 const STORAGE_KEY = 'aiq-chat-store'
@@ -1441,6 +1441,25 @@ describe('useChatStore', () => {
         expect(messages?.[0].isStreaming).toBe(false)
         // Tracking id is released so the next turn opens a fresh bubble.
         expect(useChatStore.getState().streamingAssistantMessageId).toBeNull()
+      })
+
+      test('a settled snapshot replaces the streamed text and names its sources (ADR-0066)', () => {
+        setupConversation()
+
+        useChatStore.getState().appendAgentResponseDelta('R 90 [1], erfunden [2')
+        useChatStore.getState().appendAgentResponseDelta('].')
+        const citations = [{ id: 's1', content: '', timestamp: new Date(), number: 1 }] as CitationSource[]
+        useChatStore.getState().replaceStreamingAgentResponse('R 90 [1], erfunden.', citations)
+
+        const messages = useChatStore.getState().currentConversation?.messages
+        expect(messages).toHaveLength(1)
+        expect(messages?.[0].content).toBe('R 90 [1], erfunden.')
+        expect(messages?.[0].citations).toBe(citations)
+        expect(messages?.[0].isStreaming).toBe(true)
+
+        // The terminal frame still settles it.
+        useChatStore.getState().finalizeAgentResponse('R 90 [1], erfunden.')
+        expect(useChatStore.getState().currentConversation?.messages?.[0].isStreaming).toBe(false)
       })
 
       test('empty complete frame does NOT wipe the accumulated bubble (just finalizes)', () => {

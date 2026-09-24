@@ -757,6 +757,7 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
   // Actions — stable references, individual selectors won't cause re-renders
   const addUserMessage = useChatStore((s) => s.addUserMessage)
   const appendAgentResponseDelta = useChatStore((s) => s.appendAgentResponseDelta)
+  const replaceStreamingAgentResponse = useChatStore((s) => s.replaceStreamingAgentResponse)
   const finalizeAgentResponse = useChatStore((s) => s.finalizeAgentResponse)
   const setTurnWsParentId = useChatStore((s) => s.setTurnWsParentId)
   const applyStageFrame = useChatStore((s) => s.applyStageFrame)
@@ -1425,6 +1426,10 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
             : (transparency as AnswerTransparency | undefined)
         if (isFinal) {
           finalizeAgentResponse(content, validatedCards, answerConfidence, citations, answerTransparency)
+        } else if (transparency?.streamReplace) {
+          // The streamed prose, its citations settled (ADR-0066): the pending
+          // markers on screen become the answer's own, before its cards.
+          replaceStreamingAgentResponse(content, citations)
         } else if ((content && content.trim()) || validatedCards.length > 0) {
           appendAgentResponseDelta(content, validatedCards, answerConfidence, citations)
         }
@@ -1885,6 +1890,7 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
     }
   }, [
     appendAgentResponseDelta,
+    replaceStreamingAgentResponse,
     finalizeAgentResponse,
     setTurnWsParentId,
     applyStageFrame,

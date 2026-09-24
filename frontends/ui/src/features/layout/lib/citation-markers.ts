@@ -47,7 +47,17 @@ export interface CitationMarkerOptions {
   numbers: ReadonlySet<number>
   /** Anchor id prefix of the rows being linked to. */
   anchorPrefix?: string
+  /**
+   * The answer is still streaming (ADR-0066): a `[N]` with no source entry YET
+   * is a citation the backend has not settled, not a stray bracket. It becomes
+   * a link to {@link PENDING_CITATION_ANCHOR_PREFIX}, rendered as a pending
+   * pill until the settled text names its source.
+   */
+  pending?: boolean
 }
+
+/** Anchor prefix of a streamed marker whose source is not settled yet. */
+export const PENDING_CITATION_ANCHOR_PREFIX = 'cite-pending-'
 
 /**
  * Remark plugin turning `[N]` markers into in-page links to the source rows.
@@ -58,11 +68,17 @@ export interface CitationMarkerOptions {
  * anchor. Nothing downstream learns that this plugin ran.
  */
 export const remarkCitationMarkers =
-  ({ numbers, anchorPrefix = REPORT_SOURCE_ANCHOR_PREFIX }: CitationMarkerOptions) =>
+  ({ numbers, anchorPrefix = REPORT_SOURCE_ANCHOR_PREFIX, pending = false }: CitationMarkerOptions) =>
   (tree: Root): void => {
-    if (numbers.size === 0) return
-    linkMarkers(tree, numbers, anchorPrefix)
+    if (numbers.size === 0 && !pending) return
+    linkMarkers(tree, { numbers, anchorPrefix, pending })
   }
+
+interface LinkOptions {
+  numbers: ReadonlySet<number>
+  anchorPrefix: string
+  pending: boolean
+}
 
 /**
  * Node types no inline marker pass descends into: their subtree is a link
@@ -82,24 +98,20 @@ export const OPAQUE_TO_MARKERS: ReadonlySet<string> = new Set([
 ])
 
 /** Rewrite every literal `[N]` below `parent`, in place. */
-const linkMarkers = (
-  parent: Parent,
-  numbers: ReadonlySet<number>,
-  anchorPrefix: string
-): void => {
+const linkMarkers = (parent: Parent, options: LinkOptions): void => {
   const rewritten: PhrasingContent[] = []
   let changed = false
 
   for (const child of parent.children) {
     if (child.type === 'text') {
-      const parts = splitMarkers(child, numbers, anchorPrefix)
+      const parts = splitMarkers(child, options)
       if (parts) {
         rewritten.push(...parts)
         changed = true
         continue
       }
     } else if ('children' in child && !OPAQUE_TO_MARKERS.has(child.type)) {
-      linkMarkers(child, numbers, anchorPrefix)
+      linkMarkers(child, options)
     }
     rewritten.push(child as PhrasingContent)
   }
@@ -116,10 +128,9 @@ const linkMarkers = (
  */
 const splitMarkers = (
   node: Text,
-  numbers: ReadonlySet<number>,
-  anchorPrefix: string
+  { numbers, anchorPrefix, pending }: LinkOptions
 ): PhrasingContent[] | null => {
-  const markers = findMarkers(node.value).filter((marker) => numbers.has(marker.number))
+  const markers = findMarkers(node.value).filter((marker) => pending || numbers.has(marker.number))
   if (markers.length === 0) return null
 
   const parts: PhrasingContent[] = []
@@ -128,7 +139,9 @@ const splitMarkers = (
     if (marker.start > cursor) {
       parts.push({ type: 'text', value: node.value.slice(cursor, marker.start) })
     }
-    parts.push(citationLink(marker.number, anchorPrefix))
+    parts.push(
+      citationLink(marker.number, numbers.has(marker.number) ? anchorPrefix : PENDING_CITATION_ANCHOR_PREFIX)
+    )
     cursor = marker.end
   }
   if (cursor < node.value.length) {

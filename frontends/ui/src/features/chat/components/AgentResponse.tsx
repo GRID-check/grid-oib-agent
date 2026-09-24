@@ -814,14 +814,16 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
   })
   const markerPlugins = useMemo(
     (): PluggableList => [
-      [remarkCitationMarkers, { numbers: citationNumbers, anchorPrefix }],
+      // While it streams, a marker with no source yet is a pending pill, not
+      // a stray "[2]": the settled text names its source within seconds.
+      [remarkCitationMarkers, { numbers: citationNumbers, anchorPrefix, pending: stillArriving }],
       [remarkCardMarkers, { count: cardCount, callout: Boolean(anatomy?.callout) }],
       // AFTER the citation pass, so a filename that happens to sit inside a
       // marker's label is left alone: the pass skips `link` subtrees, and by
       // this point every `[N]` already is one.
       [remarkFileReferences, { fileNames: fileReferences.fileNames }],
     ],
-    [citationNumbers, anchorPrefix, cardCount, anatomy, fileReferences.fileNames]
+    [citationNumbers, anchorPrefix, stillArriving, cardCount, anatomy, fileReferences.fileNames]
   )
   // What a run of Markdown INSIDE a card (a tab's `Text`) parses with: the
   // citations only. Its `[2]` is this answer's source 2; card markers are not

@@ -90,6 +90,13 @@ export interface ResponseTransparency {
    * shape. The Herleitung spine draws each round's fan from it.
    */
   retrievalLedger?: RetrievalLedger
+  /**
+   * A live (`in_progress`) frame whose text REPLACES the streaming bubble's
+   * instead of appending: the prose so far with its `[N]` markers settled and
+   * `sources` naming them, sent the moment the answer's text is complete and
+   * before its cards (ADR-0066). The terminal frame replaces it once more.
+   */
+  streamReplace?: boolean
 }
 
 /**
@@ -731,6 +738,7 @@ export class NATWebSocketClient {
             retryAfterSeconds: message.retry_after_seconds,
             answerMeta: sanitizeAnswerMeta(message.answer_meta) ?? undefined,
             retrievalLedger: sanitizeRetrievalLedger(message.retrieval_ledger) ?? undefined,
+            streamReplace: message.stream_replace === true ? true : undefined,
           }
           this.options.callbacks.onResponse?.(
             content,
