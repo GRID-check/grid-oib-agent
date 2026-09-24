@@ -176,6 +176,15 @@ buys the turn nothing and the guard measures the call, not the reasoning.
   loop eval's `rounds`, `truncated` and `repeat_query` columns, and the
   cached-token share now reported per turn. A prompt edit that re-teaches a
   sequence shows up there or nowhere.
+- **The published prompt comes from git.** `task prompts:push` (2026-09-24)
+  checks a label against the committed `piloti_static.md` and, with `--apply`,
+  publishes it as a `git`-tagged version naming its commit; it refuses a label
+  whose version was edited in Langfuse until `task prompts:pull` has brought it
+  into review (`tests/test_prompts_push.py`). The publish is a step an operator
+  runs, not yet one a merge or a deploy runs: `LANGFUSE_PROMPTS_ENABLED` is set
+  in no environment the repository defines, so every fleet renders the
+  committed file. (The pull-only first cut, 2026-09-15, had Langfuse as the
+  source, contrary to (a).)
 
 ## Amendment (2026-09-15): the dynamic half gets the same treatment
 

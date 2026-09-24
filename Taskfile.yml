@@ -393,16 +393,27 @@ tasks:
       - 'for d in sources/*/tests; do "{{.PY}}" -X faulthandler -m pytest "$d" -q || exit 1; done'
 
   prompts:pull:
-    desc: 'Refresh the bundled fallback prompt from Langfuse: task prompts:pull [-- --label <label>]'
+    desc: 'Bring a Langfuse prompt version into review: task prompts:pull [-- --label <label>]'
     env:
       PYTHONPATH: src
     cmds:
-      # Langfuse owns the platform prompt; this only ever READS it. The file it
-      # writes (`agents/piloti/prompts/piloti_static.md`) is the fallback a
-      # process renders when prompt management is off or Langfuse is
-      # unreachable, so it is allowed to lag and nothing gates on the diff.
-      # There is deliberately no push and no drift check.
+      # Git is the platform prompt's source of truth (ADR-0060 (a)). This only
+      # ever READS Langfuse: it writes the version under a label into
+      # `agents/piloti/prompts/piloti_static.md`, so an edit made in Langfuse
+      # can be committed and reviewed like any other.
       - '{{.PY}} scripts/prompts_pull.py {{.CLI_ARGS}}'
+
+  prompts:push:
+    desc: 'Check (or with -- --apply, publish) the committed platform prompt under a Langfuse label: task prompts:push [-- --label <label> --apply]'
+    env:
+      PYTHONPATH: src
+    cmds:
+      # CHECK by default: prints what publishing would change and writes
+      # nothing. `--apply` creates a git-tagged version and moves the label to
+      # it; the fleet serving that label renders it within the prompt cache
+      # TTL. It refuses a label whose version was edited in Langfuse (pull it
+      # into review first) and a prompt file with uncommitted changes.
+      - '{{.PY}} scripts/prompts_push.py {{.CLI_ARGS}}'
 
   be:eval:retrieval:
     desc: 'Retrieval structure check — the Punkt arm''s citable-unit share (model-free, offline; NEEDS the operator corpus in data/oib)'

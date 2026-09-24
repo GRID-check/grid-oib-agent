@@ -1,25 +1,22 @@
 #!/usr/bin/env python3
 
-"""Refresh the bundled fallback prompt from the version Langfuse is serving.
+"""Bring a Langfuse version of the platform prompt into review.
 
 Why this exists
 ---------------
 
-The platform prompt — the static half of Piloti's system prompt — is authored
-and versioned in **Langfuse**. The fleet pulls it at render time through
-``src/aiq_agent/common/prompt_store.py``; nothing in this repository pushes to
-it, and a prompt change is a change made in Langfuse, not a commit.
+The platform prompt — the static half of Piloti's system prompt — has git as
+its source of truth (ADR-0060 (a)):
+``src/aiq_agent/agents/piloti/prompts/piloti_static.md`` is what review reads,
+what a process renders when prompt management is off or Langfuse unreachable,
+and what ``scripts/prompts_push.py`` publishes to Langfuse. Labels there carry
+experiments, and the fleet reads the label it is configured for through
+``src/aiq_agent/common/prompt_store.py``.
 
-``src/aiq_agent/agents/piloti/prompts/piloti_static.md`` is the **bundled
-fallback**: what a process renders when prompt management is off, when the
-credentials are absent, when Langfuse is unreachable, or when it has no such
-prompt. It is allowed to lag the live version, and it is expected to — an image
-that has been running for a month has a month-old fallback in it.
-
-This script is how a maintainer stops it lagging too far: it writes the current
-production version into that file so the change can be committed as a fresh
-fallback. There is no check, no gate and no CI job. A file that differs from
-Langfuse is not a failure; it is what a fallback is.
+An edit made in Langfuse is therefore not yet part of the prompt. This script
+writes the version under a label into the committed file, so the edit becomes
+a diff somebody reviews and commits; ``prompts_push.py`` refuses to publish
+over such an edit until it has.
 
 Usage
 -----

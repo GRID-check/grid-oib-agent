@@ -103,6 +103,7 @@ asked for it in this session:
 | `task fe:provision:authz` and its siblings, which check | the same task with `-- --apply`, which writes the catalog into WorkOS |
 | `npm run preview` in `deploy/pulumi` | `npm run up`, which mutates the cluster, and `npm run destroy`, which deletes it |
 | writing a migration file | `bun run db:migrate` or `migrate:storage` against a database you did not create |
+| `task prompts:push`, which checks | the same task with `-- --apply`, which publishes the platform prompt to Langfuse |
 | a commit, a branch, a push to your own branch | a force-push, or any history rewrite on a branch someone else may have checked out |
 
 The rest of the work in this repo is reversible and gets no checkpoint. That is

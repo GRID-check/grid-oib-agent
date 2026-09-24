@@ -9,18 +9,19 @@ that turn's state. Only the static half is worth managing remotely — it is the
 half a prompt author wants to change without shipping a release, and the half
 whose bytes must not move for a provider's prefix cache to hit.
 
-**Langfuse is the source of truth for that half.** It is authored there,
-versioned there and labelled there, and this module PULLS it at render time.
-Nothing in this repository writes to it.
+**Git is the source of truth for that half** (ADR-0060 (a)).
+``agents/piloti/prompts/piloti_static.md`` is what review reads and what code
+that depends on the prompt's wording is written against (the envelope's field
+order the answer stream reads, ADR-0066). ``scripts/prompts_push.py``
+(``task prompts:push -- --apply``) publishes it to Langfuse as a git-tagged
+version under a label; labels carry experiments; this module PULLS the
+configured label at render time. The same file is the fallback a process
+renders when prompt management is off, the credentials are absent, Langfuse is
+unreachable, or it holds no such prompt.
 
-``agents/piloti/prompts/piloti_static.md`` is the BUNDLED FALLBACK, not the
-original: the text a process renders when prompt management is off, when the
-credentials are absent, when Langfuse is unreachable, or when it holds no such
-prompt. It is allowed to lag the live version — an image that has been running
-a month carries a month-old fallback — and ``scripts/prompts_pull.py``
-(``task prompts:pull``) is how a maintainer refreshes it when the drift gets
-uncomfortable. A file that differs from Langfuse is not a failure, so nothing
-checks it and no CI job gates on it.
+An edit made in Langfuse is an experiment until it is reviewed:
+``scripts/prompts_pull.py`` (``task prompts:pull``) brings it into the file as
+a diff, and the push refuses to publish over it until then.
 
 That is the same shape as the admin-controlled model default (ADR-0014): the
 committed value is the boot fallback, and the live value is set somewhere an
