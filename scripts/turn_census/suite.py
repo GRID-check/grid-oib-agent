@@ -304,7 +304,9 @@ def _delta(now: list[float], then: list[float] | None) -> str:
     return f" ({change:+.0f})" if abs(change) >= 1 else ""
 
 
-def render(runs: list[Run], skipped: list[str], meta: dict, baseline: dict | None = None) -> str:
+def render(
+    runs: list[Run], skipped: list[str], meta: dict, baseline: dict | None = None, not_in_corpus: list[str] = ()
+) -> str:
     """The Markdown report: one row per question, failing checks named, then the totals."""
     summary = summarize(runs)
     before = summarize([Run(**row) for row in baseline["runs"]]) if baseline else {}
@@ -351,6 +353,8 @@ def render(runs: list[Run], skipped: list[str], meta: dict, baseline: dict | Non
     ]
     if skipped:
         lines += ["", f"Skipped, need a project: {', '.join(skipped)}."]
+    if not_in_corpus:
+        lines += ["", f"Skipped, the ingested corpus lacks the Richtlinie: {', '.join(not_in_corpus)}."]
     return "\n".join(lines) + "\n"
 
 
@@ -362,6 +366,34 @@ def _ensure_key() -> bool:
     if not os.environ.get("OPENROUTER_API_KEY") and os.environ.get("OPENROUTER_KEY"):
         os.environ["OPENROUTER_API_KEY"] = os.environ["OPENROUTER_KEY"]
     return bool(os.environ.get("OPENROUTER_API_KEY"))
+
+
+def corpus_families(registry_path: Path | None = None) -> set[str] | None:
+    """The Richtlinien the ingested corpus holds (``{"2", "2.1", …}``), or None.
+
+    The corpus is the operator's (`data/oib/README.md`), and a question about a
+    Richtlinie it lacks cannot be answered from it whatever the agent does: the
+    first full sweep ran Schallschutz against a corpus without OIB-RL 5 and
+    reported the agent as wrong. None when the sync registry cannot be read,
+    which skips nothing.
+    """
+    from aiq_agent.common.norm_registry import oib_family_member
+
+    if registry_path is None:
+        from aiq_agent.oib_sync import REGISTRY_PATH as registry_path
+    try:
+        names = json.loads(Path(registry_path).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    return {member for name in names if (member := oib_family_member(Path(name).name))}
+
+
+def lacking_family(question: dict, families: set[str] | None) -> str | None:
+    """The Richtlinie a question asks about that the corpus does not hold."""
+    family = _family_number(question.get("family"))
+    if family is None or families is None or family in families:
+        return None
+    return f"OIB-RL {family}"
 
 
 def _corpus_ready() -> bool:
@@ -424,7 +456,7 @@ def main(argv: list[str] | None = None) -> int:
                 runs[index] = observe(question, run.run, recorded[-1], recorded[-1].with_suffix(".log"))
             elif not run.error:
                 run.checks = check(question, run, run.envelope)
-        print(render(runs, data.get("skipped", []), data["meta"], baseline))
+        print(render(runs, data.get("skipped", []), data["meta"], baseline, data.get("not_in_corpus", [])))
         return 0
     if not _ensure_key():
         print("OPENROUTER_API_KEY is not set; the suite needs the real models.", file=sys.stderr)
@@ -443,6 +475,9 @@ def main(argv: list[str] | None = None) -> int:
     questions, skipped = load_questions(core_only=not (args.all or args.only))
     if args.only:
         questions = [q for q in load_questions(core_only=False)[0] if q["id"] in set(args.only)]
+    families = corpus_families()
+    not_in_corpus = [f"{q['id']} ({lacking})" for q in questions if (lacking := lacking_family(q, families))]
+    questions = [q for q in questions if lacking_family(q, families) is None]
     meta = {
         "started": time.strftime("%Y-%m-%d %H:%M"),
         "config": "configs/config_oib_openrouter.yml",
@@ -452,9 +487,13 @@ def main(argv: list[str] | None = None) -> int:
     print(f"{len(questions)} question(s) × {args.runs} run(s), {args.workers} at a time → {args.out}")
     runs = run_suite(questions, args.runs, args.out, args.workers, args.override)
     (args.out / "results.json").write_text(
-        json.dumps({"meta": meta, "skipped": skipped, "runs": [asdict(r) for r in runs]}, ensure_ascii=False, indent=1)
+        json.dumps(
+            {"meta": meta, "skipped": skipped, "not_in_corpus": not_in_corpus, "runs": [asdict(r) for r in runs]},
+            ensure_ascii=False,
+            indent=1,
+        )
     )
-    report = render(runs, skipped, meta, baseline)
+    report = render(runs, skipped, meta, baseline, not_in_corpus)
     (args.out / "report.md").write_text(report)
     print(report)
     print(f"Written: {args.out / 'report.md'}, {args.out / 'results.json'}")

@@ -156,3 +156,16 @@ def test_a_second_kind_the_question_accepts_holds(tmp_path):
     assert suite.check(QUESTION, run, run.envelope)["kind"] is False
     both = {**QUESTION, "expect": {**QUESTION["expect"], "kind_also": ["walkthrough"]}}
     assert suite.check(both, run, run.envelope)["kind"] is True
+
+
+def test_a_question_about_a_richtlinie_the_corpus_lacks_is_skipped_by_name(tmp_path):
+    registry = tmp_path / "oib_registry.json"
+    registry.write_text(json.dumps({"__chunk_format_version__": 4, "data/oib/oib-rl_2_ausgabe_mai_2023.pdf": {}}))
+    families = suite.corpus_families(registry)
+    assert families == {"2"}
+    assert suite.lacking_family({"family": "OIB-RL 5"}, families) == "OIB-RL 5"
+    assert suite.lacking_family(QUESTION, families) is None
+    assert suite.lacking_family({"family": "Bauordnung"}, families) is None
+    assert suite.lacking_family({"family": "OIB-RL 5"}, suite.corpus_families(tmp_path / "missing.json")) is None
+    report = suite.render([], [], {"started": "t", "runs_per_question": 1}, None, ["schallschutz (OIB-RL 5)"])
+    assert "the ingested corpus lacks the Richtlinie: schallschutz (OIB-RL 5)." in report
