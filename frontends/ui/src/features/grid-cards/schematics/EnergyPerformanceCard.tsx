@@ -122,6 +122,7 @@ export const EnergyPerformanceCard: FC<EnergyPerformanceCardProps> = ({
 
   return (
     <SchematicCard
+      eyebrow={t('cards.kit.eyebrowCheck')}
       icon={Gauge}
       title={title}
       verdict={hwbCheck.status}

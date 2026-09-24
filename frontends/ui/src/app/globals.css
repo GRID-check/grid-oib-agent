@@ -1127,3 +1127,58 @@ body {
     animation: none !important;
   }
 }
+
+/* =============================================================================
+   ANSWER TABLES ON A PHONE (`MarkdownRenderer/table-shape.ts`).
+   A table of three or more columns (`data-stack`) stacks each row below 30rem
+   of its OWN container, the answer column or a tab, not the viewport: a row
+   becomes a block whose first cell is its title and whose other cells name
+   their column from `data-label`. Scrolling a four-column check sideways hid
+   the Status and the Fundstelle, the two cells a reader came for.
+   Unlayered on purpose: the cells carry Tailwind padding utilities, and only
+   an unlayered rule outranks the utilities layer on a phone without an
+   `!important` on every line.
+   ============================================================================= */
+@container answer-table (max-width: 30rem) {
+  table[data-stack] {
+    display: block;
+  }
+  table[data-stack] > thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+  table[data-stack] > tbody,
+  table[data-stack] > tbody > tr {
+    display: block;
+  }
+  table[data-stack] > tbody > tr {
+    padding: 0.5rem 0.75rem;
+  }
+  table[data-stack] > tbody > tr > td {
+    display: flex;
+    align-items: baseline;
+    gap: 0.75rem;
+    padding: 0.125rem 0;
+    text-align: left;
+  }
+  table[data-stack] > tbody > tr > td::before {
+    content: attr(data-label);
+    flex: 0 0 38%;
+    color: var(--muted-foreground);
+    font-size: 0.75rem;
+  }
+  table[data-stack] > tbody > tr > td:first-child {
+    font-weight: 600;
+    padding-bottom: 0.25rem;
+  }
+  table[data-stack] > tbody > tr > td:first-child::before {
+    display: none;
+  }
+  table[data-stack] > caption {
+    display: block;
+  }
+}

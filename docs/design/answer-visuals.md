@@ -58,3 +58,45 @@ The fifteen schematic cards (a section, a stair, a setback, …) are drawings
 to scale, computed from their parameters: geometry is what SVG is for. A
 filed diagram is an SVG and a PDF, because a file must stand on its own; the
 file is still Mermaid's render, made only when the reader files it.
+
+## Audit, September 2026: the whole answer, not the diagrams
+
+Every catalog card through A2UI, and four answer turns (the verdict anatomy,
+a Markdown-first check, two placed cards, a verdict lede), each in light and
+dark at 900px and 390px. What was wrong, and what became of it:
+
+| Found | Why it mattered | Now |
+|---|---|---|
+| A surface could only hold **cards**, while the Markdown-first doctrine keeps tables, checks and steps **out** of cards | Variants as tabs, the one thing composition is for, could not carry a variant's table; the worked example taught tabs of two `legal_basis` cards that differ by one value, which is one table | `Text` leaf (ADR-0065 amended), its `[N]` held to the prose's citations; prompt and example teach "a table per variant in tabs" versus "one table, a column per variant" |
+| A Fundstelle column of the same `[1]` on every row | Five identical chips, nothing learnt per row, and the column costs a quarter of a phone | Lifted into one line under the table: „Fundstelle für alle Zeilen: [1]" |
+| A check table did not say its outcome | The reader counts the chips to learn whether the concept passes | A tally above the rows: „2 erfüllt · 1 teilweise · 1 nicht erfüllt" |
+| A four-column table on a phone scrolled sideways | Status and Fundstelle, the cells a reader came for, sat behind the edge | Below 30rem of its own container a row stacks, each cell named by its column |
+| Takeaways stepped 6px further right per rank | Read as misregistration, not as rank; the ordinal and the first row's figure already carry it | One text column (charter §A5 updated) |
+| „Schematisch — ohne Maßangabe." under a flowchart | A disclaimer about measurements on a drawing with no geometry | Only on Mermaid's own SVG fallback and in a filed copy |
+| „Skizze" on the acoustic and energy cards | Neither has a sketch: bars and a label scale | „Prüfung" |
+| Answer footer on three lines | Copy, „Antwortdetails" and feedback each took a line | One line; the details open full-width below it |
+
+What was looked at and deliberately kept, so it is not relitigated without
+new evidence:
+
+- **Monospace for § and Pkt. identifiers.** Design language principle 3,
+  "authority through precision": an identifier the reader copies into an
+  Einreichung is set as one.
+- **The rough stroke on the schematic cards.** It says "generated schematic,
+  not a certified CAD drawing" (`schematics/rough.tsx`); the measurement layer
+  stays crisp.
+- **The eyebrow on every card.** The charter demotes it to a caption on
+  purpose; the first 40px of geometry identify a card.
+- **The 46ch callout.** A margin note at a reading measure, not a banner.
+- **The tinted active branch in `condition_tree` / `process_map`.** Charter:
+  it is what a screenshot of the card keeps as "this project's branch".
+
+Still open, named rather than done:
+
+- **Redundancy between verdict, lede and takeaways.** The anatomy fixture
+  states 1,20 m four times. The gates (`TAKEAWAYS_MIN_PROSE_CHARS`, the lede
+  suppression under a verdict marker) exist; whether live answers still
+  repeat needs a census with a live model, not a fixture.
+- **A task list is not yet a task.** `- [ ] Brandschutzkonzept nachreichen`
+  renders as a mark; turning it into a project task through the tasks API
+  (ADR-0055) is the obvious next affordance and a feature of its own.

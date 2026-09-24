@@ -12,9 +12,20 @@ features:
     Eine Antwort kann mehrere Karten zusammenstellen: Varianten, die Sie
     vergleichen (zwei Entwurfslösungen, zwei Bundesländer, Bestand und
     Umbau), erscheinen als Reiter, zusammengehörige Karten auf breiten
-    Bildschirmen nebeneinander. Im Word-Export stehen alle Varianten
-    untereinander, jede mit ihrem Reitertitel.
+    Bildschirmen nebeneinander. Ein Reiter kann auch Text und Tabellen der
+    Antwort selbst enthalten, etwa je Variante ihre eigene Prüftabelle. Im
+    Word-Export stehen alle Varianten untereinander, jede mit ihrem
+    Reitertitel.
+  - >
+    Prüftabellen zeigen ihr Ergebnis vorab (etwa „2 erfüllt · 1 offen"),
+    eine Fundstelle, die für alle Zeilen gleich ist, steht einmal unter der
+    Tabelle statt in jeder Zeile, und auf dem Telefon werden breite Tabellen
+    zeilenweise untereinander gezeigt statt seitlich zu scrollen.
 fixes:
+  - >
+    Die Punkte von „Das Wichtigste" stehen bündig untereinander, und
+    Kopieren, Antwortdetails und Bewertung stehen unter einer Antwort in
+    einer Zeile.
   - >
     Skizzen sind auf dem Telefon lesbar: Maße und Beschriftungen erscheinen
     nicht mehr in 5 bis 7 Pixel Größe. Breite Tabellen, Vergleiche und

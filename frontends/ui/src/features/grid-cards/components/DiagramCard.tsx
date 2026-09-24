@@ -201,8 +201,10 @@ export const DiagramCard: FC<DiagramCardProps> = ({ title, source, caption, refe
               outrank "save this". Outside a project the control is absent, not
               disabled: `DiagramFilingControls` renders nothing without a
               target. */}
-          <p className="card-caption text-muted-foreground flex flex-wrap items-center gap-x-3">
-            {state === 'failed' ? tDiagrams('fallback') : tDiagrams('schematicOnly')}
+          <p className="card-caption text-muted-foreground flex flex-wrap items-center gap-x-3 empty:hidden">
+            {/* A view drawn from the model has no geometry to disclaim; only
+                mermaid's own drawing says it claims no measurement. */}
+            {state === 'failed' ? tDiagrams('fallback') : model ? null : tDiagrams('schematicOnly')}
             {/* A drawing that could not be laid out has no bytes to file, so
                 the control appears only on a real picture — the same rule the
                 fence follows by only reaching its figcaption when it drew. */}

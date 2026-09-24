@@ -50,5 +50,7 @@ export const common = {
   markdown: {
     footnotes: 'Footnotes',
     backToReference: 'Back to reference {n}',
+    sharedSource: '{label} for every row',
+    statusTally: 'Outcome of the check',
   },
 }

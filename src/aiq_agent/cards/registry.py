@@ -36,6 +36,10 @@ class CardRegistry:
         """
         return len(self._cards)
 
+    def replace(self, index: int, card: dict[str, Any]) -> None:
+        """Swap the card at ``index`` (0-based) for a rewritten copy; its position, and so its marker, stays."""
+        self._cards[index] = card
+
     def snapshot(self) -> list[dict[str, Any]]:
         """Return a shallow copy of the accumulated cards."""
         return list(self._cards)

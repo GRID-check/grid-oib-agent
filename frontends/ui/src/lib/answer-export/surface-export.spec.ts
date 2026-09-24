@@ -28,6 +28,23 @@ const text = (blocks: DocBlock[]): string =>
 const basis = (id: string, summary: string) => ({ id, component: 'legal_basis', law: 'OIB-Richtlinie 2', summary })
 
 describe('a surface in the export', () => {
+  it('exports a Text tab as the prose would, its table a table', () => {
+    const blocks = cardBlocks(
+      {
+        type: 'surface',
+        components: [
+          { id: 'root', component: 'Tabs', tabs: [{ title: 'Außentreppe', child: 'a' }, { title: 'Treppenhaus', child: 'b' }] },
+          { id: 'a', component: 'Text', text: '| Kriterium | Status |\n|---|---|\n| Rauchabzug | offen |' },
+          basis('b', 'REI 90.'),
+        ],
+      },
+      t
+    )
+    expect(blocks.some((block) => block.kind === 'table')).toBe(true)
+    expect(text(blocks)).toContain('Außentreppe')
+    expect(text(blocks)).toContain('Rauchabzug | offen')
+  })
+
   it('prints every tab, its title above its card, in tab order', () => {
     const blocks = cardBlocks(
       {

@@ -52,5 +52,7 @@ export const common: typeof en.common = {
   markdown: {
     footnotes: 'Fußnoten',
     backToReference: 'Zurück zu Verweis {n}',
+    sharedSource: '{label} für alle Zeilen',
+    statusTally: 'Ergebnis der Prüfung',
   },
 }

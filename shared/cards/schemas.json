@@ -4314,10 +4314,10 @@
       "type": "object"
     },
     "SurfaceCard": {
-      "description": "Several cards composed into one A2UI surface: variants as tabs, related cards side by side.\n\n`components` is an A2UI v0.9 component list (a2ui.org): flat, each entry\n`{\"id\", \"component\", \u2026props}`, children referenced by id, exactly one\n`\"id\": \"root\"`. Containers are `Row` and `Column` (`children`: ids) and\n`Tabs` (`tabs`: `[{title, child}]`); every other component is a card, named\nby its type, with that card's own fields as props. Validated twice: the\nstructure by `a2ui-core` (unique ids, a root, no dangling reference, no\ncycle, no orphan), each card by its own model.",
+      "description": "Several cards composed into one A2UI surface: variants as tabs, related cards side by side.\n\n`components` is an A2UI v0.9 component list (a2ui.org): flat, each entry\n`{\"id\", \"component\", \u2026props}`, children referenced by id, exactly one\n`\"id\": \"root\"`. Containers are `Row` and `Column` (`children`: ids) and\n`Tabs` (`tabs`: `[{title, child}]`); `Text` (`text`: Markdown) holds what\nthe answer would write in prose, a table or a list; every other component\nis a card, named by its type, with that card's own fields as props. Validated twice: the\nstructure by `a2ui-core` (unique ids, a root, no dangling reference, no\ncycle, no orphan), each card by its own model.",
       "properties": {
         "components": {
-          "description": "The A2UI component list: one container with id 'root' (Row, Column or Tabs) and the cards it holds, each `{\"id\", \"component\": <card type>, \u2026that card's fields}`.",
+          "description": "The A2UI component list: one container with id 'root' (Row, Column or Tabs) and what it holds: cards, each `{\"id\", \"component\": <card type>, \u2026that card's fields}`, and `{\"id\", \"component\": \"Text\", \"text\": <Markdown>}` for a table, a list or prose.",
           "items": {
             "additionalProperties": true,
             "type": "object"

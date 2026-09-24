@@ -136,10 +136,16 @@ export function MermaidDiagram({ source, isStreaming = false }: MermaidDiagramPr
         <div className="bg-muted/40 rounded-xl p-3 @container">
           <DiagramView model={model} label={titleFromSource(source) ?? t('schematicOnly')} />
         </div>
-        <figcaption className="text-muted-foreground mt-1 flex flex-wrap items-center gap-x-3 text-xs">
-          <span>{t('schematicOnly')}</span>
-          <DiagramFilingControls filing={filing} />
-        </figcaption>
+        {/* No „Schematisch — ohne Maßangabe." here: that line tells a reader a
+            DRAWING claims no measurement, and these views have no geometry
+            to claim one with. What is left is the filing action, and only
+            inside a project (`DiagramFilingControls` renders nothing without
+            a target). A filed copy carries the disclaimer in its own text. */}
+        {filing.target ? (
+          <figcaption className="text-muted-foreground mt-1 flex flex-wrap items-center gap-x-3 text-xs">
+            <DiagramFilingControls filing={filing} />
+          </figcaption>
+        ) : null}
       </figure>
     )
   }

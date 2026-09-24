@@ -679,7 +679,7 @@ Since ADR-0065 a card reaches the screen through
 one-component surface whose root is the card) and draws it with
 `@a2ui/react` on the Piloti catalog. The catalog registers one A2UI component
 per card type, named by the type and validated by that card's generated Zod
-schema, plus `Row`, `Column` and `Tabs` in the basic catalog's shapes. Each
+schema, plus `Row`, `Column`, `Tabs` and `Text` in the basic catalog's shapes. Each
 card component calls back into `GridCardView`, the per-type dispatch that used
 to be `GridCardItem`, so the pixels are the same components as before.
 
@@ -691,6 +691,16 @@ to be `GridCardItem`, so the pixels are the same components as before.
   taught the shape in the envelope contract's COMPOSE paragraph. A `Row` sits
   side by side only above 44rem of its own width, so in the answer column it
   stacks; `Tabs` show one variant at a time.
+- **`Text`: the answer's Markdown inside a surface.** A leaf
+  `{"id", "component": "Text", "text": <Markdown>}` is drawn by the renderer
+  the prose is drawn by. It exists because the Markdown-first doctrine puts
+  tables, checks and steps in the prose and never on a card, so without it a
+  tab could hold none of what a variant actually consists of. Its `[N]` are
+  held to the answer's citations after sanitisation
+  (`cards/surface_citations.py`): renumbered with the prose, dropped when they
+  do not land on a cited source. The frontend parses them with the answer's
+  citation plugin through `NestedMarkdownPluginsProvider`, and the Word
+  export prints them as prose.
 - **Never the library's placeholder.** `A2uiSurface` cannot render on the
   server and draws "[Loading root...]" for its first frame, so the card is
   drawn directly until A2UI's copy, mounted invisibly behind it, reports its

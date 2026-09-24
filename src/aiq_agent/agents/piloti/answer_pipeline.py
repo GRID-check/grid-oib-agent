@@ -589,6 +589,21 @@ def _require_retrieval(lookup_attempted: bool, tools: Sequence[BaseTool]) -> Non
     raise EmptySourceRegistryError("research", unavailable_tools=unavailable, available_count=available_count)
 
 
+def _recite_surface_cards(renumber_map: dict[int, int] | None, cited: tuple[CitedSource, ...]) -> None:
+    """Hold the ``[N]`` in this turn's composed surfaces to the prose's citations (``cards/surface_citations``)."""
+    from aiq_agent.cards.registry import get_card_registry
+    from aiq_agent.cards.surface_citations import recite_surface
+
+    registry = get_card_registry()
+    if registry is None:
+        return
+    numbers = {source.number for source in cited if source.number is not None}
+    for index, card in enumerate(registry.snapshot()):
+        recited = recite_surface(card, renumber_map or {}, numbers)
+        if recited is not card:
+            registry.replace(index, recited)
+
+
 def _renumbered(cited: tuple[CitedSource, ...], renumber_map: dict[int, int] | None) -> tuple[CitedSource, ...]:
     """Sanitisation closes the gaps the removals left in the ``[N]`` sequence,
     so the labels captured before it must follow, or a chip is labelled [3]
@@ -848,6 +863,8 @@ async def finalize_answer(
 
     sanitized = sanitize_report(grounding.content)
     content = sanitized.sanitized_report
+    cited = _renumbered(grounding.cited, sanitized.renumber_map)
+    _recite_surface_cards(sanitized.renumber_map, cited)
     meta = _gated_meta(
         extracted,
         content,
@@ -875,7 +892,7 @@ async def finalize_answer(
         source_lookup_attempted=lookup_attempted,
         answer_meta=meta,
         skills_applied=_skills_applied(extracted.meta),
-        cited=_renumbered(grounding.cited, sanitized.renumber_map),
+        cited=cited,
         removed_citations=grounding.removed_citations,
         repair_sources=grounding.repair_sources,
     )

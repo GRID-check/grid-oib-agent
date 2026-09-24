@@ -11,6 +11,7 @@ import { describe, expect, it, vi } from 'vitest'
 
 import type { GridCard } from '@/shared/cards/schemas'
 import { A2uiCard } from './A2uiCard'
+import { preflight } from './catalog'
 import { surfaceLeaves } from './surface-messages'
 
 const BASIS = {
@@ -91,9 +92,49 @@ describe('a card through A2UI', () => {
   })
 
   it('lists a surface’s cards in document order', () => {
-    expect(surfaceLeaves(tabs([['A', BASIS], ['B', BASIS]])).map((leaf) => leaf.type)).toEqual([
+    expect(surfaceLeaves(tabs([['A', BASIS], ['B', BASIS]])).map((leaf) => ('type' in leaf ? leaf.type : 'text'))).toEqual([
       'legal_basis',
       'legal_basis',
     ])
+  })
+
+  const TABLE = '| Kriterium | Status |\n|---|---|\n| Rauchabzug | offen |'
+  const textTabs = {
+    type: 'surface',
+    components: [
+      { id: 'root', component: 'Tabs', tabs: [{ title: 'Außentreppe', child: 'a' }, { title: 'Treppenhaus', child: 'b' }] },
+      { id: 'a', component: 'Text', text: TABLE },
+      { id: 'b', component: 'legal_basis', law: 'OIB-Richtlinie 2', summary: 'x' },
+    ],
+  } as unknown as GridCard
+
+  it('draws a Text tab as the answer’s own Markdown, a table included', async () => {
+    render(<A2uiCard card={textTabs} surfaceKey="m1:4" render={renderCard} />)
+    await waitFor(() => expect(screen.getByRole('tab', { name: 'Außentreppe' })).toBeInTheDocument())
+    const text = document.querySelector('[data-a2ui-surface] [data-a2ui-node="Text"]') as HTMLElement
+    expect(text.querySelector('table')).not.toBeNull()
+    await userEvent.setup().click(screen.getByRole('tab', { name: 'Treppenhaus' }))
+    expect(screen.getByTestId('card-b')).toBeInTheDocument()
+  })
+
+  it('keeps Text in the fallback when A2UI refuses the surface', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    const refused = {
+      type: 'surface',
+      components: [
+        { id: 'root', component: 'Carousel', children: ['a', 'b'] },
+        { id: 'a', component: 'Text', text: TABLE },
+        { id: 'b', component: 'legal_basis', law: 'OIB-Richtlinie 2', summary: 'x' },
+      ],
+    } as unknown as GridCard
+    render(<A2uiCard card={refused} surfaceKey="m1:5" render={renderCard} />)
+    await waitFor(() => expect(screen.getByTestId('card-leaf-1')).toBeInTheDocument())
+    expect(document.querySelector('[data-a2ui-node="Text"] table')).not.toBeNull()
+    warn.mockRestore()
+  })
+
+  it('refuses a Text without text before A2UI can draw its error', () => {
+    expect(preflight([{ id: 'a', component: 'Text', text: '  ' }])).toMatch(/Text/)
+    expect(preflight([{ id: 'a', component: 'Text', text: 'ok' }])).toBeNull()
   })
 })

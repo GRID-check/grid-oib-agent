@@ -144,4 +144,58 @@ class TestTheModelIsTaughtToCompose:
         contract = render_envelope_cards_contract()
         assert "COMPOSE." in contract
         assert '"component": "Tabs"' in contract
-        assert "Two to six content cards" in contract
+        assert "Two to six leaves" in contract
+
+
+def _text(component_id: str, text: str, **extra: Any) -> dict[str, Any]:
+    return {"id": component_id, "component": "Text", "text": text, **extra}
+
+
+class TestTextLeaves:
+    """`Text` is how a tab holds what the Markdown-first answer writes in prose."""
+
+    TABLE = "| Kriterium | Status | Fundstelle |\n|---|---|---|\n| **Rauchabzug** | offen | [2] |"
+
+    def _variants(self, a: dict[str, Any], b: dict[str, Any]) -> dict[str, Any]:
+        return _tabs(components=[_tabs()["components"][0], a, b])
+
+    def test_a_tab_of_markdown_keeps_its_markup(self):
+        card = grid_card_adapter.validate_python(self._variants(_text("a", self.TABLE), BASIS_B))
+        # Card fields are flattened to plain text; a Text leaf IS Markdown and is not.
+        assert card.components[1]["text"] == self.TABLE
+
+    def test_text_counts_as_a_leaf(self):
+        card = grid_card_adapter.validate_python(self._variants(_text("a", "x"), _text("b", "y")))
+        assert [c["component"] for c in card.components] == ["Tabs", "Text", "Text"]
+
+    def test_an_empty_text_is_refused(self):
+        assert "empty" in _refusal(self._variants(_text("a", "  "), BASIS_B))
+
+    def test_text_takes_no_other_prop(self):
+        assert "takes only `text`" in _refusal(self._variants(_text("a", "x", variant="h1"), BASIS_B))
+
+    def test_the_contract_teaches_text_in_tabs(self):
+        contract = render_envelope_cards_contract()
+        assert '"component": "Text"' in contract
+        assert "Tabs" in contract
+
+
+class TestTextCitations:
+    """A tab's `[N]` follows the prose's renumbering, or goes."""
+
+    def test_renumbered_with_the_prose_and_uncited_dropped(self):
+        from aiq_agent.cards.surface_citations import recite_text
+
+        text = "REI 90 [3], Rauchabzug [5]. Siehe [[card:1]] und [OIB](https://oib.or.at)."
+        assert (
+            recite_text(text, {3: 1, 5: 4}, {1})
+            == "REI 90 [1], Rauchabzug. Siehe [[card:1]] und [OIB](https://oib.or.at)."
+        )
+
+    def test_only_surfaces_are_touched(self):
+        from aiq_agent.cards.surface_citations import recite_surface
+
+        basis = {"type": "legal_basis", "summary": "[9]"}
+        assert recite_surface(basis, {}, set()) is basis
+        surface = {"type": "surface", "components": [{"id": "root"}, _text("a", "x [2]")]}
+        assert recite_surface(surface, {}, {2})["components"][1]["text"] == "x [2]"

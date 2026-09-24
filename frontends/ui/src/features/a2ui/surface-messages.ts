@@ -11,7 +11,7 @@ import type { A2uiMessage } from '@a2ui/web_core/v0_9'
 
 import type { GridCard } from '@/shared/cards/schemas'
 import { gridCardSchema } from '@/shared/cards/schemas'
-import { PILOTI_CATALOG_ID } from './catalog'
+import { PILOTI_CATALOG_ID, TEXT_COMPONENT } from './catalog'
 
 const CARD_TYPES: ReadonlySet<string> = new Set(
   gridCardSchema.options.map((schema) => {
@@ -36,13 +36,19 @@ export function cardToSurfaceMessages(card: GridCard, surfaceId: string): A2uiMe
   ] as A2uiMessage[]
 }
 
+/** A surface's `Text` leaf: Markdown, not a card. */
+export interface TextLeaf {
+  text: string
+}
+
 /**
- * The cards a surface holds, in list order — what the fallback stacks when
- * A2UI will not draw the surface. Layout components and anything that is not
- * a card type are left out: an unknown component has nothing to draw.
+ * The cards and `Text` leaves a surface holds, in list order — what the
+ * fallback stacks when A2UI will not draw the surface. Layout components and
+ * anything unknown are left out: an unknown component has nothing to draw.
  */
-export function surfaceLeaves(card: GridCard): GridCard[] {
-  return surfaceComponents(card)
-    .filter((component) => CARD_TYPES.has(String(component.component)))
-    .map(({ id: _id, component, ...props }) => ({ ...props, type: component }) as GridCard)
+export function surfaceLeaves(card: GridCard): (GridCard | TextLeaf)[] {
+  return surfaceComponents(card).flatMap(({ id: _id, component, ...props }): (GridCard | TextLeaf)[] => {
+    if (component === TEXT_COMPONENT && typeof props.text === 'string') return [{ text: props.text }]
+    return CARD_TYPES.has(String(component)) ? [{ ...props, type: component } as GridCard] : []
+  })
 }

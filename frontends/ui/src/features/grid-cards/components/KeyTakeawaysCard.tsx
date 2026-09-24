@@ -74,18 +74,6 @@ const SAGE_WASH = 'bg-[color-mix(in_oklch,var(--source-project)_7%,transparent)]
 const ordinal = (index: number): string => String(index + 1).padStart(2, '0')
 
 /**
- * The staircase, written out rather than computed.
- *
- * Tailwind reads class names out of the source, so `pl-${n * 1.5}` would
- * produce a class that exists in the DOM and in no stylesheet. Five entries is
- * also the whole range — the schema caps `items` at 5 — and 24px of total
- * indent is what the charter budgeted for the narrow column: at 314px the
- * fifth takeaway still has ~250px of measure.
- */
-const INDENT = ['pl-0', 'pl-1.5', 'pl-3', 'pl-4.5', 'pl-6'] as const
-const indentFor = (index: number): string => INDENT[Math.min(index, INDENT.length - 1)]
-
-/**
  * Shared row geometry: ordinal gutter, takeaway, chevron column.
  *
  * The 26px gutter is one of the two widths §A4 allows (22px for a rail, 26px
@@ -113,8 +101,10 @@ const RowBody: FC<{ index: number; text: string }> = ({ index, text }) => {
       </span>
       <span
         className={cn(
+          // One text column for every row. The staircase this replaced (6px
+          // further in per rank) read as misregistration, not as rank; the
+          // ordinal and the first row's figure already carry the order.
           'min-w-0 text-pretty text-foreground',
-          indentFor(index),
           // NEVER truncated — a takeaway is the payload, and a German compound
           // that wraps to two lines is still the answer.
           isFigure ? 'card-figure-15' : 'card-body',

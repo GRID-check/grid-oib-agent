@@ -28,7 +28,14 @@ import { MessageProcessor } from '@a2ui/web_core/v0_9'
 import { A2uiSurface, type ReactComponentImplementation } from '@a2ui/react/v0_9'
 
 import type { GridCard } from '@/shared/cards/schemas'
-import { CardRendererProvider, DrawnProvider, pilotiCatalog, preflight, type CardRenderer } from './catalog'
+import {
+  CardRendererProvider,
+  DrawnProvider,
+  pilotiCatalog,
+  preflight,
+  TextBlock,
+  type CardRenderer,
+} from './catalog'
 import { cardToSurfaceMessages, surfaceComponents, surfaceLeaves } from './surface-messages'
 
 interface A2uiCardProps {
@@ -38,13 +45,13 @@ interface A2uiCardProps {
   render: CardRenderer
 }
 
-/** The direct drawing: the card itself, or a surface's cards stacked. */
+/** The direct drawing: the card itself, or a surface's leaves stacked in order. */
 function Direct({ card, render }: Pick<A2uiCardProps, 'card' | 'render'>) {
   if (card.type !== 'surface') return <>{render(card, 'root')}</>
   return (
     <div className="flex flex-col gap-3">
       {surfaceLeaves(card).map((leaf, index) => (
-        <div key={index}>{render(leaf, `leaf-${index}`)}</div>
+        <div key={index}>{'text' in leaf ? <TextBlock text={leaf.text} /> : render(leaf, `leaf-${index}`)}</div>
       ))}
     </div>
   )

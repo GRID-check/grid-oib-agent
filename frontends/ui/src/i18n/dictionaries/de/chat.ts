@@ -371,6 +371,8 @@ export const chat: typeof en.chat = {
     // auf jeder einzelnen erscheint: Verdikt, fehlende Angabe, Herkunft.
     kit: {
       eyebrow: 'Skizze',
+      // Eine Karte, deren Figur eine Skala oder Balken ist, keine Zeichnung.
+      eyebrowCheck: 'Prüfung',
       status: {
         pass: 'erfüllt',
         fail: 'nicht erfüllt',

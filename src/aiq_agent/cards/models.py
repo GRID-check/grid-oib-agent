@@ -2751,6 +2751,13 @@ SURFACE_EXCLUDED_LEAVES: frozenset[str] = frozenset(
     }
 )
 
+#: The one leaf that is not a card: a run of the answer's own Markdown, named
+#: and shaped as A2UI's basic catalog names its `Text`. It is what lets a tab
+#: hold what the answer writes in prose (a table, a list, a ```mermaid fence),
+#: because the Markdown-first doctrine keeps exactly that content OUT of cards.
+SURFACE_TEXT = "Text"
+_SURFACE_TEXT_MAX = 4000
+
 _SURFACE_MAX_LEAVES = 6
 _SURFACE_MAX_CHILDREN = 4
 
@@ -2782,9 +2789,28 @@ def _check_layout(component: dict[str, Any]) -> None:
         raise ValueError(f"'{component_id}' ({name}) does not take {sorted(extra)}.")
 
 
+def _checked_text(component: dict[str, Any]) -> dict[str, Any]:
+    """A `Text` leaf: exactly `{id, component, text}`, the text non-empty Markdown."""
+    component_id = component["id"]
+    extra = set(component) - {"id", "component", "text"}
+    if extra:
+        raise ValueError(f"'{component_id}' (Text) takes only `text`, not {sorted(extra)}.")
+    text = component.get("text")
+    if not isinstance(text, str) or not text.strip():
+        raise ValueError(f"'{component_id}' (Text): `text` is the Markdown to show, and it is empty.")
+    if len(text) > _SURFACE_TEXT_MAX:
+        raise ValueError(
+            f"'{component_id}' (Text): {len(text)} characters; a tab holds at most {_SURFACE_TEXT_MAX}. "
+            "Say the rest in the answer."
+        )
+    return {"id": component_id, "component": SURFACE_TEXT, "text": text.strip()}
+
+
 def _checked_leaf(component: dict[str, Any]) -> dict[str, Any]:
     """A card component, validated as the card it is; returned normalised, id and name kept."""
     name, component_id = component["component"], component["id"]
+    if name == SURFACE_TEXT:
+        return _checked_text(component)
     if name in SURFACE_EXCLUDED_LEAVES:
         raise ValueError(f"'{component_id}': a '{name}' cannot sit inside a surface.")
     props = {key: value for key, value in component.items() if key not in ("id", "component")}
@@ -2812,8 +2838,9 @@ class SurfaceCard(CardModel):
     `components` is an A2UI v0.9 component list (a2ui.org): flat, each entry
     `{"id", "component", …props}`, children referenced by id, exactly one
     `"id": "root"`. Containers are `Row` and `Column` (`children`: ids) and
-    `Tabs` (`tabs`: `[{title, child}]`); every other component is a card, named
-    by its type, with that card's own fields as props. Validated twice: the
+    `Tabs` (`tabs`: `[{title, child}]`); `Text` (`text`: Markdown) holds what
+    the answer would write in prose, a table or a list; every other component
+    is a card, named by its type, with that card's own fields as props. Validated twice: the
     structure by `a2ui-core` (unique ids, a root, no dangling reference, no
     cycle, no orphan), each card by its own model.
     """
@@ -2826,8 +2853,9 @@ class SurfaceCard(CardModel):
     components: list[dict[str, Any]] = Field(
         min_length=3,
         description=(
-            "The A2UI component list: one container with id 'root' (Row, Column or Tabs) and the "
-            'cards it holds, each `{"id", "component": <card type>, …that card\'s fields}`.'
+            "The A2UI component list: one container with id 'root' (Row, Column or Tabs) and what "
+            'it holds: cards, each `{"id", "component": <card type>, …that card\'s fields}`, and '
+            '`{"id", "component": "Text", "text": <Markdown>}` for a table, a list or prose.'
         ),
     )
 
@@ -2856,7 +2884,9 @@ class SurfaceCard(CardModel):
                 checked.append(_checked_leaf(component))
         leaves = sum(1 for component in checked if component["component"] not in SURFACE_LAYOUTS)
         if not 2 <= leaves <= _SURFACE_MAX_LEAVES:
-            raise ValueError(f"A surface holds 2 to {_SURFACE_MAX_LEAVES} cards; this one holds {leaves}.")
+            raise ValueError(
+                f"A surface holds 2 to {_SURFACE_MAX_LEAVES} cards or Text blocks; this one holds {leaves}."
+            )
 
         # `a2ui-core` reads references by field name; a tab's child sits one
         # level down, so it is lifted into a list field for the check.

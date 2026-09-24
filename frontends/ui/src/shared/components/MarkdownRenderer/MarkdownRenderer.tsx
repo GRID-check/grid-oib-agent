@@ -19,6 +19,10 @@ import { isInternalHref, useInternalLinkRenderer } from './internal-link-context
 import { markdownHeadings } from './headings'
 import { getLanguageFromClassName, headingAnchorId, isMermaidFence } from './utils'
 import { statusTone } from './status-marks'
+import { parseTally, rehypeTableShape } from './table-shape'
+
+/** Module-level so the list keeps one identity: a new array re-parses the document. */
+const REHYPE_PLUGINS: PluggableList = [[rehypeKatex, { throwOnError: false }], rehypeTableShape]
 
 /**
  * A ```mermaid fence, drawn instead of printed.
@@ -480,12 +484,39 @@ export const MarkdownRenderer: FC<MarkdownRendererProps> = memo(
           // Zebra rows and tabular figures: the answer writes its checks,
           // comparisons and values-by-class as tables, and a column of numbers
           // or classes reads down only when the digits line up.
-          table: ({ children }) => (
-            <HorizontalScroll className="border-base my-4 rounded-xl border">
-              <table className="[&>tbody>tr:nth-child(even)]:bg-muted/30 min-w-full tabular-nums">
-                {children}
-              </table>
-            </HorizontalScroll>
+          // What only all of a table's rows can say (its tally, a Fundstelle
+          // shared by every row, each cell's column for the stacked phone
+          // layout) is settled by `rehypeTableShape` and read off the node.
+          table: ({ children, node }: React.ComponentPropsWithoutRef<'table'> & ExtraProps) => {
+            const tally = parseTally(node?.properties?.dataTally)
+            const stack = node?.properties?.dataStack === 'true'
+            return (
+              <div className="my-4 flex flex-col gap-2 [container:answer-table/inline-size]">
+                {tally.length > 0 && (
+                  <p className="flex flex-wrap items-center gap-1.5" data-testid="status-tally">
+                    <span className="sr-only">{t('markdown.statusTally')}: </span>
+                    {tally.map(([word, count]) => (
+                      <Chip key={word} size="sm" variant={statusTone(word) ?? 'muted'}>
+                        <span className="font-semibold tabular-nums">{count}</span> {word}
+                      </Chip>
+                    ))}
+                  </p>
+                )}
+                <HorizontalScroll className="border-base rounded-xl border">
+                  <table
+                    data-stack={stack ? 'true' : undefined}
+                    className="[&>tbody>tr:nth-child(even)]:bg-muted/30 min-w-full caption-bottom tabular-nums"
+                  >
+                    {children}
+                  </table>
+                </HorizontalScroll>
+              </div>
+            )
+          },
+          caption: ({ children, node }: React.ComponentPropsWithoutRef<'caption'> & ExtraProps) => (
+            <caption className="border-base text-muted-foreground border-t px-3 py-2 text-left text-xs">
+              {t('markdown.sharedSource', { label: String(node?.properties?.dataLabel ?? '') })}: {children}
+            </caption>
           ),
           thead: ({ children }) => <thead className="bg-muted/50">{children}</thead>,
           tbody: ({ children }) => <tbody>{children}</tbody>,
@@ -499,10 +530,12 @@ export const MarkdownRenderer: FC<MarkdownRendererProps> = memo(
               {children}
             </th>
           ),
-          td: ({ children, align, style }: React.ComponentPropsWithoutRef<'td'> & ExtraProps) => {
+          td: ({ children, align, style, node }: React.ComponentPropsWithoutRef<'td'> & ExtraProps) => {
             const tone = statusTone(getTextFromChildren(children))
+            const label = node?.properties?.dataLabel
             return (
               <td
+                data-label={typeof label === 'string' ? label : undefined}
                 className={`text-foreground px-3 py-2 text-sm ${cellAlignClass(align, style) ?? ''}`}
               >
                 {tone ? (
@@ -531,7 +564,7 @@ export const MarkdownRenderer: FC<MarkdownRendererProps> = memo(
             />
           ),
         }) as Components,
-      [compact, headingId, isStreaming, renderInPageAnchor, renderInternalLink, renderSlot]
+      [compact, headingId, isStreaming, renderInPageAnchor, renderInternalLink, renderSlot, t]
     )
 
     return (
@@ -540,7 +573,7 @@ export const MarkdownRenderer: FC<MarkdownRendererProps> = memo(
       >
         <ReactMarkdown
           remarkPlugins={plugins}
-          rehypePlugins={[[rehypeKatex, { throwOnError: false }]]}
+          rehypePlugins={REHYPE_PLUGINS}
           // The footnote chrome the mdast→hast step writes on its own: named in
           // the reader's language instead of the converter's English defaults.
           remarkRehypeOptions={footnoteOptions}

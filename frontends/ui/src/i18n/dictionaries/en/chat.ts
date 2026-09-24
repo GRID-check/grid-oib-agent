@@ -373,6 +373,8 @@ export const chat = {
     // appears on every one of them: verdict, missing figure, provenance.
     kit: {
       eyebrow: 'Sketch',
+      // A card whose figure is a scale or a set of bars, not a drawing.
+      eyebrowCheck: 'Check',
       status: {
         pass: 'met',
         fail: 'not met',

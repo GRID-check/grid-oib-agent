@@ -1,13 +1,16 @@
 'use client'
 
 /**
- * The Piloti A2UI catalog: every card type as an A2UI component, plus the three
- * layout components an answer may compose them with (ADR-0065).
+ * The Piloti A2UI catalog: every card type as an A2UI component, the three
+ * layout components an answer may compose them with, and `Text`, a run of the
+ * answer's own Markdown (ADR-0065).
  *
  * Custom-only. A2UI's basic catalog is not registered: its styles are empty in
  * 0.11.1 and its Lit build registers custom elements on import. `Row`,
- * `Column` and `Tabs` take the basic catalog's SHAPES (so a surface is plain
- * A2UI v0.9) and are drawn with this product's atoms.
+ * `Column`, `Tabs` and `Text` take the basic catalog's NAMES and shapes (so a
+ * surface is plain A2UI v0.9) and are drawn with this product's atoms. `Text`
+ * is narrowed to a `text` of Markdown: it is what lets a tab hold a table,
+ * which the Markdown-first answer never puts on a card.
  *
  * A card component's props are that card's own fields, validated by the card's
  * generated Zod schema (`shared/cards/generated.ts`) — the same schema a card
@@ -24,12 +27,17 @@ import { createComponentImplementation, type ReactComponentImplementation } from
 
 import { gridCardSchema, type GridCard } from '@/shared/cards/schemas'
 import { Tabs as UiTabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { MarkdownRenderer } from '@/shared/components/MarkdownRenderer/MarkdownRenderer'
+import { useNestedMarkdownPlugins } from '@/shared/components/MarkdownRenderer/nested-plugins-context'
 
 /** The catalog's identity on the wire; `createSurface.catalogId` must equal it. */
 export const PILOTI_CATALOG_ID = 'https://piloti.at/a2ui/catalogs/cards/v1'
 
 /** The layout components, named as in A2UI's basic catalog. */
 export const LAYOUT_COMPONENTS = ['Row', 'Column', 'Tabs'] as const
+
+/** The one leaf that is not a card: Markdown, named as in A2UI's basic catalog. */
+export const TEXT_COMPONENT = 'Text'
 
 /**
  * Draws one card. `leafId` is the component's id inside its surface: `root`
@@ -178,6 +186,29 @@ const Tabs = createComponentImplementation(TabsApi, ({ props, buildChild }) => (
   <TabsView tabs={props.tabs as { title: string; child: string }[]} buildChild={buildChild} />
 ))
 
+const TextApi = { name: TEXT_COMPONENT, schema: z.object({ text: z.string().trim().min(1) }).strict() }
+
+/**
+ * A run of the answer's Markdown, drawn by the renderer the prose is drawn by,
+ * with the answer's citation plugin (`NestedMarkdownPluginsProvider`), so a
+ * table in a tab looks and cites exactly like one in the prose.
+ */
+export function TextBlock({ text }: { text: string }) {
+  const plugins = useNestedMarkdownPlugins()
+  return (
+    <div className="min-w-0" data-a2ui-node={TEXT_COMPONENT}>
+      <MarkdownRenderer content={text} remarkPlugins={plugins} />
+    </div>
+  )
+}
+
+function TextView({ text }: { text: string }) {
+  useReportDrawn()
+  return <TextBlock text={text} />
+}
+
+const Text = createComponentImplementation(TextApi, ({ props }) => <TextView text={String(props.text)} />)
+
 let catalog: Catalog<ReactComponentImplementation> | null = null
 
 /** The catalog, built once on first use. */
@@ -185,7 +216,7 @@ export function pilotiCatalog(): Catalog<ReactComponentImplementation> {
   // `surface` is not a component: it is the envelope a composition travels in,
   // unpacked into its own components by `cardToSurfaceMessages`.
   const cards = gridCardSchema.options.filter((schema) => cardTypeOf(schema) !== 'surface')
-  catalog ??= new Catalog(PILOTI_CATALOG_ID, [...cards.map(cardComponent), Row, Column, Tabs])
+  catalog ??= new Catalog(PILOTI_CATALOG_ID, [...cards.map(cardComponent), Row, Column, Tabs, Text])
   return catalog
 }
 

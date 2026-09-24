@@ -441,28 +441,33 @@ CARD_EXAMPLES: dict[str, dict] = {
     # shape the COMPOSE rule in `cards/envelope.py` teaches, filled in.
     "surface": {
         "type": "surface",
-        "title": "Tragende Bauteile — nach Gebäudeklasse",
+        "title": "Zweiter Fluchtweg — zwei Varianten",
         "components": [
             {
                 "id": "root",
                 "component": "Tabs",
-                "tabs": [{"title": "GK 4", "child": "gk4"}, {"title": "GK 5", "child": "gk5"}],
+                "tabs": [
+                    {"title": "Außentreppe", "child": "aussen"},
+                    {"title": "Zweites Treppenhaus", "child": "innen"},
+                ],
             },
             {
-                "id": "gk4",
-                "component": "legal_basis",
-                "law": "OIB-Richtlinie 2",
-                "article": "3.1",
-                "section": "Tabelle 1b",
-                "summary": "In GK 4 genügt REI 60 für tragende Bauteile oberirdisch.",
+                "id": "aussen",
+                "component": "Text",
+                "text": (
+                    "| Kriterium | Anforderung | Status | Fundstelle |\n|---|---|---|---|\n"
+                    "| Abstand zu Öffnungen | ≥ 2,0 m | offen | [1] |\n"
+                    "| Baustoff | A2 | erfüllt | [1] |"
+                ),
             },
             {
-                "id": "gk5",
-                "component": "legal_basis",
-                "law": "OIB-Richtlinie 2",
-                "article": "3.1",
-                "section": "Tabelle 1b",
-                "summary": "In GK 5 verlangen tragende Bauteile R 90.",
+                "id": "innen",
+                "component": "Text",
+                "text": (
+                    "| Kriterium | Anforderung | Status | Fundstelle |\n|---|---|---|---|\n"
+                    "| Wände des Treppenhauses | REI 90 | erfüllt | [1] |\n"
+                    "| Rauchabzug | ≥ 1 m² | nicht erfüllt | [1] |"
+                ),
             },
         ],
     },

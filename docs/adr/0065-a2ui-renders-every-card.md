@@ -55,6 +55,14 @@ leaf by the same Pydantic card model a lone card goes through. System and
 interactive card types may not be leaves: their decisions are keyed by
 position in the message, and a position inside a surface is not one.
 
+**Amended: a `Text` leaf.** A surface may also hold `Text` (A2UI's basic
+catalog name, narrowed to `text` of Markdown), drawn by the answer's own
+Markdown renderer. Leaves that could only be cards left `Tabs` unable to hold a
+variant's table, which the Markdown-first answer never puts on a card, so the
+one use case composition exists for could not be built. See
+[`docs/architecture/cards.md`](../architecture/cards.md) for how its
+citations are held to the prose's.
+
 **What is deliberately not adopted.** A2UI's basic catalog (its styles are
 empty in 0.11.1 and it registers Lit elements on import); data binding and
 `updateDataModel` (a card is a statement about retrieved sources, not live

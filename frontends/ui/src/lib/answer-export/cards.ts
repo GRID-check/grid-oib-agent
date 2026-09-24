@@ -69,7 +69,7 @@ import type { Translator } from '@/i18n/translate'
 import { answerExport as canonicalDictionary } from '@/i18n/dictionaries/en/answer-export'
 import type { GridCard } from '@/shared/cards/schemas'
 import { compact, type DocBlock, type DocRun } from './blocks'
-import { diagramLabel } from './markdown'
+import { diagramLabel, markdownToBlocks } from './markdown'
 
 /** A stored card: validated upstream, but read here as untrusted jsonb. */
 type CardRecord = Record<string, unknown>
@@ -885,7 +885,8 @@ export function cardBlocks(value: unknown, t: Translator): DocBlock[] {
 
 /**
  * A `surface`'s cards, walked from its root in document order. A tab's title
- * is set above its card; Row and Column contribute nothing of their own.
+ * is set above its card; Row and Column contribute nothing of their own; a
+ * `Text` leaf is the answer's own Markdown and exports as the prose does.
  */
 function surfaceBlocks(card: Record<string, unknown>, t: Translator): DocBlock[] {
   const components = Array.isArray(card.components) ? card.components.filter(isRecord) : []
@@ -907,6 +908,10 @@ function surfaceBlocks(card: Record<string, unknown>, t: Translator): DocBlock[]
         if (typeof tab.title === 'string') blocks.push({ kind: 'paragraph', runs: [{ text: tab.title, bold: true }] })
         walk(String(tab.child))
       }
+      return
+    }
+    if (name === 'Text') {
+      if (typeof component.text === 'string') blocks.push(...markdownToBlocks(component.text))
       return
     }
     const { id: _id, component: _component, ...props } = component

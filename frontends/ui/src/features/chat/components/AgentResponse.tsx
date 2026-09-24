@@ -13,7 +13,7 @@
 
 'use client'
 
-import { type FC, memo, useCallback, useEffect, useId, useMemo, useState } from 'react'
+import { type FC, type ReactNode, memo, useCallback, useEffect, useId, useMemo, useState } from 'react'
 import { Check, ChevronDown, FileText, MessageCircle } from 'lucide-react'
 import { Chip } from '@/components/ui/chip'
 import { SectionLabel } from '@/components/ui/section-label'
@@ -51,6 +51,7 @@ import {
 } from '../lib/citations'
 import { AnswerCitations } from './AnswerCitations'
 import { DiagramFilingProvider } from '@/features/diagrams/diagram-filing-context'
+import { NestedMarkdownPluginsProvider } from '@/shared/components/MarkdownRenderer/nested-plugins-context'
 import { SkillsUsedDisclosure } from '@/features/skills/components/SkillsUsedDisclosure'
 import { AnswerSourcesRow } from './AnswerSourcesRow'
 import { MemoryNotedChip } from './MemoryNotedChip'
@@ -612,6 +613,9 @@ const AnswerDetails: FC<{
   readSources?: CitationSource[]
   hasAnswerSources: boolean
   timestamp?: Date | string
+  /** Set on the trigger's own line: the footer's copy actions before it, feedback after. */
+  before?: ReactNode
+  after?: ReactNode
 }> = ({
   hasConfidence,
   answerConfidence,
@@ -628,6 +632,8 @@ const AnswerDetails: FC<{
   readSources,
   hasAnswerSources,
   timestamp,
+  before,
+  after,
 }) => {
   const t = useTranslations('chat')
   // Without the locale `formatTime` uses the RUNTIME default, so a German user on
@@ -647,17 +653,29 @@ const AnswerDetails: FC<{
   }, [needsAttention])
   return (
     <Collapsible open={open} onOpenChange={setOpen} className="flex w-full flex-col">
-      <CollapsibleTrigger
-        className="text-muted-foreground hover:text-foreground focus-visible:ring-ring/60 touch-target duration-quick flex items-center gap-1.5 self-start rounded-md text-xs leading-relaxed transition-colors ease-out focus-visible:outline-none focus-visible:ring-2"
-        aria-label={t('answerDetails.triggerAria')}
-        data-testid="answer-details-trigger"
-      >
-        <span>{t('answerDetails.trigger')}</span>
-        <ChevronDown
-          className={`duration-quick size-3 shrink-0 transition-transform ease-out motion-reduce:transition-none${open ? ' rotate-180' : ''}`}
-          aria-hidden="true"
-        />
-      </CollapsibleTrigger>
+      {/* One line: copy, the trigger, and feedback at the far end. The
+          Collapsible is full-width so its content can open below; with the
+          trigger alone inside it, it took a line of its own under the rest. */}
+      <div className="flex min-h-6 flex-wrap items-center gap-2">
+        {before}
+        <CollapsibleTrigger
+          className="text-muted-foreground hover:text-foreground focus-visible:ring-ring/60 touch-target duration-quick flex items-center gap-1.5 self-start rounded-md text-xs leading-relaxed transition-colors ease-out focus-visible:outline-none focus-visible:ring-2"
+          aria-label={t('answerDetails.triggerAria')}
+          data-testid="answer-details-trigger"
+        >
+          <span>{t('answerDetails.trigger')}</span>
+          <ChevronDown
+            className={`duration-quick size-3 shrink-0 transition-transform ease-out motion-reduce:transition-none${open ? ' rotate-180' : ''}`}
+            aria-hidden="true"
+          />
+        </CollapsibleTrigger>
+        {after ? (
+          <>
+            <span className="flex-1" aria-hidden="true" />
+            {after}
+          </>
+        ) : null}
+      </div>
       <CollapsibleContent className="mt-1.5">
         <div className="flex flex-col gap-2">
           {hasConfidence && (
@@ -804,6 +822,13 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
       [remarkFileReferences, { fileNames: fileReferences.fileNames }],
     ],
     [citationNumbers, anchorPrefix, cardCount, anatomy, fileReferences.fileNames]
+  )
+  // What a run of Markdown INSIDE a card (a tab's `Text`) parses with: the
+  // citations only. Its `[2]` is this answer's source 2; card markers are not
+  // slots there.
+  const nestedPlugins = useMemo(
+    (): PluggableList => [[remarkCitationMarkers, { numbers: citationNumbers, anchorPrefix }]],
+    [citationNumbers, anchorPrefix]
   )
   // The cards the prose did NOT claim. Read off the same body the renderer
   // parses, because the block below has to be built before that parse happens.
@@ -977,6 +1002,7 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
   if (variant === 'inline') {
     return (
       <DiagramFilingProvider target={diagramFilingTarget}>
+      <NestedMarkdownPluginsProvider plugins={nestedPlugins}>
         <AnswerCitations
           documents={documents}
           anchorPrefix={anchorPrefix}
@@ -1115,9 +1141,16 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
             )}
           </div>
         </AnswerCitations>
+      </NestedMarkdownPluginsProvider>
       </DiagramFilingProvider>
     )
   }
+
+  const answerActions = hasAnswerActions ? (
+    <AnswerActions content={content} body={body} documents={documents} conversationId={conversationId} messageId={messageId} />
+  ) : null
+  const feedback =
+    hasFeedback && messageId ? <AnswerFeedback compact messageId={messageId} conversationId={conversationId} /> : null
 
   // Default variant — the click-dummy "Ergebnis" card: a role tab over a
   // tinted shell whose white inner block carries the composed answer, then a
@@ -1138,6 +1171,7 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
         : t('roles.result')
   return (
     <DiagramFilingProvider target={diagramFilingTarget}>
+    <NestedMarkdownPluginsProvider plugins={nestedPlugins}>
       <AnswerCitations
         documents={documents}
         anchorPrefix={anchorPrefix}
@@ -1286,24 +1320,10 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
                 >
                   {/* Copy the answer out — markdown, with or without its sources
                   written out. Before the disclosure: "take this with you" is
-                  what the reader wants first; the details are the afterthought. */}
-                  {hasAnswerActions && (
-                    <AnswerActions
-                      content={content}
-                      body={body}
-                      documents={documents}
-                      conversationId={conversationId}
-                      messageId={messageId}
-                    />
-                  )}
-                  {hasMetaRow && <span className="flex-1" aria-hidden="true" />}
-                  {/* `compact`: the thumbs stay on this line and their disclosure
-                  takes the next one full-width, rather than one tall box the
-                  row would centre the copy actions against. */}
-                  {hasFeedback && messageId && (
-                    <AnswerFeedback compact messageId={messageId} conversationId={conversationId} />
-                  )}
-                  {hasDetailsContent && (
+                  what the reader wants first; the details are the afterthought.
+                  `compact` feedback: the thumbs stay on this line and their
+                  disclosure takes the next one full-width. */}
+                  {hasDetailsContent ? (
                     <AnswerDetails
                       hasConfidence={hasConfidence}
                       answerConfidence={answerConfidence}
@@ -1320,7 +1340,15 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
                       readSources={readSources}
                       hasAnswerSources={hasAnswerSources}
                       timestamp={timestamp}
+                      before={answerActions}
+                      after={feedback}
                     />
+                  ) : (
+                    <>
+                      {answerActions}
+                      {hasMetaRow && <span className="flex-1" aria-hidden="true" />}
+                      {feedback}
+                    </>
                   )}
                 </div>
               )}
@@ -1328,6 +1356,7 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
           </div>
         </div>
       </AnswerCitations>
+    </NestedMarkdownPluginsProvider>
     </DiagramFilingProvider>
   )
 }

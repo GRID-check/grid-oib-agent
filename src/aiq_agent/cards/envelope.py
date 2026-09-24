@@ -80,17 +80,22 @@ ENVELOPE_REFUSAL = (
 #: list of objects, and the rendered field line ("list[object]") says nothing
 #: a model could fill it from.
 _COMPOSE_RULE = (
-    "COMPOSE. Cards that belong together travel as ONE `surface` card, an A2UI v0.9 component "
-    "list: variants the reader compares (two designs, two Bundesländer, Bestand against Umbau) "
-    "as `Tabs`, one tab per variant; cards that read together as `Row` (side by side where the "
-    'screen is wide) or `Column` (in order). The container has id "root"; every other component '
-    "is a card named by its type, carrying that card's own fields; children are referenced by id. "
-    "Two to six content cards inside, never an interactive or tool card, and a surface counts as "
-    "one card against the ceiling. A surface of one card is that card on its own.\n"
+    "COMPOSE. Variants the reader picks ONE of to read (two designs, two Bundesländer, Bestand "
+    "against Umbau, Außentreppe against zweites Treppenhaus) travel as ONE `surface` card, an A2UI "
+    "v0.9 component list with a `Tabs` root, one tab per variant. A tab holds a card, or a `Text` "
+    "holding the Markdown you would otherwise write for that variant: its table, its Status column, "
+    "its steps, its [N]. What holds for every variant stays in the prose above the tabs, and the "
+    "prose names the difference that decides between them; the tabs carry the detail. `Row` (side "
+    "by side where the screen is wide) and `Column` (in order) put cards that read together into "
+    'one slot. The container has id "root"; every other component is a card named by its type with '
+    'that card\'s own fields, or `{"id", "component": "Text", "text": "<Markdown>"}`; children are '
+    "referenced by id. Two to six leaves, never an interactive or tool card, and a surface counts as "
+    "one card against the ceiling. Two tabs that say nearly the same are one answer, not variants.\n"
     '{"type": "surface", "title": "Zweiter Fluchtweg — zwei Varianten", "components": ['
     '{"id": "root", "component": "Tabs", "tabs": [{"title": "Außentreppe", "child": "a"}, '
     '{"title": "Zweites Treppenhaus", "child": "b"}]}, '
-    '{"id": "a", "component": "process_map", "title": "…", "steps": […]}, '
+    '{"id": "a", "component": "Text", '
+    '"text": "| Kriterium | Anforderung | Status | Fundstelle |\\n|---|---|---|---|\\n…"}, '
     '{"id": "b", "component": "process_map", "title": "…", "steps": […]}]}'
 )
 
