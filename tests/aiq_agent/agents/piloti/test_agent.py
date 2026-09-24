@@ -12,10 +12,6 @@ from langchain_core.tools import tool
 from aiq_agent.agents.piloti.agent import PilotiAgent
 from aiq_agent.agents.piloti.answer_pipeline import append_minimal_citation
 from aiq_agent.agents.piloti.models import ResearchAgentState
-from aiq_agent.agents.piloti.repair import VerificationFailures
-from aiq_agent.agents.piloti.repair import repair_answer
-from aiq_agent.agents.piloti.repair import repair_lookups
-from aiq_agent.agents.piloti.repair import verification_observation
 from aiq_agent.common import LLMProvider
 from aiq_agent.common import LLMRole
 from aiq_agent.common.answer_envelope import render_envelope_response_format
@@ -2275,60 +2271,8 @@ class TestPilotiQuoteVerification:
         assert state.answer_quotes_verified is True
 
 
-class TestRepairLookups:
-    """The repair searches for exactly what failed, where the answer said it was."""
-
-    def _quote(self, body: str, inner: str):
-        from aiq_agent.common.citation_verification import UnverifiedQuote
-
-        span = f"„{inner}“"
-        start = body.index(span)
-        return UnverifiedQuote(quote=inner, span=span, start=start, end=start + len(span), best_coverage=0.1)
-
-    def test_a_failed_quote_is_looked_up_in_the_document_it_was_attributed_to(self):
-        body = "Die Richtlinie fordert „Treppen muessen rot sein“ [2].\n\n## Sources\n[2] OIB-330.pdf, p.12"
-        lookups = repair_lookups(
-            body,
-            valid_citations=[{"number": 2, "citation_key": "OIB-330.pdf, p.12", "url": None}],
-            removed_citations=[],
-            unverified_quotes=[self._quote(body, "Treppen muessen rot sein")],
-        )
-        assert lookups == [("Treppen muessen rot sein", "OIB-330.pdf")]
-
-    def test_a_quote_with_no_citation_nearby_searches_everywhere(self):
-        body = "„Treppen muessen rot sein“ steht irgendwo."
-        lookups = repair_lookups(
-            body,
-            valid_citations=[],
-            removed_citations=[],
-            unverified_quotes=[self._quote(body, "Treppen muessen rot sein")],
-        )
-        assert lookups == [("Treppen muessen rot sein", None)]
-
-    def test_a_removed_citation_is_searched_with_the_claim_not_the_reference_line(self):
-        body = (
-            "Einleitung. Die lichte Hoehe muss 2,10 m betragen [1]. Weiter im Text.\n\n"
-            "## Sources\n- [1] OIB-RL 4 – oib-rl_4.pdf, p.7"
-        )
-        lookups = repair_lookups(
-            body,
-            valid_citations=[],
-            removed_citations=[
-                {"number": 1, "line": "- [1] OIB-RL 4 – oib-rl_4.pdf, p.7", "reason": "not_in_registry"}
-            ],
-            unverified_quotes=[],
-        )
-        assert lookups == [("Die lichte Hoehe muss 2,10 m betragen.", "oib-rl_4.pdf")]
-
-    def test_two_is_a_repair_and_more_is_a_second_turn(self):
-        body = "A [1]. B [2]. C [3]."
-        removed = [{"number": n, "line": f"[{n}] x.pdf, p.{n}"} for n in (1, 2, 3)]
-        assert len(repair_lookups(body, valid_citations=[], removed_citations=removed, unverified_quotes=[])) == 2
-
-
 class TestPilotiRepairPass:
-    """One bounded repair: a failed quote is re-searched and rewritten, once,
-    and the answer that verifies better ships."""
+    """The one repair (ADR-0067): a misremembered quote corrected in place against its passage."""
 
     @pytest.fixture
     def mock_llm(self):
@@ -2380,67 +2324,95 @@ class TestPilotiRepairPass:
         )
     )
 
-    @pytest.mark.asyncio
-    async def test_a_fabricated_quote_is_re_searched_and_rewritten_once(self, mock_llm_provider, mock_llm):
-        mock_llm.ainvoke = AsyncMock(side_effect=[self._tool_call(), self.FABRICATED, self.VERBATIM])
-        agent = PilotiAgent(llm_provider=mock_llm_provider, tools=[knowledge_search])
-        state = ResearchAgentState(messages=[HumanMessage(content="Treppenhoehe?")])
-
-        result = await _run_with_bound_registry(agent, state, SourceRegistry())
-
-        output = result.messages[-1].content
-        assert "[nicht wörtlich in der Quelle belegt]" not in output
-        assert "2,10 m" in output
-        assert result.answer_quotes_verified is True
-        # Exactly one extra model call, and it was told what failed.
-        assert mock_llm.ainvoke.await_count == 3
-        repair_messages = mock_llm.ainvoke.await_args_list[2].args[0]
-        anchor = repair_messages[-1].content
-        assert "did not pass verification" in anchor
-        assert "automatischen" in anchor
-        assert "Durchgangshoehe" in anchor  # the fresh retrieval rides along
-
-    @pytest.mark.asyncio
-    async def test_a_repair_that_does_not_verify_better_is_discarded(self, mock_llm_provider, mock_llm):
-        still_wrong = AIMessage(
-            content=(
-                'Die Richtlinie fordert „Treppen muessen rot gestrichen sein" [1].\n\n## Sources\n[1] OIB-330.pdf, p.12'
-            )
+    MISQUOTED = AIMessage(
+        content=(
+            "Vorweg: Treppen sind Fluchtwege. Es gilt: „Die lichte Durchgangshoehe bei Treppen muss "
+            'wenigstens 2,10 m betragen" [1]. Danach folgt die Breite.\n\n## Sources\n[1] OIB-330.pdf, p.12'
         )
-        mock_llm.ainvoke = AsyncMock(side_effect=[self._tool_call(), self.FABRICATED, still_wrong])
-        agent = PilotiAgent(llm_provider=mock_llm_provider, tools=[knowledge_search])
+    )
+
+    @pytest.fixture
+    def patch_llm(self):
+        llm = MagicMock()
+        llm.ainvoke = AsyncMock(
+            return_value=AIMessage(content="Die lichte Durchgangshoehe von Treppen muss mindestens 2,10 m betragen")
+        )
+        return llm
+
+    @pytest.mark.asyncio
+    async def test_a_misremembered_quote_is_corrected_in_place(self, mock_llm_provider, mock_llm, patch_llm):
+        mock_llm.ainvoke = AsyncMock(side_effect=[self._tool_call(), self.MISQUOTED])
+        agent = PilotiAgent(llm_provider=mock_llm_provider, tools=[knowledge_search], card_repair_llm=patch_llm)
         state = ResearchAgentState(messages=[HumanMessage(content="Treppenhoehe?")])
 
         result = await _run_with_bound_registry(agent, state, SourceRegistry())
 
         output = result.messages[-1].content
-        # The ORIGINAL ships, marked — never the rewrite that verified no better.
+        # Only the words between the quotation marks moved: what the reader read
+        # around them, the marker included, is byte for byte what was written.
+        assert output.startswith("Vorweg: Treppen sind Fluchtwege. Es gilt: „Die lichte Durchgangshoehe von Treppen")
+        assert '2,10 m betragen" [1]. Danach folgt die Breite.' in output
+        assert "[nicht wörtlich in der Quelle belegt]" not in output
+        assert result.answer_quotes_verified is True
+        # No second frontier call and no second search: one small call.
+        assert mock_llm.ainvoke.await_count == 2
+        assert patch_llm.ainvoke.await_count == 1
+
+    @pytest.mark.asyncio
+    async def test_a_quote_no_passage_comes_close_to_keeps_its_marker(self, mock_llm_provider, mock_llm, patch_llm):
+        # Invented, not misremembered: "correcting" it would put the passage's
+        # different claim in the model's mouth.
+        mock_llm.ainvoke = AsyncMock(side_effect=[self._tool_call(), self.FABRICATED])
+        agent = PilotiAgent(llm_provider=mock_llm_provider, tools=[knowledge_search], card_repair_llm=patch_llm)
+        state = ResearchAgentState(messages=[HumanMessage(content="Treppenhoehe?")])
+
+        result = await _run_with_bound_registry(agent, state, SourceRegistry())
+
+        output = result.messages[-1].content
         assert "Loeschanlage" in output
-        assert "rot gestrichen" not in output
         assert "[nicht wörtlich in der Quelle belegt]" in output
         assert result.answer_quotes_verified is False
-        assert mock_llm.ainvoke.await_count == 3
+        assert patch_llm.ainvoke.await_count == 0
 
     @pytest.mark.asyncio
-    async def test_a_clean_answer_costs_no_extra_call(self, mock_llm_provider, mock_llm):
+    async def test_a_correction_the_passage_does_not_hold_is_refused(self, mock_llm_provider, mock_llm, patch_llm):
+        patch_llm.ainvoke = AsyncMock(
+            return_value=AIMessage(content="Die lichte Durchgangshoehe von Treppen muss mindestens 2,50 m betragen")
+        )
+        mock_llm.ainvoke = AsyncMock(side_effect=[self._tool_call(), self.MISQUOTED])
+        agent = PilotiAgent(llm_provider=mock_llm_provider, tools=[knowledge_search], card_repair_llm=patch_llm)
+        state = ResearchAgentState(messages=[HumanMessage(content="Treppenhoehe?")])
+
+        result = await _run_with_bound_registry(agent, state, SourceRegistry())
+
+        output = result.messages[-1].content
+        assert "wenigstens 2,10 m" in output
+        assert "2,50" not in output
+        assert "[nicht wörtlich in der Quelle belegt]" in output
+
+    @pytest.mark.asyncio
+    async def test_a_clean_answer_costs_no_extra_call(self, mock_llm_provider, mock_llm, patch_llm):
         mock_llm.ainvoke = AsyncMock(side_effect=[self._tool_call(), self.VERBATIM])
-        agent = PilotiAgent(llm_provider=mock_llm_provider, tools=[knowledge_search])
+        agent = PilotiAgent(llm_provider=mock_llm_provider, tools=[knowledge_search], card_repair_llm=patch_llm)
         state = ResearchAgentState(messages=[HumanMessage(content="Treppenhoehe?")])
 
         await _run_with_bound_registry(agent, state, SourceRegistry())
 
         assert mock_llm.ainvoke.await_count == 2
+        assert patch_llm.ainvoke.await_count == 0
 
     @pytest.mark.asyncio
-    async def test_switched_off_ships_the_marker_as_before(self, mock_llm_provider, mock_llm):
-        mock_llm.ainvoke = AsyncMock(side_effect=[self._tool_call(), self.FABRICATED])
-        agent = PilotiAgent(llm_provider=mock_llm_provider, tools=[knowledge_search], repair_pass=False)
+    async def test_switched_off_ships_the_marker_as_before(self, mock_llm_provider, mock_llm, patch_llm):
+        mock_llm.ainvoke = AsyncMock(side_effect=[self._tool_call(), self.MISQUOTED])
+        agent = PilotiAgent(
+            llm_provider=mock_llm_provider, tools=[knowledge_search], repair_pass=False, card_repair_llm=patch_llm
+        )
         state = ResearchAgentState(messages=[HumanMessage(content="Treppenhoehe?")])
 
         result = await _run_with_bound_registry(agent, state, SourceRegistry())
 
         assert "[nicht wörtlich in der Quelle belegt]" in result.messages[-1].content
-        assert mock_llm.ainvoke.await_count == 2
+        assert patch_llm.ainvoke.await_count == 0
 
 
 class TestClarificationGuidance:
@@ -3432,150 +3404,6 @@ class TestAssistantCheckpoint:
         assert assistant_checkpoint(message) is None
 
 
-class TestRepairRetrievalFailOpen:
-    """One bad retrieval must not poison the other: failures are dropped in
-    lookup order, and only an all-fail repair gives up."""
-
-    @pytest.fixture(autouse=True)
-    def _register_kb_source(self):
-        reset_registry()
-        populate_from_config(
-            [
-                {
-                    "id": "oib_knowledge",
-                    "name": "OIB Knowledge",
-                    "description": "Search the internal OIB knowledge base.",
-                    "tools": ["knowledge_search"],
-                }
-            ]
-        )
-        yield
-        reset_registry()
-
-    _BODY = "Erste Aussage [1]. Zweite Aussage [2].\n\n## Sources\n[1] a.pdf, p.1\n[2] b.pdf, p.2"
-    _FAILURES = VerificationFailures(
-        removed_citations=(
-            {"number": 1, "line": "[1] a.pdf, p.1", "reason": "not_in_registry"},
-            {"number": 2, "line": "[2] b.pdf, p.2", "reason": "not_in_registry"},
-        ),
-        unverified_quotes=(),
-    )
-
-    def _llm(self):
-        llm = MagicMock()
-        llm.bind_tools = MagicMock(return_value=llm)
-        llm.bind = MagicMock(return_value=llm)
-        llm.ainvoke = AsyncMock(return_value=AIMessage(content="rewritten"))
-        return llm
-
-    async def _repair(self, search_tool, llm):
-        return await repair_answer(
-            self._BODY,
-            failures=self._FAILURES,
-            tools=[search_tool],
-            llm=llm,
-            system_prompt=None,
-            history=[],
-        )
-
-    @pytest.mark.asyncio
-    async def test_one_failing_lookup_keeps_the_other_in_order(self):
-        @tool
-        async def knowledge_search(query: str) -> str:
-            """Search the internal knowledge base."""
-            if "Erste" in query:
-                raise RuntimeError("reranker down")
-            return f"passage for {query}"
-
-        llm = self._llm()
-        repaired = await self._repair(knowledge_search, llm)
-
-        assert repaired is not None and repaired.prose == "rewritten"
-        anchor = llm.ainvoke.await_args.args[0][-1].content
-        assert "passage for Zweite Aussage" in anchor
-        assert "Erste Aussage" not in anchor.split("Additional retrieval results")[1]
-
-    @pytest.mark.asyncio
-    async def test_all_lookups_failing_returns_none(self):
-        @tool
-        async def knowledge_search(query: str) -> str:
-            """Search the internal knowledge base."""
-            raise RuntimeError("retrieval down")
-
-        assert await self._repair(knowledge_search, self._llm()) is None
-
-
-class TestRepairRetrievalsRunTogether:
-    """The repair's lookups are one full retrieval each, reranker included, and
-    they are independent, so they run concurrently; the rewrite prompt still
-    reads them in lookup order."""
-
-    @pytest.fixture(autouse=True)
-    def _register_kb_source(self):
-        reset_registry()
-        populate_from_config(
-            [
-                {
-                    "id": "oib_knowledge",
-                    "name": "OIB Knowledge",
-                    "description": "Search the internal OIB knowledge base.",
-                    "tools": ["knowledge_search"],
-                }
-            ]
-        )
-        yield
-        reset_registry()
-
-    @pytest.mark.asyncio
-    async def test_two_lookups_overlap_and_keep_their_order(self):
-        import asyncio
-
-        in_flight = 0
-        peak = 0
-
-        @tool
-        async def knowledge_search(query: str) -> str:
-            """Search the internal knowledge base."""
-            nonlocal in_flight, peak
-            in_flight += 1
-            peak = max(peak, in_flight)
-            await asyncio.sleep(0.01)
-            in_flight -= 1
-            return f"passage for {query}"
-
-        llm = MagicMock()
-        llm.bind_tools = MagicMock(return_value=llm)
-        llm.bind = MagicMock(return_value=llm)
-        llm.ainvoke = AsyncMock(return_value=AIMessage(content="rewritten"))
-
-        body = "Erste Aussage [1]. Zweite Aussage [2].\n\n## Sources\n[1] a.pdf, p.1\n[2] b.pdf, p.2"
-        failures = VerificationFailures(
-            removed_citations=(
-                {"number": 1, "line": "[1] a.pdf, p.1", "reason": "not_in_registry"},
-                {"number": 2, "line": "[2] b.pdf, p.2", "reason": "not_in_registry"},
-            ),
-            unverified_quotes=(),
-        )
-        repaired = await repair_answer(
-            body,
-            failures=failures,
-            tools=[knowledge_search],
-            llm=llm,
-            system_prompt=None,
-            history=[],
-        )
-
-        assert repaired is not None and repaired.prose == "rewritten"
-        assert peak == 2, "the two repair lookups ran one after the other"
-        anchor = llm.ainvoke.await_args.args[0][-1].content
-        assert anchor.index("passage for Erste Aussage") < anchor.index("passage for Zweite Aussage")
-
-
-# ---------------------------------------------------------------------------
-# The working directory — the turn that WRITES instead of describing
-# ---------------------------------------------------------------------------
-
-
 def _render_researcher_prompt(*, drafting_enabled: bool = False) -> str:
     """The default prompt, rendered with the working directory on or off."""
 
@@ -4140,104 +3968,6 @@ class TestTheTidyingRulesLiveInTheTools:
     def test_a_name_is_taken_from_the_inventory_and_never_invented(self):
         moved = _file_verb_descriptions()["move_document"]
         assert "genau so, wie er in der Dateiübersicht steht" in moved
-
-
-class TestTheRepairIsAnObservationTheModelCanSee:
-    """What failed reaches the rewrite as a tool RESULT, not only as a request.
-
-    The repair is one of the two loops the model does not own (the other is
-    `knowledge_search`'s requery). It ran, rewrote, and the model was told in
-    prose that "verification failed" — never which marker in its own text, and
-    never in the one slot of a transcript that means "this came back".
-    """
-
-    _BODY = (
-        "Die Richtlinie fordert „Treppen muessen rot sein“ [3]. Weiter [4].\n\n"
-        "## Sources\n[3] OIB-330.pdf, p.12\n[4] b.pdf, p.2"
-    )
-
-    def _quote(self, inner: str):
-        from aiq_agent.common.citation_verification import UnverifiedQuote
-
-        span = f"„{inner}“"
-        start = self._BODY.index(span)
-        return UnverifiedQuote(quote=inner, span=span, start=start, end=start + len(span), best_coverage=0.1)
-
-    def _failures(self):
-        return VerificationFailures(
-            removed_citations=({"number": 4, "line": "[4] b.pdf, p.2", "reason": "not_in_registry"},),
-            unverified_quotes=(self._quote("Treppen muessen rot sein"),),
-            valid_citations=({"number": 3, "citation_key": "OIB-330.pdf, p.12"},),
-        )
-
-    def test_the_observation_names_the_failing_marker_and_the_quote(self):
-        _call, result = verification_observation(self._BODY, self._failures())
-        assert "[3] quote not found verbatim" in result.content
-        assert "Treppen muessen rot sein" in result.content
-        assert "[4] citation removed (not_in_registry)" in result.content
-
-    def test_a_quote_nobody_cited_says_so_rather_than_guessing(self):
-        body = "„Treppen muessen rot sein“ steht irgendwo."
-        from aiq_agent.common.citation_verification import UnverifiedQuote
-
-        span = "„Treppen muessen rot sein“"
-        start = body.index(span)
-        quote = UnverifiedQuote(
-            quote="Treppen muessen rot sein", span=span, start=start, end=start + len(span), best_coverage=0.1
-        )
-        _call, result = verification_observation(
-            body, VerificationFailures(removed_citations=(), unverified_quotes=(quote,))
-        )
-        assert "[?] quote not found verbatim" in result.content
-
-    def test_the_call_and_its_result_travel_together(self):
-        """A tool result with no matching call is a request providers refuse —
-        and the refusal lands on the NEXT request, not this one."""
-        call, result = verification_observation(self._BODY, self._failures())
-        assert call.type == "ai"
-        assert [tool_call["name"] for tool_call in call.tool_calls] == ["citation_check"]
-        assert result.type == "tool"
-        assert result.tool_call_id == call.tool_calls[0]["id"]
-
-    @pytest.mark.asyncio
-    async def test_the_rewrite_request_is_a_shape_a_provider_accepts(self, strict_provider_llm):
-        """Through the contract double: the observation sits between the answer
-        and the rewrite request, and the request still ends on a human turn."""
-
-        @tool
-        async def knowledge_search(query: str) -> str:
-            """Search the internal knowledge base."""
-            return f"passage for {query}"
-
-        reset_registry()
-        populate_from_config(
-            [
-                {
-                    "id": "oib_knowledge",
-                    "name": "OIB Knowledge",
-                    "description": "Search the internal OIB knowledge base.",
-                    "tools": ["knowledge_search"],
-                }
-            ]
-        )
-        try:
-            llm = strict_provider_llm(["rewritten"])
-            repaired = await repair_answer(
-                self._BODY,
-                failures=self._failures(),
-                tools=[knowledge_search],
-                llm=llm,
-                system_prompt="system",
-                history=[HumanMessage(content="Treppenhoehe?")],
-            )
-        finally:
-            reset_registry()
-
-        assert repaired is not None and repaired.prose == "rewritten"
-        sent = llm.received[-1]
-        kinds = [message.type for message in sent]
-        assert kinds[-3:] == ["ai", "tool", "human"], kinds
-        assert "[3] quote not found verbatim" in sent[-2].content
 
 
 class TestTheThreeDraftingTurnShapes:

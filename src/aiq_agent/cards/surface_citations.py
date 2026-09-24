@@ -25,19 +25,11 @@ from aiq_agent.cards.models import SURFACE_TEXT
 _CITATION = re.compile(r"(?<!\[)\[(\d+)\](?![\](])")
 
 
-def recite_text(text: str, renumber: Mapping[int, int], cited: Collection[int], *, strict: bool = False) -> str:
-    """``text`` with each ``[N]`` renumbered, or removed when it is not a cited source.
-
-    ``strict``: a number ``renumber`` does not map is removed rather than kept.
-    For numbers written against a DIFFERENT source list (the answer before a
-    repair rewrote it), where an unmapped ``[3]`` would land on whatever the
-    new list calls 3.
-    """
+def recite_text(text: str, renumber: Mapping[int, int], cited: Collection[int]) -> str:
+    """``text`` with each ``[N]`` renumbered, or removed when it is not a cited source."""
 
     def replace(match: re.Match[str]) -> str:
         old = int(match.group(1))
-        if strict and old not in renumber:
-            return ""
         new = renumber.get(old, old) if renumber else old
         return f"[{new}]" if new in cited else ""
 
@@ -46,14 +38,12 @@ def recite_text(text: str, renumber: Mapping[int, int], cited: Collection[int], 
     return re.sub(r"[  ]+([.,;:)])", r"\1", recited) if recited != text else text
 
 
-def recite_surface(
-    card: dict[str, Any], renumber: Mapping[int, int], cited: Collection[int], *, strict: bool = False
-) -> dict[str, Any]:
+def recite_surface(card: dict[str, Any], renumber: Mapping[int, int], cited: Collection[int]) -> dict[str, Any]:
     """The card with its ``Text`` leaves recited; any other card is returned as it is."""
     if card.get("type") != "surface":
         return card
     components = [
-        {**component, "text": recite_text(str(component.get("text", "")), renumber, cited, strict=strict)}
+        {**component, "text": recite_text(str(component.get("text", "")), renumber, cited)}
         if component.get("component") == SURFACE_TEXT
         else component
         for component in card.get("components", [])

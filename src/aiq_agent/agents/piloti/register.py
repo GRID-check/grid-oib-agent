@@ -128,9 +128,10 @@ class ResearchAgentConfig(FunctionBaseConfig, name="research_agent"):
     repair_pass: bool = Field(
         default=True,
         description=(
-            "After citation and quote verification, try ONE repair when something failed: "
-            "one more retrieval aimed at the failing quote or citation, one rewrite, then "
-            "re-verify and keep the better answer. Off ships the markers as before."
+            "Correct a quotation no retrieved passage holds verbatim, when one passage comes close: "
+            "the small `card_repair_llm` returns that passage's own wording and only the text "
+            "between the quotation marks is replaced, then re-verified (ADR-0067). Off, or without "
+            "`card_repair_llm`, ships the marker."
         ),
     )
     card_repair_llm: LLMRef | None = Field(

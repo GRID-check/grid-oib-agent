@@ -1040,7 +1040,7 @@ export const chat = {
         citations: 'Checking every citation against the sources …',
         // A citation or a quote failed verification; one more search and one
         // rewrite are tried before the answer ships with its markers.
-        repair: 'A citation did not hold up — searching again …',
+        repair: 'A quotation differs from the source’s wording — correcting it against the original …',
         escalation: 'A quick lookup is not enough — starting deep research',
       },
     },

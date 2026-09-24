@@ -57,10 +57,11 @@ _ANSI = re.compile(r"\x1b\[[0-9;]*m")
 #: A cited corpus file's Richtlinie number: `oib-rl_2.1_…`, `oib-richtlinie_2.2_…`.
 _CITED_FAMILY = re.compile(r"(?:rl|richtlinie)_(\d+(?:\.\d+)?)_", re.IGNORECASE)
 _LOG_SIGNALS = {
-    # Adopted and discarded apart: one count of both said a repair happened
-    # when the reader saw nothing change.
-    "repair_adopted": "repair pass adopted",
-    "repair_discarded": "repair pass discarded",
+    # The one repair (ADR-0067): a flagged quote, and a patch attempt on one
+    # close enough to its passage. Each flagged quote's closeness is in the
+    # log beside it, which is what PATCH_FLOOR is read off.
+    "unverified_quote": "unverified quote (",
+    "quote_patch": "quote patch corrected",
     # What the reader sees: the text they had read changed at the terminal.
     "settled_replaced": "terminal frame replaced the settled answer",
     "summary_gated": "summary gated out",

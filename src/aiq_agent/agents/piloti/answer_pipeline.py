@@ -44,29 +44,28 @@ from aiq_agent.common.citation_verification import annotate_unverified_quotes
 from aiq_agent.common.citation_verification import drop_ungrounded_trailer_values
 from aiq_agent.common.citation_verification import expand_grouped_citations
 from aiq_agent.common.citation_verification import get_turn_captures
-from aiq_agent.common.citation_verification import lost_citations
 from aiq_agent.common.citation_verification import sanitize_report
 from aiq_agent.common.citation_verification import source_origin_token
 from aiq_agent.common.citation_verification import verify_citations
 from aiq_agent.common.citation_verification import verify_quoted_spans
 from aiq_agent.common.tool_validation import validate_tool_availability
+from aiq_agent.common.turn_status import emit_answer_repair
 from aiq_agent.common.turn_status import emit_citation_check
 
 from .answer_shape import drop_restated_mindmaps
 from .dsml import strip_and_salvage_dsml_tool_calls
 from .grounding import answer_mentions_normative_claim
-from .history import prose_history
 from .markers import detect_and_strip_confidence_marker
 from .markers import detect_and_strip_escalation_marker
-from .repair import Repair
-from .repair import VerificationFailures
+from .quote_patch import QuotePatchFn
+from .quote_patch import patch_quotes
 
 logger = logging.getLogger(__name__)
 
-#: The repair the agent injects: ``(original prose, failures, history)`` →
-#: a rewrite, or ``None`` to keep the marked answer. ``None`` as the function
-#: means the repair pass is off.
-RepairFn = Callable[[str, VerificationFailures, list[Any]], Awaitable[Repair | None]]
+#: The repair the agent injects (``quote_patch``, ADR-0067): ``(quote as
+#: written, the passage it came closest to)`` → the passage's own wording, or
+#: ``None`` to keep the marker. ``None`` as the function means the repair is off.
+RepairFn = QuotePatchFn
 
 #: The card repair the agent injects: ``(card as written, the refusal with the
 #: shape, the answer prose)`` → the corrected card object, or ``None`` to drop
@@ -120,9 +119,6 @@ class FinalAnswer:
     skills_applied: tuple[str, ...] = ()
     cited: tuple[CitedSource, ...] = ()
     removed_citations: tuple[dict[str, Any], ...] = ()
-    #: The retrieval of an ADOPTED repair: already in the registry, and part
-    #: of this turn's capture for the ledger.
-    repair_sources: tuple[SourceEntry, ...] = ()
 
 
 # --------------------------------------------------------------------------
@@ -426,16 +422,6 @@ class _Verified:
     content: str
     verification: Any
     unverified_quotes: tuple[UnverifiedQuote, ...]
-    repair_sources: tuple[SourceEntry, ...] = ()
-    #: Set when a repair's rewrite was adopted: each number the ORIGINAL cited
-    #: mapped to the number the rewrite gives the same source. The cards were
-    #: written against the original's list, so they follow this, not the
-    #: rewrite's own numbering.
-    rewrite_numbers: dict[int, int] | None = None
-
-    @property
-    def failure_count(self) -> int:
-        return len(lost_citations(self.verification.removed_citations)) + len(self.unverified_quotes)
 
 
 def _verify(content: str, registry: SourceRegistry) -> _Verified:
@@ -455,87 +441,21 @@ def _verify(content: str, registry: SourceRegistry) -> _Verified:
     return _Verified(verification.verified_report, verification, tuple(quotes))
 
 
-def _distinct_cited(valid_citations: Sequence[dict[str, Any]]) -> int:
-    """How many distinct sources the verified citations point at."""
-    return len({citation.get("citation_key") or citation.get("url") for citation in valid_citations} - {None, ""})
+async def _verify_with_quote_patch(content: str, registry: SourceRegistry, patch: RepairFn | None) -> _Verified:
+    """Verify, correct the misremembered quotes in place, and verify what ships.
 
-
-def _adopt_if_better(verified: _Verified, repaired: Repair, registry: SourceRegistry) -> _Verified | None:
-    """Verify the rewrite against a scratch registry; adopt it only if it verifies better.
-
-    Only an adopted repair changes what the answer is grounded in: a discarded
-    one leaves the registry, and every decision downstream that reads it, such
-    as the single-source fallback, exactly as it was.
+    The one repair (ADR-0067). A removed citation is not repaired: the settled
+    snapshot has already dropped it where the reader can see. Only a quote's
+    wording changes, between its own quotation marks, so every ``[N]``, every
+    card number and every other byte the reader has read stays put. What ships
+    is re-verified, so an unpatched quote still carries its marker.
     """
-    scratch = SourceRegistry()
-    for source in (*registry.all_sources(), *repaired.sources):
-        scratch.add(source)
-    candidate = verify_citations(repaired.prose, scratch, reference_sources=scratch.all_sources())
-    candidate_quotes = tuple(verify_quoted_spans(candidate.verified_report, scratch))
-    after = len(candidate.removed_citations) + len(candidate_quotes)
-    # Fewer failures alone is not better: a rewrite that drops most of its
-    # citations has fewer failures by construction. Live, one replaced a
-    # streamed answer citing nine sources with one citing two, 22 s after the
-    # reader had it (ADR-0066). So the rewrite must also cite at least as many
-    # sources as the verified original still does.
-    before_cited, after_cited = (
-        _distinct_cited(verified.verification.valid_citations),
-        _distinct_cited(candidate.valid_citations),
-    )
-    if not (after < verified.failure_count and candidate.valid_citations and after_cited >= before_cited):
-        logger.info(
-            "Piloti: repair pass discarded (%d -> %d failures, %d -> %d cited sources)",
-            verified.failure_count,
-            after,
-            before_cited,
-            after_cited,
-        )
-        return None
-    logger.info("Piloti: repair pass adopted (%d -> %d failures)", verified.failure_count, after)
-    for source in repaired.sources:
-        registry.add(source)
-    return _Verified(
-        candidate.verified_report,
-        candidate,
-        candidate_quotes,
-        tuple(repaired.sources),
-        rewrite_numbers=_same_source_numbers(verified.verification.valid_citations, candidate.valid_citations),
-    )
-
-
-def _same_source_numbers(before: Sequence[dict[str, Any]], after: Sequence[dict[str, Any]]) -> dict[int, int]:
-    """``{number before: number after}`` for each source both citation lists name."""
-    after_by_source = {
-        citation.get("citation_key") or citation.get("url"): citation.get("number") for citation in after
-    }
-    mapped: dict[int, int] = {}
-    for citation in before:
-        number, later = citation.get("number"), after_by_source.get(citation.get("citation_key") or citation.get("url"))
-        if isinstance(number, int) and isinstance(later, int):
-            mapped[number] = later
-    return mapped
-
-
-async def _verify_with_repair(
-    content: str,
-    registry: SourceRegistry,
-    repair: RepairFn | None,
-    history: list[Any],
-) -> _Verified:
     verified = _verify(content, registry)
-    failures = VerificationFailures(
-        # Merged duplicates lost nothing, so they are not something to repair
-        # (``citation_verification.lost_citations``): the same rule as the count.
-        removed_citations=tuple(lost_citations(verified.verification.removed_citations)),
-        unverified_quotes=verified.unverified_quotes,
-        valid_citations=tuple(verified.verification.valid_citations),
-    )
-    if repair is None or not failures:
+    if patch is None or not verified.unverified_quotes:
         return verified
-    repaired = await repair(content, failures, history)
-    if repaired is None:
-        return verified
-    return _adopt_if_better(verified, repaired, registry) or verified
+    emit_answer_repair(quotes=len(verified.unverified_quotes))
+    patched, count = await patch_quotes(verified.content, verified.unverified_quotes, patch)
+    return _verify(patched, registry) if count else verified
 
 
 @dataclass(frozen=True)
@@ -548,8 +468,6 @@ class _Grounding:
     cited: tuple[CitedSource, ...] = ()
     unverified_quotes: tuple[UnverifiedQuote, ...] = ()
     removed_citations: tuple[dict[str, Any], ...] = ()
-    repair_sources: tuple[SourceEntry, ...] = ()
-    rewrite_numbers: dict[int, int] | None = None
 
 
 def _entry_for(citation: dict[str, Any], registry: SourceRegistry) -> SourceEntry | None:
@@ -598,8 +516,6 @@ def _ground(verified: _Verified, registry: SourceRegistry, *, lookup_attempted: 
     common = {
         "unverified_quotes": verified.unverified_quotes,
         "removed_citations": tuple(verified.verification.removed_citations),
-        "repair_sources": verified.repair_sources,
-        "rewrite_numbers": verified.rewrite_numbers,
     }
     if verified.verification.valid_citations:
         cited = _cited_sources(verified.verification.valid_citations, registry)
@@ -643,15 +559,8 @@ def _require_retrieval(lookup_attempted: bool, tools: Sequence[BaseTool]) -> Non
     raise EmptySourceRegistryError("research", unavailable_tools=unavailable, available_count=available_count)
 
 
-def _recite_surface_cards(
-    renumber_map: dict[int, int] | None, cited: tuple[CitedSource, ...], rewrite_numbers: dict[int, int] | None = None
-) -> None:
-    """Hold the ``[N]`` in this turn's composed surfaces to the prose's citations (``cards/surface_citations``).
-
-    After an adopted repair the cards still carry the ORIGINAL's numbers:
-    they are carried through ``rewrite_numbers`` first, and one the rewrite
-    no longer cites is dropped rather than read against the new list.
-    """
+def _recite_surface_cards(renumber_map: dict[int, int] | None, cited: tuple[CitedSource, ...]) -> None:
+    """Hold the ``[N]`` in this turn's composed surfaces to the prose's citations (``cards/surface_citations``)."""
     from aiq_agent.cards.registry import get_card_registry
     from aiq_agent.cards.surface_citations import recite_surface
 
@@ -659,12 +568,8 @@ def _recite_surface_cards(
     if registry is None:
         return
     numbers = {source.number for source in cited if source.number is not None}
-    strict = rewrite_numbers is not None
-    if strict:
-        later = renumber_map or {}
-        renumber_map = {before: later.get(after, after) for before, after in rewrite_numbers.items()}
     for index, card in enumerate(registry.snapshot()):
-        recited = recite_surface(card, renumber_map or {}, numbers, strict=strict)
+        recited = recite_surface(card, renumber_map or {}, numbers)
         if recited is not card:
             registry.replace(index, recited)
 
@@ -976,19 +881,14 @@ def _suppress_cards(content: str, gated_meta: dict[str, Any] | None) -> tuple[st
     return content, (kept if "callout" in kept else None), True
 
 
-def _trailer_captures(
-    turn_sources: Sequence[SourceEntry] | None,
-    repair_sources: Sequence[SourceEntry],
-) -> list[SourceEntry]:
-    """The capture log the trailer-value gate reads: this turn's reads, plus repairs.
+def _trailer_captures(turn_sources: Sequence[SourceEntry] | None) -> list[SourceEntry]:
+    """The capture log the trailer-value gate reads: this turn's reads.
 
     The caller passes the turn log explicitly because the capture ContextVar is
     already reset when finalization runs; ``None`` (direct callers, tests)
-    falls back to the ambient log. An adopted repair fetch is this turn's read
-    too, so its sources count — otherwise the gate drops the very values the
-    repair established.
+    falls back to the ambient log.
     """
-    return [*(turn_sources if turn_sources is not None else get_turn_captures()), *repair_sources]
+    return list(turn_sources if turn_sources is not None else get_turn_captures())
 
 
 async def finalize_answer(
@@ -1005,9 +905,8 @@ async def finalize_answer(
     ``turn_sources`` is this turn's capture, which the caller must pass when it
     finalises AFTER ``end_turn_capture``: the ContextVar is back to its prior
     value by then, so the trailer-grounding veto would read an empty list and
-    abstain on every turn. The adopted repair sources are appended to it, so a
-    verdict or takeaway the repair established stays grounded. ``None`` falls
-    back to the ambient log for direct callers.
+    abstain on every turn. ``None`` falls back to the ambient log for direct
+    callers.
 
     Raises :class:`EmptySourceRegistryError` when a data-source lookup ran and
     nothing came back: that turn has no answer to show.
@@ -1028,8 +927,7 @@ async def finalize_answer(
     sources = registry.all_sources()
     if sources:
         emit_citation_check(source_count=len(sources))
-        history = prose_history(messages[:index])
-        verified = await _verify_with_repair(extracted.content, registry, repair, history)
+        verified = await _verify_with_quote_patch(extracted.content, registry, repair)
         grounding = _ground(verified, registry, lookup_attempted=lookup_attempted)
     else:
         _require_retrieval(lookup_attempted, tools)
@@ -1038,12 +936,12 @@ async def finalize_answer(
     sanitized = sanitize_report(grounding.content)
     content, _ = drop_restated_mindmaps(sanitized.sanitized_report)
     cited = _renumbered(grounding.cited, sanitized.renumber_map)
-    _recite_surface_cards(sanitized.renumber_map, cited, grounding.rewrite_numbers)
+    _recite_surface_cards(sanitized.renumber_map, cited)
     meta = _gated_meta(
         extracted,
         content,
         registry,
-        turn_sources=_trailer_captures(turn_sources, grounding.repair_sources),
+        turn_sources=_trailer_captures(turn_sources),
     )
     content, meta, _cards_suppressed = _suppress_cards(content, meta)
     content = resolve_callout_marker(content, has_callout=bool(meta and "callout" in meta))
@@ -1068,5 +966,4 @@ async def finalize_answer(
         skills_applied=_skills_applied(extracted.meta),
         cited=cited,
         removed_citations=grounding.removed_citations,
-        repair_sources=grounding.repair_sources,
     )

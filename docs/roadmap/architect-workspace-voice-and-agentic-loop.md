@@ -311,7 +311,7 @@ Two quality loops already exist. Both are **workflows inside a tool or after the
 
 **Requery (CRAG-shaped, inside `knowledge_search`).** If `requery_llm` is set, a sufficiency judge may fire alternative formulations against every in-scope collection, fuse them with RRF, and rerank. The live line can show `status.retrieval.requery`. The model issued one search. The pipeline widened it. (`sources/knowledge_layer/src/requery.py`, `register.py` around the `judge_sufficiency` call; `turn_status.py:164–167`)
 
-**Repair pass (evaluator-optimizer, after verification).** If a citation or quote fails, the turn may retrieve once more aimed at the failing text and rewrite, then re-verify (`repair_pass: true`). The reader may see `status.repair`. The model did not choose this.
+**Repair pass (evaluator-optimizer, after verification).** If a citation or quote fails, the turn may retrieve once more aimed at the failing text and rewrite, then re-verify (`repair_pass: true`). The reader may see `status.repair`. The model did not choose this. *(2026-09-24: superseded by [ADR-0067](../adr/0067-the-repair-corrects-a-misremembered-quote-in-place.md). With the prose streaming, the rewrite replaced an answer the reader had read; the repair now corrects only a misremembered quote, in place, on the small model.)*
 
 The 2026-09-01 review said there was no repair and no retrieval loop. On this develop tip the code has both. The review’s *product* claim still holds: the reader is not shown a decision, only a status key, and the model is not the one looping.
 

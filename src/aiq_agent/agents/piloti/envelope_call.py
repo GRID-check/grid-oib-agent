@@ -1,4 +1,4 @@
-"""The envelope-enforced LLM call, shared by forced synthesis and the repair.
+"""The envelope-enforced LLM call, shared by the answering call and forced synthesis.
 
 Provider enforcement for the ```answer_json envelope, strongest first:
 

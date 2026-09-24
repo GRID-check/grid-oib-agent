@@ -108,9 +108,10 @@ until the terminal frame marked it (now marked at settle); and after an
 adopted rewrite a card's `[N]` was read against the rewrite's source list
 (now carried through the numbers both lists share). Whether the whole-answer
 rewrite should give way to a span-level repair is weighed in
-`docs/architecture/repair-pass-alternatives-2026-09.md`; the answer suite now
-counts adopted and discarded repairs apart, and each terminal that changed
-the settled text (`settled_replaced`).
+`docs/architecture/repair-pass-alternatives-2026-09.md` and decided in
+ADR-0067: the rewrite is gone, and the repair corrects a misremembered quote
+in place. The answer suite counts each terminal that changed the settled text
+(`settled_replaced`).
 
 ### Consequences
 

@@ -9,8 +9,10 @@ marked when the prose settles, not at the terminal frame
 adopted rewrite and is dropped when the rewrite no longer cites it
 (`rewrite_numbers`, `recite_surface(strict=True)`); the answer suite counts
 `repair_adopted`, `repair_discarded` and `settled_replaced` (the terminal text
-differing from the settled one) apart. **Open**: the span-level repair (§5) and
-the structural option, both waiting on those counts.
+differing from the settled one) apart. The span-level repair (§5) is built,
+narrower than sketched: ADR-0067 replaces only the quotation's inner text
+with the passage's verbatim wording, never the sentence. **Open**: the
+structural option.
 
 ## 1. What the reader should be able to rely on
 

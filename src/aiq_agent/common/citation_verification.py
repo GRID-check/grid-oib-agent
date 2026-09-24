@@ -2926,6 +2926,10 @@ class UnverifiedQuote:
     # several fire. The annotation is the same either way; the reason tells the
     # repair which failure it is looking at.
     reason: str = "not_verbatim"
+    # The source whose chunk came closest (the ``best_coverage`` one): for a
+    # quote the model misremembered, the passage it was quoting. What the quote
+    # patch corrects the wording against, with no second search.
+    nearest: SourceEntry | None = field(default=None, compare=False, repr=False)
 
 
 def _normalize_for_quote_match(text: str) -> str:
@@ -3141,7 +3145,7 @@ def verify_quoted_spans(
     # will be handed.
     code = _code_spans(body)
     normalized_chunks = [
-        norm
+        (norm, source)
         for source in registry.all_sources()
         if source.chunk_text
         if (norm := _normalize_for_quote_match(source.chunk_text))
@@ -3161,7 +3165,10 @@ def verify_quoted_spans(
             continue
         too_long = len(inner.split()) > _QUOTE_MAX_WORDS
         uncited = not _quote_has_citation_in_sentence(body, match.start(), match.end())
-        best_coverage = max(_quote_coverage(norm_quote, chunk) for chunk in normalized_chunks)
+        best_coverage, nearest = max(
+            ((_quote_coverage(norm_quote, chunk), source) for chunk, source in normalized_chunks),
+            key=lambda scored: scored[0],
+        )
         if too_long or uncited or best_coverage < threshold:
             reasons = (
                 "+".join(name for name, hit in (("too_long", too_long), ("uncited", uncited)) if hit) or "not_verbatim"
@@ -3174,6 +3181,7 @@ def verify_quoted_spans(
                     end=match.end(),
                     best_coverage=best_coverage,
                     reason=reasons,
+                    nearest=nearest,
                 )
             )
     return unverified

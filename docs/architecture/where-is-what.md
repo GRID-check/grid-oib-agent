@@ -195,7 +195,7 @@ does not exist, so a moved file is caught; a missing row is not.
 | Answer envelope, Python | `src/aiq_agent/common/answer_envelope.py` — `extract_answer_envelope`, `gate_answer_meta` | [`docs/api/websocket-protocol.md`](../api/websocket-protocol.md) | ADR-0037 |
 | Answer envelope, TypeScript sanitizer | `frontends/ui/src/lib/conversations/message-answer-meta.ts` — `sanitizeAnswerMeta` | same | ADR-0037 |
 | Answer envelope, shared wire fixture | `tests/fixtures/answer_meta/wire_payload.json` | same | ADR-0037 |
-| Answer repair after verification | `src/aiq_agent/agents/piloti/repair.py` — `repair_answer` | [`citation-system-audit-2026-07.md`](citation-system-audit-2026-07.md) | ADR-0058 (retrieval correctness) |
+| Answer repair after verification | `src/aiq_agent/agents/piloti/quote_patch.py` — `patch_quotes` | [`repair-pass-alternatives-2026-09.md`](repair-pass-alternatives-2026-09.md) | ADR-0067 |
 | Confidence markers and the overconfidence guard | `src/aiq_agent/agents/piloti/markers.py` | [`quote-verification-calibration-2026-07.md`](quote-verification-calibration-2026-07.md) | ADR-0058 (retrieval correctness) |
 | Turn status steps | `src/aiq_agent/common/turn_status.py` — `emit_status` | [`docs/api/websocket-protocol.md`](../api/websocket-protocol.md) | ADR-0009 |
 | What one round of retrieval calls RAN, repeated or failed | `src/aiq_agent/common/retrieval_rounds.py` — `repeat_fetches`, `ran_signatures`, `assistant_checkpoint`; Piloti's own guards in `src/aiq_agent/agents/piloti/agent.py` — `_split_round` | [`backend-deep-dive.md`](backend-deep-dive.md) | ADR-0052 |
