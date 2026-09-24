@@ -198,6 +198,17 @@ def _family_number(family: str | None) -> str | None:
     return match.group(1) if match else None
 
 
+def _card_strings(value: Any) -> list[str]:
+    """Every string a card carries, depth first: titles, table cells, a `Text` leaf's Markdown."""
+    if isinstance(value, str):
+        return [value]
+    if isinstance(value, dict):
+        return [text for item in value.values() for text in _card_strings(item)]
+    if isinstance(value, list):
+        return [text for item in value for text in _card_strings(item)]
+    return []
+
+
 def _has_shape(shape: str, answer: str, envelope: dict | None) -> bool:
     """Whether the delivered answer has this shape: variant tabs, a table, a drawing."""
     if shape == "tabs":
@@ -222,7 +233,9 @@ def check(question: dict, run: Run, envelope: dict | None) -> dict[str, bool]:
     if family:
         checks["family_cited"] = family in run.cited_families
     expect = question.get("expect") or {}
-    answer = _normal(run.answer)
+    # The reader sees the prose AND the cards (a variant's table sits in a tab),
+    # so a value counts wherever it was delivered.
+    answer = _normal("\n".join([run.answer, *_card_strings((envelope or {}).get("cards") or [])]))
     for item in expect.get("mentions") or []:
         options = item if isinstance(item, list) else [item]
         checks[f"mentions:{options[0]}"] = any(_normal(str(option)) in answer for option in options)

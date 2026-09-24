@@ -161,6 +161,13 @@ the envelope makes free.
    default is admin-set, and the census is how to compare candidates on
    seconds *and* answers.
 
+**First answer-suite baseline** (`task be:eval:answer-suite`, core set, two
+runs each, table index, 2026-09-24): every check held on every run, and the
+spread is one question wide. Median wall 27-44 s for five of six; the
+two-variant Fluchtweg question is the outlier at 91 s (72-109), 3-4 research
+calls with up to eleven tool calls, and reasoning spikes of 2 950-3 710 tokens.
+It answers correctly and in tabs; it is the question to work on next.
+
 Decided against: a reasoning level that changes from round to round (e.g.
 `medium` for the first round, `low` after). A turn runs at ONE level, the one
 its role is configured with; the level is a property of the run, not of a

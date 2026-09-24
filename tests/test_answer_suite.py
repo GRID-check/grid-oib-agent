@@ -120,3 +120,14 @@ def test_the_core_set_needs_no_project():
     questions, skipped = suite.load_questions()
     assert questions and all(q.get("family") for q in questions)
     assert "ordner-brandschutz-listing" in skipped
+
+
+def test_a_value_inside_a_tab_counts(tmp_path):
+    # Seen in the first baseline: REI 60 stood in the variant tab's table, and a
+    # check that read only the prose called the answer wrong.
+    run = suite.observe(QUESTION, 1, *_recorded_turn(tmp_path))
+    run.answer = "Die Nachweise unterscheiden sich je Variante: [[card:1]]"
+    envelope = {
+        "cards": [{"type": "surface", "components": [{"id": "a", "component": "Text", "text": "| Wand | REI 60 |"}]}]
+    }
+    assert suite.check(QUESTION, run, envelope)["mentions:REI 60"] is True
