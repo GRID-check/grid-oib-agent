@@ -38,14 +38,17 @@ afterEach(() => {
 })
 
 describe('while the answer is still arriving', () => {
-  it('shows the source and does not try to draw it', async () => {
+  it('holds the drawing\'s place and does not try to draw it', async () => {
     // The stabiliser in `MarkdownRenderer` appends a synthetic closing fence to
     // half-arrived markdown, so an in-flight mermaid block LOOKS complete on
     // every token. Handing that to mermaid renders a parse error per token.
     render(<MermaidDiagram source={SOURCE} isStreaming />)
     expect(screen.getByTestId('mermaid-diagram')).toHaveAttribute('data-state', 'streaming')
     expect(renderer).not.toHaveBeenCalled()
-    expect(screen.getByText(/graph TD/)).toBeInTheDocument()
+    // Not the source: a code block turning into a picture when its fence
+    // closed was the largest jump a streamed answer made (ADR-0066).
+    expect(screen.queryByText(/graph TD/)).not.toBeInTheDocument()
+    expect(screen.getByTestId('mermaid-diagram')).toHaveAttribute('aria-busy', 'true')
   })
 
   it('draws it once the answer is finished', async () => {
