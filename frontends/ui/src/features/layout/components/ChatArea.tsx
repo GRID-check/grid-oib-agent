@@ -258,18 +258,16 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
   // effect can find it in the committed DOM (motion.div doesn't attach a
   // forwarded ref synchronously); `anchorSpacerRef` is an invisible min-height
   // block below the list that guarantees there is always enough scroll room to
-  // bring the question to the top (imperatively sized so it needs no extra
-  // render); `prevUserMessageIdRef` debounces the anchor so it fires once per
+  // bring the question to the top (imperatively sized, and refitted as the
+  // answer grows, so it needs no extra render); `prevUserMessageIdRef` debounces the anchor so it fires once per
   // newly-sent question (and never on mount / session restore, where the
   // bottom-jump effect below owns scrolling).
   const anchorSpacerRef = useRef<HTMLDivElement>(null)
+  // Whether a sent question is anchored to the top right now: from its send
+  // until the thread is swapped. While it is, the spacer is kept FITTED
+  // (`fitAnchorSpacer`) rather than a fixed viewport.
+  const anchoredRef = useRef(false)
   const prevUserMessageIdRef = useRef<string | null | undefined>(currentUserMessageId)
-  // Latest streaming flag for the deferred spacer-release check below. Kept in a
-  // ref so a rAF scheduled while streaming was momentarily false (a send that
-  // anchors a turn, then flips streaming true a tick later) sees the up-to-date
-  // value and does not release the spacer out from under a live stream.
-  const isStreamingRef = useRef(isStreaming)
-  isStreamingRef.current = isStreaming
   // Latest reduced-motion preference for the anchor scroll (a JS scrollIntoView
   // overrides the CSS scroll-behavior gate, so honour it explicitly). Ref-held so
   // the anchor effect's deps stay tied to the turn id, not this preference.
@@ -569,6 +567,25 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
     setShowScrollButton((prev) => (prev !== !atBottom ? !atBottom : prev))
   }, [])
 
+  // The spacer holds exactly the room the anchored turn has not filled yet: a
+  // viewport minus the height from the question's top to the end of the list.
+  // As the answer grows the spacer shrinks by the same amount, so the list's
+  // scroll height never changes and nothing is ever clamped. A fixed viewport
+  // released at the end of the stream did change it: the browser clamped the
+  // scroll position and a short answer dropped by the room it had not used,
+  // hundreds of pixels, the moment it finished (ADR-0066). Idempotent, so the
+  // resize it causes settles on the next observation.
+  const fitAnchorSpacer = useCallback(() => {
+    const container = scrollContainerRef.current
+    const spacer = anchorSpacerRef.current
+    if (!anchoredRef.current || !container || !spacer) return
+    const target = container.querySelector<HTMLElement>('[data-chat-anchor="true"]')
+    if (!target) return
+    const filled = spacer.getBoundingClientRect().top - target.getBoundingClientRect().top
+    const room = `${Math.max(0, Math.round(container.clientHeight - filled))}px`
+    if (spacer.style.minHeight !== room) spacer.style.minHeight = room
+  }, [])
+
   // Follow height growth (streaming tokens AND newly appended messages) via a
   // ResizeObserver on the list. rAF + behavior:'auto' means we ride the growth
   // frame-by-frame instead of firing competing 'smooth' animations. When the
@@ -585,6 +602,7 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
       const height = entries[entries.length - 1]?.contentRect.height ?? lastHeight
       const grew = height > lastHeight
       lastHeight = height
+      fitAnchorSpacer()
       if (isAtBottomRef.current) {
         cancelAnimationFrame(raf)
         raf = requestAnimationFrame(() => scrollToBottom('auto'))
@@ -598,7 +616,7 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
       observer.disconnect()
     }
     // Re-attach when the list mounts/unmounts (skeleton ↔ list ↔ welcome).
-  }, [scrollToBottom, isEmpty, hasHydrated])
+  }, [scrollToBottom, fitAnchorSpacer, isEmpty, hasHydrated])
 
   // On conversation switch, jump straight to the newest message and re-engage
   // auto-follow (no smooth animation across a full thread swap). Also release
@@ -606,6 +624,7 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
   useEffect(() => {
     isAtBottomRef.current = true
     setShowScrollButton(false)
+    anchoredRef.current = false
     if (anchorSpacerRef.current) anchorSpacerRef.current.style.minHeight = '0px'
     const raf = requestAnimationFrame(() => scrollToBottom('auto'))
     return () => cancelAnimationFrame(raf)
@@ -631,37 +650,28 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
     if (!container || !target) return
     isAtBottomRef.current = false
     setShowScrollButton(false)
-    // Guarantee the question can actually reach the top: reserve a viewport of
-    // scroll room below the list (imperative — no extra render). The streaming
-    // answer consumes this room as it grows; the spacer is released once the
-    // turn ends (effect below).
-    if (anchorSpacerRef.current) {
-      anchorSpacerRef.current.style.minHeight = `${container.clientHeight}px`
-    }
+    // Guarantee the question can actually reach the top: reserve the scroll
+    // room below it (imperative — no extra render). The streaming answer
+    // consumes that room as it grows (`fitAnchorSpacer`).
+    anchoredRef.current = true
+    fitAnchorSpacer()
     // scroll-mt on the anchored turn keeps clearance for the floating toolbar
     // pills so the question lands just below them, not behind them.
     target.scrollIntoView?.({
       behavior: reducedMotionRef.current ? 'auto' : 'smooth',
       block: 'start',
     })
-  }, [currentUserMessageId])
+  }, [currentUserMessageId, fitAnchorSpacer])
 
-  // Release the top-anchor spacer once the answer has landed (turn no longer
-  // streaming), so no trailing empty gap lingers below a finished answer. Also
-  // keyed on `currentUserMessageId` so a turn that anchors but never streams —
-  // e.g. an immediate send failure before the stream starts — still releases the
-  // spacer instead of leaving dead scroll space. The rAF re-checks the live
-  // streaming flag so a normal turn (streaming true a tick after the id changes)
-  // keeps its spacer.
+  // The spacer is NOT released when the answer lands: it holds only the room
+  // the answer did not fill, and removing it is what moved a finished answer.
+  // What is left below a short answer is the space that keeps its question at
+  // the top; the next question, or a thread swap, takes it.
   useEffect(() => {
     if (isStreaming) return
-    const raf = requestAnimationFrame(() => {
-      if (!isStreamingRef.current && anchorSpacerRef.current) {
-        anchorSpacerRef.current.style.minHeight = '0px'
-      }
-    })
+    const raf = requestAnimationFrame(fitAnchorSpacer)
     return () => cancelAnimationFrame(raf)
-  }, [isStreaming, currentUserMessageId])
+  }, [isStreaming, currentUserMessageId, fitAnchorSpacer])
 
   const handleScrollToLatest = useCallback(() => {
     isAtBottomRef.current = true
