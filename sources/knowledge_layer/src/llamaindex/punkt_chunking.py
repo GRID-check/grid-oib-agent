@@ -672,9 +672,51 @@ def punkt_documents(text_pages: list[dict[str, Any]], file_name: str, file_size:
             )
         )
 
+    documents.extend(_table_documents(text_pages, heading, base_metadata, richtlinie))
+
     for document in documents:
         _apply_exclusions(document)
 
+    return documents
+
+
+def _table_documents(
+    text_pages: list[dict[str, Any]], heading: str, base_metadata: dict[str, Any], richtlinie: str
+) -> list[Document]:
+    """One Document per row group of every captioned table (``captioned_tables``).
+
+    Addressed like a Punkt (``punkt_id = "Tabelle 3"``), so ``read_passage``
+    fetches it by name and a citation names it; no ``punkt_depth``, so the
+    Gliederung stays the document's own outline.
+    """
+    from knowledge_layer.llamaindex.captioned_tables import join_fragments
+    from knowledge_layer.llamaindex.captioned_tables import markdown_chunks
+    from llama_index.core import Document
+
+    fragments = [table for page in text_pages for table in page.get("tables") or []]
+    documents: list[Document] = []
+    for table in join_fragments(fragments):
+        punkt_id = f"Tabelle {table.table_id}"
+        caption = f"{punkt_id}: {table.title}".strip()
+        chunks = markdown_chunks(table)
+        for index, chunk in enumerate(chunks, start=1):
+            part = f" (Teil {index} von {len(chunks)})" if len(chunks) > 1 else ""
+            documents.append(
+                Document(
+                    text=f"{heading}\n{caption}{part}\n\n{chunk}",
+                    metadata={
+                        **base_metadata,
+                        "page_label": str(table.page_start),
+                        "page_end": str(table.page_end),
+                        "content_type": "table",
+                        "chunking": "table",
+                        "punkt_id": punkt_id,
+                        "punkt_title": table.title,
+                        "punkt_path": caption,
+                        "richtlinie": richtlinie,
+                    },
+                )
+            )
     return documents
 
 

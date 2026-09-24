@@ -1129,13 +1129,31 @@ def _extract_text_from_pdf(pdf_path: str) -> list[dict[str, Any]]:
         logger.warning("pdfplumber not installed. Install with: pip install pdfplumber")
         return []
 
+    from knowledge_layer.llamaindex.captioned_tables import extract_page_tables
+
     pages: list[dict[str, Any]] = []
     try:
         with pdfplumber.open(pdf_path) as pdf:
+            previous = None
             for page_num, page in enumerate(pdf.pages, start=1):
-                text = _strip_watermark_lines(page.extract_text())
-                if text:
-                    pages.append({"page_number": page_num, "text": text})
+                # Captioned tables are read as tables and cut out of the text,
+                # which would otherwise read them across their columns
+                # (``captioned_tables``). Fail-open: a page whose table finder
+                # raises is extracted exactly as before.
+                try:
+                    found = extract_page_tables(page, page_num, previous)
+                except Exception as exc:  # pragma: no cover - pdfplumber edge cases
+                    logger.warning("Table finding failed on page %d of %s: %s", page_num, pdf_path, exc)
+                    found = []
+                source = page
+                if found:
+                    boxes = [bbox for _table, bbox in found]
+                    source = page.filter(lambda obj, boxes=boxes: not _inside_any(obj, boxes))
+                    previous = found[-1][0]
+                text = _strip_watermark_lines(source.extract_text())
+                tables = [table for table, _bbox in found]
+                if text or tables:
+                    pages.append({"page_number": page_num, "text": text, "tables": tables})
 
         logger.info("Extracted text from %d PDF pages in %s", len(pages), pdf_path)
 
@@ -1143,6 +1161,15 @@ def _extract_text_from_pdf(pdf_path: str) -> list[dict[str, Any]]:
         logger.error("Error extracting PDF text: %s", e)
 
     return pages
+
+
+def _inside_any(obj: dict[str, Any], boxes: list[tuple]) -> bool:
+    """Whether a pdfplumber object's centre lies in any of ``boxes`` (x0, top, x1, bottom)."""
+    if "x0" not in obj or "top" not in obj:
+        return False
+    x = (obj["x0"] + obj.get("x1", obj["x0"])) / 2
+    y = (obj["top"] + obj.get("bottom", obj["top"])) / 2
+    return any(x0 <= x <= x1 and top <= y <= bottom for x0, top, x1, bottom in boxes)
 
 
 def text_documents_for_pages(text_pages: list[dict[str, Any]], file_name: str, file_size: int) -> list[Any]:
@@ -1163,9 +1190,11 @@ def text_documents_for_pages(text_pages: list[dict[str, Any]], file_name: str, f
     structured = punkt_documents(text_pages, file_name, file_size)
     if structured is not None:
         return structured
+    from knowledge_layer.llamaindex.captioned_tables import page_text_with_tables
+
     return [
         Document(
-            text=page["text"],
+            text=page_text_with_tables(page["text"], page.get("tables") or []),
             metadata={
                 "file_name": file_name,
                 "file_size": file_size,

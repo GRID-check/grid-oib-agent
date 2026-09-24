@@ -41,6 +41,7 @@ from aiq_agent.common.citation_verification import agent_authored_document_names
 from aiq_agent.common.citation_verification import annotate_unverified_quotes
 from aiq_agent.common.citation_verification import drop_ungrounded_trailer_values
 from aiq_agent.common.citation_verification import get_turn_captures
+from aiq_agent.common.citation_verification import lost_citations
 from aiq_agent.common.citation_verification import sanitize_report
 from aiq_agent.common.citation_verification import source_origin_token
 from aiq_agent.common.citation_verification import verify_citations
@@ -425,7 +426,7 @@ class _Verified:
 
     @property
     def failure_count(self) -> int:
-        return len(self.verification.removed_citations) + len(self.unverified_quotes)
+        return len(lost_citations(self.verification.removed_citations)) + len(self.unverified_quotes)
 
 
 def _verify(content: str, registry: SourceRegistry) -> _Verified:
@@ -475,7 +476,9 @@ async def _verify_with_repair(
 ) -> _Verified:
     verified = _verify(content, registry)
     failures = VerificationFailures(
-        removed_citations=tuple(verified.verification.removed_citations),
+        # Merged duplicates lost nothing, so they are not something to repair
+        # (``citation_verification.lost_citations``): the same rule as the count.
+        removed_citations=tuple(lost_citations(verified.verification.removed_citations)),
         unverified_quotes=verified.unverified_quotes,
         valid_citations=tuple(verified.verification.valid_citations),
     )

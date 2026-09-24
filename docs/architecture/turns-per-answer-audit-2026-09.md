@@ -91,6 +91,85 @@ medium` is 8–14 s of the turn. And these numbers are one model and no
 project: a project turn adds the inventory and the building-model tools
 back, and the platform's live default model is admin-set.
 
+## Measured, 2026-09-24: seconds follow reasoning tokens, not rounds
+
+Thirteen census runs (`openai/gpt-6-luna`, `effort=medium` unless marked, no
+project; `scripts/turn_census/census.py`, which now takes `--override`),
+timed call by call:
+
+| Run | Wall s | Research calls | Final call s | Reasoning tokens | Largest in one call |
+|---|---|---|---|---|---|
+| Ruling (Geländer, 13 m) | 26.3 | 1 | 19.7 | 1 107 | 1 107 |
+| OIB 2 overview, three runs | 25.5-51.5 | 2-4 | 11.1-15.9 | 726-2 186 | 958 |
+| Two variants (Fluchtweg), old index, two runs | 66.8 / 79.9 | 4 / 5 | 35.6 / 48.4 | 3 041 / 3 299 | 2 785 |
+| Two variants, table index, two runs | **123.7 / 54.0** | 4 / 3 | 22.7 / 29.6 | **7 263 / 1 961** | **4 335** |
+| Table ruling (Treppenhaus GK 4), old / table index | 32.2 / 38.6 | 1 / 2 | 24.4 / 24.4 | 1 426 / 1 836 | 1 501 |
+| Same three questions at `effort=low` | 11.2-16.8 | 1-3 | 3.3-5.4 | 0-207 | 139 |
+
+**The finding.** The model writes at a steady ~85 tokens per second (82-90
+across every call measured), so a call's seconds are its output tokens / 85,
+and most output tokens are hidden reasoning. The same question on the same
+index spent 1 961 reasoning tokens on one run and 7 263 on the next — one
+tool-deciding round alone thought for 4 335 tokens (54 s) before asking for
+two more passages. That spread, not the round count, is the depth variance:
+three extra rounds cost less than one reasoning spike. And nothing streams
+(latency audit §3.1), so every one of those seconds is time to first
+character.
+
+**Defects found on the way, closed at their cause:**
+
+- **A skill round that bought nothing.** Both OIB 2 runs spent a full
+  research call (2.5-2.7 s plus a re-sent 35 k-token context) on
+  `use_skill("diagrams")`, whose every rule already sat in the static prompt;
+  its description said "load the moment a diagram is in play". Retired.
+- **A repair rewrite for a citation nobody lost.** Two Punkte read from one
+  page are one registry entry, so an answer listing „…pdf, p.4" as [1] and
+  [5] had [5] merged into [1] — correctly, inline citations rewritten — and
+  the merge was then counted as a failure, triggering the repair pass (16 s
+  and 23 s in two runs) and a "Belege entfernt" note. Merged duplicates are
+  no longer failures (`citation_verification.lost_citations`), neither for
+  the trigger nor for the count nor for the reader's note.
+- **Tables read across their columns.** OIB-RL 2's Tabelle 3 was indexed as
+  „an der obersten an der obersten an der obersten Stelle …", filed under
+  Punkt 12 on p. 23; the agent searched „Tabelle 3 GK 4 REI 60" for three
+  rounds. Captioned tables are now read as tables (`captioned_tables`,
+  chunk format 4): 104 Markdown chunks addressed `Tabelle N`, and 12 table
+  rows the chunker had accepted as Punkte gone. On the table index the agent
+  opens `read_passage(punkt="Tabelle 3")` directly, the loop fell from three
+  searches to one, and the Fundstelle is the table's own page (p. 30, p. 27)
+  where it had been p. 23, which holds none of the values. Round count is not
+  lower on every question: on the direct table ruling the new index cost one
+  more read (6 s) for a citation a reader can check.
+
+**`effort=low` is not the switch.** It was 3-5× faster and worse on all
+three: the variants answer lost its `answer_json` envelope and every value
+(„Anforderungen der Tabelle 3 … unter anderem Wände"), the OIB 2 overview
+claimed OIB-RL 2.1 is „im verfügbaren Korpus nicht enthalten" (it is), and
+the ruling spent two extra rounds on a skill load and an `emit_card` call
+the envelope makes free.
+
+**What would move the number, ranked:**
+
+1. **Stream the answer** (latency audit §3.1, its own ADR). The final call
+   is 11-48 s, of which the visible answer is ~7-30 s at 85 tok/s; streaming
+   it shows text when reasoning ends instead of when verification ends, and
+   streaming the Responses API's reasoning *summary* (not requested today:
+   `summary: []`) fills the rest with what the model is weighing. The
+   citation constraint the design doc names still holds: markers stay
+   unresolved until the terminal frame.
+2. **Model throughput.** 85 tok/s is this model through OpenRouter; the live
+   default is admin-set, and the census is how to compare candidates on
+   seconds *and* answers.
+
+Decided against: a reasoning level that changes from round to round (e.g.
+`medium` for the first round, `low` after). A turn runs at ONE level, the one
+its role is configured with; the level is a property of the run, not of a
+round.
+
+Measurement caveat: `nat run` is a fresh process per question, so every
+census pays the deferred-loading probe (2.3-3 s) and cold-start gaps a warm
+replica does not; production's preamble is ~3-4 s, not 6.5 s.
+
 ## 0. The claim, in one table
 
 "Turns" is four different currencies, and the product feels each one

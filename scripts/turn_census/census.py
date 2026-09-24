@@ -12,6 +12,7 @@ after putting the OIB PDFs in data/oib). Every run costs real model calls.
 
     python scripts/turn_census/census.py "Was weißt du über die OIB 2?" --runs 3
     python scripts/turn_census/census.py --report /tmp/census/run1.jsonl
+    python scripts/turn_census/census.py "…" --override llms.research_llm.reasoning_effort low
 """
 
 from __future__ import annotations
@@ -72,7 +73,7 @@ def _print(name: str, summary: dict) -> None:
         print(f"    {kind:10} {bucket['calls']:3} call(s)  {bucket['input']:7} in  {bucket['seconds']:5.1f}s")
 
 
-def run_once(question: str, out: Path, conversation_id: str) -> Path:
+def run_once(question: str, out: Path, conversation_id: str, overrides: list[list[str]] | None = None) -> Path:
     """One `nat run` of the question with the recorder loaded; the JSONL it wrote."""
     record = out / f"{conversation_id}.jsonl"
     log = out / f"{conversation_id}.log"
@@ -84,6 +85,8 @@ def run_once(question: str, out: Path, conversation_id: str) -> Path:
         else [str(ROOT / ".venv/bin/nat")]
     )
     cmd = [*nat, "run", "--config_file", str(CONFIG), "--input", question, "--conversation_id", conversation_id]
+    for key, value in overrides or []:
+        cmd += ["--override", key, value]
     with log.open("w") as sink:
         proc = subprocess.Popen(cmd, cwd=ROOT, env=env, stdout=sink, stderr=subprocess.STDOUT)
         deadline = time.time() + _TIMEOUT_SECONDS
@@ -104,6 +107,13 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--runs", type=int, default=1)
     parser.add_argument("--out", type=Path, default=Path("/tmp/turn_census"))
     parser.add_argument("--report", type=Path, nargs="*", help="summarize recorded runs; no model calls")
+    parser.add_argument(
+        "--override",
+        nargs=2,
+        action="append",
+        metavar=("KEY", "VALUE"),
+        help="a config value for this census only, in `nat run` dot notation; repeatable",
+    )
     args = parser.parse_args(argv)
     if args.report:
         for path in args.report:
@@ -119,7 +129,7 @@ def main(argv: list[str] | None = None) -> int:
     # two censuses sharing one would answer the second run with the first's history.
     stamp = f"{time.strftime('%H%M%S')}-{os.getpid()}"
     for index in range(args.runs):
-        record = run_once(args.question, args.out, f"census-{stamp}-{index + 1}")
+        record = run_once(args.question, args.out, f"census-{stamp}-{index + 1}", args.override)
         _print(record.stem, summarize(record))
     return 0
 

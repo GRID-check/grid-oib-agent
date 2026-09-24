@@ -141,6 +141,29 @@ class CitationVerificationResult:
     valid_citations: list[dict] = field(default_factory=list)
 
 
+#: The reason a duplicate source line is dropped under. Its inline ``[N]`` is
+#: REWRITTEN to the line it duplicates, so the prose still cites the source:
+#: nothing the answer claimed was lost, which makes it a merge, not a defect.
+DUPLICATE_REASON_PREFIX = "duplicate_of_citation_"
+
+
+def lost_citations(removed_citations: Sequence[dict]) -> list[dict]:
+    """The removals that cost the answer a citation: every one except a merged duplicate.
+
+    Two Punkte read from one page are one registry entry, so an answer that
+    lists "file.pdf, p.4" twice gets the second merged into the first. Counted
+    as a failure, that merge bought a full repair rewrite (16 s, measured in
+    the September 2026 census) and a "Belege entfernt" note for a citation the
+    reader still has. Telemetry keeps the full list; the repair trigger and the
+    reader's note read this one.
+    """
+    return [
+        entry
+        for entry in removed_citations
+        if not (isinstance(entry, dict) and str(entry.get("reason") or "").startswith(DUPLICATE_REASON_PREFIX))
+    ]
+
+
 class EmptySourceRegistryError(Exception):
     """Raised when no sources were captured during research."""
 
@@ -3307,7 +3330,7 @@ def verify_citations(
             {
                 "number": c["number"],
                 "line": c["line"],
-                "reason": f"duplicate_of_citation_{canonical_num}",
+                "reason": f"{DUPLICATE_REASON_PREFIX}{canonical_num}",
             }
         )
         logger.debug(

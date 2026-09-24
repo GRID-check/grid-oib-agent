@@ -23,6 +23,7 @@ from aiq_agent.agents.piloti.markers import answer_confidence_capped_reason
 from aiq_agent.agents.piloti.markers import surface_answer_confidence
 from aiq_agent.common import citation_events
 from aiq_agent.common.citation_verification import annotate_unverified_quotes
+from aiq_agent.common.citation_verification import lost_citations
 from aiq_agent.common.citation_verification import sanitize_report
 from aiq_agent.common.citation_verification import source_entry_to_wire
 from aiq_agent.common.citation_verification import source_label
@@ -237,6 +238,9 @@ def _summarize_removed_citations(removed_citations: list[dict[str, Any]]) -> dic
     ``None`` so the ``citations_removed`` field stays absent. Shape matches the
     chat researcher's ``_normalize_citations_removed`` reader.
     """
+    # A merged duplicate cost the reader nothing (its [N] now points at the
+    # line it duplicated), so it is not reported as a removal.
+    removed_citations = lost_citations(removed_citations)
     if not removed_citations:
         return None
     reasons: list[str] = []
