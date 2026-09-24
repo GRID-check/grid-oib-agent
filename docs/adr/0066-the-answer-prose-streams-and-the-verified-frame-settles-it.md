@@ -92,6 +92,17 @@ masthead gated out) it takes back. Measured on two recorded turns with the
 `/dev/stream-replay` probe, before this: the reader's anchor jumped 82-150 px
 on desktop and 104-229 px on a phone at the terminal frame, from the masthead
 inserted above it and a 580 px card spliced in after its first paragraph.
+Re-recorded with the masthead first and replayed the same way: 24-25 px on the
+two-variant answer (the terminal's last line rewrap), 0 px on the overview,
+and the terminal frame's cumulative layout shift from 0.55 to 0.009 (desktop).
+
+Streaming made one old behaviour visible: the verification repair pass may
+replace the answer the reader has already read. Its adoption rule counted
+failures only, so a rewrite that dropped most of its citations always looked
+better; live, it replaced a settled answer citing nine sources with one citing
+two, 22 s after the reader had it. A rewrite is now adopted only when it also
+cites at least as many distinct sources as the verified original
+(`_adopt_if_better`).
 
 ### Consequences
 
@@ -135,6 +146,7 @@ inserted above it and a 580 px card spliced in after its first paragraph.
 * `test_answer_envelope.py`: the strict schema writes the masthead, then
   `answer`. `CardSlotArrival.spec.tsx`, `card-markers.spec.tsx`: a streaming
   marker holds its card's place, a final one with no card holds nothing.
+  `test_repair_adoption.py`: a repair that loses sources is not adopted.
   `store.spec.ts`: a masthead frame opens the bubble, a terminal without live
   cards takes them back.
 

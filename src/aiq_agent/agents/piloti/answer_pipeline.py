@@ -450,6 +450,11 @@ def _verify(content: str, registry: SourceRegistry) -> _Verified:
     return _Verified(verification.verified_report, verification, tuple(quotes))
 
 
+def _distinct_cited(valid_citations: Sequence[dict[str, Any]]) -> int:
+    """How many distinct sources the verified citations point at."""
+    return len({citation.get("citation_key") or citation.get("url") for citation in valid_citations} - {None, ""})
+
+
 def _adopt_if_better(verified: _Verified, repaired: Repair, registry: SourceRegistry) -> _Verified | None:
     """Verify the rewrite against a scratch registry; adopt it only if it verifies better.
 
@@ -463,8 +468,23 @@ def _adopt_if_better(verified: _Verified, repaired: Repair, registry: SourceRegi
     candidate = verify_citations(repaired.prose, scratch, reference_sources=scratch.all_sources())
     candidate_quotes = tuple(verify_quoted_spans(candidate.verified_report, scratch))
     after = len(candidate.removed_citations) + len(candidate_quotes)
-    if not (after < verified.failure_count and candidate.valid_citations):
-        logger.info("Piloti: repair pass discarded (%d -> %d failures)", verified.failure_count, after)
+    # Fewer failures alone is not better: a rewrite that drops most of its
+    # citations has fewer failures by construction. Live, one replaced a
+    # streamed answer citing nine sources with one citing two, 22 s after the
+    # reader had it (ADR-0066). So the rewrite must also cite at least as many
+    # sources as the verified original still does.
+    before_cited, after_cited = (
+        _distinct_cited(verified.verification.valid_citations),
+        _distinct_cited(candidate.valid_citations),
+    )
+    if not (after < verified.failure_count and candidate.valid_citations and after_cited >= before_cited):
+        logger.info(
+            "Piloti: repair pass discarded (%d -> %d failures, %d -> %d cited sources)",
+            verified.failure_count,
+            after,
+            before_cited,
+            after_cited,
+        )
         return None
     logger.info("Piloti: repair pass adopted (%d -> %d failures)", verified.failure_count, after)
     for source in repaired.sources:
