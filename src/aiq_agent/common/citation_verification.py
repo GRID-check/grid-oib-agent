@@ -1711,6 +1711,18 @@ def _is_digest_shaped_line(ref_text: str) -> bool:
     return lowered[0].startswith("seiten ") and lowered[1].startswith("punkte ") and lowered[2].startswith("turn ")
 
 
+def _drop_url(text: str, url: str) -> str:
+    """``text`` without ``url``, and without the separator that introduced it.
+
+    ``[Title](url)`` keeps its title, ``<url>`` and ``(url)`` go whole, and a
+    bare ``Title - url`` loses the dash with the link.
+    """
+    escaped = re.escape(url)
+    text = re.sub(rf"\[([^\]]*)\]\({escaped}\)", r"\1", text)
+    text = re.sub(rf"\s*(?:[-–—:,]\s*)?[<(]?{escaped}[>)]?", "", text)
+    return text.rstrip()
+
+
 def _is_knowledge_citation(ref_text: str, registry: SourceRegistry | None = None) -> tuple[bool, str | None]:
     """Check if reference text looks like a knowledge-layer citation.
 
@@ -3243,6 +3255,7 @@ def verify_citations(
     # fallback-synthesized and chat paths already carry. Lines that
     # already start with a token are left as-is (idempotent).
     origin_tokens: dict[int, str] = {}
+    dropped_urls: dict[int, str] = {}  # key-verified line -> the link it carried
 
     for line_match in _CITATION_LINE_RE.finditer(ref_section):
         num = int(line_match.group(1))
@@ -3280,9 +3293,22 @@ def verify_citations(
                 if not already_tokenized and (entry := registry.entry_for_url(canonical)):
                     if token := source_origin_token(entry):
                         origin_tokens[num] = token
-            else:
-                logger.info("[CitationVerify]   [%d] REMOVE — url_not_in_registry: %s", num, url)
-                removed_citations.append({"number": num, "line": full_line, "reason": "url_not_in_registry"})
+                continue
+            # A source cited by its key can still arrive with a link: the RIS
+            # tool prints ``Source URL:`` beside ``Citation:``, the prompt asks
+            # for ``Title - URL``, and the registry deliberately files RIS by
+            # key. The key decides; the link it cannot vouch for is dropped.
+            is_kl, citation_key = _is_knowledge_citation(_drop_url(match_text, url), registry)
+            if is_kl and citation_key and registry.has_citation_key(citation_key):
+                logger.debug("[CitationVerify]   [%d] VALID  — %s (unregistered link dropped)", num, citation_key)
+                valid_citations.append({"number": num, "url": None, "citation_key": citation_key, "line": full_line})
+                dropped_urls[num] = url
+                if not already_tokenized and (entry := registry.entry_for_citation_key(citation_key)):
+                    if token := source_origin_token(entry):
+                        origin_tokens[num] = token
+                continue
+            logger.info("[CitationVerify]   [%d] REMOVE — url_not_in_registry: %s", num, url)
+            removed_citations.append({"number": num, "line": full_line, "reason": "url_not_in_registry"})
             continue
 
         # Try knowledge-layer citation key (lenient — passes registry for fuzzy filename match)
@@ -3367,6 +3393,8 @@ def verify_citations(
             num = int(line_match.group(1))
             if num in removed_numbers:
                 continue
+            if (dropped := dropped_urls.get(num)) is not None:
+                line = _drop_url(line, dropped)
             if (token := origin_tokens.get(num)) is not None:
                 line = _inject_origin_token(line, token)
         cleaned_ref_lines.append(line)

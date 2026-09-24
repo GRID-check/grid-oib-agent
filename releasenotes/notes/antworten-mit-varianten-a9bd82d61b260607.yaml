@@ -24,6 +24,11 @@ features:
     einmal.
 fixes:
   - >
+    Antworten zur Bauordnung behalten ihre Fundstellen im RIS: ein zitierter
+    Paragraph verschwand bisher aus der Quellenliste, sobald die Antwort den
+    Link zum ganzen Gesetz dazuschrieb, und die Antwort wurde deshalb ein
+    zweites Mal überarbeitet.
+  - >
     Werte aus den Tabellen der OIB-Richtlinien (etwa Tabelle 3 zu
     Treppenhäusern) werden richtig gelesen und mit der Seite der Tabelle
     zitiert; bisher verwechselte die Suche die Spalten der Gebäudeklassen.
