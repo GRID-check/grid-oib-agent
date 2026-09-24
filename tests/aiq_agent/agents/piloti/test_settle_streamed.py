@@ -69,3 +69,19 @@ def test_a_quote_no_passage_holds_is_marked_when_it_settles_not_seconds_later():
     body = settled.content.partition("\n\n")[0]
     assert body.count(UNVERIFIED_QUOTE_MARKER) == 1
     assert f"ausgestattet sein“ {UNVERIFIED_QUOTE_MARKER}" in body
+
+
+def test_a_mindmap_that_only_redraws_a_table_goes_when_the_prose_settles():
+    # The terminal dropped it; with diagrams drawn mid-stream the reader
+    # watched it appear, then vanish at the terminal frame.
+    prose = (
+        "| Abschnitt | Gegenstand |\n|---|---|\n| Garagen | Nutzfläche [1] |\n| Parkdecks | Bauart [1] |\n\n"
+        '```mermaid\nmindmap\n  root(("OIB"))\n    "Garagen"\n      "Nutzfläche"\n'
+        '    "Parkdecks"\n      "Bauart"\n```\n\n'
+        "Danach."
+    )
+
+    settled = settle_streamed_citations(prose, "**Quellen:**\n- [1] oib-rl_2_ausgabe_mai_2023.pdf, p.12", _registry())
+
+    assert "mindmap" not in settled.content
+    assert "| Garagen |" in settled.content and "Danach." in settled.content

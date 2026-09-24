@@ -596,11 +596,14 @@ def settle_streamed_citations(prose: str, sources_text: str, registry: SourceReg
     # when the marker arrived.
     report = annotate_unverified_quotes(verified.content, list(verified.unverified_quotes))
     sanitized = sanitize_report(report)
+    # And the shape pass the terminal runs next: a mindmap that only redraws a
+    # table in the answer goes here, where it went seconds later before.
+    content, _ = drop_restated_mindmaps(sanitized.sanitized_report)
     cited = _renumbered(_cited_sources(verified.verification.valid_citations, registry), sanitized.renumber_map)
     # The written source list travels WITH the prose, as it does in the
     # terminal frame: the reader resolves a marker against that list.
     return SettledStream(
-        content=sanitized.sanitized_report.rstrip(),
+        content=content.rstrip(),
         sources=wire_sources(cited),
         renumber_map=dict(sanitized.renumber_map or {}),
         numbers=frozenset(source.number for source in cited if source.number is not None),

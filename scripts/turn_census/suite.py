@@ -327,7 +327,7 @@ def render(
     lines = [
         "# Answer suite",
         "",
-        f"{meta.get('started', '')} · model config `{meta.get('config', '')}` · "
+        f"{meta.get('started', '')} · commit `{meta.get('commit', '?')}` · model config `{meta.get('config', '')}` · "
         f"{meta.get('runs_per_question', '')} run(s) per question"
         + (f" · overrides {meta['overrides']}" if meta.get("overrides") else ""),
         "",
@@ -412,6 +412,17 @@ def lacking_family(question: dict, families: set[str] | None) -> str | None:
     return f"OIB-RL {family}"
 
 
+def source_commit() -> str:
+    """The commit the runs measure, ``-dirty`` when the tree has changes on top of it."""
+    import subprocess
+
+    def git(*args: str) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(["git", *args], cwd=ROOT, capture_output=True, text=True, check=False)
+
+    sha = git("rev-parse", "--short", "HEAD").stdout.strip() or "unknown"
+    return f"{sha}-dirty" if git("status", "--porcelain", "--untracked-files=no").stdout.strip() else sha
+
+
 def _corpus_ready() -> bool:
     try:
         import chromadb
@@ -494,8 +505,19 @@ def main(argv: list[str] | None = None) -> int:
     families = corpus_families()
     not_in_corpus = [f"{q['id']} ({lacking})" for q in questions if (lacking := lacking_family(q, families))]
     questions = [q for q in questions if lacking_family(q, families) is None]
+    commit = source_commit()
+    if commit.endswith("-dirty"):
+        # Every run starts its own process from the working tree, so an edit
+        # made while the suite runs reaches the runs that start after it: one
+        # baseline measured two codebases, and four answers crashed on a
+        # half-applied signature change. Measure a clean tree, or a worktree.
+        print(
+            "suite: the working tree has uncommitted changes; runs measure whatever it holds when they start.",
+            file=sys.stderr,
+        )
     meta = {
         "started": time.strftime("%Y-%m-%d %H:%M"),
+        "commit": commit,
         "config": "configs/config_oib_openrouter.yml",
         "runs_per_question": args.runs,
         "overrides": args.override or [],
