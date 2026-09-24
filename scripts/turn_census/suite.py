@@ -54,7 +54,6 @@ sys.path.insert(0, str(HERE))
 from census import run_once  # noqa: E402  (a sibling script, not a package)
 
 _ANSI = re.compile(r"\x1b\[[0-9;]*m")
-_ENVELOPE = re.compile(r"```answer_json\s*(\{.*\})\s*```", re.DOTALL)
 #: A cited corpus file's Richtlinie number: `oib-rl_2.1_…`, `oib-richtlinie_2.2_…`.
 _CITED_FAMILY = re.compile(r"(?:rl|richtlinie)_(\d+(?:\.\d+)?)_", re.IGNORECASE)
 _LOG_SIGNALS = {
@@ -144,7 +143,13 @@ def last_envelope(rows: list[dict]) -> dict | None:
     The last ENVELOPE, not the last reply: a repair pass rewrites the prose in
     a call of its own after the answer, and reading that call as the answer
     reported every repaired turn as having no envelope.
+
+    Read by the pipeline's own extractor, never a second parser: a regex that
+    wanted the fence reported a bare-JSON answer, which the pipeline accepts
+    and the reader got whole, as a turn without an envelope.
     """
+    from aiq_agent.common.answer_envelope import extract_answer_envelope
+
     found = None
     for entry in rows:
         if not _is_research(entry):
@@ -152,12 +157,9 @@ def last_envelope(rows: list[dict]) -> dict | None:
         for item in (entry.get("resp") or {}).get("output", []):
             if item.get("type") != "message":
                 continue
-            match = _ENVELOPE.search("".join(part.get("text", "") for part in item.get("content", [])))
-            if match:
-                try:
-                    found = json.loads(match.group(1))
-                except json.JSONDecodeError:
-                    continue
+            _, meta = extract_answer_envelope("".join(part.get("text", "") for part in item.get("content", [])))
+            if meta is not None:
+                found = meta.model_dump(mode="json")
     return found
 
 

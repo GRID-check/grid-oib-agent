@@ -287,7 +287,9 @@ its passage; this asks what the reader waited for and what they got.
 
 - **Questions:** the loop eval's set, the ones tagged `suite: core` by
   default (`--all` for every question without a project; a question about an
-  office's own files needs a project and is skipped, and the report says so).
+  office's own files needs a project and is skipped, and the report says so;
+  so is one about a Richtlinie the ingested corpus lacks, since the corpus is
+  the operator's and a missing OIB-RL 5 is not the agent's failure).
   A question's optional `expect` block names values that must appear, claims
   that must not, and an acceptable shape (variant tabs, a table, a drawing),
   each read off the corpus, never remembered.

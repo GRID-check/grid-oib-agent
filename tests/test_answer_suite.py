@@ -169,3 +169,15 @@ def test_a_question_about_a_richtlinie_the_corpus_lacks_is_skipped_by_name(tmp_p
     assert suite.lacking_family({"family": "OIB-RL 5"}, suite.corpus_families(tmp_path / "missing.json")) is None
     report = suite.render([], [], {"started": "t", "runs_per_question": 1}, None, ["schallschutz (OIB-RL 5)"])
     assert "the ingested corpus lacks the Richtlinie: schallschutz (OIB-RL 5)." in report
+
+
+def test_an_answer_without_its_fence_still_has_its_envelope(tmp_path):
+    # Seen live: the pipeline accepted a bare-JSON answer and the reader got it
+    # whole, while a fence-only reading called the turn envelope-less.
+    record, log = _recorded_turn(tmp_path)
+    bare = {"type": "message", "content": [{"text": json.dumps({**ENVELOPE, "answer": "Antwort [1]."})}]}
+    rows = [json.loads(line) for line in record.read_text().splitlines()]
+    rows[-1]["resp"]["output"] = [bare]
+    record.write_text("\n".join(json.dumps(row) for row in rows))
+    run = suite.observe(QUESTION, 1, record, log)
+    assert run.checks["envelope"] is True and run.kind == "ruling"
