@@ -388,8 +388,8 @@ def _turn_facts(state: ResearchAgentState, runtime: SkillRuntime | None) -> Turn
         focus_file_name=state.focus_file_name,
         project_facts={k: str(v) for k, v in facts_from_project_context(state.project_context or "").items()},
         families=get_norm_families(),
-        project_files=sum(1 for doc in documents if getattr(doc, "shelf", None) is Shelf.PROJECT),
-        archive_files=sum(1 for doc in documents if getattr(doc, "shelf", None) is Shelf.ARCHIV),
+        project_files=sum(1 for doc in documents if getattr(doc, "shelf", None) == Shelf.PROJECT),
+        archive_files=sum(1 for doc in documents if getattr(doc, "shelf", None) == Shelf.ARCHIV),
         card_types=[entry for entry in card_index_entries() if entry[0] not in ENVELOPE_SHAPE_TYPES],
     )
 

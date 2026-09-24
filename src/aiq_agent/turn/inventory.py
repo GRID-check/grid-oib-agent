@@ -22,6 +22,7 @@ from aiq_agent.common.turn_status import emit_documents_waiting
 from aiq_agent.knowledge import get_available_documents_async
 from aiq_agent.knowledge import ingest_status_store
 from aiq_agent.knowledge.inventory import allocate_inventory_detailed
+from aiq_agent.knowledge.inventory import get_norm_families
 from aiq_agent.knowledge.inventory import set_inventory_drops
 from aiq_agent.knowledge.inventory import set_norm_families
 from aiq_agent.knowledge.inventory import stamp_document
@@ -114,7 +115,7 @@ def _base_families(docs: Iterable) -> list:
     names = [
         getattr(doc, "file_name", "")
         for doc in docs
-        if getattr(doc, "shelf", None) is Shelf.BASE and getattr(doc, "file_name", "")
+        if getattr(doc, "shelf", None) == Shelf.BASE and getattr(doc, "file_name", "")
     ]
     return oib_families(names)
 
@@ -238,6 +239,11 @@ class Inventory:
 
     available_documents: list | None
     in_flight_documents: list[str] | None
+    #: The base shelf's Richtlinien-Familien, derived before the inventory cap.
+    #: Carried OUT rather than left in the ContextVar the read sets: the read
+    #: runs inside two gathers, and a ContextVar set in a gathered task dies
+    #: with that task's copied context. The caller sets it where the turn runs.
+    norm_families: tuple = ()
 
 
 async def load_inventory(
@@ -282,12 +288,12 @@ async def _load_inventory(
     fetch_one = fetch_one or get_available_documents_async
     read_in_flight = read_in_flight or ingest_status_store.in_flight_files
     names = [entry.collection for entry in scope]
-    documents, pending = await asyncio.gather(
-        spanned("setup.available_documents", load_available_documents(scope, fetch_one)),
+    (documents, families), pending = await asyncio.gather(
+        spanned("setup.available_documents", _documents_and_families(scope, fetch_one)),
         spanned("setup.ingest_status", asyncio.to_thread(read_in_flight, names)),
     )
     if not pending:
-        return Inventory(documents, None)
+        return Inventory(documents, None, families)
     # HOLD THE TURN. A file attached seconds ago is invisible to retrieval
     # until its job finishes, and an answer written without it is wrong in the
     # one way the reader cannot see. Its own span: the hold is a decision, and
@@ -295,5 +301,11 @@ async def _load_inventory(
     with profiled_span("setup.ingest_wait"):
         settled = await await_ingest_settling(names, pending, read=read_in_flight, timeout_seconds=timeout_seconds)
         if settled != pending:
-            documents = await load_available_documents(scope, fetch_one)
-    return Inventory(documents, in_flight_names(settled) or None)
+            documents, families = await _documents_and_families(scope, fetch_one)
+    return Inventory(documents, in_flight_names(settled) or None, families)
+
+
+async def _documents_and_families(scope: list[ScopedCollection], fetch_one: FetchOne) -> tuple[list | None, tuple]:
+    """The documents, and the families the same read derived, read in the task that set them."""
+    documents = await load_available_documents(scope, fetch_one)
+    return documents, tuple(get_norm_families())

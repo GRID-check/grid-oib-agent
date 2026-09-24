@@ -33,6 +33,7 @@ from aiq_agent.common.profiler import flush_after_answer
 from aiq_agent.common.profiler import track_agent_profile
 from aiq_agent.common.turn_status import emit_documents_loading
 from aiq_agent.conversation_context import register_context_appender
+from aiq_agent.knowledge.inventory import set_norm_families
 from aiq_agent.knowledge.inventory import set_turn_documents
 from aiq_agent.knowledge.scoping import get_scoped_collections_from_context
 from aiq_agent.project_context import GridRequestContext
@@ -402,6 +403,7 @@ def _turn_runner(agent: ConversationGraph, config: ChatDeepResearcherConfig, sta
                 # contexts copy it; called on every turn, including with None,
                 # which is what stops one turn resolving against the last one's.
                 set_turn_documents(inventory.available_documents)
+                set_norm_families(inventory.norm_families)
                 state = _turn_state(inputs, context, inventory, header_scope, skip_clarifier=skip_clarifier)
                 outcome, registries = await _answer_in_registries(
                     agent,

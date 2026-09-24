@@ -121,6 +121,20 @@ class TestTheEffects:
         assert facts.question == "und in GK 4?" and facts.previous_message == "Wie hoch ist die GK?"
         assert facts.previous_answer is not None and facts.previous_answer.startswith("Gebäudeklasse 5")
 
+    def test_the_file_counts_read_the_shelf_the_inventory_stamps(self):
+        """Stamped rows carry the shelf's string value; an `is` against the enum never matched."""
+        from aiq_agent.common.source_kinds import Shelf
+        from aiq_agent.knowledge.inventory import stamp_document
+        from aiq_agent.knowledge.schema import AvailableDocument
+
+        def row(name: str, shelf: Shelf) -> AvailableDocument:
+            return stamp_document(AvailableDocument(file_name=name), collection="c", shelf=shelf)
+
+        docs = [row(f"p{i}.pdf", Shelf.PROJECT) for i in range(3)] + [row("a.pdf", Shelf.ARCHIV)]
+        state = ResearchAgentState(messages=[HumanMessage(content="Was steht im Bescheid?")], available_documents=docs)
+        facts = _turn_facts(state, None)
+        assert (facts.project_files, facts.archive_files) == (3, 1)
+
     def test_no_decision_changes_nothing(self):
         state = ResearchAgentState(messages=[])
         runtime = _runtime()
