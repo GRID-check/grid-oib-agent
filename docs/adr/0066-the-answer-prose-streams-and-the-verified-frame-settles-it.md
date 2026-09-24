@@ -147,6 +147,12 @@ cites at least as many distinct sources as the verified original
   `answer`. `CardSlotArrival.spec.tsx`, `card-markers.spec.tsx`: a streaming
   marker holds its card's place, a final one with no card holds nothing.
   `test_repair_adoption.py`: a repair that loses sources is not adopted.
+* The answer suite's core set, masthead-first against the run before it
+  (2026-09-24, 2 runs each): checks 27/28 on both, the one miss (`kind` on
+  the two-variant question) unchanged; final-call seconds within run-to-run
+  spread on five questions. The OIB-2 overview read +28 s on two runs and
+  +6 s on four more (22-51 s, tracking 1-3 research rounds), so no cost of
+  the order was measurable.
   `store.spec.ts`: a masthead frame opens the bubble, a terminal without live
   cards takes them back.
 
