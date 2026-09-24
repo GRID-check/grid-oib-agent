@@ -82,6 +82,42 @@ describe('reduceSpectatedFrame', () => {
     expect(state.done).toBe(false)
   })
 
+  it('carries the masthead, the verified sources and the cards the asker gets (ADR-0066)', () => {
+    const masthead = { ...(response('', 'in_progress') as object), answer_meta: { v: 1, kind: 'ruling', topic: 'Fluchtweg' } }
+    const snapshot = {
+      ...(response('R 90 [1].', 'in_progress') as object),
+      stream_replace: true,
+      sources: [{ number: 1, citation_key: 'oib.pdf, p.3', file_name: 'oib.pdf', page: 3, kind: 'baurecht' }],
+    }
+    const cards = {
+      ...(response('', 'in_progress') as object),
+      cards: [{ type: 'summary', title: 'Zusammenfassung', content: 'Alles gut.' }],
+    }
+
+    const head = fold([masthead])
+    // Before the first word, the masthead alone is something to show.
+    expect(head.answerMeta?.topic).toBe('Fluchtweg')
+    expect(head.answer).toBe('')
+
+    const state = fold([masthead, response('R 90 [1', 'in_progress'), snapshot, cards])
+    expect(state.answer).toBe('R 90 [1].')
+    expect(state.answerMeta?.kind).toBe('ruling')
+    expect(state.citations?.[0]).toEqual(expect.objectContaining({ fileName: 'oib.pdf', page: 3 }))
+    expect(state.cards?.map((card) => card?.type)).toEqual(['summary'])
+  })
+
+  it('lets a terminal without the live cards or masthead take them back', () => {
+    const masthead = { ...(response('', 'in_progress') as object), answer_meta: { v: 1, kind: 'direct', topic: 'Kurz' } }
+    const cards = {
+      ...(response('', 'in_progress') as object),
+      cards: [{ type: 'summary', title: 'Zusammenfassung', content: 'Alles gut.' }],
+    }
+    const state = fold([masthead, response('Kurz.', 'in_progress'), cards, response('Kurz.', 'complete')])
+    expect(state.cards).toBeUndefined()
+    expect(state.answerMeta).toBeUndefined()
+    expect(state.done).toBe(true)
+  })
+
   it('keeps the streamed answer when the terminal frame is empty', () => {
     // The single most damaging failure mode available here: a backend that
     // finishes with an empty `complete` would otherwise blank a finished answer

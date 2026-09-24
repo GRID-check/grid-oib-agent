@@ -8,6 +8,8 @@ features:
     Titel und Kurzfassung stehen über der Antwort, bevor ihr erstes Wort
     erscheint, und eine Karte hält ihren Platz im Text frei und wächst dort
     hinein, statt den Text, den Sie gerade lesen, nach unten zu schieben.
+    Wer einen geteilten Verlauf mitliest, sieht dieselbe Antwort mit Titel,
+    Quellen und Karten, nicht mehr nur ihren Text.
   - >
     Diagramme in Antworten sind neu gestaltet: Abläufe als Karten mit
     beschrifteten Pfeilen und hervorgehobenen Entscheidungen, ein Regelwerk

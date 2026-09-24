@@ -30,7 +30,10 @@
  */
 
 import { NATIncomingMessageSchema, NATMessageType } from '@/adapters/api/schemas'
-import type { ThinkingStep } from '@/features/chat/types'
+import type { CitationSource, ThinkingStep } from '@/features/chat/types'
+import { citationsFromWireList } from '@/features/chat/lib/wire-citation'
+import { sanitizeAnswerMeta, type AnswerMeta } from '@/lib/conversations/message-answer-meta'
+import { validateGridCards, type GridCard } from '@/shared/cards/schemas'
 import {
   formatPayload,
   getDisplayName,
@@ -49,6 +52,15 @@ export interface SpectatedTurnState {
   parentId: string | null
   /** The answer so far. Empty while the agent is still working out what to say. */
   answer: string
+  /**
+   * What stands around the prose, as the live frames deliver it to the asker
+   * too (ADR-0066): the masthead before the first word, the sources once the
+   * text is verified, the cards as each is written. All three are gated by the
+   * backend before they are sent, so the observer's copy is the asker's.
+   */
+  answerMeta?: AnswerMeta
+  citations?: CitationSource[]
+  cards?: (GridCard | undefined)[]
   /** The reasoning chain so far, in the shape `ChatThinking` already renders. */
   steps: ThinkingStep[]
   /**
@@ -138,23 +150,29 @@ export function reduceSpectatedFrame(
     case NATMessageType.SYSTEM_RESPONSE: {
       const text = responseText(message.content)
       const parentId = message.parent_id ?? next.parentId
+      const around = aroundTheProse(message)
       if (message.status === 'complete') {
+        // A terminal with text is authoritative for what the live frames showed
+        // ahead of it, absence included (a suppressed card, a gated masthead).
+        const authoritative = text.trim().length > 0
         return {
           ...next,
+          ...(authoritative ? { answerMeta: undefined, citations: undefined, cards: undefined } : {}),
+          ...around,
           parentId,
           // The terminal frame is authoritative — but a backend that sends an
           // EMPTY complete after streaming deltas must not blank the answer.
-          answer: text.trim() ? text : next.answer,
+          answer: authoritative ? text : next.answer,
           steps: next.steps.map((step) => (step.isComplete ? step : { ...step, isComplete: true })),
           waitingOn: null,
           done: true,
         }
       }
-      if (!text) return next === state ? state : next
+      if (!text && Object.keys(around).length === 0) return next === state ? state : next
       // A settled snapshot (ADR-0066) REPLACES the text streamed so far; a
       // spectator that appended it would read the answer twice.
-      if (message.stream_replace === true) return { ...next, parentId, answer: text, waitingOn: null }
-      return { ...next, parentId, answer: next.answer + text, waitingOn: null }
+      if (message.stream_replace === true) return { ...next, ...around, parentId, answer: text, waitingOn: null }
+      return { ...next, ...around, parentId, answer: next.answer + text, waitingOn: null }
     }
 
     case NATMessageType.SYSTEM_INTERMEDIATE: {
@@ -190,6 +208,22 @@ export function reduceSpectatedFrame(
 
     default:
       return next === state ? state : next
+  }
+}
+
+/** The masthead, sources and cards a response frame carries, only those present. */
+function aroundTheProse(message: {
+  answer_meta?: unknown
+  sources?: unknown[] | null
+  cards?: unknown[]
+}): Pick<SpectatedTurnState, 'answerMeta' | 'citations' | 'cards'> {
+  const answerMeta = sanitizeAnswerMeta(message.answer_meta) ?? undefined
+  const citations = citationsFromWireList(message.sources)
+  const cards = message.cards && message.cards.length > 0 ? validateGridCards(message.cards) : undefined
+  return {
+    ...(answerMeta ? { answerMeta } : {}),
+    ...(citations ? { citations } : {}),
+    ...(cards ? { cards } : {}),
   }
 }
 
