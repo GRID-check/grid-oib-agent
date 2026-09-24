@@ -108,3 +108,34 @@ class TestTheJurisdiction:
         sentence = land_sentence(parse_address("?", "", "Wien"))
 
         assert sentence == f"Assumed Bundesland: Wien (from {LAND_FROM_ARGUMENT})."
+
+
+class TestAListOfParagraphs:
+    """ "§§ 75 und 81 BO Wien" addresses both. Read as one § it kept § 75, left
+    "und 81" in the law's name, and the agent spent a round asking for § 81."""
+
+    def test_every_paragraph_of_a_list_is_addressed(self):
+        address = parse_address("Wie hoch darf gebaut werden?", "§§ 75 und 81 Bauordnung für Wien", "")
+
+        assert address.sections == ("75", "81")
+        assert address.number == "75"
+        assert address.law == "Bauordnung für Wien"
+
+    def test_commas_and_repeated_signs_are_a_list_too(self):
+        assert parse_address("x", "§§ 2, 3 Baupolizeigesetz Salzburg", "").sections == ("2", "3")
+        assert parse_address("Was verlangen § 5 und § 7 der Bauordnung?", "", "").sections == ("5", "7")
+
+    def test_a_short_range_is_expanded(self):
+        assert parse_address("x", "§§ 63 bis 65 BO Wien", "").sections == ("63", "64", "65")
+
+    def test_a_range_as_long_as_a_law_is_not_an_address(self):
+        # Past the tool's passage budget a range is "read the law", which the
+        # ranked path does better than six arbitrary §§.
+        assert parse_address("x", "§§ 1 bis 90 BO Wien", "").sections == ("1",)
+
+    def test_an_absatz_narrows_one_paragraph_never_a_list(self):
+        single = parse_address("x", "§ 2 Abs. 5 Baupolizeigesetz", "")
+        listed = parse_address("x", "§§ 2 und 3 Abs. 4 Baupolizeigesetz", "")
+
+        assert (single.sections, single.absatz) == (("2",), "5")
+        assert (listed.sections, listed.absatz) == (("2", "3"), "")

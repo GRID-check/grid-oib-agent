@@ -2,9 +2,10 @@
 
 Two paths, and the first one is free:
 
-* **Deterministic** — the caller named a § or Artikel, so ``grammar`` finds it
-  by number and returns it with its Absätze. No LLM call at all, which is the
-  whole reason ``address.py`` runs first.
+* **Deterministic** — the caller named a § or Artikel, or a list of §§, so
+  ``grammar`` finds each by number and returns it with its Absätze, all from
+  the one document already fetched. No LLM call at all, which is the whole
+  reason ``address.py`` runs first.
 * **Ranked** — nobody named one, so ONE call to the picker model reads the
   law's § HEADINGS (never a body: that is what keeps this call's input bounded
   by the table of contents rather than by the length of the law) and returns up
@@ -94,7 +95,7 @@ def _addressed(section: Section, address: Address) -> list[tuple[Section, str]]:
 
 
 def _is_addressed(section: Section, address: Address) -> bool:
-    return section.kind == address.kind and section.number.lower() == address.number.lower()
+    return section.kind == address.kind and section.number.lower() in {n.lower() for n in address.sections}
 
 
 def _whole_document(fetched: FetchedDocument) -> list[tuple[Section, str]]:

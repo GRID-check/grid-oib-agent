@@ -28,6 +28,17 @@ PARAGRAPH_RE = re.compile(r"§+\s*(\d+[a-z]?)")
 ARTIKEL_RE = re.compile(r"\bArt(?:ikel)?\.?\s*(\d+[a-z]?)\b", re.IGNORECASE)
 ABSATZ_RE = re.compile(r"\bAbs(?:atz|\.)?\s*(\d+[a-z]?)\b", re.IGNORECASE)
 
+#: A § LIST: "§§ 75 und 81", "§§ 2, 3", "§§ 63 bis 65", "§ 5 und § 7". Every
+#: paragraph it names is addressed. Read as one § it dropped all but the first
+#: and left "und 81" in the law's name, and the agent spent a round fetching
+#: the § it had already asked for.
+_SECTION_LIST_RE = re.compile(r"§+\s*\d+[a-z]?(?:\s*(?:,|und|sowie|u\.|bis|–|-)\s*(?:§+\s*)?\d+[a-z]?)+", re.IGNORECASE)
+_LIST_ITEM_RE = re.compile(r"(bis|–|-)?\s*(?:§+\s*)?(\d+)([a-z]?)", re.IGNORECASE)
+
+#: How many §§ one list may address: the tool's own passage budget
+#: (``extract.MAX_PASSAGES``). "§§ 1 bis 90" is a law, not an address.
+MAX_ADDRESSED_SECTIONS = 6
+
 #: A bare RIS document number as an ``instrument=`` argument ("NOR40217157",
 #: "JWT_2020130074_20210415J00"). The four-digit lookahead is load-bearing:
 #: without it "Bauordnung" reads as a document number, and a NAMED LAW is then
@@ -52,6 +63,8 @@ class Address:
 
     kind: str = ""  # "§" | "Art" | ""
     number: str = ""
+    #: Every § the caller named, ``number`` first; one entry for a single §.
+    numbers: tuple[str, ...] = ()
     absatz: str = ""
     law: str = ""
     url: str = ""
@@ -63,6 +76,30 @@ class Address:
     def has_section(self) -> bool:
         """Whether a § or Artikel was named — the deterministic path's trigger."""
         return bool(self.kind and self.number)
+
+    @property
+    def sections(self) -> tuple[str, ...]:
+        """Every addressed number: the list when one was named, else the one §."""
+        return self.numbers or ((self.number,) if self.number else ())
+
+
+def sections_listed(text: str) -> tuple[str, ...]:
+    """The §§ a list in ``text`` names, in order, ranges expanded; empty without a list."""
+    match = _SECTION_LIST_RE.search(text or "")
+    if not match:
+        return ()
+    numbers: list[str] = []
+    for item in _LIST_ITEM_RE.finditer(match.group(0)):
+        is_range, digits, suffix = item.groups()
+        if is_range and numbers and not suffix and numbers[-1].isdigit():
+            start, end = int(numbers[-1]), int(digits)
+            if end <= start or end - start >= MAX_ADDRESSED_SECTIONS:
+                return ()  # a span that long is a law, not an address: fall back to the one §
+            numbers.extend(str(value) for value in range(start + 1, end + 1))
+        else:
+            numbers.append(digits + suffix)
+    unique = tuple(dict.fromkeys(number.lower() for number in numbers))
+    return unique[:MAX_ADDRESSED_SECTIONS] if len(unique) > 1 else ()
 
 
 def section_in(text: str) -> tuple[str, str]:
@@ -95,13 +132,18 @@ def parse_address(question: str, instrument: str, jurisdiction: str) -> Address:
     url = instrument if is_ris_url(instrument) else ""
     number = instrument if not url and _DOCUMENT_NUMBER_RE.match(instrument) else ""
     kind, section = section_in(instrument) if instrument and not url and not number else ("", "")
+    listed = sections_listed(instrument) if kind == "§" else ()
     if not section:
         kind, section = section_in(question or "")
-    absatz = ABSATZ_RE.search(instrument) or ABSATZ_RE.search(question or "")
+        listed = sections_listed(question or "") if kind == "§" else ()
+    # An Absatz narrows ONE §; with a list it would narrow all of them to the
+    # same number, which is never what "§§ 2 Abs 3 und 4" means.
+    absatz = None if listed else (ABSATZ_RE.search(instrument) or ABSATZ_RE.search(question or ""))
     land, land_source = resolve_land(jurisdiction, instrument, question or "")
     return Address(
         kind=kind,
         number=section,
+        numbers=listed,
         absatz=absatz.group(1) if absatz else "",
         law=_law_name(instrument, url, number),
         url=url,
@@ -115,7 +157,8 @@ def _law_name(instrument: str, url: str, number: str) -> str:
     """The named law inside ``instrument``, with the § and Absatz taken out."""
     if url or number:
         return ""
-    return PARAGRAPH_RE.sub("", ABSATZ_RE.sub("", instrument)).strip(" ,.;")
+    without_list = _SECTION_LIST_RE.sub("", instrument)
+    return PARAGRAPH_RE.sub("", ABSATZ_RE.sub("", without_list)).strip(" ,.;")
 
 
 def resolve_land(jurisdiction: str, instrument: str, question: str) -> tuple[str, str]:

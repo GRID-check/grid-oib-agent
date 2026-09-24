@@ -76,3 +76,17 @@ async def test_a_pasted_ris_url_is_an_address_and_needs_no_search(lookup, monkey
     assert lookup.client.search_calls == []
     assert lookup.client.fetch_calls == [lookup.WIEN_URL]
     assert "Punkt: § 63" in output
+
+
+async def test_a_list_of_paragraphs_comes_back_whole_in_one_call(lookup, catalog, monkeypatch):
+    """ "§§ 63 und 64": both out of the one document already fetched, no model asked."""
+    from tests.conftest import FakePicker
+
+    picker = FakePicker("§ 75")
+    lookup.with_llms(monkeypatch, picker=picker)
+
+    output = await lookup.run(question="Was verlangen die §§ 63 und 64?", instrument="§§ 63 und 64 BO Wien")
+
+    assert picker.calls == []
+    assert "Punkt: § 63" in output and "Punkt: § 64" in output
+    assert "Bauverhandlung anzuberaumen" in output
