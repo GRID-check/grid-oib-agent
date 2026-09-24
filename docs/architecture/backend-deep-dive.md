@@ -1259,7 +1259,7 @@ Country expansion touches data, not architecture: a new
 Austria's). The org-Archiv stratum (ADR-0024) sits beside these unchanged.
 
 - **Data** — `configs/norms/<country>/registry.yml` (env override
-  `GRID_NORMS_DIR`; `at` ships 23 entries): per entry `id`, `title`, `short`,
+  `GRID_NORMS_DIR`; `at` ships 24 entries): per entry `id`, `title`, `short`,
   `rank` (bundesgesetz | landesgesetz | verordnung — RIS-backed law lanes —
   plus behoerdliche_info for non-RIS practice guidance with a plain
   `source_url`, e.g. the MA-37 Merkblätter, and norm_extern for

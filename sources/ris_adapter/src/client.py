@@ -253,6 +253,20 @@ _METADATA_FIELDS = (
 _TITLE_KEYS = ("Kurztitel", "Titel", "Dokumenttitel", "Kurzinformation", "Geschaeftszahl")
 
 
+#: The host OGD-RIS started stating in 2026-09 for document and whole-law URLs.
+#: It answers with a 301 to ``ris.bka.gv.at``, is on no allow-list, and written
+#: into the norm catalog it replaced every pointer the reader can open.
+_OGD_HOST_PREFIX = "https://ogd.ris.bka.gv.at/"
+_PUBLIC_HOST_PREFIX = "https://www.ris.bka.gv.at/"
+
+
+def _public_host(url: str) -> str:
+    """A RIS URL on the public host the citations, the catalog and the fetch use."""
+    if url.startswith(_OGD_HOST_PREFIX):
+        return _PUBLIC_HOST_PREFIX + url[len(_OGD_HOST_PREFIX) :]
+    return url
+
+
 def _parse_hit(ref: Any) -> RisHit:
     """Normalize one OgdDocumentReference node into a RisHit."""
     hit = RisHit()
@@ -272,8 +286,8 @@ def _parse_hit(ref: Any) -> RisHit:
             hit.title = title
             break
 
-    hit.citation_url = _as_text(_find_first(metadaten, "DokumentUrl"))
-    hit.full_law_url = _as_text(_find_first(metadaten, "GesamteRechtsvorschriftUrl"))
+    hit.citation_url = _public_host(_as_text(_find_first(metadaten, "DokumentUrl")))
+    hit.full_law_url = _public_host(_as_text(_find_first(metadaten, "GesamteRechtsvorschriftUrl")))
 
     for key, label in _METADATA_FIELDS:
         value = _as_text(_find_first(metadaten, key))

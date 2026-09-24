@@ -555,11 +555,22 @@ class TestGuessDocClass:
 # ---------------------------------------------------------------------------
 
 
-def test_repo_registry_has_23_entries():
+def test_repo_registry_has_24_entries():
     registry = nr.load_registry(str(REPO_ROOT / "configs" / "norms"))
 
     assert registry is not None
-    assert len(registry.entries) == 23
+    assert len(registry.entries) == 24
+
+
+def test_salzburg_permit_questions_reach_the_baupolizeigesetz():
+    """Salzburg keeps its permit procedure out of the Bautechnikgesetz; the
+    catalog pointed "bewilligungsfrei" at the technical act and the lookup never
+    found the law the question was about (answer suite, 2026-09-24)."""
+    registry = nr.load_registry(str(REPO_ROOT / "configs" / "norms"))
+    permits = {
+        entry.id for entry in registry.entries if entry.bundesland == "Salzburg" and "baubewilligung" in entry.topics
+    }
+    assert permits == {"baupolg-sbg"}
 
 
 class TestNonRisEntries:

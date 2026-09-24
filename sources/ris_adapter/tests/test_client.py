@@ -471,3 +471,24 @@ class TestRisClientFetch:
     async def test_json_fixture_is_serializable(self):
         # Guard against fixtures drifting into non-JSON shapes.
         assert json.loads(json.dumps(BR_KONS_RESPONSE))
+
+
+def test_a_hit_on_the_ogd_host_is_read_on_the_public_one():
+    # OGD-RIS began stating ogd.ris.bka.gv.at (2026-09): a 301 to the public
+    # host, on no allow-list, and written into the catalog by its builder.
+    from ris_adapter.client import _parse_hit
+
+    hit = _parse_hit(
+        {
+            "Data": {
+                "Metadaten": {
+                    "Allgemein": {"DokumentUrl": "https://ogd.ris.bka.gv.at/eli/lgbl/SA/1997/40/P0/LSB40029372"},
+                    "Landesrecht": {
+                        "GesamteRechtsvorschriftUrl": "https://ogd.ris.bka.gv.at/GeltendeFassung.wxe?Abfrage=LrSbg&Gesetzesnummer=10001005"
+                    },
+                }
+            }
+        }
+    )
+    assert hit.citation_url == "https://www.ris.bka.gv.at/eli/lgbl/SA/1997/40/P0/LSB40029372"
+    assert hit.full_law_url.startswith("https://www.ris.bka.gv.at/GeltendeFassung.wxe?")
