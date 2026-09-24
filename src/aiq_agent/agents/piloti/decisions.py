@@ -328,6 +328,15 @@ async def decide_turn(facts: TurnFacts, *, organization_id: str | None = None) -
     return decided
 
 
+def prefetch_query(question: str | None) -> str:
+    """The question as round 0 searches it: whitespace folded, at most 300 characters.
+
+    One definition, because the turn-start warm-up embeds this exact string
+    and a warm-up for a different string is a wasted round trip.
+    """
+    return " ".join((question or "").split())[:300]
+
+
 def prefetch_calls(
     decisions: TurnDecisions, question: str, *, focus_file_name: str | None = None
 ) -> list[dict[str, Any]]:
@@ -361,7 +370,7 @@ def prefetch_calls(
         return []
     from aiq_agent.common.norm_registry import family_query_number
 
-    query = " ".join((question or "").split())[:300]
+    query = prefetch_query(question)
     if not query:
         return []
     args: dict[str, Any] = {"query": query}
@@ -380,7 +389,7 @@ def _undecided_prefetch(question: str) -> list[dict[str, Any]]:
     """The prefetch a question earns without a decision: its own search, when it names a family."""
     from aiq_agent.common.norm_registry import family_query_number
 
-    query = " ".join((question or "").split())[:300]
+    query = prefetch_query(question)
     if not query or family_query_number(query) is None:
         return []
     return [{"name": KNOWLEDGE_SEARCH, "args": {"query": query}}]

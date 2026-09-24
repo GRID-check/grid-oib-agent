@@ -815,3 +815,33 @@ def get_knowledge_layer_config() -> dict[str, Any]:
             "available_backends": list(_INGESTOR_REGISTRY.keys()),
         },
     }
+
+
+# The retriever the knowledge search tool was built with. It can differ from
+# the active retriever (another config identity, another instance, another
+# embedding LRU), and a warm-up is only worth anything in the cache the search
+# will read. Set by the knowledge tool at build time.
+_SEARCH_RETRIEVER: BaseRetriever | None = None
+
+
+def set_search_retriever(retriever: BaseRetriever | None) -> None:
+    """Record the retriever the knowledge search tool reads through."""
+    global _SEARCH_RETRIEVER
+    _SEARCH_RETRIEVER = retriever
+
+
+async def warm_search_query(query: str) -> None:
+    """Warm the knowledge search's caches for ``query`` as the tool will send it; never raises.
+
+    The tool searches the query after ``augmented_query`` (the cross-lingual
+    bridge), so that is the string warmed. No search retriever, no warm-up.
+    """
+    retriever = _SEARCH_RETRIEVER
+    if retriever is None or not query:
+        return
+    try:
+        from aiq_agent.common.query_expansion import augmented_query
+
+        await retriever.warm_query(augmented_query(query))
+    except Exception:  # noqa: BLE001 - a warm-up is worth less than the turn
+        logger.debug("Search warm-up failed", exc_info=True)

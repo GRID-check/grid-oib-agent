@@ -190,6 +190,25 @@ class TestTheTurn:
         decide.assert_awaited_once()
         assert turn.prefetch == ({"name": "knowledge_search", "args": {"query": "Was weißt du über die OIB 2?"}},)
 
+    async def test_the_question_the_prefetch_searches_is_warmed_beside_the_decision(self):
+        decided = TurnDecisions(decided=True, needs_evidence=0.9, corpus="baurecht", corpus_p=0.8)
+        with patch("aiq_agent.knowledge.factory.warm_search_query", new_callable=AsyncMock) as warm:
+            turn, _state, _decide = await _run_turn(
+                ResearchAgentConfig(llm="research_llm", tools=["knowledge_search"], skills_enabled=False), decided
+            )
+        # The very string the prefetch will search, so the search finds it cached.
+        warm.assert_awaited_once_with(turn.prefetch[0]["args"]["query"])
+
+    async def test_switched_off_means_no_warm_up(self):
+        with patch("aiq_agent.knowledge.factory.warm_search_query", new_callable=AsyncMock) as warm:
+            await _run_turn(
+                ResearchAgentConfig(
+                    llm="research_llm", tools=["knowledge_search"], skills_enabled=False, turn_decisions=False
+                ),
+                TurnDecisions.none(),
+            )
+        warm.assert_not_awaited()
+
     async def test_switched_off_means_no_decision_and_no_prefetch(self):
         turn, _state, decide = await _run_turn(
             ResearchAgentConfig(

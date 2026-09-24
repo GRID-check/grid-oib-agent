@@ -4125,6 +4125,11 @@ class LlamaIndexRetriever(BaseRetriever):
         self._embed_cache: dict[tuple[str, str], list[float]] = {}
         self._embed_cache_order: list[tuple[str, str]] = []
         self._embed_cache_lock = threading.Lock()
+        # An embedding being computed, by key: a second caller for the same
+        # query waits for it instead of paying the round trip again. The
+        # turn-start warm-up (``warm_query``) races the turn's own search for
+        # the same question, and without this the loser embedded twice.
+        self._embed_inflight: dict[tuple[str, str], threading.Event] = {}
 
         # Document frequency of each exact term, per collection size, so the
         # `$contains` channel's DF ceiling costs one `get` per new term rather
@@ -4265,25 +4270,61 @@ class LlamaIndexRetriever(BaseRetriever):
         """
         return await asyncio.to_thread(self._retrieve_sync, query, collection_name, top_k, filters)
 
+    async def warm_query(self, query: str) -> None:
+        """Embed ``query`` ahead of the search that will ask for it; never raises.
+
+        The query embedding is a remote round trip (280-980 ms measured
+        2026-09-24) that the knowledge tool pays before it can rank anything.
+        A caller that knows the query before the search starts runs it here,
+        and the search then finds it in the LRU (or waits for it in flight).
+        It also absorbs the adapter's lazy initialisation on a cold process.
+        """
+        try:
+            await asyncio.to_thread(self._warm_sync, query)
+        except Exception:  # noqa: BLE001 - a warm-up is worth less than the turn
+            logger.debug("Query warm-up failed", exc_info=True)
+
+    def _warm_sync(self, query: str) -> None:
+        self._ensure_initialized()
+        self._embed_query_cached(query)
+
     def _embed_query_cached(self, query: str) -> list[float]:
-        """Embed a query once per (model, text); LRU-bounded."""
+        """Embed a query once per (model, text); LRU-bounded, one computation in flight per key."""
         key = (self.embed_model_name, query)
-        with self._embed_cache_lock:
-            if key in self._embed_cache:
-                self._embed_cache_order.remove(key)
-                self._embed_cache_order.append(key)
-                return self._embed_cache[key]
+        while True:
+            with self._embed_cache_lock:
+                if key in self._embed_cache:
+                    self._embed_cache_order.remove(key)
+                    self._embed_cache_order.append(key)
+                    return self._embed_cache[key]
+                pending = self._embed_inflight.get(key)
+                if pending is None:
+                    self._embed_inflight[key] = threading.Event()
+                    break
+            # Another thread is embedding this query. Wait for it, then read
+            # the cache; if it failed (or the LRU is disabled) take over.
+            pending.wait(timeout=30)
+            with self._embed_cache_lock:
+                if key in self._embed_cache or key in self._embed_inflight:
+                    continue
+                self._embed_inflight[key] = threading.Event()
+                break
 
-        embedding = self._embed_model.get_query_embedding(query)
-
-        with self._embed_cache_lock:
-            if key not in self._embed_cache:
-                self._embed_cache[key] = embedding
-                self._embed_cache_order.append(key)
-                while len(self._embed_cache_order) > self.EMBED_CACHE_MAX:
-                    evicted = self._embed_cache_order.pop(0)
-                    self._embed_cache.pop(evicted, None)
-        return embedding
+        try:
+            embedding = self._embed_model.get_query_embedding(query)
+            with self._embed_cache_lock:
+                if key not in self._embed_cache and self.EMBED_CACHE_MAX > 0:
+                    self._embed_cache[key] = embedding
+                    self._embed_cache_order.append(key)
+                    while len(self._embed_cache_order) > self.EMBED_CACHE_MAX:
+                        evicted = self._embed_cache_order.pop(0)
+                        self._embed_cache.pop(evicted, None)
+            return embedding
+        finally:
+            with self._embed_cache_lock:
+                done = self._embed_inflight.pop(key, None)
+            if done is not None:
+                done.set()
 
     def _cached_static_result(self, key: tuple[str, int, str, int, str]) -> RetrievalResult | None:
         with self._result_cache_lock:

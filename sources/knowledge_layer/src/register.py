@@ -1859,6 +1859,12 @@ async def knowledge_retrieval(config: KnowledgeRetrievalConfig, _builder: Builde
     configure_norm_store(config.summary_db)
 
     retriever = _get_retriever(config)
+    # The turn-start warm-up (Piloti) embeds the question in THIS retriever's
+    # cache while the turn decision runs, so the prefetch search skips the
+    # round trip. See ``warm_search_query``.
+    from aiq_agent.knowledge.factory import set_search_retriever
+
+    set_search_retriever(retriever)
 
     _initialize_ingestor(config, summary_llm_obj)
 

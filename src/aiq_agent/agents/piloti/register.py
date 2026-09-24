@@ -69,6 +69,7 @@ from .decisions import TurnFacts
 from .decisions import attached_card_types
 from .decisions import decide_turn
 from .decisions import prefetch_calls
+from .decisions import prefetch_query
 from .models import ResearchAgentState
 from .tool_search import ToolSearchSettings
 
@@ -417,6 +418,32 @@ async def _decide_turn(
         return TurnDecisions.none()
 
 
+def _warm_question(config: ResearchAgentConfig, state: ResearchAgentState, runtime: SkillRuntime | None) -> None:
+    """Start embedding the question the round-0 prefetch will search; not awaited.
+
+    The prefetch is known only after the decision, and its search then pays
+    the query embedding (280-980 ms, measured 2026-09-24) before it can rank.
+    The string it will search is known now, so the embedding runs beside the
+    decision and the search finds it cached, or in flight. A turn that turns
+    out not to search wasted one embedding call. Nothing waits on it.
+    """
+    if not config.turn_decisions:
+        return
+    query = prefetch_query(_turn_facts(state, runtime).question)
+    if len(query.split()) < 3:
+        return
+    from aiq_agent.knowledge.factory import warm_search_query
+
+    # Held until done: the loop keeps only a weak reference to a task.
+    task = asyncio.create_task(warm_search_query(query))
+    _WARMING.add(task)
+    task.add_done_callback(_WARMING.discard)
+
+
+#: The warm-ups still running (see _warm_question).
+_WARMING: set[asyncio.Task[None]] = set()
+
+
 #: Tools that read the PROJECT's building model. Outside a project they can
 #: only answer "no project" (``tools/bim/failures.NO_PROJECT_TEXT``), and
 #: their two schemas are ~8 200 of the ~17 000 tool tokens every call of the
@@ -533,6 +560,9 @@ async def _run_turn(deployment: _Deployment, state: ResearchAgentState) -> Resea
     # The provider reads (four cache-first BFF lookups) run beside them too:
     # nothing here depends on another, so the turn pays the slowest of the
     # three, not their sum.
+    # The question's embedding is warmed beside them (see _warm_question), so
+    # the round-0 search it prefetches does not pay that round trip after.
+    _warm_question(config, state, runtime)
     draft_tools, decisions, llm_provider = await asyncio.gather(
         draft_tools_for_turn(), _decide_turn(config, state, runtime), _active_provider(deployment.provider)
     )
