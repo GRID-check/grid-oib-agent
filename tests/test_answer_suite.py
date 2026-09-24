@@ -181,3 +181,56 @@ def test_an_answer_without_its_fence_still_has_its_envelope(tmp_path):
     record.write_text("\n".join(json.dumps(row) for row in rows))
     run = suite.observe(QUESTION, 1, record, log)
     assert run.checks["envelope"] is True and run.kind == "ruling"
+
+
+def test_a_streamed_call_records_its_response_and_when_text_began(tmp_path):
+    # A streamed answer (ADR-0066) has no JSON body: the first core run after
+    # prose streamed recorded every envelope as missing.
+    import subprocess
+    import textwrap
+
+    out = tmp_path / "rec.jsonl"
+    events = [
+        {"type": "response.created"},
+        {"type": "response.output_text.delta", "delta": "Hallo"},
+        {"type": "response.completed", "response": {"output": [{"type": "message"}], "usage": {"output_tokens": 3}}},
+    ]
+    body = "".join(f"event: {e['type']}\ndata: {json.dumps(e)}\n\n" for e in events)
+    script = textwrap.dedent(
+        f"""
+        import asyncio, sys
+        sys.path.insert(0, {str(REPO_ROOT / "scripts" / "turn_census")!r})
+        import sitecustomize as rec
+
+        class Inner:
+            async def __aiter__(self):
+                for part in {body!r}.encode().split(b"\\n\\n"):
+                    yield part + b"\\n\\n"
+            async def aclose(self):
+                pass
+
+        async def main():
+            tee = rec._Tee(Inner(), {{"t_start": 0.0}})
+            async for _ in tee:
+                pass
+            await tee.aclose()
+
+        asyncio.run(main())
+        """
+    )
+    subprocess.run([sys.executable, "-c", script], check=True, env={"REC_OUT": str(out), "PATH": ""})
+    entry = json.loads(out.read_text().splitlines()[0])
+    assert entry["resp"]["output"] == [{"type": "message"}]
+    assert entry["usage"] == {"output_tokens": 3}
+    assert entry["t_first_text"] > 0
+
+
+def test_the_first_text_column_reads_the_final_call(tmp_path):
+    record, log = _recorded_turn(tmp_path)
+    rows = [json.loads(line) for line in record.read_text().splitlines()]
+    rows[-1]["t_first_text"] = 21.5  # the final call starts at 8.0, the turn at 0.0
+    record.write_text("\n".join(json.dumps(row) for row in rows))
+    run = suite.observe(QUESTION, 1, record, log)
+    assert run.first_text_s == 21.5
+    report = suite.render([run], [], {"started": "t", "runs_per_question": 1})
+    assert "| First text s |" in report and "| 21.5 |" in report

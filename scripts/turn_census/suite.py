@@ -77,6 +77,9 @@ class Run:
     run: int
     wall_s: float = 0.0
     final_call_s: float = 0.0
+    #: Turn start to the first visible text of the final call: what the reader
+    #: waits for once the prose streams (ADR-0066). 0 when the call was buffered.
+    first_text_s: float = 0.0
     research_calls: int = 0
     tool_calls: list[str] = field(default_factory=list)
     reasoning_tokens: int = 0
@@ -185,6 +188,8 @@ def observe(question: dict, index: int, record: Path, log: Path) -> Run:
                 run.tool_calls.append(str(item.get("name")))
     if research:
         run.final_call_s = round(research[-1]["t_end"] - research[-1]["t_start"], 1)
+        if first_text := research[-1].get("t_first_text"):
+            run.first_text_s = round(first_text - rows[0]["t_start"], 1)
     run.signals = [name for name, needle in _LOG_SIGNALS.items() if needle in log_text]
     run.answer = final_answer(log_text)
     envelope = last_envelope(rows)
@@ -290,6 +295,7 @@ def summarize(runs: list[Run]) -> dict[str, dict[str, Any]]:
             "errors": [run.error for run in group if run.error],
             "wall_s": [run.wall_s for run in ok],
             "final_call_s": [run.final_call_s for run in ok],
+            "first_text_s": [run.first_text_s for run in ok if run.first_text_s],
             "research_calls": [run.research_calls for run in ok],
             "reasoning_tokens": [run.reasoning_tokens for run in ok],
             "max_reasoning_tokens": [run.max_reasoning_tokens for run in ok],
@@ -323,8 +329,9 @@ def render(
         "largest single call, which is where run-to-run variance comes from."
         + (" Deltas in brackets are against the baseline's medians." if baseline else ""),
         "",
-        "| Question | Wall s | Research calls | Reasoning tokens | Spike | Final call s | Checks | Signals |",
-        "|---|---|---|---|---|---|---|---|",
+        "| Question | Wall s | First text s | Research calls | Reasoning tokens | Spike | Final call s "
+        "| Checks | Signals |",
+        "|---|---|---|---|---|---|---|---|---|",
     ]
     failing: list[str] = []
     for question_id, row in summary.items():
@@ -333,6 +340,7 @@ def render(
         score = f"{sum(v == 1 for v in held)}/{len(held)}" if held else "–"
         lines.append(
             f"| {question_id} | {_spread(row['wall_s'])}{_delta(row['wall_s'], prior.get('wall_s'))} "
+            f"| {_spread(row['first_text_s']) if row['first_text_s'] else '–'} "
             f"| {_spread(row['research_calls'])} "
             f"| {_spread(row['reasoning_tokens'])}{_delta(row['reasoning_tokens'], prior.get('reasoning_tokens'))} "
             f"| {_spread(row['max_reasoning_tokens'])} | {_spread(row['final_call_s'])} | {score} "

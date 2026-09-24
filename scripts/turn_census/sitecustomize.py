@@ -23,6 +23,26 @@ def _write(entry):
         f.write(json.dumps(entry, ensure_ascii=False) + "\n")
 
 
+def _completed_response(text):
+    """The full response a streamed Responses call closes with, or None.
+
+    A streamed call (ADR-0066) has no JSON body: its ``response.completed``
+    event carries the same object a buffered call returns, and the suite reads
+    the answer out of it. Without this every streamed answer recorded as none.
+    """
+    for line in text.splitlines():
+        line = line.strip()
+        if not line.startswith("data:"):
+            continue
+        try:
+            obj = json.loads(line[5:].strip())
+        except Exception:
+            continue
+        if isinstance(obj, dict) and obj.get("type") == "response.completed":
+            return obj.get("response")
+    return None
+
+
 def _usage_from_text(text):
     usage = None
     for line in text.splitlines():
@@ -49,6 +69,9 @@ class _Tee(httpx.AsyncByteStream):
     async def __aiter__(self):
         async for chunk in self._inner:
             self._buf.extend(chunk)
+            # When the first visible text left the model: what streaming changes.
+            if "t_first_text" not in self._entry and b"response.output_text.delta" in chunk:
+                self._entry["t_first_text"] = time.time()
             yield chunk
 
     async def aclose(self):
@@ -56,6 +79,8 @@ class _Tee(httpx.AsyncByteStream):
         text = self._buf.decode("utf-8", "replace")
         self._entry["usage"] = _usage_from_text(text)
         self._entry["resp_chars"] = len(text)
+        if (completed := _completed_response(text)) is not None:
+            self._entry["resp"] = completed
         self._entry["t_end"] = time.time()
         _write(self._entry)
 
