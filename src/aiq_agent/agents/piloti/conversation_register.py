@@ -68,6 +68,7 @@ from aiq_agent.turn.registries import load_session_registry
 from aiq_agent.turn.registries import turn_registries
 from aiq_agent.turn.response import build_response
 from aiq_agent.turn.response import post_answer_turn_facts
+from aiq_agent.turn.streaming import chunk_content
 from aiq_agent.turn.streaming import fold_chunks_to_response
 from aiq_agent.turn.streaming import live_chunk
 from aiq_agent.turn.streaming import response_to_chunks
@@ -260,6 +261,24 @@ def _live_item_chunk(item: Item) -> ChatResponseChunk:
     if isinstance(item, Cards):
         return live_chunk("", cards=item.cards)
     return live_chunk(item)
+
+
+def note_settled_replaced(settled: str | None, chunks: list[ChatResponseChunk]) -> bool:
+    """Log, and say, whether the terminal text differs from the settled snapshot.
+
+    The reader has read the settled text by then (ADR-0066), so a difference is
+    the answer changing under them: a repair adopted, a quote marked late, a
+    card suppressed. Nothing else measures it; the answer suite counts the line.
+    """
+    terminal = chunk_content(chunks[-1]) if chunks else None
+    if settled is None or terminal is None or terminal.rstrip() == settled.rstrip():
+        return False
+    logger.info(
+        "Piloti: the terminal frame replaced the settled answer (%d -> %d chars)",
+        len(settled),
+        len(terminal),
+    )
+    return True
 
 
 def _answer_chunks(
@@ -457,10 +476,14 @@ def _turn_runner(agent: ConversationGraph, config: ChatDeepResearcherConfig, sta
                 sink = AnswerStreamSink()
                 with bound_answer_stream(sink):
                     answering = asyncio.create_task(_answer_and_chunks())
+                settled: str | None = None
                 try:
                     async for item in sink.relay(answering):
+                        if isinstance(item, Snapshot):
+                            settled = item.content
                         yield _live_item_chunk(item)
                     chunks = await answering
+                    note_settled_replaced(settled, chunks)
                 finally:
                     # Only a consumer that abandoned the stream leaves it running.
                     if not answering.done():

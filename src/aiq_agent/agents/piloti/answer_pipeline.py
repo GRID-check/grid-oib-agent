@@ -427,6 +427,11 @@ class _Verified:
     verification: Any
     unverified_quotes: tuple[UnverifiedQuote, ...]
     repair_sources: tuple[SourceEntry, ...] = ()
+    #: Set when a repair's rewrite was adopted: each number the ORIGINAL cited
+    #: mapped to the number the rewrite gives the same source. The cards were
+    #: written against the original's list, so they follow this, not the
+    #: rewrite's own numbering.
+    rewrite_numbers: dict[int, int] | None = None
 
     @property
     def failure_count(self) -> int:
@@ -489,7 +494,26 @@ def _adopt_if_better(verified: _Verified, repaired: Repair, registry: SourceRegi
     logger.info("Piloti: repair pass adopted (%d -> %d failures)", verified.failure_count, after)
     for source in repaired.sources:
         registry.add(source)
-    return _Verified(candidate.verified_report, candidate, candidate_quotes, tuple(repaired.sources))
+    return _Verified(
+        candidate.verified_report,
+        candidate,
+        candidate_quotes,
+        tuple(repaired.sources),
+        rewrite_numbers=_same_source_numbers(verified.verification.valid_citations, candidate.valid_citations),
+    )
+
+
+def _same_source_numbers(before: Sequence[dict[str, Any]], after: Sequence[dict[str, Any]]) -> dict[int, int]:
+    """``{number before: number after}`` for each source both citation lists name."""
+    after_by_source = {
+        citation.get("citation_key") or citation.get("url"): citation.get("number") for citation in after
+    }
+    mapped: dict[int, int] = {}
+    for citation in before:
+        number, later = citation.get("number"), after_by_source.get(citation.get("citation_key") or citation.get("url"))
+        if isinstance(number, int) and isinstance(later, int):
+            mapped[number] = later
+    return mapped
 
 
 async def _verify_with_repair(
@@ -525,6 +549,7 @@ class _Grounding:
     unverified_quotes: tuple[UnverifiedQuote, ...] = ()
     removed_citations: tuple[dict[str, Any], ...] = ()
     repair_sources: tuple[SourceEntry, ...] = ()
+    rewrite_numbers: dict[int, int] | None = None
 
 
 def _entry_for(citation: dict[str, Any], registry: SourceRegistry) -> SourceEntry | None:
@@ -574,6 +599,7 @@ def _ground(verified: _Verified, registry: SourceRegistry, *, lookup_attempted: 
         "unverified_quotes": verified.unverified_quotes,
         "removed_citations": tuple(verified.verification.removed_citations),
         "repair_sources": verified.repair_sources,
+        "rewrite_numbers": verified.rewrite_numbers,
     }
     if verified.verification.valid_citations:
         cited = _cited_sources(verified.verification.valid_citations, registry)
@@ -617,8 +643,15 @@ def _require_retrieval(lookup_attempted: bool, tools: Sequence[BaseTool]) -> Non
     raise EmptySourceRegistryError("research", unavailable_tools=unavailable, available_count=available_count)
 
 
-def _recite_surface_cards(renumber_map: dict[int, int] | None, cited: tuple[CitedSource, ...]) -> None:
-    """Hold the ``[N]`` in this turn's composed surfaces to the prose's citations (``cards/surface_citations``)."""
+def _recite_surface_cards(
+    renumber_map: dict[int, int] | None, cited: tuple[CitedSource, ...], rewrite_numbers: dict[int, int] | None = None
+) -> None:
+    """Hold the ``[N]`` in this turn's composed surfaces to the prose's citations (``cards/surface_citations``).
+
+    After an adopted repair the cards still carry the ORIGINAL's numbers:
+    they are carried through ``rewrite_numbers`` first, and one the rewrite
+    no longer cites is dropped rather than read against the new list.
+    """
     from aiq_agent.cards.registry import get_card_registry
     from aiq_agent.cards.surface_citations import recite_surface
 
@@ -626,8 +659,12 @@ def _recite_surface_cards(renumber_map: dict[int, int] | None, cited: tuple[Cite
     if registry is None:
         return
     numbers = {source.number for source in cited if source.number is not None}
+    strict = rewrite_numbers is not None
+    if strict:
+        later = renumber_map or {}
+        renumber_map = {before: later.get(after, after) for before, after in rewrite_numbers.items()}
     for index, card in enumerate(registry.snapshot()):
-        recited = recite_surface(card, renumber_map or {}, numbers)
+        recited = recite_surface(card, renumber_map or {}, numbers, strict=strict)
         if recited is not card:
             registry.replace(index, recited)
 
@@ -635,10 +672,10 @@ def _recite_surface_cards(renumber_map: dict[int, int] | None, cited: tuple[Cite
 def settle_streamed_citations(prose: str, sources_text: str, registry: SourceRegistry) -> SettledStream | None:
     """The streamed prose with its ``[N]`` markers settled, and the sources they name.
 
-    The same three steps :func:`finalize_answer` runs on the finished answer:
-    verify each source line against the registry, sanitise (which drops the
-    markers that lost their line and closes the gaps), and read the cited
-    sources off the survivors. Run the moment the envelope's ``answer`` string
+    The same steps :func:`finalize_answer` runs on the finished answer: verify
+    each source line against the registry, mark each quote no retrieved
+    passage holds, sanitise (which drops the markers that lost their line and
+    closes the gaps), and read the cited sources off the survivors. Run the moment the envelope's ``answer`` string
     closes, which is before the cards and the pipeline: the pending markers on
     screen become the answer's own citations, numbered as the terminal frame
     will number them (ADR-0066). ``None`` when there is nothing to settle.
@@ -647,9 +684,14 @@ def settle_streamed_citations(prose: str, sources_text: str, registry: SourceReg
 
     if not sources_text.strip() or not registry.all_sources():
         return None
-    verified = verify_citations(prose.rstrip() + "\n\n" + sources_text.strip(), registry)
-    sanitized = sanitize_report(verified.verified_report)
-    cited = _renumbered(_cited_sources(verified.valid_citations, registry), sanitized.renumber_map)
+    verified = _verify(prose.rstrip() + "\n\n" + sources_text.strip(), registry)
+    # A quote no retrieved passage holds is marked HERE, as the terminal frame
+    # marks it: settled without the check, it read as a real quotation until
+    # the terminal frame, seconds later, and the text changed under the reader
+    # when the marker arrived.
+    report = annotate_unverified_quotes(verified.content, list(verified.unverified_quotes))
+    sanitized = sanitize_report(report)
+    cited = _renumbered(_cited_sources(verified.verification.valid_citations, registry), sanitized.renumber_map)
     # The written source list travels WITH the prose, as it does in the
     # terminal frame: the reader resolves a marker against that list.
     return SettledStream(
@@ -996,7 +1038,7 @@ async def finalize_answer(
     sanitized = sanitize_report(grounding.content)
     content, _ = drop_restated_mindmaps(sanitized.sanitized_report)
     cited = _renumbered(grounding.cited, sanitized.renumber_map)
-    _recite_surface_cards(sanitized.renumber_map, cited)
+    _recite_surface_cards(sanitized.renumber_map, cited, grounding.rewrite_numbers)
     meta = _gated_meta(
         extracted,
         content,

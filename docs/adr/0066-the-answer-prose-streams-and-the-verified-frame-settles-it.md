@@ -102,7 +102,15 @@ failures only, so a rewrite that dropped most of its citations always looked
 better; live, it replaced a settled answer citing nine sources with one citing
 two, 22 s after the reader had it. A rewrite is now adopted only when it also
 cites at least as many distinct sources as the verified original
-(`_adopt_if_better`).
+(`_adopt_if_better`). Two defects found looking at it: the settled snapshot
+checked citations but not quotes, so a quote no passage holds read as real
+until the terminal frame marked it (now marked at settle); and after an
+adopted rewrite a card's `[N]` was read against the rewrite's source list
+(now carried through the numbers both lists share). Whether the whole-answer
+rewrite should give way to a span-level repair is weighed in
+`docs/architecture/repair-pass-alternatives-2026-09.md`; the answer suite now
+counts adopted and discarded repairs apart, and each terminal that changed
+the settled text (`settled_replaced`).
 
 ### Consequences
 

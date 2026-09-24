@@ -57,7 +57,12 @@ _ANSI = re.compile(r"\x1b\[[0-9;]*m")
 #: A cited corpus file's Richtlinie number: `oib-rl_2.1_…`, `oib-richtlinie_2.2_…`.
 _CITED_FAMILY = re.compile(r"(?:rl|richtlinie)_(\d+(?:\.\d+)?)_", re.IGNORECASE)
 _LOG_SIGNALS = {
-    "repair": "repair pass",
+    # Adopted and discarded apart: one count of both said a repair happened
+    # when the reader saw nothing change.
+    "repair_adopted": "repair pass adopted",
+    "repair_discarded": "repair pass discarded",
+    # What the reader sees: the text they had read changed at the terminal.
+    "settled_replaced": "terminal frame replaced the settled answer",
     "summary_gated": "summary gated out",
     "mindmap_dropped": "that only redraw a table",
     "prose_outside": "answer_prose_outside_envelope",
