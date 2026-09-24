@@ -26,6 +26,11 @@ every item in §3 sits in front of the first character the reader sees,
 including the model's own generation. There is no "model
 streaming" slice to subtract; nothing streams.
 
+> **Since 2026-09-24 (ADR-0066) the answer's prose streams** while the final
+> call writes it, so the writing, the cards JSON after it and verification are
+> no longer in front of the first character. The model's thinking before its
+> first token still is.
+
 Ranked by expected seconds saved per turn without touching answer quality:
 
 | # | Driver | Order of cost | Fix shape |

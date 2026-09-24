@@ -40,8 +40,9 @@ agents share must not live in one agent's package.
 
 Fail-open in every direction, and the asymmetry is deliberate: a malformed
 envelope may cost the ENRICHMENT, never the ANSWER. Parsing is safe to attempt
-at all because the chat pipeline is fully buffered — nothing streams to the
-reader before this module has run (docs/design/streaming-chat-answer.md).
+at all because what the reader sees before this module has run is only the
+envelope's ``answer`` prose, markers withheld, and the terminal frame built
+from this module's output replaces it (ADR-0066).
 
 The gates are the point, not an accident (see ``docs/architecture/cards.md``):
 

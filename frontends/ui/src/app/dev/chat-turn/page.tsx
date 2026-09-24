@@ -194,8 +194,10 @@ const commonThinking = {
  */
 function LiveTurn() {
   return (
-    <div className="flex flex-col gap-5 rounded-2xl border bg-background p-5">
-      <div className="font-mono text-xs text-muted-foreground">↓ LIVE — thinking, Herleitung expanded, answer absent</div>
+    <div className="bg-background flex flex-col gap-5 rounded-2xl border p-5">
+      <div className="text-muted-foreground font-mono text-xs">
+        ↓ LIVE — thinking, Herleitung expanded, answer absent
+      </div>
       <UserMessage content={question} timestamp={new Date('2024-01-15T14:30:00')} />
       <div className="w-[680px] max-w-full">
         <ChatThinking
@@ -217,8 +219,10 @@ function LiveTurn() {
  */
 function CompletedTurn() {
   return (
-    <div className="flex flex-col gap-5 rounded-2xl border bg-background p-5">
-      <div className="font-mono text-xs text-muted-foreground">↓ COMPLETED — Herleitung collapsed, answer dominant</div>
+    <div className="bg-background flex flex-col gap-5 rounded-2xl border p-5">
+      <div className="text-muted-foreground font-mono text-xs">
+        ↓ COMPLETED — Herleitung collapsed, answer dominant
+      </div>
       <UserMessage content={question} timestamp={new Date('2024-01-15T14:30:00')} />
       <div className="w-[680px] max-w-full">
         <ChatThinking
@@ -286,10 +290,26 @@ const AnswerTurn: FC<{
    * also turns on the .docx export action, which is the production footer.
    */
   conversationId?: string
+  /** The final call is still writing (ADR-0066): the prose so far, no markers, no cards. */
+  isStreaming?: boolean
   children?: ReactNode
-}> = ({ label, question, answer, cards, citations, confidenceReason, messageId, rail, stages, answerMeta, conversationId, children }) => (
-  <div className="flex flex-col gap-5 rounded-2xl border bg-background p-5">
-    <div className="font-mono text-xs text-muted-foreground">{label}</div>
+}> = ({
+  label,
+  question,
+  answer,
+  cards,
+  citations,
+  confidenceReason,
+  messageId,
+  rail,
+  stages,
+  answerMeta,
+  conversationId,
+  isStreaming,
+  children,
+}) => (
+  <div className="bg-background flex flex-col gap-5 rounded-2xl border p-5">
+    <div className="text-muted-foreground font-mono text-xs">{label}</div>
     {children}
     <UserMessage content={question} timestamp={new Date('2024-01-15T14:30:00')} />
     <div className="w-[680px] max-w-full">
@@ -318,6 +338,7 @@ const AnswerTurn: FC<{
         messageId={messageId}
         stages={stages}
         answerMeta={answerMeta}
+        isStreaming={isStreaming}
       />
       {rail && (
         <div className="w-[680px] max-w-full">
@@ -481,9 +502,40 @@ const ledeCards: GridCard[] = [
         ],
       },
     ],
-    limit: { comparator: 'between', value: 59, upper: 65, label: 'Schrittmaßregel', reference: OIB4 },
+    limit: {
+      comparator: 'between',
+      value: 59,
+      upper: 65,
+      label: 'Schrittmaßregel',
+      reference: OIB4,
+    },
   } as GridCard,
 ]
+
+/* --- variant: streaming --------------------------------------------------- */
+// A live answer (GK 5, 2026-09-24) caught mid-stream, and the same answer once
+// the verified terminal frame replaced it. The stream withholds the `[N]`
+// markers and the sources section; the terminal adds them (ADR-0066).
+
+const streamingQuestion =
+  'Welche Feuerwiderstandsklasse brauchen tragende Wände in GK 5 und wie unterscheidet sich das vom obersten Geschoß?'
+
+const streamingFinal = `Tragende Wände in GK 5 brauchen in sonstigen oberirdischen Geschoßen **R 90**; im obersten Geschoß gilt **R 60** [1].
+
+| Lage | Feuerwiderstand | Fundstelle |
+|---|---|---|
+| Sonstige oberirdische Geschoße, bis zu 6 oberirdische Geschoße | R 90 | [1] |
+| Sonstige oberirdische Geschoße, mehr als 6 oberirdische Geschoße | R 90 und A2 | [1] |
+| Oberstes Geschoß | R 60 | [1] |
+
+Für GK 5 mit höchstens 6 oberirdischen Geschoßen genügt unter der Bedingung der Fußnote (5) R 60 auch in den beiden obersten Geschoßen: Die übrigen oberirdischen Geschoße müssen dann R 90 und A2 erfüllen [1].`
+
+const streamingPartial = `Tragende Wände in GK 5 brauchen in sonstigen oberirdischen Geschoßen **R 90**; im obersten Geschoß gilt **R 60**.
+
+| Lage | Feuerwiderstand | Fundstelle |
+|---|---|---|
+| Sonstige oberirdische Geschoße, bis zu 6 oberirdische Geschoße | R 90 | |
+| Sonstige oberirdische Geschoße, mehr als 6`
 
 /* --- variant: variants ---------------------------------------------------- */
 
@@ -608,7 +660,11 @@ const twoCards: GridCard[] = [
             'Tragende Bauteile in Gebäuden der Gebäudeklasse 4 sind in REI 60 auszuführen; in Kellergeschossen gilt REI 90.',
         },
       },
-      { condition: 'GK 5', outcome: 'REI 90', reference: { document: 'OIB-Richtlinie 2', section: 'Tabelle 1b' } },
+      {
+        condition: 'GK 5',
+        outcome: 'REI 90',
+        reference: { document: 'OIB-Richtlinie 2', section: 'Tabelle 1b' },
+      },
     ],
     reference: OIB2,
   } as GridCard,
@@ -690,8 +746,14 @@ const followUpsCards: GridCard[] = [
  * wrapping on a phone is worth looking at.
  */
 const followUpsStageItems = [
-  { question: 'Welche Gebäudeklasse ergibt sich für mein Projekt?', hint: 'aus dem Grundriss und dem Schnitt' },
-  { question: 'Was ändert sich beim Sprung von GK 4 auf GK 5?', hint: 'Vergleich der Anforderungen' },
+  {
+    question: 'Welche Gebäudeklasse ergibt sich für mein Projekt?',
+    hint: 'aus dem Grundriss und dem Schnitt',
+  },
+  {
+    question: 'Was ändert sich beim Sprung von GK 4 auf GK 5?',
+    hint: 'Vergleich der Anforderungen',
+  },
   { question: 'Zählt mein Dachgeschoß als Aufenthaltsraum?' },
   { question: 'Wie weise ich das Fluchtniveau im Einreichplan nach?' },
 ]
@@ -720,7 +782,8 @@ const memoryStage: MessageStages = {
       {
         id: 'row-1',
         kind: 'derived_fact',
-        content: 'Das Dachgeschoß enthält ein Büro und zählt damit als Geschoß mit Aufenthaltsräumen.',
+        content:
+          'Das Dachgeschoß enthält ein Büro und zählt damit als Geschoß mit Aufenthaltsräumen.',
       },
       {
         id: 'row-2',
@@ -858,7 +921,10 @@ const anatomyMeta: AnswerMeta = {
  * component on one page in two different states, with nothing stubbed but the
  * network.
  */
-const FEEDBACK_STATES: Record<string, { messageId: string; verdict: string; reason: string | null; comment: string | null }[]> = {
+const FEEDBACK_STATES: Record<
+  string,
+  { messageId: string; verdict: string; reason: string | null; comment: string | null }[]
+> = {
   'conv-feedback-rest': [],
   'conv-feedback-down': [
     { messageId: 'msg-feedback-down', verdict: 'down', reason: 'inaccurate', comment: null },
@@ -880,7 +946,8 @@ if (typeof window !== 'undefined') {
   }
 }
 
-const feedbackQuestion = 'Wie breit muss die Haupttreppe in einem Wohnhaus der Gebäudeklasse 4 sein?'
+const feedbackQuestion =
+  'Wie breit muss die Haupttreppe in einem Wohnhaus der Gebäudeklasse 4 sein?'
 
 const feedbackAnswer = `Die nutzbare **Laufbreite** der Haupttreppe muss mindestens **1,20 m** betragen. Gemessen wird zwischen den begrenzenden Bauteilen, Handläufe dürfen bis 10 cm je Seite einragen [1].
 
@@ -898,6 +965,7 @@ const ANSWER_VARIANTS = [
   'anatomy',
   'structured',
   'variants',
+  'streaming',
 ] as const
 type AnswerVariant = (typeof ANSWER_VARIANTS)[number]
 
@@ -976,6 +1044,30 @@ function AnswerLayer({ variant }: { variant: AnswerVariant }) {
         confidenceReason="Schrittmaßregel direkt aus OIB-RL 4 belegt"
         messageId="msg-lede-card"
       />
+    )
+  }
+
+  if (variant === 'streaming') {
+    return (
+      <>
+        <AnswerTurn
+          label="↓ STREAMING — the prose as the final call writes it: no [N] markers, no sources, no cards yet"
+          question={streamingQuestion}
+          answer={streamingPartial}
+          citations={[]}
+          confidenceReason="—"
+          messageId="msg-streaming-partial"
+          isStreaming
+        />
+        <AnswerTurn
+          label="↓ SETTLED — the verified terminal frame replaced it: markers, the Fundstelle column, sources"
+          question={streamingQuestion}
+          answer={streamingFinal}
+          citations={fireCitations.slice(0, 1)}
+          confidenceReason="Anforderungen direkt aus OIB-RL 2 Tabelle 1b belegt"
+          messageId="msg-streaming-final"
+        />
+      </>
     )
   }
 
@@ -1124,10 +1216,10 @@ function ChatTurnPreview() {
     : '/dev/chat-turn — live (reasoning expanded) → completed (answer-dominant)'
 
   return (
-    <main className="min-h-dvh bg-muted/30 px-4 py-10">
+    <main className="bg-muted/30 min-h-dvh px-4 py-10">
       <div className="mx-auto flex w-full max-w-3xl flex-col gap-10">
         <h1
-          className="font-mono text-xs text-muted-foreground"
+          className="text-muted-foreground font-mono text-xs"
           data-testid={isAnswerVariant(variant) ? 'answer-layer-preview' : 'chat-turn-preview'}
         >
           {heading}

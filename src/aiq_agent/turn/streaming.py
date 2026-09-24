@@ -1,11 +1,11 @@
-"""Final-answer streaming: the already-final text as deltas plus one terminal chunk.
+"""Final-answer chunks: deltas plus one authoritative terminal chunk.
 
-The chat turn is generated, citation-verified, and sanitized fully buffered
-(verify_citations/sanitize_report need the complete answer, and a chat
-answer can still escalate to deep research — so raw token streaming would
-leak unverified citations or superseded text). We therefore stream the
-ALREADY-FINAL text as deltas: progressive rendering, not a change to the
-answer. See docs/design/streaming-chat-answer.md.
+The answer's prose streams live while the final call writes it
+(``turn/answer_stream.py``, ADR-0066); the terminal chunk then carries the
+verified, sanitized answer and REPLACES it. When nothing went out live (a
+buffered LLM, a reply that was not an envelope), ``response_to_chunks`` still
+cuts the finished text into deltas, as it did before prose streamed. See
+docs/design/streaming-chat-answer.md.
 """
 
 # No `from __future__ import annotations` here: NAT resolves the converter's

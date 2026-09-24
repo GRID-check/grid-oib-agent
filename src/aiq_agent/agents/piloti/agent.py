@@ -63,6 +63,7 @@ from aiq_agent.common.citation_verification import reset_session_registry
 from aiq_agent.common.citation_verification import set_session_registry
 from aiq_agent.common.cost_tracking import grid_cost_tracker_var
 from aiq_agent.common.data_sources import disabled_source_notice
+from aiq_agent.common.deferred_tool_loading import DeferredToolBinding
 from aiq_agent.common.deferred_tool_loading import DeferredToolLoadingSettings
 from aiq_agent.common.deferred_tool_loading import bind_tools_deferred
 from aiq_agent.common.grounding_block import begin_grounding_capture
@@ -97,11 +98,13 @@ from aiq_agent.observability.langfuse_trace_attributes import end_turn_prompt_li
 from aiq_agent.tools.bim.measurement_sources import begin_measurement_capture
 from aiq_agent.tools.bim.measurement_sources import end_measurement_capture
 from aiq_agent.tools.bim.measurement_sources import get_measurement_captures
+from aiq_agent.turn.answer_stream import streaming_call
 
 from .answer_pipeline import CardRepairFn
 from .answer_pipeline import FinalAnswer
 from .answer_pipeline import RepairFn
 from .answer_pipeline import finalize_answer
+from .envelope_call import ainvoke
 from .envelope_call import ainvoke_with_envelope_json_mode
 from .grounding import tool_result_is_measurement
 from .ledger import assemble_result
@@ -1167,10 +1170,19 @@ class PilotiAgent:
             return await self._forced_synthesis(state, binding, system_prompt, cutoff=cutoff)
 
         messages = [SystemMessage(content=system_prompt), *state.messages]
+        # Every round may be the answer, and only its tokens say so; each
+        # streams, and the reader shows nothing from a round that is not an
+        # envelope. The deferred binding stays buffered (its fallback would
+        # replay tokens it already streamed).
+        answering, call_config = (
+            (llm_with_tools, None)
+            if isinstance(llm_with_tools, DeferredToolBinding)
+            else streaming_call(llm_with_tools)
+        )
         if self.envelope_json_mode_with_tools:
-            response = await ainvoke_with_envelope_json_mode(llm_with_tools, messages)
+            response = await ainvoke_with_envelope_json_mode(answering, messages, call_config)
         else:
-            response = await llm_with_tools.ainvoke(messages)
+            response = await ainvoke(answering, messages, call_config)
         # The tool calls are over and the answer is being written. Without
         # this the live line keeps showing the last retrieval event through
         # the whole synthesis call.
@@ -1259,7 +1271,8 @@ class PilotiAgent:
             emit_synthesis()
         # Anchored at the end to combat "Loss in the Middle".
         messages = [SystemMessage(content=system_prompt), *state.messages, HumanMessage(content=_SYNTHESIS_ANCHOR)]
-        response = await ainvoke_with_envelope_json_mode(binding.llm, messages)
+        answering, call_config = streaming_call(binding.llm)
+        response = await ainvoke_with_envelope_json_mode(answering, messages, call_config)
         return {
             "messages": [response],
             "tool_iterations": state.tool_iterations,

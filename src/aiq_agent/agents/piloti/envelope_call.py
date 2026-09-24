@@ -63,7 +63,12 @@ def _fall_through(exc: BaseException, response_format: dict[str, Any]) -> None:
     )
 
 
-async def ainvoke_with_envelope_json_mode(llm: Any, messages: list[Any]) -> Any:
+async def ainvoke(llm: Any, messages: list[Any], config: Any = None) -> Any:
+    """``llm.ainvoke`` with ``config`` only when there is one: the unstreamed call keeps its shape."""
+    return await (llm.ainvoke(messages) if config is None else llm.ainvoke(messages, config))
+
+
+async def ainvoke_with_envelope_json_mode(llm: Any, messages: list[Any], config: Any = None) -> Any:
     """Invoke ``llm`` down the envelope-enforcement ladder, strongest first.
 
     Accepts both Piloti's bare LLM and a tool-bound RunnableBinding
@@ -78,7 +83,7 @@ async def ainvoke_with_envelope_json_mode(llm: Any, messages: list[Any]) -> Any:
     """
     for response_format in _ENVELOPE_RESPONSE_FORMATS:
         try:
-            return await llm.bind(response_format=response_format).ainvoke(messages)
+            return await ainvoke(llm.bind(response_format=response_format), messages, config)
         except Exception as exc:  # noqa: BLE001 - re-raised unless it is the provider rejecting the parameter
             _fall_through(exc, response_format)
-    return await llm.ainvoke(messages)
+    return await ainvoke(llm, messages, config)

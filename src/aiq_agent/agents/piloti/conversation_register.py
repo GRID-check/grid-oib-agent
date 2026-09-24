@@ -44,6 +44,8 @@ from aiq_agent.turn.admission import TurnOutcome
 from aiq_agent.turn.admission import answer_turn
 from aiq_agent.turn.admission import refusal_response
 from aiq_agent.turn.admission import spanned
+from aiq_agent.turn.answer_stream import AnswerStreamSink
+from aiq_agent.turn.answer_stream import bound_answer_stream
 from aiq_agent.turn.api_seam import skip_clarifier_requested
 from aiq_agent.turn.context import TurnContext
 from aiq_agent.turn.context import load_turn_context
@@ -252,8 +254,12 @@ def _answer_chunks(
     *,
     workflow_id: str,
     stage_llms: dict,
+    live: bool = False,
 ) -> list[ChatResponseChunk]:
     """The chunks a finished turn delivers, with its post-answer stages scheduled.
+
+    ``live``: the prose already went out as the model wrote it, so the answer
+    is the terminal chunk alone, which replaces it.
 
     ONE call site for every stage, fire-and-forget: which stages exist and
     what gates them is declared in `aiq_agent/stages/`. Every fact a gate may
@@ -273,7 +279,7 @@ def _answer_chunks(
         remembered_this_turn=registries.memory_writes,
     )
     schedule_post_answer_stages(facts, llms=stage_llms)
-    return response_to_chunks(response, stream=True)
+    return response_to_chunks(response, stream=not live)
 
 
 async def _load_setup(
@@ -405,21 +411,47 @@ def _turn_runner(agent: ConversationGraph, config: ChatDeepResearcherConfig, sta
                 set_turn_documents(inventory.available_documents)
                 set_norm_families(inventory.norm_families)
                 state = _turn_state(inputs, context, inventory, header_scope, skip_clarifier=skip_clarifier)
-                outcome, registries = await _answer_in_registries(
-                    agent,
-                    state,
-                    session_registry,
-                    thread_id=thread_id,
-                    organization_id=request.organization_id,
-                    identity=identity,
-                    metadata=turn_metadata,
-                    ledgers=ledgers,
-                )
+
+                async def _answer_and_chunks() -> list[ChatResponseChunk]:
+                    # Answer AND chunks in one task: a task runs in a copy of
+                    # the context, and what the answer binds there is what
+                    # building the response reads.
+                    outcome, registries = await _answer_in_registries(
+                        agent,
+                        state,
+                        session_registry,
+                        thread_id=thread_id,
+                        organization_id=request.organization_id,
+                        identity=identity,
+                        metadata=turn_metadata,
+                        ledgers=ledgers,
+                    )
+                    return _answer_chunks(
+                        outcome,
+                        registries,
+                        context,
+                        inputs,
+                        workflow_id=workflow_id,
+                        stage_llms=stage_llms,
+                        live=sink.streamed,
+                    )
+
+                # The answer's prose goes out while the final call writes it
+                # (ADR-0066); the terminal chunk then replaces it verified.
+                sink = AnswerStreamSink()
+                with bound_answer_stream(sink):
+                    answering = asyncio.create_task(_answer_and_chunks())
+                try:
+                    async for delta in sink.relay(answering):
+                        yield ChatResponseChunk.create_streaming_chunk(delta, finish_reason=None)
+                    chunks = await answering
+                finally:
+                    # Only a consumer that abandoned the stream leaves it running.
+                    if not answering.done():
+                        answering.cancel()
             # A refused turn still owes the reader its answer, delivered as one
             # terminal chunk; it is yielded here, outside the profiled block.
-            for chunk in _answer_chunks(
-                outcome, registries, context, inputs, workflow_id=workflow_id, stage_llms=stage_llms
-            ):
+            for chunk in chunks:
                 yield chunk
         finally:
             # Two BFF round-trips, posted AFTER the reader has the answer; in the
