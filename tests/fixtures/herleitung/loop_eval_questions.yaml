@@ -267,6 +267,10 @@ questions:
     punkt: null
     paragraph: null
     kind: ruling
+    expect:
+      # Four answered runs, 2026-09-24: all walked through § 8 TBO to the
+      # count, because Innsbruck's own figures are a municipal Verordnung.
+      kind_also: [walkthrough]
 
   - id: abstandsflaeche-noe
     question: >-
@@ -285,6 +289,10 @@ questions:
     punkt: null
     paragraph: null
     kind: walkthrough
+    expect:
+      # Three answered runs, 2026-09-24: all ruled on § 2 and § 3 BauPolG,
+      # the two lists the question asks for.
+      kind_also: [ruling]
 
   - id: was-steht-im-brandschutzkonzept
     question: >-
