@@ -211,6 +211,7 @@ does not exist, so a moved file is caught; a missing row is not.
 | Concept | Owning code | Doc of record | Decision |
 |---|---|---|---|
 | Knowledge retrieval tool | `sources/knowledge_layer/src/register.py` — `knowledge_retrieval` | [`rag-system-audit-2026-08.md`](rag-system-audit-2026-08.md) | ADR-0039 (retrieval quality) |
+| The question's embedding, warmed beside the turn decision | `src/aiq_agent/agents/piloti/register.py` — `_warm_question`; `src/aiq_agent/knowledge/factory.py` — `warm_search_query`, `set_search_retriever`; the in-flight dedupe in `sources/knowledge_layer/src/llamaindex/adapter.py` — `_embed_query_cached` | [`turn-latency-measured-2026-09.md`](turn-latency-measured-2026-09.md) | ADR-0064 |
 | Ingestion and chunking backends | `sources/knowledge_layer/src/llamaindex/adapter.py` | [`docs/technical-reference/document-ingestion.md`](../technical-reference/document-ingestion.md) | ADR-0056 |
 | Visual ingestion | `sources/knowledge_layer/src/llamaindex/visual_analysis.py` | [`visual-ingestion.md`](visual-ingestion.md) | — |
 | Data-source registry (the UI toggles) | `src/aiq_agent/common/data_source_registry.py` | [`docs/user-guides/knowledge-search.md`](../user-guides/knowledge-search.md) | ADR-0026 |

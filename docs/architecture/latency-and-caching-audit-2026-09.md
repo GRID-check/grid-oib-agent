@@ -7,6 +7,10 @@
 > measured; the repo holds **no measured p50/p95 for a chat turn** (§5), so the
 > ranking is structural and the first recommendation is to make it measured.
 >
+> **Measured since:** [`turn-latency-measured-2026-09.md`](turn-latency-measured-2026-09.md)
+> (2026-09-24) puts numbers on the chat turn: 31.3 s median, 56% of it the
+> final call, and the startup sequence to the millisecond.
+>
 > Supersedes the still-open items in
 > `plans/2026-07-18-chat-response-time-perf-audit.md` and
 > `plans/2026-07-19-shallow-research-speedups-fable.md` (§7 says which landed).
@@ -626,6 +630,10 @@ order by prompt_tokens desc;
    already specifies, and flip the flag.
 
 Then re-rank §3 against numbers.
+
+The chat turn has been measured from the outside (the answer suite and a
+startup probe) in [`turn-latency-measured-2026-09.md`](turn-latency-measured-2026-09.md);
+steps 3 to 5 above are still the way to read it from production.
 
 ## 6. Implementation batches
 

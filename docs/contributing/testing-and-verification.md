@@ -317,6 +317,20 @@ reason as the loop eval; its bookkeeping is covered offline by
 September 2026 measurements it grew out of are in
 [turns-per-answer-audit-2026-09.md](../architecture/turns-per-answer-audit-2026-09.md).
 
+Measure a committed, clean tree, where the document inventory is. Each
+question starts a fresh process from the working tree, so editing code
+mid-run measures two codebases (the report marks the commit `-dirty`). And
+`AIQ_SUMMARY_DB` defaults to a relative `./summaries.db`, so a `git worktree`
+reads an empty inventory and runs every turn ~7 s slower without family
+overviews; the suite refuses to start on an empty one.
+
+For the seconds BEFORE the first model call, which the suite reports only as
+a slice, `scripts/turn_census/startup_probe.py` prints each turn's provider
+calls and the retriever's embed, lexical and retrieve phases in milliseconds,
+several questions in one process so all but the first are warm. What both
+measured on 2026-09-24, and the effort A/B:
+[turn-latency-measured-2026-09.md](../architecture/turn-latency-measured-2026-09.md).
+
 ## Before opening a PR
 
 - `task verify:fast` green.
