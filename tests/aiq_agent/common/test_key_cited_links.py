@@ -51,3 +51,14 @@ def test_an_unretrieved_paragraph_with_the_same_link_still_goes():
     report = f"Abstellplätze [1].\n\n## Quellen\n- [1] Bauordnung für Wien, § 99 - {LAW}\n"
     result = verify_citations(report, _registry())
     assert [c["reason"] for c in result.removed_citations] == ["url_not_in_registry"]
+
+
+def test_an_error_that_links_somewhere_registers_nothing():
+    from aiq_agent.common.citation_verification import extract_sources_from_tool_result
+
+    error = (
+        "Error: Web search is unavailable because TAVILY_API_KEY is not set.\n"
+        "To enable this tool:\n1. Get an API key from https://tavily.com/\n"
+        "2. Set the API key in your environment or in your .env file\n3. Restart the application"
+    )
+    assert extract_sources_from_tool_result("web_search_tool", error) == []

@@ -843,6 +843,13 @@ def extract_sources_from_tool_result(
         # (collection, filename, page) onto the entry that arrived first.
         return [_entry_from_hit(hit, tool_name) for hit in block.hits]
 
+    # An error or a no-result report is not evidence, whatever it links to.
+    # Checked after the URL extractor, "Error: Web search is unavailable ...
+    # Get an API key from https://tavily.com/" registered tavily.com as a
+    # citable source (answer suite, 2026-09-24).
+    if _is_non_citable_status_output(content):
+        return []
+
     name_lower = tool_name.lower()
     for match_fn, parser_fn in _PARSER_REGISTRY:
         if match_fn(name_lower):
@@ -855,9 +862,6 @@ def extract_sources_from_tool_result(
     entries = _parse_generic_urls(content, tool_name)
     if entries:
         return entries
-
-    if _is_non_citable_status_output(content):
-        return []
 
     # Non-URL fallback: register the tool result itself as a source whenever
     # the tool produced non-empty output. The caller has already decided
