@@ -46,3 +46,26 @@ def test_the_gate_drops_it_from_the_wire_and_keeps_it_without_prose():
     assert "summary" not in (gate_answer_meta(meta, prose_chars=len(OIB2_PROSE), prose=OIB2_PROSE) or {})
     # A caller with no prose to give (the deep writer) keeps the old behaviour.
     assert gate_answer_meta(meta, prose_chars=len(OIB2_PROSE))["summary"] == OIB2_SUMMARY
+
+
+def test_an_envelope_without_its_opening_is_salvaged():
+    """Seen live: the reply began with the prose and switched into JSON half way."""
+    from aiq_agent.common.answer_envelope import extract_answer_envelope
+
+    reply = (
+        "In GK 5 brauchen tragende Wände **R 90** [1].\n\n```mermaid\nflowchart TD\n  A --> B\n```\n\n"
+        '**Quellen:**\n- [1] oib-rl_2_ausgabe_mai_2023.pdf, p.26", '
+        '"kind":"ruling","verdict":{"value":"R 90","subject":"Tragende Wände GK 5",'
+        '"reference":{"document":"OIB-Richtlinie 2","section":"Tabelle 1b"}}}\n```'
+    )
+    prose, meta = extract_answer_envelope(reply)
+    assert prose.endswith("p.26") and '"kind"' not in prose
+    assert "```mermaid\nflowchart TD\n  A --> B\n```" in prose
+    assert meta is not None and meta.kind == "ruling" and meta.verdict.value == "R 90"
+
+
+def test_prose_that_merely_quotes_json_is_left_alone():
+    from aiq_agent.common.answer_envelope import extract_answer_envelope
+
+    reply = 'Das Feld heißt so: "x", "kind": "y" – mehr nicht.'
+    assert extract_answer_envelope(reply) == (reply, None)

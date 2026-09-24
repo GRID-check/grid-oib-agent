@@ -131,3 +131,20 @@ def test_a_value_inside_a_tab_counts(tmp_path):
         "cards": [{"type": "surface", "components": [{"id": "a", "component": "Text", "text": "| Wand | REI 60 |"}]}]
     }
     assert suite.check(QUESTION, run, envelope)["mentions:REI 60"] is True
+
+
+def test_the_answer_is_the_last_envelope_not_the_repair_after_it(tmp_path):
+    # Seen in the full sweep: every repaired turn read as "no envelope",
+    # because the repair's plain rewrite was the last reply.
+    record, log = _recorded_turn(tmp_path)
+    repair = _call(30.0, 4.0, reasoning=100, output=[{"type": "message", "content": [{"text": "Überarbeitet [1]."}]}])
+    record.write_text(record.read_text() + "\n" + json.dumps(repair))
+    run = suite.observe(QUESTION, 1, record, log)
+    assert run.kind == "ruling" and run.checks["envelope"] is True
+
+
+def test_a_handoff_to_deep_research_is_not_a_crash(tmp_path):
+    record, log = _recorded_turn(tmp_path)
+    log.write_text("INFO Clarifier: Starting clarification\nERROR Workflow failed: \n")
+    run = suite.observe(QUESTION, 1, record, log)
+    assert "escalated" in run.signals and run.error == "" and run.kind == "ruling"

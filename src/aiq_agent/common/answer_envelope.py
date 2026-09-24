@@ -819,7 +819,48 @@ def extract_answer_envelope(content: object) -> tuple[object, AnswerMeta | None]
             if isinstance(answer, str) and answer.strip():
                 return answer.strip(), _validated_meta(payload)
 
+    headless = _salvage_headless(content)
+    if headless is not None:
+        return headless
+
     return content, None
+
+
+#: The tail of an envelope whose head never arrived: the prose, then `", "kind":`
+#: and the rest of the object, then the closing fence.
+_HEADLESS_TAIL_RE = re.compile(r'"\s*,\s*(?="kind"\s*:)')
+
+
+def _salvage_headless(content: str) -> tuple[str, AnswerMeta | None] | None:
+    """An envelope whose opening (the fence and `{"answer": "`) is missing.
+
+    Seen live (September 2026 suite, 1 reply in 27): the model began with the
+    prose itself and switched into JSON half way, `…p.5", "kind":"ruling",
+    "confidence":{…}}` plus the closing fence. Read as plain prose, the reader
+    got that JSON tail under the answer and the turn lost its verdict, its
+    confidence and its cards. Whatever stands before `", "kind":` is the
+    answer; the rest, opened with `{`, is the object. Only a tail that parses
+    AND carries a `kind` is taken, so ordinary prose quoting JSON is untouched.
+    """
+    # Only the closing fence at the very end: a ```mermaid fence inside the
+    # prose keeps its own.
+    body = re.sub(r"\n?```\s*$", "", content.rstrip()).rstrip()
+    if not body.endswith("}"):
+        return None
+    matches = list(_HEADLESS_TAIL_RE.finditer(body))
+    if not matches:
+        return None
+    split = matches[-1]
+    payload = _parse_object("{" + body[split.end() :])
+    if payload is None or not isinstance(payload.get("kind"), str):
+        return None
+    prose = body[: split.start()].strip()
+    if not prose:
+        return None
+    logger.warning(
+        "answer_envelope_headless: salvaged an envelope whose opening was missing (%d chars of prose)", len(prose)
+    )
+    return prose, _validated_meta({**payload, "answer": prose})
 
 
 def gate_answer_meta(

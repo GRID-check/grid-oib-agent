@@ -62,6 +62,11 @@ _LOG_SIGNALS = {
     "summary_gated": "summary gated out",
     "mindmap_dropped": "that only redraw a table",
     "prose_outside": "answer_prose_outside_envelope",
+    "envelope_salvaged": "answer_envelope_headless",
+    # The answer handed the question to deep research, whose clarifier then
+    # waits for a person `nat run` does not have; the workflow ends with an
+    # empty error. Recorded as what it is, not as a crash.
+    "escalated": "Clarifier: Starting",
 }
 
 
@@ -134,21 +139,26 @@ def final_answer(log_text: str) -> str:
 
 
 def last_envelope(rows: list[dict]) -> dict | None:
-    """The model's last reply as an answer envelope, or None when it wrote none."""
-    text = ""
+    """The last answer envelope the model wrote, or None when it wrote none.
+
+    The last ENVELOPE, not the last reply: a repair pass rewrites the prose in
+    a call of its own after the answer, and reading that call as the answer
+    reported every repaired turn as having no envelope.
+    """
+    found = None
     for entry in rows:
         if not _is_research(entry):
             continue
         for item in (entry.get("resp") or {}).get("output", []):
-            if item.get("type") == "message":
-                text = "".join(part.get("text", "") for part in item.get("content", []))
-    match = _ENVELOPE.search(text)
-    if not match:
-        return None
-    try:
-        return json.loads(match.group(1))
-    except json.JSONDecodeError:
-        return None
+            if item.get("type") != "message":
+                continue
+            match = _ENVELOPE.search("".join(part.get("text", "") for part in item.get("content", [])))
+            if match:
+                try:
+                    found = json.loads(match.group(1))
+                except json.JSONDecodeError:
+                    continue
+    return found
 
 
 def observe(question: dict, index: int, record: Path, log: Path) -> Run:
@@ -180,7 +190,10 @@ def observe(question: dict, index: int, record: Path, log: Path) -> Run:
     run.kind = str((envelope or {}).get("kind") or "")
     run.cited_families = sorted(set(_CITED_FAMILY.findall(run.answer)))
     run.checks = check(question, run, envelope)
-    if not run.answer:
+    if "escalated" in run.signals:
+        run.kind = run.kind or "handoff"
+        run.checks = check(question, run, envelope)
+    elif not run.answer:
         run.error = "no Workflow Result in the log"
     return run
 
@@ -397,12 +410,19 @@ def main(argv: list[str] | None = None) -> int:
     if args.report:
         data = json.loads(args.report.read_text())
         runs = [Run(**row) for row in data["runs"]]
-        # Re-checked against the question set as it is NOW, so an expectation
-        # corrected after a run is judged without paying for the run again.
+        # Re-read from the recordings beside results.json when they are there,
+        # and re-checked against the question set as it is NOW: a harness fix
+        # or a corrected expectation applies without paying for the runs again.
         by_id = {str(q["id"]): q for q in load_questions(core_only=False)[0]}
-        for run in runs:
-            if run.question_id in by_id and not run.error:
-                run.checks = check(by_id[run.question_id], run, run.envelope)
+        for index, run in enumerate(runs):
+            question = by_id.get(run.question_id)
+            if question is None:
+                continue
+            recorded = sorted(args.report.parent.glob(f"suite-*-{run.question_id}-{run.run}.jsonl"))
+            if recorded:
+                runs[index] = observe(question, run.run, recorded[-1], recorded[-1].with_suffix(".log"))
+            elif not run.error:
+                run.checks = check(question, run, run.envelope)
         print(render(runs, data.get("skipped", []), data["meta"], baseline))
         return 0
     if not _ensure_key():
