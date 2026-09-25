@@ -52,5 +52,9 @@ export const common = {
     backToReference: 'Back to reference {n}',
     sharedSource: '{label} for every row',
     statusTally: 'Outcome of the check',
+    taskDone: 'done',
+    taskOpen: 'open',
+    scrollTable: 'Table, scrolls sideways',
+    scrollDiagram: 'Diagram, scrolls sideways',
   },
 }

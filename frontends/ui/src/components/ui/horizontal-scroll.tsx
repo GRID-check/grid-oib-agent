@@ -34,9 +34,23 @@ const maskFor = ({ start, end }: Overflow): string | undefined => {
 
 export interface HorizontalScrollProps extends HTMLAttributes<HTMLDivElement> {
   children: ReactNode
+  /**
+   * What is being scrolled, in the reader's language („Tabelle, seitlich
+   * scrollbar"). Required: when the content overflows, the scroller becomes a
+   * focusable, named region so a keyboard user can reach it and scroll it with
+   * the arrow keys. A mouse or a touch scrolls it without focus; a keyboard
+   * cannot, and the column that did not fit was simply out of reach.
+   */
+  'aria-label': string
 }
 
-export function HorizontalScroll({ children, className, style, ...props }: HorizontalScrollProps) {
+export function HorizontalScroll({
+  children,
+  className,
+  style,
+  'aria-label': label,
+  ...props
+}: HorizontalScrollProps) {
   const ref = useRef<HTMLDivElement>(null)
   const [overflow, setOverflow] = useState<Overflow>({ start: false, end: false })
 
@@ -61,9 +75,16 @@ export function HorizontalScroll({ children, className, style, ...props }: Horiz
   }, [])
 
   const mask = maskFor(overflow)
+  // Only a scroller that actually scrolls is a stop in the tab order and a
+  // landmark: every table in an answer as a named region would bury the ones
+  // that need the keyboard among dozens that do not.
+  const scrollable = overflow.start || overflow.end
   return (
     <div
       ref={ref}
+      role={scrollable ? 'region' : undefined}
+      tabIndex={scrollable ? 0 : undefined}
+      aria-label={scrollable ? label : undefined}
       data-overflow-start={overflow.start || undefined}
       data-overflow-end={overflow.end || undefined}
       className={cn('overflow-x-auto', className)}

@@ -54,5 +54,9 @@ export const common: typeof en.common = {
     backToReference: 'Zurück zu Verweis {n}',
     sharedSource: '{label} für alle Zeilen',
     statusTally: 'Ergebnis der Prüfung',
+    taskDone: 'erledigt',
+    taskOpen: 'offen',
+    scrollTable: 'Tabelle, seitlich scrollbar',
+    scrollDiagram: 'Diagramm, seitlich scrollbar',
   },
 }

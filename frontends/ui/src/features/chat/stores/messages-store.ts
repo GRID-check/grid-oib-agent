@@ -620,6 +620,19 @@ export const createMessagesSlice: StateCreator<
   // provisional: a terminal that carries none (the cards were suppressed, the
   // masthead gated out) takes them away again.
   let liveMetaShown = false
+  /**
+   * Is this in_progress frame one of the live frames that carry only what sits
+   * around the prose (the masthead ahead of it, the cards after it)? Those are
+   * written with no text of their own (`live_chunk("", …)` in
+   * `aiq_agent/turn/streaming.py`). A frame that carries text as well is the
+   * legacy shape, whose cards are final and must survive a terminal that omits
+   * them.
+   */
+  const isLiveExtrasFrame = (
+    content: string,
+    cards: (GridCard | undefined)[] | undefined,
+    answerMeta: AnswerMeta | undefined
+  ): boolean => !content && (Boolean(answerMeta) || (cards?.length ?? 0) > 0)
   let deltaRafHandle: number | null = null
 
   const canBatchDeltas = (): boolean =>
@@ -1338,7 +1351,7 @@ export const createMessagesSlice: StateCreator<
       // from a prior turn can bleed into this fresh bubble.
       if (!streamingAssistantMessageId) {
         resetDeltaBuffer()
-        liveMetaShown = Boolean(answerMeta)
+        liveMetaShown = isLiveExtrasFrame(content, cards, answerMeta)
 
         const id = uuidv4()
         const message = buildAgentResponseMessage(state, id, content, {
@@ -1377,7 +1390,7 @@ export const createMessagesSlice: StateCreator<
       if (answerConfidence) pendingDeltaMeta.answerConfidence = answerConfidence
       if (citations && citations.length > 0) pendingDeltaMeta.citations = citations
       if (answerMeta) pendingDeltaMeta.answerMeta = answerMeta
-      if (answerMeta || (cards && cards.length > 0)) liveMetaShown = true
+      if (isLiveExtrasFrame(content, cards, answerMeta)) liveMetaShown = true
 
       if (canBatchDeltas()) {
         scheduleDeltaFlush()
@@ -1396,11 +1409,15 @@ export const createMessagesSlice: StateCreator<
       // No bubble yet (a turn whose first live frame is the snapshot): open it.
       if (!streamingAssistantMessageId) {
         get().appendAgentResponseDelta(content, undefined, undefined, citations, answerMeta)
+        // A snapshot is a live frame whatever text it carries: its masthead is
+        // as provisional as one that came ahead of the prose.
+        if (answerMeta) liveMetaShown = true
         return
       }
       // Buffered delta text is part of what the snapshot replaces: the backend
       // sends it only after every delta it settles.
       resetDeltaBuffer()
+      if (answerMeta) liveMetaShown = true
       const updatedConversation: Conversation = {
         ...currentConversation,
         messages: currentConversation.messages.map((msg) =>
@@ -1409,7 +1426,10 @@ export const createMessagesSlice: StateCreator<
                 ...msg,
                 content,
                 ...(citations && citations.length > 0 ? { citations } : {}),
-                ...(answerMeta ? { answerMeta } : {}),
+                // The backend re-gates the masthead against the snapshot's
+                // prose, so a snapshot without one has gated it out: the
+                // masthead on screen goes, as the spectator's does.
+                answerMeta,
               }
             : msg
         ),

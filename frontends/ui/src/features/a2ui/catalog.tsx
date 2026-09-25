@@ -221,16 +221,46 @@ export function pilotiCatalog(): Catalog<ReactComponentImplementation> {
 }
 
 /**
+ * Card types that may not be a leaf of a surface. Mirrors
+ * `SURFACE_EXCLUDED_LEAVES` in `src/aiq_agent/cards/models.py`, which refuses
+ * them when the surface is written: system cards are pushed by tools, the
+ * envelope's own fields are not cards, and an interactive card's decision is
+ * keyed by its position in the message (`card-decision.ts`), which a card
+ * inside a surface does not have. The catalog still registers them, because a
+ * card outside a surface is drawn through it too, so the refusal lives here.
+ */
+export const SURFACE_EXCLUDED_LEAVES: ReadonlySet<string> = new Set([
+  'surface',
+  'summary',
+  'verdict_header',
+  'key_takeaways',
+  'callout',
+  'follow_ups',
+  'memory_proposal',
+  'document_grid',
+  'document_draft',
+  'task_created',
+  'file_operation_proposal',
+  'project_profile_patch',
+])
+
+/**
  * Why the catalog would not draw these components, or null when it would.
  *
  * A2UI draws an unknown component as red "Unknown component type" text inside
  * the answer and an invalid one as its validation message. Neither may reach a
  * reader, so a surface is checked here first and, on any failure, drawn
- * without A2UI (`A2uiCard`'s fallback).
+ * without A2UI (`A2uiCard`'s fallback). A leaf the backend would have refused
+ * is refused here too: a stored surface from before that check, or one that
+ * reached the client another way, must not draw an interactive card whose
+ * decision has nowhere to be kept.
  */
 export function preflight(components: Record<string, unknown>[]): string | null {
   const registry = pilotiCatalog().components
   for (const { id, component, ...props } of components) {
+    if (SURFACE_EXCLUDED_LEAVES.has(String(component))) {
+      return `'${String(id)}': a '${String(component)}' cannot sit inside a surface`
+    }
     const api = registry.get(String(component))
     if (!api) return `'${String(id)}': no component '${String(component)}' in the catalog`
     const result = api.schema.safeParse(props)

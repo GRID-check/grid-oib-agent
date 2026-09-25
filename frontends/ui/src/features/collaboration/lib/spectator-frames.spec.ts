@@ -84,9 +84,11 @@ describe('reduceSpectatedFrame', () => {
 
   it('carries the masthead, the verified sources and the cards the asker gets (ADR-0066)', () => {
     const masthead = { ...(response('', 'in_progress') as object), answer_meta: { v: 1, kind: 'ruling', topic: 'Fluchtweg' } }
+    // The snapshot re-states the masthead it kept after re-gating it.
     const snapshot = {
       ...(response('R 90 [1].', 'in_progress') as object),
       stream_replace: true,
+      answer_meta: { v: 1, kind: 'ruling', topic: 'Fluchtweg' },
       sources: [{ number: 1, citation_key: 'oib.pdf, p.3', file_name: 'oib.pdf', page: 3, kind: 'baurecht' }],
     }
     const cards = {
@@ -116,6 +118,21 @@ describe('reduceSpectatedFrame', () => {
     expect(state.cards).toBeUndefined()
     expect(state.answerMeta).toBeUndefined()
     expect(state.done).toBe(true)
+  })
+
+  it('lets a settled snapshot without the masthead take it back', () => {
+    // The backend re-gates the masthead against the snapshot's prose. A
+    // snapshot that omits it gated it out, and the observer must not keep
+    // reading a verdict the asker no longer sees.
+    const masthead = { ...(response('', 'in_progress') as object), answer_meta: { v: 1, kind: 'ruling', topic: 'Fluchtweg' } }
+    const snapshot = {
+      ...(response('Kommt darauf an [1].', 'in_progress') as object),
+      stream_replace: true,
+      sources: [{ number: 1, citation_key: 'oib.pdf, p.3', file_name: 'oib.pdf', page: 3, kind: 'baurecht' }],
+    }
+    const state = fold([masthead, response('Kommt darauf an [1', 'in_progress'), snapshot])
+    expect(state.answer).toBe('Kommt darauf an [1].')
+    expect(state.answerMeta).toBeUndefined()
   })
 
   it('keeps the streamed answer when the terminal frame is empty', () => {

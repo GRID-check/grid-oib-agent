@@ -269,7 +269,7 @@ function Canvas({
   const canvasWidth = Math.max(width, layout ? Math.ceil(layout.width) : width)
   const height = layout ? Math.ceil(layout.height) : 160
   return (
-    <HorizontalScroll className="w-full">
+    <HorizontalScroll className="w-full" aria-label={label}>
       <div
         role="img"
         aria-label={label}

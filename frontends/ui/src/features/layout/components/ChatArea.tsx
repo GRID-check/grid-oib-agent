@@ -1105,10 +1105,11 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
                       : ''}
                   </div>
 
-                  {/* Top-anchor spacer: invisible, zero-height by default, sized to a
-              viewport only while a just-sent question is anchored to the top so
-              it can reach the top and the answer streams downward. Released when
-              the turn ends. */}
+                  {/* Top-anchor spacer: invisible, zero-height by default. While a
+              sent question is anchored to the top it holds exactly the room the
+              answer has not filled yet (`fitAnchorSpacer`), shrinking as the
+              answer grows. It is kept, fitted, when the stream ends; the next
+              question or a thread swap takes it. */}
                   <div ref={anchorSpacerRef} aria-hidden="true" style={{ minHeight: 0 }} />
                 </div>
               )}

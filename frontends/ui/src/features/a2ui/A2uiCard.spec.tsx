@@ -11,7 +11,8 @@ import { describe, expect, it, vi } from 'vitest'
 
 import type { GridCard } from '@/shared/cards/schemas'
 import { A2uiCard } from './A2uiCard'
-import { preflight } from './catalog'
+import { INTERACTIVE_CARD_TYPES } from '@/features/grid-cards/card-decision'
+import { SURFACE_EXCLUDED_LEAVES, preflight } from './catalog'
 import { surfaceLeaves } from './surface-messages'
 
 const BASIS = {
@@ -136,5 +137,32 @@ describe('a card through A2UI', () => {
   it('refuses a Text without text before A2UI can draw its error', () => {
     expect(preflight([{ id: 'a', component: 'Text', text: '  ' }])).toMatch(/Text/)
     expect(preflight([{ id: 'a', component: 'Text', text: 'ok' }])).toBeNull()
+  })
+
+  it('refuses a leaf the backend keeps out of a surface, an interactive card first', () => {
+    // An interactive card's decision is keyed by its position in the message,
+    // which a card inside a surface does not have: drawn there, its answer
+    // would have nowhere to be kept.
+    const surface = [
+      { id: 'root', component: 'Column', children: ['a', 'b'] },
+      { id: 'a', component: 'Text', text: 'Davor.' },
+      // A valid proposal: the catalog's own schema would draw it.
+      {
+        id: 'b',
+        component: 'memory_proposal',
+        title: 'Diese Erkenntnis merken?',
+        content: 'Das Büro setzt bei GK 4 durchgängig REI 90 an.',
+        kind: 'preference',
+        confidence: 'high',
+      },
+    ]
+    expect(preflight(surface)).toMatch(/'b': a 'memory_proposal' cannot sit inside a surface/)
+    expect(preflight([{ id: 's', component: 'summary', content: 'Kurz.' }])).toMatch(/summary/)
+  })
+
+  it('keeps every interactive card type out of a surface', () => {
+    // The ratchet: a new interactive card type fails here until it is added
+    // to both lists (this one and `SURFACE_EXCLUDED_LEAVES` in cards/models.py).
+    for (const type of INTERACTIVE_CARD_TYPES) expect(SURFACE_EXCLUDED_LEAVES.has(type)).toBe(true)
   })
 })

@@ -34,6 +34,7 @@ export const ComparisonTableCard: FC<ComparisonTableCardProps> = ({
   note,
 }) => {
   const t = useTranslations('chat')
+  const tCommon = useTranslations('common')
   const success = statusColor('pass')
 
   return (
@@ -44,7 +45,7 @@ export const ComparisonTableCard: FC<ComparisonTableCardProps> = ({
       note={note}
       reference={reference}
     >
-      <HorizontalScroll className="w-full">
+      <HorizontalScroll className="w-full" aria-label={tCommon('markdown.scrollTable')}>
         {/* ONE SIZE FOR THE WHOLE TABLE, with weight and ink doing the
             hierarchy. Every cell, label and header used to be 12px — the
             charter's CAPTION step, spent on what the charter itself calls

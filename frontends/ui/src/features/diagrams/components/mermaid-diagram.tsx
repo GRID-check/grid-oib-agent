@@ -98,6 +98,7 @@ function DrawingSkeleton() {
 
 export function MermaidDiagram({ source, isStreaming = false }: MermaidDiagramProps) {
   const t = useTranslations('diagrams')
+  const tCommon = useTranslations('common')
   // The render itself is `useRenderedDiagram` — shared with the `diagram` card,
   // which draws the same sources through the same renderer. One drive, so the
   // fresh id, the cancellation and the "a failure is not a throw" rule cannot
@@ -170,7 +171,10 @@ export function MermaidDiagram({ source, isStreaming = false }: MermaidDiagramPr
           whatever surface it is lying on, which is the card — in both themes.
           A hairline frame is all it needs to read as a figure rather than as
           loose marks in the prose. */}
-      <HorizontalScroll className="border-border rounded-lg border p-3 [&_svg]:h-auto [&_svg]:max-w-full">
+      <HorizontalScroll
+        className="border-border rounded-lg border p-3 [&_svg]:h-auto [&_svg]:max-w-full"
+        aria-label={tCommon('markdown.scrollDiagram')}
+      >
         {svg ? (
           <div
             // Safe because of what produced the string, not because of where it is

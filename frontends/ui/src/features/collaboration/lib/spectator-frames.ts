@@ -171,7 +171,11 @@ export function reduceSpectatedFrame(
       if (!text && Object.keys(around).length === 0) return next === state ? state : next
       // A settled snapshot (ADR-0066) REPLACES the text streamed so far; a
       // spectator that appended it would read the answer twice.
-      if (message.stream_replace === true) return { ...next, ...around, parentId, answer: text, waitingOn: null }
+      // Its masthead is re-gated against that prose, so a snapshot without one
+      // takes the live masthead back, as the asker's store does.
+      if (message.stream_replace === true) {
+        return { ...next, answerMeta: undefined, ...around, parentId, answer: text, waitingOn: null }
+      }
       return { ...next, ...around, parentId, answer: next.answer + text, waitingOn: null }
     }
 

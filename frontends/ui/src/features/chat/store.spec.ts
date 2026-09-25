@@ -1497,11 +1497,58 @@ describe('useChatStore', () => {
         expect(message?.isStreaming).toBe(false)
       })
 
+      test('a snapshot that brings the first masthead makes it provisional too', () => {
+        setupConversation()
+        const settled: AnswerMeta = { v: 1, kind: 'ruling', topic: 'Zweiter Fluchtweg' }
+
+        useChatStore.getState().appendAgentResponseDelta('Beides geht [1')
+        useChatStore.getState().replaceStreamingAgentResponse('Beides geht [1].', undefined, settled)
+        expect(useChatStore.getState().currentConversation?.messages?.[0].answerMeta).toEqual(settled)
+
+        // The terminal gated it out: nothing may keep it on screen until reload.
+        useChatStore.getState().finalizeAgentResponse('Beides geht [1].')
+        expect(useChatStore.getState().currentConversation?.messages?.[0].answerMeta).toBeUndefined()
+      })
+
+      test('a snapshot that opens the bubble with a masthead makes it provisional too', () => {
+        setupConversation()
+        const settled: AnswerMeta = { v: 1, kind: 'ruling', topic: 'Zweiter Fluchtweg' }
+
+        useChatStore.getState().replaceStreamingAgentResponse('Beides geht [1].', undefined, settled)
+        useChatStore.getState().finalizeAgentResponse('Beides geht [1].')
+        expect(useChatStore.getState().currentConversation?.messages?.[0].answerMeta).toBeUndefined()
+      })
+
+      test('a snapshot without the masthead takes the live one back', () => {
+        setupConversation()
+        const head: AnswerMeta = { v: 1, kind: 'ruling', topic: 'Zweiter Fluchtweg' }
+
+        useChatStore.getState().appendAgentResponseDelta('', [], undefined, undefined, head)
+        useChatStore.getState().appendAgentResponseDelta('Kommt darauf an [1')
+        // Re-gated against the settled prose, the masthead did not survive.
+        useChatStore.getState().replaceStreamingAgentResponse('Kommt darauf an [1].')
+        const message = useChatStore.getState().currentConversation?.messages?.[0]
+        expect(message?.answerMeta).toBeUndefined()
+        expect(message?.content).toBe('Kommt darauf an [1].')
+      })
+
       test('cards on the legacy single in_progress frame survive an empty terminal', () => {
         setupConversation()
         const cards = [card('c1')]
 
         useChatStore.getState().appendAgentResponseDelta('Voll.', cards)
+        useChatStore.getState().finalizeAgentResponse('Voll.')
+        expect(useChatStore.getState().currentConversation?.messages?.[0].cards).toBe(cards)
+      })
+
+      test('cards on a LATER legacy in_progress frame survive a terminal with text and no cards', () => {
+        // Legacy shape: the cards ride a frame that also carries text. They are
+        // final, not provisional, so a terminal that omits them keeps them.
+        setupConversation()
+        const cards = [card('c1')]
+
+        useChatStore.getState().appendAgentResponseDelta('Voll')
+        useChatStore.getState().appendAgentResponseDelta('.', cards)
         useChatStore.getState().finalizeAgentResponse('Voll.')
         expect(useChatStore.getState().currentConversation?.messages?.[0].cards).toBe(cards)
       })

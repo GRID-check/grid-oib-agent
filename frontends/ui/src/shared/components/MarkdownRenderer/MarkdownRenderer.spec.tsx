@@ -447,6 +447,17 @@ Below`}
       // The list must not ALSO draw disc bullets beside the marks.
       expect(container.querySelector('ul')?.className).toContain('list-none')
     })
+
+    test('a screen reader hears the state as a word, not a glyph', () => {
+      const { container } = render(
+        <I18nProvider initialLocale="de" fixedLocale>
+          <MarkdownRenderer content={'- [x] Nachweis erbracht\n- [ ] Nachweis offen'} />
+        </I18nProvider>
+      )
+      const marks = container.querySelectorAll('[data-testid="task-mark"]')
+      expect(marks[0]).toHaveTextContent(de.common.markdown.taskDone)
+      expect(marks[1]).toHaveTextContent(de.common.markdown.taskOpen)
+    })
   })
 
   describe('deep headings', () => {

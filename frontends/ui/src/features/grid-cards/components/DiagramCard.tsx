@@ -131,6 +131,7 @@ const DrawingSkeleton: FC = () => (
 export const DiagramCard: FC<DiagramCardProps> = ({ title, source, caption, reference }) => {
   const t = useTranslations('chat')
   const tDiagrams = useTranslations('diagrams')
+  const tCommon = useTranslations('common')
   // Same split as the fence (`mermaid-diagram.tsx`): this product's view when
   // the parser yields a model, mermaid's SVG only as the file or the fallback.
   const model = useDiagramModel(source)
@@ -164,7 +165,10 @@ export const DiagramCard: FC<DiagramCardProps> = ({ title, source, caption, refe
             <DiagramView model={model} label={title} />
           </div>
         ) : (
-          <HorizontalScroll className="border-border rounded-md border p-3 [&_svg]:h-auto [&_svg]:max-w-full">
+          <HorizontalScroll
+            className="border-border rounded-md border p-3 [&_svg]:h-auto [&_svg]:max-w-full"
+            aria-label={tCommon('markdown.scrollDiagram')}
+          >
             {svg ? (
               <div
                 // Safe because of what produced the string, not because of where
