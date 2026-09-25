@@ -34,6 +34,7 @@ from __future__ import annotations
 import asyncio
 import difflib
 import logging
+import re
 from collections.abc import Awaitable
 from collections.abc import Callable
 from collections.abc import Sequence
@@ -48,7 +49,6 @@ from aiq_agent.common.citation_verification import _QUOTED_SPAN_RE
 from aiq_agent.common.citation_verification import MIN_QUOTE_LEN
 from aiq_agent.common.citation_verification import UnverifiedQuote
 from aiq_agent.common.citation_verification import _normalize_for_quote_match
-from aiq_agent.common.citation_verification import closeness
 
 logger = logging.getLogger(__name__)
 
@@ -86,7 +86,8 @@ def select(quotes: Sequence[UnverifiedQuote]) -> list[UnverifiedQuote]:
     """The flagged quotes this repair may correct, at most :data:`MAX_PATCHES`.
 
     Misremembered, not unattributed (``reason`` is ``not_verbatim``), with a
-    passage of a cited source close enough (``closeness`` ≥ :data:`PATCH_FLOOR`).
+    passage of a cited source close enough (``nearest_closeness`` ≥
+    :data:`PATCH_FLOOR`, the score the verifier chose that passage by).
     Every flagged quote's closeness is logged, selected or not: it is what
     ``PATCH_FLOOR`` should be read off.
     """
@@ -96,7 +97,7 @@ def select(quotes: Sequence[UnverifiedQuote]) -> list[UnverifiedQuote]:
         if not passage:
             logger.info("Piloti: unverified quote (%s), no cited passage", quote.reason)
             continue
-        score = closeness(quote.quote, passage)
+        score = quote.nearest_closeness
         logger.info("Piloti: unverified quote (%s), closeness %.2f", quote.reason, score)
         if quote.reason == "not_verbatim" and score >= PATCH_FLOOR:
             chosen.append(quote)
@@ -146,8 +147,22 @@ def _reads_back_as_one_quote(corrected: str, span: str) -> bool:
     return match is not None and next((group for group in match.groups() if group is not None), None) == corrected
 
 
+def _on_one_line(text: str) -> str:
+    """``text`` with the passage's layout taken out, as the verifier takes it out.
+
+    A PDF or OCR passage carries its line breaks and hyphen wraps, and a
+    correction copied from it carries them too: spliced into a table row it
+    breaks the row, and a blank line splits the paragraph. The verifier reads
+    past exactly these (:func:`_normalize_for_quote_match`), so the flattened
+    wording verifies as the wrapped one would.
+    """
+    text = re.sub(r"-\n", "", text)
+    text = re.sub(r"(?m)^[ \t]*>[ \t]?", "", text)
+    return re.sub(r"\s+", " ", text).strip()
+
+
 def accept(original: str, corrected: str | None, passage: str, *, span: str = "") -> str | None:
-    """The corrected wording when it holds, else ``None``.
+    """The corrected wording, on one line, when it holds, else ``None``.
 
     Holds means: it is in the passage verbatim (normalised as the verifier
     normalises), it is long enough to be verified and short enough to be a
@@ -157,7 +172,7 @@ def accept(original: str, corrected: str | None, passage: str, *, span: str = ""
     """
     if not corrected:
         return None
-    corrected = _unwrapped(corrected)
+    corrected = _on_one_line(_unwrapped(corrected))
     if not corrected or corrected.upper() == "NONE":
         return None
     norm = _normalize_for_quote_match(corrected)

@@ -9,13 +9,14 @@ import pytest
 from aiq_agent.agents.piloti import quote_patch
 from aiq_agent.agents.piloti.quote_patch import PATCH_FLOOR
 from aiq_agent.agents.piloti.quote_patch import accept
-from aiq_agent.agents.piloti.quote_patch import closeness
 from aiq_agent.agents.piloti.quote_patch import patch_quotes
 from aiq_agent.agents.piloti.quote_patch import select
 from aiq_agent.agents.piloti.quote_patch import splice
+from aiq_agent.common import citation_verification
 from aiq_agent.common.citation_verification import SourceEntry
 from aiq_agent.common.citation_verification import SourceRegistry
 from aiq_agent.common.citation_verification import UnverifiedQuote
+from aiq_agent.common.citation_verification import closeness
 from aiq_agent.common.citation_verification import verify_citations
 from aiq_agent.common.citation_verification import verify_quoted_spans
 
@@ -37,6 +38,7 @@ def _quote(text: str, answer: str, *, reason: str = "not_verbatim") -> Unverifie
         best_coverage=0.4,
         reason=reason,
         nearest=SourceEntry(citation_key="oib.pdf, p.3", chunk_text=PASSAGE),
+        nearest_closeness=closeness(text, PASSAGE),
     )
 
 
@@ -165,3 +167,59 @@ def test_a_correction_that_would_nest_the_enclosing_marks_is_refused():
     # Inside „…“, the correction's own „…“ closes the quote early: the verifier
     # would re-read only „zwischen Brandwänden“, and the patch ship unchecked.
     assert accept(BRANDWAND_MISQUOTE, BRANDWAND, BRANDWAND_PASSAGE, span=f"„{BRANDWAND_MISQUOTE}“") is None
+
+
+WRAPPED_PASSAGE = (
+    "4.2 Treppen\nDie lichte Durchgangs-\nhöhe von Treppen muss\nmindestens 2,10 m betragen.\n\nPodeste sind ..."
+)
+
+
+def test_a_correction_copied_from_a_wrapped_passage_keeps_the_table_row_whole():
+    # A PDF passage carries its line breaks and hyphen wraps. Copied as the
+    # model returns it, the correction split the row into three lines.
+    wrapped = "Die lichte Durchgangs-\nhöhe von Treppen muss\nmindestens 2,10 m betragen"
+    registry = SourceRegistry()
+    registry.add(SourceEntry(citation_key="oib.pdf, p.3", chunk_text=WRAPPED_PASSAGE, source_type="knowledge_layer"))
+    answer = f"| Bauteil | Anforderung |\n|---|---|\n| Treppe | „{MISQUOTE}“ [1] |\n\n## Quellen\n- [1] oib.pdf, p.3\n"
+    [flagged] = verify_quoted_spans(answer, registry)
+
+    corrected = accept(MISQUOTE, wrapped, WRAPPED_PASSAGE, span=flagged.span)
+    patched = splice(answer, [(flagged, corrected)])
+
+    assert corrected == CORRECT
+    assert f"| Treppe | „{CORRECT}“ [1] |\n" in patched
+    assert verify_quoted_spans(patched, registry) == []  # what ships still verifies
+
+
+def test_select_reuses_the_verifiers_closeness(monkeypatch):
+    registry = SourceRegistry()
+    registry.add(SourceEntry(citation_key="s_bautg.pdf, p.5", chunk_text=PASSAGE, source_type="knowledge_layer"))
+    answer = f"In Salzburg gilt: „{MISQUOTE}“ [1].\n\n## Quellen\n- [1] s_bautg.pdf, p.5\n"
+    [flagged] = verify_quoted_spans(answer, registry)
+
+    def no_second_pass(*args: object) -> float:
+        raise AssertionError("select() recomputed closeness")
+
+    monkeypatch.setattr(citation_verification, "_normalized_closeness", no_second_pass)
+    monkeypatch.setattr(citation_verification, "closeness", no_second_pass)
+
+    assert flagged.nearest_closeness >= PATCH_FLOOR
+    assert select([flagged]) == [flagged]
+
+
+def test_a_quote_the_patch_never_corrects_gets_no_nearest_passage():
+    long_quote = " ".join(["Treppen"] * 45)
+    registry = SourceRegistry()
+    registry.add(SourceEntry(citation_key="s_bautg.pdf, p.5", chunk_text=PASSAGE, source_type="knowledge_layer"))
+    answer = (
+        f"Es gilt: „{long_quote}“ [1]. Und „{MISQUOTE}“.\n\n"
+        f"Ferner „{MISQUOTE}“ [1].\n\n## Quellen\n- [1] s_bautg.pdf, p.5\n"
+    )
+
+    too_long, uncited, misquoted = verify_quoted_spans(answer, registry)
+
+    assert (too_long.reason, too_long.nearest, too_long.nearest_closeness) == ("too_long", None, 0.0)
+    assert (uncited.reason, uncited.nearest) == ("uncited", None)
+    assert misquoted.nearest is not None
+    # A caller that never patches asks for none.
+    assert all(quote.nearest is None for quote in verify_quoted_spans(answer, registry, with_nearest=False))

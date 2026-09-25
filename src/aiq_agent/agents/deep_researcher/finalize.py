@@ -23,6 +23,7 @@ from aiq_agent.agents.piloti.markers import answer_confidence_capped_reason
 from aiq_agent.agents.piloti.markers import surface_answer_confidence
 from aiq_agent.common import citation_events
 from aiq_agent.common.citation_verification import annotate_unverified_quotes
+from aiq_agent.common.citation_verification import expand_grouped_citations
 from aiq_agent.common.citation_verification import lost_citations
 from aiq_agent.common.citation_verification import sanitize_report
 from aiq_agent.common.citation_verification import source_entry_to_wire
@@ -424,7 +425,11 @@ def verify_report(report: str, registry: Any, reference_sources: list[Any]) -> V
     checking each quoted span against the retrieved passage text. Quotes are
     annotated inline, never stripped, and an annotated quote ships MARKED so a
     salvaged report can never read exactly like a verified one.
+
+    A range (``[1–3]``) is expanded first: the verifier reads ``[N]`` only, so
+    a range whose source 3 it removed would ship ``[1–3]`` still naming it.
     """
+    report = expand_grouped_citations(report)
     verification = verify_citations(report, registry, reference_sources=reference_sources)
     if verification.removed_citations:
         logger.info(
@@ -434,7 +439,8 @@ def verify_report(report: str, registry: Any, reference_sources: list[Any]) -> V
         )
     report = verification.verified_report
     degraded_reasons: list[str] = []
-    unverified_quotes = verify_quoted_spans(report, registry)
+    # Deep research annotates and never patches, so it asks for no nearest passage.
+    unverified_quotes = verify_quoted_spans(report, registry, with_nearest=False)
     if unverified_quotes:
         report = annotate_unverified_quotes(report, unverified_quotes)
         logger.info(

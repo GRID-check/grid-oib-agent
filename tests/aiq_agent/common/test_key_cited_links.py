@@ -92,6 +92,9 @@ def test_drop_url_leaves_no_dangling_separator_or_label():
     assert _drop_url(f"- [1] Bauordnung für Wien, § 63 | {LAW}", LAW) == "- [1] Bauordnung für Wien, § 63"
     assert _drop_url(f"- [1] Bauordnung für Wien, § 63 (Source: {LAW})", LAW) == "- [1] Bauordnung für Wien, § 63"
     assert _drop_url(f"Titel ({LAW})", LAW) == "Titel"
+    # A link in square brackets leaves no empty ``[]`` behind.
+    assert _drop_url(f"- [1] Wiener Bauordnung, § 5 [{LAW}]", LAW) == "- [1] Wiener Bauordnung, § 5"
+    assert _drop_url(f"- [1] [{LAW}] - Wiener Bauordnung", LAW) == "- [1] Wiener Bauordnung"
     # A link sharing its parentheses keeps them for what else they hold.
     link = "https://www.ris.bka.gv.at/x?a=1"
     assert _drop_url(f"BO-Wien § 5 ({link}, 2024)", link) == "BO-Wien § 5 (2024)"

@@ -2358,7 +2358,7 @@ class TestPilotiRepairPass:
 
         output = result.messages[-1].content
         # Only the words between the quotation marks moved: what the reader read
-        # around them, the marker included, is byte for byte what was written.
+        # around them, the `[1]` included, is byte for byte what was written.
         assert output.startswith("Vorweg: Treppen sind Fluchtwege. Es gilt: „Die lichte Durchgangshoehe von Treppen")
         assert '2,10 m betragen" [1]. Danach folgt die Breite.' in output
         assert "[nicht wörtlich in der Quelle belegt]" not in output
@@ -2422,6 +2422,24 @@ class TestPilotiRepairPass:
 
         assert "[nicht wörtlich in der Quelle belegt]" in result.messages[-1].content
         assert patch_llm.ainvoke.await_count == 0
+
+    @pytest.mark.asyncio
+    async def test_without_a_small_model_the_repair_is_off(self, mock_llm_provider, mock_llm):
+        # Switched on, but with no card model to run it on: the frontier model
+        # is never borrowed for the patch, and the marker ships.
+        mock_llm.ainvoke = AsyncMock(side_effect=[self._tool_call(), self.MISQUOTED])
+        agent = PilotiAgent(
+            llm_provider=mock_llm_provider, tools=[knowledge_search], repair_pass=True, card_repair_llm=None
+        )
+        state = ResearchAgentState(messages=[HumanMessage(content="Treppenhoehe?")])
+
+        with patch("aiq_agent.agents.piloti.agent.quote_patcher") as patcher:
+            result = await _run_with_bound_registry(agent, state, SourceRegistry())
+
+        assert "[nicht wörtlich in der Quelle belegt]" in result.messages[-1].content
+        assert "wenigstens 2,10 m" in result.messages[-1].content
+        patcher.assert_not_called()
+        assert mock_llm.ainvoke.await_count == 2
 
 
 class TestClarificationGuidance:

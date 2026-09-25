@@ -1777,7 +1777,7 @@ _LINK_SEPARATOR = r"[-–—:,|]"
 def _drop_url(text: str, url: str) -> str:
     """``text`` without ``url``, and without the separator or label that goes with it.
 
-    ``[Title](url)`` keeps its title, ``<url>`` and ``(url)`` go whole, a bare
+    ``[Title](url)`` keeps its title, ``<url>``, ``(url)`` and ``[url]`` go whole, a bare
     ``Title - url`` or ``Title | url`` loses the separator with the link,
     ``Title – Source: url`` and ``Title (Source: url)`` the label too, a
     leading ``url - Title`` the separator after it, and ``Title (url, 2024)``
@@ -1786,7 +1786,7 @@ def _drop_url(text: str, url: str) -> str:
     escaped = re.escape(url)
     text = re.sub(rf"\[([^\]]*)\]\({escaped}\)", r"\1", text)
     text, leading = re.subn(
-        rf"{_LEADING_LINK_PREFIX}[<(]?{escaped}[>)]?\s*(?:{_LINK_SEPARATOR}\s*)?", r"\1", text, flags=re.IGNORECASE
+        rf"{_LEADING_LINK_PREFIX}[<(\[]?{escaped}[>)\]]?\s*(?:{_LINK_SEPARATOR}\s*)?", r"\1", text, flags=re.IGNORECASE
     )
     if leading:
         return text.rstrip()
@@ -1797,7 +1797,7 @@ def _drop_url(text: str, url: str) -> str:
     if not shared:
         text, shared = re.subn(rf"\s*,\s*{labelled}\s*\)", ")", text, flags=re.IGNORECASE)
     if not shared:
-        link = rf"(?:\(\s*{labelled}\s*\)|(?:{_LINK_LABEL})?[<(]?{escaped}[>)]?)"
+        link = rf"(?:\(\s*{labelled}\s*\)|(?:{_LINK_LABEL})?[<(\[]?{escaped}[>)\]]?)"
         text = re.sub(rf"\s*(?:{_LINK_SEPARATOR}\s*)?{link}", "", text, flags=re.IGNORECASE)
     return text.rstrip()
 
@@ -2974,8 +2974,14 @@ class UnverifiedQuote:
     # misremembered, the passage it was quoting. What the quote patch corrects
     # the wording against, with no second search. Not the whole-registry best
     # (that is ``best_coverage``): a near-identical text from an uncited source
-    # must never supply a cited quote's wording.
+    # must never supply a cited quote's wording. Looked for only on a quote
+    # the patch could correct (``not_verbatim``), and only when the caller
+    # asked (``with_nearest``): each candidate page costs a closeness pass.
     nearest: SourceEntry | None = field(default=None, compare=False, repr=False)
+    # ``closeness(quote, nearest.chunk_text)``, the score ``nearest`` was chosen
+    # by, kept so the patch gates on it without a second pass. 0.0 with no
+    # ``nearest``.
+    nearest_closeness: float = field(default=0.0, compare=False)
 
 
 def _normalize_for_quote_match(text: str) -> str:
@@ -3252,7 +3258,7 @@ class _CitedLookup:
 
 def _nearest_cited(
     norm_quote: str, cited: _CitedSources, normalized_chunks: Sequence[tuple[str, SourceEntry]]
-) -> SourceEntry | None:
+) -> tuple[SourceEntry | None, float]:
     """The passage, among the sources the quote's sentence cites, its wording comes closest to.
 
     Ranked by :func:`closeness`, the measure the quote patch gates on, not by
@@ -3260,6 +3266,7 @@ def _nearest_cited(
     with two words changed scores like an invented one, and a neighbouring
     page that shares one long phrase would outrank the page actually quoted.
     Every page of a cited document is a candidate; the closest one is it.
+    Returns ``(passage, its closeness)``, ``(None, 0.0)`` when none is cited.
     """
     best, nearest = -1.0, None
     for chunk, source in normalized_chunks:
@@ -3268,7 +3275,7 @@ def _nearest_cited(
         score = _normalized_closeness(norm_quote, chunk)
         if score > best:
             best, nearest = score, source
-    return nearest
+    return nearest, max(best, 0.0)
 
 
 def _flag_reason(too_long: bool, uncited: bool) -> str:
@@ -3313,6 +3320,7 @@ def verify_quoted_spans(
     *,
     threshold: float = QUOTE_MATCH_THRESHOLD,
     min_quote_len: int = MIN_QUOTE_LEN,
+    with_nearest: bool = True,
 ) -> list[UnverifiedQuote]:
     """Return the quoted spans in the answer body not supported by any chunk text.
 
@@ -3329,6 +3337,11 @@ def verify_quoted_spans(
     flagged (``reason="too_long"`` / ``"uncited"``) even when it IS verbatim —
     verbatim is not attributable. Flagged means annotated downstream, never
     stripped: the sentence stays, the marker names the doubt.
+
+    ``with_nearest`` fills ``UnverifiedQuote.nearest`` for the quote patch, on
+    a ``not_verbatim`` quote only: the patch never corrects the others, and
+    each page of each cited document costs a closeness pass. A caller that
+    never patches (deep research) passes ``False``.
     """
     body = _answer_body_before_sources(answer_text)
     normalized_chunks = [
@@ -3353,7 +3366,9 @@ def verify_quoted_spans(
         # the quote's own sentence CITES. The closest in the whole registry
         # could be another Bundesland's near-identical text, and a patch from
         # it would put that text under this citation (ADR-0067).
-        cited = cited_lookup(cited_numbers)
+        nearest, score = None, 0.0
+        if with_nearest and not (too_long or uncited):
+            nearest, score = _nearest_cited(norm_quote, cited_lookup(cited_numbers), normalized_chunks)
         unverified.append(
             UnverifiedQuote(
                 quote=inner,
@@ -3362,7 +3377,8 @@ def verify_quoted_spans(
                 end=match.end(),
                 best_coverage=best_coverage,
                 reason=_flag_reason(too_long, uncited),
-                nearest=_nearest_cited(norm_quote, cited, normalized_chunks),
+                nearest=nearest,
+                nearest_closeness=score,
             )
         )
     return unverified
