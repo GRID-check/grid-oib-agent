@@ -181,3 +181,58 @@ def test_a_responses_api_token_is_its_text_blocks_and_never_its_reasoning():
     assert token_text(blocks) == "Hallo"
     assert token_text("Welt") == "Welt"
     assert token_text(None) == ""
+
+
+async def test_a_call_that_also_asks_for_tools_takes_back_what_it_showed():
+    """An envelope with a tool call is a round, not the answer: its prose must not stay as the answer."""
+    from langchain_core.language_models import BaseChatModel
+    from langchain_core.messages import AIMessageChunk
+    from langchain_core.outputs import ChatGeneration
+    from langchain_core.outputs import ChatGenerationChunk
+    from langchain_core.outputs import ChatResult
+
+    class _ToolRound(BaseChatModel):
+        """Streams the envelope, then a tool call: what GenericFakeChatModel cannot stream."""
+
+        @property
+        def _llm_type(self) -> str:
+            return "tool-round"
+
+        def _generate(self, messages, stop=None, run_manager=None, **kwargs):
+            return ChatResult(generations=[ChatGeneration(message=AIMessage(content=ENVELOPE))])
+
+        async def _astream(self, messages, stop=None, run_manager=None, **kwargs):
+            for start in range(0, len(ENVELOPE), 16):
+                chunk = ChatGenerationChunk(message=AIMessageChunk(content=ENVELOPE[start : start + 16]))
+                if run_manager:
+                    await run_manager.on_llm_new_token(chunk.text, chunk=chunk)
+                yield chunk
+            call = {"name": "knowledge_search", "args": '{"query": "GK 4"}', "id": "c1", "index": 0}
+            yield ChatGenerationChunk(message=AIMessageChunk(content="", tool_call_chunks=[call]))
+
+    sink = AnswerStreamSink()
+    await _answer_in_a_node(_ToolRound(), sink, _Counter())
+
+    items = sink._drain()
+    assert any(isinstance(item, str) and item for item in items)  # it did stream, before it knew
+    assert items[-1] == Snapshot(content="", sources=[], answer_meta=None)
+    assert not sink.streamed  # the real answer, a later call, may stream
+
+
+async def test_the_settle_runs_off_the_event_loop():
+    """Verification is fuzzy matching over every chunk; on the loop it stalls every turn the worker serves."""
+    import threading
+
+    threads: list[int] = []
+
+    class _Recording(_Live):
+        def settle(self, prose, sources_text, fields):
+            threads.append(threading.get_ident())
+            return super().settle(prose, sources_text, fields)
+
+    live = _Recording(settled=Snapshot(content="x", sources=[]))
+    await _answer_in_a_node(
+        GenericFakeChatModel(messages=iter([AIMessage(content=ENVELOPE)])), AnswerStreamSink(), _Counter(), live
+    )
+
+    assert threads and threads[0] != threading.get_ident()

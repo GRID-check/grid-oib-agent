@@ -100,7 +100,10 @@ persist-eligible. Besides the plain delta, which appends, there are three:
 
 One snapshot is sent per turn, when the envelope's `answer` string closes. The
 terminal then replaces the text once more and takes back what it omits (a
-suppressed card, a masthead gated out). The wire fields:
+suppressed card, a masthead gated out). One exception: a streamed call that
+turns out to carry tool calls was a round, not the answer, and is retracted
+with an EMPTY snapshot (`AnswerStreamSink.retract`); the answering call after
+it streams again. Cards it drew stay until the terminal frame replaces them. The wire fields:
 [`websocket-protocol.md`](../api/websocket-protocol.md#live-frames-adr-0066).
 
 ### WS handler (`websocket_reconnect.py::_run_workflow`)

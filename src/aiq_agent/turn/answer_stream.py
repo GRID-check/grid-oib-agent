@@ -96,6 +96,17 @@ class AnswerStreamSink:
             self.streamed = True
             self._queue.put_nowait(delta)
 
+    def retract(self) -> None:
+        """Take back what this call showed: the call turned out to be a tool round, not the answer.
+
+        An empty snapshot clears the bubble's text, sources and masthead, and a
+        later call of the turn may stream again. A card already drawn stays
+        until the terminal frame replaces the cards (the client ignores an
+        empty card list); cards come after the prose, so that is rare.
+        """
+        self._queue.put_nowait(Snapshot(content="", sources=[], answer_meta=None))
+        self.streamed = False
+
     def put(self, item: Snapshot | Masthead | Cards) -> None:
         self.streamed = True
         self._queue.put_nowait(item)
@@ -182,9 +193,16 @@ class _ProseTokenHandler(AsyncCallbackHandler):
         self._sink.push(delta)
         if reader.closed and not self._settled:
             self._settled = True
-            self._settle_prose(reader)
+            await self._settle_prose(reader)
         if self._settled:
             self._show_cards(reader.take_cards())
+
+    async def on_llm_end(self, response: Any, **kwargs: Any) -> None:
+        """A call that also asked for tools was a round, not the answer: take back what it showed."""
+        reader, self._reader = self._reader, None
+        if reader is not None and (reader.emitted or self._masthead_read) and _calls_tools(response):
+            logger.info("answer_stream: the streamed call asked for tools; retracting its prose")
+            self._sink.retract()
 
     def _show_masthead(self, fields: dict[str, Any]) -> None:
         """The masthead above the first word, gated as far as it can be without the prose."""
@@ -192,13 +210,21 @@ class _ProseTokenHandler(AsyncCallbackHandler):
         if meta:
             self._sink.put(Masthead(answer_meta=meta))
 
-    def _settle_prose(self, reader: AnswerProseStream) -> None:
-        """Verify what streamed, and send it back settled; fail-open to pending markers."""
-        if not reader.emitted:
+    async def _settle_prose(self, reader: AnswerProseStream) -> None:
+        """Verify what streamed, and send it back settled; fail-open to pending markers.
+
+        In a worker thread: verification is fuzzy matching over every retrieved
+        chunk, and on the loop it would stall every other turn the worker
+        streams. The model's stream waits for this callback, so order holds.
+        """
+        if not reader.emitted or self._live is None:
             return
-        settled = self._guarded(
-            "settle", lambda live: live.settle(reader.emitted, reader.sources_text, reader.masthead)
-        )
+        live = self._live
+        try:
+            settled = await asyncio.to_thread(live.settle, reader.emitted, reader.sources_text, reader.masthead)
+        except Exception:  # noqa: BLE001 - the terminal frame carries it anyway
+            logger.warning("answer_stream: the live settle failed", exc_info=True)
+            settled = None
         if settled is not None:
             self._sink.put(
                 Snapshot(
@@ -225,6 +251,20 @@ class _ProseTokenHandler(AsyncCallbackHandler):
         except Exception:  # noqa: BLE001 - the terminal frame carries it anyway
             logger.warning("answer_stream: the live %s failed", what, exc_info=True)
             return None
+
+
+def _calls_tools(response: Any) -> bool:
+    """Whether an ``LLMResult`` carries tool calls, in any of the places a provider puts them."""
+    for generations in getattr(response, "generations", None) or []:
+        for generation in generations:
+            message = getattr(generation, "message", None)
+            if message is None:
+                continue
+            if getattr(message, "tool_calls", None) or getattr(message, "tool_call_chunks", None):
+                return True
+            if (getattr(message, "additional_kwargs", None) or {}).get("tool_calls"):
+                return True
+    return False
 
 
 def token_text(token: Any) -> str:
