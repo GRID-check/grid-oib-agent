@@ -141,10 +141,12 @@ The platform prompt follows the same shape without the drift gate.
 `scripts/prompts_push.py` (`task prompts:push`) checks by default and publishes
 the committed `piloti_static.md` under a Langfuse label only with `--apply`. It
 never overwrites a Langfuse version that did not come from git. Provenance is
-read off the version itself: its commit message must name a commit, and
-`git show` of that commit's file must be byte-identical to what Langfuse serves.
-Tags do not count, because Langfuse keeps one tag list per prompt, not per
-version. ADR-0060. **Enforced by:** `tests/test_prompts_push.py`; no drift
+read off the version itself: what Langfuse serves must be byte-identical to a
+committed text, either the file at the commit the version's message names or
+the file at any commit in its history. Tags do not count, because Langfuse
+keeps one tag list per prompt, not per version. Neither arm asks whether the
+commit was reviewed, so text published from a branch that never merges stays
+unreviewed; publish with `--apply` from `develop`. ADR-0060. **Enforced by:** `tests/test_prompts_push.py`; no drift
 workflow runs it on a schedule.
 
 ## Already recorded elsewhere

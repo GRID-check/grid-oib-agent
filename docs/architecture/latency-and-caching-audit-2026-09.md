@@ -8,8 +8,8 @@
 > ranking is structural and the first recommendation is to make it measured.
 >
 > **Measured since:** [`turn-latency-measured-2026-09.md`](turn-latency-measured-2026-09.md)
-> (2026-09-24) puts numbers on the chat turn: 31.3 s median, 56% of it the
-> final call, and the startup sequence to the millisecond.
+> (2026-09-24) puts numbers on the chat turn: 31.3 s median, about half of it
+> (16.2 s) the final call, and the startup sequence to the millisecond.
 >
 > Supersedes the still-open items in
 > `plans/2026-07-18-chat-response-time-perf-audit.md` and

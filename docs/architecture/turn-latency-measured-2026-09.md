@@ -5,7 +5,7 @@
 > [`latency-and-caching-audit-2026-09.md`](latency-and-caching-audit-2026-09.md)
 > ranked the drivers structurally, from the code, and said the ranking was
 > waiting on measurement (its §5). This is that measurement for the chat turn,
-> read on 2026-09-24 against branch `claude/pr-725-review-fixes-d2wnzy`, from
+> read on 2026-09-24 against the change that added this document, from
 > the suite refusing to run without a document inventory
 > (`scripts/turn_census/suite.py`) to the question's embedding running beside
 > the turn decision (§3.2), with the requery A/B of §3.5 on 2026-09-25. It is
@@ -13,7 +13,7 @@
 
 ## 1. Verdict
 
-**A median chat turn takes 31.3 s, and 56% of that is the final answer call**,
+**A median chat turn takes 31.3 s, and the final answer call's median is 16.2 s of it, about half (52%)**,
 most of which is the model thinking before its first token. Since ADR-0066
 streams the prose, the reader sees the first word at a median of about 27 s
 (27.4 s in §5, 27.6 s in §3.5), 4-5 s before the turn ends; the rest is the
@@ -55,7 +55,7 @@ recorded whether the main checkout held that code then.
 
 | Slice | Median per turn | Share |
 |---|---|---|
-| Final answer call (the `/responses` call that writes the envelope) | 16.2 s | 56% |
+| Final answer call (the `/responses` call that writes the envelope) | 16.2 s | 52% of the median turn |
 | &nbsp;&nbsp;of which thinking before the first token | ≈ 12-14 s | |
 | Research-round model calls (each round's decision to search again) | 5.7 s | |
 | Round 0: turn decision, prefetch retrieval, sufficiency, requery (whole round, requery included where it ran) | 3.7 s | |

@@ -262,14 +262,19 @@ not.
 
 - **The git tag is a UI filter only.** Langfuse keeps tags per prompt, so
   every later UI edit carries it too.
-- **Provenance is the version's commit message** `git <sha> <path>`, plus a
-  byte-identical `git show` of that file at that commit. `published_from_git`
-  in `scripts/prompts_push.py` checks both.
+- **Provenance is the text Langfuse serves, matched byte for byte against a
+  committed text.** `published_from_git` in `scripts/prompts_push.py` accepts
+  either arm: the file at the commit the version's message names
+  (`git <sha> <path>`), or the file at any commit in its history
+  (`file_history()`). The second arm is what lets a UI edit that was pulled
+  and committed through review count as reviewed.
 - **The label is read and written in two calls.** A UI promotion in between
   is overwritten. Nothing closes this yet.
-- **Publish with `--apply` only from a commit on `develop`.** A feature-branch
-  sha disappears at squash-merge. Later pushes then cannot `git show` it and
-  refuse the version as a Langfuse edit.
+- **Publish with `--apply` only from a commit on `develop`.** Neither arm asks
+  whether a commit was reviewed. Text published from a branch that never
+  merges stays unreviewed, and later pushes accept it for as long as the
+  clone still holds that commit. Once it is gone, no commit in the history
+  holds the text and the next push refuses it as a Langfuse edit.
 
 ## Pros and Cons of the Options
 

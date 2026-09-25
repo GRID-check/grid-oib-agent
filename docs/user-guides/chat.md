@@ -242,7 +242,9 @@ the end.
 - **Things above and beside the text keep their place.** The title block and
   every card reserve their space before the text moves past them, so the line
   you are reading does not jump.
-- **The finished answer stays.** It is not replaced when the stream ends.
+- **The finished answer stays**, except that a corrected quotation takes the
+  source's wording (see below). It is not otherwise replaced when the stream
+  ends.
 - **Text written before a lookup can be withdrawn.** When Piloti starts writing
   and then decides to look something up, that first text goes and the answer
   continues from the lookup.
