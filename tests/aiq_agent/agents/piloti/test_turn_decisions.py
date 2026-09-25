@@ -42,6 +42,8 @@ class TestWhatIsAsked:
             "needs_evidence",
             "corpus",
             "self_contained",
+            "landesrecht",
+            "land",
             "family_2",
             "family_4",
             "card_fire_compartment",
@@ -220,6 +222,53 @@ class TestTheSkillsShapes:
             decided = await decide_turn(TurnFacts(question="und in GK 4?", skills=[("brandschutz", "b")]))
         assert decided.chosen_skill == "brandschutz" and decided.skill_fit == 0.85
         assert decided.self_contained == 0.2 and not decided.searchable
+
+
+class TestALandLawQuestionIsLookedUpInRis:
+    """A confident "this turns on a Bauordnung" starts the RIS lookup as round 0."""
+
+    def _decided(self, landesrecht: float, land: str = "Tirol", land_p: float = 1.0, **kwargs) -> TurnDecisions:
+        base = {"decided": True, "needs_evidence": 0.9, "corpus": "baurecht", "corpus_p": 0.95}
+        return TurnDecisions(**{**base, **kwargs}, landesrecht=landesrecht, land=land, land_p=land_p)
+
+    def test_the_question_and_the_land_are_looked_up_beside_the_search(self):
+        calls = prefetch_calls(self._decided(0.93), "Wie groß muss der Abstand zur Nachbargrenze sein?")
+        assert calls[-1] == {
+            "name": "ris_lookup_tool",
+            "args": {"question": "Wie groß muss der Abstand zur Nachbargrenze sein?", "jurisdiction": "Tirol"},
+        }
+        assert calls[0]["name"] == "knowledge_search"
+
+    def test_an_unknown_or_unsure_land_is_left_to_the_lookup(self):
+        for land, land_p in (("unknown", 1.0), ("Wien", 0.5)):
+            (call,) = [
+                c for c in prefetch_calls(self._decided(0.9, land, land_p), "Stellplätze?") if "question" in c["args"]
+            ]
+            assert "jurisdiction" not in call["args"]
+
+    def test_below_the_bar_nothing_is_looked_up(self):
+        """The highest OIB row measured in the whole decision scored 0.55; a lookup is two planner calls."""
+        calls = prefetch_calls(self._decided(0.55), "Brauche ich Rauchwarnmelder in der Wohnung?")
+        assert all(c["name"] != "ris_lookup_tool" for c in calls)
+
+    def test_it_runs_when_the_knowledge_corpus_is_unsure(self):
+        calls = prefetch_calls(self._decided(0.95, corpus="none", corpus_p=0.4), "Was ist bewilligungsfrei?")
+        assert [c["name"] for c in calls] == ["ris_lookup_tool"]
+
+    def test_a_follow_up_or_no_evidence_looks_up_nothing(self):
+        assert prefetch_calls(self._decided(0.95, self_contained=0.1), "und in Wien?") == []
+        assert prefetch_calls(self._decided(0.95, needs_evidence=0.2), "Danke") == []
+
+    async def test_the_answers_are_read_back(self):
+        decision = Decision(
+            answers={
+                "landesrecht": {"type": "noul", "noul": 0.91},
+                "land": {"type": "choice", "choice": "Wien", "probabilities": {"Wien": 0.97, "unknown": 0.03}},
+            }
+        )
+        with patch("aiq_agent.common.decisions.decide", AsyncMock(return_value=decision)):
+            decided = await decide_turn(_facts("Welche Unterlagen für die Einreichung in Wien?"))
+        assert (decided.wants_landesrecht, decided.chosen_land) == (True, "Wien")
 
 
 class TestAFollowUpPrefetchesNothing:

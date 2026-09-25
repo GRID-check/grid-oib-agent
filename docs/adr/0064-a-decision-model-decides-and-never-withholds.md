@@ -188,6 +188,23 @@ skip is `StageEmpty("decided_nothing_durable")` on the stage's span, so its
 rate is measured in production like every other stage outcome. It never
 touches the answer, which has shipped before the stage starts.
 
+**Use 6 — the Bauordnung lookup as round 0** (`agents/piloti/decisions.py`,
+`landesrecht`, `land`, `_ris_prefetch`). Two more questions in the turn
+decision: whether the answer turns on a Land's building or planning law,
+and which Land — from the message, then the project's facts. At 0.65 or
+above, `ris_lookup_tool` runs as round 0 beside the knowledge prefetch,
+with the Land when the decider named it at 0.8 or above; otherwise the
+lookup reads the Land itself, as it does for the model. It adds a fetch and
+withholds nothing, and a deployment that does not bind RIS has the call
+dropped before round 0 is announced. The Bauordnung questions were the
+slowest in the answer suite (serial `ris_lookup` rounds before the first
+passage was read). Measured inside the whole turn decision, three runs: the
+five Bauordnung rows 0.72–0.96, the highest OIB row 0.54–0.55; asked alone
+the same question scores ~0.15 higher, which is why the threshold is set on
+the full state. The Land was named on every row that named one and on every
+project-fact variant (Innsbruck, St. Pölten, 1140 Wien), `unknown` on the
+rest. The eval's adoption rule gains the floor.
+
 **Not a use.** Intent or model routing, the escalation decision, confidence,
 verdict extraction, anything whose wrong answer removes a capability
 (ADR-0052, unchanged). Card selection and skill suggestion, which the audit
