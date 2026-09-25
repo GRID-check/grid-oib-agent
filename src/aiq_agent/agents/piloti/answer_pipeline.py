@@ -474,7 +474,9 @@ async def _verify_with_quote_patch(content: str, registry: SourceRegistry, patch
     card number and every other byte the reader has read stays put. What ships
     is re-verified, so an unpatched quote still carries its marker.
     """
-    verified = _verify(content, registry)
+    # Off the loop: the quote check reads every cited passage, and the worker's
+    # one event loop serves every other turn meanwhile (the settle does the same).
+    verified = await asyncio.to_thread(_verify, content, registry)
     if patch is None or not verified.unverified_quotes:
         return verified
     candidates = select_quotes(verified.unverified_quotes)
@@ -488,7 +490,7 @@ async def _verify_with_quote_patch(content: str, registry: SourceRegistry, patch
         return verified
     # The second pass verifies text the first already stripped, so it sees none
     # of the citations the first removed: carry them, or the ledger loses them.
-    shipped = _verify(patched, registry)
+    shipped = await asyncio.to_thread(_verify, patched, registry)
     removed = [*verified.verification.removed_citations, *shipped.verification.removed_citations]
     return replace(shipped, verification=replace(shipped.verification, removed_citations=removed))
 

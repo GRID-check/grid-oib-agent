@@ -62,7 +62,9 @@ read.
   passage overall can be another Land's, and patching against it would put
   that Land's wording under this one's citation.
 * **The correction is kept only if it is in the passage verbatim**, normalised
-  as the verifier normalises. The verifier's fuzzy threshold is not used here,
+  as the verifier normalises, and it is spliced on one line: a passage's
+  hyphen wraps are joined and its line breaks collapsed, so a quote inside a
+  table row keeps the row whole. The verifier's fuzzy threshold is not used here,
   because a corrected "2,50 m" clears it against a passage saying "2,10 m". The
   correction must also stay similar to what was quoted. Only the text between
   the quotation marks is replaced, so every `[N]` and card number stays as it
@@ -93,11 +95,12 @@ without `card_repair_llm` the repair is off.
 * Bad, because the model no longer sees its failed check as an observation
   (roadmap ledger row 20). That observation fed the rewrite, and there is no
   rewrite left to feed.
-* Bad, because `PATCH_FLOOR` was read off test fixtures. A flagged quote whose
-  sentence cites a source now logs its closeness to the nearest passage of
-  that source, and the answer suite counts `unverified_quote` and
-  `quote_patch`, so the floor can be reset from real answers. A quote with no
-  cited passage logs "no cited passage" and no number, since
+* Bad, because `PATCH_FLOOR` was read off test fixtures. A flagged quote the patch
+  could correct (its sentence cites a source, and it is not too long) now logs
+  its closeness to the nearest passage of that source, and the answer suite
+  counts `unverified_quote` and `quote_patch`, so the floor can be reset from
+  real answers. Any other flagged quote logs "no cited passage" and no number,
+  since
   `UnverifiedQuote.nearest` is chosen only among the sources the quote's own
   sentence cites (`citation_verification._nearest_cited`).
 * Neutral: a source line that carries both a registry citation key and a link
