@@ -48,12 +48,16 @@ def test_a_search_that_starts_while_the_warm_up_is_in_flight_waits_for_it():
 def test_a_failed_embedding_is_taken_over_by_the_waiter():
     retriever, embedder = _retriever()
     attempts: list[str] = []
+    first_failed_at: list[float] = []
+    second_started_at: list[float] = []
 
     def flaky(query: str) -> list[float]:
         attempts.append(query)
         if len(attempts) == 1:
             time.sleep(0.05)
+            first_failed_at.append(time.monotonic())
             raise RuntimeError("embedding API down")
+        second_started_at.append(time.monotonic())
         return [1.0]
 
     embedder.get_query_embedding = flaky  # type: ignore[method-assign]
@@ -72,6 +76,10 @@ def test_a_failed_embedding_is_taken_over_by_the_waiter():
         thread.join()
 
     assert len(attempts) == 2 and [1.0] in outcome
+    # The waiter took over only after the owner failed, not in parallel with it,
+    # and nothing is left marked in flight.
+    assert second_started_at[0] >= first_failed_at[0]
+    assert retriever._embed_inflight == {}
 
 
 def test_the_warm_up_leaves_the_embedding_where_the_search_reads_it():
@@ -110,3 +118,25 @@ def test_no_search_retriever_means_no_warm_up(monkeypatch):
     monkeypatch.setattr(factory, "_SEARCH_RETRIEVER", None)
 
     asyncio.run(factory.warm_search_query("Treppe"))
+
+
+def test_without_a_cache_nobody_waits_on_anybody(monkeypatch):
+    retriever, embedder = _retriever()
+    monkeypatch.setattr(LlamaIndexRetriever, "EMBED_CACHE_MAX", 0)
+    threads = [threading.Thread(target=lambda: retriever._embed_query_cached("q")) for _ in range(3)]
+    started = time.monotonic()
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+
+    assert len(embedder.calls) == 3
+    assert time.monotonic() - started < 0.12  # three in parallel, not three in a row
+
+
+def test_the_warmed_string_is_the_one_the_search_sends():
+    from aiq_agent.agents.piloti.decisions import prefetch_query
+
+    # A 300-character cut can land on a space; the search strips its query.
+    question = "x" * 299 + " und mehr"
+    assert prefetch_query(question) == prefetch_query(question).strip()

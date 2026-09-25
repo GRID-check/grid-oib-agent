@@ -252,7 +252,12 @@ def test_an_empty_inventory_refuses_to_measure(tmp_path):
     assert suite.inventory_ready(filled) is True
 
 
-def test_the_inventory_path_is_resolved_absolutely(monkeypatch, tmp_path):
+def test_the_inventory_checked_is_the_one_the_runs_read(monkeypatch, tmp_path):
+    # Every run's `nat run` starts in the repo root, so a relative path means
+    # the root's file, wherever the suite itself was started from.
     monkeypatch.chdir(tmp_path)
     monkeypatch.delenv("AIQ_SUMMARY_DB", raising=False)
-    assert suite.inventory_database() == tmp_path / "summaries.db"
+    assert suite.inventory_database() == (suite.ROOT / "summaries.db").resolve()
+
+    monkeypatch.setenv("AIQ_SUMMARY_DB", f"sqlite+aiosqlite:///{tmp_path}/elsewhere.db")
+    assert suite.inventory_database() == tmp_path / "elsewhere.db"

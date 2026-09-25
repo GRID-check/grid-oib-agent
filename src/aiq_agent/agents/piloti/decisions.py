@@ -334,7 +334,9 @@ def prefetch_query(question: str | None) -> str:
     One definition, because the turn-start warm-up embeds this exact string
     and a warm-up for a different string is a wasted round trip.
     """
-    return " ".join((question or "").split())[:300]
+    # Stripped after the cut: a cut on a space would leave one, and the search
+    # strips its query, so the warm-up would have embedded another string.
+    return " ".join((question or "").split())[:300].rstrip()
 
 
 def prefetch_calls(

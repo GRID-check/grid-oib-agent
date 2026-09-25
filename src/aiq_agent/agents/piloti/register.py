@@ -399,13 +399,10 @@ def _turn_facts(state: ResearchAgentState, runtime: SkillRuntime | None) -> Turn
     )
 
 
-async def _decide_turn(
-    config: ResearchAgentConfig, state: ResearchAgentState, runtime: SkillRuntime | None
-) -> TurnDecisions:
+async def _decide_turn(config: ResearchAgentConfig, facts: TurnFacts) -> TurnDecisions:
     """The turn-start decision, or none: never raises, never blocks longer than its timeout."""
     if not config.turn_decisions:
         return TurnDecisions.none()
-    facts = _turn_facts(state, runtime)
     # A first message of one or two words („Hallo", „Danke!") needs no
     # decision: nothing to prefetch, no method to read in, and the ~0.6 s the
     # call costs would be a third of the reply's whole latency.
@@ -418,7 +415,7 @@ async def _decide_turn(
         return TurnDecisions.none()
 
 
-def _warm_question(config: ResearchAgentConfig, state: ResearchAgentState, runtime: SkillRuntime | None) -> None:
+def _warm_question(config: ResearchAgentConfig, facts: TurnFacts) -> None:
     """Start embedding the question the round-0 prefetch will search; not awaited.
 
     The prefetch is known only after the decision, and its search then pays
@@ -429,7 +426,7 @@ def _warm_question(config: ResearchAgentConfig, state: ResearchAgentState, runti
     """
     if not config.turn_decisions:
         return
-    query = prefetch_query(_turn_facts(state, runtime).question)
+    query = prefetch_query(facts.question)
     if len(query.split()) < 3:
         return
     from aiq_agent.knowledge.factory import warm_search_query
@@ -562,9 +559,10 @@ async def _run_turn(deployment: _Deployment, state: ResearchAgentState) -> Resea
     # three, not their sum.
     # The question's embedding is warmed beside them (see _warm_question), so
     # the round-0 search it prefetches does not pay that round trip after.
-    _warm_question(config, state, runtime)
+    facts = _turn_facts(state, runtime)
+    _warm_question(config, facts)
     draft_tools, decisions, llm_provider = await asyncio.gather(
-        draft_tools_for_turn(), _decide_turn(config, state, runtime), _active_provider(deployment.provider)
+        draft_tools_for_turn(), _decide_turn(config, facts), _active_provider(deployment.provider)
     )
     _apply_decisions(decisions, state, runtime)
     # After the decision: the skill it inlined is part of what this turn inlined.
@@ -578,7 +576,7 @@ async def _run_turn(deployment: _Deployment, state: ResearchAgentState) -> Resea
         tools=turn_tools,
         disabled_sources=disabled_sources,
         prefetch=tuple(
-            prefetch_calls(decisions, _turn_facts(state, runtime).question, focus_file_name=state.focus_file_name)
+            prefetch_calls(decisions, facts.question, focus_file_name=state.focus_file_name)
             if config.turn_decisions
             else ()
         ),

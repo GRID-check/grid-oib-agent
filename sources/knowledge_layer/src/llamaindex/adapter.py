@@ -4291,6 +4291,9 @@ class LlamaIndexRetriever(BaseRetriever):
     def _embed_query_cached(self, query: str) -> list[float]:
         """Embed a query once per (model, text); LRU-bounded, one computation in flight per key."""
         key = (self.embed_model_name, query)
+        if self.EMBED_CACHE_MAX <= 0:
+            # No cache to share a result through: waiting would only serialise.
+            return self._embed_model.get_query_embedding(query)
         while True:
             with self._embed_cache_lock:
                 if key in self._embed_cache:

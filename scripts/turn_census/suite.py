@@ -437,13 +437,18 @@ def _corpus_ready() -> bool:
 def inventory_database() -> Path | None:
     """The SQLite file the runs will read the document inventory from, or None when it is not SQLite.
 
-    ``AIQ_SUMMARY_DB`` or the config's default, ``./summaries.db``, which is
-    relative to the working directory: a suite started anywhere but where the
-    ingest ran reads an empty inventory.
+    ``AIQ_SUMMARY_DB`` or the config's default, ``./summaries.db``. A relative
+    path is resolved against the REPO ROOT, because that is the working
+    directory every run's ``nat run`` gets (``census.run_once``), whatever
+    directory the suite itself was started from. A worktree has its own root,
+    and its own empty ``summaries.db``.
     """
     url = os.environ.get("AIQ_SUMMARY_DB") or "sqlite+aiosqlite:///./summaries.db"
     prefix = "sqlite+aiosqlite:///"
-    return Path(url[len(prefix) :]).resolve() if url.startswith(prefix) else None
+    if not url.startswith(prefix):
+        return None
+    path = Path(url[len(prefix) :])
+    return (path if path.is_absolute() else ROOT / path).resolve()
 
 
 def inventory_ready(path: Path | None) -> bool:
@@ -546,6 +551,10 @@ def main(argv: list[str] | None = None) -> int:
     questions, skipped = load_questions(core_only=not (args.all or args.only))
     if args.only:
         questions = [q for q in load_questions(core_only=False)[0] if q["id"] in set(args.only)]
+        unknown = sorted(set(args.only) - {q["id"] for q in questions})
+        if unknown:
+            print(f"No such question: {', '.join(unknown)}", file=sys.stderr)
+            return 2
     families = corpus_families()
     not_in_corpus = [f"{q['id']} ({lacking})" for q in questions if (lacking := lacking_family(q, families))]
     questions = [q for q in questions if lacking_family(q, families) is None]

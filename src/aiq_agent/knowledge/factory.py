@@ -820,7 +820,9 @@ def get_knowledge_layer_config() -> dict[str, Any]:
 # The retriever the knowledge search tool was built with. It can differ from
 # the active retriever (another config identity, another instance, another
 # embedding LRU), and a warm-up is only worth anything in the cache the search
-# will read. Set by the knowledge tool at build time.
+# will read. Set by the knowledge tool at build time; with two knowledge tools
+# of different config the last built wins, which wastes a warm-up on the other
+# one's turns but can serve nothing wrong: the embedding cache is keyed by model.
 _SEARCH_RETRIEVER: BaseRetriever | None = None
 
 

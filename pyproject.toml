@@ -41,6 +41,11 @@ dependencies = [
     "pillow>=12.2.0,<13",
     "pygments>=2.20.0,<3",
     "a2ui-core==0.1.1",
+    # Arrives through nvidia-nat[langchain]; the floor is ours. Below 1.6.6 a
+    # STREAMED Responses call drops the model's encrypted reasoning items, so
+    # every tool round thinks from scratch and nothing fails
+    # (docs/contributing/gotchas.md, a0ec99d2).
+    "langchain-openai>=1.6.6",
 ]
 
 [project.optional-dependencies]
