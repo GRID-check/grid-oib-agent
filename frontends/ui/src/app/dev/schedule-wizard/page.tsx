@@ -19,6 +19,7 @@
  * development.
  */
 
+import type { JSX } from 'react'
 import { useEffect, useState } from 'react'
 import { notFound, useSearchParams } from 'next/navigation'
 import { I18nProvider } from '@/i18n'

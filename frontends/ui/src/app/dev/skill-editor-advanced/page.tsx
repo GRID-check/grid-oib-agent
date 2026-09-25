@@ -21,6 +21,7 @@
  * Pinned to German, like the other preview routes.
  */
 
+import type { JSX } from 'react'
 import { useEffect, useRef } from 'react'
 
 import { I18nProvider } from '@/i18n'

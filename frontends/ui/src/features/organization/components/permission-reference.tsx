@@ -29,6 +29,7 @@
  * makes the page body scroll sideways.
  */
 
+import type { JSX } from 'react'
 import { KeyRound } from 'lucide-react'
 
 import { Badge } from '@/components/ui/badge'

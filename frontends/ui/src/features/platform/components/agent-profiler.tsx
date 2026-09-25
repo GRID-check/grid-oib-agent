@@ -12,6 +12,7 @@
  * indentation (node -> llm/tool), colored by span kind. No chart dependency.
  */
 
+import type { JSX } from 'react'
 import { useCallback, useEffect, useState } from 'react'
 import { AlertTriangle, Clock, RefreshCw } from 'lucide-react'
 import { toast } from 'sonner'

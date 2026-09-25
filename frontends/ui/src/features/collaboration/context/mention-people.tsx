@@ -21,6 +21,7 @@
  * furniture does not appear in a conversation that has none (spec NF-8).
  */
 
+import type { JSX } from 'react'
 import { createContext, useContext, useMemo, type ReactNode } from 'react'
 
 import { AGENT_MENTION_ID } from '@/lib/mentions/types'

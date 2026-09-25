@@ -27,6 +27,7 @@
  * quantities" is said in full.
  */
 
+import type { JSX } from 'react'
 import { useMemo } from 'react'
 import { Boxes, Layers3, Ruler, ScrollText, Square } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'

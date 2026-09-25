@@ -42,6 +42,7 @@
  * but it is real, and it bites whatever first puts slots 7 and 8 side by side.
  */
 
+import type { JSX } from 'react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Download, MessageSquareWarning, RefreshCw, ThumbsDown, ThumbsUp, X } from 'lucide-react'
 

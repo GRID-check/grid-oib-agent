@@ -1,0 +1,15 @@
+---
+fixes:
+  - >
+    Ein fertiger Recherchebericht wird wieder als PDF im Projekt abgelegt.
+    Seit Mitte September scheiterte das Ablegen bei jedem Bericht, gleich
+    welchen Inhalts; der Bericht selbst blieb im Chat lesbar.
+  - >
+    Fällt die Datenbank kurz aus, meldet die Anwendung das jetzt als
+    vorübergehende Störung und bittet, es gleich noch einmal zu versuchen,
+    statt mit einem allgemeinen Fehler abzubrechen. Ein in dieser Zeit
+    gestarteter Auftrag wird nicht mehr als fehlgeschlagen angezeigt, obwohl
+    er läuft.
+  - >
+    Vorschaubilder in der Dateiablage laden auch in einem Tab, der seit Tagen
+    offen ist, statt nach einiger Zeit als „nicht verfügbar" zu erscheinen.

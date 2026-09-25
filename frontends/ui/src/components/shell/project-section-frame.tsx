@@ -10,6 +10,7 @@
  * header rather than a second one.
  */
 
+import type { JSX } from 'react'
 import {
   createContext,
   useContext,

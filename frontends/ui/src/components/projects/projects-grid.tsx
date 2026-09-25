@@ -21,6 +21,7 @@
  * screen, "continue where you left off" is not the question being asked.
  */
 
+import type { JSX } from 'react'
 import { useMemo, useState } from 'react'
 import { FolderOpen, Search } from 'lucide-react'
 import { Button } from '@/components/ui/button'

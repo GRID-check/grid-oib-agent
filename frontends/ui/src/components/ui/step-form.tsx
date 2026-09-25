@@ -12,6 +12,7 @@
  * which a second copy would quietly stop enforcing.
  */
 
+import type { JSX } from 'react'
 import { useState, type ReactNode } from 'react'
 import { ChevronDown } from 'lucide-react'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'

@@ -26,6 +26,7 @@
  * something, and here it does.
  */
 
+import type { JSX } from 'react'
 import type { KeyboardEvent, MouseEvent } from 'react'
 import Link from 'next/link'
 import {

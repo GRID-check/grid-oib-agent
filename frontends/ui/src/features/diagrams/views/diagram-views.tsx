@@ -181,7 +181,7 @@ const FLOW_GRAPH_MIN_REM = 28
  * Measured before the first paint, so the form chosen from it is the first one
  * seen, and neither form is built for a render nobody sees.
  */
-function useWidthRem(): [RefObject<HTMLDivElement>, number | null] {
+function useWidthRem(): [RefObject<HTMLDivElement | null>, number | null] {
   const ref = useRef<HTMLDivElement>(null)
   const [width, setWidth] = useState<number | null>(null)
   useLayoutEffect(() => {

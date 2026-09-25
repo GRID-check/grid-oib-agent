@@ -20,6 +20,7 @@
  * appear and progress from pending → indexed with no page reload.
  */
 
+import type { JSX } from 'react'
 import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent } from 'react'
 import { toast } from 'sonner'
 import {

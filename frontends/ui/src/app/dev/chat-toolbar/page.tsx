@@ -62,6 +62,7 @@
  * users actually see.
  */
 
+import type { JSX } from 'react'
 import { useEffect, useState } from 'react'
 import { notFound } from 'next/navigation'
 
