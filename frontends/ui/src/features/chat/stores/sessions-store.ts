@@ -304,21 +304,50 @@ export const createResilientStorage = (): PersistStorage<PersistedChatState> | u
   // A tab closed mid-answer still leaves its latest state behind.
   window.addEventListener('pagehide', flushPending)
 
+  // What the last call was handed. `persist` calls setItem on EVERY store
+  // update — a loading flag, a status line, a thinking step — and each call
+  // pruned and serialized the whole history only to find nothing had changed.
+  // The store updates immutably, so a persisted field that is the same
+  // reference is the same content: a call whose fields all are is skipped
+  // before any of that work. The last call was written or is held, either way.
+  let lastState: PersistedChatState | null = null
+  let lastVersion: number | undefined
+  // Every key either state carries, so a field `partialize` gains later is
+  // compared too rather than silently never written.
+  const unchangedSinceLastCall = (value: PersistedChatStorageValue): boolean => {
+    const previous: Record<string, unknown> | null = lastState
+    if (previous === null || value.version !== lastVersion) return false
+    const next: Record<string, unknown> = value.state
+    const keys = new Set([...Object.keys(previous), ...Object.keys(next)])
+    for (const key of keys) if (next[key] !== previous[key]) return false
+    return true
+  }
+
   return {
     getItem: async (name: string): Promise<PersistedChatStorageValue | null> => {
       const raw = await base.getItem(name)
       if (!raw) return null
 
-      const stripConnectionErrors = (conversations: Conversation[]) =>
+      // Nothing streams in a page that is only now loading, so an answer
+      // stored mid-stream was interrupted by the reload. Its text is a
+      // fragment this page cannot finish: the reattached turn opens a bubble
+      // of its own, and the fragment used to stay beside it with a caret
+      // forever. It also hid the turn from the recovery that fetches a
+      // finished answer (`restoreSessionState` looks for an unanswered
+      // question), so the reload is handed to that path, the one a reload
+      // before the first word already takes.
+      const stripUnrestorable = (conversations: Conversation[]) =>
         conversations.map((c) => ({
           ...c,
           messages: c.messages.filter(
-            (m) => !(m.messageType === 'error' && m.errorData?.errorCode?.startsWith('connection.'))
+            (m) =>
+              m.isStreaming !== true &&
+              !(m.messageType === 'error' && m.errorData?.errorCode?.startsWith('connection.'))
           ),
         }))
 
       if (raw.state.conversations) {
-        raw.state.conversations = stripConnectionErrors(raw.state.conversations)
+        raw.state.conversations = stripUnrestorable(raw.state.conversations)
       }
 
       const storedId = raw.state.currentConversation as unknown as string | null
@@ -331,10 +360,14 @@ export const createResilientStorage = (): PersistStorage<PersistedChatState> | u
     },
     removeItem: (name: string) => {
       dropPending()
+      lastState = null
       lastWritten = null
       return base.removeItem(name)
     },
     setItem: (name: string, value: PersistedChatStorageValue) => {
+      if (unchangedSinceLastCall(value)) return
+      lastState = value.state
+      lastVersion = value.version
       if (!isStreamingAnswer(value) || !onlyTheOpenAnswerChanged(value.state)) {
         write(name, value)
         return

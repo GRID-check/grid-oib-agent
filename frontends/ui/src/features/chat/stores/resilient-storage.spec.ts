@@ -124,6 +124,40 @@ describe('createResilientStorage', () => {
     expect(localStorage.getItem(KEY)).toBeNull()
   })
 
+  test('a call whose persisted fields are the same objects does no work at all', () => {
+    const storage = createResilientStorage()!
+    const first = value('a', false)
+    storage.setItem(KEY, first)
+    const getItem = vi.spyOn(localStorage, 'getItem')
+    const setItem = vi.spyOn(localStorage, 'setItem')
+
+    // What `persist` hands over for a loading flag or a thinking step: a new
+    // wrapper around the very same persisted fields.
+    storage.setItem(KEY, { ...first, state: { ...first.state } })
+    expect(getItem).not.toHaveBeenCalled()
+    expect(setItem).not.toHaveBeenCalled()
+    getItem.mockRestore()
+    setItem.mockRestore()
+  })
+
+  test('any persisted field that is a new object is written, a field partialize gains later too', () => {
+    const storage = createResilientStorage()!
+    const first = value('a', false)
+    storage.setItem(KEY, first)
+
+    storage.setItem(KEY, { ...first, state: { ...first.state, composerDrafts: { c1: 'Entwurf' } } })
+    expect(JSON.parse(localStorage.getItem(KEY)!).state.composerDrafts).toEqual({ c1: 'Entwurf' })
+
+    // The skip lets it through to the write path, which reads what is stored
+    // to compare. (Whether the field is serialized is the pruner's business.)
+    const current = JSON.parse(localStorage.getItem(KEY)!).state
+    const getItem = vi.spyOn(localStorage, 'getItem')
+    const withNewField = { ...first.state, composerDrafts: current.composerDrafts, later: 1 }
+    storage.setItem(KEY, { ...first, state: withNewField as typeof first.state })
+    expect(getItem).toHaveBeenCalledTimes(1)
+    getItem.mockRestore()
+  })
+
   test('a conversation deleted while an answer streams leaves storage at once', () => {
     const storage = createResilientStorage()!
     storage.setItem(KEY, value('a', true, { others: [OTHER] }))

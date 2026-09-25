@@ -504,8 +504,10 @@ export const mapHumanPromptType = (natType: string): PromptType => {
  * "Mine" is `authorUserId === currentUserId`, or absent — a solo thread renders
  * no attribution and writes no author, so absent means "there is only me".
  * An unresponded HITL prompt counts: the thread is paused on an answer only this
- * browser can give. So does a still-`isStreaming` assistant message, which is
- * what a mid-stream refresh leaves behind locally.
+ * browser can give. So does a still-`isStreaming` assistant message. A reload
+ * no longer restores one (the storage drops an interrupted answer, and the
+ * question it answers is then the newest turn), but a socket that drops
+ * mid-answer without a reload leaves exactly that.
  */
 const ownsUnansweredTurnIn = (
   messages: ChatMessage[] | undefined,
