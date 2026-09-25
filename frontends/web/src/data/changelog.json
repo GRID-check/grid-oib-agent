@@ -32,6 +32,114 @@
   },
   "releases": [
     {
+      "id": "2026-09-25",
+      "kind": "date",
+      "version": null,
+      "date": "2026-09-25",
+      "summary": null,
+      "sections": [
+        {
+          "key": "features",
+          "notes": [
+            {
+              "en": "Antworten sind gegliedert statt als Fließtext geschrieben: die erste Zeile beantwortet die Frage mit dem Wert in Fett, Prüfungen und Fälle nach Gebäudeklasse erscheinen als Tabellen mit Fundstelle, ein Status wie „erfüllt“ oder „offen“ als farbige Markierung, Verfahren als nummerierte Schritte und Nachzureichendes als Aufgabenliste.",
+              "de": "Antworten sind gegliedert statt als Fließtext geschrieben: die erste Zeile beantwortet die Frage mit dem Wert in Fett, Prüfungen und Fälle nach Gebäudeklasse erscheinen als Tabellen mit Fundstelle, ein Status wie „erfüllt“ oder „offen“ als farbige Markierung, Verfahren als nummerierte Schritte und Nachzureichendes als Aufgabenliste."
+            },
+            {
+              "en": "Piloti zeichnet von sich aus, wo Text eine Form schlecht trägt: ein Verfahren, das sich verzweigt, wer wem was übergibt, wie die Teile einer Richtlinie zusammenhängen, ein Bauzeitplan aus den Projektunterlagen. Die Zeichnung steht dort, wo sie hingehört, und lässt sich wie bisher im Projekt ablegen.",
+              "de": "Piloti zeichnet von sich aus, wo Text eine Form schlecht trägt: ein Verfahren, das sich verzweigt, wer wem was übergibt, wie die Teile einer Richtlinie zusammenhängen, ein Bauzeitplan aus den Projektunterlagen. Die Zeichnung steht dort, wo sie hingehört, und lässt sich wie bisher im Projekt ablegen."
+            },
+            {
+              "en": "Antworten erscheinen, während sie geschrieben werden, statt erst am Ende der Recherche. Jede Fundstelle steht sofort an ihrer Stelle, zunächst als „wird geprüft“, und wird zur anklickbaren Quelle, sobald der Text fertig und geprüft ist, noch bevor Karten und Antwort vollständig sind.",
+              "de": "Antworten erscheinen, während sie geschrieben werden, statt erst am Ende der Recherche. Jede Fundstelle steht sofort an ihrer Stelle, zunächst als „wird geprüft“, und wird zur anklickbaren Quelle, sobald der Text fertig und geprüft ist, noch bevor Karten und Antwort vollständig sind."
+            },
+            {
+              "en": "Titel und Kurzfassung stehen über der Antwort, bevor ihr erstes Wort erscheint, und eine Karte hält ihren Platz im Text frei und wächst dort hinein, statt den Text, den Sie gerade lesen, nach unten zu schieben. Wer einen geteilten Verlauf mitliest, sieht dieselbe Antwort mit Titel, Quellen und Karten, nicht mehr nur ihren Text.",
+              "de": "Titel und Kurzfassung stehen über der Antwort, bevor ihr erstes Wort erscheint, und eine Karte hält ihren Platz im Text frei und wächst dort hinein, statt den Text, den Sie gerade lesen, nach unten zu schieben. Wer einen geteilten Verlauf mitliest, sieht dieselbe Antwort mit Titel, Quellen und Karten, nicht mehr nur ihren Text."
+            },
+            {
+              "en": "Diagramme in Antworten sind neu gestaltet: Abläufe als Karten mit beschrifteten Pfeilen und hervorgehobenen Entscheidungen, ein Regelwerk als Baum (auf dem Telefon als Gliederung), Übergaben als Spalten je Beteiligtem, Termine als Balken auf einer Zeitachse. Aufgabenlisten zeigen Markierungen statt Kontrollkästchen.",
+              "de": "Diagramme in Antworten sind neu gestaltet: Abläufe als Karten mit beschrifteten Pfeilen und hervorgehobenen Entscheidungen, ein Regelwerk als Baum (auf dem Telefon als Gliederung), Übergaben als Spalten je Beteiligtem, Termine als Balken auf einer Zeitachse. Aufgabenlisten zeigen Markierungen statt Kontrollkästchen."
+            },
+            {
+              "en": "Varianten, die Sie vergleichen (zwei Entwurfslösungen, zwei Bundesländer, Bestand und Umbau), erscheinen als Reiter, jede mit ihrer eigenen Tabelle. Zusammengehörige Karten stehen auf breiten Bildschirmen nebeneinander. Im Word-Export stehen die Varianten untereinander, jede mit ihrem Reitertitel.",
+              "de": "Varianten, die Sie vergleichen (zwei Entwurfslösungen, zwei Bundesländer, Bestand und Umbau), erscheinen als Reiter, jede mit ihrer eigenen Tabelle. Zusammengehörige Karten stehen auf breiten Bildschirmen nebeneinander. Im Word-Export stehen die Varianten untereinander, jede mit ihrem Reitertitel."
+            },
+            {
+              "en": "Prüftabellen zeigen ihr Ergebnis vorab (etwa „2 erfüllt · 1 offen“), eine Fundstelle, die für alle Zeilen gleich ist, steht einmal unter der Tabelle statt in jeder Zeile, und auf dem Telefon werden breite Tabellen zeilenweise untereinander gezeigt statt seitlich zu scrollen.",
+              "de": "Prüftabellen zeigen ihr Ergebnis vorab (etwa „2 erfüllt · 1 offen“), eine Fundstelle, die für alle Zeilen gleich ist, steht einmal unter der Tabelle statt in jeder Zeile, und auf dem Telefon werden breite Tabellen zeilenweise untereinander gezeigt statt seitlich zu scrollen."
+            },
+            {
+              "en": "Antworten wiederholen sich weniger: ein Vorspann, der nur den ersten Absatz wiederholt, entfällt, ebenso eine Mindmap, die nur die Tabelle daneben nachzeichnet, und eine Fundstelle steht je Tabellenzeile nur einmal.",
+              "de": "Antworten wiederholen sich weniger: ein Vorspann, der nur den ersten Absatz wiederholt, entfällt, ebenso eine Mindmap, die nur die Tabelle daneben nachzeichnet, und eine Fundstelle steht je Tabellenzeile nur einmal."
+            }
+          ]
+        },
+        {
+          "key": "fixes",
+          "notes": [
+            {
+              "en": "Eine Antwort, die eine Zeichnung oder einen Codeblock enthielt, wurde als roher JSON-Text angezeigt statt als Antwort.",
+              "de": "Eine Antwort, die eine Zeichnung oder einen Codeblock enthielt, wurde als roher JSON-Text angezeigt statt als Antwort."
+            },
+            {
+              "en": "Fragen zu bewilligungsfreien und anzeigepflichtigen Bauvorhaben in Salzburg werden aus dem Baupolizeigesetz beantwortet statt an die ausführliche Recherche übergeben, und die Tiroler Bauordnung wird nach Paragraphen samt Überschrift gelesen statt nach ihrem Inhaltsverzeichnis.",
+              "de": "Fragen zu bewilligungsfreien und anzeigepflichtigen Bauvorhaben in Salzburg werden aus dem Baupolizeigesetz beantwortet statt an die ausführliche Recherche übergeben, und die Tiroler Bauordnung wird nach Paragraphen samt Überschrift gelesen statt nach ihrem Inhaltsverzeichnis."
+            },
+            {
+              "en": "Antworten zur Bauordnung behalten ihre Fundstellen im RIS und sind schneller: ein genannter Paragraph kommt ganz statt nur sein Anfang, ohne die doppelte Vorlesefassung des RIS, und ist als RIS statt als Wissensbasis gekennzeichnet. Bisher fragte die Suche drei- bis viermal nach dem Rest, und ein zitierter Paragraph konnte aus der Quellenliste fallen.",
+              "de": "Antworten zur Bauordnung behalten ihre Fundstellen im RIS und sind schneller: ein genannter Paragraph kommt ganz statt nur sein Anfang, ohne die doppelte Vorlesefassung des RIS, und ist als RIS statt als Wissensbasis gekennzeichnet. Bisher fragte die Suche drei- bis viermal nach dem Rest, und ein zitierter Paragraph konnte aus der Quellenliste fallen."
+            },
+            {
+              "en": "Werte aus den Tabellen der OIB-Richtlinien (etwa Tabelle 3 zu Treppenhäusern) werden richtig gelesen und mit der Seite der Tabelle zitiert; bisher verwechselte die Suche die Spalten der Gebäudeklassen.",
+              "de": "Werte aus den Tabellen der OIB-Richtlinien (etwa Tabelle 3 zu Treppenhäusern) werden richtig gelesen und mit der Seite der Tabelle zitiert; bisher verwechselte die Suche die Spalten der Gebäudeklassen."
+            },
+            {
+              "en": "Die Punkte von „Das Wichtigste“ stehen bündig untereinander, und Kopieren, Antwortdetails und Bewertung stehen unter einer Antwort in einer Zeile.",
+              "de": "Die Punkte von „Das Wichtigste“ stehen bündig untereinander, und Kopieren, Antwortdetails und Bewertung stehen unter einer Antwort in einer Zeile."
+            },
+            {
+              "en": "Skizzen sind auf dem Telefon lesbar: Maße und Beschriftungen erscheinen nicht mehr in 5 bis 7 Pixel Größe. Breite Tabellen, Vergleiche und Diagramme zeigen am Rand an, dass es seitlich weitergeht.",
+              "de": "Skizzen sind auf dem Telefon lesbar: Maße und Beschriftungen erscheinen nicht mehr in 5 bis 7 Pixel Größe. Breite Tabellen, Vergleiche und Diagramme zeigen am Rand an, dass es seitlich weitergeht."
+            },
+            {
+              "en": "Diagramme erscheinen im dunklen Modus durchgehend dunkel; bisher wechselten mehrere Diagramme in einer Antwort ab dem dritten in die helle Palette, und Achsen, Titel und Legenden wurden unsichtbar.",
+              "de": "Diagramme erscheinen im dunklen Modus durchgehend dunkel; bisher wechselten mehrere Diagramme in einer Antwort ab dem dritten in die helle Palette, und Achsen, Titel und Legenden wurden unsichtbar."
+            },
+            {
+              "en": "Fragen zum Brandschutz bei Garagen, überdachten Stellplätzen und Parkdecks werden aus der OIB-Richtlinie 2.2 und ihren Erläuterungen beantwortet. Bisher fand die Suche diese Richtlinie nicht, zeigte sie im Überblick über OIB 2 nicht an und lieferte stattdessen Auszüge aus ihrem Änderungsverzeichnis.",
+              "de": "Fragen zum Brandschutz bei Garagen, überdachten Stellplätzen und Parkdecks werden aus der OIB-Richtlinie 2.2 und ihren Erläuterungen beantwortet. Bisher fand die Suche diese Richtlinie nicht, zeigte sie im Überblick über OIB 2 nicht an und lieferte stattdessen Auszüge aus ihrem Änderungsverzeichnis."
+            },
+            {
+              "en": "Ein Zitat, das nicht wörtlich in seiner Quelle steht, ist markiert, sobald die Antwort steht. Ein leicht falsch erinnertes Zitat wird auf den Wortlaut der Quelle korrigiert, und nur dann, wenn die Quelle, die der Satz nennt, diesen Wortlaut enthält.",
+              "de": "Ein Zitat, das nicht wörtlich in seiner Quelle steht, ist markiert, sobald die Antwort steht. Ein leicht falsch erinnertes Zitat wird auf den Wortlaut der Quelle korrigiert, und nur dann, wenn die Quelle, die der Satz nennt, diesen Wortlaut enthält."
+            },
+            {
+              "en": "Bei einer Frage zu mehreren Paragraphen (etwa „§§ 3 bis 8“) werden bis zu sechs Paragraphen in einem Schritt gelesen. Bisher kam bei einer Liste nur der erste zurück.",
+              "de": "Bei einer Frage zu mehreren Paragraphen (etwa „§§ 3 bis 8“) werden bis zu sechs Paragraphen in einem Schritt gelesen. Bisher kam bei einer Liste nur der erste zurück."
+            },
+            {
+              "en": "Eine Fehlermeldung mit Link erscheint nicht mehr als Quelle.",
+              "de": "Eine Fehlermeldung mit Link erscheint nicht mehr als Quelle."
+            },
+            {
+              "en": "Die gestellte Frage bleibt oben stehen, und eine kurze Antwort springt am Ende nicht mehr nach unten.",
+              "de": "Die gestellte Frage bleibt oben stehen, und eine kurze Antwort springt am Ende nicht mehr nach unten."
+            }
+          ]
+        },
+        {
+          "key": "other",
+          "notes": [
+            {
+              "en": "Neue Installationen antworten standardmäßig mit GPT-6 Luna: gründlicher, etwas langsamer, pro Antwort günstiger. Bestehende Installationen behalten für Antworten ihr Modell (umstellen unter Plattform → Modelle). Dokumentzusammenfassungen, Relevanz- und Konsistenzprüfung sowie Bildbeschreibungen wechseln überall auf GPT-6 Luna, außer eine Umgebungsvariable legt ihr Modell fest.",
+              "de": "Neue Installationen antworten standardmäßig mit GPT-6 Luna: gründlicher, etwas langsamer, pro Antwort günstiger. Bestehende Installationen behalten für Antworten ihr Modell (umstellen unter Plattform → Modelle). Dokumentzusammenfassungen, Relevanz- und Konsistenzprüfung sowie Bildbeschreibungen wechseln überall auf GPT-6 Luna, außer eine Umgebungsvariable legt ihr Modell fest."
+            }
+          ]
+        }
+      ]
+    },
+    {
       "id": "2026-09-23",
       "kind": "date",
       "version": null,
