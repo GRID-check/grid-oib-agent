@@ -2771,8 +2771,13 @@ SURFACE_JUSTIFY = frozenset({"start", "center", "end", "spaceBetween", "spaceAro
 SURFACE_ALIGN = frozenset({"start", "center", "end", "stretch"})
 
 
-def _check_layout(component: dict[str, Any]) -> None:
-    """A layout component's own props: static child ids, a sane count, nothing else."""
+def _check_layout(component: dict[str, Any]) -> dict[str, Any]:
+    """A layout component's own props: static child ids, a sane count, nothing else.
+
+    Returned normalised: a tab title is on-screen text and gets the plain-text
+    guarantee every other card string gets (`flatten_card_markup`), which the
+    model-level flattening does not reach inside the component dicts.
+    """
     name, component_id = component["component"], component["id"]
     if name in ("Row", "Column"):
         extra = set(component) - {"id", "component", "children", "justify", "align"}
@@ -2799,6 +2804,12 @@ def _check_layout(component: dict[str, Any]) -> None:
                 raise ValueError(f"'{component_id}' (Tabs): a tab's `title` is text and its `child` an id.")
     if extra:
         raise ValueError(f"'{component_id}' ({name}) does not take {sorted(extra)}.")
+    if name == "Tabs":
+        tabs = [
+            {"title": flatten_card_markup(tab["title"].strip()), "child": tab["child"]} for tab in component["tabs"]
+        ]
+        return {**component, "tabs": tabs}
+    return component
 
 
 def _checked_text(component: dict[str, Any]) -> dict[str, Any]:
@@ -2916,8 +2927,7 @@ class SurfaceCard(CardModel):
         checked: list[dict[str, Any]] = []
         for component in self.components:
             if component["component"] in SURFACE_LAYOUTS:
-                _check_layout(component)
-                checked.append(component)
+                checked.append(_check_layout(component))
             else:
                 checked.append(_checked_leaf(component))
         # `a2ui-core` reads references by field name; a tab's child sits one

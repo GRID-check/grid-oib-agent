@@ -218,8 +218,8 @@ describe('interactive card wiring', () => {
     })
   }
 
-  // Every leaf of a composed surface shares the surface's index. Keyed on the
-  // index alone, deciding one leaf decided every other leaf of its type.
+  // The second guard behind SURFACE_EXCLUDED_LEAVES: every leaf of a surface
+  // shares the surface's index, so a leaf's key carries its id too.
   it('keys a leaf of a surface on its id as well as the surface index', async () => {
     const { card, action } = SETTLE_CASES.memory_proposal!
     const user = userEvent.setup()

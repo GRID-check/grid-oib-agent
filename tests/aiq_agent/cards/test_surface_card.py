@@ -584,3 +584,21 @@ class TestSurfaceLimits:
     )
     def test_a_surface_over_a_limit_is_refused(self, components, expected):
         assert expected in _refusal(_tabs(components=copy.deepcopy(components)))
+
+
+def test_a_tab_title_is_plain_text_like_every_other_card_string():
+    from aiq_agent.cards.models import SurfaceCard
+
+    card = SurfaceCard(
+        type="surface",
+        components=[
+            {
+                "id": "root",
+                "component": "Tabs",
+                "tabs": [{"title": "  A ", "child": "a"}, {"title": "**B**", "child": "b"}],
+            },
+            copy.deepcopy(BASIS_A),
+            copy.deepcopy(BASIS_B),
+        ],
+    )
+    assert [tab["title"] for tab in card.components[0]["tabs"]] == ["A", "B"]

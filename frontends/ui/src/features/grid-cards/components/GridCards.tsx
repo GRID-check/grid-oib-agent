@@ -111,9 +111,11 @@ interface GridCardItemProps {
 
 interface GridCardViewProps extends GridCardItemProps {
   /**
-   * The card's id inside a composed `surface`, absent for a lone card. Two
-   * leaves of one surface share its `index`, so the id is what tells their
-   * `cardKey`s apart.
+   * The card's id inside a composed `surface`, absent for a lone card. A second
+   * guard only: every card that stores a decision under its `cardKey` is in
+   * `SURFACE_EXCLUDED_LEAVES` and never sits in a surface. Should one ever be
+   * allowed there, its leaves (which share the surface's `index`) still get
+   * distinct keys.
    */
   leafId?: string
 }
@@ -141,8 +143,7 @@ export const GridCardView: FC<GridCardViewProps> = ({
   decisionsMustPersist,
   leafId,
 }) => {
-  // Doubles as the React key and as the identity an interactive card's
-  // persisted decision is stored under, so the two cannot drift apart.
+  // The identity an interactive card's persisted decision is stored under.
   const key = leafId === undefined ? cardKey(card, index) : `${cardKey(card, index)}.${leafId}`
 
   if (card.type === 'summary') {
