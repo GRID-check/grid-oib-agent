@@ -72,10 +72,10 @@ many tenants concurrently and module state leaks across both turns and tenants.
 
 `cards/registry.py` and `common/citation_verification.py` are the reference
 pair; `common/cost_tracking.py`, `common/profiler.py` and
-`tools/bim/measurement_sources.py` follow it. Two narrower uses of the same
+`tools/bim/measurement_sources.py` follow it. One narrower use of the same
 shape: `turn/answer_stream.py` binds the turn's answer-stream sink (`_SINK`)
 around the whole turn with `bound_answer_stream`, and resets its token on exit.
-(A second, `turn_status.prefetch_scope`, marked the turn decision's prefetch
+(Another, `turn_status.prefetch_scope`, marked the turn decision's prefetch
 for a requery switch that was measured 3.4 s slower and removed with it:
 [`turn-latency-measured-2026-09.md`](turn-latency-measured-2026-09.md) §3.5.)
 

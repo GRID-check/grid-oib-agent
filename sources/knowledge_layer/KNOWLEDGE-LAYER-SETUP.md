@@ -47,7 +47,7 @@ A pluggable abstraction for document ingestion and retrieval. Swap backends with
 
 ## Quick Start
 
-> **Prerequisites:** Complete the [main setup](../../README.md#getting-started) first (clone repo, run `./scripts/setup.sh`, obtain API keys).
+> **Prerequisites:** Complete the [main setup](../../README.md#quick-start) first (clone repo, run `./scripts/setup.sh`, obtain API keys).
 
 > **Tip:** Instead of exporting env vars each time, add them to `deploy/.env` and use `dotenv -f deploy/.env run <command>` to run any command with those vars loaded automatically.
 
@@ -193,7 +193,7 @@ functions:
     timeout: 120
 ```
 
-> **Separate Docker stacks:** When AI-Q and RAG run as separate Docker Compose stacks, connect the AI-Q backend to the RAG network: `docker network connect nvidia-rag aiq-agent`. See the [Docker Compose README](../../deploy/compose/README.md#networking-when-aiq-and-rag-run-as-separate-compose-stacks) for details.
+> **Separate Docker stacks:** When AI-Q and RAG run as separate Docker Compose stacks, connect the AI-Q backend to the RAG network: `docker network connect nvidia-rag aiq-agent`. See the [Docker Compose README](../../deploy/compose/README.md) for the stack itself.
 
 ### Programmatic Usage
 
