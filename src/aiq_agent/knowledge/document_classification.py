@@ -141,6 +141,78 @@ def is_valid_doc_class(value: str | None) -> bool:
     return value in DOCUMENT_CLASS_LABELS
 
 
+# The Dokumentart as a SUGGESTION (ADR-0064, use 8). A base-corpus file whose
+# name carries no OIB hint lands in ``sonstiges`` (the neutral lane) until a
+# platform owner reclassifies it. The decision model reads the text and picks
+# one of the nine classes; the pick is stored beside the class, never as it,
+# and the base-knowledge page offers it. The lane changes only when a person
+# accepts. Measured 2026-09-25 on twelve openings under hint-less file names
+# (``tests/fixtures/decisions/doc_class.yaml``): 12/12 at 0.97-1.00, where the
+# filename guess had 3/12.
+
+#: What each class is, in the decider's language.
+DOCUMENT_CLASS_CRITERIA: dict[str, str] = {
+    "oib_richtlinie": (
+        "An OIB-Richtlinie itself: the binding technical guideline text (OIB-Richtlinie 1 to 6, 2.1, 2.2, "
+        "2.3), with numbered Punkte and requirements."
+    ),
+    "oib_leitfaden": "An OIB-Leitfaden: guidance published by the OIB on how to apply or deviate from a Richtlinie.",
+    "oib_erlaeuterung": (
+        "Erläuternde Bemerkungen: the OIB's explanatory remarks on a Richtlinie, point by point, saying why a "
+        "requirement is as it is."
+    ),
+    "oib_begriffe": "The OIB-Richtlinien Begriffsbestimmungen: the list of defined terms used by all Richtlinien.",
+    "oib_referenz": (
+        "An OIB reference or supporting document to a Richtlinie (a national plan, reference values, a "
+        "calculation basis), not the Richtlinie itself."
+    ),
+    "oib_aenderung": "An OIB change document: what changed in a Richtlinie between two editions.",
+    "norm_extern": "A technical standard not issued by the OIB: an ÖNORM, an EN or Eurocode, a DIN.",
+    "gesetz": (
+        "A law or ordinance: a Bauordnung, a Bautechnikgesetz, a Verordnung of a Land or the federal state, with §§."
+    ),
+    "sonstiges": (
+        "Anything else: a leaflet, a presentation, a letter, a checklist, a publication that is none of the above."
+    ),
+}
+
+#: The pick is offered at or above this. Every row measured chose at 0.97+.
+DOC_CLASS_SUGGESTION_THRESHOLD = 0.8
+DOC_CLASS_DECISION_SLOT = "doc_class"
+
+
+def suggest_doc_class(text: str, file_name: str, *, organization_id: str | None = None) -> str | None:
+    """A Dokumentart for a person to confirm, or ``None`` (unsure, ``sonstiges``, or no decision)."""
+    if not text or not text.strip():
+        return None
+    try:
+        from aiq_agent.common.decisions import choice
+        from aiq_agent.common.decisions import decide_blocking
+
+        decision = decide_blocking(
+            {"file_name": file_name, "text": text[:CLASSIFY_MAX_INPUT_CHARS]},
+            {
+                "doc_class": choice(
+                    "What kind of document is this, in the hierarchy of Austrian building regulations? "
+                    "Read the text, then the file name.",
+                    {key: DOCUMENT_CLASS_CRITERIA[key] for key in DOCUMENT_CLASSES},
+                )
+            },
+            slot=DOC_CLASS_DECISION_SLOT,
+            timeout=TAG_DECISION_TIMEOUT_S,
+            organization_id=organization_id,
+        )
+    except Exception as e:  # noqa: BLE001 — a suggestion is worth less than the ingestion
+        logger.warning("Dokumentart decision failed for %s: %s", file_name, type(e).__name__)
+        return None
+    if decision is None:
+        return None
+    chosen, distribution = decision.choice("doc_class")
+    if not is_valid_doc_class(chosen) or chosen == DEFAULT_DOC_CLASS:
+        return None
+    return chosen if distribution.get(chosen, 0.0) >= DOC_CLASS_SUGGESTION_THRESHOLD else None
+
+
 # Length cap for the deterministic, LLM-free fallback summary (see
 # ``fallback_summary_from_text``).
 FALLBACK_SUMMARY_MAX_CHARS = 200

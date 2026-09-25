@@ -549,6 +549,16 @@ def get_document_doc_class(collection: str, filename: str) -> str | None:
     return _get_document_metadata_store().get_doc_class(collection, filename)
 
 
+def set_document_doc_class_suggestion(collection: str, filename: str, doc_class: str | None) -> bool:
+    """Store or clear the decided Dokumentart suggestion (ADR-0064, use 8). UPDATE-only."""
+    return _get_document_metadata_store().set_doc_class_suggestion(collection, filename, doc_class)
+
+
+def get_document_doc_class_suggestions(collection: str, filenames: list[str]) -> dict[str, str]:
+    """Stored Dokumentart suggestions for many documents in one query."""
+    return _get_document_metadata_store().get_doc_class_suggestions_batch(collection, filenames)
+
+
 def get_document_doc_classes(collection: str, filenames: list[str]) -> dict[str, str]:
     """Return stored ``doc_class`` values for many documents in one query.
 

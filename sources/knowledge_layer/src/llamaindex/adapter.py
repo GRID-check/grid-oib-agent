@@ -1955,6 +1955,19 @@ def _summary_from_drawing_fields(pages: list[dict[str, Any]]) -> str | None:
 # =============================================================================
 
 
+def _future_result(future, what: str, file_name: str, timeout: float = 30):
+    """A background ingestion step's result, or ``None`` when it was not started, timed out or failed."""
+    if future is None:
+        return None
+    try:
+        return future.result(timeout=timeout)
+    except TimeoutError:
+        logger.warning("%s timed out for %s", what, file_name)
+    except Exception as e:  # noqa: BLE001 — an annotation is worth less than the ingestion
+        logger.warning("%s failed for %s: %s", what, file_name, e)
+    return None
+
+
 def _generate_document_summary(text_content: str, file_name: str, llm=None) -> str | None:
     """
     Generate one-sentence summary from document text.
@@ -3557,6 +3570,7 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                     # summary. Rendered visual/vector pages accumulate here.
                     summary_future = None
                     tags_future = None
+                    doc_class_future = None
                     executor = None
                     drawing_pages: list[dict[str, Any]] = []
 
@@ -3726,7 +3740,7 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                             llm_input = drawing_source or text_source
                         else:
                             llm_input = text_source
-                        executor = ThreadPoolExecutor(max_workers=2)
+                        executor = ThreadPoolExecutor(max_workers=3)
                         summary_future = executor.submit(
                             _generate_document_summary, llm_input, file_name, self.summary_llm
                         )
@@ -3737,6 +3751,17 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                             self.summary_llm,
                             organization_id=organization_id,
                         )
+                        # A base-corpus file whose name gives no OIB hint lands in
+                        # `sonstiges`; the decision model proposes a Dokumentart
+                        # for the platform owner to accept (ADR-0064, use 8).
+                        from aiq_agent.knowledge.document_classification import DEFAULT_DOC_CLASS
+
+                        if stored_doc_class is None and base_corpus and doc_class == DEFAULT_DOC_CLASS:
+                            from aiq_agent.knowledge.document_classification import suggest_doc_class
+
+                            doc_class_future = executor.submit(
+                                suggest_doc_class, llm_input, file_name, organization_id=organization_id
+                            )
 
                     # Wait for summary if started
                     summary = None
@@ -3916,6 +3941,11 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                         # only stamp the guess when none was stored.
                         if stored_doc_class is None:
                             set_document_doc_class(collection_name, file_name, doc_class)
+                        suggestion = _future_result(doc_class_future, "Dokumentart suggestion", file_name)
+                        if suggestion:
+                            from aiq_agent.knowledge import set_document_doc_class_suggestion
+
+                            set_document_doc_class_suggestion(collection_name, file_name, suggestion)
 
                         # The folder the BFF filed this document in, carried on
                         # the job config from `POST /v1/ingest` (ADR-0049). It is

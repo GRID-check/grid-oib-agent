@@ -260,3 +260,29 @@ class TestSummarizeDocumentText:
         llm = MagicMock()
         llm.invoke.side_effect = RuntimeError("boom")
         assert summarize_document_text("text", "f.pdf", llm) is None
+
+
+class TestTheDokumentartIsSuggested:
+    """ADR-0064 use 8: a class for a person to accept, never set on its own."""
+
+    def _answer(self, chosen: str, p: float) -> dict:
+        return {"doc_class": {"type": "choice", "choice": chosen, "probabilities": {chosen: p}}}
+
+    def test_the_options_are_the_vocabulary(self, endpoint):
+        install, seen = endpoint
+        with install(self._answer("gesetz", 1.0)):
+            assert document_classification.suggest_doc_class("Bauordnung für Wien …", "BO.pdf") == "gesetz"
+        assert list(seen["body"]["questions"]["doc_class"]["criteria"]) == list(
+            document_classification.DOCUMENT_CLASSES
+        )
+
+    @pytest.mark.parametrize(("chosen", "p"), [("sonstiges", 1.0), ("gesetz", 0.6), ("erfunden", 1.0)])
+    def test_nothing_is_offered_for_the_default_an_unsure_pick_or_an_unknown_one(self, endpoint, chosen, p):
+        install, _ = endpoint
+        with install(self._answer(chosen, p)):
+            assert document_classification.suggest_doc_class("text", "f.pdf") is None
+
+    def test_no_decision_offers_nothing(self, endpoint):
+        install, _ = endpoint
+        with install(None, status=503):
+            assert document_classification.suggest_doc_class("text", "f.pdf") is None

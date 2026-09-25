@@ -844,6 +844,8 @@ export const platform = {
     otherHint: 'Other norms, laws and supporting documents in the base corpus.',
     // Dokumentart classifier.
     docClassLabel: 'Document type',
+    docClassSuggestion: 'Read from the text: {label}',
+    docClassSuggestionAccept: 'Accept',
     docClassFor: 'Document type for {name}',
     docClassFilterAll: 'All document types',
     docClassUpdated: 'Document type of {name} set to “{label}”',

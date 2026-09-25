@@ -68,6 +68,7 @@ import {
   docClassSignal,
   isOibBinding,
   resolveDocClass,
+  suggestedDocClass,
   type DocClass,
 } from '@/lib/knowledge/doc-class'
 import { SourceSignalChip } from '@/features/layout/components/SourceSignalChip'
@@ -1118,6 +1119,10 @@ export function BaseKnowledge() {
                     ))}
                   </SelectContent>
                 </Select>
+                <DocClassSuggestion
+                  suggestion={suggestedDocClass(detailFile)}
+                  onAccept={(next) => handleReclassify(detailFile, next)}
+                />
               </div>
 
               <dl className="flex flex-col gap-2 rounded-lg border border-border p-3 text-sm">
@@ -1212,6 +1217,29 @@ export function BaseKnowledge() {
         onConfirm={handleDelete}
       />
     </>
+  )
+}
+
+/**
+ * The Dokumentart read from the text, offered under the picker. Accepting it is
+ * the same reclassification the picker makes; nothing is applied without it.
+ */
+function DocClassSuggestion({
+  suggestion,
+  onAccept,
+}: {
+  suggestion: DocClass | undefined
+  onAccept: (next: DocClass) => void
+}): JSX.Element | null {
+  const t = useTranslations('platform')
+  if (!suggestion) return null
+  return (
+    <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
+      <span>{t('knowledge.docClassSuggestion', { label: DOC_CLASS_LABELS[suggestion] })}</span>
+      <Button size="sm" variant="outline" onClick={() => onAccept(suggestion)}>
+        {t('knowledge.docClassSuggestionAccept')}
+      </Button>
+    </div>
   )
 }
 

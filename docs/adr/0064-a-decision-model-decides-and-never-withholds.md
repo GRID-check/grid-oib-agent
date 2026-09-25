@@ -209,6 +209,19 @@ sixteen findings: the eight corrections named the right entry at
 0.80–0.97, the next entry at most 0.22; the eight additions at most 0.37.
 The model's own quote always wins and is not second-guessed.
 
+**Use 8 — a Dokumentart for a person to accept** (`knowledge/document_classification.suggest_doc_class`).
+A base-corpus file whose name carries no OIB hint lands in `sonstiges`, the
+neutral lane, until a platform owner reclassifies it. At ingestion the
+decision model chooses one of the nine classes from the text; a pick at 0.8
+or above that is not `sonstiges` is stored BESIDE the class
+(`document_metadata.doc_class_suggestion`), never as it, and the
+base-knowledge page offers it under the picker („Aus dem Text erkannt: …
+Übernehmen"). Accepting is the same PATCH the picker sends, and any PATCH
+clears the offer. `doc_class` drives lanes and source kinds, so it stays
+human-set, as it was (`doc_class` beats every guess). Measured on twelve
+openings under hint-less file names (`tests/fixtures/decisions/doc_class.yaml`):
+12/12 at 0.97–1.00, where the filename guess had 3/12.
+
 **Not a use.** Intent or model routing, the escalation decision, confidence,
 verdict extraction, anything whose wrong answer removes a capability
 (ADR-0052, unchanged). Card selection and skill suggestion, which the audit

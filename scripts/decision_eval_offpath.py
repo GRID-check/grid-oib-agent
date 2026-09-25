@@ -16,6 +16,8 @@ THE FLOORS
   is tagged that the row does not carry.
 - reflection: no row labelled ``durable`` falls below the skip threshold
   (a wrong skip loses a memory row).
+- Dokumentart: every suggestion offered is the labelled class (a wrong one
+  is offered to a person, who may accept it).
 - memory supersede: no finding retires an entry it does not correct (a wrong
   retirement loses a fact); a missed correction is reported, not failed.
 
@@ -115,6 +117,19 @@ def eval_supersede() -> bool:
     return wrong == 0
 
 
+def eval_doc_class() -> bool:
+    rows = yaml.safe_load((FIXTURES / "doc_class.yaml").read_text(encoding="utf-8"))
+    offered = wrong = 0
+    for row in rows:
+        suggestion = dc.suggest_doc_class(row["text"], row["file_name"])
+        offered += suggestion is not None
+        wrong += suggestion is not None and suggestion != row["doc_class"]
+        print(f"  {row['file_name']:30s} want={row['doc_class']:16s} offered={suggestion}")
+    expected = sum(1 for row in rows if row["doc_class"] != dc.DEFAULT_DOC_CLASS)
+    print(f"doc_class: offered {offered}/{expected} non-default rows, {wrong} wrong")
+    return wrong == 0
+
+
 def main() -> int:
     os.environ.setdefault("OPENROUTER_API_KEY", os.environ.get("OPENROUTER_KEY", ""))
     # Not a request: no organization, so no ZDR policy to look up over HTTP.
@@ -122,6 +137,7 @@ def main() -> int:
         ok = eval_tags()
         ok = eval_reflection() and ok
         ok = eval_supersede() and ok
+        ok = eval_doc_class() and ok
     return 0 if ok else 1
 
 

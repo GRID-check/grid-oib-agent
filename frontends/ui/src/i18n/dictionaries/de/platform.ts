@@ -847,6 +847,8 @@ export const platform: typeof en.platform = {
     otherTitle: 'Weitere Basisdokumente',
     otherHint: 'Weitere Normen, Gesetze und unterstützende Dokumente im Basis-Korpus.',
     docClassLabel: 'Dokumentart',
+    docClassSuggestion: 'Aus dem Text erkannt: {label}',
+    docClassSuggestionAccept: 'Übernehmen',
     docClassFor: 'Dokumentart für {name}',
     docClassFilterAll: 'Alle Dokumentarten',
     docClassUpdated: 'Dokumentart von {name} auf „{label}“ gesetzt',
