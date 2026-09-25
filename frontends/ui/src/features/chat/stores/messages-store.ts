@@ -1405,10 +1405,9 @@ export const createMessagesSlice: StateCreator<
       citations?: CitationSource[],
       answerMeta?: AnswerMeta
     ) => {
-      const { currentConversation, conversations, streamingAssistantMessageId } = get()
-      if (!currentConversation) return
+      if (!get().currentConversation) return
       // No bubble yet (a turn whose first live frame is the snapshot): open it.
-      if (!streamingAssistantMessageId) {
+      if (!get().streamingAssistantMessageId) {
         get().appendAgentResponseDelta(content, undefined, undefined, citations, answerMeta)
         // A snapshot is a live frame whatever text it carries: its masthead is
         // as provisional as one that came ahead of the prose.
@@ -1416,15 +1415,25 @@ export const createMessagesSlice: StateCreator<
         return
       }
       // Buffered delta text is part of what the snapshot replaces: the backend
-      // sends it only after every delta it settles.
-      resetDeltaBuffer()
+      // sends it only after every delta it settles. Buffered meta is not: live
+      // cards or confidence that arrived in the same frame land first.
+      pendingDeltaText = ''
+      flushDeltaBuffer()
+      const { currentConversation, conversations, streamingAssistantMessageId } = get()
+      if (!currentConversation || !streamingAssistantMessageId) return
       if (answerMeta) liveMetaShown = true
+      // An empty snapshot naming no sources is the backend retracting a
+      // streamed round (AnswerStreamSink.retract). Its cards go with its text,
+      // and the decisions keyed by their positions with them: otherwise the
+      // next round's [[card:0]] draws the dead round's card.
+      const retraction = content === '' && !(citations && citations.length > 0)
       const updatedConversation: Conversation = {
         ...currentConversation,
         messages: currentConversation.messages.map((msg) =>
           msg.id === streamingAssistantMessageId
             ? {
                 ...msg,
+                ...(retraction ? { cards: undefined, cardInteractions: undefined } : {}),
                 content,
                 // A snapshot names the sources its text cites, all of them: an
                 // empty one (a streamed round retracted) cites nothing.
@@ -1481,7 +1490,11 @@ export const createMessagesSlice: StateCreator<
         if (msg.id !== streamingAssistantMessageId) return msg
         return {
           ...msg,
-          ...(retractLive ? { cards: undefined, answerMeta: undefined } : {}),
+          // The decisions are keyed by card position: they go with the cards
+          // (a terminal that re-sends cards reconciles them below instead).
+          ...(retractLive
+            ? { cards: undefined, cardInteractions: undefined, answerMeta: undefined }
+            : {}),
           // Authoritative full text on the terminal frame equals the accumulation
           // (idempotent replace). An EMPTY terminal — the legacy synthetic
           // `complete` frame — must NOT wipe the accumulated bubble.

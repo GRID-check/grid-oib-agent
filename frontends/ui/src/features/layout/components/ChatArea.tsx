@@ -242,7 +242,8 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
 
   // Stick-to-bottom scroll controller refs/state (replaces the old count-based
   // scrollIntoView). `scrollContainerRef` is the scroll viewport; `contentRef`
-  // is the growing message list we observe for height changes.
+  // is the growing message list we observe for height changes. It excludes
+  // the anchor spacer, which the observer itself resizes.
   const scrollContainerRef = useRef<HTMLDivElement>(null)
   const contentRef = useRef<HTMLDivElement>(null)
   // Kept in a ref (not just state) so the ResizeObserver callback reads a fresh
@@ -802,7 +803,6 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
                 // so the last message/Herleitung never renders behind the composer no
                 // matter how tall it grows. The 11rem fallback matches the old pb-44.
                 <div
-                  ref={contentRef}
                   // Top padding reserves clearance for the floating toolbar pills that
                   // overlay the top of this scroll plane, so the first message never
                   // renders behind them — a little extra on mobile where the pills sit
@@ -810,166 +810,178 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
                   className="mx-auto flex w-full max-w-5xl flex-col gap-4 px-4 pt-20 sm:px-6 sm:pt-14"
                   style={{ paddingBottom: 'calc(var(--composer-h, 11rem) + 1.5rem)' }}
                 >
-                  <AnimatePresence initial={false}>
-                    {displayableMessages.map((message, index) => {
-                      const isUserMessage =
-                        message.messageType === 'user' || message.role === 'user'
-                      const messageSteps = isUserMessage ? getStepsForUserMessage(message.id) : []
-                      const hasThinkingSteps = messageSteps.length > 0
+                  {/* The observed list holds the messages and nothing else. The
+              anchor spacer below is its sibling: the observer refits the spacer,
+              and a spacer inside the observed box resized it again at the same
+              depth, a "ResizeObserver loop" error once per frame. */}
+                  <div ref={contentRef} className="flex flex-col gap-4">
+                    <AnimatePresence initial={false}>
+                      {displayableMessages.map((message, index) => {
+                        const isUserMessage =
+                          message.messageType === 'user' || message.role === 'user'
+                        const messageSteps = isUserMessage ? getStepsForUserMessage(message.id) : []
+                        const hasThinkingSteps = messageSteps.length > 0
 
-                      // Derive post-thinking state for user messages with thinking steps.
-                      // Priority: isThinking (active) > isWaiting (HITL) > isInterrupted > done
-                      const isCurrentlyStreaming =
-                        isStreaming && message.id === currentUserMessageId
-                      const shouldCheckPostState =
-                        isUserMessage && hasThinkingSteps && !isCurrentlyStreaming
-                      const remaining = shouldCheckPostState
-                        ? displayableMessages.slice(index + 1)
-                        : []
-                      const nextUserMessageIndex = remaining.findIndex(
-                        (m) => m.messageType === 'user' || m.role === 'user'
-                      )
-                      // Only evaluate status within this message turn (until next user message).
-                      // This prevents later turns from overriding interrupted/waiting state.
-                      const turnMessages =
-                        nextUserMessageIndex >= 0
-                          ? remaining.slice(0, nextUserMessageIndex)
-                          : remaining
+                        // Derive post-thinking state for user messages with thinking steps.
+                        // Priority: isThinking (active) > isWaiting (HITL) > isInterrupted > done
+                        const isCurrentlyStreaming =
+                          isStreaming && message.id === currentUserMessageId
+                        const shouldCheckPostState =
+                          isUserMessage && hasThinkingSteps && !isCurrentlyStreaming
+                        const remaining = shouldCheckPostState
+                          ? displayableMessages.slice(index + 1)
+                          : []
+                        const nextUserMessageIndex = remaining.findIndex(
+                          (m) => m.messageType === 'user' || m.role === 'user'
+                        )
+                        // Only evaluate status within this message turn (until next user message).
+                        // This prevents later turns from overriding interrupted/waiting state.
+                        const turnMessages =
+                          nextUserMessageIndex >= 0
+                            ? remaining.slice(0, nextUserMessageIndex)
+                            : remaining
 
-                      // Waiting: an unresponded HITL prompt follows this user message
-                      const isWaiting =
-                        shouldCheckPostState &&
-                        turnMessages.some((m) => m.messageType === 'prompt' && !m.isPromptResponded)
+                        // Waiting: an unresponded HITL prompt follows this user message
+                        const isWaiting =
+                          shouldCheckPostState &&
+                          turnMessages.some(
+                            (m) => m.messageType === 'prompt' && !m.isPromptResponded
+                          )
 
-                      // Interrupted: no actual response AND not waiting for HITL
-                      const hasResponse = turnMessages.some(
-                        (m) => m.messageType === 'assistant' || m.messageType === 'agent_response'
-                      )
-                      const isInterrupted = shouldCheckPostState && !isWaiting && !hasResponse
+                        // Interrupted: no actual response AND not waiting for HITL
+                        const hasResponse = turnMessages.some(
+                          (m) => m.messageType === 'assistant' || m.messageType === 'agent_response'
+                        )
+                        const isInterrupted = shouldCheckPostState && !isWaiting && !hasResponse
 
-                      // Real data threaded into the Herleitung assessment/next-steps
-                      // nodes: the turn's answer (confidence + citations) and any live
-                      // multiple-choice HITL prompt. Absent on streaming/shallow turns —
-                      // those nodes then hide themselves.
-                      const agentMsg = turnMessages.find(
-                        (m) => m.messageType === 'assistant' || m.messageType === 'agent_response'
-                      )
-                      const choicePromptMsg = turnMessages.find(
-                        (m) =>
-                          m.messageType === 'prompt' &&
-                          m.promptType === 'choice' &&
-                          (m.promptOptions?.length ?? 0) > 0
-                      )
-                      const choicePrompt = choicePromptMsg
-                        ? {
-                            promptId: choicePromptMsg.promptId ?? choicePromptMsg.id,
-                            text: choicePromptMsg.content,
-                            options: choicePromptMsg.promptOptions ?? [],
-                            isResponded: !!choicePromptMsg.isPromptResponded,
-                            selected: choicePromptMsg.promptResponse,
-                          }
-                        : undefined
-
-                      // Whether this turn earns the „Als Aktenvermerk schreiben"
-                      // chip — a walkthrough or a ruling, in a project, long enough
-                      // that the reader is already thinking about where to put it
-                      // (`features/chat/lib/aktenvermerk-chip`).
-                      const aktenvermerk = offersAktenvermerk({
-                        kind: agentMsg?.answerMeta?.kind,
-                        projectId: activeProjectId,
-                        body: agentMsg?.content,
-                      })
-
-                      // The just-sent question's turn is the top-anchor target on send.
-                      const isAnchorTarget = isUserMessage && message.id === currentUserMessageId
-
-                      const messageAuthorship = authorship.get(message.id)
-
-                      return (
-                        <motion.div
-                          key={message.id}
-                          // The deep-link target (`#message-<id>`). Every message carries
-                          // it, not just mentions: an inbox item can point at any message,
-                          // and a link that resolves for some rows and not others is worse
-                          // than none.
-                          id={`message-${message.id}`}
-                          data-chat-anchor={isAnchorTarget ? 'true' : undefined}
-                          className={cn(
-                            'flex scroll-mt-20 flex-col gap-4 sm:scroll-mt-14',
-                            // The arrival mark: says "this is the one" for a beat, then
-                            // fades. A ring rather than a background, so it reads on the
-                            // user bubble and the answer card alike.
-                            highlightedMessageId === message.id &&
-                              'ring-warning/50 ring-offset-background duration-quick rounded-xl ring-2 ring-offset-4 transition-shadow ease-out motion-reduce:transition-none'
-                          )}
-                          variants={fadeRise}
-                          // Animate only genuinely new messages; hydrated ones render in place.
-                          initial={hydratedIds.has(message.id) ? false : 'hidden'}
-                          animate="visible"
-                          exit={{ opacity: 0, transition: motionQuick }}
-                          transition={motionQuick}
-                        >
-                          {/* Where the reader left off, in a shared thread (spec CC-19). */}
-                          {unreadDividerBeforeId === message.id && (
-                            <UnreadDivider label={tCollaboration('thread.unreadDivider')} />
-                          )}
-
-                          {/* Render the message */}
-                          <MessageRenderer
-                            message={message}
-                            conversationId={currentConversation?.id}
-                            projectId={activeProjectId}
-                            previousFindings={
-                              message.runLedger
-                                ? previousRunFindings(messages ?? [], message.id)
-                                : undefined
+                        // Real data threaded into the Herleitung assessment/next-steps
+                        // nodes: the turn's answer (confidence + citations) and any live
+                        // multiple-choice HITL prompt. Absent on streaming/shallow turns —
+                        // those nodes then hide themselves.
+                        const agentMsg = turnMessages.find(
+                          (m) => m.messageType === 'assistant' || m.messageType === 'agent_response'
+                        )
+                        const choicePromptMsg = turnMessages.find(
+                          (m) =>
+                            m.messageType === 'prompt' &&
+                            m.promptType === 'choice' &&
+                            (m.promptOptions?.length ?? 0) > 0
+                        )
+                        const choicePrompt = choicePromptMsg
+                          ? {
+                              promptId: choicePromptMsg.promptId ?? choicePromptMsg.id,
+                              text: choicePromptMsg.content,
+                              options: choicePromptMsg.promptOptions ?? [],
+                              isResponded: !!choicePromptMsg.isPromptResponded,
+                              selected: choicePromptMsg.promptResponse,
                             }
-                            onCommissionFinding={commissionRun ? commissionFromFinding : undefined}
-                            onContinueRun={commissionRun ? continueRun : undefined}
-                            onPromptRespond={handlePromptRespond}
-                            onErrorDismiss={dismissErrorCard}
-                            onErrorRetry={handleErrorRetry}
-                            showConfidenceChip={showConfidenceChip}
-                            showAnswerFeedback={showAnswerFeedback}
-                            showReasoning={showReasoningSkills}
-                            author={messageAuthorship?.author}
-                            grouped={messageAuthorship?.grouped}
-                            currentUserId={currentUserId}
-                            promptAddresseeName={
-                              message.promptFor ? (authorOf(message.promptFor)?.name ?? null) : null
-                            }
-                          />
+                          : undefined
 
-                          {/* Assistant-side thread spine: the Herleitung shares the
+                        // Whether this turn earns the „Als Aktenvermerk schreiben"
+                        // chip — a walkthrough or a ruling, in a project, long enough
+                        // that the reader is already thinking about where to put it
+                        // (`features/chat/lib/aktenvermerk-chip`).
+                        const aktenvermerk = offersAktenvermerk({
+                          kind: agentMsg?.answerMeta?.kind,
+                          projectId: activeProjectId,
+                          body: agentMsg?.content,
+                        })
+
+                        // The just-sent question's turn is the top-anchor target on send.
+                        const isAnchorTarget = isUserMessage && message.id === currentUserMessageId
+
+                        const messageAuthorship = authorship.get(message.id)
+
+                        return (
+                          <motion.div
+                            key={message.id}
+                            // The deep-link target (`#message-<id>`). Every message carries
+                            // it, not just mentions: an inbox item can point at any message,
+                            // and a link that resolves for some rows and not others is worse
+                            // than none.
+                            id={`message-${message.id}`}
+                            data-chat-anchor={isAnchorTarget ? 'true' : undefined}
+                            className={cn(
+                              'flex scroll-mt-20 flex-col gap-4 sm:scroll-mt-14',
+                              // The arrival mark: says "this is the one" for a beat, then
+                              // fades. A ring rather than a background, so it reads on the
+                              // user bubble and the answer card alike.
+                              highlightedMessageId === message.id &&
+                                'ring-warning/50 ring-offset-background duration-quick rounded-xl ring-2 ring-offset-4 transition-shadow ease-out motion-reduce:transition-none'
+                            )}
+                            variants={fadeRise}
+                            // Animate only genuinely new messages; hydrated ones render in place.
+                            initial={hydratedIds.has(message.id) ? false : 'hidden'}
+                            animate="visible"
+                            exit={{ opacity: 0, transition: motionQuick }}
+                            transition={motionQuick}
+                          >
+                            {/* Where the reader left off, in a shared thread (spec CC-19). */}
+                            {unreadDividerBeforeId === message.id && (
+                              <UnreadDivider label={tCollaboration('thread.unreadDivider')} />
+                            )}
+
+                            {/* Render the message */}
+                            <MessageRenderer
+                              message={message}
+                              conversationId={currentConversation?.id}
+                              projectId={activeProjectId}
+                              previousFindings={
+                                message.runLedger
+                                  ? previousRunFindings(messages ?? [], message.id)
+                                  : undefined
+                              }
+                              onCommissionFinding={
+                                commissionRun ? commissionFromFinding : undefined
+                              }
+                              onContinueRun={commissionRun ? continueRun : undefined}
+                              onPromptRespond={handlePromptRespond}
+                              onErrorDismiss={dismissErrorCard}
+                              onErrorRetry={handleErrorRetry}
+                              showConfidenceChip={showConfidenceChip}
+                              showAnswerFeedback={showAnswerFeedback}
+                              showReasoning={showReasoningSkills}
+                              author={messageAuthorship?.author}
+                              grouped={messageAuthorship?.grouped}
+                              currentUserId={currentUserId}
+                              promptAddresseeName={
+                                message.promptFor
+                                  ? (authorOf(message.promptFor)?.name ?? null)
+                                  : null
+                              }
+                            />
+
+                            {/* Assistant-side thread spine: the Herleitung shares the
                       answer card's width and left alignment, so the reasoning and
                       the answer stack as ONE left column (the user bubble stays
                       right-aligned). Auto-expanded while the turn is live, it
                       collapses to a one-line bar once the answer lands. */}
-                          {isUserMessage && hasThinkingSteps && (
-                            <div className="w-full">
-                              <ChatThinking
-                                steps={messageSteps}
-                                isThinking={isStreaming && message.id === currentUserMessageId}
-                                autoOpen={
-                                  (isStreaming && message.id === currentUserMessageId) || isWaiting
-                                }
-                                isWaiting={isWaiting}
-                                isInterrupted={isInterrupted}
-                                isRecoveryPending={isRecoveryPending}
-                                enabledDataSources={message.enabledDataSources}
-                                messageFiles={message.messageFiles}
-                                userQuestion={message.content}
-                                answerConfidence={agentMsg?.answerConfidence}
-                                citations={agentMsg?.citations}
-                                choicePrompt={choicePrompt}
-                                onChoiceRespond={handlePromptRespond}
-                                escalationReason={agentMsg?.escalationReason}
-                                retrievalLedger={agentMsg?.retrievalLedger}
-                              />
-                            </div>
-                          )}
+                            {isUserMessage && hasThinkingSteps && (
+                              <div className="w-full">
+                                <ChatThinking
+                                  steps={messageSteps}
+                                  isThinking={isStreaming && message.id === currentUserMessageId}
+                                  autoOpen={
+                                    (isStreaming && message.id === currentUserMessageId) ||
+                                    isWaiting
+                                  }
+                                  isWaiting={isWaiting}
+                                  isInterrupted={isInterrupted}
+                                  isRecoveryPending={isRecoveryPending}
+                                  enabledDataSources={message.enabledDataSources}
+                                  messageFiles={message.messageFiles}
+                                  userQuestion={message.content}
+                                  answerConfidence={agentMsg?.answerConfidence}
+                                  citations={agentMsg?.citations}
+                                  choicePrompt={choicePrompt}
+                                  onChoiceRespond={handlePromptRespond}
+                                  escalationReason={agentMsg?.escalationReason}
+                                  retrievalLedger={agentMsg?.retrievalLedger}
+                                />
+                              </div>
+                            )}
 
-                          {/* The questions this answer made askable, BELOW the
+                            {/* The questions this answer made askable, BELOW the
                       answer and outside its surface — the product owner's
                       ruling, and §6 of docs/architecture/post-answer-stages.md.
                       Same column, same edges, same full width as the answer and
@@ -983,7 +995,7 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
                       in the THREAD either, the answer no longer streaming, the
                       reader not already typing) is enforced where the frame
                       arrives, in `applyStageFrame`. */}
-                          {/* One more chip beside them, decided in the browser: the
+                            {/* One more chip beside them, decided in the browser: the
                       offer to file this answer as an Aktenvermerk. It rides the
                       rail rather than getting a surface of its own, because it
                       is the same gesture the questions are (fill the composer,
@@ -991,20 +1003,20 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
                       answer would be a second thing to learn. `agentMsg` is
                       only resolved once the turn has an answer, so the chip
                       cannot appear mid-stream. */}
-                          {(message.stages?.followUps || aktenvermerk) && (
-                            <div className="w-full">
-                              <FollowUpsRail
-                                items={message.stages?.followUps?.items ?? []}
-                                offerAktenvermerk={aktenvermerk}
-                              />
-                            </div>
-                          )}
-                        </motion.div>
-                      )
-                    })}
-                  </AnimatePresence>
+                            {(message.stages?.followUps || aktenvermerk) && (
+                              <div className="w-full">
+                                <FollowUpsRail
+                                  items={message.stages?.followUps?.items ?? []}
+                                  offerAktenvermerk={aktenvermerk}
+                                />
+                              </div>
+                            )}
+                          </motion.div>
+                        )
+                      })}
+                    </AnimatePresence>
 
-                  {/* The routing rule for a message that tags nobody (ADR-0036).
+                    {/* The routing rule for a message that tags nobody (ADR-0036).
               In `mention` mode it states the rule where the question occurs —
               "why didn't Piloti answer that?" — and offers the way back. In `ask`
               mode, which is the default and stays the default, it is silent unless
@@ -1012,16 +1024,16 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
               announces: a thread must not rewire who answers next on its own.
               Above the banner because this is the standing rule while the banner
               is a transient state. */}
-                  {shared && (
-                    <EngagementNotice
-                      mode={engagement}
-                      suggestion={engagementSuggestion}
-                      onChange={setEngagement}
-                      canChange={myRole !== 'viewer'}
-                    />
-                  )}
+                    {shared && (
+                      <EngagementNotice
+                        mode={engagement}
+                        suggestion={engagementSuggestion}
+                        onChange={setEngagement}
+                        canChange={myRole !== 'viewer'}
+                      />
+                    )}
 
-                  {/* The thread is WAITING on a named person (spec MN-8). Without this
+                    {/* The thread is WAITING on a named person (spec MN-8). Without this
               mounted, the agent's silence has no explanation on screen, and
               "Ohne Antwort weitermachen" — the release that ADR-0034 names as the
               mitigation for its own worst risk, a wait nobody ever answers — has no
@@ -1032,31 +1044,31 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
               Mutually exclusive with the hand-back offer by construction: this
               returns null once `pending` is empty, which is exactly when the offer
               becomes eligible. */}
-                  {shared && (
-                    <AwaitingBanner
-                      awaiting={awaiting}
-                      onRelease={release}
-                      onAskAgent={handleAskAgent}
-                      onAskBack={handleAskBack}
-                    />
-                  )}
+                    {shared && (
+                      <AwaitingBanner
+                        awaiting={awaiting}
+                        onRelease={release}
+                        onAskAgent={handleAskAgent}
+                        onAskBack={handleAskBack}
+                      />
+                    )}
 
-                  {/* The colleague has answered and Piloti is out of the loop — the one
+                    {/* The colleague has answered and Piloti is out of the loop — the one
               moment the thread is worth handing on, and until now the only
               transition with no affordance on screen (see HandbackOffer). Anchored
               here, directly under the answer it is about. */}
-                  {showHandback && handback && (
-                    <HandbackOffer
-                      people={handback.people}
-                      onAccept={handleHandback}
-                      onDismiss={() => setHandbackDismissedFor(handback.anchorId)}
-                    />
-                  )}
+                    {showHandback && handback && (
+                      <HandbackOffer
+                        people={handback.people}
+                        onAccept={handleHandback}
+                        onDismiss={() => setHandbackDismissedFor(handback.anchorId)}
+                      />
+                    )}
 
-                  {/* Latency-gap typing indicator (before the first token arrives) */}
-                  {showTypingPlaceholder && <TypingIndicator status={currentStatus} />}
+                    {/* Latency-gap typing indicator (before the first token arrives) */}
+                    {showTypingPlaceholder && <TypingIndicator status={currentStatus} />}
 
-                  {/* The agent is working for SOMEONE in this thread (spec CC-13). Without
+                    {/* The agent is working for SOMEONE in this thread (spec CC-13). Without
               this an observer sees a thread where nothing appears to be happening
               and a composer that will not take their question. Suppressed while
               this client is itself streaming — the asker already has the typing
@@ -1069,40 +1081,41 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
               first moments before the first token. `spectatingLive` is the switch,
               and it only turns on once there is something to show, so the banner is
               never replaced by an empty box. */}
-                  {shared &&
-                    turnInFlight &&
-                    !isStreaming &&
-                    !showTypingPlaceholder &&
-                    (spectatingLive && spectatedTurn ? (
-                      <SpectatedTurn turn={spectatedTurn} label={turnInFlightLabel} />
-                    ) : (
-                      <TurnInFlightBanner label={turnInFlightLabel} />
-                    ))}
+                    {shared &&
+                      turnInFlight &&
+                      !isStreaming &&
+                      !showTypingPlaceholder &&
+                      (spectatingLive && spectatedTurn ? (
+                        <SpectatedTurn turn={spectatedTurn} label={turnInFlightLabel} />
+                      ) : (
+                        <TurnInFlightBanner label={turnInFlightLabel} />
+                      ))}
 
-                  {/* A colleague at a keyboard. Distinct vocabulary from the agent's
+                    {/* A colleague at a keyboard. Distinct vocabulary from the agent's
               banner above (see TypingPresence), and independent of it: somebody may
               well start writing while Piloti is still answering. */}
-                  {shared && <TypingPresence typists={typists} />}
+                    {shared && <TypingPresence typists={typists} />}
 
-                  {/* A colleague writing while you are reading is a change you must be able
+                    {/* A colleague writing while you are reading is a change you must be able
               to learn about without eyes. Polite, so it never interrupts. Keyed on
               the message id so a SECOND arrival from the same person is a fresh
               node — identical text in a mutated region is not re-announced. */}
-                  <div
-                    key={lastArrival?.messageId ?? 'none'}
-                    className="sr-only"
-                    role="status"
-                    aria-live="polite"
-                    aria-atomic="true"
-                  >
-                    {shared && lastArrival
-                      ? tCollaboration('thread.authorAria', {
-                          name:
-                            lastArrival.authorName ??
-                            authorOf(lastArrival.authorUserId)?.name ??
-                            tCollaboration('inbox.unknownActor'),
-                        })
-                      : ''}
+                    <div
+                      key={lastArrival?.messageId ?? 'none'}
+                      className="sr-only"
+                      role="status"
+                      aria-live="polite"
+                      aria-atomic="true"
+                    >
+                      {shared && lastArrival
+                        ? tCollaboration('thread.authorAria', {
+                            name:
+                              lastArrival.authorName ??
+                              authorOf(lastArrival.authorUserId)?.name ??
+                              tCollaboration('inbox.unknownActor'),
+                          })
+                        : ''}
+                    </div>
                   </div>
 
                   {/* Top-anchor spacer: invisible, zero-height by default. While a

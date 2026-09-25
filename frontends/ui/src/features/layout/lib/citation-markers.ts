@@ -68,7 +68,11 @@ export const PENDING_CITATION_ANCHOR_PREFIX = 'cite-pending-'
  * anchor. Nothing downstream learns that this plugin ran.
  */
 export const remarkCitationMarkers =
-  ({ numbers, anchorPrefix = REPORT_SOURCE_ANCHOR_PREFIX, pending = false }: CitationMarkerOptions) =>
+  ({
+    numbers,
+    anchorPrefix = REPORT_SOURCE_ANCHOR_PREFIX,
+    pending = false,
+  }: CitationMarkerOptions) =>
   (tree: Root): void => {
     if (numbers.size === 0 && !pending) return
     linkMarkers(tree, { numbers, anchorPrefix, pending })
@@ -140,7 +144,10 @@ const splitMarkers = (
       parts.push({ type: 'text', value: node.value.slice(cursor, marker.start) })
     }
     parts.push(
-      citationLink(marker.number, numbers.has(marker.number) ? anchorPrefix : PENDING_CITATION_ANCHOR_PREFIX)
+      citationLink(
+        marker.number,
+        numbers.has(marker.number) ? anchorPrefix : PENDING_CITATION_ANCHOR_PREFIX
+      )
     )
     cursor = marker.end
   }
@@ -199,7 +206,11 @@ const findMarkers = (value: string): Marker[] => {
     while (cursor < value.length && isDigit(value[cursor])) cursor += 1
     const digits = cursor - index - 1
     if (digits > 0 && digits <= MAX_MARKER_DIGITS && value[cursor] === ']') {
-      markers.push({ start: index, end: cursor + 1, number: Number(value.slice(index + 1, cursor)) })
+      markers.push({
+        start: index,
+        end: cursor + 1,
+        number: Number(value.slice(index + 1, cursor)),
+      })
       index = cursor + 1
       continue
     }
