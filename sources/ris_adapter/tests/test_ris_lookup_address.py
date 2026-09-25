@@ -7,6 +7,8 @@ own, without a client, a catalog or a model.
 
 from __future__ import annotations
 
+import time
+
 import pytest
 from ris_adapter.lookup.address import LAND_FROM_ARGUMENT
 from ris_adapter.lookup.address import LAND_FROM_INSTRUMENT
@@ -211,6 +213,12 @@ class TestTheListReaderAgainstPracticeInputs:
     def test_the_word_that_introduced_a_reference_is_not_part_of_the_law(self, instrument):
         # The law name is the live RIS search's title: "BO Wien, siehe" finds nothing.
         assert parse_address("x", instrument, "").law == "BO Wien"
+
+    def test_a_run_of_unclosed_references_is_read_in_linear_time(self):
+        # "(s. (s. (s. …" backtracked exponentially: 23 repeats took six seconds (CodeQL py/redos).
+        started = time.perf_counter()
+        parse_address("x", "§ 3 BO Wien (s." + " (s." * 40 + "x", "")
+        assert time.perf_counter() - started < 1.0
 
     def test_an_absatz_between_two_paragraphs_does_not_end_the_list(self):
         address = parse_address("x", "§ 5 Abs 2 und § 7 BO Wien", "")

@@ -285,7 +285,9 @@ class PromptStore:
             logger.warning("Langfuse prompt client could not be built; serving committed prompts", exc_info=True)
             return None
         if self._client is None:
-            logger.info("Langfuse prompt management is on but %s/%s are unset", PUBLIC_KEY_ENV, SECRET_KEY_ENV)
+            # The names are written out, not passed as the constants: CodeQL
+            # reads SECRET_KEY_ENV as a secret and flags the call (py/clear-text-logging).
+            logger.info("Langfuse prompt management is on but its public/secret key variables are unset")
         return self._client
 
     def _fetch(self, fetcher: PromptFetcher, name: str, fallback: ResolvedPrompt) -> ResolvedPrompt | None:

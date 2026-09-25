@@ -67,9 +67,12 @@ _ABSATZ_LIST_RE = re.compile(r"\bAbs(?:atz|\.)?\s*\d+[a-z]?(?:\s*(?:,|und|bis|�
 
 #: The word that introduced a later § reference ("§ 3 BO Wien, siehe §§ 75 und
 #: 81"), left dangling once that list is cut out. The law name is the live RIS
-#: search's title, and "BO Wien, siehe" matches no law.
+#: search's title, and "BO Wien, siehe" matches no law. The space before a
+#: closing parenthesis is taken only WITH the parenthesis: a bare ``\s*\)?``
+#: lets two repetitions share the same spaces, which backtracks exponentially
+#: on "(s. (s. (s. …" (CodeQL py/redos).
 _TRAILING_REFERENCE_RE = re.compile(
-    r"(?:[\s,;]+(?:siehe|vgl\.?|s\.)|\s*\(\s*(?:siehe|vgl\.?|s\.)\s*\)?)+$", re.IGNORECASE
+    r"(?:[\s,;]+(?:siehe|vgl\.?|s\.)|\s*\(\s*(?:siehe|vgl\.?|s\.)(?:\s*\))?)+$", re.IGNORECASE
 )
 
 #: How many §§ one list may address: the tool's own passage budget
