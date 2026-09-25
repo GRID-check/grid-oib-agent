@@ -55,7 +55,7 @@ leaf by the same Pydantic card model a lone card goes through. System and
 interactive card types may not be leaves: their decisions are keyed by
 position in the message, and a position inside a surface is not one.
 
-**Amended 2026-09-24, before this branch merged: a `Text` leaf.** A surface may also hold `Text` (A2UI's basic
+**Amended 2026-09-24: a `Text` leaf.** A surface may also hold `Text` (A2UI's basic
 catalog name, narrowed to `text` of Markdown), drawn by the answer's own
 Markdown renderer. Leaves that could only be cards left `Tabs` unable to hold a
 variant's table, which the Markdown-first answer never puts on a card, so the

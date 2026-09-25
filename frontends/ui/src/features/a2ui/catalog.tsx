@@ -120,8 +120,8 @@ const TabsApi = {
  * query, not a breakpoint: the same surface sits in the answer column, a side
  * panel and a phone, and only its own width says whether two cards fit. 44rem
  * because a card under ~340px crowds its own margin (legal_basis's Fundstelle,
- * a calculation's operands): in the 680px answer column a Row stacks, and it
- * goes side by side only on a surface wider than that.
+ * a calculation's operands): a Row goes side by side only on a surface wider
+ * than that, and stacks in a narrow window or a side panel.
  */
 function RowView({ ids, buildChild }: { ids: string[]; buildChild: (id: string) => ReactNode }) {
   useReportDrawn()

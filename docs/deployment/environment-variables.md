@@ -210,6 +210,7 @@ The one-off tag-backfill script runs **outside** the NAT runtime, so it builds a
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
 | `REC_OUT` | Set by the census | — | Path of the JSON-lines file `scripts/turn_census/sitecustomize.py` appends one record per model call to. `census.py` sets it for the agent process it starts; do not set it by hand. Empty or unset, nothing is recorded. The application never reads it. |
+| `STARTUP_PROBE_IN_TREE` | Set by the startup probe | — | Marks the process `scripts/turn_census/startup_probe.py` re-executed with this checkout first on `PYTHONPATH`, so it does not re-execute again. Do not set it by hand. |
 
 ---
 

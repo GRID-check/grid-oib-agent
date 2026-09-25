@@ -189,8 +189,8 @@ rules live in the Baupolizeigesetz (added, `baupolg-sbg`); it then read § 2
 one Absatz per lookup until a named Absatz came with its whole § beside it.
 Tirol returned § 8 twice because its law opens with a table of contents. The
 two rows that still escalate here, Tragwerk and Schallschutz, ask about OIB-RL
-1 and 5, which this environment's corpus lacks; the suite now skips them by
-name. And a skill the turn decision picks wrongly costs a round: "Bauklasse I"
+1 and 5, which this environment's corpus lacks; the suite now skips a question
+whose Richtlinie the corpus lacks. And a skill the turn decision picks wrongly costs a round: "Bauklasse I"
 chose `gebaeudeklasse`, and the agent loaded `bebauung` itself.
 
 **The prose streams** (ADR-0066, core set, two runs each): every check held

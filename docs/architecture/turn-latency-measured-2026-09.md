@@ -360,9 +360,10 @@ checkout at one commit, so they stand.
   (`suite.foreign_imports`).
 * **The startup probe** (`scripts/turn_census/startup_probe.py`) runs its
   questions in one process, so the first question is a cold process and the
-  rest are warm. From a worktree, shim `knowledge_layer` onto `PYTHONPATH`
-  first (`docs/contributing/gotchas.md`): the first probe run of the warm-up
-  measured the main checkout's knowledge layer and showed no effect.
+  rest are warm. It re-executes itself with this checkout first on
+  `PYTHONPATH` (`census.tree_pythonpath`), as the census and suite do: the
+  first probe run of the warm-up, before that, measured the main checkout's
+  knowledge layer and showed no effect.
 * **One process at a time on the Chroma directory.** A probe and a suite
   against the same `/tmp/chroma_data` produced Chroma errors in both.
 * Every figure here is from one run per question, on one day's provider

@@ -722,8 +722,8 @@ to be `GridCardItem`, so the pixels are the same components as before.
   no dangling reference, no cycle, no orphan) and each card with its own
   model; tool, interactive and envelope cards may not be leaves. The model is
   taught the shape in the envelope contract's COMPOSE paragraph. A `Row` sits
-  side by side only above 44rem of its own width, so in the answer column it
-  stacks; `Tabs` show one variant at a time.
+  side by side above 44rem of its own width and stacks below it (a narrow
+  window, a side panel); `Tabs` show one variant at a time.
 - **Limits.** `SurfaceCard` holds 2 to 6 leaves (`SURFACE_MAX_LEAVES`). A
   `Row` or `Column` has 2 to 4 children (`SURFACE_MAX_CHILDREN`), and its
   `justify` / `align`, when set, take only the values the frontend's `RowApi`
