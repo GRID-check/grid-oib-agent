@@ -152,12 +152,116 @@ const prunePersistedChatState = (value: PersistedChatStorageValue): PersistedCha
   }
 }
 
+/**
+ * How often a streaming answer may write the persisted store: at most once in
+ * this window. Every delta flush is a store update, and every store update
+ * would otherwise prune, serialize and write the WHOLE history — megabytes, on
+ * the main thread, ten times a second for as long as the answer streams. What
+ * a refresh inside the window loses is at most this much of a half-written
+ * answer. The first update and the settling one write at once.
+ */
+export const STREAMING_PERSIST_INTERVAL_MS = 2000
+
+/** Is an answer still streaming into the open conversation? Its bubble is the last message. */
+const isStreamingAnswer = (value: PersistedChatStorageValue): boolean => {
+  const messages = value.state.currentConversation?.messages
+  return messages?.[messages.length - 1]?.isStreaming === true
+}
+
 export const createResilientStorage = (): PersistStorage<PersistedChatState> | undefined => {
   const base = createJSONStorage<PersistedChatState>(() => localStorage)
   if (!base) {
     logStorageAvailability(false)
     return undefined
   }
+
+  /** Storage is full: clear the sessions rather than lose the write entirely. */
+  const recoverFromQuota = (
+    name: string,
+    value: PersistedChatStorageValue,
+    prunedValue: PersistedChatStorageValue,
+    error: unknown
+  ): void => {
+    const beforeConversations = prunedValue.state.conversations ?? []
+    const beforeCount = beforeConversations.length
+    const beforeSizeKB = Math.round((JSON.stringify(beforeConversations).length * 2) / 1024)
+
+    logQuotaExceededPruning(beforeCount, beforeCount, beforeSizeKB, beforeSizeKB)
+
+    try {
+      const lostSessionIds = beforeConversations.map((c) => c.id)
+
+      base.removeItem(name)
+      base.setItem(name, {
+        ...value,
+        state: {
+          currentUserId: value.state.currentUserId ?? null,
+          conversations: [],
+          currentConversation: null,
+          pendingInteraction: null,
+          // Sessions were just wiped to recover from quota — drop their
+          // drafts too so no orphaned draft outlives its conversation.
+          composerDrafts: {},
+        },
+      })
+
+      logCriticalSessionsClear(value.state.currentUserId ?? null, lostSessionIds, error)
+    } catch (finalError) {
+      console.error('[SessionsStore] ❌ CATASTROPHIC: Failed to clear sessions', {
+        error: finalError instanceof Error ? finalError.message : String(finalError),
+      })
+    }
+  }
+
+  const writeNow = (name: string, value: PersistedChatStorageValue): void => {
+    const prunedValue = prunePersistedChatState(value)
+    const serializedValue = JSON.stringify(prunedValue)
+
+    try {
+      if (localStorage.getItem(name) === serializedValue) return
+
+      localStorage.setItem(name, serializedValue)
+      logStorageWrite(prunedValue.state.conversations ?? [], prunedValue.state.currentUserId ?? null)
+    } catch (error) {
+      if (!isQuotaExceededError(error)) {
+        throw error
+      }
+      recoverFromQuota(name, value, prunedValue, error)
+    }
+  }
+
+  // The newest value a streaming answer has not written yet, and the timer
+  // that will write it. Anything that is not a streaming update writes at
+  // once and takes the held value's place, so every other action persists
+  // exactly as before, and the answer's settled state is never the one held.
+  let pending: { name: string; value: PersistedChatStorageValue } | null = null
+  let pendingTimer: ReturnType<typeof setTimeout> | null = null
+  let lastWriteAt = Number.NEGATIVE_INFINITY
+
+  const dropPending = (): void => {
+    if (pendingTimer !== null) clearTimeout(pendingTimer)
+    pendingTimer = null
+    pending = null
+  }
+
+  const write = (name: string, value: PersistedChatStorageValue): void => {
+    dropPending()
+    lastWriteAt = Date.now()
+    writeNow(name, value)
+  }
+
+  const flushPending = (): void => {
+    if (!pending) return
+    const { name, value } = pending
+    try {
+      write(name, value)
+    } catch (error) {
+      console.error('[SessionsStore] deferred persist failed', error)
+    }
+  }
+
+  // A tab closed mid-answer still leaves its latest state behind.
+  window.addEventListener('pagehide', flushPending)
 
   return {
     getItem: async (name: string): Promise<PersistedChatStorageValue | null> => {
@@ -184,54 +288,20 @@ export const createResilientStorage = (): PersistStorage<PersistedChatState> | u
 
       return raw
     },
-    removeItem: base.removeItem,
+    removeItem: (name: string) => {
+      dropPending()
+      return base.removeItem(name)
+    },
     setItem: (name: string, value: PersistedChatStorageValue) => {
-      const prunedValue = prunePersistedChatState(value)
-      const serializedValue = JSON.stringify(prunedValue)
-
-      try {
-        if (localStorage.getItem(name) === serializedValue) return
-
-        localStorage.setItem(name, serializedValue)
-        logStorageWrite(
-          prunedValue.state.conversations ?? [],
-          prunedValue.state.currentUserId ?? null
-        )
-      } catch (error) {
-        if (!isQuotaExceededError(error)) {
-          throw error
-        }
-
-        const beforeConversations = prunedValue.state.conversations ?? []
-        const beforeCount = beforeConversations.length
-        const beforeSizeKB = Math.round((JSON.stringify(beforeConversations).length * 2) / 1024)
-
-        logQuotaExceededPruning(beforeCount, beforeCount, beforeSizeKB, beforeSizeKB)
-
-        try {
-          const lostSessionIds = beforeConversations.map((c) => c.id)
-
-          base.removeItem(name)
-          base.setItem(name, {
-            ...value,
-            state: {
-              currentUserId: value.state.currentUserId ?? null,
-              conversations: [],
-              currentConversation: null,
-              pendingInteraction: null,
-              // Sessions were just wiped to recover from quota — drop their
-              // drafts too so no orphaned draft outlives its conversation.
-              composerDrafts: {},
-            },
-          })
-
-          logCriticalSessionsClear(value.state.currentUserId ?? null, lostSessionIds, error)
-        } catch (finalError) {
-          console.error('[SessionsStore] ❌ CATASTROPHIC: Failed to clear sessions', {
-            error: finalError instanceof Error ? finalError.message : String(finalError),
-          })
-        }
+      if (!isStreamingAnswer(value)) {
+        write(name, value)
+        return
       }
+      pending = { name, value }
+      if (pendingTimer !== null) return
+      const wait = lastWriteAt + STREAMING_PERSIST_INTERVAL_MS - Date.now()
+      if (wait <= 0) flushPending()
+      else pendingTimer = setTimeout(flushPending, wait)
     },
   }
 }

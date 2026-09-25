@@ -382,8 +382,10 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
     canCollaborate,
   })
 
-  // Get current conversation for filtering files and ensureSession for auto-creation
-  const currentConversation = useChatStore((state) => state.currentConversation)
+  // The open conversation's id, for filtering files and for ensureSession's
+  // auto-creation. Only the id: the conversation is a new object on every
+  // streamed delta, and the composer has no reason to re-render with it.
+  const currentConversationId = useChatStore((state) => state.currentConversation?.id)
   const ensureSession = useChatStore((state) => state.ensureSession)
   /**
    * Create the conversation ROW, not just the client-side session.
@@ -424,7 +426,7 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
   const clearComposerDraft = useChatStore((state) => state.clearComposerDraft)
 
   // Active session id — the key under which this session's draft is stored.
-  const currentSessionId = currentConversation?.id
+  const currentSessionId = currentConversationId
   // Tracks which session's draft is currently loaded into `message`, so the
   // draft-sync effect only reloads when the ACTIVE session actually changes
   // (never on every keystroke). Pre-set by handleValueChange when a first
@@ -441,7 +443,7 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
     error: uploadError,
     clearError,
   } = useFileUpload({
-    collectionName: currentConversation?.id,
+    collectionName: currentConversationId,
   })
 
   // Count of files still uploading/ingesting for the current session. Drives
@@ -853,7 +855,7 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
 
       // Persist a session as soon as the user starts interacting via typed input.
       // This keeps logo-triggered "new session" drafts out of history until touched.
-      let sessionId = currentConversation?.id
+      let sessionId = currentConversationId
       if (!sessionId && value.trim().length > 0) {
         sessionId = ensureSession()
         // ensureSession just activated a brand-new session; mark its id as the
@@ -876,7 +878,7 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
     },
     [
       isDisabledByAuth,
-      currentConversation,
+      currentConversationId,
       ensureSession,
       setComposerDraft,
       syncMentionQuery,
@@ -1041,7 +1043,7 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
     const currentMessage = source.trim()
     // Capture the session up front — the draft is cleared against THIS id on a
     // successful send, even if the session changes underneath us mid-await.
-    const submittingSessionId = currentConversation?.id
+    const submittingSessionId = currentConversationId
 
     // HITL responses always go through immediately — no file-pending check
     if (isResponseMode && respondToInteraction) {
@@ -1164,7 +1166,7 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
     // handleSubmit resolves the addressee, which reads the flag — a stale value
     // would route a send against a state the user is no longer in.
     canCollaborate,
-    currentConversation,
+    currentConversationId,
     clearComposerDraft,
     onStoppedTyping,
     t,

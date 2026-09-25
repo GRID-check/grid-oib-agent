@@ -162,6 +162,26 @@ Two folds consume these frames: the asker's store (`messages-store.ts`) and
 the observer's (`spectator-frames.ts`, via `GET /api/conversations/{id}/live`).
 Both must apply the same rules.
 
+**What a delta may cost.** Deltas are buffered and applied once per animation
+frame, and each flush replaces the open conversation in the store, so every
+subscriber to `currentConversation` or `conversations` re-renders and every
+persisted write runs once per flush. Two rules keep that to the answer bubble:
+
+- The persisted store writes a streaming answer at most once per
+  `STREAMING_PERSIST_INTERVAL_MS` (`sessions-store.ts`), and anything else,
+  the settled answer included, at once. Before this, each flush pruned,
+  serialized and wrote the whole history; with forty conversations beside the
+  open one that was 74 writes of 1.3 MB for one answer, and eight of its twelve
+  seconds with the main thread blocked.
+- Nothing outside the chat list subscribes to the conversation objects. The
+  shell, the composer and their hooks select what they show (an id, a title, a
+  count, a boolean), and the sessions panel's rows keep their identity across a
+  flush (`use-session-rows.ts`). A flush does not bump `updatedAt`.
+
+`/dev/stream-chat?history=40` measures this: the real store and the real shell
+(`&shell=1`), fed a recorded answer at its recorded pace, with commits, storage
+writes and long tasks in `window.__streamChat`.
+
 ### Single-consumer fold (`--input` CLI, single-shot HTTP)
 
 `fold_chunks_to_response` (`turn/streaming.py`) collapses the chunk stream to
