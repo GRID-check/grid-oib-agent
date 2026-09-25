@@ -22,6 +22,7 @@ import json
 import os
 import subprocess
 import sys
+import threading
 import time
 from pathlib import Path
 
@@ -73,6 +74,9 @@ def _print(name: str, summary: dict) -> None:
         print(f"    {kind:10} {bucket['calls']:3} call(s)  {bucket['input']:7} in  {bucket['seconds']:5.1f}s")
 
 
+_SHIM_LOCK = threading.Lock()
+
+
 def tree_pythonpath(out: Path) -> str:
     """A PYTHONPATH that imports THIS checkout's code, whatever the venv installed.
 
@@ -86,14 +90,19 @@ def tree_pythonpath(out: Path) -> str:
     import tomllib
 
     shim = out / ".tree"
-    shim.mkdir(parents=True, exist_ok=True)
-    for pyproject in sorted((ROOT / "sources").glob("*/pyproject.toml")):
-        package_dir = tomllib.loads(pyproject.read_text()).get("tool", {}).get("setuptools", {}).get("package-dir", {})
-        for name, relative in package_dir.items():
-            link = shim / name
-            if link.is_symlink() or link.exists():
-                link.unlink()
-            link.symlink_to((pyproject.parent / relative).resolve(), target_is_directory=True)
+    # The suite's workers call this at once: linking is serialised, and a link
+    # that already points at the right package is left alone.
+    with _SHIM_LOCK:
+        shim.mkdir(parents=True, exist_ok=True)
+        for pyproject in sorted((ROOT / "sources").glob("*/pyproject.toml")):
+            setuptools = tomllib.loads(pyproject.read_text()).get("tool", {}).get("setuptools", {})
+            for name, relative in setuptools.get("package-dir", {}).items():
+                target, link = (pyproject.parent / relative).resolve(), shim / name
+                if link.is_symlink() and link.resolve() == target:
+                    continue
+                if link.is_symlink() or link.exists():
+                    link.unlink()
+                link.symlink_to(target, target_is_directory=True)
     parts = [str(HERE), str(shim), str(ROOT / "src"), os.environ.get("PYTHONPATH", "")]
     return os.pathsep.join(part for part in parts if part)
 

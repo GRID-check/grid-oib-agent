@@ -273,3 +273,15 @@ def test_the_runs_import_this_checkout(tmp_path):
     assert path[:3] == [str(census.HERE), str(tmp_path / ".tree"), str(census.ROOT / "src")]
     assert (tmp_path / ".tree" / "knowledge_layer").resolve() == (census.ROOT / "sources/knowledge_layer/src").resolve()
     assert suite.foreign_imports(tmp_path) == []
+
+
+def test_the_workers_can_ask_for_the_path_at_once(tmp_path):
+    # Four workers built the links at once and one died on FileExistsError.
+    from concurrent.futures import ThreadPoolExecutor
+
+    import census
+
+    with ThreadPoolExecutor(8) as pool:
+        paths = list(pool.map(lambda _: census.tree_pythonpath(tmp_path), range(16)))
+
+    assert len(set(paths)) == 1
