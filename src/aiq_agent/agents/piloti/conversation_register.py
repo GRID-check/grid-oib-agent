@@ -30,6 +30,7 @@ from aiq_agent.common import get_all_tool_refs
 from aiq_agent.common import get_checkpointer
 from aiq_agent.common import get_langchain_llm
 from aiq_agent.common import validate_tool_availability
+from aiq_agent.common.agent_tools import load_agent_tools
 from aiq_agent.common.nat_converters import ensure_registered as ensure_nat_converters_registered
 from aiq_agent.common.profiler import flush_after_answer
 from aiq_agent.common.profiler import track_agent_profile
@@ -158,9 +159,7 @@ async def _deep_research_tools(builder: Builder) -> list:
     before it hands over to the clarifier."""
     deep_config = builder.get_function_config("deep_research_agent")
     tool_refs = deep_config.tools or get_all_tool_refs()
-    tools = await builder.get_tools(tool_names=tool_refs, wrapper_type=LLMFrameworkEnum.LANGCHAIN)
-    excluded = set(deep_config.exclude_tools or ())
-    return [tool for tool in tools if getattr(tool, "name", "") not in excluded]
+    return await load_agent_tools(builder, tool_refs, deep_config.exclude_tools)
 
 
 def _tool_validator(deep_research_tools: list):

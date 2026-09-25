@@ -74,6 +74,7 @@ from aiq_agent.common import is_verbose
 from aiq_agent.common import load_prompt
 from aiq_agent.common import render_prompt_template
 from aiq_agent.common import strict_json_response_format
+from aiq_agent.common.agent_tools import load_agent_tools
 from aiq_agent.common.plan_documents import MAX_PLAN_DOCUMENTS
 from aiq_agent.common.plan_documents import PlanDocuments
 from aiq_agent.common.plan_documents import documents_from_plan
@@ -81,7 +82,6 @@ from aiq_agent.common.turn_status import push_custom_step
 from aiq_agent.project_context import get_organization_id_from_context
 from nat.builder.builder import Builder
 from nat.builder.context import Context
-from nat.builder.framework_enum import LLMFrameworkEnum
 from nat.data_models.component_ref import FunctionGroupRef
 from nat.data_models.component_ref import FunctionRef
 from nat.data_models.component_ref import LLMRef
@@ -709,14 +709,7 @@ async def ask_through_nat(question: str, options: Sequence[str] = ()) -> str:
 
 async def resolve_tools(settings: ClarifierSettings, builder: Builder) -> list[BaseTool]:
     """The tool set the step boots with: the configured refs, else the whole registry."""
-    tools = await builder.get_tools(
-        tool_names=settings.tools or get_all_tool_refs(),
-        wrapper_type=LLMFrameworkEnum.LANGCHAIN,
-    )
-    if not settings.exclude_tools:
-        return list(tools)
-    excluded = set(settings.exclude_tools)
-    return [t for t in tools if getattr(t, "name", "") not in excluded]
+    return await load_agent_tools(builder, settings.tools or get_all_tool_refs(), settings.exclude_tools)
 
 
 def _clarifier_llm(llm: BaseChatModel, tools: Sequence[BaseTool]) -> Any:

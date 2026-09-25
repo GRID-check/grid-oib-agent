@@ -36,6 +36,7 @@ from aiq_agent.common import get_zdr_only_from_context
 from aiq_agent.common import is_verbose
 from aiq_agent.common import unavailable_source_ids
 from aiq_agent.common import validate_tool_availability
+from aiq_agent.common.agent_tools import load_agent_tools
 from aiq_agent.common.canned_replies import SCOPED_NO_SOURCES_MESSAGE
 from aiq_agent.common.citation_verification import EmptySourceRegistryError
 from aiq_agent.common.data_source_registry import get_all_sources
@@ -234,10 +235,7 @@ class _Deployment:
 
 async def _load_tools(config: ResearchAgentConfig, builder: Builder) -> list[Any]:
     tool_refs = config.tools or get_all_tool_refs()
-    tools = await builder.get_tools(tool_names=tool_refs, wrapper_type=LLMFrameworkEnum.LANGCHAIN)
-    if config.exclude_tools:
-        excluded = set(config.exclude_tools)
-        tools = [t for t in tools if getattr(t, "name", "") not in excluded]
+    tools = await load_agent_tools(builder, tool_refs, config.exclude_tools)
     is_valid, _, _ = validate_tool_availability(tools, research_type=_RESEARCH_TYPE)
     if not is_valid:
         logger.warning(
