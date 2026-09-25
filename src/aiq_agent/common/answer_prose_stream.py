@@ -46,6 +46,9 @@ from aiq_agent.common.citation_verification import expand_grouped_citations
 _ANSWER_KEY_WITHIN = 1600
 _ANSWER_KEY_RE = re.compile(r'"answer"\s*:\s*"')
 _CARDS_KEY_RE = re.compile(r'"cards"\s*:\s*\[')
+#: A tail that may still become the ``"answer"`` key, whitespace of any length
+#: included, held until it completes or cannot.
+_ANSWER_KEY_PREFIX_RE = re.compile(r'"(?:a(?:n(?:s(?:w(?:e(?:r(?:"\s*(?::\s*)?)?)?)?)?)?)?)?$')
 
 #: A line is held back until it ends or grows past this, so a sources heading
 #: is recognized whole before any of it is shown. Longer than every heading
@@ -114,11 +117,13 @@ class AnswerProseStream:
     def _seek(self) -> None:
         match = _ANSWER_KEY_RE.search(self._raw)
         if match is None:
-            # Keep a tail the key could still straddle; count what was read,
-            # once (a per-call count of the kept tail cut off a reply fed a
-            # character at a time).
-            self._head += self._raw[:-16]
-            self._raw = self._raw[-16:]
+            # Keep the tail the key could still straddle, however much
+            # whitespace it holds; count what was read, once (a per-call count
+            # of the kept tail cut off a reply fed a character at a time).
+            partial = _ANSWER_KEY_PREFIX_RE.search(self._raw)
+            cut = partial.start() if partial else len(self._raw)
+            self._head += self._raw[:cut]
+            self._raw = self._raw[cut:]
             if len(self._head) + len(self._raw) > _ANSWER_KEY_WITHIN:
                 self._state = "off"
             return
@@ -181,10 +186,7 @@ class AnswerProseStream:
 
     def _release(self) -> str:
         """Show the longest prefix of ``_pending`` that nothing can still change."""
-        # A range marker is held whole (see ``_MARKER_PREFIX_RE``), so it is
-        # expanded here before any of it is shown: ``[2–5]`` as four pills.
-        pending = expand_grouped_citations(self._pending)
-        shown, rest, hold_line = self._through_lines(pending)
+        shown, rest, hold_line = self._through_lines(self._pending)
         if self._state == "sources":
             self.sources_text += rest
             rest = ""
@@ -192,10 +194,15 @@ class AnswerProseStream:
             shown += rest
             rest = ""
         elif not hold_line:
-            held = _held_tail(rest)
+            held = max(_held_tail(rest), _open_code_tail(rest))
             shown += rest[: len(rest) - held]
             rest = rest[len(rest) - held :]
         self._pending = rest
+        # A range marker is held whole (see ``_MARKER_PREFIX_RE``), so it is
+        # expanded as it is shown: ``[2–5]`` as four pills. Expanded with what
+        # was shown before it, which says whether it is inside code, where
+        # ``grid[1, 2]`` is an index and stays one.
+        shown = _expanded_after(self.emitted, shown)
         if shown:
             self._line_start = shown.endswith("\n")
         self.emitted += shown
@@ -217,7 +224,9 @@ class AnswerProseStream:
             ended = newline >= 0 or self.closed
             if line_start and ended and _REFERENCE_HEADING_LINE_RE.fullmatch(line.rstrip()):
                 self._state = "sources"
-                return shown.rstrip("\n") + ("\n" if shown else ""), text, False
+                # The lines before it go out as written: trimming them here
+                # would trim only what this chunk carried.
+                return shown, text, False
             if newline < 0:
                 return shown, text, line_start and len(line) <= _LINE_HOLD
             shown += text[: newline + 1]
@@ -267,6 +276,25 @@ def _object_end(text: str, start: int) -> int | None:
     return None
 
 
+def _expanded_after(shown: str, pending: str) -> str:
+    """``pending`` with its grouped markers expanded, read in the context of ``shown``."""
+    whole = expand_grouped_citations(shown + pending, unterminated_fence_is_code=True)
+    if whole.startswith(shown):
+        return whole[len(shown) :]
+    return expand_grouped_citations(pending, unterminated_fence_is_code=True)
+
+
+def _open_code_tail(line: str) -> int:
+    """How many trailing characters of an unfinished line an inline code span still holds open.
+
+    Until its closing backtick arrives, ``m[2, 3]`` cannot be told from a
+    grouped citation: shown now, it would be expanded into two pills.
+    """
+    if line.count("`") % 2 == 0:
+        return 0
+    return len(line) - line.index("`")
+
+
 def _held_tail(text: str) -> int:
     """How many trailing characters must wait: a marker still being written."""
     match = _MARKER_PREFIX_RE.search(text)
@@ -279,8 +307,9 @@ def _escape(raw: str, i: int) -> tuple[str, int]:
     """Decode the JSON escape at ``raw[i]``; width 0 when it is not complete yet.
 
     The answering call is not in JSON mode, so the model may write what is not
-    JSON: ``C:\\user`` unescaped, a lone surrogate. Those are shown as written
-    rather than stall the stream, the way an unknown escape is.
+    JSON: ``C:\\user`` unescaped, a lone surrogate, an unknown escape. Those are
+    shown as written, backslash included, rather than stall the stream; the
+    terminal frame cannot parse such an envelope either and shows it raw.
     """
     if i + 1 >= len(raw):
         return "", 0
@@ -288,7 +317,7 @@ def _escape(raw: str, i: int) -> tuple[str, int]:
     if code in _ESCAPES:
         return _ESCAPES[code], 2
     if code != "u":
-        return code, 2  # not JSON; show it rather than stall
+        return raw[i : i + 2], 2  # not JSON; show it as written rather than stall
     if not _HEX_PREFIX_RE.fullmatch(raw[i + 2 : i + 6]):
         return raw[i : i + 2], 2  # ``\u`` not followed by four hex digits
     if i + 6 > len(raw):

@@ -34,9 +34,9 @@ def test_a_cited_link_is_resolved_as_the_source_line_check_resolves_it():
 
 def test_a_verified_quote_never_reads_the_source_lines(monkeypatch):
     calls: list[str] = []
-    real = citation_verification.cited_document_entries
+    real = citation_verification._resolve_source_line
     monkeypatch.setattr(
-        citation_verification, "cited_document_entries", lambda text, reg: calls.append(text) or real(text, reg)
+        citation_verification, "_resolve_source_line", lambda text, reg: calls.append(text) or real(text, reg)
     )
     registry = SourceRegistry()
     registry.add(SourceEntry(citation_key="oib.pdf, p.3", chunk_text=PASSAGE, source_type="knowledge_layer"))
@@ -48,9 +48,9 @@ def test_a_verified_quote_never_reads_the_source_lines(monkeypatch):
 
 def test_quotes_citing_the_same_sources_resolve_them_once(monkeypatch):
     calls: list[str] = []
-    real = citation_verification.cited_document_entries
+    real = citation_verification._resolve_source_line
     monkeypatch.setattr(
-        citation_verification, "cited_document_entries", lambda text, reg: calls.append(text) or real(text, reg)
+        citation_verification, "_resolve_source_line", lambda text, reg: calls.append(text) or real(text, reg)
     )
     registry = SourceRegistry()
     registry.add(SourceEntry(citation_key="oib.pdf, p.3", chunk_text=PASSAGE, source_type="knowledge_layer"))

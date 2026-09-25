@@ -92,7 +92,9 @@ without `card_repair_llm` the repair is off.
   sentence cites a source now logs its closeness to the nearest passage of
   that source, and the answer suite counts `unverified_quote` and
   `quote_patch`, so the floor can be reset from real answers. A quote with no
-  cited passage logs "no cited passage" and no number (since `f0555a50`).
+  cited passage logs "no cited passage" and no number, since
+  `UnverifiedQuote.nearest` is chosen only among the sources the quote's own
+  sentence cites (`citation_verification._nearest_cited`).
 * Neutral: a source line that carries both a registry citation key and a link
   nothing retrieved is valid by its key. The link is dropped from the line,
   not the citation (`citation_verification._drop_url`). RIS is filed by key,
@@ -116,11 +118,13 @@ without `card_repair_llm` the repair is off.
 * `tests/aiq_agent/common/test_lost_citations.py`: a removed citation never
   calls the repair.
 
-* The answer suite, all 27 questions, before (`35454527`, the rewrite) and
-  after (`b327d221`), 2026-09-24: checks 76/86 and 74/86, wall medians 42.0
-  and 42.7 s. **This comparison does not show the change. Correction,
-  2026-09-25.** Each run was started from a worktree of its commit, but
-  until `c9575e0d` the census set `PYTHONPATH` to `scripts/turn_census`
+* The answer suite, all 27 questions, before (the whole-answer rewrite
+  repair still in place) and after (the quote patch in `quote_patch.py`, with
+  the settle also dropping a restated mindmap), 2026-09-24: checks 76/86 and
+  74/86, wall medians 42.0 and 42.7 s. **This comparison does not show the
+  change. Correction, 2026-09-25.** Each run was started from a worktree of
+  its commit, but until the census learned to put the checkout's own code
+  first (`census.tree_pythonpath`) it set `PYTHONPATH` to `scripts/turn_census`
   alone. The worktrees had no venv of their own (`task setup` never ran in
   them), so both runs used the main checkout's `.venv`, whose editable install
   imported the main checkout's `aiq_agent` and `knowledge_layer`. Both arms
@@ -133,9 +137,10 @@ without `card_repair_llm` the repair is off.
 * What those runs still show, since they are true of the code they did run:
   no settled text was replaced (`settled_replaced` 0), and the suite had no
   misquote to repair. They ran before the cited-source restriction
-  (`f0555a50`): the two flagged `uncited` quotes logged closeness 0.62 and
-  0.91, which today's code would not log, because only a quote with a cited
-  passage gets a closeness. The worktrees' relative `./summaries.db` was
+  (`UnverifiedQuote.nearest` taken only from a source the quote's sentence
+  cites, `citation_verification._nearest_cited`): the two flagged `uncited`
+  quotes logged closeness 0.62 and 0.91, which today's code would not log,
+  because only a quote with a cited passage gets a closeness. The worktrees' relative `./summaries.db` was
   empty: no document inventory and no family overviews, so the absolute
   seconds do not describe a normal turn (31.3 s per turn with the inventory,
   38.5 s without). The suite now refuses to start on an empty inventory.

@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import asyncio
 
+import pytest
+
 from aiq_agent.agents.piloti import quote_patch
 from aiq_agent.agents.piloti.quote_patch import PATCH_FLOOR
 from aiq_agent.agents.piloti.quote_patch import accept
@@ -14,6 +16,7 @@ from aiq_agent.agents.piloti.quote_patch import splice
 from aiq_agent.common.citation_verification import SourceEntry
 from aiq_agent.common.citation_verification import SourceRegistry
 from aiq_agent.common.citation_verification import UnverifiedQuote
+from aiq_agent.common.citation_verification import verify_citations
 from aiq_agent.common.citation_verification import verify_quoted_spans
 
 PASSAGE = (
@@ -82,6 +85,32 @@ def test_a_passage_from_a_source_the_sentence_does_not_cite_is_never_used():
     assert closeness(misquote, PASSAGE) >= PATCH_FLOOR  # Salzburg's text would have been patched from
     assert flagged.nearest is not None and flagged.nearest.citation_key == "tbo_2022.pdf, p.20"
     assert select([flagged]) == []  # Tirol's own text is not close: the marker stays
+
+
+@pytest.mark.parametrize(
+    ("cited", "other"),
+    [
+        # A cited filename that contains another Bundesland's filename.
+        ("NÖ Bauordnung.pdf, p.4", "Bauordnung.pdf, p.4"),
+        # The same with RIS keys.
+        ("Steiermärkisches Baugesetz, § 5", "Baugesetz, § 5"),
+    ],
+)
+def test_a_source_whose_name_is_inside_the_cited_one_is_not_cited(cited, other):
+    # The line cites Niederösterreich; Bauordnung.pdf is only a substring of
+    # its name. Read by a filename scan, it counted as cited and its closer
+    # passage was chosen, the patch putting its words under [1].
+    misquote = "Die lichte Durchgangshöhe bei Treppen muss wenigstens 2,50 m betragen"
+    own = "Treppen: eine Durchgangshöhe von 2,20 m ist einzuhalten, gemessen lotrecht über der Stufenvorderkante."
+    registry = SourceRegistry()
+    registry.add(SourceEntry(citation_key=cited, chunk_text=own, source_type="knowledge_layer"))
+    registry.add(SourceEntry(citation_key=other, chunk_text=PASSAGE, source_type="knowledge_layer"))
+    answer = f"Es gilt: „{misquote}“ [1].\n\n## Quellen\n- [1] {cited}\n"
+
+    [flagged] = verify_quoted_spans(verify_citations(answer, registry).verified_report, registry)
+
+    assert flagged.nearest is not None and flagged.nearest.citation_key == cited
+    assert select([flagged]) == []
 
 
 def test_the_passage_of_the_cited_source_is_the_one_patched_against():

@@ -219,6 +219,25 @@ async def test_a_call_that_also_asks_for_tools_takes_back_what_it_showed():
     assert not sink.streamed  # the real answer, a later call, may stream
 
 
+async def test_a_tool_round_that_showed_nothing_retracts_nothing():
+    """A masthead read but gated away, and no prose yet: there is nothing on the wire to take back."""
+    from langchain_core.messages import AIMessageChunk
+    from langchain_core.outputs import ChatGenerationChunk
+    from langchain_core.outputs import LLMResult
+
+    from aiq_agent.turn.answer_stream import _ProseTokenHandler
+
+    sink = AnswerStreamSink()
+    handler = _ProseTokenHandler(sink, _Live(masthead=None))
+    await handler.on_chat_model_start({}, [])
+    await handler.on_llm_new_token('{"kind": "direct", "answer": "')
+    call = {"name": "knowledge_search", "args": "{}", "id": "c1", "index": 0}
+    message = AIMessageChunk(content="", tool_call_chunks=[call])
+    await handler.on_llm_end(LLMResult(generations=[[ChatGenerationChunk(message=message)]]))
+
+    assert sink._drain() == []
+
+
 async def test_the_settle_runs_off_the_event_loop():
     """Verification is fuzzy matching over every chunk; on the loop it stalls every turn the worker serves."""
     import threading

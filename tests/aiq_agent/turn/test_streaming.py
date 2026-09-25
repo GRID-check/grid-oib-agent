@@ -219,3 +219,25 @@ class TestFoldChunksToResponse:
         live.append(live_chunk(" Mehr."))
         folded = fold_chunks_to_response(live)
         assert folded.choices[0].message.content == "Gesetzt [1]. Mehr."
+
+    def test_fold_without_a_terminal_lets_a_retraction_take_back_the_masthead_and_cards(self):
+        # A tool round streamed a masthead, prose and a card, then was retracted.
+        live = [
+            live_chunk("", answer_meta={"verdict": {"status": "erfüllt"}}),
+            live_chunk("Runde.", cards=[{"type": "summary"}]),
+            live_chunk("", sources=[]),
+        ]
+        folded = fold_chunks_to_response(live)
+        assert folded.choices[0].message.content == ""
+        assert getattr(folded, "answer_meta", None) is None
+        assert getattr(folded, "cards", None) is None
+
+    def test_fold_without_a_terminal_lets_a_snapshot_without_a_masthead_remove_it(self):
+        live = [
+            live_chunk("", answer_meta={"verdict": {"status": "erfüllt"}}),
+            live_chunk("Roh [9].", cards=[{"type": "summary"}]),
+            live_chunk("Gesetzt [1].", sources=[{"k": 1}]),
+        ]
+        folded = fold_chunks_to_response(live)
+        assert getattr(folded, "answer_meta", None) is None
+        assert folded.cards == [{"type": "summary"}]

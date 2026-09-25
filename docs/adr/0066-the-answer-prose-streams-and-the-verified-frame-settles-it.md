@@ -155,8 +155,8 @@ that changed the settled text (`settled_replaced`).
 ### Confirmation
 
 * `tests/aiq_agent/common/test_answer_prose_stream.py`: every chunking of an
-  envelope shows the prose, no delta carries a half-written marker, a card
-  marker or the sources heading, and the sources are collected whole.
+  envelope shows the prose, no delta carries a half-written citation or card
+  marker, nor the sources heading, and the sources are collected whole.
 * `tests/aiq_agent/agents/piloti/test_settle_streamed.py`: an unbacked marker
   goes and the rest take the numbers the terminal will give.
 * `citation-markers.spec.ts`, `store.spec.ts`, `use-websocket-chat.spec.ts`,

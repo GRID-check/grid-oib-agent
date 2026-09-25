@@ -44,11 +44,12 @@ WS handler's persistence gating, and the frontend accumulation logic.
 > first word; a `[[card:N]]` marker streams whole and holds its card's place
 > (`PendingCardSlot`) until the card, gated, arrives on a live `cards` frame
 > and grows into it (`CardArrival`). Live cards go out only while no tool
-> pushed a card this turn, so their numbers are the terminal's. The moment the string closes, a `stream_replace` snapshot carries the
-> verified, renumbered text and its sources; the terminal frame, which the
-> client already REPLACES the bubble with, carries the finished answer. What remains
-> true below: the terminal is authoritative, and verification needs the whole
-> answer. What changed: the first delta leaves while the model writes.
+> pushed a card this turn, so their numbers are the terminal's. The moment the
+> string closes, a `stream_replace` snapshot carries the verified, renumbered
+> text and its sources; the terminal frame, which the client already REPLACES
+> the bubble with, carries the finished answer. What remains true below: the
+> terminal is authoritative, and verification needs the whole answer. What
+> changed: the first delta leaves while the model writes.
 
 `verify_citations` + `sanitize_report` rewrite the answer body — they delete
 unverified `[N]` markers and renumber the `## Sources` section — and they need
@@ -105,8 +106,9 @@ One snapshot is sent per turn, when the envelope's `answer` string closes. The
 terminal then replaces the text once more and takes back what it omits (a
 suppressed card, a masthead gated out). One exception: a streamed call that
 turns out to carry tool calls was a round, not the answer, and is retracted
-with an EMPTY snapshot (`AnswerStreamSink.retract`); the answering call after
-it streams again. Cards it drew stay until the terminal frame replaces them. The wire fields:
+with an EMPTY snapshot (`AnswerStreamSink.retract`), which clears its text,
+citations, masthead and cards; the answering call after it streams again. A
+call that put nothing on the wire is not retracted. The wire fields:
 [`websocket-protocol.md`](../api/websocket-protocol.md#live-frames-adr-0066).
 
 The settle runs the terminal's shape pass as well. A mindmap whose words are

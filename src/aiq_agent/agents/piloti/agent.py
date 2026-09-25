@@ -17,8 +17,8 @@ round stopped being a proxy for cost the moment it stopped being one call.
 nodes on the LangGraph config, so a turn costs one ``bind_tools`` at most and
 never a prompt read or a graph compile.
 
-The post-answer pipeline lives in :mod:`.answer_pipeline`, the repair pass in
-:mod:`.repair`, the wire and ledger in :mod:`.ledger`, prompt assembly in
+The post-answer pipeline lives in :mod:`.answer_pipeline`, the quote repair in
+:mod:`.quote_patch`, the wire and ledger in :mod:`.ledger`, prompt assembly in
 :mod:`.prompt`.
 """
 

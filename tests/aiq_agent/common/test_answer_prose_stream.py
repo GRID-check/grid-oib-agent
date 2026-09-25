@@ -39,7 +39,7 @@ def _reader(text: str, size: int) -> AnswerProseStream:
 @pytest.mark.parametrize("size", [1, 2, 3, 5, 8, 17, 64, 10_000])
 def test_every_chunking_shows_the_prose_and_nothing_it_must_withhold(size):
     reader = _reader(ENVELOPE, size)
-    assert reader.emitted.rstrip() == SHOWN.rstrip()
+    assert reader.emitted == SHOWN
     assert reader.sources_text.strip() == SOURCES.strip()
     assert reader.closed
     for delta in reader.deltas:
@@ -78,6 +78,13 @@ def test_a_bracket_that_is_not_a_marker_is_shown_once_it_cannot_be_one():
 def test_a_heading_like_line_that_is_not_the_sources_heading_is_shown():
     shown, _ = _stream(json.dumps({"answer": "**Quellenlage**\nDünn.\n\nQuellen sind knapp.\n"}), 3)
     assert shown == "**Quellenlage**\nDünn.\n\nQuellen sind knapp.\n"
+
+
+@pytest.mark.parametrize("size", [1, 5, 10_000])
+def test_an_answer_key_padded_with_whitespace_is_found_at_any_chunking(size):
+    reply = '{"kind": "direct",\n    "answer"   \n' + " " * 30 + ':    "Hallo Welt."}'
+    shown, _ = _stream(reply, size)
+    assert shown == "Hallo Welt."
 
 
 def test_an_escape_split_across_chunks_decodes_once():
@@ -128,7 +135,7 @@ def test_each_card_is_read_as_soon_as_its_object_closes(size):
     ("raw_answer", "shown"),
     [
         # Not JSON mode: a path the model forgot to escape.
-        ("Pfad C:\\user\\daten und weiter.", "Pfad C:\\userdaten und weiter."),
+        ("Pfad C:\\user\\daten und weiter.", "Pfad C:\\user\\daten und weiter."),
         # A lone high surrogate, then text.
         ("Fluchtweg \\ud83d frei.", "Fluchtweg \\ud83d frei."),
         # A high surrogate whose next escape is not its partner: the ä survives.

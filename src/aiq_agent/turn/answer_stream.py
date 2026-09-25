@@ -185,13 +185,16 @@ class _ProseTokenHandler(AsyncCallbackHandler):
         self._reader: AnswerProseStream | None = None
         self._masthead_read = False
         self._settled = False
+        #: Whether this call put anything on the wire; only then is there
+        #: something to take back.
+        self._shown = False
         self._cards: list[dict[str, Any] | None] = []
 
     async def on_chat_model_start(self, *args: Any, **kwargs: Any) -> None:
         # A fresh reader per call (the envelope ladder retries on a rejected
         # parameter); none at all once the turn has shown prose.
         self._reader = None if self._sink.streamed else AnswerProseStream()
-        self._masthead_read = self._settled = False
+        self._masthead_read = self._settled = self._shown = False
         self._cards = []
 
     async def on_llm_new_token(self, token: Any, **kwargs: Any) -> None:
@@ -202,7 +205,9 @@ class _ProseTokenHandler(AsyncCallbackHandler):
         if not self._masthead_read and reader.masthead is not None:
             self._masthead_read = True
             self._show_masthead(reader.masthead)
-        self._sink.push(delta)
+        if delta:
+            self._shown = True
+            self._sink.push(delta)
         if reader.closed and not self._settled:
             self._settled = True
             await self._settle_prose(reader)
@@ -210,9 +215,13 @@ class _ProseTokenHandler(AsyncCallbackHandler):
             self._show_cards(reader.take_cards())
 
     async def on_llm_end(self, response: Any, **kwargs: Any) -> None:
-        """A call that also asked for tools was a round, not the answer: take back what it showed."""
-        reader, self._reader = self._reader, None
-        if reader is not None and (reader.emitted or self._masthead_read) and _calls_tools(response):
+        """A call that also asked for tools was a round, not the answer: take back what it showed.
+
+        Only what it showed: a call whose masthead was read but gated away, and
+        whose prose never started, put nothing on the wire to retract.
+        """
+        self._reader = None
+        if self._shown and _calls_tools(response):
             logger.info("answer_stream: the streamed call asked for tools; retracting its prose")
             self._sink.retract()
 
@@ -220,7 +229,7 @@ class _ProseTokenHandler(AsyncCallbackHandler):
         """The masthead above the first word, gated as far as it can be without the prose."""
         meta = self._guarded("masthead", lambda live: live.masthead(fields))
         if meta:
-            self._sink.put(Masthead(answer_meta=meta))
+            self._put(Masthead(answer_meta=meta))
 
     async def _settle_prose(self, reader: AnswerProseStream) -> None:
         """Verify what streamed, and send it back settled; fail-open to pending markers.
@@ -238,7 +247,7 @@ class _ProseTokenHandler(AsyncCallbackHandler):
             logger.warning("answer_stream: the live settle failed", exc_info=True)
             settled = None
         if settled is not None:
-            self._sink.put(
+            self._put(
                 Snapshot(
                     content=settled.content,
                     sources=list(settled.sources),
@@ -253,7 +262,11 @@ class _ProseTokenHandler(AsyncCallbackHandler):
         for payload in payloads:
             self._cards.append(self._guarded("card", lambda live, payload=payload: live.card(payload)))
         if any(card is not None for card in self._cards):
-            self._sink.put(Cards(cards=list(self._cards)))
+            self._put(Cards(cards=list(self._cards)))
+
+    def _put(self, item: Snapshot | Masthead | Cards) -> None:
+        self._shown = True
+        self._sink.put(item)
 
     def _guarded(self, what: str, call: Any) -> Any:
         if self._live is None:

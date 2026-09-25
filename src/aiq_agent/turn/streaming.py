@@ -193,12 +193,21 @@ def fold_chunks_to_response(chunks: list[ChatResponseChunk]) -> ChatResponse:
 
 
 def _fold_live(chunks: list[ChatResponseChunk]) -> tuple[str, dict[str, object]]:
-    """The text and extras of a chunk sequence that never reached its terminal."""
+    """The text and extras of a chunk sequence that never reached its terminal.
+
+    Folded as the client folds them (``docs/design/streaming-chat-answer.md``,
+    live frames): a snapshot replaces the text and the masthead, and an empty
+    one, a retraction, takes back the cards as well.
+    """
     parts: list[str] = []
     extras: dict[str, object] = {}
     for chunk in chunks:
+        content = chunk_content(chunk) or ""
         if getattr(chunk, "stream_replace", None):
             parts = []
-        parts.append(chunk_content(chunk) or "")
+            extras.pop("answer_meta", None)
+            if not content and not getattr(chunk, "sources", None):
+                extras.pop("cards", None)
+        parts.append(content)
         extras.update(_chunk_extras(chunk))
     return "".join(parts), extras

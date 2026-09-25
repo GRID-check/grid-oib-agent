@@ -89,3 +89,6 @@ def test_drop_url_leaves_no_dangling_separator_or_label():
     assert _drop_url(f"Titel - URL: {LAW}", LAW) == "Titel"
     assert _drop_url(f"Titel - {LAW}", LAW) == "Titel"
     assert _drop_url(f"[Titel]({LAW})", LAW) == "Titel"
+    assert _drop_url(f"- [1] Bauordnung für Wien, § 63 | {LAW}", LAW) == "- [1] Bauordnung für Wien, § 63"
+    assert _drop_url(f"- [1] Bauordnung für Wien, § 63 (Source: {LAW})", LAW) == "- [1] Bauordnung für Wien, § 63"
+    assert _drop_url(f"Titel ({LAW})", LAW) == "Titel"

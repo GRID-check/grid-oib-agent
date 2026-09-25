@@ -27,6 +27,9 @@ from aiq_agent.common.citation_verification import expand_grouped_citations
         ("[[1, 2]]", "[[1, 2]]"),
         # A group beside a single marker is still a group.
         ("a [1, 2][3] b", "a [1][2][3] b"),
+        # Code is not prose: an index stays an index, in a fence or inline.
+        ("[2, 3]\n```python\nw = grid[1, 2]\n```\n", "[2][3]\n```python\nw = grid[1, 2]\n```\n"),
+        ("Matrix `m[2, 3]` und [4–5].", "Matrix `m[2, 3]` und [4][5]."),
     ],
 )
 def test_a_group_becomes_one_marker_per_source(text, expanded):
@@ -41,3 +44,13 @@ def test_the_stream_shows_a_range_as_its_single_markers():
     for i in range(0, len(reply), 3):
         reader.feed(reply[i : i + 3])
     assert reader.emitted == "Die Ausgabe gliedert sich in vier Teile [2][3][4][5]."
+
+
+@pytest.mark.parametrize("size", [1, 3, 10_000])
+def test_the_stream_leaves_an_index_in_code_as_written(size):
+    prose = "Text [2, 3].\n\n```python\nw = grid[1, 2]\n```\n\nInline `m[2, 3]` und [4–5]."
+    reply = json.dumps({"answer": prose})
+    reader = AnswerProseStream()
+    for i in range(0, len(reply), size):
+        reader.feed(reply[i : i + size])
+    assert reader.emitted == "Text [2][3].\n\n```python\nw = grid[1, 2]\n```\n\nInline `m[2, 3]` und [4][5]."
