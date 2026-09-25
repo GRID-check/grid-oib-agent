@@ -654,6 +654,16 @@ def _preflight(out: Path, ingest: bool) -> int:
             file=sys.stderr,
         )
         return 2
+    summary_db = os.environ.get("AIQ_SUMMARY_DB", "")
+    if summary_db and "://" not in summary_db:
+        # A bare path is not a database URL: every run then fails to start, after
+        # the suite has already launched them all.
+        print(
+            f"AIQ_SUMMARY_DB is a path, not a database URL: {summary_db}. "
+            "Use sqlite+aiosqlite:////absolute/path/summaries.db.",
+            file=sys.stderr,
+        )
+        return 2
     database = inventory_database()
     if not inventory_ready(database):
         print(

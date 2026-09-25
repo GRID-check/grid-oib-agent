@@ -614,3 +614,14 @@ def test_wall_time_ends_with_the_call_that_ends_last(tmp_path):
     record.write_text("".join(json.dumps(row) + "\n" for row in rows))
 
     assert census.summarize(record)["wall_seconds"] == 30.0
+
+
+def test_a_summary_db_given_as_a_path_is_refused_before_any_run(monkeypatch, tmp_path, capsys):
+    # A bare path started every run, and every run died parsing it as a URL.
+    monkeypatch.setattr(suite, "ensure_key", lambda: True)
+    monkeypatch.setattr(suite, "foreign_imports", lambda out: [])
+    monkeypatch.setattr(suite, "_corpus_ready", lambda: True)
+    monkeypatch.setenv("AIQ_SUMMARY_DB", str(tmp_path / "summaries.db"))
+
+    assert suite._preflight(tmp_path, ingest=False) == 2
+    assert "not a database URL" in capsys.readouterr().err
