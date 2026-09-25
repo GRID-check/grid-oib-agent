@@ -24,7 +24,23 @@ const message = (content: string, isStreaming: boolean): ChatMessage => ({
   isStreaming,
 })
 
-const value = (content: string, isStreaming: boolean) => {
+// The store keeps a field it did not change as the same object; so must the fixtures.
+const NO_DRAFTS: Record<string, string> = {}
+
+const OTHER: Conversation = {
+  id: 'c2',
+  userId: 'u1',
+  title: 'Eine andere Sitzung',
+  messages: [],
+  createdAt: new Date(2026, 8, 24),
+  updatedAt: new Date(2026, 8, 24),
+}
+
+const value = (
+  content: string,
+  isStreaming: boolean,
+  { others = [] as Conversation[], drafts = NO_DRAFTS } = {}
+) => {
   const conversation: Conversation = {
     id: 'c1',
     userId: 'u1',
@@ -35,13 +51,16 @@ const value = (content: string, isStreaming: boolean) => {
   }
   const state = {
     currentUserId: 'u1',
-    conversations: [conversation],
+    conversations: [conversation, ...others],
     currentConversation: conversation,
     pendingInteraction: null,
-    composerDrafts: {},
+    composerDrafts: drafts,
   }
   return { state, version: 0 } as StorageValue<typeof state>
 }
+
+const storedIds = (): string[] =>
+  JSON.parse(localStorage.getItem(KEY)!).state.conversations.map((c: Conversation) => c.id)
 
 const storedContent = (): string | undefined => {
   const raw = localStorage.getItem(KEY)
@@ -54,6 +73,9 @@ describe('createResilientStorage', () => {
     localStorage.clear()
   })
   afterEach(() => {
+    // Every storage listens for pagehide for good; let each test's leftovers
+    // land now, before the next test clears storage, not inside a later test.
+    window.dispatchEvent(new Event('pagehide'))
     vi.useRealTimers()
   })
 
@@ -100,5 +122,42 @@ describe('createResilientStorage', () => {
     storage.removeItem(KEY)
     vi.advanceTimersByTime(STREAMING_PERSIST_INTERVAL_MS * 2)
     expect(localStorage.getItem(KEY)).toBeNull()
+  })
+
+  test('a conversation deleted while an answer streams leaves storage at once', () => {
+    const storage = createResilientStorage()!
+    storage.setItem(KEY, value('a', true, { others: [OTHER] }))
+    storage.setItem(KEY, value('ab', true, { others: [OTHER] }))
+    expect(storedIds()).toEqual(['c1', 'c2'])
+
+    storage.setItem(KEY, value('abc', true))
+    // Not held for the window: a browser that dies now must not bring it back.
+    expect(storedIds()).toEqual(['c1'])
+    expect(storedContent()).toBe('abc')
+  })
+
+  test('a draft typed while an answer streams is written at once', () => {
+    const storage = createResilientStorage()!
+    storage.setItem(KEY, value('a', true))
+    storage.setItem(KEY, value('ab', true, { drafts: { c1: 'Nachfrage' } }))
+    expect(JSON.parse(localStorage.getItem(KEY)!).state.composerDrafts).toEqual({ c1: 'Nachfrage' })
+  })
+
+  test('a deferred write that fails is held again, and the next flush writes it', () => {
+    const storage = createResilientStorage()!
+    storage.setItem(KEY, value('a', true))
+    storage.setItem(KEY, value('ab', true))
+    const setItem = vi.spyOn(localStorage, 'setItem').mockImplementationOnce(() => {
+      throw new Error('SecurityError')
+    })
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {})
+
+    vi.advanceTimersByTime(STREAMING_PERSIST_INTERVAL_MS)
+    expect(storedContent()).toBe('a')
+
+    window.dispatchEvent(new Event('pagehide'))
+    expect(storedContent()).toBe('ab')
+    setItem.mockRestore()
+    error.mockRestore()
   })
 })

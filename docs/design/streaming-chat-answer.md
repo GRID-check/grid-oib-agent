@@ -168,8 +168,12 @@ subscriber to `currentConversation` or `conversations` re-renders and every
 persisted write runs once per flush. Two rules keep that to the answer bubble:
 
 - The persisted store writes a streaming answer at most once per
-  `STREAMING_PERSIST_INTERVAL_MS` (`sessions-store.ts`), and anything else,
-  the settled answer included, at once. Before this, each flush pruned,
+  `STREAMING_PERSIST_INTERVAL_MS` (`sessions-store.ts`). Only the open
+  answer's growth waits: any other change in that window (a deletion, a
+  rename, a draft, a new session), and the settled answer, is written at
+  once, so a browser that dies inside the window cannot restore a deleted
+  conversation. A deferred write that fails is held for the next flush or
+  `pagehide`. Before this, each flush pruned,
   serialized and wrote the whole history; with forty conversations beside the
   open one that was 74 writes of 1.3 MB for one answer, and eight of its twelve
   seconds with the main thread blocked.
