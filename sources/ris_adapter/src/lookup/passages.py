@@ -64,7 +64,7 @@ def _passages_for(selection: Selection, address: Address) -> list[Passage]:
     title = document_title(candidate, document)
     status_note = _legal_status_note(document.url) or ""
     collection = collection_for(candidate)
-    limit = SECTION_MAX_CHARS if address.has_section else PASSAGE_MAX_CHARS
+    limit = _passage_limit(address, len(selection.picks))
     out: list[Passage] = []
     for rank, (section, absatz) in enumerate(selection.picks):
         body, resolved = absatz_body(section, absatz)
@@ -82,6 +82,21 @@ def _passages_for(selection: Selection, address: Address) -> list[Passage]:
             )
         )
     return out
+
+
+#: What a LIST of named §§ may return in one call, all passages together. One
+#: named § gets SECTION_MAX_CHARS; six of them at that size were ~48k
+#: characters in one tool result, re-sent with every later call of the turn.
+LIST_MAX_CHARS = 2 * SECTION_MAX_CHARS
+
+
+def _passage_limit(address: Address, picks: int) -> int:
+    """Characters per passage: a named § whole, a list sharing one budget, a ranked hit a chunk."""
+    if not address.has_section:
+        return PASSAGE_MAX_CHARS
+    if len(address.sections) <= 1:
+        return SECTION_MAX_CHARS
+    return max(PASSAGE_MAX_CHARS, LIST_MAX_CHARS // max(picks, 1))
 
 
 def collection_for(candidate: Candidate) -> str:

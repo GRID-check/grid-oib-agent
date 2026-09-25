@@ -48,12 +48,25 @@ def _preamble_lines(passages: list[Passage], ingested_name: str | None, address:
     lines = [f"Found {len(passages)} relevant passage(s) in {documents} document(s):"]
     if address.bundesland:
         lines.append(land_sentence(address))
+    if address.unread:
+        lines.append(_unread_sentence(address))
     if ingested_name:
         lines.append(
             f'[The complete document was added to the knowledge base as "{ingested_name}" — '
             "read_passage reopens any other § of it.]"
         )
     return lines
+
+
+def _unread_sentence(address: Address) -> str:
+    """The §§ a list named past the lookup's budget: named, so the caller can ask for them."""
+    sign = "§" if address.kind == "§" else "Art."
+    first, last = address.unread[0], address.unread[-1]
+    named = f"{sign} {first}" if first == last else f"{sign} {first} bis {sign} {last}"
+    read = len(address.sections)
+    return (
+        f"[Only the first {read} of the listed sections were read; not read: {named}. Ask for them in a second call.]"
+    )
 
 
 def _hit(passage: Passage) -> GroundingHit:

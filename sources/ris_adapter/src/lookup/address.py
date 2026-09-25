@@ -28,15 +28,23 @@ PARAGRAPH_RE = re.compile(r"§+\s*(\d+[a-z]?)")
 ARTIKEL_RE = re.compile(r"\bArt(?:ikel)?\.?\s*(\d+[a-z]?)\b", re.IGNORECASE)
 ABSATZ_RE = re.compile(r"\bAbs(?:atz|\.)?\s*(\d+[a-z]?)\b", re.IGNORECASE)
 
-#: A § LIST: "§§ 75 und 81", "§§ 2, 3", "§§ 63 bis 65", "§ 5 und § 7". Every
-#: paragraph it names is addressed. Read as one § it dropped all but the first
-#: and left "und 81" in the law's name, and the agent spent a round fetching
-#: the § it had already asked for.
-_SECTION_LIST_RE = re.compile(r"§+\s*\d+[a-z]?(?:\s*(?:,|und|sowie|u\.|bis|–|-)\s*(?:§+\s*)?\d+[a-z]?)+", re.IGNORECASE)
-_LIST_ITEM_RE = re.compile(r"(bis|–|-)?\s*(?:§+\s*)?(\d+)([a-z]?)", re.IGNORECASE)
+#: A LIST of §§ or Artikel: "§§ 75 und 81", "§§ 2, 3", "§§ 63 bis 65",
+#: "§ 5 und § 7", "Art. 5 und 7". Every one it names is addressed. Read as one
+#: it dropped all but the first and left "und 81" in the law's name, and the
+#: agent spent a round fetching the § it had already asked for.
+_JOIN = r"\s*(?:,|und|sowie|u\.|bis|–|-)\s*"
+_SECTION_LIST_RE = re.compile(rf"§+\s*\d+[a-z]?(?:{_JOIN}(?:§+\s*)?\d+[a-z]?)+", re.IGNORECASE)
+_ARTIKEL_LIST_RE = re.compile(
+    rf"\bArt(?:ikel)?\.?\s*\d+[a-z]?(?:{_JOIN}(?:Art(?:ikel)?\.?\s*)?\d+[a-z]?)+", re.IGNORECASE
+)
+_LIST_ITEM_RE = re.compile(r"(bis|–|-)?\s*(?:§+\s*|Art(?:ikel)?\.?\s*)?(\d+)([a-z]?)", re.IGNORECASE)
+#: An Absatz with a list after it ("Abs 2 und 3", "Abs. 1 bis 3"): taken out of
+#: the law's name whole, so no "und 3" is left to be read as the law.
+_ABSATZ_LIST_RE = re.compile(rf"\bAbs(?:atz|\.)?\s*\d+[a-z]?(?:{_JOIN}\d+[a-z]?)*", re.IGNORECASE)
 
 #: How many §§ one list may address: the tool's own passage budget
-#: (``extract.MAX_PASSAGES``). "§§ 1 bis 90" is a law, not an address.
+#: (``extract.MAX_PASSAGES``). A longer list or range addresses its first six,
+#: and the result says which it did not read (``Address.unread``).
 MAX_ADDRESSED_SECTIONS = 6
 
 #: A bare RIS document number as an ``instrument=`` argument ("NOR40217157",
@@ -65,6 +73,8 @@ class Address:
     number: str = ""
     #: Every § the caller named, ``number`` first; one entry for a single §.
     numbers: tuple[str, ...] = ()
+    #: The §§ a list named past :data:`MAX_ADDRESSED_SECTIONS`, not read.
+    unread: tuple[str, ...] = ()
     absatz: str = ""
     law: str = ""
     url: str = ""
@@ -83,23 +93,33 @@ class Address:
         return self.numbers or ((self.number,) if self.number else ())
 
 
-def sections_listed(text: str) -> tuple[str, ...]:
-    """The §§ a list in ``text`` names, in order, ranges expanded; empty without a list."""
-    match = _SECTION_LIST_RE.search(text or "")
+#: A range is expanded up to this span; past it, only its two ends are named
+#: (the reader is told the rest was not read, and a whole law is not a list).
+_MAX_RANGE_SPAN = 200
+
+
+def sections_listed(text: str, kind: str = "§") -> tuple[str, ...]:
+    """Every § (or Artikel) a list in ``text`` names, in order, ranges expanded; empty without a list.
+
+    Not capped: :func:`parse_address` addresses the first
+    :data:`MAX_ADDRESSED_SECTIONS` and reports the rest as unread.
+    """
+    match = (_ARTIKEL_LIST_RE if kind == "Art" else _SECTION_LIST_RE).search(text or "")
     if not match:
         return ()
     numbers: list[str] = []
     for item in _LIST_ITEM_RE.finditer(match.group(0)):
         is_range, digits, suffix = item.groups()
-        if is_range and numbers and not suffix and numbers[-1].isdigit():
-            start, end = int(numbers[-1]), int(digits)
-            if end <= start or end - start >= MAX_ADDRESSED_SECTIONS:
-                return ()  # a span that long is a law, not an address: fall back to the one §
-            numbers.extend(str(value) for value in range(start + 1, end + 1))
+        start_digits = re.match(r"\d+", numbers[-1]) if numbers else None
+        if is_range and start_digits and not suffix and int(digits) > int(start_digits.group(0)):
+            # "7a bis 9" continues after 7a: 8, 9. The start is already in the list.
+            first, last = int(start_digits.group(0)) + 1, int(digits)
+            span = range(first, last + 1) if last - first < _MAX_RANGE_SPAN else (first, last)
+            numbers.extend(str(value) for value in span)
         else:
             numbers.append(digits + suffix)
     unique = tuple(dict.fromkeys(number.lower() for number in numbers))
-    return unique[:MAX_ADDRESSED_SECTIONS] if len(unique) > 1 else ()
+    return unique if len(unique) > 1 else ()
 
 
 def section_in(text: str) -> tuple[str, str]:
@@ -132,10 +152,10 @@ def parse_address(question: str, instrument: str, jurisdiction: str) -> Address:
     url = instrument if is_ris_url(instrument) else ""
     number = instrument if not url and _DOCUMENT_NUMBER_RE.match(instrument) else ""
     kind, section = section_in(instrument) if instrument and not url and not number else ("", "")
-    listed = sections_listed(instrument) if kind == "§" else ()
+    listed = sections_listed(instrument, kind) if kind else ()
     if not section:
         kind, section = section_in(question or "")
-        listed = sections_listed(question or "") if kind == "§" else ()
+        listed = sections_listed(question or "", kind) if kind else ()
     # An Absatz narrows ONE §; with a list it would narrow all of them to the
     # same number, which is never what "§§ 2 Abs 3 und 4" means.
     absatz = None if listed else (ABSATZ_RE.search(instrument) or ABSATZ_RE.search(question or ""))
@@ -143,7 +163,8 @@ def parse_address(question: str, instrument: str, jurisdiction: str) -> Address:
     return Address(
         kind=kind,
         number=section,
-        numbers=listed,
+        numbers=listed[:MAX_ADDRESSED_SECTIONS],
+        unread=listed[MAX_ADDRESSED_SECTIONS:],
         absatz=absatz.group(1) if absatz else "",
         law=_law_name(instrument, url, number),
         url=url,
@@ -157,8 +178,9 @@ def _law_name(instrument: str, url: str, number: str) -> str:
     """The named law inside ``instrument``, with the § and Absatz taken out."""
     if url or number:
         return ""
-    without_list = _SECTION_LIST_RE.sub("", instrument)
-    return PARAGRAPH_RE.sub("", ABSATZ_RE.sub("", without_list)).strip(" ,.;")
+    without_lists = _ABSATZ_LIST_RE.sub("", _ARTIKEL_LIST_RE.sub("", _SECTION_LIST_RE.sub("", instrument)))
+    without_single = ARTIKEL_RE.sub("", PARAGRAPH_RE.sub("", without_lists))
+    return re.sub(r"\s{2,}", " ", without_single).strip(" ,.;")
 
 
 def resolve_land(jurisdiction: str, instrument: str, question: str) -> tuple[str, str]:

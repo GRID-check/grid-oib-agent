@@ -66,8 +66,8 @@ project brief, and the answer states which.
 "§ 63 BO Wien", a RIS document number, or a ris.bka.gv.at URL. Naming a § makes \
 the lookup deterministic — no model reads the law, the paragraph is cut out by its number. \
 Name every § you already know you need in ONE call ("§§ 75 und 81 BO Wien", \
-"§§ 2 bis 4 Baupolizeigesetz Salzburg", up to six): each is cut out of the same law, \
-where a call per § is a round per §.
+"§§ 2 bis 4 Baupolizeigesetz Salzburg", up to six; past six it names those it did not read): \
+each is cut out of the same law, where a call per § is a round per §.
     application (str): Only for the non-statute corpora: "Vfgh", "Vwgh", "Justiz", \
 "Bvwg", "Lvwg" for case law, "BgblAuth"/"LgblAuth" for the authentic gazettes, \
 "Begut"/"RegV" for drafts. Leave empty for statute law — it is decided internally.

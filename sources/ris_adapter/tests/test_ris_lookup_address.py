@@ -128,10 +128,26 @@ class TestAListOfParagraphs:
     def test_a_short_range_is_expanded(self):
         assert parse_address("x", "§§ 63 bis 65 BO Wien", "").sections == ("63", "64", "65")
 
-    def test_a_range_as_long_as_a_law_is_not_an_address(self):
-        # Past the tool's passage budget a range is "read the law", which the
-        # ranked path does better than six arbitrary §§.
-        assert parse_address("x", "§§ 1 bis 90 BO Wien", "").sections == ("1",)
+    def test_a_list_past_the_budget_reads_its_first_six_and_names_the_rest(self):
+        # It used to fall back to the first § alone, silently: "§§ 3 bis 12"
+        # came back as § 3, as if that were the answer.
+        address = parse_address("x", "§§ 3 bis 12 BO Wien", "")
+
+        assert address.sections == ("3", "4", "5", "6", "7", "8")
+        assert address.unread == ("9", "10", "11", "12")
+        assert address.law == "BO Wien"
+
+    def test_a_range_from_a_lettered_paragraph_continues_after_it(self):
+        assert parse_address("x", "§§ 7a bis 9 BO Wien", "").sections == ("7a", "8", "9")
+
+    def test_an_absatz_list_leaves_nothing_in_the_laws_name(self):
+        assert parse_address("x", "§ 5 Abs 2 und 3 BO Wien", "").law == "BO Wien"
+        assert parse_address("x", "§ 81 Abs. 1 bis 3 BO Wien", "").law == "BO Wien"
+
+    def test_a_list_of_artikel_is_a_list_too(self):
+        address = parse_address("x", "Art. 5 und 7 B-VG", "")
+
+        assert (address.kind, address.sections, address.law) == ("Art", ("5", "7"), "B-VG")
 
     def test_an_absatz_narrows_one_paragraph_never_a_list(self):
         single = parse_address("x", "§ 2 Abs. 5 Baupolizeigesetz", "")
@@ -139,3 +155,16 @@ class TestAListOfParagraphs:
 
         assert (single.sections, single.absatz) == (("2",), "5")
         assert (listed.sections, listed.absatz) == (("2", "3"), "")
+
+
+def test_a_list_shares_one_budget_and_one_named_paragraph_keeps_its_own():
+    from ris_adapter.lookup.address import parse_address
+    from ris_adapter.lookup.grammar import SECTION_MAX_CHARS
+    from ris_adapter.lookup.passages import LIST_MAX_CHARS
+    from ris_adapter.lookup.passages import _passage_limit
+
+    one = parse_address("x", "§ 63 BO Wien", "")
+    six = parse_address("x", "§§ 63 bis 68 BO Wien", "")
+
+    assert _passage_limit(one, 2) == SECTION_MAX_CHARS
+    assert _passage_limit(six, 6) * 6 <= LIST_MAX_CHARS

@@ -90,3 +90,18 @@ async def test_a_list_of_paragraphs_comes_back_whole_in_one_call(lookup, catalog
     assert picker.calls == []
     assert "Punkt: § 63" in output and "Punkt: § 64" in output
     assert "Bauverhandlung anzuberaumen" in output
+
+
+async def test_an_absatz_the_paragraph_lacks_comes_back_once(lookup, catalog):
+    """ "§ 63 Abs 9" of a § with three Absätze is § 63, once, never twice under one key."""
+    output = await lookup.run(question="Was verlangt § 63 Abs 9 BO Wien?", instrument="§ 63 Abs 9 BO Wien")
+
+    assert output.count("--- Result ") == 1
+    assert "Punkt: § 63" in output
+
+
+async def test_a_list_past_the_budget_says_what_it_did_not_read(lookup, catalog):
+    output = await lookup.run(question="Was regeln die §§ 63 bis 75?", instrument="§§ 63 bis 75 BO Wien")
+
+    assert "not read: § 69 bis § 75" in output
+    assert "Punkt: § 63" in output
