@@ -133,8 +133,9 @@ const NON_PROSE_OPENER = /^(#{1,6}\s|[-*+]\s|\d+[.)]\s|>|\||```|\[\[card:)/
  * none (`grid/motion-vocabulary`).
  */
 function opensWithLede(body: string): boolean {
-  // Not withheld while streaming: the body only grows, so once an answer
-  // earns its lede it keeps it.
+  // Not withheld while streaming. Deltas only grow the body, but a settled
+  // snapshot (ADR-0066) can shorten it and a retraction empties it, so the
+  // snapshot can take a lede back; it then follows the settled prose.
   if (body.length < LEDE_MIN_CHARS) return false
   const trimmed = body.trimStart()
   const firstLine = trimmed.split('\n', 1)[0]

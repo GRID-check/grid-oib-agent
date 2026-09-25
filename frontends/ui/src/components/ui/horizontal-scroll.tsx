@@ -61,11 +61,14 @@ export function HorizontalScroll({
     const update = () => {
       const start = element.scrollLeft > 1
       const end = element.scrollLeft + element.clientWidth < element.scrollWidth - 1
-      setOverflow((previous) => (previous.start === start && previous.end === end ? previous : { start, end }))
+      setOverflow((previous) =>
+        previous.start === start && previous.end === end ? previous : { start, end }
+      )
     }
     update()
     element.addEventListener('scroll', update, { passive: true })
-    if (typeof ResizeObserver === 'undefined') return () => element.removeEventListener('scroll', update)
+    if (typeof ResizeObserver === 'undefined')
+      return () => element.removeEventListener('scroll', update)
     const observer = new ResizeObserver(update)
     observer.observe(element)
     // The content is observed through a wrapper that lives as long as the
