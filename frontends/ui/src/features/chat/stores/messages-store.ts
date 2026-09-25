@@ -1399,6 +1399,7 @@ export const createMessagesSlice: StateCreator<
       }
     },
 
+    // Mirrored by the observer's fold (collaboration/lib/spectator-frames.ts): change both.
     replaceStreamingAgentResponse: (
       content: string,
       citations?: CitationSource[],

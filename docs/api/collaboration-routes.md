@@ -383,8 +383,9 @@ dropping one — which the TTL already heals.
 
 Watch a turn as it happens (ADR-0039). Relays the agent's outbound WebSocket
 frames for **one** conversation, so an observer sees the reasoning being done and
-the answer being written rather than a spinner followed by a finished block of
-text. Requires `viewer`.
+the answer being written, with the asker's masthead, verified sources and cards
+(ADR-0066), rather than a spinner followed by a finished block of text. The view
+is read-only: no feedback row, and a card cannot apply anything. Requires `viewer`.
 
 - Frames are `data: {"kind":"frame","seq":N,"payload":<NAT frame>}`. The payload is
   the raw NAT WebSocket frame (`system_response_message`,

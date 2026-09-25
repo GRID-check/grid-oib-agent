@@ -76,26 +76,6 @@ function getTextFromChildren(node: ReactNode): string {
 }
 
 /**
- * Stabilize half-arrived markdown DURING streaming so partial syntax doesn't
- * flip the layout token-by-token.
- *
- * Two failure modes are smoothed:
- *  1. An odd number of ``` fences — the trailing prose after a just-opened fence
- *     would otherwise render as a giant code card until its closing fence lands.
- *     We append a synthetic closing fence so the in-progress block renders as a
- *     (small) code block instead of swallowing everything below it.
- *  2. A GFM table whose delimiter row (`|---|`) hasn't streamed in yet — the
- *     header row alone would be mis-parsed. We hold the trailing header-only
- *     table lines back until the delimiter row exists, rendering them as plain
- *     text for the moment (they re-parse as a table once the delimiter arrives).
- *
- * This only runs while `isStreaming` is true; finalized content is passed
- * through untouched so the fully-formed markdown always wins.
- */
-// Exported for its own spec. It is the one part of this module with a cost that
-// depends on the shape of the input rather than its size, so it is measured
-// directly: timing it through a React render measures the render.
-/**
  * The body of the fence a streaming text is still inside, or `null`.
  *
  * The stabiliser closes a half-arrived fence so the parser can read it, which
@@ -112,6 +92,26 @@ export function openFenceBody(raw: string): string | null {
   return lineEnd < 0 ? '' : raw.slice(lineEnd + 1)
 }
 
+// Exported for its own spec. It is the one part of this module with a cost that
+// depends on the shape of the input rather than its size, so it is measured
+// directly: timing it through a React render measures the render.
+/**
+ * Stabilize half-arrived markdown DURING streaming so partial syntax doesn't
+ * flip the layout token-by-token.
+ *
+ * Two failure modes are smoothed:
+ *  1. An odd number of ``` fences — the trailing prose after a just-opened fence
+ *     would otherwise render as a giant code card until its closing fence lands.
+ *     We append a synthetic closing fence so the in-progress block renders as a
+ *     (small) code block instead of swallowing everything below it.
+ *  2. A GFM table whose delimiter row (`|---|`) hasn't streamed in yet — the
+ *     header row alone would be mis-parsed. We hold the trailing header-only
+ *     table lines back until the delimiter row exists, rendering them as plain
+ *     text for the moment (they re-parse as a table once the delimiter arrives).
+ *
+ * This only runs while `isStreaming` is true; finalized content is passed
+ * through untouched so the fully-formed markdown always wins.
+ */
 export function stabilizeStreamingMarkdown(raw: string): string {
   let content = raw
 
@@ -249,11 +249,9 @@ function MarkdownCode({
     )
   }
 
-  // A diagram, not a listing. `MermaidDiagram` falls back to exactly
-  // the `CodeBlock` below when the source will not draw — while the
-  // answer is still streaming (the stabiliser makes a half-arrived
-  // fence LOOK closed, so drawing it would flash a parse error per
-  // token) and when the model wrote broken mermaid, which it will.
+  // A diagram, not a listing. The fence still being written holds its
+  // place (`isStreaming`). A source mermaid will not draw falls back to
+  // the `CodeBlock` below.
   if (isMermaidFence(codeClassName, codeContent)) {
     const stillWriting = openFence !== null && codeContent.trimEnd() === openFence.trimEnd()
     return <MermaidDiagram source={codeContent} isStreaming={stillWriting} />
@@ -597,7 +595,7 @@ const MARKDOWN_COMPONENTS = {
  * MarkdownRenderer - Renders markdown content with shadcn-idiomatic styling
  *
  * @param content - Markdown string to render
- * @param isStreaming - Whether content is still streaming (disables memoization)
+ * @param isStreaming - Whether content is still streaming: stabilise half-arrived Markdown and hold the open fence's place
  * @param className - Additional CSS classes
  * @param compact - Use smaller text sizes for chat bubbles
  * @param remarkPlugins - Extra remark plugins, run after GFM and math

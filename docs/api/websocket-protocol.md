@@ -458,7 +458,7 @@ as it is written. Each is one of four kinds, told apart by what it carries:
 | Frame | Fields | Client action |
 |-------|--------|---------------|
 | Delta | `content` | Append to the streaming bubble. A `[N]` with no source yet renders as a pending citation. |
-| Snapshot | `content`, `sources`, `stream_replace: true`, `answer_meta` | Replace the bubble's text with the settled prose: citations verified and renumbered, the pending markers now pointing at `sources`. Sent once, when the envelope's `answer` string closes. |
+| Snapshot | `content`, `sources`, `stream_replace: true`, `answer_meta` | Replace the bubble's text with the settled prose: citations verified and renumbered, the pending markers now pointing at `sources`. The citations are replaced too, and an empty `sources` clears them. A snapshot without `answer_meta` removes the masthead: the backend re-gated it against the prose and dropped it. Sent once, when the envelope's `answer` string closes. The exception is an empty snapshot (`content: ""`, `sources: []`): it retracts a streamed call that turned out to be a tool round, and a later snapshot follows. Cards that round drew stay until the `complete` frame. |
 | Masthead | empty `content`, `answer_meta` | Set the masthead above the prose. The text is unchanged. |
 | Cards | empty `content`, `cards` | Fill the `[[card:N]]` placeholders with the cards written so far. The text is unchanged. Sent only while no tool pushed a card this turn. |
 
@@ -466,7 +466,11 @@ None of them is persisted. The `complete` frame that follows replaces the text
 again and is authoritative: what it omits (a card suppressed, a masthead gated
 out) the client drops. Live deltas need not concatenate to the final text; on
 a buffered turn (no live prose) the deltas are the finished text cut into
-pieces and do. Design:
+pieces and do.
+
+Two folds consume these frames: the asker's store (`messages-store.ts`) and the
+observer's (`spectator-frames.ts`, via `GET /api/conversations/{id}/live`).
+Both must apply the same rules. Design:
 [`streaming-chat-answer.md`](../design/streaming-chat-answer.md#live-frames-adr-0066).
 
 #### system_intermediate_message

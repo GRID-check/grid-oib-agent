@@ -29,8 +29,10 @@ before the turn ended, and be complete before it would otherwise have begun.
 * The terminal frame is authoritative for persistence and the single-consumer
   fold; nothing may change that.
 * NAT's usage profiler rides the LLM call's inherited callbacks and bills it.
-* No new wire message, no frontend contract change: the WebSocket, the store
-  and the observer relay (ADR-0039) already carry deltas then a terminal.
+* No new wire message: the live frames are new fields on `in_progress`
+  (`stream_replace`, `answer_meta`, `cards`), and the store gains one action
+  (`replaceStreamingAgentResponse`). The WebSocket, the store and the observer
+  relay (ADR-0039) already carry deltas then a terminal.
 * Nothing the reader is reading may move because something arrived above it.
   A chat answer is read from its top as it grows, so an insertion above the
   reading point (the masthead, a card) moves the very line the eye is on.
@@ -66,7 +68,8 @@ the answer streams, the client renders a marker with no source entry yet as a
 PENDING pill (`#cite-pending-N`: muted, pulsing, no peek).
 
 When the string closes, the callback settles it with the pipeline's own
-functions (`settle_streamed_citations`: `verify_citations`, `sanitize_report`,
+functions (`settle_streamed_citations`: `verify_citations`,
+`annotate_unverified_quotes`, `sanitize_report`, `drop_restated_mindmaps`,
 the cited sources), against the registry the turn answers from, and sends ONE
 snapshot frame (`stream_replace`, with `sources`) whose text replaces the
 bubble's: the verified, renumbered prose and its written source list. The
@@ -74,6 +77,13 @@ pending pills become the answer's citations, or vanish if their line did not
 verify. The turn generator relays deltas in 50 ms windows while the answer
 task runs, then yields the terminal alone, which replaces the text once more
 with the same numbers.
+
+A streamed call whose result carries tool calls was a round, not the answer:
+its prose is retracted with an empty snapshot (`AnswerStreamSink.retract`), and
+a later call streams again. The settle runs in a worker thread, because fuzzy
+matching over every retrieved chunk on the event loop would stall the other
+turns the worker serves; the model's stream awaits the callback, so frame
+order holds.
 
 Everything that stands ABOVE or BESIDE the prose reaches the page before the
 prose moves past it. The envelope writes its masthead (`kind`, `topic`,
@@ -137,6 +147,10 @@ that changed the settled text (`settled_replaced`).
   the prompt's examples and the strict schema are what keep the order.
 * Bad, because a card's placeholder is representative, not its height: the
   card still grows by the difference when it lands, eased, above the reader.
+* Neutral: the top-anchor spacer (`ChatArea`'s `fitAnchorSpacer`) holds exactly
+  the room the answer has not filled yet, and is not released when the stream
+  ends. Releasing it clamped the scroll, and a short answer dropped by the
+  unused room. The next question or a thread swap clears it.
 
 ### Confirmation
 
@@ -152,7 +166,13 @@ that changed the settled text (`settled_replaced`).
   back.
 * `tests/aiq_agent/turn/test_answer_stream.py`: the inherited handlers still see
   the streamed call, a non-envelope round streams nothing, no second call
-  streams once prose went out, Responses-API token blocks are read.
+  streams once prose went out, Responses-API token blocks are read;
+  `test_a_call_that_also_asks_for_tools_takes_back_what_it_showed` and
+  `test_the_settle_runs_off_the_event_loop`.
+* `tests/aiq_agent/agents/piloti/test_settled_replaced.py`: a terminal that
+  changed the settled text is logged for the suite to count.
+* `stable-overrides.spec.tsx`: a drawn diagram and an arrived card survive the
+  next streamed token. `ChatArea.spec.tsx`: the anchor spacer.
 * The answer suite's live runs record the reply the pipeline read, unchanged.
 * `test_answer_envelope.py`: the strict schema writes the masthead, then
   `answer`. `CardSlotArrival.spec.tsx`, `card-markers.spec.tsx`: a streaming

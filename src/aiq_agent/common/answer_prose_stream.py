@@ -1,9 +1,12 @@
 """The answer's prose while the model is still writing it, safe to show.
 
-The final call writes one ```answer_json envelope whose ``answer`` string comes
-first (the schema and every example put it there), then the cards. This reads
-that string out of the raw token stream as it grows and hands back what may be
-shown NOW, JSON-unescaped.
+The final call writes one ```answer_json envelope: the masthead fields
+(``MASTHEAD_FIELDS`` in :mod:`aiq_agent.common.answer_envelope`) first, then the
+``answer`` string, then the cards. The strict schema and every example put them
+in that order, and the order is load-bearing (ADR-0066): a masthead written
+after ``answer`` cannot stand above the prose until the terminal frame. This
+reads the string out of the raw token stream as it grows and hands back what
+may be shown NOW, JSON-unescaped.
 
 - ``[N]`` citation markers stream as they are written, whole: a half-written
   ``[1`` is held until its bracket closes. The reader shows them as pending

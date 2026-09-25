@@ -12,7 +12,7 @@
  * fold from frames to display state, with no I/O and no store writes, which is
  * also what makes it directly testable.
  *
- * ## The two rules worth stating
+ * ## The rules worth stating
  *
  *  1. **Answer frames are routed by `status`, not by any flag** — the same
  *     contract the asker's client obeys. `in_progress` frames are deltas that
@@ -23,6 +23,12 @@
  *     per-conversation channel, so the tail of one turn and the head of the next
  *     arrive on the same subscription; without this the second question's answer
  *     would append to the first one's.
+ *  3. **Live-frame semantics mirror `messages-store.ts`.** A delta appends;
+ *     `stream_replace` replaces the text and the citations, and drops a
+ *     masthead the snapshot omits (an empty one retracts a tool round); masthead
+ *     and cards frames set without touching the text; a `complete` with text is
+ *     authoritative, absence included. Change one fold and you change the
+ *     other, with a spec case in both.
  *
  * Nothing here is authoritative. The persisted answer arrives over the ordinary
  * message path and replaces all of it — this exists purely so the ninety seconds

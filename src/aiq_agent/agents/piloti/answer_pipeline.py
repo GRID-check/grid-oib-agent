@@ -643,6 +643,10 @@ class LiveAnswer:
       held to the settled numbers. Only while no tool has registered a card
       this turn: the reader places ``[[card:N]]`` against the message's card
       list, which such a card would shift.
+
+    ``settle`` runs in a worker thread with the turn's context copied
+    (``asyncio.to_thread`` in ``turn/answer_stream.py``): no loop-bound
+    objects, no awaiting.
     """
 
     def __init__(self, registry: SourceRegistry) -> None:

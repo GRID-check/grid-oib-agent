@@ -1274,9 +1274,11 @@ class ReconnectableWebSocketMessageHandler(WebSocketMessageHandler):
                 sources = data_model.model_extra.get("sources") if data_model.model_extra else None
 
             # Pull the transparency extras (WP-A) the same way (attr or pydantic
-            # model_extra). Each rides the terminal-chunk extras lift set by the
-            # Piloti's conversation_register and is surfaced only when present, never
-            # null-spammed. See docs/architecture/backend-deep-dive.md.
+            # model_extra). Each is surfaced only when present, never
+            # null-spammed. Most ride the terminal-chunk extras lift set by the
+            # Piloti's conversation_register; a live in_progress chunk may carry
+            # `stream_replace` and `answer_meta` too, and `cards` above
+            # (ADR-0066). See docs/architecture/backend-deep-dive.md.
             transparency_extras = {
                 name: value
                 for name in _TRANSPARENCY_EXTRA_FIELDS
@@ -1562,12 +1564,14 @@ class ReconnectableWebSocketMessageHandler(WebSocketMessageHandler):
                     user_authentication_callback=auth_callback,
                 ) as session:
                     # Streaming answer delivery. The workflow may yield the answer
-                    # as many ChatResponseChunks: incremental deltas
-                    # (finish_reason=None) followed by a terminal chunk
-                    # (finish_reason="stop") carrying the full text + cards/sources.
-                    # We forward deltas as IN_PROGRESS frames the client
-                    # accumulates, and the terminal as the COMPLETE frame that
-                    # finalizes + persists. When the workflow yields only a single
+                    # as many ChatResponseChunks: live chunks (finish_reason=None)
+                    # followed by a terminal chunk (finish_reason="stop")
+                    # carrying the full text + cards/sources. We forward live
+                    # chunks as IN_PROGRESS frames and the terminal as the
+                    # COMPLETE frame that finalizes + persists. Most live frames
+                    # are deltas the client appends; one with `stream_replace`
+                    # replaces the text, and one may carry `answer_meta` or
+                    # `cards` instead of text (ADR-0066). None is persisted. When the workflow yields only a single
                     # terminal chunk (streaming disabled), the pre-streaming
                     # pattern — one IN_PROGRESS content frame + a synthetic empty
                     # COMPLETE — is preserved exactly.

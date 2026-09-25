@@ -87,14 +87,6 @@ const LEDE_CLASS =
   '[&>.markdown-content>p:first-child]:leading-[1.65] ' +
   '[&>.markdown-content>p:first-child]:mb-4'
 
-/**
- * The lede is decided while the answer streams, the moment it has earned one,
- * not flipped on at the end: decided only once the answer was complete, it
- * reflowed the top of an answer the reader was already halfway down, in the
- * same frame as everything else the terminal frame changes (ADR-0066). Not
- * eased: font size is a layout property, and the motion vocabulary animates
- * none (`grid/motion-vocabulary`).
- */
 /** The prose wrapper's classes: the caret's inline run while streaming, and the lede. */
 const proseClass = (streaming: boolean, lede: string): string | undefined => {
   const caret = streaming
@@ -123,9 +115,17 @@ const LEDE_MIN_CHARS = 600
  */
 const NON_PROSE_OPENER = /^(#{1,6}\s|[-*+]\s|\d+[.)]\s|>|\||```|\[\[card:)/
 
+/**
+ * The lede is decided while the answer streams, the moment it has earned one,
+ * not flipped on at the end: decided only once the answer was complete, it
+ * reflowed the top of an answer the reader was already halfway down, in the
+ * same frame as everything else the terminal frame changes (ADR-0066). Not
+ * eased: font size is a layout property, and the motion vocabulary animates
+ * none (`grid/motion-vocabulary`).
+ */
 function opensWithLede(body: string): boolean {
   // Not withheld while streaming: the body only grows, so once an answer
-  // earns its lede it keeps it, and the switch happens where it can be eased.
+  // earns its lede it keeps it.
   if (body.length < LEDE_MIN_CHARS) return false
   const trimmed = body.trimStart()
   const firstLine = trimmed.split('\n', 1)[0]

@@ -2,8 +2,7 @@
 
 /**
  * `/dev/stream-replay?fixture=varianten&speed=1` — a recorded live answer,
- * replayed frame by frame at its recorded pace through the same transforms the
- * WebSocket hook applies, into the real `AgentResponse`.
+ * replayed frame by frame at its recorded pace into the real `AgentResponse`.
  *
  * What it is for: seeing (and measuring) what a streamed answer does to the
  * page. Every layout shift is recorded with the phase it happened in and the
@@ -53,7 +52,11 @@ interface View {
 
 const EMPTY: View = { content: '', isStreaming: true, phase: 'waiting' }
 
-/** One frame folded into the view, as `use-websocket-chat` + the store fold it. */
+/**
+ * One frame folded into the view. A copy of the store's fold, not the store: it
+ * does not retract a gated-out masthead or live cards. Keep it in step with
+ * `messages-store.ts`; the ADR-0066 shift numbers come from here.
+ */
 const applyFrame = (view: View, frame: RecordedFrame): View => {
   if (frame.status === 'complete') {
     const meta = sanitizeAnswerMeta(frame.answer_meta)

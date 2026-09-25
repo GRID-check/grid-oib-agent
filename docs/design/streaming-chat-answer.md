@@ -10,8 +10,11 @@ added three kinds of live `IN_PROGRESS` frame beside the plain delta
 ([Live frames](#live-frames-adr-0066)). Streaming is the default delivery; there is
 no runtime flag — the backend and frontend ship together in this monorepo, so
 the change is atomic and needs no staged rollout toggle.
-**Related:** the per-turn chat path (`agents/piloti/conversation_register.py`), `websocket_reconnect.py`,
-the `frontends/ui` chat store.
+**Related:** the per-turn chat path (`agents/piloti/conversation_register.py`,
+with `_live_item_chunk` and `note_settled_replaced`), `websocket_reconnect.py`,
+the `frontends/ui` chat store. Live prose: `turn/answer_stream.py`,
+`common/answer_prose_stream.py`, and `agents/piloti/answer_pipeline.py`
+(`LiveAnswer`, `settle_streamed_citations`).
 
 ## Why this is cross-stack, not backend-only
 
@@ -94,7 +97,7 @@ persist-eligible. Besides the plain delta, which appends, there are three:
 
 | Frame | Carries | The client |
 |---|---|---|
-| Snapshot | `content`, `sources`, `stream_replace: true`, and the re-gated `answer_meta` | REPLACES the bubble's text with the settled, renumbered prose; the pending `[N]` become citations against `sources` |
+| Snapshot | `content`, `sources`, `stream_replace: true`, and the re-gated `answer_meta` | REPLACES the bubble's text with the settled, renumbered prose; the pending `[N]` become citations against `sources`. It replaces the citations too (an empty `sources` clears them), and a snapshot without `answer_meta` removes the masthead: the re-gate dropped it |
 | Masthead | empty `content`, `answer_meta` | sets the masthead above the prose; the text is unchanged |
 | Cards | empty `content`, `cards` | fills the `[[card:N]]` placeholders; the text is unchanged |
 
@@ -105,6 +108,11 @@ turns out to carry tool calls was a round, not the answer, and is retracted
 with an EMPTY snapshot (`AnswerStreamSink.retract`); the answering call after
 it streams again. Cards it drew stay until the terminal frame replaces them. The wire fields:
 [`websocket-protocol.md`](../api/websocket-protocol.md#live-frames-adr-0066).
+
+The settle runs the terminal's shape pass as well. A mindmap whose words are
+at least 70% a table's in the same answer (`drop_restated_mindmaps`,
+`agents/piloti/answer_shape.py`, `MINDMAP_TABLE_COVERAGE`) goes when the prose
+settles, so the reader can see it while the prose streams and then lose it.
 
 ### WS handler (`websocket_reconnect.py::_run_workflow`)
 
@@ -121,11 +129,23 @@ it streams again. Cards it drew stay until the terminal frame replaces them. The
 - Maintain one streaming bubble per turn (keyed by `parent_id`).
 - `IN_PROGRESS` content frame ⇒ **append** delta to the streaming bubble
   (create it on the first delta); with `stream_replace` ⇒ **replace** it
-  (`replaceStreamingAgentResponse`); with `answer_meta` or `cards` ⇒ set them
-  on the bubble.
+  (`replaceStreamingAgentResponse`), its citations and its masthead; with
+  `answer_meta` or `cards` ⇒ set them on the bubble.
+- What is provisional: only a masthead or cards that came on a text-less live
+  frame, or a masthead on a snapshot. A terminal WITH text takes back what it
+  omits. An empty terminal takes back nothing. Cards on a legacy
+  text-bearing `IN_PROGRESS` frame are final.
 - Completing frame with full content ⇒ **replace** the bubble content with the
   authoritative full text (idempotent when equal to the accumulation), attach
   `cards`/`sources`, finalize.
+- Diagrams: only the fence the text still ends inside is streaming
+  (`openFenceBody` in `MarkdownRenderer.tsx`), and it holds its place with a
+  skeleton (`DrawingSkeleton`). Every closed fence is drawn while the answer
+  streams.
+
+Two folds consume these frames: the asker's store (`messages-store.ts`) and
+the observer's (`spectator-frames.ts`, via `GET /api/conversations/{id}/live`).
+Both must apply the same rules.
 - Backward compatible: with the current backend (one content frame), "append the
   only delta then finalize" yields the same single bubble as today.
 
@@ -172,3 +192,10 @@ answer, and the network re-clumps whatever the sleep spaced out.
   cards; single-frame backend still renders one bubble; the whole-answer
   affordances (copy, unclaimed cards) wait for `isStreaming` to clear
   (`AgentResponse.spec.tsx`, "a streaming answer").
+- Live turns (ADR-0066): `tests/aiq_agent/turn/test_answer_stream.py` (the
+  streamed call, the retraction of a tool round, the settle off the loop);
+  `frontends/ui/src/features/chat/store.spec.ts` and
+  `frontends/ui/src/features/collaboration/lib/spectator-frames.spec.ts` (the
+  two folds, case for case); `stable-overrides.spec.tsx` (a drawn diagram and
+  an arrived card survive the next token). ADR-0066's Confirmation lists the
+  rest.

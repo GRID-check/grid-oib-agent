@@ -115,10 +115,6 @@ export function MermaidDiagram({ source, isStreaming = false }: MermaidDiagramPr
   // `svg`: the bytes that go into the project are always the paper ones.
   const filing = useDiagramFiling({ source, fileSvg })
 
-  // Streaming, or refused to draw: the source, which is what the reader saw
-  // before this component existed. NOT the "still drawing" case — that one gets
-  // the skeleton below, because replacing a code block with a picture a second
-  // later is a bigger jump than growing a placeholder into one.
   // Still being written: the drawing's place, not its source. A code block that
   // turned into a picture when its fence closed was the largest jump a
   // streamed answer made; a placeholder growing into the figure is the small

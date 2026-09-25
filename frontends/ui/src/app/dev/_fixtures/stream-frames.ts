@@ -1,8 +1,17 @@
 /**
- * Two live answers as the WebSocket delivered them (2026-09-24, ADR-0066): the
+ * Two live answers as the agent streamed them (2026-09-24, ADR-0066): the
  * masthead ahead of the prose, the prose deltas, the settled snapshot, the
- * live cards, and the terminal frame with its cards and anatomy, each
- * stamped with its second since the turn began. Recorded, not written: the replay at `/dev/stream-replay` is only as honest as these.
+ * live cards, and the terminal frame with its cards and anatomy, each stamped
+ * with its second since the turn began.
+ *
+ * Recorded, not written: a one-off script ran each question through the real
+ * workflow (`load_workflow` on `configs/config_oib_openrouter.yml`) and kept
+ * every chunk of `result_stream()`: its content, its wire extras
+ * (`STREAM_EXTRA_FIELDS` plus `stream_replace`), and `complete` for the
+ * `finish_reason="stop"` chunk, `in_progress` for the rest. That is the chunk
+ * stream `websocket_reconnect.py` turns into frames, read before the socket,
+ * so the WebSocket's own timing is not in it. The replay at
+ * `/dev/stream-replay` is only as honest as these.
  */
 
 export interface RecordedFrame {

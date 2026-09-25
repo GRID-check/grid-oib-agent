@@ -72,7 +72,8 @@ class Live(Protocol):
     """What the agent lets the stream show before its pipeline ran (``answer_pipeline.LiveAnswer``).
 
     The agent supplies it, so the verifier and the gates stay on its side of
-    the dependency line.
+    the dependency line. ``settle`` runs in a worker thread with the turn's
+    context copied: it may use no loop-bound objects and await nothing.
     """
 
     def masthead(self, fields: dict[str, Any], prose: str = "") -> dict[str, Any] | None: ...
@@ -99,10 +100,11 @@ class AnswerStreamSink:
     def retract(self) -> None:
         """Take back what this call showed: the call turned out to be a tool round, not the answer.
 
-        An empty snapshot clears the bubble's text, sources and masthead, and a
-        later call of the turn may stream again. A card already drawn stays
-        until the terminal frame replaces the cards (the client ignores an
-        empty card list); cards come after the prose, so that is rare.
+        An empty snapshot clears the bubble's text, citations and masthead, in
+        the asker's store and the observer's fold alike, and a later call of
+        the turn may stream again. A snapshot carries no cards, so a card
+        already drawn stays until the terminal frame; cards come after the
+        prose, so that is rare.
         """
         self._queue.put_nowait(Snapshot(content="", sources=[], answer_meta=None))
         self.streamed = False
