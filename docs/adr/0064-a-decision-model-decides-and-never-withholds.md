@@ -188,6 +188,22 @@ skip is `StageEmpty("decided_nothing_durable")` on the stage's span, so its
 rate is measured in production like every other stage outcome. It never
 touches the answer, which has shipped before the stage starts.
 
+**Use 7 — which memory entry a correction retires** (`memory/supersede.py`).
+A yes/no per pair: does this new finding make that stored entry wrong. The
+single writer already retires an entry the writer quotes as `supersedes`, or
+one worded closely enough for its polarity split; a correction worded
+differently and not quoted („Das Grundstück liegt in St. Pölten" against
+„Das Projekt liegt in Wien") left both live, which the memory design names as
+outstanding (§3.2). Both agent writers — the `remember` tool on a project
+write and reflection — now ask it for every project entry of the digest when
+the model gave no quote, and send the most likely entry at 0.75 or above as
+the quote, through the same field: the writer's rules still hold (a quote
+that does not resolve is ignored; a pinned, user-confirmed or user-authored
+entry is never retired by an agent). Measured on a twelve-entry memory and
+sixteen findings: the eight corrections named the right entry at
+0.80–0.97, the next entry at most 0.22; the eight additions at most 0.37.
+The model's own quote always wins and is not second-guessed.
+
 **Not a use.** Intent or model routing, the escalation decision, confidence,
 verdict extraction, anything whose wrong answer removes a capability
 (ADR-0052, unchanged). Card selection and skill suggestion, which the audit
@@ -278,6 +294,9 @@ numbers above are one run on German questions the product actually gets.
   a failed or off-vocabulary decision falls back to it.
 - `tests/aiq_agent/stages/test_memory_reflection_stage.py::TestTheDecisionSkipsOnlyAConfidentNo`
   and `tests/aiq_agent/memory/test_reflection.py::TestDurableProbability`.
+- `tests/aiq_agent/memory/test_supersede.py`: the digest read back
+  unescaped, org-wide entries left out, the writer's quote first, both
+  writers send the decided one; `memory_supersede.yaml` in the off-path eval.
 - `tests/conftest.py::_no_live_decisions`: the suite never reaches the live
   endpoint unless a test turns decisions on and stubs it.
 - `tests/test_decision_eval.py`: the adoption gate's arithmetic;

@@ -1,0 +1,51 @@
+# Hand-labelled, written for ADR-0064 use 7 (2026-09-25). Not captured payloads:
+# a project memory in the shape the digest renders it, and findings a turn could
+# write. `supersedes` is the entry the finding makes wrong or outdated, or null
+# when it only adds, restates or concerns something else. Re-run with
+# `task be:eval:decisions:offpath`.
+memory:
+  - Das Projekt liegt in Wien, 14. Bezirk.
+  - Das Gebäude hat vier oberirdische Geschoße.
+  - Der Bauherr hat sich für ein Flachdach entschieden.
+  - Die Fassade wird als WDVS mit Mineralwolle ausgeführt.
+  - Das Gebäude ist der Gebäudeklasse 4 zuzuordnen.
+  - Im Erdgeschoß sind zwei Wohnungen geplant.
+  - Die Tiefgarage hat 18 Stellplätze.
+  - Offen ist, ob ein zweiter Fluchtweg erforderlich ist.
+  - Der Nutzer möchte Antworten mit Tabelle.
+  - Die Einreichung ist für März 2027 geplant.
+  - Das Fluchtniveau beträgt 10,5 m.
+  - Die Statik wird vom Büro Mayer ZT erstellt.
+findings:
+  - finding: Das Grundstück liegt in St. Pölten, Niederösterreich.
+    supersedes: Das Projekt liegt in Wien, 14. Bezirk.
+  - finding: Das Gebäude bekommt ein fünftes oberirdisches Geschoß.
+    supersedes: Das Gebäude hat vier oberirdische Geschoße.
+  - finding: Statt eines Flachdachs ist jetzt ein Satteldach geplant.
+    supersedes: Der Bauherr hat sich für ein Flachdach entschieden.
+  - finding: Die Fassade wird als hinterlüftete Holzfassade ausgeführt.
+    supersedes: Die Fassade wird als WDVS mit Mineralwolle ausgeführt.
+  - finding: Im Erdgeschoß ist statt der Wohnungen eine Arztpraxis vorgesehen.
+    supersedes: Im Erdgeschoß sind zwei Wohnungen geplant.
+  - finding: Der Statiker hat bestätigt, dass ein zweiter Fluchtweg nicht erforderlich ist.
+    supersedes: Offen ist, ob ein zweiter Fluchtweg erforderlich ist.
+  - finding: Die Einreichung verschiebt sich auf Juni 2027.
+    supersedes: Die Einreichung ist für März 2027 geplant.
+  - finding: Die Tiefgarage wird auf 24 Stellplätze erweitert.
+    supersedes: Die Tiefgarage hat 18 Stellplätze.
+  - finding: Das Flachdach wird extensiv begrünt.
+    supersedes: null
+  - finding: Die Tiefgarage erhält eine CO-Warnanlage.
+    supersedes: null
+  - finding: Das Gebäude liegt im 14. Wiener Gemeindebezirk (Penzing).
+    supersedes: null
+  - finding: Für das Projekt gilt die Wiener Bautechnikverordnung.
+    supersedes: null
+  - finding: Der Nutzer möchte Quellen immer mit Seitenzahl.
+    supersedes: null
+  - finding: Die Brandabschnitte werden geschoßweise gebildet.
+    supersedes: null
+  - finding: Die Außenwände erreichen einen U-Wert von 0,18 W/m²K.
+    supersedes: null
+  - finding: Das Stiegenhaus wird als Sicherheitsstiegenhaus ausgeführt.
+    supersedes: null

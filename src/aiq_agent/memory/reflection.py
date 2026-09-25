@@ -434,8 +434,16 @@ async def _write_finding(
     project_id: str | None,
     organization_id: str | None,
     conversation_id: str | None,
+    memory_digest: str | None = None,
 ) -> dict[str, str] | None:
     """Record one finding, returning the row the frame carries, or None if it did not land."""
+    from aiq_agent.memory.supersede import supersedes_for
+
+    # The model's own quote wins; without one, a decided contradiction
+    # supplies it (ADR-0064, use 7).
+    supersedes = await supersedes_for(
+        finding.content, finding.supersedes, memory_digest, organization_id=organization_id
+    )
     item_id = await asyncio.to_thread(
         insert_memory_item,
         # Always project scope — org-wide writes are excluded (audit S1).
@@ -452,11 +460,11 @@ async def _write_finding(
         salience=round(finding.importance / 10.0, 2),
         # Retires the entry this finding corrects (frontend resolves the quote;
         # unresolvable or human-curated targets are left alone).
-        supersedes_content=finding.supersedes or None,
+        supersedes_content=supersedes,
     )
     if not item_id:
         return None
-    if finding.supersedes:
+    if supersedes:
         logger.info("Memory reflection: recorded %s item %s as a correction", finding.kind, item_id)
     return {"id": item_id, "kind": finding.kind, "content": finding.content}
 
@@ -467,6 +475,7 @@ async def _record_findings(
     project_id: str | None,
     organization_id: str | None,
     conversation_id: str | None,
+    memory_digest: str | None = None,
 ) -> list[dict[str, str]]:
     """Write every finding concurrently, keeping the rows that landed, in order.
 
@@ -485,6 +494,7 @@ async def _record_findings(
                 project_id=project_id,
                 organization_id=organization_id,
                 conversation_id=conversation_id,
+                memory_digest=memory_digest,
             )
             for finding in findings
         ),
@@ -541,6 +551,7 @@ async def run_memory_reflection(
         project_id=project_id,
         organization_id=organization_id,
         conversation_id=conversation_id,
+        memory_digest=memory_digest,
     )
     if recorded:
         logger.info("Memory reflection recorded %d new memory item(s)", len(recorded))

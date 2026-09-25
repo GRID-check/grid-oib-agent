@@ -16,6 +16,8 @@ THE FLOORS
   is tagged that the row does not carry.
 - reflection: no row labelled ``durable`` falls below the skip threshold
   (a wrong skip loses a memory row).
+- memory supersede: no finding retires an entry it does not correct (a wrong
+  retirement loses a fact); a missed correction is reported, not failed.
 
 IT NEEDS A KEY, NOT A BACKEND
 -----------------------------
@@ -89,12 +91,37 @@ def eval_reflection() -> bool:
     return lost == 0 and None not in probabilities
 
 
+def eval_supersede() -> bool:
+    import asyncio
+
+    from aiq_agent.memory import supersede
+
+    data = yaml.safe_load((FIXTURES / "memory_supersede.yaml").read_text(encoding="utf-8"))
+    digest = "\n".join(f'- [constraint | high | agent] "{entry}"' for entry in data["memory"])
+
+    async def run() -> list[str | None]:
+        return [
+            await supersede.decided_supersedes(row["finding"], digest, organization_id=None) for row in data["findings"]
+        ]
+
+    wrong = found = 0
+    for row, quote in zip(data["findings"], asyncio.run(run())):
+        expected = row["supersedes"]
+        wrong += quote is not None and quote != expected
+        found += quote is not None and quote == expected
+        print(f"  {'T' if expected else 'N'} -> {quote!s:45.45s} | {row['finding'][:50]}")
+    corrections = sum(1 for row in data["findings"] if row["supersedes"])
+    print(f"supersede: {found}/{corrections} corrections found, {wrong} wrong retirements")
+    return wrong == 0
+
+
 def main() -> int:
     os.environ.setdefault("OPENROUTER_API_KEY", os.environ.get("OPENROUTER_KEY", ""))
     # Not a request: no organization, so no ZDR policy to look up over HTTP.
     with patch.object(decisions, "_zdr_only_blocking", return_value=False):
         ok = eval_tags()
         ok = eval_reflection() and ok
+        ok = eval_supersede() and ok
     return 0 if ok else 1
 
 
