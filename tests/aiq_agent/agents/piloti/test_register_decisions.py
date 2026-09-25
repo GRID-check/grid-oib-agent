@@ -98,7 +98,7 @@ class TestTheEffects:
         assert state.card_shapes_block and "fire_compartment" in state.card_shapes_block
         assert "stair_diagram" not in state.card_shapes_block
 
-    def test_the_chosen_skills_preferred_shapes_beyond_the_eight_ride_the_turn(self):
+    def test_the_chosen_skills_preferred_shapes_beyond_the_contracts_ride_the_turn(self):
         state = ResearchAgentState(messages=[])
         decided = TurnDecisions(decided=True, skill="brandschutz", skill_p=0.8, skill_fit=0.9)
         runtime = _runtime()
@@ -106,7 +106,7 @@ class TestTheEffects:
         assert [s.name for s in runtime.inlined] == ["brandschutz"]
         block = state.card_shapes_block or ""
         assert "fire_compartment" in block and "egress_diagram" in block
-        # `legal_basis` is one of the eight the envelope already teaches.
+        # `legal_basis` is one of the three the envelope already teaches.
         assert '"legal_basis"' not in block
 
     def test_a_skill_preferring_a_surface_does_not_attach_its_compose_rule_twice(self):

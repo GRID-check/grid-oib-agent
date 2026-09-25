@@ -206,8 +206,7 @@ function fontStyleOf(element: SvgElement): FontStyle {
     : italic
       ? 'Helvetica-Oblique'
       : 'Helvetica'
-  const size = Number.parseFloat((attributeOf(element, 'font-size') ?? '').replace(/px$/i, ''))
-  return { fontFamily: family, fontSize: Number.isFinite(size) && size > 0 ? size : undefined }
+  return { fontFamily: family, fontSize: fontSizeOf(element) }
 }
 
 /** The text a `<text>`/`<tspan>` prints, with element children flattened out. */
