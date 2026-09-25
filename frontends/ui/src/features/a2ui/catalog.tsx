@@ -22,7 +22,7 @@
 
 import { createContext, useContext, useLayoutEffect, type ReactNode } from 'react'
 import { z } from 'zod'
-import { Catalog, childList, componentId, type ComponentApi } from '@a2ui/web_core/v0_9'
+import { Catalog, componentId, type ComponentApi } from '@a2ui/web_core/v0_9'
 import { createComponentImplementation, type ReactComponentImplementation } from '@a2ui/react/v0_9'
 
 import { gridCardSchema, type GridCard } from '@/shared/cards/schemas'
@@ -97,7 +97,9 @@ const RowApi = {
   name: 'Row',
   schema: z
     .object({
-      children: childList(),
+      // Static ids only, as `SurfaceCard` requires: A2UI's data-bound
+      // `{componentId, path}` form would draw an empty box with no fallback.
+      children: z.array(componentId()),
       justify: z.enum(['start', 'center', 'end', 'spaceBetween', 'spaceAround', 'spaceEvenly', 'stretch']).optional(),
       align: z.enum(['start', 'center', 'end', 'stretch']).optional(),
     })
@@ -108,7 +110,7 @@ const TabsApi = {
   name: 'Tabs',
   schema: z
     .object({
-      tabs: z.array(z.object({ title: z.string(), child: componentId() }).strict()).min(1),
+      tabs: z.array(z.object({ title: z.string().trim().min(1), child: componentId() }).strict()).min(1),
     })
     .strict(),
 }

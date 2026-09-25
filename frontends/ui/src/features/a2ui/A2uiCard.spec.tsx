@@ -180,6 +180,27 @@ describe('a card through A2UI', () => {
     expect(preflight([{ id: 's', component: 'summary', content: 'Kurz.' }])).toMatch(/summary/)
   })
 
+  it('refuses what SurfaceCard refuses: a data-bound child list, a blank tab title', () => {
+    const leaves = [
+      { id: 'a', component: 'Text', text: 'A' },
+      { id: 'b', component: 'Text', text: 'B' },
+    ]
+    const bound = [{ id: 'root', component: 'Column', children: { componentId: 'a', path: '/items' } }, ...leaves]
+    const blank = [
+      {
+        id: 'root',
+        component: 'Tabs',
+        tabs: [
+          { title: ' ', child: 'a' },
+          { title: 'B', child: 'b' },
+        ],
+      },
+      ...leaves,
+    ]
+    expect(preflight(bound)).not.toBeNull()
+    expect(preflight(blank)).not.toBeNull()
+  })
+
   it('keeps every interactive card type out of a surface', () => {
     // The ratchet: a new interactive card type fails here until it is added
     // to this hand-kept list; cards/models.py derives its own from the catalog.

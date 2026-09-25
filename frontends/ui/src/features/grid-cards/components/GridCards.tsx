@@ -128,12 +128,6 @@ interface GridCardViewProps extends GridCardItemProps {
  * when A2UI will not draw it. Callers draw cards with `GridCardItem`. A
  * `surface` never reaches it: the catalog has no `surface` component and the
  * fallback never hands one down (`SURFACE_EXCLUDED_LEAVES`).
- *
- * Split out of the stack so a card can also be drawn ALONE, wherever the answer
- * placed it — `GridCards` is then just the vertical stack of the leftovers.
- * `index` is passed rather than inferred for exactly that reason: an inline
- * card has no position in a list to be inferred from, and its identity must
- * still be the one the persisted decisions were keyed under.
  */
 export const GridCardView: FC<GridCardViewProps> = ({
   card,
@@ -781,6 +775,12 @@ export const GridCardView: FC<GridCardViewProps> = ({
  * catalog comes back here, to `GridCardView`, for the pixels. Props and
  * identity are unchanged, so every caller keeps working and every stored
  * message renders through the same path.
+ *
+ * Split out of the stack so a card can also be drawn ALONE, wherever the answer
+ * placed it — `GridCards` is then just the vertical stack of the leftovers.
+ * `index` is passed rather than inferred for exactly that reason: an inline
+ * card has no position in a list to be inferred from, and its identity must
+ * still be the one the persisted decisions were keyed under.
  */
 export const GridCardItem: FC<GridCardItemProps> = ({ card, index, projectId, messageId, decisionsMustPersist }) => {
   // The surface id must be unique within the page; an answer without a
