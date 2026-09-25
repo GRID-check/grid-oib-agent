@@ -3,6 +3,7 @@
 import asyncio
 import dataclasses
 import threading
+from unittest.mock import patch
 
 import pytest
 
@@ -792,3 +793,34 @@ class TestMemoryReflectionAsAStage:
         )
         outcomes = await self._run(self._facts(), _FakeLLM("{}"))
         assert outcomes["memory_reflection"].status == "timeout"
+
+
+class TestDurableProbability:
+    """The pre-check's state is the exchange, bounded, and never the digest."""
+
+    async def test_the_state_is_the_bounded_exchange(self):
+        from aiq_agent.common.decisions import Decision
+        from aiq_agent.memory import reflection
+
+        seen = {}
+
+        async def fake_decide(state, questions, **kwargs):
+            seen.update(state=state, questions=questions, kwargs=kwargs)
+            return Decision(answers={"durable": {"type": "noul", "noul": 0.8}})
+
+        with patch("aiq_agent.common.decisions.decide", fake_decide):
+            p = await reflection.durable_probability("Frage", "A" * 5000, organization_id="org_1")
+        assert p == 0.8
+        assert set(seen["state"]) == {"question", "answer"}
+        assert len(seen["state"]["answer"]) == reflection._DECISION_ANSWER_CHARS
+        assert list(seen["questions"]) == ["durable"]
+        assert seen["kwargs"]["organization_id"] == "org_1"
+
+    async def test_no_decision_is_none(self):
+        from aiq_agent.memory import reflection
+
+        async def no_decision(*args, **kwargs):
+            return None
+
+        with patch("aiq_agent.common.decisions.decide", no_decision):
+            assert await reflection.durable_probability("q", "a", organization_id=None) is None

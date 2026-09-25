@@ -133,6 +133,41 @@ default: the vendor's own legal-retrieval numbers (top-1 5 % → 18 %, top-10
 38 % → 62 %) are a useful reranker's, not a trained cross-encoder's, and the
 golden set decides.
 
+*Amended 2026-09-25:* two uses off the reader's path.
+
+**Use 4 — ingestion tags** (`knowledge/document_classification.py`,
+`decide_document_tags`). The 1–2 document types and 0–3 OIB disciplines
+stored with every upload were a generative call on `summary_llm` returning a
+JSON array that a post-filter held to the vocabulary. They are one choice
+over the twelve types and one noul per discipline, over the text the summary
+reads; the prompt runs only when no decision did. Tags annotate a file (the
+inventory line, the Files panel), nothing filters on them, so a wrong tag
+withholds nothing. Measured on twelve hand-labelled German document openings:
+types 12/12 (the prompt on the default model: 11/12, a Statik-Vorbemessung
+typed `Sonstiges`), 0.2–0.3 s against 0.8–1.9 s, $0.00005 per document. The
+decider tags fewer disciplines (5 of 8 labelled at the 0.5 threshold, no
+false tag, against the prompt's 8 with one false): it does not tag a plan
+Brandschutz for drawing a compartment line, which is what the prompt's own
+„nur wenn der Fachbereich eindeutig zutrifft" asks. Ingestion has no request
+context, so the org id travels in the job config and the endpoint resolves
+ZDR by the id it is given (`common/decisions._zdr_only_blocking`).
+
+**Use 5 — whether memory reflection runs** (`memory/reflection.durable_probability`,
+`stages/memory_reflection._handler`). Reflection is a reasoning call on the
+memory group's model after every project turn, and its prompt calls an empty
+result "the common and correct outcome". One noul over the question and the
+answer's opening — does the exchange establish anything about this project —
+skips the call below 0.2. This is the one use whose wrong answer loses
+something (a memory row the in-turn `remember` tool also did not write), so
+the threshold sits far below the evidence: on sixteen German exchanges the
+reflection call itself agreed with the hand labels on all sixteen, every
+exchange that produced a finding scored 0.45–0.94, and seven of the nine
+that produced none scored 0.03–0.16. A decision that did not run reflects;
+a turn whose `remember` call wrote something reflects without asking; the
+skip is `StageEmpty("decided_nothing_durable")` on the stage's span, so its
+rate is measured in production like every other stage outcome. It never
+touches the answer, which has shipped before the stage starts.
+
 **Not a use.** Intent or model routing, the escalation decision, confidence,
 verdict extraction, anything whose wrong answer removes a capability
 (ADR-0052, unchanged). Card selection and skill suggestion, which the audit
@@ -218,6 +253,13 @@ numbers above are one run on German questions the product actually gets.
 - `tests/knowledge_layer_tests/test_decisions_in_retrieval.py`: a sufficient
   head costs no judge call, an absent decision runs the judge, a flagged
   passage is kept, the reranker's order.
+- `tests/knowledge_layer_tests/test_document_classification.py::TestTagsAreDecided`:
+  the questions are the vocabulary, a decision replaces the generative call,
+  a failed or off-vocabulary decision falls back to it.
+- `tests/aiq_agent/stages/test_memory_reflection_stage.py::TestTheDecisionSkipsOnlyAConfidentNo`
+  and `tests/aiq_agent/memory/test_reflection.py::TestDurableProbability`.
+- `tests/conftest.py::_no_live_decisions`: the suite never reaches the live
+  endpoint unless a test turns decisions on and stubs it.
 - `tests/test_decision_eval.py`: the adoption gate's arithmetic;
   `tests/fixtures/herleitung/decision_eval_2026-09-22.csv`: its last result.
 

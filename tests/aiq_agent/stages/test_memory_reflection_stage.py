@@ -20,6 +20,7 @@ from aiq_agent.stages.memory_reflection import MEMORY_REFLECTION
 from aiq_agent.stages.memory_reflection import MemoryReflectionPayload
 from aiq_agent.stages.memory_reflection import matches_escalation_keywords
 from aiq_agent.stages.spec import StageContext
+from aiq_agent.stages.spec import StageEmpty
 from aiq_agent.stages.spec import TurnFacts
 
 
@@ -134,6 +135,12 @@ class TestGate:
 
 
 class TestHandler:
+    @pytest.fixture(autouse=True)
+    def _no_decision(self):
+        """No decision ran: the pass reflects exactly as it did before decisions."""
+        with patch("aiq_agent.memory.reflection.durable_probability", return_value=None):
+            yield
+
     @pytest.mark.asyncio
     async def test_nothing_durable_is_an_empty_payload_not_an_invention(self):
         with patch("aiq_agent.memory.reflection.run_memory_reflection", return_value=[]) as run:
@@ -174,6 +181,43 @@ class TestHandler:
         assert kwargs["project_id"] == "proj_1"
         assert kwargs["organization_id"] == "org_1"
         assert kwargs["conversation_id"] == "conv_1"
+
+
+class TestTheDecisionSkipsOnlyAConfidentNo:
+    """ADR-0064 use 5: the reflection call is skipped on a confident "nothing about this project"."""
+
+    @pytest.mark.asyncio
+    async def test_a_confident_no_skips_the_call_and_says_why(self):
+        with (
+            patch("aiq_agent.memory.reflection.durable_probability", return_value=0.05) as decided,
+            patch("aiq_agent.memory.reflection.run_memory_reflection", return_value=_WRITTEN) as run,
+        ):
+            result = await MEMORY_REFLECTION.handler(StageContext(facts=_facts(), llm=object()))
+        assert result == StageEmpty("decided_nothing_durable")
+        assert run.await_count == 0
+        assert decided.await_args.kwargs == {"organization_id": "org_1"}
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("p", [0.2, 0.45, 0.9])
+    async def test_doubt_or_yes_reflects(self, p):
+        with (
+            patch("aiq_agent.memory.reflection.durable_probability", return_value=p),
+            patch("aiq_agent.memory.reflection.run_memory_reflection", return_value=_WRITTEN) as run,
+        ):
+            await MEMORY_REFLECTION.handler(StageContext(facts=_facts(), llm=object()))
+        assert run.await_count == 1
+
+    @pytest.mark.asyncio
+    async def test_a_turn_that_remembered_something_is_not_asked(self):
+        with (
+            patch("aiq_agent.memory.reflection.durable_probability", return_value=0.0) as decided,
+            patch("aiq_agent.memory.reflection.run_memory_reflection", return_value=[]) as run,
+        ):
+            await MEMORY_REFLECTION.handler(
+                StageContext(facts=_facts(remembered_this_turn=("Projekt in Wien",)), llm=object())
+            )
+        assert decided.await_count == 0
+        assert run.await_count == 1
 
 
 class TestMatchesEscalationKeywords:

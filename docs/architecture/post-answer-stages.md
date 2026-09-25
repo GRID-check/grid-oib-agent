@@ -696,6 +696,14 @@ per rendered answer (§1.7) to a render of `message.stages.memory_reflection`,
 and the chip becomes per-turn instead of per-conversation — which is what it
 always claimed to be.
 
+*Since 2026-09-25 (ADR-0064, use 5):* after the gate, the handler asks the
+decision model one yes/no over the exchange — does it establish anything
+about this project — and below 0.2 returns `StageEmpty("decided_nothing_durable")`
+without the reflection call. A decision that did not run, a turn whose
+`remember` call wrote something, and anything at 0.2 or above reflect as
+before. The empty outcome's reason is on the span, so the skip rate is a
+`GROUP BY` like every other.
+
 **The DB write stays the source of truth.** The frame is a notification, not a
 transfer of authority. `grid_app` stays single-writer.
 

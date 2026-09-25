@@ -4,8 +4,15 @@ Covers the tag-classification prompt/call/parse/post-filter and the shared
 one-sentence summary helper. The LLM call is always mocked.
 """
 
+import json
 from unittest.mock import MagicMock
+from unittest.mock import patch
 
+import httpx
+import pytest
+
+from aiq_agent.common import decisions
+from aiq_agent.knowledge import document_classification
 from aiq_agent.knowledge.document_classification import ALLOWED_TAGS
 from aiq_agent.knowledge.document_classification import DISCIPLINE_TAGS
 from aiq_agent.knowledge.document_classification import DOCUMENT_TYPE_TAGS
@@ -76,6 +83,13 @@ class TestVocabulary:
 
 
 class TestClassifyDocumentTags:
+    """The generative fallback: what runs when no decision did."""
+
+    @pytest.fixture(autouse=True)
+    def _no_decision(self):
+        with patch.object(document_classification, "decide_document_tags", return_value=None):
+            yield
+
     def test_no_llm_returns_none(self):
         assert classify_document_tags("text", "f.pdf", llm=None) is None
 
@@ -130,6 +144,98 @@ class TestClassifyDocumentTags:
         llm = MagicMock()
         llm.invoke.side_effect = RuntimeError("LLM down")
         assert classify_document_tags("text", "f.pdf", llm) is None
+
+
+# =============================================================================
+# Tags as a decision (ADR-0064)
+# =============================================================================
+
+
+def _decision(type_choice: str, type_probabilities: dict, disciplines: dict[int, float]) -> dict:
+    answers = {"type": {"type": "choice", "choice": type_choice, "probabilities": type_probabilities}}
+    for index in range(len(DISCIPLINE_TAGS)):
+        answers[f"discipline_{index}"] = {"type": "noul", "noul": disciplines.get(index, 0.05)}
+    return answers
+
+
+@pytest.fixture
+def endpoint(monkeypatch):
+    """The decision endpoint, answered by a handler the test sets."""
+    decisions.reset_breaker()
+    monkeypatch.delenv(decisions.ENABLED_ENV, raising=False)
+    seen: dict = {}
+
+    def install(answers: dict | None, status: int = 200):
+        def handler(request: httpx.Request) -> httpx.Response:
+            seen["body"] = json.loads(request.content)
+            if answers is None:
+                return httpx.Response(status)
+            return httpx.Response(status, json={"answers": answers, "usage": {"input_tokens": 400, "cost": 0.00005}})
+
+        # ``decide_blocking`` builds a transport of its own per call.
+        return patch.object(httpx, "AsyncHTTPTransport", return_value=httpx.MockTransport(handler))
+
+    endpoint_value = decisions._Endpoint(url="https://openrouter.ai/api/alpha/decisions", api_key="k", model="m")
+    with (
+        patch.object(decisions, "_zdr_only_blocking", return_value=False),
+        patch.object(decisions, "_resolve_endpoint_blocking", return_value=(endpoint_value, None)),
+    ):
+        yield install, seen
+    decisions.reset_breaker()
+
+
+class TestTagsAreDecided:
+    def test_the_questions_are_the_vocabulary(self):
+        """Drift guard: every type is an option and every discipline a question."""
+        questions = document_classification.tag_questions()
+        assert list(questions["type"]["criteria"]) == list(DOCUMENT_TYPE_TAGS)
+        assert [k for k in questions if k.startswith("discipline_")] == [
+            f"discipline_{i}" for i in range(len(DISCIPLINE_TAGS))
+        ]
+
+    def test_a_decision_replaces_the_generative_call(self, endpoint):
+        install, seen = endpoint
+        llm = MagicMock()
+        with install(_decision("Gutachten", {"Gutachten": 0.9}, {4: 0.52, 5: 0.96})):
+            tags = classify_document_tags("Bauphysikalisches Gutachten …", "bp.pdf", llm)
+        assert tags == ["Gutachten", "Energieeinsparung/Wärmeschutz", "Schallschutz"]
+        llm.invoke.assert_not_called()
+        assert seen["body"]["state"]["file_name"] == "bp.pdf"
+
+    def test_a_second_type_rides_along_when_likely(self, endpoint):
+        install, _ = endpoint
+        with install(_decision("Bebauungsplan", {"Bebauungsplan": 0.6, "Flächenwidmungsplan": 0.35}, {})):
+            tags = classify_document_tags("Plandokument …", "pd.pdf", None)
+        assert tags == ["Bebauungsplan", "Flächenwidmungsplan"]
+
+    def test_sonstiges_carries_no_second_type(self, endpoint):
+        install, _ = endpoint
+        with install(_decision("Sonstiges", {"Sonstiges": 0.5, "Vertrag": 0.45}, {})):
+            assert classify_document_tags("Protokoll …", "p.pdf", None) == ["Sonstiges"]
+
+    def test_at_most_three_disciplines_most_likely_first(self, endpoint):
+        install, _ = endpoint
+        with install(_decision("Gutachten", {"Gutachten": 1.0}, {0: 0.7, 1: 0.9, 2: 0.6, 3: 0.8})):
+            tags = classify_document_tags("…", "g.pdf", None)
+        assert tags == ["Gutachten", "Brandschutz", "Nutzungssicherheit/Barrierefreiheit", "Standsicherheit"]
+
+    def test_a_failed_decision_falls_back_to_the_prompt(self, endpoint):
+        install, _ = endpoint
+        with install(None, status=503):
+            tags = classify_document_tags("text", "f.pdf", _llm_returning('["Grundriss"]'))
+        assert tags == ["Grundriss"]
+
+    def test_an_answer_outside_the_vocabulary_is_no_decision(self, endpoint):
+        install, _ = endpoint
+        with install(_decision("Feuerschutz", {"Feuerschutz": 1.0}, {})):
+            tags = classify_document_tags("text", "f.pdf", _llm_returning('["Schnitt"]'))
+        assert tags == ["Schnitt"]
+
+    def test_empty_text_asks_nothing(self, endpoint):
+        install, seen = endpoint
+        with install(_decision("Foto", {"Foto": 1.0}, {})):
+            assert document_classification.decide_document_tags("   ", "f.pdf") is None
+        assert "body" not in seen
 
 
 # =============================================================================

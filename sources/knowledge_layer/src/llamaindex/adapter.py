@@ -3730,7 +3730,13 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                         summary_future = executor.submit(
                             _generate_document_summary, llm_input, file_name, self.summary_llm
                         )
-                        tags_future = executor.submit(classify_document_tags, llm_input, file_name, self.summary_llm)
+                        tags_future = executor.submit(
+                            classify_document_tags,
+                            llm_input,
+                            file_name,
+                            self.summary_llm,
+                            organization_id=organization_id,
+                        )
 
                     # Wait for summary if started
                     summary = None

@@ -211,6 +211,59 @@ REFLECTION_SYSTEM_PROMPT = (
 )
 
 
+# ---------------------------------------------------------------------------
+# Whether to reflect at all, decided (ADR-0064, use 5)
+# ---------------------------------------------------------------------------
+# "If nothing qualifies, return an empty list — that is the common and correct
+# outcome": most turns are a lookup of what a regulation says, and each paid a
+# reasoning call on the memory group's model to learn that. Whether an
+# exchange says anything about THIS project is a yes/no over the exchange, the
+# shape the decision model answers in ~0.2 s for ~$0.00005. Only a confident
+# "no" skips the call; a decision that did not run, or any doubt, reflects as
+# before. The digest is not in the state: a correction names its own subject
+# in the user's words, and a small state is what the decider reads best.
+
+#: The technical-record slot: ``status:decision:memory_reflection``.
+REFLECTION_DECISION_SLOT = "memory_reflection"
+#: Below this p(durable) the reflection call is skipped. Measured 2026-09-25 on
+#: sixteen German project exchanges, labelled by hand and by the reflection
+#: call itself (which agreed on all sixteen): every exchange that produced a
+#: finding scored 0.45-0.94; seven of nine that produced none scored
+#: 0.03-0.16, the other two 0.31 (a bare follow-up) and 0.72 (a model
+#: measurement). 0.2 skips those seven and loses none — a margin of 0.25 below
+#: the lowest finding, because a wrong skip loses a memory row.
+REFLECTION_SKIP_THRESHOLD = 0.2
+_DECISION_ANSWER_CHARS = 1500
+
+_DURABLE_QUESTION = (
+    "Does this exchange establish something about THIS specific project that should be remembered "
+    "for future conversations?"
+)
+_DURABLE_TRUE = (
+    "The user states or the answer concludes a fact, decision, constraint, open question, correction or "
+    "preference about this project: its location, use, size, class, materials, agreements, authority "
+    "requirements or how to work on it."
+)
+_DURABLE_FALSE = (
+    "The exchange is general building-code knowledge, a definition, a lookup of what a regulation says, "
+    "a measurement read from the model, small talk, or a follow-up that adds nothing about the project."
+)
+
+
+async def durable_probability(query: str, answer: str, *, organization_id: str | None) -> float | None:
+    """p(the exchange establishes something about this project), or ``None`` when no decision ran."""
+    from aiq_agent.common.decisions import decide
+    from aiq_agent.common.decisions import noul
+
+    decision = await decide(
+        {"question": query.strip()[:_MAX_QUERY_CHARS], "answer": answer.strip()[:_DECISION_ANSWER_CHARS]},
+        {"durable": noul(_DURABLE_QUESTION, true=_DURABLE_TRUE, false=_DURABLE_FALSE)},
+        slot=REFLECTION_DECISION_SLOT,
+        organization_id=organization_id,
+    )
+    return decision.noul("durable") if decision is not None else None
+
+
 def _build_user_prompt(query: str, answer: str, memory_digest: str | None) -> str:
     """Assemble the reflection prompt from the turn and the existing memory."""
     existing = memory_digest.strip() if memory_digest else "(no project memory recorded yet)"

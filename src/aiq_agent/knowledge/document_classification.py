@@ -279,22 +279,150 @@ def _parse_tags(raw: str) -> list[str] | None:
     return result or None
 
 
-def classify_document_tags(text: str, file_name: str, llm) -> list[str] | None:
+# =============================================================================
+# Tags as a decision (ADR-0064): the closed vocabulary is the question
+# =============================================================================
+# Picking 1–2 of twelve types and 0–3 of six disciplines is a decision, not a
+# generation: a choice and six nouls over the same text, answered by the
+# decision model in well under a second for a fraction of what the generative
+# call costs, and unable by construction to return a tag outside the
+# vocabulary or a JSON array that does not parse. The generative prompt above
+# stays as the fallback for a decision that did not run (no key, ZDR, BYOK
+# elsewhere, the endpoint down). Tags annotate a file (the inventory line, the
+# Files panel); nothing filters on them, so a wrong tag withholds nothing.
+
+#: What each type tag means, in the decider's language; the German text is the state.
+DOCUMENT_TYPE_CRITERIA: dict[str, str] = {
+    "Bebauungsplan": "A development plan (Bebauungsplan): building lines, heights, density or use for plots.",
+    "Flächenwidmungsplan": "A land-use zoning plan (Flächenwidmungsplan): which land may be used for what.",
+    "Grundriss": "A floor plan drawing of a storey: rooms, walls, doors, dimensions seen from above.",
+    "Schnitt": "A section drawing (Schnitt): the building cut vertically, storey heights and levels.",
+    "Ansicht": "An elevation drawing (Ansicht): a facade seen from outside.",
+    "Detail": "A construction detail drawing: a joint, a layer build-up, a connection at large scale.",
+    "Gutachten": "An expert report or assessment (Gutachten, Stellungnahme, Nachweis, Berechnung by an expert).",
+    "Bescheid": "An official decision or notice by an authority (Bescheid, Baubewilligung, Auflagen).",
+    "Norm/Richtlinie": "A standard, guideline, regulation or law text (OIB-Richtlinie, ÖNORM, Bauordnung).",
+    "Vertrag": "A contract or agreement between parties.",
+    "Foto": "A photograph of a building, a site or a situation.",
+    "Sonstiges": "Anything else: a letter, minutes, a list, a schedule, a form, a presentation.",
+}
+
+#: What each discipline tag covers.
+DISCIPLINE_CRITERIA: dict[str, str] = {
+    "Standsicherheit": "Structural stability: load-bearing structure, statics, foundations.",
+    "Brandschutz": "Fire safety: fire resistance, compartments, escape routes, fire brigade access.",
+    "Hygiene/Gesundheit/Umweltschutz": "Hygiene, health, environment: daylight, ventilation, moisture, sanitary.",
+    "Nutzungssicherheit/Barrierefreiheit": "Safety in use and accessibility: stairs, railings, ramps, lifts.",
+    "Schallschutz": "Sound insulation: airborne and impact sound, acoustics.",
+    "Energieeinsparung/Wärmeschutz": "Energy saving and thermal insulation: U-values, Energieausweis.",
+}
+
+#: The chosen type is always kept; a second type rides along at this probability.
+SECOND_TYPE_THRESHOLD = 0.3
+#: A discipline is tagged at this probability or above, the top three.
+#: Measured 2026-09-25 on twelve hand-labelled German document openings
+#: (types 12/12 against the generative prompt's 11/12): 0.5 keeps a
+#: bauphysik report's Schallschutz (0.52) with no false tag, 0.45 tags a
+#: meeting protocol Standsicherheit because a Statiker attended (0.47). The
+#: decider is stricter than the prompt: a plan that merely draws a fire
+#: compartment is not tagged Brandschutz (0.30), which the prompt's own
+#: "nur wenn der Fachbereich eindeutig zutrifft" asks for.
+DISCIPLINE_THRESHOLD = 0.5
+MAX_DISCIPLINE_TAGS = 3
+#: The technical-record slot: ``status:decision:document_tags``.
+TAG_DECISION_SLOT = "document_tags"
+#: Ingestion is not a reader waiting: a slower answer is still worth having.
+TAG_DECISION_TIMEOUT_S = 5.0
+
+
+def tag_questions() -> dict[str, dict]:
+    """The decision's questions, built from the vocabulary so the two cannot drift."""
+    from aiq_agent.common.decisions import choice
+    from aiq_agent.common.decisions import noul
+
+    questions = {
+        "type": choice(
+            "What kind of document is this? Read the content and the file name.",
+            {tag: DOCUMENT_TYPE_CRITERIA[tag] for tag in DOCUMENT_TYPE_TAGS},
+        )
+    }
+    for index, tag in enumerate(DISCIPLINE_TAGS):
+        questions[f"discipline_{index}"] = noul(
+            "Is this document clearly about this building discipline?",
+            true=f"The document's subject is, in substantial part: {DISCIPLINE_CRITERIA[tag]}",
+            false="The discipline is not the document's subject, or is mentioned only in passing.",
+        )
+    return questions
+
+
+def tags_from_decision(decision) -> list[str] | None:
+    """The tags a decision earns, in the vocabulary's order of kinds; ``None`` if it chose nothing."""
+    chosen, distribution = decision.choice("type")
+    if chosen not in DOCUMENT_TYPE_TAGS:
+        return None
+    tags = [chosen]
+    runner_up = max(
+        (tag for tag in DOCUMENT_TYPE_TAGS if tag not in {chosen, "Sonstiges"}),
+        key=lambda tag: distribution.get(tag, 0.0),
+    )
+    if chosen != "Sonstiges" and distribution.get(runner_up, 0.0) >= SECOND_TYPE_THRESHOLD:
+        tags.append(runner_up)
+    disciplines = sorted(
+        (
+            (p, index)
+            for index in range(len(DISCIPLINE_TAGS))
+            if (p := decision.noul(f"discipline_{index}")) is not None and p >= DISCIPLINE_THRESHOLD
+        ),
+        reverse=True,
+    )
+    tags.extend(DISCIPLINE_TAGS[index] for _, index in disciplines[:MAX_DISCIPLINE_TAGS])
+    return tags[:MAX_TAGS]
+
+
+def decide_document_tags(text: str, file_name: str, *, organization_id: str | None = None) -> list[str] | None:
+    """Tags from the decision model; ``None`` when no decision ran, so the caller falls back."""
+    if not text or not text.strip():
+        return None
+    try:
+        from aiq_agent.common.decisions import decide_blocking
+
+        decision = decide_blocking(
+            {"file_name": file_name, "text": text[:CLASSIFY_MAX_INPUT_CHARS]},
+            tag_questions(),
+            slot=TAG_DECISION_SLOT,
+            timeout=TAG_DECISION_TIMEOUT_S,
+            organization_id=organization_id,
+        )
+    except Exception as e:  # noqa: BLE001 — a tag is worth less than the ingestion
+        logger.warning("Tag decision failed for %s: %s", file_name, type(e).__name__)
+        return None
+    return tags_from_decision(decision) if decision is not None else None
+
+
+def classify_document_tags(text: str, file_name: str, llm, *, organization_id: str | None = None) -> list[str] | None:
     """Classify document text into 0–5 controlled German tags.
 
-    Fully fail-open: a missing LLM, an LLM error, or any unparseable/invalid
-    output resolves to ``None``. Returned tags are always a subset of
-    :data:`ALLOWED_TAGS` (unknown tags are dropped deterministically, so the LLM
-    cannot invent vocabulary).
+    The decision model first (:func:`decide_document_tags`); the generative
+    call only when no decision ran. Fully fail-open: a missing LLM, an LLM
+    error, or any unparseable/invalid output resolves to ``None``. Returned
+    tags are always a subset of :data:`ALLOWED_TAGS` (unknown tags are dropped
+    deterministically, so the LLM cannot invent vocabulary).
 
     Args:
         text: Representative document text (same source the summary uses).
         file_name: Filename, used both as a classification hint and log context.
-        llm: A LangChain-style LLM exposing ``.invoke``. ``None`` → no tags.
+        llm: A LangChain-style LLM exposing ``.invoke``, the fallback. ``None``
+            and no decision → no tags.
+        organization_id: The uploading organization, for its BYOK and ZDR
+            policy; ingestion runs outside any request context.
 
     Returns:
         A validated, non-empty list of tags, or ``None``.
     """
+    decided = decide_document_tags(text, file_name, organization_id=organization_id)
+    if decided:
+        logger.info("[TAGS] Decided %s -> %s", file_name, decided)
+        return decided
     if llm is None:
         return None
 
