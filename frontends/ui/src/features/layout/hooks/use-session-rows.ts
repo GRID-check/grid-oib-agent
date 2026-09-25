@@ -34,12 +34,17 @@ interface RowCache {
   byId: Map<string, SessionRow>
 }
 
+/** Would the panel draw these two rows the same? */
 const sameRow = (a: SessionRow, b: SessionRow): boolean =>
   a.title === b.title &&
   +new Date(a.date) === +new Date(b.date) &&
   a.hasActiveDeepResearch === b.hasActiveDeepResearch &&
   a.hasCompletedReport === b.hasCompletedReport
 
+/**
+ * The row for one conversation: cached for the object, and the previous row
+ * for its id when a new object yields the same fields.
+ */
 const rowFor = (conversation: Conversation, cache: RowCache): SessionRow => {
   const known = cache.byConversation.get(conversation)
   if (known) return known
