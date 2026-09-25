@@ -56,6 +56,13 @@ _QUALIFIER_RE = re.compile(
 #: the law's name whole, so no "und 3" is left to be read as the law.
 _ABSATZ_LIST_RE = re.compile(r"\bAbs(?:atz|\.)?\s*\d+[a-z]?(?:\s*(?:,|und|bis|–|-)\s*\d+[a-z]?)*", re.IGNORECASE)
 
+#: The word that introduced a later § reference ("§ 3 BO Wien, siehe §§ 75 und
+#: 81"), left dangling once that list is cut out. The law name is the live RIS
+#: search's title, and "BO Wien, siehe" matches no law.
+_TRAILING_REFERENCE_RE = re.compile(
+    r"(?:[\s,;]+(?:siehe|vgl\.?|s\.)|\s*\(\s*(?:siehe|vgl\.?|s\.)\s*\)?)+$", re.IGNORECASE
+)
+
 #: How many §§ one list may address: the tool's own passage budget
 #: (``extract.MAX_PASSAGES``). A longer list or range addresses its first six,
 #: and the result says which it did not read (``Address.unread``).
@@ -246,7 +253,8 @@ def _law_name(instrument: str, url: str, number: str) -> str:
         _items, end = _list_from(rest, kind, where)
         rest = f"{rest[:where]} {rest[max(end, where + 1) :]}"
     rest = _ABSATZ_LIST_RE.sub("", rest)
-    return re.sub(r"\s{2,}", " ", rest).strip(" ,.;-–")
+    rest = _TRAILING_REFERENCE_RE.sub("", re.sub(r"\s{2,}", " ", rest).strip(" ,;-–"))
+    return rest.strip(" ,.;-–")
 
 
 def resolve_land(jurisdiction: str, instrument: str, question: str) -> tuple[str, str]:

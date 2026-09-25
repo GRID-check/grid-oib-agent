@@ -246,3 +246,18 @@ def test_a_captioned_table_is_cited_by_its_page_not_as_table_1():
     chunk = retriever.normalize(NodeWithScore(node=node, score=0.5))
 
     assert chunk.display_citation == "oib-rl_2.pdf, p.30"
+
+
+def test_a_table_page_counts_its_table_as_text_for_the_visual_page_check():
+    """A page that is mostly a captioned table kept only its caption-free prose
+    in ``text``, fell under the visual-page threshold and was VLM-captioned as a
+    drawing (oib-rl_2 pages 29, 31, 33, 34), competing with the table's chunks."""
+    from knowledge_layer.llamaindex.adapter import VISUAL_PAGE_MIN_TEXT_CHARS
+    from knowledge_layer.llamaindex.adapter import page_texts_for_visual_heuristic
+
+    page = {"page_number": 30, "text": "Seite 30", "tables": [_table()]}
+
+    texts = page_texts_for_visual_heuristic([page])
+
+    assert len(page["text"]) < VISUAL_PAGE_MIN_TEXT_CHARS <= len(texts[30])
+    assert "REI 90 und A2" in texts[30]

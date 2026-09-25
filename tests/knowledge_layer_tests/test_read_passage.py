@@ -253,6 +253,35 @@ class TestTheFilterIsTheAnswer:
         ]
         assert [c.chunk_id for c in sorted(chunks, key=_punkt_sort_key)] == ["z", "y", "x"]
 
+    def test_a_long_tables_row_groups_come_back_in_order(self):
+        """Every row group of a table shares page and ``punkt_id`` and its chunk
+        id is a random uuid: "Teil 1 von N" … "Teil N von N" came back shuffled."""
+        from knowledge_layer.llamaindex.captioned_tables import PageTable
+        from knowledge_layer.llamaindex.punkt_chunking import punkt_documents
+
+        body = "\n".join(f"{n} Punkt Nummer {n}\nText zu Punkt {n}, lang genug um zu zählen." for n in range(1, 8))
+        rows = [[f"{n} Bauteil mit einer längeren Bezeichnung", "REI 60", "REI 90"] for n in range(120)]
+        table = PageTable("1a", "Brandverhalten", [["Gegenstand", "GK 4", "GK 5"], *rows], 2)
+        pages = [
+            {"page_number": 1, "text": "OIB-Richtlinie 9 Ausgabe Mai 2023\n" + body},
+            {"page_number": 2, "text": "", "tables": [table]},
+        ]
+        groups = [d for d in punkt_documents(pages, OIB, 1) if d.metadata["chunking"] == "table"]
+        assert len(groups) > 2
+        # Chunk ids that sort against the parts, as a uuid may.
+        chunks = [
+            _chunk(punkt="Tabelle 1a", page=2, content=doc.text, chunk_id=f"{9 - index}")
+            for index, doc in enumerate(groups)
+        ]
+        for chunk, doc in zip(chunks, groups, strict=True):
+            chunk.metadata["table_part"] = doc.metadata["table_part"]
+
+        ordered = sorted(chunks, key=_punkt_sort_key)
+
+        assert [f"Teil {n} von {len(groups)}" in c.content for n, c in enumerate(ordered, start=1)] == [True] * len(
+            groups
+        )
+
 
 class TestFormatParity:
     """The block is the search's block. Nothing downstream learns a second shape."""

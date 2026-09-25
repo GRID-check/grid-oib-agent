@@ -49,7 +49,7 @@ read (including the catalog's "Not in RIS" cases), and one concrete retry.
 a preamble line, consecutive runs with "bis" and the others comma-separated:
 
 ```text
-[Only the first 6 of the listed sections were read; not read: § 9 bis § 12, § 15a. Ask for them in a second call.]
+[Only the first 6 of the listed sections were addressed; not read: § 9 bis § 12, § 15a. Ask for them in a second call.]
 ```
 
 With a list, a named Absatz is ignored. A single § with a named Absatz returns

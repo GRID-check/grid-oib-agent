@@ -176,30 +176,60 @@ def test_no_search_retriever_means_no_warm_up(monkeypatch):
     asyncio.run(factory.warm_search_query("Treppe"))
 
 
-def test_without_a_cache_nobody_waits_on_anybody(monkeypatch):
+def test_without_a_cache_parallel_callers_still_share_one_embedding(monkeypatch):
+    """``AIQ_QUERY_EMBED_CACHE_SIZE=0`` turns the LRU off, not the in-flight
+    sharing: the waiters read the vector off the in-flight record."""
     retriever, embedder = _retriever()
     monkeypatch.setattr(LlamaIndexRetriever, "EMBED_CACHE_MAX", 0)
-    # All three must be inside the embedder at once: serialised calls break the barrier.
-    together = threading.Barrier(3, timeout=5)
-    broken: list[BaseException] = []
+    waiting = threading.Semaphore(0)
+    undo = _inflight_wait_hook(retriever, waiting)
+    release = threading.Event()
+    results: list[list[float]] = []
 
-    def meet(query: str) -> list[float]:
+    def slow(query: str) -> list[float]:
         embedder.calls.append(query)
-        try:
-            together.wait()
-        except threading.BrokenBarrierError as exc:
-            broken.append(exc)
+        assert release.wait(5)
         return [1.0]
 
-    embedder.get_query_embedding = meet  # type: ignore[method-assign]
-    threads = [threading.Thread(target=lambda: retriever._embed_query_cached("q")) for _ in range(3)]
-    for thread in threads:
-        thread.start()
-    for thread in threads:
-        thread.join()
+    embedder.get_query_embedding = slow  # type: ignore[method-assign]
+    threads = [threading.Thread(target=lambda: results.append(retriever._embed_query_cached("q"))) for _ in range(3)]
+    try:
+        for thread in threads:
+            thread.start()
+        # Both followers are parked on the owner's record before it finishes.
+        assert waiting.acquire(timeout=5) and waiting.acquire(timeout=5)
+        release.set()
+        for thread in threads:
+            thread.join()
+    finally:
+        release.set()
+        undo()
 
-    assert len(embedder.calls) == 3
-    assert broken == []  # three in parallel, not three in a row
+    assert embedder.calls == ["q"]
+    assert results == [[1.0]] * 3
+    assert retriever._embed_cache == {}
+    assert retriever._embed_inflight == {}
+
+
+def test_the_retriever_hands_its_query_model_to_every_index_it_opens(monkeypatch):
+    """``from_vector_store`` gets the model explicitly; nothing reads it off ``Settings``."""
+    from unittest.mock import MagicMock
+
+    import llama_index.core
+    import llama_index.vector_stores.chroma
+
+    from sources.knowledge_layer.src.llamaindex import adapter
+
+    retriever, embedder = _retriever()
+    retriever._chroma_client = MagicMock()
+    monkeypatch.setattr(adapter, "embed_fingerprint_mismatch", lambda *_args: None)
+    monkeypatch.setattr(llama_index.vector_stores.chroma, "ChromaVectorStore", MagicMock())
+    index_class = MagicMock()
+    monkeypatch.setattr(llama_index.core, "VectorStoreIndex", index_class)
+
+    retriever._get_index("oib_knowledge")
+
+    assert index_class.from_vector_store.call_args.kwargs["embed_model"] is embedder
 
 
 def test_the_prefetch_query_carries_no_trailing_blank():

@@ -1172,13 +1172,12 @@ def _extract_text_from_pdf(pdf_path: str) -> list[dict[str, Any]]:
                 # without one ends the chain, or a caption-less box pages later
                 # was appended to the old table.
                 previous = found[-1][0] if found else None
-                if found:
-                    boxes = [bbox for _table, bbox in found]
+                boxes = [tuple(bbox) for _table, bbox in found]
+                if boxes:
                     source = page.filter(lambda obj, boxes=boxes: not _inside_any(obj, boxes))
                 text = _strip_watermark_lines(source.extract_text())
                 tables = [table for table, _bbox in found]
                 if text or tables:
-                    boxes = [tuple(bbox) for _table, bbox in found]
                     pages.append({"page_number": page_num, "text": text, "tables": tables, "table_boxes": boxes})
 
         logger.info("Extracted text from %d PDF pages in %s", len(pages), pdf_path)
@@ -1231,6 +1230,19 @@ def text_documents_for_pages(text_pages: list[dict[str, Any]], file_name: str, f
         )
         for page in text_pages
     ]
+
+
+def page_texts_for_visual_heuristic(text_pages: list[dict[str, Any]]) -> dict[int, str]:
+    """Page number to the page's full text, captioned tables included, for the visual-page check.
+
+    ``text`` has its captioned tables cut out. A page that is mostly a table then
+    fell under ``VISUAL_PAGE_MIN_TEXT_CHARS``, was rendered and captioned by the VLM
+    as a drawing, and competed in the index with the table's own chunks (oib-rl_2
+    pages 29, 31, 33, 34). A table is text, so it counts as text here.
+    """
+    from knowledge_layer.llamaindex.captioned_tables import page_text_with_tables
+
+    return {page["page_number"]: page_text_with_tables(page["text"], page.get("tables") or []) for page in text_pages}
 
 
 def _looks_like_pdf(file_path: str) -> bool:
@@ -3592,7 +3604,7 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                                 min_paths=VISUAL_PAGE_MIN_PATHS,
                                 max_pages=MAX_RENDERED_PAGES,
                                 max_dim=PAGE_RENDER_MAX_DIM,
-                                page_texts={p["page_number"]: p["text"] for p in text_pages},
+                                page_texts=page_texts_for_visual_heuristic(text_pages),
                             )
 
                         image_results, drawing_pages = _processing.enrich_vlm_batch(
@@ -4338,9 +4350,9 @@ class LlamaIndexRetriever(BaseRetriever):
         bounded by the embed model's own timeout and retries, so the wait is.
         """
         key = (self.embed_model_name, query)
-        if self.EMBED_CACHE_MAX <= 0:
-            # No cache to share a result through: waiting would only serialise.
-            return self._embed_model.get_query_embedding(query)
+        # With the LRU off (``EMBED_CACHE_MAX`` 0) the owner's entry is evicted
+        # as it lands, but the in-flight record still carries the vector to
+        # every waiter: parallel searches for one query embed it once.
         with self._embed_cache_lock:
             cached = self._embed_cache.get(key)
             if cached is not None:

@@ -666,3 +666,58 @@ class TestRunIngestionDrawingBranch:
             "base_url": "https://tenant.example/v1",
             "model": "tenant/vision-model",
         }
+
+
+class TestRunIngestionEmbedsAndChecksWithTheWholePage:
+    def _ingest_table_page(self, tmp_path, monkeypatch, ingestor, render):
+        import knowledge_layer.llamaindex.processing as processing_module
+        from knowledge_layer.llamaindex.captioned_tables import PageTable
+
+        _patch_vlm_credential(monkeypatch, "vlm-key")
+        monkeypatch.setattr(processing_module, "render_visual_pages_no_vlm", render)
+        rows = [["Gegenstand", "GK 4", "GK 5"]] + [
+            [f"{n} Wand zwischen Treppenhäusern", "REI 60", "REI 90"] for n in range(8)
+        ]
+        table = PageTable("3", "Anforderungen an Treppenhäuser", rows, 1)
+        monkeypatch.setattr(
+            adapter,
+            "_extract_text_from_pdf",
+            lambda p: [{"page_number": 1, "text": "Seite 1", "tables": [table], "table_boxes": [(0, 0, 1, 1)]}],
+        )
+        pdf = tmp_path / "tabelle.pdf"
+        pdf.write_bytes(b"%PDF-1.4\n% minimal\n")
+        job_id = ingestor.submit_job([str(pdf)], "coll_table", config={"original_filenames": ["tabelle.pdf"]})
+        assert _wait_terminal(ingestor, job_id).is_success
+
+    def test_a_table_page_is_judged_by_its_table_text_too(self, tmp_path, monkeypatch, ingestor, summary_db):
+        """The heuristic got the text with its captioned tables cut out, so a
+        table page read as text-sparse and was captioned as a drawing."""
+        render = MagicMock(return_value=[])
+
+        self._ingest_table_page(tmp_path, monkeypatch, ingestor, render)
+
+        page_texts = render.call_args.kwargs["page_texts"]
+        assert "REI 90" in page_texts[1]
+        assert len(page_texts[1]) >= adapter.VISUAL_PAGE_MIN_TEXT_CHARS
+
+    def test_the_index_is_built_with_the_ingestors_own_embed_model(self, tmp_path, monkeypatch, ingestor, summary_db):
+        """Passed explicitly, never read off the global ``Settings``, which the
+        retriever once set to its 3 s query model."""
+        from llama_index.core import VectorStoreIndex
+
+        self._ingest_table_page(tmp_path, monkeypatch, ingestor, MagicMock(return_value=[]))
+
+        assert VectorStoreIndex.from_documents.call_args.kwargs["embed_model"] is ingestor._embed_model
+
+    def test_the_ingestor_embeds_with_the_batch_timeout(self, tmp_path, monkeypatch):
+        from llama_index.embeddings import nvidia
+
+        made: list[dict] = []
+        monkeypatch.setattr(adapter, "ensure_retrieval_dependencies", lambda: None)
+        monkeypatch.setattr(nvidia, "NVIDIAEmbedding", lambda **kwargs: made.append(kwargs) or MagicMock())
+        ing = LlamaIndexIngestor({"persist_dir": str(tmp_path / "chroma")})
+
+        ing._ensure_initialized()
+
+        assert [kwargs["timeout"] for kwargs in made] == [adapter.EMBED_TIMEOUT_SECONDS]
+        assert adapter.EMBED_TIMEOUT_SECONDS > adapter.QUERY_EMBED_TIMEOUT_SECONDS

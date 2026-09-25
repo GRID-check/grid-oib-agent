@@ -714,6 +714,9 @@ def _table_documents(
                         "punkt_title": table.title,
                         "punkt_path": caption,
                         "richtlinie": richtlinie,
+                        # Every row group shares page and punkt_id; this is
+                        # what ``read_passage`` orders them by.
+                        "table_part": index,
                     },
                 )
             )

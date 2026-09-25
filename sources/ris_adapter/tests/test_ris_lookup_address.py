@@ -7,6 +7,7 @@ own, without a client, a catalog or a model.
 
 from __future__ import annotations
 
+import pytest
 from ris_adapter.lookup.address import LAND_FROM_ARGUMENT
 from ris_adapter.lookup.address import LAND_FROM_INSTRUMENT
 from ris_adapter.lookup.address import LAND_FROM_QUESTION
@@ -194,7 +195,15 @@ class TestTheListReaderAgainstPracticeInputs:
         # A later list is a reference, not the address: § 3 was dropped for §§ 75, 81.
         assert parse_address("Gilt § 3 BO auch für §§ 75 und 81?", "", "").sections == ("3",)
         address = parse_address("x", "§ 3 BO Wien, siehe §§ 75 und 81", "")
-        assert (address.sections, address.law) == (("3",), "BO Wien, siehe")
+        assert (address.sections, address.law) == (("3",), "BO Wien")
+
+    @pytest.mark.parametrize(
+        "instrument",
+        ["§ 3 BO Wien, siehe §§ 75 und 81", "§ 3 BO Wien, vgl. § 75", "§ 3 BO Wien (s. § 75)", "§ 3 BO Wien vgl § 7"],
+    )
+    def test_the_word_that_introduced_a_reference_is_not_part_of_the_law(self, instrument):
+        # The law name is the live RIS search's title: "BO Wien, siehe" finds nothing.
+        assert parse_address("x", instrument, "").law == "BO Wien"
 
     def test_an_absatz_between_two_paragraphs_does_not_end_the_list(self):
         address = parse_address("x", "§ 5 Abs 2 und § 7 BO Wien", "")

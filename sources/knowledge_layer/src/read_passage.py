@@ -114,8 +114,9 @@ _READ_PASSAGE_DESCRIPTION = (
     "Pkt. 3.5.2'), or the user named chapter and verse. "
     "Pass `document=` the exact name or display title as the inventory or a previous hit "
     "printed it (e.g. 'OIB-Richtlinie 2, Ausgabe Mai 2023' or 'oib-rl_2_ausgabe_mai_2023.pdf'), "
-    "and `punkt=` the number alone ('3.5.2', no 'Pkt.') or `page=` the page number. "
-    "Both together read that Punkt on that page.\n"
+    "and `punkt=` the number alone ('3.5.2', no 'Pkt.') or a table's caption ('Tabelle 3'), "
+    "or `page=` the page number. With `punkt=`, `page=` is ignored: the Punkt alone names "
+    "the passage.\n"
     "ALWAYS pass `conclusion=` — one sentence saying what you now know and what you still "
     "need, which is why you are opening THIS passage. It is the Herleitung checkpoint the "
     "reader sees above the fetch; it changes nothing about what is opened and never appears "
@@ -386,9 +387,25 @@ def _punkt_of(chunk: Any) -> str:
 
 
 def _punkt_sort_key(chunk: Any) -> tuple:
-    """Page, then Punkt numerically, then chunk id: stable across calls."""
+    """Page, then Punkt numerically, then a table's row-group order, then chunk id: stable across calls.
+
+    Every row group of one captioned table shares its page and ``punkt_id``
+    („Tabelle 1a" has no number to sort on), and the chunk id is a random
+    uuid, so without ``table_part`` its "Teil 1 von 5" … "Teil 5 von 5" came
+    back shuffled.
+    """
     raw = _punkt_of(chunk)
-    return (getattr(chunk, "page_number", None) or 0, _punkt_number(raw), raw, str(getattr(chunk, "chunk_id", "")))
+    page = getattr(chunk, "page_number", None) or 0
+    return (page, _punkt_number(raw), raw, _table_part(chunk), str(getattr(chunk, "chunk_id", "")))
+
+
+def _table_part(chunk: Any) -> int:
+    """A table row group's 1-based position, ``0`` for anything that is not one."""
+    raw = (getattr(chunk, "metadata", None) or {}).get("table_part")
+    try:
+        return int(str(raw).strip())
+    except ValueError:
+        return 0
 
 
 def _punkt_depth(chunk: Any) -> int | None:
@@ -995,7 +1012,8 @@ async def read_passage(config: ReadPassageConfig, _builder: Builder):
                 title, as the inventory or a previous hit printed it. Never
                 invented, never a fragment.
             punkt (str | int | None): Optional. The Punkt number alone, e.g.
-                "3.5.2" — no "Pkt.", no title. A top-level Punkt often arrives
+                "3.5.2" — no "Pkt.", no title — or a table's caption,
+                "Tabelle 3". A top-level Punkt often arrives
                 as a number (`3`) and is read as its digits, the way `page`
                 accepts a numeric string. Omit it, and `page`, for the outline.
             page (int | str | None): Optional. The page number, 1-based. Ignored
