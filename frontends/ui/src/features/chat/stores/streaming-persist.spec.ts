@@ -1,18 +1,17 @@
 /**
- * A streamed answer does not write the persisted chat store once per delta.
+ * A streamed answer does not write the persisted chat store while it streams.
  *
  * Regression (ADR-0066's streaming made it visible): every delta flush is a
  * store update, and the `persist` middleware prunes, serializes and writes
  * the WHOLE history on each one. On `/dev/stream-chat`, one twelve-second
  * answer beside forty conversations of history wrote 1.3 MB to localStorage
  * 74 times and blocked the main thread for 8 of those 12 seconds. This drives
- * the real store, so a new write path that bypasses the storage's coalescing
- * fails here rather than in someone's browser.
+ * the real store, so a new write path that writes the growth
+ * fails here rather than in someone's browser. The growth is skipped because a reload drops an answer still marked streaming (`getItem`).
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { useChatStore } from '../store'
 import type { Conversation } from '../types'
-import { STREAMING_PERSIST_INTERVAL_MS } from './sessions-store'
 
 const STORAGE_KEY = 'aiq-chat-store'
 
@@ -78,16 +77,14 @@ describe('persisting a streamed answer', () => {
     localStorage.removeItem(STORAGE_KEY)
   })
 
-  it('writes a burst of deltas once per window, and the settled answer at once', () => {
+  it('writes nothing while the answer streams, and the settled answer at once', () => {
     const setItem = vi.spyOn(localStorage, 'setItem')
     const writes = () => setItem.mock.calls.filter(([key]) => key === STORAGE_KEY).length
 
     for (let i = 0; i < 50; i++) useChatStore.getState().appendAgentResponseDelta(`Wort${i} `)
-    expect(writes()).toBeLessThanOrEqual(1)
-
-    vi.advanceTimersByTime(STREAMING_PERSIST_INTERVAL_MS)
-    expect(writes()).toBeLessThanOrEqual(2)
-    expect(storedAnswer()).toContain('Wort49')
+    vi.advanceTimersByTime(30_000)
+    expect(writes()).toBe(0)
+    expect(storedAnswer()).toBeUndefined()
 
     useChatStore.getState().finalizeAgentResponse('Die ganze Antwort.')
     expect(storedAnswer()).toBe('Die ganze Antwort.')
