@@ -204,7 +204,9 @@ of its own and its terminal frame carries the whole answer. The dropped
 fragment used to stay beside that bubble with a caret, and it hid the
 unanswered question from `restoreSessionState`'s recovery, which fetches a
 finished answer the server kept while the page was away. A reload mid-answer
-now takes the same path as a reload before the first word.
+now takes the same path as a reload before the first word, and a turn still
+running is rebuilt from the replay stream
+([A dropped socket resumes](#a-dropped-socket-resumes)).
 
 `/dev/stream-chat?history=40` measures this: the real store and the real shell
 (`&shell=1`), fed a recorded answer at its recorded pace, with commits, storage
@@ -220,6 +222,55 @@ never reached its terminal is folded by `_fold_live` the way the client folds
 it: deltas append, a snapshot (`stream_replace`) replaces the text before it
 and drops the masthead, and an empty snapshot with no sources (a retraction)
 drops the cards as well.
+
+## A dropped socket resumes
+
+iOS closes a page's WebSocket the moment the app goes to the background, and a
+phone on the move loses it for a few seconds anyway. The answer must still
+arrive when the reader comes back (2026-09).
+
+Before, the first `onclose` ended the turn (`setStreaming(false)`), every later
+frame of it was dropped as stale, and the server, seeing a socket attached again,
+left persisting the answer to the client that had just thrown it away. The
+reader got „Verbindung kurz unterbrochen — Antwort ging verloren" for an answer
+that had finished.
+
+**The cursor.** `ConversationBus.publish_frame` appends every outbound frame to
+the conversation's replay stream on Dragonfly (`conv:<id>:stream`, ADR-0028),
+also when no socket is attached, and the frame reaches the socket tagged with
+its stream entry id, `grid_frame_id` (`<ms>-<n>`, monotonic across replicas and
+restarts). The client keeps the id of the last frame it applied
+(`NATWebSocketClient.lastFrameId`) and drops a frame at or before it, so a
+frame that arrives both replayed and live counts once.
+
+**A reconnect.** While the client is reconnecting and has a cursor
+(`canResume()`), the turn stays open: the hook does not end it on
+`disconnected`, and the watchdog re-arms instead of calling the gone socket
+evidence. On the next open the client holds live frames, reads
+`GET /api/conversations/:id/frames?after=<cursor>`, applies what it missed
+through the same handler as live frames, then releases the held ones
+(`onResume`). `unavailable` (no shared cache, a failed read) ends the turn the
+way a dead socket always did: ask the server for a finished answer, and show
+the banner only if there is none.
+
+**A reload.** A page that reloads has lost its cursor with its memory. The
+question is stamped with the id it went out under (`wsParentId`, persisted with
+the store); `restoreSessionState` first asks for the finished answer, and when
+there is none leaves `resumableTurn`. Once the socket is up the hook reopens the
+turn (`resumeTurn`), reads every frame the stream holds and applies them from
+the question's first frame on (`replayTurn`), so an older turn's frames never
+come back to life. The stream no longer holding the turn ends it with the
+banner.
+
+**One answer, not two.** A turn may finish while nobody is attached: the server
+persists the answer, and the phone, back online, replays the terminal frame and
+writes it too. Both use `uuid5(grid:assistant:<conversation>:<turn>)`
+(`deterministic_assistant_message_id`, `turnAnswerId`), so the second write
+collides on `messages.id` and no-ops, and the recovery dedupes by id.
+
+**Bounds.** `GRID_CONV_STREAM_MAXLEN` (2000 frames, a few turns) and
+`GRID_CONV_STREAM_TTL_SECONDS` (an hour since the last frame). A reader away
+longer than that gets the finished answer from Postgres, or the banner.
 
 ## There is no typewriter
 

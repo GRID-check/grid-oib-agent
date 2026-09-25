@@ -54,6 +54,7 @@ import { validateGridCards } from '@/shared/cards/schemas'
 import { citationsFromWireList } from '../lib/wire-citation'
 import { fetchRunMessage } from '../lib/commissioned-run'
 import { hasLiveRun } from '../lib/session-activity'
+import { conversationsClient } from '@/adapters/api/conversations-client'
 import type { DocumentVersionState } from '@/lib/documents/lifecycle-types'
 import type { GridCard } from '@/shared/cards/schemas'
 import type {
@@ -797,6 +798,7 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
   const clearPendingInteraction = useChatStore((s) => s.clearPendingInteraction)
   const setLoading = useChatStore((s) => s.setLoading)
   const setStreaming = useChatStore((s) => s.setStreaming)
+  const resumableTurn = useChatStore((s) => s.resumableTurn)
   const storeCreateConversation = useChatStore((s) => s.createConversation)
   const setCurrentUser = useChatStore((s) => s.setCurrentUser)
   const storeSelectConversation = useChatStore((s) => s.selectConversation)
@@ -993,6 +995,58 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
   ])
 
   /**
+   * End the turn — but ASK THE SERVER FIRST.
+   *
+   * The turn being over on this socket does not mean it is over: the backend
+   * finishes and persists its answer whether or not anyone is listening, and
+   * the recovery fetch is HTTP, so it works precisely when the WebSocket does
+   * not. Skipping it meant a socket death mid-turn deleted the partial answer
+   * and told the reader to resend a turn that was already complete in
+   * Postgres — worse than the banner it replaced, which at least left the
+   * streamed prose on screen. The reconnect handler cannot cover this: it runs
+   * on a `connected` event, and there is none when the client gives up.
+   *
+   * Also the end of a turn whose dropped socket came back unable to catch up
+   * on what it missed (`onResume('unavailable')`).
+   */
+  const endInterruptedTurn = useCallback((): void => {
+    const conversation = useChatStore.getState().currentConversation ?? null
+    const lastUserMessage = conversation
+      ? [...conversation.messages].reverse().find((m) => m.messageType === 'user')
+      : undefined
+    if (!conversation || !lastUserMessage) {
+      endSilentTurn()
+      addErrorCard(
+        'agent.response_interrupted',
+        'The assistant stopped responding. Please resend your message.'
+      )
+      return
+    }
+    // `endSilentTurn` first, and it takes the partial bubble with it. That is
+    // required rather than tidy: the recovery refuses to fold server history
+    // over a live stream, so the stream has to be over before it is asked.
+    // The partial goes either way — half a legal answer left on screen with
+    // no marker is worse than none, and if the server does have the finished
+    // one it would sit above it looking like a separate reply.
+    endSilentTurn()
+    void useChatStore
+      .getState()
+      ._recoverInterruptedAssistantMessage(conversation.id, lastUserMessage.id)
+      .then((outcome) => {
+        // ONLY `nothing` earns the banner. `superseded` means another
+        // recovery already put the answer on screen (mount and reconnect both
+        // run this, and a reconnect can land inside this very round trip), or
+        // the reader has already resent — accusing there prints
+        // "please resend" underneath a live answer.
+        if (outcome !== 'nothing') return
+        addErrorCard(
+          'agent.response_interrupted',
+          'The assistant stopped responding. Please resend your message.'
+        )
+      })
+  }, [addErrorCard, endSilentTurn])
+
+  /**
    * Fired when a streaming turn has said nothing for
    * {@link STREAMING_INACTIVITY_TIMEOUT_MS}.
    *
@@ -1029,57 +1083,16 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
 
     const conversation = state.currentConversation ?? null
 
-    /**
-     * End the turn — but ASK THE SERVER FIRST.
-     *
-     * The turn being over on this socket does not mean it is over: the backend
-     * finishes and persists its answer whether or not anyone is listening, and
-     * the recovery fetch is HTTP, so it works precisely when the WebSocket does
-     * not. Skipping it meant a socket death mid-turn deleted the partial answer
-     * and told the reader to resend a turn that was already complete in
-     * Postgres — worse than the banner it replaced, which at least left the
-     * streamed prose on screen. The reconnect handler cannot cover this: it runs
-     * on a `connected` event, and there is none when the client gives up.
-     */
-    const endTurn = (): void => {
-      const lastUserMessage = conversation
-        ? [...conversation.messages].reverse().find((m) => m.messageType === 'user')
-        : undefined
-      if (!conversation || !lastUserMessage) {
-        endSilentTurn()
-        addErrorCard(
-          'agent.response_interrupted',
-          'The assistant stopped responding. Please resend your message.'
-        )
-        return
-      }
-      // `endSilentTurn` first, and it takes the partial bubble with it. That is
-      // required rather than tidy: the recovery refuses to fold server history
-      // over a live stream, so the stream has to be over before it is asked.
-      // The partial goes either way — half a legal answer left on screen with
-      // no marker is worse than none, and if the server does have the finished
-      // one it would sit above it looking like a separate reply.
-      endSilentTurn()
-      void useChatStore
-        .getState()
-        ._recoverInterruptedAssistantMessage(conversation.id, lastUserMessage.id)
-        .then((outcome) => {
-          // ONLY `nothing` earns the banner. `superseded` means another
-          // recovery already put the answer on screen (mount and reconnect both
-          // run this, and a reconnect can land inside this very round trip), or
-          // the reader has already resent — accusing there prints
-          // "please resend" underneath a live answer.
-          if (outcome !== 'nothing') return
-          addErrorCard(
-            'agent.response_interrupted',
-            'The assistant stopped responding. Please resend your message.'
-          )
-        })
-    }
-
     // (1) The socket is the only hard evidence available on this side.
     if (!wsClientRef.current?.isConnected()) {
-      endTurn()
+      // Unless the client is still getting it back and can catch up on what it
+      // missed when it does: a phone that took the page to the background
+      // comes back to a socket that resumes the answer.
+      if (wsClientRef.current?.isReconnecting() && wsClientRef.current.canResume()) {
+        armStreamingWatchdogRef.current?.(false)
+        return
+      }
+      endInterruptedTurn()
       return
     }
 
@@ -1113,8 +1126,8 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
       armStreamingWatchdogRef.current?.(false)
       return
     }
-    endTurn()
-  }, [addErrorCard, clearStreamingWatchdog, endSilentTurn])
+    endInterruptedTurn()
+  }, [clearStreamingWatchdog, endInterruptedTurn])
 
   /**
    * (Re)arm the watchdog. Called when a turn starts and on every inbound
@@ -1264,6 +1277,13 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
 
       if (!outboundId) return false
       trackSentOutgoing(payload, outboundId)
+      // The question learns the turn id it went out under, and keeps it in the
+      // persisted store: a reload mid-answer finds the turn by it and resumes
+      // it from the replay stream (`restoreSessionState`, `resumableTurn`).
+      if (payload.kind === 'message') {
+        const { currentUserMessageId, markTurnWsParentId } = useChatStore.getState()
+        if (currentUserMessageId) markTurnWsParentId(currentUserMessageId, outboundId)
+      }
       return true
     },
     [trackSentOutgoing]
@@ -1879,6 +1899,11 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
             pendingOutgoingRef.current = null
           }
 
+          // A turn the reconnect can catch up on stays open: the answer keeps
+          // arriving once the socket is back (`onResume`). The watchdog stays
+          // armed and ends it if the socket never comes back.
+          if (useChatStore.getState().isStreaming && wsClientRef.current?.canResume()) return
+
           // Don't show error cards here -- the WS client only fires
           // onError(CONNECTION_FAILED) after all retries are exhausted,
           // and the health-check gate there decides whether to show UI.
@@ -1894,6 +1919,19 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
           setLoading(false)
           clearPendingInteraction()
         }
+      },
+
+      // The reconnect has tried to catch up on what the dropped socket missed.
+      // Resumed: the missed frames went through the handlers above, and the
+      // turn carries on live (or finished, if its terminal frame was among
+      // them). Unavailable: the turn kept open across the drop cannot be
+      // continued, so it ends the way a dead socket ends it, asking the server
+      // for a finished answer first.
+      onResume: (outcome) => {
+        if (outcome === 'resumed') return
+        if (!useChatStore.getState().isStreaming) return
+        clearStreamingWatchdog()
+        endInterruptedTurn()
       },
     }
   }, [
@@ -1925,6 +1963,7 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
     sendOutgoingPayload,
     armStreamingWatchdog,
     clearStreamingWatchdog,
+    endInterruptedTurn,
     discoverBudgetFailureMessage,
     tChat,
   ])
@@ -1971,8 +2010,10 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
         onHumanPrompt: (...args) => latestCallbacksRef.current.onHumanPrompt?.(...args),
         onError: (...args) => latestCallbacksRef.current.onError?.(...args),
         onConnectionChange: (...args) => latestCallbacksRef.current.onConnectionChange?.(...args),
+        onResume: (...args) => latestCallbacksRef.current.onResume?.(...args),
       },
       onBeforeReconnect: () => latestRefreshAuthRef.current(),
+      readMissedFrames: (id, afterId) => conversationsClient.missedFrames(id, afterId),
     })
   }, [])
 
@@ -2053,6 +2094,33 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
     setLoading,
     setCurrentStatus,
   ])
+
+  /**
+   * Resume the turn a reload cut off, once there is a socket to carry the rest
+   * of it. `restoreSessionState` leaves it (`resumableTurn`) when the server
+   * has no finished answer yet; this rebuilds it from the replay stream and
+   * lets the live frames continue it. Keyed on both, because either can come
+   * first: the socket may be up before the recovery fetch settles.
+   */
+  useEffect(() => {
+    const client = wsClientRef.current
+    if (!resumableTurn || !isConnected || !client) return
+    const turn = useChatStore.getState().resumeTurn(resumableTurn.conversationId)
+    if (!turn) return
+    // Answer frames of this turn are its, not a stale workflow's.
+    client.activeParentId = turn.wsParentId
+    armStreamingWatchdog()
+    void client.replayTurn(turn.wsParentId).then((applied) => {
+      // Still this turn's socket and still open, and the stream did not hold
+      // it: the frames aged out, or there is no shared cache. End it as a
+      // dropped socket ends one, with a last ask for a finished answer.
+      if (wsClientRef.current !== client || !useChatStore.getState().isStreaming) return
+      if (applied === null || applied === 0) {
+        clearStreamingWatchdog()
+        endInterruptedTurn()
+      }
+    })
+  }, [resumableTurn, isConnected, armStreamingWatchdog, clearStreamingWatchdog, endInterruptedTurn])
 
   /**
    * Push project id changes onto the live socket WITHOUT tearing it down.

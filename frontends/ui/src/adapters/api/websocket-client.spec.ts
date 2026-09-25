@@ -722,3 +722,140 @@ describe('NATWebSocketClient reconnect scheduling', () => {
     }
   })
 })
+
+/**
+ * A phone drops its socket the moment the page goes to the background. Every
+ * frame the agent sends is also in the conversation's replay stream, tagged
+ * with its entry id (`grid_frame_id`); the reconnect reads back what it missed
+ * and applies it through the same handler, so the answer still arrives.
+ */
+describe('NATWebSocketClient resume from the replay stream', () => {
+  beforeEach(() => {
+    MockWebSocket.instances = []
+    vi.stubGlobal('WebSocket', MockWebSocket)
+    vi.useFakeTimers()
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+    vi.unstubAllGlobals()
+    vi.restoreAllMocks()
+  })
+
+  const frame = (id: string, content: string, parentId = 'msg_1', status = 'in_progress') => ({
+    type: NATMessageType.SYSTEM_RESPONSE,
+    status,
+    content,
+    parent_id: parentId,
+    grid_frame_id: id,
+  })
+
+  const deliver = (ws: MockWebSocket, payload: unknown) =>
+    ws.onmessage?.({ data: JSON.stringify(payload) } as MessageEvent)
+
+  const contents = (onResponse: ReturnType<typeof vi.fn>) =>
+    onResponse.mock.calls.map((call) => call[0])
+
+  const openClient = async (
+    readMissedFrames: (id: string, afterId: string | null) => Promise<Record<string, unknown>[] | null>,
+    callbacks: Record<string, unknown> = {}
+  ) => {
+    const onResponse = vi.fn()
+    const onResume = vi.fn()
+    const client = new NATWebSocketClient({
+      conversationId: 'conv-1',
+      websocketUrl: 'ws://localhost/websocket',
+      callbacks: { onResponse, onResume, ...callbacks },
+      readMissedFrames,
+    })
+    await client.connect()
+    const ws = MockWebSocket.instances.at(-1)!
+    ws.onopen?.(new Event('open'))
+    return { client, ws, onResponse, onResume }
+  }
+
+  /** Drop the socket and let the client open the next one. */
+  const reconnect = async (ws: MockWebSocket): Promise<MockWebSocket> => {
+    ws.readyState = MockWebSocket.CLOSED
+    ws.onclose?.(new CloseEvent('close'))
+    await vi.runOnlyPendingTimersAsync()
+    const next = MockWebSocket.instances.at(-1)!
+    expect(next).not.toBe(ws)
+    return next
+  }
+
+  test('a reconnect reads back what it missed and applies it in order', async () => {
+    const read = vi.fn(async () => [frame('3-0', 'c'), frame('4-0', 'd')])
+    const { client, ws, onResponse, onResume } = await openClient(read)
+    deliver(ws, frame('1-0', 'a'))
+    deliver(ws, frame('2-0', 'b'))
+    expect(client.canResume()).toBe(true)
+
+    const next = await reconnect(ws)
+    next.onopen?.(new Event('open'))
+    await vi.runAllTimersAsync()
+
+    expect(read).toHaveBeenCalledWith('conv-1', '2-0')
+    expect(contents(onResponse)).toEqual(['a', 'b', 'c', 'd'])
+    expect(onResume).toHaveBeenCalledWith('resumed', 2)
+  })
+
+  test('live frames that arrive during the read wait, and one that came both ways counts once', async () => {
+    let release: (frames: Record<string, unknown>[]) => void = () => {}
+    const read = vi.fn(
+      () => new Promise<Record<string, unknown>[] | null>((resolve) => (release = resolve))
+    )
+    const { ws, onResponse } = await openClient(read)
+    deliver(ws, frame('1-0', 'a'))
+
+    const next = await reconnect(ws)
+    next.onopen?.(new Event('open'))
+    // Live, while the read is in flight: one the stream also returns, one newer.
+    deliver(next, frame('3-0', 'c'))
+    deliver(next, frame('4-0', 'd'))
+    expect(contents(onResponse)).toEqual(['a'])
+
+    release([frame('2-0', 'b'), frame('3-0', 'c')])
+    await vi.runAllTimersAsync()
+
+    expect(contents(onResponse)).toEqual(['a', 'b', 'c', 'd'])
+  })
+
+  test('with nothing to read from, the reconnect says so', async () => {
+    const { ws, onResume } = await openClient(async () => null)
+    deliver(ws, frame('1-0', 'a'))
+
+    const next = await reconnect(ws)
+    next.onopen?.(new Event('open'))
+    await vi.runAllTimersAsync()
+
+    expect(onResume).toHaveBeenCalledWith('unavailable', 0)
+  })
+
+  test('a client that has seen no tagged frame cannot resume', async () => {
+    const { client, ws } = await openClient(async () => [])
+    deliver(ws, { ...frame('1-0', 'a'), grid_frame_id: undefined })
+    expect(client.canResume()).toBe(false)
+  })
+
+  test('a reload rebuilds its turn from the turn’s first frame, never an older turn’s', async () => {
+    const read = vi.fn(async () => [
+      frame('1-0', 'old', 'msg_0', 'complete'),
+      frame('2-0', 'x', 'msg_1'),
+      frame('3-0', 'y', 'msg_1'),
+    ])
+    const { client, onResponse } = await openClient(read)
+
+    const applied = await client.replayTurn('msg_1')
+
+    expect(read).toHaveBeenCalledWith('conv-1', null)
+    expect(applied).toBe(2)
+    expect(contents(onResponse)).toEqual(['x', 'y'])
+  })
+
+  test('a reload whose turn the stream no longer holds applies nothing', async () => {
+    const { client, onResponse } = await openClient(async () => [frame('1-0', 'old', 'msg_0')])
+    expect(await client.replayTurn('msg_1')).toBe(0)
+    expect(onResponse).not.toHaveBeenCalled()
+  })
+})
