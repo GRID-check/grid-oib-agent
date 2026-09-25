@@ -319,8 +319,8 @@ function arrowheadFor(element: SvgElement, at: 'start' | 'end', key: number): Re
 const DEFAULT_FONT_SIZE = 16
 
 function fontSizeOf(element: SvgElement): number | undefined {
-  const size = Number.parseFloat((attributeOf(element, 'font-size') ?? '').replace(/px$/i, ''))
-  return Number.isFinite(size) && size > 0 ? size : undefined
+  const size = numeric(element, 'font-size')
+  return size !== undefined && size > 0 ? size : undefined
 }
 
 /**

@@ -30,9 +30,13 @@ vi.mock('./backend-defaults', () => ({
   getWorkflowLlmBaseUrls: (): unknown => getWorkflowLlmBaseUrls(),
 }))
 
+// The model the bootstrap seeds, read from the module so a fleet move edits one place.
+const defaultModel = async (): Promise<string> =>
+  (await import('./bootstrap-defaults')).BOOTSTRAP_DEFAULT_MODEL
+
 vi.mock('./openrouter', () => ({
-  fetchModelCatalog: async (): Promise<unknown[]> => [{ id: 'openai/gpt-6-luna' }],
-  fetchZdrModelIds: async (): Promise<Set<string>> => new Set(['openai/gpt-6-luna']),
+  fetchModelCatalog: async (): Promise<unknown[]> => [{ id: await defaultModel() }],
+  fetchZdrModelIds: async (): Promise<Set<string>> => new Set([await defaultModel()]),
   baseModelId: (id: string): string => id.split(':')[0],
   validateOverrides: (_catalog: unknown, defaults: Record<string, string>) => ({
     ok: true,
@@ -85,7 +89,7 @@ describe.skipIf(!url)('platform default bootstrap against live Postgres', () => 
     await invalidatePlatformModelDefaults()
     const defaults = await getPlatformModelDefaults()
     expect(Object.keys(defaults).sort()).toEqual(AGENT_GROUPS.map((group) => group.id).sort())
-    expect(new Set(Object.values(defaults))).toEqual(new Set(['openai/gpt-6-luna']))
+    expect(new Set(Object.values(defaults))).toEqual(new Set([await defaultModel()]))
 
     // The ZDR signal survives the round trip — a NULL snapshot would silently
     // disable the warning ZDR tenants depend on.

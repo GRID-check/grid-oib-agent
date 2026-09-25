@@ -137,8 +137,8 @@ const VOCABULARIES = new Map<string, Set<string>>(
  *   - `diagram` — a drawing this export cannot draw. Mermaid lays a graph out
  *     against a DOM and this runs server-side, which is the same constraint
  *     that put diagram rendering in the browser to begin with. Exported the way
- *     a mermaid FENCE already is (`diagramLabel` in `./markdown.ts`): the
- *     labelled source, so the reader holding only the file can tell a drawing
+ *     a mermaid FENCE already is (`diagramBlocks` in `./markdown.ts`): the
+ *     labelled source, or the placeholder when one is given, so the reader holding only the file can tell a drawing
  *     from prose and can regenerate it. Walking it instead would print the
  *     mermaid under „Origin“ as if the answer had meant to state it.
  *   - `chrome` — the app addressing the reader, not the answer recording a
@@ -772,9 +772,8 @@ export function cardBlocks(value: unknown, t: Translator, options: CardBlocksOpt
     const reference = isReference(card.reference) ? referenceText(card.reference) : ''
     return compact([
       heading,
-      // BEFORE the source, not after: a caption that arrives after the thing it
-      // explains is a caption the reader has already misread.
-      // Printed exactly as a fence in the prose is, placeholder included.
+      // Printed exactly as a fence in the prose is, label first and placeholder
+      // included; the card's own caption follows the drawing it describes.
       ...diagramBlocks('mermaid', source, options.diagramPlaceholder),
       caption ? { kind: 'paragraph', runs: [{ text: caption }] } : null,
       // The Fundstelle, in the two-paragraph form the walker gives every other
