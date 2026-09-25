@@ -578,9 +578,21 @@ class TestSurfaceLimits:
             (_too_many_leaves(), f"A surface holds 2 to {SURFACE_MAX_LEAVES} cards or Text blocks"),
             (_text_too_long(), f"a tab holds at most {SURFACE_TEXT_MAX}"),
             (_tab(title="  "), "a tab's `title` is text"),
+            # Markup around nothing flattens to nothing: checked raw, each passed.
+            (_tab(title="[]()"), "a tab's `title` is text"),
+            (_tab(title="`  `"), "a tab's `title` is text"),
             (_tab(icon="star"), "every tab is exactly {title, child}"),
         ],
-        ids=["children", "tabs", "leaves", "text-length", "empty-tab-title", "extra-tab-key"],
+        ids=[
+            "children",
+            "tabs",
+            "leaves",
+            "text-length",
+            "empty-tab-title",
+            "empty-link-tab-title",
+            "blank-code-tab-title",
+            "extra-tab-key",
+        ],
     )
     def test_a_surface_over_a_limit_is_refused(self, components, expected):
         assert expected in _refusal(_tabs(components=copy.deepcopy(components)))
@@ -602,3 +614,13 @@ def test_a_tab_title_is_plain_text_like_every_other_card_string():
         ],
     )
     assert [tab["title"] for tab in card.components[0]["tabs"]] == ["A", "B"]
+
+
+def test_a_second_root_is_refused_as_a_duplicate_not_as_a_bad_root():
+    # Keyed by id, a later card called "root" replaced the real Tabs and the
+    # refusal said the root must be a layout, which it was.
+    card = _tabs()
+    card["components"].append({**copy.deepcopy(BASIS_A), "id": "root"})
+    refusal = _refusal(card)
+    assert "Duplicate component ID: root" in refusal
+    assert "must be a Row, Column or Tabs" not in refusal

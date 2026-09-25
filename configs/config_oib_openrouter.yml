@@ -599,9 +599,12 @@ functions:
   remember:
     _type: project_memory_remember
 
-  # Rich UI cards: the agent calls emit_card mid-answer when a structured
-  # element (legal basis, dimension/stair diagram, summary) adds value. Cards
-  # are validated and delivered alongside the written answer.
+  # Rich UI cards, deep research only: its writer calls emit_card mid-answer
+  # when a structured element (legal basis, dimension/stair diagram, summary)
+  # adds value. Chat binds no emit_card; its cards travel in the answer
+  # envelope's `cards` field, whose contract carries the doctrine
+  # (cards/envelope.py). Either way cards are validated and delivered
+  # alongside the written answer.
   emit_card:
     _type: emit_card
 
@@ -619,12 +622,12 @@ functions:
   # turn whether or not a card is emitted, and ~190 more for each type we add.
   #
   # Bound to NO agent today, and declared so a config that wants it has the
-  # `_type` to hand. On the chat path a failed `emit_card` returns this same L2
-  # entry for the type that failed, so the shape is learned on the retry that
-  # needed it instead of in a charged round trip the prompt had to talk the
-  # model into paying in advance. Deep research learned the same thing: its
-  # writer emits arrays through `emit_card`, and the lookup it used to pay for
-  # bought a shape the failure path now hands back.
+  # `_type` to hand. Deep research's writer emits through `emit_card`, and a
+  # failed call returns this same L2 entry for the type that failed, so the
+  # shape is learned on the retry that needed it instead of in a charged round
+  # trip paid in advance. Chat has no `emit_card`: the envelope contract carries
+  # the common shapes, and a refused card goes to `card_repair_llm` with its
+  # type's shape.
   describe_card:
     _type: describe_card
 

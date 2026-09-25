@@ -2771,45 +2771,63 @@ SURFACE_JUSTIFY = frozenset({"start", "center", "end", "spaceBetween", "spaceAro
 SURFACE_ALIGN = frozenset({"start", "center", "end", "stretch"})
 
 
-def _check_layout(component: dict[str, Any]) -> dict[str, Any]:
-    """A layout component's own props: static child ids, a sane count, nothing else.
-
-    Returned normalised: a tab title is on-screen text and gets the plain-text
-    guarantee every other card string gets (`flatten_card_markup`), which the
-    model-level flattening does not reach inside the component dicts.
-    """
+def _check_row(component: dict[str, Any]) -> dict[str, Any]:
+    """A `Row` or `Column`: static child ids, 2 to the cap, `justify`/`align` the renderer takes."""
     name, component_id = component["component"], component["id"]
-    if name in ("Row", "Column"):
-        extra = set(component) - {"id", "component", "children", "justify", "align"}
-        for prop, allowed in (("justify", SURFACE_JUSTIFY), ("align", SURFACE_ALIGN)):
-            if prop in component and (not isinstance(component[prop], str) or component[prop] not in allowed):
-                raise ValueError(f"'{component_id}' ({name}): `{prop}` is one of {sorted(allowed)}.")
-        children = component.get("children")
-        if not isinstance(children, list) or not all(isinstance(child, str) for child in children):
-            raise ValueError(f"'{component_id}' ({name}): `children` must be a list of component ids.")
-        if not 2 <= len(children) <= SURFACE_MAX_CHILDREN:
-            raise ValueError(
-                f"'{component_id}' ({name}): {len(children)} children; a {name} holds 2 to "
-                f"{SURFACE_MAX_CHILDREN}. One child is that child, and more do not fit a column."
-            )
-    else:
-        extra = set(component) - {"id", "component", "tabs"}
-        tabs = component.get("tabs")
-        if not isinstance(tabs, list) or not 2 <= len(tabs) <= SURFACE_MAX_TABS:
-            raise ValueError(f"'{component_id}' (Tabs): `tabs` must list 2 to {SURFACE_MAX_TABS} tabs.")
-        for tab in tabs:
-            if not isinstance(tab, dict) or set(tab) != {"title", "child"}:
-                raise ValueError(f"'{component_id}' (Tabs): every tab is exactly {{title, child}}.")
-            if not isinstance(tab["title"], str) or not tab["title"].strip() or not isinstance(tab["child"], str):
-                raise ValueError(f"'{component_id}' (Tabs): a tab's `title` is text and its `child` an id.")
+    for prop, allowed in (("justify", SURFACE_JUSTIFY), ("align", SURFACE_ALIGN)):
+        if prop in component and (not isinstance(component[prop], str) or component[prop] not in allowed):
+            raise ValueError(f"'{component_id}' ({name}): `{prop}` is one of {sorted(allowed)}.")
+    children = component.get("children")
+    if not isinstance(children, list) or not all(isinstance(child, str) for child in children):
+        raise ValueError(f"'{component_id}' ({name}): `children` must be a list of component ids.")
+    if not 2 <= len(children) <= SURFACE_MAX_CHILDREN:
+        raise ValueError(
+            f"'{component_id}' ({name}): {len(children)} children; a {name} holds 2 to "
+            f"{SURFACE_MAX_CHILDREN}. One child is that child, and more do not fit a column."
+        )
+    extra = set(component) - {"id", "component", "children", "justify", "align"}
     if extra:
         raise ValueError(f"'{component_id}' ({name}) does not take {sorted(extra)}.")
-    if name == "Tabs":
-        tabs = [
-            {"title": flatten_card_markup(tab["title"].strip()), "child": tab["child"]} for tab in component["tabs"]
-        ]
-        return {**component, "tabs": tabs}
     return component
+
+
+def _checked_tab(component_id: str, tab: Any) -> dict[str, str]:
+    """One `{title, child}` entry, its title flattened BEFORE the emptiness check.
+
+    Flattened first because `[]()` or a code span of spaces is markup around
+    nothing: checked raw it passes, and the reader gets a blank tab.
+    """
+    if not isinstance(tab, dict) or set(tab) != {"title", "child"}:
+        raise ValueError(f"'{component_id}' (Tabs): every tab is exactly {{title, child}}.")
+    title = flatten_card_markup(tab["title"]).strip() if isinstance(tab["title"], str) else ""
+    if not title or not isinstance(tab["child"], str):
+        raise ValueError(f"'{component_id}' (Tabs): a tab's `title` is text and its `child` an id.")
+    return {"title": title, "child": tab["child"]}
+
+
+def _check_tabs(component: dict[str, Any]) -> dict[str, Any]:
+    """A `Tabs`: 2 to the cap, each `{title, child}`, returned with plain-text titles.
+
+    A tab title is on-screen text and gets the plain-text guarantee every other
+    card string gets (`flatten_card_markup`), which the model-level flattening
+    does not reach inside the component dicts.
+    """
+    component_id = component["id"]
+    tabs = component.get("tabs")
+    if not isinstance(tabs, list) or not 2 <= len(tabs) <= SURFACE_MAX_TABS:
+        raise ValueError(f"'{component_id}' (Tabs): `tabs` must list 2 to {SURFACE_MAX_TABS} tabs.")
+    checked = [_checked_tab(component_id, tab) for tab in tabs]
+    extra = set(component) - {"id", "component", "tabs"}
+    if extra:
+        raise ValueError(f"'{component_id}' (Tabs) does not take {sorted(extra)}.")
+    return {**component, "tabs": checked}
+
+
+def _check_layout(component: dict[str, Any]) -> dict[str, Any]:
+    """A layout component's own props, returned normalised (see :func:`_check_tabs`)."""
+    if component["component"] == "Tabs":
+        return _check_tabs(component)
+    return _check_row(component)
 
 
 def _checked_text(component: dict[str, Any]) -> dict[str, Any]:
@@ -2860,6 +2878,13 @@ def _tabs_as_references(component: dict[str, Any]) -> dict[str, Any]:
     return {**component, "tabs[].child": [tab["child"] for tab in component["tabs"]]}
 
 
+def _references(component: dict[str, Any]) -> list[str]:
+    """The ids a layout component holds, children and tab children alike; [] for a leaf."""
+    if component["component"] not in SURFACE_LAYOUTS:
+        return []
+    return list(component.get("children") or []) + [tab["child"] for tab in component.get("tabs") or []]
+
+
 def _check_single_parent(components: list[dict[str, Any]]) -> None:
     """Every component is referenced at most once: the surface is a tree.
 
@@ -2868,17 +2893,13 @@ def _check_single_parent(components: list[dict[str, Any]]) -> None:
     draw the one component in two places.
     """
     seen: set[str] = set()
-    for component in components:
-        if component["component"] not in SURFACE_LAYOUTS:
-            continue
-        references = list(component.get("children") or []) + [tab["child"] for tab in component.get("tabs") or []]
-        for child in references:
-            if child in seen:
-                raise ValueError(
-                    f"'{child}' is referenced more than once; a surface is a tree, and each component "
-                    "sits in one place. Give the second place a component of its own."
-                )
-            seen.add(child)
+    for child in (child for component in components for child in _references(component)):
+        if child in seen:
+            raise ValueError(
+                f"'{child}' is referenced more than once; a surface is a tree, and each component "
+                "sits in one place. Give the second place a component of its own."
+            )
+        seen.add(child)
 
 
 class SurfaceCard(CardModel):
@@ -2916,6 +2937,15 @@ class SurfaceCard(CardModel):
         for index, component in enumerate(self.components):
             if not isinstance(component.get("id"), str) or not isinstance(component.get("component"), str):
                 raise ValueError(f"components.{index} needs a string `id` and a string `component`.")
+        # Before the root lookup: a second component called "root" would
+        # otherwise stand in for the first, and the refusal would name the
+        # wrong fault.
+        ids = [component["id"] for component in self.components]
+        if duplicates := sorted({component_id for component_id in ids if ids.count(component_id) > 1}):
+            raise ValueError(
+                f"Duplicate component ID: {', '.join(duplicates)}. Ids are unique within a surface; "
+                "give each component its own."
+            )
         by_id = {component["id"]: component for component in self.components}
         root = by_id.get("root")
         if root is None or root["component"] not in SURFACE_LAYOUTS:

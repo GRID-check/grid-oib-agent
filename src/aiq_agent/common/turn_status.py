@@ -1657,7 +1657,7 @@ CARD_INVALID_SLOT = "card:invalid"
 
 #: What became of the refused card. Stable tokens: they are counted, and the
 #: rate of ``repaired`` against ``dropped`` is the number that says whether the
-#: shapes the envelope teaches up front are the right eight.
+#: shapes the envelope teaches up front (``ENVELOPE_SHAPE_TYPES``) are the right ones.
 CARD_INVALID_REPAIRED = "repaired"
 CARD_INVALID_DROPPED = "dropped"
 

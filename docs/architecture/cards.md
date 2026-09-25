@@ -74,7 +74,7 @@ answer it has just written.
 
 | `type` | Purpose | Key fields |
 |---|---|---|
-| `summary` **(envelope)** | A short overview / key points. Retired as a card: the envelope's `summary` field carries the answer-in-brief on basically every reply, rendered as the masthead's standfirst (≤ 320 chars, gated); the card type survives for stored threads | `title`, `content`, `key_points` |
+| `summary` **(envelope)** | A short overview / key points. Retired as a card: the envelope's `summary` field carries it only when the answer has a consequence for the reader that its opening does not state (what to do next, what it means for the project; `piloti_static.md`), rendered as the masthead's standfirst (≤ 320 chars, gated); the card type survives for stored threads | `title`, `content`, `key_points` |
 | `legal_basis` | An OIB/norm legal-basis citation. Placed with `[[card:N]]`, it is framed where the marker sits. The first unplaced one renders flat after the prose once the answer is final (`EvidenceBlock`), never in the fallback grid | `law`, `article`, `section`, `summary`, `original_text` |
 | `project_profile_patch` **(interactive)** | A proposed change to the project brief | `title`, `rationale`, `patch[]` — JSON-Patch ops restricted to `/facts`, `/goals`, `/unknowns`, `/assumptions` (the before/after rows are built from the patch and the live profile, never from the model) |
 | `requirement_checklist` | Several pass/fail criteria for one question, each with verdict + own norm reference | `title`, `items[]` (`label`, `status`, `detail`, `reference`), `reference`, `note` |
@@ -324,7 +324,7 @@ answer paid one more full-context call to write the prose after it — and a
 third on a wrong shape. Nothing on the wire changed. The taught envelope
 schema carries the doctrine, the index and the full shapes of the three
 content cards answers earn most (`ENVELOPE_SHAPE_TYPES`: `legal_basis`,
-`condition_tree`, `process_map`; the whole contract is ~3 500 tokens, cached
+`condition_tree`, `process_map`; the whole contract is ~3 900 tokens (o200k_base), COMPOSE included, cached
 with the prefix; the whole catalog's shapes are ~23 000 and stay on demand).
 
 **Since 2026-09-24 the answer's own Markdown comes first.** Tables, criteria
@@ -581,10 +581,11 @@ question happened to need.
 
 ### Which turns may emit a card
 
-Every turn. `emit_card` is bound on every turn like every
-other tool (ADR-0052: there is no classifier and no narrowed "meta" binding in
+Every turn. On chat the answer envelope's `cards` field is part of every
+answer (ADR-0052: there is no classifier and no narrowed "meta" binding in
 front of the answering agent), so whether a turn ships a card is decided by
-what the answer has to show, never by a label given before the answer.
+what the answer has to show, never by a label given before the answer. Piloti
+no longer binds `emit_card`; only deep research does.
 
 This used to be contradictory rather than decided: when the intent classifier
 still existed, Piloti's prompt's meta output contract said "no tool calls"
@@ -598,11 +599,13 @@ contradiction with it.
 What bounds it now is the prompt: **it says what a direct reply may put on a
 card.** A subject-matter question that merely landed in a short reply earns the
 card its content calls for; small talk, a formatting or memory request, a shelf
-listing and an off-topic decline get none. The always-on doctrine and the L1
-index ride in `emit_card`'s description on every turn, and so does the CRAFT
-that says how each of the generic cards is filled well — enough to name the
-right card AND to build it, with the shape arriving on the retry if a field
-comes out wrong. Skills, too, are bound on
+listing and an off-topic decline get none. On chat the doctrine, the L1 index
+and the shapes of `ENVELOPE_SHAPE_TYPES` ride in the envelope contract
+(`render_envelope_cards_contract`, `cards/envelope.py`) on every turn —
+enough to name the right card AND to build it, with a card the validator
+refuses handed to the small repair model (`cards/repair.py`) rather than back
+to the answering agent. Deep research still reads the doctrine in
+`emit_card`'s description, and gets the shape on the retry. Skills, too, are bound on
 every turn (`use_skill`); there is no gate in front of the skill runtime any
 more, and no way to require a skill either, so a greeting that loads no skill is
 the model's judgment, pinned by the prompt.

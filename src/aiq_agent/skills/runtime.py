@@ -150,12 +150,20 @@ def _within_budget(skills: tuple[Skill, ...], max_body_chars: int, budget_chars:
 def _inline_skill(skill: Skill) -> str:
     """One inlined skill: its element, and its card preference as one line.
 
-    The preference rides as names only. The eight shapes answers earn most are
-    in the envelope contract already, and any other miss is repaired by the
-    small model (``cards/envelope.py``), so the full shapes ``use_skill``
-    appends would be paid on every call for nothing.
+    The preference rides as names only. The shapes the envelope teaches
+    (``ENVELOPE_SHAPE_TYPES``) are in the envelope contract already, and any
+    other miss is repaired by the small model (``cards/envelope.py``), so the
+    full shapes ``use_skill`` appends would be paid on every call for nothing.
+
+    Only chat inlines (deep research keeps every body behind ``use_skill``, see
+    :attr:`SkillRuntime.inlined`), so the line drops the types chat writes as
+    Markdown (``MARKDOWN_CARD_TYPES``): the envelope neither indexes nor shapes
+    them, and naming one would ask for a card the turn cannot emit.
     """
-    cards = preferred_cards(skill.metadata)
+    # Imported lazily, as in ``_preferred_cards_block``.
+    from aiq_agent.cards.catalog import MARKDOWN_CARD_TYPES
+
+    cards = [card for card in preferred_cards(skill.metadata) if card not in MARKDOWN_CARD_TYPES]
     body = skill.body.strip()
     if cards:
         types = ", ".join(f"`{card}`" for card in cards)

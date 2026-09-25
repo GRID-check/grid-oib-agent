@@ -1393,10 +1393,11 @@ def _measured_note() -> str:
 
 def _legal_basis_note() -> str:
     # The two fields whose renderer has a WIDTH the model cannot see.
-    # `article` and `section` are set in a 72px margin at 11px mono — the way a
-    # statute prints its § beside the text (grid-card-charter §B1) — and a
-    # shipped card put „Punkte 8 bis 10 der OIB-Richtlinie 2" and
-    # „Anwendungsbereiche der ergänzenden Richtlinien" there. That rendered as a
+    # `article` and `section` are set in a margin at least 72px wide, never
+    # wrapped, at 11px mono — the way a statute prints its § beside the text
+    # (grid-card-charter §B1) — and a shipped card put „Punkte 8 bis 10 der
+    # OIB-Richtlinie 2" and „Anwendungsbereiche der ergänzenden Richtlinien"
+    # there. That rendered as a
     # nine-line ragged pillar of mono taller than the card beside it, with „§ "
     # glued to a heading, on the product's proof-of-work card.
     #

@@ -74,6 +74,41 @@ class TestTheBlock:
         # already teaches the common ones.
         assert "shape:" not in block and "Building blocks" not in block
 
+    def test_the_inline_line_leaves_out_types_chat_writes_as_markdown(self):
+        # Only chat inlines, and there `requirement_checklist` is a table with a
+        # Status column: the envelope neither indexes nor shapes it.
+        skill = Skill(
+            name="pruefen",
+            description="Prüfmethode.",
+            body="# Prüfen",
+            metadata={"grid-cards": "requirement_checklist,legal_basis,comparison_table"},
+            origin="platform",
+        )
+        block = _runtime(skill).prompt_block() or ""
+        assert "Preferred cards: `legal_basis` — the author's preference, not a requirement." in block
+        assert "requirement_checklist" not in block and "comparison_table" not in block
+
+    def test_only_markdown_types_render_no_preferred_line(self):
+        skill = Skill(
+            name="tabelle",
+            description="Tabellenmethode.",
+            body="# Tabelle",
+            metadata={"grid-cards": "requirement_checklist"},
+            origin="platform",
+        )
+        assert "Preferred cards" not in (_runtime(skill).prompt_block() or "")
+
+    def test_use_skill_still_offers_the_card_deep_research_can_emit(self):
+        skill = Skill(
+            name="pruefen",
+            description="Prüfmethode.",
+            body="# Prüfen",
+            metadata={"grid-cards": "requirement_checklist"},
+            origin="platform",
+        )
+        tool = SkillRuntime(skills=(skill,)).build_tools()[0]
+        assert "`requirement_checklist`" in tool.invoke({"skill_name": "pruefen"})
+
     def test_everything_inlined_renders_no_by_name_section(self):
         block = _runtime(SHORT).prompt_block() or ""
         assert "### Available by name" not in block
