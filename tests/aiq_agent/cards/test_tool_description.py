@@ -13,6 +13,7 @@ from aiq_agent.cards.catalog import _CARD_TRIGGER_HEAD
 from aiq_agent.cards.catalog import _CARD_TRIGGERS
 from aiq_agent.cards.catalog import _MODEL_PICKER_NOTE
 from aiq_agent.cards.catalog import _MODEL_PICKER_ROW
+from aiq_agent.cards.catalog import CHAT_ONLY_CARD_TYPES
 from aiq_agent.cards.catalog import ENVELOPE_CARD_TYPES
 from aiq_agent.cards.catalog import INTERACTIVE_CARD_TYPES
 from aiq_agent.cards.catalog import SYSTEM_CARD_TYPES
@@ -121,7 +122,7 @@ class TestToolDescription:
     def test_lists_every_card_type(self):
         desc = _build_tool_description()
         for card_type in _CARD_TYPES:
-            if card_type in SYSTEM_CARD_TYPES | ENVELOPE_CARD_TYPES:
+            if card_type in SYSTEM_CARD_TYPES | ENVELOPE_CARD_TYPES | CHAT_ONLY_CARD_TYPES:
                 continue
             assert f'"{card_type}"' in desc
 
@@ -443,7 +444,8 @@ class TestShapeHint:
     which type needs it, so that is where the tokens go.
     """
 
-    @pytest.mark.parametrize("card_type", sorted(model_facing_card_types()))
+    # A surface's hint is the COMPOSE rule instead (test_surface_card.py).
+    @pytest.mark.parametrize("card_type", sorted(model_facing_card_types() - CHAT_ONLY_CARD_TYPES))
     def test_the_hint_is_what_describe_card_returns(self, card_type):
         hint = _shape_hint_for(card_type)
         assert hint is not None

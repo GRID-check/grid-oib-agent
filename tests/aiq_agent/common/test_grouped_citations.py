@@ -22,6 +22,11 @@ from aiq_agent.common.citation_verification import expand_grouped_citations
         ("[5–2]", "[5–2]"),
         ("[1-40]", "[1-40]"),
         ("Liste [a, b]", "Liste [a, b]"),
+        # The label of a Markdown link stays the label: expanded, the link breaks.
+        ("siehe [1-3](https://x.at)", "siehe [1-3](https://x.at)"),
+        ("[[1, 2]]", "[[1, 2]]"),
+        # A group beside a single marker is still a group.
+        ("a [1, 2][3] b", "a [1][2][3] b"),
     ],
 )
 def test_a_group_becomes_one_marker_per_source(text, expanded):

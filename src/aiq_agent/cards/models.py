@@ -32,6 +32,11 @@ from pydantic import TypeAdapter
 from pydantic import field_validator
 from pydantic import model_validator
 
+# The catalog imports this module only inside functions, so this is no cycle.
+from aiq_agent.cards.catalog import ENVELOPE_CARD_TYPES
+from aiq_agent.cards.catalog import INTERACTIVE_CARD_TYPES
+from aiq_agent.cards.catalog import SYSTEM_CARD_TYPES
+
 # The three inline constructs that are UNAMBIGUOUSLY markup: a link or image
 # target, a doubled emphasis delimiter, and a code span. Each is meaningless as
 # literal text in an Austrian legal citation, and each is something an LLM writes
@@ -2066,7 +2071,7 @@ class DiagramCard(CardModel):
             "'sequenceDiagram', 'stateDiagram-v2', 'pie', 'gantt', 'mindmap') — a source that declares nothing draws "
             "nothing. Labels in the answer's language and in Sie-Form; no label may carry a claim "
             "the answer has not grounded, because the drawing leaves the page without the paragraph "
-            "that qualified it. Five to nine nodes: past that nobody reads the picture"
+            "that qualified it. Five to twelve nodes: past that nobody reads the picture"
         ),
     )
     caption: str | None = Field(
@@ -2734,21 +2739,11 @@ _SURFACE_REF_FIELDS: dict[str, tuple[set[str], set[str]]] = {
 #: envelope's own fields are not cards, and an interactive card's decision is
 #: keyed by its position in the message (`card-decision.ts`), which a card
 #: inside a surface does not have. A surface inside a surface is a Column.
-SURFACE_EXCLUDED_LEAVES: frozenset[str] = frozenset(
-    {
-        "surface",
-        "summary",
-        "verdict_header",
-        "key_takeaways",
-        "callout",
-        "follow_ups",
-        "memory_proposal",
-        "document_grid",
-        "document_draft",
-        "task_created",
-        "file_operation_proposal",
-        "project_profile_patch",
-    }
+#: Derived from the catalog's sets, so a new member of any of them is excluded
+#: here without a second edit; the frontend's copy is held to this one by
+#: `tests/aiq_agent/cards/test_surface_excluded_parity.py`.
+SURFACE_EXCLUDED_LEAVES: frozenset[str] = (
+    SYSTEM_CARD_TYPES | ENVELOPE_CARD_TYPES | INTERACTIVE_CARD_TYPES | frozenset({"surface"})
 )
 
 #: The one leaf that is not a card: a run of the answer's own Markdown, named
@@ -2756,10 +2751,15 @@ SURFACE_EXCLUDED_LEAVES: frozenset[str] = frozenset(
 #: hold what the answer writes in prose (a table, a list, a ```mermaid fence),
 #: because the Markdown-first doctrine keeps exactly that content OUT of cards.
 SURFACE_TEXT = "Text"
-_SURFACE_TEXT_MAX = 4000
+SURFACE_TEXT_MAX = 4000
 
-_SURFACE_MAX_LEAVES = 6
-_SURFACE_MAX_CHILDREN = 4
+#: A placement marker of the prose (`[[card:N]]`, `[[callout]]`). The prose
+#: resolves them; a `Text` leaf is drawn as Markdown and would show them as typed.
+_PROSE_MARKER = re.compile(r"\[\[\s*[a-z_]+(?:\s*:\s*\d+)?\s*\]\]", re.IGNORECASE)
+
+SURFACE_MAX_LEAVES = 6
+SURFACE_MAX_CHILDREN = 4
+SURFACE_MAX_TABS = 6
 
 
 def _check_layout(component: dict[str, Any]) -> None:
@@ -2770,16 +2770,16 @@ def _check_layout(component: dict[str, Any]) -> None:
         children = component.get("children")
         if not isinstance(children, list) or not all(isinstance(child, str) for child in children):
             raise ValueError(f"'{component_id}' ({name}): `children` must be a list of component ids.")
-        if not 2 <= len(children) <= _SURFACE_MAX_CHILDREN:
+        if not 2 <= len(children) <= SURFACE_MAX_CHILDREN:
             raise ValueError(
                 f"'{component_id}' ({name}): {len(children)} children; a {name} holds 2 to "
-                f"{_SURFACE_MAX_CHILDREN}. One child is that child, and more do not fit a column."
+                f"{SURFACE_MAX_CHILDREN}. One child is that child, and more do not fit a column."
             )
     else:
         extra = set(component) - {"id", "component", "tabs"}
         tabs = component.get("tabs")
-        if not isinstance(tabs, list) or not 2 <= len(tabs) <= 6:
-            raise ValueError(f"'{component_id}' (Tabs): `tabs` must list 2 to 6 tabs.")
+        if not isinstance(tabs, list) or not 2 <= len(tabs) <= SURFACE_MAX_TABS:
+            raise ValueError(f"'{component_id}' (Tabs): `tabs` must list 2 to {SURFACE_MAX_TABS} tabs.")
         for tab in tabs:
             if not isinstance(tab, dict) or set(tab) != {"title", "child"}:
                 raise ValueError(f"'{component_id}' (Tabs): every tab is exactly {{title, child}}.")
@@ -2798,10 +2798,15 @@ def _checked_text(component: dict[str, Any]) -> dict[str, Any]:
     text = component.get("text")
     if not isinstance(text, str) or not text.strip():
         raise ValueError(f"'{component_id}' (Text): `text` is the Markdown to show, and it is empty.")
-    if len(text) > _SURFACE_TEXT_MAX:
+    if len(text) > SURFACE_TEXT_MAX:
         raise ValueError(
-            f"'{component_id}' (Text): {len(text)} characters; a tab holds at most {_SURFACE_TEXT_MAX}. "
+            f"'{component_id}' (Text): {len(text)} characters; a tab holds at most {SURFACE_TEXT_MAX}. "
             "Say the rest in the answer."
+        )
+    if marker := _PROSE_MARKER.search(text):
+        raise ValueError(
+            f"'{component_id}' (Text): `{marker.group(0)}` is a marker of the answer's prose and is shown "
+            "literally here. Reference cards from the prose, not inside a tab."
         )
     return {"id": component_id, "component": SURFACE_TEXT, "text": text.strip()}
 
@@ -2830,6 +2835,27 @@ def _tabs_as_references(component: dict[str, Any]) -> dict[str, Any]:
     if component.get("component") != "Tabs":
         return component
     return {**component, "tabs[].child": [tab["child"] for tab in component["tabs"]]}
+
+
+def _check_single_parent(components: list[dict[str, Any]]) -> None:
+    """Every component is referenced at most once: the surface is a tree.
+
+    `a2ui-core` accepts a child listed twice, or held by two parents (two tabs
+    on one leaf, a leaf in a tab and in a Row), and the renderer would then
+    draw the one component in two places.
+    """
+    seen: set[str] = set()
+    for component in components:
+        if component["component"] not in SURFACE_LAYOUTS:
+            continue
+        references = list(component.get("children") or []) + [tab["child"] for tab in component.get("tabs") or []]
+        for child in references:
+            if child in seen:
+                raise ValueError(
+                    f"'{child}' is referenced more than once; a surface is a tree, and each component "
+                    "sits in one place. Give the second place a component of its own."
+                )
+            seen.add(child)
 
 
 class SurfaceCard(CardModel):
@@ -2882,20 +2908,21 @@ class SurfaceCard(CardModel):
                 checked.append(component)
             else:
                 checked.append(_checked_leaf(component))
-        leaves = sum(1 for component in checked if component["component"] not in SURFACE_LAYOUTS)
-        if not 2 <= leaves <= _SURFACE_MAX_LEAVES:
-            raise ValueError(
-                f"A surface holds 2 to {_SURFACE_MAX_LEAVES} cards or Text blocks; this one holds {leaves}."
-            )
-
         # `a2ui-core` reads references by field name; a tab's child sits one
-        # level down, so it is lifted into a list field for the check.
+        # level down, so it is lifted into a list field for the check. The
+        # structure is judged first: a cycle is a cycle, whatever the count.
         structural = [_tabs_as_references(component) for component in checked]
         try:
             validate_component_integrity(structural, _SURFACE_REF_FIELDS)
             analyze_topology(structural, _SURFACE_REF_FIELDS)
         except Exception as exc:
             raise ValueError(f"The component list is not a valid A2UI surface: {exc}") from exc
+        _check_single_parent(checked)
+        leaves = sum(1 for component in checked if component["component"] not in SURFACE_LAYOUTS)
+        if not 2 <= leaves <= SURFACE_MAX_LEAVES:
+            raise ValueError(
+                f"A surface holds 2 to {SURFACE_MAX_LEAVES} cards or Text blocks; this one holds {leaves}."
+            )
         self.components = checked
         return self
 

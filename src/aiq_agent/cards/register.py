@@ -27,6 +27,7 @@ from aiq_agent.cards import surface_documents as _surface_documents  # noqa: F40
 # Re-exported so the shape-hint retry loop and tests keep importing them from
 # here; the definitions live in the framing-free catalog module.
 from aiq_agent.cards.catalog import CARD_EXAMPLES as _CARD_EXAMPLES  # noqa: F401
+from aiq_agent.cards.catalog import CHAT_ONLY_CARD_TYPES
 from aiq_agent.cards.catalog import model_facing_card_types
 from aiq_agent.cards.catalog import render_card_details
 from aiq_agent.cards.catalog import render_card_doctrine
@@ -95,7 +96,7 @@ def _build_tool_description() -> str:
         "required; omit optional ones rather than passing null. Numbers are plain JSON numbers. For "
         "schematic cards, supply the measured/actual value from the question or project profile and "
         "the OIB limit in `required`; if a value is unknown, omit it and set that check's status to "
-        '"needs_input" — never estimate.\n\n' + render_card_index()
+        '"needs_input" — never estimate.\n\n' + render_card_index(exclude=CHAT_ONLY_CARD_TYPES)
     )
 
 

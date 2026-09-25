@@ -103,3 +103,36 @@ def test_a_slow_patch_leaves_the_quote_as_it_was(monkeypatch):
         return CORRECT
 
     assert asyncio.run(patch_quotes(answer, [_quote(MISQUOTE, answer)], patch)) == (answer, 0)
+
+
+def test_the_page_quoted_is_chosen_over_a_page_sharing_one_long_phrase():
+    # Both pages belong to the cited document, so both are candidates. Page 4
+    # shares one long contiguous phrase with the misquote (higher coverage),
+    # page 3 is the sentence it misremembers (higher closeness). Ranked by
+    # coverage, page 4 was chosen and select() dropped the quote unpatched.
+    page_4 = "Die lichte Durchgangshöhe bei Treppen muss der Nutzung entsprechen, Aufzüge sind ausgenommen."
+    registry = SourceRegistry()
+    registry.add(SourceEntry(citation_key="oib.pdf, p.3", chunk_text=PASSAGE, source_type="knowledge_layer"))
+    registry.add(SourceEntry(citation_key="oib.pdf, p.4", chunk_text=page_4, source_type="knowledge_layer"))
+    answer = f"Es gilt: „{MISQUOTE}“ [1].\n\n## Quellen\n- [1] oib.pdf, p.3\n"
+
+    [flagged] = verify_quoted_spans(answer, registry)
+
+    assert flagged.nearest is not None and flagged.nearest.citation_key == "oib.pdf, p.3"
+    assert select([flagged]) == [flagged]
+
+
+BRANDWAND_PASSAGE = "Als Brandabschnitt gilt der Bereich „zwischen Brandwänden“ eines Geschosses nach Punkt 3.1."
+BRANDWAND = "Als Brandabschnitt gilt der Bereich „zwischen Brandwänden“"
+BRANDWAND_MISQUOTE = "Als Brandabschnitt gilt der Raum „zwischen Brandwänden“"
+
+
+def test_a_quotation_mark_that_is_the_passages_wording_is_kept():
+    # The closing “ is the passage's; stripping it spliced an unbalanced „.
+    assert accept(BRANDWAND_MISQUOTE, BRANDWAND, BRANDWAND_PASSAGE, span=f"»{BRANDWAND_MISQUOTE}«") == BRANDWAND
+
+
+def test_a_correction_that_would_nest_the_enclosing_marks_is_refused():
+    # Inside „…“, the correction's own „…“ closes the quote early: the verifier
+    # would re-read only „zwischen Brandwänden“, and the patch ship unchecked.
+    assert accept(BRANDWAND_MISQUOTE, BRANDWAND, BRANDWAND_PASSAGE, span=f"„{BRANDWAND_MISQUOTE}“") is None

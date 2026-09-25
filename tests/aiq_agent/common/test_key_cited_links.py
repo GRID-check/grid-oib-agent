@@ -62,3 +62,30 @@ def test_an_error_that_links_somewhere_registers_nothing():
         "2. Set the API key in your environment or in your .env file\n3. Restart the application"
     )
     assert extract_sources_from_tool_result("web_search_tool", error) == []
+
+
+def test_a_leading_link_takes_its_separator_with_it():
+    report = f"Abstand [1].\n\n## Quellen\n- [1] {LAW} - Bauordnung für Wien, § 63\n"
+    result = verify_citations(report, _registry())
+    assert result.removed_citations == []
+    line = result.verified_report.split("## Quellen\n", 1)[1].strip()
+    assert line == "- [1] [RIS] Bauordnung für Wien, § 63"
+
+
+def test_a_link_label_goes_with_its_link():
+    report = f"Abstand [1].\n\n## Quellen\n- [1] Bauordnung für Wien, § 63 – Source: <{LAW}>\n"
+    result = verify_citations(report, _registry())
+    assert result.removed_citations == []
+    line = result.verified_report.split("## Quellen\n", 1)[1].strip()
+    assert line == "- [1] [RIS] Bauordnung für Wien, § 63"
+
+
+def test_drop_url_leaves_no_dangling_separator_or_label():
+    from aiq_agent.common.citation_verification import _drop_url
+
+    assert _drop_url(f"{LAW} - Wiener Bauordnung § 5", LAW) == "Wiener Bauordnung § 5"
+    assert _drop_url(f"- [1] {LAW} - Wiener Bauordnung § 5", LAW) == "- [1] Wiener Bauordnung § 5"
+    assert _drop_url(f"Titel – Source: <{LAW}>", LAW) == "Titel"
+    assert _drop_url(f"Titel - URL: {LAW}", LAW) == "Titel"
+    assert _drop_url(f"Titel - {LAW}", LAW) == "Titel"
+    assert _drop_url(f"[Titel]({LAW})", LAW) == "Titel"

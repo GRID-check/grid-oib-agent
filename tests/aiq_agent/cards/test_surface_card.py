@@ -144,7 +144,7 @@ class TestTheModelIsTaughtToCompose:
         contract = render_envelope_cards_contract()
         assert "COMPOSE." in contract
         assert '"component": "Tabs"' in contract
-        assert "Two to six leaves" in contract
+        assert "the surface 2 to 6 leaves" in contract
 
 
 def _text(component_id: str, text: str, **extra: Any) -> dict[str, Any]:
@@ -206,3 +206,204 @@ class TestTextCitations:
         assert recite_surface(basis, {}, set()) is basis
         surface = {"type": "surface", "components": [{"id": "root"}, _text("a", "x [2]")]}
         assert recite_surface(surface, {}, {2})["components"][1]["text"] == "x [2]"
+
+
+class TestTextRecital:
+    """What the prose's citation steps do to a tab's markers, and nothing else."""
+
+    def test_a_group_is_expanded_before_it_is_renumbered(self):
+        from aiq_agent.cards.surface_citations import recite_text
+
+        # The prose's groups are expanded first; a tab's must be, or [2, 3]
+        # stays in the numbering from before verification.
+        assert recite_text("REI 90 [2, 3]. Und [3].", {2: 1, 3: 2}, {1, 2}) == "REI 90 [1][2]. Und [2]."
+
+    def test_a_merged_duplicate_is_rewritten_not_dropped(self):
+        from aiq_agent.cards.surface_citations import recite_text
+
+        # [1] and [2] cite one page: the prose's [2] became [1], [2]'s line
+        # went, and sanitize kept {1: 1, 3: 2}. The tab's [2] is that source.
+        assert recite_text("A [2], B [3].", {1: 1, 3: 2}, {1, 2}, merged={2: 1}) == "A [1], B [2]."
+
+    def test_merged_duplicates_are_read_off_the_removals(self):
+        from aiq_agent.common.citation_verification import merged_citations
+
+        removed = [
+            {"number": 2, "line": "- [2] oib.pdf, p.3", "reason": "duplicate_of_citation_1"},
+            {"number": 4, "line": "- [4] x", "reason": "url_not_in_registry"},
+        ]
+        assert merged_citations(removed) == {2: 1}
+
+    def test_nothing_but_the_markers_changes(self):
+        from aiq_agent.cards.surface_citations import recite_text
+
+        text = (
+            "| Punkt | Wert |\n| :--- | ---: |\n| REI [4] | ( a ) |\n\n"
+            "```mermaid\nsequenceDiagram\n  A->>B : hi\n```\n"
+            "Die Wand [4] trägt [1]."
+        )
+        assert recite_text(text, {}, {1}) == (
+            "| Punkt | Wert |\n| :--- | ---: |\n| REI | ( a ) |\n\n"
+            "```mermaid\nsequenceDiagram\n  A->>B : hi\n```\n"
+            "Die Wand trägt [1]."
+        )
+
+    def test_a_removed_marker_mid_sentence_leaves_one_space(self):
+        from aiq_agent.cards.surface_citations import recite_text
+
+        assert recite_text("Die Wand [4] trägt.", {}, set()) == "Die Wand trägt."
+
+    def test_a_text_left_blank_is_dropped_with_its_tab(self):
+        from aiq_agent.cards.surface_citations import recite_surface
+
+        card = _tabs(
+            components=[
+                {
+                    "id": "root",
+                    "component": "Tabs",
+                    "tabs": [
+                        {"title": "GK 4", "child": "a"},
+                        {"title": "GK 5", "child": "b"},
+                        {"title": "Quellen", "child": "q"},
+                    ],
+                },
+                copy.deepcopy(BASIS_A),
+                copy.deepcopy(BASIS_B),
+                _text("q", "[4] [5]"),
+            ]
+        )
+        recited = recite_surface(card, {}, {1})
+
+        assert recited is not None
+        assert [component["id"] for component in recited["components"]] == ["root", "a", "b"]
+        assert [tab["child"] for tab in recited["components"][0]["tabs"]] == ["a", "b"]
+        grid_card_adapter.validate_python(recited)
+
+    def test_a_surface_that_cannot_stand_without_the_blank_text_is_none(self):
+        from aiq_agent.cards.surface_citations import recite_surface
+
+        card = _tabs(components=[_tabs()["components"][0], copy.deepcopy(BASIS_A), _text("b", "[4]")])
+
+        assert recite_surface(card, {}, {1}) is None
+
+
+class TestSurfaceIntegrity:
+    """What `a2ui-core` lets through and the surface does not."""
+
+    @pytest.mark.parametrize("marker", ["[[card:2]]", "[[callout]]", "[[ card : 1 ]]"])
+    def test_a_prose_marker_in_a_text_is_refused(self, marker):
+        card = _tabs(components=[_tabs()["components"][0], _text("a", f"Siehe {marker}."), BASIS_B])
+        assert "Reference cards from the prose, not inside a tab" in _refusal(card)
+
+    def test_a_child_listed_twice_is_refused(self):
+        card = _tabs(
+            components=[
+                {"id": "root", "component": "Row", "children": ["a", "b", "a"]},
+                copy.deepcopy(BASIS_A),
+                copy.deepcopy(BASIS_B),
+            ]
+        )
+        assert "'a' is referenced more than once" in _refusal(card)
+
+    def test_two_tabs_on_one_leaf_are_refused(self):
+        root = {
+            "id": "root",
+            "component": "Tabs",
+            "tabs": [{"title": "GK 4", "child": "a"}, {"title": "GK 5", "child": "a"}, {"title": "B", "child": "b"}],
+        }
+        card = _tabs(components=[root, copy.deepcopy(BASIS_A), copy.deepcopy(BASIS_B)])
+        assert "'a' is referenced more than once" in _refusal(card)
+
+    def test_a_leaf_in_a_tab_and_in_a_row_is_refused(self):
+        root = {"id": "root", "component": "Tabs", "tabs": [{"title": "A", "child": "a"}, {"title": "R", "child": "r"}]}
+        row = {"id": "r", "component": "Row", "children": ["a", "b"]}
+        card = _tabs(components=[root, row, copy.deepcopy(BASIS_A), copy.deepcopy(BASIS_B)])
+        assert "'a' is referenced more than once" in _refusal(card)
+
+    def test_a_cycle_is_reported_as_a_cycle(self):
+        card = _tabs(
+            components=[
+                {"id": "root", "component": "Row", "children": ["c1", "a"]},
+                {"id": "c1", "component": "Column", "children": ["root", "a"]},
+                _text("a", "x"),
+            ]
+        )
+        # One leaf, so the count fails too; it ran first and named the wrong fault.
+        refusal = _refusal(card)
+        assert "Circular reference" in refusal
+        assert "cards or Text blocks" not in refusal
+
+
+class TestWhereASurfaceIsTaught:
+    """Only the chat envelope teaches COMPOSE and recites a tab's [N]; only it offers a surface."""
+
+    def test_the_shape_hint_is_the_compose_rule(self):
+        from aiq_agent.cards.catalog import shape_hint_for
+
+        hint = shape_hint_for("surface") or ""
+        assert hint.startswith("COMPOSE.")
+        assert '"component": "Tabs"' in hint
+        # The generic entry told a model every text field is PLAIN TEXT, which a `Text` leaf is not.
+        assert "PLAIN TEXT" not in hint
+
+    def test_the_post_hoc_prompt_withholds_the_surface(self):
+        from aiq_agent.cards.prompt import build_card_generation_prompt
+
+        assert '"surface"' not in build_card_generation_prompt()
+
+    def test_the_emit_card_index_withholds_the_surface(self):
+        from aiq_agent.cards.register import _build_tool_description
+
+        assert '"surface"' not in _build_tool_description()
+
+    def test_the_chat_contract_still_offers_it(self):
+        assert '"surface"' in render_envelope_cards_contract()
+
+    def test_the_compose_rule_states_the_validators_limits(self):
+        from aiq_agent.cards import models
+
+        contract = render_envelope_cards_contract()
+        assert f"2 to {models.SURFACE_MAX_CHILDREN} children" in contract
+        assert f"2 to {models.SURFACE_MAX_TABS} tabs" in contract
+        assert f"at most {models.SURFACE_TEXT_MAX} characters" in contract
+        assert "envelope field" in contract
+
+
+class TestPipelineRecital:
+    """`answer_pipeline._recite_surface_cards` applies the recital to the turn's registry."""
+
+    def test_a_surface_that_would_collapse_stays_as_stored(self):
+        from aiq_agent.agents.piloti.answer_pipeline import _recite_surface_cards
+        from aiq_agent.cards.registry import CardRegistry
+        from aiq_agent.cards.registry import reset_card_registry
+        from aiq_agent.cards.registry import set_card_registry
+
+        card = _tabs(components=[_tabs()["components"][0], copy.deepcopy(BASIS_A), _text("b", "[4]")])
+        registry = CardRegistry()
+        registry.add(card)
+        token = set_card_registry(registry)
+        try:
+            _recite_surface_cards({}, ())
+        finally:
+            reset_card_registry(token)
+        assert registry.snapshot() == [card]
+
+    def test_a_merged_duplicate_in_a_tab_follows_the_prose(self):
+        from types import SimpleNamespace
+
+        from aiq_agent.agents.piloti.answer_pipeline import _recite_surface_cards
+        from aiq_agent.cards.registry import CardRegistry
+        from aiq_agent.cards.registry import reset_card_registry
+        from aiq_agent.cards.registry import set_card_registry
+
+        card = _tabs(components=[_tabs()["components"][0], copy.deepcopy(BASIS_A), _text("b", "Brandwand [2].")])
+        registry = CardRegistry()
+        registry.add(card)
+        removed = ({"number": 2, "line": "- [2] oib.pdf, p.3", "reason": "duplicate_of_citation_1"},)
+        token = set_card_registry(registry)
+        try:
+            _recite_surface_cards({1: 1}, (SimpleNamespace(number=1),), removed)
+        finally:
+            reset_card_registry(token)
+        texts = [c["text"] for c in registry.snapshot()[0]["components"] if c.get("component") == "Text"]
+        assert texts == ["Brandwand [1]."]

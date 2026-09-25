@@ -44,6 +44,7 @@ from aiq_agent.common.citation_verification import annotate_unverified_quotes
 from aiq_agent.common.citation_verification import drop_ungrounded_trailer_values
 from aiq_agent.common.citation_verification import expand_grouped_citations
 from aiq_agent.common.citation_verification import get_turn_captures
+from aiq_agent.common.citation_verification import merged_citations
 from aiq_agent.common.citation_verification import sanitize_report
 from aiq_agent.common.citation_verification import source_origin_token
 from aiq_agent.common.citation_verification import verify_citations
@@ -570,8 +571,17 @@ def _require_retrieval(lookup_attempted: bool, tools: Sequence[BaseTool]) -> Non
     raise EmptySourceRegistryError("research", unavailable_tools=unavailable, available_count=available_count)
 
 
-def _recite_surface_cards(renumber_map: dict[int, int] | None, cited: tuple[CitedSource, ...]) -> None:
-    """Hold the ``[N]`` in this turn's composed surfaces to the prose's citations (``cards/surface_citations``)."""
+def _recite_surface_cards(
+    renumber_map: dict[int, int] | None,
+    cited: tuple[CitedSource, ...],
+    removed_citations: Sequence[dict[str, Any]] = (),
+) -> None:
+    """Hold the ``[N]`` in this turn's composed surfaces to the prose's citations (``cards/surface_citations``).
+
+    A surface that cannot stand once its blank ``Text`` is gone stays as
+    stored: the registry has no removal, and dropping one would shift every
+    later ``[[card:N]]``.
+    """
     from aiq_agent.cards.registry import get_card_registry
     from aiq_agent.cards.surface_citations import recite_surface
 
@@ -579,9 +589,10 @@ def _recite_surface_cards(renumber_map: dict[int, int] | None, cited: tuple[Cite
     if registry is None:
         return
     numbers = {source.number for source in cited if source.number is not None}
+    merged = merged_citations(removed_citations)
     for index, card in enumerate(registry.snapshot()):
-        recited = recite_surface(card, renumber_map or {}, numbers)
-        if recited is not card:
+        recited = recite_surface(card, renumber_map or {}, numbers, merged)
+        if recited is not None and recited is not card:
             registry.replace(index, recited)
 
 
@@ -618,6 +629,7 @@ def settle_streamed_citations(prose: str, sources_text: str, registry: SourceReg
         sources=wire_sources(cited),
         renumber_map=dict(sanitized.renumber_map or {}),
         numbers=frozenset(source.number for source in cited if source.number is not None),
+        merged=merged_citations(verified.verification.removed_citations),
     )
 
 
@@ -629,6 +641,7 @@ class SettledStream:
     sources: list[dict[str, Any]]
     renumber_map: dict[int, int] = field(default_factory=dict)
     numbers: frozenset[int] = frozenset()
+    merged: dict[int, int] = field(default_factory=dict)
     answer_meta: dict[str, Any] | None = None
 
 
@@ -700,7 +713,7 @@ class LiveAnswer:
         if card is None:
             return None
         settled = self._settled or SettledStream(content="", sources=[])
-        return recite_surface(card, settled.renumber_map, settled.numbers)
+        return recite_surface(card, settled.renumber_map, settled.numbers, settled.merged)
 
 
 def _renumbered(cited: tuple[CitedSource, ...], renumber_map: dict[int, int] | None) -> tuple[CitedSource, ...]:
@@ -958,7 +971,7 @@ async def finalize_answer(
     sanitized = sanitize_report(grounding.content)
     content, _ = drop_restated_mindmaps(sanitized.sanitized_report)
     cited = _renumbered(grounding.cited, sanitized.renumber_map)
-    _recite_surface_cards(sanitized.renumber_map, cited)
+    _recite_surface_cards(sanitized.renumber_map, cited, grounding.removed_citations)
     meta = _gated_meta(
         extracted,
         content,

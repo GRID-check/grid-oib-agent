@@ -239,3 +239,18 @@ class TestTheCardAcceptsWhatModelsActuallyWrite:
         cards = registry.snapshot()
         assert len(cards) == 1
         assert cards[0]["type"] == "diagram"
+
+
+def test_the_card_and_the_prompt_ask_for_the_same_number_of_nodes():
+    """A mermaid fence and a diagram card are one drawing; the model is given one node budget."""
+    import re
+    from pathlib import Path
+
+    prompt = (Path(__file__).resolve().parents[3] / "src/aiq_agent/agents/piloti/prompts/piloti_static.md").read_text(
+        encoding="utf-8"
+    )
+    budget = re.compile(r"(\w+) to (\w+) nodes", re.IGNORECASE)
+    in_prompt = budget.search(prompt)
+    in_card = budget.search(DiagramCard.model_fields["source"].description or "")
+    assert in_prompt and in_card
+    assert [word.lower() for word in in_card.groups()] == [word.lower() for word in in_prompt.groups()]

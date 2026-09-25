@@ -144,6 +144,13 @@ INTERACTIVE_CARD_TYPES = frozenset(
     {"project_profile_patch", "memory_proposal", "file_operation_proposal", "document_draft"}
 )
 
+# Card types offered on the chat envelope only. A `surface` is taught by the
+# envelope's COMPOSE rule (its field line alone says nothing a model could fill
+# it from), and its `Text` leaves carry `[N]` that only the chat pipeline holds
+# to the answer's verified citations (`cards/surface_citations.py`). The
+# `emit_card` index and the post-hoc prompt have neither, so they withhold it.
+CHAT_ONLY_CARD_TYPES = frozenset({"surface"})
+
 # Card types whose fields must be COPIED from a tool result and cannot be
 # derived from prose: every one of them is addressed by IFC GlobalId, rule id
 # or file name, and an id that was not returned by ``ifc_query`` in the same
@@ -1232,11 +1239,20 @@ def shape_hint_for(card_type: str) -> str | None:
     system card, an envelope shape. Teaching one of those a shape would be
     teaching a card the next validator refuses; the caller's refusal message
     names the right channel instead.
+
+    ``surface`` is the exception to the rendered entry: its ``components`` is
+    an A2UI list, which the field line renders as a list of objects and whose
+    generic rules (plain text, no Markdown) contradict its ``Text`` leaves. It
+    gets the rule the answer contract teaches it by, worked example included.
     """
+    if card_type == "surface":
+        from aiq_agent.cards.envelope import compose_rule  # envelope imports this module
+
+        return compose_rule()
     return render_card_details([card_type]) or None
 
 
-def render_card_catalog(*, include_model_backed: bool = True) -> str:
+def render_card_catalog(*, include_model_backed: bool = True, exclude: frozenset[str] = frozenset()) -> str:
     """The shared catalog body: building blocks, per-card shapes, worked examples.
 
     Framing-free — callers wrap it in tool-call or batch instructions. This is
@@ -1249,13 +1265,15 @@ def render_card_catalog(*, include_model_backed: bool = True) -> str:
             on — its caller has the ``ifc_query`` rows in context. Post-hoc
             generation turns it off, because it has no tool output to copy ids
             from and would have to invent them.
+        exclude: Further types to leave out (:data:`CHAT_ONLY_CARD_TYPES` on
+            a path that is not the chat envelope).
 
     The envelope types are withheld unconditionally, like the system types: no
     surface asks a model for them any more (:data:`ENVELOPE_CARD_TYPES`).
     """
     from aiq_agent.cards.models import GridCard
 
-    withheld = SYSTEM_CARD_TYPES | ENVELOPE_CARD_TYPES
+    withheld = SYSTEM_CARD_TYPES | ENVELOPE_CARD_TYPES | exclude
     if not include_model_backed:
         withheld |= MODEL_BACKED_CARD_TYPES
 

@@ -45,6 +45,10 @@ from aiq_agent.cards.catalog import render_card_details
 from aiq_agent.cards.catalog import render_card_doctrine
 from aiq_agent.cards.catalog import render_card_index
 from aiq_agent.cards.catalog import shape_hint_for
+from aiq_agent.cards.models import SURFACE_MAX_CHILDREN
+from aiq_agent.cards.models import SURFACE_MAX_LEAVES
+from aiq_agent.cards.models import SURFACE_MAX_TABS
+from aiq_agent.cards.models import SURFACE_TEXT_MAX
 from aiq_agent.common.tool_errors import render_error_detail
 
 logger = logging.getLogger(__name__)
@@ -89,8 +93,13 @@ _COMPOSE_RULE = (
     "by side where the screen is wide) and `Column` (in order) put cards that read together into "
     'one slot. The container has id "root"; every other component is a card named by its type with '
     'that card\'s own fields, or `{"id", "component": "Text", "text": "<Markdown>"}`; children are '
-    "referenced by id. Two to six leaves, never an interactive or tool card, and a surface counts as "
-    "one card against the ceiling. Two tabs that say nearly the same are one answer, not variants.\n"
+    "referenced by id, each in ONE place (no id listed twice, no leaf in two tabs). Limits: a `Row` or "
+    f"`Column` holds 2 to {SURFACE_MAX_CHILDREN} children, `Tabs` 2 to {SURFACE_MAX_TABS} tabs, the "
+    f"surface 2 to {SURFACE_MAX_LEAVES} leaves; a `Text` is at most {SURFACE_TEXT_MAX} characters and "
+    "carries no card or callout marker (those are placed from the prose). Never an interactive or "
+    "tool card inside, nor an envelope field (verdict, summary, takeaways, callout), and a surface "
+    "counts as one card against the ceiling. Two tabs that say nearly the same are one answer, not "
+    "variants.\n"
     '{"type": "surface", "title": "Zweiter Fluchtweg — zwei Varianten", "components": ['
     '{"id": "root", "component": "Tabs", "tabs": [{"title": "Außentreppe", "child": "a"}, '
     '{"title": "Zweites Treppenhaus", "child": "b"}]}, '
@@ -234,3 +243,8 @@ def envelope_card_objects(raw: Sequence[Any] | None) -> list[Any]:
             continue
         objects.append(element)
     return objects
+
+
+def compose_rule() -> str:
+    """How a ``surface`` is composed, with its worked example: the rule its shape hint is."""
+    return _COMPOSE_RULE

@@ -44,9 +44,11 @@ from langchain_core.messages import SystemMessage
 
 from aiq_agent.common import content_to_text
 from aiq_agent.common.citation_verification import _QUOTE_MAX_WORDS
+from aiq_agent.common.citation_verification import _QUOTED_SPAN_RE
 from aiq_agent.common.citation_verification import MIN_QUOTE_LEN
 from aiq_agent.common.citation_verification import UnverifiedQuote
 from aiq_agent.common.citation_verification import _normalize_for_quote_match
+from aiq_agent.common.citation_verification import closeness
 
 logger = logging.getLogger(__name__)
 
@@ -80,27 +82,6 @@ _SYSTEM_PROMPT = (
 )
 
 
-def closeness(quote: str, passage: str) -> float:
-    """How closely ``quote`` matches the most similar stretch of ``passage`` (0-1).
-
-    Not the verifier's coverage, which scores the longest CONTIGUOUS run and
-    so drops a quote with two words changed to ~0.4, the same as an invented
-    one. This compares the quote with each quote-sized window of the passage
-    and keeps the best ratio, so scattered small edits cost little and a
-    different sentence costs a lot.
-    """
-    norm_quote, norm_passage = _normalize_for_quote_match(quote), _normalize_for_quote_match(passage)
-    length = len(norm_quote)
-    if not length or not norm_passage:
-        return 0.0
-    step, width, best = max(1, length // 8), length + length // 5, 0.0
-    for start in range(0, max(1, len(norm_passage) - length + step), step):
-        matcher = difflib.SequenceMatcher(None, norm_quote, norm_passage[start : start + width])
-        if matcher.real_quick_ratio() > best and matcher.quick_ratio() > best:
-            best = max(best, matcher.ratio())
-    return best
-
-
 def select(quotes: Sequence[UnverifiedQuote]) -> list[UnverifiedQuote]:
     """The flagged quotes this repair may correct, at most :data:`MAX_PATCHES`.
 
@@ -122,20 +103,67 @@ def select(quotes: Sequence[UnverifiedQuote]) -> list[UnverifiedQuote]:
     return chosen[:MAX_PATCHES]
 
 
-def accept(original: str, corrected: str | None, passage: str) -> str | None:
+#: The quotation-mark pairs a model may wrap its answer in. Only a MATCHED
+#: outer pair is removed: a lone mark at an edge is the passage's own wording
+#: (``der Bereich „zwischen Brandwänden“``), and stripping it leaves the
+#: correction with an unbalanced „.
+_OUTER_PAIRS = frozenset(
+    {
+        ("„", "“"),
+        ("„", "”"),
+        ("“", "”"),
+        ('"', '"'),
+        ("'", "'"),
+        ("‚", "‘"),
+        ("‚", "’"),
+        ("‘", "’"),
+        ("»", "«"),
+        ("«", "»"),
+        ("›", "‹"),
+        ("‹", "›"),
+    }
+)
+
+
+def _unwrapped(text: str) -> str:
+    """``text`` without one matched pair of outer quotation marks, when it has one."""
+    text = text.strip()
+    if len(text) >= 2 and (text[0], text[-1]) in _OUTER_PAIRS:
+        return text[1:-1].strip()
+    return text
+
+
+def _reads_back_as_one_quote(corrected: str, span: str) -> bool:
+    """Whether ``corrected``, between ``span``'s own marks, is still exactly that one quotation.
+
+    A correction holding the enclosing quote's marks (``„…“`` inside ``„…“``)
+    nests them: the verifier would read only the inner phrase, and the patched
+    quote would ship without ever being checked again.
+    """
+    if len(span) < 2:
+        return True
+    match = _QUOTED_SPAN_RE.fullmatch(f"{span[0]}{corrected}{span[-1]}")
+    return match is not None and next((group for group in match.groups() if group is not None), None) == corrected
+
+
+def accept(original: str, corrected: str | None, passage: str, *, span: str = "") -> str | None:
     """The corrected wording when it holds, else ``None``.
 
     Holds means: it is in the passage verbatim (normalised as the verifier
     normalises), it is long enough to be verified and short enough to be a
-    quotation, and it stays close to what was quoted.
+    quotation, it stays close to what was quoted, and, put between the marks
+    of ``span`` (the quote as written, marks included), it reads back as that
+    one quotation.
     """
     if not corrected:
         return None
-    corrected = corrected.strip().strip("\"'„“”‚‘’»«›‹").strip()
+    corrected = _unwrapped(corrected)
     if not corrected or corrected.upper() == "NONE":
         return None
     norm = _normalize_for_quote_match(corrected)
     if len(norm) < MIN_QUOTE_LEN or len(corrected.split()) > _QUOTE_MAX_WORDS:
+        return None
+    if not _reads_back_as_one_quote(corrected, span):
         return None
     # Verbatim, not merely verified: the verifier's fuzzy threshold tolerates
     # OCR noise, and a corrected "2,50 m" against a passage saying "2,10 m"
@@ -171,7 +199,7 @@ async def patch_quotes(content: str, candidates: Sequence[UnverifiedQuote], patc
         except Exception as exc:  # noqa: BLE001 - the marked quote is the floor
             logger.warning("Piloti: quote patch failed: %s", str(exc).split("\n")[0])
             return None
-        return accept(quote.quote, corrected, passage)
+        return accept(quote.quote, corrected, passage, span=quote.span)
 
     results = await asyncio.gather(*(one(quote) for quote in candidates))
     patches = [(quote, corrected) for quote, corrected in zip(candidates, results, strict=True) if corrected]
