@@ -70,8 +70,9 @@ PENDING pill (`#cite-pending-N`: muted, pulsing, no peek).
 When the string closes, the callback settles it with the pipeline's own
 functions (`settle_streamed_citations`: `verify_citations`,
 `annotate_unverified_quotes`, `sanitize_report`, `drop_restated_mindmaps`,
-the cited sources), against the registry the turn answers from, and sends ONE
-snapshot frame (`stream_replace`, with `sources`) whose text replaces the
+the cited sources), against the registry the turn answers from, and sends at
+most one snapshot frame (`stream_replace`, with `sources`; none when the prose
+has no sources section or the registry is empty) whose text replaces the
 bubble's: the verified, renumbered prose and its written source list. The
 pending pills become the answer's citations, or vanish if their line did not
 verify. The turn generator relays deltas in 50 ms windows while the answer
@@ -79,8 +80,8 @@ task runs, then yields the terminal alone, which replaces the text once more
 with the same numbers.
 
 A streamed call whose result carries tool calls was a round, not the answer:
-its prose is retracted with an empty snapshot (`AnswerStreamSink.retract`), and
-a later call streams again. The settle runs in a worker thread, because fuzzy
+its prose is retracted with an empty snapshot (`AnswerStreamSink.retract`),
+which carries no `sources` on the wire, and a later call may stream again. The settle runs in a worker thread, because fuzzy
 matching over every retrieved chunk on the event loop would stall the other
 turns the worker serves; the model's stream awaits the callback, so frame
 order holds.

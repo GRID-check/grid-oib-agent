@@ -86,9 +86,12 @@ Backend `_run` is an async generator yielding `ChatResponseChunk`s.
   with the pre-streaming frame pattern, so these are unaffected.
 
 The delta/terminal distinction reaches the wire via WS message **status**:
-deltas ⇒ `IN_PROGRESS`, terminal ⇒ the completing frame. `_response_to_chunks`
-keeps a `stream` parameter (True for answers, False for errors), but there is no
-env/runtime gate — streaming is always on for answer turns.
+deltas ⇒ `IN_PROGRESS`, terminal ⇒ the completing frame. `response_to_chunks`
+(`turn/streaming.py`) takes a `stream` parameter, and
+`conversation_register.py::_answer_chunks` passes `stream=not live`: a buffered
+answer is cut into deltas, while a live answer, whose prose already went out,
+and a refusal get the terminal alone. There is no env/runtime gate; every
+answer turn streams one way or the other.
 
 ### Live frames (ADR-0066)
 
@@ -102,13 +105,19 @@ persist-eligible. Besides the plain delta, which appends, there are three:
 | Masthead | empty `content`, `answer_meta` | sets the masthead above the prose; the text is unchanged |
 | Cards | empty `content`, `cards` | fills the `[[card:N]]` placeholders; the text is unchanged |
 
-One snapshot is sent per turn, when the envelope's `answer` string closes. The
-terminal then replaces the text once more and takes back what it omits (a
-suppressed card, a masthead gated out). One exception: a streamed call that
-turns out to carry tool calls was a round, not the answer, and is retracted
-with an EMPTY snapshot (`AnswerStreamSink.retract`), which clears its text,
-citations, masthead and cards; the answering call after it streams again. A
-call that put nothing on the wire is not retracted. The wire fields:
+At most one snapshot is sent per answering call, when the envelope's `answer`
+string closes, and none when there is nothing to settle:
+`settle_streamed_citations` returns `None` for prose without a sources section
+or a turn whose source registry is empty, and the streamed prose then stands
+until the terminal. The terminal replaces the text once more and takes back
+what it omits (a suppressed card, a masthead gated out). One exception: a
+streamed call that turns out to carry tool calls was a round, not the answer,
+and is retracted with an EMPTY snapshot (`AnswerStreamSink.retract`), which
+clears its text, citations, masthead and cards. On the wire the retraction
+carries no `sources` field (`websocket_reconnect.py` attaches `sources` only
+when non-empty), and the client reads empty content with no sources as a
+retraction. A later call of the turn may stream again, and settle again, but
+need not. A call that put nothing on the wire is not retracted. The wire fields:
 [`websocket-protocol.md`](../api/websocket-protocol.md#live-frames-adr-0066).
 
 The settle runs the terminal's shape pass as well. A mindmap whose words are
@@ -141,30 +150,34 @@ settles, so the reader can see it while the prose streams and then lose it.
   authoritative full text (idempotent when equal to the accumulation), attach
   `cards`/`sources`, finalize.
 - Diagrams: only the fence the text still ends inside is streaming
-  (`openFenceBody` in `MarkdownRenderer.tsx`), and it holds its place with a
+  (`isOpenFence` in `MarkdownRenderer.tsx`), and it holds its place with a
   skeleton (`DrawingSkeleton`). Every closed fence is drawn while the answer
   streams.
+- Backward compatible: with the current backend (one content frame), "append the
+  only delta then finalize" yields the same single bubble as today.
 
 Two folds consume these frames: the asker's store (`messages-store.ts`) and
 the observer's (`spectator-frames.ts`, via `GET /api/conversations/{id}/live`).
 Both must apply the same rules.
-- Backward compatible: with the current backend (one content frame), "append the
-  only delta then finalize" yields the same single bubble as today.
 
 ### Single-consumer fold (`--input` CLI, single-shot HTTP)
 
-`_fold_chunks_to_response` collapses the chunk stream to one `ChatResponse`:
-the terminal (`finish_reason="stop"`) content is authoritative; extras are
-copied from the terminal. Deltas are ignored when a terminal is present, so the
-folded content is never doubled.
+`fold_chunks_to_response` (`turn/streaming.py`) collapses the chunk stream to
+one `ChatResponse`: the terminal (`finish_reason="stop"`) content is
+authoritative; extras are copied from the terminal. Deltas are ignored when a
+terminal is present, so the folded content is never doubled. A stream that
+never reached its terminal is folded by `_fold_live` the way the client folds
+it: deltas append, a snapshot (`stream_replace`) replaces the text before it
+and drops the masthead, and an empty snapshot with no sources (a retraction)
+drops the cards as well.
 
 ## There is no typewriter
 
 This section is about a buffered turn; on a live turn the pace is the
 model's own.
 
-The delta sequence is a SHAPE, not a pace. `_response_to_chunks` cuts a finished
-answer into ~24-character pieces (`_iter_answer_deltas`) and yields them as fast
+The delta sequence is a SHAPE, not a pace. `response_to_chunks` cuts a finished
+answer into ~24-character pieces (`iter_answer_deltas`) and yields them as fast
 as the socket takes them, so they reach `appendAgentResponseDelta` one or two
 animation frames apart: the answer paints essentially at once, and `isStreaming`
 is a state the turn passes through in a frame or two.

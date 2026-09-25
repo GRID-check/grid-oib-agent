@@ -35,7 +35,9 @@ from __future__ import annotations
 
 import json
 import re
+from dataclasses import dataclass
 
+from aiq_agent.common.citation_verification import _GROUPED_CITATION_RE
 from aiq_agent.common.citation_verification import _REFERENCE_HEADING_LINE_RE
 from aiq_agent.common.citation_verification import expand_grouped_citations
 
@@ -85,6 +87,9 @@ class AnswerProseStream:
         self._tail = ""  # reply text after the ``answer`` string, for the cards
         self._cards_at: int | None = None  # where the cards array's next element starts
         self._cards: list[dict] = []
+        #: The scan of the card object still being written, kept across feeds
+        #: so each token is read once rather than the object rescanned per token.
+        self._card: _ObjectScan | None = None
 
     def feed(self, text: str) -> str:
         """Consume ``text`` and return what may be shown now."""
@@ -170,19 +175,21 @@ class AnswerProseStream:
                 return
             self._cards_at = match.end()
         while True:
-            start = self._tail.find("{", self._cards_at)
-            if start < 0 or self._tail[self._cards_at : start].strip(" \n\t,"):
-                return  # the array ended, or its next element is not here yet
-            end = _object_end(self._tail, start)
+            if self._card is None:
+                start = self._tail.find("{", self._cards_at)
+                if start < 0 or self._tail[self._cards_at : start].strip(" \n\t,"):
+                    return  # the array ended, or its next element is not here yet
+                self._card = _ObjectScan(start=start, index=start)
+            end = self._card.end_in(self._tail)
             if end is None:
                 return
             try:
-                card = json.loads(self._tail[start:end])
+                card = json.loads(self._tail[self._card.start : end])
             except ValueError:
                 card = None
             if isinstance(card, dict):
                 self._cards.append(card)
-            self._cards_at = end
+            self._cards_at, self._card = end, None
 
     def _release(self) -> str:
         """Show the longest prefix of ``_pending`` that nothing can still change."""
@@ -252,32 +259,52 @@ def _object_prefix(text: str) -> dict | None:
     return parsed if isinstance(parsed, dict) else None
 
 
-def _object_end(text: str, start: int) -> int | None:
-    """The index just past the JSON object opening at ``start``, or None while it is incomplete."""
-    depth, in_string, escaped = 0, False, False
-    for index in range(start, len(text)):
-        char = text[index]
-        if in_string:
-            if escaped:
-                escaped = False
-            elif char == "\\":
-                escaped = True
-            elif char == '"':
-                in_string = False
-            continue
-        if char == '"':
-            in_string = True
-        elif char == "{":
-            depth += 1
-        elif char == "}":
-            depth -= 1
-            if depth == 0:
-                return index + 1
-    return None
+@dataclass
+class _ObjectScan:
+    """The scan of a JSON object opening at ``start``, resumable as its text grows."""
+
+    start: int
+    index: int  # the next character to read
+    depth: int = 0
+    in_string: bool = False
+    escaped: bool = False
+
+    def end_in(self, text: str) -> int | None:
+        """The index just past the object, or None while it is incomplete; reads each character once."""
+        for index in range(self.index, len(text)):
+            char = text[index]
+            if self.in_string:
+                if self.escaped:
+                    self.escaped = False
+                elif char == "\\":
+                    self.escaped = True
+                elif char == '"':
+                    self.in_string = False
+                continue
+            if char == '"':
+                self.in_string = True
+            elif char == "{":
+                self.depth += 1
+            elif char == "}":
+                self.depth -= 1
+                if self.depth == 0:
+                    return index + 1
+        self.index = len(text)
+        return None
 
 
 def _expanded_after(shown: str, pending: str) -> str:
-    """``pending`` with its grouped markers expanded, read in the context of ``shown``."""
+    """``pending`` with its grouped markers expanded, read in the context of ``shown``.
+
+    Only a grouped marker inside ``pending`` can change it: a marker cannot
+    straddle the two, because its unfinished head is held (``_held_tail``) and
+    one broken by a newline reads differently from its expansion within
+    ``shown``, which sends it down the fallback below. So ``pending`` with no
+    candidate is returned as it is, without re-reading everything shown
+    before it, which per token made a long answer quadratic on the event loop.
+    """
+    if _GROUPED_CITATION_RE.search(pending) is None:
+        return pending
     whole = expand_grouped_citations(shown + pending, unterminated_fence_is_code=True)
     if whole.startswith(shown):
         return whole[len(shown) :]
