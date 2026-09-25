@@ -236,3 +236,21 @@ async def test_the_settle_runs_off_the_event_loop():
     )
 
     assert threads and threads[0] != threading.get_ident()
+
+
+async def test_a_cancelled_relay_leaves_no_queue_get_pending():
+    sink = AnswerStreamSink()
+    answering = asyncio.create_task(asyncio.sleep(3600))
+
+    async def consume() -> None:
+        async for _ in sink.relay(answering):
+            pass
+
+    consumer = asyncio.create_task(consume())
+    await asyncio.sleep(0.01)  # the relay is parked on its Queue.get
+    consumer.cancel()
+    await asyncio.gather(consumer, return_exceptions=True)
+    await asyncio.sleep(0)  # let a cancelled get finish unwinding
+    pending = [t for t in asyncio.all_tasks() if not t.done() and "Queue.get" in t.get_coro().__qualname__]
+    answering.cancel()
+    assert pending == []

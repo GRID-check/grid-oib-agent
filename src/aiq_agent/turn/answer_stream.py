@@ -100,11 +100,9 @@ class AnswerStreamSink:
     def retract(self) -> None:
         """Take back what this call showed: the call turned out to be a tool round, not the answer.
 
-        An empty snapshot clears the bubble's text, citations and masthead, in
-        the asker's store and the observer's fold alike, and a later call of
-        the turn may stream again. A snapshot carries no cards, so a card
-        already drawn stays until the terminal frame; cards come after the
-        prose, so that is rare.
+        An empty snapshot clears the bubble's text, citations, masthead and
+        cards, in the asker's store and the observer's reducer alike, and a
+        later call of the turn may stream again.
         """
         self._queue.put_nowait(Snapshot(content="", sources=[], answer_meta=None))
         self.streamed = False
@@ -122,18 +120,30 @@ class AnswerStreamSink:
         it replaces, where a delta appends.
         """
         while not task.done():
-            waiter = asyncio.ensure_future(self._queue.get())
-            done, _ = await asyncio.wait({waiter, task}, return_when=asyncio.FIRST_COMPLETED)
-            if waiter not in done:
-                waiter.cancel()
+            first = await self._next(task)
+            if first is None:
                 break
             # Let the next few tokens join this one: a frame per token is a
             # frame per few characters, and the reader cannot tell 50 ms apart.
             await asyncio.sleep(RELAY_WINDOW_S)
-            for item in _coalesced([waiter.result(), *self._drain()]):
+            for item in _coalesced([first, *self._drain()]):
                 yield item
         for item in _coalesced(self._drain()):
             yield item
+
+    async def _next(self, task: asyncio.Task[Any]) -> Item | None:
+        """The next queued item, or None once ``task`` finished first.
+
+        The ``Queue.get`` is cancelled on every way out, a cancelled relay
+        included: ``asyncio.wait`` leaves it pending, and a pending get outlives
+        the turn ("Task was destroyed but it is pending").
+        """
+        waiter = asyncio.ensure_future(self._queue.get())
+        try:
+            done, _ = await asyncio.wait({waiter, task}, return_when=asyncio.FIRST_COMPLETED)
+        finally:
+            waiter.cancel()
+        return waiter.result() if waiter in done else None
 
     def _drain(self) -> list[Item]:
         items: list[Item] = []
@@ -148,7 +158,7 @@ def _coalesced(items: list[Item]) -> list[Item]:
     for item in items:
         if isinstance(item, str) and out and isinstance(out[-1], str):
             out[-1] += item
-        elif item != "":
+        else:
             out.append(item)
     return out
 
@@ -257,16 +267,16 @@ class _ProseTokenHandler(AsyncCallbackHandler):
 
 def _calls_tools(response: Any) -> bool:
     """Whether an ``LLMResult`` carries tool calls, in any of the places a provider puts them."""
-    for generations in getattr(response, "generations", None) or []:
-        for generation in generations:
-            message = getattr(generation, "message", None)
-            if message is None:
-                continue
-            if getattr(message, "tool_calls", None) or getattr(message, "tool_call_chunks", None):
-                return True
-            if (getattr(message, "additional_kwargs", None) or {}).get("tool_calls"):
-                return True
-    return False
+    generations = getattr(response, "generations", None) or []
+    return any(_message_calls_tools(getattr(g, "message", None)) for batch in generations for g in batch)
+
+
+def _message_calls_tools(message: Any) -> bool:
+    if message is None:
+        return False
+    if getattr(message, "tool_calls", None) or getattr(message, "tool_call_chunks", None):
+        return True
+    return bool((getattr(message, "additional_kwargs", None) or {}).get("tool_calls"))
 
 
 def token_text(token: Any) -> str:

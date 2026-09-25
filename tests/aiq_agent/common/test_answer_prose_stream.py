@@ -121,3 +121,26 @@ def test_each_card_is_read_as_soon_as_its_object_closes(size):
     assert [kind for _, kind in seen] == ["table", "surface"]
     # The first card went out before the second was written.
     assert seen[0][0] < reply.index('"surface"')
+
+
+@pytest.mark.parametrize("size", [1, 2, 3, 7, 10_000])
+@pytest.mark.parametrize(
+    ("raw_answer", "shown"),
+    [
+        # Not JSON mode: a path the model forgot to escape.
+        ("Pfad C:\\user\\daten und weiter.", "Pfad C:\\userdaten und weiter."),
+        # A lone high surrogate, then text.
+        ("Fluchtweg \\ud83d frei.", "Fluchtweg \\ud83d frei."),
+        # A high surrogate whose next escape is not its partner: the ä survives.
+        ("A\\ud83d\\u00e4B", "A\\ud83däB"),
+        ("A\\ude00B", "A\\ude00B"),
+        ("Rest \\u", "Rest \\u"),
+        ("Emoji \\ud83e\\uddef ok", "Emoji 🧯 ok"),
+    ],
+)
+def test_an_escape_that_is_not_json_is_shown_as_written_and_the_prose_closes(raw_answer, shown, size):
+    envelope = '{"kind":"direct","answer":"' + raw_answer + '","cards":[{"type":"x"}]}'
+    reader = _reader(envelope, size)
+    assert reader.closed
+    assert reader.emitted == shown
+    assert reader.take_cards() == [{"type": "x"}]

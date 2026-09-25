@@ -274,9 +274,8 @@ def _handed_markers(messages: Sequence[Any]) -> set[int]:
     """The ``[[card:N]]`` numbers a TOOL handed the model this turn.
 
     A tool that pushes a system card (``write_file`` → ``document_draft``,
-    ``surface_documents`` → ``document_grid``, ``emit_card`` on an older
-    prompt) answers with the marker to write, so the numbers in its replies
-    are taken. Read off the transcript rather than off the registry's size:
+    ``surface_documents`` → ``document_grid``) answers with the marker to
+    write, so the numbers in its replies are taken. Read off the transcript rather than off the registry's size:
     the registry says how many cards exist, the replies say which of them the
     model was told to address by number.
     """
@@ -461,7 +460,13 @@ async def _verify_with_quote_patch(content: str, registry: SourceRegistry, patch
     # marker and is not "being corrected".
     emit_answer_repair(quotes=len(candidates))
     patched, count = await patch_quotes(verified.content, candidates, patch)
-    return _verify(patched, registry) if count else verified
+    if not count:
+        return verified
+    # The second pass verifies text the first already stripped, so it sees none
+    # of the citations the first removed: carry them, or the ledger loses them.
+    shipped = _verify(patched, registry)
+    removed = [*verified.verification.removed_citations, *shipped.verification.removed_citations]
+    return replace(shipped, verification=replace(shipped.verification, removed_citations=removed))
 
 
 @dataclass(frozen=True)
@@ -665,6 +670,9 @@ class LiveAnswer:
             prose_chars=len(prose),
             prose=prose,
             agent_authored_documents=agent_authored_document_names(self._registry),
+            # Provisional: gated again as it settles and once more by
+            # ``finalize_answer``, which records the drops.
+            record=False,
         )
         if gated is None:
             return None
@@ -818,7 +826,8 @@ def _should_suppress_meta_cards(content: str, gated_meta: dict[str, Any] | None)
 def _suppress_cards(content: str, gated_meta: dict[str, Any] | None) -> tuple[str, dict[str, Any] | None, bool]:
     """Drop unearned cards on a short overview; ``(content, meta, suppressed)``.
 
-    Clears the turn's emit_card registry (fail-open when unbound) and strips
+    Clears the turn's card registry, the cards tools registered this turn
+    (fail-open when unbound), and strips
     ``[[card:N]]`` markers so no dangling marker reaches the reader. Logs the
     drop: a turn that came back with no cards must read as "suppressed", never
     as "the model never tried". Mechanical — no prompt wording, no doctrine
@@ -867,7 +876,7 @@ def _suppress_cards(content: str, gated_meta: dict[str, Any] | None) -> tuple[st
 
         registry = get_card_registry()
         if registry is not None and len(registry) > 0:
-            logger.info("Piloti: answer cards suppressed: dropping %d emit_card card(s)", len(registry))
+            logger.info("Piloti: answer cards suppressed: dropping %d tool-registered card(s)", len(registry))
             registry.clear()
     except Exception:
         logger.debug("Card registry suppression skipped", exc_info=True)

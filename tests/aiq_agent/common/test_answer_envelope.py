@@ -706,3 +706,29 @@ class TestSkillsApplied:
         assert "skills_applied: [string]" in render_envelope_schema()
         prop = render_envelope_response_format()["json_schema"]["schema"]["properties"]["skills_applied"]
         assert prop["items"] == {"type": "string"}
+
+
+class TestHeadlessSalvage:
+    """An envelope whose opening never arrived is salvaged; one that has its opening is not."""
+
+    def test_a_reply_that_lost_its_opening_is_salvaged(self):
+        content = 'Die Höhe beträgt 2,10 m [1].", "kind": "ruling"}\n```'
+        prose, meta = extract_answer_envelope(content)
+        assert prose == "Die Höhe beträgt 2,10 m [1]."
+        assert meta is not None and meta.kind == "ruling"
+
+    def test_an_unparseable_object_with_its_opening_is_not_cut_at_a_nested_kind(self):
+        # Not JSON (``\q``), and the callout's own "kind" looks like a headless
+        # tail: salvage would ship a JSON fragment as prose under an invented kind.
+        content = (
+            '{"kind":"direct","answer":"Die Höhe gilt \\q nach Tabelle.", '
+            '"callout":{"title":"T", "kind":"achtung", "text":"x"}}'
+        )
+        assert extract_answer_envelope(content) == (content, None)
+
+    def test_an_unparseable_fenced_object_is_not_salvaged_either(self):
+        content = (
+            '```answer_json\n{"kind":"direct","answer":"Die Höhe gilt \\q nach Tabelle.", '
+            '"callout":{"title":"T", "kind":"achtung", "text":"x"}}\n```'
+        )
+        assert extract_answer_envelope(content) == (content, None)

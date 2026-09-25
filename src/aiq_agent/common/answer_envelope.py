@@ -385,6 +385,18 @@ class GateContext:
     #: The answer's prose without its sources section. Empty where a caller has
     #: none to give (the deep writer), which turns the gates reading it off.
     prose: str = ""
+    #: Whether a drop is recorded as a turn event. Off for the live stream's
+    #: provisional gating (``LiveAnswer``), which runs the gates again as the
+    #: answer settles; the finished answer's gating records each drop once.
+    record: bool = True
+
+    def anatomy_dropped(self, *, field: str, reason: str) -> None:
+        if self.record:
+            emit_anatomy_dropped(field=field, reason=reason)
+
+    def verdict_dropped(self, *, reason: str) -> None:
+        if self.record:
+            emit_verdict_dropped(reason=reason)
 
 
 #: Share of a summary's content words its prose's opening paragraph may also
@@ -450,12 +462,12 @@ def _gate_summary(meta: AnswerMeta, ctx: GateContext) -> str | None:
             len(summary),
             SUMMARY_MAX_CHARS,
         )
-        emit_anatomy_dropped(field="summary", reason="too_long")
+        ctx.anatomy_dropped(field="summary", reason="too_long")
         return None
     redundant = _summary_redundant(summary, ctx.prose)
     if redundant:
         logger.info("answer_meta summary gated out: %s — the prose already says it", redundant)
-        emit_anatomy_dropped(field="summary", reason=redundant)
+        ctx.anatomy_dropped(field="summary", reason=redundant)
         return None
     return summary
 
@@ -472,7 +484,7 @@ def _gate_topic(meta: AnswerMeta, ctx: GateContext) -> str | None:
             len(topic),
             TOPIC_MAX_CHARS,
         )
-        emit_anatomy_dropped(field="topic", reason="too_long")
+        ctx.anatomy_dropped(field="topic", reason="too_long")
         return None
     return topic
 
@@ -489,7 +501,7 @@ def _gate_context(meta: AnswerMeta, ctx: GateContext) -> str | None:
             len(context),
             CONTEXT_MAX_CHARS,
         )
-        emit_anatomy_dropped(field="context", reason="too_long")
+        ctx.anatomy_dropped(field="context", reason="too_long")
         return None
     return context
 
@@ -566,7 +578,7 @@ def _gate_verdict(meta: AnswerMeta, ctx: GateContext) -> dict | None:
             meta.verdict.reference.document if meta.verdict.reference else None,
             len(ctx.agent_authored_documents),
         )
-        emit_verdict_dropped(reason=drop)
+        ctx.verdict_dropped(reason=drop)
         return None
     verdict: dict = {"value": value, "subject": subject}
     if meta.verdict.reference is not None:
@@ -616,11 +628,11 @@ def _gate_takeaways(meta: AnswerMeta, ctx: GateContext) -> list | None:
             ctx.prose_chars,
             TAKEAWAYS_MIN_PROSE_CHARS,
         )
-        emit_anatomy_dropped(field="takeaways", reason="prose_too_short")
+        ctx.anatomy_dropped(field="takeaways", reason="prose_too_short")
         return None
     if len(takeaways) < 2:
         logger.info("answer_meta takeaways gated out: a single takeaway is a sentence, not a block")
-        emit_anatomy_dropped(field="takeaways", reason="single_item")
+        ctx.anatomy_dropped(field="takeaways", reason="single_item")
         return None
     return [_takeaway_payload(t) for t in takeaways]
 
@@ -842,7 +854,15 @@ def _salvage_headless(content: str) -> tuple[str, AnswerMeta | None] | None:
     confidence and its cards. Whatever stands before `", "kind":` is the
     answer; the rest, opened with `{`, is the object. Only a tail that parses
     AND carries a `kind` is taken, so ordinary prose quoting JSON is untouched.
+
+    A reply that opens with `{` or the ``answer_json`` fence HAS its head: it is
+    an object that did not parse, and a nested `", "kind":` (a callout's) would
+    cut it into a JSON fragment passed off as prose. It is left to the caller's
+    fail-open path instead.
     """
+    head = content.lstrip()
+    if head.startswith("{") or head.startswith(f"```{ENVELOPE_FENCE}"):
+        return None
     # Only the closing fence at the very end: a ```mermaid fence inside the
     # prose keeps its own.
     body = re.sub(r"\n?```\s*$", "", content.rstrip()).rstrip()
@@ -870,6 +890,7 @@ def gate_answer_meta(
     prose_chars: int,
     agent_authored_documents: frozenset[str] = frozenset(),
     prose: str = "",
+    record: bool = True,
 ) -> dict | None:
     """Run the registry's gates and return the versioned wire payload, or None.
 
@@ -886,8 +907,14 @@ def gate_answer_meta(
     refusal is not the first one being over-eager. Defaulted so a caller with no
     registry — the deep writer's report path, a test — behaves exactly as
     before.
+
+    ``record=False`` gates without recording a drop as a turn event: the live
+    stream gates the same masthead provisionally, twice, and the finished
+    answer's gating is the one that counts.
     """
-    ctx = GateContext(prose_chars=prose_chars, agent_authored_documents=agent_authored_documents, prose=prose)
+    ctx = GateContext(
+        prose_chars=prose_chars, agent_authored_documents=agent_authored_documents, prose=prose, record=record
+    )
     payload: dict = {}
     for field in ANATOMY_FIELDS:
         survived = field.gate(meta, ctx)

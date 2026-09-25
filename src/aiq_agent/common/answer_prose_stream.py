@@ -56,6 +56,9 @@ _LINE_HOLD = 30
 #: completes or cannot.
 _MARKER_PREFIX_RE = re.compile(r"\[(?:\d[\d,\s–-]*|\[(?:c(?:a(?:r(?:d(?::\s*\d*\s*\]?)?)?)?)?)?)?$")
 
+#: What may still become the four hex digits of a ``\u`` escape.
+_HEX_PREFIX_RE = re.compile(r"[0-9A-Fa-f]{0,4}")
+
 _ESCAPES = {'"': '"', "\\": "\\", "/": "/", "b": "\b", "f": "\f", "n": "\n", "r": "\r", "t": "\t"}
 
 
@@ -273,7 +276,12 @@ def _held_tail(text: str) -> int:
 
 
 def _escape(raw: str, i: int) -> tuple[str, int]:
-    """Decode the JSON escape at ``raw[i]``; width 0 when it is not complete yet."""
+    """Decode the JSON escape at ``raw[i]``; width 0 when it is not complete yet.
+
+    The answering call is not in JSON mode, so the model may write what is not
+    JSON: ``C:\\user`` unescaped, a lone surrogate. Those are shown as written
+    rather than stall the stream, the way an unknown escape is.
+    """
     if i + 1 >= len(raw):
         return "", 0
     code = raw[i + 1]
@@ -281,12 +289,28 @@ def _escape(raw: str, i: int) -> tuple[str, int]:
         return _ESCAPES[code], 2
     if code != "u":
         return code, 2  # not JSON; show it rather than stall
+    if not _HEX_PREFIX_RE.fullmatch(raw[i + 2 : i + 6]):
+        return raw[i : i + 2], 2  # ``\u`` not followed by four hex digits
     if i + 6 > len(raw):
         return "", 0
     point = int(raw[i + 2 : i + 6], 16)
-    if 0xD800 <= point < 0xDC00:  # high surrogate: needs its partner
-        if i + 12 > len(raw):
-            return "", 0
-        low = int(raw[i + 8 : i + 12], 16)
-        return chr(0x10000 + ((point - 0xD800) << 10) + (low - 0xDC00)), 12
-    return chr(point), 6
+    if 0xDC00 <= point < 0xE000:
+        return raw[i : i + 6], 6  # a low surrogate with no high one
+    if not 0xD800 <= point < 0xDC00:
+        return chr(point), 6
+    return _surrogate_pair(raw, i, point)
+
+
+def _surrogate_pair(raw: str, i: int, high: int) -> tuple[str, int]:
+    """Join the high surrogate at ``raw[i]`` with its partner, or show it as written."""
+    if i + 8 > len(raw):
+        return "", 0
+    if raw[i + 6 : i + 8] != "\\u":
+        return raw[i : i + 6], 6
+    if i + 12 > len(raw):
+        return "", 0
+    digits = raw[i + 8 : i + 12]
+    low = int(digits, 16) if _HEX_PREFIX_RE.fullmatch(digits) else 0
+    if not 0xDC00 <= low < 0xE000:
+        return raw[i : i + 6], 6  # the next escape is decoded on its own
+    return chr(0x10000 + ((high - 0xD800) << 10) + (low - 0xDC00)), 12

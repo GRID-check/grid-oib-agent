@@ -172,26 +172,33 @@ def fold_chunks_to_response(chunks: list[ChatResponseChunk]) -> ChatResponse:
     """Collapse a streamed chunk sequence back into one ChatResponse for
     non-streaming consumers (single-shot HTTP, the CLI).
 
-    The terminal chunk's (``finish_reason="stop"``) content is authoritative, so
-    deltas are ignored when a terminal is present and the folded content is never
-    doubled. Grid extras are copied from whichever chunk carries them.
+    The terminal chunk (``finish_reason="stop"``) is authoritative for the text
+    AND the Grid extras: the live chunks before it are provisional (ADR-0066),
+    so a live masthead or card the terminal gated out, or prose a snapshot
+    retracted, never reaches the folded answer, and an empty terminal stays
+    empty. Only without a terminal are the live chunks folded, a snapshot
+    (``stream_replace``) replacing the text before it rather than appending.
     """
-    delta_parts: list[str] = []
-    final_content: str | None = None
-    extras: dict[str, object] = {}
-    model_name: str | None = None
-    response_id: str | None = None
-    for chunk in chunks:
-        model_name = model_name or getattr(chunk, "model", None)
-        response_id = response_id or getattr(chunk, "id", None)
-        content = chunk_content(chunk)
-        if chunk_finish_reason(chunk) == "stop" and content:
-            final_content = content
-        elif chunk_finish_reason(chunk) != "stop" and content:
-            delta_parts.append(content)
-        extras.update(_chunk_extras(chunk))
-    content = final_content if final_content is not None else "".join(delta_parts)
+    model_name = next((m for c in chunks if (m := getattr(c, "model", None))), None)
+    response_id = next((i for c in chunks if (i := getattr(c, "id", None))), None)
+    terminal = next((c for c in reversed(chunks) if chunk_finish_reason(c) == "stop"), None)
+    if terminal is not None:
+        content, extras = chunk_content(terminal) or "", _chunk_extras(terminal)
+    else:
+        content, extras = _fold_live(chunks)
     response = _create_chat_response(content, response_id=response_id or "research_response", model=model_name)
     for field, value in extras.items():
         setattr(response, field, value)
     return response
+
+
+def _fold_live(chunks: list[ChatResponseChunk]) -> tuple[str, dict[str, object]]:
+    """The text and extras of a chunk sequence that never reached its terminal."""
+    parts: list[str] = []
+    extras: dict[str, object] = {}
+    for chunk in chunks:
+        if getattr(chunk, "stream_replace", None):
+            parts = []
+        parts.append(chunk_content(chunk) or "")
+        extras.update(_chunk_extras(chunk))
+    return "".join(parts), extras
