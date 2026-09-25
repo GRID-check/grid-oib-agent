@@ -13,6 +13,7 @@ import { describe, expect, it, vi } from 'vitest'
 import type { GridCard } from '@/shared/cards/schemas'
 import { A2uiCard } from './A2uiCard'
 import { INTERACTIVE_CARD_TYPES } from '@/features/grid-cards/card-decision'
+import { GridCardItem } from '@/features/grid-cards/components/GridCards'
 import { SURFACE_EXCLUDED_LEAVES, preflight, structuralRefusal } from './catalog'
 import { surfaceLeaves } from './surface-messages'
 
@@ -257,6 +258,26 @@ describe('a card through A2UI', () => {
     expect(screen.getByTestId('card-a')).toBeInTheDocument()
     expect(screen.queryByTestId('card-b')).toBeNull()
     expect(surfaceLeaves(refused).map(({ id }) => id)).toEqual(['a'])
+    warn.mockRestore()
+  })
+
+  it('drops a malformed leaf from the fallback and draws its valid sibling', async () => {
+    // A surface's components are open records, so nothing checks a leaf
+    // before `preflight` refuses it; the fallback must not hand the renderer a
+    // `legal_basis` with no law and lose the whole answer to a TypeError.
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    const malformed = {
+      type: 'surface',
+      components: [
+        { id: 'root', component: 'Row', children: ['a', 'b'] },
+        { id: 'a', component: 'legal_basis', summary: 'no law here' },
+        { id: 'b', component: 'legal_basis', law: 'OIB-Richtlinie 2', summary: 'fine' },
+      ],
+    } as unknown as GridCard
+    render(<GridCardItem card={malformed} index={0} messageId="m1" />)
+    await waitFor(() => expect(warn).toHaveBeenCalled())
+    expect(await screen.findByText('fine')).toBeInTheDocument()
+    expect(surfaceLeaves(malformed).map(({ id }) => id)).toEqual(['b'])
     warn.mockRestore()
   })
 

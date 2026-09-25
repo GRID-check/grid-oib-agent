@@ -48,7 +48,11 @@ export interface SurfaceLeaf {
  * anything unknown are left out: an unknown component has nothing to draw. So
  * is every leaf the catalog refuses inside a surface
  * (`SURFACE_EXCLUDED_LEAVES`): the fallback is what a refused surface draws,
- * and an interactive card refused there must not come back through it.
+ * and an interactive card refused there must not come back through it. A card
+ * leaf that fails its own schema is dropped too, with a warning as
+ * `validateGridCards` leaves: a surface's components are typed as open records,
+ * so nothing upstream checked the leaf, and `preflight` refusing it is exactly
+ * what sends the surface here. A kept leaf is the parsed card, defaults applied.
  */
 export function surfaceLeaves(card: GridCard): SurfaceLeaf[] {
   return surfaceComponents(card).flatMap(({ id, component, ...props }): SurfaceLeaf[] => {
@@ -56,6 +60,9 @@ export function surfaceLeaves(card: GridCard): SurfaceLeaf[] {
     if (component === TEXT_COMPONENT && typeof props.text === 'string') return [{ id: leafId, leaf: { text: props.text } }]
     const type = String(component)
     if (!CARD_TYPES.has(type) || SURFACE_EXCLUDED_LEAVES.has(type)) return []
-    return [{ id: leafId, leaf: { ...props, type } as GridCard }]
+    const result = gridCardSchema.safeParse({ ...props, type })
+    if (result.success) return [{ id: leafId, leaf: result.data }]
+    console.warn('[GridCards] Dropping surface leaf that failed schema validation', type, leafId, result.error.issues)
+    return []
   })
 }
