@@ -45,7 +45,18 @@ def _long_card(rows: int) -> str:
     return json.dumps({"kind": "direct", "answer": "Siehe [[card:1]].", "cards": [card]})
 
 
-@pytest.mark.parametrize(("build", "size"), [(_long_prose, 60), (_long_card, 80)], ids=["prose", "card"])
+def _open_code_line(words: int) -> str:
+    # One backtick opens a code span that closes only at the end of the line,
+    # so the whole line is held while it is written.
+    prose = "Vorab `" + "x = grid[1, 2] und so weiter " * words + "`\nEnde."
+    return json.dumps({"kind": "direct", "answer": prose, "cards": []})
+
+
+@pytest.mark.parametrize(
+    ("build", "size"),
+    [(_long_prose, 60), (_long_card, 80), (_open_code_line, 200)],
+    ids=["prose", "card", "open-code-line"],
+)
 def test_reading_four_times_the_text_costs_about_four_times_as_much(build, size):
     small, large = build(size), build(size * _GROWTH)
     ratio = _cost(large) / _cost(small)

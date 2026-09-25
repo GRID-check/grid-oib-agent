@@ -52,10 +52,15 @@ _CARDS_KEY_RE = re.compile(r'"cards"\s*:\s*\[')
 #: included, held until it completes or cannot.
 _ANSWER_KEY_PREFIX_RE = re.compile(r'"(?:a(?:n(?:s(?:w(?:e(?:r(?:"\s*(?::\s*)?)?)?)?)?)?)?)?$')
 
-#: A line is held back until it ends or grows past this, so a sources heading
-#: is recognized whole before any of it is shown. Longer than every heading
-#: the verifier accepts ("**Quellenangaben:**" is 19).
+#: A line is held back until it ends or grows past this many visible
+#: characters, so a sources heading is recognized whole before any of it is
+#: shown. Longer than every heading the verifier accepts ("**Quellenangaben:**"
+#: is 19). Whitespace does not count: the verifier's heading allows any run of
+#: it around and inside the label.
 _LINE_HOLD = 30
+#: A line with at most ``_LINE_HOLD`` visible characters. Reads no further than
+#: the one after them, so a long line costs no more than a short one.
+_SHORT_LINE_RE = re.compile(rf"[^\S\n]*(?:\S[^\S\n]*){{0,{_LINE_HOLD}}}\Z")
 
 #: A tail that may still become a citation or card marker, held until it
 #: completes or cannot.
@@ -75,6 +80,11 @@ class AnswerProseStream:
         self._state = "detect"  # detect -> seek -> prose -> sources | off
         self._pending = ""  # decoded prose not yet shown
         self._line_start = True  # whether ``_pending`` begins a line
+        #: How much of ``_pending`` was read and kept: it holds no newline and
+        #: ``_ticks`` backticks, so the next token is read from there on
+        #: rather than the held line rescanned per token.
+        self._scanned = 0
+        self._ticks = 0
         self.emitted = ""  # everything shown so far
         #: The sources section, heading line first, once the prose reached it.
         self.sources_text = ""
@@ -175,11 +185,9 @@ class AnswerProseStream:
                 return
             self._cards_at = match.end()
         while True:
+            self._card = self._card or self._next_card()
             if self._card is None:
-                start = self._tail.find("{", self._cards_at)
-                if start < 0 or self._tail[self._cards_at : start].strip(" \n\t,"):
-                    return  # the array ended, or its next element is not here yet
-                self._card = _ObjectScan(start=start, index=start)
+                return  # the array ended, or its next element is not here yet
             end = self._card.end_in(self._tail)
             if end is None:
                 return
@@ -191,9 +199,20 @@ class AnswerProseStream:
                 self._cards.append(card)
             self._cards_at, self._card = end, None
 
+    def _next_card(self) -> _ObjectScan | None:
+        """The scan of the cards array's next element, once it has begun."""
+        start = self._tail.find("{", self._cards_at)
+        if start < 0 or self._tail[self._cards_at : start].strip(" \n\t,"):
+            return None
+        return _ObjectScan(start=start, index=start)
+
     def _release(self) -> str:
         """Show the longest prefix of ``_pending`` that nothing can still change."""
         shown, rest, hold_line = self._through_lines(self._pending)
+        if shown:
+            self._scanned = self._ticks = 0  # what was read is split off
+        self._ticks += rest.count("`", self._scanned)
+        self._scanned = len(rest)
         if self._state == "sources":
             self.sources_text += rest
             rest = ""
@@ -201,9 +220,11 @@ class AnswerProseStream:
             shown += rest
             rest = ""
         elif not hold_line:
-            held = max(_held_tail(rest), _open_code_tail(rest))
-            shown += rest[: len(rest) - held]
-            rest = rest[len(rest) - held :]
+            held = self._held(rest)
+            if held < len(rest):
+                shown += rest[: len(rest) - held]
+                rest = rest[len(rest) - held :]
+                self._scanned = self._ticks = 0
         self._pending = rest
         # A range marker is held whole (see ``_MARKER_PREFIX_RE``), so it is
         # expanded as it is shown: ``[2–5]`` as four pills. Expanded with what
@@ -225,8 +246,9 @@ class AnswerProseStream:
         """
         shown = ""
         line_start = self._line_start
+        skip = self._scanned  # no newline before this in the text kept last time
         while True:
-            newline = text.find("\n")
+            newline = text.find("\n", skip)
             line = text if newline < 0 else text[:newline]
             ended = newline >= 0 or self.closed
             if line_start and ended and _REFERENCE_HEADING_LINE_RE.fullmatch(line.rstrip()):
@@ -235,10 +257,28 @@ class AnswerProseStream:
                 # would trim only what this chunk carried.
                 return shown, text, False
             if newline < 0:
-                return shown, text, line_start and len(line) <= _LINE_HOLD
+                return shown, text, line_start and _is_short(line)
             shown += text[: newline + 1]
             text = text[newline + 1 :]
-            line_start = True
+            line_start, skip = True, 0
+
+    def _held(self, line: str) -> int:
+        """How many trailing characters of the unfinished ``line`` must wait.
+
+        An inline code span still open holds from its backtick on (until its
+        closing one arrives, ``m[2, 3]`` cannot be told from a grouped
+        citation, which would be expanded into two pills); otherwise a marker
+        still being written. ``_ticks`` counts the backticks in ``line``.
+        """
+        code = 0 if self._ticks % 2 == 0 else len(line) - line.index("`")
+        if code == len(line):
+            return code  # the whole line waits; no marker can hold more
+        return max(code, _held_tail(line))
+
+
+def _is_short(line: str) -> bool:
+    """Whether ``line`` has at most ``_LINE_HOLD`` visible characters."""
+    return len(line) <= _LINE_HOLD or _SHORT_LINE_RE.match(line) is not None
 
 
 def _object_prefix(text: str) -> dict | None:
@@ -272,25 +312,32 @@ class _ObjectScan:
     def end_in(self, text: str) -> int | None:
         """The index just past the object, or None while it is incomplete; reads each character once."""
         for index in range(self.index, len(text)):
-            char = text[index]
-            if self.in_string:
-                if self.escaped:
-                    self.escaped = False
-                elif char == "\\":
-                    self.escaped = True
-                elif char == '"':
-                    self.in_string = False
-                continue
-            if char == '"':
-                self.in_string = True
-            elif char == "{":
-                self.depth += 1
-            elif char == "}":
-                self.depth -= 1
-                if self.depth == 0:
-                    return index + 1
+            if self._closes_on(text[index]):
+                return index + 1
         self.index = len(text)
         return None
+
+    def _closes_on(self, char: str) -> bool:
+        """Read one character; whether it is the brace that closes the object."""
+        if self.in_string:
+            self._string_char(char)
+        elif char == '"':
+            self.in_string = True
+        elif char == "{":
+            self.depth += 1
+        elif char == "}":
+            self.depth -= 1
+            return self.depth == 0
+        return False
+
+    def _string_char(self, char: str) -> None:
+        """Read one character inside a string: an escape, or the closing quote."""
+        if self.escaped:
+            self.escaped = False
+        elif char == "\\":
+            self.escaped = True
+        elif char == '"':
+            self.in_string = False
 
 
 def _expanded_after(shown: str, pending: str) -> str:
@@ -309,17 +356,6 @@ def _expanded_after(shown: str, pending: str) -> str:
     if whole.startswith(shown):
         return whole[len(shown) :]
     return expand_grouped_citations(pending, unterminated_fence_is_code=True)
-
-
-def _open_code_tail(line: str) -> int:
-    """How many trailing characters of an unfinished line an inline code span still holds open.
-
-    Until its closing backtick arrives, ``m[2, 3]`` cannot be told from a
-    grouped citation: shown now, it would be expanded into two pills.
-    """
-    if line.count("`") % 2 == 0:
-        return 0
-    return len(line) - line.index("`")
 
 
 def _held_tail(text: str) -> int:

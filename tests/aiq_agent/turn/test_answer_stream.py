@@ -11,6 +11,7 @@ from langchain_core.messages import AIMessage
 from langchain_core.messages import HumanMessage
 from langchain_core.runnables import RunnableLambda
 
+from aiq_agent.turn import answer_stream
 from aiq_agent.turn.answer_stream import AnswerStreamSink
 from aiq_agent.turn.answer_stream import Cards
 from aiq_agent.turn.answer_stream import Snapshot
@@ -153,21 +154,28 @@ async def test_the_masthead_goes_out_before_the_first_word_and_the_cards_after_t
     assert [card and card["type"] for card in cards] == ["table", None, "surface"]
 
 
-async def test_the_relay_sends_a_window_of_tokens_as_one_frame_and_keeps_snapshots_in_place():
+async def test_the_relay_sends_a_window_of_tokens_as_one_frame_and_keeps_snapshots_in_place(monkeypatch):
+    # A window far longer than a loop turn, and the third token pushed only
+    # once the first frame is out: the frames do not depend on timer jitter.
+    monkeypatch.setattr(answer_stream, "RELAY_WINDOW_S", 0.25)
     sink = AnswerStreamSink()
     snapshot = Snapshot(content="Ein Satz [1] und noch einer.", sources=[])
+    first_frame = asyncio.Event()
 
     async def answer() -> str:
         sink.push("Ein ")
-        await asyncio.sleep(0.01)
+        await asyncio.sleep(0)
         sink.push("Satz [1] ")  # inside the window: the same frame
-        await asyncio.sleep(0.2)
+        await first_frame.wait()
         sink.push("und noch einer.")  # after it: the next frame
         sink.put(snapshot)  # never merged into text
         return "fertig"
 
     task = asyncio.create_task(answer())
-    items = [item async for item in sink.relay(task)]
+    items = []
+    async for item in sink.relay(task):
+        items.append(item)
+        first_frame.set()
     assert items == ["Ein Satz [1] ", "und noch einer.", snapshot]
     assert await task == "fertig"
 

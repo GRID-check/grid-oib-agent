@@ -179,13 +179,16 @@ def fold_chunks_to_response(chunks: list[ChatResponseChunk]) -> ChatResponse:
     empty. Only without a terminal are the live chunks folded, a snapshot
     (``stream_replace``) replacing the text before it rather than appending.
     """
-    model_name = next((m for c in chunks if (m := getattr(c, "model", None))), None)
-    response_id = next((i for c in chunks if (i := getattr(c, "id", None))), None)
     terminal = next((c for c in reversed(chunks) if chunk_finish_reason(c) == "stop"), None)
     if terminal is not None:
         content, extras = chunk_content(terminal) or "", _chunk_extras(terminal)
     else:
         content, extras = _fold_live(chunks)
+    # The terminal names the response: a live chunk before it carries a random
+    # id and a placeholder model (``live_chunk``), never the turn's own.
+    named = [terminal] if terminal is not None else chunks
+    model_name = next((m for c in named if (m := getattr(c, "model", None))), None)
+    response_id = next((i for c in named if (i := getattr(c, "id", None))), None)
     response = _create_chat_response(content, response_id=response_id or "research_response", model=model_name)
     for field, value in extras.items():
         setattr(response, field, value)
@@ -206,8 +209,13 @@ def _fold_live(chunks: list[ChatResponseChunk]) -> tuple[str, dict[str, object]]
         if getattr(chunk, "stream_replace", None):
             parts = []
             extras.pop("answer_meta", None)
-            if not content and not getattr(chunk, "sources", None):
-                extras.pop("cards", None)
+        if _is_retraction(chunk, content):
+            extras.pop("cards", None)
         parts.append(content)
         extras.update(_chunk_extras(chunk))
     return "".join(parts), extras
+
+
+def _is_retraction(chunk: ChatResponseChunk, content: str) -> bool:
+    """An empty snapshot: the prose, masthead and cards streamed so far are taken back."""
+    return bool(getattr(chunk, "stream_replace", None)) and not content and not getattr(chunk, "sources", None)

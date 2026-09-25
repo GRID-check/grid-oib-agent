@@ -241,3 +241,11 @@ class TestFoldChunksToResponse:
         folded = fold_chunks_to_response(live)
         assert getattr(folded, "answer_meta", None) is None
         assert folded.cards == [{"type": "summary"}]
+
+    def test_fold_names_the_response_after_the_terminal_not_a_live_chunk_before_it(self):
+        # A live chunk carries a random id and a placeholder model; the terminal
+        # carries the turn's own.
+        resp = _create_chat_response("Fin.", response_id="research_response", model="research_workflow")
+        folded = fold_chunks_to_response([live_chunk("Fin"), *response_to_chunks(resp, stream=False)])
+        assert folded.id == "research_response"
+        assert folded.model == "research_workflow"

@@ -46,12 +46,16 @@ from __future__ import annotations
 
 from contextlib import asynccontextmanager
 
+import pytest
+
 from aiq_agent.common import _create_chat_response
 from aiq_agent.turn.streaming import STREAM_EXTRA_FIELDS
+from aiq_agent.turn.streaming import live_chunk
 from aiq_agent.turn.streaming import response_to_chunks
 from aiq_api import websocket_reconnect
 from aiq_api.websocket_reconnect import ReconnectableWebSocketMessageHandler
 from aiq_api.websocket_reconnect import WebSocketSessionRegistry
+from nat.data_models.api_server import ChatResponseChunk
 from nat.data_models.api_server import WebSocketMessageStatus
 
 CONVERSATION_ID = "conv-crossing"
@@ -109,7 +113,11 @@ async def _frame_for(extras: dict[str, object], monkeypatch) -> dict:
     for name, value in extras.items():
         setattr(response, name, value)
     terminal = response_to_chunks(response, stream=True)[-1]
+    return await _send(terminal, WebSocketMessageStatus.COMPLETE, monkeypatch)
 
+
+async def _send(chunk: ChatResponseChunk, status: WebSocketMessageStatus, monkeypatch) -> dict:
+    """The websocket frame the real handler sends for ``chunk``."""
     socket = _Socket()
     registry = WebSocketSessionRegistry()
     monkeypatch.setattr(websocket_reconnect, "_registry", registry)
@@ -122,9 +130,9 @@ async def _frame_for(extras: dict[str, object], monkeypatch) -> dict:
         worker=_Worker(),
     )
     handler._conversation_id = CONVERSATION_ID
-    await handler.create_websocket_message(data_model=terminal, status=WebSocketMessageStatus.COMPLETE)
+    await handler.create_websocket_message(data_model=chunk, status=status)
 
-    assert socket.sent, "the terminal answer never reached the socket at all"
+    assert socket.sent, "the chunk never reached the socket at all"
     return socket.sent[-1]
 
 
@@ -160,3 +168,36 @@ async def test_a_name_the_handler_does_not_lift_never_reaches_the_frame(monkeypa
 
     assert "research_cutoff" not in frame
     assert "research_truncated" not in frame
+
+
+SOURCE = {"citation_key": "oib-rl_2", "index": 1}
+MASTHEAD = {"verdict": {"status": "erfüllt"}}
+CARD = {"type": "summary"}
+
+
+@pytest.mark.parametrize(
+    ("chunk", "carried"),
+    [
+        (live_chunk("Ein Satz "), {}),
+        (live_chunk("Gesetzt [1].", sources=[SOURCE]), {"stream_replace": True, "sources": [SOURCE]}),
+        (live_chunk("", sources=[]), {"stream_replace": True}),
+        (live_chunk("", answer_meta=MASTHEAD), {"answer_meta": MASTHEAD}),
+        (live_chunk("", cards=[CARD]), {"cards": [CARD]}),
+    ],
+    ids=["delta", "snapshot", "retraction", "masthead", "cards"],
+)
+async def test_every_kind_of_live_chunk_reaches_the_frame_while_the_answer_streams(chunk, carried, monkeypatch) -> None:
+    """A live chunk (ADR-0066) crosses on an IN_PROGRESS frame with what makes it that kind.
+
+    Without ``stream_replace`` a snapshot reads as a delta and appends the
+    settled prose to the raw prose; without ``answer_meta`` or ``cards`` the
+    masthead and the cards wait for the terminal frame.
+    """
+    frame = await _send(chunk, WebSocketMessageStatus.IN_PROGRESS, monkeypatch)
+
+    assert frame["status"] == WebSocketMessageStatus.IN_PROGRESS
+    assert frame["content"]["text"] == chunk.choices[0].delta.content
+    for name, value in carried.items():
+        assert frame.get(name) == value, f"{name!r} did not reach the live frame"
+    for name in {"stream_replace", "sources", "answer_meta", "cards"} - carried.keys():
+        assert name not in frame, f"{name!r} reached a live frame that did not carry it"

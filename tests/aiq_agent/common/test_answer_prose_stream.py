@@ -80,6 +80,16 @@ def test_a_heading_like_line_that_is_not_the_sources_heading_is_shown():
     assert shown == "**Quellenlage**\nDünn.\n\nQuellen sind knapp.\n"
 
 
+@pytest.mark.parametrize("heading", ["### Quellen:" + " " * 25, "  ###" + " " * 30 + "Quellen:", "\t**Quellen:**  "])
+@pytest.mark.parametrize("size", [1, 3, 10_000])
+def test_a_sources_heading_padded_past_the_line_hold_is_still_withheld(heading, size):
+    # The verifier's heading allows any run of whitespace around and inside the
+    # label, so only the visible characters say whether a line may be one.
+    reader = _reader(json.dumps({"answer": "Text [1].\n" + heading + "\n[1] OIB-RL 2, 3.1\n"}), size)
+    assert reader.emitted == "Text [1].\n"
+    assert reader.sources_text == heading + "\n[1] OIB-RL 2, 3.1\n"
+
+
 @pytest.mark.parametrize("size", [1, 5, 10_000])
 def test_an_answer_key_padded_with_whitespace_is_found_at_any_chunking(size):
     reply = '{"kind": "direct",\n    "answer"   \n' + " " * 30 + ':    "Hallo Welt."}'

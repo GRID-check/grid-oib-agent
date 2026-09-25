@@ -123,7 +123,8 @@ need not. A call that put nothing on the wire is not retracted. The wire fields:
 The settle runs the terminal's shape pass as well. A mindmap whose words are
 at least 70% a table's in the same answer (`drop_restated_mindmaps`,
 `agents/piloti/answer_shape.py`, `MINDMAP_TABLE_COVERAGE`) goes when the prose
-settles, so the reader can see it while the prose streams and then lose it.
+settles rather than at the terminal; the reader may still see it while the
+prose streams.
 
 ### WS handler (`websocket_reconnect.py::_run_workflow`)
 
@@ -139,7 +140,8 @@ settles, so the reader can see it while the prose streams and then lose it.
 
 - Maintain one streaming bubble per turn (keyed by `parent_id`).
 - `IN_PROGRESS` content frame ⇒ **append** delta to the streaming bubble
-  (create it on the first delta); with `stream_replace` ⇒ **replace** it
+  (create it on the first delta with something to draw; a whitespace-only
+  first frame opens nothing); with `stream_replace` ⇒ **replace** it
   (`replaceStreamingAgentResponse`), its citations and its masthead; with
   `answer_meta` or `cards` ⇒ set them on the bubble.
 - What is provisional: only a masthead or cards that came on a text-less live
