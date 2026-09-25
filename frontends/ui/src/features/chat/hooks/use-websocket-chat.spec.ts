@@ -223,6 +223,11 @@ const mockWsClient = {
   ),
   sendInteractionResponse: vi.fn(() => 'mock-outbound-interaction-id'),
   isConnected: vi.fn(() => false),
+  // Resume (the replay stream): off unless a spec turns it on.
+  canResume: vi.fn(() => false),
+  isReconnecting: vi.fn(() => false),
+  replayTurn: vi.fn(async (_wsParentId: string): Promise<number | null> => null),
+  activeParentId: null as string | null,
   updateConversationId: vi.fn(),
   updateProjectId: vi.fn(),
 }
@@ -257,6 +262,7 @@ let capturedCallbacks: {
   onHumanPrompt?: (promptId: string, parentId: string, prompt: unknown) => void
   onError?: (error: { code: string; message: string; details?: string }) => void
   onConnectionChange?: (status: string, context?: { intentional?: boolean }) => void
+  onResume?: (outcome: 'resumed' | 'unavailable', replayed: number) => void
 } = {}
 
 // Captured separately so token-rotation tests can drive it directly without
@@ -1315,6 +1321,166 @@ describe('useWebSocketChat', () => {
     }
   })
 
+  describe('a dropped socket the client can resume (the replay stream)', () => {
+    afterEach(() => {
+      mockWsClient.canResume.mockReturnValue(false)
+      mockWsClient.isReconnecting.mockReturnValue(false)
+      mockWsClient.replayTurn.mockResolvedValue(null)
+      mockWsClient.activeParentId = null
+    })
+
+    const withRecovery = (outcome: string) => {
+      const recover = vi.fn().mockResolvedValue(outcome)
+      mockStoreState = {
+        ...mockStoreState,
+        _recoverInterruptedAssistantMessage: recover,
+        currentConversation: {
+          id: 'conv-1',
+          userId: 'user-1',
+          messages: [{ id: 'u-1', messageType: 'user', content: 'Frage' }],
+        },
+      }
+      useChatStore.getState = vi.fn(() => mockStoreState) as unknown as typeof useChatStore.getState
+      return recover
+    }
+
+    test('keeps the turn open across the drop: the answer is still coming', () => {
+      mockWsClient.isConnected.mockReturnValue(true)
+      const { result } = renderWebSocketHook()
+      startStreamingTurn(result)
+      mockSetLoading.mockClear()
+      mockWsClient.canResume.mockReturnValue(true)
+
+      act(() => {
+        capturedCallbacks.onConnectionChange?.('disconnected')
+      })
+
+      expect(mockSetStreaming).not.toHaveBeenCalledWith(false)
+      expect(mockSetLoading).not.toHaveBeenCalledWith(false)
+    })
+
+    test('the watchdog waits while the client is still getting its socket back', () => {
+      vi.useFakeTimers()
+      try {
+        mockWsClient.isConnected.mockReturnValue(true)
+        const { result } = renderWebSocketHook()
+        startStreamingTurn(result)
+        mockWsClient.isConnected.mockReturnValue(false)
+        mockWsClient.canResume.mockReturnValue(true)
+        mockWsClient.isReconnecting.mockReturnValue(true)
+
+        act(() => {
+          vi.advanceTimersByTime(WATCHDOG_MS)
+        })
+        expect(mockSetStreaming).not.toHaveBeenCalledWith(false)
+
+        // The client gave up: now the socket being gone is evidence again.
+        mockWsClient.isReconnecting.mockReturnValue(false)
+        act(() => {
+          vi.advanceTimersByTime(WATCHDOG_MS)
+        })
+        expect(mockSetStreaming).toHaveBeenCalledWith(false)
+      } finally {
+        vi.useRealTimers()
+      }
+    })
+
+    test('a reconnect that cannot catch up ends the turn, asking the server first', async () => {
+      const recover = withRecovery('nothing')
+      mockWsClient.isConnected.mockReturnValue(true)
+      const { result } = renderWebSocketHook()
+      startStreamingTurn(result)
+
+      await act(async () => {
+        capturedCallbacks.onResume?.('unavailable', 0)
+        await Promise.resolve()
+      })
+
+      expect(mockSetStreaming).toHaveBeenCalledWith(false)
+      expect(recover).toHaveBeenCalledWith('conv-1', 'u-1')
+      expect(mockAddErrorCard).toHaveBeenCalledWith(
+        'agent.response_interrupted',
+        'The assistant stopped responding. Please resend your message.'
+      )
+    })
+
+    test('a reconnect that caught up leaves the turn to its frames', async () => {
+      mockWsClient.isConnected.mockReturnValue(true)
+      const { result } = renderWebSocketHook()
+      startStreamingTurn(result)
+
+      await act(async () => {
+        capturedCallbacks.onResume?.('resumed', 12)
+        await Promise.resolve()
+      })
+
+      expect(mockSetStreaming).not.toHaveBeenCalledWith(false)
+      expect(mockAddErrorCard).not.toHaveBeenCalled()
+    })
+
+    test('the question learns the turn id it went out under', () => {
+      const markTurnWsParentId = vi.fn()
+      mockStoreState = { ...mockStoreState, currentUserMessageId: 'u-1', markTurnWsParentId }
+      useChatStore.getState = vi.fn(() => mockStoreState) as unknown as typeof useChatStore.getState
+      mockWsClient.isConnected.mockReturnValue(true)
+      const { result } = renderWebSocketHook()
+
+      act(() => {
+        result.current.sendMessage('Frage')
+      })
+
+      expect(markTurnWsParentId).toHaveBeenCalledWith('u-1', 'mock-outbound-message-id')
+    })
+
+    describe('a turn a reload cut off', () => {
+      const turn = { conversationId: 'conv-1', userMessageId: 'u-1', wsParentId: 'msg_1' }
+
+      const reloadedWith = (applied: number | null) => {
+        const recover = withRecovery('nothing')
+        const resumeTurn = vi.fn(() => {
+          mockStoreState = { ...mockStoreState, isStreaming: true, resumableTurn: null }
+          return turn
+        })
+        mockStoreState = { ...mockStoreState, resumableTurn: turn, resumeTurn }
+        mockWsClient.replayTurn.mockResolvedValue(applied)
+        return { recover, resumeTurn }
+      }
+
+      test('is rebuilt from the replay stream once the socket is up', async () => {
+        const { resumeTurn } = reloadedWith(7)
+        renderWebSocketHook()
+        expect(resumeTurn).not.toHaveBeenCalled()
+
+        await act(async () => {
+          capturedCallbacks.onConnectionChange?.('connected')
+          await Promise.resolve()
+        })
+
+        expect(resumeTurn).toHaveBeenCalledWith('conv-1')
+        expect(mockWsClient.activeParentId).toBe('msg_1')
+        expect(mockWsClient.replayTurn).toHaveBeenCalledWith('msg_1')
+        expect(mockAddErrorCard).not.toHaveBeenCalled()
+      })
+
+      test('ends with the banner when the stream no longer holds it', async () => {
+        const { recover } = reloadedWith(0)
+        renderWebSocketHook()
+
+        await act(async () => {
+          capturedCallbacks.onConnectionChange?.('connected')
+          await Promise.resolve()
+          await Promise.resolve()
+        })
+
+        expect(recover).toHaveBeenCalledWith('conv-1', 'u-1')
+        expect(mockAddErrorCard).toHaveBeenCalledWith(
+          'agent.response_interrupted',
+          'The assistant stopped responding. Please resend your message.'
+        )
+      })
+    })
+  })
+
   test('says nothing when another recovery already put the answer on screen', async () => {
     vi.useFakeTimers()
     try {
@@ -1894,6 +2060,22 @@ describe('useWebSocketChat', () => {
         isComplete: false,
       })
     )
+  })
+
+  test('onHumanPrompt drops a prompt of another turn', () => {
+    // A replayed turn is applied from its first frame on; a later turn's
+    // prompt can follow it in the stream and must not take this one over.
+    mockWsClient.activeParentId = 'msg_1'
+    try {
+      renderWebSocketHook()
+      act(() => {
+        capturedCallbacks.onHumanPrompt?.('prompt-9', 'msg_2', { input_type: 'text', text: 'Später?' })
+      })
+      expect(mockSetPendingInteraction).not.toHaveBeenCalled()
+      expect(mockAddAgentPrompt).not.toHaveBeenCalled()
+    } finally {
+      mockWsClient.activeParentId = null
+    }
   })
 
   test('onHumanPrompt callback sets pending interaction and adds prompt', () => {

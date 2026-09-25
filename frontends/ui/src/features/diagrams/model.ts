@@ -266,10 +266,21 @@ function stateLabel(state: Record<string, unknown>): string | null {
   return lines.filter(Boolean).join('\n')
 }
 
+/**
+ * A mindmap label without the quotes it was written in. Mermaid strips them
+ * inside a shape (`root(("OIB-RL 2"))`) and keeps them on a bare line
+ * (`"Grundrichtlinie"`), which is how the model writes every branch; drawn
+ * as written, each branch read `"Grundrichtlinie"`, quotes and all.
+ */
+const unquoted = (label: string): string => {
+  const quoted = /^"([^"]*)"$/.exec(label.trim())
+  return quoted ? quoted[1] : label
+}
+
 /** A mindmap node and its subtree, or null when any label in it is markup this product cannot draw. */
 function mapNode(node: unknown, path: string): MapNode | null {
   const n = record(node)
-  const label = plainLabel(text(n.descr) || text(n.nodeId))
+  const label = plainLabel(unquoted(text(n.descr) || text(n.nodeId)))
   if (label === null) return null
   const children: MapNode[] = []
   for (const [index, child] of entries(n.children).entries()) {

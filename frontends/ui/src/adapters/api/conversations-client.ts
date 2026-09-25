@@ -40,6 +40,30 @@ export const conversationsClient = {
     return res.json()
   },
 
+  /**
+   * The frames a dropped socket missed: every frame of the conversation's
+   * replay stream after `afterId`, or all it holds when that is null. `null`
+   * when there is nothing to read them from (no shared cache, a failed read,
+   * a response that is not ok) — never a throw, because the caller falls back.
+   */
+  async missedFrames(
+    id: string,
+    afterId: string | null,
+  ): Promise<Record<string, unknown>[] | null> {
+    const query = afterId ? `?after=${encodeURIComponent(afterId)}` : ''
+    try {
+      const res = await fetch(`/api/conversations/${encodeURIComponent(id)}/frames${query}`, {
+        cache: 'no-store',
+      })
+      if (!res.ok) return null
+      const body: unknown = await res.json()
+      const frames = (body as { frames?: unknown } | null)?.frames
+      return Array.isArray(frames) ? (frames as Record<string, unknown>[]) : null
+    } catch {
+      return null
+    }
+  },
+
   async create(
     id: string,
     title?: string | null,
