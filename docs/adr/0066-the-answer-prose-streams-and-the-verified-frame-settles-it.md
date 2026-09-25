@@ -190,6 +190,11 @@ that changed the settled text (`settled_replaced`).
 
 ## More Information
 
+Amended 2026-09: the streamed prose is shown at a steady pace a beat behind
+its arrivals (at most 1.2 s), not painted as it arrives, and the store takes
+deltas every 100 ms. `docs/design/streaming-chat-answer.md`, "The reveal is
+paced, not typed", has the rules and the measurements.
+
 Amends `docs/design/streaming-chat-answer.md`, whose buffered orchestration
 this replaces for the prose; its wire contract stands for the terminal frame,
 and the live frames (snapshot, masthead, cards) are fields on `in_progress`
