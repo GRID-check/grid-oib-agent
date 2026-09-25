@@ -79,6 +79,10 @@
           "key": "fixes",
           "notes": [
             {
+              "en": "Während eine Antwort erscheint, bleibt die Seite wieder flüssig. Bisher wurde bei jedem neuen Textstück der ganze Chatverlauf im Browser neu gespeichert und die ganze Oberfläche neu gezeichnet; mit längerem Verlauf stockte die Seite, solange die Antwort lief, und Eingaben reagierten verzögert.",
+              "de": "Während eine Antwort erscheint, bleibt die Seite wieder flüssig. Bisher wurde bei jedem neuen Textstück der ganze Chatverlauf im Browser neu gespeichert und die ganze Oberfläche neu gezeichnet; mit längerem Verlauf stockte die Seite, solange die Antwort lief, und Eingaben reagierten verzögert."
+            },
+            {
               "en": "Eine Antwort, die eine Zeichnung oder einen Codeblock enthielt, wurde als roher JSON-Text angezeigt statt als Antwort.",
               "de": "Eine Antwort, die eine Zeichnung oder einen Codeblock enthielt, wurde als roher JSON-Text angezeigt statt als Antwort."
             },
@@ -105,6 +109,10 @@
             {
               "en": "Diagramme erscheinen im dunklen Modus durchgehend dunkel; bisher wechselten mehrere Diagramme in einer Antwort ab dem dritten in die helle Palette, und Achsen, Titel und Legenden wurden unsichtbar.",
               "de": "Diagramme erscheinen im dunklen Modus durchgehend dunkel; bisher wechselten mehrere Diagramme in einer Antwort ab dem dritten in die helle Palette, und Achsen, Titel und Legenden wurden unsichtbar."
+            },
+            {
+              "en": "Wer die Seite neu lädt, während Piloti noch antwortet, sieht die Antwort danach nur noch einmal. Bisher blieb der bis dahin geschriebene Anfang als zweite, nie fertig werdende Antwort über der vollständigen stehen.",
+              "de": "Wer die Seite neu lädt, während Piloti noch antwortet, sieht die Antwort danach nur noch einmal. Bisher blieb der bis dahin geschriebene Anfang als zweite, nie fertig werdende Antwort über der vollständigen stehen."
             },
             {
               "en": "Fragen zum Brandschutz bei Garagen, überdachten Stellplätzen und Parkdecks werden aus der OIB-Richtlinie 2.2 und ihren Erläuterungen beantwortet. Bisher fand die Suche diese Richtlinie nicht, zeigte sie im Überblick über OIB 2 nicht an und lieferte stattdessen Auszüge aus ihrem Änderungsverzeichnis.",
