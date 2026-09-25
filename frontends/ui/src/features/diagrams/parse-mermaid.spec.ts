@@ -48,6 +48,18 @@ describe('parseMermaid', () => {
     expect(model.edges.find((e) => e.label === 'ok')).toMatchObject({ from: 'Eingereicht', to: 'Bewilligt' })
   }, PARSE_BUDGET)
 
+  it('reads a mindmap written with quoted labels without the quotes', async () => {
+    // How the model writes them: the root in a shape, every branch a bare quoted line.
+    const model = await parseMermaid(
+      'mindmap\n  root(("OIB-Richtlinie 2"))\n    "Grundrichtlinie"\n      "Brandschutz für Gebäude"\n    "OIB-RL 2.2"'
+    )
+    expect(model?.kind).toBe('map')
+    if (model?.kind !== 'map') return
+    expect(model.root.label).toBe('OIB-Richtlinie 2')
+    expect(model.root.children.map((c) => c.label)).toEqual(['Grundrichtlinie', 'OIB-RL 2.2'])
+    expect(model.root.children[0]?.children[0]?.label).toBe('Brandschutz für Gebäude')
+  })
+
   it('reads a mindmap into a tree, root first', async () => {
     const model = await parseMermaid('mindmap\n  root((OIB-RL 2))\n    Allgemein\n      Tragfähigkeit\n    2.2 Garagen')
     expect(model?.kind).toBe('map')

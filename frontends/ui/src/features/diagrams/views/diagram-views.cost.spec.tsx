@@ -54,10 +54,19 @@ const MAP: MapModel = {
 
 describe('a map view', () => {
   it('keeps one graph across re-renders of the same model', () => {
+    vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(800)
     const { rerender } = render(<MapDiagram model={MAP} label="Karte" />)
     rerender(<MapDiagram model={MAP} label="Karte" />)
     expect(builds.length).toBeGreaterThanOrEqual(2)
     expect(new Set(builds).size).toBe(1)
+  })
+
+  it('shows the outline in a narrow column, without the graph', () => {
+    // Both used to mount, one hidden by a container query: a phone paid for the tree.
+    vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(300)
+    render(<MapDiagram model={MAP} label="Karte" />)
+    expect(builds).toHaveLength(0)
+    expect(screen.getAllByRole('list').length).toBeGreaterThan(0)
   })
 })
 
