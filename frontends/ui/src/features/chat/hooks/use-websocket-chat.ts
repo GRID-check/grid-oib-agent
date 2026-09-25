@@ -1434,9 +1434,10 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
           // A live frame may also carry the masthead, written before the
           // prose, or the cards written after it: each lands in its place
           // the moment it exists instead of all at once at the end. A
-          // whitespace-only delta is text too: the relay can batch a frame
-          // of just "\n\n", and dropping it runs two paragraphs together
-          // until the snapshot. The observer's fold keeps it the same way.
+          // whitespace-only delta is text too once the bubble is open: the
+          // relay can batch a frame of just "\n\n", and dropping it runs two
+          // paragraphs together until the snapshot. As a turn's FIRST frame
+          // it opens nothing (the store decides; the observer's fold agrees).
           appendAgentResponseDelta(
             content,
             validatedCards,

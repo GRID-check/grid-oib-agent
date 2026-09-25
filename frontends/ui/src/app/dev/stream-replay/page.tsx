@@ -13,11 +13,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useSearchParams } from 'next/navigation'
 import { AgentResponse } from '@/features/chat/components/AgentResponse'
-import { citationsFromWireList } from '@/features/chat/lib/wire-citation'
-import { validateGridCards, type GridCard } from '@/shared/cards/schemas'
-import { sanitizeAnswerMeta } from '@/lib/conversations/message-answer-meta'
-import type { AnswerMeta } from '@/lib/conversations/message-answer-meta'
-import type { CitationSource } from '@/features/chat/types'
+import {
+  EMPTY_SPECTATED_TURN,
+  reduceSpectatedFrame,
+  type SpectatedTurnState,
+} from '@/features/collaboration/lib/spectator-frames'
 import { STREAM_FRAMES, type RecordedFrame } from '../_fixtures/stream-frames'
 
 interface Shift {
@@ -41,64 +41,48 @@ declare global {
 }
 
 interface View {
-  content: string
-  isStreaming: boolean
-  citations?: CitationSource[]
-  cards?: (GridCard | undefined)[]
-  answerMeta?: AnswerMeta
+  /** The answer so far, folded by the observer's fold (see `applyFrame`). */
+  turn: SpectatedTurnState
   confidence?: 'low' | 'medium' | 'high'
   phase: 'waiting' | 'prose' | 'settled' | 'cards' | 'final'
 }
 
-const EMPTY: View = { content: '', isStreaming: true, phase: 'waiting' }
+const EMPTY: View = { turn: EMPTY_SPECTATED_TURN, phase: 'waiting' }
 
 /**
- * One frame folded into the view. A copy of the store's fold, not the store:
- * the terminal replaces masthead and cards outright, and a snapshot
- * keeps both where the store takes them back (an empty retraction snapshot
- * keeps the round's cards, a snapshot without a masthead keeps the live one).
- * Keep it in step with `messages-store.ts`; the ADR-0066 shift numbers come
- * from here.
+ * One frame folded into the view by a real fold, not a copy of one: the
+ * observer's `reduceSpectatedFrame`, which applies the asker's store's
+ * live-frame rules (its rule 3, held to the store by a spec case in each) and
+ * needs no store to run. What it adds on top: an observer is never handed a
+ * card that acts, so an interactive card would be a hole here. Both recorded
+ * fixtures carry only `legal_basis` cards, so nothing is withheld. The
+ * confidence chip and the phase label are read off the frame, as the fold
+ * does not keep them.
  */
 const applyFrame = (view: View, frame: RecordedFrame): View => {
+  const turn = reduceSpectatedFrame(view.turn, {
+    ...frame,
+    type: 'system_response_message',
+    parent_id: 'replay',
+    content: { text: frame.content },
+  })
   if (frame.status === 'complete') {
-    const meta = sanitizeAnswerMeta(frame.answer_meta)
-    return {
-      content: frame.content || view.content,
-      isStreaming: false,
-      citations: citationsFromWireList(frame.sources) ?? view.citations,
-      cards: validateGridCards(frame.cards ?? []),
-      answerMeta: meta ?? undefined,
-      confidence: frame.answer_confidence,
-      phase: 'final',
-    }
+    return { turn, confidence: frame.answer_confidence ?? view.confidence, phase: 'final' }
   }
-  // A live frame may carry the masthead (before the prose) or the cards
-  // written so far (after it), next to or instead of text.
-  const meta = sanitizeAnswerMeta(frame.answer_meta) ?? view.answerMeta
-  const cards = frame.cards && frame.cards.length > 0 ? validateGridCards(frame.cards) : view.cards
-  if (frame.stream_replace) {
-    return {
-      ...view,
-      content: frame.content,
-      citations: citationsFromWireList(frame.sources) ?? view.citations,
-      answerMeta: meta,
-      cards,
-      phase: 'settled',
-    }
-  }
-  return {
-    ...view,
-    content: view.content + frame.content,
-    answerMeta: meta,
-    cards,
-    phase: frame.cards && frame.cards.length > 0 ? 'cards' : view.phase === 'waiting' ? 'prose' : view.phase,
-  }
+  const phase = frame.stream_replace
+    ? 'settled'
+    : frame.cards && frame.cards.length > 0
+      ? 'cards'
+      : view.phase === 'waiting'
+        ? 'prose'
+        : view.phase
+  return { ...view, turn, phase }
 }
 
 const describe = (node: Node | null | undefined): string => {
   if (!node || !(node instanceof Element)) return String(node?.nodeName ?? 'text')
-  const cls = typeof node.className === 'string' ? node.className.split(' ').slice(0, 3).join('.') : ''
+  const cls =
+    typeof node.className === 'string' ? node.className.split(' ').slice(0, 3).join('.') : ''
   return `${node.tagName.toLowerCase()}${cls ? `.${cls}` : ''}`
 }
 
@@ -109,7 +93,10 @@ export default function StreamReplayPage() {
   const turn = STREAM_FRAMES[name]
   const [view, setView] = useState<View>(EMPTY)
 
-  const probe = useMemo<ReplayProbe>(() => ({ phase: 'waiting', done: false, shifts: [], anchorTops: [] }), [])
+  const probe = useMemo<ReplayProbe>(
+    () => ({ phase: 'waiting', done: false, shifts: [], anchorTops: [] }),
+    []
+  )
   // When the replay started: shifts and anchor tops are both timed from it.
   const startRef = useRef(0)
 
@@ -177,13 +164,13 @@ export default function StreamReplayPage() {
       <div data-replay-answer className="mx-auto w-full max-w-[760px]">
         {view.phase !== 'waiting' && (
           <AgentResponse
-            content={view.content}
+            content={view.turn.answer}
             timestamp={new Date('2026-09-24T14:30:12')}
-            isStreaming={view.isStreaming}
-            cards={view.cards}
-            citations={view.citations}
+            isStreaming={!view.turn.done}
+            cards={view.turn.cards}
+            citations={view.turn.citations}
             answerConfidence={view.confidence}
-            answerMeta={view.answerMeta}
+            answerMeta={view.turn.answerMeta}
             routingDecision="shallow"
             messageId={`replay-${name}`}
           />

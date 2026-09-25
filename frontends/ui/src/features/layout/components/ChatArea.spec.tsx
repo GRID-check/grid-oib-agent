@@ -1,4 +1,4 @@
-import { render, screen } from '@/test-utils'
+import { act, render, screen } from '@/test-utils'
 import userEvent from '@testing-library/user-event'
 import { vi, describe, test, expect, beforeEach } from 'vitest'
 import { ChatArea } from './ChatArea'
@@ -824,6 +824,99 @@ describe('ChatArea', () => {
     Element.prototype.scrollIntoView = originalScrollIntoView
   })
 
+  test('the anchor spacer shrinks as the list grows and refits when the viewport resizes', () => {
+    // Geometry jsdom does not have: the anchored question at 100px, the end of
+    // the list (the spacer's top) at 400px, a 900px viewport: 600px of room.
+    const originalScrollIntoView = Element.prototype.scrollIntoView
+    Element.prototype.scrollIntoView = vi.fn()
+    let viewportHeight = 900
+    let listEnd = 400
+    const clientHeight = vi
+      .spyOn(HTMLElement.prototype, 'clientHeight', 'get')
+      .mockImplementation(() => viewportHeight)
+    const rect = vi.spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(function (
+      this: Element
+    ) {
+      const top = this.getAttribute('data-chat-anchor') === 'true' ? 100 : listEnd
+      return { top, bottom: top, left: 0, right: 0, width: 0, height: 0, x: 0, y: top, toJSON: () => ({}) }
+    })
+    const observed: Element[] = []
+    let notify: ResizeObserverCallback = () => {}
+    const originalResizeObserver = globalThis.ResizeObserver
+    class RecordingResizeObserver {
+      constructor(callback: ResizeObserverCallback) {
+        notify = callback
+      }
+      observe(el: Element) {
+        observed.push(el)
+      }
+      unobserve() {}
+      disconnect() {}
+    }
+    globalThis.ResizeObserver = RecordingResizeObserver as unknown as typeof ResizeObserver
+    const makeState = (currentUserMessageId: string | null): ChatStoreFixture => ({
+      currentConversation: {
+        id: 'c1',
+        messages: [{ id: 'user-1', role: 'user', content: 'My question', messageType: 'user' }],
+      },
+      isLoading: false,
+      isStreaming: true,
+      currentUserMessageId,
+      currentStatus: null,
+      hasHydrated: true,
+      isRecoveryPending: false,
+      thinkingSteps: [],
+      respondToPrompt: mockRespondToPrompt,
+      dismissErrorCard: mockDismissErrorCard,
+      getThinkingStepsForMessage: mockGetThinkingStepsForMessage,
+      retryLastUserMessage: vi.fn(),
+    })
+    const use = (state: ChatStoreFixture) =>
+      vi
+        .mocked(useChatStore)
+        .mockImplementation((selector?: StoreSelector<ChatStoreWithHydration>) =>
+          selector ? selector(asStoreState<ChatStoreWithHydration>(state)) : state
+        )
+    const fire = (target: Element) =>
+      act(() =>
+        notify(
+          [{ target, contentRect: { height: listEnd } } as unknown as ResizeObserverEntry],
+          {} as ResizeObserver
+        )
+      )
+
+    try {
+      use(makeState(null))
+      const { container, rerender } = render(<ChatArea isAuthenticated={true} onSignIn={vi.fn()} />)
+      use(makeState('user-1'))
+      rerender(<ChatArea isAuthenticated={true} onSignIn={vi.fn()} />)
+      const spacer = container.querySelector<HTMLElement>('[aria-hidden="true"][style*="min-height"]')
+      expect(spacer?.style.minHeight).toBe('600px')
+
+      // The answer grows by 300px: the spacer gives up exactly that much.
+      const list = observed.find(
+        (el) =>
+          el.contains(screen.getByText('My question')) && !el.classList.contains('overflow-y-auto')
+      )
+      listEnd = 700
+      fire(list as Element)
+      expect(spacer?.style.minHeight).toBe('300px')
+
+      // The window grows by 300px: the viewport is observed, and the spacer
+      // takes the new room.
+      const viewport = observed.find((el) => el.classList.contains('overflow-y-auto'))
+      expect(viewport).toBeDefined()
+      viewportHeight = 1200
+      fire(viewport as Element)
+      expect(spacer?.style.minHeight).toBe('600px')
+    } finally {
+      globalThis.ResizeObserver = originalResizeObserver
+      clientHeight.mockRestore()
+      rect.mockRestore()
+      Element.prototype.scrollIntoView = originalScrollIntoView
+    }
+  })
+
   test('the resize observer watches the messages, not the spacer it refits', () => {
     // happy-dom's ResizeObserver is inert: record what the controller observes.
     // The observer's callback resizes the anchor spacer; a spacer inside the
@@ -868,7 +961,13 @@ describe('ChatArea', () => {
         '[aria-hidden="true"][style*="min-height"]'
       )
       expect(spacer).not.toBeNull()
-      const list = observed.filter((el) => el.contains(screen.getByText('My question')))
+      // The scroll viewport is observed as well (its height is the spacer's
+      // other input). Its box is the visible height, which the spacer's
+      // min-height does not change, so it cannot loop; only the list's can.
+      const list = observed.filter(
+        (el) =>
+          el.contains(screen.getByText('My question')) && !el.classList.contains('overflow-y-auto')
+      )
       expect(list.length).toBeGreaterThan(0)
       for (const el of list) expect(el.contains(spacer)).toBe(false)
     } finally {

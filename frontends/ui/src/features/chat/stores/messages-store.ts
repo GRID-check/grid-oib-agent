@@ -1350,6 +1350,18 @@ export const createMessagesSlice: StateCreator<
       // it survives to the finalize step. Reset the batch buffer so no stale text
       // from a prior turn can bleed into this fresh bubble.
       if (!streamingAssistantMessageId) {
+        // Whitespace is text only BETWEEN words: a paragraph break the relay
+        // batched into a frame of its own keeps two paragraphs apart once the
+        // bubble is open, but as the turn's first frame it would open a bubble
+        // with nothing to draw, which takes the typing placeholder down and
+        // leaves the reader a blank until the first word. Mirrored by the
+        // observer's fold (spectator-frames.ts).
+        const nothingToDraw =
+          !content.trim() &&
+          !(cards && cards.length > 0) &&
+          !(citations && citations.length > 0) &&
+          !answerMeta
+        if (nothingToDraw) return
         resetDeltaBuffer()
         liveMetaShown = isLiveExtrasFrame(content, cards, answerMeta)
 
@@ -1514,7 +1526,15 @@ export const createMessagesSlice: StateCreator<
               }
             : {}),
           ...(answerConfidence ? { answerConfidence } : {}),
-          ...(citations && citations.length > 0 ? { citations } : {}),
+          // The citations are numbered against the text, so they go with it:
+          // a terminal with text and no sources cites nothing verified, and
+          // the snapshot's chips must not outlive the prose they belonged to.
+          // An empty terminal keeps them with the text it keeps.
+          ...(citations && citations.length > 0
+            ? { citations }
+            : authoritative
+              ? { citations: undefined }
+              : {}),
           // Transparency extras ride the terminal frame; attach only what's present.
           ...(transparency?.routingDecision
             ? { routingDecision: transparency.routingDecision }

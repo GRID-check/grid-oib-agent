@@ -464,7 +464,10 @@ as it is written. Each is one of four kinds, told apart by what it carries:
 
 None of them is persisted. The `complete` frame that follows replaces the text
 again and is authoritative: what it omits (a card suppressed, a masthead gated
-out) the client drops. Live deltas need not concatenate to the final text; on
+out) the client drops. Its `sources` go with its text, since the `[N]` markers
+are numbered against them: a `complete` with text and no `sources` clears the
+citations. Only a `complete` with blank text keeps what the live frames
+brought, text and citations both. Live deltas need not concatenate to the final text; on
 a buffered turn (no live prose) the deltas are the finished text cut into
 pieces and do.
 

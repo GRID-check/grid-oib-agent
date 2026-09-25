@@ -29,8 +29,9 @@
  *     a tool round and takes its live cards back with it; masthead and cards
  *     frames set without touching the text; a `complete` with text (blank is
  *     not text) is authoritative, absence included, for a masthead or cards
- *     a live frame brought; a legacy frame's cards, which rode with text,
- *     are final and stay. Change one fold and you change the other, with a
+ *     a live frame brought and for the citations, which go with the text; a legacy frame's cards, which rode with text,
+ *     are final and stay; a whitespace-only delta is text once the answer
+ *     has begun and nothing before it. Change one fold and you change the other, with a
  *     spec case in both.
  *  4. **An observer is never handed a card that acts.** Interactive and
  *     system cards (a memory proposal, a file operation, a brief patch, a
@@ -221,7 +222,12 @@ export function reduceSpectatedFrame(
           waitingOn: null,
         }
       }
-      if (!text && Object.keys(around).length === 0) return next === state ? state : next
+      // Whitespace is text once the answer has begun (a batched "\n\n" keeps
+      // two paragraphs apart) but not as its first frame, where it opens
+      // nothing on the asker's screen either (the store's `nothingToDraw`).
+      const answerOpen = next.answer !== '' || next.answerMeta !== undefined || next.cards !== undefined
+      const nothingToDraw = answerOpen ? !text : !text.trim()
+      if (nothingToDraw && Object.keys(around).length === 0) return next === state ? state : next
       // A frame with no text of its own carries only what stands around the
       // prose: the live shape (the store's `isLiveExtrasFrame`).
       const liveExtras = next.liveExtras === true || !text

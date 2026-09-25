@@ -575,8 +575,11 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
   // scroll height never changes and nothing is ever clamped. A fixed viewport
   // released at the end of the stream did change it: the browser clamped the
   // scroll position and a short answer dropped by the room it had not used,
-  // hundreds of pixels, the moment it finished (ADR-0066). Idempotent, so the
-  // resize it causes settles on the next observation.
+  // hundreds of pixels, the moment it finished (ADR-0066). So the spacer is
+  // never released when the answer lands: what is left below a short answer
+  // is the space that keeps its question at the top, and the next question or
+  // a thread swap takes it. Idempotent, so the resize it causes settles on the
+  // next observation.
   const fitAnchorSpacer = useCallback(() => {
     const container = scrollContainerRef.current
     const spacer = anchorSpacerRef.current
@@ -592,6 +595,8 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
   // ResizeObserver on the list. rAF + behavior:'auto' means we ride the growth
   // frame-by-frame instead of firing competing 'smooth' animations. When the
   // user is scrolled up we don't move them — we just surface the jump button.
+  // The viewport is observed too: its height is the other input of the
+  // anchor spacer, so a window resize refits it.
   useEffect(() => {
     const content = contentRef.current
     if (!content) return
@@ -601,7 +606,10 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
     // — and surfacing the jump button then claims an arrival that never was.
     let lastHeight = content.getBoundingClientRect().height
     const observer = new ResizeObserver((entries) => {
-      const height = entries[entries.length - 1]?.contentRect.height ?? lastHeight
+      let height = lastHeight
+      for (const entry of entries) {
+        if (entry.target === content) height = entry.contentRect.height
+      }
       const grew = height > lastHeight
       lastHeight = height
       fitAnchorSpacer()
@@ -613,6 +621,7 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
       }
     })
     observer.observe(content)
+    if (scrollContainerRef.current) observer.observe(scrollContainerRef.current)
     return () => {
       cancelAnimationFrame(raf)
       observer.disconnect()
@@ -664,16 +673,6 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
       block: 'start',
     })
   }, [currentUserMessageId, fitAnchorSpacer])
-
-  // The spacer is NOT released when the answer lands: it holds only the room
-  // the answer did not fill, and removing it is what moved a finished answer.
-  // What is left below a short answer is the space that keeps its question at
-  // the top; the next question, or a thread swap, takes it.
-  useEffect(() => {
-    if (isStreaming) return
-    const raf = requestAnimationFrame(fitAnchorSpacer)
-    return () => cancelAnimationFrame(raf)
-  }, [isStreaming, currentUserMessageId, fitAnchorSpacer])
 
   const handleScrollToLatest = useCallback(() => {
     isAtBottomRef.current = true

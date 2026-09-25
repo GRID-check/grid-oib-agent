@@ -120,6 +120,18 @@ describe('reduceSpectatedFrame', () => {
     expect(state.done).toBe(true)
   })
 
+  it('lets a terminal with text and no sources take the citations back; an empty one keeps them', () => {
+    // Citations are numbered against the text and go with it, as in the
+    // asker's store.
+    const snapshot = {
+      ...(response('R 90 [1].', 'in_progress') as object),
+      stream_replace: true,
+      sources: [{ number: 1, citation_key: 'oib.pdf, p.3', file_name: 'oib.pdf', page: 3, kind: 'baurecht' }],
+    }
+    expect(fold([snapshot, response('R 90.', 'complete')]).citations).toBeUndefined()
+    expect(fold([snapshot, response('', 'complete')]).citations).toHaveLength(1)
+  })
+
   it('lets a settled snapshot without the masthead take it back', () => {
     // The backend re-gates the masthead against the snapshot's prose. A
     // snapshot that omits it gated it out, and the observer must not keep
@@ -182,6 +194,12 @@ describe('reduceSpectatedFrame', () => {
       response('Zweiter Absatz.', 'in_progress'),
     ])
     expect(state.answer).toBe('Erster Absatz.\n\nZweiter Absatz.')
+  })
+
+  it('drops a whitespace-only FIRST delta, as the asker opens no bubble for it', () => {
+    const first = reduceSpectatedFrame(EMPTY_SPECTATED_TURN, response('\n\n', 'in_progress'))
+    expect(first.answer).toBe('')
+    expect(fold([response('\n\n', 'in_progress'), response('Erst.', 'in_progress')]).answer).toBe('Erst.')
   })
 
   it('keeps cards on a LATER legacy in_progress frame across a terminal with text and no cards', () => {

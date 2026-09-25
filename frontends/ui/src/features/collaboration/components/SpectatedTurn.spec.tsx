@@ -97,6 +97,43 @@ describe('SpectatedTurn', () => {
     expect(screen.queryAllByRole('button')).toEqual([])
   })
 
+  it('draws nothing, not a skeleton, where a withheld card stood while the turn streams', () => {
+    // The observer's cards keep a hole where a card that acts was dropped. The
+    // marker naming it points INSIDE the array, at a card that is never coming,
+    // so it must not hold a pending skeleton for the rest of the stream; a
+    // marker past the end still does, since that card is only not written yet.
+    const cardsFrame = {
+      type: 'system_response_message',
+      id: 'f1',
+      parent_id: 'turn-1',
+      status: 'in_progress',
+      content: { text: '' },
+      cards: [
+        {
+          type: 'file_operation_proposal',
+          title: 'Pläne einsortieren',
+          operation: 'move',
+          operations: [{ document: 'Grundriss EG.pdf', source: 'projekt', current: '', target_folder: 'Einreichung' }],
+        },
+      ],
+    }
+    const textFrame = {
+      type: 'system_response_message',
+      id: 'f2',
+      parent_id: 'turn-1',
+      status: 'in_progress',
+      content: { text: 'Vorschlag:\n\n[[card:1]]\n\nWeiter.' },
+    }
+    const state = reduceSpectatedFrame(reduceSpectatedFrame(EMPTY_SPECTATED_TURN, cardsFrame), textFrame)
+    expect(state.cards).toEqual([undefined])
+    const { rerender } = render(<SpectatedTurn turn={state} label={LABEL} />)
+    expect(screen.getByTestId('spectated-turn')).toHaveTextContent('Weiter.')
+    expect(screen.queryByTestId('pending-card-slot')).toBeNull()
+
+    rerender(<SpectatedTurn turn={{ ...state, answer: `${state.answer}\n\n[[card:2]]\n\nEnde.` }} label={LABEL} />)
+    expect(screen.getByTestId('pending-card-slot')).toBeInTheDocument()
+  })
+
   it('offers no copy controls once the turn is done', () => {
     render(<SpectatedTurn turn={turn({ answer: 'Ja, ab drei Geschossen.', done: true })} label={LABEL} />)
     expect(screen.queryAllByRole('button')).toEqual([])

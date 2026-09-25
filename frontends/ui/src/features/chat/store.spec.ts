@@ -1688,6 +1688,40 @@ describe('useChatStore', () => {
         expect(useChatStore.getState().streamingAssistantMessageId).toBeNull()
       })
 
+      test('a whitespace-only first delta opens no bubble; once one is open it is text', () => {
+        // Opened by a bare "\n\n", the bubble had nothing to draw and still
+        // took the typing placeholder down. One rule with spectator-frames.ts.
+        setupConversation()
+
+        useChatStore.getState().appendAgentResponseDelta('\n\n')
+        expect(useChatStore.getState().currentConversation?.messages).toHaveLength(0)
+        expect(useChatStore.getState().streamingAssistantMessageId).toBeNull()
+
+        useChatStore.getState().appendAgentResponseDelta('Erster Absatz.')
+        useChatStore.getState().appendAgentResponseDelta('\n\n')
+        useChatStore.getState().appendAgentResponseDelta('Zweiter Absatz.')
+        expect(useChatStore.getState().currentConversation?.messages?.[0]?.content).toBe(
+          'Erster Absatz.\n\nZweiter Absatz.'
+        )
+      })
+
+      test('a terminal with text and no sources takes the snapshot citations back; an empty one keeps them', () => {
+        // Citations are numbered against the text and go with it. One rule
+        // with the spectator's fold (spectator-frames.ts).
+        const citations = [{ id: 's1', content: '', timestamp: new Date(), number: 1 }] as CitationSource[]
+        setupConversation()
+        useChatStore.getState().appendAgentResponseDelta('R 90 [1')
+        useChatStore.getState().replaceStreamingAgentResponse('R 90 [1].', citations)
+        useChatStore.getState().finalizeAgentResponse('R 90.')
+        expect(useChatStore.getState().currentConversation?.messages?.[0]?.citations).toBeUndefined()
+
+        setupConversation()
+        useChatStore.getState().appendAgentResponseDelta('R 90 [1')
+        useChatStore.getState().replaceStreamingAgentResponse('R 90 [1].', citations)
+        useChatStore.getState().finalizeAgentResponse('')
+        expect(useChatStore.getState().currentConversation?.messages?.[0]?.citations).toBe(citations)
+      })
+
       test('a whitespace-only terminal is not text: it keeps the answer and the live extras', () => {
         // One emptiness test with the spectator's fold (spectator-frames.ts).
         setupConversation()
