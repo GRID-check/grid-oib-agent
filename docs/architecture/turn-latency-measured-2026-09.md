@@ -6,7 +6,8 @@
 > ranked the drivers structurally, from the code, and said the ranking was
 > waiting on measurement (its §5). This is that measurement for the chat turn,
 > read on 2026-09-24 against branch `claude/pr-725-review-fixes-d2wnzy`
-> (`deddced8` to `fdb57f4c`). It is a record of that date: re-measure before
+> (`deddced8` to `fdb57f4c`), with the requery A/B of §3.5 on 2026-09-25
+> (`2ba012b0`). It is a record of that date: re-measure before
 > acting on a number (§8).
 
 ## 1. Verdict
@@ -28,7 +29,9 @@ What that means for the levers:
 * **Before the first model call a turn spends about 3.4 s**, or 5.8-6.7 s on
   the ~30% of turns whose first retrieval is judged insufficient and searched
   again. The query embedding now runs beside the turn decision instead of
-  after it (§3); the requery is the biggest startup cost left.
+  after it (§3). The requery is the biggest startup cost left, and it is
+  worth its seconds: skipped, the model searches again itself, and the turn
+  gets slower, not faster (§3.5).
 * **The repair pass does not move the median** either way: in two full suite
   runs it never ran (ADR-0067). It matters on the rare turn that fails
   verification, where it now costs one small call instead of 15-25 s.
@@ -135,9 +138,55 @@ is the prefetch's own; switched-off decisions warm nothing).
 | Lever | Expected saving | Cost / risk |
 |---|---|---|
 | Start the requery writer beside the verdicts, discard it when they say "sufficient" | ~0.6 s on the ~30% of turns that requery | one small-model call on the other ~70% |
-| Drop the round-0 requery and let the agent search again in its own round | ~3 s on ~30% of turns | changes answers; needs a suite before/after |
+| ~~Drop the round-0 requery and let the agent search again in its own round~~ | measured: **+3.4 s** per turn where it applied | rejected, §3.5 |
 | Warm the adapter at worker boot | 0.9-1.5 s on a process's first turn only | none; matters only with frequent restarts |
 | Embed the family branch's per-document lookups without a query | ~0.6 s the first time a family is asked in a process | small; the lookups already cache per process |
+
+### 3.5 Measured and rejected: skipping the requery on the prefetch
+
+`requery_on_prefetch: false` on `knowledge_search` (`2ba012b0`) returns the
+prefetch's first pool without the sufficiency judge's requery, and leaves
+the model, which reads that pool, to decide whether to search again. The
+model's own searches keep their loop; the prefetch node marks its fetches
+(`turn_status.prefetch_scope`), because round 0 alone cannot tell them apart.
+
+The suite, all 25 runnable questions, two runs each, same commit, only the
+switch differing (2026-09-25):
+
+| | Shipped (requery on) | `requery_on_prefetch: false` |
+|---|---|---|
+| Median turn, all runs | 29.1 s | 32.9 s |
+| Median first text | 27.6 s | 30.8 s |
+| Median to the first model call | 2.66 s | 2.59 s |
+| Checks held | 151/160 | 150/160 |
+| Round-0 requeries | 12 of 50 runs | 0 |
+
+The comparison that decides it is paired, per question. On the six
+questions whose prefetch the shipped arm requeried (both runs each):
+
+| On those 6 questions | Shipped | Skipped |
+|---|---|---|
+| To the first model call | 5.52 s | 2.56 s |
+| Model research calls | 3.0 | 3.5 (+9 over the 12 runs) |
+| Whole turn, median of per-question deltas | | **+3.4 s** |
+| First text, median of per-question deltas | | +2.5 s |
+| Checks held | 26/28 | 25/28 |
+
+On the 19 questions the prefetch did not requery, the arms differ by
++1.2 s median, which is the run-to-run noise here, and by -2 research calls
+in total.
+
+**The requery stays on.** Skipping it wins the 3 s before the first model
+call and loses it again, and more: the model, handed the thinner pool, runs
+0.75 more research rounds per turn on average, and a model round (its
+thinking plus the search) costs more than the requery writer and a second
+retrieval. `stellplatz-tirol` went from 6 to 8 research calls, `bauhoehe-wien`
+from 2 to 4, `einreichung-wien-unterlagen` from 24 to 37 s. Quality held
+within one check either way. Six questions at two runs each is a small
+sample, and the all-runs medians above carry the noise of the other 19; the
+robust part is the mechanism, the extra rounds, which the per-question table
+shows in both directions of the same question. The switch stays in the tool, default on, so
+this can be taken again when the model or the judge changes.
 
 ## 4. Search rounds
 
@@ -228,12 +277,13 @@ recorded cases).
 | # | Lever | Expected saving | Status |
 |---|---|---|---|
 | 1 | Per-turn reasoning effort (`low` for confident lookups) | up to ~10 s on the turns it applies to | open; needs the decision signal and a suite |
-| 2 | Round-0 requery: writer beside the verdicts, or drop it | 0.6 s or 3 s on ~30% of turns | open; the second changes answers |
+| 2 | Round-0 requery: start the writer beside the verdicts | ~0.6 s on the ~30% of turns that requery | open. Dropping it instead was measured and costs 3.4 s (§3.5) |
 | 3 | `use_skill` preloading for skills the decision did not pick | 2-3 s per such round | open |
 | 4 | Warm the adapter at boot | 0.9-1.5 s, first turn per process | open |
 | 5 | Question embedding beside the decision | ≈ 0.4-0.5 s per searching turn | **landed** `fdb57f4c` |
 | 6 | RIS paragraph lists in one call | one round (≈ 11 s) where it applied | **landed** `e94af899` |
 | 7 | Reasoning items kept across tool rounds | none measured | **landed** `a0ec99d2`, kept for correctness |
+| 8 | Skip the requery on the prefetch | none: measured 3.4 s slower | **rejected** §3.5; switch `requery_on_prefetch` stays, default on |
 
 ## 8. How these numbers were taken, and how not to take them
 
