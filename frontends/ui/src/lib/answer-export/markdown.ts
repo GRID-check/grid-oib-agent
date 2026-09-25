@@ -228,7 +228,7 @@ export const diagramBlocks = (lang: string | undefined, source: string, placehol
   return source ? [label, { kind: 'paragraph', runs: [{ text: source, mono: true }] }] : [label]
 }
 
-/** Lex markdown into document blocks. Empty input yields no blocks, not an empty one. */
+/** How {@link markdownToBlocks} prints what it cannot draw or must rank. */
 export interface MarkdownToBlocksOptions {
   /**
    * Print this INSTEAD of a diagram fence's source.
@@ -251,6 +251,7 @@ export interface MarkdownToBlocksOptions {
   headingFloor?: HeadingLevel
 }
 
+/** Lex markdown into document blocks. Empty input yields no blocks, not an empty one. */
 export function markdownToBlocks(
   markdown: string,
   options: MarkdownToBlocksOptions = {}

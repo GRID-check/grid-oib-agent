@@ -10,7 +10,12 @@ import { cardBlocks, cardsBlocks } from './cards'
 import type { DocBlock } from './blocks'
 
 const t = (key: string): string =>
-  key.split('.').reduce<unknown>((node, part) => (node as Record<string, unknown>)[part], de.answerExport) as string
+  key
+    .split('.')
+    .reduce<unknown>(
+      (node, part) => (node as Record<string, unknown>)[part],
+      de.answerExport
+    ) as string
 
 const text = (blocks: DocBlock[]): string =>
   blocks
@@ -20,12 +25,19 @@ const text = (blocks: DocBlock[]): string =>
         : block.kind === 'paragraph'
           ? block.runs.map((run) => run.text).join('')
           : block.kind === 'table'
-            ? block.rows.map((row) => row.map((cell) => cell.map((run) => run.text).join('')).join(' | ')).join('\n')
+            ? block.rows
+                .map((row) => row.map((cell) => cell.map((run) => run.text).join('')).join(' | '))
+                .join('\n')
             : ''
     )
     .join('\n')
 
-const basis = (id: string, summary: string) => ({ id, component: 'legal_basis', law: 'OIB-Richtlinie 2', summary })
+const basis = (id: string, summary: string) => ({
+  id,
+  component: 'legal_basis',
+  law: 'OIB-Richtlinie 2',
+  summary,
+})
 
 describe('a surface in the export', () => {
   it('exports a Text tab as the prose would, its table a table', () => {
@@ -33,8 +45,19 @@ describe('a surface in the export', () => {
       {
         type: 'surface',
         components: [
-          { id: 'root', component: 'Tabs', tabs: [{ title: 'Außentreppe', child: 'a' }, { title: 'Treppenhaus', child: 'b' }] },
-          { id: 'a', component: 'Text', text: '| Kriterium | Status |\n|---|---|\n| Rauchabzug | offen |' },
+          {
+            id: 'root',
+            component: 'Tabs',
+            tabs: [
+              { title: 'Außentreppe', child: 'a' },
+              { title: 'Treppenhaus', child: 'b' },
+            ],
+          },
+          {
+            id: 'a',
+            component: 'Text',
+            text: '| Kriterium | Status |\n|---|---|\n| Rauchabzug | offen |',
+          },
           basis('b', 'REI 90.'),
         ],
       },
@@ -51,7 +74,14 @@ describe('a surface in the export', () => {
         type: 'surface',
         title: 'Tragende Bauteile nach Gebäudeklasse',
         components: [
-          { id: 'root', component: 'Tabs', tabs: [{ title: 'GK 4', child: 'a' }, { title: 'GK 5', child: 'b' }] },
+          {
+            id: 'root',
+            component: 'Tabs',
+            tabs: [
+              { title: 'GK 4', child: 'a' },
+              { title: 'GK 5', child: 'b' },
+            ],
+          },
           basis('b', 'In GK 5 verlangen tragende Bauteile R 90.'),
           basis('a', 'In GK 4 genügt REI 60.'),
         ],
@@ -60,7 +90,12 @@ describe('a surface in the export', () => {
     )
     const printed = text(blocks)
     expect(printed).toContain('Tragende Bauteile nach Gebäudeklasse')
-    const order = ['GK 4', 'In GK 4 genügt REI 60.', 'GK 5', 'In GK 5 verlangen tragende Bauteile R 90.']
+    const order = [
+      'GK 4',
+      'In GK 4 genügt REI 60.',
+      'GK 5',
+      'In GK 5 verlangen tragende Bauteile R 90.',
+    ]
     const positions = order.map((needle) => printed.indexOf(needle))
     expect(positions.every((position) => position >= 0)).toBe(true)
     expect([...positions].sort((a, b) => a - b)).toEqual(positions)
@@ -92,7 +127,11 @@ describe('a surface in the export', () => {
     type: 'surface',
     components: [
       { id: 'root', component: 'Tabs', tabs: [{ title: 'Ablauf', child: 'a' }] },
-      { id: 'a', component: 'Text', text: '```mermaid\nflowchart TD\n  A[Bauanzeige] --> B{Vollständig?}\n```' },
+      {
+        id: 'a',
+        component: 'Text',
+        text: '```mermaid\nflowchart TD\n  A[Bauanzeige] --> B{Vollständig?}\n```',
+      },
     ],
   }
 
@@ -115,18 +154,32 @@ describe('a surface in the export', () => {
 
   it('sets a titled surface’s cards one level below its title', () => {
     const blocks = cardBlocks(
-      { type: 'surface', title: 'Varianten', components: [{ id: 'root', component: 'Column', children: ['a'] }, basis('a', 'REI 60.')] },
+      {
+        type: 'surface',
+        title: 'Varianten',
+        components: [{ id: 'root', component: 'Column', children: ['a'] }, basis('a', 'REI 60.')],
+      },
       t
     )
     const headings = blocks.flatMap((block) => (block.kind === 'heading' ? [block.level] : []))
     expect(headings).toEqual([3, 4])
     // Without a title the cards stand at the answer's own card level.
-    const untitled = cardBlocks({ type: 'surface', components: [{ id: 'root', component: 'Column', children: ['a'] }, basis('a', 'REI 60.')] }, t)
-    expect(untitled.flatMap((block) => (block.kind === 'heading' ? [block.level] : []))).toEqual([3])
+    const untitled = cardBlocks(
+      {
+        type: 'surface',
+        components: [{ id: 'root', component: 'Column', children: ['a'] }, basis('a', 'REI 60.')],
+      },
+      t
+    )
+    expect(untitled.flatMap((block) => (block.kind === 'heading' ? [block.level] : []))).toEqual([
+      3,
+    ])
   })
 
   const levels = (blocks: DocBlock[]) =>
-    blocks.flatMap((block) => (block.kind === 'heading' ? [[block.level, block.text] as const] : []))
+    blocks.flatMap((block) =>
+      block.kind === 'heading' ? [[block.level, block.text] as const] : []
+    )
 
   it('sets a tab’s title as a heading one level below the surface, its card one lower', () => {
     const tabbed = (title?: string) => ({

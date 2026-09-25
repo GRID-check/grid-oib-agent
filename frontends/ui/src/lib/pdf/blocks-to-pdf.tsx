@@ -142,18 +142,21 @@ const styles = StyleSheet.create({
   },
   /**
    * A heading inside a `surface`: a card under the surface's title, or a tab's
-   * title (`surfaceBlocks` in `cards.ts`). Below h3, above body.
+   * title (`surfaceBlocks` in `cards.ts`). Between h3 and body in size.
    */
   h4: {
-    fontSize: PDF_TYPE.body,
+    fontSize: PDF_TYPE.h3 - 0.25,
     fontWeight: 'bold',
     color: PDF_THEME.ink,
     marginTop: 10,
     marginBottom: 4,
   },
-  /** The card under a tab of a titled `surface`: one step below h4. */
+  /**
+   * The card under a tab of a titled `surface`: body size, told from h4 by its
+   * colour and from body by its weight. Never smaller than the text it heads.
+   */
   h5: {
-    fontSize: PDF_TYPE.table,
+    fontSize: PDF_TYPE.body,
     fontWeight: 'bold',
     color: PDF_THEME.body,
     marginTop: 8,

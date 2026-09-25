@@ -138,8 +138,9 @@ const VOCABULARIES = new Map<string, Set<string>>(
  *     against a DOM and this runs server-side, which is the same constraint
  *     that put diagram rendering in the browser to begin with. Exported the way
  *     a mermaid FENCE already is (`diagramBlocks` in `./markdown.ts`): the
- *     labelled source, or the placeholder when one is given, so the reader holding only the file can tell a drawing
- *     from prose and can regenerate it. Walking it instead would print the
+ *     labelled source, so the reader holding only the file can tell a drawing
+ *     from prose and can regenerate it, unless the format supplies a
+ *     placeholder to print instead. Walking it instead would print the
  *     mermaid under „Origin“ as if the answer had meant to state it.
  *   - `chrome` — the app addressing the reader, not the answer recording a
  *     finding. Emitted as nothing at all.
