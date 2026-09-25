@@ -198,7 +198,7 @@ class TestTheDecisionSkipsOnlyAConfidentNo:
         assert decided.await_args.kwargs == {"organization_id": "org_1"}
 
     @pytest.mark.asyncio
-    @pytest.mark.parametrize("p", [0.2, 0.45, 0.9])
+    @pytest.mark.parametrize("p", [0.3, 0.45, 0.9])
     async def test_doubt_or_yes_reflects(self, p):
         with (
             patch("aiq_agent.memory.reflection.durable_probability", return_value=p),

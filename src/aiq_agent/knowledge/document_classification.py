@@ -317,8 +317,9 @@ DISCIPLINE_CRITERIA: dict[str, str] = {
     "Energieeinsparung/Wärmeschutz": "Energy saving and thermal insulation: U-values, Energieausweis.",
 }
 
-#: The chosen type is always kept; a second type rides along at this probability.
-SECOND_TYPE_THRESHOLD = 0.3
+#: The chosen type is always kept; a second type rides along at this
+#: probability — when the decider is as sure of it as of a coin, not a third.
+SECOND_TYPE_THRESHOLD = 0.5
 #: A discipline is tagged at this probability or above, the top three.
 #: Measured 2026-09-25 on twelve hand-labelled German document openings
 #: (types 12/12 against the generative prompt's 11/12). The answers split in

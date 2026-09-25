@@ -133,6 +133,22 @@ default: the vendor's own legal-retrieval numbers (top-1 5 % → 18 %, top-10
 38 % → 62 %) are a useful reranker's, not a trained cross-encoder's, and the
 golden set decides.
 
+*Amended 2026-09-25, thresholds.* A re-run of `task be:eval:decisions`
+(35 rows, all decided, mean 253 ms) and ten messages that need nothing
+(greetings, thanks, a memory note, rewrite and e-mail requests) moved four of
+them up, each into the gap the numbers left: `needs_evidence` 0.5 → 0.6
+(nothing-needed 0.03–0.24, questions 0.70–0.98), `corpus` 0.5 → 0.7
+(regulation questions 0.94–1.00; the one row below was a folder listing that
+`surface_documents` answers), `self_contained` 0.5 → 0.6 (standalone
+0.71–0.95, follow-ups ≤ 0.25), the card shape 0.6 → 0.7 (`norm_chain` at
+0.60–0.69 on nine different rulings is noise; the picks that named the
+answer's shape ran 0.73–0.87). The family threshold stays at 0.5: its
+precision is 1.00 at every level from 0.3 to 0.9, so raising it only loses
+recall (0.96 → 0.93 at 0.6). The skill thresholds stay too: the one wrong
+choice (Schallschutz → `waermeschutz` at 0.83, fit 0.13) sits inside the
+right ones (fit 0.12–0.17 on Rauchwarnmelder, Tiefgarage, sommerlicher
+Wärmeschutz), so no threshold separates them.
+
 *Amended 2026-09-25:* two uses off the reader's path.
 
 **Use 4 — ingestion tags** (`knowledge/document_classification.py`,
@@ -161,7 +177,7 @@ ZDR by the id it is given (`common/decisions._zdr_only_blocking`).
 memory group's model after every project turn, and its prompt calls an empty
 result "the common and correct outcome". One noul over the question and the
 answer's opening — does the exchange establish anything about this project —
-skips the call below 0.2. This is the one use whose wrong answer loses
+skips the call below 0.3. This is the one use whose wrong answer loses
 something (a memory row the in-turn `remember` tool also did not write), so
 the threshold sits far below the evidence: on sixteen German exchanges the
 reflection call itself agreed with the hand labels on all sixteen, every

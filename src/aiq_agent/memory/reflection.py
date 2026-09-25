@@ -229,10 +229,11 @@ REFLECTION_DECISION_SLOT = "memory_reflection"
 #: sixteen German project exchanges, labelled by hand and by the reflection
 #: call itself (which agreed on all sixteen): every exchange that produced a
 #: finding scored 0.45-0.94; seven of nine that produced none scored
-#: 0.03-0.16, the other two 0.31 (a bare follow-up) and 0.72 (a model
-#: measurement). 0.2 skips those seven and loses none — a margin of 0.25 below
-#: the lowest finding, because a wrong skip loses a memory row.
-REFLECTION_SKIP_THRESHOLD = 0.2
+#: 0.03-0.16, the other two 0.31-0.35 (a bare follow-up) and 0.72 (a model
+#: measurement). 0.3 skips those seven and loses none, 0.15 below the lowest
+#: finding; not higher, because the follow-up sits just above it and a wrong
+#: skip loses a memory row.
+REFLECTION_SKIP_THRESHOLD = 0.3
 _DECISION_ANSWER_CHARS = 1500
 
 _DURABLE_QUESTION = (

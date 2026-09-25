@@ -205,7 +205,7 @@ class TestTagsAreDecided:
 
     def test_a_second_type_rides_along_when_likely(self, endpoint):
         install, _ = endpoint
-        with install(_decision("Bebauungsplan", {"Bebauungsplan": 0.6, "Flächenwidmungsplan": 0.35}, {})):
+        with install(_decision("Bebauungsplan", {"Bebauungsplan": 0.45, "Flächenwidmungsplan": 0.5}, {})):
             tags = classify_document_tags("Plandokument …", "pd.pdf", None)
         assert tags == ["Bebauungsplan", "Flächenwidmungsplan"]
 

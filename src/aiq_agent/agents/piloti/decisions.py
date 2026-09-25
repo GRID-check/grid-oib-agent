@@ -70,10 +70,13 @@ SLOT = "turn"
 #: The knowledge tool the prefetch calls. A wire name (``configs/*.yml``).
 KNOWLEDGE_SEARCH = "knowledge_search"
 
-#: Below this p(needs_evidence) nothing is prefetched. Deliberately low: a
-#: false "no" costs the model its first round, a false "yes" costs one unread
-#: grounding block.
-NEEDS_EVIDENCE_THRESHOLD = 0.5
+#: Below this p(needs_evidence) nothing is prefetched. A false "no" costs the
+#: model its first round, a false "yes" one unread grounding block. Measured
+#: 2026-09-25: ten messages that need nothing (greetings, thanks, a memory
+#: note, rewrite and e-mail requests) at 0.03-0.24, the 35 loop-eval and
+#: follow-up questions at 0.70-0.98 (standalone 0.82-0.98), so 0.6 sits in
+#: the gap with room on both sides.
+NEEDS_EVIDENCE_THRESHOLD = 0.6
 #: A family is prefetched at or above this; the top ``MAX_FAMILY_PREFETCH``.
 #: Measured, not guessed: on the 27 loop-eval questions (2026-09-22,
 #: ``tests/fixtures/herleitung/decision_eval_2026-09-22.csv``) the expected
@@ -83,10 +86,19 @@ NEEDS_EVIDENCE_THRESHOLD = 0.5
 FAMILY_THRESHOLD = 0.5
 MAX_FAMILY_PREFETCH = 2
 #: A card type gets its shape attached at or above this; the top ``MAX_CARD_SHAPES``.
-CARD_THRESHOLD = 0.6
+#: 0.7, not 0.6: on the 2026-09-25 run ``norm_chain`` scored 0.60-0.69 on nine
+#: different rulings — a type that fits every ruling a little is noise — while
+#: the picks that named the answer's shape (a guardrail check, a checklist of
+#: Unterlagen, two variants side by side) scored 0.73-0.87. Each attached
+#: shape is tokens on every call of the turn.
+CARD_THRESHOLD = 0.7
 MAX_CARD_SHAPES = 2
-#: The chosen corpus must reach this before its prefetch runs.
-CORPUS_THRESHOLD = 0.5
+#: The chosen corpus must reach this before its prefetch runs. Every
+#: regulation question chose ``baurecht`` at 0.94-1.00 on the 2026-09-25 run;
+#: the one row below 0.7 was a folder listing („Was liegt im Ordner
+#: Brandschutz?", ``projekt`` 0.34), which ``surface_documents`` answers and a
+#: search of the question does not.
+CORPUS_THRESHOLD = 0.7
 #: A skill's body and shapes ride the turn when the choice lands on it at
 #: this probability AND its own "fits" noul is not near zero. Measured on the
 #: loop-eval set (``decision_eval_2026-09-22.csv``): the choice was right or
@@ -99,7 +111,8 @@ CORPUS_THRESHOLD = 0.5
 SKILL_THRESHOLD = 0.6
 SKILL_FIT_THRESHOLD = 0.1
 #: Below this p(self_contained) the message itself is not searched.
-SELF_CONTAINED_THRESHOLD = 0.5
+#: Standalone questions 0.71-0.95, follow-ups 0.02-0.25 (2026-09-25).
+SELF_CONTAINED_THRESHOLD = 0.6
 #: How many card shapes the turn may attach in all (skill's plus the nouls').
 MAX_ATTACHED_SHAPES = 5
 
