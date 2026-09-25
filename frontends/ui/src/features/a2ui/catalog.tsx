@@ -253,7 +253,8 @@ export const SURFACE_EXCLUDED_LEAVES: ReadonlySet<string> = new Set([
  * without A2UI (`A2uiCard`'s fallback). A leaf the backend would have refused
  * is refused here too: a stored surface from before that check, or one that
  * reached the client another way, must not draw an interactive card whose
- * decision has nowhere to be kept.
+ * decision has nowhere to be kept. So is a surface that is not a tree
+ * ({@link structuralRefusal}).
  */
 export function preflight(components: Record<string, unknown>[]): string | null {
   const registry = pilotiCatalog().components
@@ -266,5 +267,51 @@ export function preflight(components: Record<string, unknown>[]): string | null 
     const result = api.schema.safeParse(props)
     if (!result.success) return `'${String(id)}' (${String(component)}): ${result.error.issues[0]?.message ?? 'invalid'}`
   }
-  return null
+  return structuralRefusal(components)
+}
+
+/** The ids a component points at: a Row's or Column's children, a Tabs' tab children. */
+function childIds(component: Record<string, unknown>): string[] {
+  if (Array.isArray(component.children)) return component.children.map(String)
+  if (!Array.isArray(component.tabs)) return []
+  return component.tabs.map((tab) => String((tab as { child?: unknown }).child))
+}
+
+/**
+ * Why these components are not one tree under `root`, or null when they are.
+ *
+ * The same checks `a2ui-core` runs when a surface is written (ADR-0065):
+ * unique ids, a `root`, every reference resolving, each component referenced
+ * at most once, and every component reachable from `root` without a cycle.
+ * A2UI itself draws a dangling child or a cycle as a grey "[Loading id...]"
+ * placeholder, which would reach the reader AND report the surface drawn.
+ */
+export function structuralRefusal(components: Record<string, unknown>[]): string | null {
+  const byId = new Map<string, Record<string, unknown>>()
+  for (const component of components) {
+    const id = String(component.id)
+    if (byId.has(id)) return `'${id}': the id is used twice`
+    byId.set(id, component)
+  }
+  if (!byId.has('root')) return "no 'root' component"
+  const referenced = new Set<string>()
+  for (const [id, component] of byId) {
+    for (const child of childIds(component)) {
+      if (!byId.has(child)) return `'${id}': child '${child}' does not exist`
+      if (referenced.has(child)) return `'${child}': referenced more than once`
+      referenced.add(child)
+    }
+  }
+  // Every component referenced at most once, so a walk from `root` that meets
+  // a component twice has gone round a cycle.
+  const reached = new Set<string>()
+  const pending = ['root']
+  while (pending.length > 0) {
+    const id = pending.pop() as string
+    if (reached.has(id)) return `'${id}': the surface has a cycle`
+    reached.add(id)
+    pending.push(...childIds(byId.get(id) as Record<string, unknown>))
+  }
+  const orphan = [...byId.keys()].find((id) => !reached.has(id))
+  return orphan ? `'${orphan}': not reachable from 'root'` : null
 }

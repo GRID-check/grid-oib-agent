@@ -25,10 +25,17 @@
  *     would append to the first one's.
  *  3. **Live-frame semantics mirror `messages-store.ts`.** A delta appends;
  *     `stream_replace` replaces the text and the citations, and drops a
- *     masthead the snapshot omits (an empty one retracts a tool round); masthead
- *     and cards frames set without touching the text; a `complete` with text is
+ *     masthead the snapshot omits; an EMPTY one (no text, no sources) retracts
+ *     a tool round and takes its live cards back with it; masthead and cards
+ *     frames set without touching the text; a `complete` with text is
  *     authoritative, absence included. Change one fold and you change the
  *     other, with a spec case in both.
+ *  4. **An observer is never handed a card that acts.** Interactive and
+ *     system cards (a memory proposal, a file operation, a brief patch, a
+ *     draft to file) propose a write in the ASKER's name. They are dropped
+ *     here, leaving their position as a hole so every `[[card:N]]` marker
+ *     after them stays bound, and `SpectatedTurn` draws the rest read-only on
+ *     top of that (ADR-0039 §5).
  *
  * Nothing here is authoritative. The persisted answer arrives over the ordinary
  * message path and replaces all of it — this exists purely so the ninety seconds
@@ -40,6 +47,8 @@ import type { CitationSource, ThinkingStep } from '@/features/chat/types'
 import { citationsFromWireList } from '@/features/chat/lib/wire-citation'
 import { sanitizeAnswerMeta, type AnswerMeta } from '@/lib/conversations/message-answer-meta'
 import { validateGridCards, type GridCard } from '@/shared/cards/schemas'
+import { INTERACTIVE_CARD_TYPES } from '@/features/grid-cards/card-decision'
+import { SYSTEM_CARD_TYPES } from '@/features/skills/lib/card-catalog'
 import {
   formatPayload,
   getDisplayName,
@@ -182,10 +191,14 @@ export function reduceSpectatedFrame(
       // streamed round that turned out to call tools: checked before the
       // "nothing to fold" return below, which would otherwise swallow it.
       if (message.stream_replace === true) {
+        // An empty snapshot with no sources retracts the whole round, the
+        // cards it streamed included: a dead round's cards are not the answer.
+        const retraction = !text && !(message.sources && message.sources.length > 0)
         return {
           ...next,
           answerMeta: undefined,
           citations: undefined,
+          ...(retraction ? { cards: undefined } : {}),
           ...around,
           parentId,
           answer: text,
@@ -240,12 +253,24 @@ function aroundTheProse(message: {
 }): Pick<SpectatedTurnState, 'answerMeta' | 'citations' | 'cards'> {
   const answerMeta = sanitizeAnswerMeta(message.answer_meta) ?? undefined
   const citations = citationsFromWireList(message.sources)
-  const cards = message.cards && message.cards.length > 0 ? validateGridCards(message.cards) : undefined
+  const cards = message.cards && message.cards.length > 0 ? forObservers(validateGridCards(message.cards)) : undefined
   return {
     ...(answerMeta ? { answerMeta } : {}),
     ...(citations ? { citations } : {}),
     ...(cards ? { cards } : {}),
   }
+}
+
+/**
+ * Card types an observer never sees: each proposes a write (or is pushed by a
+ * tool acting for the asker), and a colleague reading along has no standing
+ * to make it. Rule 4 in the header.
+ */
+const NOT_FOR_OBSERVERS: ReadonlySet<string> = new Set<string>([...INTERACTIVE_CARD_TYPES, ...SYSTEM_CARD_TYPES])
+
+/** The cards with every one an observer may not see replaced by a hole, positions kept. */
+function forObservers(cards: (GridCard | undefined)[]): (GridCard | undefined)[] {
+  return cards.map((card) => (card && NOT_FOR_OBSERVERS.has(card.type) ? undefined : card))
 }
 
 function appendGenericStep(steps: ThinkingStep[], content: string): ThinkingStep[] {

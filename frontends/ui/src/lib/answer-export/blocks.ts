@@ -25,7 +25,7 @@ export interface DocRun {
 }
 
 export type DocBlock =
-  | { kind: 'heading'; level: 1 | 2 | 3; text: string }
+  | { kind: 'heading'; level: 1 | 2 | 3 | 4; text: string }
   /** `meta` is the small grey line under a heading (the date, the project). */
   | { kind: 'paragraph'; runs: DocRun[]; style?: 'body' | 'meta' | 'quote' }
   | { kind: 'bullets'; items: DocRun[][] }

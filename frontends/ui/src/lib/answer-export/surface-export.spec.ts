@@ -6,7 +6,7 @@
  */
 import { describe, expect, it } from 'vitest'
 import { de } from '@/i18n/dictionaries'
-import { cardBlocks } from './cards'
+import { cardBlocks, cardsBlocks } from './cards'
 import type { DocBlock } from './blocks'
 
 const t = (key: string): string =>
@@ -85,5 +85,43 @@ describe('a surface in the export', () => {
     expect(printed.indexOf('Erste.')).toBeLessThan(printed.indexOf('Zweite.'))
     expect(printed.indexOf('Zweite.')).toBeLessThan(printed.indexOf('Dritte.'))
     expect(printed).not.toContain('Unerreichbar.')
+  })
+
+  const PLACEHOLDER = 'In Piloti als Grafik dargestellt.'
+  const mermaidTab = {
+    type: 'surface',
+    components: [
+      { id: 'root', component: 'Tabs', tabs: [{ title: 'Ablauf', child: 'a' }] },
+      { id: 'a', component: 'Text', text: '```mermaid\nflowchart TD\n  A[Bauanzeige] --> B{Vollständig?}\n```' },
+    ],
+  }
+
+  it('prints a diagram in a Text tab as the format asks, like one in the prose', () => {
+    // The PDF goes to a Behörde: the fence's source is noise on it, and the
+    // placeholder the prose already honours must reach a tab too.
+    const printed = text(cardsBlocks([mermaidTab], t, { diagramPlaceholder: PLACEHOLDER }))
+    expect(printed).toContain(PLACEHOLDER)
+    expect(printed).not.toContain('flowchart TD')
+    // Without one (the Word file) the source is kept, as for the prose.
+    expect(text(cardsBlocks([mermaidTab], t))).toContain('flowchart TD')
+  })
+
+  it('prints a diagram card as the format asks', () => {
+    const diagram = { type: 'diagram', title: 'Ablauf', source: 'flowchart TD\n  A --> B' }
+    const printed = text(cardsBlocks([diagram], t, { diagramPlaceholder: PLACEHOLDER }))
+    expect(printed).toContain(PLACEHOLDER)
+    expect(printed).not.toContain('flowchart TD')
+  })
+
+  it('sets a titled surface’s cards one level below its title', () => {
+    const blocks = cardBlocks(
+      { type: 'surface', title: 'Varianten', components: [{ id: 'root', component: 'Column', children: ['a'] }, basis('a', 'REI 60.')] },
+      t
+    )
+    const headings = blocks.flatMap((block) => (block.kind === 'heading' ? [block.level] : []))
+    expect(headings).toEqual([3, 4])
+    // Without a title the cards stand at the answer's own card level.
+    const untitled = cardBlocks({ type: 'surface', components: [{ id: 'root', component: 'Column', children: ['a'] }, basis('a', 'REI 60.')] }, t)
+    expect(untitled.flatMap((block) => (block.kind === 'heading' ? [block.level] : []))).toEqual([3])
   })
 })

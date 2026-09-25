@@ -733,8 +733,15 @@ to be `GridCardItem`, so the pixels are the same components as before.
   first component from a layout effect; the two swap before paint.
 - **Never a card lost to the library.** `preflight` checks every component
   against the catalog before A2UI sees it (A2UI would draw an unknown one as
-  red text), and a render that throws inside A2UI falls back to the direct
-  component. A refused surface falls back to its cards stacked in order.
+  red text), and refuses a surface that is not one tree under `root`: ids
+  unique, `root` present, every child and tab id resolves, each id referenced
+  once, no cycle, every component reachable (`structuralRefusal`, the same
+  checks `SurfaceCard` runs in `cards/models.py`). A render that throws inside
+  A2UI falls back to the direct component. A refused surface falls back to its
+  cards stacked in order, leaving out any leaf in `SURFACE_EXCLUDED_LEAVES`.
+- **An observer reads, never acts.** A spectated turn draws cards read-only
+  (`AgentResponse`'s `readOnly`): an observer cannot answer the asker's
+  decision cards or file their diagrams.
 - **Export** walks a surface from its root and prints its cards in order, a
   tab's title above its card (`answer-export/cards.ts`, kind `composite`).
 - `/dev/a2ui` draws every fixture and two compositions through this path;

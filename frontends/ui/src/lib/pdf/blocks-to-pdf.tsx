@@ -140,6 +140,14 @@ const styles = StyleSheet.create({
     marginTop: 14,
     marginBottom: 5,
   },
+  /** A heading inside a card's section (a surface tab): below h3, above body. */
+  h4: {
+    fontSize: PDF_TYPE.body,
+    fontWeight: 'bold',
+    color: PDF_THEME.body,
+    marginTop: 10,
+    marginBottom: 4,
+  },
 
   // ---- paragraphs ----------------------------------------------------------
   body: { marginBottom: 8, lineHeight: PDF_TYPE.lineHeight },
@@ -435,7 +443,7 @@ const headingNode = (
     )
   }
   return (
-    <Text key={key} style={styles.h3} minPresenceAhead={56}>
+    <Text key={key} style={block.level === 4 ? styles.h4 : styles.h3} minPresenceAhead={56}>
       {pdfText(block.text)}
     </Text>
   )

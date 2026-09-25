@@ -109,14 +109,23 @@ interface GridCardItemProps {
   decisionsMustPersist?: boolean
 }
 
+interface GridCardViewProps extends GridCardItemProps {
+  /**
+   * The card's id inside a composed `surface`, absent for a lone card. Two
+   * leaves of one surface share its `index`, so the id is what tells their
+   * `cardKey`s apart.
+   */
+  leafId?: string
+}
+
 /**
  * One card, drawn directly: the per-type dispatch.
  *
  * Since ADR-0065 this is what A2UI's catalog calls for each card component
  * (`GridCardItem` below hands it to `A2uiCard`), and what a card falls back to
- * when A2UI will not draw it. Callers draw cards with `GridCardItem`.
- *
- * One card, dispatched on its type.
+ * when A2UI will not draw it. Callers draw cards with `GridCardItem`. A
+ * `surface` never reaches it: the catalog has no `surface` component and the
+ * fallback never hands one down (`SURFACE_EXCLUDED_LEAVES`).
  *
  * Split out of the stack so a card can also be drawn ALONE, wherever the answer
  * placed it — `GridCards` is then just the vertical stack of the leftovers.
@@ -124,37 +133,17 @@ interface GridCardItemProps {
  * card has no position in a list to be inferred from, and its identity must
  * still be the one the persisted decisions were keyed under.
  */
-export const GridCardView: FC<GridCardItemProps> = ({
+export const GridCardView: FC<GridCardViewProps> = ({
   card,
   index,
   projectId,
   messageId,
   decisionsMustPersist,
+  leafId,
 }) => {
   // Doubles as the React key and as the identity an interactive card's
   // persisted decision is stored under, so the two cannot drift apart.
-  const key = cardKey(card, index)
-
-  if (card.type === 'surface') {
-    // A composition has no single view: it is A2UI's to draw (ADR-0065).
-    // Reached only when a caller hands a surface to the view directly rather
-    // than through `GridCardItem`.
-    return (
-      <A2uiCard
-        card={card}
-        surfaceKey={`${messageId ?? 'card'}:${index}`}
-        render={(leaf) => (
-          <GridCardView
-            card={leaf}
-            index={index}
-            projectId={projectId}
-            messageId={messageId}
-            decisionsMustPersist={decisionsMustPersist}
-          />
-        )}
-      />
-    )
-  }
+  const key = leafId === undefined ? cardKey(card, index) : `${cardKey(card, index)}.${leafId}`
 
   if (card.type === 'summary') {
     return (
@@ -796,13 +785,14 @@ export const GridCardItem: FC<GridCardItemProps> = ({ card, index, projectId, me
   <A2uiCard
     card={card}
     surfaceKey={`${messageId ?? 'card'}:${index}`}
-    render={(leaf) => (
+    render={(leaf, leafId) => (
       <GridCardView
         card={leaf}
         index={index}
         projectId={projectId}
         messageId={messageId}
         decisionsMustPersist={decisionsMustPersist}
+        leafId={card.type === 'surface' ? leafId : undefined}
       />
     )}
   />

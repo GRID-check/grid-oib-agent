@@ -8,7 +8,8 @@
 
 import { describe, expect, it } from 'vitest'
 import { render, screen } from '@/test-utils'
-import { EMPTY_SPECTATED_TURN, type SpectatedTurnState } from '../lib/spectator-frames'
+import type { GridCard } from '@/shared/cards/schemas'
+import { EMPTY_SPECTATED_TURN, reduceSpectatedFrame, type SpectatedTurnState } from '../lib/spectator-frames'
 import { SpectatedTurn } from './SpectatedTurn'
 
 const LABEL = 'Piloti beantwortet die Frage von Anna Berger…'
@@ -52,5 +53,52 @@ describe('SpectatedTurn', () => {
     // announcement (CC-9) is what reports the answer.
     render(<SpectatedTurn turn={turn({ answer: 'Teilantwort' })} label={LABEL} />)
     expect(screen.getByTestId('spectated-turn')).toHaveAttribute('aria-live', 'off')
+  })
+
+  it('draws a card that acts without anything to press (ADR-0039 §5)', () => {
+    // The second wall: even a memory proposal that reached the view offers the
+    // observer no button — pressing one wrote into the OBSERVER's organization.
+    const proposal = {
+      type: 'memory_proposal',
+      title: 'Merken?',
+      content: 'Das Büro plant GK4 immer mit REI 90.',
+      kind: 'preference',
+      confidence: 'high',
+    } as GridCard
+    render(
+      <SpectatedTurn
+        turn={turn({ answer: 'Fertig.', cards: [proposal], done: true })}
+        label={LABEL}
+      />
+    )
+    expect(screen.getByTestId('spectated-turn')).toHaveTextContent('REI 90')
+    expect(screen.queryAllByRole('button')).toEqual([])
+  })
+
+  it('does not draw a file operation proposal for an observer', () => {
+    const complete = {
+      type: 'system_response_message',
+      id: 'c1',
+      parent_id: 'turn-1',
+      status: 'complete',
+      content: { text: 'Ich schlage eine Verschiebung vor.' },
+      cards: [
+        {
+          type: 'file_operation_proposal',
+          title: 'Pläne einsortieren',
+          operation: 'move',
+          operations: [{ document: 'Grundriss EG.pdf', source: 'projekt', current: '', target_folder: 'Einreichung' }],
+        },
+      ],
+    }
+    render(<SpectatedTurn turn={reduceSpectatedFrame(EMPTY_SPECTATED_TURN, complete)} label={LABEL} />)
+    expect(screen.getByTestId('spectated-turn')).toHaveTextContent('Verschiebung')
+    expect(screen.queryByText('Pläne einsortieren')).toBeNull()
+    expect(screen.queryAllByRole('button')).toEqual([])
+  })
+
+  it('offers no copy controls once the turn is done', () => {
+    render(<SpectatedTurn turn={turn({ answer: 'Ja, ab drei Geschossen.', done: true })} label={LABEL} />)
+    expect(screen.queryAllByRole('button')).toEqual([])
   })
 })

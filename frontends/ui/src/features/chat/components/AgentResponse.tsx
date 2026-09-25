@@ -295,6 +295,14 @@ export interface AgentResponseProps {
    * treatment, so existing callers render exactly as before.
    */
   routingDecision?: 'meta' | 'shallow' | 'deep' | 'error'
+  /**
+   * Somebody else's turn, drawn for a colleague reading along
+   * (`SpectatedTurn`, ADR-0039 §5). No card acts — every interactive card
+   * draws without its actions, and none is given the reader's project — and
+   * no copy actions are offered over an answer that is about to be replaced by
+   * the persisted one, which carries its own.
+   */
+  readOnly?: boolean
 }
 
 /** Role-tab label for the default answer card. Envelope `kind` wins. */
@@ -768,9 +776,13 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
   showAnswerFeedback = true,
   isStreaming = false,
   routingDecision,
+  readOnly = false,
 }) => {
   const t = useTranslations('chat')
-  const projectId = useChatStore((s) => s.projectId)
+  const storeProjectId = useChatStore((s) => s.projectId)
+  // A read-only answer is not the reader's: nothing in it may act on the
+  // project the READER has open (ADR-0039 §5).
+  const projectId = readOnly ? null : storeProjectId
   // An answer that ends in a written "## Quellen" list used to state its sources
   // TWICE — that list AND the "Belegt durch" chips, each holding half the truth
   // (numbers/titles/pages vs. provenance color, authority and click-through).
@@ -934,12 +946,18 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
               `summary` and `verdict_header` must not both claim the top of it
               (grid-card-charter.md §A2). See `grid-cards/card-set.tsx`. */}
           <CardSetProvider cards={cardSet}>
-            <GridCardItem card={card} index={index} projectId={projectId} messageId={messageId} />
+            <GridCardItem
+              card={card}
+              index={index}
+              projectId={projectId}
+              messageId={messageId}
+              decisionsMustPersist={readOnly}
+            />
           </CardSetProvider>
         </CardArrival>
       )
     },
-    [cards, cardSet, projectId, messageId, anatomy?.callout, stillArriving]
+    [cards, cardSet, projectId, messageId, anatomy?.callout, stillArriving, readOnly]
   )
   // ONE derivation for the whole answer: the inline `[N]` markers in the prose
   // and the provenance chips below are the same citations seen twice, and two
@@ -986,7 +1004,7 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
   // Prüfvermerk is worse than none — and a cards-only turn has no markdown to
   // hand over, so both are excluded rather than given a button that copies ''.
   const hasAnswerActions =
-    !stillArriving && Boolean(content) && content.trim().length > 0 && content !== 'null'
+    !readOnly && !stillArriving && Boolean(content) && content.trim().length > 0 && content !== 'null'
   const hasMetaRow =
     hasConfidence || hasFeedback || hasAnswerActions || Boolean(timestamp) || memoryItems.length > 0
   // Streaming still has no chips/thumbs, but the row is reserved at chip
@@ -1127,6 +1145,7 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
                   indices={fallbackGridIndices}
                   projectId={projectId}
                   messageId={messageId}
+                  decisionsMustPersist={readOnly}
                 />
               </div>
             )}
@@ -1331,6 +1350,7 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
                     indices={fallbackGridIndices}
                     projectId={projectId}
                     messageId={messageId}
+                    decisionsMustPersist={readOnly}
                   />
                 </div>
               )}

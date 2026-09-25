@@ -152,6 +152,50 @@ describe('reduceSpectatedFrame', () => {
     expect(state.citations).toBeUndefined()
   })
 
+  it('lets an empty snapshot take back the cards a retracted round streamed', () => {
+    // The round that turned out to call tools is dead, its cards with it: the
+    // asker's store drops them, so the observer must not keep reading them.
+    const cards = {
+      ...(response('', 'in_progress') as object),
+      cards: [{ type: 'summary', title: 'Zusammenfassung', content: 'Tote Runde.' }],
+    }
+    const retraction = { ...(response('', 'in_progress') as object), stream_replace: true, sources: [] }
+    const state = fold([response('R 90', 'in_progress'), cards, retraction])
+    expect(state.cards).toBeUndefined()
+  })
+
+  it('keeps the live cards across a snapshot that has prose', () => {
+    const cards = {
+      ...(response('', 'in_progress') as object),
+      cards: [{ type: 'summary', title: 'Zusammenfassung', content: 'Alles gut.' }],
+    }
+    const snapshot = { ...(response('R 90.', 'in_progress') as object), stream_replace: true }
+    const state = fold([response('R 9', 'in_progress'), cards, snapshot])
+    expect(state.cards?.map((card) => card?.type)).toEqual(['summary'])
+  })
+
+  it('never hands an observer a card that acts, and keeps every position (ADR-0039 §5)', () => {
+    // A memory proposal or a file operation proposes a write in the ASKER's
+    // name. Drawn for an observer it was a button that wrote into the
+    // observer's organization and project.
+    const complete = {
+      ...(response('Fertig [[card:3]].', 'complete') as object),
+      cards: [
+        { type: 'memory_proposal', title: 'Merken?', content: 'REI 90 für GK4.', kind: 'preference', confidence: 'high' },
+        {
+          type: 'file_operation_proposal',
+          title: 'Verschieben',
+          operation: 'move',
+          operations: [{ document: 'EG.pdf', source: 'projekt', current: '', target_folder: 'Einreichung' }],
+        },
+        { type: 'summary', title: 'Zusammenfassung', content: 'Alles gut.' },
+      ],
+    }
+    const state = fold([complete])
+    expect(state.cards).toHaveLength(3)
+    expect(state.cards?.map((card) => card?.type)).toEqual([undefined, undefined, 'summary'])
+  })
+
   it('keeps the streamed answer when the terminal frame is empty', () => {
     // The single most damaging failure mode available here: a backend that
     // finishes with an empty `complete` would otherwise blank a finished answer

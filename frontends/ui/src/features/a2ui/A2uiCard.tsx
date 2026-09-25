@@ -50,8 +50,8 @@ function Direct({ card, render }: Pick<A2uiCardProps, 'card' | 'render'>) {
   if (card.type !== 'surface') return <>{render(card, 'root')}</>
   return (
     <div className="flex flex-col gap-3">
-      {surfaceLeaves(card).map((leaf, index) => (
-        <div key={index}>{'text' in leaf ? <TextBlock text={leaf.text} /> : render(leaf, `leaf-${index}`)}</div>
+      {surfaceLeaves(card).map(({ id, leaf }) => (
+        <div key={id}>{'text' in leaf ? <TextBlock text={leaf.text} /> : render(leaf, id)}</div>
       ))}
     </div>
   )
@@ -81,7 +81,7 @@ export function A2uiCard({ card, surfaceKey, render }: A2uiCardProps) {
   // Keyed on the card's CONTENT, not its identity: a parent that re-parses
   // its cards on every render would otherwise rebuild the surface each time,
   // remounting every card in it and resetting the open tab.
-  const content = JSON.stringify(card)
+  const content = useMemo(() => JSON.stringify(card), [card])
   const surface = useMemo(() => {
     if (!mounted) return null
     const refusal = preflight(surfaceComponents(card))
@@ -105,26 +105,31 @@ export function A2uiCard({ card, surfaceKey, render }: A2uiCardProps) {
   const drawn = surface !== null && drawnSurface === surface
   const reportDrawn = useCallback(() => setDrawnSurface(surface), [surface])
 
+  // `direct` sits at the same place in the tree whether A2UI is drawing or
+  // not, so the mount that turns the surface on does not remount it (the
+  // wrapper used to appear only then, and every card mounted three times).
   const direct = <Direct card={card} render={render} />
-  const body = !surface ? (
-    direct
-  ) : (
+  const body = (
     <div className="relative">
       {!drawn && direct}
-      <CardRendererProvider value={render}>
-        <DrawnProvider value={reportDrawn}>
-          <Fallback fallback={drawn ? direct : null}>
-            <div
-              data-a2ui-surface={surfaceKey}
-              data-a2ui-root={card.type}
-              aria-hidden={drawn ? undefined : true}
-              className={drawn ? undefined : 'pointer-events-none invisible absolute inset-x-0 top-0'}
-            >
-              <A2uiSurface surface={surface} />
-            </div>
-          </Fallback>
-        </DrawnProvider>
-      </CardRendererProvider>
+      {surface && (
+        <CardRendererProvider value={render}>
+          <DrawnProvider value={reportDrawn}>
+            {/* Keyed on the content: a surface that failed once is retried
+                when it changes, rather than staying on the fallback for good. */}
+            <Fallback key={`${surfaceKey}|${content}`} fallback={drawn ? direct : null}>
+              <div
+                data-a2ui-surface={surfaceKey}
+                data-a2ui-root={card.type}
+                aria-hidden={drawn ? undefined : true}
+                className={drawn ? undefined : 'pointer-events-none invisible absolute inset-x-0 top-0'}
+              >
+                <A2uiSurface surface={surface} />
+              </div>
+            </Fallback>
+          </DrawnProvider>
+        </CardRendererProvider>
+      )}
     </div>
   )
   const title = card.type === 'surface' ? card.title?.trim() : undefined

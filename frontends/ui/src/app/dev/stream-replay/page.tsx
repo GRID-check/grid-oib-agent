@@ -131,11 +131,15 @@ export default function StreamReplayPage() {
     observer.observe({ type: 'layout-shift', buffered: false })
 
     const t0 = turn.frames[0]?.t ?? 0
-    const timers = turn.frames.map((frame, index) =>
-      window.setTimeout(
+    // Every timer this effect starts, the settle timer the last frame starts
+    // included, so an unmount mid-replay leaves none of them running.
+    const timers: number[] = []
+    const later = (run: () => void, ms: number) => timers.push(window.setTimeout(run, ms))
+    turn.frames.forEach((frame, index) =>
+      later(
         () => {
           setView((current) => applyFrame(current, frame))
-          if (index === turn.frames.length - 1) window.setTimeout(() => (probe.done = true), 1500)
+          if (index === turn.frames.length - 1) later(() => (probe.done = true), 1500)
         },
         ((frame.t - t0) * 1000) / speed + 500
       )

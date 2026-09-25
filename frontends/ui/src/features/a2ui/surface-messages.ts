@@ -11,7 +11,7 @@ import type { A2uiMessage } from '@a2ui/web_core/v0_9'
 
 import type { GridCard } from '@/shared/cards/schemas'
 import { gridCardSchema } from '@/shared/cards/schemas'
-import { PILOTI_CATALOG_ID, TEXT_COMPONENT } from './catalog'
+import { PILOTI_CATALOG_ID, SURFACE_EXCLUDED_LEAVES, TEXT_COMPONENT } from './catalog'
 
 const CARD_TYPES: ReadonlySet<string> = new Set(
   gridCardSchema.options.map((schema) => {
@@ -41,14 +41,26 @@ export interface TextLeaf {
   text: string
 }
 
+/** One leaf of a surface, under the id the surface gave it. */
+export interface SurfaceLeaf {
+  id: string
+  leaf: GridCard | TextLeaf
+}
+
 /**
  * The cards and `Text` leaves a surface holds, in list order — what the
  * fallback stacks when A2UI will not draw the surface. Layout components and
- * anything unknown are left out: an unknown component has nothing to draw.
+ * anything unknown are left out: an unknown component has nothing to draw. So
+ * is every leaf the catalog refuses inside a surface
+ * (`SURFACE_EXCLUDED_LEAVES`): the fallback is what a refused surface draws,
+ * and an interactive card refused there must not come back through it.
  */
-export function surfaceLeaves(card: GridCard): (GridCard | TextLeaf)[] {
-  return surfaceComponents(card).flatMap(({ id: _id, component, ...props }): (GridCard | TextLeaf)[] => {
-    if (component === TEXT_COMPONENT && typeof props.text === 'string') return [{ text: props.text }]
-    return CARD_TYPES.has(String(component)) ? [{ ...props, type: component } as GridCard] : []
+export function surfaceLeaves(card: GridCard): SurfaceLeaf[] {
+  return surfaceComponents(card).flatMap(({ id, component, ...props }): SurfaceLeaf[] => {
+    const leafId = String(id)
+    if (component === TEXT_COMPONENT && typeof props.text === 'string') return [{ id: leafId, leaf: { text: props.text } }]
+    const type = String(component)
+    if (!CARD_TYPES.has(type) || SURFACE_EXCLUDED_LEAVES.has(type)) return []
+    return [{ id: leafId, leaf: { ...props, type } as GridCard }]
   })
 }

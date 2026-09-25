@@ -23,8 +23,12 @@
  *    citations once verified, the cards as each is written, all gated by the
  *    backend before they are sent. A compact, card-less preview here made the
  *    swap to the persisted answer a jump from one layout to another; the same
- *    `AgentResponse` makes it a swap of like for like. It carries no message
- *    id, so it offers no feedback or copy controls and no card decisions.
+ *    `AgentResponse` makes it a swap of like for like. It is drawn
+ *    `readOnly`: no feedback, no copy controls (the persisted answer that
+ *    replaces it carries its own) and no card decisions. A card that acts is
+ *    not even delivered here (`spectator-frames.ts`, rule 4); `readOnly` is
+ *    the second wall, so one that slipped through still has nothing to press
+ *    and no project of the observer's to write to.
  *  - **It never blocks the fallback.** The caller keeps the banner whenever this
  *    has nothing to show, so a missing cache tier, a dropped stream or a gated
  *    org degrades to exactly the previous behaviour.
@@ -98,6 +102,7 @@ export const SpectatedTurn: FC<SpectatedTurnProps> = ({ turn, label, className }
           answerMeta={turn.answerMeta}
           citations={turn.citations}
           cards={turn.cards}
+          readOnly
         />
       )}
     </div>
