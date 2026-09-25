@@ -19,7 +19,7 @@
  */
 
 import { marked, type Token, type Tokens } from 'marked'
-import type { DocBlock, DocRun } from './blocks'
+import type { DocBlock, DocRun, HeadingLevel } from './blocks'
 import { DIAGRAM_SOURCE_KINDS } from '@/lib/diagrams/diagram-sources'
 
 /** Inline tokens carried on a block token, when it has any. */
@@ -123,8 +123,8 @@ const blockFrom = (token: Token, options: MarkdownToBlocksOptions = {}): DocBloc
       const heading = token as Tokens.Heading
       // Clamped to 3: the document's own chrome owns level 1 and 2, so an `h1`
       // inside the answer must not outrank the "Antwort" heading above it.
-      const level = Math.min(3, Math.max(1, heading.depth + 1)) as 1 | 2 | 3
-      return [{ kind: 'heading', level, text: heading.text }]
+      const prose = Math.min(3, Math.max(1, heading.depth + 1))
+      return [{ kind: 'heading', level: Math.max(options.headingFloor ?? 1, prose) as HeadingLevel, text: heading.text }]
     }
     case 'paragraph':
       return [{ kind: 'paragraph', runs: runsFrom((token as Tokens.Paragraph).tokens) }]
@@ -157,21 +157,7 @@ const blockFrom = (token: Token, options: MarkdownToBlocksOptions = {}): DocBloc
        * metadata. It is labelled so it reads as a diagram that could not be
        * drawn here, not as content the answer meant to state.
        */
-      if (isDiagramFence(code.lang)) {
-        if (options.diagramPlaceholder) {
-          return [
-            {
-              kind: 'paragraph',
-              runs: [{ text: options.diagramPlaceholder, italic: true }],
-              style: 'meta',
-            },
-          ]
-        }
-        return [
-          { kind: 'paragraph', runs: [{ text: diagramLabel(code.lang), italic: true }], style: 'meta' },
-          { kind: 'paragraph', runs: [{ text: code.text, mono: true }] },
-        ]
-      }
+      if (isDiagramFence(code.lang)) return diagramBlocks(code.lang, code.text, options.diagramPlaceholder)
       return [{ kind: 'paragraph', runs: [{ text: code.text, mono: true }] }]
     }
     case 'table': {
@@ -230,6 +216,18 @@ const isDiagramFence = (lang: string | undefined): boolean =>
 export const diagramLabel = (lang: string | undefined): string =>
   `Diagramm (${(lang ?? '').trim().toLowerCase()}) — hier als Quelltext, im Original als Zeichnung.`
 
+/**
+ * A drawing this export cannot render: the format's placeholder when it has
+ * one, otherwise {@link diagramLabel} and the source. The one place both a
+ * diagram fence and the `diagram` card (`./cards.ts`) are printed from, so the
+ * two cannot drift apart.
+ */
+export const diagramBlocks = (lang: string | undefined, source: string, placeholder?: string): DocBlock[] => {
+  if (placeholder) return [{ kind: 'paragraph', runs: [{ text: placeholder, italic: true }], style: 'meta' }]
+  const label: DocBlock = { kind: 'paragraph', runs: [{ text: diagramLabel(lang), italic: true }], style: 'meta' }
+  return source ? [label, { kind: 'paragraph', runs: [{ text: source, mono: true }] }] : [label]
+}
+
 /** Lex markdown into document blocks. Empty input yields no blocks, not an empty one. */
 export interface MarkdownToBlocksOptions {
   /**
@@ -245,6 +243,12 @@ export interface MarkdownToBlocksOptions {
    * So the format decides, rather than this function deciding for both.
    */
   diagramPlaceholder?: string
+  /**
+   * The highest level a heading in this Markdown may take. A surface's `Text`
+   * leaf sits beside cards under the surface's title, so its `#` must not
+   * outrank that title (`surfaceBlocks` in `./cards.ts`).
+   */
+  headingFloor?: HeadingLevel
 }
 
 export function markdownToBlocks(

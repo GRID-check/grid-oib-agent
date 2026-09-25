@@ -757,11 +757,15 @@ to be `GridCardItem`, so the pixels are the same components as before.
   checks `SurfaceCard` runs in `cards/models.py`). A render that throws inside
   A2UI falls back to the direct component. A refused surface falls back to its
   cards stacked in order, leaving out any leaf in `SURFACE_EXCLUDED_LEAVES`.
+  That list refuses a leaf only inside a surface: a lone card of such a type
+  (a stored `summary`, a `memory_proposal`) is drawn through the catalog.
 - **An observer reads, never acts.** A spectated turn draws cards read-only
   (`AgentResponse`'s `readOnly`): an observer cannot answer the asker's
   decision cards or file their diagrams.
 - **Export** walks a surface from its root and prints its cards in order, a
-  tab's title above its card (`answer-export/cards.ts`, kind `composite`).
+  tab's title as a heading one level below the surface's and its card one
+  level lower (levels 3–5); a `Text` leaf's headings never outrank the surface
+  title (`answer-export/cards.ts`, kind `composite`).
 - `/dev/a2ui` draws every fixture and two compositions through this path;
   each section says whether A2UI drew it.
 

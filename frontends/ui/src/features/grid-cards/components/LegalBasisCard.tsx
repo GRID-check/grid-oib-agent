@@ -139,7 +139,8 @@ export const LegalBasisCard: FC<LegalBasisCardData> = ({
       <SectionLabel icon={Scale}>{t('cards.legalBasis')}</SectionLabel>
 
       {/* Header: law/Richtlinie + Ausgabe on the left, article/§ as marginalia
-          in a fixed right column at 11px mono — the way a statute prints its §
+          in a right column sized to its content at 11px mono (at least 72px,
+          never wrapped) — the way a statute prints its §
           in the margin (charter §B1). Every other card puts metadata inline;
           this one puts it in a margin, and that is the difference seen before
           a word is read. The authority tier stays beside the law as plain

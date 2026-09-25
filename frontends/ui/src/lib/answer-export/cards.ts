@@ -68,8 +68,8 @@ import type { Translator } from '@/i18n/translate'
 // would have filled every dev console with the walker's own guesses.
 import { answerExport as canonicalDictionary } from '@/i18n/dictionaries/en/answer-export'
 import type { GridCard } from '@/shared/cards/schemas'
-import { compact, type DocBlock, type DocRun } from './blocks'
-import { diagramLabel, markdownToBlocks, type MarkdownToBlocksOptions } from './markdown'
+import { compact, type DocBlock, type DocRun, type HeadingLevel } from './blocks'
+import { diagramBlocks, markdownToBlocks, type MarkdownToBlocksOptions } from './markdown'
 
 /** A stored card: validated upstream, but read here as untrusted jsonb. */
 type CardRecord = Record<string, unknown>
@@ -742,10 +742,10 @@ const cardHeading = (card: CardRecord, type: string, t: Translator): string => {
 /** How the cards of one export are printed. */
 export interface CardBlocksOptions extends MarkdownToBlocksOptions {
   /**
-   * The level of a card's own heading: 3 for a card of the answer, 4 for a
-   * card inside a titled `surface`, whose title stands over it.
+   * The level of a card's own heading: 3 for a card of the answer, deeper for
+   * a card inside a `surface`, below its title and its tab.
    */
-  headingLevel?: 3 | 4
+  headingLevel?: HeadingLevel
 }
 
 /** Render one stored card. Returns no blocks for something that is not a card. */
@@ -774,14 +774,8 @@ export function cardBlocks(value: unknown, t: Translator, options: CardBlocksOpt
       heading,
       // BEFORE the source, not after: a caption that arrives after the thing it
       // explains is a caption the reader has already misread.
-      // A format that prints a placeholder for a diagram (the PDF) gets it
-      // here too, exactly as for a fence in the prose: see `markdownToBlocks`.
-      ...(options.diagramPlaceholder
-        ? [{ kind: 'paragraph' as const, runs: [{ text: options.diagramPlaceholder, italic: true }], style: 'meta' as const }]
-        : [
-            { kind: 'paragraph' as const, runs: [{ text: diagramLabel('mermaid'), italic: true }], style: 'meta' as const },
-            source ? { kind: 'paragraph' as const, runs: [{ text: source, mono: true }] } : null,
-          ]),
+      // Printed exactly as a fence in the prose is, placeholder included.
+      ...diagramBlocks('mermaid', source, options.diagramPlaceholder),
       caption ? { kind: 'paragraph', runs: [{ text: caption }] } : null,
       // The Fundstelle, in the two-paragraph form the walker gives every other
       // card's reference — a procedure differs by Bundesland, so a drawing of
@@ -899,46 +893,55 @@ export function cardBlocks(value: unknown, t: Translator, options: CardBlocksOpt
 }
 
 /**
- * A `surface`'s cards, walked from its root in document order. A tab's title
- * is set above its card; Row and Column contribute nothing of their own; a
- * `Text` leaf is the answer's own Markdown and exports as the prose does.
+ * A `surface`'s cards, walked from its root in document order. Row and Column
+ * contribute nothing of their own; a `Text` leaf is the answer's own Markdown
+ * and exports as the prose does, its headings kept below the surface's.
+ *
+ * The levels nest as the surface does: its title at the answer's card level
+ * (3), what stands under it one level lower, and a tab's title one level above
+ * its card. A tab title is a heading, not a bold line: a bold line looked
+ * like the card heading under it, and both formats keep a heading on the page
+ * with what follows it.
  */
 function surfaceBlocks(card: Record<string, unknown>, t: Translator, options: CardBlocksOptions): DocBlock[] {
   const components = Array.isArray(card.components) ? card.components.filter(isRecord) : []
   const byId = new Map(components.map((component) => [String(component.id), component]))
   const title = typeof card.title === 'string' && card.title.trim() ? card.title.trim() : null
   const blocks: DocBlock[] = title ? [{ kind: 'heading', level: 3, text: title }] : []
-  // Under a title, each card's heading sits one level below it.
-  const leafOptions: CardBlocksOptions = { ...options, headingLevel: title ? 4 : 3 }
+  const { headingLevel: _headingLevel, ...markdownOptions } = options
   const seen = new Set<string>()
-  const walk = (id: string) => {
+  const walk = (id: string, level: HeadingLevel) => {
     const component = byId.get(id)
     if (!component || seen.has(id)) return
     seen.add(id)
     const name = String(component.component)
     if (name === 'Row' || name === 'Column') {
-      for (const child of Array.isArray(component.children) ? component.children : []) walk(String(child))
+      for (const child of Array.isArray(component.children) ? component.children : []) walk(String(child), level)
       return
     }
     if (name === 'Tabs') {
       for (const tab of Array.isArray(component.tabs) ? component.tabs.filter(isRecord) : []) {
-        if (typeof tab.title === 'string') blocks.push({ kind: 'paragraph', runs: [{ text: tab.title, bold: true }] })
-        walk(String(tab.child))
+        const tabTitle = typeof tab.title === 'string' ? tab.title.trim() : ''
+        if (tabTitle) blocks.push({ kind: 'heading', level, text: tabTitle })
+        walk(String(tab.child), tabTitle ? deeper(level) : level)
       }
       return
     }
     if (name === 'Text') {
       if (typeof component.text === 'string') {
-        blocks.push(...markdownToBlocks(component.text, { diagramPlaceholder: options.diagramPlaceholder }))
+        blocks.push(...markdownToBlocks(component.text, { ...markdownOptions, headingFloor: level }))
       }
       return
     }
     const { id: _id, component: _component, ...props } = component
-    blocks.push(...cardBlocks({ ...props, type: name }, t, leafOptions))
+    blocks.push(...cardBlocks({ ...props, type: name }, t, { ...options, headingLevel: level }))
   }
-  walk('root')
+  walk('root', title ? 4 : 3)
   return blocks
 }
+
+/** One heading level down, stopping at the deepest the formats define. */
+const deeper = (level: HeadingLevel): HeadingLevel => Math.min(5, level + 1) as HeadingLevel
 
 /** Render every card on an answer, in the order the answer emitted them. */
 export function cardsBlocks(cards: unknown, t: Translator, options: CardBlocksOptions = {}): DocBlock[] {

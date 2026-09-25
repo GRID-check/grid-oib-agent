@@ -55,6 +55,25 @@ describe('a card through A2UI', () => {
     })
   })
 
+  it('draws a lone card the surface excludes through A2UI, without a refusal', async () => {
+    // The exclusion is for a leaf INSIDE a surface. A lone card sits in the
+    // message itself, so a stored proposal or summary draws like any card.
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    const proposal = {
+      type: 'memory_proposal',
+      title: 'Diese Erkenntnis merken?',
+      content: 'Das Büro setzt bei GK 4 durchgängig REI 90 an.',
+      kind: 'preference',
+      confidence: 'high',
+    } as unknown as GridCard
+    render(<A2uiCard card={proposal} surfaceKey="m1:lone" render={renderCard} />)
+    await waitFor(() =>
+      expect(document.querySelector('[data-a2ui-surface="m1:lone"] [data-a2ui-node="memory_proposal"]')).not.toBeNull()
+    )
+    expect(warn).not.toHaveBeenCalled()
+    warn.mockRestore()
+  })
+
   it('draws a Tabs surface one tab at a time', async () => {
     const other = { ...BASIS, article: '5.2' } as GridCard
     render(<A2uiCard card={tabs([['Variante A', BASIS], ['Variante B', other]])} surfaceKey="m1:1" render={renderCard} />)
@@ -163,7 +182,7 @@ describe('a card through A2UI', () => {
 
   it('keeps every interactive card type out of a surface', () => {
     // The ratchet: a new interactive card type fails here until it is added
-    // to both lists (this one and `SURFACE_EXCLUDED_LEAVES` in cards/models.py).
+    // to this hand-kept list; cards/models.py derives its own from the catalog.
     for (const type of INTERACTIVE_CARD_TYPES) expect(SURFACE_EXCLUDED_LEAVES.has(type)).toBe(true)
   })
 

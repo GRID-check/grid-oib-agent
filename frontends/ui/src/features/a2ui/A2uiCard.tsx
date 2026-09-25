@@ -84,7 +84,7 @@ export function A2uiCard({ card, surfaceKey, render }: A2uiCardProps) {
   const content = useMemo(() => JSON.stringify(card), [card])
   const surface = useMemo(() => {
     if (!mounted) return null
-    const refusal = preflight(surfaceComponents(card))
+    const refusal = preflight(surfaceComponents(card), { surface: card.type === 'surface' })
     if (refusal) {
       console.warn('[A2UI] surface refused; drawing the card directly', card.type, refusal)
       return null

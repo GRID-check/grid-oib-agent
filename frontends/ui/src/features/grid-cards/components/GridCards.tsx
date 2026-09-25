@@ -1,4 +1,4 @@
-import { type FC } from 'react'
+import { type FC, useId } from 'react'
 import type { GridCard } from '@/shared/cards/schemas'
 import { cardKey } from '../card-decision'
 import { CardSetProvider } from '../card-set'
@@ -781,22 +781,27 @@ export const GridCardView: FC<GridCardViewProps> = ({
  * identity are unchanged, so every caller keeps working and every stored
  * message renders through the same path.
  */
-export const GridCardItem: FC<GridCardItemProps> = ({ card, index, projectId, messageId, decisionsMustPersist }) => (
-  <A2uiCard
-    card={card}
-    surfaceKey={`${messageId ?? 'card'}:${index}`}
-    render={(leaf, leafId) => (
-      <GridCardView
-        card={leaf}
-        index={index}
-        projectId={projectId}
-        messageId={messageId}
-        decisionsMustPersist={decisionsMustPersist}
-        leafId={card.type === 'surface' ? leafId : undefined}
-      />
-    )}
-  />
-)
+export const GridCardItem: FC<GridCardItemProps> = ({ card, index, projectId, messageId, decisionsMustPersist }) => {
+  // The surface id must be unique within the page; an answer without a
+  // message id (a preview, a streaming draft) takes one from React instead.
+  const fallbackId = useId()
+  return (
+    <A2uiCard
+      card={card}
+      surfaceKey={`${messageId ?? fallbackId}:${index}`}
+      render={(leaf, leafId) => (
+        <GridCardView
+          card={leaf}
+          index={index}
+          projectId={projectId}
+          messageId={messageId}
+          decisionsMustPersist={decisionsMustPersist}
+          leafId={card.type === 'surface' ? leafId : undefined}
+        />
+      )}
+    />
+  )
+}
 
 /**
  * Renders a list of Grid cards in a vertical stack: the structured cards

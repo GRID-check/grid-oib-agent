@@ -124,4 +124,48 @@ describe('a surface in the export', () => {
     const untitled = cardBlocks({ type: 'surface', components: [{ id: 'root', component: 'Column', children: ['a'] }, basis('a', 'REI 60.')] }, t)
     expect(untitled.flatMap((block) => (block.kind === 'heading' ? [block.level] : []))).toEqual([3])
   })
+
+  const levels = (blocks: DocBlock[]) =>
+    blocks.flatMap((block) => (block.kind === 'heading' ? [[block.level, block.text] as const] : []))
+
+  it('sets a tab’s title as a heading one level below the surface, its card one lower', () => {
+    const tabbed = (title?: string) => ({
+      type: 'surface',
+      ...(title ? { title } : {}),
+      components: [
+        { id: 'root', component: 'Tabs', tabs: [{ title: 'GK 4', child: 'a' }] },
+        basis('a', 'REI 60.'),
+      ],
+    })
+    expect(levels(cardBlocks(tabbed('Varianten'), t))).toEqual([
+      [3, 'Varianten'],
+      [4, 'GK 4'],
+      [5, 'Rechtsgrundlage'],
+    ])
+    expect(levels(cardBlocks(tabbed(), t))).toEqual([
+      [3, 'GK 4'],
+      [4, 'Rechtsgrundlage'],
+    ])
+  })
+
+  it('keeps a Text leaf’s headings below the surface title', () => {
+    const blocks = cardBlocks(
+      {
+        type: 'surface',
+        title: 'Varianten',
+        components: [
+          { id: 'root', component: 'Column', children: ['x', 'a'] },
+          { id: 'x', component: 'Text', text: 'A\n\n# Überblick\n\n## Detail\n\nB' },
+          basis('a', 'REI 60.'),
+        ],
+      },
+      t
+    )
+    expect(levels(blocks)).toEqual([
+      [3, 'Varianten'],
+      [4, 'Überblick'],
+      [4, 'Detail'],
+      [4, 'Rechtsgrundlage'],
+    ])
+  })
 })

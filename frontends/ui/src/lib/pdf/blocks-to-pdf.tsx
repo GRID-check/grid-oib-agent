@@ -140,13 +140,24 @@ const styles = StyleSheet.create({
     marginTop: 14,
     marginBottom: 5,
   },
-  /** A heading inside a card's section (a surface tab): below h3, above body. */
+  /**
+   * A heading inside a `surface`: a card under the surface's title, or a tab's
+   * title (`surfaceBlocks` in `cards.ts`). Below h3, above body.
+   */
   h4: {
     fontSize: PDF_TYPE.body,
     fontWeight: 'bold',
-    color: PDF_THEME.body,
+    color: PDF_THEME.ink,
     marginTop: 10,
     marginBottom: 4,
+  },
+  /** The card under a tab of a titled `surface`: one step below h4. */
+  h5: {
+    fontSize: PDF_TYPE.table,
+    fontWeight: 'bold',
+    color: PDF_THEME.body,
+    marginTop: 8,
+    marginBottom: 3,
   },
 
   // ---- paragraphs ----------------------------------------------------------
@@ -443,7 +454,7 @@ const headingNode = (
     )
   }
   return (
-    <Text key={key} style={block.level === 4 ? styles.h4 : styles.h3} minPresenceAhead={56}>
+    <Text key={key} style={block.level === 5 ? styles.h5 : block.level === 4 ? styles.h4 : styles.h3} minPresenceAhead={56}>
       {pdfText(block.text)}
     </Text>
   )

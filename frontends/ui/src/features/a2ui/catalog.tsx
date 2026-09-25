@@ -65,7 +65,7 @@ function useReportDrawn() {
 type CardSchema = (typeof gridCardSchema.options)[number]
 
 /** A card schema's `type` literal; one card defaults it, which wraps the literal. */
-function cardTypeOf(schema: CardSchema): string {
+export function cardTypeOf(schema: CardSchema): string {
   const field: z.ZodTypeAny = schema.shape.type
   const literal = field instanceof z.ZodDefault ? field._def.innerType : field
   return (literal as z.ZodLiteral<string>).value
@@ -255,11 +255,15 @@ export const SURFACE_EXCLUDED_LEAVES: ReadonlySet<string> = new Set([
  * reached the client another way, must not draw an interactive card whose
  * decision has nowhere to be kept. So is a surface that is not a tree
  * ({@link structuralRefusal}).
+ *
+ * `surface: false` is a lone card's one-component list: it sits in the message
+ * itself, not inside a surface, so no leaf is excluded and a stored
+ * `summary` or `memory_proposal` draws through the catalog like any other card.
  */
-export function preflight(components: Record<string, unknown>[]): string | null {
+export function preflight(components: Record<string, unknown>[], { surface = true } = {}): string | null {
   const registry = pilotiCatalog().components
   for (const { id, component, ...props } of components) {
-    if (SURFACE_EXCLUDED_LEAVES.has(String(component))) {
+    if (surface && SURFACE_EXCLUDED_LEAVES.has(String(component))) {
       return `'${String(id)}': a '${String(component)}' cannot sit inside a surface`
     }
     const api = registry.get(String(component))

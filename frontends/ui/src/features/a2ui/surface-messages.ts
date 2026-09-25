@@ -11,14 +11,9 @@ import type { A2uiMessage } from '@a2ui/web_core/v0_9'
 
 import type { GridCard } from '@/shared/cards/schemas'
 import { gridCardSchema } from '@/shared/cards/schemas'
-import { PILOTI_CATALOG_ID, SURFACE_EXCLUDED_LEAVES, TEXT_COMPONENT } from './catalog'
+import { cardTypeOf, PILOTI_CATALOG_ID, SURFACE_EXCLUDED_LEAVES, TEXT_COMPONENT } from './catalog'
 
-const CARD_TYPES: ReadonlySet<string> = new Set(
-  gridCardSchema.options.map((schema) => {
-    const field = schema.shape.type as { value?: string; _def?: { innerType?: { value?: string } } }
-    return field.value ?? field._def?.innerType?.value ?? ''
-  })
-)
+const CARD_TYPES: ReadonlySet<string> = new Set(gridCardSchema.options.map(cardTypeOf))
 
 type SurfaceCard = Extract<GridCard, { type: 'surface' }>
 

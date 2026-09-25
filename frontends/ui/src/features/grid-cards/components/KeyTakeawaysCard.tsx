@@ -7,13 +7,13 @@
  * where the alternative is a markdown bullet list: three discs of equal weight
  * that a reader has to read in full to find out which one is theirs.
  *
- * THE SHAPE (`docs/design/grid-card-charter.md` §A5: "ordinals in a descending
- * staircase"). The rows used to be separated by `divide-y` hairlines, which is
- * what made this a generic list — four cards in the set drew the same rules
- * around the same rows. Now the rank is drawn instead of ruled: the ordinals
- * hang off one continuous hairline while each takeaway steps 6px further right
- * than the one above it, so „most important first" is visible before a word is
- * read, and no other card in the set indents by rank.
+ * THE SHAPE (`docs/design/grid-card-charter.md` §A5). The rows used to be
+ * separated by `divide-y` hairlines, which is what made this a generic list —
+ * four cards in the set drew the same rules around the same rows. Now the rank
+ * is drawn instead of ruled: the ordinals hang off one continuous hairline and
+ * every takeaway sits in one text column, so the order is carried by the
+ * ordinals and by the first row's figure (below), not by an indent. A 6px
+ * per-rank staircase was tried and read as misregistration.
  *
  * THE FIGURE (§A2). A card carries exactly one element above 14px and it must
  * be the card's answer. This card's answer is five things, so the figure is
@@ -55,7 +55,7 @@ interface KeyTakeawaysCardProps {
   /**
    * Render flat on the answer surface: the envelope's native `takeaways`
    * field is the answer's own closing block, so it gets the eyebrow and the
-   * staircase but no ground and no frame. The framed default remains for
+   * ordinal rows but no ground and no frame. The framed default remains for
    * stored threads whose takeaways arrived as a card.
    */
   flat?: boolean
@@ -185,7 +185,7 @@ export const KeyTakeawaysCard: FC<KeyTakeawaysCardProps> = ({ title, items, flat
       {title && <p className="card-title text-foreground">{title}</p>}
 
       {/* One continuous hairline down the gutter, and no rules between rows:
-          the rank is carried by the indent, not by a box per takeaway. */}
+          the rank is carried by the ordinals, not by a box per takeaway. */}
       <ol className="mt-0.5 flex flex-col border-l border-border/70">
         {takeaways.map((item, index) => (
           <li key={`${item.text}-${index}`}>

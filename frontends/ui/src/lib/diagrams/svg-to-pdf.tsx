@@ -315,17 +315,6 @@ function arrowheadFor(element: SvgElement, at: 'start' | 'end', key: number): Re
   )
 }
 
-/**
- * Map one node, or `null` when it cannot be drawn.
- *
- * Returning `null` — rather than throwing — for an element missing the geometry
- * its component requires is deliberate: `<rect>` with no width is a rectangle
- * with no area, and refusing the whole PDF over one is worse than a drawing
- * that is missing something that was never visible. `<title>`, `<desc>` and
- * `<metadata>` return `null` for the same reason from the other direction: they
- * carry no paint, and `<metadata>` in particular carries the diagram source,
- * which belongs in the SVG and not printed across the page.
- */
 /** SVG's initial `font-size`, the `em` a text without one resolves against. */
 const DEFAULT_FONT_SIZE = 16
 
@@ -402,6 +391,17 @@ function placedTspans(
   ))
 }
 
+/**
+ * Map one node, or `null` when it cannot be drawn.
+ *
+ * Returning `null` — rather than throwing — for an element missing the geometry
+ * its component requires is deliberate: `<rect>` with no width is a rectangle
+ * with no area, and refusing the whole PDF over one is worse than a drawing
+ * that is missing something that was never visible. `<title>`, `<desc>` and
+ * `<metadata>` return `null` for the same reason from the other direction: they
+ * carry no paint, and `<metadata>` in particular carries the diagram source,
+ * which belongs in the SVG and not printed across the page.
+ */
 function toPdfNode(node: SvgNode, key: number): React.ReactNode {
   if (node.kind === 'text') return null
   const element = node
