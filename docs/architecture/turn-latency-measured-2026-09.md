@@ -14,8 +14,11 @@
 
 **A median chat turn takes 31.3 s, and 56% of that is the final answer call**,
 most of which is the model thinking before its first token. Since ADR-0066
-streams the prose, the reader sees the first word at about 12-14 s; the rest
-is the answer being written in front of them.
+streams the prose, the reader sees the first word at a median of about 27 s
+(27.4 s in §5, 27.6 s in §3.5), 4-5 s before the turn ends; the rest is the
+answer being written in front of them. The 12-14 s of §2 is the thinking
+inside the final call, before that call's first token, not the time to the
+first word.
 
 What that means for the levers:
 
@@ -26,10 +29,12 @@ What that means for the levers:
 * **Search rounds are already mostly parallel.** What remains sequential is
   dependent (search, read the hit, look at its table). One avoidable round,
   a list of RIS paragraphs fetched one per round, is fixed (§4).
-* **Before the first model call a turn spends about 3.4 s**, or 5.8-6.7 s on
-  the ~30% of turns whose first retrieval is judged insufficient and searched
-  again. The query embedding now runs beside the turn decision instead of
-  after it (§3). The requery is the biggest startup cost left, and it is
+* **Before the first model call a turn spends a median 3.2-3.6 s**, or
+  5.8-6.7 s on the ~30% of turns whose first retrieval is judged insufficient
+  and searched again (the two suites of 2026-09-24, §3.1). The query embedding
+  now runs beside the turn decision instead of after it (§3.2); the
+  2026-09-25 requery A/B, which includes that change, measured a median
+  2.66 s over all turns (§3.5). The requery is the biggest startup cost left, and it is
   worth its seconds: skipped, the model searches again itself, and the turn
   gets slower, not faster (§3.5).
 * **The repair pass does not move the median** either way: in two full suite
@@ -47,7 +52,7 @@ inventory in place (§8 says why that matters: without it the median was
 | Final answer call (the `/responses` call that writes the envelope) | 16.2 s | 56% |
 | &nbsp;&nbsp;of which thinking before the first token | ≈ 12-14 s | |
 | Research-round model calls (each round's decision to search again) | 5.7 s | |
-| Round 0: turn decision, prefetch retrieval, sufficiency, requery | 3.7 s | |
+| Round 0: turn decision, prefetch retrieval, sufficiency, requery (whole round, requery included where it ran) | 3.7 s | |
 | Tool execution (embedding, Chroma, rerank, RIS) | 1.3 s | |
 | **Whole turn** | **31.3 s** | |
 
@@ -83,6 +88,11 @@ t=0  ┬ turn setup (~20 ms)
      │   └ second retrieval + rerank                                       ~1-1.8 s
      └ first /responses call
 ```
+
+Medians across the two suites of 2026-09-24, split by whether round 0
+requeried. They are not the §2 round-0 slice (3.7 s), which is one suite and
+mixes both cases, nor the 2.66 s of §3.5, which is a later run over all turns
+with the embedding warm-up of §3.2 in place.
 
 | | Median to the first model call |
 |---|---|

@@ -96,22 +96,21 @@ Re-recorded with the masthead first and replayed the same way: 24-25 px on the
 two-variant answer (the terminal's last line rewrap), 0 px on the overview,
 and the terminal frame's cumulative layout shift from 0.55 to 0.009 (desktop).
 
-Streaming made one old behaviour visible: the verification repair pass may
-replace the answer the reader has already read. Its adoption rule counted
+Streaming made one old behaviour visible: the verification repair pass could
+replace the answer the reader had already read. Its adoption rule counted
 failures only, so a rewrite that dropped most of its citations always looked
 better; live, it replaced a settled answer citing nine sources with one citing
-two, 22 s after the reader had it. A rewrite is now adopted only when it also
-cites at least as many distinct sources as the verified original
-(`_adopt_if_better`). Two defects found looking at it: the settled snapshot
-checked citations but not quotes, so a quote no passage holds read as real
-until the terminal frame marked it (now marked at settle); and after an
-adopted rewrite a card's `[N]` was read against the rewrite's source list
-(now carried through the numbers both lists share). Whether the whole-answer
-rewrite should give way to a span-level repair is weighed in
-`docs/architecture/repair-pass-alternatives-2026-09.md` and decided in
-ADR-0067: the rewrite is gone, and the repair corrects a misremembered quote
-in place. The answer suite counts each terminal that changed the settled text
-(`settled_replaced`).
+two, 22 s after the reader had it. This decision first guarded it: a rewrite
+was adopted only when it also cited at least as many distinct sources as the
+verified original (`_adopt_if_better`), and after an adopted rewrite a card's
+`[N]` was carried through the numbers both source lists shared. ADR-0067
+replaced that repair, guard included: the whole-answer rewrite is gone, and the
+repair corrects a misremembered quote in place (weighed in
+`docs/architecture/repair-pass-alternatives-2026-09.md`). One defect found
+along the way still stands fixed: the settled snapshot checked citations but
+not quotes, so a quote no passage holds read as real until the terminal frame
+marked it; it is now marked at settle. The answer suite counts each terminal
+that changed the settled text (`settled_replaced`).
 
 ### Consequences
 
@@ -125,7 +124,8 @@ in place. The answer suite counts each terminal that changed the settled text
   2.5 s after the first pending pill.
 * Bad, because the text can still change: a pending pill whose source did not
   verify vanishes at the snapshot, a repair pass (0 in the last 25-question
-  sweep, 5 in the one before) rewrites prose at the terminal, and an escalation
+  sweep, 5 in the one before) rewrote prose at the terminal (since ADR-0067 it
+  changes only a misremembered quote's wording), and an escalation
   replaces the bubble with the run or the handoff.
 * Bad, because the model's thinking before its first token (15-20 s on most
   turns) is untouched; streaming shortens the wait for the writing, not for
@@ -147,7 +147,9 @@ in place. The answer suite counts each terminal that changed the settled text
   goes and the rest take the numbers the terminal will give.
 * `citation-markers.spec.ts`, `store.spec.ts`, `use-websocket-chat.spec.ts`,
   `spectator-frames.spec.ts`: a pending marker, the replacing snapshot, and a
-  spectator that does not read the answer twice.
+  spectator that does not read the answer twice. `store.spec.ts` also: a
+  masthead frame opens the bubble, a terminal without live cards takes them
+  back.
 * `tests/aiq_agent/turn/test_answer_stream.py`: the inherited handlers still see
   the streamed call, a non-envelope round streams nothing, no second call
   streams once prose went out, Responses-API token blocks are read.
@@ -155,17 +157,19 @@ in place. The answer suite counts each terminal that changed the settled text
 * `test_answer_envelope.py`: the strict schema writes the masthead, then
   `answer`. `CardSlotArrival.spec.tsx`, `card-markers.spec.tsx`: a streaming
   marker holds its card's place, a final one with no card holds nothing.
-  `test_repair_adoption.py`: a repair that loses sources is not adopted.
+  `tests/aiq_agent/common/test_lost_citations.py`: a removed citation never
+  calls the repair; `tests/aiq_agent/agents/piloti/test_quote_patch.py`: the
+  repair changes only the words between a quote's quotation marks (ADR-0067).
 * The answer suite's core set, masthead-first against the run before it
   (2026-09-24, 2 runs each): checks 27/28 on both, the one miss (`kind` on
   the two-variant question) unchanged; final-call seconds within run-to-run
   spread on five questions. The OIB-2 overview read +28 s on two runs and
   +6 s on four more (22-51 s, tracking 1-3 research rounds), so no cost of
   the order was measurable.
-  `store.spec.ts`: a masthead frame opens the bubble, a terminal without live
-  cards takes them back.
 
 ## More Information
 
 Amends `docs/design/streaming-chat-answer.md`, whose buffered orchestration
-this replaces for the prose; its wire contract stands.
+this replaces for the prose; its wire contract stands for the terminal frame,
+and the live frames (snapshot, masthead, cards) are fields on `in_progress`
+messages (`docs/api/websocket-protocol.md`).

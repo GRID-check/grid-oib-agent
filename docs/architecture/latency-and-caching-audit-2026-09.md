@@ -45,7 +45,7 @@ Ranked by expected seconds saved per turn without touching answer quality:
 | 4 | Three serial internal HTTP hops before the graph starts, one of them a five-hop memory-digest chain | up to 7 s of ceilings, hundreds of ms warm | `asyncio.gather`, version-keyed digest (§3.4) |
 | 5 | Two synchronous `urllib` POSTs on the event loop between "answer final" and "first delta" | up to 10 s of ceilings, blocks every turn on the replica | flush after the yield, off the loop (§3.5) |
 | 6 | Synchronous BFF lookups on the event loop with 5 s timeouts, cold every 60 s per replica | stalls all concurrent turns on a miss | `to_thread` or background refresh (§3.6) |
-| 7 | Ingest hold, repair pass, WS-upgrade chain, deep-research job tail | situational, up to 20 s / 6 min | bound and parallelise (§3.7 to §3.10) |
+| 7 | Ingest hold, repair pass, WS-upgrade chain, deep-research job tail | situational, up to 20 s / 6 min | bound and parallelise (§3.7 to §3.10). **[SUPERSEDED, ADR-0067]** for the repair pass: it is now one small-model call per misremembered quote, no retrievals (§3.8) |
 
 **Caching** (§4): nineteen cache layers exist and the ones that matter for
 correctness are good. What is missing is the LLM-facing half: no provider
@@ -72,7 +72,7 @@ WS frame ──▶ aiq_api handler ──▶ chat_researcher._run
   │        │   └ knowledge_search: embed → chroma → RRF → rerank LLM ‖ requery LLM → format
   │        ├ forced synthesis, JSON-mode ladder (≤ 3 calls)     :848-909
   │        ├ verify_citations, verify_quoted_spans (pure)       :1407 :1423
-  │        ├ repair pass (≤ 2 retrievals + 1 rewrite)           :1436-1481
+  │        ├ repair pass (≤ 2 retrievals + 1 rewrite)           :1436-1481   [SUPERSEDED, ADR-0067: ≤ 3 small quote patches, no retrieval]
   │        └ sanitize_report                                    :1571
   │ teardown: profiler.flush(wait=True), tracker.flush(wait=True)   blocking urllib
   │ fire-and-forget: registry persist, post-answer stages
@@ -157,7 +157,8 @@ tok/s that is ~14 s of decoding alone", on `rerank_llm`, which resolves to the
 same `${GRID_DEFAULT_MODEL}` as every other role (`:317`). It runs once per
 `knowledge_search` (`sources/knowledge_layer/src/register.py:1809`), a second
 time when the requery judge asks for more (`:1816-1831`), and again for each of
-the up to two repair-pass retrievals (`shallow_researcher/agent.py:1154-1163`).
+the up to two repair-pass retrievals (`shallow_researcher/agent.py:1154-1163`;
+gone since ADR-0067, §3.8).
 A two-search turn with one requery is three of these calls, all on the path to
 the first character.
 
@@ -318,6 +319,11 @@ hold fires in production is not knowable from the repo and decides whether
 this is a headline or a footnote.
 
 ### 3.8 The repair pass
+
+**[SUPERSEDED, ADR-0067]** `_repair_answer` and its two retrievals are gone.
+The repair now only corrects a misremembered quote in place: one small-model
+call per quote, at most three quotes, 8 s each, no retrievals and no rewrite.
+What follows describes the pass as it was on the audit's date.
 
 **[LANDED, the gather]** The two lookups run together and keep their order.
 The requery skip and the wall-clock bound are still open; both change the

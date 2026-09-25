@@ -114,7 +114,8 @@ tool-deciding round alone thought for 4 335 tokens (54 s) before asking for
 two more passages. That spread, not the round count, is the depth variance:
 three extra rounds cost less than one reasoning spike. And nothing streams
 (latency audit §3.1), so every one of those seconds is time to first
-character.
+character. *(Since ADR-0066 the prose streams: the reasoning before the final
+call's first token still waits, the writing no longer does.)*
 
 **Defects found on the way, closed at their cause:**
 
@@ -809,7 +810,8 @@ plan below does not pretend to have addressed them:
 - **Nothing streams** (latency audit §3.1, ledger item 16). The largest felt
   wait on a chat turn is the synthesis call, and it is shown all at once. §3.4
   is the format half of that decision; the reader-facing half is the L item
-  it already is.
+  it already is. *(Since ADR-0066 the prose streams while the final call
+  writes it.)*
 - **The live line is per round, not per call.** A round of five parallel
   opens shows one line; the judge inside a search shows nothing. Fine while
   the judge is fast; if J2 is not done, a 10 s judge is a silent 10 s.

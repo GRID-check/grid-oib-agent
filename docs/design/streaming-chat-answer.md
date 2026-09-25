@@ -4,8 +4,10 @@
 [ADR-0066](../adr/0066-the-answer-prose-streams-and-the-verified-frame-settles-it.md)
 (2026-09-24): the answer's prose now streams while the final call writes it,
 each `[N]` a pending citation until the text closes and a settled snapshot
-names its sources, and the terminal frame replaces it. The wire
-contract below is unchanged. Streaming is the default delivery; there is
+names its sources, and the terminal frame replaces it. The wire contract
+below still holds for the terminal frame and for a buffered turn; ADR-0066
+added three kinds of live `IN_PROGRESS` frame beside the plain delta
+([Live frames](#live-frames-adr-0066)). Streaming is the default delivery; there is
 no runtime flag — the backend and frontend ship together in this monorepo, so
 the change is atomic and needs no staged rollout toggle.
 **Related:** the per-turn chat path (`agents/piloti/conversation_register.py`), `websocket_reconnect.py`,
@@ -52,24 +54,29 @@ research. So we cannot stream the model's raw tokens without briefly showing
 unverified citations (the exact thing "preserve citations first" forbids) or
 streaming text that gets superseded.
 
-**Consequence:** orchestration stays fully buffered. We stream the
-**already-verified** final text as deltas. This is a typewriter/progressive
-rendering improvement, **not** a time-to-first-token reduction — the first delta
-is emitted only after the answer is generated, verified, and sanitized.
+**Consequence (2026-07-18, until ADR-0066):** orchestration stayed fully
+buffered. We streamed the **already-verified** final text as deltas. This was a
+progressive rendering improvement, **not** a time-to-first-token reduction — the
+first delta left only after the answer was generated, verified, and sanitized.
+Since ADR-0066 that holds only for a turn with nothing streamed live (a
+buffered LLM, a reply that was not an envelope).
 
 **And the deltas carry no pace** — see [There is no typewriter](#there-is-no-typewriter).
 
 ## Wire contract
 
-Backend `_run` is an async generator yielding `ChatResponseChunk`s. Orchestration
-is buffered; only delivery differs.
+Backend `_run` is an async generator yielding `ChatResponseChunk`s.
 
-- **Answer turns:** yield incremental **delta** chunks (`finish_reason=None`, no
-  extras, contents concatenate to *exactly* the final text), then one
+- **Answer turns:** yield incremental **delta** chunks (`finish_reason=None`),
+  then one
   **terminal** chunk — full content, `finish_reason="stop"`, extras
   (`cards`/`sources`/`answer_confidence`/`run_id`) on
   `model_extra`. The terminal is authoritative for persistence and for the
-  single-consumer fold.
+  single-consumer fold. On a buffered turn the deltas carry no extras and
+  concatenate to *exactly* the final text (`response_to_chunks`). On a live
+  turn they are the model's prose as it is written, and they need not add up
+  to the final text: a snapshot replaces them, and the terminal replaces the
+  snapshot.
 - **Error / budget turns:** a single **terminal** chunk (short, fully known up
   front — no point tokenizing). The WS handler renders a lone terminal chunk
   with the pre-streaming frame pattern, so these are unaffected.
@@ -78,6 +85,23 @@ The delta/terminal distinction reaches the wire via WS message **status**:
 deltas ⇒ `IN_PROGRESS`, terminal ⇒ the completing frame. `_response_to_chunks`
 keeps a `stream` parameter (True for answers, False for errors), but there is no
 env/runtime gate — streaming is always on for answer turns.
+
+### Live frames (ADR-0066)
+
+`turn/streaming.py::live_chunk` builds every live chunk; all are
+`finish_reason=None`, so all reach the wire as `IN_PROGRESS` and none is
+persist-eligible. Besides the plain delta, which appends, there are three:
+
+| Frame | Carries | The client |
+|---|---|---|
+| Snapshot | `content`, `sources`, `stream_replace: true`, and the re-gated `answer_meta` | REPLACES the bubble's text with the settled, renumbered prose; the pending `[N]` become citations against `sources` |
+| Masthead | empty `content`, `answer_meta` | sets the masthead above the prose; the text is unchanged |
+| Cards | empty `content`, `cards` | fills the `[[card:N]]` placeholders; the text is unchanged |
+
+One snapshot is sent per turn, when the envelope's `answer` string closes. The
+terminal then replaces the text once more and takes back what it omits (a
+suppressed card, a masthead gated out). The wire fields:
+[`websocket-protocol.md`](../api/websocket-protocol.md#live-frames-adr-0066).
 
 ### WS handler (`websocket_reconnect.py::_run_workflow`)
 
@@ -93,7 +117,9 @@ env/runtime gate — streaming is always on for answer turns.
 
 - Maintain one streaming bubble per turn (keyed by `parent_id`).
 - `IN_PROGRESS` content frame ⇒ **append** delta to the streaming bubble
-  (create it on the first delta).
+  (create it on the first delta); with `stream_replace` ⇒ **replace** it
+  (`replaceStreamingAgentResponse`); with `answer_meta` or `cards` ⇒ set them
+  on the bubble.
 - Completing frame with full content ⇒ **replace** the bubble content with the
   authoritative full text (idempotent when equal to the accumulation), attach
   `cards`/`sources`, finalize.
@@ -108,6 +134,9 @@ copied from the terminal. Deltas are ignored when a terminal is present, so the
 folded content is never doubled.
 
 ## There is no typewriter
+
+This section is about a buffered turn; on a live turn the pace is the
+model's own.
 
 The delta sequence is a SHAPE, not a pace. `_response_to_chunks` cuts a finished
 answer into ~24-character pieces (`_iter_answer_deltas`) and yields them as fast
