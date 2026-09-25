@@ -488,3 +488,14 @@ def test_the_startup_probe_reexecutes_into_this_checkout(monkeypatch):
     # The re-executed process does not re-execute.
     monkeypatch.setenv(startup_probe._IN_TREE, "1")
     startup_probe._in_tree(["Frage?"])
+
+
+def test_a_landed_quote_patch_explains_the_settled_replacement():
+    # A landed patch removes the quote's unverified marker, so the terminal
+    # differs from the settled frame by design (ADR-0067); N = 0 is logged too.
+    replaced = "Piloti: the terminal frame replaced the settled answer (10 -> 9 chars)\n"
+    landed = suite.log_signals("Piloti: quote patch corrected 1 of 2 quote(s)\n" + replaced)
+    missed = suite.log_signals("Piloti: quote patch corrected 0 of 1 quote(s)\n" + replaced)
+
+    assert "quote_patch" in landed and "settled_patched" in landed and "settled_replaced" not in landed
+    assert "quote_patch" not in missed and "settled_replaced" in missed

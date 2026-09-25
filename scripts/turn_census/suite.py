@@ -118,6 +118,28 @@ class Run:
 # --- Questions ---------------------------------------------------------------
 
 
+_PATCHED_RE = re.compile(r"quote patch corrected (\d+) of \d+")
+
+
+def log_signals(log_text: str) -> list[str]:
+    """The pipeline signals a run's log carries.
+
+    ``quote_patch`` counts only a patch that LANDED (N > 0 in „corrected N of
+    M"; the line is logged for N = 0 too). A landed patch removes the quote's
+    unverified marker, so the terminal frame differs from the settled one by
+    design (ADR-0067): that run's ``settled_replaced`` is ``settled_patched``,
+    and only the rest are regressions. A run with both a landed patch and a
+    real regression reads as patched; the log cannot tell them apart.
+    """
+    found = [name for name, needle in _LOG_SIGNALS.items() if needle in log_text]
+    landed = any(int(n) > 0 for n in _PATCHED_RE.findall(log_text))
+    if not landed:
+        found = [name for name in found if name != "quote_patch"]
+    elif "settled_replaced" in found:
+        found[found.index("settled_replaced")] = "settled_patched"
+    return found
+
+
 def load_questions(path: Path = QUESTIONS, *, core_only: bool = True) -> tuple[list[dict], list[str]]:
     """The runnable questions and the ids skipped because they need a project."""
     import yaml
@@ -230,7 +252,7 @@ def observe(question: dict, index: int, record: Path, log: Path) -> Run:
     envelope, answered_at = last_envelope(research)
     run.wall_s = round(rows[-1]["t_end"] - rows[0]["t_start"], 1)
     _read_calls(run, research, answered_at, rows[0]["t_start"])
-    run.signals = [name for name, needle in _LOG_SIGNALS.items() if needle in log_text]
+    run.signals = log_signals(log_text)
     run.answer = final_answer(log_text)
     run.envelope = {"kind": envelope.get("kind"), "cards": envelope.get("cards") or []} if envelope else None
     run.kind = str((envelope or {}).get("kind") or "")
