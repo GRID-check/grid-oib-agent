@@ -263,6 +263,25 @@ export const createResilientStorage = (): PersistStorage<PersistedChatState> | u
   // A tab closed mid-answer still leaves its latest state behind.
   window.addEventListener('pagehide', flushPending)
 
+  // What the last call was handed. `persist` calls setItem on EVERY store
+  // update — a loading flag, a status line, a thinking step — and each call
+  // pruned and serialized the whole history only to find nothing had changed.
+  // The store updates immutably, so a persisted field that is the same
+  // reference is the same content: a call whose fields all are is skipped
+  // before any of that work. The last call was written or is held, either way.
+  let lastState: PersistedChatState | null = null
+  let lastVersion: number | undefined
+  // Every key either state carries, so a field `partialize` gains later is
+  // compared too rather than silently never written.
+  const unchangedSinceLastCall = (value: PersistedChatStorageValue): boolean => {
+    const previous: Record<string, unknown> | null = lastState
+    if (previous === null || value.version !== lastVersion) return false
+    const next: Record<string, unknown> = value.state
+    const keys = new Set([...Object.keys(previous), ...Object.keys(next)])
+    for (const key of keys) if (next[key] !== previous[key]) return false
+    return true
+  }
+
   return {
     getItem: async (name: string): Promise<PersistedChatStorageValue | null> => {
       const raw = await base.getItem(name)
@@ -290,9 +309,13 @@ export const createResilientStorage = (): PersistStorage<PersistedChatState> | u
     },
     removeItem: (name: string) => {
       dropPending()
+      lastState = null
       return base.removeItem(name)
     },
     setItem: (name: string, value: PersistedChatStorageValue) => {
+      if (unchangedSinceLastCall(value)) return
+      lastState = value.state
+      lastVersion = value.version
       if (!isStreamingAnswer(value)) {
         write(name, value)
         return

@@ -44,6 +44,9 @@ const config: AppConfig = {
 
 interface StreamChatProbe {
   done: boolean
+  /** `performance.now()` when the question was sent, and when the first answer frame landed. */
+  sentAt: number
+  firstFrameAt: number
   commits: { id: string; ms: number }[]
   storageWrites: number
   storageMs: number
@@ -113,13 +116,15 @@ const instrumentStorage = (probe: StreamChatProbe): (() => void) => {
 const replay = (
   speed: number,
   later: (run: () => void, ms: number) => void,
-  onDone: () => void
+  onDone: () => void,
+  onFirstFrame: () => void
 ) => {
   const store = useChatStore.getState
   const t0 = TURN.frames[0]?.t ?? 0
   TURN.frames.forEach((frame, index) =>
     later(
       () => {
+        if (index === 0) onFirstFrame()
         const citations = citationsFromWireList(frame.sources)
         if (frame.status === 'complete') {
           store().finalizeAgentResponse(
@@ -152,9 +157,14 @@ export default function StreamChatPage() {
   const params = useSearchParams()
   const history = Math.max(0, Number(params.get('history') ?? '40') || 0)
   const speed = Number(params.get('speed') ?? '1') || 1
+  // How long after mount the question is sent: long enough to profile the send
+  // on its own, clear of the page's mount.
+  const sendDelay = Number(params.get('delay') ?? '300') || 300
   const shell = params.get('shell') === '1'
   const [probe] = useState<StreamChatProbe>(() => ({
     done: false,
+    sentAt: 0,
+    firstFrameAt: 0,
     commits: [],
     storageWrites: 0,
     storageMs: 0,
@@ -195,14 +205,20 @@ export default function StreamChatPage() {
       probe.storageWrites = 0
       probe.storageMs = 0
       probe.longTasks = []
-      replay(speed, later, () => (probe.done = true))
-    }, 300)
+      probe.sentAt = performance.now()
+      replay(
+        speed,
+        later,
+        () => (probe.done = true),
+        () => (probe.firstFrameAt = performance.now())
+      )
+    }, sendDelay)
     return () => {
       timers.forEach((timer) => window.clearTimeout(timer))
       observer.disconnect()
       restoreStorage()
     }
-  }, [ready, probe, speed])
+  }, [ready, probe, speed, sendDelay])
 
   return (
     <I18nProvider initialLocale="de" fixedLocale>
