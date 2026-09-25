@@ -91,7 +91,8 @@ def summarize(path: Path) -> dict:
         bucket["seconds"] += row["t_end"] - row["t_start"]
         if call == "research":
             research.append({"input": tokens_in, "cached": details.get("cached_tokens") or 0})
-    wall = rows[-1]["t_end"] - rows[0]["t_start"] if rows else 0.0
+    # The call that ends last need not start last: quote patches and checks overlap.
+    wall = max(row["t_end"] for row in rows) - rows[0]["t_start"] if rows else 0.0
     return {"kinds": kinds, "research": research, "wall_seconds": round(wall, 1)}
 
 

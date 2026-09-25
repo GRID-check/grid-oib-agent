@@ -248,7 +248,8 @@ def observe(question: dict, index: int, record: Path, log: Path) -> Run:
         return run
     research = [entry for entry in rows if call_kind(entry) == "research"]
     envelope, answered_at = last_envelope(research)
-    run.wall_s = round(rows[-1]["t_end"] - rows[0]["t_start"], 1)
+    # The call that ends last need not start last: quote patches and checks overlap.
+    run.wall_s = round(max(row["t_end"] for row in rows) - rows[0]["t_start"], 1)
     _read_calls(run, research, answered_at, rows[0]["t_start"])
     run.signals = log_signals(log_text)
     run.answer = final_answer(log_text)
@@ -696,6 +697,10 @@ def _warn_if_dirty(commit: str) -> None:
 
 
 def main(argv: list[str] | None = None) -> int:
+    # Every run executes in the checkout (`cwd=ROOT`); the registry, the corpus
+    # an --ingest reads and the inventory are resolved there too, wherever the
+    # suite was started from.
+    os.chdir(ROOT)
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--all", action="store_true", help="every question with a family, not only `suite: core`")
     parser.add_argument("--only", nargs="*", help="question ids to run")

@@ -600,3 +600,17 @@ def test_census_report_without_recordings_names_the_mistake(capsys):
     with pytest.raises(SystemExit):
         census.main(["--report"])
     assert "--report needs the recordings" in capsys.readouterr().err
+
+
+def test_wall_time_ends_with_the_call_that_ends_last(tmp_path):
+    # A long answer call overlapped by a short check that started later.
+    import census
+
+    record = tmp_path / "r.jsonl"
+    rows = [
+        {"t_start": 0.0, "t_end": 30.0, "url": "https://openrouter.ai/api/v1/responses", "req": {"input": "q"}},
+        {"t_start": 5.0, "t_end": 6.0, "url": "https://openrouter.ai/api/v1/chat/completions", "req": {}},
+    ]
+    record.write_text("".join(json.dumps(row) + "\n" for row in rows))
+
+    assert census.summarize(record)["wall_seconds"] == 30.0
