@@ -189,7 +189,8 @@ def page_text_with_tables(text: str, tables: list[PageTable]) -> str:
         table = join_fragments([fragment])[0]
         if fragment.continuation:
             table.header_rows = 0
-        caption = f"Tabelle {table.table_id}: {table.title}" if not fragment.continuation else ""
+        label = f"Tabelle {table.table_id}"
+        caption = "" if fragment.continuation else (f"{label}: {table.title}" if table.title else label)
         body = "\n".join(markdown_chunks(table, max_chars=10**9))
         parts.append("\n\n".join(part for part in (caption, body) if part))
     return "\n\n".join(parts)

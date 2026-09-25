@@ -63,9 +63,10 @@ def _unread_sentence(address: Address) -> str:
     sign = "§" if address.kind == "§" else "Art."
     runs = _runs(address.unread)
     named = ", ".join(f"{sign} {r[0]}" if len(r) == 1 else f"{sign} {r[0]} bis {sign} {r[-1]}" for r in runs)
-    read = len(address.sections)
+    addressed = len(address.sections)
     return (
-        f"[Only the first {read} of the listed sections were read; not read: {named}. Ask for them in a second call.]"
+        f"[Only the first {addressed} of the listed sections were addressed; not read: {named}. "
+        "Ask for them in a second call.]"
     )
 
 

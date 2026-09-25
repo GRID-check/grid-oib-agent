@@ -32,7 +32,7 @@ the same path internally, with its own bounds, one module per stage under
 | address parse (§/Art/Abs, named law, Bundesland) | `address.py` | — deterministic, no LLM |
 | candidates (norm registry, else a planned live search) | `candidates.py` | 3 |
 | fetch, in parallel, through the shared cache | `fetch.py` | 2 |
-| the paragraph grammar | `grammar.py` | a named § ≤ 8000 chars (`SECTION_MAX_CHARS`); a list shares 16000 (`LIST_MAX_CHARS`), at least the knowledge layer's `_CHUNK_TRUNCATE_CHARS` each; a ranked pick ≤ `_CHUNK_TRUNCATE_CHARS`; always cut on an Absatz boundary |
+| the paragraph grammar | `grammar.py`, `passages.py` | a named § ≤ 8000 chars (`grammar.SECTION_MAX_CHARS`); a list shares 16000 (`passages.LIST_MAX_CHARS`), at least the knowledge layer's `_CHUNK_TRUNCATE_CHARS` each; a ranked pick ≤ `_CHUNK_TRUNCATE_CHARS`; always cut on an Absatz boundary |
 | § selection — deterministic, else ONE call over § headings | `extract.py`, `picker.py` | 6 passages, 2 documents |
 | the grounding block / the miss | `passages.py`, `render.py`, `miss.py` | — |
 | session-collection ingest (so `read_passage` reopens the law) | `ingest.py` | — |

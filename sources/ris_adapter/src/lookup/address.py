@@ -135,10 +135,12 @@ def _list_from(text: str, kind: str, start: int) -> tuple[tuple[str, ...], int]:
         return (), start
     items, end = [first.group(1) + first.group(2).lower()], first.end()
     while True:
-        qualifier = _QUALIFIER_RE.match(text, end)
-        end = qualifier.end() if qualifier else end
+        qualified = False
+        # "Abs 1 Z 2 lit. a" is three qualifiers on one item; each is consumed.
+        while qualifier := _QUALIFIER_RE.match(text, end):
+            qualified, end = True, qualifier.end()
         join = _JOIN_RE.match(text, end)
-        item = join and _next_item(text, kind, join, qualified=qualifier is not None)
+        item = join and _next_item(text, kind, join, qualified=qualified)
         if not item:
             return tuple(dict.fromkeys(items)), end
         _extend(items, item.group(1), item.group(2).lower(), ranged=join.group(1).lower() in _RANGE_JOINS)

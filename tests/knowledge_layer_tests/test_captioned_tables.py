@@ -82,6 +82,21 @@ def test_a_richtlinie_indexes_its_table_as_an_addressable_passage():
     assert "Tabelle 3: Anforderungen an Treppenhäuser" in table.text
 
 
+def test_a_caption_without_a_title_is_the_table_number_alone():
+    body = "\n".join(f"{n} Punkt Nummer {n}\nText zu Punkt {n}, lang genug um zu zählen." for n in range(1, 8))
+    untitled = PageTable("3", "", [HEADER, *ROWS], 2)
+    pages = [
+        {"page_number": 1, "text": "OIB-Richtlinie 9 Ausgabe Mai 2023\n" + body},
+        {"page_number": 2, "text": "Tabelle 3:", "tables": [untitled]},
+    ]
+    [table] = [
+        d for d in punkt_documents(pages, "oib-rl_9_ausgabe_mai_2023.pdf", 1) if d.metadata["chunking"] == "table"
+    ]
+    assert table.metadata["punkt_path"] == "Tabelle 3"
+    assert "\nTabelle 3\n" in table.text
+    assert page_text_with_tables("", [untitled]).startswith("Tabelle 3\n")
+
+
 class _FakeTable:
     def __init__(self, rows, top):
         self._rows = rows
@@ -152,6 +167,40 @@ def test_a_captionless_box_pages_later_does_not_continue_an_old_table(monkeypatc
 
     tables = [(page["page_number"], table.table_id) for page in extracted for table in page["tables"]]
     assert tables == [(3, "3")]
+
+
+def test_the_table_pass_skips_what_the_captioned_pass_took(monkeypatch):
+    """AIQ_EXTRACT_TABLES read every pdfplumber table again: Tabelle 3 stood in
+    the index twice, as „Tabelle 3" and as „[TABLE from page 1]"."""
+    import pdfplumber
+    from knowledge_layer.llamaindex.adapter import _extract_tables_from_pdf
+    from knowledge_layer.llamaindex.adapter import _extract_text_from_pdf
+
+    box = _FakeTable([["Formular", "Feld"], ["Name", "—"]], top=400)
+    pdf = SimpleNamespace(
+        pages=[
+            _FakePage([_FakeTable([HEADER, *ROWS], top=300)], caption="Tabelle 3: Anforderungen an Treppenhäuser"),
+            _FakePage(),
+            _FakePage([box]),
+        ]
+    )
+
+    class _Open:
+        def __enter__(self):
+            return pdf
+
+        def __exit__(self, *exc):
+            return False
+
+    monkeypatch.setattr(pdfplumber, "open", lambda path: _Open())
+
+    text_pages = _extract_text_from_pdf("x.pdf")
+    taken = {page["page_number"]: page["table_boxes"] for page in text_pages}
+    tables = _extract_tables_from_pdf("x.pdf", taken)
+
+    assert [(table["page_number"], table["table_text"].splitlines()[0]) for table in tables] == [
+        (3, "| Formular | Feld |")
+    ]
 
 
 def test_only_the_next_page_can_continue_a_table():

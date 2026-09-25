@@ -147,8 +147,10 @@ By default, LlamaIndex ingests text only and calls the embedding and VLM models 
 | **Embedding** | | |
 | `AIQ_EMBED_MODEL` | `openai/text-embedding-3-large` | Embedding model id; keep it stable, stored vectors only match query vectors from the same model |
 | `AIQ_EMBED_BASE_URL` | `https://openrouter.ai/api/v1` | Embedding API base URL (any OpenAI-compatible embeddings endpoint) |
+| `AIQ_EMBED_TIMEOUT_SECONDS` | `60` | Per-request timeout on the ingestion embeddings client, two retries |
+| `AIQ_QUERY_EMBED_TIMEOUT_SECONDS` | `3` | Per-request timeout on the query embedding a chat turn waits on, two retries; retrieval fails open after the third attempt |
 | **Extraction Flags** | | |
-| `AIQ_EXTRACT_TABLES` | `false` | Extract tables from PDFs as markdown using pdfplumber |
+| `AIQ_EXTRACT_TABLES` | `false` | Also index every other pdfplumber table in a PDF as a `[TABLE from page N]` chunk. Captioned tables („Tabelle 3: …") do not need it: they are always read as tables, cut out of the page text and indexed as their own passage, addressable as `read_passage(punkt="Tabelle 3")` (`llamaindex/captioned_tables.py`); this pass skips them |
 | `AIQ_EXTRACT_IMAGES` | `false` | Extract embedded images from PDFs and caption them with a VLM. For a BFF-dispatched document the raster is also stored beside the file (`_img/<index>.jpg`, via the BFF presign route) so `view_knowledge_image` can show it at its own resolution |
 | `AIQ_EXTRACT_CHARTS` | `false` | Classify images as charts and extract structured data (chart type, axis labels, data points) |
 | **Vision Model** | | |
@@ -159,7 +161,7 @@ You can also set these in `deploy/.env`:
 
 ```bash
 # In deploy/.env or export directly
-AIQ_EXTRACT_TABLES=true    # Extract tables from PDFs using pdfplumber
+AIQ_EXTRACT_TABLES=true    # Also index uncaptioned PDF tables (captioned ones always are)
 AIQ_EXTRACT_IMAGES=true    # Extract images from PDFs using pypdfium2 + VLM captioning
 AIQ_EXTRACT_CHARTS=true    # Classify extracted images as charts and extract structured data
 ```

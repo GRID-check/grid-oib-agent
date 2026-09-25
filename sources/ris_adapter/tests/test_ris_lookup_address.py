@@ -200,6 +200,17 @@ class TestTheListReaderAgainstPracticeInputs:
         address = parse_address("x", "§ 5 Abs 2 und § 7 BO Wien", "")
         assert (address.sections, address.absatz, address.law) == (("5", "7"), "", "BO Wien")
 
+    def test_every_qualifier_of_a_paragraph_is_read_before_the_next_one(self):
+        # One qualifier per item ended the list at "Z 2" and dropped § 7 into the law's name.
+        cases = {
+            "§ 5 Abs 1 Z 2 und § 7 BO Wien": (("5", "7"), "BO Wien"),
+            "§ 5 Abs 2 lit. a und § 7": (("5", "7"), ""),
+            "§ 63 Abs. 1 lit. b BO für Wien": (("63",), "BO für Wien"),
+        }
+        for instrument, expected in cases.items():
+            address = parse_address("x", instrument, "")
+            assert (address.sections, address.law) == expected, instrument
+
     def test_an_ordinal_or_a_year_after_a_comma_is_not_a_paragraph(self):
         assert parse_address("x", "§ 8, 2. Satz BO", "").sections == ("8",)
         assert parse_address("x", "§ 8, 2. Satz BO", "").law == "BO"

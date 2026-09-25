@@ -697,7 +697,7 @@ def _table_documents(
     documents: list[Document] = []
     for table in join_fragments(fragments):
         punkt_id = f"Tabelle {table.table_id}"
-        caption = f"{punkt_id}: {table.title}".strip()
+        caption = f"{punkt_id}: {table.title}" if table.title else punkt_id
         chunks = markdown_chunks(table)
         for index, chunk in enumerate(chunks, start=1):
             part = f" (Teil {index} von {len(chunks)})" if len(chunks) > 1 else ""

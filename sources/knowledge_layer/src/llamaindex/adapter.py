@@ -1035,16 +1035,22 @@ def _extract_images_from_pdf(
     return images
 
 
-def _extract_tables_from_pdf(pdf_path: str) -> list[dict[str, Any]]:
+def _extract_tables_from_pdf(pdf_path: str, taken: dict[int, list[tuple]] | None = None) -> list[dict[str, Any]]:
     """
     Extract tables from a PDF file using pdfplumber.
 
     Args:
         pdf_path: Path to the PDF file.
+        taken: Per page number, the bboxes of the tables the text pass already
+            indexed as captioned tables (``_extract_text_from_pdf``'s
+            ``table_boxes``). Those are skipped: indexed again here, every OIB
+            table stood in the index twice, as „Tabelle 3" and as
+            „[TABLE from page 30]", under two competing citations.
 
     Returns:
         List of dicts with 'table_text' (markdown), 'page_number', 'table_index'.
     """
+    taken = taken or {}
     try:
         import pdfplumber
     except ImportError:
@@ -1055,9 +1061,11 @@ def _extract_tables_from_pdf(pdf_path: str) -> list[dict[str, Any]]:
     try:
         with pdfplumber.open(pdf_path) as pdf:
             for page_num, page in enumerate(pdf.pages):
-                page_tables = page.extract_tables()
-
-                for table_idx, table in enumerate(page_tables):
+                skip = taken.get(page_num + 1) or []
+                for table_idx, found in enumerate(page.find_tables()):
+                    if tuple(found.bbox) in skip:
+                        continue
+                    table = found.extract()
                     if table and len(table) > 1:  # Has header and at least one row
                         # Convert to markdown format
                         markdown = _table_to_markdown(table)
@@ -1170,7 +1178,8 @@ def _extract_text_from_pdf(pdf_path: str) -> list[dict[str, Any]]:
                 text = _strip_watermark_lines(source.extract_text())
                 tables = [table for table, _bbox in found]
                 if text or tables:
-                    pages.append({"page_number": page_num, "text": text, "tables": tables})
+                    boxes = [tuple(bbox) for _table, bbox in found]
+                    pages.append({"page_number": page_num, "text": text, "tables": tables, "table_boxes": boxes})
 
         logger.info("Extracted text from %d PDF pages in %s", len(pages), pdf_path)
 
@@ -3541,7 +3550,8 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
 
                     # 2. Extract tables (PDF only)
                     if is_pdf and extract_tables:
-                        tables = _extract_tables_from_pdf(file_path)
+                        taken = {page["page_number"]: page.get("table_boxes") or [] for page in text_pages}
+                        tables = _extract_tables_from_pdf(file_path, taken)
                         for table in tables:
                             table_doc = Document(
                                 text=f"[TABLE from page {table['page_number']}]\n\n{table['table_text']}",

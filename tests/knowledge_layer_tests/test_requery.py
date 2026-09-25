@@ -397,9 +397,11 @@ class TestTheSearchRetrieverHandle:
 
         assert factory._SEARCH_RETRIEVER is None
 
-    async def test_teardown_leaves_a_later_tools_handle(self, loop_harness):
+    async def test_teardown_leaves_a_later_tools_handle(self, loop_harness, monkeypatch):
         from aiq_agent.knowledge import factory
 
+        # Restored even when the assert fails, so no later test inherits the handle.
+        monkeypatch.setattr(factory, "_SEARCH_RETRIEVER", None)
         loop_harness(_FakeRetriever({}), None)
         later = object()
 
@@ -407,7 +409,6 @@ class TestTheSearchRetrieverHandle:
             factory.set_search_retriever(later)
 
         assert factory._SEARCH_RETRIEVER is later
-        factory.set_search_retriever(None)
 
 
 def test_the_prefetch_requery_switch_stays_removed():

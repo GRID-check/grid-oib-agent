@@ -998,8 +998,8 @@ async def read_passage(config: ReadPassageConfig, _builder: Builder):
                 "3.5.2" — no "Pkt.", no title. A top-level Punkt often arrives
                 as a number (`3`) and is read as its digits, the way `page`
                 accepts a numeric string. Omit it, and `page`, for the outline.
-            page (int | str | None): Optional. The page number, 1-based. May be
-                combined with `punkt` to read that Punkt on that page. ``''`` is
+            page (int | str | None): Optional. The page number, 1-based. Ignored
+                when `punkt` is given: the Punkt alone names the passage. ``''`` is
                 treated as omitted (#656: providers send empty string for "no
                 page"). Omit it, and `punkt`, for the outline.
             conclusion (str): ONE sentence: what you now know and what you
