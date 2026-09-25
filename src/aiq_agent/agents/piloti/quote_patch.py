@@ -93,6 +93,9 @@ def select(quotes: Sequence[UnverifiedQuote]) -> list[UnverifiedQuote]:
     """
     chosen: list[UnverifiedQuote] = []
     for quote in quotes:
+        if quote.reason != "not_verbatim":
+            logger.info("Piloti: unverified quote (%s), not patchable", quote.reason)
+            continue
         passage = quote.nearest.chunk_text if quote.nearest is not None else None
         if not passage:
             logger.info("Piloti: unverified quote (%s), no cited passage", quote.reason)

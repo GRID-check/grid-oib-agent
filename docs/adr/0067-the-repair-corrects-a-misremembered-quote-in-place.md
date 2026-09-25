@@ -99,8 +99,9 @@ without `card_repair_llm` the repair is off.
   could correct (its sentence cites a source, and it is not too long) now logs
   its closeness to the nearest passage of that source, and the answer suite
   counts `unverified_quote` and `quote_patch`, so the floor can be reset from
-  real answers. Any other flagged quote logs "no cited passage" and no number,
-  since
+  real answers. A too-long quote logs "not patchable", since it is never
+  searched; a misquote with no cited passage logs "no cited passage" and no
+  number, since
   `UnverifiedQuote.nearest` is chosen only among the sources the quote's own
   sentence cites (`citation_verification._nearest_cited`).
 * Neutral: a source line that carries both a registry citation key and a link

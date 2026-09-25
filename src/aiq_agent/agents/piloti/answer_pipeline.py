@@ -23,6 +23,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from dataclasses import field
 from dataclasses import replace
+from functools import partial
 from typing import Any
 
 from langchain_core.messages import AIMessage
@@ -448,12 +449,14 @@ class _Verified:
     unverified_quotes: tuple[UnverifiedQuote, ...]
 
 
-def _verify(content: str, registry: SourceRegistry) -> _Verified:
+def _verify(content: str, registry: SourceRegistry, *, with_nearest: bool = False) -> _Verified:
     """Citations against the registry, then quoted spans against the passages.
 
     ``verify_citations`` only proves a cited SOURCE is real, not that a QUOTED
     sentence appears in it; ``verify_quoted_spans`` catches the "real section,
     fabricated quote" pattern. Fail-open: quotes are annotated, never stripped.
+    ``with_nearest`` asks for each misquote's nearest cited passage, a search
+    over every cited page that only a patch about to run reads.
     """
     verification = verify_citations(content, registry, reference_sources=registry.all_sources())
     logger.debug(
@@ -461,7 +464,7 @@ def _verify(content: str, registry: SourceRegistry) -> _Verified:
         len(verification.valid_citations),
         len(verification.removed_citations),
     )
-    quotes = verify_quoted_spans(verification.verified_report, registry)
+    quotes = verify_quoted_spans(verification.verified_report, registry, with_nearest=with_nearest)
     return _Verified(verification.verified_report, verification, tuple(quotes))
 
 
@@ -476,7 +479,7 @@ async def _verify_with_quote_patch(content: str, registry: SourceRegistry, patch
     """
     # Off the loop: the quote check reads every cited passage, and the worker's
     # one event loop serves every other turn meanwhile (the settle does the same).
-    verified = await asyncio.to_thread(_verify, content, registry)
+    verified = await asyncio.to_thread(partial(_verify, with_nearest=patch is not None), content, registry)
     if patch is None or not verified.unverified_quotes:
         return verified
     candidates = select_quotes(verified.unverified_quotes)
