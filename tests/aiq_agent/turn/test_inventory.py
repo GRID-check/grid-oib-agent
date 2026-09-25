@@ -338,8 +338,6 @@ class TestTheFamiliesLeaveTheGather:
     """The families are set inside two gathers; a ContextVar set there dies with the task."""
 
     async def test_the_inventory_carries_the_base_families_out(self):
-        import asyncio
-
         from aiq_agent.knowledge.inventory import get_norm_families
         from aiq_agent.knowledge.inventory import set_norm_families
 

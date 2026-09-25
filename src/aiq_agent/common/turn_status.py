@@ -362,9 +362,10 @@ KEY_ACTION_DRAFT_SUBMITTED = "status.action.draftSubmitted"
 KEY_ACTION_TASK_CREATED = "status.action.taskCreated"
 
 KEY_CITATIONS = "status.citations"
-#: The turn's one bounded repair: a citation or a quote failed verification,
-#: one more retrieval and one rewrite are being tried before the answer ships
-#: with its markers. Value-less; the counts travel as detail.
+#: The turn's one bounded repair (ADR-0067): a quotation no passage holds
+#: verbatim is being corrected to its passage's wording, in place, with no
+#: retrieval and no rewrite. Value-less; the one count, ``quotesFailed``,
+#: travels as detail (``emit_answer_repair``).
 KEY_REPAIR = "status.repair"
 KEY_ESCALATION = "status.escalation"
 #: The model stopped calling tools and is writing the answer. Without this the

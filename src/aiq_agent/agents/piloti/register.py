@@ -64,6 +64,7 @@ from nat.data_models.function import FunctionBaseConfig
 from . import ask_user as _ask_user  # noqa: F401
 from .agent import PilotiAgent
 from .agent import TurnConfig
+from .decisions import SLOT as DECISION_SLOT
 from .decisions import TurnDecisions
 from .decisions import TurnFacts
 from .decisions import attached_card_types
@@ -72,6 +73,7 @@ from .decisions import prefetch_calls
 from .decisions import prefetch_query
 from .models import ResearchAgentState
 from .tool_search import ToolSearchSettings
+from .tool_search import tool_basename
 
 logger = logging.getLogger(__name__)
 
@@ -141,7 +143,8 @@ class ResearchAgentConfig(FunctionBaseConfig, name="research_agent"):
             "The small model that fixes ONE card the answer envelope carried and the validator "
             "refused (`cards/repair.py`): the failed object, the refusal and the type's shape in a "
             "message of a few thousand tokens, instead of the full-context round the `emit_card` "
-            "retry cost. Unset drops a card that fails validation, and records that it did."
+            "retry cost. Unset drops a card that fails validation, and records that it did; it also "
+            "turns off the quote repair (`repair_pass`), which runs on this model."
         ),
     )
     verbose: bool = Field(default=False, description="Whether to enable verbose logging")
@@ -365,6 +368,7 @@ def _skills_block(runtime: SkillRuntime) -> str:
 
 def _turn_facts(state: ResearchAgentState, runtime: SkillRuntime | None) -> TurnFacts:
     """What the decider is shown, from the state the gather already filled."""
+    from aiq_agent.cards.catalog import CHAT_ONLY_CARD_TYPES
     from aiq_agent.cards.catalog import MARKDOWN_CARD_TYPES
     from aiq_agent.cards.catalog import card_index_entries
     from aiq_agent.cards.envelope import ENVELOPE_SHAPE_TYPES
@@ -393,8 +397,12 @@ def _turn_facts(state: ResearchAgentState, runtime: SkillRuntime | None) -> Turn
         families=get_norm_families(),
         project_files=sum(1 for doc in documents if getattr(doc, "shelf", None) == Shelf.PROJECT),
         archive_files=sum(1 for doc in documents if getattr(doc, "shelf", None) == Shelf.ARCHIV),
+        # `surface`'s shape IS the compose rule the envelope contract already
+        # carries: attached, it would ride twice and take a shape slot.
         card_types=[
-            entry for entry in card_index_entries(exclude=MARKDOWN_CARD_TYPES) if entry[0] not in ENVELOPE_SHAPE_TYPES
+            entry
+            for entry in card_index_entries(exclude=MARKDOWN_CARD_TYPES | CHAT_ONLY_CARD_TYPES)
+            if entry[0] not in ENVELOPE_SHAPE_TYPES
         ],
     )
 
@@ -412,12 +420,37 @@ async def _decide_turn(facts: TurnFacts | None) -> TurnDecisions:
     # either: a bare family name („OIB 2") is searched by the undecided path
     # (``prefetch_calls``), and anything else of two words searches nothing.
     if facts.previous_message is None and len(facts.question.split()) < 3:
+        _note_skipped(SKIPPED_TOO_SHORT)
         return TurnDecisions.none()
     try:
         return await decide_turn(facts, organization_id=get_organization_id_from_context())
     except Exception:  # noqa: BLE001 — a decision is worth less than the turn
         logger.warning("Turn decision failed; running the turn as before", exc_info=True)
         return TurnDecisions.none()
+
+
+#: Why a decision was not asked for, beside ``common/decisions.py``'s reasons.
+SKIPPED_TOO_SHORT = "too_short"
+
+
+def _note_skipped(reason: str) -> None:
+    """Log and record a decision this turn did not ask for, as ``decide`` records its own."""
+    logger.info("Decision %s did not run: %s", DECISION_SLOT, reason)
+    try:
+        from aiq_agent.common.turn_status import CHANNEL_TECHNICAL
+        from aiq_agent.common.turn_status import push_custom_step
+
+        push_custom_step(
+            f"status:decision:{DECISION_SLOT}",
+            {
+                "kind": "status",
+                "channel": CHANNEL_TECHNICAL,
+                "slot": f"decision:{DECISION_SLOT}",
+                "values": {"skipped": reason},
+            },
+        )
+    except Exception:  # noqa: BLE001 — a record is worth less than the turn
+        logger.debug("Decision record for %s not emitted", DECISION_SLOT, exc_info=True)
 
 
 #: The warm-ups still running (see _warm_question).
@@ -474,7 +507,8 @@ def _tools_in_scope(tools: list[Any]) -> list[Any]:
     """
     if get_project_id_from_context():
         return tools
-    return [tool for tool in tools if getattr(tool, "name", None) not in _PROJECT_MODEL_TOOLS]
+    # The BASE name: a grouped or MCP tool arrives as ``bim__ifc_query``.
+    return [tool for tool in tools if tool_basename(getattr(tool, "name", "") or "") not in _PROJECT_MODEL_TOOLS]
 
 
 def _apply_decisions(decisions: TurnDecisions, state: ResearchAgentState, runtime: SkillRuntime | None) -> None:
@@ -486,18 +520,17 @@ def _apply_decisions(decisions: TurnDecisions, state: ResearchAgentState, runtim
     over with the body — then the turn decision's card picks, capped
     (``attached_card_types``). Still offers: the model decides.
     """
+    from aiq_agent.cards.catalog import CHAT_ONLY_CARD_TYPES
     from aiq_agent.cards.catalog import MARKDOWN_CARD_TYPES
     from aiq_agent.cards.envelope import ENVELOPE_SHAPE_TYPES
     from aiq_agent.skills.models import preferred_cards
 
+    taught = {*ENVELOPE_SHAPE_TYPES, *MARKDOWN_CARD_TYPES, *CHAT_ONLY_CARD_TYPES}
+
     if runtime is not None and decisions.chosen_skill:
         runtime.inline_also((decisions.chosen_skill,))
     skill_cards = {
-        skill.name: [
-            card
-            for card in preferred_cards(skill.metadata)
-            if card not in ENVELOPE_SHAPE_TYPES and card not in MARKDOWN_CARD_TYPES
-        ]
+        skill.name: [card for card in preferred_cards(skill.metadata) if card not in taught]
         for skill in (runtime.skills if runtime is not None else ())
     }
     chosen = attached_card_types(decisions, skill_cards)

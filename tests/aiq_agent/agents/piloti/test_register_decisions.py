@@ -75,6 +75,8 @@ class TestTheFacts:
         # The card types are the content cards beyond the taught eight.
         names = {t for t, _ in facts.card_types}
         assert "fire_compartment" in names and "legal_basis" not in names
+        # `surface`'s shape is the compose rule the envelope contract carries.
+        assert "surface" not in names
 
 
 class TestTheEffects:
@@ -106,6 +108,20 @@ class TestTheEffects:
         assert "fire_compartment" in block and "egress_diagram" in block
         # `legal_basis` is one of the eight the envelope already teaches.
         assert '"legal_basis"' not in block
+
+    def test_a_skill_preferring_a_surface_does_not_attach_its_compose_rule_twice(self):
+        state = ResearchAgentState(messages=[])
+        skill = Skill(
+            name="varianten",
+            description="Varianten vergleichen.",
+            body="short",
+            metadata={"grid-cards": "surface,fire_compartment"},
+            origin="platform",
+        )
+        decided = TurnDecisions(decided=True, skill="varianten", skill_p=0.8, skill_fit=0.9)
+        _apply_decisions(decided, state, SkillRuntime(skills=(skill,)))
+        block = state.card_shapes_block or ""
+        assert "fire_compartment" in block and '"surface"' not in block
 
     def test_the_previous_exchange_is_the_last_question_and_the_last_answer(self):
         from langchain_core.messages import AIMessage
@@ -143,13 +159,19 @@ class TestTheEffects:
         assert runtime.inlined == ()
 
 
-async def _run_turn(config: ResearchAgentConfig, decisions: TurnDecisions, messages=None):
+async def _run_turn(config: ResearchAgentConfig, decisions: TurnDecisions, messages=None, on_decide=None):
     builder = _FakeBuilder({"knowledge_search": knowledge_search})
     agent = MagicMock()
     agent.run = AsyncMock(side_effect=lambda state, turn=None: state)
+
+    async def _decided(*_args, **_kwargs):
+        if on_decide is not None:
+            on_decide()
+        return decisions
+
     with (
         patch.object(register_module, "PilotiAgent", return_value=agent),
-        patch.object(register_module, "decide_turn", new_callable=AsyncMock, return_value=decisions) as decide,
+        patch.object(register_module, "decide_turn", new_callable=AsyncMock, side_effect=_decided) as decide,
         patch.object(register_module, "get_organization_id_from_context", return_value="org-1"),
         patch.object(register_module, "SkillResolver") as ResolverCls,
     ):
@@ -182,6 +204,19 @@ class TestTheTurn:
             await gen.aclose()
         decide.assert_not_awaited()
 
+    async def test_a_decision_skipped_as_too_short_is_logged_and_recorded(self, caplog):
+        from aiq_agent.agents.piloti.decisions import TurnFacts
+
+        facts = TurnFacts(question="Hallo Piloti", previous_message=None)
+        with (
+            caplog.at_level("INFO", logger=register_module.logger.name),
+            patch("aiq_agent.common.turn_status.push_custom_step") as push,
+        ):
+            assert await register_module._decide_turn(facts) == TurnDecisions.none()
+        assert "Decision turn did not run: too_short" in caplog.text
+        name, payload = push.call_args.args
+        assert name == "status:decision:turn" and payload["values"] == {"skipped": "too_short"}
+
     async def test_the_prefetch_reaches_the_turn_config(self):
         decided = TurnDecisions(decided=True, needs_evidence=0.9, corpus="baurecht", corpus_p=0.8)
         turn, _state, decide = await _run_turn(
@@ -192,10 +227,15 @@ class TestTheTurn:
 
     async def test_the_question_the_prefetch_searches_is_warmed_beside_the_decision(self):
         decided = TurnDecisions(decided=True, needs_evidence=0.9, corpus="baurecht", corpus_p=0.8)
+        started_before_the_decision: list[bool] = []
         with patch("aiq_agent.knowledge.factory.warm_search_query", new_callable=AsyncMock) as warm:
             turn, _state, _decide = await _run_turn(
-                ResearchAgentConfig(llm="research_llm", tools=["knowledge_search"], skills_enabled=False), decided
+                ResearchAgentConfig(llm="research_llm", tools=["knowledge_search"], skills_enabled=False),
+                decided,
+                on_decide=lambda: started_before_the_decision.append(warm.called),
             )
+        # Beside the decision, not after it: the warm-up had started when the decider ran.
+        assert started_before_the_decision == [True]
         # The very string the prefetch will search, so the search finds it cached.
         warm.assert_awaited_once_with(turn.prefetch[0]["args"]["query"])
 
@@ -306,6 +346,15 @@ class TestTheBuildingModelToolsNeedAProject:
 
         monkeypatch.setattr(register, "get_project_id_from_context", lambda: None)
         assert [t.name for t in register._tools_in_scope(self._tools())] == ["knowledge_search", "read_passage"]
+
+    def test_a_grouped_deployment_is_not_sent_them_either(self, monkeypatch):
+        from types import SimpleNamespace
+
+        from aiq_agent.agents.piloti import register
+
+        monkeypatch.setattr(register, "get_project_id_from_context", lambda: None)
+        tools = [SimpleNamespace(name=n) for n in ("knowledge_search", "bim__ifc_query", "bim__ifc_measure")]
+        assert [t.name for t in register._tools_in_scope(tools)] == ["knowledge_search"]
 
     def test_a_project_turn_keeps_them(self, monkeypatch):
         from aiq_agent.agents.piloti import register

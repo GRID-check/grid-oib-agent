@@ -564,8 +564,12 @@ def _turn_runner(agent: ConversationGraph, config: ChatDeepResearcherConfig, sta
                 # The answer's prose goes out while the final call writes it
                 # (ADR-0066); the terminal chunk then replaces it verified.
                 sink, answering = _start_answer(turn)
-                async for chunk in _relay_live(sink, answering):
-                    yield chunk
+                # `aclosing`, because `async for` never closes what it iterates:
+                # a consumer that walks away would reach the flush below with
+                # the relay still suspended and the answer still running.
+                async with contextlib.aclosing(_relay_live(sink, answering)) as live:
+                    async for chunk in live:
+                        yield chunk
                 chunks = answering.result()
             # A refused turn still owes the reader its answer, delivered as one
             # terminal chunk; it is yielded here, outside the profiled block.

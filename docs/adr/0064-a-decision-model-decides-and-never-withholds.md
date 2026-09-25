@@ -82,7 +82,9 @@ the later figure, taken over two suites rather than twelve calls, is the
 current one. The exception stays for the turns it still misses (a timeout,
 the breaker open, a first message too short to be decided). This adds a
 fetch and withholds nothing. It shipped on 2026-09-23 with the logging of
-every skipped decision and its reason (`common/decisions.py`). Only on a first
+every skipped decision and its reason (`common/decisions.py`; a first
+message too short to be decided is logged and recorded as `too_short` by
+`agents/piloti/register.py`). Only on a first
 message: on a follow-up (the turn has a previous message) nothing is
 prefetched without a decision, as the decided path refuses a follow-up that
 cannot be searched on its own.

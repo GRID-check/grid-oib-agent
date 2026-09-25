@@ -155,7 +155,7 @@ a 200-280 ms decision, ≈ 0.4-0.5 s at the median decision. On a cold process
 the warm-up also absorbs part of the adapter's lazy initialisation.
 
 Tests: `tests/knowledge_layer_tests/test_query_warm_up.py` (one embedding for
-three concurrent callers, the take-over after a failure, the warm-up leaves the
+three concurrent callers, a failure shared by every waiter, then retried, the warm-up leaves the
 vector where the search reads it, never raises);
 `tests/aiq_agent/agents/piloti/test_register_decisions.py` (the warmed string
 is the prefetch's own; a two-word family question is warmed, a two-word

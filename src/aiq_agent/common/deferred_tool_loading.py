@@ -1371,8 +1371,11 @@ class DeferredToolBinding(Runnable):
     Only ``invoke``/``ainvoke`` are overridden, on purpose. ``Runnable``'s
     default ``astream`` yields one chunk from ``ainvoke``, so a caller that
     streams through this gets a correct answer delivered in a single chunk —
-    degraded latency, never wrong output. Piloti is ``ainvoke``-only,
-    so nothing streams through it today. A real ``astream`` is not a delegation
+    degraded latency, never wrong output. Piloti streams its answering call
+    (ADR-0066) but not through this binding: ``PilotiAgent`` checks for a
+    ``DeferredToolBinding`` and leaves it out of ``streaming_call``, so a turn
+    on the deferred path shows its answer at the terminal frame, not token by
+    token (the forced synthesis streams, on the unbound model). A real ``astream`` is not a delegation
     one-liner and is deliberately not guessed at here: the fallback cannot be
     decided until the deferred stream has already failed, by which point chunks
     may have been emitted, and re-running the prompt on the full schemas would
