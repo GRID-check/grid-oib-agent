@@ -23,6 +23,13 @@ def _write(entry):
         f.write(json.dumps(entry, ensure_ascii=False) + "\n")
 
 
+def _failed(entry, exc):
+    """Record an attempt that raised (a timeout the SDK then retries): its seconds were spent all the same."""
+    entry["err"] = repr(exc)
+    entry["t_end"] = time.time()
+    _write(entry)
+
+
 def _completed_response(text):
     """The full response a streamed Responses call closes with, or None.
 
@@ -99,7 +106,11 @@ async def _send(self, request, *args, **kwargs):
         entry["req"] = json.loads(body)
     except Exception:
         entry["req_raw"] = body[:2000]
-    resp = await _orig(self, request, *args, **kwargs)
+    try:
+        resp = await _orig(self, request, *args, **kwargs)
+    except Exception as exc:
+        _failed(entry, exc)
+        raise
     entry["status"] = resp.status_code
     if kwargs.get("stream"):
         resp.stream = _Tee(resp.stream, entry)
@@ -137,7 +148,11 @@ def _send_sync(self, request, *args, **kwargs):
         entry["req"] = json.loads(body)
     except Exception:
         entry["req_raw"] = body[:2000]
-    resp = _orig_sync(self, request, *args, **kwargs)
+    try:
+        resp = _orig_sync(self, request, *args, **kwargs)
+    except Exception as exc:
+        _failed(entry, exc)
+        raise
     entry["status"] = resp.status_code
     if not kwargs.get("stream"):
         try:

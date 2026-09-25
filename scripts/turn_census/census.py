@@ -32,9 +32,17 @@ CONFIG = ROOT / "configs" / "config_oib_openrouter.yml"
 #: Seconds to wait after the answer for the post-answer stages to be recorded.
 _TAIL_SECONDS = 20
 _TIMEOUT_SECONDS = 600
+#: What a run's log ends with when the census killed it for time; read back by the suite.
+TIMED_OUT = "census: timed out"
 
 
-def _kind(entry: dict) -> str:
+def timed_out(log_text: str) -> bool:
+    """Whether the census killed this run for time, by the marker it wrote in the log."""
+    return TIMED_OUT in log_text
+
+
+def kind(entry: dict) -> str:
+    """What a recorded call was for: ``research``, ``probe``, ``decision``, ``verdict``, ``aux-llm``, …"""
     path = entry["url"].split("openrouter.ai")[-1]
     req = entry.get("req") or {}
     if path.endswith("/decisions"):
@@ -73,15 +81,15 @@ def summarize(path: Path) -> dict:
     kinds: dict[str, dict] = {}
     research: list[dict] = []
     for row in rows:
-        kind = _kind(row)
+        call = kind(row)
         usage = row.get("usage") or {}
         details = usage.get("prompt_tokens_details") or usage.get("input_tokens_details") or {}
         tokens_in = usage.get("prompt_tokens") or usage.get("input_tokens") or 0
-        bucket = kinds.setdefault(kind, {"calls": 0, "input": 0, "seconds": 0.0})
+        bucket = kinds.setdefault(call, {"calls": 0, "input": 0, "seconds": 0.0})
         bucket["calls"] += 1
         bucket["input"] += tokens_in
         bucket["seconds"] += row["t_end"] - row["t_start"]
-        if kind == "research":
+        if call == "research":
             research.append({"input": tokens_in, "cached": details.get("cached_tokens") or 0})
     wall = rows[-1]["t_end"] - rows[0]["t_start"] if rows else 0.0
     return {"kinds": kinds, "research": research, "wall_seconds": round(wall, 1)}
@@ -91,8 +99,8 @@ def _print(name: str, summary: dict) -> None:
     research = summary["research"]
     per_call = ", ".join(f"{r['input']}({r['cached']} cached)" for r in research)
     print(f"{name}: {len(research)} research call(s) [{per_call}]  wall {summary['wall_seconds']}s")
-    for kind, bucket in sorted(summary["kinds"].items()):
-        print(f"    {kind:10} {bucket['calls']:3} call(s)  {bucket['input']:7} in  {bucket['seconds']:5.1f}s")
+    for label, bucket in sorted(summary["kinds"].items()):
+        print(f"    {label:10} {bucket['calls']:3} call(s)  {bucket['input']:7} in  {bucket['seconds']:5.1f}s")
 
 
 _SHIM_LOCK = threading.Lock()
@@ -187,7 +195,7 @@ def run_once(question: str, out: Path, conversation_id: str, overrides: list[lis
         _stop(proc)
     if not answered and time.time() >= deadline:
         with log.open("a") as sink:
-            sink.write(f"\ncensus: timed out after {_TIMEOUT_SECONDS}s\n")
+            sink.write(f"\n{TIMED_OUT} after {_TIMEOUT_SECONDS}s\n")
     return record
 
 
@@ -219,7 +227,9 @@ def main(argv: list[str] | None = None) -> int:
         help="a config value for this census only, in `nat run` dot notation; repeatable",
     )
     args = parser.parse_args(argv)
-    if args.report:
+    if args.report is not None:
+        if not args.report:
+            parser.error("--report needs the recordings to summarize")
         for path in args.report:
             _print(path.stem, summarize(path))
         return 0

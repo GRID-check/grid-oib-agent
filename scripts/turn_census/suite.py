@@ -56,11 +56,13 @@ QUESTIONS = ROOT / "tests" / "fixtures" / "herleitung" / "loop_eval_questions.ya
 sys.path.insert(0, str(HERE))
 
 from census import ensure_key  # noqa: E402  (a sibling script, not a package)
+from census import kind as call_kind  # noqa: E402
 from census import records  # noqa: E402
 from census import run_once  # noqa: E402
 from census import run_python  # noqa: E402
 from census import run_stamp  # noqa: E402
 from census import source_packages  # noqa: E402
+from census import timed_out  # noqa: E402
 from census import tree_pythonpath  # noqa: E402
 
 _ANSI = re.compile(r"\x1b\[[0-9;]*m")
@@ -167,10 +169,6 @@ def _usage(entry: dict) -> tuple[int, int, int]:
     )
 
 
-def _is_research(entry: dict) -> bool:
-    return entry["url"].endswith("/responses") and (entry.get("req") or {}).get("input") != "ping"
-
-
 def final_answer(log_text: str) -> str:
     """The answer the pipeline delivered: `nat run`'s Workflow Result, minus the colour codes."""
     plain = _ANSI.sub("", log_text)
@@ -207,7 +205,7 @@ def last_envelope(research: list[dict]) -> tuple[dict | None, int | None]:
 
 def _no_answer(log_text: str) -> str:
     """Why a turn delivered nothing: the census's own timeout marker first, since it says why."""
-    return "timed out" if "census: timed out" in log_text else "no Workflow Result in the log"
+    return "timed out" if timed_out(log_text) else "no Workflow Result in the log"
 
 
 def _read_calls(run: Run, research: list[dict], answered_at: int | None, t0: float) -> None:
@@ -246,9 +244,9 @@ def observe(question: dict, index: int, record: Path, log: Path) -> Run:
     rows = sorted(records(record), key=lambda r: r["t_start"])
     log_text = log.read_text(errors="replace") if log.exists() else ""
     if not rows:
-        run.error = "timed out" if "census: timed out" in log_text else "no model calls recorded"
+        run.error = "timed out" if timed_out(log_text) else "no model calls recorded"
         return run
-    research = [entry for entry in rows if _is_research(entry)]
+    research = [entry for entry in rows if call_kind(entry) == "research"]
     envelope, answered_at = last_envelope(research)
     run.wall_s = round(rows[-1]["t_end"] - rows[0]["t_start"], 1)
     _read_calls(run, research, answered_at, rows[0]["t_start"])
@@ -521,7 +519,9 @@ def foreign_imports(out: Path) -> list[str]:
     names = ("aiq_agent", *source_packages())
     probe = f"import {', '.join(names)}; print({', '.join(f'{name}.__file__' for name in names)}, sep=chr(10))"
     env = {**os.environ, "PYTHONPATH": tree_pythonpath(out)}
-    shown = subprocess.run([run_python(), "-c", probe], cwd=ROOT, env=env, capture_output=True, text=True, check=False)
+    shown = subprocess.run(
+        [run_python(), "-P", "-c", probe], cwd=ROOT, env=env, capture_output=True, text=True, check=False
+    )
     if shown.returncode != 0:
         return [f"import failed: {shown.stderr.strip().splitlines()[-1] if shown.stderr.strip() else shown.returncode}"]
     root = ROOT.resolve()
@@ -633,6 +633,16 @@ def _preflight(out: Path, ingest: bool) -> int:
     if not ensure_key():
         print("OPENROUTER_API_KEY is not set; the suite needs the real models.", file=sys.stderr)
         return 2
+    # Before the ingest: from a worktree the ingest ran another checkout's
+    # knowledge layer in this process, and only then was refused.
+    foreign = foreign_imports(out)
+    if foreign:
+        print(
+            "The runs would not measure this checkout: " + "; ".join(foreign) + ". Run the suite with this "
+            "checkout's interpreter (task setup inside it), or measure from the checkout that holds the code.",
+            file=sys.stderr,
+        )
+        return 2
     if ingest:
         from aiq_agent import oib_sync
 
@@ -640,14 +650,6 @@ def _preflight(out: Path, ingest: bool) -> int:
     if not _corpus_ready():
         print(
             "The OIB corpus is not ingested into AIQ_CHROMA_DIR. Put the PDFs in data/oib and run with --ingest.",
-            file=sys.stderr,
-        )
-        return 2
-    foreign = foreign_imports(out)
-    if foreign:
-        print(
-            "The runs would not measure this checkout: " + "; ".join(foreign) + ". Run the suite with this "
-            "checkout's interpreter (task setup inside it), or measure from the checkout that holds the code.",
             file=sys.stderr,
         )
         return 2
@@ -672,7 +674,10 @@ def select_questions(only: list[str] | None, every: bool) -> tuple[list[dict], l
     questions = [q for q in runnable if str(q["id"]) in wanted]
     missing = wanted - {str(q["id"]) for q in questions}
     if skipped := sorted(missing & set(needs_project)):
-        print(f"Skipped, need a project (no backend in the suite): {', '.join(skipped)}", file=sys.stderr)
+        print(
+            f"Needs a project, which the suite has no backend for; nothing was run: {', '.join(skipped)}",
+            file=sys.stderr,
+        )
     if unknown := sorted(missing - set(needs_project)):
         print(f"No such question: {', '.join(unknown)}", file=sys.stderr)
     return None if missing else (questions, [])
@@ -705,11 +710,12 @@ def main(argv: list[str] | None = None) -> int:
     baseline = json.loads(args.baseline.read_text()) if args.baseline else None
     if args.report:
         return _rerender(args.report, baseline)
-    if failed := _preflight(args.out, args.ingest):
-        return failed
+    # The ids first: a typo must not cost an ingest.
     selected = select_questions(args.only, args.all)
     if selected is None:
         return 2
+    if failed := _preflight(args.out, args.ingest):
+        return failed
     questions, skipped = selected
     families = corpus_families()
     not_in_corpus = [f"{q['id']} ({lacking})" for q in questions if (lacking := lacking_family(q, families))]

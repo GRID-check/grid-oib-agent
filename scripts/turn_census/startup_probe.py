@@ -38,6 +38,13 @@ from typing import Any
 import httpx
 
 HERE = Path(__file__).resolve().parent
+# The sibling census script, not a package: where the tree's path and the key come from.
+sys.path.insert(0, str(HERE))
+
+from census import ensure_key  # noqa: E402
+from census import run_python  # noqa: E402
+from census import tree_pythonpath  # noqa: E402
+
 CONFIG = HERE.parent.parent / "configs" / "config_oib_openrouter.yml"
 #: Set on the re-executed process, so it does not re-execute again.
 _IN_TREE = "STARTUP_PROBE_IN_TREE"
@@ -113,10 +120,6 @@ def _in_tree(argv: list[str]) -> None:
     """
     if os.environ.get(_IN_TREE):
         return
-    sys.path.insert(0, str(HERE))
-    from census import run_python
-    from census import tree_pythonpath
-
     env = {key: value for key, value in os.environ.items() if key != "REC_OUT"}
     env["PYTHONPATH"] = tree_pythonpath(Path(tempfile.gettempdir()) / "startup_probe")
     env[_IN_TREE] = "1"
@@ -124,17 +127,21 @@ def _in_tree(argv: list[str]) -> None:
     os.execve(python, [python, str(Path(__file__).resolve()), *argv], env)
 
 
-def main(argv: list[str] | None = None) -> None:
+def main(argv: list[str] | None = None) -> int:
     argv = sys.argv[1:] if argv is None else argv
     _in_tree(argv)
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("questions", nargs="+", help="asked in order, in one process")
     parser.add_argument("--config", type=Path, default=CONFIG)
     args = parser.parse_args(argv)
+    if not ensure_key():
+        print("OPENROUTER_API_KEY is not set; the probe needs the real models.", file=sys.stderr)
+        return 2
     _patch_http()
     _patch_retriever()
     asyncio.run(_run(args.config, args.questions))
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

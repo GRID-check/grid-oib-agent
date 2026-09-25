@@ -172,3 +172,36 @@ def test_the_diff_keeps_a_changed_last_line_on_its_own_line(committed):
     decided = push.plan(FakePrompt("a\nb\nc"), "a\nb\nd\n", label="production")
 
     assert "-c\n+d" in decided.diff
+
+
+def test_the_git_plumbing_reads_what_the_repository_holds(monkeypatch, tmp_path):
+    # Every other test stubs these three; a wrong `git show` path or a diff
+    # against the wrong tree would pass them all.
+    import subprocess
+
+    def git(*args: str) -> str:
+        return subprocess.run(["git", *args], cwd=tmp_path, check=True, capture_output=True, text=True).stdout
+
+    git("init", "-q")
+    git("config", "user.name", "Test")
+    git("config", "user.email", "test@example.invalid")
+    git("config", "commit.gpgsign", "false")
+    prompt = tmp_path / "prompts" / "piloti_static.md"
+    prompt.parent.mkdir()
+    monkeypatch.setattr(push, "REPO_ROOT", tmp_path)
+    monkeypatch.setattr(push, "FALLBACK_FILE", prompt)
+
+    prompt.write_text("Regel eins.\n", encoding="utf-8")
+    git("add", ".")
+    git("commit", "-q", "-m", "first")
+    first = git("rev-parse", "HEAD").strip()
+    prompt.write_text("Regel eins.\nRegel zwei.\n", encoding="utf-8")
+    git("commit", "-q", "-am", "second")
+
+    assert push.file_history() == ["Regel eins.\nRegel zwei.\n", "Regel eins.\n"]
+    assert push.text_at(first[:12], "prompts/piloti_static.md") == "Regel eins.\n"
+    assert push.text_at(first, "prompts/nothing.md") is None
+    assert push.git_origin() == (git("rev-parse", "HEAD").strip(), False)
+
+    prompt.write_text("Regel eins, unversioniert.\n", encoding="utf-8")
+    assert push.git_origin()[1] is True

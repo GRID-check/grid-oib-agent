@@ -14,6 +14,8 @@ import os
 import sys
 from pathlib import Path
 
+import pytest
+
 REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT / "scripts" / "turn_census"))
 
@@ -235,6 +237,49 @@ def test_a_streamed_call_records_its_response_and_when_text_began(tmp_path):
     assert "t_first_text" not in _streamed(tmp_path, [{"type": "response.created"}, completed])
 
 
+def test_a_model_call_that_raises_is_recorded_with_its_seconds(tmp_path):
+    # A timed-out attempt the SDK retries raised out of send, so it was never
+    # written and its seconds vanished from the turn.
+    import subprocess
+    import textwrap
+
+    out = tmp_path / "rec.jsonl"
+    script = textwrap.dedent(
+        f"""
+        import asyncio, sys
+        import httpx
+        sys.path.insert(0, {str(REPO_ROOT / "scripts" / "turn_census")!r})
+        import sitecustomize as rec
+
+        def timeout(request):
+            raise httpx.ReadTimeout("slow", request=request)
+
+        url = "https://openrouter.ai/api/v1/responses"
+        client = httpx.Client(transport=httpx.MockTransport(timeout))
+        try:
+            rec._send_sync(client, client.build_request("POST", url, json={{"input": "x"}}))
+        except httpx.ReadTimeout:
+            pass
+        else:
+            raise SystemExit("the timeout was swallowed")
+
+        async def main():
+            async with httpx.AsyncClient(transport=httpx.MockTransport(timeout)) as client:
+                try:
+                    await rec._send(client, client.build_request("POST", url, json={{"input": "x"}}))
+                except httpx.ReadTimeout:
+                    return
+                raise SystemExit("the timeout was swallowed")
+
+        asyncio.run(main())
+        """
+    )
+    subprocess.run([sys.executable, "-c", script], check=True, env={"REC_OUT": str(out), "PATH": ""})
+    rows = [json.loads(line) for line in out.read_text().splitlines()]
+    assert [("ReadTimeout" in row["err"], row.get("sync", False)) for row in rows] == [(True, True), (True, False)]
+    assert all(row["t_end"] >= row["t_start"] for row in rows)
+
+
 def test_the_first_text_column_reads_the_final_call(tmp_path):
     record, log = _recorded_turn(tmp_path)
     rows = [json.loads(line) for line in record.read_text().splitlines()]
@@ -453,12 +498,12 @@ def test_a_run_the_census_timed_out_says_so(tmp_path):
 def test_only_a_question_that_needs_a_project_says_why(capsys):
     assert suite.select_questions(["ordner-brandschutz-listing"], False) is None
     err = capsys.readouterr().err
-    assert "need a project" in err and "No such question" not in err
+    assert "Needs a project" in err and "nothing was run" in err and "No such question" not in err
     assert suite.select_questions(["no-such-id"], False) is None
     assert "No such question: no-such-id" in capsys.readouterr().err
 
 
-def test_the_startup_probe_reexecutes_into_this_checkout(monkeypatch):
+def test_the_startup_probe_reexecutes_into_this_checkout(monkeypatch, tmp_path):
     # From a worktree the in-process probe timed the main checkout's
     # knowledge layer, and the fix was a symlink built by hand.
     import census
@@ -474,6 +519,7 @@ def test_the_startup_probe_reexecutes_into_this_checkout(monkeypatch):
         raise Exec
 
     monkeypatch.setattr(startup_probe.os, "execve", fake_execve)
+    monkeypatch.setattr(startup_probe.tempfile, "gettempdir", lambda: str(tmp_path))
     monkeypatch.delenv(startup_probe._IN_TREE, raising=False)
     monkeypatch.setenv("REC_OUT", "/tmp/should-not-record.jsonl")
     try:
@@ -483,6 +529,7 @@ def test_the_startup_probe_reexecutes_into_this_checkout(monkeypatch):
     assert seen["path"] == census.run_python() and seen["argv"][-1] == "Frage?"
     assert seen["env"][startup_probe._IN_TREE] == "1" and "REC_OUT" not in seen["env"]
     shim = Path(seen["env"]["PYTHONPATH"].split(os.pathsep)[1])
+    assert shim.is_relative_to(tmp_path)
     assert (shim / "knowledge_layer").resolve() == (census.ROOT / "sources/knowledge_layer/src").resolve()
 
     # The re-executed process does not re-execute.
@@ -499,3 +546,57 @@ def test_a_landed_quote_patch_explains_the_settled_replacement():
 
     assert "quote_patch" in landed and "settled_patched" in landed and "settled_replaced" not in landed
     assert "quote_patch" not in missed and "settled_replaced" in missed
+
+
+def test_the_startup_probe_takes_the_key_some_environments_carry(monkeypatch, capsys):
+    # With only OPENROUTER_KEY set the probe failed at its first model call.
+    import startup_probe
+
+    monkeypatch.setenv(startup_probe._IN_TREE, "1")
+    # Set, then emptied: monkeypatch restores what ensure_key writes.
+    monkeypatch.setenv("OPENROUTER_API_KEY", "")
+    monkeypatch.setenv("OPENROUTER_KEY", "")
+    assert startup_probe.main(["Frage?"]) == 2
+    assert "OPENROUTER_API_KEY is not set" in capsys.readouterr().err
+
+    ran: list[list[str]] = []
+
+    async def fake_run(config, questions):
+        ran.append(questions)
+
+    monkeypatch.setenv("OPENROUTER_KEY", "test-key")
+    monkeypatch.setattr(startup_probe, "_patch_http", lambda: None)
+    monkeypatch.setattr(startup_probe, "_patch_retriever", lambda: None)
+    monkeypatch.setattr(startup_probe, "_run", fake_run)
+    assert startup_probe.main(["Frage?"]) == 0
+    assert ran == [["Frage?"]] and os.environ["OPENROUTER_API_KEY"] == "test-key"
+
+
+def test_a_bad_only_id_is_refused_before_anything_is_ingested(monkeypatch):
+    # The ids were checked after the preflight, which with --ingest had
+    # already run a full sync.
+    monkeypatch.setattr(suite, "_preflight", lambda out, ingest: pytest.fail("preflight ran for a bad id"))
+    assert suite.main(["--only", "no-such-id", "--ingest"]) == 2
+
+
+def test_a_foreign_checkout_is_refused_before_the_ingest(monkeypatch, tmp_path):
+    # From a worktree the ingest ran another checkout's knowledge layer in
+    # this process, and only then did the import check refuse.
+    import types
+
+    import aiq_agent
+
+    monkeypatch.setattr(suite, "ensure_key", lambda: True)
+    monkeypatch.setattr(suite, "foreign_imports", lambda out: ["aiq_agent: /elsewhere/aiq_agent/__init__.py"])
+    sync = types.SimpleNamespace(sync=lambda: pytest.fail("ingested before the import check"))
+    monkeypatch.setitem(sys.modules, "aiq_agent.oib_sync", sync)
+    monkeypatch.setattr(aiq_agent, "oib_sync", sync, raising=False)
+    assert suite._preflight(tmp_path, ingest=True) == 2
+
+
+def test_census_report_without_recordings_names_the_mistake(capsys):
+    import census
+
+    with pytest.raises(SystemExit):
+        census.main(["--report"])
+    assert "--report needs the recordings" in capsys.readouterr().err
