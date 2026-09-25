@@ -1,0 +1,108 @@
+name: Smoke (live agent)
+
+# One real question — "Was weißt du über die OIB-Richtlinie 2?" — through the
+# shipped workflow with `nat run`: the real config, prompt, model (through
+# OpenRouter) and tools, including the post-answer stages. It fails on any log
+# record at ERROR or CRITICAL, a traceback, an unawaited coroutine, or no
+# answer: the records the collector forwards to err2issue, caught before they
+# ship instead of after. scripts/turn_census/smoke.py; `task be:smoke` locally.
+#
+# Why this exists: every issue err2issue filed in September 2026 lived in a seam
+# the unit suites fake (a tool schema the model's arguments did not fit, a reply
+# shape a parser did not expect, a payload a dependency could not read, a
+# workflow that did not build), and each one logged at ERROR. Run against
+# develop before this branch, this smoke fails on an unawaited coroutine per
+# trace event; on the branch it passes.
+#
+# The OIB corpus is operator-provided and not in git (data/oib/README.md). With
+# the repository secret OIB_CORPUS_URL (a URL to a .tar.gz of the PDFs, named as
+# oib.or.at publishes them) the corpus is ingested first and the answer itself
+# is checked: not "nothing found", and about Brandschutz. Without it only the
+# ERROR gate runs, and the log says so.
+#
+# Costs one model turn per run. On a pull request it runs only for the paths
+# that change what the agent does, and skips (with a notice) where secrets are
+# not available, such as Dependabot PRs.
+
+on:
+  pull_request:
+    paths:
+      - "src/**"
+      - "sources/**"
+      - "configs/**"
+      - "frontends/aiq_api/**"
+      - "pyproject.toml"
+      - "uv.lock"
+      - "scripts/turn_census/**"
+      - ".github/workflows/smoke-live.yml"
+  push:
+    branches: [develop]
+    paths:
+      - "src/**"
+      - "sources/**"
+      - "configs/**"
+      - "frontends/aiq_api/**"
+      - "pyproject.toml"
+      - "uv.lock"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: smoke-live-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  smoke:
+    name: OIB-2 question, no ERROR logged
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup-python-env
+        with:
+          python-version: "3.14"
+      - uses: ./.github/actions/setup-task
+      - name: Require the model key
+        id: key
+        env:
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          EVENT: ${{ github.event_name }}
+        run: |
+          if [ -n "$OPENROUTER_API_KEY" ]; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          elif [ "$EVENT" = "pull_request" ]; then
+            echo "::notice::OPENROUTER_API_KEY is not available to this pull request (a fork or Dependabot); the smoke did not run."
+            echo "present=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "::error::OPENROUTER_API_KEY is not set; the smoke would not run. See the header of this workflow."
+            exit 1
+          fi
+      - name: Ingest the OIB corpus, when one is provided
+        if: ${{ steps.key.outputs.present == 'true' }}
+        env:
+          OIB_CORPUS_URL: ${{ secrets.OIB_CORPUS_URL }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          PYTHONPATH: src
+        run: |
+          if [ -z "$OIB_CORPUS_URL" ]; then
+            echo "::notice::OIB_CORPUS_URL is not set: only the ERROR gate runs, the answer is not checked."
+            exit 0
+          fi
+          curl -fsSL "$OIB_CORPUS_URL" | tar -xz -C data/oib
+          .venv/bin/python -c "from aiq_agent import oib_sync; print(oib_sync.sync())"
+      - name: Smoke
+        if: ${{ steps.key.outputs.present == 'true' }}
+        env:
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+        run: task be:smoke -- --out "$RUNNER_TEMP/smoke"
+      - name: Keep the run's log
+        if: ${{ always() && steps.key.outputs.present == 'true' }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: smoke-log
+          path: ${{ runner.temp }}/smoke
+          if-no-files-found: ignore

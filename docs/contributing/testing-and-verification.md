@@ -278,6 +278,33 @@ writing it again against `src/app/dev/` rather than against a registry — and i
 should not be part of `verify` when it returns, because a browser pass over ~120
 surfaces is a deliberate run rather than a per-commit tax.
 
+## The smoke
+
+`task be:smoke` asks the real agent one question ("Was weißt du über die
+OIB-Richtlinie 2?") through `nat run` with the shipped config, prompt, model and
+tools, waits through the post-answer stages, and fails on what production would
+have filed as an issue: any log record at ERROR or CRITICAL, a traceback, a
+RuntimeWarning (an unawaited coroutine is one), or no answer. With the OIB corpus
+ingested it also checks the answer is a real one about Brandschutz; without it
+only that gate runs, and the output says so.
+
+It exists because the unit suites fake the seams where September 2026's issues
+lived: a tool schema the model's arguments did not fit (#656), a reply shape a
+parser did not expect (#653), a payload a dependency's callback could not read
+(#635). Each of those logged at ERROR, and ERROR is the level the collector
+forwards to err2issue, so "no ERROR on a real turn" is the same test production
+runs, taken before merge. Run against `develop` as it stood before it existed,
+it fails on an unawaited coroutine per trace event.
+
+`.github/workflows/smoke-live.yml` runs it on pull requests that touch the
+agent, on pushes to `develop`, and on demand. It needs the repository secret
+`OPENROUTER_API_KEY`; with `OIB_CORPUS_URL` (a `.tar.gz` of the Richtlinien
+PDFs) the corpus is ingested first and the answer is checked too. Its offline
+half, the reading of the log, is `tests/test_smoke.py`.
+
+It is one question, not a suite: its job is to catch what breaks every turn.
+Whether answers are right and how long they take is the answer suite's job.
+
 ## The answer suite
 
 `task be:eval:answer-suite` is the end-to-end check: the reference questions
@@ -361,6 +388,7 @@ measured on 2026-09-24, and the effort A/B:
 
 | Question | Tool | Needs | Cost |
 |---|---|---|---|
+| Does a real turn run without logging an error? | `task be:smoke` | key (corpus optional) | one turn, about two minutes |
 | Is the answer right, and did it get slower or more variable? | `task be:eval:answer-suite` | key and ingested corpus | about 4 minutes for the core set at two runs |
 | What did one turn cost, call by call? | `task be:eval:turn-census -- "<question>"` | key and ingested corpus | one turn per run (`--runs`, default 1); writes to `/tmp/turn_census` unless `--out`; `--override KEY VALUE` per census |
 | What happens in the milliseconds before the first model call? | `scripts/turn_census/startup_probe.py` | key, corpus and document inventory | several questions in one process; the first turn is cold |
