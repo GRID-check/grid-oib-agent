@@ -33,6 +33,7 @@ from pydantic import field_validator
 from pydantic import model_validator
 
 # The catalog imports this module only inside functions, so this is no cycle.
+from aiq_agent.cards.catalog import CHAT_ONLY_CARD_TYPES
 from aiq_agent.cards.catalog import ENVELOPE_CARD_TYPES
 from aiq_agent.cards.catalog import INTERACTIVE_CARD_TYPES
 from aiq_agent.cards.catalog import SYSTEM_CARD_TYPES
@@ -1950,8 +1951,8 @@ _MERMAID_DIRECTIVE = re.compile(r"%%\{.*?\}%%", re.DOTALL)
 
 #: Mermaid grammars this pipeline does NOT carry, kept by name so the refusal
 #: can say which one was written instead of "no diagram type". A model that
-#: reaches for `gantt` has understood the request and picked a grammar we cannot
-#: file; telling it that is a different instruction from telling it the source
+#: reaches for `timeline` or `erDiagram` has understood the request and picked a
+#: grammar we cannot file; telling it that is a different instruction from telling it the source
 #: has no header, and the two failures have different fixes.
 _UNSUPPORTED_DECLARATIONS = frozenset(
     {
@@ -2126,8 +2127,8 @@ class DiagramCard(CardModel):
         declaration is the most common way a model-written diagram fails: mermaid
         has no grammar to parse the rest with, so the whole block collapses to a
         grey code box in the middle of an answer, which reads as this product
-        being unable to draw. And a `journey` or a `gantt` smuggled in under a
-        declared 'flowchart' would pass every other check here and then be
+        being unable to draw. And a `journey` smuggled in under a declared
+        'flowchart' would pass every other check here and then be
         refused by the SVG validator in the reader's browser.
 
         Refused rather than repaired: `emit_card` hands the message back to the
@@ -2776,7 +2777,7 @@ def _check_layout(component: dict[str, Any]) -> None:
     if name in ("Row", "Column"):
         extra = set(component) - {"id", "component", "children", "justify", "align"}
         for prop, allowed in (("justify", SURFACE_JUSTIFY), ("align", SURFACE_ALIGN)):
-            if prop in component and component[prop] not in allowed:
+            if prop in component and (not isinstance(component[prop], str) or component[prop] not in allowed):
                 raise ValueError(f"'{component_id}' ({name}): `{prop}` is one of {sorted(allowed)}.")
         children = component.get("children")
         if not isinstance(children, list) or not all(isinstance(child, str) for child in children):
@@ -3067,10 +3068,6 @@ def validate_cards(raw: list[dict]) -> list[dict]:
     ``Text`` ``[N]`` are recited on the chat pipeline only.
     """
     import logging
-
-    from aiq_agent.cards.catalog import CHAT_ONLY_CARD_TYPES
-    from aiq_agent.cards.catalog import ENVELOPE_CARD_TYPES
-    from aiq_agent.cards.catalog import SYSTEM_CARD_TYPES
 
     logger = logging.getLogger(__name__)
     validated: list[dict] = []

@@ -156,6 +156,7 @@ catalog omits them entirely).
 | `document_grid` | project/Büroarchiv files the user asked to see — the same raised `FileCard` the Files grid uses | the `surface_documents` tool |
 | `memory_proposal` **(interactive)** | a finding to be written to org- or project-scoped memory, for the user to confirm | the `remember` tool |
 | `document_draft` | a document written into this conversation's working directory — title, path, `v{n}` and size, with the Files feature's „Von Piloti erstellt" byline. Its „Ins Projekt übernehmen" is drawn **inert**: filing is a later slice, and until it is wired the card reports the draft rather than offering to move it | the working directory's `write_file` / `edit_file` |
+| `task_created` | work Piloti has taken on, as a task row somebody can come back to — title, goal, due date and a link to the run's thread. Informational: the task is already queued when it renders, so there is no Accept | the `create_task` tool |
 | `file_operation_proposal` **(interactive)** | a workspace change the agent PROPOSED and did not make — a move, a rename, a new folder, an assignment. One card type for four verbs, discriminated by `operation`, carrying a capped LIST so an „organise the Einreichung" turn is one decision and not four. Accepting runs the operations in order through the routes the Files pane uses, in the reader's own session, and reports each one — a batch where the third fails says three landed and one did not (`partiallyApplied`) | the four write-side tools under `src/aiq_agent/tools/files/` (a Dokumentart proposal waits for a project-scoped doc_class route) |
 
 **(interactive)** marks a card whose answer is a commitment and is therefore
@@ -963,9 +964,10 @@ without re-plumbing generation or transport.
 
 ## Card catalog
 
-The catalog is the forty-one types tabulated under
-[Current card types](#current-card-types) — eighteen structured, fifteen
-schematic, six model-facing IFC and two system — and that is the only place in this document
+The catalog is the forty-five types tabulated under
+[Current card types](#current-card-types) — nineteen structured (four of them
+envelope types and one the retired `follow_ups`), fifteen schematic, six
+model-facing IFC and five system — and that is the only place in this document
 where they are listed, on purpose: a card type appearing in two tables means one
 of them is already wrong. See
 [ADR-0012](../adr/0012-cards-as-rich-ui-layer.md).

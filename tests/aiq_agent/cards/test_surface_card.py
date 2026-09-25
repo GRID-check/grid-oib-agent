@@ -19,6 +19,11 @@ from pydantic import ValidationError
 from aiq_agent.cards.envelope import render_envelope_cards_contract
 from aiq_agent.cards.envelope import validate_model_card
 from aiq_agent.cards.models import SURFACE_EXCLUDED_LEAVES
+from aiq_agent.cards.models import SURFACE_MAX_CHILDREN
+from aiq_agent.cards.models import SURFACE_MAX_LEAVES
+from aiq_agent.cards.models import SURFACE_MAX_TABS
+from aiq_agent.cards.models import SURFACE_TEXT_MAX
+from aiq_agent.cards.models import SurfaceCard
 from aiq_agent.cards.models import grid_card_adapter
 
 BASIS_A = {
@@ -315,13 +320,22 @@ class TestTextRecital:
 class TestSurfaceIntegrity:
     """What `a2ui-core` lets through and the surface does not."""
 
-    @pytest.mark.parametrize(("prop", "value"), [("justify", "between"), ("align", "spaceBetween")])
+    @pytest.mark.parametrize(
+        ("prop", "value"),
+        [("justify", "between"), ("align", "spaceBetween"), ("justify", ["start"]), ("align", {"start": 1})],
+    )
     def test_a_layout_value_the_renderer_does_not_take_is_refused(self, prop, value):
         # The frontend's RowApi takes an enum; anything else fails its preflight and the surface degrades.
         card = _tabs(
             components=[{"id": "root", "component": "Row", "children": ["a", "b"], prop: value}, BASIS_A, BASIS_B]
         )
         assert f"`{prop}` is one of" in _refusal(card)
+
+    def test_a_non_string_layout_value_is_a_validation_error_not_a_type_error(self):
+        # An unhashable value used to reach `in frozenset` and raise a bare TypeError.
+        root = {"id": "root", "component": "Row", "children": ["a", "b"], "justify": ["start"]}
+        with pytest.raises(ValidationError, match="`justify` is one of"):
+            SurfaceCard.model_validate(_tabs(components=[root, BASIS_A, BASIS_B]))
 
     def test_a_layout_value_the_renderer_takes_is_accepted(self):
         root = {"id": "root", "component": "Row", "children": ["a", "b"], "justify": "spaceBetween", "align": "start"}
@@ -517,3 +531,56 @@ class TestPipelineRecital:
             reset_card_registry(token)
         texts = [c["text"] for c in registry.snapshot()[0]["components"] if c.get("component") == "Text"]
         assert texts == ["Brandwand [1]."]
+
+
+def _texts(ids: list[str]) -> list[dict[str, Any]]:
+    return [_text(component_id, f"Absatz {component_id}") for component_id in ids]
+
+
+def _too_many_children() -> list[dict[str, Any]]:
+    ids = [f"t{i}" for i in range(SURFACE_MAX_CHILDREN + 1)]
+    return [{"id": "root", "component": "Row", "children": ids}, *_texts(ids)]
+
+
+def _too_many_tabs() -> list[dict[str, Any]]:
+    ids = [f"t{i}" for i in range(SURFACE_MAX_TABS + 1)]
+    tabs = [{"title": f"Tab {i}", "child": i} for i in ids]
+    return [{"id": "root", "component": "Tabs", "tabs": tabs}, *_texts(ids)]
+
+
+def _too_many_leaves() -> list[dict[str, Any]]:
+    left, right = ["l0", "l1", "l2", "l3"], ["r0", "r1", "r2", "r3"]
+    return [
+        {"id": "root", "component": "Row", "children": ["left", "right"]},
+        {"id": "left", "component": "Column", "children": left},
+        {"id": "right", "component": "Column", "children": right},
+        *_texts(left + right),
+    ]
+
+
+def _text_too_long() -> list[dict[str, Any]]:
+    return [_tabs()["components"][0], _text("a", "x" * (SURFACE_TEXT_MAX + 1)), BASIS_B]
+
+
+def _tab(**tab: Any) -> list[dict[str, Any]]:
+    tabs = [{"title": "GK 4", "child": "a", **tab}, {"title": "GK 5", "child": "b"}]
+    return [{"id": "root", "component": "Tabs", "tabs": tabs}, BASIS_A, BASIS_B]
+
+
+class TestSurfaceLimits:
+    """Each upper bound the validator states is one the validator enforces."""
+
+    @pytest.mark.parametrize(
+        ("components", "expected"),
+        [
+            (_too_many_children(), f"a Row holds 2 to {SURFACE_MAX_CHILDREN}"),
+            (_too_many_tabs(), f"`tabs` must list 2 to {SURFACE_MAX_TABS} tabs"),
+            (_too_many_leaves(), f"A surface holds 2 to {SURFACE_MAX_LEAVES} cards or Text blocks"),
+            (_text_too_long(), f"a tab holds at most {SURFACE_TEXT_MAX}"),
+            (_tab(title="  "), "a tab's `title` is text"),
+            (_tab(icon="star"), "every tab is exactly {title, child}"),
+        ],
+        ids=["children", "tabs", "leaves", "text-length", "empty-tab-title", "extra-tab-key"],
+    )
+    def test_a_surface_over_a_limit_is_refused(self, components, expected):
+        assert expected in _refusal(_tabs(components=copy.deepcopy(components)))
