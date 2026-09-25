@@ -9,4 +9,6 @@ fixes:
   - >
     Mindmaps zeigen ihre Äste ohne Anführungszeichen, und auf dem Telefon
     erscheint nur noch die Gliederung statt zusätzlich eines unlesbar
-    kleinen Baums.
+    kleinen Baums. Eine im Projekt abgelegte Mindmap ist derselbe
+    übersichtliche Baum wie in der Antwort, mit vollständigen Beschriftungen
+    statt bunter Blasen mit abgeschnittenem Titel.
