@@ -16,13 +16,24 @@ fleet only if someone re-typed it into Langfuse by hand. This is the push.
 What it refuses
 ---------------
 
-A version under the label that was NOT published from git (no ``git`` tag:
-somebody edited and promoted it in Langfuse) is never overwritten. Publishing
-over it would silently discard an edit nobody reviewed; refusing turns it into
-a diff a person has to bring into review first (``task prompts:pull``, commit,
-push again). A file with uncommitted changes is not published either: the
-version records the commit it came from, and text that is in no commit has no
+A version under the label that was NOT published from git (somebody edited
+and promoted it in Langfuse) is never overwritten. Publishing over it would
+silently discard an edit nobody reviewed; refusing turns it into a diff a
+person has to bring into review first (``task prompts:pull``, commit, push
+again). A file with uncommitted changes is not published either: the version
+records the commit it came from, and text that is in no commit has no
 reviewable origin.
+
+Provenance is read off the VERSION, never off tags: Langfuse keeps one tag
+list per prompt, "the same across versions", so once one version was
+published with ``git`` every later UI edit carries it too. A live version
+counts as published from git when its commit message names a commit
+(``git <sha> <path>``, as :func:`publish` writes it) AND that commit's file is,
+byte for byte, the text Langfuse serves. An edit made in the UI fails the
+second half whatever its message says.
+
+Not closed: the label is read and the new version written in two calls, so
+an edit promoted in the UI between them is still overwritten.
 
 Usage
 -----
@@ -33,20 +44,24 @@ Usage
     task prompts:push -- --label staging           # the same against another label
     task prompts:push -- --label staging --apply   # WRITES a new version, labelled
 
+``--apply`` needs ``--label`` spelled out, ``production`` included: the check
+defaults to ``production``, a write never does.
+
 Checking is read-only and safe to run anywhere. ``--apply`` creates a Langfuse
 version and moves the label to it, which is what the fleet serving that label
 renders within ``LANGFUSE_PROMPT_CACHE_TTL_SECONDS``: run it when the code the
 text belongs to is deployed, and ask before running it against ``production``.
 
 Exit codes: 0 up to date or published; 1 CHECK found a change to publish;
-2 no credentials; 3 refused (the label holds an unreviewed edit, or the file
-is uncommitted).
+2 no credentials; 3 refused (the label holds an unreviewed edit, the file is
+uncommitted, or ``--apply`` named no label).
 """
 
 from __future__ import annotations
 
 import argparse
 import difflib
+import re
 import subprocess
 import sys
 from dataclasses import dataclass
@@ -67,9 +82,13 @@ EXIT_WOULD_CHANGE = 1
 EXIT_UNCONFIGURED = 2
 EXIT_REFUSED = 3
 
-#: The tag every version this script publishes carries. Its absence is how an
-#: edit made in Langfuse is told apart from a version that came from review.
+#: The tag this script puts on the prompt, for filtering in the Langfuse UI.
+#: NOT provenance: Langfuse keeps tags per prompt, not per version
+#: (:func:`published_from_git` is the check).
 GIT_TAG = "git"
+
+#: What :func:`publish` writes as a version's commit message: ``git <sha> <path>``.
+_COMMIT_MESSAGE_RE = re.compile(r"^git ([0-9a-f]{7,40}) (\S+)$")
 
 
 class PromptApi(Protocol):
@@ -106,6 +125,25 @@ def current(client: PromptApi, *, name: str, label: str) -> Any | None:
         return None
 
 
+def text_at(sha: str, path: str) -> str | None:
+    """The file ``path`` as commit ``sha`` holds it, or None when git has no such thing."""
+    shown = subprocess.run(["git", "show", f"{sha}:{path}"], cwd=REPO_ROOT, capture_output=True, text=True, check=False)
+    return shown.stdout if shown.returncode == 0 else None
+
+
+def published_from_git(live: Any) -> bool:
+    """Whether ``live`` is a version this script published, and unedited since.
+
+    Its commit message names a commit, and that commit's file is exactly the
+    text served. Tags cannot say this (see the module docstring).
+    """
+    match = _COMMIT_MESSAGE_RE.match((getattr(live, "commit_message", None) or "").strip())
+    if match is None:
+        return False
+    committed = text_at(match.group(1), match.group(2))
+    return committed is not None and committed_text(committed) == committed_text(getattr(live, "prompt", "") or "")
+
+
 def plan(live: Any | None, text: str, *, label: str) -> Plan:
     """Decide, without writing, what publishing ``text`` under ``label`` means."""
     if live is None:
@@ -122,7 +160,7 @@ def plan(live: Any | None, text: str, *, label: str) -> Plan:
             tofile=str(FALLBACK_FILE.relative_to(REPO_ROOT)),
         )
     )
-    if GIT_TAG not in (getattr(live, "tags", None) or []):
+    if not published_from_git(live):
         return Plan("refuse", version, diff)
     return Plan("update", version, diff)
 
@@ -152,10 +190,16 @@ def publish(client: PromptApi, text: str, *, name: str, label: str, sha: str) ->
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--label", default="production", help="the Langfuse label to publish to (default: production)")
+    parser.add_argument(
+        "--label", default=None, help="the Langfuse label (check default: production; --apply requires it)"
+    )
     parser.add_argument("--name", default=PROMPT_NAME, help="the Langfuse prompt name")
     parser.add_argument("--apply", action="store_true", help="write the new version; without it, only check")
     args = parser.parse_args(argv)
+    if args.apply and not args.label:
+        print("prompts_push: --apply needs the label named, e.g. --label staging.", file=sys.stderr)
+        return EXIT_REFUSED
+    args.label = args.label or "production"
 
     client = build_client()
     if client is None:

@@ -404,15 +404,16 @@ tasks:
       - '{{.PY}} scripts/prompts_pull.py {{.CLI_ARGS}}'
 
   prompts:push:
-    desc: 'Check (or with -- --apply, publish) the committed platform prompt under a Langfuse label: task prompts:push [-- --label <label> --apply]'
+    desc: 'Check (or with -- --apply, publish) the committed platform prompt under a Langfuse label: task prompts:push [-- --label <label> [--apply]]'
     env:
       PYTHONPATH: src
     cmds:
       # CHECK by default: prints what publishing would change and writes
-      # nothing. `--apply` creates a git-tagged version and moves the label to
+      # nothing. `--apply` (with `--label` named, production included) creates
+      # a version whose commit message names its commit and moves the label to
       # it; the fleet serving that label renders it within the prompt cache
-      # TTL. It refuses a label whose version was edited in Langfuse (pull it
-      # into review first) and a prompt file with uncommitted changes.
+      # TTL. It refuses a label whose version no commit holds (edited in
+      # Langfuse: pull it into review first) and a file with uncommitted changes.
       - '{{.PY}} scripts/prompts_push.py {{.CLI_ARGS}}'
 
   be:eval:retrieval:
