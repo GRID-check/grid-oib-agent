@@ -139,7 +139,7 @@ def tree_pythonpath(out: Path) -> str:
 
     # One per checkout: two suites or censuses from different worktrees
     # sharing an --out would otherwise re-point each other's links.
-    shim = out / f".tree-{hashlib.sha1(str(ROOT.resolve()).encode()).hexdigest()[:10]}"
+    shim = out / f".tree-{hashlib.sha256(str(ROOT.resolve()).encode()).hexdigest()[:10]}"
     # The suite's workers call this at once: linking is serialised, and a link
     # that already points at the right package is left alone.
     with _SHIM_LOCK:
