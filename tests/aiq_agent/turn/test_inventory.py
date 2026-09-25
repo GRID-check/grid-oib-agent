@@ -355,6 +355,22 @@ class TestTheFamiliesLeaveTheGather:
         assert get_norm_families() == ()  # the var the read set did not survive the gather...
         assert [(f.key, f.members) for f in inventory.norm_families] == [("2", ("2", "2.1"))]  # ...the field did
 
+    async def test_the_inventory_carries_the_cap_drops_out(self, monkeypatch):
+        from aiq_agent.knowledge.inventory import get_inventory_drops
+        from aiq_agent.knowledge.inventory import set_inventory_drops
+
+        monkeypatch.setenv("GRID_AVAILABLE_DOCUMENTS_MAX", "3")
+        scope = [ScopedCollection("s_1", Shelf.SESSION)]
+
+        async def fetch_one(_collection):
+            return [_Doc(f"plan_{i}.pdf") for i in range(10)]
+
+        set_inventory_drops({})
+        (inventory,) = await asyncio.gather(load_inventory(scope, fetch_one=fetch_one, read_in_flight=lambda _n: {}))
+
+        assert get_inventory_drops() == {}  # the var the read set did not survive the gather...
+        assert inventory.inventory_drops == {Shelf.SESSION: 7}  # ...the field did
+
 
 @pytest.fixture(autouse=True)
 def _no_status_frames(monkeypatch):

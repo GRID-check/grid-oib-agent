@@ -35,6 +35,7 @@ from aiq_agent.common.profiler import flush_after_answer
 from aiq_agent.common.profiler import track_agent_profile
 from aiq_agent.common.turn_status import emit_documents_loading
 from aiq_agent.conversation_context import register_context_appender
+from aiq_agent.knowledge.inventory import set_inventory_drops
 from aiq_agent.knowledge.inventory import set_norm_families
 from aiq_agent.knowledge.inventory import set_turn_documents
 from aiq_agent.knowledge.scoping import get_scoped_collections_from_context
@@ -449,6 +450,7 @@ async def _prepare_turn(
     # which is what stops one turn resolving against the last one's.
     set_turn_documents(inventory.available_documents)
     set_norm_families(inventory.norm_families)
+    set_inventory_drops(inventory.inventory_drops)
     state = _turn_state(inputs, context, inventory, header_scope, skip_clarifier=skip_clarifier)
     return _Turn(agent, state, session_registry, context, inputs, request, runtime)
 

@@ -16,8 +16,7 @@ order the answer stream reads, ADR-0066). ``scripts/prompts_push.py``
 (``task prompts:push -- --label <l> --apply``) publishes it to Langfuse as a
 version whose commit message names its commit (the ``git`` tag is only a UI
 filter: Langfuse keeps tags per prompt); labels carry experiments; this module
-PULLS the
-configured label at render time. The same file is the fallback a process
+PULLS the configured label at render time. The same file is the fallback a process
 renders when prompt management is off, the credentials are absent, Langfuse is
 unreachable, or it holds no such prompt.
 

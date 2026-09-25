@@ -15,6 +15,7 @@ from collections.abc import Awaitable
 from collections.abc import Callable
 from collections.abc import Iterable
 from dataclasses import dataclass
+from dataclasses import field
 
 from aiq_agent.common.profiler import profiled_span
 from aiq_agent.common.source_kinds import Shelf
@@ -22,6 +23,7 @@ from aiq_agent.common.turn_status import emit_documents_waiting
 from aiq_agent.knowledge import get_available_documents_async
 from aiq_agent.knowledge import ingest_status_store
 from aiq_agent.knowledge.inventory import allocate_inventory_detailed
+from aiq_agent.knowledge.inventory import get_inventory_drops
 from aiq_agent.knowledge.inventory import get_norm_families
 from aiq_agent.knowledge.inventory import set_inventory_drops
 from aiq_agent.knowledge.inventory import set_norm_families
@@ -244,6 +246,9 @@ class Inventory:
     #: runs inside two gathers, and a ContextVar set in a gathered task dies
     #: with that task's copied context. The caller sets it where the turn runs.
     norm_families: tuple = ()
+    #: How many rows the cap dropped per shelf, carried out for the same reason:
+    #: it is what puts "and N more" into the rendered block.
+    inventory_drops: dict = field(default_factory=dict)
 
 
 async def load_inventory(
@@ -288,12 +293,12 @@ async def _load_inventory(
     fetch_one = fetch_one or get_available_documents_async
     read_in_flight = read_in_flight or ingest_status_store.in_flight_files
     names = [entry.collection for entry in scope]
-    (documents, families), pending = await asyncio.gather(
+    (documents, families, drops), pending = await asyncio.gather(
         spanned("setup.available_documents", _documents_and_families(scope, fetch_one)),
         spanned("setup.ingest_status", asyncio.to_thread(read_in_flight, names)),
     )
     if not pending:
-        return Inventory(documents, None, families)
+        return Inventory(documents, None, families, drops)
     # HOLD THE TURN. A file attached seconds ago is invisible to retrieval
     # until its job finishes, and an answer written without it is wrong in the
     # one way the reader cannot see. Its own span: the hold is a decision, and
@@ -301,11 +306,13 @@ async def _load_inventory(
     with profiled_span("setup.ingest_wait"):
         settled = await await_ingest_settling(names, pending, read=read_in_flight, timeout_seconds=timeout_seconds)
         if settled != pending:
-            documents, families = await _documents_and_families(scope, fetch_one)
-    return Inventory(documents, in_flight_names(settled) or None, families)
+            documents, families, drops = await _documents_and_families(scope, fetch_one)
+    return Inventory(documents, in_flight_names(settled) or None, families, drops)
 
 
-async def _documents_and_families(scope: list[ScopedCollection], fetch_one: FetchOne) -> tuple[list | None, tuple]:
-    """The documents, and the families the same read derived, read in the task that set them."""
+async def _documents_and_families(
+    scope: list[ScopedCollection], fetch_one: FetchOne
+) -> tuple[list | None, tuple, dict]:
+    """The documents, and the families and cap drops the same read derived, read in the task that set them."""
     documents = await load_available_documents(scope, fetch_one)
-    return documents, tuple(get_norm_families())
+    return documents, tuple(get_norm_families()), dict(get_inventory_drops())

@@ -407,8 +407,10 @@ async def _decide_turn(facts: TurnFacts | None) -> TurnDecisions:
     if facts is None:
         return TurnDecisions.none()
     # A first message of one or two words („Hallo", „Danke!") needs no
-    # decision: nothing to prefetch, no method to read in, and the ~0.6 s the
-    # call costs would be a third of the reply's whole latency.
+    # decision: no method to read in, and the ~0.6 s the call costs would be
+    # a third of the reply's whole latency. What it may prefetch needs none
+    # either: a bare family name („OIB 2") is searched by the undecided path
+    # (``prefetch_calls``), and anything else of two words searches nothing.
     if facts.previous_message is None and len(facts.question.split()) < 3:
         return TurnDecisions.none()
     try:
@@ -432,15 +434,19 @@ def _warm_question(facts: TurnFacts | None) -> None:
 
     Warmed only where ``prefetch_calls`` can search the raw question, as far
     as that is known before the decision: a FIRST message of three words or
-    more. A later message is searched only when the decision rules it
+    more, which the decision may prefetch, or one that names an OIB family,
+    which is prefetched even undecided — „OIB 2" skips the decision and is
+    still searched. A later message is searched only when the decision rules it
     self-contained, and without a decision never (``prefetch_calls``), so
     warming it would mostly be an embedding call nobody reads. A decided
     first message whose corpus is not searched still wastes one call.
     """
     if facts is None or facts.previous_message is not None:
         return
+    from aiq_agent.common.norm_registry import family_query_number
+
     query = prefetch_query(facts.question)
-    if len(query.split()) < 3:
+    if len(query.split()) < 3 and family_query_number(query) is None:
         return
     from aiq_agent.knowledge.factory import warm_search_query
 
@@ -476,8 +482,8 @@ def _apply_decisions(decisions: TurnDecisions, state: ResearchAgentState, runtim
 
     The chosen skill rides this turn's prompt in full (``inline_also``), the
     one method the question is the subject of; the shapes are its preferred
-    cards beyond the eight the envelope teaches — what ``use_skill`` hands
-    over with the body — then the card nouls' picks, capped
+    cards beyond the three the envelope teaches — what ``use_skill`` hands
+    over with the body — then the turn decision's card picks, capped
     (``attached_card_types``). Still offers: the model decides.
     """
     from aiq_agent.cards.catalog import MARKDOWN_CARD_TYPES
@@ -585,30 +591,42 @@ async def _run_turn(deployment: _Deployment, state: ResearchAgentState) -> Resea
         llm_provider=llm_provider,
         tools=turn_tools,
         disabled_sources=disabled_sources,
-        prefetch=tuple(
-            prefetch_calls(
-                decisions,
-                facts.question,
-                focus_file_name=state.focus_file_name,
-                previous_message=facts.previous_message,
-            )
-            if facts is not None
-            else ()
-        ),
+        prefetch=_turn_prefetch(decisions, facts, state),
     )
     if runtime is not None:
         state.skills_block = _skills_block(runtime)
+    result = await _run_agent(deployment, state, turn)
+    if result is None:
+        return _reply(state, SCOPED_NO_SOURCES_MESSAGE)
+    if runtime is not None:
+        _report_skills(result, runtime)
+    return result
+
+
+def _turn_prefetch(decisions: TurnDecisions, facts: TurnFacts | None, state: ResearchAgentState) -> tuple:
+    """Round 0's tool calls; none when the config switched the decision off."""
+    if facts is None:
+        return ()
+    return tuple(
+        prefetch_calls(
+            decisions,
+            facts.question,
+            focus_file_name=state.focus_file_name,
+            previous_message=facts.previous_message,
+        )
+    )
+
+
+async def _run_agent(deployment: _Deployment, state: ResearchAgentState, turn: TurnConfig) -> ResearchAgentState | None:
+    """The shared agent's run, or None on a scoped miss, which the caller answers."""
     try:
-        result = await deployment.agent.run(state, turn=turn)
+        return await deployment.agent.run(state, turn=turn)
     except EmptySourceRegistryError:
         # A scoped miss (this-file / this-shelf) is a valid empty answer, not
         # an unhandled NAT error. Raising here became err2issue #447 and left
         # the user with no reply.
         logger.warning("Research captured no sources; returning an empty-result answer.")
-        return _reply(state, SCOPED_NO_SOURCES_MESSAGE)
-    if runtime is not None:
-        _report_skills(result, runtime)
-    return result
+        return None
 
 
 @register_function(config_type=ResearchAgentConfig, framework_wrappers=[LLMFrameworkEnum.LANGCHAIN])

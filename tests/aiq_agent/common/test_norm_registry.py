@@ -929,7 +929,7 @@ class TestFamilyQueryNumber:
         assert family_query_number("OIB 2 und OIB 3") is None
 
     @pytest.mark.parametrize(
-        "query", ["OIB 2 und 4", "OIB 2, 4", "OIB 2 oder 4", "OIB-RL 2/4", "OIB 2 und 4 Überblick"]
+        "query", ["OIB 2 und 4", "OIB 2 und 4.", "OIB 2, 4", "OIB 2 oder 4", "OIB-RL 2/4", "OIB 2 und 4 Überblick"]
     )
     def test_a_second_key_chained_without_its_anchor_is_still_a_second_family(self, query):
         """The bare ``4`` in "OIB 2 und 4" used to fall into the leftover, where

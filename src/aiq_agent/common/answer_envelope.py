@@ -115,10 +115,11 @@ _FENCE_CLOSE_RE = re.compile(r"[ \t]*\n?```")
 #: BauO)" with room and refuses a paragraph.
 VERDICT_VALUE_MAX_CHARS = 60
 
-#: A summary is the whole answer in ONE to TWO sentences — the standfirst the
-#: reader gets before the prose. It is owed on every researched answer longer
-#: than two sentences, whatever the kind; at two sentences or fewer the reply
-#: is its own summary. Above this it is a paragraph
+#: A summary is ONE to TWO sentences the reader gets before the prose: the
+#: consequence for THIS reader that the opening does not state (what to do
+#: next, what it means for their project). The prompt asks for it only when
+#: there is such a consequence (``piloti_static.md``); otherwise the opening
+#: already answers and the field is omitted. Above this it is a paragraph
 #: wearing a summary's name, and it is dropped whole — the prose's own lede
 #: then does the job, so nothing is lost.
 SUMMARY_MAX_CHARS = 320
@@ -852,8 +853,9 @@ def _salvage_headless(content: str) -> tuple[str, AnswerMeta | None] | None:
     "confidence":{…}}` plus the closing fence. Read as plain prose, the reader
     got that JSON tail under the answer and the turn lost its verdict, its
     confidence and its cards. Whatever stands before `", "kind":` is the
-    answer; the rest, opened with `{`, is the object. Only a tail that parses
-    AND carries a `kind` is taken, so ordinary prose quoting JSON is untouched.
+    answer; the rest, opened with `{`, is the object. The FIRST `", "kind":`
+    whose tail parses whole as one object with an answer kind is taken, so a
+    nested card's kind is never the cut and prose quoting JSON is untouched.
 
     A reply that opens with `{` or the ``answer_json`` fence HAS its head: it is
     an object that did not parse, and a nested `", "kind":` (a callout's) would
@@ -868,13 +870,17 @@ def _salvage_headless(content: str) -> tuple[str, AnswerMeta | None] | None:
     body = re.sub(r"\n?```\s*$", "", content.rstrip()).rstrip()
     if not body.endswith("}"):
         return None
-    matches = list(_HEADLESS_TAIL_RE.finditer(body))
-    if not matches:
+    found = next(
+        (
+            (split, payload)
+            for split in _HEADLESS_TAIL_RE.finditer(body)
+            if (payload := _headless_tail(body[split.end() :])) is not None
+        ),
+        None,
+    )
+    if found is None:
         return None
-    split = matches[-1]
-    payload = _parse_object("{" + body[split.end() :])
-    if payload is None or not isinstance(payload.get("kind"), str):
-        return None
+    split, payload = found
     prose = body[: split.start()].strip()
     if not prose:
         return None
@@ -882,6 +888,22 @@ def _salvage_headless(content: str) -> tuple[str, AnswerMeta | None] | None:
         "answer_envelope_headless: salvaged an envelope whose opening was missing (%d chars of prose)", len(prose)
     )
     return prose, _validated_meta({**payload, "answer": prose})
+
+
+def _headless_tail(tail: str) -> dict | None:
+    """``tail`` as the envelope's remaining top-level object, or None.
+
+    The whole tail must be ONE object carrying an answer kind. A nested card's
+    `", "kind":` (a callout's ``hinweis``) leaves `]}` after its own object and
+    a kind that is no answer kind, so it is refused rather than cut at.
+    """
+    try:
+        payload, end = json.JSONDecoder(strict=False).raw_decode("{" + tail)
+    except json.JSONDecodeError:
+        return None
+    if end != len(tail) + 1 or not isinstance(payload, dict):
+        return None
+    return payload if payload.get("kind") in ANSWER_KINDS else None
 
 
 def gate_answer_meta(

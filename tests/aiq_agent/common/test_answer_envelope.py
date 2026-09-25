@@ -717,6 +717,22 @@ class TestHeadlessSalvage:
         assert prose == "Die Höhe beträgt 2,10 m [1]."
         assert meta is not None and meta.kind == "ruling"
 
+    def test_a_headless_tail_is_cut_at_its_own_kind_not_a_nested_cards(self):
+        content = (
+            'Die Antwort.", "kind":"ruling", "cards":[{"type":"callout", "kind":"hinweis", "text":"Achtung"}]}\n```'
+        )
+        prose, meta = extract_answer_envelope(content)
+        assert prose == "Die Antwort."
+        assert meta is not None and meta.kind == "ruling"
+
+    def test_a_headless_tail_whose_only_kind_is_a_nested_cards_is_not_salvaged(self):
+        # The last `", "kind":` is the callout's: cutting there shipped a JSON
+        # fragment as prose under an invented kind.
+        content = 'Mehr Text hier.", "cards":[{"type":"callout", "kind":"hinweis", "text":"Achtung"}]}\n```'
+        prose, meta = extract_answer_envelope(content)
+        assert meta is None
+        assert "callout" in prose
+
     def test_an_unparseable_object_with_its_opening_is_not_cut_at_a_nested_kind(self):
         # Not JSON (``\q``), and the callout's own "kind" looks like a headless
         # tail: salvage would ship a JSON fragment as prose under an invented kind.

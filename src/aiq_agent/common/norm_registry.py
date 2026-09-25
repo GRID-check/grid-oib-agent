@@ -1062,9 +1062,10 @@ _FAMILY_ANCHOR_RE = re.compile(
 #: A second family key joined to an anchor without repeating it: the ``und 4``
 #: in "OIB 2 und 4", the ``, 4`` in "OIB 2, 4". One or two digits (or a part
 #: number), so a printing year ("OIB 2 2023", "OIB 2, 2023") is never read as a
-#: key. Matched right after an anchor, never on its own.
+#: key. A full stop after the key ends the sentence, not the number: only a
+#: digit after it continues one. Matched right after an anchor, never on its own.
 _FAMILY_JOINED_KEY_RE = re.compile(
-    r"\s*(?:,|/|&|\bund\b|\boder\b|\bbzw\.?)\s*(\d{1,2}(?:\.\d+)?)(?![\d.])",
+    r"\s*(?:,|/|&|\bund\b|\boder\b|\bbzw\.?)\s*(\d{1,2}(?:\.\d+)?)(?!\d|\.\d)",
     re.IGNORECASE,
 )
 

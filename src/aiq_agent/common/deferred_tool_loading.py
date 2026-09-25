@@ -210,9 +210,10 @@ NAMESPACE_TOOL_TYPE = "namespace"
 #: ``openai/gpt-5.6-{luna,sol}`` and ``anthropic/claude-sonnet-5`` echoed
 #: ``defer_loading`` on every function and billed the deferred schemas in
 #: full. So this list says "the request will not 400", and the probe
-#: (:func:`_run_capability_probe`) still decides whether deferral pays. It does NOT mean the model was watched calling
-#: a tool through it. Acceptance is the right criterion for a capability gate —
-#: it is the condition that decides whether the request succeeds — but only
+#: (:func:`_run_capability_probe`) still decides whether deferral pays. It does
+#: NOT mean the model was watched calling a tool through it. Acceptance is the
+#: right criterion for a capability gate — it is the condition that decides
+#: whether the request succeeds — but only
 #: ``openai/gpt-5.6-{luna,sol,terra}``, ``anthropic/claude-opus-4.8``,
 #: ``anthropic/claude-sonnet-4.6`` and ``anthropic/claude-fable-5`` were also
 #: seen emitting a ``function_call`` end to end.
@@ -244,6 +245,14 @@ KNOWN_DEFERRING_MODELS: tuple[str, ...] = (
     "google/gemini-3.5-flash",
     "z-ai/glm-5.2",
 )
+# ``openai/gpt-6-luna``, the boot default since 2026-09-24, is deliberately in
+# NEITHER list and has no intelligence score: nobody has measured its deferral.
+# Its capability is measured by the build-time probe
+# (:func:`verify_deferred_tool_loading`, which runs whatever ``probe_unknown``
+# says) and, for an override that selects it, by the background probe. Without
+# a score it fails the floor, so it binds full schemas until a measurement adds
+# it here and to :data:`MODEL_INTELLIGENCE_INDEX`. That is also what every
+# model measured on 2026-09-23 earned: none billed less for deferring.
 
 #: Permitted on the operator's instruction, capability NOT established.
 #:
@@ -403,9 +412,11 @@ class DeferredToolLoadingModels(BaseModel):
             "Model ids or globs verified to accept the namespace and echo `defer_loading` "
             "back. Matched EXACTLY (a `:variant` suffix does not inherit an allow — it "
             "routes elsewhere and was not the thing measured); write `model*` to include "
-            "variants deliberately. A runtime rejection does not unlist it, but the "
-            "capability probe still measures the saving once, off the request path, and "
-            "a model that bills its deferred schemas anyway binds full schemas."
+            "variants deliberately. A runtime rejection does not unlist it. While "
+            "`probe_unknown` is on, the capability probe still measures the saving once, "
+            "off the request path, and a model that bills its deferred schemas anyway "
+            "binds full schemas; with it off, an allow entry is trusted on its echo alone "
+            "(the workflow's own model is still measured at build time)."
         ),
     )
     provisional: list[str] = Field(
@@ -432,11 +443,13 @@ class DeferredToolLoadingModels(BaseModel):
     probe_unknown: bool = Field(
         default=True,
         description=(
-            "For a model in neither list, spend one live capability probe — off the "
-            "request path — and cache the verdict per model id. Until it lands the model "
-            "is treated as unsupported, so an unknown model gets full schemas rather "
-            "than a wasted round trip. Set false to run allowlist-only with no probing "
-            "traffic at all."
+            "Spend one live capability probe per unclassified, undenied model id — off the "
+            "request path — and cache the verdict. That covers an unlisted model, a "
+            "`provisional` one and an `allow` one, whose echo is not a measured saving. "
+            "Until the verdict lands an unlisted model gets full schemas and a listed one "
+            "defers. Set false to stop request-time probing: the lists alone decide, and "
+            "an `allow` model's echo is trusted without measuring the saving. The build-"
+            "time check of the workflow's own model runs either way."
         ),
     )
 
@@ -1123,7 +1136,7 @@ async def verify_deferred_tool_loading(llm: Any, *, settings: DeferredToolLoadin
     nothing, and that failure is invisible from the inside: the model still
     answers, the agent still runs, and the only symptom is the token bill.
 
-    Three things are checked, in the order they can go wrong:
+    Four things are checked, in the order they can go wrong:
 
     1. the LLM can carry the shape at all (OpenRouter + Responses API);
     2. langchain-openai's finished wire payload still defers;
@@ -1145,7 +1158,13 @@ async def verify_deferred_tool_loading(llm: Any, *, settings: DeferredToolLoadin
     """
     if not settings.enabled:
         return
+    model_id = _checked_build_model(llm, settings)
+    outcome, detail = await _run_capability_probe(llm, settings)
+    _record_build_outcome(model_id, outcome, detail, settings)
 
+
+def _checked_build_model(llm: Any, settings: DeferredToolLoadingSettings) -> str:
+    """The build model's id, once the checks that need no network have passed."""
     if not supports_deferred_tool_loading(llm):
         raise DeferredToolLoadingError(
             "deferred_tool_loading is enabled but this LLM cannot carry it: "
@@ -1175,9 +1194,11 @@ async def verify_deferred_tool_loading(llm: Any, *, settings: DeferredToolLoadin
             model_id,
             settings.min_intelligence_index,
         )
+    return model_id
 
-    outcome, detail = await _run_capability_probe(llm, settings)
 
+def _record_build_outcome(model_id: str, outcome: str, detail: str, settings: DeferredToolLoadingSettings) -> None:
+    """Record the build-time probe's verdict; raise on a shape the provider did not keep."""
     if outcome == "rejected":
         record_model_verdict(model_id, False, source="build-time probe")
         raise DeferredToolLoadingError(
@@ -1254,16 +1275,13 @@ async def ensure_model_verdict(llm: Any, *, settings: DeferredToolLoadingSetting
         outcome, detail = await _run_capability_probe(llm, settings)
     except Exception:  # noqa: BLE001 - a failed diagnosis is not a failed turn
         logger.warning("[DeferredToolLoading] capability probe for %r raised", model_id, exc_info=True)
-        _PROBE_ATTEMPTS[model_id] = _PROBE_ATTEMPTS.get(model_id, 0) + 1
-        # Evicted here too, not only on the inconclusive path below. Model ids
-        # arrive from the per-org override header, which this module treats as
-        # an untrusted key space; a probe that raises every time would otherwise
-        # grow this map without bound while the eviction sat in the branch it
-        # never reaches.
-        while len(_PROBE_ATTEMPTS) > _MAX_CACHED_MODEL_VERDICTS:
-            _PROBE_ATTEMPTS.popitem(last=False)
+        _count_inconclusive_probe(model_id)
         return None
+    return _record_probe_outcome(model_id, outcome, detail)
 
+
+def _record_probe_outcome(model_id: str, outcome: str, detail: str) -> bool | None:
+    """Cache what a request-time probe found; the verdict, or None if it proved nothing."""
     if outcome == "deferred":
         record_model_verdict(model_id, True, source="capability probe")
         return True
@@ -1277,15 +1295,26 @@ async def ensure_model_verdict(llm: Any, *, settings: DeferredToolLoadingSetting
 
     # Unreachable: NOT evidence. Count the attempt and leave the model unknown,
     # which the gate reads as "send full schemas" — correct, just not cheap.
-    _PROBE_ATTEMPTS[model_id] = _PROBE_ATTEMPTS.get(model_id, 0) + 1
-    while len(_PROBE_ATTEMPTS) > _MAX_CACHED_MODEL_VERDICTS:
-        _PROBE_ATTEMPTS.popitem(last=False)
+    _count_inconclusive_probe(model_id)
     logger.info(
         "[DeferredToolLoading] capability probe for %r was inconclusive (%s); model stays unclassified",
         model_id,
         detail[:200],
     )
     return None
+
+
+def _count_inconclusive_probe(model_id: str) -> None:
+    """One more attempt that proved nothing, bounded like the verdicts.
+
+    Evicted on every path that counts, the raising one included: model ids
+    arrive from the per-org override header, which this module treats as an
+    untrusted key space, and a probe that raises every time would otherwise
+    grow this map without bound.
+    """
+    _PROBE_ATTEMPTS[model_id] = _PROBE_ATTEMPTS.get(model_id, 0) + 1
+    while len(_PROBE_ATTEMPTS) > _MAX_CACHED_MODEL_VERDICTS:
+        _PROBE_ATTEMPTS.popitem(last=False)
 
 
 async def _probe_and_release(llm: Any, settings: DeferredToolLoadingSettings, model_id: str) -> None:

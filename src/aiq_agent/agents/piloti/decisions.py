@@ -363,10 +363,13 @@ def prefetch_calls(
 
     When the decision did NOT run, a question that names an OIB family
     („Was weißt du über die OIB 2?") still prefetches its own search: that
-    is the evidence question by construction, and the decision rarely lands
-    in time — measured 2026-09-23 against the live endpoint, p50 2.7 s
-    against a 1.5 s budget, 10 of 12 over — so without this the prefetch
-    silently vanished and the model paid a whole round for the same search.
+    is the evidence question by construction, and without this a missed
+    decision silently took the prefetch with it and the model paid a whole
+    round for the same search. How often it misses is the endpoint's latency:
+    p50 2.7 s against the 1.5 s budget, 10 of 12 over, on 2026-09-23; a median
+    0.54 s, p90 0.62 s over two suites on 2026-09-24, with no change to the
+    call in between (ADR-0064's amendment). A two-word first message („OIB
+    2") is never decided at all (``register._decide_turn``).
     Only on a FIRST message (``previous_message is None``): without the
     decision's ``self_contained`` answer a later message may be a follow-up
     („Was sagt die OIB 2 dazu?"), which the decided path refuses to prefetch,

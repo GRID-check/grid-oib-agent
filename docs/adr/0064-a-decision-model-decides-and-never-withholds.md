@@ -71,8 +71,18 @@ is on the ledger under the `decision` role (`common/decisions.py`).
 not run, a question that `family_query_number` recognises still prefetches
 its own search (`agents/piloti/decisions.py::_undecided_prefetch`). It is the
 evidence question by construction, and the decision missed its 1.5 s budget
-in 10 of 12 live calls (p50 2.7 s, measured 2026-09-23). This adds a fetch
-and withholds nothing. It shipped in `21641318` (2026-09-23). Only on a first
+in 10 of 12 live calls (p50 2.7 s, measured 2026-09-23). The next day's suites
+measured it at a median 0.54 s, p90 0.62 s
+([turn-latency §3.1](../architecture/turn-latency-measured-2026-09.md#31-the-sequence)),
+with the same endpoint (OpenRouter's alpha `/decisions`), timeout and shared
+client; the one change to `common/decisions.py` in between logs a skipped
+decision and does not touch the call. The difference is
+the alpha endpoint's own latency on those days, not a change in the repo, and
+the later figure, taken over two suites rather than twelve calls, is the
+current one. The exception stays for the turns it still misses (a timeout,
+the breaker open, a first message too short to be decided). This adds a
+fetch and withholds nothing. It shipped on 2026-09-23 with the logging of
+every skipped decision and its reason (`common/decisions.py`). Only on a first
 message: on a follow-up (the turn has a previous message) nothing is
 prefetched without a decision, as the decided path refuses a follow-up that
 cannot be searched on its own.

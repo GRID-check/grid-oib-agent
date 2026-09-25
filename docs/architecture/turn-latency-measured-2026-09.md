@@ -5,10 +5,11 @@
 > [`latency-and-caching-audit-2026-09.md`](latency-and-caching-audit-2026-09.md)
 > ranked the drivers structurally, from the code, and said the ranking was
 > waiting on measurement (its §5). This is that measurement for the chat turn,
-> read on 2026-09-24 against branch `claude/pr-725-review-fixes-d2wnzy`
-> (`deddced8` to `fdb57f4c`), with the requery A/B of §3.5 on 2026-09-25
-> (`2ba012b0`). It is a record of that date: re-measure before
-> acting on a number (§8).
+> read on 2026-09-24 against branch `claude/pr-725-review-fixes-d2wnzy`, from
+> the suite refusing to run without a document inventory
+> (`scripts/turn_census/suite.py`) to the question's embedding running beside
+> the turn decision (§3.2), with the requery A/B of §3.5 on 2026-09-25. It is
+> a record of that date: re-measure before acting on a number (§8).
 
 ## 1. Verdict
 
@@ -46,7 +47,8 @@ What that means for the levers:
 All 27 suite questions, one run each, from the main checkout with the document
 inventory in place (§8 says why that matters: without it the median was
 38.5 s, and 42 s in the earlier worktree runs). *Since 2026-09-25:* the 38.5 s
-and 42 s runs started from worktrees before `c9575e0d`, so they ran the main
+and 42 s runs started from worktrees before the census put its own checkout's
+packages first on `PYTHONPATH` (`scripts/turn_census/census.py`), so they ran the main
 checkout's code as it was at run time, not the commit their reports name
 (§8). The 38.5 s was meant as the same code without the inventory; nothing
 recorded whether the main checkout held that code then.
@@ -64,7 +66,7 @@ A fix to the reasoning pass-back landed alongside this and did not change these
 numbers: langchain-openai 1.2.2 dropped the model's encrypted reasoning items
 from a *streamed* Responses call (it had no handler for
 `response.output_item.done`), so every tool round started its thinking from
-nothing. 1.6.6 keeps them (`a0ec99d2`, `uv.lock`), and the items now reach the
+nothing. 1.6.6 keeps them (pinned in `uv.lock`), and the items now reach the
 next request. In a four-question check the thinking time did not drop. It is
 kept because it is correct, not because it was faster.
 
@@ -81,7 +83,7 @@ logs.
 ```
 t=0  ┬ turn setup (~20 ms)
      ├ gather( draft tools │ turn decision (Jev) │ provider reads )      decision 0.2-0.9 s, median 0.54 s, p90 0.62 s
-     │ ── since fdb57f4c: the question's embedding starts here, beside the decision ──
+     │ ── since §3.2: the question's embedding starts here, beside the decision ──
      ├ prefetch: knowledge_search(question) + knowledge_search("OIB-Richtlinie N") per chosen family
      │   ├ query embedding (text-embedding-3-large, remote, synchronous)   280-980 ms per query
      │   ├ Chroma vector + lexical boost                                  50-230 ms
@@ -92,6 +94,15 @@ t=0  ┬ turn setup (~20 ms)
      │   └ second retrieval + rerank                                       ~1-1.8 s
      └ first /responses call
 ```
+
+The decision's 0.54 s median is from the round-0 spans of those two suites.
+On 2026-09-23 twelve direct calls to the same endpoint measured p50 2.7 s,
+10 of 12 over the 1.5 s timeout
+([turns audit](turns-per-answer-audit-2026-09.md)). Nothing in the call
+changed between the two (endpoint, timeout, shared keep-alive client), so
+the gap is the alpha endpoint's latency on the day, and this later, larger
+sample is the current figure. It can move back: the undecided prefetch
+(ADR-0064's amendment) is what keeps a miss from costing a round.
 
 Medians across the two suites of 2026-09-24, split by whether round 0
 requeried. They are not the §2 round-0 slice (3.7 s), which is one suite and
@@ -109,7 +120,7 @@ One traced example (warm process, the barrier-free question): decision
 requery writer 2326-4274 ms, second rerank 5064-6120 ms, first model call at
 6141 ms.
 
-### 3.2 Landed: the question's embedding runs beside the decision (`fdb57f4c`)
+### 3.2 Landed: the question's embedding runs beside the decision
 
 The prefetch's search string is known at turn start (the question, whitespace
 folded, 300 characters: `decisions.prefetch_query`), but its embedding was
@@ -120,8 +131,11 @@ only requested once the decision had named the search. Now:
   awaited. It warms the retriever the knowledge tool was built with
   (`set_search_retriever`, set at tool build time), with the query the tool
   will send (`augmented_query`, without logging its glossary miss a second
-  time). Only a first message is warmed: a later one is searched only when
-  the decision rules it self-contained, and without a decision never.
+  time). Only a first message is warmed, and only one of three words or
+  more or one that names an OIB family: „OIB 2" skips the decision but is
+  still searched by the undecided prefetch. A later message is searched
+  only when the decision rules it self-contained, and without a decision
+  never.
 * The adapter's embedding LRU dedupes a computation in flight
   (`_embed_query_cached`): a search that starts before the warm-up finished
   waits for it instead of embedding the same string again. A failed
@@ -144,7 +158,8 @@ Tests: `tests/knowledge_layer_tests/test_query_warm_up.py` (one embedding for
 three concurrent callers, the take-over after a failure, the warm-up leaves the
 vector where the search reads it, never raises);
 `tests/aiq_agent/agents/piloti/test_register_decisions.py` (the warmed string
-is the prefetch's own; switched-off decisions warm nothing).
+is the prefetch's own; a two-word family question is warmed, a two-word
+greeting is not; switched-off decisions warm nothing).
 
 ### 3.3 Checked and not worth doing
 
@@ -167,11 +182,13 @@ is the prefetch's own; switched-off decisions warm nothing).
 
 ### 3.5 Measured and rejected: skipping the requery on the prefetch
 
-`requery_on_prefetch: false` on `knowledge_search` (`2ba012b0`) returns the
-prefetch's first pool without the sufficiency judge's requery, and leaves
+`requery_on_prefetch: false` on `knowledge_search` (a config switch in
+`sources/knowledge_layer/src/register.py`, now removed) returned the
+prefetch's first pool without the sufficiency judge's requery, and left
 the model, which reads that pool, to decide whether to search again. The
-model's own searches keep their loop; the prefetch node marks its fetches
-(`turn_status.prefetch_scope`), because round 0 alone cannot tell them apart.
+model's own searches kept their loop; the prefetch node marked its fetches
+(`turn_status.prefetch_scope`, removed with the switch), because round 0
+alone could not tell them apart.
 
 The suite, all 25 runnable questions, two runs each, same commit, only the
 switch differing (2026-09-25):
@@ -209,7 +226,10 @@ within one check either way. Six questions at two runs each is a small
 sample, and the all-runs medians above carry the noise of the other 19; the
 robust part is the mechanism, the extra rounds, which the per-question table
 shows in both directions of the same question. The switch was removed after the measurement;
-`2ba012b0` has it if it is needed again, when the model or the judge changes.
+To measure it again when the model or the judge changes, rebuild it from this
+description: a `knowledge_search` config flag that skips the sufficiency
+requery for a call the prefetch node marked through a `ContextVar` in
+`common/turn_status.py`, set around its `_tools_node` call.
 
 ## 4. Search rounds
 
@@ -229,7 +249,7 @@ What the rounds send, read off the suite's tool calls:
   `knowledge_search("OIB-Richtlinie N")` returns every member's scope and
   Gliederung in one block and those rounds disappear.
 
-Fixed (`e94af899`): **a list of RIS paragraphs was one round per paragraph.**
+Fixed (`sources/ris_adapter/src/lookup/address.py`): **a list of RIS paragraphs was one round per paragraph.**
 `§§ 75 und 81 BO für Wien` returned § 75 only and left „und 81" glued to the
 law's name, so the catalogue lookup ran on a garbled title and the model spent
 another round (11 s in the building-height question) fetching § 81. Now
@@ -251,7 +271,7 @@ Open:
 
 ## 5. The final call: reasoning effort A/B
 
-Same commit (`deddced8`), same inventory, all runnable questions (25), one
+Same commit (the suite's refusal of an empty inventory), same inventory, all runnable questions (25), one
 run each; the only change is `--override llms.research_llm.reasoning_effort low`.
 
 | | `medium` (shipped) | `low` |
@@ -296,8 +316,8 @@ instead of a frontier rewrite and two retrievals (16 s and 23 s in the audits'
 recorded cases).
 
 *Correction, 2026-09-25:* the 42.0 → 42.7 s comparison does not measure the
-change. Both runs started from worktrees without their own venv before
-`c9575e0d`, so both imported the main checkout's `aiq_agent` and
+change. Both runs started from worktrees without their own venv before the
+census put its own checkout first on `PYTHONPATH`, so both imported the main checkout's `aiq_agent` and
 `knowledge_layer` and measured the same code (§8, ADR-0067 Confirmation). The
 bound above is a property of the code (`MAX_PATCHES`, `PATCH_TIMEOUT_S`), not
 of that run. The effort A/B (§5) and the requery A/B (§3.5) ran from the main
@@ -311,10 +331,10 @@ checkout at one commit, so they stand.
 | 2 | Round-0 requery: start the writer beside the verdicts | ~0.6 s on the ~30% of turns that requery | open. Dropping it instead was measured and costs 3.4 s (§3.5) |
 | 3 | `use_skill` preloading for skills the decision did not pick | 2-3 s per such round | open |
 | 4 | Warm the adapter at boot | 0.9-1.5 s, first turn per process | open |
-| 5 | Question embedding beside the decision | ≈ 0.4-0.5 s per searching turn | **landed** `fdb57f4c` |
-| 6 | RIS paragraph lists in one call | one round (≈ 11 s) where it applied | **landed** `e94af899` |
-| 7 | Reasoning items kept across tool rounds | none measured | **landed** `a0ec99d2`, kept for correctness |
-| 8 | Skip the requery on the prefetch | none: measured 3.4 s slower | **rejected** §3.5; the switch `requery_on_prefetch` was removed, `2ba012b0` has it |
+| 5 | Question embedding beside the decision | ≈ 0.4-0.5 s per searching turn | **landed** §3.2 (`register._warm_question`) |
+| 6 | RIS paragraph lists in one call | one round (≈ 11 s) where it applied | **landed** (`ris_adapter` `Address.sections`) |
+| 7 | Reasoning items kept across tool rounds | none measured | **landed** (langchain-openai 1.6.6), kept for correctness |
+| 8 | Skip the requery on the prefetch | none: measured 3.4 s slower | **rejected** §3.5; the switch `requery_on_prefetch` was removed; §3.5 describes it |
 
 ## 8. How these numbers were taken, and how not to take them
 
@@ -328,7 +348,8 @@ checkout at one commit, so they stand.
   no document list, no family overviews, 7 s more per turn. The ADR-0067
   before/after numbers (42 s) carry that handicap on both sides. The suite now
   refuses to start on an empty inventory.
-* **Measure the code the report names.** Until `c9575e0d` the census set
+* **Measure the code the report names.** Until the census put its own
+  checkout's `src/` and `sources/` packages first, it set
   `PYTHONPATH` to `scripts/turn_census` alone. From a worktree without its own
   venv, every run then imported the main checkout's `aiq_agent` and
   `knowledge_layer` through the editable install, while the report named the

@@ -199,6 +199,29 @@ class TestTheTurn:
         # The very string the prefetch will search, so the search finds it cached.
         warm.assert_awaited_once_with(turn.prefetch[0]["args"]["query"])
 
+    async def test_a_two_word_family_question_is_warmed_for_its_undecided_prefetch(self):
+        """„OIB 2" skips the decision, and the undecided path still searches it:
+        the search must find its embedding warm, not pay for it after."""
+        with patch("aiq_agent.knowledge.factory.warm_search_query", new_callable=AsyncMock) as warm:
+            turn, _state, decide = await _run_turn(
+                ResearchAgentConfig(llm="research_llm", tools=["knowledge_search"], skills_enabled=False),
+                TurnDecisions.none(),
+                [HumanMessage(content="OIB 2")],
+            )
+        decide.assert_not_awaited()
+        assert turn.prefetch == ({"name": "knowledge_search", "args": {"query": "OIB 2"}},)
+        warm.assert_awaited_once_with("OIB 2")
+
+    async def test_a_two_word_greeting_is_not_warmed(self):
+        with patch("aiq_agent.knowledge.factory.warm_search_query", new_callable=AsyncMock) as warm:
+            turn, _state, _decide = await _run_turn(
+                ResearchAgentConfig(llm="research_llm", tools=["knowledge_search"], skills_enabled=False),
+                TurnDecisions.none(),
+                [HumanMessage(content="Hallo Piloti")],
+            )
+        warm.assert_not_awaited()
+        assert turn.prefetch == ()
+
     async def test_switched_off_means_no_warm_up(self):
         with patch("aiq_agent.knowledge.factory.warm_search_query", new_callable=AsyncMock) as warm:
             await _run_turn(
