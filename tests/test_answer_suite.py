@@ -270,8 +270,10 @@ def test_the_runs_import_this_checkout(tmp_path):
     import census
 
     path = census.tree_pythonpath(tmp_path).split(os.pathsep)
-    assert path[:3] == [str(census.HERE), str(tmp_path / ".tree"), str(census.ROOT / "src")]
-    assert (tmp_path / ".tree" / "knowledge_layer").resolve() == (census.ROOT / "sources/knowledge_layer/src").resolve()
+    shim = Path(path[1])
+    assert path[0] == str(census.HERE) and path[2] == str(census.ROOT / "src")
+    assert shim.parent == tmp_path and shim.name.startswith(".tree-")
+    assert (shim / "knowledge_layer").resolve() == (census.ROOT / "sources/knowledge_layer/src").resolve()
     assert suite.foreign_imports(tmp_path) == []
 
 
@@ -285,3 +287,21 @@ def test_the_workers_can_ask_for_the_path_at_once(tmp_path):
         paths = list(pool.map(lambda _: census.tree_pythonpath(tmp_path), range(16)))
 
     assert len(set(paths)) == 1
+
+
+def test_a_record_line_the_kill_cut_short_is_skipped(tmp_path):
+    record = tmp_path / "r.jsonl"
+    record.write_text('{"t_start": 1, "t_end": 2, "url": "x"}\n{"t_start": 3, "t_en')
+
+    assert len(suite._records(record)) == 1
+
+
+def test_one_failing_run_does_not_sink_the_suite(tmp_path, monkeypatch):
+    # A raise in one worker used to discard every result after the paid runs.
+    def boom(*args, **kwargs):
+        raise RuntimeError("nat died")
+
+    monkeypatch.setattr(suite, "run_once", boom)
+    [run] = suite.run_suite([{"id": "q1", "question": "Frage?"}], 1, tmp_path, 1, None)
+
+    assert run.error == "RuntimeError: nat died"

@@ -72,6 +72,7 @@ def committed(monkeypatch, tmp_path):
     # What git holds for each commit an earlier push named.
     history = {(SHA[:12], "piloti_static.md"): "Regel eins.\n"}
     monkeypatch.setattr(push, "text_at", lambda sha, relative: history.get((sha, relative)))
+    monkeypatch.setattr(push, "file_history", lambda: [])
     return path
 
 
@@ -155,3 +156,20 @@ def test_an_uncommitted_file_is_not_published(monkeypatch, committed):
 
 def test_without_credentials_nothing_is_checked(monkeypatch, committed):
     assert _run(monkeypatch, None) == push.EXIT_UNCONFIGURED
+
+
+def test_a_pulled_and_committed_edit_counts_as_reviewed(monkeypatch, committed):
+    # Pull, commit, push found "same" and stamped nothing; the next real change
+    # was then refused as an unreviewed edit, forever. Text some commit holds
+    # is reviewed, whatever the version's message says.
+    monkeypatch.setattr(push, "file_history", lambda: ["Regel eins, in Langfuse verbessert.\n"])
+    client = FakeClient(FakePrompt("Regel eins, in Langfuse verbessert.", commit_message="Tippfehler"))
+
+    assert _run(monkeypatch, client, "--label", "production", "--apply") == push.EXIT_OK
+    assert len(client.created) == 1
+
+
+def test_the_diff_keeps_a_changed_last_line_on_its_own_line(committed):
+    decided = push.plan(FakePrompt("a\nb\nc"), "a\nb\nd\n", label="production")
+
+    assert "-c\n+d" in decided.diff

@@ -87,9 +87,12 @@ def tree_pythonpath(out: Path) -> str:
     its import name (their package dirs are called ``src``), ahead of the
     inherited path. The recorder's directory stays first.
     """
+    import hashlib
     import tomllib
 
-    shim = out / ".tree"
+    # One per checkout: two suites or censuses from different worktrees
+    # sharing an --out would otherwise re-point each other's links.
+    shim = out / f".tree-{hashlib.sha1(str(ROOT.resolve()).encode()).hexdigest()[:10]}"
     # The suite's workers call this at once: linking is serialised, and a link
     # that already points at the right package is left alone.
     with _SHIM_LOCK:
@@ -100,9 +103,12 @@ def tree_pythonpath(out: Path) -> str:
                 target, link = (pyproject.parent / relative).resolve(), shim / name
                 if link.is_symlink() and link.resolve() == target:
                     continue
-                if link.is_symlink() or link.exists():
-                    link.unlink()
-                link.symlink_to(target, target_is_directory=True)
+                # Built beside and renamed over: another process never sees
+                # the link missing, and never trips on a half-made one.
+                staged = shim / f".{name}.{os.getpid()}"
+                staged.unlink(missing_ok=True)
+                staged.symlink_to(target, target_is_directory=True)
+                os.replace(staged, link)
     parts = [str(HERE), str(shim), str(ROOT / "src"), os.environ.get("PYTHONPATH", "")]
     return os.pathsep.join(part for part in parts if part)
 
@@ -122,17 +128,37 @@ def run_once(question: str, out: Path, conversation_id: str, overrides: list[lis
     for key, value in overrides or []:
         cmd += ["--override", key, value]
     with log.open("w") as sink:
-        proc = subprocess.Popen(cmd, cwd=ROOT, env=env, stdout=sink, stderr=subprocess.STDOUT)
+        # Its own process group, so the kill reaches whatever `nat run` started.
+        proc = subprocess.Popen(cmd, cwd=ROOT, env=env, stdout=sink, stderr=subprocess.STDOUT, start_new_session=True)
         deadline = time.time() + _TIMEOUT_SECONDS
+        answered = False
         # `nat run` does not exit after answering (background exporters), so
         # the answer line is the end of the turn, plus a tail for the stages.
         while time.time() < deadline and proc.poll() is None:
             time.sleep(2)
             if "Workflow Result" in log.read_text(errors="replace"):
+                answered = True
                 time.sleep(_TAIL_SECONDS)
                 break
-        proc.kill()
+        _stop(proc)
+    if not answered and proc.returncode is not None and time.time() >= deadline:
+        with log.open("a") as sink:
+            sink.write(f"\ncensus: timed out after {_TIMEOUT_SECONDS}s\n")
     return record
+
+
+def _stop(proc: subprocess.Popen) -> None:
+    """Kill the run's process group and reap it, so no zombie outlives the run."""
+    import signal
+
+    try:
+        os.killpg(proc.pid, signal.SIGKILL)
+    except ProcessLookupError:
+        pass
+    try:
+        proc.wait(timeout=10)
+    except subprocess.TimeoutExpired:
+        proc.kill()
 
 
 def main(argv: list[str] | None = None) -> int:

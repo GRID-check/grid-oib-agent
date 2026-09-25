@@ -13,7 +13,7 @@ import time
 
 import httpx
 
-_OUT = os.environ["REC_OUT"]
+_OUT = os.environ.get("REC_OUT", "")
 _SEQ = itertools.count(1)
 _HOSTS = ("openrouter.ai", "api.typesafe.ai", "api.openai.com")
 
@@ -120,7 +120,8 @@ async def _send(self, request, *args, **kwargs):
     return resp
 
 
-httpx.AsyncClient.send = _send
+if _OUT:  # only when the census asked for a record
+    httpx.AsyncClient.send = _send
 
 _orig_sync = httpx.Client.send
 
@@ -154,4 +155,5 @@ def _send_sync(self, request, *args, **kwargs):
     return resp
 
 
-httpx.Client.send = _send_sync
+if _OUT:  # only when the census asked for a record
+    httpx.Client.send = _send_sync

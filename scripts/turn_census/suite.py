@@ -176,13 +176,26 @@ def last_envelope(rows: list[dict]) -> dict | None:
     return found
 
 
+def _records(record: Path) -> list[dict]:
+    """The recorder's lines; one the kill cut short is skipped, not fatal."""
+    if not record.exists():
+        return []
+    rows = []
+    for line in record.open():
+        try:
+            rows.append(json.loads(line))
+        except json.JSONDecodeError:
+            continue
+    return rows
+
+
 def observe(question: dict, index: int, record: Path, log: Path) -> Run:
     """Everything one turn left behind, read into a Run."""
     run = Run(question_id=str(question["id"]), run=index)
-    rows = sorted((json.loads(line) for line in record.open()), key=lambda r: r["t_start"]) if record.exists() else []
+    rows = sorted(_records(record), key=lambda r: r["t_start"])
     log_text = log.read_text(errors="replace") if log.exists() else ""
     if not rows:
-        run.error = "no model calls recorded"
+        run.error = "timed out" if "census: timed out" in log_text else "no model calls recorded"
         return run
     research = [entry for entry in rows if _is_research(entry)]
     run.wall_s = round(rows[-1]["t_end"] - rows[0]["t_start"], 1)
@@ -465,7 +478,7 @@ def foreign_imports(out: Path) -> list[str]:
     import subprocess
 
     names = ("aiq_agent", "knowledge_layer", "ris_adapter")
-    probe = f"import {', '.join(names)}; print({', '.join(f'{name}.__file__' for name in names)})"
+    probe = f"import {', '.join(names)}; print({', '.join(f'{name}.__file__' for name in names)}, sep=chr(10))"
     env = {**os.environ, "PYTHONPATH": tree_pythonpath(out)}
     shown = subprocess.run(
         [sys.executable, "-c", probe], cwd=ROOT, env=env, capture_output=True, text=True, check=False
@@ -475,7 +488,7 @@ def foreign_imports(out: Path) -> list[str]:
     root = ROOT.resolve()
     return [
         f"{name}: {path}"
-        for name, path in zip(names, shown.stdout.split(), strict=False)
+        for name, path in zip(names, shown.stdout.splitlines(), strict=False)
         if not Path(path).resolve().is_relative_to(root)
     ]
 
@@ -512,13 +525,20 @@ def run_suite(
     def one(job: tuple[dict, int]) -> Run:
         question, index = job
         conversation = f"suite-{stamp}-{question['id']}-{index}"
-        record = run_once(str(question["question"]).strip(), out, conversation, overrides)
-        result = observe(question, index, record, record.with_suffix(".log"))
+        try:
+            record = run_once(str(question["question"]).strip(), out, conversation, overrides)
+            result = observe(question, index, record, record.with_suffix(".log"))
+        except Exception as exc:  # noqa: BLE001 - one run's failure is that run's, not the suite's
+            result = Run(question_id=str(question["id"]), run=index, error=f"{type(exc).__name__}: {exc}")
         print(f"  {question['id']} #{index}: {result.wall_s}s, {result.research_calls} call(s)", flush=True)
         return result
 
-    with ThreadPoolExecutor(max_workers=workers) as pool:
+    pool = ThreadPoolExecutor(max_workers=workers)
+    try:
         return list(pool.map(one, jobs))
+    finally:
+        # On Ctrl-C the queued paid runs are cancelled, not started one by one.
+        pool.shutdown(wait=True, cancel_futures=True)
 
 
 def main(argv: list[str] | None = None) -> int:

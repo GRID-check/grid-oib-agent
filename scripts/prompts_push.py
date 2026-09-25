@@ -141,11 +141,25 @@ def published_from_git(live: Any) -> bool:
     Its commit message names a commit, and that commit's file is exactly the
     text served. Tags cannot say this (see the module docstring).
     """
+    served = committed_text(getattr(live, "prompt", "") or "")
     match = _COMMIT_MESSAGE_RE.match((getattr(live, "commit_message", None) or "").strip())
-    if match is None:
-        return False
-    committed = text_at(match.group(1), match.group(2))
-    return committed is not None and committed_text(committed) == committed_text(getattr(live, "prompt", "") or "")
+    if match is not None:
+        committed = text_at(match.group(1), match.group(2))
+        if committed is not None and committed_text(committed) == served:
+            return True
+    # A UI edit that was pulled and committed IS reviewed text, whatever its
+    # message: without this the documented recovery (pull, commit, push) found
+    # "same", stamped nothing, and refused the next real change forever.
+    return any(committed_text(text) == served for text in file_history())
+
+
+def file_history() -> list[str]:
+    """Every committed version of the prompt file, newest first."""
+    relative = str(FALLBACK_FILE.relative_to(REPO_ROOT))
+    shas = subprocess.run(
+        ["git", "log", "--format=%H", "--", relative], cwd=REPO_ROOT, capture_output=True, text=True, check=False
+    ).stdout.split()
+    return [text for sha in shas if (text := text_at(sha, relative)) is not None]
 
 
 def plan(live: Any | None, text: str, *, label: str) -> Plan:
@@ -156,14 +170,16 @@ def plan(live: Any | None, text: str, *, label: str) -> Plan:
     version = getattr(live, "version", None)
     if served == committed_text(text):
         return Plan("same", version)
-    diff = "".join(
+    diff = "\n".join(
         difflib.unified_diff(
-            served.splitlines(keepends=True),
-            committed_text(text).splitlines(keepends=True),
+            served.splitlines(),
+            committed_text(text).splitlines(),
             fromfile=f"langfuse:{label} (v{version})",
             tofile=str(FALLBACK_FILE.relative_to(REPO_ROOT)),
+            lineterm="",
         )
     )
+    diff = diff + "\n" if diff else diff
     if not published_from_git(live):
         return Plan("refuse", version, diff)
     return Plan("update", version, diff)

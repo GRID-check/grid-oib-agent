@@ -35,6 +35,10 @@ APM_VERSION="$(awk '/^  APM_VERSION:/ {print $2; exit}' Taskfile.yml)"
 
 step() { echo "[session-start] $*"; }
 
+# Copy, never hardlink, on every path: nltk pathsec refuses hard-linked corpora
+# (docs/contributing/gotchas.md), and the Taskfile and Dockerfile do the same.
+export UV_LINK_MODE=copy
+
 step "backend venv (uv sync --group dev)"
 uv venv .venv
 uv sync --group dev
