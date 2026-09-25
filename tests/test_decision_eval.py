@@ -15,7 +15,7 @@ def test_expected_family_reads_the_loop_eval_vocabulary():
     assert expected_family(None) is None
 
 
-def _row(id, expected, top, p, corpus="baurecht", evidence=0.9, kind="ruling", expected_p=None, landesrecht=None):
+def _row(id, expected, top, p, corpus="baurecht", evidence=0.9, kind="ruling", expected_p=None):
     return Row(
         id=id,
         kind=kind,
@@ -29,7 +29,6 @@ def _row(id, expected, top, p, corpus="baurecht", evidence=0.9, kind="ruling", e
         expected_family_p=expected_p if expected_p is not None else (p if top == expected else 0.1),
         decided=True,
         latency_ms=200,
-        landesrecht=landesrecht if landesrecht is not None else (0.9 if id.startswith("bo") else 0.2),
     )
 
 
@@ -43,13 +42,6 @@ def test_the_adoption_rule_is_the_three_floors():
 
     unsure = [*good, _row("f", "2", "2", 0.9, evidence=0.2)]
     assert not summarise(unsure)["ruling_evidence_floor_held"] and not summarise(unsure)["adopt"]
-
-
-def test_the_ris_prefetch_floor_is_every_bauordnung_row_and_no_oib_row():
-    good = [_row("a", "2", "2", 0.9), _row("bo-1", None, "2", 0.3)]
-    assert summarise(good)["adopt"]
-    assert not summarise([*good, _row("bo-2", None, "2", 0.3, landesrecht=0.5)])["adopt"]
-    assert not summarise([*good, _row("b", "4", "4", 0.8, landesrecht=0.7)])["adopt"]
 
 
 def test_the_sweep_reports_recall_and_precision_per_threshold():

@@ -22,9 +22,6 @@ THE ADOPTION RULE (audit §4.4, ADR-0064)
 - family top-1 ≥ 85 % on the OIB rows (the family the row names is the
   highest family noul).
 - corpus `baurecht` on ≥ 90 % of the regulation rows.
-- every Bauordnung row at or above `LANDESRECHT_THRESHOLD` and no OIB row
-  (the RIS prefetch: a wrong lookup is two planner calls, a missed one a
-  round).
 Anything under that: keep `turn_decisions: false` and say so in the PR.
 
 IT NEEDS A KEY, NOT A BACKEND
@@ -44,11 +41,6 @@ USAGE
 
 THE LAST RUN
 ------------
-2026-09-25, `tests/fixtures/herleitung/decision_eval_2026-09-25.csv`: 35/35
-decided, family top-1 1.00, corpus 1.00, follow-ups held back 6/6, the RIS
-prefetch floor held (every Bauordnung row at or above
-`LANDESRECHT_THRESHOLD`, no OIB row), mean latency ~270 ms.
-
 2026-09-22, from the branch that introduced the decisions, committed beside
 the questions as `tests/fixtures/herleitung/decision_eval_2026-09-22.csv`:
 27/27 decided, family top-1 1.00, corpus `baurecht` 1.00 on the regulation
@@ -116,8 +108,6 @@ class Row:
     top_family_p: float = 0.0
     expected_family_p: float | None = None
     top_card: str | None = None
-    landesrecht: float | None = None
-    land: str | None = None
     top_card_p: float = 0.0
     model_p: float | None = None
     skill: str | None = None
@@ -229,23 +219,18 @@ async def _evaluate(questions_path: Path, follow_ups_path: Path | None = None) -
                 row.top_card, row.top_card_p = max(decided.cards, key=lambda c: c[1])
             row.skill, row.skill_p, row.skill_fit = decided.skill, decided.skill_p, decided.skill_fit
             row.self_contained = decided.self_contained
-            row.landesrecht, row.land = decided.landesrecht, decided.chosen_land
             row.latency_ms = decided.latency_ms
         rows.append(row)
         print(
             f"{row.id:36s} evidence={row.needs_evidence or 0:.2f} corpus={row.corpus}({row.corpus_p:.2f}) "
             f"family={row.top_family}({row.top_family_p:.2f}) expected={row.expected_family} "
             f"skill={row.skill}({row.skill_p:.2f}/fit {row.skill_fit or 0:.2f}) "
-            f"card={row.top_card}({row.top_card_p:.2f}) self={row.self_contained or 0:.2f} "
-            f"landesrecht={row.landesrecht or 0:.2f}({row.land}) {row.latency_ms}ms"
+            f"card={row.top_card}({row.top_card_p:.2f}) self={row.self_contained or 0:.2f} {row.latency_ms}ms"
         )
     return rows
 
 
 def summarise(rows: list[Row]) -> dict[str, float | int | bool]:
-    from aiq_agent.agents.piloti.decisions import LANDESRECHT_THRESHOLD
-    from aiq_agent.agents.piloti.decisions import SELF_CONTAINED_THRESHOLD
-
     decided = [r for r in rows if r.decided]
     family_rows = [r for r in decided if r.expected_family is not None and not r.follow_up]
     corpus_rows = [r for r in decided if r.expected_corpus is not None and not r.follow_up]
@@ -260,21 +245,9 @@ def summarise(rows: list[Row]) -> dict[str, float | int | bool]:
     standalone = [r for r in decided if not r.follow_up]
     follow_ups = [r for r in decided if r.follow_up]
     self_contained_rate = (
-        sum(1 for r in standalone if (r.self_contained or 0.0) >= SELF_CONTAINED_THRESHOLD) / len(standalone)
-        if standalone
-        else 0.0
+        sum(1 for r in standalone if (r.self_contained or 0.0) >= 0.5) / len(standalone) if standalone else 0.0
     )
-    held_back = (
-        sum(1 for r in follow_ups if (r.self_contained or 0.0) < SELF_CONTAINED_THRESHOLD) / len(follow_ups)
-        if follow_ups
-        else None
-    )
-    # The RIS prefetch: every Bauordnung row looked up, no OIB row. A wrong
-    # lookup is two planner calls and two downloads, a missed one a round.
-    land_rows = [r for r in standalone if r.kind != "follow_up" and r.expected_family is None and r.expected_corpus]
-    oib_rows = [r for r in standalone if r.expected_family is not None]
-    landesrecht_hits = sum(1 for r in land_rows if (r.landesrecht or 0.0) >= LANDESRECHT_THRESHOLD)
-    landesrecht_false = sum(1 for r in oib_rows if (r.landesrecht or 0.0) >= LANDESRECHT_THRESHOLD)
+    held_back = sum(1 for r in follow_ups if (r.self_contained or 0.0) < 0.5) / len(follow_ups) if follow_ups else None
     follow_up_family = sum(1 for r in follow_ups if r.family_hit) / len(follow_ups) if follow_ups else None
     return {
         "questions": len(rows),
@@ -289,16 +262,12 @@ def summarise(rows: list[Row]) -> dict[str, float | int | bool]:
         "follow_ups_family_top1": None if follow_up_family is None else round(follow_up_family, 3),
         "corpus_baurecht_rate": round(corpus_rate, 3),
         "ruling_evidence_floor_held": evidence_floor_held,
-        "landesrecht_rows_looked_up": f"{landesrecht_hits}/{len(land_rows)}",
-        "landesrecht_false_on_oib_rows": landesrecht_false,
         "mean_latency_ms": int(sum(r.latency_ms for r in decided) / len(decided)) if decided else 0,
         "adopt": bool(decided)
         and family_top1 >= FAMILY_TOP1_FLOOR
         and corpus_rate >= CORPUS_FLOOR
         and evidence_floor_held
-        and (held_back is None or held_back >= FOLLOW_UP_FLOOR)
-        and landesrecht_hits == len(land_rows)
-        and landesrecht_false == 0,
+        and (held_back is None or held_back >= FOLLOW_UP_FLOOR),
     }
 
 
@@ -336,8 +305,6 @@ def write_csv(rows: list[Row], path: Path) -> None:
         "top_card",
         "top_card_p",
         "model_p",
-        "landesrecht",
-        "land",
         "latency_ms",
     ]
     with path.open("w", newline="", encoding="utf-8") as handle:

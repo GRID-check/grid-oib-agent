@@ -30,13 +30,6 @@ whose answer can only ADD to the turn:
   body costs a tenth of that and only when a question calls for it. The
   body stays an offer: the model decides whether to follow it, and the
   rest stay one catalog line each behind ``use_skill``.
-- ``landesrecht`` and ``land``: whether the answer turns on a Land's
-  building or planning law (a Bauordnung, a Bautechnikgesetz, a permit
-  procedure), and which Land — from the message first, then the project's
-  facts. A confident yes prefetches ``ris_lookup`` as round 0, with the Land
-  when the decider named one. The Bauordnung questions were the slowest in
-  the answer suite, serial RIS rounds before the first passage was read;
-  the lookup itself decides the law and the §§, this only starts it early.
 - ``self_contained``: whether the message can be searched on its own. A
   follow-up („und in GK 4?") cannot, and searching the fragment would hand
   the model a grounding block about nothing. A follow-up prefetches
@@ -76,10 +69,6 @@ SLOT = "turn"
 
 #: The knowledge tool the prefetch calls. A wire name (``configs/*.yml``).
 KNOWLEDGE_SEARCH = "knowledge_search"
-#: The RIS tool the prefetch calls, by the name the chat surface binds it
-#: under. A deployment without RIS does not bind it, and round 0 drops a call
-#: to an unbound tool (``PilotiAgent._prefetch_node``).
-RIS_LOOKUP = "ris_lookup_tool"
 
 #: Below this p(needs_evidence) nothing is prefetched. A false "no" costs the
 #: model its first round, a false "yes" one unread grounding block. Measured
@@ -121,37 +110,6 @@ CORPUS_THRESHOLD = 0.7
 #: a name-match (``ordner-brandschutz-listing`` → brandschutz at 0.59/0.13).
 SKILL_THRESHOLD = 0.6
 SKILL_FIT_THRESHOLD = 0.1
-#: At or above this p(landesrecht) the question is looked up in RIS as round 0.
-#: Measured 2026-09-25 inside the whole turn decision (``task
-#: be:eval:decisions``, two runs): the five Bauordnung rows at 0.72-0.96, the
-#: highest OIB row 0.54-0.55 (Rauchwarnmelder). Asked alone the same
-#: question scores higher — „Wie hoch dürfen wir in Bauklasse I bauen" 0.88
-#: alone, 0.72 beside the twenty other questions — so the threshold is set on
-#: the state production sends, mid-gap. Asked alone, five project-fact
-#: variants (the Land only in the project: „Wie groß muss der Abstand zur
-#: Nachbargrenze sein?" in Innsbruck) scored 0.87-0.93 and a Gebäudeklasse
-#: question in a Tirol project 0.62. A wrong yes costs a lookup (up to two
-#: small planner calls and two RIS downloads); a miss, the round it saves.
-LANDESRECHT_THRESHOLD = 0.65
-#: The Land is passed to the lookup at or above this; below, the lookup reads
-#: it from the question and the project brief itself. Every row the Land was
-#: knowable for chose it at 1.00; the rest chose ``unknown`` at 0.96-1.00.
-LAND_THRESHOLD = 0.8
-
-#: The Länder, keyed as ``ris_lookup``'s ``jurisdiction`` takes them.
-LAND_OPTIONS: Mapping[str, str] = {
-    "Wien": "Wien (Vienna)",
-    "Niederösterreich": "Niederösterreich (Lower Austria)",
-    "Oberösterreich": "Oberösterreich (Upper Austria)",
-    "Salzburg": "Salzburg",
-    "Tirol": "Tirol (Tyrol)",
-    "Vorarlberg": "Vorarlberg",
-    "Kärnten": "Kärnten (Carinthia)",
-    "Steiermark": "Steiermark (Styria)",
-    "Burgenland": "Burgenland",
-    "unknown": "Neither the message nor the project names or implies a Land.",
-}
-
 #: Below this p(self_contained) the message itself is not searched.
 #: Standalone questions 0.71-0.95, follow-ups 0.02-0.25 (2026-09-25).
 SELF_CONTAINED_THRESHOLD = 0.6
@@ -219,9 +177,6 @@ class TurnDecisions:
     skill_p: float = 0.0
     skill_fit: float | None = None
     self_contained: float | None = None
-    landesrecht: float | None = None
-    land: str | None = None
-    land_p: float = 0.0
     latency_ms: int = 0
 
     @staticmethod
@@ -245,17 +200,6 @@ class TurnDecisions:
     def searchable(self) -> bool:
         """Whether the message itself is worth a search: unknown counts as yes."""
         return self.self_contained is None or self.self_contained >= SELF_CONTAINED_THRESHOLD
-
-    @property
-    def wants_landesrecht(self) -> bool:
-        return self.decided and (self.landesrecht or 0.0) >= LANDESRECHT_THRESHOLD
-
-    @property
-    def chosen_land(self) -> str | None:
-        """The Land to hand the lookup, or None to let it read one itself."""
-        if not self.decided or not self.land or self.land == "unknown" or self.land_p < LAND_THRESHOLD:
-            return None
-        return self.land
 
     def chosen_families(self) -> list[str]:
         ranked = sorted((f for f in self.families if f[1] >= FAMILY_THRESHOLD), key=lambda f: -f[1])
@@ -333,25 +277,6 @@ def questions_for(facts: TurnFacts) -> dict[str, dict[str, Any]]:
             true=f"The answer would contain exactly what this card shows: {doc}",
             false="The answer is prose, a value, or a different kind of structure.",
         )
-    questions["landesrecht"] = noul(
-        "Does answering this message require the law of an Austrian Land — a Bauordnung, Bautechnikgesetz, "
-        "Raumordnungsgesetz, Garagengesetz, Baupolizeigesetz or a Land's Verordnung — and not only an "
-        "OIB-Richtlinie or a technical standard?",
-        true=(
-            "The message turns on a Land's building or planning law: a permit or notification procedure, the "
-            "documents a submission needs, what is exempt from a permit, building height or distances under the "
-            "Bauordnung, parking obligations, zoning, or what a named Land requires."
-        ),
-        false=(
-            "The message asks what an OIB-Richtlinie or an ÖNORM requires technically (fire resistance, escape "
-            "routes, railings, U-values, sound insulation), about a project document or the building model, or "
-            "needs no law."
-        ),
-    )
-    questions["land"] = choice(
-        "Which Austrian Land's law applies to this message? Read the message first, then the project's facts.",
-        LAND_OPTIONS,
-    )
     questions["self_contained"] = noul(
         "Can this message be searched for on its own, without the previous message, and still find what it asks about?",
         true=("The message names its own subject: the rule, the document, the element, the value it asks about."),
@@ -392,7 +317,6 @@ async def decide_turn(facts: TurnFacts, *, organization_id: str | None = None) -
         (card_type, p) for card_type, _ in facts.card_types if (p := decision.noul(f"card_{card_type}")) is not None
     )
     skill, skill_distribution = decision.choice("skill")
-    land, land_distribution = decision.choice("land")
     decided = TurnDecisions(
         decided=True,
         needs_evidence=decision.noul("needs_evidence"),
@@ -404,14 +328,10 @@ async def decide_turn(facts: TurnFacts, *, organization_id: str | None = None) -
         skill_p=skill_distribution.get(skill or "", 0.0),
         skill_fit=decision.noul(f"fits_{skill}") if skill and skill != "none" else None,
         self_contained=decision.noul("self_contained"),
-        landesrecht=decision.noul("landesrecht"),
-        land=land,
-        land_p=land_distribution.get(land or "", 0.0),
         latency_ms=decision.latency_ms,
     )
     logger.info(
-        "Turn decision in %d ms: evidence=%.2f corpus=%s(%.2f) families=%s skill=%s cards=%s self_contained=%s "
-        "landesrecht=%s land=%s",
+        "Turn decision in %d ms: evidence=%.2f corpus=%s(%.2f) families=%s skill=%s cards=%s self_contained=%s",
         decided.latency_ms,
         decided.needs_evidence or 0.0,
         decided.corpus,
@@ -420,8 +340,6 @@ async def decide_turn(facts: TurnFacts, *, organization_id: str | None = None) -
         decided.chosen_skill,
         decided.chosen_cards(),
         decided.self_contained,
-        decided.landesrecht,
-        decided.chosen_land,
     )
     return decided
 
@@ -477,14 +395,13 @@ def prefetch_calls(
         return [] if previous_message is not None else _undecided_prefetch(question)
     if not decisions.wants_evidence or not decisions.searchable:
         return []
+    if decisions.corpus not in {"baurecht", "projekt", "buero"} or decisions.corpus_p < CORPUS_THRESHOLD:
+        return []
+    from aiq_agent.common.norm_registry import family_query_number
+
     query = prefetch_query(question)
     if not query:
         return []
-    ris = _ris_prefetch(decisions, query)
-    if decisions.corpus not in {"baurecht", "projekt", "buero"} or decisions.corpus_p < CORPUS_THRESHOLD:
-        return ris
-    from aiq_agent.common.norm_registry import family_query_number
-
     args: dict[str, Any] = {"query": query}
     if focus_file_name and decisions.corpus in {"projekt", "buero"}:
         args["file_name"] = focus_file_name
@@ -494,17 +411,7 @@ def prefetch_calls(
             {"name": KNOWLEDGE_SEARCH, "args": {"query": f"OIB-Richtlinie {key}"}}
             for key in decisions.chosen_families()
         )
-    return [*calls, *ris]
-
-
-def _ris_prefetch(decisions: TurnDecisions, query: str) -> list[dict[str, Any]]:
-    """The RIS lookup a Land-law question earns: the question, and the Land when the decider named it."""
-    if not decisions.wants_landesrecht:
-        return []
-    args: dict[str, Any] = {"question": query}
-    if decisions.chosen_land:
-        args["jurisdiction"] = decisions.chosen_land
-    return [{"name": RIS_LOOKUP, "args": args}]
+    return calls
 
 
 def _undecided_prefetch(question: str) -> list[dict[str, Any]]:
