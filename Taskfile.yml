@@ -463,7 +463,7 @@ tasks:
       - '{{.PY}} scripts/decision_eval.py {{.CLI_ARGS}}'
 
   be:eval:turn-census:
-    desc: 'Turn census — run a chat question through the real agent and count every model call, token and second it cost (NEEDS OPENROUTER_API_KEY and the corpus ingested locally)'
+    desc: 'Turn census — run a chat question through the real agent and count every model call, token and second it cost; writes to /tmp/turn_census unless --out, takes --override KEY VALUE (NEEDS OPENROUTER_API_KEY and the corpus ingested locally)'
     cmds:
       # The measurement the turns audit could only reconstruct. Runs `nat run`
       # with a recorder on httpx; no backend, no BFF. Example:

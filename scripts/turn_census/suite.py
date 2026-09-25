@@ -12,8 +12,11 @@ Per run it records what the provider billed and what the reader got:
   the largest single-call spike: the September 2026 census found that time
   follows reasoning tokens at ~85 tok/s, and that the spike, not the round
   count, is the variance (`docs/architecture/turns-per-answer-audit-2026-09.md`);
-- the pipeline's own signals from the log: a repair rewrite, a gated summary, a
-  dropped mindmap, prose written outside the envelope;
+- seconds until the reader saw prose (`first_text_s`);
+- the pipeline's own signals from the log (`_LOG_SIGNALS`): a flagged quote, a
+  quote patch, the terminal frame replacing the settled text, a gated summary,
+  a dropped mindmap, prose outside the envelope, a salvaged envelope, an
+  escalation to deep research;
 - checks against the question's expectations: the envelope parsed, the `kind`,
   the cited Richtlinien family, and the optional `expect` block (a value that
   must appear, a claim that must not, a shape such as variant tabs). An

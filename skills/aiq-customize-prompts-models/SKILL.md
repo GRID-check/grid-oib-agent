@@ -68,15 +68,22 @@ Longer procedures live in this bundle:
 1. Identify the target agent and whether the change is a prompt or a model.
 2. For a prompt: edit the relevant `src/aiq_agent/agents/<agent>/prompts/*.j2`
    template; keep its variables and citation rules intact (see the references).
-3. For a model: add or point an `llms:` entry in the config and set the agent's
+3. For Piloti's platform prompt, the file is
+   `src/aiq_agent/agents/piloti/prompts/piloti_static.md`. Commit it. Run
+   `task be:eval:answer-suite` before and after the edit (AGENTS.md). Where
+   `LANGFUSE_PROMPTS_ENABLED` is on, publish it with
+   `task prompts:push -- --label <l>`; adding `--apply` writes, so ask first and
+   run it from a commit on `develop`. Do not reorder the envelope fields: the
+   masthead comes before the answer (ADR-0066).
+4. For a model: add or point an `llms:` entry in the config and set the agent's
    role field (e.g. `orchestrator_llm`, `planner_llm`, `researcher_llm`,
    `writer_llm`, `source_router_llm`) to that ref — do not edit Python to swap a
    model.
-4. Keep token cost in mind: prefer reordering static instructions before dynamic
+5. Keep token cost in mind: prefer reordering static instructions before dynamic
    content (KV-cache reuse) and a cheaper model for low-stakes roles.
-5. Validate (below): lint any changed Python, run the agent's tests, and
+6. Validate (below): lint any changed Python, run the agent's tests, and
    smoke-run the CLI against the config you changed.
-6. Summarize changed files and paste the validation evidence.
+7. Summarize changed files and paste the validation evidence.
 
 ## Validation
 

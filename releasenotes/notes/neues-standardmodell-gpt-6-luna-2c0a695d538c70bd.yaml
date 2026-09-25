@@ -1,8 +1,8 @@
 ---
 other:
   - >
-    Neue Arbeitsbereiche starten mit GPT-6 Luna als Standardmodell. Es
-    arbeitet gründlicher: bei einer Überblicksfrage öffnet es die einzelnen
-    Punkte einer Richtlinie, bevor es antwortet. Das dauert etwas länger und
-    kostet pro Antwort weniger. Bestehende Arbeitsbereiche behalten ihr
-    gewähltes Modell; umgestellt wird unter Plattform → Modelle.
+    Piloti antwortet jetzt standardmäßig mit GPT-6 Luna. Es arbeitet
+    gründlicher: bei einer Überblicksfrage öffnet es die einzelnen Punkte
+    einer Richtlinie, bevor es antwortet. Das dauert etwas länger und kostet
+    pro Antwort weniger. Wer für seine Organisation ein eigenes Modell gewählt
+    hat, behält es; umgestellt wird unter Organisation → Modelle.

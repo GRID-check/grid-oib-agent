@@ -52,6 +52,10 @@ version and moves the label to it, which is what the fleet serving that label
 renders within ``LANGFUSE_PROMPT_CACHE_TTL_SECONDS``: run it when the code the
 text belongs to is deployed, and ask before running it against ``production``.
 
+Run ``--apply`` only from a commit on ``develop``. A feature-branch sha
+disappears at squash-merge; later pushes then cannot ``git show`` it and refuse
+the version as a Langfuse edit.
+
 Exit codes: 0 up to date or published; 1 CHECK found a change to publish;
 2 no credentials; 3 refused (the label holds an unreviewed edit, the file is
 uncommitted, or ``--apply`` named no label).

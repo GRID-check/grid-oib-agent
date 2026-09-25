@@ -140,7 +140,10 @@ Three gates, all in CI's backend jobs:
   Both producers are in it, `_format_results` and RIS `format_passages`, so the
   fields only RIS states (source URL, Rechtlicher Hinweis, a Punkt that is a §)
   are covered too. That is what keeps the text parsers honest while they are
-  still needed.
+  still needed. *(Amended 2026-09-25: RIS no longer states a source URL.
+  `render._hit` sets none, because the one URL RIS has is the whole law and the
+  answer copied it as a citation. The fields only RIS states are now the
+  Rechtlicher Hinweis and a Punkt that is a §.)*
 * `sources/ris_adapter/tests/test_ris_lookup_format.py` and
   `sources/knowledge_layer/tests/test_read_passage_outline.py` assert the
   grammar's text directly, from the real tools. The outline tests also pin that

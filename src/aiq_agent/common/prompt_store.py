@@ -13,8 +13,10 @@ whose bytes must not move for a provider's prefix cache to hit.
 ``agents/piloti/prompts/piloti_static.md`` is what review reads and what code
 that depends on the prompt's wording is written against (the envelope's field
 order the answer stream reads, ADR-0066). ``scripts/prompts_push.py``
-(``task prompts:push -- --apply``) publishes it to Langfuse as a git-tagged
-version under a label; labels carry experiments; this module PULLS the
+(``task prompts:push -- --label <l> --apply``) publishes it to Langfuse as a
+version whose commit message names its commit (the ``git`` tag is only a UI
+filter: Langfuse keeps tags per prompt); labels carry experiments; this module
+PULLS the
 configured label at render time. The same file is the fallback a process
 renders when prompt management is off, the credentials are absent, Langfuse is
 unreachable, or it holds no such prompt.

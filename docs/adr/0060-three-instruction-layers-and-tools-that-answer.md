@@ -178,7 +178,8 @@ buys the turn nothing and the guard measures the call, not the reasoning.
   sequence shows up there or nowhere.
 - **The published prompt comes from git.** `task prompts:push` (2026-09-24)
   checks a label against the committed `piloti_static.md` and, with `--apply`,
-  publishes it as a `git`-tagged version naming its commit; it refuses a label
+  publishes it as a `git`-tagged version naming its commit (the tag is not
+  provenance; see the 2026-09-25 amendment); it refuses a label
   whose version was edited in Langfuse until `task prompts:pull` has brought it
   into review (`tests/test_prompts_push.py`). The publish is a step an operator
   runs, not yet one a merge or a deploy runs: `LANGFUSE_PROMPTS_ENABLED` is set
@@ -252,6 +253,23 @@ variable at all, so a caller cannot reintroduce the block by passing one; and
 `test_static_prompt_split.py` holds the whole rendered prompt as a golden file,
 so an accidental edit fails a test and a deliberate one arrives as a diff
 review reads.
+
+## Amendment (2026-09-25): the tag filters, the commit proves
+
+The confirmation above says `task prompts:push` publishes a `git`-tagged
+version. That reads as if the tag marks where a version came from. It does
+not.
+
+- **The git tag is a UI filter only.** Langfuse keeps tags per prompt, so
+  every later UI edit carries it too.
+- **Provenance is the version's commit message** `git <sha> <path>`, plus a
+  byte-identical `git show` of that file at that commit. `published_from_git`
+  in `scripts/prompts_push.py` checks both.
+- **The label is read and written in two calls.** A UI promotion in between
+  is overwritten. Nothing closes this yet.
+- **Publish with `--apply` only from a commit on `develop`.** A feature-branch
+  sha disappears at squash-merge. Later pushes then cannot `git show` it and
+  refuse the version as a Langfuse edit.
 
 ## Pros and Cons of the Options
 

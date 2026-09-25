@@ -163,9 +163,11 @@ def _absatz_marks(body: str) -> list[tuple[str, int]]:
 def cut_on_absatz(text: str, limit: int = PASSAGE_MAX_CHARS) -> str:
     """Truncate a passage on an Absatz boundary, never mid-Absatz.
 
-    The bound is the knowledge layer's own ``_CHUNK_TRUNCATE_CHARS`` (imported,
-    never restated) and the marker is its own ``... [truncated]``, so the
-    citation parser strips it back off exactly as it does for a corpus chunk.
+    The default bound is the knowledge layer's own ``_CHUNK_TRUNCATE_CHARS``
+    (imported, never restated); ``passages._passage_limit`` passes the named-§
+    or list budget instead. The marker is the knowledge layer's own
+    ``... [truncated]``, so the citation parser strips it back off exactly as it
+    does for a corpus chunk.
     """
     if len(text) <= limit:
         return text
