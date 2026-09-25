@@ -149,17 +149,25 @@ def tree_pythonpath(out: Path) -> str:
     return os.pathsep.join(part for part in parts if part)
 
 
+def run_python() -> str:
+    """The interpreter every run uses: this checkout's venv when it has one, else the one running the script.
+
+    One choice for the run and for whatever asks in its place what the run
+    would import (``suite.foreign_imports``): asking another interpreter
+    answered for a venv the runs never used.
+    """
+    venv = ROOT / ".venv" / "bin" / "python"
+    return str(venv) if venv.exists() else sys.executable
+
+
 def run_once(question: str, out: Path, conversation_id: str, overrides: list[list[str]] | None = None) -> Path:
     """One `nat run` of the question with the recorder loaded; the JSONL it wrote."""
     record = out / f"{conversation_id}.jsonl"
     log = out / f"{conversation_id}.log"
     record.unlink(missing_ok=True)
     env = {**os.environ, "REC_OUT": str(record), "PYTHONPATH": tree_pythonpath(out)}
-    nat = (
-        [sys.executable, "-m", "nat.cli.main"]
-        if not (ROOT / ".venv/bin/nat").exists()
-        else [str(ROOT / ".venv/bin/nat")]
-    )
+    # -P: no working directory on sys.path, as the `nat` console script has none.
+    nat = [run_python(), "-P", "-m", "nat.cli.main"]
     cmd = [*nat, "run", "--config_file", str(CONFIG), "--input", question, "--conversation_id", conversation_id]
     for key, value in overrides or []:
         cmd += ["--override", key, value]

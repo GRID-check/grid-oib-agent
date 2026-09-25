@@ -13,13 +13,13 @@ and for which ones wait on which. ``docs/architecture/turn-latency-measured-2026
 is the write-up it produced.
 
 Needs what a local turn needs (OPENROUTER_API_KEY, the ingested corpus, the
-document inventory), and every run costs real model calls. Run it from the
-checkout you want to measure. From a ``git worktree`` put a directory holding a
-``knowledge_layer`` symlink to the worktree's ``sources/knowledge_layer/src``
-first on PYTHONPATH, or the probe measures the main checkout's knowledge layer
-(``docs/contributing/gotchas.md``).
+document inventory), and every run costs real model calls. It measures the
+checkout it lives in: it re-executes itself once with that checkout's
+interpreter and ``census.tree_pythonpath``, so from a ``git worktree`` it
+imports the worktree's ``src/`` and ``sources/`` packages, not the ones the venv
+installed from the main checkout (``docs/contributing/gotchas.md``).
 
-    PYTHONPATH=src python scripts/turn_census/startup_probe.py "Wie hoch muss ein Geländer sein?" "…"
+    python scripts/turn_census/startup_probe.py "Wie hoch muss ein Geländer sein?" "…"
 """
 
 from __future__ import annotations
@@ -28,14 +28,19 @@ import argparse
 import asyncio
 import functools
 import importlib
+import os
 import sys
+import tempfile
 import time
 from pathlib import Path
 from typing import Any
 
 import httpx
 
-CONFIG = Path(__file__).resolve().parent.parent.parent / "configs" / "config_oib_openrouter.yml"
+HERE = Path(__file__).resolve().parent
+CONFIG = HERE.parent.parent / "configs" / "config_oib_openrouter.yml"
+#: Set on the re-executed process, so it does not re-execute again.
+_IN_TREE = "STARTUP_PROBE_IN_TREE"
 
 #: The turn's start, set per question; ``None`` outside a turn.
 _T0: list[float | None] = [None]
@@ -98,11 +103,34 @@ async def _run(config: Path, questions: list[str]) -> None:
                 _T0[0] = None
 
 
-def main() -> None:
+def _in_tree(argv: list[str]) -> None:
+    """Re-execute this script once, importing this checkout's packages; a no-op in the re-executed process.
+
+    The same interpreter and PYTHONPATH as a census run (``census.run_python``,
+    ``census.tree_pythonpath``). Without it a worktree's probe timed the main
+    checkout's knowledge layer. ``REC_OUT`` is dropped: the census's recorder
+    is on that path and would start writing.
+    """
+    if os.environ.get(_IN_TREE):
+        return
+    sys.path.insert(0, str(HERE))
+    from census import run_python
+    from census import tree_pythonpath
+
+    env = {key: value for key, value in os.environ.items() if key != "REC_OUT"}
+    env["PYTHONPATH"] = tree_pythonpath(Path(tempfile.gettempdir()) / "startup_probe")
+    env[_IN_TREE] = "1"
+    python = run_python()
+    os.execve(python, [python, str(Path(__file__).resolve()), *argv], env)
+
+
+def main(argv: list[str] | None = None) -> None:
+    argv = sys.argv[1:] if argv is None else argv
+    _in_tree(argv)
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("questions", nargs="+", help="asked in order, in one process")
     parser.add_argument("--config", type=Path, default=CONFIG)
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
     _patch_http()
     _patch_retriever()
     asyncio.run(_run(args.config, args.questions))

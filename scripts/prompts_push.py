@@ -76,13 +76,15 @@ from pathlib import Path
 from typing import Any
 from typing import Protocol
 
-# The pull's constants and client, not copies: one place names the file, the
-# prompt and the credentials. Imported by path so the script runs as a file.
+# The pull's constants, client and read, not copies: one place names the file,
+# the prompt and the credentials, and one reads a version. Imported by path so the script runs as a file.
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from prompts_pull import FALLBACK_FILE  # noqa: E402
 from prompts_pull import PROMPT_NAME  # noqa: E402
 from prompts_pull import REPO_ROOT  # noqa: E402
+from prompts_pull import PromptApi as ReadApi  # noqa: E402
 from prompts_pull import build_client  # noqa: E402
+from prompts_pull import fetch_version  # noqa: E402
 
 EXIT_OK = 0
 EXIT_WOULD_CHANGE = 1
@@ -98,10 +100,8 @@ GIT_TAG = "git"
 _COMMIT_MESSAGE_RE = re.compile(r"^git ([0-9a-f]{7,40}) (\S+)$")
 
 
-class PromptApi(Protocol):
-    """The two SDK methods this script uses."""
-
-    def get_prompt(self, name: str, *, label: str, cache_ttl_seconds: int, type: str) -> Any: ...
+class PromptApi(ReadApi, Protocol):
+    """The pull's read, and the one write only this script makes."""
 
     def create_prompt(
         self, *, name: str, prompt: str, labels: list[str], tags: list[str], type: str, commit_message: str
@@ -120,16 +120,6 @@ class Plan:
 def committed_text(text: str) -> str:
     """The text as the store serves it: trailing newlines are not part of the prompt."""
     return text.rstrip("\n")
-
-
-def current(client: PromptApi, *, name: str, label: str) -> Any | None:
-    """The version under ``label``, or None when there is none."""
-    from langfuse.api import NotFoundError
-
-    try:
-        return client.get_prompt(name, label=label, cache_ttl_seconds=0, type="text")
-    except NotFoundError:
-        return None
 
 
 def text_at(sha: str, path: str) -> str | None:
@@ -234,7 +224,7 @@ def main(argv: list[str] | None = None) -> int:
         return EXIT_UNCONFIGURED
 
     text = FALLBACK_FILE.read_text(encoding="utf-8")
-    decided = plan(current(client, name=args.name, label=args.label), text, label=args.label)
+    decided = plan(fetch_version(client, name=args.name, label=args.label), text, label=args.label)
     where = f"{args.name} ({args.label})"
 
     if decided.action == "same":

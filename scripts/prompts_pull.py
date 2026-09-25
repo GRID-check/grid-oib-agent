@@ -51,31 +51,36 @@ EXIT_UNCONFIGURED = 2
 
 
 class PromptApi(Protocol):
-    """The one SDK method this script uses, so a test fake is four lines."""
+    """The one SDK method the pull and the push read with, so a test fake is four lines."""
 
     def get_prompt(self, name: str, *, label: str, cache_ttl_seconds: int, type: str) -> Any: ...
 
 
-def fetch_text(client: PromptApi, *, name: str = PROMPT_NAME, label: str = "production") -> str | None:
-    """The text of the labelled version, or None when Langfuse has no such prompt.
+def fetch_version(client: PromptApi, *, name: str = PROMPT_NAME, label: str = "production") -> Any | None:
+    """The labelled version as Langfuse returns it, or None when Langfuse has no such prompt.
 
-    ``cache_ttl_seconds=0`` because this is a one-shot CLI: a cached answer
-    would write a version the store happened to fetch a minute ago. A missing
-    prompt is None; anything else propagates, because "could not reach
-    Langfuse" must not be written into the fallback as if it were content.
+    ``cache_ttl_seconds=0`` because both callers are one-shot CLIs: a cached
+    answer would be a version the store happened to fetch a minute ago. A
+    missing prompt is None; anything else propagates, because "could not reach
+    Langfuse" must not be written into the prompt file, or read by the push as
+    "no version yet", as if it were an answer.
     """
     from langfuse.api import NotFoundError
 
     try:
-        prompt = client.get_prompt(name, label=label, cache_ttl_seconds=0, type="text")
+        return client.get_prompt(name, label=label, cache_ttl_seconds=0, type="text")
     except NotFoundError:
         return None
-    text = getattr(prompt, "prompt", None)
+
+
+def fetch_text(client: PromptApi, *, name: str = PROMPT_NAME, label: str = "production") -> str | None:
+    """The text of the labelled version, or None when Langfuse has no such prompt."""
+    text = getattr(fetch_version(client, name=name, label=label), "prompt", None)
     return text if isinstance(text, str) else None
 
 
 def write_fallback(text: str, path: Path | None = None) -> bool:
-    """Write the fallback file, and say whether it changed.
+    """Write the prompt file, and say whether it changed.
 
     Exactly one trailing newline, because every text file here ends with one
     and the store strips trailing newlines at the render seam anyway — so this
@@ -119,7 +124,7 @@ def build_client() -> PromptApi | None:
 
 
 def main(argv: list[str] | None = None) -> int:
-    """Pull one prompt into the fallback file and print what happened."""
+    """Pull one prompt version into the committed prompt file and print what happened."""
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--label", default="production", help="the Langfuse label to pull (default: production)")
     parser.add_argument("--name", default=PROMPT_NAME, help="the Langfuse prompt name")
@@ -128,7 +133,7 @@ def main(argv: list[str] | None = None) -> int:
     client = build_client()
     if client is None:
         print(
-            "prompts_pull: LANGFUSE_PUBLIC_KEY / LANGFUSE_SECRET_KEY are not set; the fallback was not touched.",
+            "prompts_pull: LANGFUSE_PUBLIC_KEY / LANGFUSE_SECRET_KEY are not set; the prompt file was not touched.",
             file=sys.stderr,
         )
         return EXIT_UNCONFIGURED

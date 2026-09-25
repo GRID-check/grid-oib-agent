@@ -291,23 +291,27 @@ its passage; this asks what the reader waited for and what they got.
   so is one about a Richtlinie the ingested corpus lacks, since the corpus is
   the operator's and a missing OIB-RL 5 is not the agent's failure).
   A question's optional `expect` block names values that must appear, claims
-  that must not, and an acceptable shape (variant tabs, a table, a drawing),
-  each read off the corpus, never remembered.
-- **Per run:** wall seconds, the final call's seconds, research calls, tool
-  calls, reasoning tokens and the largest single-call spike (seconds follow
-  reasoning tokens at ~85 tok/s, and the spike is where run-to-run variance
-  comes from), `first_text_s` (seconds until the reader saw prose), the
-  pipeline's own signals (a flagged quote, a quote patch, the terminal frame
+  that must not, and an acceptable shape (variant tabs, a table, a drawing,
+  in the prose or in a card), each read off the corpus, never remembered.
+- **Per run:** wall seconds, the answering call's seconds, research calls
+  (up to and including the call that wrote the answer; a repair after it is
+  counted apart, in `post_answer_calls`, though its tokens and seconds stay in
+  the totals), tool calls, reasoning tokens and the largest single-call
+  spike (seconds follow reasoning tokens at ~85 tok/s, and the spike is where
+  run-to-run variance comes from), `first_text_s` (seconds until the reader
+  saw the answering call's prose), the pipeline's own signals (a flagged quote, a quote patch, the terminal frame
   replacing the settled text, a gated summary, a dropped mindmap, prose outside
   the envelope, a salvaged envelope, an escalation to deep research), and
   every check. The signals are `_LOG_SIGNALS` in
   [`scripts/turn_census/suite.py`](../../scripts/turn_census/suite.py).
-- **Output:** `report.md` and `results.json` in `--out`. `--baseline` puts
-  the medians of an earlier `results.json` beside the new ones; `--report`
-  re-renders a `results.json` and re-checks it against the question set as it
-  is now, without paying for the runs again.
-- **Flags:** `--only <id> …` runs the named questions (an unknown id exits
-  2). `--runs N` sets runs per question (default 2), `--workers N` how many run
+- **Output:** `report.md` and `results.json` in `--out`. `--baseline` adds,
+  in brackets after the wall-seconds and reasoning-token medians, the change
+  against an earlier `results.json`'s median for the same question, when it is
+  1 or more; nothing else is compared. `--report` re-renders a `results.json`
+  and re-checks it against the question set as it is now, re-reading each
+  run's recording beside it, without paying for the runs again.
+- **Flags:** `--only <id> …` runs the named questions (an unknown id, or
+  one that needs a project, exits 2 and says which). `--runs N` sets runs per question (default 2), `--workers N` how many run
   at once (default 3). `--override KEY VALUE` sets a config value for every
   run, in `nat run` dot notation, and repeats. `--all`, `--baseline`,
   `--report` and `--ingest` are described above and below.
@@ -339,11 +343,12 @@ Traps that cost a run:
   errors, and the runs that hit it measure nothing.
 - **A second or two between single runs is noise.** Compare medians over
   several runs, never one run against one run.
-- **Which checkout a run measures.** Since the suite and the census
-  put this checkout's `src/` and `sources/` packages first on each run's
-  `PYTHONPATH`, and the suite refuses to start when a run would still import
-  another checkout. Before that, a run from a `git worktree` measured the main
-  checkout's code while its report named the worktree's commit.
+- **Which checkout a run measures.** The suite and the census now put this
+  checkout's `src/` and `sources/` packages first on each run's `PYTHONPATH`,
+  and run it with this checkout's venv interpreter; the suite refuses to start
+  when a run would still import another checkout. Before that, a run from a
+  `git worktree` measured the main checkout's code while its report named the
+  worktree's commit.
 
 For the seconds BEFORE the first model call, which the suite reports only as
 a slice, `scripts/turn_census/startup_probe.py` prints each turn's provider

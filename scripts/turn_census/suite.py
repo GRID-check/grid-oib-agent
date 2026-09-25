@@ -8,7 +8,7 @@ answer: did the answers get slower or more variable, and are they still right.
 
 Per run it records what the provider billed and what the reader got:
 
-- seconds (wall, final call), research calls, tool calls, reasoning tokens and
+- seconds (wall, answering call), research calls, tool calls, reasoning tokens and
   the largest single-call spike: the September 2026 census found that time
   follows reasoning tokens at ~85 tok/s, and that the spike, not the round
   count, is the variance (`docs/architecture/turns-per-answer-audit-2026-09.md`);
@@ -42,6 +42,7 @@ import re
 import statistics
 import sys
 import time
+from collections.abc import Sequence
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict
 from dataclasses import dataclass
@@ -57,6 +58,7 @@ sys.path.insert(0, str(HERE))
 from census import ensure_key  # noqa: E402  (a sibling script, not a package)
 from census import records  # noqa: E402
 from census import run_once  # noqa: E402
+from census import run_python  # noqa: E402
 from census import run_stamp  # noqa: E402
 from census import source_packages  # noqa: E402
 from census import tree_pythonpath  # noqa: E402
@@ -91,10 +93,13 @@ class Run:
     run: int
     wall_s: float = 0.0
     final_call_s: float = 0.0
-    #: Turn start to the first visible text of the final call: what the reader
+    #: Turn start to the first visible text of the answering call: what the reader
     #: waits for once the prose streams (ADR-0066). 0 when the call was buffered.
     first_text_s: float = 0.0
+    #: Research calls up to and including the one that wrote the answer.
     research_calls: int = 0
+    #: Research calls after the answer: a repair rewriting the prose.
+    post_answer_calls: int = 0
     tool_calls: list[str] = field(default_factory=list)
     reasoning_tokens: int = 0
     max_reasoning_tokens: int = 0
@@ -154,8 +159,8 @@ def final_answer(log_text: str) -> str:
     return body.split("\n------", 1)[0].strip()
 
 
-def last_envelope(rows: list[dict]) -> dict | None:
-    """The last answer envelope the model wrote, or None when it wrote none.
+def last_envelope(research: list[dict]) -> tuple[dict | None, int | None]:
+    """The last answer envelope the model wrote, and which research call wrote it; ``(None, None)`` for none.
 
     The last ENVELOPE, not the last reply: a repair pass rewrites the prose in
     a call of its own after the answer, and reading that call as the answer
@@ -167,17 +172,50 @@ def last_envelope(rows: list[dict]) -> dict | None:
     """
     from aiq_agent.common.answer_envelope import extract_answer_envelope
 
-    found = None
-    for entry in rows:
-        if not _is_research(entry):
-            continue
+    found, at = None, None
+    for position, entry in enumerate(research):
         for item in (entry.get("resp") or {}).get("output", []):
             if item.get("type") != "message":
                 continue
             _, meta = extract_answer_envelope("".join(part.get("text", "") for part in item.get("content", [])))
             if meta is not None:
-                found = meta.model_dump(mode="json")
-    return found
+                found, at = meta.model_dump(mode="json"), position
+    return found, at
+
+
+def _no_answer(log_text: str) -> str:
+    """Why a turn delivered nothing: the census's own timeout marker first, since it says why."""
+    return "timed out" if "census: timed out" in log_text else "no Workflow Result in the log"
+
+
+def _read_calls(run: Run, research: list[dict], answered_at: int | None, t0: float) -> None:
+    """Tokens, tools and timing off the research calls.
+
+    ``research_calls`` counts the calls up to and including the one that wrote
+    the answer; the calls after it (a repair rewriting the prose) are
+    ``post_answer_calls``. Their tokens still count, since they were billed and
+    waited for, but a repair is not a research round. ``final_call_s`` and
+    ``first_text_s`` time the answering call, not a repair after it. With no
+    envelope, the last call stands in for the answer.
+    """
+    answering = len(research) - 1 if answered_at is None else answered_at
+    run.research_calls = answering + 1
+    run.post_answer_calls = len(research) - run.research_calls
+    for entry in research:
+        tokens_in, tokens_out, reasoning = _usage(entry)
+        run.input_tokens += tokens_in
+        run.output_tokens += tokens_out
+        run.reasoning_tokens += reasoning
+        run.max_reasoning_tokens = max(run.max_reasoning_tokens, reasoning)
+        for item in (entry.get("resp") or {}).get("output", []):
+            if item.get("type") == "function_call":
+                run.tool_calls.append(str(item.get("name")))
+    if not research:
+        return
+    call = research[answering]
+    run.final_call_s = round(call["t_end"] - call["t_start"], 1)
+    if first_text := call.get("t_first_text"):
+        run.first_text_s = round(first_text - t0, 1)
 
 
 def observe(question: dict, index: int, record: Path, log: Path) -> Run:
@@ -189,24 +227,11 @@ def observe(question: dict, index: int, record: Path, log: Path) -> Run:
         run.error = "timed out" if "census: timed out" in log_text else "no model calls recorded"
         return run
     research = [entry for entry in rows if _is_research(entry)]
+    envelope, answered_at = last_envelope(research)
     run.wall_s = round(rows[-1]["t_end"] - rows[0]["t_start"], 1)
-    run.research_calls = len(research)
-    for entry in research:
-        tokens_in, tokens_out, reasoning = _usage(entry)
-        run.input_tokens += tokens_in
-        run.output_tokens += tokens_out
-        run.reasoning_tokens += reasoning
-        run.max_reasoning_tokens = max(run.max_reasoning_tokens, reasoning)
-        for item in (entry.get("resp") or {}).get("output", []):
-            if item.get("type") == "function_call":
-                run.tool_calls.append(str(item.get("name")))
-    if research:
-        run.final_call_s = round(research[-1]["t_end"] - research[-1]["t_start"], 1)
-        if first_text := research[-1].get("t_first_text"):
-            run.first_text_s = round(first_text - rows[0]["t_start"], 1)
+    _read_calls(run, research, answered_at, rows[0]["t_start"])
     run.signals = [name for name, needle in _LOG_SIGNALS.items() if needle in log_text]
     run.answer = final_answer(log_text)
-    envelope = last_envelope(rows)
     run.envelope = {"kind": envelope.get("kind"), "cards": envelope.get("cards") or []} if envelope else None
     run.kind = str((envelope or {}).get("kind") or "")
     run.cited_families = sorted(set(_CITED_FAMILY.findall(run.answer)))
@@ -214,7 +239,7 @@ def observe(question: dict, index: int, record: Path, log: Path) -> Run:
         run.kind = run.kind or "handoff"
     run.checks = check(question, run, envelope)
     if "escalated" not in run.signals and not run.answer:
-        run.error = "no Workflow Result in the log"
+        run.error = _no_answer(log_text)
     return run
 
 
@@ -242,18 +267,28 @@ def _card_strings(value: Any) -> list[str]:
     return []
 
 
-def _has_shape(shape: str, answer: str, envelope: dict | None) -> bool:
-    """Whether the delivered answer has this shape: variant tabs, a table, a drawing."""
+#: Card types that are a table to the reader, whatever their cells hold.
+_TABLE_CARDS = frozenset({"typed_table", "comparison_table"})
+
+
+def _has_shape(shape: str, prose: str, cards: list[Any]) -> bool:
+    """Whether the delivered answer has this shape: variant tabs, a table, a drawing.
+
+    Read off the prose AND the cards, as the reader sees them: a Markdown table
+    inside a surface's `Text`, a typed table, a `diagram` card all count.
+    """
+    cards = [card for card in cards if isinstance(card, dict)]
+    types = {card.get("type") for card in cards}
+    text = "\n".join([prose, *_card_strings(cards)])
     if shape == "tabs":
         return any(
             card.get("type") == "surface" and any(c.get("component") == "Tabs" for c in card.get("components", []))
-            for card in (envelope or {}).get("cards") or []
-            if isinstance(card, dict)
+            for card in cards
         )
     if shape == "table":
-        return bool(re.search(r"^\s*\|.*\|\s*$", answer, re.MULTILINE))
+        return bool(types & _TABLE_CARDS) or bool(re.search(r"^\s*\|.*\|\s*$", text, re.MULTILINE))
     if shape == "diagram":
-        return "```mermaid" in answer
+        return "diagram" in types or "```mermaid" in text
     return False
 
 
@@ -278,7 +313,8 @@ def check(question: dict, run: Run, envelope: dict | None) -> dict[str, bool]:
     shapes = expect.get("shape")
     if shapes:
         options = shapes if isinstance(shapes, list) else [shapes]
-        checks[f"shape:{'|'.join(options)}"] = any(_has_shape(option, run.answer, envelope) for option in options)
+        cards = (envelope or {}).get("cards") or []
+        checks[f"shape:{'|'.join(options)}"] = any(_has_shape(option, run.answer, cards) for option in options)
     return checks
 
 
@@ -326,7 +362,7 @@ def _delta(now: list[float], then: list[float] | None) -> str:
 
 
 def render(
-    runs: list[Run], skipped: list[str], meta: dict, baseline: dict | None = None, not_in_corpus: list[str] = ()
+    runs: list[Run], skipped: list[str], meta: dict, baseline: dict | None = None, not_in_corpus: Sequence[str] = ()
 ) -> str:
     """The Markdown report: one row per question, failing checks named, then the totals."""
     summary = summarize(runs)
@@ -454,8 +490,8 @@ def inventory_database() -> Path | None:
 def foreign_imports(out: Path) -> list[str]:
     """The packages a run would import from outside this checkout: ``name: path``, empty when none.
 
-    Asked of the interpreter the runs use, with the path they get
-    (``census.tree_pythonpath``): a report names this checkout's commit, so
+    Asked of the interpreter the runs use (``census.run_python``), with the
+    path they get (``census.tree_pythonpath``): a report names this checkout's commit, so
     every package it measured must come from this checkout.
     """
     import subprocess
@@ -463,9 +499,7 @@ def foreign_imports(out: Path) -> list[str]:
     names = ("aiq_agent", *source_packages())
     probe = f"import {', '.join(names)}; print({', '.join(f'{name}.__file__' for name in names)}, sep=chr(10))"
     env = {**os.environ, "PYTHONPATH": tree_pythonpath(out)}
-    shown = subprocess.run(
-        [sys.executable, "-c", probe], cwd=ROOT, env=env, capture_output=True, text=True, check=False
-    )
+    shown = subprocess.run([run_python(), "-c", probe], cwd=ROOT, env=env, capture_output=True, text=True, check=False)
     if shown.returncode != 0:
         return [f"import failed: {shown.stderr.strip().splitlines()[-1] if shown.stderr.strip() else shown.returncode}"]
     root = ROOT.resolve()
@@ -487,9 +521,13 @@ def inventory_ready(path: Path | None) -> bool:
     if path is None:
         return True  # not SQLite: the deployment's own store, not ours to check
     import sqlite3
+    from contextlib import closing
 
+    # as_uri() escapes what a URI would read as syntax: a `#` or `?` in the
+    # path once opened an empty database beside the real one and said "empty".
+    # closing(), because a connection's own `with` commits and stays open.
     try:
-        with sqlite3.connect(f"file:{path}?mode=ro", uri=True) as db:
+        with closing(sqlite3.connect(path.resolve().as_uri() + "?mode=ro", uri=True)) as db:
             (count,) = db.execute(
                 "SELECT count(*) FROM document_metadata WHERE collection = 'oib_knowledge'"
             ).fetchone()
@@ -499,10 +537,16 @@ def inventory_ready(path: Path | None) -> bool:
 
 
 def run_suite(
-    questions: list[dict], runs: int, out: Path, workers: int, overrides: list[list[str]] | None
+    questions: list[dict],
+    runs: int,
+    out: Path,
+    workers: int,
+    overrides: list[list[str]] | None,
+    stamp: str | None = None,
 ) -> list[Run]:
+    """Every question ``runs`` times, ``workers`` at once; each recorded as ``suite-{stamp}-{id}-{run}``."""
     out.mkdir(parents=True, exist_ok=True)
-    stamp = run_stamp()
+    stamp = stamp or run_stamp()
     jobs = [(question, index) for question in questions for index in range(1, runs + 1)]
 
     def one(job: tuple[dict, int]) -> Run:
@@ -524,6 +568,106 @@ def run_suite(
         pool.shutdown(wait=True, cancel_futures=True)
 
 
+def recording(folder: Path, stamp: str | None, run: Run) -> Path | None:
+    """The recording one run left in ``folder``, or None.
+
+    By the stamp results.json keeps. An older results.json has none: then the
+    name must be ``suite-HHMMSS-pid-{id}-{run}``, so question ``gk4`` never
+    picks up ``treppenhaus-gk4``'s recording, and the newest file wins.
+    """
+    if stamp:
+        found = folder / f"suite-{stamp}-{run.question_id}-{run.run}.jsonl"
+        return found if found.exists() else None
+    exact = re.compile(rf"suite-\d{{6}}-\d+-{re.escape(run.question_id)}-{run.run}\.jsonl")
+    candidates = [path for path in folder.glob("suite-*.jsonl") if exact.fullmatch(path.name)]
+    return max(candidates, key=lambda path: path.stat().st_mtime, default=None)
+
+
+def _rerender(report: Path, baseline: dict | None) -> int:
+    """``--report``: re-read and re-check a results.json, and print it. No model calls.
+
+    Re-read from the recordings beside results.json when they are there, and
+    re-checked against the question set as it is NOW: a harness fix or a
+    corrected expectation applies without paying for the runs again.
+    """
+    data = json.loads(report.read_text())
+    runs = [Run(**row) for row in data["runs"]]
+    by_id = {str(q["id"]): q for q in load_questions(core_only=False)[0]}
+    for index, run in enumerate(runs):
+        question = by_id.get(run.question_id)
+        if question is None:
+            continue
+        found = recording(report.parent, data["meta"].get("stamp"), run)
+        if found is not None:
+            runs[index] = observe(question, run.run, found, found.with_suffix(".log"))
+        elif not run.error:
+            run.checks = check(question, run, run.envelope)
+    print(render(runs, data.get("skipped", []), data["meta"], baseline, data.get("not_in_corpus", [])))
+    return 0
+
+
+def _preflight(out: Path, ingest: bool) -> int:
+    """0 when the runs would measure what the report will say they measured, else 2 and why."""
+    if not ensure_key():
+        print("OPENROUTER_API_KEY is not set; the suite needs the real models.", file=sys.stderr)
+        return 2
+    if ingest:
+        from aiq_agent import oib_sync
+
+        print("ingesting the corpus:", oib_sync.sync())
+    if not _corpus_ready():
+        print(
+            "The OIB corpus is not ingested into AIQ_CHROMA_DIR. Put the PDFs in data/oib and run with --ingest.",
+            file=sys.stderr,
+        )
+        return 2
+    foreign = foreign_imports(out)
+    if foreign:
+        print(
+            "The runs would not measure this checkout: " + "; ".join(foreign) + ". Run the suite with this "
+            "checkout's interpreter (task setup inside it), or measure from the checkout that holds the code.",
+            file=sys.stderr,
+        )
+        return 2
+    database = inventory_database()
+    if not inventory_ready(database):
+        print(
+            f"The document inventory at {database} lists no corpus documents: runs would have no inventory, "
+            "no family overviews and no quote checks. Point AIQ_SUMMARY_DB at the database the ingest wrote "
+            "(sqlite+aiosqlite:////absolute/path/summaries.db).",
+            file=sys.stderr,
+        )
+        return 2
+    return 0
+
+
+def select_questions(only: list[str] | None, every: bool) -> tuple[list[dict], list[str]] | None:
+    """The questions to run and the ids skipped for a project; None (and why, on stderr) for a bad ``--only``."""
+    if not only:
+        return load_questions(core_only=not every)
+    runnable, needs_project = load_questions(core_only=False)
+    wanted = set(only)
+    questions = [q for q in runnable if str(q["id"]) in wanted]
+    missing = wanted - {str(q["id"]) for q in questions}
+    if skipped := sorted(missing & set(needs_project)):
+        print(f"Skipped, need a project (no backend in the suite): {', '.join(skipped)}", file=sys.stderr)
+    if unknown := sorted(missing - set(needs_project)):
+        print(f"No such question: {', '.join(unknown)}", file=sys.stderr)
+    return None if missing else (questions, [])
+
+
+def _warn_if_dirty(commit: str) -> None:
+    # Every run starts its own process from the working tree, so an edit made
+    # while the suite runs reaches the runs that start after it: one baseline
+    # measured two codebases, and four answers crashed on a half-applied
+    # signature change. Measure a clean tree, or a worktree.
+    if commit.endswith("-dirty"):
+        print(
+            "suite: the working tree has uncommitted changes; runs measure whatever it holds when they start.",
+            file=sys.stderr,
+        )
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--all", action="store_true", help="every question with a family, not only `suite: core`")
@@ -537,94 +681,32 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--override", nargs=2, action="append", metavar=("KEY", "VALUE"))
     args = parser.parse_args(argv)
     baseline = json.loads(args.baseline.read_text()) if args.baseline else None
-
     if args.report:
-        data = json.loads(args.report.read_text())
-        runs = [Run(**row) for row in data["runs"]]
-        # Re-read from the recordings beside results.json when they are there,
-        # and re-checked against the question set as it is NOW: a harness fix
-        # or a corrected expectation applies without paying for the runs again.
-        by_id = {str(q["id"]): q for q in load_questions(core_only=False)[0]}
-        for index, run in enumerate(runs):
-            question = by_id.get(run.question_id)
-            if question is None:
-                continue
-            recorded = sorted(args.report.parent.glob(f"suite-*-{run.question_id}-{run.run}.jsonl"))
-            if recorded:
-                runs[index] = observe(question, run.run, recorded[-1], recorded[-1].with_suffix(".log"))
-            elif not run.error:
-                run.checks = check(question, run, run.envelope)
-        print(render(runs, data.get("skipped", []), data["meta"], baseline, data.get("not_in_corpus", [])))
-        return 0
-    if not ensure_key():
-        print("OPENROUTER_API_KEY is not set; the suite needs the real models.", file=sys.stderr)
+        return _rerender(args.report, baseline)
+    if failed := _preflight(args.out, args.ingest):
+        return failed
+    selected = select_questions(args.only, args.all)
+    if selected is None:
         return 2
-    if args.ingest:
-        from aiq_agent import oib_sync
-
-        print("ingesting the corpus:", oib_sync.sync())
-    if not _corpus_ready():
-        print(
-            "The OIB corpus is not ingested into AIQ_CHROMA_DIR. Put the PDFs in data/oib and run with --ingest.",
-            file=sys.stderr,
-        )
-        return 2
-
-    foreign = foreign_imports(args.out)
-    if foreign:
-        print(
-            "The runs would not measure this checkout: " + "; ".join(foreign) + ". Run the suite with this "
-            "checkout's interpreter (task setup inside it), or measure from the checkout that holds the code.",
-            file=sys.stderr,
-        )
-        return 2
-
-    database = inventory_database()
-    if not inventory_ready(database):
-        print(
-            f"The document inventory at {database} lists no corpus documents: runs would have no inventory, "
-            "no family overviews and no quote checks. Point AIQ_SUMMARY_DB at the database the ingest wrote "
-            "(sqlite+aiosqlite:////absolute/path/summaries.db).",
-            file=sys.stderr,
-        )
-        return 2
-
-    questions, skipped = load_questions(core_only=not (args.all or args.only))
-    if args.only:
-        questions = [q for q in load_questions(core_only=False)[0] if q["id"] in set(args.only)]
-        unknown = sorted(set(args.only) - {q["id"] for q in questions})
-        if unknown:
-            print(f"No such question: {', '.join(unknown)}", file=sys.stderr)
-            return 2
+    questions, skipped = selected
     families = corpus_families()
     not_in_corpus = [f"{q['id']} ({lacking})" for q in questions if (lacking := lacking_family(q, families))]
     questions = [q for q in questions if lacking_family(q, families) is None]
     commit = source_commit()
-    if commit.endswith("-dirty"):
-        # Every run starts its own process from the working tree, so an edit
-        # made while the suite runs reaches the runs that start after it: one
-        # baseline measured two codebases, and four answers crashed on a
-        # half-applied signature change. Measure a clean tree, or a worktree.
-        print(
-            "suite: the working tree has uncommitted changes; runs measure whatever it holds when they start.",
-            file=sys.stderr,
-        )
+    _warn_if_dirty(commit)
+    stamp = run_stamp()
     meta = {
         "started": time.strftime("%Y-%m-%d %H:%M"),
         "commit": commit,
         "config": "configs/config_oib_openrouter.yml",
         "runs_per_question": args.runs,
         "overrides": args.override or [],
+        "stamp": stamp,
     }
     print(f"{len(questions)} question(s) × {args.runs} run(s), {args.workers} at a time → {args.out}")
-    runs = run_suite(questions, args.runs, args.out, args.workers, args.override)
-    (args.out / "results.json").write_text(
-        json.dumps(
-            {"meta": meta, "skipped": skipped, "not_in_corpus": not_in_corpus, "runs": [asdict(r) for r in runs]},
-            ensure_ascii=False,
-            indent=1,
-        )
-    )
+    runs = run_suite(questions, args.runs, args.out, args.workers, args.override, stamp)
+    results = {"meta": meta, "skipped": skipped, "not_in_corpus": not_in_corpus, "runs": [asdict(r) for r in runs]}
+    (args.out / "results.json").write_text(json.dumps(results, ensure_ascii=False, indent=1))
     report = render(runs, skipped, meta, baseline, not_in_corpus)
     (args.out / "report.md").write_text(report)
     print(report)

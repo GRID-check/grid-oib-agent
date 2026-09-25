@@ -69,9 +69,10 @@ Longer procedures live in this bundle:
 2. For a prompt: edit the relevant `src/aiq_agent/agents/<agent>/prompts/*.j2`
    template; keep its variables and citation rules intact (see the references).
 3. For Piloti's platform prompt, the file is
-   `src/aiq_agent/agents/piloti/prompts/piloti_static.md`. Commit it. Run
-   `task be:eval:answer-suite` before and after the edit (AGENTS.md). Where
-   `LANGFUSE_PROMPTS_ENABLED` is on, publish it with
+   `src/aiq_agent/agents/piloti/prompts/piloti_static.md`. In this order
+   (AGENTS.md): run `task be:eval:answer-suite` for the baseline, edit the
+   file, run the suite again with `--baseline` on the first `results.json`,
+   then commit. Where `LANGFUSE_PROMPTS_ENABLED` is on, publish it with
    `task prompts:push -- --label <l>`; adding `--apply` writes, so ask first and
    run it from a commit on `develop`. Do not reorder the envelope fields: the
    masthead comes before the answer (ADR-0066).

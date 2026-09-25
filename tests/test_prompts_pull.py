@@ -183,4 +183,20 @@ class TestThePullOnlyReads:
         assert "update_prompt" not in source
 
     def test_there_is_one_push_path(self):
-        assert not (REPO_ROOT / "scripts/prompts_sync.py").exists()
+        assert _scripts_calling("create_prompt(", "update_prompt(") == {"scripts/prompts_push.py"}
+
+    def test_there_is_one_read_of_a_version(self):
+        """
+        The push reads the live version through the pull's `fetch_version`, so
+        a 404 means "no version" in one place and every other error propagates
+        from one place too.
+        """
+        assert _scripts_calling("get_prompt(") == {"scripts/prompts_pull.py"}
+
+
+def _scripts_calling(*needles: str) -> set[str]:
+    return {
+        str(path.relative_to(REPO_ROOT))
+        for path in (REPO_ROOT / "scripts").rglob("*.py")
+        if any(needle in path.read_text(encoding="utf-8") for needle in needles)
+    }
