@@ -46,9 +46,30 @@ def _kind(entry: dict) -> str:
     return path.rsplit("/", 1)[-1]
 
 
+def records(path: Path) -> list[dict]:
+    """The recorder's lines: none when the run made no model call, and a line the kill cut short is skipped."""
+    if not path.exists():
+        return []
+    rows = []
+    with path.open() as lines:
+        for line in lines:
+            try:
+                rows.append(json.loads(line))
+            except json.JSONDecodeError:
+                continue
+    return rows
+
+
+def ensure_key() -> bool:
+    """OPENROUTER_API_KEY, or the OPENROUTER_KEY some environments carry instead (docs/contributing/gotchas.md)."""
+    if not os.environ.get("OPENROUTER_API_KEY") and os.environ.get("OPENROUTER_KEY"):
+        os.environ["OPENROUTER_API_KEY"] = os.environ["OPENROUTER_KEY"]
+    return bool(os.environ.get("OPENROUTER_API_KEY"))
+
+
 def summarize(path: Path) -> dict:
     """One run's calls, grouped by kind, with the billed tokens and wall time."""
-    rows = sorted((json.loads(line) for line in path.open()), key=lambda r: r["t_start"])
+    rows = sorted(records(path), key=lambda r: r["t_start"])
     kinds: dict[str, dict] = {}
     research: list[dict] = []
     for row in rows:
@@ -77,6 +98,24 @@ def _print(name: str, summary: dict) -> None:
 _SHIM_LOCK = threading.Lock()
 
 
+def run_stamp() -> str:
+    """Unique per process: the conversation id keys the local checkpointer, and
+    two runs sharing one would answer the second with the first's history."""
+    return f"{time.strftime('%H%M%S')}-{os.getpid()}"
+
+
+def source_packages() -> dict[str, Path]:
+    """Each ``sources/`` package's import name and the directory it imports from."""
+    import tomllib
+
+    packages: dict[str, Path] = {}
+    for pyproject in sorted((ROOT / "sources").glob("*/pyproject.toml")):
+        setuptools = tomllib.loads(pyproject.read_text()).get("tool", {}).get("setuptools", {})
+        for name, relative in setuptools.get("package-dir", {}).items():
+            packages[name] = (pyproject.parent / relative).resolve()
+    return packages
+
+
 def tree_pythonpath(out: Path) -> str:
     """A PYTHONPATH that imports THIS checkout's code, whatever the venv installed.
 
@@ -88,7 +127,6 @@ def tree_pythonpath(out: Path) -> str:
     inherited path. The recorder's directory stays first.
     """
     import hashlib
-    import tomllib
 
     # One per checkout: two suites or censuses from different worktrees
     # sharing an --out would otherwise re-point each other's links.
@@ -97,18 +135,16 @@ def tree_pythonpath(out: Path) -> str:
     # that already points at the right package is left alone.
     with _SHIM_LOCK:
         shim.mkdir(parents=True, exist_ok=True)
-        for pyproject in sorted((ROOT / "sources").glob("*/pyproject.toml")):
-            setuptools = tomllib.loads(pyproject.read_text()).get("tool", {}).get("setuptools", {})
-            for name, relative in setuptools.get("package-dir", {}).items():
-                target, link = (pyproject.parent / relative).resolve(), shim / name
-                if link.is_symlink() and link.resolve() == target:
-                    continue
-                # Built beside and renamed over: another process never sees
-                # the link missing, and never trips on a half-made one.
-                staged = shim / f".{name}.{os.getpid()}"
-                staged.unlink(missing_ok=True)
-                staged.symlink_to(target, target_is_directory=True)
-                os.replace(staged, link)
+        for name, target in source_packages().items():
+            link = shim / name
+            if link.is_symlink() and link.resolve() == target:
+                continue
+            # Built beside and renamed over: another process never sees
+            # the link missing, and never trips on a half-made one.
+            staged = shim / f".{name}.{os.getpid()}"
+            staged.unlink(missing_ok=True)
+            staged.symlink_to(target, target_is_directory=True)
+            os.replace(staged, link)
     parts = [str(HERE), str(shim), str(ROOT / "src"), os.environ.get("PYTHONPATH", "")]
     return os.pathsep.join(part for part in parts if part)
 
@@ -141,7 +177,7 @@ def run_once(question: str, out: Path, conversation_id: str, overrides: list[lis
                 time.sleep(_TAIL_SECONDS)
                 break
         _stop(proc)
-    if not answered and proc.returncode is not None and time.time() >= deadline:
+    if not answered and time.time() >= deadline:
         with log.open("a") as sink:
             sink.write(f"\ncensus: timed out after {_TIMEOUT_SECONDS}s\n")
     return record
@@ -181,16 +217,11 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     if not args.question:
         parser.error("a question, or --report")
-    if not os.environ.get("OPENROUTER_API_KEY") and os.environ.get("OPENROUTER_KEY"):
-        # Some environments carry the key under this name (docs/contributing/gotchas.md).
-        os.environ["OPENROUTER_API_KEY"] = os.environ["OPENROUTER_KEY"]
-    if not os.environ.get("OPENROUTER_API_KEY"):
+    if not ensure_key():
         print("OPENROUTER_API_KEY is not set; a census needs the real models.", file=sys.stderr)
         return 2
     args.out.mkdir(parents=True, exist_ok=True)
-    # Unique per process: the conversation id keys the local checkpointer, and
-    # two censuses sharing one would answer the second run with the first's history.
-    stamp = f"{time.strftime('%H%M%S')}-{os.getpid()}"
+    stamp = run_stamp()
     for index in range(args.runs):
         record = run_once(args.question, args.out, f"census-{stamp}-{index + 1}", args.override)
         _print(record.stem, summarize(record))

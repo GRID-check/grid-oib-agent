@@ -293,7 +293,24 @@ def test_a_record_line_the_kill_cut_short_is_skipped(tmp_path):
     record = tmp_path / "r.jsonl"
     record.write_text('{"t_start": 1, "t_end": 2, "url": "x"}\n{"t_start": 3, "t_en')
 
-    assert len(suite._records(record)) == 1
+    import census
+
+    assert len(census.records(record)) == 1
+    assert census.summarize(record)["kinds"]
+
+
+def test_a_run_that_recorded_nothing_summarizes_as_empty(tmp_path):
+    # A `nat run` that died before its first model call wrote no record, and
+    # the census crashed on the missing file instead of reporting.
+    import census
+
+    assert census.summarize(tmp_path / "never-written.jsonl") == {"kinds": {}, "research": [], "wall_seconds": 0.0}
+
+
+def test_every_linked_package_is_checked_for_a_foreign_import():
+    import census
+
+    assert "tavily_web_search" in census.source_packages()
 
 
 def test_one_failing_run_does_not_sink_the_suite(tmp_path, monkeypatch):

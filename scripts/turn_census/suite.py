@@ -54,7 +54,11 @@ ROOT = HERE.parent.parent
 QUESTIONS = ROOT / "tests" / "fixtures" / "herleitung" / "loop_eval_questions.yaml"
 sys.path.insert(0, str(HERE))
 
-from census import run_once  # noqa: E402  (a sibling script, not a package)
+from census import ensure_key  # noqa: E402  (a sibling script, not a package)
+from census import records  # noqa: E402
+from census import run_once  # noqa: E402
+from census import run_stamp  # noqa: E402
+from census import source_packages  # noqa: E402
 from census import tree_pythonpath  # noqa: E402
 
 _ANSI = re.compile(r"\x1b\[[0-9;]*m")
@@ -176,23 +180,10 @@ def last_envelope(rows: list[dict]) -> dict | None:
     return found
 
 
-def _records(record: Path) -> list[dict]:
-    """The recorder's lines; one the kill cut short is skipped, not fatal."""
-    if not record.exists():
-        return []
-    rows = []
-    for line in record.open():
-        try:
-            rows.append(json.loads(line))
-        except json.JSONDecodeError:
-            continue
-    return rows
-
-
 def observe(question: dict, index: int, record: Path, log: Path) -> Run:
     """Everything one turn left behind, read into a Run."""
     run = Run(question_id=str(question["id"]), run=index)
-    rows = sorted(_records(record), key=lambda r: r["t_start"])
+    rows = sorted(records(record), key=lambda r: r["t_start"])
     log_text = log.read_text(errors="replace") if log.exists() else ""
     if not rows:
         run.error = "timed out" if "census: timed out" in log_text else "no model calls recorded"
@@ -219,11 +210,10 @@ def observe(question: dict, index: int, record: Path, log: Path) -> Run:
     run.envelope = {"kind": envelope.get("kind"), "cards": envelope.get("cards") or []} if envelope else None
     run.kind = str((envelope or {}).get("kind") or "")
     run.cited_families = sorted(set(_CITED_FAMILY.findall(run.answer)))
-    run.checks = check(question, run, envelope)
     if "escalated" in run.signals:
         run.kind = run.kind or "handoff"
-        run.checks = check(question, run, envelope)
-    elif not run.answer:
+    run.checks = check(question, run, envelope)
+    if "escalated" not in run.signals and not run.answer:
         run.error = "no Workflow Result in the log"
     return run
 
@@ -359,7 +349,7 @@ def render(
     failing: list[str] = []
     for question_id, row in summary.items():
         prior = before.get(question_id, {})
-        held = [value for value in row["checks"].values()]
+        held = list(row["checks"].values())
         score = f"{sum(v == 1 for v in held)}/{len(held)}" if held else "–"
         lines.append(
             f"| {question_id} | {_spread(row['wall_s'])}{_delta(row['wall_s'], prior.get('wall_s'))} "
@@ -392,13 +382,6 @@ def render(
 
 
 # --- Running -----------------------------------------------------------------
-
-
-def _ensure_key() -> bool:
-    """OPENROUTER_API_KEY, or the OPENROUTER_KEY some environments carry instead."""
-    if not os.environ.get("OPENROUTER_API_KEY") and os.environ.get("OPENROUTER_KEY"):
-        os.environ["OPENROUTER_API_KEY"] = os.environ["OPENROUTER_KEY"]
-    return bool(os.environ.get("OPENROUTER_API_KEY"))
 
 
 def corpus_families(registry_path: Path | None = None) -> set[str] | None:
@@ -477,7 +460,7 @@ def foreign_imports(out: Path) -> list[str]:
     """
     import subprocess
 
-    names = ("aiq_agent", "knowledge_layer", "ris_adapter")
+    names = ("aiq_agent", *source_packages())
     probe = f"import {', '.join(names)}; print({', '.join(f'{name}.__file__' for name in names)}, sep=chr(10))"
     env = {**os.environ, "PYTHONPATH": tree_pythonpath(out)}
     shown = subprocess.run(
@@ -519,7 +502,7 @@ def run_suite(
     questions: list[dict], runs: int, out: Path, workers: int, overrides: list[list[str]] | None
 ) -> list[Run]:
     out.mkdir(parents=True, exist_ok=True)
-    stamp = time.strftime("%H%M%S")
+    stamp = run_stamp()
     jobs = [(question, index) for question in questions for index in range(1, runs + 1)]
 
     def one(job: tuple[dict, int]) -> Run:
@@ -573,7 +556,7 @@ def main(argv: list[str] | None = None) -> int:
                 run.checks = check(question, run, run.envelope)
         print(render(runs, data.get("skipped", []), data["meta"], baseline, data.get("not_in_corpus", [])))
         return 0
-    if not _ensure_key():
+    if not ensure_key():
         print("OPENROUTER_API_KEY is not set; the suite needs the real models.", file=sys.stderr)
         return 2
     if args.ingest:
