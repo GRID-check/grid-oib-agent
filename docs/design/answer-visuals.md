@@ -59,6 +59,29 @@ to scale, computed from their parameters: geometry is what SVG is for. A
 filed diagram is an SVG and a PDF, because a file must stand on its own; the
 file is still Mermaid's render, made only when the reader files it.
 
+## Tables: the prompt and the renderer read the same words
+
+A table in an answer is shaped by a rehype pass,
+`shared/components/MarkdownRenderer/table-shape.ts`, and that pass reads the
+table by what the prompt told the model to write. Change one side and the
+other silently stops matching.
+
+- **Columns are recognised by header name.** A Fundstelle column is one headed
+  `fundstelle`, `quelle`, `grundlage`, `source`, `reference` or `references`.
+  A Status column is one headed `status`, `erfüllt`, `ergebnis`, `bewertung`
+  or `result`. Any other header is an ordinary column.
+- **A table stacks at every width** when any cell holds more than 140
+  characters (`PROSE_CELL_CHARS`): a sentence in a narrow column is a tower of
+  short lines.
+- **Status words become marks** only when the whole cell is one word from
+  `status-marks.ts`. That list accepts more than the prompt teaches: also
+  `zulässig`, `unzulässig`, `zu prüfen`, `unklar`, `nicht anwendbar`, `n/a`,
+  the ASCII spellings `erfuellt` and `nicht erfuellt`, and English
+  equivalents. The extra words are tolerance, not vocabulary.
+
+The status words are listed in `piloti_static.md` `<formatting>`; change both
+together.
+
 ## Audit, September 2026: the whole answer, not the diagrams
 
 Every catalog card through A2UI, and four answer turns (the verdict anatomy,

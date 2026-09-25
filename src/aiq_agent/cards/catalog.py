@@ -105,7 +105,12 @@ ENVELOPE_CARD_TYPES = frozenset({"summary", "verdict_header", "key_takeaways", "
 #     fails until you do);
 #   - its renderer must drive its lifecycle from `useCardDecision`, never from
 #     component-local `useState`;
-#   - every terminal outcome it can reach must be a member of `CARD_DECISIONS`.
+#   - every terminal outcome it can reach must be a member of `CARD_DECISIONS`;
+#   - it must also be in SURFACE_EXCLUDED_LEAVES, in `cards/models.py` AND in
+#     `frontends/ui/src/features/a2ui/catalog.tsx`: a leaf inside a surface has
+#     no message position for its decision to be keyed by. The same holds for a
+#     new SYSTEM_CARD_TYPES or ENVELOPE_CARD_TYPES member.
+#     `tests/aiq_agent/cards/test_surface_excluded_parity.py` holds all three.
 #
 # Emit an interactive card ONLY for an action that is not safely repeatable
 # (a memory write, a profile patch). If the action is idempotent and cheap,

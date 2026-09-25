@@ -30,9 +30,10 @@ sources, and the persisted decisions of interactive cards.
 ## Current card types
 
 Defined in `src/aiq_agent/cards/models.py` as a discriminated union (`GridCard`)
-— **43 types in four families**: 34 the answering model may emit through
-`emit_card`, five it may not on any surface (`SYSTEM_CARD_TYPES` — the
-tool-owned cards and the retired `follow_ups`), and four **envelope types**
+— **45 types in four families**: 35 the answering model may emit through
+`emit_card`, one of them `surface` (ADR-0065), a composition whose leaves are
+content cards or `Text`; six it may not on any surface (`SYSTEM_CARD_TYPES` —
+five tool-owned cards and the retired `follow_ups`); and four **envelope types**
 (`ENVELOPE_CARD_TYPES`: `summary`, `verdict_header`, `key_takeaways`,
 `callout`) that stopped being cards anywhere new: a research answer is
 generated as one JSON envelope (```answer_json — see
@@ -71,7 +72,7 @@ answer it has just written.
 | `type` | Purpose | Key fields |
 |---|---|---|
 | `summary` **(envelope)** | A short overview / key points. Retired as a card: the envelope's `summary` field carries the answer-in-brief on basically every reply, rendered as the masthead's standfirst (≤ 320 chars, gated); the card type survives for stored threads | `title`, `content`, `key_points` |
-| `legal_basis` | An OIB/norm legal-basis citation | `law`, `article`, `section`, `summary`, `original_text` |
+| `legal_basis` | An OIB/norm legal-basis citation. Placed with `[[card:N]]`, it is framed where the marker sits. The first unplaced one renders flat after the prose once the answer is final (`EvidenceBlock`), never in the fallback grid | `law`, `article`, `section`, `summary`, `original_text` |
 | `project_profile_patch` **(interactive)** | A proposed change to the project brief | `title`, `rationale`, `patch[]` — JSON-Patch ops restricted to `/facts`, `/goals`, `/unknowns`, `/assumptions` (the before/after rows are built from the patch and the live profile, never from the model) |
 | `requirement_checklist` | Several pass/fail criteria for one question, each with verdict + own norm reference | `title`, `items[]` (`label`, `status`, `detail`, `reference`), `reference`, `note` |
 | `comparison_table` | Side-by-side comparison of a small number of options (columns) across criteria (rows) | `title`, `options[]`, `rows[]` (`label`, `values[]`, `highlight_index`), `recommendation`, `reference`, `note` |
@@ -87,7 +88,8 @@ answer it has just written.
 | `document_checklist` | „Welche Unterlagen brauche ich" — each entry a STATE (`required` / `conditional` with its condition, and whether the reader already holds it), not a name in a list | `title`, `items[]` (`label`, `requirement`, `condition`, `issuer`, `status`, `note`, `reference`), `reference` |
 | `deadline_timeline` | Several Fristen in sequence, each with the event that starts its clock and what happens when it runs out. Carries the Bestimmung's own wording („binnen vier Wochen"), never a calendar date | `title`, `deadlines[]` (`label`, `period`, `starts_from`, `actor`, `consequence`, `reference`) |
 | `change_impact` | „Was passiert, wenn X sich ändert" — one moving fact, its two values, and what each consequence COSTS, each marked as tightening or relaxing | `title`, `factor`, `from_value`, `to_value`, `consequences[]`, `reference`, `note` |
-| `diagram` | Any ask for a Diagramm, Schaubild, Grafik, chart or mermaid — and a relationship prose cannot hold: a Verfahren that forks and rejoins, Stellen exchanging in order, a Nachweis others depend on — drawn as mermaid. Never anything measured, and the card renders rather than files; see [The `diagram` card](#the-diagram-card-the-one-drawing-whose-renderer-cannot-check-it) | `title`, `diagram_type` (`flowchart` / `sequence` / `state` / `pie`), `source`, `caption`, `reference` |
+| `diagram` | Any ask for a Diagramm, Schaubild, Grafik, chart or mermaid — and a relationship prose cannot hold: a Verfahren that forks and rejoins, Stellen exchanging in order, a Nachweis others depend on — drawn as mermaid. Never anything measured, and the card renders rather than files; see [The `diagram` card](#the-diagram-card-the-one-drawing-whose-renderer-cannot-check-it) | `title`, `diagram_type` (`flowchart` / `sequence` / `state` / `pie` / `gantt` / `mindmap`, `DiagramGrammar`), `source`, `caption`, `reference` |
+| `surface` | Variants the reader picks one of, or cards that read together in one slot (ADR-0065). An A2UI v0.9 component list: a `Row`, `Column` or `Tabs` root whose leaves are content cards or `Text`; see [Every card is drawn through A2UI](#every-card-is-drawn-through-a2ui) | `title`, `components[]` |
 
 **Schematic cards** — fifteen programmatically-drawn technical diagrams (SVG kit
 in `features/grid-cards/schematics/`, Rough.js sketch stroke). The model emits
@@ -707,14 +709,22 @@ to be `GridCardItem`, so the pixels are the same components as before.
   taught the shape in the envelope contract's COMPOSE paragraph. A `Row` sits
   side by side only above 44rem of its own width, so in the answer column it
   stacks; `Tabs` show one variant at a time.
+- **Limits.** `SurfaceCard` holds 2 to 6 leaves (`_SURFACE_MAX_LEAVES`). A
+  `Row` or `Column` has 2 to 4 children (`_SURFACE_MAX_CHILDREN`). `Tabs` has
+  2 to 6 tabs, each exactly `{title, child}`. A `Text` holds at most 4000
+  characters (`_SURFACE_TEXT_MAX`). The root must be a layout: a surface of one
+  card is that card. The prompt (`_COMPOSE_RULE` in `cards/envelope.py`)
+  counts a surface as one card against the turn's two-card ceiling.
 - **`Text`: the answer's Markdown inside a surface.** A leaf
   `{"id", "component": "Text", "text": <Markdown>}` is drawn by the renderer
   the prose is drawn by. It exists because the Markdown-first doctrine puts
   tables, checks and steps in the prose and never on a card, so without it a
   tab could hold none of what a variant actually consists of. Its `[N]` are
-  held to the answer's citations after sanitisation
-  (`cards/surface_citations.py`): renumbered with the prose, dropped when they
-  do not land on a cited source. The frontend parses them with the answer's
+  held to the answer's citations (`cards/surface_citations.py`). A `[N]` whose
+  source verification removed is dropped, never renumbered onto the source
+  that now holds N: sanitize's map lists only survivors. An empty map leaves
+  numbers as they are, and each is kept only if it is cited (applied in
+  `answer_pipeline.py` on the settled frame and after sanitisation). The frontend parses them with the answer's
   citation plugin through `NestedMarkdownPluginsProvider`, and the Word
   export prints them as prose.
 - **Never the library's placeholder.** `A2uiSurface` cannot render on the

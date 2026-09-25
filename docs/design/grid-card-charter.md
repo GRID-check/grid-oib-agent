@@ -182,7 +182,7 @@ Red is forbidden here: tightening is a cost, not an error, and error red is for 
 - **Two gutter widths only**: 22px for a rail (ConditionTreeCard.tsx:123), 26px for a numbered node (KeyTakeawaysCard.tsx:43, ProcessMapCard.tsx:117). Rails then align when two cards stack.
 - Radius: cards `rounded-lg` (12px), inner panels `rounded-md` (8px), chips `rounded-md`, status pills `rounded-full`.
 - Elevation: `shadow-xs` and nothing else in the transcript. Never two shadows in one card. In dark mode elevation is carried by the token, not by a `dark:` variant — see tokens.css:216–241.
-- **No card inside a card.** The opened panels in `condition_tree` / `process_map` (`rounded-md border` on the same surface) are the legal form.
+- **No card inside a card.** The opened panels in `condition_tree` / `process_map` (`rounded-md border` on the same surface) are the legal form. A surface is not a card-in-card: it has no frame of its own. Tabs and Row are layout on the answer surface, and each leaf keeps its own register.
 - Every table and every drawing scrolls inside its own `overflow-x-auto`. Already correct at ComparisonTableCard.tsx:46 and TypedTableCard.tsx:92.
 - **Design to 636px desktop / ~314px phone** (§0.5.3), not to the gallery's `max-w-2xl`.
 

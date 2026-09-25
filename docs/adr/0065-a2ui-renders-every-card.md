@@ -55,7 +55,7 @@ leaf by the same Pydantic card model a lone card goes through. System and
 interactive card types may not be leaves: their decisions are keyed by
 position in the message, and a position inside a surface is not one.
 
-**Amended: a `Text` leaf.** A surface may also hold `Text` (A2UI's basic
+**Amended 2026-09-24, before this branch merged: a `Text` leaf.** A surface may also hold `Text` (A2UI's basic
 catalog name, narrowed to `text` of Markdown), drawn by the answer's own
 Markdown renderer. Leaves that could only be cards left `Tabs` unable to hold a
 variant's table, which the Markdown-first answer never puts on a card, so the
@@ -80,8 +80,11 @@ model keeps writing card objects; only composition is A2UI-shaped.
 - **Cost.** ~38 KB gzip on the client. `@a2ui/react` has no server snapshot,
   so a card renders directly on the server and through A2UI after mount; the
   two outputs are the same component, so there is no visible swap.
-- **Churn.** Nearly every minor release of A2UI has broken its API. Both npm
-  packages are pinned exactly and `a2ui-core` is pinned; an upgrade is its
+- **Churn.** Nearly every minor release of A2UI has broken its API. The pins
+  are exact: `@a2ui/react` 0.11.1 and `@a2ui/web_core` 0.11.0
+  (`frontends/ui/package.json`), `a2ui-core==0.1.1` (`pyproject.toml`). The
+  two npm versions differ because 0.11.0 is the newest `@a2ui/web_core`
+  published, and `@a2ui/react` 0.11.1 depends on `^0.11.0`. An upgrade is its
   own change with the `features/a2ui` tests as the gate. v1.0 is the next
   move.
 - A render failure inside A2UI (a validation error, a library bug) falls back
@@ -99,5 +102,9 @@ model keeps writing card objects; only composition is A2UI-shaped.
   reference, an orphan, a cycle and a duplicate id; each leaf is checked by its
   own card model; tool, interactive and envelope cards cannot be leaves; the
   contract teaches the shape.
+- `tests/aiq_agent/cards/test_surface_excluded_parity.py`:
+  `SURFACE_EXCLUDED_LEAVES` covers every system, envelope and interactive
+  type, and `cards/models.py` and `features/a2ui/catalog.tsx` list the same
+  types.
 - `/dev/a2ui` marks each card A2UI drew; a browser probe over it is how the
   "every card, no fallback" claim was checked when this was adopted.

@@ -32,9 +32,13 @@ to become a filed file needs a renderer that serialises the card's own computed
 SVG — the same `fileDiagramDocuments` call with the card's geometry instead of a
 model's text. That is a new caller, not a new pipeline, and it is not built.
 
-The rule is also visible to the reader rather than only written here: every
-drawn diagram carries the line „Schematisch — ohne Maßangabe." / "Schematic — no
-dimensions are claimed.", and the PDF repeats it in its provenance block.
+The rule is also visible to the reader where a drawing could be mistaken for a
+measured one. Mermaid's own SVG, shown when this product has no view for a
+source, carries the line „Schematisch — ohne Maßangabe." / "Schematic — no
+dimensions are claimed." (`components/mermaid-diagram.tsx`), and every filed
+copy repeats it: the PDF in its provenance block. The product's own views
+(flow, map, handoff, schedule, shares) omit the line: they have no geometry to
+claim a measurement with.
 
 ## Why the browser draws and the server files
 
@@ -64,10 +68,15 @@ model writes ```mermaid          browser (has a DOM)                 BFF (owns t
                                          │                       diagram_pdf → .pdf
 ```
 
-**One render, two uses.** The SVG shown in the answer is byte-for-byte the SVG
-that is filed. A second render for filing would be a second chance for the file
-to disagree with the picture, and "what got filed is not what I saw" is not a
-defect a Ziviltechniker can spot before signing.
+**What is shown and what is filed.** A fence this product has a model for is
+drawn by its own view (see *Drawn by this product, parsed by mermaid* below);
+only the filed file is mermaid's SVG. A fence without a model is drawn as
+mermaid's SVG, and in light mode that string is also the file (`fileSvg ===
+svg`). In dark mode the file is a second render on paper, from the same source,
+renderer, font and `htmlLabels: false`, so mermaid's layout is unchanged and
+only the palette differs (`use-rendered-diagram.ts`). "What got filed is not
+what I saw" is not a defect a Ziviltechniker can spot before signing, which is
+why everything but the palette is held constant.
 
 The bytes therefore arrive from an authenticated user's browser. **That is the
 same trust posture every upload already has** — and it is stated rather than
@@ -231,7 +240,11 @@ both files.
 ## Rendering in an answer
 
 A ```` ```mermaid ```` fence in an answer is drawn instead of printed
-(`MarkdownRenderer`'s `code` override → `MermaidDiagram`).
+(`MarkdownRenderer`'s `code` override → `MermaidDiagram`). The same renderer
+draws a fence inside a surface's `Text` leaf; the citation plugins it parses
+with there come from `nested-plugins-context.tsx`. Its tables, the other
+visual the prose carries, are shaped by `table-shape.ts`
+([answer-visuals.md](../design/answer-visuals.md#tables-the-prompt-and-the-renderer-read-the-same-words)).
 
 **A fence the model forgot to tag is drawn too.** `isMermaidFence` reads the
 fence's CONTENT as well as its class: a fence whose first line declares a
@@ -257,18 +270,23 @@ the same courtesy.
 
 Three states:
 
-- **streaming** — a code block. The markdown stabiliser auto-closes an odd
-  number of fences, so a half-arrived diagram *looks* complete on every token;
-  drawing it would flash a parse error per token.
+- **streaming** — only the fence the text still ends inside
+  (`openFenceBody` in `MarkdownRenderer.tsx`) is streaming, and it holds a
+  skeleton (`DrawingSkeleton`), not its source. The markdown stabiliser
+  auto-closes an odd number of fences, so a half-arrived diagram *looks*
+  complete on every token; drawing it would flash a parse error per token.
+  Every fence already closed is drawn while the answer streams (ADR-0066).
 - **failed** — a code block plus one quiet line. The model writes broken mermaid
   regularly and that must cost the reader nothing they did not already have.
   Never a red box, never a throw inside an answer.
-- **drawn** — the SVG, the „Schematisch" line, and (only where the surface
-  supplied a filing target, i.e. inside a project) „Im Projekt ablegen".
+- **drawn** — the product's view, or mermaid's SVG with the „Schematisch"
+  line when there is no view, and (only where the surface supplied a filing
+  target, i.e. inside a project) „Im Projekt ablegen".
 
 The `diagram` CARD (`features/grid-cards/components/DiagramCard.tsx`) draws the
 same sources through the same renderer — `useRenderedDiagram` is the one place
-either surface drives it — and shows the same „Schematisch" line and the same
+either surface drives it — and `useDiagramModel` for the views. It shows the
+„Schematisch" line only under mermaid's SVG, as the fence does, and the same
 source-in-a-code-block fallback. What it does not carry is the filing button:
 the card is `presentational` (docs/architecture/cards.md §"The `diagram` card"),
 so **filing a diagram into a project happens from the fence**, which is the only
@@ -281,10 +299,17 @@ model-authored text, mermaid has a history of label-based XSS, and
 appends a "Syntax error in text" graphic to the document and leaves it there,
 outside React's tree.
 
-**The drawing sits on a light surface in both themes.** It is the preview of a
-document that is filed, converted to PDF and attached on white — the Files pane
-already previews a PDF the same way — and a themed render would mean the reader
-is not looking at what gets filed.
+**The drawing is drawn in the reader's theme.** It paints no ground of its
+own, so the card shows through, and its ink comes from the product's tokens per
+theme (`diagram-palette.ts`, with the theme read off the `.dark` class by
+`use-diagram-theme.ts`). The filed bytes are always the paper render
+(`fileSvg`): a file is previewed on paper, printed and attached on white. In
+dark mode that is a second render with the same source, font and
+`htmlLabels`, so the layout matches the picture (`use-rendered-diagram.ts`).
+A mermaid SVG on screen sits in a `HorizontalScroll`
+(`components/ui/horizontal-scroll.tsx`): the hidden edge fades, and the
+scroller becomes a named, focusable region only when it overflows, which is
+why its `aria-label` is required.
 
 ### Two ways in: the fence, and the `diagram` card
 
@@ -359,15 +384,40 @@ it in this product's design — the reasoning for each is in
 |---|---|---|
 | flow | `flowchart`, `stateDiagram-v2` | `@xyflow/react` + `@dagrejs/dagre`, card-style nodes, dagre-routed edges |
 | map | `mindmap` | the same canvas as a left-to-right tree; an outline below 34rem |
-| handoff | `sequenceDiagram` | HTML: a column per party, a row per hand-over; a numbered list on a phone |
-| schedule | `gantt` | HTML: bars on a date axis, milestones as marks |
+| handoff | `sequenceDiagram` | HTML: a column per party, a row per hand-over; a numbered list below 30rem |
+| schedule | `gantt` | HTML: bars on a date axis, milestones as marks; labels above the bars below 30rem |
 | shares | `pie` | HTML: horizontal bars with the share written out |
+
+Each view chooses its form by a container query on its own width, not by a
+breakpoint: flow 28rem, map 34rem, handoff and schedule 30rem
+(`views/diagram-views.tsx`). Below it, flow is a stepped outline, map an
+indented outline, handoff a numbered list.
 
 Parsing and rendering share one lock (`withMermaid`): the grammar databases
 are module-level singletons, as is the render configuration. A source the
 parser refuses, or a grammar without a view, is drawn as mermaid's SVG as
 before. The SVG is otherwise rendered only when the answer sits in a project,
 because filing still files mermaid's SVG and its PDF.
+
+### Adding a diagram kind
+
+1. **The model.** Add it to the `DiagramModel` union in `model.ts` and a
+   reader for its grammar in `modelFromParsed`. `model.ts` is pure: it reads
+   mermaid's parsed database and nothing else.
+2. **The view.** Add it to `views/diagram-views.tsx` and route it in
+   `DiagramView`. Give it a narrow form behind a container query, as the
+   others have.
+3. **Parsing stays where it is.** `parse-mermaid.ts` calls mermaid inside
+   `withMermaid` with `securityLevel: 'strict'`. A reader that returns `null`
+   means mermaid's SVG, and then the source.
+4. **The model is a pure function of the source.** `use-diagram-model.ts`
+   caches it at module level keyed by the source text (`MODEL_CACHE_LIMIT`,
+   64). A model that depends on anything else is served stale.
+5. **A new grammar**, not only a new view, also needs `DiagramGrammar` in
+   `src/aiq_agent/cards/models.py`, the grammar list in the prompt
+   (`piloti_static.md` `<formatting>`), and a browser capture in
+   `lib/diagrams/__fixtures__/` that prints through `svg-to-pdf.spec.tsx`
+   (next section).
 
 ### Which grammars, and how that is decided
 
@@ -403,7 +453,8 @@ scrolls (`features/diagrams/diagram-size.ts`).
 
 ## Measured cost of the dependency
 
-Bundled with esbuild, minified, gzipped, in this repository:
+Bundled with esbuild, minified, gzipped, in this repository (`elkjs` is its
+published bundle, gzipped):
 
 | package | min | gzip |
 |---|---|---|
@@ -411,9 +462,17 @@ Bundled with esbuild, minified, gzipped, in this repository:
 | mermaid 11.17.0 — every diagram type | 3.45 MB | 947 KB |
 | mermaid 11.17.0 — what a dynamic `import()` pulls first | 28.6 KB | 11.1 KB |
 | mermaid — added to the main bundle | **0** | **0** |
+| `@dagrejs/dagre` 3.1.1, with `@dagrejs/graphlib` | 48.2 KB | 16.8 KB |
+| `elkjs` 0.12.0 `elk.bundled.js` (not a dependency; for comparison) | 1.61 MB | 470 KB |
 | `@excalidraw/excalidraw` 0.18.1 | 8.40 MB | 2.53 MB |
 | `@excalidraw/utils` 0.1.3-test32 (`latest`) | 19.56 MB | 14.03 MB |
 | `@excalidraw/utils` 0.1.2 (last non-prerelease) | 1.49 MB | 423 KB |
+
+`@dagrejs/dagre` lays out the flow and map canvases. Graph layout is someone
+else's domain, so it is a dependency; ELK does the same job at about 28 times
+the gzip size. dagre is imported statically by `views/diagram-views.tsx`, so it
+ships with the card components (`GridCards` → `DiagramCard`) as well as with
+the fence's dynamic import.
 
 `mermaid` is a production dependency, imported dynamically through
 `next/dynamic` so a reader whose answer contains no fence downloads none of it.
