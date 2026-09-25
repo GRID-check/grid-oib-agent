@@ -156,30 +156,6 @@ def retrieval_round_scope(round_index: int | None) -> Iterator[None]:
         _retrieval_round.reset(token)
 
 
-#: Whether the running fetch is the turn decision's PREFETCH (round 0 run
-#: before the first LLM call), not a fetch the model asked for. Round 0 alone
-#: cannot say so: a turn with nothing prefetched numbers the model's own first
-#: search 0 as well. Set by ``PilotiAgent._prefetch_node`` around its tools
-#: call; read by the knowledge tool, whose requery can be switched off for the
-#: prefetch alone (``requery_on_prefetch``).
-_prefetch_fetch: ContextVar[bool] = ContextVar("grid_prefetch_fetch", default=False)
-
-
-def in_prefetch() -> bool:
-    """Whether the running fetch is the turn decision's prefetch."""
-    return _prefetch_fetch.get()
-
-
-@contextmanager
-def prefetch_scope() -> Iterator[None]:
-    """Mark every fetch run inside this block as the prefetch. Resets on exit."""
-    token = _prefetch_fetch.set(True)
-    try:
-        yield
-    finally:
-        _prefetch_fetch.reset(token)
-
-
 #: Which tool's results are being turned into lane hits RIGHT NOW.
 #:
 #: The round stamp says WHEN a hit was fetched; this says by WHAT. The

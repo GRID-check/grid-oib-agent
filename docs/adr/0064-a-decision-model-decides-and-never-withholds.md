@@ -72,7 +72,10 @@ not run, a question that `family_query_number` recognises still prefetches
 its own search (`agents/piloti/decisions.py::_undecided_prefetch`). It is the
 evidence question by construction, and the decision missed its 1.5 s budget
 in 10 of 12 live calls (p50 2.7 s, measured 2026-09-23). This adds a fetch
-and withholds nothing. It shipped in `21641318` (2026-09-23).
+and withholds nothing. It shipped in `21641318` (2026-09-23). Only on a first
+message: on a follow-up (the turn has a previous message) nothing is
+prefetched without a decision, as the decided path refuses a follow-up that
+cannot be searched on its own.
 
 **Use 1 — the turn-start decision** (`agents/piloti/decisions.py`,
 `register.py::_decide_turn`). One request beside the skill resolution:

@@ -31,14 +31,12 @@ from aiq_agent.common.citation_verification import SourceRegistry
 
 _PROMPT = "Du bist Piloti."
 RAN: list[str] = []
-IN_PREFETCH: list[bool] = []
 
 
 @tool
 def knowledge_search(query: str) -> str:
     """Search the OIB knowledge corpus."""
     RAN.append(f"knowledge_search:{query}")
-    IN_PREFETCH.append(turn_status.in_prefetch())
     return f"Treffer zu: {query}"
 
 
@@ -55,7 +53,6 @@ _TOOLS = [knowledge_search, read_passage]
 @pytest.fixture(autouse=True)
 def _clean_slate():
     RAN.clear()
-    IN_PREFETCH.clear()
     turn_status._retrieval_round.set(None)
     yield
     RAN.clear()
@@ -139,18 +136,6 @@ class TestRoundZero:
         ai = [m for m in first if isinstance(m, AIMessage) and m.tool_calls]
         assert ai and ai[0].tool_calls[0]["name"] == "knowledge_search"
         assert result.tool_iterations == 0
-
-    async def test_the_tool_knows_the_prefetch_from_the_models_own_search(self):
-        # The knowledge tool's requery can be switched off for the prefetch
-        # alone, so the flag must be live INSIDE the tool (set around the tools
-        # call, not beside the node), and gone for the model's own round.
-        own = AIMessage(content="", tool_calls=[_call("knowledge_search", "own-1", query="Gliederung OIB 2")])
-        calls: list = []
-        await _run(_agent(own, ANSWER, llm_calls=calls))
-
-        assert RAN == ["knowledge_search:Was weißt du über die OIB 2?", "knowledge_search:Gliederung OIB 2"]
-        assert IN_PREFETCH == [True, False]
-        assert turn_status.in_prefetch() is False
 
     async def test_two_turns_never_share_a_prefetch_call_id(self):
         """The last turn's transcript keeps its calls; a provider refuses two

@@ -570,8 +570,9 @@ functions:
     # Fail-open: any judge error keeps the first pool.
     requery_llm: rerank_llm
     requery_max_queries: 2
-    # requery_on_prefetch: true (default) — measured: skipping it is 3.4 s
-    # slower (docs/architecture/turn-latency-measured-2026-09.md §3.5).
+    # The prefetch requeries like any search. Skipping it was measured 3.4 s
+    # slower on the turns it applied to, and the switch was removed
+    # (docs/architecture/turn-latency-measured-2026-09.md §3.5).
     # Who answers the judge's yes/no (ADR-0064). `jev` asks the decision model
     # one noul per passage of the fused head — ~300 ms in parallel, a fraction
     # of a cent — and runs `requery_llm` only when the head is insufficient,

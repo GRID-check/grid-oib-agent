@@ -119,15 +119,19 @@ only requested once the decision had named the search. Now:
   `knowledge.factory.warm_search_query` beside the decision gather, not
   awaited. It warms the retriever the knowledge tool was built with
   (`set_search_retriever`, set at tool build time), with the query the tool
-  will send (`augmented_query`).
+  will send (`augmented_query`, without logging its glossary miss a second
+  time). Only a first message is warmed: a later one is searched only when
+  the decision rules it self-contained, and without a decision never.
 * The adapter's embedding LRU dedupes a computation in flight
   (`_embed_query_cached`): a search that starts before the warm-up finished
-  waits for it instead of embedding the same string again. A failed warm-up
-  hands over to the waiting caller.
-* A turn that turns out not to search has wasted one embedding call.
-* Both globals hold no turn data. `_SEARCH_RETRIEVER` is a build-time handle:
-  with two knowledge tools the last built wins, which can waste a warm-up but
-  never serves a wrong vector, since the LRU is keyed by model and text.
+  waits for it instead of embedding the same string again. A failed
+  embedding fails every waiter with its error at once, so a down API costs
+  one bounded call, not one per waiter in a row.
+* A first message that turns out not to search has wasted one embedding call.
+* Both globals hold no turn data. `_SEARCH_RETRIEVER` is a build-time handle,
+  cleared at the tool's teardown: with two knowledge tools the last built
+  wins, which can waste a warm-up but never serves a wrong vector, since the
+  LRU is keyed by model and text.
   `_WARMING` holds strong references so the event loop does not collect
   running warm-ups.
 
@@ -204,8 +208,8 @@ from 2 to 4, `einreichung-wien-unterlagen` from 24 to 37 s. Quality held
 within one check either way. Six questions at two runs each is a small
 sample, and the all-runs medians above carry the noise of the other 19; the
 robust part is the mechanism, the extra rounds, which the per-question table
-shows in both directions of the same question. The switch stays in the tool, default on, so
-this can be taken again when the model or the judge changes.
+shows in both directions of the same question. The switch was removed after the measurement;
+`2ba012b0` has it if it is needed again, when the model or the judge changes.
 
 ## 4. Search rounds
 
@@ -310,7 +314,7 @@ checkout at one commit, so they stand.
 | 5 | Question embedding beside the decision | ≈ 0.4-0.5 s per searching turn | **landed** `fdb57f4c` |
 | 6 | RIS paragraph lists in one call | one round (≈ 11 s) where it applied | **landed** `e94af899` |
 | 7 | Reasoning items kept across tool rounds | none measured | **landed** `a0ec99d2`, kept for correctness |
-| 8 | Skip the requery on the prefetch | none: measured 3.4 s slower | **rejected** §3.5; switch `requery_on_prefetch` stays, default on |
+| 8 | Skip the requery on the prefetch | none: measured 3.4 s slower | **rejected** §3.5; the switch `requery_on_prefetch` was removed, `2ba012b0` has it |
 
 ## 8. How these numbers were taken, and how not to take them
 

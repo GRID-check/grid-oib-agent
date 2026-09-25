@@ -44,7 +44,8 @@ changed, and they stayed green through every gate because nothing ran them.
   holds, and `register.search` renders their scope passages ahead of the ranked
   hits with one `## Gliederung` per member as the block's trailer. It keeps at
   most four ranked hits beside the overview (`_FAMILY_RANKED_HITS`), and the
-  requery judge never runs on it (`requery_skipped_reason="family"`).
+  requery judge does not run on a query whose overview was built
+  (`requery_skipped_reason="family"`); a family the corpus lacks is judged as usual.
   Membership is derived from what is indexed, never listed.
 - [`aiq-add-data-source`](../skills/aiq-add-data-source/SKILL.md) is the
   step-by-step; [`aiq-add-tool`](../skills/aiq-add-tool/SKILL.md) covers a

@@ -340,7 +340,11 @@ def prefetch_query(question: str | None) -> str:
 
 
 def prefetch_calls(
-    decisions: TurnDecisions, question: str, *, focus_file_name: str | None = None
+    decisions: TurnDecisions,
+    question: str,
+    *,
+    focus_file_name: str | None = None,
+    previous_message: str | None = None,
 ) -> list[dict[str, Any]]:
     """The tool calls round 0 runs, as the agent's tools node reads them.
 
@@ -363,9 +367,13 @@ def prefetch_calls(
     in time — measured 2026-09-23 against the live endpoint, p50 2.7 s
     against a 1.5 s budget, 10 of 12 over — so without this the prefetch
     silently vanished and the model paid a whole round for the same search.
+    Only on a FIRST message (``previous_message is None``): without the
+    decision's ``self_contained`` answer a later message may be a follow-up
+    („Was sagt die OIB 2 dazu?"), which the decided path refuses to prefetch,
+    and a family overview would fill round 0 with the wrong subject.
     """
     if not decisions.decided:
-        return _undecided_prefetch(question)
+        return [] if previous_message is not None else _undecided_prefetch(question)
     if not decisions.wants_evidence or not decisions.searchable:
         return []
     if decisions.corpus not in {"baurecht", "projekt", "buero"} or decisions.corpus_p < CORPUS_THRESHOLD:

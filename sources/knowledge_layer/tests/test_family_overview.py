@@ -542,3 +542,40 @@ class TestAnOverviewQuestionIsNotJudged:
 
         assert calls == []
         assert "Umformulierungen" not in out
+
+    @staticmethod
+    def _judge(monkeypatch) -> list:
+        calls: list = []
+
+        class _Judge:
+            async def ainvoke(self, *args, **kwargs):
+                calls.append(args)
+                return SimpleNamespace(content='{"sufficient": true, "queries": []}')
+
+        async def _resolve(_builder, _name):
+            return _Judge()
+
+        monkeypatch.setattr("aiq_agent.common.get_langchain_llm", _resolve)
+        return calls
+
+    async def test_a_corpus_without_the_family_keeps_the_judge(self, corpus, monkeypatch):
+        """The skip used to key on the query's shape: with no member of the
+        family indexed there is no overview, only ranked passages, and those
+        lost their requery."""
+        corpus({"3": "oib-rl_3_ausgabe_mai_2023.pdf"})
+        calls = self._judge(monkeypatch)
+
+        async with knowledge_retrieval(_config(requery_llm="judge"), MagicMock()) as info:
+            await info.single_fn(info.input_schema(query=FAMILY_QUERY))
+
+        assert len(calls) == 1
+
+    async def test_an_overview_that_failed_open_keeps_the_judge(self, corpus, monkeypatch):
+        corpus(MEMBERS)
+        TestAnOverviewThatFailsSaysSo._broken(monkeypatch)
+        calls = self._judge(monkeypatch)
+
+        async with knowledge_retrieval(_config(requery_llm="judge"), MagicMock()) as info:
+            await info.single_fn(info.input_schema(query=FAMILY_QUERY))
+
+        assert len(calls) == 1

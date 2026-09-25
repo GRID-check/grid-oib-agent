@@ -928,6 +928,23 @@ class TestFamilyQueryNumber:
 
         assert family_query_number("OIB 2 und OIB 3") is None
 
+    @pytest.mark.parametrize(
+        "query", ["OIB 2 und 4", "OIB 2, 4", "OIB 2 oder 4", "OIB-RL 2/4", "OIB 2 und 4 Überblick"]
+    )
+    def test_a_second_key_chained_without_its_anchor_is_still_a_second_family(self, query):
+        """The bare ``4`` in "OIB 2 und 4" used to fall into the leftover, where
+        a number passes as a printing year, and the turn prefetched family 2
+        alone while suppressing family 4's overview."""
+        from aiq_agent.common.norm_registry import family_query_number
+
+        assert family_query_number(query) is None
+
+    @pytest.mark.parametrize("query", ["OIB 2 2023", "OIB-Richtlinie 2 Ausgabe 2023", "OIB 2, 2023", "OIB 2 und 2.1"])
+    def test_a_year_or_a_part_of_the_same_family_is_not_a_second_family(self, query):
+        from aiq_agent.common.norm_registry import family_query_number
+
+        assert family_query_number(query) == "2"
+
     def test_the_detected_number_is_the_key_oib_families_groups_by(self):
         """The contract between detection and resolution: what this returns is
         what `oib_families` keys a family by, or the branch resolves nothing."""

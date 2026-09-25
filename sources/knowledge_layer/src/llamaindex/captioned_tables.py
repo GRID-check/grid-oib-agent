@@ -80,6 +80,11 @@ def _caption_above(page: Any, top: float) -> tuple[str, str] | None:
     return None
 
 
+def _continues(previous: PageTable | None, page_number: int) -> bool:
+    """Whether a caption-less table on ``page_number`` may continue ``previous``: the very next page only."""
+    return previous is not None and page_number == previous.page_number + 1
+
+
 def extract_page_tables(page: Any, page_number: int, previous: PageTable | None) -> list[tuple[PageTable, tuple]]:
     """The captioned tables on ``page`` (and a continuation of ``previous``), with their bboxes."""
     found: list[tuple[PageTable, tuple]] = []
@@ -91,7 +96,7 @@ def extract_page_tables(page: Any, page_number: int, previous: PageTable | None)
         caption = _caption_above(page, table.bbox[1])
         if caption:
             found.append((PageTable(caption[0], caption[1], rows, page_number), table.bbox))
-        elif previous is not None and not found and table.bbox[1] < _CONTINUATION_TOP:
+        elif _continues(previous, page_number) and not found and table.bbox[1] < _CONTINUATION_TOP:
             found.append(
                 (PageTable(previous.table_id, previous.title, rows, page_number, continuation=True), table.bbox)
             )
@@ -138,6 +143,10 @@ def _markdown_row(row: list[str], width: int) -> str:
 
 def _header_markdown(table: Table, width: int) -> list[str]:
     header = table.rows[: table.header_rows]
+    if not header:
+        # A fragment read without its table's header: an empty header row, so
+        # no data row is promoted to column labels.
+        return [_markdown_row([], width), "|" + "---|" * width]
     if len(header) == 2:
         # A two-row header („GK 5" over „≤ 6 / > 6 Geschoße") becomes one row of
         # joined labels, so every column still names what it holds.
@@ -171,10 +180,15 @@ def page_text_with_tables(text: str, tables: list[PageTable]) -> str:
 
     A document without a Punkt outline is indexed per page; its tables were cut
     out of the page text, so they are put back here, legible, rather than lost.
+    A continuation is rendered on its own page without its table's header, so
+    its rows are all body under an empty header row: its first row is data
+    unless the PDF repeated the header, and either way it is not a label.
     """
     parts = [text] if text else []
     for fragment in tables:
         table = join_fragments([fragment])[0]
+        if fragment.continuation:
+            table.header_rows = 0
         caption = f"Tabelle {table.table_id}: {table.title}" if not fragment.continuation else ""
         body = "\n".join(markdown_chunks(table, max_chars=10**9))
         parts.append("\n\n".join(part for part in (caption, body) if part))

@@ -399,9 +399,12 @@ def _turn_facts(state: ResearchAgentState, runtime: SkillRuntime | None) -> Turn
     )
 
 
-async def _decide_turn(config: ResearchAgentConfig, facts: TurnFacts) -> TurnDecisions:
-    """The turn-start decision, or none: never raises, never blocks longer than its timeout."""
-    if not config.turn_decisions:
+async def _decide_turn(facts: TurnFacts | None) -> TurnDecisions:
+    """The turn-start decision, or none: never raises, never blocks longer than its timeout.
+
+    ``facts`` is ``None`` when the config switched the decision off.
+    """
+    if facts is None:
         return TurnDecisions.none()
     # A first message of one or two words („Hallo", „Danke!") needs no
     # decision: nothing to prefetch, no method to read in, and the ~0.6 s the
@@ -415,16 +418,26 @@ async def _decide_turn(config: ResearchAgentConfig, facts: TurnFacts) -> TurnDec
         return TurnDecisions.none()
 
 
-def _warm_question(config: ResearchAgentConfig, facts: TurnFacts) -> None:
+#: The warm-ups still running (see _warm_question).
+_WARMING: set[asyncio.Task[None]] = set()
+
+
+def _warm_question(facts: TurnFacts | None) -> None:
     """Start embedding the question the round-0 prefetch will search; not awaited.
 
     The prefetch is known only after the decision, and its search then pays
     the query embedding (280-980 ms, measured 2026-09-24) before it can rank.
     The string it will search is known now, so the embedding runs beside the
-    decision and the search finds it cached, or in flight. A turn that turns
-    out not to search wasted one embedding call. Nothing waits on it.
+    decision and the search finds it cached, or in flight. Nothing waits on it.
+
+    Warmed only where ``prefetch_calls`` can search the raw question, as far
+    as that is known before the decision: a FIRST message of three words or
+    more. A later message is searched only when the decision rules it
+    self-contained, and without a decision never (``prefetch_calls``), so
+    warming it would mostly be an embedding call nobody reads. A decided
+    first message whose corpus is not searched still wastes one call.
     """
-    if not config.turn_decisions:
+    if facts is None or facts.previous_message is not None:
         return
     query = prefetch_query(facts.question)
     if len(query.split()) < 3:
@@ -435,10 +448,6 @@ def _warm_question(config: ResearchAgentConfig, facts: TurnFacts) -> None:
     task = asyncio.create_task(warm_search_query(query))
     _WARMING.add(task)
     task.add_done_callback(_WARMING.discard)
-
-
-#: The warm-ups still running (see _warm_question).
-_WARMING: set[asyncio.Task[None]] = set()
 
 
 #: Tools that read the PROJECT's building model. Outside a project they can
@@ -559,10 +568,11 @@ async def _run_turn(deployment: _Deployment, state: ResearchAgentState) -> Resea
     # three, not their sum.
     # The question's embedding is warmed beside them (see _warm_question), so
     # the round-0 search it prefetches does not pay that round trip after.
-    facts = _turn_facts(state, runtime)
-    _warm_question(config, facts)
+    # The facts only feed the decision, so a config without it builds none.
+    facts = _turn_facts(state, runtime) if config.turn_decisions else None
+    _warm_question(facts)
     draft_tools, decisions, llm_provider = await asyncio.gather(
-        draft_tools_for_turn(), _decide_turn(config, facts), _active_provider(deployment.provider)
+        draft_tools_for_turn(), _decide_turn(facts), _active_provider(deployment.provider)
     )
     _apply_decisions(decisions, state, runtime)
     # After the decision: the skill it inlined is part of what this turn inlined.
@@ -576,8 +586,13 @@ async def _run_turn(deployment: _Deployment, state: ResearchAgentState) -> Resea
         tools=turn_tools,
         disabled_sources=disabled_sources,
         prefetch=tuple(
-            prefetch_calls(decisions, facts.question, focus_file_name=state.focus_file_name)
-            if config.turn_decisions
+            prefetch_calls(
+                decisions,
+                facts.question,
+                focus_file_name=state.focus_file_name,
+                previous_message=facts.previous_message,
+            )
+            if facts is not None
             else ()
         ),
     )

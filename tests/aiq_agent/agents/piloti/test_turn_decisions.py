@@ -159,6 +159,19 @@ class TestThePrefetch:
             {"name": "knowledge_search", "args": {"query": "Was weißt du über die OIB 2?"}}
         ]
 
+    def test_without_a_decision_a_later_message_prefetches_nothing(self):
+        """„Was sagt die OIB 2 dazu?" after a stair question is a follow-up; the
+        decided path would refuse it, so the undecided one may not guess it
+        is a family overview."""
+        assert (
+            prefetch_calls(
+                TurnDecisions.none(),
+                "Was sagt die OIB 2 dazu?",
+                previous_message="Wie breit muss die Stiege sein?",
+            )
+            == []
+        )
+
     def test_without_a_decision_nothing_else_is_guessed(self):
         assert prefetch_calls(TurnDecisions.none(), "Wie lang darf der Fluchtweg sein?") == []
         assert prefetch_calls(TurnDecisions.none(), "Hallo, was kannst du?") == []

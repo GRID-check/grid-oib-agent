@@ -1160,10 +1160,13 @@ def _extract_text_from_pdf(pdf_path: str) -> list[dict[str, Any]]:
                     logger.warning("Table finding failed on page %d of %s: %s", page_num, pdf_path, exc)
                     found = []
                 source = page
+                # Only the page right after a table can continue it: a page
+                # without one ends the chain, or a caption-less box pages later
+                # was appended to the old table.
+                previous = found[-1][0] if found else None
                 if found:
                     boxes = [bbox for _table, bbox in found]
                     source = page.filter(lambda obj, boxes=boxes: not _inside_any(obj, boxes))
-                    previous = found[-1][0]
                 text = _strip_watermark_lines(source.extract_text())
                 tables = [table for table, _bbox in found]
                 if text or tables:
@@ -1193,7 +1196,8 @@ def text_documents_for_pages(text_pages: list[dict[str, Any]], file_name: str, f
     roughly fifteen blended into a 1024-token block, and gives every chunk a Punkt to
     cite rather than only a page. ``punkt_documents`` returns ``None`` for anything
     without a usable outline -- a glossary, a list of standards, any tenant upload -- and
-    that is the per-page path below, byte-for-byte what ingestion did before.
+    that is the per-page path below: one Document per page, its captioned tables put back
+    as Markdown after the text they were cut out of (``page_text_with_tables``).
 
     Extracted from ``_run_ingestion`` so the choice between the two strategies is
     testable without a job, a Chroma client or an embedder.
@@ -3781,9 +3785,9 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                     if index is None:
                         # First successful file - create new index
                         # The model passed explicitly, not read off the global
-                        # `Settings`: a chat turn initialising the retriever in the
-                        # same process sets that global to the query model, whose
-                        # timeout is sized for one short text, not a batch.
+                        # `Settings`: whatever else sets that global (the retriever
+                        # once set it to the query model, whose timeout is sized for
+                        # one short text) must not decide how a batch is embedded.
                         index = VectorStoreIndex.from_documents(
                             all_documents,
                             storage_context=storage_context,
@@ -4049,6 +4053,31 @@ _EXACT_TERM_DF_CACHE_MAX = 512
 
 
 @register_retriever("llamaindex")
+class _InflightEmbedding:
+    """One query embedding being computed, and what it came to.
+
+    Every caller that finds it waits on ``done`` and then reads the outcome
+    here, never the LRU: a failure is re-raised to all of them at once, so a
+    down embedding API fails every waiter after ONE bounded call instead of
+    handing the key to the next waiter and serialising the failures, and a
+    success reaches them even if the LRU evicted it in between.
+    """
+
+    __slots__ = ("done", "embedding", "error")
+
+    def __init__(self) -> None:
+        self.done = threading.Event()
+        self.embedding: list[float] | None = None
+        self.error: BaseException | None = None
+
+    def result(self) -> list[float]:
+        self.done.wait()
+        if self.error is not None:
+            raise self.error
+        assert self.embedding is not None
+        return self.embedding
+
+
 class LlamaIndexRetriever(BaseRetriever):
     """
     LlamaIndex-based document retriever.
@@ -4126,10 +4155,11 @@ class LlamaIndexRetriever(BaseRetriever):
         self._embed_cache_order: list[tuple[str, str]] = []
         self._embed_cache_lock = threading.Lock()
         # An embedding being computed, by key: a second caller for the same
-        # query waits for it instead of paying the round trip again. The
+        # query waits for it instead of paying the round trip again, and
+        # shares its outcome, error included (``_InflightEmbedding``). The
         # turn-start warm-up (``warm_query``) races the turn's own search for
         # the same question, and without this the loser embedded twice.
-        self._embed_inflight: dict[tuple[str, str], threading.Event] = {}
+        self._embed_inflight: dict[tuple[str, str], _InflightEmbedding] = {}
 
         # Document frequency of each exact term, per collection size, so the
         # `$contains` channel's DF ceiling costs one `get` per new term rather
@@ -4191,7 +4221,6 @@ class LlamaIndexRetriever(BaseRetriever):
         ensure_retrieval_dependencies()
 
         try:
-            from llama_index.core import Settings
             from llama_index.embeddings.nvidia import NVIDIAEmbedding
 
             embed_api_key = _resolve_embed_api_key(self.embed_base_url, self.embed_model_name)
@@ -4211,7 +4240,10 @@ class LlamaIndexRetriever(BaseRetriever):
                 timeout=QUERY_EMBED_TIMEOUT_SECONDS,
                 max_retries=EMBED_MAX_RETRIES,
             )
-            Settings.embed_model = self._embed_model
+            # Not installed as the process-wide `Settings.embed_model`: every
+            # index this retriever builds is handed the model explicitly
+            # (`_get_index`), and the global would put this 3 s query model
+            # under anything else in the process that reads it.
 
             # Shared server when AIQ_CHROMA_URL/HOST is set, else embedded.
             self._chroma_client = _make_chroma_client(self.persist_dir)
@@ -4289,45 +4321,48 @@ class LlamaIndexRetriever(BaseRetriever):
         self._embed_query_cached(query)
 
     def _embed_query_cached(self, query: str) -> list[float]:
-        """Embed a query once per (model, text); LRU-bounded, one computation in flight per key."""
+        """Embed a query once per (model, text); LRU-bounded, one computation in flight per key.
+
+        A caller that finds the key in flight shares that computation's
+        outcome: its vector, or its exception re-raised. The owner's call is
+        bounded by the embed model's own timeout and retries, so the wait is.
+        """
         key = (self.embed_model_name, query)
         if self.EMBED_CACHE_MAX <= 0:
             # No cache to share a result through: waiting would only serialise.
             return self._embed_model.get_query_embedding(query)
-        while True:
-            with self._embed_cache_lock:
-                if key in self._embed_cache:
-                    self._embed_cache_order.remove(key)
-                    self._embed_cache_order.append(key)
-                    return self._embed_cache[key]
-                pending = self._embed_inflight.get(key)
-                if pending is None:
-                    self._embed_inflight[key] = threading.Event()
-                    break
-            # Another thread is embedding this query. Wait for it, then read
-            # the cache; if it failed (or the LRU is disabled) take over.
-            pending.wait(timeout=30)
-            with self._embed_cache_lock:
-                if key in self._embed_cache or key in self._embed_inflight:
-                    continue
-                self._embed_inflight[key] = threading.Event()
-                break
+        with self._embed_cache_lock:
+            cached = self._embed_cache.get(key)
+            if cached is not None:
+                self._embed_cache_order.remove(key)
+                self._embed_cache_order.append(key)
+                return cached
+            pending = self._embed_inflight.get(key)
+            if pending is None:
+                owned = self._embed_inflight[key] = _InflightEmbedding()
+        if pending is not None:
+            return pending.result()
+        return self._embed_as_owner(key, query, owned)
 
+    def _embed_as_owner(self, key: tuple[str, str], query: str, record: _InflightEmbedding) -> list[float]:
+        """Compute the embedding ``record`` stands for, cache it, and release every waiter."""
         try:
             embedding = self._embed_model.get_query_embedding(query)
+        except BaseException as exc:
+            record.error = exc
+            raise
+        else:
+            record.embedding = embedding
             with self._embed_cache_lock:
-                if key not in self._embed_cache and self.EMBED_CACHE_MAX > 0:
-                    self._embed_cache[key] = embedding
-                    self._embed_cache_order.append(key)
-                    while len(self._embed_cache_order) > self.EMBED_CACHE_MAX:
-                        evicted = self._embed_cache_order.pop(0)
-                        self._embed_cache.pop(evicted, None)
+                self._embed_cache[key] = embedding
+                self._embed_cache_order.append(key)
+                while len(self._embed_cache_order) > self.EMBED_CACHE_MAX:
+                    self._embed_cache.pop(self._embed_cache_order.pop(0), None)
             return embedding
         finally:
             with self._embed_cache_lock:
-                done = self._embed_inflight.pop(key, None)
-            if done is not None:
-                done.set()
+                self._embed_inflight.pop(key, None)
+            record.done.set()
 
     def _cached_static_result(self, key: tuple[str, int, str, int, str]) -> RetrievalResult | None:
         with self._result_cache_lock:
@@ -4691,7 +4726,12 @@ class LlamaIndexRetriever(BaseRetriever):
                 content_type = ContentType.TEXT
 
             # Create display citation based on content type
-            if content_type == ContentType.TABLE:
+            if content_type == ContentType.TABLE and "table_index" not in metadata:
+                # A captioned table (``captioned_tables``) is addressed by its
+                # ``punkt_id`` („Tabelle 3"), not by an index on the page, and
+                # is cited by the page key every other hit renders under.
+                display_citation = f"{file_name}, p.{page_number}" if page_number else file_name
+            elif content_type == ContentType.TABLE:
                 table_idx = metadata.get("table_index", 0)
                 display_citation = f"{file_name}, p.{page_number}, Table {table_idx + 1}"
             elif content_type == ContentType.IMAGE:

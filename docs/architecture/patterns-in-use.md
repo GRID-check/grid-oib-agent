@@ -74,10 +74,10 @@ many tenants concurrently and module state leaks across both turns and tenants.
 pair; `common/cost_tracking.py`, `common/profiler.py` and
 `tools/bim/measurement_sources.py` follow it. Two narrower uses of the same
 shape: `turn/answer_stream.py` binds the turn's answer-stream sink (`_SINK`)
-around the whole turn with `bound_answer_stream`, and
-`common/turn_status.prefetch_scope` sets a flag around one tools call, the turn
-decision's prefetch, which the knowledge tool reads with `in_prefetch`. Both
-reset their token on exit.
+around the whole turn with `bound_answer_stream`, and resets its token on exit.
+(A second, `turn_status.prefetch_scope`, marked the turn decision's prefetch
+for a requery switch that was measured 3.4 s slower and removed with it:
+[`turn-latency-measured-2026-09.md`](turn-latency-measured-2026-09.md) §3.5.)
 
 A `ContextVar` set inside `asyncio.gather` (or any task) dies with that task,
 because each task runs in a COPIED context: return the value instead. The entry

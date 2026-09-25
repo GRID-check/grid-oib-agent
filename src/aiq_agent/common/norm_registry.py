@@ -1059,6 +1059,15 @@ _FAMILY_ANCHOR_RE = re.compile(
     re.IGNORECASE,
 )
 
+#: A second family key joined to an anchor without repeating it: the ``und 4``
+#: in "OIB 2 und 4", the ``, 4`` in "OIB 2, 4". One or two digits (or a part
+#: number), so a printing year ("OIB 2 2023", "OIB 2, 2023") is never read as a
+#: key. Matched right after an anchor, never on its own.
+_FAMILY_JOINED_KEY_RE = re.compile(
+    r"\s*(?:,|/|&|\bund\b|\boder\b|\bbzw\.?)\s*(\d{1,2}(?:\.\d+)?)(?![\d.])",
+    re.IGNORECASE,
+)
+
 #: What makes a query a LOCATOR rather than a question about the whole
 #: Richtlinie. A Punkt, a paragraph, a page or a table is addressed inside one
 #: document, and a file name names one file: each is already answered better by
@@ -1129,6 +1138,20 @@ def _is_topic_free(text: str) -> bool:
     )
 
 
+def _joined_keys(text: str, start: int) -> list[re.Match[str]]:
+    """The further keys chained onto the anchor ending at ``start``, in order.
+
+    "OIB 2 und 4" names two families as surely as "OIB 2 und OIB 4"; without
+    this the bare ``4`` falls into the leftover, where a number passes as a
+    printing and the query came back as family 2 alone.
+    """
+    found: list[re.Match[str]] = []
+    while (joined := _FAMILY_JOINED_KEY_RE.match(text, start)) is not None:
+        found.append(joined)
+        start = joined.end()
+    return found
+
+
 def family_query_number(query: str) -> str | None:
     """The Richtlinien-family a query asks about AS A WHOLE, or ``None``.
 
@@ -1141,7 +1164,9 @@ def family_query_number(query: str) -> str | None:
     ``None`` for everything else, and that is the common answer. A query that
     still names a topic once the anchor is removed is an ordinary search; so is
     one that addresses a Punkt, a paragraph, a page, a table or a file; and so
-    is one naming two families, because a single overview cannot be both.
+    is one naming two families, because a single overview cannot be both,
+    including when the second key is chained on without its anchor ("OIB 2
+    und 4", "OIB 2, 4").
     """
     text = (query or "").strip()
     if not text or _FAMILY_BLOCKER_RE.search(text):
@@ -1153,6 +1178,9 @@ def family_query_number(query: str) -> str | None:
         keys.add(match.group(1).split(".")[0])
         rest.append(text[cursor : match.start()])
         cursor = match.end()
+        for joined in _joined_keys(text, cursor):
+            keys.add(joined.group(1).split(".")[0])
+            cursor = joined.end()
     rest.append(text[cursor:])
     if len(keys) != 1 or not _is_topic_free(" ".join(rest)):
         return None

@@ -823,6 +823,8 @@ def get_knowledge_layer_config() -> dict[str, Any]:
 # will read. Set by the knowledge tool at build time; with two knowledge tools
 # of different config the last built wins, which wastes a warm-up on the other
 # one's turns but can serve nothing wrong: the embedding cache is keyed by model.
+# The tool clears it at teardown (``clear_search_retriever``), so a torn-down
+# tool's retriever is neither kept alive nor warmed.
 _SEARCH_RETRIEVER: BaseRetriever | None = None
 
 
@@ -832,11 +834,19 @@ def set_search_retriever(retriever: BaseRetriever | None) -> None:
     _SEARCH_RETRIEVER = retriever
 
 
+def clear_search_retriever(retriever: BaseRetriever) -> None:
+    """Forget ``retriever`` as the search retriever, if it still is; a later tool's stays."""
+    global _SEARCH_RETRIEVER
+    if _SEARCH_RETRIEVER is retriever:
+        _SEARCH_RETRIEVER = None
+
+
 async def warm_search_query(query: str) -> None:
     """Warm the knowledge search's caches for ``query`` as the tool will send it; never raises.
 
     The tool searches the query after ``augmented_query`` (the cross-lingual
     bridge), so that is the string warmed. No search retriever, no warm-up.
+    The glossary-miss line is left to the search, which logs it once.
     """
     retriever = _SEARCH_RETRIEVER
     if retriever is None or not query:
@@ -844,6 +854,6 @@ async def warm_search_query(query: str) -> None:
     try:
         from aiq_agent.common.query_expansion import augmented_query
 
-        await retriever.warm_query(augmented_query(query))
+        await retriever.warm_query(augmented_query(query, log_miss=False))
     except Exception:  # noqa: BLE001 - a warm-up is worth less than the turn
         logger.debug("Search warm-up failed", exc_info=True)

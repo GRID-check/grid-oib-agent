@@ -143,7 +143,7 @@ class TestTheEffects:
         assert runtime.inlined == ()
 
 
-async def _run_turn(config: ResearchAgentConfig, decisions: TurnDecisions):
+async def _run_turn(config: ResearchAgentConfig, decisions: TurnDecisions, messages=None):
     builder = _FakeBuilder({"knowledge_search": knowledge_search})
     agent = MagicMock()
     agent.run = AsyncMock(side_effect=lambda state, turn=None: state)
@@ -156,7 +156,7 @@ async def _run_turn(config: ResearchAgentConfig, decisions: TurnDecisions):
         ResolverCls.return_value.resolve.return_value = ()
         gen = research_agent.__wrapped__(config, builder)
         info = await gen.__anext__()
-        state = ResearchAgentState(messages=[HumanMessage(content="Was weißt du über die OIB 2?")])
+        state = ResearchAgentState(messages=messages or [HumanMessage(content="Was weißt du über die OIB 2?")])
         await info.single_fn(state)
         await gen.aclose()
     return agent.run.await_args.kwargs["turn"], state, decide
@@ -208,6 +208,36 @@ class TestTheTurn:
                 TurnDecisions.none(),
             )
         warm.assert_not_awaited()
+
+    async def test_a_follow_up_is_not_warmed_and_not_prefetched_without_a_decision(self):
+        """„Was sagt die OIB 2 dazu?" after a stair question: round 0 must not
+        fill with the family overview, and nothing embeds a string no search
+        will read."""
+        from langchain_core.messages import AIMessage
+
+        messages = [
+            HumanMessage(content="Wie breit muss die Stiege sein?"),
+            AIMessage(content="Mindestens 1,20 m."),
+            HumanMessage(content="Was sagt die OIB 2 dazu?"),
+        ]
+        with patch("aiq_agent.knowledge.factory.warm_search_query", new_callable=AsyncMock) as warm:
+            turn, _state, _decide = await _run_turn(
+                ResearchAgentConfig(llm="research_llm", tools=["knowledge_search"], skills_enabled=False),
+                TurnDecisions.none(),
+                messages,
+            )
+        warm.assert_not_awaited()
+        assert turn.prefetch == ()
+
+    async def test_switched_off_builds_no_facts(self):
+        with patch.object(register_module, "_turn_facts") as facts:
+            await _run_turn(
+                ResearchAgentConfig(
+                    llm="research_llm", tools=["knowledge_search"], skills_enabled=False, turn_decisions=False
+                ),
+                TurnDecisions.none(),
+            )
+        facts.assert_not_called()
 
     async def test_switched_off_means_no_decision_and_no_prefetch(self):
         turn, _state, decide = await _run_turn(

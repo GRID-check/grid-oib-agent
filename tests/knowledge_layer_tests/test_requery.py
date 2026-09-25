@@ -248,29 +248,6 @@ class TestRetrievalLoop:
         # The chunk both formulations reached outranks the one only the paraphrase found.
         assert out.split("|")[0] == "shared"
 
-    async def test_switched_off_for_the_prefetch_the_prefetch_is_one_shot(self, loop_harness):
-        from aiq_agent.common.turn_status import prefetch_scope
-
-        retriever = _FakeRetriever({"Fluchtweg GK4": [_chunk("a", "a")]})
-        judge = _FakeLLM('{"sufficient": false, "queries": ["Gehweglänge"]}')
-        loop_harness(retriever, judge)
-
-        with prefetch_scope():
-            out = await _search(_config(requery_llm="judge", requery_on_prefetch=False))
-
-        assert [call["query"] for call in retriever.retrieve_calls] == ["Fluchtweg GK4"]
-        assert out == "a"
-
-    async def test_switched_off_for_the_prefetch_the_models_own_search_still_requeries(self, loop_harness):
-        # Round 0 is not the signal: a turn with nothing prefetched numbers the
-        # model's own first search 0 too, and that one keeps its loop.
-        retriever = _FakeRetriever({"Fluchtweg GK4": [_chunk("a", "a")], "Gehweglänge": [_chunk("b", "b")]})
-        loop_harness(retriever, _FakeLLM('{"sufficient": false, "queries": ["Gehweglänge"]}'))
-
-        await _search(_config(requery_llm="judge", requery_on_prefetch=False))
-
-        assert [call["query"] for call in retriever.retrieve_calls] == ["Fluchtweg GK4", "Gehweglänge"]
-
     async def test_a_file_scoped_search_is_never_widened(self, loop_harness):
         # A search pinned to one document is a precision lookup (the repair
         # pass makes them). Paraphrasing it across every shelf is the opposite
@@ -404,3 +381,40 @@ class TestLaneToolScope:
         await _search(_config())
 
         assert current_lane_tool() is None
+
+
+class TestTheSearchRetrieverHandle:
+    async def test_teardown_clears_the_warm_up_handle(self, loop_harness):
+        """The handle was last-wins and never cleared: a torn-down tool's
+        retriever stayed alive and kept being warmed."""
+        from aiq_agent.knowledge import factory
+
+        retriever = _FakeRetriever({})
+        loop_harness(retriever, None)
+
+        async with knowledge_retrieval(_config(), MagicMock()):
+            assert factory._SEARCH_RETRIEVER is retriever
+
+        assert factory._SEARCH_RETRIEVER is None
+
+    async def test_teardown_leaves_a_later_tools_handle(self, loop_harness):
+        from aiq_agent.knowledge import factory
+
+        loop_harness(_FakeRetriever({}), None)
+        later = object()
+
+        async with knowledge_retrieval(_config(), MagicMock()):
+            factory.set_search_retriever(later)
+
+        assert factory._SEARCH_RETRIEVER is later
+        factory.set_search_retriever(None)
+
+
+def test_the_prefetch_requery_switch_stays_removed():
+    """`requery_on_prefetch: false` was measured 3.4 s slower on the turns it
+    applied to (turn-latency-measured-2026-09.md §3.5) and removed with its
+    marker; `2ba012b0` has it if it is ever needed again."""
+    from aiq_agent.common import turn_status
+
+    assert "requery_on_prefetch" not in KnowledgeRetrievalConfig.model_fields
+    assert not hasattr(turn_status, "in_prefetch") and not hasattr(turn_status, "prefetch_scope")
