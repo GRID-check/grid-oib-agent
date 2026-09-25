@@ -54,17 +54,18 @@ class Passage:
 
 def build_passages(selections: list[Selection], address: Address) -> list[Passage]:
     """Render every selected section into a citable passage."""
-    return [passage for selection in selections for passage in _passages_for(selection, address)]
+    # The list budget is per call, so it divides by the picks of EVERY document.
+    limit = _passage_limit(address, sum(len(selection.picks) for selection in selections))
+    return [passage for selection in selections for passage in _passages_for(selection, address, limit)]
 
 
-def _passages_for(selection: Selection, address: Address) -> list[Passage]:
-    """The passages of ONE document."""
+def _passages_for(selection: Selection, address: Address, limit: int) -> list[Passage]:
+    """The passages of ONE document, each cut to ``limit`` characters."""
     candidate = selection.fetched.candidate
     document = selection.fetched.document
     title = document_title(candidate, document)
     status_note = _legal_status_note(document.url) or ""
     collection = collection_for(candidate)
-    limit = _passage_limit(address, len(selection.picks))
     out: list[Passage] = []
     for rank, (section, absatz) in enumerate(selection.picks):
         body, resolved = absatz_body(section, absatz)

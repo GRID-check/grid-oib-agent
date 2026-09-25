@@ -55,7 +55,8 @@ a preamble line, consecutive runs with "bis" and the others comma-separated:
 With a list, a named Absatz is ignored. A single § with a named Absatz returns
 that Absatz and the whole § beside it, but only when the Absatz exists and the §
 is ≤ 8000 chars. RIS repeats § headers and tables of contents in one document;
-the grammar keeps only the longest copy of each §. A § heading may sit on the
+the grammar keeps one copy of each §: the one whose marker is written `§ 8.`,
+else the longest. A § heading may sit on the
 line under its marker, and the grammar reads it there too.
 
 Deep research keeps the three tools until its own consolidation: it plans

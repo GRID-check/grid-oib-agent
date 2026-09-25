@@ -492,3 +492,17 @@ def test_a_hit_on_the_ogd_host_is_read_on_the_public_one():
     )
     assert hit.citation_url == "https://www.ris.bka.gv.at/eli/lgbl/SA/1997/40/P0/LSB40029372"
     assert hit.full_law_url.startswith("https://www.ris.bka.gv.at/GeltendeFassung.wxe?")
+
+
+async def test_a_url_on_the_ogd_host_is_fetched_from_the_public_one():
+    # Search text cached before the rewrite still carries ogd URLs for days.
+    seen = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(str(request.url))
+        return httpx.Response(200, headers={"content-type": "text/html"}, text="<p>§ 1 Geltungsbereich</p>")
+
+    client = RisClient(transport=_transport(handler))
+    await client.fetch_document_text("https://ogd.ris.bka.gv.at/Dokumente/x/y.html")
+
+    assert seen == ["https://www.ris.bka.gv.at/Dokumente/x/y.html"]

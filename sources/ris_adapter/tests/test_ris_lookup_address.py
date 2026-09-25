@@ -51,6 +51,13 @@ class TestTheDirectAddress:
         assert address.url == url
         assert address.law == ""
 
+    def test_a_url_on_the_ogd_host_is_the_public_one(self):
+        """Cached search text states ogd URLs; they are an address, not a law's name."""
+        address = parse_address("Was steht da?", "https://ogd.ris.bka.gv.at/Dokumente/x/y.html", "")
+
+        assert address.url == "https://www.ris.bka.gv.at/Dokumente/x/y.html"
+        assert address.law == ""
+
     def test_a_foreign_url_is_not_one(self):
         """This adapter fetches RIS and nothing else; a stray link is not an address."""
         address = parse_address("Was steht da?", "https://example.com/gesetz.html", "")
@@ -256,3 +263,27 @@ def test_one_surviving_paragraph_of_a_list_gets_no_more_than_a_named_one():
     from ris_adapter.lookup.passages import _passage_limit
 
     assert _passage_limit(parse_address("x", "§§ 63 bis 68 BO Wien", ""), 1) == SECTION_MAX_CHARS
+
+
+def test_a_list_across_two_documents_shares_one_budget():
+    """The list budget is per call: one § in one law and five in another stay inside it."""
+    from ris_adapter.client import RisDocument
+    from ris_adapter.lookup.candidates import Candidate
+    from ris_adapter.lookup.extract import Selection
+    from ris_adapter.lookup.fetch import FetchedDocument
+    from ris_adapter.lookup.grammar import Section
+    from ris_adapter.lookup.passages import LIST_MAX_CHARS
+    from ris_adapter.lookup.passages import build_passages
+
+    body = "\n".join(f"({n}) " + "x" * 2000 for n in range(1, 11))
+
+    def selection(title: str, numbers: range) -> Selection:
+        document = RisDocument(url=f"https://www.ris.bka.gv.at/{title}", title=title, text=body)
+        picks = tuple((Section(kind="§", number=str(n), heading="", body=body), "") for n in numbers)
+        return Selection(fetched=FetchedDocument(candidate=Candidate(title=title), document=document), picks=picks)
+
+    address = parse_address("x", "§§ 1 bis 6 BO", "")
+    passages = build_passages([selection("A", range(1, 2)), selection("B", range(2, 7))], address)
+
+    assert len(passages) == 6
+    assert sum(len(passage.body) for passage in passages) <= LIST_MAX_CHARS

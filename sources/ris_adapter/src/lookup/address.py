@@ -19,6 +19,7 @@ from dataclasses import dataclass
 from urllib.parse import urlparse
 
 from ris_adapter.client import ALLOWED_DOCUMENT_HOSTS
+from ris_adapter.client import public_host
 from ris_adapter.register import _CATALOG_AVAILABLE
 from ris_adapter.register import extract_bundesland
 
@@ -219,7 +220,9 @@ def parse_address(question: str, instrument: str, jurisdiction: str) -> Address:
     is what the caller chose to state as an address, while the question is
     prose that may mention a § in passing.
     """
-    instrument = (instrument or "").strip()
+    # A URL a search stated on the OGD host (cached text keeps it for days)
+    # addresses the same document as its public-host twin.
+    instrument = public_host((instrument or "").strip())
     url = instrument if is_ris_url(instrument) else ""
     number = instrument if not url and _DOCUMENT_NUMBER_RE.match(instrument) else ""
     source = instrument if instrument and not url and not number else ""
