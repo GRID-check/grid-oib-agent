@@ -176,6 +176,36 @@ describe('a state diagram', () => {
     expect(model?.kind === 'flow' && model.nodes.find((n) => n.id === 'L')?.label).toBe('Lange Bezeichnung')
   }, PARSE_BUDGET)
 
+  it('labels a state by every line it is described by', async () => {
+    const model = await parseMermaid(
+      'stateDiagram-v2\n  state "Lange Bezeichnung" as L\n  L : zweite Zeile\n  A : erste\n  A : zweite\n  [*] --> L\n  L --> A'
+    )
+    if (model?.kind !== 'flow') throw new Error('expected a flow')
+    expect(model.nodes.find((n) => n.id === 'L')?.label).toBe('Lange Bezeichnung\nzweite Zeile')
+    expect(model.nodes.find((n) => n.id === 'A')?.label).toBe('erste\nzweite')
+  }, PARSE_BUDGET)
+
+  it('draws a choice as a decision without its id', async () => {
+    const model = await parseMermaid(
+      'stateDiagram-v2\n  state wahl <<choice>>\n  [*] --> wahl\n  wahl --> Bewilligt: ja\n  wahl --> Abgelehnt: nein'
+    )
+    if (model?.kind !== 'flow') throw new Error('expected a flow')
+    expect(model.nodes.find((n) => n.id === 'wahl')).toEqual({ id: 'wahl', label: '', shape: 'decision' })
+  }, PARSE_BUDGET)
+
+  it('leaves a fork or a join to mermaid rather than draw the bar as a step', async () => {
+    const source = (kind: string) => `stateDiagram-v2\n  state teil <<${kind}>>\n  [*] --> teil\n  teil --> A\n  teil --> B`
+    expect(await parseMermaid(source('fork'))).toBeNull()
+    expect(await parseMermaid(source('join'))).toBeNull()
+  }, PARSE_BUDGET)
+
+  it('reads direction LR as left to right', async () => {
+    const model = await parseMermaid('stateDiagram-v2\n  direction LR\n  [*] --> A\n  A --> B')
+    expect(model?.kind === 'flow' && model.direction).toBe('right')
+    const down = await parseMermaid('stateDiagram-v2\n  [*] --> A\n  A --> B')
+    expect(down?.kind === 'flow' && down.direction).toBe('down')
+  }, PARSE_BUDGET)
+
   it('keeps a state that no transition enters or leaves', async () => {
     const model = await parseMermaid('stateDiagram-v2\n  [*] --> A\n  A --> B\n  C\n  state "Ruhend" as D\n  B --> [*]')
     if (model?.kind !== 'flow') throw new Error('expected a flow')

@@ -56,7 +56,7 @@ falls back to Mermaid's SVG and then to the source itself: the reader never
 loses the content, only the design. So does anything a view would draw wrong:
 a flowchart with a `subgraph` or with any link but a one-way arrow (`---`,
 `-.-`, `<-->`, `--x`, `--o`; an invisible `~~~` only places a node and is
-dropped), a state diagram with a composite state or a note, a sequence with a
+dropped), a state diagram with a composite state, a note, a `<<fork>>` or a `<<join>>`, a sequence with a
 note, a gantt task measured in hours or starting at a time of day, a label
 in any of the six grammars with markup other than `<br>` and inline formatting
 (`plainLabel` in `model.ts`), and a graph of more than 80 nodes (`MAX_GRAPH_NODES`), where

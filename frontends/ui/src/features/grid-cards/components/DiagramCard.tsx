@@ -19,12 +19,13 @@
  *
  * ## The three states, and why the failed one is not an error
  *
- *   - **drawing** — mermaid is laying the graph out. The first diagram in a
- *     session also pulls ~214 KB of mermaid, so this is a real moment rather
- *     than a theoretical one, and it holds the drawing's own space so nothing
- *     below it jumps when the picture lands.
- *   - **drawn** — the SVG, on paper (see below), then the caption, then the
- *     doctrine line, then the Fundstelle.
+ *   - **drawing** — mermaid is parsing the source, and laying it out where
+ *     the product has no view for it. The first diagram in a session also
+ *     pulls ~214 KB of mermaid, so this is a real moment rather than a
+ *     theoretical one, and it holds the drawing's own space so nothing below
+ *     it jumps when the picture lands.
+ *   - **drawn** — the product's view, or mermaid's SVG on the card surface,
+ *     then the caption, then the doctrine line, then the Fundstelle.
  *   - **failed** — the model writes invalid mermaid regularly. That must cost
  *     the reader nothing they did not already have, so the card degrades to the
  *     SOURCE in a code block plus one quiet line, exactly as the fence does.

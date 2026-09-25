@@ -291,10 +291,12 @@ The `diagram` CARD (`features/grid-cards/components/DiagramCard.tsx`) draws the
 same sources through the same renderer — `useRenderedDiagram` is the one place
 either surface drives it — and `useDiagramModel` for the views. It shows the
 „Schematisch" line only under mermaid's SVG, as the fence does, and the same
-source-in-a-code-block fallback. What it does not carry is the filing button:
-the card is `presentational` (docs/architecture/cards.md §"The `diagram` card"),
-so **filing a diagram into a project happens from the fence**, which is the only
-affordance for it in the product.
+source-in-a-code-block fallback. It files too: „Im Projekt ablegen" sits under
+the drawing through the same `useDiagramFiling` and `DiagramFilingControls` the
+fence uses, because which of the two surfaces a reader gets is whichever shape
+the model emitted, not a property of the drawing. The card stays
+`presentational` (docs/architecture/cards.md §"The `diagram` card"): filing is
+idempotent on the server rather than a decision persisted on the message.
 
 `securityLevel: 'strict'` and `htmlLabels: false` everywhere: the source is
 model-authored text, mermaid has a history of label-based XSS, and
@@ -338,7 +340,7 @@ it adds the three things a fence cannot have:
   reached, and the fifteen schematic cards are the proof of what happens without
   it — they sat unused behind a disclaimer until the doctrine named them.
 - **Backend validation.** `validate_cards()` checks the payload before it
-  reaches a browser: the four supported grammars are a closed set on the card,
+  reaches a browser: the six supported grammars (`DiagramGrammar`) are a closed set on the card,
   and a model validator reads the source's own declaration line back, so a
   source declaring nothing (the commonest failure, and the one that collapses
   the whole block to a grey code box) is refused with a message the model can
@@ -418,14 +420,24 @@ its PDF.
 line break, inline formatting is dropped, mermaid's entity placeholders are
 decoded, and a label with any other markup makes the reader answer `null`, so
 the diagram falls back to mermaid's SVG rather than print a tag. A flowchart's
-direction is the parser's (`getDirection()`), not the source's first line,
-which may be frontmatter, an `%%{init}%%` directive or a comment.
+and a state diagram's direction is the parser's (`getDirection()`), not the
+source's first line, which may be frontmatter, an `%%{init}%%` directive or a
+comment. A state is labelled by every description it has (`state "…" as L` and
+each `L : …`), one line each; a `<<choice>>` is a decision with no label, its
+id being a name for the source.
+
+The graph is a named group (`role="group"`), not an image, so a screen reader
+reads its node and edge text; an image's content is presentational, and the
+outline forms are not mounted or are hidden at the widths the graph is drawn.
+An edge label wraps at 160px, and dagre reserves a line of height for every
+line it wraps to (`edgeLabelBox` in `views/graph-canvas.tsx`).
 
 A reader also answers `null` for what its view would draw wrong rather than
 leave out (the list is in `answer-visuals.md`): a flowchart link that is not a
 one-way arrow, a note in a sequence or state diagram (mermaid keeps a sequence
 note in `getMessages()` with a `from` and a `to`, so read naively it was a
-hand-over), and a gantt task of hours, which whole-day bars round into a
+hand-over), a state `<<fork>>` or `<<join>>`, a bar that splits or merges
+concurrent paths which a box would call a step, and a gantt task of hours, which whole-day bars round into a
 milestone or a wrong span. An invisible link is dropped, and a state no
 transition touches is still drawn.
 

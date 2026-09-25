@@ -439,9 +439,10 @@ export function ScheduleDiagram({ model }: { model: ScheduleModel }) {
               {section.label}
             </p>
           ) : null}
-          {section.tasks.map((task) => (
+          {section.tasks.map((task, index) => (
             <div
-              key={`${task.label}-${task.start}`}
+              // Two tasks may share a name and a start; the list never reorders.
+              key={index}
               className="grid grid-cols-1 items-center gap-x-3 gap-y-0.5 @[30rem]:grid-cols-[minmax(0,11rem)_minmax(0,1fr)]"
             >
               <span className="flex min-w-0 items-baseline justify-between gap-2 @[30rem]:flex-col @[30rem]:items-start @[30rem]:gap-0">

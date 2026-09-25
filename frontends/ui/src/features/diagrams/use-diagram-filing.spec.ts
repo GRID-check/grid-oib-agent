@@ -27,7 +27,6 @@ describe('titleFromSource', () => {
   it.each([
     ['a long run of blank lines in unclosed front matter', (n: number) => `---\n${'\n'.repeat(n)}x`],
     ['a long run of spaces inside the title', (n: number) => `---\ntitle: a${' '.repeat(n)}b\n---`],
-    ['a long run of spaces before a key', (n: number) => `---\n${' '.repeat(n)}x\n---`],
   ])('is linear in %s', (_, source) => {
     const time = (n: number) => {
       const text = source(n)

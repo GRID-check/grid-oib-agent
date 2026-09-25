@@ -85,8 +85,45 @@ export interface GraphCanvasProps extends GraphSpec {
 
 const PAD = 8
 
-/** Room dagre reserves for an edge label, before the label is measured. */
-const labelBox = (label: string) => ({ width: Math.min(160, label.length * 6.4 + 14), height: 20 })
+/** An edge label's widest box; past it the label wraps. `max-w-[160px]` below. */
+const LABEL_MAX_WIDTH = 160
+/** Border and `px-1.5` around the text, and border and `py-0.5` above and below it. */
+const LABEL_INSET = { x: 14, y: 6 }
+/** One character of 11px text, on average; one line of it at `leading-snug`. */
+const LABEL_CHAR_WIDTH = 6.4
+const LABEL_LINE_HEIGHT = 11 * 1.375
+
+/**
+ * Room dagre reserves for an edge label, before the label is measured: as wide
+ * as its text up to the cap, and one line taller for every line it wraps to.
+ * The lines are counted the way the browser breaks them, a word at a time, and
+ * a word too long for a line runs over as many as it fills.
+ */
+export function edgeLabelBox(label: string): { width: number; height: number } {
+  const room = LABEL_MAX_WIDTH - LABEL_INSET.x
+  let lines = 0
+  let widest = 0
+  for (const paragraph of label.split('\n')) {
+    const words = paragraph.split(/\s+/).filter(Boolean).map((word) => word.length * LABEL_CHAR_WIDTH)
+    // Shrink-to-fit: the box is as wide as the unbroken line, up to the cap.
+    widest = Math.max(widest, words.reduce((sum, width) => sum + width, 0) + Math.max(0, words.length - 1) * LABEL_CHAR_WIDTH)
+    lines += 1
+    let used = 0
+    for (const width of words) {
+      const next = used === 0 ? width : used + LABEL_CHAR_WIDTH + width
+      if (next <= room) {
+        used = next
+        continue
+      }
+      lines += Math.ceil(width / room) - (used === 0 ? 1 : 0)
+      used = width > room ? width % room : width
+    }
+  }
+  return {
+    width: Math.ceil(Math.min(room, widest) + LABEL_INSET.x),
+    height: Math.ceil(lines * LABEL_LINE_HEIGHT + LABEL_INSET.y),
+  }
+}
 
 type Point = { x: number; y: number }
 
@@ -117,7 +154,7 @@ const RoutedEdge: FC<EdgeProps<Edge<RoutedEdgeData>>> = ({ id, data, markerEnd }
       {data.label && data.labelAt ? (
         <EdgeLabelRenderer>
           <div
-            className="border-border bg-card text-muted-foreground nodrag nopan pointer-events-none absolute rounded-md border px-1.5 py-0.5 text-[11px] leading-snug whitespace-nowrap"
+            className="border-border bg-card text-muted-foreground nodrag nopan pointer-events-none absolute max-w-[160px] rounded-md border px-1.5 py-0.5 text-center text-[11px] leading-snug break-words whitespace-pre-line"
             style={{ transform: `translate(-50%, -50%) translate(${data.labelAt.x}px, ${data.labelAt.y}px)` }}
           >
             {data.label}
@@ -151,7 +188,7 @@ function layoutGraph(
     graph.setNode(node.id, { width: size.width, height: size.height })
   }
   for (const edge of edges) {
-    graph.setEdge(edge.source, edge.target, edge.label ? { ...labelBox(edge.label), labelpos: 'c' } : {}, edge.id)
+    graph.setEdge(edge.source, edge.target, edge.label ? { ...edgeLabelBox(edge.label), labelpos: 'c' } : {}, edge.id)
   }
   dagre.layout(graph)
 
@@ -275,8 +312,10 @@ function Canvas({
   const height = layout ? Math.ceil(layout.height) : 160
   return (
     <HorizontalScroll className="w-full" aria-label={t('scrollable', { name: label })}>
+      {/* A named group, not an image: an image's content is presentational,
+          and the node and edge text is the diagram. */}
       <div
-        role="img"
+        role="group"
         aria-label={label}
         className="reasoning-flow-scrollable"
         style={{ width: canvasWidth, height, opacity: layout ? 1 : 0, transition: 'opacity 150ms ease-out' }}

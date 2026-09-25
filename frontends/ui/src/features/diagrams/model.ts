@@ -227,19 +227,43 @@ export function flowFromState(db: Record<string, unknown>): FlowModel | null {
     if (!node) return null
     nodes.push(node)
   }
-  return { kind: 'flow', direction: 'down', nodes, edges }
+  // `direction LR` inside the diagram; the parser reports TB when none is set.
+  const direction = /^(LR|RL)$/.test(text(call(db, 'getDirection'))) ? 'right' : 'down'
+  return { kind: 'flow', direction, nodes, edges }
 }
 
-/** One state as a node, or null when its name is markup this product cannot draw. */
+/**
+ * One state as a node, or null when mermaid should draw it: its name is markup
+ * this product cannot draw as text, or it is a fork or a join, a bar that
+ * splits or merges concurrent paths, which a box would call a step.
+ */
 function stateNode(id: string, state: Record<string, unknown>): FlowNode | null {
   // By mermaid's own id for `[*]`, never by the name: a state called
   // „start" or „Prüfung_end" is a state like any other.
   if (STATE_POINTS.has(id)) return { id, label: '', shape: 'point' }
   const type = text(state.type)
   if (type === 'start' || type === 'end') return { id, label: '', shape: 'point' }
-  // `state "Lange Bezeichnung" as L` keeps the name in `descriptions`.
-  const description = plainLabel(entries(state.descriptions).map(text).find(Boolean) ?? '')
-  return description === null ? null : { id, label: description || id, shape: 'step' }
+  if (type === 'fork' || type === 'join') return null
+  const label = stateLabel(state)
+  if (label === null) return null
+  // `<<choice>>` is where a path forks on a condition its transitions carry;
+  // its id is a name for the source, not text for the reader.
+  if (type === 'choice') return { id, label, shape: 'decision' }
+  return { id, label: label || id, shape: 'step' }
+}
+
+/**
+ * Every line a state is described by, or null when one is markup. `state "Lange
+ * Bezeichnung" as L` and each `L : zweite Zeile` add one to `descriptions`.
+ */
+function stateLabel(state: Record<string, unknown>): string | null {
+  const lines: string[] = []
+  for (const description of entries(state.descriptions).map(text).filter(Boolean)) {
+    const line = plainLabel(description)
+    if (line === null) return null
+    lines.push(line)
+  }
+  return lines.filter(Boolean).join('\n')
 }
 
 /** A mindmap node and its subtree, or null when any label in it is markup this product cannot draw. */
