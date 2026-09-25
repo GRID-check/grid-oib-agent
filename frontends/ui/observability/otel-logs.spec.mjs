@@ -30,6 +30,21 @@ describe('logsUrl', () => {
   })
 })
 
+describe('resourceAttributes', () => {
+  it('names the build a record came from', async () => {
+    const { resourceAttributes } = await freshModule()
+    expect(resourceAttributes({ OTEL_SERVICE_NAME: 'grid-scheduler', GRID_GIT_SHA: ' abc123 ' })).toEqual({
+      'service.name': 'grid-scheduler',
+      'service.version': 'abc123',
+    })
+  })
+
+  it('omits the version when the image carries none', async () => {
+    const { resourceAttributes } = await freshModule()
+    expect(resourceAttributes({ GRID_GIT_SHA: '' })).toEqual({ 'service.name': 'grid-ui' })
+  })
+})
+
 describe('classifyConsoleRecord', () => {
   // ERROR is the level the collector forwards to err2issue, which files a
   // GitHub issue per unique fingerprint. These cases pin which records are

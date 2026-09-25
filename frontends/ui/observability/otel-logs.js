@@ -21,6 +21,10 @@
  *     the /v1/logs signal path is derived (any /v1/traces suffix is replaced,
  *     so the backend-style full path works too).
  *   OTEL_SERVICE_NAME           - resource service.name (default "grid-ui").
+ *   GRID_GIT_SHA                - resource service.version: the commit the image
+ *     was built from (stamped by the Dockerfile). err2issue shows it as the
+ *     issue's "Version"; without it a regression on a closed issue could not be
+ *     told apart from a pod still running the image from before the fix.
  */
 
 const util = require('node:util')
@@ -106,6 +110,14 @@ function classifyConsoleRecord(method, body) {
   return { ...SEVERITY.warn, attributes: { 'grid.severity.reclassified': known.reason } }
 }
 
+/** Resource attributes for every exported record: which tier, which build. */
+function resourceAttributes(env) {
+  const attributes = { 'service.name': env.OTEL_SERVICE_NAME || 'grid-ui' }
+  const sha = String(env.GRID_GIT_SHA ?? '').trim()
+  if (sha) attributes['service.version'] = sha
+  return attributes
+}
+
 /**
  * Initialize OTLP log export and patch console.* to also emit OTel log
  * records. Idempotent. Returns true when export was enabled.
@@ -121,9 +133,7 @@ function initOtelLogs() {
   const { BatchLogRecordProcessor, LoggerProvider } = require('@opentelemetry/sdk-logs')
   const { defaultResource, resourceFromAttributes } = require('@opentelemetry/resources')
 
-  const resource = defaultResource().merge(
-    resourceFromAttributes({ 'service.name': process.env.OTEL_SERVICE_NAME || 'grid-ui' }),
-  )
+  const resource = defaultResource().merge(resourceFromAttributes(resourceAttributes(process.env)))
   const provider = new LoggerProvider({
     resource,
     // SDK 2.x: the exporter goes in an options object — positional
@@ -149,4 +159,4 @@ function initOtelLogs() {
   return true
 }
 
-module.exports = { classifyConsoleRecord, initOtelLogs, logsUrl }
+module.exports = { classifyConsoleRecord, initOtelLogs, logsUrl, resourceAttributes }

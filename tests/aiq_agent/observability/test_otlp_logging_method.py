@@ -59,3 +59,48 @@ def test_shipped_config_wires_the_otlp_logging_method():
     assert otlp["endpoint"] == "${OTEL_EXPORTER_OTLP_ENDPOINT:-}", (
         "logging endpoint must default to empty so the handler no-ops when the observability tier is not deployed"
     )
+
+
+def test_resource_names_the_build_the_record_came_from():
+    # err2issue reads service.version into the issue's "Version" row; without
+    # it a regression on a closed issue could not be told from a stale pod.
+    from aiq_agent.observability.otlp_logging_method import _resource_attributes
+
+    attributes = _resource_attributes({"OTEL_SERVICE_NAME": "grid-agent-worker", "GRID_GIT_SHA": " abc123 "})
+    assert attributes == {"service.name": "grid-agent-worker", "service.version": "abc123"}
+
+
+def test_resource_omits_the_version_when_the_image_carries_none():
+    from aiq_agent.observability.otlp_logging_method import _resource_attributes
+
+    assert _resource_attributes({"GRID_GIT_SHA": ""}) == {"service.name": "aiq-agent"}
+
+
+def test_a_failed_build_exports_its_cause_not_its_itemization(caplog):
+    # NAT's own logger, driven for real, so a change in how it reports a failed
+    # build shows up here rather than as eleven issues again (#742-#752).
+    from nat.builder.workflow_builder import _log_build_failure
+
+    from aiq_agent.observability.otlp_logging_method import _NatBuildFailureItemizationFilter
+
+    with caplog.at_level(logging.ERROR, logger="nat.builder.workflow_builder"):
+        try:
+            raise RuntimeError("database system is shutting down")
+        except RuntimeError as exc:
+            _log_build_failure(
+                "<workflow>", "workflow", [("summary_llm", "llms")], [("knowledge_search", "functions")], exc
+            )
+
+    assert len(caplog.records) > 3, "NAT itemizes a failed build; if this changed, revisit the filter"
+    exported = [r for r in caplog.records if _NatBuildFailureItemizationFilter().filter(r)]
+    assert len(exported) == 1
+    assert exported[0].exc_info is not None
+    assert "database system is shutting down" in exported[0].getMessage()
+
+
+def test_other_nat_errors_are_still_exported():
+    from aiq_agent.observability.otlp_logging_method import _NatBuildFailureItemizationFilter
+
+    record = logging.LogRecord("nat.runtime", logging.ERROR, __file__, 1, "- summary_llm (llms)", (), None)
+    record.funcName = "run"
+    assert _NatBuildFailureItemizationFilter().filter(record)
