@@ -641,7 +641,7 @@ export const MarkdownRenderer: FC<MarkdownRendererProps> = memo(
     // The lines a code block's position points into, while there can be a
     // fence still being written; trailing blank lines do not end a block.
     const streamingLines = useMemo(
-      () => (isStreaming ? renderedContent.replace(/\s+$/, '').split('\n') : null),
+      () => (isStreaming ? renderedContent.trimEnd().split('\n') : null),
       [isStreaming, renderedContent]
     )
     /**

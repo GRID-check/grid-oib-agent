@@ -396,16 +396,30 @@ it in this product's design — the reasoning for each is in
 | schedule | `gantt` | HTML: bars on a date axis, milestones as marks; labels above the bars below 30rem |
 | shares | `pie` | HTML: horizontal bars with the share written out |
 
-Each view chooses its form by a container query on its own width, not by a
-breakpoint: flow 28rem, map 34rem, handoff and schedule 30rem
-(`views/diagram-views.tsx`). Below it, flow is a stepped outline, map an
-indented outline, handoff a numbered list.
+Each view chooses its form by its own width, not by a breakpoint
+(`views/diagram-views.tsx`). Flow measures its column (`useWidthRem`, a
+`ResizeObserver`) and mounts only the form it shows: the graph from 28rem, a
+stepped outline below, so neither pays for the other's dagre pass. Map (34rem),
+handoff and schedule (30rem) use a container query; below it map is an
+indented outline and handoff a numbered list.
+
+While the parse is in flight (`useDiagramModel` answers `undefined`) the fence
+and the card show only the drawing's placeholder, with no „Schematisch" line:
+which of the two pictures it becomes is not known yet.
 
 Parsing and rendering share one lock (`withMermaid`): the grammar databases
 are module-level singletons, as is the render configuration. A source the
 parser refuses, or a grammar without a view, is drawn as mermaid's SVG as
-before. The SVG is otherwise rendered only when the answer sits in a project,
-because filing still files mermaid's SVG and its PDF.
+before. Otherwise the SVG is rendered only when the reader files the drawing
+(`renderPaperDiagram`, on paper), because filing still files mermaid's SVG and
+its PDF.
+
+`model.ts` reads every label of every grammar through `plainLabel`: `<br>` is a
+line break, inline formatting is dropped, mermaid's entity placeholders are
+decoded, and a label with any other markup makes the reader answer `null`, so
+the diagram falls back to mermaid's SVG rather than print a tag. A flowchart's
+direction is the parser's (`getDirection()`), not the source's first line,
+which may be frontmatter, an `%%{init}%%` directive or a comment.
 
 ### Adding a diagram kind
 

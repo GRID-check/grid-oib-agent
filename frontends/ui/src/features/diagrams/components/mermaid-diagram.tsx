@@ -89,10 +89,13 @@ export function MermaidDiagram({ source, isStreaming = false }: MermaidDiagramPr
   // Still being written: the drawing's place, not its source. A code block that
   // turned into a picture when its fence closed was the largest jump a
   // streamed answer made; a placeholder growing into the figure is the small
-  // one the drawing state below already makes (ADR-0066).
-  if (isStreaming) {
+  // one the drawing state below already makes (ADR-0066). Still being parsed
+  // (`model === undefined`) holds the same placeholder: which of the two
+  // pictures it becomes is not known yet, and mermaid's frame with its
+  // „Schematisch" line flashed before this product's view replaced it.
+  if (isStreaming || model === undefined) {
     return (
-      <figure data-testid="mermaid-diagram" data-state="streaming" className="my-4" aria-busy="true">
+      <figure data-testid="mermaid-diagram" data-state={isStreaming ? 'streaming' : 'drawing'} className="my-4" aria-busy="true">
         <div className="border-border rounded-lg border p-3">
           <DrawingSkeleton />
         </div>
@@ -116,7 +119,7 @@ export function MermaidDiagram({ source, isStreaming = false }: MermaidDiagramPr
         {/* A soft plane, not a frame: the nodes are cards and read on it
             without a box around a box. */}
         <div className="bg-muted/40 rounded-xl p-3 @container">
-          <DiagramView model={model} label={titleFromSource(source) ?? t('schematicOnly')} />
+          <DiagramView model={model} label={titleFromSource(source) ?? t(`kind.${model.kind}`)} />
         </div>
         {/* No „Schematisch — ohne Maßangabe." here: that line tells a reader a
             DRAWING claims no measurement, and these views have no geometry

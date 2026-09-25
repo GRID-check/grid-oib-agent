@@ -2,7 +2,7 @@
  * What a GFM table in an answer IS, read once off its cells, for the renderer.
  *
  * The answer writes its checks, comparisons and values-by-class as tables
- * (`piloti_static.md`, <formatting> STRUCTURE). Three things about such a table
+ * (`piloti_static.md`, <formatting> STRUCTURE). Four things about such a table
  * are knowable only from all of its rows at once, which a per-cell component
  * never sees, so this rehype pass settles them and leaves the answer on the
  * element's properties:
@@ -104,7 +104,30 @@ function liftSharedSource(table: Element, column: number, head: Row, rows: Row[]
 }
 
 const CITATION = /^\[(\d+)\]$/
-const TRAILING_CITATIONS = /(?:\s*\[(\d+)\])+\s*$/
+
+/** The `[N]` `value` ends with, read backwards by hand: a regex anchored at `$` rescans the whole cell per start position. */
+function lastCitation(value: string): { number: string; start: number } | null {
+  if (!value.endsWith(']')) return null
+  let open = value.length - 1
+  while (open > 0 && value[open - 1] >= '0' && value[open - 1] <= '9') open--
+  if (open === value.length - 1 || value[open - 1] !== '[') return null
+  return { number: value.slice(open, -1), start: open - 1 }
+}
+
+/**
+ * `value` without trailing whitespace and without the run of `[N]` it ends
+ * with, when `cited` holds every number in that run; otherwise only trimmed.
+ * Linear in the text: a `/(?:\s*\[(\d+)\])+\s*$/` over a long cell was not.
+ */
+function withoutTrailingCitations(value: string, cited: Set<string>): string {
+  const trimmed = value.trimEnd()
+  let rest = trimmed
+  for (let citation = lastCitation(rest); citation; citation = lastCitation(rest)) {
+    if (!cited.has(citation.number)) return trimmed
+    rest = rest.slice(0, citation.start).trimEnd()
+  }
+  return rest
+}
 
 /** The citation numbers a cell holds, e.g. `{2}` for a Fundstelle cell `[2]`. */
 const citationsIn = (cell: Element): Set<string> =>
@@ -124,15 +147,9 @@ function dropTrailingCitations(cell: Element, cited: Set<string>): void {
     const last = children[children.length - 1]
     if (!last) break
     if (last.type === 'text') {
-      const match = last.value.match(TRAILING_CITATIONS)
-      const trimmed = last.value.replace(/\s+$/, '')
-      if (match && [...match[0].matchAll(/\[(\d+)\]/g)].every((m) => cited.has(m[1]))) {
-        last.value = last.value.slice(0, match.index).replace(/\s+$/, '')
-      } else if (trimmed !== last.value) {
-        last.value = trimmed
-      } else {
-        break
-      }
+      const value = withoutTrailingCitations(last.value, cited)
+      if (value === last.value) break
+      last.value = value
       if (!last.value) children.pop()
       continue
     }

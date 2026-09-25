@@ -44,8 +44,9 @@ import '@xyflow/react/dist/style.css'
 import dagre from '@dagrejs/dagre'
 
 import { HorizontalScroll } from '@/components/ui/horizontal-scroll'
+import { useTranslations } from '@/i18n'
 
-/** Same ink as the Herleitung's edges: foreground at 18%, on any surface. */
+/** Same ink as the Herleitung's edges: foreground at 30%, on any surface. */
 export const EDGE_STROKE = 'color-mix(in oklch, var(--foreground) 30%, transparent)'
 
 export interface GraphNodeSpec {
@@ -186,6 +187,7 @@ function Canvas({
   width,
   arrows = true,
 }: GraphCanvasProps) {
+  const t = useTranslations('diagrams')
   const initial = useMemo<Node[]>(
     () =>
       nodes.map((node) => ({
@@ -272,7 +274,7 @@ function Canvas({
   const canvasWidth = Math.max(width, layout ? Math.ceil(layout.width) : width)
   const height = layout ? Math.ceil(layout.height) : 160
   return (
-    <HorizontalScroll className="w-full" aria-label={label}>
+    <HorizontalScroll className="w-full" aria-label={t('scrollable', { name: label })}>
       <div
         role="img"
         aria-label={label}

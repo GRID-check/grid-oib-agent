@@ -23,6 +23,7 @@ vi.mock('@/features/documents/lib/open-filed-document', () => ({
 
 import { MermaidDiagram } from './mermaid-diagram'
 import { DiagramFilingProvider, diagramRunId } from '../diagram-filing-context'
+import { clearDiagramModelCache } from '../use-diagram-model'
 
 const SOURCE = 'graph TD\n  A --> B'
 const DRAWN =
@@ -58,6 +59,22 @@ describe('while the answer is still arriving', () => {
     await waitFor(() =>
       expect(screen.getByTestId('mermaid-diagram')).toHaveAttribute('data-state', 'drawn')
     )
+  })
+})
+
+describe('while its source is being parsed', () => {
+  it('holds a placeholder and claims nothing about a drawing it has not chosen yet', () => {
+    // Which picture it becomes, this product's view or mermaid's SVG, is not
+    // known until the parse settles; mermaid's frame and its „Schematisch"
+    // line flashed here before the view replaced them.
+    clearDiagramModelCache()
+    render(<MermaidDiagram source={'graph LR\n  Parse --> Pending'} />)
+    const figure = screen.getByTestId('mermaid-diagram')
+    expect(figure).toHaveAttribute('data-state', 'drawing')
+    expect(figure).toHaveAttribute('aria-busy', 'true')
+    expect(figure.querySelectorAll('[data-slot="skeleton"]').length).toBeGreaterThan(0)
+    expect(screen.queryByText(/no dimensions are claimed/i)).not.toBeInTheDocument()
+    expect(figure.querySelector('figcaption')).toBeNull()
   })
 })
 

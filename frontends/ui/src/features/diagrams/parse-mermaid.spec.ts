@@ -30,8 +30,13 @@ describe('parseMermaid', () => {
     expect(model.edges.find((e) => e.from === 'L')?.dashed).toBe(true)
   }, PARSE_BUDGET)
 
-  it('reads a left-to-right flowchart as such', async () => {
-    const model = await parseMermaid('flowchart LR\n  A --> B')
+  it.each([
+    ['plain', 'flowchart LR\n  A --> B'],
+    ['after frontmatter', '---\ntitle: Verfahren\n---\nflowchart LR\n  A --> B'],
+    ['after an init directive', '%%{init: {"theme":"base"}}%%\nflowchart LR\n  A --> B'],
+    ['after a comment', '%% Ablauf\nflowchart RL\n  A --> B'],
+  ])('reads a left-to-right flowchart as such (%s)', async (_, source) => {
+    const model = await parseMermaid(source)
     expect(model?.kind === 'flow' && model.direction).toBe('right')
   }, PARSE_BUDGET)
 
@@ -162,8 +167,10 @@ describe('a state diagram', () => {
 })
 
 describe('a sequence', () => {
-  it('reads every dotted arrow as a reply', async () => {
-    const model = await parseMermaid('sequenceDiagram\n  A->>B: frage\n  B-->A: a\n  B--)A: b\n  B--xA: c\n  B-->>A: d\n  A-)B: e')
+  it('reads every one-way dotted arrow as a reply, and a two-way one as none', async () => {
+    const model = await parseMermaid(
+      'sequenceDiagram\n  A->>B: frage\n  B-->A: a\n  B--)A: b\n  B--xA: c\n  B-->>A: d\n  A-)B: e\n  B--|\\A: f\n  B/|--A: g\n  A<<-->>B: h\n  A-|\\B: i'
+    )
     expect(model?.kind === 'handoff' && model.steps.map((step) => [step.label, step.reply])).toEqual([
       ['frage', false],
       ['a', true],
@@ -171,6 +178,10 @@ describe('a sequence', () => {
       ['c', true],
       ['d', true],
       ['e', false],
+      ['f', true],
+      ['g', true],
+      ['h', false],
+      ['i', false],
     ])
   }, PARSE_BUDGET)
 })

@@ -157,7 +157,7 @@ const FLOW_SHAPE: Record<string, FlowNode['shape']> = {
   ellipse: 'end',
 }
 
-export function flowFromFlowchart(db: Record<string, unknown>, source: string): FlowModel | null {
+export function flowFromFlowchart(db: Record<string, unknown>): FlowModel | null {
   // A subgraph is a group drawn around its nodes; these views have no group,
   // and drawing it as one more step labelled by its id says something else.
   if (entries(call(db, 'getSubGraphs')).length > 0) return null
@@ -183,8 +183,9 @@ export function flowFromFlowchart(db: Record<string, unknown>, source: string): 
       ...(text(edge.stroke) === 'dotted' ? { dashed: true } : {}),
     })
   }
-  const header = source.trim().split('\n')[0] ?? ''
-  const direction = /\b(LR|RL)\b/.test(header) ? 'right' : 'down'
+  // The parser's direction, not the source's first line: frontmatter, an
+  // `%%{init}%%` directive or a comment can come before the header.
+  const direction = /^(LR|RL)$/.test(text(call(db, 'getDirection'))) ? 'right' : 'down'
   return { kind: 'flow', direction, nodes, edges: edges.filter((e) => e.from && e.to) }
 }
 
@@ -199,58 +200,85 @@ export function flowFromState(db: Record<string, unknown>): FlowModel | null {
   // every state inside, so such a diagram is mermaid's to draw.
   if (entries(states).some((state) => Array.isArray(record(state).doc))) return null
   const ids = new Set<string>()
-  const edges = relations.map((relation, index): FlowEdge => {
+  const edges: FlowEdge[] = []
+  for (const [index, relation] of relations.entries()) {
     const from = text(relation.id1)
     const to = text(relation.id2)
     ids.add(from)
     ids.add(to)
-    const label = text(relation.relationTitle)
-    return { id: `s${index}`, from, to, ...(label ? { label } : {}) }
-  })
+    const label = plainLabel(text(relation.relationTitle))
+    if (label === null) return null
+    edges.push({ id: `s${index}`, from, to, ...(label ? { label } : {}) })
+  }
   if (ids.size > MAX_GRAPH_NODES) return null
-  const nodes = [...ids].map((id): FlowNode => {
-    // By mermaid's own id for `[*]`, never by the name: a state called
-    // „start" or „Prüfung_end" is a state like any other.
-    if (STATE_POINTS.has(id)) return { id, label: '', shape: 'point' }
-    const state = record(lookup(states, id))
-    const type = text(state.type)
-    if (type === 'start' || type === 'end') return { id, label: '', shape: 'point' }
-    // `state "Lange Bezeichnung" as L` keeps the name in `descriptions`.
-    const description = entries(state.descriptions).map(text).find(Boolean)
-    return { id, label: description || id, shape: 'step' }
-  })
+  const nodes: FlowNode[] = []
+  for (const id of ids) {
+    const node = stateNode(id, record(lookup(states, id)))
+    if (!node) return null
+    nodes.push(node)
+  }
   return { kind: 'flow', direction: 'down', nodes, edges }
 }
 
-export function mapFromMindmap(db: Record<string, unknown>): MapModel | null {
-  const walk = (node: unknown, path: string): MapNode => {
-    const n = record(node)
-    const label = text(n.descr) || text(n.nodeId)
-    return { id: path, label, children: entries(n.children).map((child, index) => walk(child, `${path}.${index}`)) }
+/** One state as a node, or null when its name is markup this product cannot draw. */
+function stateNode(id: string, state: Record<string, unknown>): FlowNode | null {
+  // By mermaid's own id for `[*]`, never by the name: a state called
+  // „start" or „Prüfung_end" is a state like any other.
+  if (STATE_POINTS.has(id)) return { id, label: '', shape: 'point' }
+  const type = text(state.type)
+  if (type === 'start' || type === 'end') return { id, label: '', shape: 'point' }
+  // `state "Lange Bezeichnung" as L` keeps the name in `descriptions`.
+  const description = plainLabel(entries(state.descriptions).map(text).find(Boolean) ?? '')
+  return description === null ? null : { id, label: description || id, shape: 'step' }
+}
+
+/** A mindmap node and its subtree, or null when any label in it is markup this product cannot draw. */
+function mapNode(node: unknown, path: string): MapNode | null {
+  const n = record(node)
+  const label = plainLabel(text(n.descr) || text(n.nodeId))
+  if (label === null) return null
+  const children: MapNode[] = []
+  for (const [index, child] of entries(n.children).entries()) {
+    const read = mapNode(child, `${path}.${index}`)
+    if (!read) return null
+    children.push(read)
   }
+  return { id: path, label, children }
+}
+
+export function mapFromMindmap(db: Record<string, unknown>): MapModel | null {
   const root = call(db, 'getMindmap')
   if (!root) return null
-  const tree = walk(root, 'root')
+  const tree = mapNode(root, 'root')
+  if (!tree) return null
   const count = (node: MapNode): number => node.children.reduce((sum, child) => sum + count(child), 1)
   return count(tree) > MAX_GRAPH_NODES ? null : { kind: 'map', root: tree }
 }
 
-/** Mermaid's dotted message line types; see `handoffFromSequence`. */
-const REPLY_LINE_TYPES = new Set([1, 4, 6, 25])
+/**
+ * Mermaid's LINETYPE (mermaid 11.17, `sequenceDb.ts`) for a ONE-WAY dotted
+ * arrow, which is a reply: 1 `-->>`, 4 `--x`, 6 `-->`, 25 `--)`, and the
+ * dotted half-arrows 51–58 (`--|\`, `/|--` and kin). The solid ones carry the
+ * flow. 34 `<<-->>` is dotted but goes both ways: an exchange, not an answer.
+ */
+const REPLY_LINE_TYPES = new Set([1, 4, 6, 25, 51, 52, 53, 54, 55, 56, 57, 58])
 
 export function handoffFromSequence(db: Record<string, unknown>): HandoffModel | null {
-  const parties = entries(call(db, 'getActors')).map((actor) => {
-    const a = record(actor)
-    return { id: text(a.name), label: text(a.description) || text(a.name) }
-  })
+  const parties: HandoffModel['parties'] = []
+  for (const actor of entries(call(db, 'getActors')).map(record)) {
+    const label = plainLabel(text(actor.description) || text(actor.name))
+    if (label === null) return null
+    parties.push({ id: text(actor.name), label: label || text(actor.name) })
+  }
   const known = new Set(parties.map((party) => party.id))
-  // Mermaid's LINETYPE: every DOTTED arrow is a reply — 1 `-->>`, 4 `--x`,
-  // 6 `-->`, 25 `--)` — and the solid ones (0, 3, 5, 24) carry the flow.
+  const steps: HandoffModel['steps'] = []
   // Notes and loop markers carry no `from`.
-  const steps = entries(call(db, 'getMessages'))
-    .map(record)
-    .filter((m) => known.has(text(m.from)) && known.has(text(m.to)))
-    .map((m) => ({ from: text(m.from), to: text(m.to), label: text(m.message), reply: REPLY_LINE_TYPES.has(Number(m.type)) }))
+  for (const m of entries(call(db, 'getMessages')).map(record)) {
+    if (!known.has(text(m.from)) || !known.has(text(m.to))) continue
+    const label = plainLabel(text(m.message))
+    if (label === null) return null
+    steps.push({ from: text(m.from), to: text(m.to), label, reply: REPLY_LINE_TYPES.has(Number(m.type)) })
+  }
   return parties.length > 1 && steps.length > 0 ? { kind: 'handoff', parties, steps } : null
 }
 
@@ -269,9 +297,11 @@ export function scheduleFromGantt(db: Record<string, unknown>): ScheduleModel | 
     const start = iso(task.startTime)
     const end = iso(task.endTime) ?? start
     if (!start || !end) continue
-    const section = text(task.section) || ''
+    const section = plainLabel(text(task.section))
+    const label = plainLabel(text(task.task))
+    if (section === null || label === null) return null
     const list = sections.get(section) ?? []
-    list.push({ label: text(task.task), start, end, milestone: task.milestone === true || start === end })
+    list.push({ label, start, end, milestone: task.milestone === true || start === end })
     sections.set(section, list)
   }
   if (sections.size === 0) return null
@@ -281,17 +311,22 @@ export function scheduleFromGantt(db: Record<string, unknown>): ScheduleModel | 
 export function sharesFromPie(db: Record<string, unknown>): SharesModel | null {
   const sections = call(db, 'getSections')
   const pairs = sections instanceof Map ? [...sections] : Object.entries(record(sections))
-  const items = pairs
-    .map(([label, value]) => ({ label: String(label), value: Number(value) }))
-    .filter((item) => Number.isFinite(item.value) && item.value > 0)
+  const items: SharesModel['items'] = []
+  for (const [raw, amount] of pairs) {
+    const label = plainLabel(String(raw))
+    if (label === null) return null
+    const value = Number(amount)
+    if (Number.isFinite(value) && value > 0) items.push({ label, value })
+  }
   if (items.length === 0) return null
-  const title = text(call(db, 'getDiagramTitle'))
+  const title = plainLabel(text(call(db, 'getDiagramTitle')))
+  if (title === null) return null
   return { kind: 'shares', ...(title ? { title } : {}), items }
 }
 
 /** The model for a parsed diagram, or null when this product has no view for it. */
-export function modelFromParsed({ type, db }: Parsed, source: string): DiagramModel | null {
-  if (type === 'flowchart-v2' || type === 'flowchart' || type === 'graph') return flowFromFlowchart(db, source)
+export function modelFromParsed({ type, db }: Parsed): DiagramModel | null {
+  if (type === 'flowchart-v2' || type === 'flowchart' || type === 'graph') return flowFromFlowchart(db)
   if (type === 'stateDiagram' || type === 'state') return flowFromState(db)
   if (type === 'mindmap') return mapFromMindmap(db)
   if (type === 'sequence') return handoffFromSequence(db)

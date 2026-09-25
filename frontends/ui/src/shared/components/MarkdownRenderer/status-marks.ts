@@ -5,8 +5,8 @@
  * (`piloti_static.md`, <formatting> STRUCTURE) instead of a checklist card:
  * the same rows, no second channel. A cell of a Status column
  * (`table-shape.ts`) whose WHOLE text is one of these words renders as a
- * coloured mark — „offen" in a Bemerkung column stays a word; anything else stays text, so a sentence
- * that merely contains „offen" is never restyled. The word itself is always
+ * coloured mark. Anything else stays text: „offen" in a Bemerkung column is a
+ * word, and so is a sentence that merely contains it. The word itself is always
  * shown — colour never travels alone.
  */
 

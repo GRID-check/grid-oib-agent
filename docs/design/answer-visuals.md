@@ -42,9 +42,12 @@ built from the same atoms as every card:
   `@xyflow/react` where the column is wide enough, and as an indented outline
   where it is not. Never radial.
 - **handoff** — `HandoffDiagram`: one column per party, one row per hand-over,
-  the arrow drawn between the two columns; a numbered list on a phone.
+  the arrow drawn between the two columns; a numbered list on a phone. A
+  one-way dotted arrow is a reply and drawn dashed; `<<-->>` goes both ways
+  and is not.
 - **schedule** — `ScheduleDiagram`: bars on a date axis, milestones as marks,
-  sections as bands; labels above the bars on a phone.
+  sections as bands; labels above the bars on a phone. The axis names up to
+  five whole days, each once, so a schedule of a day or two gets two or three.
 - **shares** — `SharesDiagram`: horizontal bars with the share written out,
   because a length is read more exactly than an angle.
 
@@ -52,8 +55,8 @@ A grammar the model should not use, or a source the parser refuses, still
 falls back to Mermaid's SVG and then to the source itself: the reader never
 loses the content, only the design. So does anything a view would draw wrong:
 a flowchart with a `subgraph`, a state diagram with a composite state, a label
-with markup other than `<br>` and inline formatting (`plainLabel` in
-`model.ts`), and a graph of more than 80 nodes (`MAX_GRAPH_NODES`), where
+in any of the five grammars with markup other than `<br>` and inline formatting
+(`plainLabel` in `model.ts`), and a graph of more than 80 nodes (`MAX_GRAPH_NODES`), where
 dagre's layout costs more than a reader waits.
 
 A schedule's dates are the calendar dates the source wrote, whatever the

@@ -30,7 +30,7 @@ export async function parseMermaid(source: string): Promise<DiagramModel | null>
     mermaid.initialize({ startOnLoad: false, securityLevel: 'strict' })
     try {
       const diagram = await mermaid.mermaidAPI.getDiagramFromText(source)
-      return modelFromParsed(diagram, source)
+      return modelFromParsed(diagram)
     } catch {
       return null
     }

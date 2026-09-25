@@ -4,10 +4,10 @@
  * these read the list form only.
  */
 import { render, screen, within } from '@/test-utils'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 
-import type { FlowModel, HandoffModel, SharesModel } from '../model'
-import { FlowDiagram, HandoffDiagram, SharesDiagram } from './diagram-views'
+import type { FlowModel, HandoffModel, ScheduleModel, SharesModel } from '../model'
+import { FlowDiagram, HandoffDiagram, ScheduleDiagram, SharesDiagram } from './diagram-views'
 
 const FLOW: FlowModel = {
   kind: 'flow',
@@ -64,5 +64,29 @@ describe('the shares view', () => {
     render(<SharesDiagram model={model} />)
     expect(screen.getByText('Wohnen')).toBeInTheDocument()
     expect(screen.getByText(/75/)).toBeInTheDocument()
+  })
+})
+
+describe('the schedule axis', () => {
+  const schedule = (tasks: ScheduleModel['sections'][number]['tasks']): ScheduleModel => ({
+    kind: 'schedule',
+    sections: [{ label: '', tasks }],
+  })
+  const ticks = () => screen.getAllByTestId('schedule-tick').map((tick) => tick.textContent)
+
+  it.each([
+    ['one milestone', [{ label: 'Bescheid', start: '2026-10-25', end: '2026-10-25', milestone: true }], ['25.10.', '26.10.']],
+    ['three days', [{ label: 'Prüfung', start: '2026-10-25', end: '2026-10-28', milestone: false }], ['25.10.', '26.10.', '27.10.', '28.10.']],
+  ])('names each date once for a schedule of %s', (_, tasks, expected) => {
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {})
+    render(<ScheduleDiagram model={schedule(tasks)} />)
+    expect(ticks()).toEqual(expected)
+    expect(error).not.toHaveBeenCalled()
+    error.mockRestore()
+  })
+
+  it('spreads five whole-day dates over a long schedule', () => {
+    render(<ScheduleDiagram model={schedule([{ label: 'Verfahren', start: '2026-10-01', end: '2026-10-15', milestone: false }])} />)
+    expect(ticks()).toEqual(['01.10.', '05.10.', '08.10.', '12.10.', '15.10.'])
   })
 })

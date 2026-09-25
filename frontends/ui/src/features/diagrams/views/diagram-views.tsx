@@ -395,12 +395,26 @@ const dateLabel = (iso: string) =>
 const lastDay = (task: ScheduleTask) =>
   new Date(Math.max(dayOf(task.start), dayOf(task.end) - DAY)).toISOString().slice(0, 10)
 
+/**
+ * Up to five dates along the axis, whole days and each one once. Spread by
+ * fractions of the span, a schedule of fewer than four days put the same date
+ * under several ticks („25.10." four times, and four React keys alike).
+ */
+function scheduleTicks(start: number, end: number): { iso: string; at: number }[] {
+  const days = Math.round((end - start) / DAY)
+  const steps = Math.min(4, days)
+  return Array.from({ length: steps + 1 }, (_, i) => {
+    const day = Math.round((days * i) / steps)
+    return { iso: new Date(start + day * DAY).toISOString().slice(0, 10), at: (day / days) * 100 }
+  })
+}
+
 export function ScheduleDiagram({ model }: { model: ScheduleModel }) {
   const tasks = model.sections.flatMap((section) => section.tasks)
   const start = Math.min(...tasks.map((task) => dayOf(task.start)))
   const end = Math.max(...tasks.map((task) => dayOf(task.end)), start + DAY)
   const at = (iso: string) => ((dayOf(iso) - start) / (end - start)) * 100
-  const ticks = Array.from({ length: 5 }, (_, i) => new Date(start + ((end - start) * i) / 4).toISOString().slice(0, 10))
+  const ticks = scheduleTicks(start, end)
   return (
     <div className="@container flex flex-col gap-1">
       <div className="grid grid-cols-1 gap-x-3 @[30rem]:grid-cols-[minmax(0,11rem)_minmax(0,1fr)]">
@@ -408,11 +422,12 @@ export function ScheduleDiagram({ model }: { model: ScheduleModel }) {
         <div className="text-muted-foreground relative h-5 text-[11px] tabular-nums">
           {ticks.map((tick, i) => (
             <span
-              key={tick}
+              key={tick.iso}
+              data-testid="schedule-tick"
               className={cn('absolute top-0', i === 0 ? '' : i === ticks.length - 1 ? '-translate-x-full' : '-translate-x-1/2')}
-              style={{ left: `${(i / 4) * 100}%` }}
+              style={{ left: `${tick.at}%` }}
             >
-              {dateLabel(tick)}
+              {dateLabel(tick.iso)}
             </span>
           ))}
         </div>

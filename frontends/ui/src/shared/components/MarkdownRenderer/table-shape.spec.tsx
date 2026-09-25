@@ -198,20 +198,64 @@ describe('shaping a long table', () => {
         },
       ],
     })
-    const shape = rehypeTableShape()
-    const time = (rows: number) => {
-      const tree = table(rows)
-      const started = performance.now()
-      shape(tree)
-      return performance.now() - started
-    }
-    time(200)
+    shapingTime(() => table(200))
     // Quadratic, 1600 rows took ~64 times as long as 200; linear, ~8 times.
     // The ratio, not a wall-clock budget, so a loaded runner cannot fail it.
-    const small = Math.max(time(200), 0.5)
-    expect(time(1600) / small).toBeLessThan(30)
+    const small = Math.max(shapingTime(() => table(200)), 0.5)
+    expect(shapingTime(() => table(1600)) / small).toBeLessThan(30)
+  })
+
+  it.each([
+    ['a long run of spaces', (n: number) => `${' '.repeat(n)}x`],
+    ['a long run of citations', (n: number) => `${'[1] '.repeat(n / 4)}x`],
+  ])('is linear in a cell’s text: %s before the last word', (_, text) => {
+    const table = (chars: number): Root => ({
+      type: 'root',
+      children: [
+        {
+          type: 'element',
+          tagName: 'table',
+          properties: {},
+          children: [
+            {
+              type: 'element',
+              tagName: 'thead',
+              properties: {},
+              children: [{ type: 'element', tagName: 'tr', properties: {}, children: [cell('Teil'), cell('Beleg'), cell('Fundstelle')] }],
+            },
+            {
+              type: 'element',
+              tagName: 'tbody',
+              properties: {},
+              children: [0, 1].map(
+                (i): Element => ({ type: 'element', tagName: 'tr', properties: {}, children: [cell(`Zeile ${i}`), cell(text(chars)), cell('[1]')] })
+              ),
+            },
+          ],
+        },
+      ],
+    })
+    shapingTime(() => table(4000))
+    // Quadratic, 8 times the text took ~64 times as long; linear, ~8 times.
+    const small = Math.max(shapingTime(() => table(4000)), 0.5)
+    expect(shapingTime(() => table(32_000)) / small).toBeLessThan(30)
   })
 })
+
+/**
+ * The fastest of five shapings, each of a fresh tree (the pass rewrites it).
+ * One sample per size let a single GC pause or scheduler stall decide a ratio.
+ */
+function shapingTime(build: () => Root): number {
+  const shape = rehypeTableShape()
+  const samples = Array.from({ length: 5 }, () => {
+    const tree = build()
+    const started = performance.now()
+    shape(tree)
+    return performance.now() - started
+  })
+  return Math.min(...samples)
+}
 
 function cell(text: string): Element {
   return {

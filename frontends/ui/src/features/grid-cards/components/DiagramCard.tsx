@@ -78,9 +78,9 @@
  * carry, and it is what names the file in the Files pane.
  */
 
-import { HorizontalScroll } from '@/components/ui/horizontal-scroll'
 import { type FC } from 'react'
 import { Workflow } from 'lucide-react'
+import { HorizontalScroll } from '@/components/ui/horizontal-scroll'
 import { Card } from '@/components/ui/card'
 import { SectionLabel } from '@/components/ui/section-label'
 import { CodeBlock } from '@/shared/components/CodeBlock'
@@ -125,6 +125,10 @@ export const DiagramCard: FC<DiagramCardProps> = ({ title, source, caption, refe
     title,
   })
   const state = failed ? 'failed' : model || svg ? 'drawn' : 'drawing'
+  // Not parsed yet: which picture this becomes is not known, so the card holds
+  // a placeholder and claims nothing about it. Mermaid's frame and its
+  // „Schematisch" line used to flash here before this product's view arrived.
+  const parsing = model === undefined
 
   return (
     <Card data-testid="diagram-card" data-state={state} className="shadow-xs gap-3 p-5">
@@ -142,6 +146,10 @@ export const DiagramCard: FC<DiagramCardProps> = ({ title, source, caption, refe
         ) : model ? (
           <div className="bg-muted/40 rounded-xl p-3" data-view={model.kind}>
             <DiagramView model={model} label={title} />
+          </div>
+        ) : parsing ? (
+          <div className="border-border rounded-md border p-3" aria-busy="true">
+            <DrawingSkeleton />
           </div>
         ) : (
           <HorizontalScroll
@@ -184,15 +192,17 @@ export const DiagramCard: FC<DiagramCardProps> = ({ title, source, caption, refe
               outrank "save this". Outside a project the control is absent, not
               disabled: `DiagramFilingControls` renders nothing without a
               target. */}
-          <p className="card-caption text-muted-foreground flex flex-wrap items-center gap-x-3 empty:hidden">
-            {/* A view drawn from the model has no geometry to disclaim; only
-                mermaid's own drawing says it claims no measurement. */}
-            {state === 'failed' ? tDiagrams('fallback') : model ? null : tDiagrams('schematicOnly')}
-            {/* A drawing that could not be laid out has no bytes to file, so
-                the control appears only on a real picture — the same rule the
-                fence follows by only reaching its figcaption when it drew. */}
-            {state === 'failed' ? null : <DiagramFilingControls filing={filing} />}
-          </p>
+          {parsing ? null : (
+            <p className="card-caption text-muted-foreground flex flex-wrap items-center gap-x-3 empty:hidden">
+              {/* A view drawn from the model has no geometry to disclaim; only
+                  mermaid's own drawing says it claims no measurement. */}
+              {state === 'failed' ? tDiagrams('fallback') : model ? null : tDiagrams('schematicOnly')}
+              {/* A drawing that could not be laid out has no bytes to file, so
+                  the control appears only on a real picture — the same rule the
+                  fence follows by only reaching its figcaption when it drew. */}
+              {state === 'failed' ? null : <DiagramFilingControls filing={filing} />}
+            </p>
+          )}
         </figcaption>
       </figure>
 
