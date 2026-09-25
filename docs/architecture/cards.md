@@ -336,7 +336,7 @@ as a card (`catalog.MARKDOWN_CARD_TYPES`: `typed_table`, `comparison_table`,
 ```` ```mermaid ```` fence in the answer; see
 [diagrams.md](diagrams.md#since-2026-09-24-the-fence-first)). The envelope contract omits them from the
 trigger table, the index and the taught shapes (6 083 → 3 405 tokens), and the
-Jev turn facts no longer offer them. The types stay in the catalog, so a
+turn decision's facts (`register._turn_facts`) no longer offer them. The types stay in the catalog, so a
 tool, `emit_card` or a stored message that carries one still validates and
 renders. A card is for what Markdown cannot carry: a schematic drawn to scale,
 the Fundstelle as a quotable excerpt, a decision on one factor with this
@@ -384,7 +384,7 @@ So the catalog is split the way the skills runtime already splits instructions
 | level | what it is | where |
 |---|---|---|
 | **L1 — always on** | one line per model-facing type: the `type` value and the first line of the card model's docstring, plus the interactive-card note. No shapes, no building blocks, no examples. | `render_card_index()`, rendered into the `emit_card` description |
-| **L2 — on demand** | the exact shape for the named types, the shared building blocks (`NormReference`, `DimensionCheck`, …) each defined once with field descriptions, the measurement note where a `DimensionCheck` is in play, and the worked example | `render_card_details(types)` — returned by a **failed `emit_card`** for the type that failed, by the **`describe_card`** tool where it is still bound, and by a skill declaring `grid-cards` |
+| **L2 — on demand** | the exact shape for the named types, the shared building blocks (`NormReference`, `DimensionCheck`, …) each defined once with field descriptions, the measurement note where a `DimensionCheck` is in play, and the worked example | `render_card_details(types)` — returned by a **failed `emit_card`** for the type that failed, by the **`describe_card`** tool (registered, bound to no agent today), and by a skill declaring `grid-cards` |
 
 That took the `emit_card` description from ~5,209 to ~1,205 tokens per turn, and
 the marginal cost of a new card type from ~190 tokens on every turn to ~23. It is
@@ -406,9 +406,10 @@ delegating to `render_card_details`, whose entry for `surface` is the COMPOSE
 rule. A surface whose leaf fails its card model is repaired from the rule plus
 the shapes of the card types it holds. A card that was going to be right pays
 nothing; one that was not pays the same single round trip, knowing which field
-was wrong. `describe_card` stays registered and stays bound to
-`deep_research_agent`, whose writer composes one long report and pays the lookup
-once where a chat turn paid it per turn.
+was wrong. `describe_card` stays registered but is bound to no
+agent today (see its comment in `configs/config_oib_openrouter.yml`); deep
+research, which composes one long report, would pay the lookup once where a
+chat turn paid it per turn.
 
 `describe_card` **reports the names it did not recognise** rather than quietly
 rendering only what resolved — a silently shorter answer reads as "that card

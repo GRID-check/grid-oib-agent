@@ -158,7 +158,8 @@ def _inline_skill(skill: Skill) -> str:
     Only chat inlines (deep research keeps every body behind ``use_skill``, see
     :attr:`SkillRuntime.inlined`), so the line drops the types chat writes as
     Markdown (``MARKDOWN_CARD_TYPES``): the envelope neither indexes nor shapes
-    them, and naming one would ask for a card the turn cannot emit.
+    them, and the answer writes them as Markdown, so naming one would ask
+    for a card chat does not make.
     """
     # Imported lazily, as in ``_preferred_cards_block``.
     from aiq_agent.cards.catalog import MARKDOWN_CARD_TYPES

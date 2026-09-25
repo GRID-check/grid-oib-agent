@@ -95,7 +95,7 @@ export const SpectatedTurn: FC<SpectatedTurnProps> = ({ turn, label, className }
         <p className="text-muted-foreground text-xs">{t('thread.spectatorFailed')}</p>
       )}
 
-      {(turn.answer || turn.answerMeta) && (
+      {(turn.answer || turn.answerMeta || turn.cards?.some((card) => card !== undefined)) && (
         <AgentResponse
           content={turn.answer}
           isStreaming={!turn.done}

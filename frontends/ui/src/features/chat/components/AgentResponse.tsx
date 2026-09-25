@@ -805,9 +805,8 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
   // prose become links to its rows. Answers without such a section are untouched.
   const fallbackId = useId()
   const anchorPrefix = answerSourceAnchorPrefix(messageId ?? fallbackId)
-  // The answer is finished before its first delta leaves the agent, so
-  // `isStreaming` is a state the turn passes through in a frame or two. The
-  // client-side typewriter that used to pace the reveal (`use-typed-reveal`)
+  // The prose streams while the model writes it (ADR-0066), so `isStreaming`
+  // is a window of seconds, not a frame or two. The client-side typewriter that used to pace the reveal (`use-typed-reveal`)
   // was removed deliberately: the full text paints as soon as it arrives.
   // "Still arriving" is therefore the real streaming window only — the caret
   // trails the text, the footer stays reserved at its height, and nothing that

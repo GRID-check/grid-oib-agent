@@ -134,6 +134,17 @@ describe('SpectatedTurn', () => {
     expect(screen.getByTestId('pending-card-slot')).toBeInTheDocument()
   })
 
+  it('draws a turn that carries cards and no prose', () => {
+    const basis = {
+      type: 'legal_basis',
+      law: 'OIB-Richtlinie 2',
+      article: '3.1',
+      summary: 'GK 4: REI 60.',
+    } as GridCard
+    render(<SpectatedTurn turn={turn({ answer: '', cards: [basis] })} label={LABEL} />)
+    expect(screen.getByTestId('spectated-turn')).toHaveTextContent('OIB-Richtlinie 2')
+  })
+
   it('offers no copy controls once the turn is done', () => {
     render(<SpectatedTurn turn={turn({ answer: 'Ja, ab drei Geschossen.', done: true })} label={LABEL} />)
     expect(screen.queryAllByRole('button')).toEqual([])

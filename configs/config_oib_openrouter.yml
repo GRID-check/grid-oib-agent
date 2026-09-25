@@ -906,12 +906,12 @@ functions:
     # every call here, so narrowing to four tools saves ~24 % of that payload on
     # average and 81 % on a pure-Normen question. But tokens are not what this
     # agent runs out of — TURNS are, and narrowing does not buy one back. What it
-    # can spend is an answer: measured against these eleven tools, a lexical rank
+    # can spend is an answer: measured against the eleven tools it had then, a lexical rank
     # over the user's turn alone keeps the answering tool for only 71 % of a
     # realistic German question set. The pins below carry that to 100 %, because
     # they cover the two shapes a query-time ranking structurally cannot see —
-    # tools named by INTENT rather than subject (`remember`, `emit_card`,
-    # `use_skill`, `surface_documents`) and tools that are SEQUENCED, whose turn
+    # tools named by INTENT rather than subject (`remember`, `use_skill`,
+    # `surface_documents`) and tools that are SEQUENCED, whose turn
     # comes from what a previous tool returned (`ris_fetch_tool` after
     # `ris_search_tool`). Both are guarded by tests.
     #
@@ -923,7 +923,6 @@ functions:
     #   top_k: 4
     #   always_include:
     #     - remember
-    #     - emit_card
     #     - use_skill
     #     - surface_documents
     #     - ris_fetch_tool

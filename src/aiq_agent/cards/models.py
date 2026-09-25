@@ -2098,7 +2098,7 @@ class DiagramCard(CardModel):
         """A markdown fence around the source is decoration, not information.
 
         Everything this product teaches the model about mermaid — the chat
-        prompt, the diagrams skill, the renderer's own fallback — says "mermaid
+        prompt and the renderer's own fallback — says "mermaid
         lives in a fenced block", so the single most natural way to fill this
         field in is to wrap the source in one. Refusing that wrapper cost three
         field turns in a row: the drawing inside was valid, the refusal named
