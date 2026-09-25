@@ -30,8 +30,11 @@ def recite_text(text: str, renumber: Mapping[int, int], cited: Collection[int]) 
 
     def replace(match: re.Match[str]) -> str:
         old = int(match.group(1))
-        new = renumber.get(old, old) if renumber else old
-        return f"[{new}]" if new in cited else ""
+        # The map lists every number that SURVIVED (sanitize's renumbering), so
+        # one missing from it was removed. Passing it through unchanged would
+        # land it on whichever survivor was renumbered onto that number.
+        new = renumber.get(old) if renumber else old
+        return f"[{new}]" if new is not None and new in cited else ""
 
     recited = _CITATION.sub(replace, text)
     # A removed marker leaves the space before it: "REI 90 [4]." → "REI 90 ."

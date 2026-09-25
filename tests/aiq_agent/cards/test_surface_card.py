@@ -186,11 +186,18 @@ class TestTextCitations:
     def test_renumbered_with_the_prose_and_uncited_dropped(self):
         from aiq_agent.cards.surface_citations import recite_text
 
+        # sanitize's map: every SURVIVING number, old → new. [2] and [4] were removed.
         text = "REI 90 [3], Rauchabzug [5]. Siehe [[card:1]] und [OIB](https://oib.or.at)."
         assert (
-            recite_text(text, {3: 1, 5: 4}, {1})
-            == "REI 90 [1], Rauchabzug. Siehe [[card:1]] und [OIB](https://oib.or.at)."
+            recite_text(text, {1: 1, 3: 2, 5: 3}, {2})
+            == "REI 90 [2], Rauchabzug. Siehe [[card:1]] und [OIB](https://oib.or.at)."
         )
+
+    def test_a_removed_number_never_lands_on_the_survivor_renumbered_onto_it(self):
+        from aiq_agent.cards.surface_citations import recite_text
+
+        # [2] was removed; [3] became [2]. A tab's [2] meant the removed source.
+        assert recite_text("A [1], B [2], C [3].", {1: 1, 3: 2}, {1, 2}) == "A [1], B, C [2]."
 
     def test_only_surfaces_are_touched(self):
         from aiq_agent.cards.surface_citations import recite_surface
