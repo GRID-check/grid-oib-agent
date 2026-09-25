@@ -21,6 +21,24 @@ class _SlowEmbedder:
         return [float(len(query))]
 
 
+def _inflight_wait_hook(retriever: LlamaIndexRetriever, waiting: threading.Semaphore):
+    """Signal ``waiting`` each time a caller starts waiting on an in-flight embedding; returns the undo."""
+    from sources.knowledge_layer.src.llamaindex import adapter
+
+    original = adapter._InflightEmbedding.result
+
+    def result(self):
+        waiting.release()
+        return original(self)
+
+    adapter._InflightEmbedding.result = result  # type: ignore[method-assign]
+
+    def undo() -> None:
+        adapter._InflightEmbedding.result = original  # type: ignore[method-assign]
+
+    return undo
+
+
 def _retriever() -> tuple[LlamaIndexRetriever, _SlowEmbedder]:
     retriever = LlamaIndexRetriever(config={"persist_dir": "/tmp/unused"})
     embedder = _SlowEmbedder()
@@ -54,33 +72,34 @@ def test_a_failed_embedding_fails_every_waiter_at_once():
     """
     retriever, embedder = _retriever()
     attempts: list[str] = []
+    waiting = threading.Semaphore(0)
 
     def failing(query: str) -> list[float]:
         attempts.append(query)
-        time.sleep(0.2)  # the other three arrive while this call is in flight
+        # Fail only once the other three wait on this call, not on a clock.
+        for _ in range(3):
+            assert waiting.acquire(timeout=5)
         raise RuntimeError("embedding API down")
 
     embedder.get_query_embedding = failing  # type: ignore[method-assign]
+    undo = _inflight_wait_hook(retriever, waiting)
     outcome: list[object] = []
-    elapsed: list[float] = []
 
     def call() -> None:
-        t0 = time.monotonic()
         try:
             outcome.append(retriever._embed_query_cached("q"))
         except RuntimeError as exc:
             outcome.append(exc)
-        elapsed.append(time.monotonic() - t0)
 
     threads = [threading.Thread(target=call) for _ in range(4)]
     for thread in threads:
         thread.start()
     for thread in threads:
-        thread.join(timeout=5)
+        thread.join(timeout=10)
+    undo()
 
-    assert attempts == ["q"]
+    assert attempts == ["q"]  # one failure shared, not four in a row
     assert len(outcome) == 4 and all(isinstance(o, RuntimeError) for o in outcome)
-    assert max(elapsed) < 0.4  # one failure shared, not four in a row
     assert retriever._embed_inflight == {}
 
 
@@ -160,18 +179,30 @@ def test_no_search_retriever_means_no_warm_up(monkeypatch):
 def test_without_a_cache_nobody_waits_on_anybody(monkeypatch):
     retriever, embedder = _retriever()
     monkeypatch.setattr(LlamaIndexRetriever, "EMBED_CACHE_MAX", 0)
+    # All three must be inside the embedder at once: serialised calls break the barrier.
+    together = threading.Barrier(3, timeout=5)
+    broken: list[BaseException] = []
+
+    def meet(query: str) -> list[float]:
+        embedder.calls.append(query)
+        try:
+            together.wait()
+        except threading.BrokenBarrierError as exc:
+            broken.append(exc)
+        return [1.0]
+
+    embedder.get_query_embedding = meet  # type: ignore[method-assign]
     threads = [threading.Thread(target=lambda: retriever._embed_query_cached("q")) for _ in range(3)]
-    started = time.monotonic()
     for thread in threads:
         thread.start()
     for thread in threads:
         thread.join()
 
     assert len(embedder.calls) == 3
-    assert time.monotonic() - started < 0.12  # three in parallel, not three in a row
+    assert broken == []  # three in parallel, not three in a row
 
 
-def test_the_warmed_string_is_the_one_the_search_sends():
+def test_the_prefetch_query_carries_no_trailing_blank():
     from aiq_agent.agents.piloti.decisions import prefetch_query
 
     # A 300-character cut can land on a space; the search strips its query.
@@ -200,3 +231,11 @@ def test_initialising_the_retriever_leaves_the_global_embed_model_alone(monkeypa
 
     assert retriever._embed_model is not None
     assert Settings._embed_model is None
+
+
+def test_the_llamaindex_backend_registers_the_retriever():
+    # A class inserted between the decorator and the retriever once took the
+    # registration: every llamaindex deployment built the wrong class.
+    import sources.knowledge_layer.src.llamaindex.adapter  # noqa: F401  (registers)
+
+    assert factory._RETRIEVER_REGISTRY["llamaindex"].__name__ == "LlamaIndexRetriever"

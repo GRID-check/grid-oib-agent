@@ -4052,7 +4052,6 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
 _EXACT_TERM_DF_CACHE_MAX = 512
 
 
-@register_retriever("llamaindex")
 class _InflightEmbedding:
     """One query embedding being computed, and what it came to.
 
@@ -4078,6 +4077,7 @@ class _InflightEmbedding:
         return self.embedding
 
 
+@register_retriever("llamaindex")
 class LlamaIndexRetriever(BaseRetriever):
     """
     LlamaIndex-based document retriever.
