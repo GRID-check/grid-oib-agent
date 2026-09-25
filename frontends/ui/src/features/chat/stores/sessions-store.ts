@@ -243,6 +243,32 @@ export const createResilientStorage = (): PersistStorage<PersistedChatState> | u
   let pending: { name: string; value: PersistedChatStorageValue } | null = null
   let pendingTimer: ReturnType<typeof setTimeout> | null = null
   let lastWriteAt = Number.NEGATIVE_INFINITY
+  // What storage holds, as of the last write that succeeded.
+  let lastWritten: PersistedChatState | null = null
+
+  /**
+   * Is the open conversation's answer the only thing new since the last write?
+   * Only that may wait. A deletion, a rename, a draft or a new session in the
+   * same window is written at once (with the answer so far), so a browser that
+   * dies inside the window cannot bring a deleted conversation back.
+   */
+  const onlyTheOpenAnswerChanged = (next: PersistedChatState): boolean => {
+    const written: Record<string, unknown> | null = lastWritten
+    const openId = next.currentConversation?.id
+    if (written === null || !openId || lastWritten?.currentConversation?.id !== openId) return false
+    const nextFields: Record<string, unknown> = next
+    const keys = new Set([...Object.keys(written), ...Object.keys(nextFields)])
+    for (const key of keys) {
+      if (key === 'conversations' || key === 'currentConversation') continue
+      if (nextFields[key] !== written[key]) return false
+    }
+    const before = lastWritten?.conversations ?? []
+    const after = next.conversations ?? []
+    return (
+      before.length === after.length &&
+      after.every((c, i) => c === before[i] || (c.id === openId && before[i]?.id === openId))
+    )
+  }
 
   /** Forget the held streaming value and its timer. */
   const dropPending = (): void => {
@@ -256,16 +282,22 @@ export const createResilientStorage = (): PersistStorage<PersistedChatState> | u
     dropPending()
     lastWriteAt = Date.now()
     writeNow(name, value)
+    lastWritten = value.state
   }
 
-  /** Write what a streaming answer holds, if anything; a failure is logged, as nothing awaits it. */
+  /**
+   * Write what a streaming answer holds, if anything. Nothing awaits it, so a
+   * failure is logged, and the value is held again for the next flush or
+   * `pagehide` unless a newer one has taken its place.
+   */
   const flushPending = (): void => {
     if (!pending) return
-    const { name, value } = pending
+    const held = pending
     try {
-      write(name, value)
+      write(held.name, held.value)
     } catch (error) {
       console.error('[SessionsStore] deferred persist failed', error)
+      pending ??= held
     }
   }
 
@@ -329,13 +361,14 @@ export const createResilientStorage = (): PersistStorage<PersistedChatState> | u
     removeItem: (name: string) => {
       dropPending()
       lastState = null
+      lastWritten = null
       return base.removeItem(name)
     },
     setItem: (name: string, value: PersistedChatStorageValue) => {
       if (unchangedSinceLastCall(value)) return
       lastState = value.state
       lastVersion = value.version
-      if (!isStreamingAnswer(value)) {
+      if (!isStreamingAnswer(value) || !onlyTheOpenAnswerChanged(value.state)) {
         write(name, value)
         return
       }
