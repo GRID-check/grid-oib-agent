@@ -1,18 +1,16 @@
 """Parity guard: which card types may not be a leaf of a surface (ADR-0065).
 
-``SURFACE_EXCLUDED_LEAVES`` is kept by hand twice: in ``cards/models.py``, which
-refuses the surface when it is written, and in ``features/a2ui/catalog.tsx``,
-which refuses it before drawing. A system card, an envelope shape or an
-interactive card missing from either set would sit inside a surface, where an
-interactive card's decision has no message position to be keyed by.
+``cards/models.py`` derives ``SURFACE_EXCLUDED_LEAVES`` from the catalog's
+sets and refuses the surface when it is written; ``features/a2ui/catalog.tsx``
+keeps its copy by hand and refuses it before drawing. A system card, an
+envelope shape or an interactive card missing from the frontend's copy would
+sit inside a surface, where an interactive card's decision has no message
+position to be keyed by.
 """
 
 import re
 from pathlib import Path
 
-from aiq_agent.cards.catalog import ENVELOPE_CARD_TYPES
-from aiq_agent.cards.catalog import INTERACTIVE_CARD_TYPES
-from aiq_agent.cards.catalog import SYSTEM_CARD_TYPES
 from aiq_agent.cards.models import SURFACE_EXCLUDED_LEAVES
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -29,11 +27,6 @@ def _ts_excluded_leaves() -> set[str]:
     )
     assert match, f"SURFACE_EXCLUDED_LEAVES not found in {TS_CATALOG}"
     return set(re.findall(r"'([^']+)'", match.group(1)))
-
-
-def test_every_system_envelope_and_interactive_type_is_excluded():
-    required = SYSTEM_CARD_TYPES | ENVELOPE_CARD_TYPES | INTERACTIVE_CARD_TYPES
-    assert required - SURFACE_EXCLUDED_LEAVES == set()
 
 
 def test_a_surface_is_not_a_leaf():

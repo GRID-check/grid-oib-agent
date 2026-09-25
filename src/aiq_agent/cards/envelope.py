@@ -214,7 +214,7 @@ def validate_model_card(payload: object) -> tuple[dict[str, Any] | None, CardRef
     except Exception as exc:
         detail = render_error_detail(exc)
         logger.warning("card rejected: a '%s' card failed validation: %s", card_type, detail)
-        return None, CardRefusal(REFUSED_SHAPE, card_type, detail=detail, hint=shape_hint_for(card_type))
+        return None, CardRefusal(REFUSED_SHAPE, card_type, detail=detail, hint=_repair_hint(payload, card_type))
 
     if validated["type"] in SYSTEM_CARD_TYPES:
         logger.warning("card rejected: '%s' is system-emitted", validated["type"])
@@ -223,6 +223,24 @@ def validate_model_card(payload: object) -> tuple[dict[str, Any] | None, CardRef
         logger.warning("card rejected: '%s' is an envelope field", validated["type"])
         return None, CardRefusal(REFUSED_ENVELOPE_TYPE, validated["type"])
     return validated, None
+
+
+def _repair_hint(payload: dict[str, Any], card_type: str) -> str | None:
+    """The full shape a retry or repair of ``payload`` needs.
+
+    A surface's own hint is the COMPOSE rule, which names no card's fields; a
+    leaf that failed its card model is fixed from that card's shape, so the
+    shapes of the card types the surface holds ride with it.
+    """
+    if card_type != "surface":
+        return shape_hint_for(card_type)
+    components = payload.get("components")
+    leaves = [
+        component["component"]
+        for component in (components if isinstance(components, list) else ())
+        if isinstance(component, dict) and isinstance(component.get("component"), str)
+    ]
+    return render_card_details(["surface", *leaves]) or None
 
 
 def envelope_card_objects(raw: Sequence[Any] | None) -> list[Any]:

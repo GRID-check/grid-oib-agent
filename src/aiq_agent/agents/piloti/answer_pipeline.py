@@ -578,9 +578,10 @@ def _recite_surface_cards(
 ) -> None:
     """Hold the ``[N]`` in this turn's composed surfaces to the prose's citations (``cards/surface_citations``).
 
-    A surface that cannot stand once its blank ``Text`` is gone stays as
-    stored: the registry has no removal, and dropping one would shift every
-    later ``[[card:N]]``.
+    Each card is replaced in place, never removed: the registry has no
+    removal, and dropping one would shift every later ``[[card:N]]``. A
+    surface that cannot stand once its blank ``Text`` is gone comes back as
+    the card left standing, or with that leaf marked, never as stored.
     """
     from aiq_agent.cards.registry import get_card_registry
     from aiq_agent.cards.surface_citations import recite_surface
@@ -592,7 +593,7 @@ def _recite_surface_cards(
     merged = merged_citations(removed_citations)
     for index, card in enumerate(registry.snapshot()):
         recited = recite_surface(card, renumber_map or {}, numbers, merged)
-        if recited is not None and recited is not card:
+        if recited is not card:
             registry.replace(index, recited)
 
 
@@ -602,10 +603,11 @@ def settle_streamed_citations(prose: str, sources_text: str, registry: SourceReg
     The same steps :func:`finalize_answer` runs on the finished answer: verify
     each source line against the registry, mark each quote no retrieved
     passage holds, sanitise (which drops the markers that lost their line and
-    closes the gaps), and read the cited sources off the survivors. Run the moment the envelope's ``answer`` string
-    closes, which is before the cards and the pipeline: the pending markers on
-    screen become the answer's own citations, numbered as the terminal frame
-    will number them (ADR-0066). ``None`` when there is nothing to settle.
+    closes the gaps), and read the cited sources off the survivors. Run the
+    moment the envelope's ``answer`` string closes, which is before the cards
+    and the pipeline: the pending markers on screen become the answer's own
+    citations, numbered as the terminal frame will number them (ADR-0066).
+    ``None`` when there is nothing to settle.
     """
     from .ledger import wire_sources  # ledger imports this module
 

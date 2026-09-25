@@ -187,7 +187,7 @@ class LegalBasisCard(CardModel):
             "'Art. 5 Abs. 2'. It is set in the card's MARGIN, the way a statute prints its § beside the "
             "text, so it must be an identifier and not a sentence — 'Punkte 8 bis 10 der OIB-Richtlinie 2' "
             "names the Richtlinie a second time and does not fit a margin; write '8 bis 10' here and let "
-            "`summary` say what those Punkte require. Roughly 20 characters is the whole budget. Omit it "
+            "`summary` say what those Punkte require. Roughly 14 characters is the whole budget. Omit it "
             "when the passage carries no number."
         ),
     )
@@ -2762,11 +2762,22 @@ SURFACE_MAX_CHILDREN = 4
 SURFACE_MAX_TABS = 6
 
 
+#: The values the frontend's `RowApi` takes for a Row's or Column's `justify`
+#: and `align` (`frontends/ui/src/features/a2ui/catalog.tsx`). Any other value
+#: fails the renderer's preflight and the whole surface degrades, so it is
+#: refused here, where the repair can still fix it.
+SURFACE_JUSTIFY = frozenset({"start", "center", "end", "spaceBetween", "spaceAround", "spaceEvenly", "stretch"})
+SURFACE_ALIGN = frozenset({"start", "center", "end", "stretch"})
+
+
 def _check_layout(component: dict[str, Any]) -> None:
     """A layout component's own props: static child ids, a sane count, nothing else."""
     name, component_id = component["component"], component["id"]
     if name in ("Row", "Column"):
         extra = set(component) - {"id", "component", "children", "justify", "align"}
+        for prop, allowed in (("justify", SURFACE_JUSTIFY), ("align", SURFACE_ALIGN)):
+            if prop in component and component[prop] not in allowed:
+                raise ValueError(f"'{component_id}' ({name}): `{prop}` is one of {sorted(allowed)}.")
         children = component.get("children")
         if not isinstance(children, list) or not all(isinstance(child, str) for child in children):
             raise ValueError(f"'{component_id}' ({name}): `children` must be a list of component ids.")
@@ -2831,7 +2842,7 @@ def _checked_leaf(component: dict[str, Any]) -> dict[str, Any]:
 
 
 def _tabs_as_references(component: dict[str, Any]) -> dict[str, Any]:
-    """Tabs' child ids where `a2ui-core` looks for a single reference."""
+    """Tabs' child ids where `a2ui-core` looks for a list of references (`tabs[].child`)."""
     if component.get("component") != "Tabs":
         return component
     return {**component, "tabs[].child": [tab["child"] for tab in component["tabs"]]}
@@ -3052,19 +3063,21 @@ def validate_cards(raw: list[dict]) -> list[dict]:
     reason: no surface asks a model for them any more — they are answer_meta
     fields on the chat contract, and nothing at all on this one — so an
     occurrence here is a model reaching for a shape its catalog no longer
-    offers.
+    offers. Chat-only types (``CHAT_ONLY_CARD_TYPES``) likewise: a surface's
+    ``Text`` ``[N]`` are recited on the chat pipeline only.
     """
     import logging
 
+    from aiq_agent.cards.catalog import CHAT_ONLY_CARD_TYPES
     from aiq_agent.cards.catalog import ENVELOPE_CARD_TYPES
     from aiq_agent.cards.catalog import SYSTEM_CARD_TYPES
 
     logger = logging.getLogger(__name__)
     validated: list[dict] = []
-    withheld = SYSTEM_CARD_TYPES | ENVELOPE_CARD_TYPES
+    withheld = SYSTEM_CARD_TYPES | ENVELOPE_CARD_TYPES | CHAT_ONLY_CARD_TYPES
     for item in raw:
         if isinstance(item, dict) and item.get("type") in withheld:
-            logger.warning("Dropping model-fabricated system/envelope card (type=%s)", item.get("type"))
+            logger.warning("Dropping model-fabricated system/envelope/chat-only card (type=%s)", item.get("type"))
             continue
         try:
             validated.append(grid_card_adapter.validate_python(item).model_dump(exclude_none=True))

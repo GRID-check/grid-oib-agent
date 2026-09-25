@@ -444,8 +444,7 @@ class TestShapeHint:
     which type needs it, so that is where the tokens go.
     """
 
-    # A surface's hint is the COMPOSE rule instead (test_surface_card.py).
-    @pytest.mark.parametrize("card_type", sorted(model_facing_card_types() - CHAT_ONLY_CARD_TYPES))
+    @pytest.mark.parametrize("card_type", sorted(model_facing_card_types()))
     def test_the_hint_is_what_describe_card_returns(self, card_type):
         hint = _shape_hint_for(card_type)
         assert hint is not None
@@ -453,6 +452,8 @@ class TestShapeHint:
         # Byte-identical to the L2 entry, so the retry path cannot drift from
         # the tool that still serves the deep-research writer.
         assert hint == render_card_details([card_type])
+        if card_type in CHAT_ONLY_CARD_TYPES:
+            return  # a surface's entry is the COMPOSE rule (test_surface_card.py)
         # The four parts of an L2 entry a one-line gist did not carry.
         assert "shape:" in hint
         assert "Every text field is PLAIN TEXT" in hint

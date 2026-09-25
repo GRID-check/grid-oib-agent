@@ -10,6 +10,7 @@ does not have.
 from __future__ import annotations
 
 import copy
+import re
 from typing import Any
 
 import pytest
@@ -279,16 +280,52 @@ class TestTextRecital:
         assert [tab["child"] for tab in recited["components"][0]["tabs"]] == ["a", "b"]
         grid_card_adapter.validate_python(recited)
 
-    def test_a_surface_that_cannot_stand_without_the_blank_text_is_none(self):
+    def test_a_surface_left_with_one_card_is_that_card(self):
         from aiq_agent.cards.surface_citations import recite_surface
 
         card = _tabs(components=[_tabs()["components"][0], copy.deepcopy(BASIS_A), _text("b", "[4]")])
 
-        assert recite_surface(card, {}, {1}) is None
+        recited = recite_surface(card, {}, {1})
+
+        assert recited["type"] == "legal_basis" and recited["law"] == BASIS_A["law"]
+        grid_card_adapter.validate_python(recited)
+
+    def test_a_surface_left_with_one_text_keeps_the_blank_marked_and_recites_the_rest(self):
+        from aiq_agent.cards.surface_citations import BLANK_TEXT
+        from aiq_agent.cards.surface_citations import recite_surface
+
+        card = _tabs(components=[_tabs()["components"][0], _text("a", "[3]"), _text("b", "REI 90 [5]")])
+
+        recited = recite_surface(card, {1: 1, 5: 2}, {1, 2})
+
+        texts = {c["id"]: c["text"] for c in recited["components"] if c.get("component") == "Text"}
+        # Never the stored [5]: after sanitize it is [2], or the tab names a different source.
+        assert texts == {"a": BLANK_TEXT, "b": "REI 90 [2]"}
+        grid_card_adapter.validate_python(recited)
+
+    def test_a_marker_inside_code_is_code(self):
+        from aiq_agent.cards.surface_citations import recite_text
+
+        text = "Siehe `x[1]` [4].\n\n```mermaid\nflowchart LR\n  S[1] --> T[2]\n```\nWand [1]."
+        assert recite_text(text, {}, {1}) == (
+            "Siehe `x[1]`.\n\n```mermaid\nflowchart LR\n  S[1] --> T[2]\n```\nWand [1]."
+        )
 
 
 class TestSurfaceIntegrity:
     """What `a2ui-core` lets through and the surface does not."""
+
+    @pytest.mark.parametrize(("prop", "value"), [("justify", "between"), ("align", "spaceBetween")])
+    def test_a_layout_value_the_renderer_does_not_take_is_refused(self, prop, value):
+        # The frontend's RowApi takes an enum; anything else fails its preflight and the surface degrades.
+        card = _tabs(
+            components=[{"id": "root", "component": "Row", "children": ["a", "b"], prop: value}, BASIS_A, BASIS_B]
+        )
+        assert f"`{prop}` is one of" in _refusal(card)
+
+    def test_a_layout_value_the_renderer_takes_is_accepted(self):
+        root = {"id": "root", "component": "Row", "children": ["a", "b"], "justify": "spaceBetween", "align": "start"}
+        assert grid_card_adapter.validate_python(_tabs(components=[root, BASIS_A, BASIS_B]))
 
     @pytest.mark.parametrize("marker", ["[[card:2]]", "[[callout]]", "[[ card : 1 ]]"])
     def test_a_prose_marker_in_a_text_is_refused(self, marker):
@@ -346,6 +383,71 @@ class TestWhereASurfaceIsTaught:
         # The generic entry told a model every text field is PLAIN TEXT, which a `Text` leaf is not.
         assert "PLAIN TEXT" not in hint
 
+    def test_the_rendered_details_are_the_compose_rule(self):
+        # describe_card, a skill's preferred cards and the turn decision's picks all render here.
+        from aiq_agent.cards.catalog import render_card_details
+        from aiq_agent.cards.envelope import compose_rule
+
+        assert render_card_details(["surface"]) == compose_rule()
+        with_another = render_card_details(["surface", "legal_basis"])
+        assert with_another.endswith(compose_rule())
+        assert '"legal_basis"' in with_another and "`Text` leaf is the one exception" in with_another
+
+    def test_a_leaf_that_fails_is_repaired_from_its_own_shape(self):
+        card = _tabs()
+        del card["components"][1]["law"]
+        validated, refusal = validate_model_card(card)
+        assert validated is None and refusal is not None
+        assert refusal.hint is not None and "COMPOSE." in refusal.hint
+        assert '"legal_basis"' in refusal.hint and "shape:" in refusal.hint
+
+    async def test_emit_card_refuses_a_surface(self):
+        import json
+        from unittest.mock import MagicMock
+
+        from aiq_agent.cards.register import EmitCardConfig
+        from aiq_agent.cards.register import emit_card
+        from aiq_agent.cards.registry import CardRegistry
+        from aiq_agent.cards.registry import reset_card_registry
+        from aiq_agent.cards.registry import set_card_registry
+
+        registry = CardRegistry()
+        token = set_card_registry(registry)
+        try:
+            async with emit_card(EmitCardConfig(), MagicMock()) as info:
+                message = await info.single_fn(card_json=json.dumps(_tabs()))
+        finally:
+            reset_card_registry(token)
+        assert message.startswith("Error:") and "'surface'" in message
+        assert registry.snapshot() == []
+
+    async def test_describe_card_does_not_offer_a_surface(self):
+        from unittest.mock import MagicMock
+
+        from aiq_agent.cards.register import DescribeCardConfig
+        from aiq_agent.cards.register import describe_card
+
+        async with describe_card(DescribeCardConfig(), MagicMock()) as info:
+            message = await info.single_fn(card_types="surface")
+        assert message.startswith("No such card type: surface.")
+        assert "surface" not in message.split("Available types:")[1]
+
+    def test_the_post_hoc_validator_drops_a_surface(self):
+        from aiq_agent.cards.models import validate_cards
+
+        basis = {key: value for key, value in BASIS_A.items() if key not in ("id", "component")}
+        validated = validate_cards([_tabs(), {**basis, "type": "legal_basis"}])
+        assert [card["type"] for card in validated] == ["legal_basis"]
+
+    def test_the_chat_contract_s_craft_names_no_card_it_withholds(self):
+        from aiq_agent.cards.catalog import MARKDOWN_CARD_TYPES
+        from aiq_agent.cards.catalog import render_card_doctrine
+
+        doctrine = render_card_doctrine(markdown_first=True)
+        withheld = [card for card in MARKDOWN_CARD_TYPES if re.search(rf"\b{card}\b", doctrine)]
+        assert withheld == []
+        assert "a table in the answer" in doctrine
+
     def test_the_post_hoc_prompt_withholds_the_surface(self):
         from aiq_agent.cards.prompt import build_card_generation_prompt
 
@@ -372,21 +474,29 @@ class TestWhereASurfaceIsTaught:
 class TestPipelineRecital:
     """`answer_pipeline._recite_surface_cards` applies the recital to the turn's registry."""
 
-    def test_a_surface_that_would_collapse_stays_as_stored(self):
+    def test_a_surface_that_would_collapse_is_stored_recited_in_place(self):
+        from types import SimpleNamespace
+
         from aiq_agent.agents.piloti.answer_pipeline import _recite_surface_cards
         from aiq_agent.cards.registry import CardRegistry
         from aiq_agent.cards.registry import reset_card_registry
         from aiq_agent.cards.registry import set_card_registry
 
-        card = _tabs(components=[_tabs()["components"][0], copy.deepcopy(BASIS_A), _text("b", "[4]")])
+        before = {"type": "legal_basis", "law": "OIB-Richtlinie 2", "summary": "x"}
+        card = _tabs(components=[_tabs()["components"][0], _text("a", "[3]"), _text("b", "REI 90 [5]")])
         registry = CardRegistry()
+        registry.add(before)
         registry.add(card)
         token = set_card_registry(registry)
         try:
-            _recite_surface_cards({}, ())
+            _recite_surface_cards({1: 1, 5: 2}, (SimpleNamespace(number=1), SimpleNamespace(number=2)))
         finally:
             reset_card_registry(token)
-        assert registry.snapshot() == [card]
+        stored = registry.snapshot()
+        # Positions stay: a later [[card:2]] still names this card.
+        assert len(stored) == 2 and stored[0] == before
+        assert "[5]" not in str(stored[1]) and "REI 90 [2]" in str(stored[1])
+        grid_card_adapter.validate_python(stored[1])
 
     def test_a_merged_duplicate_in_a_tab_follows_the_prose(self):
         from types import SimpleNamespace

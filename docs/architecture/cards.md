@@ -30,9 +30,12 @@ sources, and the persisted decisions of interactive cards.
 ## Current card types
 
 Defined in `src/aiq_agent/cards/models.py` as a discriminated union (`GridCard`)
-— **45 types in four families**: 35 the answering model may emit through
-`emit_card`, one of them `surface` (ADR-0065), a composition whose leaves are
-content cards or `Text`; six it may not on any surface (`SYSTEM_CARD_TYPES` —
+— **45 types in four families**: 35 the answering model may emit, 34 of them
+through `emit_card` too; the 35th is `surface` (ADR-0065), a composition whose
+leaves are content cards or `Text`, offered on the chat envelope only
+(`CHAT_ONLY_CARD_TYPES`: `emit_card`, `describe_card` and the post-hoc
+validator refuse it, because only the chat pipeline recites its `[N]`); six it
+may not on any surface (`SYSTEM_CARD_TYPES` —
 five tool-owned cards and the retired `follow_ups`); and four **envelope types**
 (`ENVELOPE_CARD_TYPES`: `summary`, `verdict_header`, `key_takeaways`,
 `callout`) that stopped being cards anywhere new: a research answer is
@@ -221,8 +224,8 @@ expression separates those two — the same „22 m" appears in both — which i
 the rule is prose in the catalog rather than a validator.
 
 **What the card does check**, because it is the one invariant available: the
-`diagram_type` field is a closed set of the four grammars verified end to end
-(`flowchart`, `sequence`, `state`, `pie`) and a model validator reads the
+`diagram_type` field is a closed set of the six grammars verified end to end
+(`flowchart`, `sequence`, `state`, `pie`, `gantt`, `mindmap`; `DiagramGrammar`) and a model validator reads the
 source's own declaration line back. That catches the failure that actually
 bites — a source declaring nothing, where mermaid has no grammar to parse the
 rest with and the whole block collapses to a grey code box mid-answer — and it
@@ -338,18 +341,22 @@ renders. A card is for what Markdown cannot carry: a schematic drawn to scale,
 the Fundstelle as a quotable excerpt, a decision on one factor with this
 project's branch marked, a Verfahren with its Fristen and where the project
 stands. The
-renderer meets the prose halfway: a table cell that holds exactly one status
-word (`erfüllt`, `nicht erfüllt`, `teilweise`, `offen`, `erforderlich`,
-`bedingt`, `vorhanden`, `fehlt`, and the English set) renders as a toned chip
-(`MarkdownRenderer/status-marks.ts`), and tables are zebra-striped with
-tabular figures. The shape rules for the prose (first line answers, `###`
+renderer meets the prose halfway: in a table's Status column (headed `status`,
+`erfüllt`, `ergebnis`, `bewertung` or `result`), a cell that holds exactly one
+status word (`erfüllt`, `nicht erfüllt`, `teilweise`, `offen`, `erforderlich`,
+`bedingt`, `vorhanden`, `fehlt`, and the English set) renders as a toned mark
+(`MarkdownRenderer/status-marks.ts`), and the column's tally above the rows
+counts each word however it is capitalised (`MarkdownRenderer/table-shape.ts`);
+the same word in any other column stays a word. Tables are zebra-striped with
+tabular figures. The details: `docs/design/answer-visuals.md`. The shape rules for the prose (first line answers, `###`
 headings that state, a Fundstelle column, the fixed status vocabulary) live in
 the `<formatting>` block of `piloti_static.md`.
 
-Cards can still be emitted by the answering agent via the **`emit_card` tool**
-(`cards/register.py`) — for a card it must show before the answer is written,
-or on an older prompt: mid-turn, with full context, the agent calls the tool
-whenever a structured element communicates better than prose. The card is
+Deep research can still emit cards via the **`emit_card` tool**
+(`cards/register.py`); Piloti (chat) no longer binds it, and its cards travel
+in the envelope's `cards` field only. Mid-turn, with full context, the
+researcher calls the tool whenever a structured element communicates better
+than prose. The card is
 validated against the shared schema and pushed into the conversation-scoped
 `CardRegistry`. System cards (`document_draft`, `document_grid`,
 `file_operation_proposal`, `task_created`, `memory_proposal`) are pushed by the
@@ -394,7 +401,9 @@ paying it on every turn, for every card — including the ones it would have
 filled in correctly. But a shape is only ever needed when the first attempt
 would have been wrong, so the RETRY carries it: a failed `emit_card` returns the
 same L2 entry for the type that failed, and `shape_hint_for` is now one line
-delegating to `render_card_details`. A card that was going to be right pays
+delegating to `render_card_details`, whose entry for `surface` is the COMPOSE
+rule. A surface whose leaf fails its card model is repaired from the rule plus
+the shapes of the card types it holds. A card that was going to be right pays
 nothing; one that was not pays the same single round trip, knowing which field
 was wrong. `describe_card` stays registered and stays bound to
 `deep_research_agent`, whose writer composes one long report and pays the lookup
@@ -476,7 +485,8 @@ or turning circle → `dimension_diagram`; an escape route with segments →
 `egress_diagram`; a fall height, railing or opening → `guardrail_check`; a
 U-value, HWB or energy class → `thermal_envelope` / `energy_performance`; a fire
 compartment area → `fire_compartment`; the Richtlinie the answer rests on →
-`legal_basis`; a path that
+`legal_basis`; three or more pass/fail criteria → `requirement_checklist`; two
+or more options weighed against each other → `comparison_table`; a path that
 forks and REJOINS, several Stellen exchanging in order, or a Nachweis others
 depend on → `diagram`. The reason
 travels with the rule: an answer that turns on a dimension gets its card by
@@ -709,10 +719,12 @@ to be `GridCardItem`, so the pixels are the same components as before.
   taught the shape in the envelope contract's COMPOSE paragraph. A `Row` sits
   side by side only above 44rem of its own width, so in the answer column it
   stacks; `Tabs` show one variant at a time.
-- **Limits.** `SurfaceCard` holds 2 to 6 leaves (`_SURFACE_MAX_LEAVES`). A
-  `Row` or `Column` has 2 to 4 children (`_SURFACE_MAX_CHILDREN`). `Tabs` has
-  2 to 6 tabs, each exactly `{title, child}`. A `Text` holds at most 4000
-  characters (`_SURFACE_TEXT_MAX`). The root must be a layout: a surface of one
+- **Limits.** `SurfaceCard` holds 2 to 6 leaves (`SURFACE_MAX_LEAVES`). A
+  `Row` or `Column` has 2 to 4 children (`SURFACE_MAX_CHILDREN`), and its
+  `justify` / `align`, when set, take only the values the frontend's `RowApi`
+  takes (`SURFACE_JUSTIFY`, `SURFACE_ALIGN`). `Tabs` has 2 to 6 tabs
+  (`SURFACE_MAX_TABS`), each exactly `{title, child}`. A `Text` holds at most
+  4000 characters (`SURFACE_TEXT_MAX`). The root must be a layout: a surface of one
   card is that card. The prompt (`_COMPOSE_RULE` in `cards/envelope.py`)
   counts a surface as one card against the turn's two-card ceiling.
 - **`Text`: the answer's Markdown inside a surface.** A leaf
@@ -724,7 +736,13 @@ to be `GridCardItem`, so the pixels are the same components as before.
   source verification removed is dropped, never renumbered onto the source
   that now holds N: sanitize's map lists only survivors. An empty map leaves
   numbers as they are, and each is kept only if it is cited (applied in
-  `answer_pipeline.py` on the settled frame and after sanitisation). The frontend parses them with the answer's
+  `answer_pipeline.py` on the settled frame and after sanitisation). Code is
+  left alone: `S[1]` in a mermaid fence or `x[1]` in inline code is not a
+  citation. A `Text` left blank is dropped with its tab or child; when the
+  surface cannot stand without it, the one card left becomes the card, and
+  failing that the leaf reads `—` (`surface_citations.BLANK_TEXT`). The stored
+  card never keeps its unrecited numbers, and its registry position never
+  moves. The frontend parses them with the answer's
   citation plugin through `NestedMarkdownPluginsProvider`, and the Word
   export prints them as prose.
 - **Never the library's placeholder.** `A2uiSurface` cannot render on the

@@ -106,11 +106,13 @@ ENVELOPE_CARD_TYPES = frozenset({"summary", "verdict_header", "key_takeaways", "
 #   - its renderer must drive its lifecycle from `useCardDecision`, never from
 #     component-local `useState`;
 #   - every terminal outcome it can reach must be a member of `CARD_DECISIONS`;
-#   - it must also be in SURFACE_EXCLUDED_LEAVES, in `cards/models.py` AND in
-#     `frontends/ui/src/features/a2ui/catalog.tsx`: a leaf inside a surface has
-#     no message position for its decision to be keyed by. The same holds for a
-#     new SYSTEM_CARD_TYPES or ENVELOPE_CARD_TYPES member.
-#     `tests/aiq_agent/cards/test_surface_excluded_parity.py` holds all three.
+#   - it must also be in SURFACE_EXCLUDED_LEAVES: a leaf inside a surface has
+#     no message position for its decision to be keyed by. `cards/models.py`
+#     derives that set from this one (and from SYSTEM_CARD_TYPES and
+#     ENVELOPE_CARD_TYPES), so Python needs no edit; the frontend's copy in
+#     `frontends/ui/src/features/a2ui/catalog.tsx` is kept by hand, and
+#     `tests/aiq_agent/cards/test_surface_excluded_parity.py` holds it to the
+#     derived set.
 #
 # Emit an interactive card ONLY for an action that is not safely repeatable
 # (a memory write, a profile patch). If the action is idempotent and cheap,
@@ -148,7 +150,9 @@ INTERACTIVE_CARD_TYPES = frozenset(
 # envelope's COMPOSE rule (its field line alone says nothing a model could fill
 # it from), and its `Text` leaves carry `[N]` that only the chat pipeline holds
 # to the answer's verified citations (`cards/surface_citations.py`). The
-# `emit_card` index and the post-hoc prompt have neither, so they withhold it.
+# `emit_card` index and the post-hoc prompt have neither, so they withhold it,
+# and the `emit_card` tool, `describe_card` and the post-hoc validator
+# (`models.validate_cards`) refuse it.
 CHAT_ONLY_CARD_TYPES = frozenset({"surface"})
 
 # Card types whose fields must be COPIED from a tool result and cannot be
@@ -355,6 +359,21 @@ _CARD_TRIGGERS: tuple[tuple[str, str, str], ...] = (
         "one would expect to move and hold that it does not.",
     ),
 )
+
+#: The craft of a row the chat envelope keeps, reworded where it points at a card that contract
+#: no longer offers (:data:`MARKDOWN_CARD_TYPES`): there, that content is a table in the answer.
+_MARKDOWN_FIRST_CRAFT: dict[str, str] = {
+    "legal_basis": (
+        "One instrument carrying the answer is this card; several, one binding and the rest "
+        "interpreting, are a table in the answer. The decisive passage goes in `original_text` as "
+        "short verbatim — the sentence the answer turns on, never the paragraph around it."
+    ),
+    "condition_tree": (
+        "Mark the active branch only where you know which case holds; not knowing means marking "
+        "none, and three marked branches look like a decision nobody made. Cases that can hold at "
+        "once are a table in the answer, and a tree with one branch is a sentence."
+    ),
+}
 
 #: Withheld from the post-hoc surface, row and craft together (`include_ifc_triggers=False`).
 _MODEL_PICKER_ROW = (
@@ -1240,15 +1259,8 @@ def shape_hint_for(card_type: str) -> str | None:
     teaching a card the next validator refuses; the caller's refusal message
     names the right channel instead.
 
-    ``surface`` is the exception to the rendered entry: its ``components`` is
-    an A2UI list, which the field line renders as a list of objects and whose
-    generic rules (plain text, no Markdown) contradict its ``Text`` leaves. It
-    gets the rule the answer contract teaches it by, worked example included.
+    A ``surface``'s entry is the COMPOSE rule (:func:`render_card_details`).
     """
-    if card_type == "surface":
-        from aiq_agent.cards.envelope import compose_rule  # envelope imports this module
-
-        return compose_rule()
     return render_card_details([card_type]) or None
 
 
@@ -1403,7 +1415,7 @@ def _legal_basis_note() -> str:
         "  Both are set in a narrow MARGIN beside the law's name, the way a statute prints its §, so\n"
         "  each carries an identifier and never a sentence: `article` is the number alone ('3.1.1',\n"
         "  '87', '8 bis 10', 'Art. 5 Abs. 2'), `section` the label alone ('Tabelle 1a', 'Abs. 4',\n"
-        "  'Anhang B'). Roughly 20 characters is the whole budget. 'Punkte 8 bis 10 der\n"
+        "  'Anhang B'). Roughly 14 characters is the whole budget. 'Punkte 8 bis 10 der\n"
         "  OIB-Richtlinie 2' names the Richtlinie a second time, and 'Anwendungsbereiche der\n"
         "  ergänzenden Richtlinien' says what the passage regulates — that is `summary`, not a\n"
         "  Fundstelle. Omit either field where the passage carries no such number or label; an empty\n"
@@ -1440,8 +1452,9 @@ def _diagram_note() -> str:
         "  Six grammars are verified end to end: flowchart, sequence, state, pie, gantt, mindmap. A\n"
         "  journey is refused before the reader sees it — mermaid emits a foreignObject element for it\n"
         "  whatever htmlLabels says, the SVG allow-list refuses that element, and the diagram degrades\n"
-        "  to its own source text in the middle of your answer. A timeline draws but lays out sideways,\n"
-        "  wider than the answer column; the rest are untested through the PDF converter.\n"
+        "  to its own source text in the middle of your answer. A timeline draws and prints but lays\n"
+        "  out sideways, wider than the answer column; erDiagram and classDiagram draw and print too,\n"
+        "  but they model software, not buildings. The card takes the six and refuses the rest.\n"
         "  At most ONE per answer. A diagram earns its place by showing a fork, an ordering or a\n"
         "  dependency that prose cannot hold; a decorative one in a compliance answer costs the\n"
         "  reader trust in every drawing beside it. Labels in the answer's language and in Sie-Form,\n"
@@ -1488,6 +1501,8 @@ def _render_trigger_table(*, include_ifc_triggers: bool, include_craft: bool, ma
 
     lines = [_CARD_TRIGGER_HEAD, lead]
     for trigger, card, craft in rows:
+        if markdown_first:
+            craft = _MARKDOWN_FIRST_CRAFT.get(card, craft)
         # ljust reproduces the aligned arrow column for the short triggers and
         # gets out of the way for the long ones, which run past it anyway.
         lines.append(f"  {trigger.ljust(40)} -> {card}")
@@ -1606,8 +1621,18 @@ def render_card_details(card_types: Iterable[str]) -> str:
     by_type = {_card_type_of(c): c for c in GridCard.__args__}
     withheld = SYSTEM_CARD_TYPES | ENVELOPE_CARD_TYPES
     wanted = [t for t in dict.fromkeys(card_types) if t in by_type and t not in withheld]
+    # A surface's entry is the rule the answer contract teaches it by, worked
+    # example included: its `components` renders as a list of objects nobody
+    # could fill in, and the generic rules below (plain text, no Markdown)
+    # contradict its `Text` leaves.
+    compose = ""
+    if "surface" in wanted:
+        from aiq_agent.cards.envelope import compose_rule  # envelope imports this module
+
+        wanted.remove("surface")
+        compose = compose_rule()
     if not wanted:
-        return ""
+        return compose
 
     nested: list[type] = []
     card_lines = [f'  - "{t}"\n      shape: {_card_shape(by_type[t], nested)}' for t in wanted]
@@ -1648,4 +1673,6 @@ def render_card_details(card_types: Iterable[str]) -> str:
     out += _plain_text_note()
     if examples:
         out += "\n\nWorked examples (copy the nesting exactly):\n" + examples
+    if compose:
+        out += "\n\nA surface's `Text` leaf is the one exception to plain text: it holds Markdown.\n\n" + compose
     return out
