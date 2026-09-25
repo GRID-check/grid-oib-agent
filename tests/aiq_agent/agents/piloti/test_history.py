@@ -226,4 +226,3 @@ class TestCompactToolResults:
 
         messages = [ToolMessage(content="No relevant documents found for query: 'x'", tool_call_id="c1")]
         assert compact_tool_results(messages, {"k1"})[0].content == messages[0].content
-
