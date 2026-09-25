@@ -202,12 +202,13 @@ function Canvas({
   const initialized = useNodesInitialized()
   const onNodesChange = useCallback((changes: NodeChange[]) => setRfNodes((prev) => applyNodeChanges(changes, prev)), [])
 
-  const laidOutFor = useRef('')
-  // A new graph starts measuring again.
-  const last = useRef(initial)
-  if (last.current !== initial) {
-    last.current = initial
-    laidOutFor.current = ''
+  // A new graph starts measuring again. The graph it was built from is STATE,
+  // compared during render — React's reset-on-prop-change pattern — rather
+  // than a ref written during render, which a concurrent render that React
+  // throws away would still have written.
+  const [builtFrom, setBuiltFrom] = useState(initial)
+  if (builtFrom !== initial) {
+    setBuiltFrom(initial)
     // Keep the previous layout on screen while the new one is measured: a
     // resize rebuilds the graph for the new width, and blanking it here made
     // every diagram blink out and fade back in on each resize.
@@ -216,6 +217,8 @@ function Canvas({
       return initial.map((node) => ({ ...node, position: at.get(node.id) ?? node.position }))
     })
   }
+  // Read and written in the layout effect only.
+  const laidOutFor = useRef<{ graph: Node[]; key: string } | null>(null)
 
   useLayoutEffect(() => {
     if (!initialized) return
@@ -227,8 +230,8 @@ function Canvas({
     // Once per set of measured sizes: `rfNodes` also changes when the layout
     // below is applied, and that must not lay out again.
     const key = `${width}|${[...sizes].map(([id, size]) => `${id}:${size.width}x${size.height}`).join(',')}`
-    if (laidOutFor.current === key) return
-    laidOutFor.current = key
+    if (laidOutFor.current?.graph === builtFrom && laidOutFor.current.key === key) return
+    laidOutFor.current = { graph: builtFrom, key }
     const next = layoutGraph(nodes, edges, sizes, { direction, nodesep, ranksep })
     const offset = Math.max(0, (width - next.width) / 2)
     setLayout({
@@ -245,7 +248,7 @@ function Canvas({
         ])
       ),
     })
-  }, [initialized, rfNodes, width, nodes, edges, direction, nodesep, ranksep])
+  }, [initialized, rfNodes, builtFrom, width, nodes, edges, direction, nodesep, ranksep])
 
   const shown = useMemo<Node[]>(
     () => (layout ? rfNodes.map((node) => ({ ...node, position: layout.positions.get(node.id) ?? node.position })) : rfNodes),

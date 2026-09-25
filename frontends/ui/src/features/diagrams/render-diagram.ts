@@ -10,11 +10,14 @@
  * So the layout happens here, in the reader's tab, and the server's job is to
  * validate and file what comes back.
  *
- * ## One render, two uses
+ * ## One render, two uses — where it is the picture
  *
- * The SVG this produces is BOTH what the reader sees in the answer and what
- * gets filed into the project. That is not a coincidence to be tidied up later;
- * it is the reason the reader can trust the button. A second render for filing
+ * Most diagrams are drawn by this product's own views (`views/`), and for
+ * those this renderer makes only the FILE, when the reader files it
+ * (`renderPaperDiagram`). For a source no view reads, the SVG this produces is
+ * BOTH what the reader sees in the answer and what gets filed into the project.
+ * That is not a coincidence to be tidied up later; it is the reason the reader
+ * can trust the button. A second render for filing
  * would be a second chance for the file to disagree with the picture, and
  * "what got filed is not what I saw" is not a defect a Ziviltechniker can spot
  * before signing.
@@ -307,8 +310,8 @@ const renderMermaidNow: DiagramRenderer = async ({ source, id, theme }) => {
  * The render queue: one mermaid render at a time.
  *
  * `mermaid.initialize` sets GLOBAL configuration and `mermaid.render` awaits
- * before it reads it. In dark mode every drawing renders twice — the dark
- * screen copy and the light file copy — so an answer with several drawings
+ * before it reads it. In dark mode a drawing mermaid shows renders twice — the
+ * dark screen copy and the light file copy — so an answer with several drawings
  * interleaved them: one render's `initialize` landed between another's
  * `initialize` and its read, and from the third drawing on the screen copies
  * came out in the LIGHT palette, which puts light-theme ink (dark) on the dark
@@ -326,12 +329,30 @@ export function serialized<A, R>(task: (argument: A) => Promise<R>): (argument: 
 }
 
 /**
+ * How long one task may hold the lock. A mermaid layout that never settles —
+ * a grammar bug, a chunk that never loads — held it for good, and every diagram
+ * after it on the page waited on its skeleton forever. Past this the task is
+ * reported as failed (the caller falls back as for any refusal) and the next
+ * one runs; the stuck one is abandoned, not cancelled, since mermaid offers no
+ * way to cancel.
+ */
+export const MERMAID_TASK_TIMEOUT_MS = 15_000
+
+function withinTimeout<T>(task: () => Promise<T>): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error('mermaid did not finish in time')), MERMAID_TASK_TIMEOUT_MS)
+  })
+  return Promise.race([task(), timeout]).finally(() => clearTimeout(timer))
+}
+
+/**
  * The one lock on mermaid's global state. Rendering (`initialize` + `render`)
  * and parsing (`parse-mermaid.ts`, which reads the per-grammar database the
  * parser fills) both go through it, so neither can land inside the other.
  */
 export const withMermaid: <T>(task: () => Promise<T>) => Promise<T> = serialized(
-  (task: () => Promise<unknown>) => task()
+  (task: () => Promise<unknown>) => withinTimeout(task)
 ) as <T>(task: () => Promise<T>) => Promise<T>
 
 const renderMermaid: DiagramRenderer = (request) => withMermaid(() => renderMermaidNow(request))

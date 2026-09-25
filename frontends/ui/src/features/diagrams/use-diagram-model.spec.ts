@@ -56,4 +56,41 @@ describe('useDiagramModel', () => {
     expect(result.current).toBeUndefined()
     expect(parseMermaid).not.toHaveBeenCalled()
   })
+
+  it('keeps the model of a mount made on a cache hit after the cache has evicted it', async () => {
+    const first = renderHook(() => useDiagramModel('graph TD\n  Held --> On'))
+    await waitFor(() => expect(first.result.current).toBe(MODEL))
+    first.unmount()
+
+    // Mounted on a hit, then the page reads 64 other diagrams.
+    const held = renderHook(() => useDiagramModel('graph TD\n  Held --> On'))
+    expect(held.result.current).toBe(MODEL)
+    await readOthers(64)
+
+    held.rerender()
+    expect(held.result.current).toBe(MODEL)
+  })
+
+  it('evicts the least recently USED source, not the first one parsed', async () => {
+    const first = renderHook(() => useDiagramModel('graph TD\n  Often --> Read'))
+    await waitFor(() => expect(first.result.current).toBe(MODEL))
+    first.unmount()
+    await readOthers(63)
+    // Read again: now the most recent, so the next parse evicts another.
+    renderHook(() => useDiagramModel('graph TD\n  Often --> Read')).unmount()
+    await readOthers(1, 63)
+
+    const again = renderHook(() => useDiagramModel('graph TD\n  Often --> Read'))
+    expect(again.result.current).toBe(MODEL)
+    expect(parseMermaid.mock.calls.filter(([source]) => source.includes('Often'))).toHaveLength(1)
+  })
 })
+
+/** Mount and settle `count` other sources, as a long page does. */
+async function readOthers(count: number, from = 0): Promise<void> {
+  for (let i = from; i < from + count; i++) {
+    const other = renderHook(() => useDiagramModel(`graph TD\n  N${i} --> M${i}`))
+    await waitFor(() => expect(other.result.current).toBe(MODEL))
+    other.unmount()
+  }
+}

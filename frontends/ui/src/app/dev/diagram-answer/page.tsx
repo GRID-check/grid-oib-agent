@@ -14,9 +14,10 @@
  *  2. **Not drawable.** The model wrote broken mermaid, which it does. The
  *     reader gets the source they would have seen anyway plus one quiet line.
  *     Never a red box.
- *  3. **Still arriving.** During streaming a mermaid fence is a code block: the
- *     markdown stabiliser auto-closes an odd fence, so a half-written diagram
- *     LOOKS complete on every token and drawing it would flash a parse error.
+ *  3. **Still arriving.** During streaming a mermaid fence is a code block:
+ *     CommonMark runs an unclosed fence to the end of its container, so a
+ *     half-written diagram LOOKS complete on every token, and drawing it would
+ *     flash a parse error. `isOpenFence` keeps it a code block until it closes.
  *
  * The drawing sits on a light surface in BOTH themes on purpose — it is a
  * preview of a document that is filed, converted to PDF and attached on white,

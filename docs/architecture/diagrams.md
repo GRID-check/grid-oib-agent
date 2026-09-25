@@ -70,7 +70,8 @@ model writes ```mermaid          browser (has a DOM)                 BFF (owns t
 
 **What is shown and what is filed.** A fence this product has a model for is
 drawn by its own view (see *Drawn by this product, parsed by mermaid* below);
-only the filed file is mermaid's SVG. A fence without a model is drawn as
+only the filed file is mermaid's SVG, drawn on paper when the reader files it
+and not before (`renderPaperDiagram`). A fence without a model is drawn as
 mermaid's SVG, and in light mode that string is also the file (`fileSvg ===
 svg`). In dark mode the file is a second render on paper, from the same source,
 renderer, font and `htmlLabels: false`, so mermaid's layout is unchanged and
@@ -270,12 +271,15 @@ the same courtesy.
 
 Three states:
 
-- **streaming** — only the fence the text still ends inside
-  (`openFenceBody` in `MarkdownRenderer.tsx`) is streaming, and it holds a
-  skeleton (`DrawingSkeleton`), not its source. The markdown stabiliser
-  auto-closes an odd number of fences, so a half-arrived diagram *looks*
-  complete on every token; drawing it would flash a parse error per token.
-  Every fence already closed is drawn while the answer streams (ADR-0066).
+- **streaming** — only the fence still being written is streaming, and it
+  holds a skeleton (`DrawingSkeleton`), not its source. Which one that is comes
+  from the parsed code block, not from counting backticks (`isOpenFence` in
+  `MarkdownRenderer.tsx`): a block that ends on the text's last line without a
+  closing fence. That covers `~~~` fences and fences indented in a list item.
+  CommonMark runs an unclosed fence to the end of its container, so a
+  half-arrived diagram *looks* complete on every token; drawing it would flash
+  a parse error per token. Every fence already closed is drawn while the answer
+  streams (ADR-0066).
 - **failed** — a code block plus one quiet line. The model writes broken mermaid
   regularly and that must cost the reader nothing they did not already have.
   Never a red box, never a throw inside an answer.
@@ -303,9 +307,13 @@ outside React's tree.
 own, so the card shows through, and its ink comes from the product's tokens per
 theme (`diagram-palette.ts`, with the theme read off the `.dark` class by
 `use-diagram-theme.ts`). The filed bytes are always the paper render
-(`fileSvg`): a file is previewed on paper, printed and attached on white. In
-dark mode that is a second render with the same source, font and
-`htmlLabels`, so the layout matches the picture (`use-rendered-diagram.ts`).
+(`fileSvg`): a file is previewed on paper, printed and attached on white. Where
+mermaid's SVG is the picture, dark mode adds a second render with the same
+source, font and `htmlLabels`, so the layout matches the picture
+(`use-rendered-diagram.ts`). Where a view draws the diagram, the paper copy is
+the only render, made when the reader files. Every render and parse waits
+behind one lock on mermaid's global state (`withMermaid`), and a task that has
+not settled after 15 s is failed so the diagrams after it still draw.
 A mermaid SVG on screen sits in a `HorizontalScroll`
 (`components/ui/horizontal-scroll.tsx`): the hidden edge fades, and the
 scroller becomes a named, focusable region only when it overflows, which is

@@ -5,13 +5,13 @@
  *
  * ## The three states, and why the fallback is the source
  *
- *   - **streaming** — the fence is still arriving, so nothing is drawn. The
- *     stabiliser in `MarkdownRenderer` appends a synthetic closing fence to
- *     half-arrived markdown, which means an in-flight mermaid block LOOKS
- *     complete on every token; handing that to mermaid renders a parse error
- *     per token. So the fence still being written (`openFenceBody`) shows the
- *     drawing's placeholder, not its source, and every fence already closed is
- *     drawn while the rest of the answer streams (ADR-0066).
+ *   - **streaming** — the fence is still arriving, so nothing is drawn.
+ *     CommonMark runs an unclosed fence to the end of the text, which means an
+ *     in-flight mermaid block LOOKS complete on every token; handing that to
+ *     mermaid renders a parse error per token. So the fence still being
+ *     written (`isOpenFence` in `MarkdownRenderer`) shows the drawing's
+ *     placeholder, not its source, and every fence already closed is drawn
+ *     while the rest of the answer streams (ADR-0066).
  *   - **failed** — the model writes broken mermaid regularly, and that must
  *     cost the reader nothing they did not already have. A failure renders the
  *     source, exactly as it rendered before this component existed, plus one
@@ -54,46 +54,19 @@
 
 import { HorizontalScroll } from '@/components/ui/horizontal-scroll'
 import { CodeBlock } from '@/shared/components/CodeBlock'
-import { Skeleton } from '@/components/ui/skeleton'
 import { useTranslations } from '@/i18n'
 import { diagramFrameStyle } from '../diagram-size'
-import { useRenderedDiagram } from '../use-rendered-diagram'
+import { renderPaperDiagram, useRenderedDiagram } from '../use-rendered-diagram'
 import { useDiagramModel } from '../use-diagram-model'
-import { useDiagramFilingTarget } from '../diagram-filing-context'
 import { DiagramView } from '../views/diagram-views'
-import { titleFromSource } from '../use-diagram-filing'
-import { useDiagramFiling } from '../use-diagram-filing'
+import { titleFromSource, useDiagramFiling } from '../use-diagram-filing'
 import { DiagramFilingControls } from './diagram-filing-controls'
+import { DrawingSkeleton } from './drawing-skeleton'
 
 export interface MermaidDiagramProps {
   source: string
   /** True while the answer is still arriving; see the header. */
   isStreaming?: boolean
-}
-
-/**
- * The drawing's space while mermaid lays the graph out.
- *
- * Three bars and not a spinner, and not the source either. The shape the reader
- * is waiting for is a graph, so a single grey block reads as an image that
- * failed; and swapping a fifteen-line code block for a picture is a bigger jump
- * than growing a placeholder. It is the same skeleton the `diagram` CARD holds
- * (`features/grid-cards/components/DiagramCard.tsx`) — Jakob's law inside one
- * product: the two surfaces that draw the same mermaid must wait the same way.
- *
- * The height is representative, not a reservation: a mermaid drawing's height
- * is unknown until the graph is laid out, so the figure does resize when the
- * SVG lands. Nothing animates it — the design language forbids animating
- * height, and this changes in one paint.
- */
-function DrawingSkeleton() {
-  return (
-    <div className="flex h-[132px] flex-col justify-center gap-3" aria-hidden="true">
-      <Skeleton className="h-4 w-2/5 rounded-md" />
-      <Skeleton className="h-4 w-3/5 rounded-md" />
-      <Skeleton className="h-4 w-1/3 rounded-md" />
-    </div>
-  )
 }
 
 export function MermaidDiagram({ source, isStreaming = false }: MermaidDiagramProps) {
@@ -105,15 +78,13 @@ export function MermaidDiagram({ source, isStreaming = false }: MermaidDiagramPr
   // come out different on the two surfaces.
   // Drawn by this product's own views when mermaid's parser can read it into
   // a model (`docs/design/answer-visuals.md`); mermaid's SVG is then only the
-  // FILE, rendered when there is a project to file into. Without a model the
-  // SVG is the picture, as before.
+  // FILE, drawn on paper when the reader files it and not before. Without a
+  // model the SVG is the picture, as before.
   const model = useDiagramModel(source, !isStreaming)
-  const target = useDiagramFilingTarget()
-  const needsSvg = !isStreaming && (model === null || (model !== undefined && target !== null))
-  const { svg, fileSvg, failed } = useRenderedDiagram(source, needsSvg)
+  const { svg, fileSvg, failed } = useRenderedDiagram(source, !isStreaming && model === null)
   // And one WRITE, shared with the card for the same reason. `fileSvg` and not
   // `svg`: the bytes that go into the project are always the paper ones.
-  const filing = useDiagramFiling({ source, fileSvg })
+  const filing = useDiagramFiling({ source, fileSvg, renderFileSvg: model ? () => renderPaperDiagram(source) : undefined })
 
   // Still being written: the drawing's place, not its source. A code block that
   // turned into a picture when its fence closed was the largest jump a
@@ -134,7 +105,7 @@ export function MermaidDiagram({ source, isStreaming = false }: MermaidDiagramPr
     return (
       <div data-testid="mermaid-diagram" data-state="failed">
         <CodeBlock value={source} language="mermaid" collapsible={lineCount > 15} maxLines={15} />
-        {failed ? <p className="text-muted-foreground mt-1 text-xs">{t('fallback')}</p> : null}
+        <p className="text-muted-foreground mt-1 text-xs">{t('fallback')}</p>
       </div>
     )
   }

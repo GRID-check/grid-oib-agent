@@ -50,7 +50,15 @@ built from the same atoms as every card:
 
 A grammar the model should not use, or a source the parser refuses, still
 falls back to Mermaid's SVG and then to the source itself: the reader never
-loses the content, only the design.
+loses the content, only the design. So does anything a view would draw wrong:
+a flowchart with a `subgraph`, a state diagram with a composite state, a label
+with markup other than `<br>` and inline formatting (`plainLabel` in
+`model.ts`), and a graph of more than 80 nodes (`MAX_GRAPH_NODES`), where
+dagre's layout costs more than a reader waits.
+
+A schedule's dates are the calendar dates the source wrote, whatever the
+reader's time zone, and a task's label names its last day: mermaid's end is
+exclusive, so `2026-10-01, 14d` reads „01.10.–14.10.".
 
 ## What stays SVG
 
@@ -73,8 +81,11 @@ other silently stops matching.
 - **A table stacks at every width** when any cell holds more than 140
   characters (`PROSE_CELL_CHARS`): a sentence in a narrow column is a tower of
   short lines.
-- **Status words become marks** only when the whole cell is one word from
-  `status-marks.ts`. That list accepts more than the prompt teaches: also
+- **Status words become marks** only in a Status column, and only when the
+  whole cell is one word from `status-marks.ts`: „open" in a Bemerkung column
+  stays a word. The tally counts a word however it is capitalised, under its
+  first spelling, and reads the cell after a citation its row's Fundstelle
+  repeats has been dropped. That list accepts more than the prompt teaches: also
   `zulässig`, `unzulässig`, `zu prüfen`, `unklar`, `nicht anwendbar`, `n/a`,
   the ASCII spellings `erfuellt` and `nicht erfuellt`, and English
   equivalents. The extra words are tolerance, not vocabulary.

@@ -29,7 +29,7 @@ const Handles: FC<{ direction?: Direction }> = ({ direction = 'TB' }) => (
 
 /** A step: what happens. */
 export const StepNode: FC<NodeProps<Node<GraphNodeData>>> = ({ data }) => (
-  <div className="border-border bg-card text-foreground rounded-lg border px-3 py-2 text-center text-[13px] leading-snug text-pretty hyphens-auto break-words shadow-xs">
+  <div className="border-border bg-card text-foreground rounded-lg border px-3 py-2 text-center text-[13px] leading-snug whitespace-pre-line text-pretty hyphens-auto break-words shadow-xs">
     {data.label}
     <Handles direction={data.direction} />
   </div>
@@ -39,14 +39,14 @@ export const StepNode: FC<NodeProps<Node<GraphNodeData>>> = ({ data }) => (
 export const DecisionNode: FC<NodeProps<Node<GraphNodeData>>> = ({ data }) => (
   <div className="border-[color-mix(in_oklch,var(--border-color-feedback-warning)_45%,transparent)] bg-warning-subtle text-foreground flex items-start justify-center gap-1.5 rounded-lg border px-3 py-2 text-center text-[13px] leading-snug font-medium text-pretty shadow-xs">
     <Split aria-hidden="true" className="text-warning mt-0.5 size-3.5 shrink-0" />
-    <span className="hyphens-auto break-words">{data.label}</span>
+    <span className="whitespace-pre-line hyphens-auto break-words">{data.label}</span>
     <Handles direction={data.direction} />
   </div>
 )
 
 /** Where a path ends: an outcome. */
 export const EndNode: FC<NodeProps<Node<GraphNodeData>>> = ({ data }) => (
-  <div className="border-border bg-muted text-foreground rounded-full border px-3 py-1.5 text-center text-[13px] leading-snug font-medium text-pretty hyphens-auto break-words">
+  <div className="border-border bg-muted text-foreground rounded-full border px-3 py-1.5 text-center text-[13px] leading-snug font-medium whitespace-pre-line text-pretty hyphens-auto break-words">
     {data.label}
     <Handles direction={data.direction} />
   </div>

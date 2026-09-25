@@ -63,10 +63,10 @@ describe('routing a fence', () => {
   })
 
   it('holds the place of the fence still being written, without its source', async () => {
-    // The stabiliser auto-closes an odd number of fences, so a half-arrived
-    // mermaid block reaches this override looking complete. Drawing it would
-    // flash a parse error on every token; showing its source was the largest
-    // jump a streamed answer made, when it turned into a picture.
+    // CommonMark runs an unclosed fence to the end of the text, so a
+    // half-arrived mermaid block reaches this override looking complete.
+    // Drawing it would flash a parse error on every token; showing its source
+    // was the largest jump a streamed answer made, when it turned into a picture.
     render(<MarkdownRenderer content={'```mermaid\ngraph TD\n  A -->'} isStreaming />)
     await waitFor(
       () => expect(screen.getByTestId('mermaid-diagram')).toHaveAttribute('data-state', 'streaming'),
@@ -74,6 +74,34 @@ describe('routing a fence', () => {
     )
     expect(screen.queryByText(/graph TD/)).toBeNull()
     expect(renderer).not.toHaveBeenCalled()
+  }, 15000)
+
+  // Counting ``` in the raw text found neither of these open: a `~~~` fence
+  // has no backticks, and one inside a list item is indented, so each was
+  // drawn from half-written source on every token.
+  it.each([
+    ['a tilde fence', 'Der Ablauf:\n\n~~~mermaid\ngraph TD\n  A -->'],
+    ['a fence inside a list item', '1. Der Ablauf:\n\n   ```mermaid\n   graph TD\n     A -->'],
+    ['a fence in a list item with a closed fence before it', '```js\nx\n```\n\n- Ablauf:\n  ```mermaid\n  graph TD\n    A -->'],
+  ])('holds the place of %s still being written', async (_name, content) => {
+    render(<MarkdownRenderer content={content} isStreaming />)
+    await waitFor(
+      () => expect(screen.getByTestId('mermaid-diagram')).toHaveAttribute('data-state', 'streaming'),
+      DYNAMIC_IMPORT_BUDGET
+    )
+    expect(renderer).not.toHaveBeenCalled()
+  }, 15000)
+
+  it.each([
+    ['a closed tilde fence', '~~~mermaid\ngraph TD\n  A --> B\n~~~'],
+    ['a closed fence inside a list item', '- Ablauf:\n  ```mermaid\n  graph TD\n    A --> B\n  ```'],
+  ])('draws %s that ends the text while it streams', async (_name, content) => {
+    renderer.mockResolvedValue(DRAWN)
+    render(<MarkdownRenderer content={content} isStreaming />)
+    await waitFor(
+      () => expect(screen.getByTestId('mermaid-diagram')).not.toHaveAttribute('data-state', 'streaming'),
+      DYNAMIC_IMPORT_BUDGET
+    )
   }, 15000)
 
   it('draws a closed fence while the answer after it is still streaming', async () => {

@@ -39,9 +39,9 @@ afterEach(() => {
 
 describe('while the answer is still arriving', () => {
   it('holds the drawing\'s place and does not try to draw it', async () => {
-    // The stabiliser in `MarkdownRenderer` appends a synthetic closing fence to
-    // half-arrived markdown, so an in-flight mermaid block LOOKS complete on
-    // every token. Handing that to mermaid renders a parse error per token.
+    // CommonMark runs an unclosed fence to the end of the text, so an
+    // in-flight mermaid block LOOKS complete on every token. Handing that to
+    // mermaid renders a parse error per token.
     render(<MermaidDiagram source={SOURCE} isStreaming />)
     expect(screen.getByTestId('mermaid-diagram')).toHaveAttribute('data-state', 'streaming')
     expect(renderer).not.toHaveBeenCalled()

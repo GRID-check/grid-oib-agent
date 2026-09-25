@@ -9,12 +9,21 @@
  * an axis, shares on a scale. None of them is an SVG someone else designed.
  */
 
-import { useCallback, type ReactNode } from 'react'
+import { type ReactNode, type RefObject, useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import dagre from '@dagrejs/dagre'
 import { ArrowLeft, ArrowRight } from 'lucide-react'
 
 import { cn } from '@/lib/utils'
-import type { FlowModel, HandoffModel, MapModel, MapNode as MapTreeNode, ScheduleModel, SharesModel, DiagramModel } from '../model'
+import type {
+  DiagramModel,
+  FlowModel,
+  HandoffModel,
+  MapModel,
+  MapNode as MapTreeNode,
+  ScheduleModel,
+  ScheduleTask,
+  SharesModel,
+} from '../model'
 import { GraphCanvas, type GraphEdgeSpec, type GraphNodeSpec, type GraphSpec } from './graph-canvas'
 import { FLOW_NODE_TYPES, MAP_NODE_TYPES } from './graph-nodes'
 
@@ -22,8 +31,27 @@ import { FLOW_NODE_TYPES, MAP_NODE_TYPES } from './graph-nodes'
 
 const NODE_GAP = 28
 
+/**
+ * A dagre pass is the expensive part of a flow (~200 ms at 100 nodes), and a
+ * model is immutable once parsed, so what one pass says about it is kept with
+ * it: a resize, a parent re-render or a remount reads it back instead of
+ * laying the graph out again.
+ */
+const PASSES = new WeakMap<FlowModel, Map<string, unknown>>()
+
+function once<T>(model: FlowModel, key: string, compute: () => T): T {
+  const passes = PASSES.get(model) ?? new Map<string, unknown>()
+  PASSES.set(model, passes)
+  if (!passes.has(key)) passes.set(key, compute())
+  return passes.get(key) as T
+}
+
 /** The most nodes any rank holds, from a layout with nominal sizes. */
 function widestRank(model: FlowModel, rankdir: 'TB' | 'LR'): number {
+  return once(model, `widest:${rankdir}`, () => countWidestRank(model, rankdir))
+}
+
+function countWidestRank(model: FlowModel, rankdir: 'TB' | 'LR'): number {
   const graph = new dagre.graphlib.Graph()
   graph.setGraph({ rankdir })
   graph.setDefaultEdgeLabel(() => ({}))
@@ -96,7 +124,7 @@ function FlowOutline({ model }: { model: FlowModel }) {
           <li key={id} className="flex flex-col gap-1">
             <div
               className={cn(
-                'text-foreground rounded-lg border px-3 py-2 text-[13px] leading-snug text-pretty hyphens-auto shadow-xs',
+                'text-foreground rounded-lg border px-3 py-2 text-[13px] leading-snug whitespace-pre-line text-pretty hyphens-auto shadow-xs',
                 node.shape === 'decision'
                   ? 'bg-warning-subtle border-[color-mix(in_oklch,var(--border-color-feedback-warning)_45%,transparent)] font-medium'
                   : node.shape === 'end'
@@ -132,6 +160,10 @@ function FlowOutline({ model }: { model: FlowModel }) {
 
 /** The nodes in reading order: by dagre's rank, then left to right. */
 function flowOrder(model: FlowModel): string[] {
+  return once(model, 'order', () => readingOrder(model))
+}
+
+function readingOrder(model: FlowModel): string[] {
   const graph = new dagre.graphlib.Graph()
   graph.setGraph({ rankdir: 'TB' })
   graph.setDefaultEdgeLabel(() => ({}))
@@ -141,15 +173,48 @@ function flowOrder(model: FlowModel): string[] {
   return [...graph.nodes()].sort((a, b) => graph.node(a).y - graph.node(b).y || graph.node(a).x - graph.node(b).x)
 }
 
+/** Where a flow is drawn as a graph rather than listed: two readable nodes side by side. */
+const FLOW_GRAPH_MIN_REM = 28
+
+/**
+ * The width of the element `ref` is put on, in rem; null until it is measured.
+ * Measured before the first paint, so the form chosen from it is the first one
+ * seen, and neither form is built for a render nobody sees.
+ */
+function useWidthRem(): [RefObject<HTMLDivElement>, number | null] {
+  const ref = useRef<HTMLDivElement>(null)
+  const [width, setWidth] = useState<number | null>(null)
+  useLayoutEffect(() => {
+    const element = ref.current
+    if (!element) return
+    const measure = () => {
+      const rem = Number.parseFloat(getComputedStyle(document.documentElement).fontSize) || 16
+      setWidth(element.clientWidth / rem)
+    }
+    measure()
+    if (typeof ResizeObserver === 'undefined') return
+    const observer = new ResizeObserver(measure)
+    observer.observe(element)
+    return () => observer.disconnect()
+  }, [])
+  return [ref, width]
+}
+
+/**
+ * A graph where the column holds one, the outline where it does not — and only
+ * the one that is shown. Both used to mount with a container query hiding one,
+ * so every flow paid for the outline's dagre pass on a desktop and for the
+ * graph's on a phone.
+ */
 export function FlowDiagram({ model, label }: { model: FlowModel; label: string }) {
+  const [ref, width] = useWidthRem()
   return (
-    <div className="@container">
-      <div className="hidden @[28rem]:block">
+    <div ref={ref}>
+      {width === null ? null : width >= FLOW_GRAPH_MIN_REM ? (
         <FlowGraph model={model} label={label} />
-      </div>
-      <div className="@[28rem]:hidden">
+      ) : (
         <FlowOutline model={model} />
-      </div>
+      )}
     </div>
   )
 }
@@ -190,7 +255,10 @@ function MapOutline({ model }: { model: MapModel }) {
 }
 
 export function MapDiagram({ model, label }: { model: MapModel; label: string }) {
-  const nodes = flatten(model.root, 0, [])
+  // Memoised on the model: a new array per render made `build` new per render,
+  // and the canvas rebuilt, re-measured and laid out the whole tree again on
+  // every re-render of the answer around it — every streamed token.
+  const nodes = useMemo(() => flatten(model.root, 0, []), [model])
   const build = useCallback(
     (width: number): GraphSpec => ({
       direction: 'LR',
@@ -319,6 +387,13 @@ const DAY = 86_400_000
 const dayOf = (iso: string) => Date.parse(`${iso}T00:00:00Z`)
 const dateLabel = (iso: string) =>
   new Intl.DateTimeFormat('de-AT', { day: '2-digit', month: '2-digit', timeZone: 'UTC' }).format(new Date(dayOf(iso)))
+/**
+ * The last day a task covers, for its label. Mermaid's end is exclusive —
+ * `2026-10-01, 14d` ends on the 15th — which is right for the bar's length and
+ * one day too many in words: the reader reads „bis 15.10." as including it.
+ */
+const lastDay = (task: ScheduleTask) =>
+  new Date(Math.max(dayOf(task.start), dayOf(task.end) - DAY)).toISOString().slice(0, 10)
 
 export function ScheduleDiagram({ model }: { model: ScheduleModel }) {
   const tasks = model.sections.flatMap((section) => section.tasks)
@@ -357,7 +432,7 @@ export function ScheduleDiagram({ model }: { model: ScheduleModel }) {
               <span className="flex min-w-0 items-baseline justify-between gap-2 @[30rem]:flex-col @[30rem]:items-start @[30rem]:gap-0">
                 <span className="text-foreground text-[13px] leading-snug text-pretty">{task.label}</span>
                 <span className="text-muted-foreground shrink-0 text-[11px] tabular-nums">
-                  {task.milestone ? dateLabel(task.start) : `${dateLabel(task.start)}–${dateLabel(task.end)}`}
+                  {task.milestone ? dateLabel(task.start) : `${dateLabel(task.start)}–${dateLabel(lastDay(task))}`}
                 </span>
               </span>
               <div className="bg-muted/60 relative h-5 rounded">

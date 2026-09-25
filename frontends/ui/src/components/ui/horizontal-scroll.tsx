@@ -52,6 +52,7 @@ export function HorizontalScroll({
   ...props
 }: HorizontalScrollProps) {
   const ref = useRef<HTMLDivElement>(null)
+  const content = useRef<HTMLDivElement>(null)
   const [overflow, setOverflow] = useState<Overflow>({ start: false, end: false })
 
   useLayoutEffect(() => {
@@ -67,7 +68,11 @@ export function HorizontalScroll({
     if (typeof ResizeObserver === 'undefined') return () => element.removeEventListener('scroll', update)
     const observer = new ResizeObserver(update)
     observer.observe(element)
-    if (element.firstElementChild) observer.observe(element.firstElementChild)
+    // The content is observed through a wrapper that lives as long as the
+    // scroller. Observing the first child at mount watched an element the
+    // caller could replace: a diagram's skeleton became its SVG, and a drawing
+    // wider than the column never got its fade or its keyboard stop.
+    if (content.current) observer.observe(content.current)
     return () => {
       element.removeEventListener('scroll', update)
       observer.disconnect()
@@ -91,7 +96,12 @@ export function HorizontalScroll({
       style={mask ? { ...style, maskImage: mask, WebkitMaskImage: mask } : style}
       {...props}
     >
-      {children}
+      {/* As wide as its content, and never narrower than the scroller: a
+          wide table or drawing overflows through it, and a `w-full` child
+          still fills the column. */}
+      <div ref={content} className="w-fit min-w-full">
+        {children}
+      </div>
     </div>
   )
 }

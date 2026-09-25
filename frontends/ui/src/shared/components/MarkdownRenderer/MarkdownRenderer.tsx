@@ -18,7 +18,7 @@ import { MARKDOWN_SLOT_TAG, useMarkdownSlotRenderer } from './slot-context'
 import { isInternalHref, useInternalLinkRenderer } from './internal-link-context'
 import { markdownHeadings } from './headings'
 import { getLanguageFromClassName, headingAnchorId, isMermaidFence } from './utils'
-import { statusTone } from './status-marks'
+import { isStatusTone, statusTone } from './status-marks'
 import { parseTally, rehypeTableShape } from './table-shape'
 
 /** Module-level so the list keeps one identity: a new array re-parses the document. */
@@ -76,20 +76,43 @@ function getTextFromChildren(node: ReactNode): string {
 }
 
 /**
- * The body of the fence a streaming text is still inside, or `null`.
+ * Whether a fenced code block is the one a streaming text is still writing.
  *
- * The stabiliser closes a half-arrived fence so the parser can read it, which
- * makes every fence LOOK finished. Only the last one can be unfinished, and
- * only while the text ends inside it: every fence before it is complete and
- * may be drawn while the answer is still arriving (ADR-0066). A diagram that
- * waited for the whole answer showed its source for the rest of the stream.
+ * Read off the parsed node, not counted in the text: CommonMark already runs
+ * an unclosed fence to the end of its container, so the block the parser hands
+ * over IS the half-written one. It is still open when it ends on the last line
+ * of the text and that line is not a fence closing it. Counting ``` in the raw
+ * text missed a `~~~` fence and one indented inside a list item, and drew those
+ * from half-written source on every token. Only the last block can be open:
+ * every fence before it is complete and may be drawn while the answer is still
+ * arriving (ADR-0066).
  */
-export function openFenceBody(raw: string): string | null {
-  const fences = [...raw.matchAll(/```/g)]
-  if (fences.length % 2 === 0) return null
-  const last = fences[fences.length - 1].index ?? 0
-  const lineEnd = raw.indexOf('\n', last)
-  return lineEnd < 0 ? '' : raw.slice(lineEnd + 1)
+export function isOpenFence(lines: readonly string[], start: number, end: number): boolean {
+  const last = lines.length
+  if (end < last) return false
+  const opener = lines[start - 1]?.match(/(`{3,}|~{3,})/)?.[1]
+  if (!opener || end <= start) return true
+  // Container prefixes (`>`, list indentation) sit before a closing fence.
+  const closer = lines[end - 1]?.match(/^[\s>]*(`{3,}|~{3,})\s*$/)?.[1]
+  return !(closer && closer[0] === opener[0] && closer.length >= opener.length)
+}
+
+/**
+ * A GFM delimiter row: every cell only dashes, optionally between colons
+ * (`| :--- | ---: |`). Cell by cell rather than by a prefix: `| -3 |`, a data
+ * row holding a negative number, started like one and let a header-only table
+ * through half-parsed.
+ *
+ * Split on the pipe, then one anchored pattern per cell with no two
+ * quantifiers over the same characters: this runs on every token, over lines a
+ * model copies out of retrieved documents, and an earlier `\s*` either side of
+ * an optional pipe backtracked quadratically on a line of whitespace (32k tabs,
+ * 1,034 ms).
+ */
+function isDelimiterRow(line: string): boolean {
+  const inner = line.trim().replace(/^\|/, '').replace(/\|$/, '')
+  if (!inner.includes('-')) return false
+  return inner.split('|').every((cell) => /^\s*:?-+:?\s*$/.test(cell))
 }
 
 // Exported for its own spec. It is the one part of this module with a cost that
@@ -99,15 +122,14 @@ export function openFenceBody(raw: string): string | null {
  * Stabilize half-arrived markdown DURING streaming so partial syntax doesn't
  * flip the layout token-by-token.
  *
- * Two failure modes are smoothed:
- *  1. An odd number of ``` fences — the trailing prose after a just-opened fence
- *     would otherwise render as a giant code card until its closing fence lands.
- *     We append a synthetic closing fence so the in-progress block renders as a
- *     (small) code block instead of swallowing everything below it.
- *  2. A GFM table whose delimiter row (`|---|`) hasn't streamed in yet — the
- *     header row alone would be mis-parsed. We hold the trailing header-only
- *     table lines back until the delimiter row exists, rendering them as plain
- *     text for the moment (they re-parse as a table once the delimiter arrives).
+ * A GFM table whose delimiter row (`|---|`) hasn't streamed in yet — the
+ * header row alone would be mis-parsed. We hold the trailing header-only table
+ * lines back until the delimiter row exists, rendering them as plain text for
+ * the moment (they re-parse as a table once the delimiter arrives).
+ *
+ * A half-arrived fence needs nothing here: CommonMark runs an unclosed fence
+ * to the end of its container, so it already renders as the (small) code block
+ * it will become. See {@link isOpenFence} for how the renderer knows it is open.
  *
  * This only runs while `isStreaming` is true; finalized content is passed
  * through untouched so the fully-formed markdown always wins.
@@ -115,15 +137,8 @@ export function openFenceBody(raw: string): string | null {
 export function stabilizeStreamingMarkdown(raw: string): string {
   let content = raw
 
-  // 1) Auto-close an odd number of ``` fences.
-  const fenceCount = (content.match(/```/g) ?? []).length
-  if (fenceCount % 2 === 1) {
-    // Ensure the synthetic fence starts on its own line.
-    content += content.endsWith('\n') ? '```' : '\n```'
-  }
-
-  // 2) Defer a header-only GFM table (last block is table rows with no
-  //    delimiter row yet). Only touch the trailing run of pipe lines.
+  // Defer a header-only GFM table (last block is table rows with no
+  // delimiter row yet). Only touch the trailing run of pipe lines.
   const lines = content.split('\n')
   let end = lines.length
   // Skip a trailing blank line so we look at the actual last content lines.
@@ -132,12 +147,7 @@ export function stabilizeStreamingMarkdown(raw: string): string {
   while (start > 0 && lines[start - 1].trim().startsWith('|')) start--
   if (end - start >= 1) {
     const tableLines = lines.slice(start, end)
-    // `(?:\|\s*)?` rather than `\|?\s*`: the earlier form put two `\s*` either
-    // side of an optional pipe, and on a line of pure whitespace the engine can
-    // split that whitespace between them in quadratically many ways — 32k tabs
-    // took 1,034ms. Requiring a literal pipe to enter the group removes the
-    // overlap, and this runs on every token of every streaming answer.
-    const hasDelimiterRow = tableLines.some((l) => /^\s*(?:\|\s*)?:?-/.test(l) && l.includes('-'))
+    const hasDelimiterRow = tableLines.some(isDelimiterRow)
     if (!hasDelimiterRow) {
       // Escape the leading pipes so react-markdown renders them as text, not a
       // broken table, until the delimiter row streams in. Backslashes first:
@@ -177,8 +187,8 @@ interface MarkdownRenderState {
   compact: boolean
   /** The id of every heading, keyed by the source line it was written on. */
   headingIds: ReadonlyMap<number, string>
-  /** The body of the fence still being written, or `null`. See {@link openFenceBody}. */
-  openFence: string | null
+  /** The lines of the text being rendered while it streams, else `null`. See {@link isOpenFence}. */
+  streamingLines: readonly string[] | null
 }
 
 const NO_HEADINGS: ReadonlyMap<number, string> = new Map()
@@ -186,7 +196,7 @@ const NO_HEADINGS: ReadonlyMap<number, string> = new Map()
 const MarkdownRenderStateContext = createContext<MarkdownRenderState>({
   compact: false,
   headingIds: NO_HEADINGS,
-  openFence: null,
+  streamingLines: null,
 })
 
 const useMarkdownRenderState = (): MarkdownRenderState => useContext(MarkdownRenderStateContext)
@@ -222,10 +232,10 @@ function MarkdownSlot({ index }: { index?: string }) {
 function MarkdownCode({
   children,
   className: codeClassName,
-  node: _node,
+  node,
   ...props
 }: React.ComponentPropsWithoutRef<'code'> & ExtraProps) {
-  const { openFence } = useMarkdownRenderState()
+  const { streamingLines } = useMarkdownRenderState()
   // Block code vs inline. The class alone cannot decide it: a BARE
   // fence (``` with no language — the fence the model actually writes
   // when it forgets the tag) reaches here with no className at all, and
@@ -253,7 +263,8 @@ function MarkdownCode({
   // place (`isStreaming`). A source mermaid will not draw falls back to
   // the `CodeBlock` below.
   if (isMermaidFence(codeClassName, codeContent)) {
-    const stillWriting = openFence !== null && codeContent.trimEnd() === openFence.trimEnd()
+    const at = node?.position
+    const stillWriting = streamingLines !== null && at !== undefined && isOpenFence(streamingLines, at.start.line, at.end.line)
     return <MermaidDiagram source={codeContent} isStreaming={stillWriting} />
   }
 
@@ -489,7 +500,11 @@ function MarkdownCaption({ children, node }: React.ComponentPropsWithoutRef<'cap
 }
 
 function MarkdownCell({ children, align, style, node }: React.ComponentPropsWithoutRef<'td'> & ExtraProps) {
-  const tone = statusTone(getTextFromChildren(children))
+  // Marked by `rehypeTableShape`, which knows the cell's column: only a Status
+  // column's word is a mark. Read off the cell's text alone, „open" in a
+  // Bemerkung column became a chip.
+  const status = node?.properties?.dataStatus
+  const tone = isStatusTone(status) ? status : null
   const label = node?.properties?.dataLabel
   return (
     <td
@@ -623,8 +638,12 @@ export const MarkdownRenderer: FC<MarkdownRendererProps> = memo(
       () => (isStreaming ? stabilizeStreamingMarkdown(content) : content),
       [isStreaming, content]
     )
-    // The one fence still being written, if any: everything else is finished.
-    const openFence = useMemo(() => (isStreaming ? openFenceBody(content) : null), [isStreaming, content])
+    // The lines a code block's position points into, while there can be a
+    // fence still being written; trailing blank lines do not end a block.
+    const streamingLines = useMemo(
+      () => (isStreaming ? renderedContent.replace(/\s+$/, '').split('\n') : null),
+      [isStreaming, renderedContent]
+    )
     /**
      * The id of every heading in this document, keyed by the source line it was
      * written on.
@@ -643,8 +662,8 @@ export const MarkdownRenderer: FC<MarkdownRendererProps> = memo(
       return byLine
     }, [renderedContent])
     const renderState = useMemo(
-      (): MarkdownRenderState => ({ compact, headingIds, openFence }),
-      [compact, headingIds, openFence]
+      (): MarkdownRenderState => ({ compact, headingIds, streamingLines }),
+      [compact, headingIds, streamingLines]
     )
 
     return (

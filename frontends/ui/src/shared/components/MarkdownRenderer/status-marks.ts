@@ -3,8 +3,9 @@
  *
  * The answer writes a check as a Markdown table with a Status column
  * (`piloti_static.md`, <formatting> STRUCTURE) instead of a checklist card:
- * the same rows, no second channel. A cell whose WHOLE text is one of these
- * words renders as a coloured mark; anything else stays text, so a sentence
+ * the same rows, no second channel. A cell of a Status column
+ * (`table-shape.ts`) whose WHOLE text is one of these words renders as a
+ * coloured mark — „offen" in a Bemerkung column stays a word; anything else stays text, so a sentence
  * that merely contains „offen" is never restyled. The word itself is always
  * shown — colour never travels alone.
  */
@@ -38,4 +39,11 @@ const BY_WORD: ReadonlyMap<string, StatusTone> = new Map(
 export function statusTone(cellText: string): StatusTone | null {
   const word = cellText.trim().replace(/\s+/g, ' ').toLocaleLowerCase('de')
   return BY_WORD.get(word) ?? null
+}
+
+const TONE_NAMES: ReadonlySet<string> = new Set(TONES.map(([tone]) => tone))
+
+/** A tone read back off a hast property, which arrives as `unknown`. */
+export function isStatusTone(value: unknown): value is StatusTone {
+  return typeof value === 'string' && TONE_NAMES.has(value)
 }

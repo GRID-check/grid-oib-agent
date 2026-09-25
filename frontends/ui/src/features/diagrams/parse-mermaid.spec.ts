@@ -5,7 +5,8 @@
  * tests that notice when a mermaid upgrade moves it: each grammar the prompt
  * teaches, parsed for real, must come out as the model its view draws.
  */
-import { describe, expect, it } from 'vitest'
+import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { MAX_GRAPH_NODES } from './model'
 import { parseMermaid } from './parse-mermaid'
 
 const PARSE_BUDGET = 20_000
@@ -103,3 +104,74 @@ describe('parseMermaid', () => {
     expect(await parseMermaid('journey\n  title Einreichung\n  section Planung\n    Pläne: 3: Planer')).toBeNull()
   }, PARSE_BUDGET)
 })
+
+describe('parseMermaid, in a time zone east of Greenwich', () => {
+  // Mermaid reads `2026-10-01` as LOCAL midnight; in Vienna that instant is
+  // still 30 September in UTC. CI runs in UTC, where the two agree, so the
+  // zone is set here rather than left to the machine: this is the reader's.
+  const zone = process.env.TZ
+  beforeAll(() => {
+    process.env.TZ = 'Europe/Vienna'
+  })
+  afterAll(() => {
+    if (zone === undefined) delete process.env.TZ
+    else process.env.TZ = zone
+  })
+
+  it('keeps the calendar date the source wrote', async () => {
+    expect(new Date(2026, 9, 1).getTimezoneOffset()).not.toBe(0)
+    const model = await parseMermaid('gantt\n  dateFormat YYYY-MM-DD\n  section Verfahren\n  Vorprüfung :a1, 2026-10-01, 14d')
+    expect(model?.kind === 'schedule' && model.sections[0].tasks[0]).toMatchObject({ start: '2026-10-01', end: '2026-10-15' })
+  }, PARSE_BUDGET)
+})
+
+describe('what mermaid writes into a label', () => {
+  it('decodes its entity syntax instead of printing the placeholders', async () => {
+    const model = await parseMermaid('flowchart TD\n  A["Sag #quot;ja#quot; #amp; #35;4"] --> B')
+    expect(model?.kind === 'flow' && model.nodes[0].label).toBe('Sag "ja" & #4')
+  }, PARSE_BUDGET)
+
+  it('leaves a flowchart with a subgraph to mermaid', async () => {
+    expect(await parseMermaid('flowchart TD\n  subgraph S [Gruppe]\n    A --> B\n  end\n  B --> C')).toBeNull()
+  }, PARSE_BUDGET)
+
+  it(`leaves a graph of more than ${MAX_GRAPH_NODES} nodes to mermaid`, async () => {
+    const chain = (n: number) => Array.from({ length: n - 1 }, (_, i) => `  N${i} --> N${i + 1}`).join('\n')
+    expect(await parseMermaid(`flowchart TD\n${chain(MAX_GRAPH_NODES)}`)).not.toBeNull()
+    expect(await parseMermaid(`flowchart TD\n${chain(MAX_GRAPH_NODES + 1)}`)).toBeNull()
+  }, PARSE_BUDGET)
+})
+
+describe('a state diagram', () => {
+  it('draws only [*] as a point, whatever the states are called', async () => {
+    const model = await parseMermaid('stateDiagram-v2\n  [*] --> start\n  start --> Prüfung_end\n  Prüfung_end --> end\n  end --> [*]')
+    if (model?.kind !== 'flow') throw new Error('expected a flow')
+    expect(model.nodes.filter((n) => n.shape === 'point')).toHaveLength(2)
+    expect(model.nodes.filter((n) => n.shape === 'step').map((n) => n.label)).toEqual(['start', 'Prüfung_end', 'end'])
+  }, PARSE_BUDGET)
+
+  it('labels a state by its description', async () => {
+    const model = await parseMermaid('stateDiagram-v2\n  state "Lange Bezeichnung" as L\n  [*] --> L\n  L --> [*]')
+    expect(model?.kind === 'flow' && model.nodes.find((n) => n.id === 'L')?.label).toBe('Lange Bezeichnung')
+  }, PARSE_BUDGET)
+
+  it('leaves a composite state to mermaid rather than lose what is inside it', async () => {
+    const source = 'stateDiagram-v2\n  [*] --> Verfahren\n  state Verfahren {\n    [*] --> Vorprüfung\n    Vorprüfung --> [*]\n  }\n  Verfahren --> [*]'
+    expect(await parseMermaid(source)).toBeNull()
+  }, PARSE_BUDGET)
+})
+
+describe('a sequence', () => {
+  it('reads every dotted arrow as a reply', async () => {
+    const model = await parseMermaid('sequenceDiagram\n  A->>B: frage\n  B-->A: a\n  B--)A: b\n  B--xA: c\n  B-->>A: d\n  A-)B: e')
+    expect(model?.kind === 'handoff' && model.steps.map((step) => [step.label, step.reply])).toEqual([
+      ['frage', false],
+      ['a', true],
+      ['b', true],
+      ['c', true],
+      ['d', true],
+      ['e', false],
+    ])
+  }, PARSE_BUDGET)
+})
+

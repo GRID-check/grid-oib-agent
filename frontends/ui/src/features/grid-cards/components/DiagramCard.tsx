@@ -50,9 +50,10 @@
  *
  * The document argument survives where it is true — the bytes that get FILED
  * are always drawn on paper, whatever theme the reader is in. This card files,
- * so it needs that second render exactly as the fence does: `useRenderedDiagram`
- * hands back `svg` for the screen and `fileSvg` for the file, and the filing
- * hook is given the second one. What was dropped is the claim that the SCREEN
+ * so it follows the fence exactly: where mermaid's SVG is the picture,
+ * `useRenderedDiagram` hands back `svg` for the screen and `fileSvg` for the
+ * file; where this product's view draws it, the paper copy is drawn only when
+ * the reader files (`renderPaperDiagram`). What was dropped is the claim that the SCREEN
  * copy has to look like paper too — a preview of a document is not the same
  * argument as the document.
  *
@@ -82,16 +83,15 @@ import { type FC } from 'react'
 import { Workflow } from 'lucide-react'
 import { Card } from '@/components/ui/card'
 import { SectionLabel } from '@/components/ui/section-label'
-import { Skeleton } from '@/components/ui/skeleton'
 import { CodeBlock } from '@/shared/components/CodeBlock'
 import { useTranslations } from '@/i18n'
 import { diagramFrameStyle } from '@/features/diagrams/diagram-size'
-import { useRenderedDiagram } from '@/features/diagrams/use-rendered-diagram'
+import { renderPaperDiagram, useRenderedDiagram } from '@/features/diagrams/use-rendered-diagram'
 import { useDiagramModel } from '@/features/diagrams/use-diagram-model'
-import { useDiagramFilingTarget } from '@/features/diagrams/diagram-filing-context'
 import { DiagramView } from '@/features/diagrams/views/diagram-views'
 import { useDiagramFiling } from '@/features/diagrams/use-diagram-filing'
 import { DiagramFilingControls } from '@/features/diagrams/components/diagram-filing-controls'
+import { DrawingSkeleton } from '@/features/diagrams/components/drawing-skeleton'
 import { NormRefFooter } from '../schematics/kit'
 import type { NormReferenceData } from '../schematics/types'
 
@@ -105,46 +105,25 @@ interface DiagramCardProps {
 /** Past this the source is folded, matching the fence. */
 const SOURCE_MAX_LINES = 15
 
-/**
- * The drawing's space while it is being laid out.
- *
- * Three bars rather than one block, because the shape a reader is waiting for
- * is a graph and a single grey rectangle reads as an image that failed.
- *
- * The height is a REPRESENTATIVE one, not a reservation, and the difference is
- * worth being honest about: a mermaid drawing's height is not known until the
- * graph has been laid out, so the card does resize when the SVG lands and no
- * skeleton can prevent that. What the fixed height buys is that the card is not
- * a thin sliver first — a 20px placeholder growing to a 600px sequence diagram
- * moves everything below it much further than a 132px one does. Nothing is
- * animated either way; the design language forbids animating height, and this
- * changes it in one paint.
- */
-const DrawingSkeleton: FC = () => (
-  <div className="flex h-[132px] flex-col justify-center gap-3" aria-hidden="true">
-    <Skeleton className="h-4 w-2/5 rounded-md" />
-    <Skeleton className="h-4 w-3/5 rounded-md" />
-    <Skeleton className="h-4 w-1/3 rounded-md" />
-  </div>
-)
-
 export const DiagramCard: FC<DiagramCardProps> = ({ title, source, caption, reference }) => {
   const t = useTranslations('chat')
   const tDiagrams = useTranslations('diagrams')
   const tCommon = useTranslations('common')
   // Same split as the fence (`mermaid-diagram.tsx`): this product's view when
-  // the parser yields a model, mermaid's SVG only as the file or the fallback.
+  // the parser yields a model, mermaid's SVG only as the fallback — or as the
+  // file, drawn on paper when the reader files it and not before.
   const model = useDiagramModel(source)
-  const target = useDiagramFilingTarget()
-  const { svg, fileSvg, failed: svgFailed } = useRenderedDiagram(
-    source,
-    model === null || (model !== undefined && target !== null)
-  )
+  const { svg, fileSvg, failed: svgFailed } = useRenderedDiagram(source, model === null)
   const failed = !model && svgFailed
   // `fileSvg`, never `svg`: the bytes that go into the project are the paper
   // ones whatever theme the reader is in. The card's own title beats anything
   // the source carries — the model wrote it for this drawing.
-  const filing = useDiagramFiling({ source, fileSvg, title })
+  const filing = useDiagramFiling({
+    source,
+    fileSvg,
+    renderFileSvg: model ? () => renderPaperDiagram(source) : undefined,
+    title,
+  })
   const state = failed ? 'failed' : model || svg ? 'drawn' : 'drawing'
 
   return (

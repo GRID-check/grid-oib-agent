@@ -636,6 +636,18 @@ Visit [our site](https://example.com) for more.
       expect(stabilizeStreamingMarkdown(table)).toBe(table)
     })
 
+    test('a data row of negative numbers is not mistaken for a delimiter row', () => {
+      const partial = '| Differenz |\n| -3 |'
+
+      expect(stabilizeStreamingMarkdown(partial)).toBe('\\| Differenz \\|\n\\| -3 \\|')
+    })
+
+    test('a half-arrived fence is left for the parser, which already runs it to the end', () => {
+      const partial = 'Vorher\n\n```mermaid\ngraph TD\n  A -->'
+
+      expect(stabilizeStreamingMarkdown(partial)).toBe(partial)
+    })
+
     test('a header-only table is still deferred until its delimiter row arrives', () => {
       const partial = '| Bauteil | REI |'
 
@@ -644,6 +656,20 @@ Visit [our site](https://example.com) for more.
   })
 
   describe('tables as checklists', () => {
+    test('a status word outside a Status column stays text', () => {
+      const table = [
+        '| Punkt | Status | Bemerkung |',
+        '|---|---|---|',
+        '| Fluchtweg | erfüllt | open |',
+        '| Rauchabzug | offen | required |',
+      ].join('\n')
+      render(<MarkdownRenderer content={table} />)
+      expect(screen.getAllByTestId('status-mark').map((m) => m.textContent)).toEqual([
+        'erfüllt',
+        'offen',
+      ])
+    })
+
     test('a Status cell renders as a mark with its word; other cells stay text', () => {
       const table = [
         '| Kriterium | Status | Grund |',

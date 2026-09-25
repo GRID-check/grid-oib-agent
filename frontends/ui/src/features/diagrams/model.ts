@@ -60,7 +60,11 @@ export interface ScheduleModel {
 
 export interface ScheduleTask {
   label: string
-  /** ISO dates. A milestone has start === end. */
+  /**
+   * ISO calendar dates, as the source wrote them. `end` is EXCLUSIVE, as in
+   * mermaid: `2026-10-01, 14d` ends on `2026-10-15` and the last day worked is
+   * the 14th. A milestone has start === end.
+   */
   start: string
   end: string
   milestone: boolean
@@ -89,6 +93,60 @@ const text = (value: unknown): string => (typeof value === 'string' ? value.trim
 
 const record = (value: unknown): Record<string, unknown> => (value && typeof value === 'object' ? (value as Record<string, unknown>) : {})
 
+/** One entry of a keyed collection the parser keeps as a `Map` or a plain object. */
+const lookup = (collection: unknown, key: string): unknown =>
+  collection instanceof Map ? collection.get(key) : record(collection)[key]
+
+/**
+ * Past this many nodes a graph goes to mermaid's SVG instead.
+ *
+ * Every node graph here runs dagre in the reader's tab, and dagre is not
+ * linear: measured at ~200 ms for 100 nodes and ~520 ms for 300, per layout,
+ * on the main thread. A diagram that large is also no longer one a reader
+ * follows node by node, which is what these views are for.
+ */
+export const MAX_GRAPH_NODES = 80
+
+/** `<br>`, `<br/>`, `<br />` in any case: mermaid's line break inside a label. */
+const LINE_BREAK = /<br\s*\/?>/gi
+/** Inline formatting a label may carry; dropped, its text kept. */
+const FORMATTING_TAG = /<\/?(?:b|i|em|strong|u|s|small|sub|sup|span)(?:\s[^<>]*)?>/gi
+/** The entities a label may still hold after the parser's sanitiser, decoded by name. */
+const NAMED_ENTITY: Record<string, string> = { quot: '"', amp: '&', lt: '<', gt: '>', apos: "'", nbsp: ' ' }
+
+/**
+ * A mermaid label as plain text with line breaks, or null when it carries
+ * markup this product cannot draw as text.
+ *
+ * The parser hands a label over the way its SVG renderer wants it: its own
+ * `#quot;` entity syntax swapped for placeholders (`ﬂ°quot¶ß`), `<br>` for a
+ * line break, and whatever other HTML the sanitiser kept. Printed raw, that was
+ * placeholder junk and visible tags inside a node. Anything left that looks like
+ * markup after the known forms are read means the label is not plain text, and
+ * the caller falls back to mermaid's own drawing rather than guess.
+ */
+export function plainLabel(raw: string): string | null {
+  const withoutTags = raw.replace(LINE_BREAK, '\n').replace(FORMATTING_TAG, '')
+  if (/<[a-z/!]/i.test(withoutTags)) return null
+  const entities = withoutTags.replace(/ﬂ°°/g, '&#').replace(/ﬂ°/g, '&').replace(/¶ß/g, ';')
+  let unknown = false
+  const decoded = entities.replace(/&(#x[0-9a-f]+|#\d+|[a-z][a-z0-9]*);/gi, (whole, name: string) => {
+    if (name.startsWith('#')) {
+      const code = name[1] === 'x' || name[1] === 'X' ? Number.parseInt(name.slice(2), 16) : Number(name.slice(1))
+      if (Number.isInteger(code) && code > 0 && code <= 0x10ffff) return String.fromCodePoint(code)
+    }
+    const known = NAMED_ENTITY[name.toLowerCase()]
+    if (known === undefined) unknown = true
+    return known ?? whole
+  })
+  if (unknown) return null
+  return decoded
+    .split('\n')
+    .map((line) => line.replace(/\s+/g, ' ').trim())
+    .filter(Boolean)
+    .join('\n')
+}
+
 /** Mermaid's node shapes, folded into the three this product draws. */
 const FLOW_SHAPE: Record<string, FlowNode['shape']> = {
   diamond: 'decision',
@@ -100,31 +158,46 @@ const FLOW_SHAPE: Record<string, FlowNode['shape']> = {
 }
 
 export function flowFromFlowchart(db: Record<string, unknown>, source: string): FlowModel | null {
-  const nodes = entries(call(db, 'getVertices')).map((vertex): FlowNode => {
-    const v = record(vertex)
+  // A subgraph is a group drawn around its nodes; these views have no group,
+  // and drawing it as one more step labelled by its id says something else.
+  if (entries(call(db, 'getSubGraphs')).length > 0) return null
+  const vertices = entries(call(db, 'getVertices')).map(record)
+  if (vertices.length === 0 || vertices.length > MAX_GRAPH_NODES) return null
+  const nodes: FlowNode[] = []
+  for (const v of vertices) {
     const id = text(v.id)
-    return { id, label: text(v.text) || id, shape: FLOW_SHAPE[text(v.type)] ?? 'step' }
-  })
-  const edges = entries(call(db, 'getEdges')).map((edge, index): FlowEdge => {
-    const e = record(edge)
-    const label = text(e.text)
-    return {
-      id: text(e.id) || `e${index}`,
-      from: text(e.start),
-      to: text(e.end),
+    // A markdown string (`"`**fett**`"`) is formatting this view would print as asterisks.
+    const label = v.labelType === 'markdown' ? null : plainLabel(text(v.text))
+    if (label === null) return null
+    nodes.push({ id, label: label || id, shape: FLOW_SHAPE[text(v.type)] ?? 'step' })
+  }
+  const edges: FlowEdge[] = []
+  for (const [index, edge] of entries(call(db, 'getEdges')).map(record).entries()) {
+    const label = edge.labelType === 'markdown' ? null : plainLabel(text(edge.text))
+    if (label === null) return null
+    edges.push({
+      id: text(edge.id) || `e${index}`,
+      from: text(edge.start),
+      to: text(edge.end),
       ...(label ? { label } : {}),
-      ...(text(e.stroke) === 'dotted' ? { dashed: true } : {}),
-    }
-  })
-  if (nodes.length === 0) return null
+      ...(text(edge.stroke) === 'dotted' ? { dashed: true } : {}),
+    })
+  }
   const header = source.trim().split('\n')[0] ?? ''
   const direction = /\b(LR|RL)\b/.test(header) ? 'right' : 'down'
   return { kind: 'flow', direction, nodes, edges: edges.filter((e) => e.from && e.to) }
 }
 
+/** The ids mermaid gives a top-level `[*]`: a start where it leads out, an end where it is reached. */
+const STATE_POINTS = new Set(['root_start', 'root_end'])
+
 export function flowFromState(db: Record<string, unknown>): FlowModel | null {
   const relations = entries(call(db, 'getRelations')).map(record)
   if (relations.length === 0) return null
+  const states = call(db, 'getStates')
+  // A composite state holds a diagram of its own (`doc`); flattening it lost
+  // every state inside, so such a diagram is mermaid's to draw.
+  if (entries(states).some((state) => Array.isArray(record(state).doc))) return null
   const ids = new Set<string>()
   const edges = relations.map((relation, index): FlowEdge => {
     const from = text(relation.id1)
@@ -134,11 +207,17 @@ export function flowFromState(db: Record<string, unknown>): FlowModel | null {
     const label = text(relation.relationTitle)
     return { id: `s${index}`, from, to, ...(label ? { label } : {}) }
   })
-  const states = record(call(db, 'getStates'))
+  if (ids.size > MAX_GRAPH_NODES) return null
   const nodes = [...ids].map((id): FlowNode => {
-    const point = /(^|_)(start|end)$/.test(id)
-    const descriptions = entries(record(states[id]).descriptions).map(text).filter(Boolean)
-    return { id, label: point ? '' : descriptions[0] || id, shape: point ? 'point' : 'step' }
+    // By mermaid's own id for `[*]`, never by the name: a state called
+    // „start" or „Prüfung_end" is a state like any other.
+    if (STATE_POINTS.has(id)) return { id, label: '', shape: 'point' }
+    const state = record(lookup(states, id))
+    const type = text(state.type)
+    if (type === 'start' || type === 'end') return { id, label: '', shape: 'point' }
+    // `state "Lange Bezeichnung" as L` keeps the name in `descriptions`.
+    const description = entries(state.descriptions).map(text).find(Boolean)
+    return { id, label: description || id, shape: 'step' }
   })
   return { kind: 'flow', direction: 'down', nodes, edges }
 }
@@ -150,8 +229,14 @@ export function mapFromMindmap(db: Record<string, unknown>): MapModel | null {
     return { id: path, label, children: entries(n.children).map((child, index) => walk(child, `${path}.${index}`)) }
   }
   const root = call(db, 'getMindmap')
-  return root ? { kind: 'map', root: walk(root, 'root') } : null
+  if (!root) return null
+  const tree = walk(root, 'root')
+  const count = (node: MapNode): number => node.children.reduce((sum, child) => sum + count(child), 1)
+  return count(tree) > MAX_GRAPH_NODES ? null : { kind: 'map', root: tree }
 }
+
+/** Mermaid's dotted message line types; see `handoffFromSequence`. */
+const REPLY_LINE_TYPES = new Set([1, 4, 6, 25])
 
 export function handoffFromSequence(db: Record<string, unknown>): HandoffModel | null {
   const parties = entries(call(db, 'getActors')).map((actor) => {
@@ -159,19 +244,25 @@ export function handoffFromSequence(db: Record<string, unknown>): HandoffModel |
     return { id: text(a.name), label: text(a.description) || text(a.name) }
   })
   const known = new Set(parties.map((party) => party.id))
-  // Mermaid's message types: 0/1 solid and dotted with arrowhead (1 is the
-  // dotted "reply"), 3/4 open ends. Notes and loop markers carry no `from`.
+  // Mermaid's LINETYPE: every DOTTED arrow is a reply — 1 `-->>`, 4 `--x`,
+  // 6 `-->`, 25 `--)` — and the solid ones (0, 3, 5, 24) carry the flow.
+  // Notes and loop markers carry no `from`.
   const steps = entries(call(db, 'getMessages'))
     .map(record)
     .filter((m) => known.has(text(m.from)) && known.has(text(m.to)))
-    .map((m) => ({ from: text(m.from), to: text(m.to), label: text(m.message), reply: m.type === 1 || m.type === 4 }))
+    .map((m) => ({ from: text(m.from), to: text(m.to), label: text(m.message), reply: REPLY_LINE_TYPES.has(Number(m.type)) }))
   return parties.length > 1 && steps.length > 0 ? { kind: 'handoff', parties, steps } : null
 }
 
 export function scheduleFromGantt(db: Record<string, unknown>): ScheduleModel | null {
+  // Mermaid parses `2026-10-01` as LOCAL midnight. `toISOString` reads that
+  // back in UTC, which east of Greenwich is the evening before: every date a
+  // reader in Vienna saw was a day early. The calendar date is the local one.
   const iso = (value: unknown): string | null => {
     const date = value instanceof Date ? value : typeof value === 'string' ? new Date(value) : null
-    return date && !Number.isNaN(date.getTime()) ? date.toISOString().slice(0, 10) : null
+    if (!date || Number.isNaN(date.getTime())) return null
+    const pad = (n: number) => String(n).padStart(2, '0')
+    return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`
   }
   const sections = new Map<string, ScheduleTask[]>()
   for (const task of entries(call(db, 'getTasks')).map(record)) {

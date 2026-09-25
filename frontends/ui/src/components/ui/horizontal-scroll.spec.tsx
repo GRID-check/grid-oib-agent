@@ -5,7 +5,7 @@
  * cannot, so the columns past the edge were out of its reach.
  */
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { act, render, screen } from '@testing-library/react'
 
 import { HorizontalScroll } from './horizontal-scroll'
 
@@ -40,5 +40,51 @@ describe('HorizontalScroll', () => {
     expect(screen.queryByRole('region')).toBeNull()
     expect(container.firstElementChild).not.toHaveAttribute('tabindex')
     expect(container.firstElementChild).not.toHaveAttribute('aria-label')
+  })
+})
+
+describe('HorizontalScroll, when its content is replaced', () => {
+  it('notices a wider child that arrives after mount', () => {
+    const observed: Element[] = []
+    let notify = () => {}
+    vi.stubGlobal(
+      'ResizeObserver',
+      class {
+        constructor(callback: () => void) {
+          notify = callback
+        }
+        observe(target: Element) {
+          observed.push(target)
+        }
+        disconnect() {}
+      }
+    )
+    layout(300, 300)
+    const { rerender } = render(
+      <HorizontalScroll aria-label="Diagramm, seitlich scrollbar">
+        <div data-testid="skeleton" />
+      </HorizontalScroll>
+    )
+    expect(screen.queryByRole('region')).toBeNull()
+
+    // The drawing lands in the skeleton's place and is wider than the column.
+    rerender(
+      <HorizontalScroll aria-label="Diagramm, seitlich scrollbar">
+        <svg data-testid="drawing" />
+      </HorizontalScroll>
+    )
+    layout(900, 300)
+    const drawing = screen.getByTestId('drawing')
+    // Whatever is observed must still contain the new child, or no resize of
+    // it is ever reported.
+    expect(
+      observed.some(
+        (target) =>
+          target !== drawing.closest('[class*="overflow-x-auto"]') && target.contains(drawing)
+      )
+    ).toBe(true)
+    act(() => notify())
+    expect(screen.getByRole('region', { name: 'Diagramm, seitlich scrollbar' })).toBeInTheDocument()
+    vi.unstubAllGlobals()
   })
 })

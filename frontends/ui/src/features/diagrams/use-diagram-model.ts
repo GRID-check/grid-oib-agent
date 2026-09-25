@@ -29,7 +29,7 @@ import { useEffect, useState } from 'react'
 import type { DiagramModel } from './model'
 import { parseMermaid } from './parse-mermaid'
 
-/** Enough for every diagram on a long conversation page; oldest out first. */
+/** Enough for every diagram on a long conversation page; least recently used out first. */
 const MODEL_CACHE_LIMIT = 64
 
 /** Settled parses. `null` is a real answer ("no view"), so `has` decides, not truthiness. */
@@ -45,7 +45,17 @@ function remember(source: string, model: DiagramModel | null): void {
   if (oldest !== undefined) settled.delete(oldest)
 }
 
+/** A settled parse, read as a use: it moves to the back of the eviction order. */
+function recall(source: string): { model: DiagramModel | null } | null {
+  if (!settled.has(source)) return null
+  const model = settled.get(source) ?? null
+  remember(source, model)
+  return { model }
+}
+
 function parseOnce(source: string): Promise<DiagramModel | null> {
+  const hit = recall(source)
+  if (hit) return Promise.resolve(hit.model)
   const pending = inFlight.get(source)
   if (pending) return pending
   // Any failure is "no view": the caller falls back to mermaid's SVG. A
@@ -68,10 +78,18 @@ export function clearDiagramModelCache(): void {
 }
 
 export function useDiagramModel(source: string, enabled = true): DiagramModel | null | undefined {
-  const [state, setState] = useState<{ source: string; model: DiagramModel | null } | null>(null)
-  const known = enabled && settled.has(source)
+  // Seeded from the cache, so a mount on a hit HOLDS its model: the cache is a
+  // cache, and a page that reads 64 other diagrams evicts this one while it is
+  // still on screen. Reading it back only from the cache then answered
+  // `undefined` for good — the effect below does not run again for a source
+  // it has already seen.
+  const [state, setState] = useState<{ source: string; model: DiagramModel | null } | null>(() => {
+    const hit = enabled ? recall(source) : null
+    return hit ? { source, model: hit.model } : null
+  })
+  const held = state?.source === source ? state : null
   useEffect(() => {
-    if (!enabled || settled.has(source)) return
+    if (!enabled || held) return
     let cancelled = false
     void parseOnce(source).then((model) => {
       if (!cancelled) setState({ source, model })
@@ -79,7 +97,11 @@ export function useDiagramModel(source: string, enabled = true): DiagramModel | 
     return () => {
       cancelled = true
     }
-  }, [source, enabled])
-  if (known) return settled.get(source) ?? null
-  return state?.source === source ? state.model : undefined
+  }, [source, enabled, held])
+  if (held) return held.model
+  // A source this mount has not held yet but the page already read (the
+  // fence's text changed to one parsed elsewhere): answer on this render, and
+  // the effect above takes it into state.
+  if (enabled && settled.has(source)) return settled.get(source) ?? null
+  return undefined
 }

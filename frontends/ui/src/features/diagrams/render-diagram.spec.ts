@@ -1,5 +1,5 @@
-import { describe, expect, it } from 'vitest'
-import { serialized } from './render-diagram'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { MERMAID_TASK_TIMEOUT_MS, serialized, withMermaid } from './render-diagram'
 
 describe('mermaid renders one at a time', () => {
   it('never starts a task before the previous one finished', async () => {
@@ -25,5 +25,21 @@ describe('mermaid renders one at a time', () => {
     })
     await expect(render(true)).rejects.toThrow('broken mermaid')
     await expect(render(false)).resolves.toBe('drawn')
+  })
+})
+
+describe('the mermaid lock', () => {
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it('is released by a task that never settles, so the next diagram still draws', async () => {
+    vi.useFakeTimers()
+    const stuck = withMermaid(() => new Promise<string>(() => {}))
+    const next = withMermaid(async () => 'drawn')
+    const failed = expect(stuck).rejects.toThrow(/in time/)
+    await vi.advanceTimersByTimeAsync(MERMAID_TASK_TIMEOUT_MS)
+    await failed
+    await expect(next).resolves.toBe('drawn')
   })
 })
