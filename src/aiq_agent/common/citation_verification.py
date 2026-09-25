@@ -1419,7 +1419,12 @@ _INLINE_CITATION_RE = re.compile(r"\[(\d+)\]")
 #: A marker naming several sources at once: ``[2–5]``, ``[2, 3]``, ``[1-3, 7]``.
 #: Not the label of a Markdown link (``[1-3](url)``): expanded, that link would
 #: lose its label to three markers. The same guard as ``surface_citations._CITATION``.
-_GROUPED_CITATION_RE = re.compile(r"(?<!\[)\[(\d{1,3}(?:\s*[,–-]\s*\d{1,3})+)\](?![\](])")
+#: Each part is a source number as the model writes one: no leading zero, so
+#: ``[1,000]`` and ``[0, 1]`` stay as written. A German decimal ``[1,5]`` still
+#: reads as two citations: the model writes ``[1,2]`` for two sources too, and
+#: no character tells them apart. The verifier removes whichever of the two
+#: names no source line.
+_GROUPED_CITATION_RE = re.compile(r"(?<!\[)\[([1-9]\d{0,2}(?:\s*[,–-]\s*[1-9]\d{0,2})+)\](?![\](])")
 #: The widest range read as citations; wider is a bracketed figure (``[1990–2020]``
 #: fails the digit bound anyway) or a slip, and stays as written.
 _MAX_CITATION_RANGE = 20
@@ -1453,7 +1458,8 @@ def expand_grouped_citations(text: str, *, unterminated_fence_is_code: bool = Fa
             if len(bounds) != 2 or not 0 < low < high or high - low > _MAX_CITATION_RANGE:
                 return match.group(0)
             numbers.extend(range(low, high + 1))
-        return "".join(f"[{number}]" for number in numbers)
+        # ``[1–3, 2]`` names source 2 once.
+        return "".join(f"[{number}]" for number in dict.fromkeys(numbers))
 
     return _GROUPED_CITATION_RE.sub(expand, text)
 
@@ -1665,9 +1671,11 @@ def cited_document_entries(text: str, registry: SourceRegistry) -> list[SourceEn
 
     The document-key counterpart to :meth:`SourceRegistry.has_url`: it answers
     "which of the documents we retrieved does this answer cite?" without needing
-    a URL. Matching is the same standalone-token test the citation verifier uses,
-    so a registered ``plan.pdf`` is not claimed by a mention of
-    ``bestandsplan.pdf``.
+    a URL. Each source line is resolved by :func:`_resolve_source_line`, the one
+    reading of a source line the verifier keeps or drops it on, so a document
+    is cited here exactly when ``verify_citations`` would keep its line. A
+    filename scan of the section did not: ``Bauordnung.pdf`` is a substring of
+    ``NÖ Bauordnung.pdf``, and the other Land's document counted as cited.
 
     Deep research had no such path — its "cited" signal was URL-only, so a
     knowledge-base source could never be marked cited and was dropped from the
@@ -1676,9 +1684,10 @@ def cited_document_entries(text: str, registry: SourceRegistry) -> list[SourceEn
     A document is `(collection, filename)`, so the shelf a source line names is
     part of what it cites: a line reading `Plan.pdf (Büroarchiv), p.3` marks the
     Archiv document, not the project upload that happens to share the name and
-    to sit earlier in the registry. Unqualified lines keep the old, fail-open
+    to sit earlier in the registry. Unqualified lines keep the fail-open
     reading (the first same-named entry), because a bare filename is proof the
-    document was retrieved but says nothing about which copy.
+    document was retrieved but says nothing about which copy. A line that
+    names the document by its TITLE cites it just as much.
 
     Only the source section is scanned, NEVER the prose. Citing is a claim the
     answer makes in its source list; a filename appearing in body text is not
@@ -1692,46 +1701,24 @@ def cited_document_entries(text: str, registry: SourceRegistry) -> list[SourceEn
     """
     if not text:
         return []
-    section_match = _REFERENCE_SECTION_RE.search(_normalize_citation_syntax(text))
+    normalized = _normalize_citation_syntax(text)
+    section_match = _REFERENCE_SECTION_RE.search(normalized)
     if section_match is None:
         return []
-    lowered = _normalize_citation_syntax(text)[section_match.start() :].lower()
-    seen: set[tuple[str | None, str]] = set()
-    cited: list[SourceEntry] = []
-    for entry in registry._citation_keys:
-        entry_file, _ = _parse_citation_key(entry.citation_key or "")
-        if not entry_file:
+    section = _normalize_source_section_layout(normalized[section_match.start() :])
+    cited: dict[tuple[str | None, str], SourceEntry] = {}
+    for line in _CITATION_LINE_RE.finditer(section):
+        ref_text = line.group(2).strip()
+        token = _ORIGIN_TOKEN_RE.match(ref_text)
+        source = _resolve_source_line(ref_text[token.end() :] if token else ref_text, registry)
+        # A line resolved by its link is the URL path's (``has_url``), not a document.
+        if source.url or not source.citation_key:
             continue
-        for end in _filename_token_ends(lowered, entry_file.lower()):
-            # Resolve through the registry with the shelf this line states, so
-            # the entry marked cited is the document the line names. The
-            # qualifier regex is case-insensitive, hence matching the lowered
-            # section is safe.
-            qualifier_match = _SCOPE_QUALIFIER_TOKEN_RE.match(lowered[end:])
-            label = shelf_qualifier(shelf_for_qualifier(qualifier_match.group(1))) if qualifier_match else None
-            key = f"{entry_file} ({label})" if label else entry_file
-            match = registry.entry_for_citation_key(key) or entry
-            identity = _document_identity(match)
-            if identity in seen:
-                continue
-            seen.add(identity)
-            cited.append(match)
-    # A line that names the document by its TITLE cites it just as much (see
-    # ``_match_registry_title``): the same one-line claim, in the tool's own
-    # ``Source:`` spelling. Resolved per line so an ambiguous head stays uncited.
-    for line in _CITATION_LINE_RE.findall(lowered):
-        key = _match_registry_title(line[1] if isinstance(line, tuple) else str(line), registry)
-        if not key:
-            continue
-        match = registry.entry_for_citation_key(key)
-        if match is None:
-            continue
-        identity = _document_identity(match)
-        if identity in seen:
-            continue
-        seen.add(identity)
-        cited.append(match)
-    return cited
+        entry = registry.entry_for_citation_key(source.citation_key)
+        if entry is not None:
+            cited.setdefault(_document_identity(entry), entry)
+    order = {id(entry): index for index, entry in enumerate(registry._citation_keys)}
+    return sorted(cited.values(), key=lambda entry: order.get(id(entry), len(order)))
 
 
 _TITLE_PREFIX_SEPARATOR_RE = re.compile(r"\s+[-\u2013\u2014]\s+|:\s+")
@@ -1792,16 +1779,25 @@ def _drop_url(text: str, url: str) -> str:
 
     ``[Title](url)`` keeps its title, ``<url>`` and ``(url)`` go whole, a bare
     ``Title - url`` or ``Title | url`` loses the separator with the link,
-    ``Title – Source: url`` and ``Title (Source: url)`` the label too, and a
-    leading ``url - Title`` the separator after it.
+    ``Title – Source: url`` and ``Title (Source: url)`` the label too, a
+    leading ``url - Title`` the separator after it, and ``Title (url, 2024)``
+    the link and its comma, keeping ``(2024)``.
     """
     escaped = re.escape(url)
     text = re.sub(rf"\[([^\]]*)\]\({escaped}\)", r"\1", text)
     text, leading = re.subn(
         rf"{_LEADING_LINK_PREFIX}[<(]?{escaped}[>)]?\s*(?:{_LINK_SEPARATOR}\s*)?", r"\1", text, flags=re.IGNORECASE
     )
-    if not leading:
-        link = rf"(?:\(\s*(?:{_LINK_LABEL})?<?{escaped}>?\s*\)|(?:{_LINK_LABEL})?[<(]?{escaped}[>)]?)"
+    if leading:
+        return text.rstrip()
+    # A link sharing its parentheses with something else, ``(url, 2024)`` or
+    # ``(2024, url)``, takes its comma and leaves the parentheses to the rest.
+    labelled = rf"(?:{_LINK_LABEL})?<?{escaped}>?"
+    text, shared = re.subn(rf"\(\s*{labelled}\s*,\s*", "(", text, flags=re.IGNORECASE)
+    if not shared:
+        text, shared = re.subn(rf"\s*,\s*{labelled}\s*\)", ")", text, flags=re.IGNORECASE)
+    if not shared:
+        link = rf"(?:\(\s*{labelled}\s*\)|(?:{_LINK_LABEL})?[<(]?{escaped}[>)]?)"
         text = re.sub(rf"\s*(?:{_LINK_SEPARATOR}\s*)?{link}", "", text, flags=re.IGNORECASE)
     return text.rstrip()
 
@@ -3171,18 +3167,11 @@ def _quote_sentence_windows(body: str, start: int, end: int) -> tuple[tuple[int,
     return (win_start, win_end), following
 
 
-def _quote_has_citation_in_sentence(body: str, start: int, end: int) -> bool:
-    """Whether an ``[N]`` marker shares the quote's sentence (or the next one)."""
-    (win_start, win_end), following = _quote_sentence_windows(body, start, end)
-    if _INLINE_CITATION_RE.search(body, win_start, win_end):
-        return True
-    return following is not None and _INLINE_CITATION_RE.search(body, following[0], following[1]) is not None
-
-
 def _quote_cited_numbers(body: str, start: int, end: int) -> set[int]:
     """The ``[N]`` numbers in the quote's sentence, or in the next one when its own has none.
 
-    The same windows :func:`_quote_has_citation_in_sentence` judges by.
+    Empty is what makes a quote ``uncited``; the numbers are the sources its
+    nearest passage may come from.
     """
     (win_start, win_end), following = _quote_sentence_windows(body, start, end)
     numbers = {int(n) for n in _INLINE_CITATION_RE.findall(body, win_start, win_end)}
@@ -3355,7 +3344,8 @@ def verify_quoted_spans(
     unverified: list[UnverifiedQuote] = []
     for match, inner, norm_quote in _quoted_spans(body, min_quote_len):
         too_long = len(inner.split()) > _QUOTE_MAX_WORDS
-        uncited = not _quote_has_citation_in_sentence(body, match.start(), match.end())
+        cited_numbers = _quote_cited_numbers(body, match.start(), match.end())
+        uncited = not cited_numbers
         best_coverage = max(_quote_coverage(norm_quote, chunk) for chunk, _ in normalized_chunks)
         if not (too_long or uncited or best_coverage < threshold):
             continue
@@ -3363,7 +3353,7 @@ def verify_quoted_spans(
         # the quote's own sentence CITES. The closest in the whole registry
         # could be another Bundesland's near-identical text, and a patch from
         # it would put that text under this citation (ADR-0067).
-        cited = cited_lookup(_quote_cited_numbers(body, match.start(), match.end()))
+        cited = cited_lookup(cited_numbers)
         unverified.append(
             UnverifiedQuote(
                 quote=inner,

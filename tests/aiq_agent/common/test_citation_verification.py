@@ -3258,6 +3258,16 @@ class TestCitedDocumentsKeepTheirShelf:
         report = "Siehe Plan [1][2].\n\n**Quellen:**\n- [1] Plan.pdf, p.3\n- [2] Plan.pdf, p.9\n"
         assert len(cited_document_entries(report, registry)) == 1
 
+    def test_a_filename_inside_another_lands_name_is_not_cited(self):
+        # `Bauordnung.pdf` is a substring of `NÖ Bauordnung.pdf`: a filename scan
+        # of the section counted the other Land's code as cited. Each line is
+        # resolved as the verifier resolves it, so only the NÖ document is.
+        registry = SourceRegistry()
+        for name in ("Bauordnung.pdf", "NÖ Bauordnung.pdf"):
+            registry.add(SourceEntry(citation_key=f"{name}, p.3", source_type="knowledge_layer", collection="kb"))
+        report = "Abstand [1].\n\n**Quellen:**\n- [1] NÖ Bauordnung.pdf, p.3\n"
+        assert [entry.citation_key for entry in cited_document_entries(report, registry)] == ["NÖ Bauordnung.pdf, p.3"]
+
 
 class TestBindingClassification:
     """Carry a source's structured BINDING STATUS (rank + coarse status) to the client.

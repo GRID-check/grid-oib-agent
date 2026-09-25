@@ -1,11 +1,15 @@
 """Post-answer verification: what happens to the model's text before a reader sees it.
 
-Pure stages over ``(messages, registry)``, in this order: DSML strip, envelope
-split, control-marker extraction, citation and quote verification with the
-turn's ONE repair, the single-source fallback citation, sanitisation, the
-``answer_meta`` gates, callout resolution and the normative-claim brake.
-:func:`finalize_answer` runs them and returns a :class:`FinalAnswer`; the agent
-copies its signal fields onto the state (``ledger.assemble_result``).
+Stages over ``(messages, registry)``, in this order: DSML strip, envelope
+split, grouped-citation expansion and control-marker extraction
+(``_extract``), envelope card registration, citation and quote verification
+with the turn's ONE repair, the single-source fallback citation,
+sanitisation, the restated-mindmap drop, re-citing the composed cards, the
+``answer_meta`` gates, card suppression, callout resolution and the
+normative-claim brake. Not all pure: card registration, re-citing and
+suppression write the turn's card registry. :func:`finalize_answer` runs them and returns a
+:class:`FinalAnswer`; the agent copies its signal fields onto the state
+(``ledger.assemble_result``).
 """
 
 from __future__ import annotations
@@ -178,19 +182,33 @@ def prose_without_references(content: str) -> str:
     return content
 
 
+def _without_empty_reference_heading(content: str) -> tuple[str, str]:
+    """``content`` without a trailing reference heading nothing follows, and the label to write instead.
+
+    The label keeps the answer's language: an emptied „## Quellen" comes back
+    as „**Quellen:**", anything else as „**References:**".
+    """
+    last = None
+    for last in _REFERENCES_SECTION_RE.finditer(content):
+        pass
+    if last is None or content[last.end() :].strip():
+        return content, "References"
+    label = "Quellen" if "quellen" in last.group(0).lower() else "References"
+    return content[: last.start()].rstrip(), label
+
+
 def append_minimal_citation(report_text: str, source: SourceEntry) -> str:
     """Append one verified citation when the model omitted references.
 
-    ``verify_citations`` may strip every citation line under a References
-    header and leave the empty header behind; it is dropped first so the
-    final output has exactly one references section.
+    ``verify_citations`` may strip every citation line under a reference
+    heading („## Quellen", „**References:**" …) and leave the empty heading
+    behind; it is dropped first, so the ``[1]`` lands on the answer's last
+    sentence and the output has exactly one references section.
     """
     citation_target = source.url or source.citation_key
     if not citation_target:
         return report_text
-    content = report_text.rstrip()
-    content = re.sub(r"\n{1,2}\*\*References:?\*\*\s*$", "", content, flags=re.IGNORECASE).rstrip()
-    content = re.sub(r"\n{1,2}#{2,3}\s+(?:References|Sources)\s*$", "", content, flags=re.IGNORECASE).rstrip()
+    content, label = _without_empty_reference_heading(report_text.rstrip())
     if content.endswith((".", "!", "?")):
         content = f"{content[:-1]} [1]{content[-1]}"
     else:
@@ -202,7 +220,7 @@ def append_minimal_citation(report_text: str, source: SourceEntry) -> str:
         reference = f"- [1] {prefix}{source.title or source.url} - {source.url}"
     else:
         reference = f"- [1] {prefix}{citation_target}"
-    return f"{content}\n\n**References:**\n{reference}"
+    return f"{content}\n\n**{label}:**\n{reference}"
 
 
 # --------------------------------------------------------------------------
@@ -416,6 +434,11 @@ def _source_lookup_attempted(messages: Sequence[Any]) -> bool:
     )
 
 
+def looked_up_this_turn(messages: Sequence[Any]) -> bool:
+    """Whether a data-source tool ran since the last human message: the gate on the single-source fallback."""
+    return _source_lookup_attempted(this_turn(messages))
+
+
 @dataclass(frozen=True)
 class _Verified:
     """The answer after citation and quote verification (and maybe a repair)."""
@@ -597,17 +620,22 @@ def _recite_surface_cards(
             registry.replace(index, recited)
 
 
-def settle_streamed_citations(prose: str, sources_text: str, registry: SourceRegistry) -> SettledStream | None:
+def settle_streamed_citations(
+    prose: str, sources_text: str, registry: SourceRegistry, *, lookup_attempted: bool = True
+) -> SettledStream | None:
     """The streamed prose with its ``[N]`` markers settled, and the sources they name.
 
     The same steps :func:`finalize_answer` runs on the finished answer: verify
     each source line against the registry, mark each quote no retrieved
-    passage holds, sanitise (which drops the markers that lost their line and
-    closes the gaps), and read the cited sources off the survivors. Run the
-    moment the envelope's ``answer`` string closes, which is before the cards
-    and the pipeline: the pending markers on screen become the answer's own
-    citations, numbered as the terminal frame will number them (ADR-0066).
-    ``None`` when there is nothing to settle.
+    passage holds and fall back to the turn's one source when no citation
+    survived (:func:`_ground`), sanitise (which drops the markers that lost
+    their line and closes the gaps), and read the cited sources off the
+    survivors. Run the moment the envelope's ``answer`` string closes, which
+    is before the cards and the pipeline: the pending markers on screen become
+    the answer's own citations, numbered as the terminal frame will number
+    them (ADR-0066). ``lookup_attempted`` is the terminal's own gate on the
+    fallback (a data-source tool ran this turn). ``None`` when there is
+    nothing to settle.
     """
     from .ledger import wire_sources  # ledger imports this module
 
@@ -617,13 +645,14 @@ def settle_streamed_citations(prose: str, sources_text: str, registry: SourceReg
     # A quote no retrieved passage holds is marked HERE, as the terminal frame
     # marks it: settled without the check, it read as a real quotation until
     # the terminal frame, seconds later, and the text changed under the reader
-    # when the marker arrived.
-    report = annotate_unverified_quotes(verified.content, list(verified.unverified_quotes))
-    sanitized = sanitize_report(report)
+    # when the marker arrived. The single-source fallback likewise: without it
+    # the reader saw an empty source heading the terminal then replaced.
+    grounding = _ground(verified, registry, lookup_attempted=lookup_attempted)
+    sanitized = sanitize_report(grounding.content)
     # And the shape pass the terminal runs next: a mindmap that only redraws a
     # table in the answer goes here, where it went seconds later before.
     content, _ = drop_restated_mindmaps(sanitized.sanitized_report)
-    cited = _renumbered(_cited_sources(verified.verification.valid_citations, registry), sanitized.renumber_map)
+    cited = _renumbered(grounding.cited, sanitized.renumber_map)
     # The written source list travels WITH the prose, as it does in the
     # terminal frame: the reader resolves a marker against that list.
     return SettledStream(
@@ -631,7 +660,7 @@ def settle_streamed_citations(prose: str, sources_text: str, registry: SourceReg
         sources=wire_sources(cited),
         renumber_map=dict(sanitized.renumber_map or {}),
         numbers=frozenset(source.number for source in cited if source.number is not None),
-        merged=merged_citations(verified.verification.removed_citations),
+        merged=merged_citations(grounding.removed_citations),
     )
 
 
@@ -669,8 +698,9 @@ class LiveAnswer:
     objects, no awaiting.
     """
 
-    def __init__(self, registry: SourceRegistry) -> None:
+    def __init__(self, registry: SourceRegistry, *, lookup_attempted: bool = True) -> None:
         self._registry = registry
+        self._lookup_attempted = lookup_attempted
         self._settled: SettledStream | None = None
 
     def masthead(self, fields: dict[str, Any], prose: str = "") -> dict[str, Any] | None:
@@ -696,7 +726,9 @@ class LiveAnswer:
         return {"v": grounded.get("v"), **head} if head else None
 
     def settle(self, prose: str, sources_text: str, fields: dict[str, Any] | None) -> SettledStream | None:
-        settled = settle_streamed_citations(prose, sources_text, self._registry)
+        settled = settle_streamed_citations(
+            prose, sources_text, self._registry, lookup_attempted=self._lookup_attempted
+        )
         if settled is None:
             return None
         meta = self.masthead(fields, prose_without_references(settled.content)) if fields else None

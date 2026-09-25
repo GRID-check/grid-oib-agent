@@ -21,6 +21,14 @@ from aiq_agent.common.citation_verification import expand_grouped_citations
         ("Jahr [1990–2020]", "Jahr [1990–2020]"),
         ("[5–2]", "[5–2]"),
         ("[1-40]", "[1-40]"),
+        # A part with a leading zero is no source number: a thousands group or a zero index.
+        ("[1,000]", "[1,000]"),
+        ("[0, 1]", "[0, 1]"),
+        # A source named twice is cited once.
+        ("[1–3, 2]", "[1][2][3]"),
+        ("[2, 2]", "[2]"),
+        # The model's no-space form is still two citations.
+        ("[1,2]", "[1][2]"),
         ("Liste [a, b]", "Liste [a, b]"),
         # The label of a Markdown link stays the label: expanded, the link breaks.
         ("siehe [1-3](https://x.at)", "siehe [1-3](https://x.at)"),

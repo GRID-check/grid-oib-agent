@@ -65,9 +65,10 @@ read.
   as the verifier normalises. The verifier's fuzzy threshold is not used here,
   because a corrected "2,50 m" clears it against a passage saying "2,10 m". The
   correction must also stay similar to what was quoted. Only the text between
-  the quotation marks is replaced, so every `[N]`, card number and other byte
-  stays as it was. What ships is verified again. A quote that was not corrected
-  keeps its marker, which is the floor.
+  the quotation marks is replaced, so every `[N]` and card number stays as it
+  was. What ships is verified again, and a corrected quote no longer carries
+  the unverified-quote marker the settled snapshot showed after its closing
+  mark. A quote that was not corrected keeps its marker, which is the floor.
 * **An attribution failure (`too_long`, `uncited`) keeps its marker.** It is not
   a wording problem.
 
@@ -76,8 +77,12 @@ without `card_repair_llm` the repair is off.
 
 ### Consequences
 
-* Good, because the only text that can change after the prose settles is the
-  inside of one quotation, and the reader sees the passage's own words there.
+* Good, because the only text that can change after the prose settles is a
+  corrected quotation: its inside, where the reader now sees the passage's own
+  words, and the unverified-quote marker after its closing mark, which goes
+  with the correction. Nothing else moves. So a `settled_replaced` line in the
+  suite's log is expected on a turn whose log also says "quote patch corrected
+  N of M" with N > 0, and is a regression on any other turn.
 * Good, because a repair costs one small call instead of a frontier call and
   two retrievals. Removed-citation failures cost nothing.
 * Good, because the card-number mismatch and the repair's reads that no ledger

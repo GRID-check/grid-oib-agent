@@ -85,3 +85,58 @@ def test_a_mindmap_that_only_redraws_a_table_goes_when_the_prose_settles():
 
     assert "mindmap" not in settled.content
     assert "| Garagen |" in settled.content and "Danach." in settled.content
+
+
+def _one_source() -> SourceRegistry:
+    registry = SourceRegistry()
+    registry.add(SourceEntry(citation_key="oib.pdf, p.3", source_type="knowledge_layer", tool_name="knowledge_search"))
+    return registry
+
+
+def test_the_single_source_fallback_settles_as_the_terminal_frame_writes_it():
+    # The only source line named nothing retrieved. The terminal cites the
+    # turn's one source; settled without the fallback, the reader saw a bare
+    # „## Quellen" that the terminal frame then replaced.
+    settled = settle_streamed_citations(
+        "Treppen brauchen 2,10 m [1].", "## Quellen\n- [1] erfunden.pdf, p.9", _one_source()
+    )
+
+    assert settled.content == "Treppen brauchen 2,10 m [1].\n\n## Quellen\n- [1] [KB] oib.pdf, p.3"
+    assert [(s["number"], s["citation_key"]) for s in settled.sources] == [(1, "oib.pdf, p.3")]
+
+
+def test_no_fallback_settles_on_a_turn_that_looked_nothing_up():
+    settled = settle_streamed_citations(
+        "Hallo.", "## Quellen\n- [1] erfunden.pdf, p.9", _one_source(), lookup_attempted=False
+    )
+
+    assert "[1]" not in settled.content and settled.sources == []
+
+
+def test_the_settled_fallback_is_the_terminal_frame_byte_for_byte(monkeypatch):
+    import asyncio
+
+    from langchain_core.messages import AIMessage
+    from langchain_core.messages import HumanMessage
+    from langchain_core.messages import ToolMessage
+
+    from aiq_agent.agents.piloti import answer_pipeline
+    from aiq_agent.agents.piloti.answer_pipeline import finalize_answer
+    from aiq_agent.agents.piloti.answer_pipeline import looked_up_this_turn
+
+    monkeypatch.setattr(answer_pipeline, "get_source_id_for_tool", {"knowledge_search": "knowledge_layer"}.get)
+
+    prose, sources = "Treppen brauchen 2,10 m [1].", "## Quellen\n- [1] erfunden.pdf, p.9"
+    messages = [
+        HumanMessage("Treppenhöhe?"),
+        AIMessage(content="", tool_calls=[{"id": "1", "name": "knowledge_search", "args": {}}]),
+        ToolMessage(content="Text über Treppen.", tool_call_id="1", name="knowledge_search"),
+        AIMessage(content=f"{prose}\n\n{sources}"),
+    ]
+    registry = _one_source()
+
+    settled = settle_streamed_citations(prose, sources, registry, lookup_attempted=looked_up_this_turn(messages))
+    final = asyncio.run(finalize_answer(messages, registry=registry, tools=[], repair=None, turn_sources=[]))
+
+    assert final.citation_fallback_used
+    assert settled.content == final.content.rstrip()

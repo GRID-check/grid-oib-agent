@@ -1740,6 +1740,15 @@ class TestAppendMinimalCitation:
         assert "### Sources" not in result
         assert result.count("**References:**") == 1
 
+    def test_strips_leftover_german_heading_and_cites_the_body(self):
+        # The only line under „## Quellen" was an invented source: the emptied
+        # heading used to stay, the [1] glued to it, and a second section followed.
+        report = "Treppen brauchen 2,10 m.\n\n## Quellen"
+
+        result = append_minimal_citation(report, self._tool_source())
+
+        assert result == "Treppen brauchen 2,10 m [1].\n\n**Quellen:**\n- [1] mcp_time__get_current_time"
+
     def test_no_leftover_header_passes_through(self):
         report = "Body sentence."
 
