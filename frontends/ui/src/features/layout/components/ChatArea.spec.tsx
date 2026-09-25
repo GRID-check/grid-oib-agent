@@ -777,51 +777,53 @@ describe('ChatArea', () => {
       }
     })
 
-    const makeState = (
-      currentUserMessageId: string | null,
-      isStreaming: boolean
-    ): ChatStoreFixture => ({
-      currentConversation: {
-        id: 'c1',
-        messages: [{ id: 'user-1', role: 'user', content: 'My question', messageType: 'user' }],
-      },
-      isLoading: false,
-      isStreaming,
-      currentUserMessageId,
-      currentStatus: null,
-      hasHydrated: true,
-      isRecoveryPending: false,
-      thinkingSteps: [],
-      respondToPrompt: mockRespondToPrompt,
-      dismissErrorCard: mockDismissErrorCard,
-      getThinkingStepsForMessage: mockGetThinkingStepsForMessage,
-      retryLastUserMessage: vi.fn(),
-    })
-    const use = (state: ChatStoreFixture) =>
-      vi
-        .mocked(useChatStore)
-        .mockImplementation((selector?: StoreSelector<ChatStoreWithHydration>) =>
-          selector ? selector(asStoreState<ChatStoreWithHydration>(state)) : state
-        )
+    try {
+      const makeState = (
+        currentUserMessageId: string | null,
+        isStreaming: boolean
+      ): ChatStoreFixture => ({
+        currentConversation: {
+          id: 'c1',
+          messages: [{ id: 'user-1', role: 'user', content: 'My question', messageType: 'user' }],
+        },
+        isLoading: false,
+        isStreaming,
+        currentUserMessageId,
+        currentStatus: null,
+        hasHydrated: true,
+        isRecoveryPending: false,
+        thinkingSteps: [],
+        respondToPrompt: mockRespondToPrompt,
+        dismissErrorCard: mockDismissErrorCard,
+        getThinkingStepsForMessage: mockGetThinkingStepsForMessage,
+        retryLastUserMessage: vi.fn(),
+      })
+      const use = (state: ChatStoreFixture) =>
+        vi
+          .mocked(useChatStore)
+          .mockImplementation((selector?: StoreSelector<ChatStoreWithHydration>) =>
+            selector ? selector(asStoreState<ChatStoreWithHydration>(state)) : state
+          )
 
-    use(makeState(null, false))
-    const { container, rerender } = render(<ChatArea isAuthenticated={true} onSignIn={vi.fn()} />)
-    use(makeState('user-1', true))
-    rerender(<ChatArea isAuthenticated={true} onSignIn={vi.fn()} />)
+      use(makeState(null, false))
+      const { container, rerender } = render(<ChatArea isAuthenticated={true} onSignIn={vi.fn()} />)
+      use(makeState('user-1', true))
+      rerender(<ChatArea isAuthenticated={true} onSignIn={vi.fn()} />)
 
-    const spacer = container.querySelector<HTMLElement>('[aria-hidden="true"][style*="min-height"]')
-    expect(spacer?.style.minHeight).toBe('600px')
+      const spacer = container.querySelector<HTMLElement>('[aria-hidden="true"][style*="min-height"]')
+      expect(spacer?.style.minHeight).toBe('600px')
 
-    // The answer lands. Dropping the spacer to 0 here is what used to clamp the
-    // scroll position and move a short finished answer down by its unused room.
-    use(makeState('user-1', false))
-    rerender(<ChatArea isAuthenticated={true} onSignIn={vi.fn()} />)
-    await new Promise((resolve) => requestAnimationFrame(resolve))
-    expect(spacer?.style.minHeight).toBe('600px')
-
-    clientHeight.mockRestore()
-    rect.mockRestore()
-    Element.prototype.scrollIntoView = originalScrollIntoView
+      // The answer lands. Dropping the spacer to 0 here is what used to clamp the
+      // scroll position and move a short finished answer down by its unused room.
+      use(makeState('user-1', false))
+      rerender(<ChatArea isAuthenticated={true} onSignIn={vi.fn()} />)
+      await new Promise((resolve) => requestAnimationFrame(resolve))
+      expect(spacer?.style.minHeight).toBe('600px')
+    } finally {
+      clientHeight.mockRestore()
+      rect.mockRestore()
+      Element.prototype.scrollIntoView = originalScrollIntoView
+    }
   })
 
   test('the anchor spacer shrinks as the list grows and refits when the viewport resizes', () => {

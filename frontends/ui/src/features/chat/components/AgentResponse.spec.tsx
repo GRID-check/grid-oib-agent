@@ -106,10 +106,17 @@ describe('AgentResponse', () => {
 
     test('still resolves the files it names in the reader\'s project', () => {
       storeFixture.projectId = 'p1'
-      render(<AgentResponse content="Siehe plan.pdf" readOnly />)
-      expect(vi.mocked(useAnswerFileReferences)).toHaveBeenCalledWith(
-        expect.objectContaining({ projectId: 'p1' })
-      )
+      // Answered here, not by the network: the real hook would fetch the
+      // project's files and outlive this test.
+      const hook = vi.mocked(useAnswerFileReferences)
+      const real = hook.getMockImplementation()
+      hook.mockImplementation(() => ({ fileNames: [], resolve: () => null }))
+      try {
+        render(<AgentResponse content="Siehe plan.pdf" readOnly />)
+        expect(hook).toHaveBeenCalledWith(expect.objectContaining({ projectId: 'p1' }))
+      } finally {
+        if (real) hook.mockImplementation(real)
+      }
     })
   })
 
