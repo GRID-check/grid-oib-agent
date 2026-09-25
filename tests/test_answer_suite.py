@@ -569,7 +569,7 @@ def test_the_startup_probe_takes_the_key_some_environments_carry(monkeypatch, ca
     monkeypatch.setattr(startup_probe, "_patch_retriever", lambda: None)
     monkeypatch.setattr(startup_probe, "_run", fake_run)
     assert startup_probe.main(["Frage?"]) == 0
-    assert ran == [["Frage?"]] and os.environ["OPENROUTER_API_KEY"] == "test-key"
+    assert ran == [["Frage?"]] and os.environ["OPENROUTER_API_KEY"] == "test-key"  # pragma: allowlist secret
 
 
 def test_a_bad_only_id_is_refused_before_anything_is_ingested(monkeypatch):
