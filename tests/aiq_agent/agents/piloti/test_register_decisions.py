@@ -209,7 +209,7 @@ class TestTheTurn:
 
         facts = TurnFacts(question="Hallo Piloti", previous_message=None)
         with (
-            caplog.at_level("INFO", logger=register_module.logger.name),
+            caplog.at_level("INFO", logger="aiq_agent.common.decisions"),
             patch("aiq_agent.common.turn_status.push_custom_step") as push,
         ):
             assert await register_module._decide_turn(facts) == TurnDecisions.none()

@@ -417,6 +417,25 @@ def _content_words(text: str) -> set[str]:
     return {word[:5] for word in _CONTENT_WORD.findall(plain)}
 
 
+#: Abbreviations whose period ends no sentence, for counting a reply's
+#: sentences. A letter-period run („z. B.", „u. a.", „d. h.", „i. d. R.") is
+#: matched by shape; the words are the ones a regulation answer cites a
+#: provision with. „etc." and „usw." are left out on purpose: they end a
+#: sentence as often as not. No library covers this: nltk's Punkt needs a data
+#: download at runtime, and a miss only costs a summary the gate keeps.
+_ABBREVIATION = re.compile(
+    r"\b(?:[A-Za-zÄÖÜäöü]\.\s?)+[A-Za-zÄÖÜäöü]\."
+    r"|\b(?:gem|Pkt|Abs|Nr|lt|bzw|vgl|ca|inkl|bzgl|lit|Art|Ziff|Kap|Abb|Tab|Anm|mind|zzgl|ggf|evtl|sog|Bsp)\.",
+    re.IGNORECASE,
+)
+_SENTENCE = re.compile(r"[^.!?]+[.!?](?:\s*\[\d+\])*(?=\s|$)")
+
+
+def _sentence_count(text: str) -> int:
+    """How many sentences `text` has, not counting an abbreviation's period as an end."""
+    return len(_SENTENCE.findall(_ABBREVIATION.sub(lambda m: m.group().replace(".", ""), text)))
+
+
 def _prose_paragraphs(prose: str) -> list[str]:
     return [
         block.strip()
@@ -440,8 +459,7 @@ def _summary_redundant(summary: str, prose: str) -> str | None:
     blocks = [block for block in re.split(r"\n\s*\n", prose) if block.strip()]
     paragraphs = _prose_paragraphs(prose)
     if paragraphs and len(paragraphs) == len(blocks):
-        sentences = re.findall(r"[^.!?]+[.!?](?:\s*\[\d+\])*(?=\s|$)", " ".join(paragraphs))
-        if len(sentences) <= 2:
+        if _sentence_count(" ".join(paragraphs)) <= 2:
             return "short_answer"
     if not paragraphs:
         return None
@@ -708,6 +726,10 @@ def _envelope_blocks(content: str) -> list[tuple[int, int, str]]:
     while opening := _ANSWER_JSON_OPEN_RE.search(content, position):
         body_start = opening.end()
         brace = content.find("{", body_start)
+        # Only a brace that opens the body: one past non-blank text is prose
+        # after this block's own closing fence, not its object.
+        if brace != -1 and content[body_start:brace].strip():
+            brace = -1
         end = _object_end(content, brace) if brace != -1 else None
         if end is None:
             lazy = _ANSWER_JSON_FENCE_RE.match(content, opening.start())
@@ -1177,7 +1199,7 @@ def render_envelope_schema() -> str:
     lines = _masthead_lines_first(lines)
     rendered = "\n".join(f"  {line}" for line in lines)
     # The cards contract — which trigger takes which card, the index, the
-    # shapes of the common eight, the placement rule — rendered from the card
+    # three shapes the envelope teaches, the placement rule — rendered from the card
     # catalog so it cannot drift from the validator. Imported here because the
     # cards package validates with pydantic models of its own and never needs
     # this module; the dependency runs one way.

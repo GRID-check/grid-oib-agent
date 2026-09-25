@@ -1246,11 +1246,11 @@ def _record_build_outcome(model_id: str, outcome: str, detail: str, settings: De
 async def ensure_model_verdict(llm: Any, *, settings: DeferredToolLoadingSettings) -> bool | None:
     """Probe ``llm``'s model once if nobody has classified it, and cache that.
 
-    The async half of the gate. Idempotent and self-limiting: a model with a
-    denied model is never probed, a model with a cached verdict is never
-    re-probed, and a model whose probe keeps failing to REACH the endpoint is
-    given up on after :data:`_MAX_PROBE_ATTEMPTS` so an outage cannot turn into
-    a probe per binding.
+    The async half of the gate. Idempotent and self-limiting: a denied model
+    is never probed, a model with a cached verdict is never re-probed, and a
+    model whose probe keeps failing to REACH the endpoint is given up on after
+    :data:`_MAX_PROBE_ATTEMPTS` so an outage cannot turn into a probe per
+    binding.
 
     Never raises — a probe is diagnosis, and failing to diagnose a model is not
     a reason to fail the turn that asked.

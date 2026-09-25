@@ -119,6 +119,8 @@ SKIPPED_BYOK_HOST = "byok_host"
 SKIPPED_BREAKER = "breaker"
 SKIPPED_TIMEOUT = "timeout"
 SKIPPED_ERROR = "error"
+#: The caller did not ask: a first message of fewer than three words (Piloti).
+SKIPPED_TOO_SHORT = "too_short"
 
 #: Consecutive failures before the breaker opens, and how long it stays open.
 #: Module-level: the failure is the endpoint's, not one caller's.
@@ -476,6 +478,17 @@ def _record(slot: str, values: dict[str, Any]) -> None:
         logger.debug("Decision record for %s not emitted", slot, exc_info=True)
 
 
+def record_skipped(slot: str, reason: str, detail: str | None = None) -> None:
+    """Log and record a decision that did not run, and why.
+
+    INFO, not DEBUG: a decision that silently misses its budget looks, in
+    every log, exactly like a turn that never asked for one. A caller that
+    chose not to ask records its own reason here, beside the endpoint's.
+    """
+    logger.info("Decision %s did not run: %s", slot, reason)
+    _record(slot, {"skipped": reason, **({"detail": detail} if detail else {})})
+
+
 async def decide(
     state: Any,
     questions: Mapping[str, Mapping[str, Any]],
@@ -495,15 +508,11 @@ async def decide(
         return None
     endpoint, skipped = await _endpoint(organization_id)
     if endpoint is None:
-        _record(slot, {"skipped": skipped})
-        logger.info("Decision %s did not run: %s", slot, skipped)
+        record_skipped(slot, skipped or SKIPPED_ERROR)
         return None
     outcome = await _post(endpoint, state, questions, timeout=timeout, transport=transport)
     if outcome.decision is None:
-        _record(slot, {"skipped": outcome.skipped, **({"detail": outcome.detail} if outcome.detail else {})})
-        # INFO, not DEBUG: a decision that silently misses its budget looks,
-        # in every log, exactly like a turn that never asked for one.
-        logger.info("Decision %s did not run: %s", slot, outcome.skipped)
+        record_skipped(slot, outcome.skipped or SKIPPED_ERROR, outcome.detail)
         return None
     decision = outcome.decision
     _record(

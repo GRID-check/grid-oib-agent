@@ -7,6 +7,8 @@ own consequence-summary („Danach ausschreiben …") must survive.
 
 from __future__ import annotations
 
+import pytest
+
 from aiq_agent.common.answer_envelope import AnswerMeta
 from aiq_agent.common.answer_envelope import _summary_redundant
 from aiq_agent.common.answer_envelope import gate_answer_meta
@@ -30,6 +32,23 @@ def test_a_summary_restating_the_opening_is_dropped():
 def test_a_two_sentence_reply_is_its_own_summary():
     prose = "Das Geländer muss **1,10 m** hoch sein [1]. Eine tiefe Brüstung darf das mindern [1]."
     assert _summary_redundant("Mindestens 1,10 m; Brüstung mindert.", prose) == "short_answer"
+
+
+@pytest.mark.parametrize(
+    "prose",
+    [
+        "Die Mindestbreite beträgt 1,20 m gem. Pkt. 2.1.2 [1].",
+        "Ein Handlauf ist z. B. bei mehr als drei Stufen nötig [1]. Das gilt u. a. für Außenstiegen [2].",
+        "Laut Abs. 3 lt. Nr. 4 bzw. Art. 2 genügt das [1]. Vgl. Tab. 1 [2].",
+    ],
+)
+def test_an_abbreviation_ends_no_sentence(prose):
+    assert _summary_redundant("Planen Sie die Stiege mit 1,20 m.", prose) == "short_answer"
+
+
+def test_three_real_sentences_are_not_a_short_answer():
+    prose = "Die Stiege ist 1,20 m breit [1]. Der Handlauf ist beidseitig [1]. Das Podest ist 1,20 m tief [2]."
+    assert _summary_redundant("Planen Sie die Stiege danach.", prose) is None
 
 
 def test_a_consequence_summary_survives():

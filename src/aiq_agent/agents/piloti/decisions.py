@@ -24,8 +24,8 @@ whose answer can only ADD to the turn:
   is what keeps a wrong skill from being pushed). What it may do: read the
   chosen skill's BODY into this turn's prompt — the one method the question
   is the subject of, ~400 tokens, or the IFC method on a model question —
-  and attach its preferred card shapes beyond the eight the envelope
-  already teaches. Inlining every short method cost ~4 600 tokens on every
+  and attach its preferred card shapes beyond the three shapes the envelope
+  teaches, the Markdown-written types and ``surface``. Inlining every short method cost ~4 600 tokens on every
   call for methods most turns never use (ADR-0063, amended); one chosen
   body costs a tenth of that and only when a question calls for it. The
   body stays an offer: the model decides whether to follow it, and the
@@ -46,8 +46,11 @@ tools node, so it costs no budget, files its sources, stamps its hits and
 is answered by the duplicate-fetch guard when the model asks again).
 
 Every function here returns something a caller can act on without a
-decision having run: ``TurnDecisions.none()`` prefetches nothing, attaches
-nothing and inlines nothing, which is the turn as it ran before.
+decision having run: ``TurnDecisions.none()`` attaches nothing and inlines
+nothing, and prefetches nothing with one exception: a FIRST message that
+names an OIB family („OIB 2") still gets its own search as round 0
+(``_undecided_prefetch``, ADR-0064's amendment), so ``prefetch_calls`` on it
+is not the turn as it ran before the decisions.
 """
 
 from __future__ import annotations
@@ -413,8 +416,10 @@ def attached_card_types(decisions: TurnDecisions, skill_cards: Mapping[str, Sequ
 
     The chosen skill's preferred cards first — the shapes ``use_skill`` used
     to hand over with the body — then the types the card nouls picked; each
-    once, at most ``MAX_ATTACHED_SHAPES``. Types the taught envelope already
-    carries (``ENVELOPE_SHAPE_TYPES``) are left out by the caller's list.
+    once, at most ``MAX_ATTACHED_SHAPES``. The caller's lists already leave
+    out the three shapes the envelope teaches (``ENVELOPE_SHAPE_TYPES``), the
+    Markdown-written types (``MARKDOWN_CARD_TYPES``) and ``surface``
+    (``CHAT_ONLY_CARD_TYPES``).
     """
     ordered: list[str] = []
     skill = decisions.chosen_skill

@@ -39,6 +39,8 @@ from aiq_agent.common import validate_tool_availability
 from aiq_agent.common.canned_replies import SCOPED_NO_SOURCES_MESSAGE
 from aiq_agent.common.citation_verification import EmptySourceRegistryError
 from aiq_agent.common.data_source_registry import get_all_sources
+from aiq_agent.common.decisions import SKIPPED_TOO_SHORT
+from aiq_agent.common.decisions import record_skipped
 from aiq_agent.common.deferred_tool_loading import DeferredToolLoadingSettings
 from aiq_agent.common.deferred_tool_loading import verify_deferred_tool_loading
 from aiq_agent.project_context import get_organization_id_from_context
@@ -420,37 +422,13 @@ async def _decide_turn(facts: TurnFacts | None) -> TurnDecisions:
     # either: a bare family name („OIB 2") is searched by the undecided path
     # (``prefetch_calls``), and anything else of two words searches nothing.
     if facts.previous_message is None and len(facts.question.split()) < 3:
-        _note_skipped(SKIPPED_TOO_SHORT)
+        record_skipped(DECISION_SLOT, SKIPPED_TOO_SHORT)
         return TurnDecisions.none()
     try:
         return await decide_turn(facts, organization_id=get_organization_id_from_context())
     except Exception:  # noqa: BLE001 — a decision is worth less than the turn
         logger.warning("Turn decision failed; running the turn as before", exc_info=True)
         return TurnDecisions.none()
-
-
-#: Why a decision was not asked for, beside ``common/decisions.py``'s reasons.
-SKIPPED_TOO_SHORT = "too_short"
-
-
-def _note_skipped(reason: str) -> None:
-    """Log and record a decision this turn did not ask for, as ``decide`` records its own."""
-    logger.info("Decision %s did not run: %s", DECISION_SLOT, reason)
-    try:
-        from aiq_agent.common.turn_status import CHANNEL_TECHNICAL
-        from aiq_agent.common.turn_status import push_custom_step
-
-        push_custom_step(
-            f"status:decision:{DECISION_SLOT}",
-            {
-                "kind": "status",
-                "channel": CHANNEL_TECHNICAL,
-                "slot": f"decision:{DECISION_SLOT}",
-                "values": {"skipped": reason},
-            },
-        )
-    except Exception:  # noqa: BLE001 — a record is worth less than the turn
-        logger.debug("Decision record for %s not emitted", DECISION_SLOT, exc_info=True)
 
 
 #: The warm-ups still running (see _warm_question).
@@ -516,21 +494,24 @@ def _apply_decisions(decisions: TurnDecisions, state: ResearchAgentState, runtim
 
     The chosen skill rides this turn's prompt in full (``inline_also``), the
     one method the question is the subject of; the shapes are its preferred
-    cards beyond the three the envelope teaches — what ``use_skill`` hands
-    over with the body — then the turn decision's card picks, capped
-    (``attached_card_types``). Still offers: the model decides.
+    cards beyond the three shapes the envelope teaches, the Markdown-written
+    types and ``surface`` — what ``use_skill`` hands over with the body — then
+    the turn decision's card picks, capped (``attached_card_types``). The
+    Markdown types are left out because the answer writes them as Markdown,
+    not as a card, and ``surface`` because its shape is the envelope's
+    compose rule, already in the prompt. Still offers: the model decides.
     """
     from aiq_agent.cards.catalog import CHAT_ONLY_CARD_TYPES
     from aiq_agent.cards.catalog import MARKDOWN_CARD_TYPES
     from aiq_agent.cards.envelope import ENVELOPE_SHAPE_TYPES
     from aiq_agent.skills.models import preferred_cards
 
-    taught = {*ENVELOPE_SHAPE_TYPES, *MARKDOWN_CARD_TYPES, *CHAT_ONLY_CARD_TYPES}
+    withheld_shapes = {*ENVELOPE_SHAPE_TYPES, *MARKDOWN_CARD_TYPES, *CHAT_ONLY_CARD_TYPES}
 
     if runtime is not None and decisions.chosen_skill:
         runtime.inline_also((decisions.chosen_skill,))
     skill_cards = {
-        skill.name: [card for card in preferred_cards(skill.metadata) if card not in taught]
+        skill.name: [card for card in preferred_cards(skill.metadata) if card not in withheld_shapes]
         for skill in (runtime.skills if runtime is not None else ())
     }
     chosen = attached_card_types(decisions, skill_cards)

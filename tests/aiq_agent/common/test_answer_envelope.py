@@ -136,6 +136,12 @@ class TestExtraction:
         assert prose == outside
         assert meta is not None and meta.verdict is not None
 
+    def test_an_empty_fence_does_not_take_a_brace_from_the_prose_after_it(self):
+        content = 'Loose prose\n```answer_json\n\n```\nlater {"a":1}'
+        prose, meta = extract_answer_envelope(content)
+        assert "later" in prose
+        assert meta is None
+
     def test_non_string_content_passes_through(self):
         content = [{"type": "text", "text": "hi"}]
         prose, meta = extract_answer_envelope(content)
