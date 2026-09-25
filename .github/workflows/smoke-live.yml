@@ -21,8 +21,10 @@ name: Smoke (live agent)
 # ERROR gate runs, and the log says so.
 #
 # Costs one model turn per run. On a pull request it runs only for the paths
-# that change what the agent does, and skips (with a notice) where secrets are
-# not available, such as Dependabot PRs.
+# that change what the agent does. It skips (with a notice) only where GitHub
+# withholds secrets, a fork or Dependabot; anywhere else a missing key fails
+# the job. The weekly turn-shapes eval failed three weeks running on that same
+# missing secret, which is what a skip-as-success would have hidden here.
 
 on:
   pull_request:
@@ -70,12 +72,15 @@ jobs:
         id: key
         env:
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
-          EVENT: ${{ github.event_name }}
+          # GitHub withholds secrets from exactly these two; anywhere else an
+          # empty key means the secret is missing, and a smoke that passes by
+          # not running is the silent failure this job exists to prevent.
+          SECRETS_WITHHELD: ${{ github.event.pull_request.head.repo.fork == true || github.actor == 'dependabot[bot]' }}
         run: |
           if [ -n "$OPENROUTER_API_KEY" ]; then
             echo "present=true" >> "$GITHUB_OUTPUT"
-          elif [ "$EVENT" = "pull_request" ]; then
-            echo "::notice::OPENROUTER_API_KEY is not available to this pull request (a fork or Dependabot); the smoke did not run."
+          elif [ "$SECRETS_WITHHELD" = "true" ]; then
+            echo "::notice::GitHub withholds secrets from this pull request (a fork or Dependabot); the smoke did not run."
             echo "present=false" >> "$GITHUB_OUTPUT"
           else
             echo "::error::OPENROUTER_API_KEY is not set; the smoke would not run. See the header of this workflow."
