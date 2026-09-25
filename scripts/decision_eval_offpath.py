@@ -28,8 +28,9 @@ USAGE
 
 THE LAST RUN
 ------------
-2026-09-25: tags 12/12 types, disciplines 5 of 8 labelled with none false at
-0.5; reflection: durable rows 0.45-0.94, seven of nine others 0.03-0.16.
+2026-09-25: tags 12/12 types, disciplines 4 of 8 labelled with none false at
+0.7 (clear disciplines 0.96-0.98, the highest false one 0.47); reflection:
+durable rows 0.45-0.94, seven of nine others 0.03-0.16.
 """
 
 from __future__ import annotations

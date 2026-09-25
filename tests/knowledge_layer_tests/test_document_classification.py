@@ -198,7 +198,8 @@ class TestTagsAreDecided:
         llm = MagicMock()
         with install(_decision("Gutachten", {"Gutachten": 0.9}, {4: 0.52, 5: 0.96})):
             tags = classify_document_tags("Bauphysikalisches Gutachten …", "bp.pdf", llm)
-        assert tags == ["Gutachten", "Energieeinsparung/Wärmeschutz", "Schallschutz"]
+        # 0.52 is the borderline the threshold leaves out on purpose.
+        assert tags == ["Gutachten", "Energieeinsparung/Wärmeschutz"]
         llm.invoke.assert_not_called()
         assert seen["body"]["state"]["file_name"] == "bp.pdf"
 

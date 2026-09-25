@@ -321,13 +321,19 @@ DISCIPLINE_CRITERIA: dict[str, str] = {
 SECOND_TYPE_THRESHOLD = 0.3
 #: A discipline is tagged at this probability or above, the top three.
 #: Measured 2026-09-25 on twelve hand-labelled German document openings
-#: (types 12/12 against the generative prompt's 11/12): 0.5 keeps a
-#: bauphysik report's Schallschutz (0.52) with no false tag, 0.45 tags a
-#: meeting protocol Standsicherheit because a Statiker attended (0.47). The
-#: decider is stricter than the prompt: a plan that merely draws a fire
-#: compartment is not tagged Brandschutz (0.30), which the prompt's own
-#: "nur wenn der Fachbereich eindeutig zutrifft" asks for.
-DISCIPLINE_THRESHOLD = 0.5
+#: (types 12/12 against the generative prompt's 11/12). The answers split in
+#: two: every clear discipline at 0.96-0.98, everything else at or below
+#: 0.52 — a false Standsicherheit on a meeting protocol because a Statiker
+#: attended (0.47) beside a true Schallschutz in a bauphysik report (0.52).
+#: Any threshold from 0.48 to 0.96 gives the same result on the set, so it
+#: sits mid-gap, 0.23 above the highest false tag, not on the 0.03 between
+#: 0.47 and 0.52: a tag rides in the inventory line of every prompt, and a
+#: false one tells the agent what a document is about. The borderline
+#: Schallschutz is the price, the one discipline the prompt found and this
+#: does not. A plan that merely draws a fire compartment is not tagged
+#: Brandschutz (0.30), which the prompt's own "nur wenn der Fachbereich
+#: eindeutig zutrifft" asks for.
+DISCIPLINE_THRESHOLD = 0.7
 MAX_DISCIPLINE_TAGS = 3
 #: The technical-record slot: ``status:decision:document_tags``.
 TAG_DECISION_SLOT = "document_tags"

@@ -145,10 +145,14 @@ inventory line, the Files panel), nothing filters on them, so a wrong tag
 withholds nothing. Measured on twelve hand-labelled German document openings:
 types 12/12 (the prompt on the default model: 11/12, a Statik-Vorbemessung
 typed `Sonstiges`), 0.2–0.3 s against 0.8–1.9 s, $0.00005 per document. The
-decider tags fewer disciplines (5 of 8 labelled at the 0.5 threshold, no
-false tag, against the prompt's 8 with one false): it does not tag a plan
-Brandschutz for drawing a compartment line, which is what the prompt's own
-„nur wenn der Fachbereich eindeutig zutrifft" asks. Ingestion has no request
+decider tags fewer disciplines (4 of 8 labelled, no false tag, against the
+prompt's 8 with one false). Its answers split: clear disciplines at
+0.96–0.98, the rest at or below 0.52, with a false tag at 0.47 and a true
+one at 0.52; the threshold is 0.7, mid-gap, because a tag rides in every
+prompt's inventory line and a false one misinforms the agent, where a
+missing one only says less. It does not tag a plan Brandschutz for drawing
+a compartment line, which is what the prompt's own „nur wenn der
+Fachbereich eindeutig zutrifft" asks. Ingestion has no request
 context, so the org id travels in the job config and the endpoint resolves
 ZDR by the id it is given (`common/decisions._zdr_only_blocking`).
 
