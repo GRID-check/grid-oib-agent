@@ -79,9 +79,8 @@ def test_resource_omits_the_version_when_the_image_carries_none():
 def test_a_failed_build_exports_its_cause_not_its_itemization(caplog):
     # NAT's own logger, driven for real, so a change in how it reports a failed
     # build shows up here rather than as eleven issues again (#742-#752).
-    from nat.builder.workflow_builder import _log_build_failure
-
     from aiq_agent.observability.otlp_logging_method import _NatBuildFailureItemizationFilter
+    from nat.builder.workflow_builder import _log_build_failure
 
     with caplog.at_level(logging.ERROR, logger="nat.builder.workflow_builder"):
         try:
