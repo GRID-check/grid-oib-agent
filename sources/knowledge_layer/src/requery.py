@@ -35,6 +35,8 @@ from typing import Any
 
 from knowledge_layer.rerank import _build_user_prompt
 
+from aiq_agent.common.message_utils import response_text
+
 logger = logging.getLogger(__name__)
 
 #: How many candidates the judge is shown. Sufficiency is a property of the
@@ -205,10 +207,7 @@ async def judge_sufficiency(
             llm.ainvoke([("system", _SYSTEM_PROMPT), ("user", user_prompt)]),
             timeout=timeout_seconds,
         )
-        content = getattr(response, "content", None)
-        if content is None and isinstance(response, dict):
-            content = response.get("content")
-        raw = str(content or "")
+        raw = response_text(response)
         if not raw:
             raise ValueError("empty judge reply")
         verdict = _parse_verdict(raw, original_query=query, max_queries=max_queries)
