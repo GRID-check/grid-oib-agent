@@ -853,6 +853,32 @@ describe('NATWebSocketClient resume from the replay stream', () => {
     expect(contents(onResponse)).toEqual(['x', 'y'])
   })
 
+  test('a reload replays its turn even when live frames reached the socket first', async () => {
+    // The socket is up before the turn is reopened: a live frame moves the
+    // cursor past the frames the replay is about to apply.
+    const read = vi.fn(async () => [frame('1-0', 'x', 'msg_1'), frame('2-0', 'y', 'msg_1'), frame('3-0', 'z', 'msg_1')])
+    const { client, ws, onResponse } = await openClient(read)
+    deliver(ws, frame('3-0', 'z', 'msg_1'))
+    onResponse.mockClear()
+
+    const applied = await client.replayTurn('msg_1')
+
+    expect(applied).toBe(3)
+    expect(contents(onResponse)).toEqual(['x', 'y', 'z'])
+  })
+
+  test('a catch-up counts only the frames it applied', async () => {
+    let release: (frames: Record<string, unknown>[]) => void = () => {}
+    const read = vi.fn(() => new Promise<Record<string, unknown>[] | null>((resolve) => (release = resolve)))
+    const { client, onResponse } = await openClient(read)
+
+    const replay = client.replayTurn('msg_1')
+    release([frame('1-0', 'x', 'msg_1'), frame('1-0', 'x', 'msg_1'), frame('2-0', 'y', 'msg_1')])
+
+    expect(await replay).toBe(2)
+    expect(contents(onResponse)).toEqual(['x', 'y'])
+  })
+
   test('a reload whose turn the stream no longer holds applies nothing', async () => {
     const { client, onResponse } = await openClient(async () => [frame('1-0', 'old', 'msg_0')])
     expect(await client.replayTurn('msg_1')).toBe(0)

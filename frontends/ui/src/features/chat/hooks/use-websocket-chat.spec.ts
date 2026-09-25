@@ -2062,6 +2062,22 @@ describe('useWebSocketChat', () => {
     )
   })
 
+  test('onHumanPrompt drops a prompt of another turn', () => {
+    // A replayed turn is applied from its first frame on; a later turn's
+    // prompt can follow it in the stream and must not take this one over.
+    mockWsClient.activeParentId = 'msg_1'
+    try {
+      renderWebSocketHook()
+      act(() => {
+        capturedCallbacks.onHumanPrompt?.('prompt-9', 'msg_2', { input_type: 'text', text: 'Später?' })
+      })
+      expect(mockSetPendingInteraction).not.toHaveBeenCalled()
+      expect(mockAddAgentPrompt).not.toHaveBeenCalled()
+    } finally {
+      mockWsClient.activeParentId = null
+    }
+  })
+
   test('onHumanPrompt callback sets pending interaction and adds prompt', () => {
     renderWebSocketHook()
 

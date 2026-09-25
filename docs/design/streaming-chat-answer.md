@@ -257,9 +257,11 @@ the banner only if there is none.
 question is stamped with the id it went out under (`wsParentId`, persisted with
 the store); `restoreSessionState` first asks for the finished answer, and when
 there is none leaves `resumableTurn`. Once the socket is up the hook reopens the
-turn (`resumeTurn`), reads every frame the stream holds and applies them from
-the question's first frame on (`replayTurn`), so an older turn's frames never
-come back to life. The stream no longer holding the turn ends it with the
+turn (`resumeTurn`), reads the newest frames the stream holds (backwards, then
+in order, since approximate trimming can leave more than one read returns) and
+applies them from the question's first frame on (`replayTurn`), so an older
+turn's frames never come back to life. A prompt of a later turn is dropped as
+stale like any other frame of another turn. The stream no longer holding the turn ends it with the
 banner.
 
 **One answer, not two.** A turn may finish while nobody is attached: the server

@@ -221,15 +221,16 @@ export async function readConversationFramesAfter(
   if (!url) return null
   try {
     replayClient ??= createCommandClient(url)
-    // Inclusive start, filtered below: an exclusive `(` range is not every
-    // Redis-protocol server's to give.
-    const entries: [string, string[]][] = await replayClient.xrange(
-      conversationStream(conversationId),
-      afterId ?? '-',
-      '+',
-      'COUNT',
-      MAX_REPLAYED_FRAMES,
-    )
+    const stream = conversationStream(conversationId)
+    // Without a cursor (a reload), the NEWEST frames: the stream is trimmed
+    // approximately, so it can hold more than one read returns, and the turn
+    // being rebuilt is the latest one. Read backwards, then put them in order.
+    // With a cursor, forwards from it; the start is inclusive and filtered
+    // below, because an exclusive `(` range is not every server's to give.
+    const entries: [string, string[]][] =
+      afterId === null
+        ? (await replayClient.xrevrange(stream, '+', '-', 'COUNT', MAX_REPLAYED_FRAMES)).reverse()
+        : await replayClient.xrange(stream, afterId, '+', 'COUNT', MAX_REPLAYED_FRAMES)
     return framesFromStreamEntries(entries, afterId)
   } catch (error) {
     console.warn('[conversation-frames] replay read failed:', error)

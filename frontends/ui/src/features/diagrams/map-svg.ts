@@ -66,8 +66,17 @@ export function canvasTextMeasure(): MeasureText {
   }
 }
 
-/** `text` broken into lines no wider than `maxWidth`, at word boundaries. */
+/**
+ * `text` broken into lines no wider than `maxWidth`, at word boundaries. A
+ * line break the label already has (`<br>`, read as `\n` by `plainLabel`) is
+ * kept, and each of its lines is wrapped on its own.
+ */
 function wrap(text: string, maxWidth: number, width: (s: string) => number): string[] {
+  const lines = text.split('\n').flatMap((line) => wrapLine(line, maxWidth, width))
+  return lines.length > 0 ? lines : ['']
+}
+
+function wrapLine(text: string, maxWidth: number, width: (s: string) => number): string[] {
   const lines: string[] = []
   let current = ''
   for (const word of text.split(/\s+/).filter(Boolean)) {
@@ -80,7 +89,7 @@ function wrap(text: string, maxWidth: number, width: (s: string) => number): str
     }
   }
   if (current) lines.push(current)
-  return lines.length > 0 ? lines : ['']
+  return lines
 }
 
 interface Placed {

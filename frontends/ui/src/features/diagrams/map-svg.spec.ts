@@ -59,4 +59,9 @@ describe('mapSvg', () => {
     expect(() => parseDiagramSvg(svg)).not.toThrow()
     expect(svg).toContain('A &lt; B &amp; C')
   })
+
+  it('keeps a line break the label already has, even when the label would fit', () => {
+    const svg = mapSvg({ kind: 'map', root: node('Root', node('OIB-RL 2\nBrandschutz')) }, INK)
+    expect(texts(svg)).toEqual(['Root', 'OIB-RL 2', 'Brandschutz'])
+  })
 })

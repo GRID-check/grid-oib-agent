@@ -755,6 +755,10 @@ export class NATWebSocketClient {
    */
   replayTurn = (wsParentId: string): Promise<number | null> => {
     this.resuming = true
+    // The cursor starts over. Frames that reached this socket before the turn
+    // was reopened were not applied to it (nothing was streaming), but they
+    // did move the cursor, and the replay would drop every frame before them.
+    this.lastFrameId = null
     return this.catchUp(null, wsParentId)
   }
 
@@ -772,9 +776,16 @@ export class NATWebSocketClient {
       if (!frames) return null
       const first = turn === null ? 0 : frames.findIndex((frame) => frame.parent_id === turn)
       if (first < 0) return 0
-      const toApply = frames.slice(first)
-      for (const frame of toApply) this.handleMessage(JSON.stringify(frame))
-      return toApply.length
+      // Counted as applied only when the cursor takes it: a frame at or before
+      // it has been applied already and `handleMessage` drops it.
+      let applied = 0
+      for (const frame of frames.slice(first)) {
+        const id = typeof frame.grid_frame_id === 'string' ? frame.grid_frame_id : null
+        if (id !== null && this.lastFrameId !== null && compareFrameIds(id, this.lastFrameId) <= 0) continue
+        this.handleMessage(JSON.stringify(frame))
+        applied++
+      }
+      return applied
     } catch (error) {
       console.warn('[WS] Reading missed frames failed', error)
       return null

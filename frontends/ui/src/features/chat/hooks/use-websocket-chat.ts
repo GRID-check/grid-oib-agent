@@ -1621,6 +1621,16 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
       },
 
       onHumanPrompt: (promptId: string, parentId: string, prompt: NATHumanPrompt) => {
+        // A prompt of another turn must not take over this one: a replayed
+        // turn is applied from its first frame on, and a later turn's prompt
+        // can follow it in the stream.
+        if (isStaleMessage(parentId)) {
+          console.warn('Dropping stale system_interaction (parent_id mismatch)', {
+            parentId,
+            active: wsClientRef.current?.activeParentId,
+          })
+          return
+        }
         acknowledgeOutgoingDelivery(parentId)
 
         // Store the pending interaction for the UI to handle
