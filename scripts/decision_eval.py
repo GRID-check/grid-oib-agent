@@ -231,6 +231,8 @@ async def _evaluate(questions_path: Path, follow_ups_path: Path | None = None) -
 
 
 def summarise(rows: list[Row]) -> dict[str, float | int | bool]:
+    from aiq_agent.agents.piloti.decisions import SELF_CONTAINED_THRESHOLD
+
     decided = [r for r in rows if r.decided]
     family_rows = [r for r in decided if r.expected_family is not None and not r.follow_up]
     corpus_rows = [r for r in decided if r.expected_corpus is not None and not r.follow_up]
@@ -245,9 +247,15 @@ def summarise(rows: list[Row]) -> dict[str, float | int | bool]:
     standalone = [r for r in decided if not r.follow_up]
     follow_ups = [r for r in decided if r.follow_up]
     self_contained_rate = (
-        sum(1 for r in standalone if (r.self_contained or 0.0) >= 0.5) / len(standalone) if standalone else 0.0
+        sum(1 for r in standalone if (r.self_contained or 0.0) >= SELF_CONTAINED_THRESHOLD) / len(standalone)
+        if standalone
+        else 0.0
     )
-    held_back = sum(1 for r in follow_ups if (r.self_contained or 0.0) < 0.5) / len(follow_ups) if follow_ups else None
+    held_back = (
+        sum(1 for r in follow_ups if (r.self_contained or 0.0) < SELF_CONTAINED_THRESHOLD) / len(follow_ups)
+        if follow_ups
+        else None
+    )
     follow_up_family = sum(1 for r in follow_ups if r.family_hit) / len(follow_ups) if follow_ups else None
     return {
         "questions": len(rows),
