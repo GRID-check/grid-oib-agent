@@ -91,8 +91,21 @@ class TestSplitting:
         sections = split_sections(text)
         assert [s.label for s in sections] == ["§ 7", "§ 8"]
         assert "Stellplätze zu schaffen" in sections[1].body
-        # The heading under the marker, not the table of contents' previous entry.
+        # The heading under the marker, not the line above it: that is the
+        # table of contents' next entry, or the previous section's text.
+        assert sections[0].heading == "Abstellmöglichkeiten für Fahrräder"
         assert sections[1].heading == "Abstellmöglichkeiten für Kraftfahrzeuge"
+
+    def test_a_heading_under_the_marker_beats_the_abschnitt_title_above_it(self):
+        text = "2. Abschnitt\nBauplätze\n§ 7\nAbstellmöglichkeiten für Fahrräder\n(1) Beim Neubau."
+        assert split_sections(text)[0].heading == "Abstellmöglichkeiten für Fahrräder"
+
+    def test_a_repealed_provision_beats_its_longer_table_of_contents_entry(self):
+        """``§ 8.`` is a provision's marker; the bare ``§ 8`` of an index is not."""
+        text = "§ 8\nAbstellmöglichkeiten für Kraftfahrzeuge\n§ 9\nBauplätze\n§ 8.\n(entfällt)\n§ 9.\n(1) Ein Bauplatz."
+        sections = split_sections(text)
+        assert [s.label for s in sections] == ["§ 8", "§ 9"]
+        assert "(entfällt)" in sections[0].body
 
     def test_an_absatz_under_the_marker_is_not_a_heading(self):
         assert split_sections("Dies ist Text.\n§ 1.\n(1)\nDer Inhalt.")[0].heading == ""

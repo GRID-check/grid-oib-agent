@@ -17,6 +17,7 @@ from aiq_agent.agents.piloti.decisions import TurnFacts
 from aiq_agent.agents.piloti.decisions import attached_card_types
 from aiq_agent.agents.piloti.decisions import decide_turn
 from aiq_agent.agents.piloti.decisions import prefetch_calls
+from aiq_agent.agents.piloti.decisions import prefetch_query
 from aiq_agent.agents.piloti.decisions import questions_for
 from aiq_agent.common.decisions import Decision
 from aiq_agent.common.norm_registry import oib_families
@@ -253,3 +254,10 @@ class TestTheOpenDocument:
         decided = TurnDecisions(decided=True, needs_evidence=0.9, corpus="baurecht", corpus_p=0.9)
         calls = prefetch_calls(decided, "Wie lang darf der Fluchtweg sein?", focus_file_name="EG_Grundriss.pdf")
         assert calls == [{"name": "knowledge_search", "args": {"query": "Wie lang darf der Fluchtweg sein?"}}]
+
+
+def test_the_prefetch_query_carries_no_trailing_blank():
+    # A 300-character cut can land on a space; the search strips its query,
+    # so a blank left here makes the warm-up embed a different string.
+    question = "x" * 299 + " und mehr"
+    assert prefetch_query(question) == prefetch_query(question).strip()

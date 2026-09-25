@@ -215,6 +215,13 @@ class TestTheListReaderAgainstPracticeInputs:
             "§ 5 Abs 1 Z 2 und § 7 BO Wien": (("5", "7"), "BO Wien"),
             "§ 5 Abs 2 lit. a und § 7": (("5", "7"), ""),
             "§ 63 Abs. 1 lit. b BO für Wien": (("63",), "BO für Wien"),
+            # A second item of the same qualifier, lettered or signed again, is not the law.
+            "§ 5 lit. b und c BO Wien": (("5",), "BO Wien"),
+            "§ 5 lit. a, b BO Wien": (("5",), "BO Wien"),
+            "§ 5 Z 4 und Z 6 BO Wien": (("5",), "BO Wien"),
+            "§ 5 Abs 2 und Abs 3 BO Wien": (("5",), "BO Wien"),
+            "§ 63 Abs. 1 lit. b und c Bauordnung für Wien": (("63",), "Bauordnung für Wien"),
+            "§ 5 lit. b und § 7 BO Wien": (("5", "7"), "BO Wien"),
         }
         for instrument, expected in cases.items():
             address = parse_address("x", instrument, "")

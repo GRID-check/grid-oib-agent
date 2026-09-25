@@ -82,6 +82,22 @@ def test_a_richtlinie_indexes_its_table_as_an_addressable_passage():
     assert "Tabelle 3: Anforderungen an Treppenhäuser" in table.text
 
 
+def test_the_row_group_order_is_not_embedded_or_shown_to_the_model():
+    """``table_part`` orders row groups for ``read_passage``; it is no retrieval signal."""
+    from llama_index.core.schema import MetadataMode
+
+    body = "\n".join(f"{n} Punkt Nummer {n}\nText zu Punkt {n}, lang genug um zu zählen." for n in range(1, 8))
+    pages = [
+        {"page_number": 1, "text": "OIB-Richtlinie 9 Ausgabe Mai 2023\n" + body},
+        {"page_number": 2, "text": "Tabelle 3: Anforderungen", "tables": [_table(page=2)]},
+    ]
+    documents = punkt_documents(pages, "oib-rl_9_ausgabe_mai_2023.pdf", 1)
+    [table] = [d for d in documents if d.metadata.get("chunking") == "table"]
+    assert table.metadata["table_part"] == 1
+    for mode in (MetadataMode.EMBED, MetadataMode.LLM):
+        assert "table_part" not in table.get_content(metadata_mode=mode)
+
+
 def test_a_caption_without_a_title_is_the_table_number_alone():
     body = "\n".join(f"{n} Punkt Nummer {n}\nText zu Punkt {n}, lang genug um zu zählen." for n in range(1, 8))
     untitled = PageTable("3", "", [HEADER, *ROWS], 2)

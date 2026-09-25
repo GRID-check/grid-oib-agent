@@ -2364,8 +2364,11 @@ async def knowledge_retrieval(config: KnowledgeRetrievalConfig, _builder: Builde
                 # corpus that answered nothing.
                 overview = None
             family_note = overview.preamble if overview is not None else ""
+            dropped_by_family = 0
             if overview is not None:
-                ranked = _without_chunks(merged.chunks, overview.chunks)[:_FAMILY_RANKED_HITS]
+                unaddressed = _without_chunks(merged.chunks, overview.chunks)
+                ranked = unaddressed[:_FAMILY_RANKED_HITS]
+                dropped_by_family = len(unaddressed) - len(ranked)
                 merged = merged.model_copy(update={"chunks": [*overview.chunks, *ranked]})
 
             # The picking, as a first-class observation (ADR-0044): one
@@ -2414,6 +2417,8 @@ async def knowledge_retrieval(config: KnowledgeRetrievalConfig, _builder: Builde
                     search_input["requery_fired"] = bool(requery_fired)
                     if dropped_by_cap:
                         search_input["dropped_by_cap"] = dropped_by_cap
+                    if dropped_by_family:
+                        search_input["dropped_by_family"] = dropped_by_family
                     if not merged.chunks:
                         search_input["empty"] = True
                     if getattr(merged, "error_message", None):

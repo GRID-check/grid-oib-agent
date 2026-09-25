@@ -57,9 +57,10 @@ class Section:
 def split_sections(text: str) -> list[Section]:
     """Split a consolidated law into its §§ / Artikel, in document order.
 
-    The preceding short line, when it reads as a heading, is recorded as the
-    section's Überschrift — and left in the previous body too, because guessing
-    wrong about a heading must not DELETE text a citation rests on.
+    The short line under a bare marker, or else the one above it, when it
+    reads as a heading, is recorded as the section's Überschrift. One above is
+    left in the previous body too, because guessing wrong about a heading must
+    not DELETE text a citation rests on.
     """
     lines = text.splitlines()
     starts = [(index, match) for index, line in enumerate(lines) if (match := SECTION_LINE_RE.match(line))]
@@ -67,7 +68,7 @@ def split_sections(text: str) -> list[Section]:
         Section(
             kind="§" if match.group(1) else "Art",
             number=match.group(3),
-            heading=_heading_above(lines, index) or _heading_below(lines, index),
+            heading=_heading_below(lines, index, match) or _heading_above(lines, index),
             body="\n".join(lines[index : _end_of(starts, position, len(lines))]).strip(),
         )
         for position, (index, match) in enumerate(starts)
@@ -87,16 +88,23 @@ def _one_section_per_label(sections: list[Section]) -> list[Section]:
     a table of contents, ``§ 8`` / ``Abstellmöglichkeiten für Kraftfahrzeuge``,
     far from § 8 itself. Each stub matches the grammar, so a lookup for § 63
     returned it as a passage of its own and registered the same citation key
-    twice. The longest body is the provision; the others go, and so does their
-    "heading", which is whatever line sat above them (in a table of contents,
-    the previous entry's title).
+    twice. The provision is the one whose marker is written ``§ 8.``, the form
+    RIS gives a provision and never a stub; between equals, the longest body.
+    Length alone lost a repealed ``§ 8.`` / ``(entfällt)`` to its table of
+    contents entry, which is longer.
     """
-    longest: dict[str, Section] = {}
+    kept: dict[str, Section] = {}
     for section in sections:
-        kept = longest.get(section.label)
-        if section.label and (kept is None or len(section.body) > len(kept.body)):
-            longest[section.label] = section
-    return [section for section in sections if not section.label or longest[section.label] is section]
+        best = kept.get(section.label)
+        if section.label and (best is None or _provision_rank(section) > _provision_rank(best)):
+            kept[section.label] = section
+    return [section for section in sections if not section.label or kept[section.label] is section]
+
+
+def _provision_rank(section: Section) -> tuple[bool, int]:
+    """How much a section reads as the provision: a ``§ 8.`` marker first, then length."""
+    marker = SECTION_LINE_RE.match(section.body)
+    return bool(marker and marker.group(0).rstrip().endswith(".")), len(section.body)
 
 
 def _end_of(starts: list[tuple[int, object]], position: int, total: int) -> int:
@@ -110,13 +118,17 @@ def _heading_above(lines: list[str], index: int) -> str:
     return previous if _is_heading(previous) else ""
 
 
-def _heading_below(lines: list[str], index: int) -> str:
-    """The Überschrift on the line after the marker, where a law puts it there.
+def _heading_below(lines: list[str], index: int, marker: re.Match[str]) -> str:
+    """The Überschrift on the line after a bare marker, where a law puts it there.
 
     The Tiroler Bauordnung writes ``§ 8`` / ``Abstellmöglichkeiten für
     Kraftfahrzeuge`` / ``(1)``; read only above, its index was bare numbers and
-    the picker, which chooses by heading, chose blind.
+    the picker, which chooses by heading, chose blind. It is read before the
+    line above: in such a law that line is the previous entry's title, or the
+    Abschnitt's. A marker with text run into it has no heading below.
     """
+    if lines[index][marker.end() :].strip():
+        return ""
     below = lines[index + 1].strip() if index + 1 < len(lines) else ""
     return below if _is_heading(below) and not ABSATZ_LINE_RE.match(below) else ""
 

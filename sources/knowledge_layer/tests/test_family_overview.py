@@ -514,6 +514,33 @@ class TestTheOverviewIsNotBuriedInRankedHits:
         assert citations[:4] == [f"{MEMBERS[number]}, p.2" for number in ("2", "2.1", "2.2", "2.3")]
         assert len(citations) == 4 + reg._FAMILY_RANKED_HITS
 
+    async def test_the_ranked_passages_left_out_are_counted_on_the_span(self, corpus, monkeypatch):
+        """The cap and the floor record what they drop; so does the family budget."""
+        reg = importlib.import_module("knowledge_layer.register")
+        corpus(MEMBERS, ranked=_ranked_many())
+        span: dict = {}
+
+        def _capture(*, tool_name, search_input, picks):
+            span.update(search_input)
+
+        monkeypatch.setattr("aiq_agent.observability.retrieval_trace.emit_retrieval_span", _capture)
+        await _search()
+
+        # Ten ranked, eight past the top-k cap, four of those beside the overview.
+        assert span["dropped_by_family"] == _config().top_k - reg._FAMILY_RANKED_HITS
+
+    async def test_an_ordinary_search_drops_nothing_for_a_family(self, corpus, monkeypatch):
+        corpus(MEMBERS, ranked=_ranked_many())
+        span: dict = {}
+
+        def _capture(*, tool_name, search_input, picks):
+            span.update(search_input)
+
+        monkeypatch.setattr("aiq_agent.observability.retrieval_trace.emit_retrieval_span", _capture)
+        await _search(query=TOPIC_QUERY)
+
+        assert "dropped_by_family" not in span
+
     async def test_an_ordinary_search_keeps_its_full_budget(self, corpus):
         corpus(MEMBERS, ranked=_ranked_many())
 
@@ -537,11 +564,20 @@ class TestAnOverviewQuestionIsNotJudged:
             return _Judge()
 
         monkeypatch.setattr("aiq_agent.common.get_langchain_llm", _resolve)
+        span: dict = {}
+
+        def _capture(*, tool_name, search_input, picks):
+            span.update(search_input)
+
+        monkeypatch.setattr("aiq_agent.observability.retrieval_trace.emit_retrieval_span", _capture)
         async with knowledge_retrieval(_config(requery_llm="judge"), MagicMock()) as info:
             out = await info.single_fn(info.input_schema(query=FAMILY_QUERY))
 
         assert calls == []
         assert "Umformulierungen" not in out
+        # The trace says WHY the judge did not run, so loop_eval does not count it as a miss.
+        assert span["requery_skipped"] == "family"
+        assert span["requery_fired"] is False
 
     @staticmethod
     def _judge(monkeypatch) -> list:

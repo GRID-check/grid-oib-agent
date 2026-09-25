@@ -110,7 +110,9 @@ _MAX_FIRST_ID = 1
 #: Metadata that exists for citation ranges, diagnostics or filtering and carries no
 #: retrieval signal, so it must not be prepended to the text the embedder sees. Extends
 #: the adapter's ``EMBED_EXCLUDED_METADATA_KEYS`` rather than replacing it.
-PUNKT_EMBED_EXCLUDED_METADATA_KEYS = ("page_end", "punkt_depth", "chunking")
+#: ``table_part`` orders a table's row groups for ``read_passage``; embedded, it read
+#: ``table_part: 1`` to the embedder and the model alike.
+PUNKT_EMBED_EXCLUDED_METADATA_KEYS = ("page_end", "punkt_depth", "chunking", "table_part")
 
 #: Separator for the ancestor breadcrumb. A guillemet reads as hierarchy to the embedder
 #: without colliding with the ">" that appears in the corpus' own comparison operators.

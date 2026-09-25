@@ -21,7 +21,7 @@ class _SlowEmbedder:
         return [float(len(query))]
 
 
-def _inflight_wait_hook(retriever: LlamaIndexRetriever, waiting: threading.Semaphore):
+def _inflight_wait_hook(waiting: threading.Semaphore):
     """Signal ``waiting`` each time a caller starts waiting on an in-flight embedding; returns the undo."""
     from sources.knowledge_layer.src.llamaindex import adapter
 
@@ -47,22 +47,6 @@ def _retriever() -> tuple[LlamaIndexRetriever, _SlowEmbedder]:
     return retriever, embedder
 
 
-def test_a_search_that_starts_while_the_warm_up_is_in_flight_waits_for_it():
-    retriever, embedder = _retriever()
-    results: list[list[float]] = []
-    threads = [
-        threading.Thread(target=lambda: results.append(retriever._embed_query_cached("Treppe Breite")))
-        for _ in range(3)
-    ]
-    for thread in threads:
-        thread.start()
-    for thread in threads:
-        thread.join()
-
-    assert embedder.calls == ["Treppe Breite"]
-    assert results == [[13.0]] * 3
-
-
 def test_a_failed_embedding_fails_every_waiter_at_once():
     """A down embedding API fails every caller after ONE bounded call.
 
@@ -82,7 +66,7 @@ def test_a_failed_embedding_fails_every_waiter_at_once():
         raise RuntimeError("embedding API down")
 
     embedder.get_query_embedding = failing  # type: ignore[method-assign]
-    undo = _inflight_wait_hook(retriever, waiting)
+    undo = _inflight_wait_hook(waiting)
     outcome: list[object] = []
 
     def call() -> None:
@@ -182,7 +166,7 @@ def test_without_a_cache_parallel_callers_still_share_one_embedding(monkeypatch)
     retriever, embedder = _retriever()
     monkeypatch.setattr(LlamaIndexRetriever, "EMBED_CACHE_MAX", 0)
     waiting = threading.Semaphore(0)
-    undo = _inflight_wait_hook(retriever, waiting)
+    undo = _inflight_wait_hook(waiting)
     release = threading.Event()
     results: list[list[float]] = []
 
@@ -230,14 +214,6 @@ def test_the_retriever_hands_its_query_model_to_every_index_it_opens(monkeypatch
     retriever._get_index("oib_knowledge")
 
     assert index_class.from_vector_store.call_args.kwargs["embed_model"] is embedder
-
-
-def test_the_prefetch_query_carries_no_trailing_blank():
-    from aiq_agent.agents.piloti.decisions import prefetch_query
-
-    # A 300-character cut can land on a space; the search strips its query.
-    question = "x" * 299 + " und mehr"
-    assert prefetch_query(question) == prefetch_query(question).strip()
 
 
 def test_initialising_the_retriever_leaves_the_global_embed_model_alone(monkeypatch):

@@ -45,11 +45,19 @@ _BARE = re.compile(r"\s*(\d{1,3})([a-z]?)\b", re.IGNORECASE)
 _ORDINAL_AHEAD = re.compile(r"\.\s*\w")
 _JOIN_RE = re.compile(r"\s*(,|\bund\b|\bsowie\b|\bu\.|\bbis\b|–|-)", re.IGNORECASE)
 _RANGE_JOINS = frozenset({"bis", "–", "-"})
-#: What narrows one § ("Abs 2", "Abs. 2 und 3", "Z 4", "lit. b", ", 2. Satz"). Bare numbers
-#: joined after it are more Absätze, never more §§.
+#: What narrows one § ("Abs 2", "Abs. 2 und 3", "Z 4 und Z 6", "lit. b und c",
+#: ", 2. Satz"). The items joined after it are more of the same qualifier, signed
+#: again or not, never more §§: read as a § list, "und c" and "und Abs 3" were
+#: left in the law's name. A litera continues with a lower-case letter, the
+#: others with a number; neither takes a "§", so "und § 7" stays the list's.
+_QUALIFIER_JOIN = r"\s*(?:,|\bund\b|\bbis\b|–|-)\s*"
 _QUALIFIER_RE = re.compile(
-    r"\s*(?:Abs(?:atz|\.)?\s*\d+[a-z]?|Z(?:iffer|\.)?\s*\d+|lit\.?\s*[a-z]\b|,?\s*\d+\.\s*Satz\b)"
-    r"(?:\s*(?:,|\bund\b|\bbis\b|–|-)\s*\d+[a-z]?\b(?!\.\s*\w))*",
+    r"\s*(?:"
+    r"(?:Abs(?:atz|\.)?|Z(?:iffer|\.)?)\s*\d+[a-z]?\b"
+    rf"(?:{_QUALIFIER_JOIN}(?:(?:Abs(?:atz|\.)?|Z(?:iffer|\.)?)\s*)?\d+[a-z]?\b(?!\.\s*\w))*"
+    r"|lit\.?\s*(?-i:[a-z])\b"
+    rf"(?:{_QUALIFIER_JOIN}(?:lit\.?\s*)?(?-i:[a-z])\b(?!\.\s*\w))*"
+    r"|,?\s*\d+\.\s*Satz\b)",
     re.IGNORECASE,
 )
 #: An Absatz with a list after it, where no § stands before it: taken out of
