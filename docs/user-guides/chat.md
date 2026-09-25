@@ -249,8 +249,9 @@ the end.
 - **Quotes are checked against the source.** A slightly misquoted passage is
   corrected to the source's own wording. A quote that cannot be corrected is
   marked `[nicht wörtlich in der Quelle belegt]`.
-- **Answers are Markdown.** Tables state their result, checks are task lists,
-  and variants sit in tabs.
+- **Answers are Markdown.** Tables state their result, a check against
+  criteria is a table with a status column, what you still have to hand in is
+  a task list, and variants sit in tabs.
 - **Relations are drawn.** A process or decision path, a tree or outline of a
   Regelwerk, a handoff between parties, a schedule of dated phases, and the
   shares of one whole each become a diagram.

@@ -24,7 +24,7 @@ features:
     nebeneinander. Im Word-Export stehen die Varianten untereinander, jede
     mit ihrem Reitertitel.
   - >
-    Prüftabellen zeigen ihr Ergebnis vorab (etwa „2 erfüllt · 1 offen"),
+    Prüftabellen zeigen ihr Ergebnis vorab (etwa „2 erfüllt · 1 offen“),
     eine Fundstelle, die für alle Zeilen gleich ist, steht einmal unter der
     Tabelle statt in jeder Zeile, und auf dem Telefon werden breite Tabellen
     zeilenweise untereinander gezeigt statt seitlich zu scrollen.
@@ -50,7 +50,7 @@ fixes:
     Treppenhäusern) werden richtig gelesen und mit der Seite der Tabelle
     zitiert; bisher verwechselte die Suche die Spalten der Gebäudeklassen.
   - >
-    Die Punkte von „Das Wichtigste" stehen bündig untereinander, und
+    Die Punkte von „Das Wichtigste“ stehen bündig untereinander, und
     Kopieren, Antwortdetails und Bewertung stehen unter einer Antwort in
     einer Zeile.
   - >

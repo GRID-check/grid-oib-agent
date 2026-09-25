@@ -319,7 +319,7 @@ round and are paid on every search:
   `should_skip_judge` does not exempt (a pinned file, a judge that already
   fired this search; the family overview is a branch that returns before the
   loop — since 2026-09-23 an explicit judge skip inside the loop,
-  `requery_skipped_reason="family"`), reads the question and
+  recorded as `search_input["requery_skipped"] = "family"`), reads the question and
   twelve 600-character excerpts, and answers "sufficient, or here are two
   other phrasings". With the cross-encoder a ~300 ms OpenRouter call, the
   judge is the long pole of every search and a frontier call per search.

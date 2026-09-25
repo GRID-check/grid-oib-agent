@@ -48,7 +48,8 @@ outside NAT):
   inferred from the base URL (``OPENROUTER_API_KEY`` for the default
   openrouter.ai base URL).
 * ``BACKFILL_SUMMARY_BASE_URL`` — default ``https://openrouter.ai/api/v1``.
-* ``BACKFILL_SUMMARY_MODEL`` — default ``nvidia/nemotron-mini-4b-instruct``.
+* ``BACKFILL_SUMMARY_MODEL`` — default ``GRID_DEFAULT_MODEL``, then
+  ``openai/gpt-6-luna``.
 
 STORE ACCESS
 ------------

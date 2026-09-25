@@ -1,8 +1,7 @@
 ---
 fixes:
   - >
-    Eine fertige Antwort wird nicht mehr Sekunden nach dem Erscheinen durch
-    eine andere ersetzt. Ein Zitat, das nicht wörtlich in seiner Quelle steht,
-    ist markiert, sobald die Antwort steht. Ein leicht falsch erinnertes Zitat
-    wird auf den Wortlaut der Quelle korrigiert, und nur dann, wenn die Quelle,
-    die der Satz nennt, diesen Wortlaut enthält.
+    Ein Zitat, das nicht wörtlich in seiner Quelle steht, ist markiert, sobald
+    die Antwort steht. Ein leicht falsch erinnertes Zitat wird auf den
+    Wortlaut der Quelle korrigiert, und nur dann, wenn die Quelle, die der
+    Satz nennt, diesen Wortlaut enthält.

@@ -1171,14 +1171,14 @@ Five retrieval-quality improvements sit in the knowledge layer's `register.py`
    one German line naming the alternative formulations and why they were tried
    (`requery.requery_notice`), so the agent that issued the search is not the
    one party the widening is hidden from. Fail-open at every step. The judge
-   is skipped, and the skip recorded as `requery_skipped_reason`, for a family
+   is skipped, and the skip recorded as `search_input["requery_skipped"]`, for a family
    overview (`"family"`: the judge counts a scope note and a Gliederung as not
    answering, so it would fan out by construction), keyed on the overview the
    branch actually produced: a corpus without the family, or an overview that
    failed open, keeps the judge. The turn's prefetch is judged like any other
    search: a switch that skipped it (`requery_on_prefetch`) measured 3.4 s
    slower on the turns it applied to and was removed
-   (`turn-latency-measured-2026-09.md` §3.5; `2ba012b0` has it). A pinned file (`"file_pinned"`), a requery that already fired this turn
+   (`turn-latency-measured-2026-09.md` §3.5; it lived in the requery gate of `knowledge_layer/register.py`, marked by a `ContextVar` the prefetch node set). A pinned file (`"file_pinned"`), a requery that already fired this turn
    (`"already_fired"`) and the cheap pre-checks of `should_skip_judge` skip it
    too.
 

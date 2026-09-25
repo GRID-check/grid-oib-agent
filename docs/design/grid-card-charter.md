@@ -282,8 +282,8 @@ Format: **job** → **grammar** → **unmistakable** → **degradation** → **e
 **Job.** The 2–5 points a skimmer leaves with.
 **Grammar.** Kill `divide-y` (KeyTakeawaysCard.tsx:107) — hairlines between rows are what makes it a generic list. Replace with ordinals hanging off one continuous vertical hairline in the 26px gutter, every takeaway on the same text column. (A descending staircase, item *n* indented `(n−1) × 6px`, shipped first and was withdrawn: at 6px a step reads as misregistration, not as rank.) Ordinals at Meta mono in `--muted-foreground/60`. **Item 1 breaks the pattern**: its ordinal is full-weight `--foreground` and its text is **15px/600** — the card's one figure. A reader who reads nothing else reads takeaway one, which is what "most important first" is supposed to buy.
 Keep verbatim: a row with no `detail` is not a button (line 58).
-**Unmistakable.** Progressive indent plus one heavy first row. Nothing else indents by rank.
-**Degradation.** 2 items → one step, still reads. 5 items → 24px total indent, safe at 314px. Long compounds wrap with `text-pretty` — **never truncate a takeaway**, it is the payload. Missing `text` on an item → skip the row silently (§0.5.1).
+**Unmistakable.** Ordinals on one continuous hairline plus one heavy first row. No other card marks rank by weight alone.
+**Degradation.** Every item sits on the same text column, so 2 items and 5 read alike and the width needs no allowance at 314px. Long compounds wrap with `text-pretty` — **never truncate a takeaway**, it is the payload. Missing `text` on an item → skip the row silently (§0.5.1).
 **Effort: S.**
 
 #### `callout`

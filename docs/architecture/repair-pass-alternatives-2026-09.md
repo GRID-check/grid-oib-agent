@@ -22,7 +22,7 @@ option.
 * `nearest` is the closest passage among the sources the quote's own sentence
   cites, not the closest in the whole registry. The Bundesländer's codes hold
   near-identical sentences, so the registry-wide nearest can be another
-  Land's (`f0555a50`).
+  Land's (`citation_verification._nearest_cited`).
 * The gate is `closeness` ≥ `PATCH_FLOOR` = 0.7, the best ratio over
   quote-sized windows of the passage, not a `best_coverage` band. Coverage
   scores the longest contiguous run and drops a quote with two words changed

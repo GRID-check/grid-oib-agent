@@ -4,7 +4,7 @@ features:
     Antworten sind gegliedert statt als Fließtext geschrieben: die erste
     Zeile beantwortet die Frage mit dem Wert in Fett, Prüfungen und Fälle
     nach Gebäudeklasse erscheinen als Tabellen mit Fundstelle, ein Status
-    wie „erfüllt" oder „offen" als farbige Markierung, Verfahren als
+    wie „erfüllt“ oder „offen“ als farbige Markierung, Verfahren als
     nummerierte Schritte und Nachzureichendes als Aufgabenliste.
   - >
     Piloti zeichnet von sich aus, wo Text eine Form schlecht trägt: ein

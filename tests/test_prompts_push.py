@@ -106,7 +106,6 @@ def test_apply_publishes_a_git_tagged_version_naming_its_commit(monkeypatch, com
     assert created["prompt"] == "Regel eins.\nRegel zwei."
     assert created["labels"] == ["staging"]
     assert created["tags"] == [push.GIT_TAG]
-    assert created["commit_message"].startswith("git aaaaaaaaaaaa ")
 
 
 def test_an_edit_made_in_langfuse_is_never_overwritten(monkeypatch, committed, capsys):

@@ -113,7 +113,7 @@ Variables set in `docker-compose.yaml` under `environment:` take precedence over
 | `AIQ_ENABLE_DEBUG` | No | `true` | Mounts the debug console at `/debug`. Set to `0`/`false`/`no`/`off` to disable it — worth doing on any deployment where that surface should not be reachable. |
 | `GRID_INGEST_WAIT_SECONDS` | No | `20` | How long a chat turn holds for a file that is still being indexed into a collection the turn can read (a just-uploaded attachment), polling once a second, before answering with the inventory's "still being read" note instead. `0` disables the hold. The live status line says the turn is waiting. |
 | `GRID_AVAILABLE_DOCUMENTS_MAX` | No | `50` | Caps how many documents are listed in the agent's `available_documents` prompt block. User-shelf files (Büroarchiv / Projekt / session) are kept first so the OIB corpus cannot evict them; within a shelf the cut is filename-sorted and deterministic. `0`/negative disables the cap. |
-| `AIQ_EXTRACT_TABLES` | No | `false` | Enable table extraction from documents. |
+| `AIQ_EXTRACT_TABLES` | No | `false` | Adds a PDF's uncaptioned tables to the index. Captioned tables (a „Tabelle 3“ with its caption) are always read as tables and indexed, whatever this says; with the flag on, the extra pass skips any table the captioned pass already took. |
 | `AIQ_EXTRACT_IMAGES` | No | `false` (code default; both deployments set `true`) | Enable extraction of **embedded raster images** (image XObjects) from PDFs for VLM captioning, so a photo inside a plan set is findable and can be shown with `view_knowledge_image`. For a document the BFF dispatched (project/Archiv/session upload, i.e. one with a `document_id`) each extracted raster is also stored beside the file as `_img/<index>.jpg` through the BFF presign route, at most `MAX_STORED_IMAGES_PER_DOCUMENT` (64) per document; the caption chunk records `image_key` and the tool can show the image itself instead of the page. Needs `FRONTEND_INTERNAL_URL` + `GRID_INTERNAL_API_TOKEN` on the aiq-agent tier; without them captions are kept and rasters dropped, as before. Does NOT capture vector CAD drawings — see `AIQ_RENDER_VISUAL_PAGES`. |
 | `AIQ_EXTRACT_CHARTS` | No | `false` | Enable chart extraction from documents. |
 | `AIQ_RENDER_VISUAL_PAGES` | No | `true` | Render **text-sparse / vector-heavy PDF pages** to a full-page image and VLM-caption them (captures architectural/CAD drawings — vector plans, sections, elevations, perspectives — that carry almost no extractable text and no embedded raster image, so text and image extraction both miss them). Effective only when a VLM key resolves (`AIQ_VLM_API_KEY`); fires only on pages the heuristic flags as visual, so ordinary text PDFs cost nothing extra. The rendered-page description also feeds the document summary for such PDFs, so the summary describes the drawing (type + scale) instead of a watermark. |
@@ -202,6 +202,14 @@ The one-off tag-backfill script runs **outside** the NAT runtime, so it builds a
 | `BACKFILL_SUMMARY_MODEL` | No | `GRID_DEFAULT_MODEL`, then `openai/gpt-6-luna` | Tagging model id. Match the config's `summary_llm` model. |
 
 *Required only when running the backfill script; not needed by the running services. The store/source come from `AIQ_SUMMARY_DB` and `AIQ_CHROMA_DIR` (or `--summary-db` / `--chroma-dir`). Exit codes: `0` success (or nothing to do; `--dry-run` always `0`), `1` a real run finished with per-document classification failures, `2` missing LLM key.
+
+---
+
+## Turn Census (`scripts/turn_census/`, development only)
+
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `REC_OUT` | Set by the census | — | Path of the JSON-lines file `scripts/turn_census/sitecustomize.py` appends one record per model call to. `census.py` sets it for the agent process it starts; do not set it by hand. Empty or unset, nothing is recorded. The application never reads it. |
 
 ---
 

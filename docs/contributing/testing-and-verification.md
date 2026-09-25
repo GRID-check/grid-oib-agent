@@ -306,7 +306,6 @@ its passage; this asks what the reader waited for and what they got.
   the medians of an earlier `results.json` beside the new ones; `--report`
   re-renders a `results.json` and re-checks it against the question set as it
   is now, without paying for the runs again.
-
 - **Flags:** `--only <id> …` runs the named questions (an unknown id exits
   2). `--runs N` sets runs per question (default 2), `--workers N` how many run
   at once (default 3). `--override KEY VALUE` sets a config value for every
@@ -340,7 +339,7 @@ Traps that cost a run:
   errors, and the runs that hit it measure nothing.
 - **A second or two between single runs is noise.** Compare medians over
   several runs, never one run against one run.
-- **Which checkout a run measures.** Since `c9575e0d` the suite and the census
+- **Which checkout a run measures.** Since the suite and the census
   put this checkout's `src/` and `sources/` packages first on each run's
   `PYTHONPATH`, and the suite refuses to start when a run would still import
   another checkout. Before that, a run from a `git worktree` measured the main

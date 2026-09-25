@@ -27,10 +27,12 @@ reviewable origin.
 Provenance is read off the VERSION, never off tags: Langfuse keeps one tag
 list per prompt, "the same across versions", so once one version was
 published with ``git`` every later UI edit carries it too. A live version
-counts as published from git when its commit message names a commit
-(``git <sha> <path>``, as :func:`publish` writes it) AND that commit's file is,
-byte for byte, the text Langfuse serves. An edit made in the UI fails the
-second half whatever its message says.
+counts as published from git when the text Langfuse serves is, byte for byte,
+a committed text: the file in the commit its message names (``git <sha>
+<path>``, as :func:`publish` writes it), or the file in any commit of its
+history (:func:`file_history`). The second arm is what lets a UI edit that was
+pulled and committed through review count as reviewed. An edit made in the UI
+and never committed matches neither, whatever its message says.
 
 Not closed: the label is read and the new version written in two calls, so
 an edit promoted in the UI between them is still overwritten.
@@ -52,9 +54,10 @@ version and moves the label to it, which is what the fleet serving that label
 renders within ``LANGFUSE_PROMPT_CACHE_TTL_SECONDS``: run it when the code the
 text belongs to is deployed, and ask before running it against ``production``.
 
-Run ``--apply`` only from a commit on ``develop``. A feature-branch sha
-disappears at squash-merge; later pushes then cannot ``git show`` it and refuse
-the version as a Langfuse edit.
+Run ``--apply`` only from a commit on ``develop``. Text published from a
+branch that never merges was never reviewed, and once that branch is gone no
+commit in the file's history holds it, so the next push refuses the version as
+a Langfuse edit.
 
 Exit codes: 0 up to date or published; 1 CHECK found a change to publish;
 2 no credentials; 3 refused (the label holds an unreviewed edit, the file is
@@ -138,8 +141,9 @@ def text_at(sha: str, path: str) -> str | None:
 def published_from_git(live: Any) -> bool:
     """Whether ``live`` is a version this script published, and unedited since.
 
-    Its commit message names a commit, and that commit's file is exactly the
-    text served. Tags cannot say this (see the module docstring).
+    The text served is exactly a committed text: the file in the commit its
+    message names, or the file in any commit of the file's history. Tags
+    cannot say this (see the module docstring).
     """
     served = committed_text(getattr(live, "prompt", "") or "")
     match = _COMMIT_MESSAGE_RE.match((getattr(live, "commit_message", None) or "").strip())
