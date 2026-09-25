@@ -10,8 +10,11 @@ reader something, and to the one place it happened:
 * A citation whose source line did not resolve gets no repair. The settled
   snapshot has already dropped it where the reader can see; putting one back
   seconds later is the swap again.
-* A quote no passage holds verbatim, when one passage comes close
-  (``UnverifiedQuote.nearest``), is a quotation the model misremembered. The
+* A quote no passage holds verbatim, when a passage of a source its own
+  sentence CITES comes close (``UnverifiedQuote.nearest``), is a quotation the
+  model misremembered. A close passage of a source it does not cite is never
+  used: the corpus holds near-identical texts per Bundesland, and a patch from
+  the wrong one would put that text under this citation. The
   small model is given that passage and the quote and returns the passage's
   own wording for it. Only the text between the quotation marks is replaced,
   so the ``[N]`` markers and the rest of the answer cannot move. The
@@ -98,11 +101,25 @@ def closeness(quote: str, passage: str) -> float:
     return best
 
 
-def patchable(quote: UnverifiedQuote) -> bool:
-    """Whether a flagged quote is a misremembered one this repair may correct."""
-    if quote.reason != "not_verbatim" or quote.nearest is None or not quote.nearest.chunk_text:
-        return False
-    return closeness(quote.quote, quote.nearest.chunk_text) >= PATCH_FLOOR
+def select(quotes: Sequence[UnverifiedQuote]) -> list[UnverifiedQuote]:
+    """The flagged quotes this repair may correct, at most :data:`MAX_PATCHES`.
+
+    Misremembered, not unattributed (``reason`` is ``not_verbatim``), with a
+    passage of a cited source close enough (``closeness`` ≥ :data:`PATCH_FLOOR`).
+    Every flagged quote's closeness is logged, selected or not: it is what
+    ``PATCH_FLOOR`` should be read off.
+    """
+    chosen: list[UnverifiedQuote] = []
+    for quote in quotes:
+        passage = quote.nearest.chunk_text if quote.nearest is not None else None
+        if not passage:
+            logger.info("Piloti: unverified quote (%s), no cited passage", quote.reason)
+            continue
+        score = closeness(quote.quote, passage)
+        logger.info("Piloti: unverified quote (%s), closeness %.2f", quote.reason, score)
+        if quote.reason == "not_verbatim" and score >= PATCH_FLOOR:
+            chosen.append(quote)
+    return chosen[:MAX_PATCHES]
 
 
 def accept(original: str, corrected: str | None, passage: str) -> str | None:
@@ -139,23 +156,13 @@ def splice(content: str, patches: Sequence[tuple[UnverifiedQuote, str]]) -> str:
     return content
 
 
-async def patch_quotes(content: str, quotes: Sequence[UnverifiedQuote], patch: QuotePatchFn) -> tuple[str, int]:
-    """``(content with the quotes it could correct corrected, how many)``."""
-    # Every flagged quote's closeness is logged, patched or not: it is what
-    # PATCH_FLOOR should be read off.
-    for quote in quotes:
-        if quote.nearest is not None and quote.nearest.chunk_text:
-            logger.info(
-                "Piloti: unverified quote (%s), closeness %.2f",
-                quote.reason,
-                closeness(quote.quote, quote.nearest.chunk_text),
-            )
-    candidates = [quote for quote in quotes if patchable(quote)][:MAX_PATCHES]
+async def patch_quotes(content: str, candidates: Sequence[UnverifiedQuote], patch: QuotePatchFn) -> tuple[str, int]:
+    """``(content with the candidates it could correct corrected, how many)``; ``candidates`` from :func:`select`."""
     if not candidates:
         return content, 0
 
     async def one(quote: UnverifiedQuote) -> str | None:
-        passage = quote.nearest.chunk_text or ""  # type: ignore[union-attr]  # patchable() checked it
+        passage = quote.nearest.chunk_text or ""  # type: ignore[union-attr]  # select() checked it
         try:
             corrected = await asyncio.wait_for(patch(quote.quote, passage), PATCH_TIMEOUT_S)
         except TimeoutError:

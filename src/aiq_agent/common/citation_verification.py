@@ -2926,9 +2926,12 @@ class UnverifiedQuote:
     # several fire. The annotation is the same either way; the reason tells the
     # repair which failure it is looking at.
     reason: str = "not_verbatim"
-    # The source whose chunk came closest (the ``best_coverage`` one): for a
-    # quote the model misremembered, the passage it was quoting. What the quote
-    # patch corrects the wording against, with no second search.
+    # The closest passage among the sources the quote's sentence CITES (None
+    # when it cites none the registry holds): for a quote the model
+    # misremembered, the passage it was quoting. What the quote patch corrects
+    # the wording against, with no second search. Not the whole-registry best
+    # (that is ``best_coverage``): a near-identical text from an uncited source
+    # must never supply a cited quote's wording.
     nearest: SourceEntry | None = field(default=None, compare=False, repr=False)
 
 
@@ -3103,6 +3106,49 @@ def _quote_has_citation_in_sentence(body: str, start: int, end: int) -> bool:
     return following is not None and _INLINE_CITATION_RE.search(body, following[0], following[1]) is not None
 
 
+def _quote_cited_numbers(body: str, start: int, end: int) -> set[int]:
+    """The ``[N]`` numbers in the quote's sentence, or in the next one when its own has none.
+
+    The same windows :func:`_quote_has_citation_in_sentence` judges by.
+    """
+    (win_start, win_end), following = _quote_sentence_windows(body, start, end)
+    numbers = {int(n) for n in _INLINE_CITATION_RE.findall(body, win_start, win_end)}
+    if not numbers and following is not None:
+        numbers = {int(n) for n in _INLINE_CITATION_RE.findall(body, following[0], following[1])}
+    return numbers
+
+
+def _cited_source_identities(answer_text: str, numbers: set[int], registry: SourceRegistry) -> set[tuple]:
+    """The registry documents (and URLs) the answer's source lines ``numbers`` name.
+
+    Read with the same matchers as the source section, one line at a time, so
+    ``[1]`` resolves to what its line says and not to a neighbour's document.
+    """
+    if not numbers:
+        return set()
+    section = _REFERENCE_SECTION_RE.search(_normalize_citation_syntax(answer_text))
+    if section is None:
+        return set()
+    lines = [
+        text
+        for number, text in _CITATION_LINE_RE.findall(_normalize_citation_syntax(answer_text)[section.start() :])
+        if int(number) in numbers
+    ]
+    identities: set[tuple] = set()
+    for line in lines:
+        identities.update(
+            ("doc", *_document_identity(e)) for e in cited_document_entries(f"## Quellen\n- [1] {line}", registry)
+        )
+        identities.update(("url", url.rstrip(").,;")) for url in _URL_IN_LINE_RE.findall(line))
+    return identities
+
+
+def _is_cited(source: SourceEntry, identities: set[tuple]) -> bool:
+    if ("doc", *_document_identity(source)) in identities:
+        return True
+    return bool(source.url) and ("url", source.url) in identities
+
+
 def _answer_body_before_sources(answer_text: str) -> str:
     """Return the answer prose before the ``## Sources``/references section.
 
@@ -3165,10 +3211,18 @@ def verify_quoted_spans(
             continue
         too_long = len(inner.split()) > _QUOTE_MAX_WORDS
         uncited = not _quote_has_citation_in_sentence(body, match.start(), match.end())
-        best_coverage, nearest = max(
-            ((_quote_coverage(norm_quote, chunk), source) for chunk, source in normalized_chunks),
-            key=lambda scored: scored[0],
-        )
+        scored = [(_quote_coverage(norm_quote, chunk), source) for chunk, source in normalized_chunks]
+        best_coverage = max(coverage for coverage, _ in scored)
+        # The passage a correction may come from: the closest one of a source
+        # the quote's own sentence CITES. The closest in the whole registry
+        # could be another Bundesland's near-identical text, and a patch from
+        # it would put that text under this citation (ADR-0067).
+        cited = _cited_source_identities(answer_text, _quote_cited_numbers(body, match.start(), match.end()), registry)
+        nearest = max(
+            ((coverage, source) for coverage, source in scored if _is_cited(source, cited)),
+            key=lambda pair: pair[0],
+            default=(0.0, None),
+        )[1]
         if too_long or uncited or best_coverage < threshold:
             reasons = (
                 "+".join(name for name, hit in (("too_long", too_long), ("uncited", uncited)) if hit) or "not_verbatim"

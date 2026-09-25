@@ -59,6 +59,7 @@ from .markers import detect_and_strip_confidence_marker
 from .markers import detect_and_strip_escalation_marker
 from .quote_patch import QuotePatchFn
 from .quote_patch import patch_quotes
+from .quote_patch import select as select_quotes
 
 logger = logging.getLogger(__name__)
 
@@ -453,8 +454,13 @@ async def _verify_with_quote_patch(content: str, registry: SourceRegistry, patch
     verified = _verify(content, registry)
     if patch is None or not verified.unverified_quotes:
         return verified
-    emit_answer_repair(quotes=len(verified.unverified_quotes))
-    patched, count = await patch_quotes(verified.content, verified.unverified_quotes, patch)
+    candidates = select_quotes(verified.unverified_quotes)
+    if not candidates:
+        return verified
+    # Announced only for a quote it will try: an unattributed quote keeps its
+    # marker and is not "being corrected".
+    emit_answer_repair(quotes=len(candidates))
+    patched, count = await patch_quotes(verified.content, candidates, patch)
     return _verify(patched, registry) if count else verified
 
 

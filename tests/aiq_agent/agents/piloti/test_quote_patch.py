@@ -9,9 +9,12 @@ from aiq_agent.agents.piloti.quote_patch import PATCH_FLOOR
 from aiq_agent.agents.piloti.quote_patch import accept
 from aiq_agent.agents.piloti.quote_patch import closeness
 from aiq_agent.agents.piloti.quote_patch import patch_quotes
+from aiq_agent.agents.piloti.quote_patch import select
 from aiq_agent.agents.piloti.quote_patch import splice
 from aiq_agent.common.citation_verification import SourceEntry
+from aiq_agent.common.citation_verification import SourceRegistry
 from aiq_agent.common.citation_verification import UnverifiedQuote
+from aiq_agent.common.citation_verification import verify_quoted_spans
 
 PASSAGE = (
     "Vorher steht ein Satz über Geländer und Brüstungen. Die lichte Durchgangshöhe von Treppen muss "
@@ -56,17 +59,39 @@ def test_only_the_words_between_the_quotation_marks_move():
     assert splice(answer, [(quote, CORRECT)]) == f"Es gilt: „{CORRECT}“ [1]. Danach die Breite."
 
 
-def test_an_attribution_problem_is_not_patched():
+def test_an_attribution_problem_is_not_selected():
     answer = f"Es gilt: „{MISQUOTE}“."
-    calls: list[str] = []
 
-    async def patch(text: str, passage: str) -> str | None:
-        calls.append(text)
-        return CORRECT
+    assert select([_quote(MISQUOTE, answer, reason="uncited")]) == []
+    assert select([_quote(MISQUOTE, answer)]) != []
 
-    patched, count = asyncio.run(patch_quotes(answer, [_quote(MISQUOTE, answer, reason="uncited")], patch))
 
-    assert (patched, count, calls) == (answer, 0, [])
+def test_a_passage_from_a_source_the_sentence_does_not_cite_is_never_used():
+    # Two Bundesländer with near-identical texts. The quote cites Tirol [1],
+    # but its wording is closest to Salzburg's passage. Correcting against that
+    # would put Salzburg's words, and its value, under Tirol's citation.
+    misquote = "Die lichte Durchgangshöhe bei Treppen muss wenigstens 2,50 m betragen"
+    tirol = "Treppen: eine Durchgangshöhe von 2,20 m ist einzuhalten, gemessen lotrecht über der Stufenvorderkante."
+    registry = SourceRegistry()
+    registry.add(SourceEntry(citation_key="tbo_2022.pdf, p.20", chunk_text=tirol, source_type="knowledge_layer"))
+    registry.add(SourceEntry(citation_key="s_bautg.pdf, p.5", chunk_text=PASSAGE, source_type="knowledge_layer"))
+    answer = f"In Tirol gilt: „{misquote}“ [1].\n\n## Quellen\n- [1] tbo_2022.pdf, p.20\n"
+
+    [flagged] = verify_quoted_spans(answer, registry)
+
+    assert closeness(misquote, PASSAGE) >= PATCH_FLOOR  # Salzburg's text would have been patched from
+    assert flagged.nearest is not None and flagged.nearest.citation_key == "tbo_2022.pdf, p.20"
+    assert select([flagged]) == []  # Tirol's own text is not close: the marker stays
+
+
+def test_the_passage_of_the_cited_source_is_the_one_patched_against():
+    registry = SourceRegistry()
+    registry.add(SourceEntry(citation_key="s_bautg.pdf, p.5", chunk_text=PASSAGE, source_type="knowledge_layer"))
+    answer = f"In Salzburg gilt: „{MISQUOTE}“ [1].\n\n## Quellen\n- [1] s_bautg.pdf, p.5\n"
+
+    [flagged] = verify_quoted_spans(answer, registry)
+
+    assert flagged.nearest is not None and select([flagged]) == [flagged]
 
 
 def test_a_slow_patch_leaves_the_quote_as_it_was(monkeypatch):

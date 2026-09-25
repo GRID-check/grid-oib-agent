@@ -55,6 +55,12 @@ read.
   small card model (`card_repair_llm`). One call per quote, no history, no
   tools, no retrieval, at most three per answer, each within 8 s. The call
   returns the passage's own wording.
+* **The correction comes only from a source the sentence cites.** The passage
+  a quote is patched against is the nearest one among the sources its own
+  sentence cites, never the nearest anywhere in the turn's registry. The
+  Bundesländer's building codes hold near-identical sentences, so the nearest
+  passage overall can be another Land's, and patching against it would put
+  that Land's wording under this one's citation.
 * **The correction is kept only if it is in the passage verbatim**, normalised
   as the verifier normalises. The verifier's fuzzy threshold is not used here,
   because a corrected "2,50 m" clears it against a passage saying "2,10 m". The
@@ -91,7 +97,8 @@ without `card_repair_llm` the repair is off.
 * `tests/aiq_agent/agents/piloti/test_quote_patch.py`: a misremembered quote is
   close and an invented one is not; a correction off by one digit, or another
   sentence of the passage, is refused; only the words between the quotation
-  marks move; an attribution failure and a slow patch leave the quote as it was.
+  marks move; an attribution failure and a slow patch leave the quote as it
+  was; a passage from a source the sentence does not cite is never used.
 * `tests/aiq_agent/agents/piloti/test_agent.py::TestPilotiRepairPass`: through
   the agent, the text outside the quote is byte-identical, there is no second
   frontier call and no second search, and a clean answer makes no call.
