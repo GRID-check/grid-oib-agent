@@ -168,3 +168,20 @@ def test_a_list_shares_one_budget_and_one_named_paragraph_keeps_its_own():
 
     assert _passage_limit(one, 2) == SECTION_MAX_CHARS
     assert _passage_limit(six, 6) * 6 <= LIST_MAX_CHARS
+
+
+def test_a_range_past_the_old_span_names_every_paragraph_it_did_not_read():
+    # Past 200 §§ a range used to keep only its two ends: §§ 3-299 were
+    # dropped while the result claimed to name what it had not read.
+    address = parse_address("x", "§§ 1 bis 300 BO Wien", "")
+
+    assert address.sections == ("1", "2", "3", "4", "5", "6")
+    assert address.unread[0] == "7" and address.unread[-1] == "300" and len(address.unread) == 294
+
+
+def test_the_unread_line_says_bis_only_for_a_run():
+    from ris_adapter.lookup.render import _unread_sentence
+
+    address = parse_address("x", "§§ 1, 2, 3, 4, 5, 6, 9 und 12 BO Wien", "")
+
+    assert "not read: § 9, § 12" in _unread_sentence(address)

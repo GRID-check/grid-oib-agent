@@ -10,6 +10,7 @@ the agent's, so this is the part that has to be right.
 from __future__ import annotations
 
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -261,3 +262,14 @@ def test_the_inventory_checked_is_the_one_the_runs_read(monkeypatch, tmp_path):
 
     monkeypatch.setenv("AIQ_SUMMARY_DB", f"sqlite+aiosqlite:///{tmp_path}/elsewhere.db")
     assert suite.inventory_database() == tmp_path / "elsewhere.db"
+
+
+def test_the_runs_import_this_checkout(tmp_path):
+    # From a worktree whose interpreter installed another checkout's packages,
+    # the runs measured that checkout while the report named this commit.
+    import census
+
+    path = census.tree_pythonpath(tmp_path).split(os.pathsep)
+    assert path[:3] == [str(census.HERE), str(tmp_path / ".tree"), str(census.ROOT / "src")]
+    assert (tmp_path / ".tree" / "knowledge_layer").resolve() == (census.ROOT / "sources/knowledge_layer/src").resolve()
+    assert suite.foreign_imports(tmp_path) == []

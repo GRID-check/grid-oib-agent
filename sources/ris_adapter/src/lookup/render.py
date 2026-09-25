@@ -61,12 +61,24 @@ def _preamble_lines(passages: list[Passage], ingested_name: str | None, address:
 def _unread_sentence(address: Address) -> str:
     """The §§ a list named past the lookup's budget: named, so the caller can ask for them."""
     sign = "§" if address.kind == "§" else "Art."
-    first, last = address.unread[0], address.unread[-1]
-    named = f"{sign} {first}" if first == last else f"{sign} {first} bis {sign} {last}"
+    runs = _runs(address.unread)
+    named = ", ".join(f"{sign} {r[0]}" if len(r) == 1 else f"{sign} {r[0]} bis {sign} {r[-1]}" for r in runs)
     read = len(address.sections)
     return (
         f"[Only the first {read} of the listed sections were read; not read: {named}. Ask for them in a second call.]"
     )
+
+
+def _runs(numbers: tuple[str, ...]) -> list[list[str]]:
+    """``numbers`` grouped into runs of consecutive plain integers; a lettered § is a run of its own."""
+    runs: list[list[str]] = []
+    for number in numbers:
+        last = runs[-1][-1] if runs else None
+        if last is not None and number.isdigit() and last.isdigit() and int(number) == int(last) + 1:
+            runs[-1].append(number)
+        else:
+            runs.append([number])
+    return runs
 
 
 def _hit(passage: Passage) -> GroundingHit:

@@ -93,9 +93,10 @@ class Address:
         return self.numbers or ((self.number,) if self.number else ())
 
 
-#: A range is expanded up to this span; past it, only its two ends are named
-#: (the reader is told the rest was not read, and a whole law is not a list).
-_MAX_RANGE_SPAN = 200
+#: A range is expanded in full, so every § past the first six is named as not
+#: read. This bounds only nonsense input ("§§ 1 bis 999999"): past it the range
+#: ends here, which no law reaches.
+_MAX_RANGE_SPAN = 5000
 
 
 def sections_listed(text: str, kind: str = "§") -> tuple[str, ...]:
@@ -113,9 +114,9 @@ def sections_listed(text: str, kind: str = "§") -> tuple[str, ...]:
         start_digits = re.match(r"\d+", numbers[-1]) if numbers else None
         if is_range and start_digits and not suffix and int(digits) > int(start_digits.group(0)):
             # "7a bis 9" continues after 7a: 8, 9. The start is already in the list.
-            first, last = int(start_digits.group(0)) + 1, int(digits)
-            span = range(first, last + 1) if last - first < _MAX_RANGE_SPAN else (first, last)
-            numbers.extend(str(value) for value in span)
+            first = int(start_digits.group(0)) + 1
+            last = min(int(digits), first + _MAX_RANGE_SPAN)
+            numbers.extend(str(value) for value in range(first, last + 1))
         else:
             numbers.append(digits + suffix)
     unique = tuple(dict.fromkeys(number.lower() for number in numbers))

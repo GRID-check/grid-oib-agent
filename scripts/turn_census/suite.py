@@ -52,6 +52,7 @@ QUESTIONS = ROOT / "tests" / "fixtures" / "herleitung" / "loop_eval_questions.ya
 sys.path.insert(0, str(HERE))
 
 from census import run_once  # noqa: E402  (a sibling script, not a package)
+from census import tree_pythonpath  # noqa: E402
 
 _ANSI = re.compile(r"\x1b\[[0-9;]*m")
 #: A cited corpus file's Richtlinie number: `oib-rl_2.1_…`, `oib-richtlinie_2.2_…`.
@@ -451,6 +452,31 @@ def inventory_database() -> Path | None:
     return (path if path.is_absolute() else ROOT / path).resolve()
 
 
+def foreign_imports(out: Path) -> list[str]:
+    """The packages a run would import from outside this checkout: ``name: path``, empty when none.
+
+    Asked of the interpreter the runs use, with the path they get
+    (``census.tree_pythonpath``): a report names this checkout's commit, so
+    every package it measured must come from this checkout.
+    """
+    import subprocess
+
+    names = ("aiq_agent", "knowledge_layer", "ris_adapter")
+    probe = f"import {', '.join(names)}; print({', '.join(f'{name}.__file__' for name in names)})"
+    env = {**os.environ, "PYTHONPATH": tree_pythonpath(out)}
+    shown = subprocess.run(
+        [sys.executable, "-c", probe], cwd=ROOT, env=env, capture_output=True, text=True, check=False
+    )
+    if shown.returncode != 0:
+        return [f"import failed: {shown.stderr.strip().splitlines()[-1] if shown.stderr.strip() else shown.returncode}"]
+    root = ROOT.resolve()
+    return [
+        f"{name}: {path}"
+        for name, path in zip(names, shown.stdout.split(), strict=False)
+        if not Path(path).resolve().is_relative_to(root)
+    ]
+
+
 def inventory_ready(path: Path | None) -> bool:
     """Whether the runs will see the corpus's documents: an inventory, family overviews, quote checks.
 
@@ -534,6 +560,15 @@ def main(argv: list[str] | None = None) -> int:
     if not _corpus_ready():
         print(
             "The OIB corpus is not ingested into AIQ_CHROMA_DIR. Put the PDFs in data/oib and run with --ingest.",
+            file=sys.stderr,
+        )
+        return 2
+
+    foreign = foreign_imports(args.out)
+    if foreign:
+        print(
+            "The runs would not measure this checkout: " + "; ".join(foreign) + ". Run the suite with this "
+            "checkout's interpreter (task setup inside it), or measure from the checkout that holds the code.",
             file=sys.stderr,
         )
         return 2

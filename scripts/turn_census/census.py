@@ -73,12 +73,37 @@ def _print(name: str, summary: dict) -> None:
         print(f"    {kind:10} {bucket['calls']:3} call(s)  {bucket['input']:7} in  {bucket['seconds']:5.1f}s")
 
 
+def tree_pythonpath(out: Path) -> str:
+    """A PYTHONPATH that imports THIS checkout's code, whatever the venv installed.
+
+    The venv installs ``aiq_agent`` and the ``sources/`` packages editable from
+    ONE checkout. From a ``git worktree`` without its own venv, a run used to
+    import the main checkout's code while the report named the worktree's
+    commit. So ``src/`` goes first, and each ``sources/<pkg>`` is linked under
+    its import name (their package dirs are called ``src``), ahead of the
+    inherited path. The recorder's directory stays first.
+    """
+    import tomllib
+
+    shim = out / ".tree"
+    shim.mkdir(parents=True, exist_ok=True)
+    for pyproject in sorted((ROOT / "sources").glob("*/pyproject.toml")):
+        package_dir = tomllib.loads(pyproject.read_text()).get("tool", {}).get("setuptools", {}).get("package-dir", {})
+        for name, relative in package_dir.items():
+            link = shim / name
+            if link.is_symlink() or link.exists():
+                link.unlink()
+            link.symlink_to((pyproject.parent / relative).resolve(), target_is_directory=True)
+    parts = [str(HERE), str(shim), str(ROOT / "src"), os.environ.get("PYTHONPATH", "")]
+    return os.pathsep.join(part for part in parts if part)
+
+
 def run_once(question: str, out: Path, conversation_id: str, overrides: list[list[str]] | None = None) -> Path:
     """One `nat run` of the question with the recorder loaded; the JSONL it wrote."""
     record = out / f"{conversation_id}.jsonl"
     log = out / f"{conversation_id}.log"
     record.unlink(missing_ok=True)
-    env = {**os.environ, "REC_OUT": str(record), "PYTHONPATH": str(HERE)}
+    env = {**os.environ, "REC_OUT": str(record), "PYTHONPATH": tree_pythonpath(out)}
     nat = (
         [sys.executable, "-m", "nat.cli.main"]
         if not (ROOT / ".venv/bin/nat").exists()
