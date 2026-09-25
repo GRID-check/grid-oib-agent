@@ -1571,10 +1571,11 @@ class ReconnectableWebSocketMessageHandler(WebSocketMessageHandler):
                     # COMPLETE frame that finalizes + persists. Most live frames
                     # are deltas the client appends; one with `stream_replace`
                     # replaces the text, and one may carry `answer_meta` or
-                    # `cards` instead of text (ADR-0066). None is persisted. When the workflow yields only a single
-                    # terminal chunk (streaming disabled), the pre-streaming
-                    # pattern — one IN_PROGRESS content frame + a synthetic empty
-                    # COMPLETE — is preserved exactly.
+                    # `cards` instead of text (ADR-0066). None is persisted.
+                    # When the workflow yields only a single terminal chunk
+                    # (streaming disabled), the pre-streaming pattern — one
+                    # IN_PROGRESS content frame + a synthetic empty COMPLETE —
+                    # is preserved exactly.
                     saw_content_delta = False
                     saw_terminal = False
                     # `aclosing`, not a bare `async for`. Leaving this loop early

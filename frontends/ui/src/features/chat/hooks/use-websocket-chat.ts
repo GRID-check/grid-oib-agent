@@ -1430,10 +1430,13 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
           // The streamed prose, its citations settled (ADR-0066): the pending
           // markers on screen become the answer's own, before its cards.
           replaceStreamingAgentResponse(content, citations, transparency.answerMeta)
-        } else if ((content && content.trim()) || validatedCards.length > 0 || transparency?.answerMeta) {
+        } else if (content || validatedCards.length > 0 || transparency?.answerMeta) {
           // A live frame may also carry the masthead, written before the
           // prose, or the cards written after it: each lands in its place
-          // the moment it exists instead of all at once at the end.
+          // the moment it exists instead of all at once at the end. A
+          // whitespace-only delta is text too: the relay can batch a frame
+          // of just "\n\n", and dropping it runs two paragraphs together
+          // until the snapshot. The observer's fold keeps it the same way.
           appendAgentResponseDelta(
             content,
             validatedCards,

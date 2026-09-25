@@ -174,6 +174,40 @@ describe('reduceSpectatedFrame', () => {
     expect(state.cards?.map((card) => card?.type)).toEqual(['summary'])
   })
 
+  it('keeps a whitespace-only delta, as the asker does', () => {
+    // The relay can batch a frame of just the paragraph break.
+    const state = fold([
+      response('Erster Absatz.', 'in_progress'),
+      response('\n\n', 'in_progress'),
+      response('Zweiter Absatz.', 'in_progress'),
+    ])
+    expect(state.answer).toBe('Erster Absatz.\n\nZweiter Absatz.')
+  })
+
+  it('keeps cards on a LATER legacy in_progress frame across a terminal with text and no cards', () => {
+    // Legacy shape: the cards ride a frame that also carries text. They are
+    // final, not provisional, as the asker's store keeps them.
+    const legacy = {
+      ...(response('.', 'in_progress') as object),
+      cards: [{ type: 'summary', title: 'Zusammenfassung', content: 'Alles gut.' }],
+    }
+    const state = fold([response('Voll', 'in_progress'), legacy, response('Voll.', 'complete')])
+    expect(state.answer).toBe('Voll.')
+    expect(state.cards?.map((card) => card?.type)).toEqual(['summary'])
+  })
+
+  it('treats a whitespace-only terminal as no text: the answer and live extras stay', () => {
+    const masthead = { ...(response('', 'in_progress') as object), answer_meta: { v: 1, kind: 'direct', topic: 'Kurz' } }
+    const cards = {
+      ...(response('', 'in_progress') as object),
+      cards: [{ type: 'summary', title: 'Zusammenfassung', content: 'Alles gut.' }],
+    }
+    const state = fold([masthead, response('Kurz.', 'in_progress'), cards, response('\n', 'complete')])
+    expect(state.answer).toBe('Kurz.')
+    expect(state.cards?.map((card) => card?.type)).toEqual(['summary'])
+    expect(state.answerMeta?.topic).toBe('Kurz')
+  })
+
   it('never hands an observer a card that acts, and keeps every position (ADR-0039 §5)', () => {
     // A memory proposal or a file operation proposes a write in the ASKER's
     // name. Drawn for an observer it was a button that wrote into the

@@ -6,6 +6,8 @@ import { asStoreState, type DeepPartial, type StoreSelector } from '@/test-utils
 import type { ChatStoreWithHydration } from '../store'
 import type { SourcePreviewChipProps } from './SourcePreview'
 import type { MessageStages } from '@/lib/conversations/message-stages'
+import type { GridCard } from '@/shared/cards/schemas'
+import { useAnswerFileReferences } from '../hooks/use-answer-file-references'
 
 /**
  * A turn the post-answer reflection stage recorded something for. No hook is
@@ -19,11 +21,15 @@ const NOTED: MessageStages = {
   },
 }
 
+// The project the READER has open; null unless a test sets it.
+const storeFixture = vi.hoisted(() => ({ projectId: null as string | null }))
+
 // Mock the chat store
 vi.mock('../store', () => ({
   useChatStore: vi.fn((selector?: StoreSelector<ChatStoreWithHydration>) => {
     const state: DeepPartial<ChatStoreWithHydration> = {
       currentConversation: null,
+      projectId: storeFixture.projectId,
       patchConversationMessage: vi.fn(),
     }
     return selector ? selector(asStoreState<ChatStoreWithHydration>(state)) : state
@@ -59,6 +65,12 @@ vi.mock('./SourcePreview', async (importOriginal) => {
   }
 })
 
+// The real hook, observed: a read-only answer must still resolve the files it names.
+vi.mock('../hooks/use-answer-file-references', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../hooks/use-answer-file-references')>()
+  return { ...actual, useAnswerFileReferences: vi.fn(actual.useAnswerFileReferences) }
+})
+
 // Mock MarkdownRenderer to render content as plain text for testing
 vi.mock('@/shared/components/MarkdownRenderer', () => ({
   MarkdownRenderer: ({ content }: { content: string }) => <span>{content}</span>,
@@ -67,6 +79,38 @@ vi.mock('@/shared/components/MarkdownRenderer', () => ({
 describe('AgentResponse', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    storeFixture.projectId = null
+  })
+
+  describe('a read-only answer (somebody else\'s turn)', () => {
+    const proposal = {
+      type: 'memory_proposal',
+      title: 'Merken?',
+      content: 'Fluchtweg über den Innenhof',
+      kind: 'decision',
+      confidence: 'medium',
+    } as unknown as GridCard
+
+    test('offers no feedback even when it is handed a message id', () => {
+      render(<AgentResponse content="Answer" messageId="m1" readOnly />)
+      expect(
+        screen.queryByRole('button', { name: 'Mark this answer as helpful' })
+      ).not.toBeInTheDocument()
+    })
+
+    test('draws no card that can decide, even when it is handed a message id', () => {
+      render(<AgentResponse content="Answer" messageId="m1" cards={[proposal]} readOnly />)
+      expect(screen.getByText('Fluchtweg über den Innenhof')).toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: 'Yes, remember org-wide' })).not.toBeInTheDocument()
+    })
+
+    test('still resolves the files it names in the reader\'s project', () => {
+      storeFixture.projectId = 'p1'
+      render(<AgentResponse content="Siehe plan.pdf" readOnly />)
+      expect(vi.mocked(useAnswerFileReferences)).toHaveBeenCalledWith(
+        expect.objectContaining({ projectId: 'p1' })
+      )
+    })
   })
 
   test('renders response content', () => {

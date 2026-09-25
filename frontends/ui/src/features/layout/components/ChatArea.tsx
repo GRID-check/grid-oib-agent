@@ -260,9 +260,10 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
   // forwarded ref synchronously); `anchorSpacerRef` is an invisible min-height
   // block below the list that guarantees there is always enough scroll room to
   // bring the question to the top (imperatively sized, and refitted as the
-  // answer grows, so it needs no extra render); `prevUserMessageIdRef` debounces the anchor so it fires once per
-  // newly-sent question (and never on mount / session restore, where the
-  // bottom-jump effect below owns scrolling).
+  // answer grows, so it needs no extra render); `prevUserMessageIdRef`
+  // debounces the anchor so it fires once per newly-sent question (and never
+  // on mount / session restore, where the bottom-jump effect below owns
+  // scrolling).
   const anchorSpacerRef = useRef<HTMLDivElement>(null)
   // Whether a sent question is anchored to the top right now: from its send
   // until the thread is swapped. While it is, the spacer is kept FITTED
@@ -952,10 +953,10 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
                             />
 
                             {/* Assistant-side thread spine: the Herleitung shares the
-                      answer card's width and left alignment, so the reasoning and
-                      the answer stack as ONE left column (the user bubble stays
-                      right-aligned). Auto-expanded while the turn is live, it
-                      collapses to a one-line bar once the answer lands. */}
+                        answer card's width and left alignment, so the reasoning and
+                        the answer stack as ONE left column (the user bubble stays
+                        right-aligned). Auto-expanded while the turn is live, it
+                        collapses to a one-line bar once the answer lands. */}
                             {isUserMessage && hasThinkingSteps && (
                               <div className="w-full">
                                 <ChatThinking
@@ -982,27 +983,27 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
                             )}
 
                             {/* The questions this answer made askable, BELOW the
-                      answer and outside its surface — the product owner's
-                      ruling, and §6 of docs/architecture/post-answer-stages.md.
-                      Same column, same edges, same full width as the answer and
-                      the Herleitung; no new layout concept.
+                        answer and outside its surface — the product owner's
+                        ruling, and §6 of docs/architecture/post-answer-stages.md.
+                        Same column, same edges, same full width as the answer and
+                        the Herleitung; no new layout concept.
 
-                      LAST in the message column on purpose. A stage delivers
-                      this seconds after the answer, so it appears under a
-                      reader who is already reading — and it may do that without
-                      reserving space only because nothing sits below it to
-                      move. The other half of that guarantee (nothing below it
-                      in the THREAD either, the answer no longer streaming, the
-                      reader not already typing) is enforced where the frame
-                      arrives, in `applyStageFrame`. */}
+                        LAST in the message column on purpose. A stage delivers
+                        this seconds after the answer, so it appears under a
+                        reader who is already reading — and it may do that without
+                        reserving space only because nothing sits below it to
+                        move. The other half of that guarantee (nothing below it
+                        in the THREAD either, the answer no longer streaming, the
+                        reader not already typing) is enforced where the frame
+                        arrives, in `applyStageFrame`. */}
                             {/* One more chip beside them, decided in the browser: the
-                      offer to file this answer as an Aktenvermerk. It rides the
-                      rail rather than getting a surface of its own, because it
-                      is the same gesture the questions are (fill the composer,
-                      the reader presses send) and a second block under the
-                      answer would be a second thing to learn. `agentMsg` is
-                      only resolved once the turn has an answer, so the chip
-                      cannot appear mid-stream. */}
+                        offer to file this answer as an Aktenvermerk. It rides the
+                        rail rather than getting a surface of its own, because it
+                        is the same gesture the questions are (fill the composer,
+                        the reader presses send) and a second block under the
+                        answer would be a second thing to learn. `agentMsg` is
+                        only resolved once the turn has an answer, so the chip
+                        cannot appear mid-stream. */}
                             {(message.stages?.followUps || aktenvermerk) && (
                               <div className="w-full">
                                 <FollowUpsRail
@@ -1017,13 +1018,13 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
                     </AnimatePresence>
 
                     {/* The routing rule for a message that tags nobody (ADR-0036).
-              In `mention` mode it states the rule where the question occurs —
-              "why didn't Piloti answer that?" — and offers the way back. In `ask`
-              mode, which is the default and stays the default, it is silent unless
-              the server suggests otherwise, and then it OFFERS rather than
-              announces: a thread must not rewire who answers next on its own.
-              Above the banner because this is the standing rule while the banner
-              is a transient state. */}
+                In `mention` mode it states the rule where the question occurs —
+                "why didn't Piloti answer that?" — and offers the way back. In `ask`
+                mode, which is the default and stays the default, it is silent unless
+                the server suggests otherwise, and then it OFFERS rather than
+                announces: a thread must not rewire who answers next on its own.
+                Above the banner because this is the standing rule while the banner
+                is a transient state. */}
                     {shared && (
                       <EngagementNotice
                         mode={engagement}
@@ -1034,16 +1035,16 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
                     )}
 
                     {/* The thread is WAITING on a named person (spec MN-8). Without this
-              mounted, the agent's silence has no explanation on screen, and
-              "Ohne Antwort weitermachen" — the release that ADR-0034 names as the
-              mitigation for its own worst risk, a wait nobody ever answers — has no
-              affordance at all. The component existed, was tested and was
-              screenshotted for a while before anything rendered it; unit-green is
-              not reachable.
+                mounted, the agent's silence has no explanation on screen, and
+                "Ohne Antwort weitermachen" — the release that ADR-0034 names as the
+                mitigation for its own worst risk, a wait nobody ever answers — has no
+                affordance at all. The component existed, was tested and was
+                screenshotted for a while before anything rendered it; unit-green is
+                not reachable.
 
-              Mutually exclusive with the hand-back offer by construction: this
-              returns null once `pending` is empty, which is exactly when the offer
-              becomes eligible. */}
+                Mutually exclusive with the hand-back offer by construction: this
+                returns null once `pending` is empty, which is exactly when the offer
+                becomes eligible. */}
                     {shared && (
                       <AwaitingBanner
                         awaiting={awaiting}
@@ -1054,9 +1055,9 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
                     )}
 
                     {/* The colleague has answered and Piloti is out of the loop — the one
-              moment the thread is worth handing on, and until now the only
-              transition with no affordance on screen (see HandbackOffer). Anchored
-              here, directly under the answer it is about. */}
+                moment the thread is worth handing on, and until now the only
+                transition with no affordance on screen (see HandbackOffer). Anchored
+                here, directly under the answer it is about. */}
                     {showHandback && handback && (
                       <HandbackOffer
                         people={handback.people}
@@ -1069,18 +1070,18 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
                     {showTypingPlaceholder && <TypingIndicator status={currentStatus} />}
 
                     {/* The agent is working for SOMEONE in this thread (spec CC-13). Without
-              this an observer sees a thread where nothing appears to be happening
-              and a composer that will not take their question. Suppressed while
-              this client is itself streaming — the asker already has the typing
-              indicator and the Herleitung.
+                this an observer sees a thread where nothing appears to be happening
+                and a composer that will not take their question. Suppressed while
+                this client is itself streaming — the asker already has the typing
+                indicator and the Herleitung.
 
-              Two renderings of the same fact, and the LIVE one is preferred: when
-              the agent's frames are reaching this observer (ADR-0039) they watch
-              the answer being written, and the banner is what remains when they
-              are not — a gated org, no shared cache tier, a dropped stream, or the
-              first moments before the first token. `spectatingLive` is the switch,
-              and it only turns on once there is something to show, so the banner is
-              never replaced by an empty box. */}
+                Two renderings of the same fact, and the LIVE one is preferred: when
+                the agent's frames are reaching this observer (ADR-0039) they watch
+                the answer being written, and the banner is what remains when they
+                are not — a gated org, no shared cache tier, a dropped stream, or the
+                first moments before the first token. `spectatingLive` is the switch,
+                and it only turns on once there is something to show, so the banner is
+                never replaced by an empty box. */}
                     {shared &&
                       turnInFlight &&
                       !isStreaming &&
@@ -1092,14 +1093,14 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
                       ))}
 
                     {/* A colleague at a keyboard. Distinct vocabulary from the agent's
-              banner above (see TypingPresence), and independent of it: somebody may
-              well start writing while Piloti is still answering. */}
+                banner above (see TypingPresence), and independent of it: somebody may
+                well start writing while Piloti is still answering. */}
                     {shared && <TypingPresence typists={typists} />}
 
                     {/* A colleague writing while you are reading is a change you must be able
-              to learn about without eyes. Polite, so it never interrupts. Keyed on
-              the message id so a SECOND arrival from the same person is a fresh
-              node — identical text in a mutated region is not re-announced. */}
+                to learn about without eyes. Polite, so it never interrupts. Keyed on
+                the message id so a SECOND arrival from the same person is a fresh
+                node — identical text in a mutated region is not re-announced. */}
                     <div
                       key={lastArrival?.messageId ?? 'none'}
                       className="sr-only"

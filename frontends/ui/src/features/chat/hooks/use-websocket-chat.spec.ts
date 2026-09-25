@@ -1593,6 +1593,20 @@ describe('useWebSocketChat', () => {
     expect(mockFinalizeAgentResponse).not.toHaveBeenCalled()
   })
 
+  test('a whitespace-only delta is text, not an empty frame', () => {
+    // The relay can batch a frame of just the paragraph break. Dropped, the
+    // two paragraphs either side of it run together until the snapshot.
+    renderWebSocketHook()
+
+    mockStoreState.isStreaming = true
+
+    act(() => {
+      capturedCallbacks.onResponse?.('\n\n', 'in_progress', false)
+    })
+
+    expect(mockAppendAgentResponseDelta).toHaveBeenCalledWith('\n\n', [], undefined, undefined, undefined)
+  })
+
   test('a masthead frame with no text still lands, ahead of the prose (ADR-0066)', () => {
     renderWebSocketHook()
 

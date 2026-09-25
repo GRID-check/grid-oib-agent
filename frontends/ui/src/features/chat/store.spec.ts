@@ -1678,6 +1678,32 @@ describe('useChatStore', () => {
         expect(useChatStore.getState().currentConversation?.messages?.[0].cards).toBe(cards)
       })
 
+      test('a retraction with no bubble open opens none', () => {
+        // The retraction of a round whose prose never reached the client:
+        // nothing on screen to take back, so no empty streaming bubble.
+        setupConversation()
+
+        useChatStore.getState().replaceStreamingAgentResponse('', [])
+        expect(useChatStore.getState().currentConversation?.messages).toHaveLength(0)
+        expect(useChatStore.getState().streamingAssistantMessageId).toBeNull()
+      })
+
+      test('a whitespace-only terminal is not text: it keeps the answer and the live extras', () => {
+        // One emptiness test with the spectator's fold (spectator-frames.ts).
+        setupConversation()
+        const head: AnswerMeta = { v: 1, kind: 'direct', topic: 'Kurz' }
+
+        useChatStore.getState().appendAgentResponseDelta('', [], undefined, undefined, head)
+        useChatStore.getState().appendAgentResponseDelta('Kurz.')
+        useChatStore.getState().appendAgentResponseDelta('', [card('c1')])
+        useChatStore.getState().finalizeAgentResponse('\n')
+
+        const message = useChatStore.getState().currentConversation?.messages?.[0]
+        expect(message?.content).toBe('Kurz.')
+        expect(message?.cards).toHaveLength(1)
+        expect(message?.answerMeta).toEqual(head)
+      })
+
       test('empty complete frame does NOT wipe the accumulated bubble (just finalizes)', () => {
         setupConversation()
 

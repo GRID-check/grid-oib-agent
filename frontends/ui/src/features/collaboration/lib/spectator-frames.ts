@@ -27,9 +27,11 @@
  *     `stream_replace` replaces the text and the citations, and drops a
  *     masthead the snapshot omits; an EMPTY one (no text, no sources) retracts
  *     a tool round and takes its live cards back with it; masthead and cards
- *     frames set without touching the text; a `complete` with text is
- *     authoritative, absence included. Change one fold and you change the
- *     other, with a spec case in both.
+ *     frames set without touching the text; a `complete` with text (blank is
+ *     not text) is authoritative, absence included, for a masthead or cards
+ *     a live frame brought; a legacy frame's cards, which rode with text,
+ *     are final and stay. Change one fold and you change the other, with a
+ *     spec case in both.
  *  4. **An observer is never handed a card that acts.** Interactive and
  *     system cards (a memory proposal, a file operation, a brief patch, a
  *     draft to file) propose a write in the ASKER's name. They are dropped
@@ -76,6 +78,14 @@ export interface SpectatedTurnState {
   answerMeta?: AnswerMeta
   citations?: CitationSource[]
   cards?: (GridCard | undefined)[]
+  /**
+   * Whether the masthead or cards on screen came from a LIVE frame (one with
+   * no text of its own, or a snapshot's masthead) rather than a legacy
+   * in_progress frame that carried text. Only live ones are provisional, so
+   * only they are taken back by a terminal that omits them: the store's
+   * `liveMetaShown`.
+   */
+  liveExtras?: boolean
   /** The reasoning chain so far, in the shape `ChatThinking` already renders. */
   steps: ThinkingStep[]
   /**
@@ -169,11 +179,15 @@ export function reduceSpectatedFrame(
       if (message.status === 'complete') {
         // A terminal with text is authoritative for what the live frames showed
         // ahead of it, absence included (a suppressed card, a gated masthead).
+        // Blank is not text: the store's finalize uses the same test.
         const authoritative = text.trim().length > 0
+        const retractLive = authoritative && next.liveExtras === true
         return {
           ...next,
-          ...(authoritative ? { answerMeta: undefined, citations: undefined, cards: undefined } : {}),
+          ...(authoritative ? { citations: undefined } : {}),
+          ...(retractLive ? { answerMeta: undefined, cards: undefined } : {}),
           ...around,
+          liveExtras: false,
           parentId,
           // The terminal frame is authoritative — but a backend that sends an
           // EMPTY complete after streaming deltas must not blank the answer.
@@ -200,13 +214,18 @@ export function reduceSpectatedFrame(
           citations: undefined,
           ...(retraction ? { cards: undefined } : {}),
           ...around,
+          // A snapshot is a live frame whatever text it carries.
+          liveExtras: next.liveExtras === true || Boolean(around.answerMeta),
           parentId,
           answer: text,
           waitingOn: null,
         }
       }
       if (!text && Object.keys(around).length === 0) return next === state ? state : next
-      return { ...next, ...around, parentId, answer: next.answer + text, waitingOn: null }
+      // A frame with no text of its own carries only what stands around the
+      // prose: the live shape (the store's `isLiveExtrasFrame`).
+      const liveExtras = next.liveExtras === true || !text
+      return { ...next, ...around, liveExtras, parentId, answer: next.answer + text, waitingOn: null }
     }
 
     case NATMessageType.SYSTEM_INTERMEDIATE: {

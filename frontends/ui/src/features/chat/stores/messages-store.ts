@@ -1406,8 +1406,13 @@ export const createMessagesSlice: StateCreator<
       answerMeta?: AnswerMeta
     ) => {
       if (!get().currentConversation) return
-      // No bubble yet (a turn whose first live frame is the snapshot): open it.
+      // An empty snapshot naming no sources is the backend retracting a
+      // streamed round (AnswerStreamSink.retract).
+      const retraction = content === '' && !(citations && citations.length > 0)
+      // No bubble yet (a turn whose first live frame is the snapshot): open it,
+      // unless it is a retraction, which has nothing on screen to take back.
       if (!get().streamingAssistantMessageId) {
+        if (retraction) return
         get().appendAgentResponseDelta(content, undefined, undefined, citations, answerMeta)
         // A snapshot is a live frame whatever text it carries: its masthead is
         // as provisional as one that came ahead of the prose.
@@ -1422,11 +1427,9 @@ export const createMessagesSlice: StateCreator<
       const { currentConversation, conversations, streamingAssistantMessageId } = get()
       if (!currentConversation || !streamingAssistantMessageId) return
       if (answerMeta) liveMetaShown = true
-      // An empty snapshot naming no sources is the backend retracting a
-      // streamed round (AnswerStreamSink.retract). Its cards go with its text,
-      // and the decisions keyed by their positions with them: otherwise the
-      // next round's [[card:0]] draws the dead round's card.
-      const retraction = content === '' && !(citations && citations.length > 0)
+      // A retraction's cards go with its text, and the decisions keyed by
+      // their positions with them: otherwise the next round's [[card:0]]
+      // draws the dead round's card.
       const updatedConversation: Conversation = {
         ...currentConversation,
         messages: currentConversation.messages.map((msg) =>
@@ -1484,7 +1487,9 @@ export const createMessagesSlice: StateCreator<
 
       // A terminal with the full text is authoritative for what the live
       // frames showed ahead of it, absence included.
-      const retractLive = liveMetaShown && Boolean(content && content.length > 0)
+      // Blank is not text: the spectator's fold uses the same test.
+      const authoritative = Boolean(content && content.trim())
+      const retractLive = liveMetaShown && authoritative
       liveMetaShown = false
       const updatedMessages = currentConversation.messages.map((msg) => {
         if (msg.id !== streamingAssistantMessageId) return msg
@@ -1498,7 +1503,7 @@ export const createMessagesSlice: StateCreator<
           // Authoritative full text on the terminal frame equals the accumulation
           // (idempotent replace). An EMPTY terminal — the legacy synthetic
           // `complete` frame — must NOT wipe the accumulated bubble.
-          content: content && content.length > 0 ? content : msg.content,
+          content: authoritative ? content : msg.content,
           // Cards/sources/confidence ride the terminal frame when streaming; keep
           // whatever the delta already attached when the terminal omits them (the
           // legacy path attaches cards on the in_progress frame).

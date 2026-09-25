@@ -10,7 +10,7 @@
  * reader's anchor. `window.__replay` holds both for a headless capture.
  */
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useSearchParams } from 'next/navigation'
 import { AgentResponse } from '@/features/chat/components/AgentResponse'
 import { citationsFromWireList } from '@/features/chat/lib/wire-citation'
@@ -53,9 +53,12 @@ interface View {
 const EMPTY: View = { content: '', isStreaming: true, phase: 'waiting' }
 
 /**
- * One frame folded into the view. A copy of the store's fold, not the store: it
- * does not retract a gated-out masthead or live cards. Keep it in step with
- * `messages-store.ts`; the ADR-0066 shift numbers come from here.
+ * One frame folded into the view. A copy of the store's fold, not the store:
+ * the terminal replaces masthead and cards outright, and a snapshot
+ * keeps both where the store takes them back (an empty retraction snapshot
+ * keeps the round's cards, a snapshot without a masthead keeps the live one).
+ * Keep it in step with `messages-store.ts`; the ADR-0066 shift numbers come
+ * from here.
  */
 const applyFrame = (view: View, frame: RecordedFrame): View => {
   if (frame.status === 'complete') {
@@ -107,10 +110,13 @@ export default function StreamReplayPage() {
   const [view, setView] = useState<View>(EMPTY)
 
   const probe = useMemo<ReplayProbe>(() => ({ phase: 'waiting', done: false, shifts: [], anchorTops: [] }), [])
+  // When the replay started: shifts and anchor tops are both timed from it.
+  const startRef = useRef(0)
 
   useEffect(() => {
     window.__replay = probe
     const start = performance.now()
+    startRef.current = start
     const observer = new PerformanceObserver((list) => {
       for (const entry of list.getEntries() as (PerformanceEntry & {
         value: number
@@ -156,7 +162,7 @@ export default function StreamReplayPage() {
     const first = document.querySelector('[data-replay-answer] .markdown-content > :first-child')
     if (first) {
       probe.anchorTops.push({
-        t: Math.round(performance.now()),
+        t: Math.round(performance.now() - startRef.current),
         phase: view.phase,
         top: Math.round(first.getBoundingClientRect().top + window.scrollY),
       })

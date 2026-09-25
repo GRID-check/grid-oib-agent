@@ -298,9 +298,10 @@ export interface AgentResponseProps {
   /**
    * Somebody else's turn, drawn for a colleague reading along
    * (`SpectatedTurn`, ADR-0039 §5). No card acts — every interactive card
-   * draws without its actions, and none is given the reader's project — and
-   * no copy actions are offered over an answer that is about to be replaced by
-   * the persisted one, which carries its own.
+   * draws without its actions, and none is given the reader's project or the
+   * message to record a decision on — and neither feedback nor copy actions
+   * are offered over an answer that is about to be replaced by the persisted
+   * one, which carries its own. A file the answer names still links.
    */
   readOnly?: boolean
 }
@@ -781,8 +782,11 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
   const t = useTranslations('chat')
   const storeProjectId = useChatStore((s) => s.projectId)
   // A read-only answer is not the reader's: nothing in it may act on the
-  // project the READER has open (ADR-0039 §5).
+  // project the READER has open (ADR-0039 §5), and no card in it may record a
+  // decision on the message (`useCardDecision` can decide whenever it has a
+  // message id). Reading stays: a named file still links.
   const projectId = readOnly ? null : storeProjectId
+  const cardMessageId = readOnly ? undefined : messageId
   // An answer that ends in a written "## Quellen" list used to state its sources
   // TWICE — that list AND the "Belegt durch" chips, each holding half the truth
   // (numbers/titles/pages vs. provenance color, authority and click-through).
@@ -847,7 +851,7 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
   // hook is inert for an answer with no filename in it, which is most of them.
   const fileReferences = useAnswerFileReferences({
     body,
-    projectId,
+    projectId: storeProjectId,
     // The conversation whose private attachments a named file may live in.
     conversationId: conversationId ?? null,
     isStreaming: stillArriving,
@@ -950,14 +954,14 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
               card={card}
               index={index}
               projectId={projectId}
-              messageId={messageId}
+              messageId={cardMessageId}
               decisionsMustPersist={readOnly}
             />
           </CardSetProvider>
         </CardArrival>
       )
     },
-    [cards, cardSet, projectId, messageId, anatomy?.callout, stillArriving, readOnly]
+    [cards, cardSet, projectId, cardMessageId, anatomy?.callout, stillArriving, readOnly]
   )
   // ONE derivation for the whole answer: the inline `[N]` markers in the prose
   // and the provenance chips below are the same citations seen twice, and two
@@ -999,7 +1003,8 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
   const hasConfidence =
     showConfidenceChip &&
     (answerConfidence === 'low' || answerConfidence === 'medium' || answerConfidence === 'high')
-  const hasFeedback = showAnswerFeedback && Boolean(messageId)
+  // Rating somebody else's answer is not the reader's to do (readOnly).
+  const hasFeedback = !readOnly && showAnswerFeedback && Boolean(messageId)
   // The copy actions. A still-arriving answer cannot be copied — half a
   // Prüfvermerk is worse than none — and a cards-only turn has no markdown to
   // hand over, so both are excluded rather than given a button that copies ''.
@@ -1144,7 +1149,7 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
                   cards={cards}
                   indices={fallbackGridIndices}
                   projectId={projectId}
-                  messageId={messageId}
+                  messageId={cardMessageId}
                   decisionsMustPersist={readOnly}
                 />
               </div>
@@ -1349,7 +1354,7 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
                     cards={cards}
                     indices={fallbackGridIndices}
                     projectId={projectId}
-                    messageId={messageId}
+                    messageId={cardMessageId}
                     decisionsMustPersist={readOnly}
                   />
                 </div>
