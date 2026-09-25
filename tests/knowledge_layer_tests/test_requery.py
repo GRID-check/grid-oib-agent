@@ -414,7 +414,8 @@ class TestTheSearchRetrieverHandle:
 def test_the_prefetch_requery_switch_stays_removed():
     """`requery_on_prefetch: false` was measured 3.4 s slower on the turns it
     applied to (turn-latency-measured-2026-09.md §3.5) and removed with its
-    marker; `2ba012b0` has it if it is ever needed again."""
+    marker; the PR that measured it carries the
+    implementation if it is ever needed again."""
     from aiq_agent.common import turn_status
 
     assert "requery_on_prefetch" not in KnowledgeRetrievalConfig.model_fields
