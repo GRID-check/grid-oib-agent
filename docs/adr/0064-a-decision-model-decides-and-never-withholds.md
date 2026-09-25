@@ -144,10 +144,15 @@ them up, each into the gap the numbers left: `needs_evidence` 0.5 → 0.6
 0.60–0.69 on nine different rulings is noise; the picks that named the
 answer's shape ran 0.73–0.87). The family threshold stays at 0.5: its
 precision is 1.00 at every level from 0.3 to 0.9, so raising it only loses
-recall (0.96 → 0.93 at 0.6). The skill thresholds stay too: the one wrong
-choice (Schallschutz → `waermeschutz` at 0.83, fit 0.13) sits inside the
-right ones (fit 0.12–0.17 on Rauchwarnmelder, Tiefgarage, sommerlicher
-Wärmeschutz), so no threshold separates them.
+recall (0.96 → 0.93 at 0.6). The skill choice stays at 0.6: it was right or
+abstained on every row (Schallschutz → `waermeschutz` is right; that skill's
+description is „U-Wert, HWB und Schall"). The fit question was the weak
+part: worded "is this exactly the case the method is written for", it rated
+right picks at 0.12–0.17 and a folder listing at 0.47. Reworded as "would
+an expert apply this method to answer it", right picks ran 0.27–0.95 inside
+the whole decision and the two project-file questions that name Brandschutz
+0.06 and 0.11, so the fit veto moves from 0.1 to 0.2 and now holds back the
+Brandschutzkonzept question the old one let through.
 
 *Amended 2026-09-25:* two uses off the reader's path.
 

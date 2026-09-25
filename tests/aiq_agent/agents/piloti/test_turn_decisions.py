@@ -200,9 +200,12 @@ class TestTheSkillsShapes:
         assert none.chosen_skill is None
         unsure = TurnDecisions(decided=True, skill="hygiene", skill_p=0.5, skill_fit=0.9)
         assert unsure.chosen_skill is None
-        # A weak fit on a confident choice still loads: a body is ~400 tokens and an offer.
-        weak_fit = TurnDecisions(decided=True, skill="waermeschutz", skill_p=0.64, skill_fit=0.13)
+        # The lowest right pick measured had fit 0.27 and still loads; a project
+        # file that names the subject („Was steht im Brandschutzkonzept?", 0.11) does not.
+        weak_fit = TurnDecisions(decided=True, skill="waermeschutz", skill_p=0.64, skill_fit=0.27)
         assert weak_fit.chosen_skill == "waermeschutz"
+        file_question = TurnDecisions(decided=True, skill="brandschutz", skill_p=0.79, skill_fit=0.11)
+        assert file_question.chosen_skill is None
 
     async def test_the_choice_and_its_fit_are_read_back(self):
         decision = Decision(

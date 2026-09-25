@@ -100,16 +100,18 @@ MAX_CARD_SHAPES = 2
 #: search of the question does not.
 CORPUS_THRESHOLD = 0.7
 #: A skill's body and shapes ride the turn when the choice lands on it at
-#: this probability AND its own "fits" noul is not near zero. Measured on the
-#: loop-eval set (``decision_eval_2026-09-22.csv``): the choice was right or
-#: abstained on every row, while the fit noul ran 0.11-0.88 on rows where
-#: the method plainly applied (Schallschutz → waermeschutz at 0.13, a
-#: Holzfassade → brandschutz at 0.26). The cookbook's 0.30 on the fit was
-#: set for loads that cost more than this one — a body is ~400 tokens and an
-#: offer — so here the choice carries the decision and the fit only vetoes
-#: a name-match (``ordner-brandschutz-listing`` → brandschutz at 0.59/0.13).
+#: this probability AND its own "fits" noul clears ``SKILL_FIT_THRESHOLD``.
+#: The choice carries the decision; the fit only vetoes a name-match — a
+#: question that names the subject while asking for something else. Asked
+#: as "would an expert apply this method here" (2026-09-25; the earlier "is
+#: this exactly the case the method is written for" rated right picks at
+#: 0.12-0.17 and a folder listing at 0.47): on the loop-eval set every right
+#: pick's fit ran 0.27-0.95, while „Was steht im Brandschutzkonzept?" (0.11)
+#: and „Was liegt im Ordner Brandschutz?" (0.06), both about a project file,
+#: fell below 0.2. Asked alone over six such traps the fit stayed at or
+#: below 0.13.
 SKILL_THRESHOLD = 0.6
-SKILL_FIT_THRESHOLD = 0.1
+SKILL_FIT_THRESHOLD = 0.2
 #: Below this p(self_contained) the message itself is not searched.
 #: Standalone questions 0.71-0.95, follow-ups 0.02-0.25 (2026-09-25).
 SELF_CONTAINED_THRESHOLD = 0.6
@@ -294,9 +296,16 @@ def questions_for(facts: TurnFacts) -> dict[str, dict[str, Any]]:
         )
         for name, description in facts.skills:
             questions[f"fits_{name}"] = noul(
-                f"Does the working method '{name}' do the specific thing this message asks for?",
-                true=f"The message is exactly the case this method is written for: {description}",
-                false="The message is about something else, or only shares a word with the method's name.",
+                "Would an expert apply this working method to answer this message?",
+                true=(
+                    f"The message asks a question in the subject this method covers — {description} — and "
+                    "answering it means applying that subject's rules or values."
+                ),
+                false=(
+                    "The message is about a different subject, or only mentions the subject's word while asking "
+                    "for something else: listing or opening files, summarising a document, writing a mail, thanks "
+                    "or small talk."
+                ),
             )
     return questions
 
