@@ -90,6 +90,7 @@ from aiq_agent.common.turn_status import end_lane_capture
 from aiq_agent.common.turn_status import fetch_signature
 from aiq_agent.common.turn_status import get_lane_captures
 from aiq_agent.common.turn_status import is_retrieval_round
+from aiq_agent.common.turn_status import prefetch_scope
 from aiq_agent.common.turn_status import record_round_announcement
 from aiq_agent.common.turn_status import retrieval_round_scope
 from aiq_agent.knowledge.already_read import merge_digest
@@ -1459,7 +1460,8 @@ class PilotiAgent:
                 "retrieval_rounds": [*state.retrieval_rounds, *([record] if record else [])],
             }
         )
-        result = await self._tools_node(announced, config)
+        with prefetch_scope():
+            result = await self._tools_node(announced, config)
         logger.info("Prefetched %d fetch(es) as round 0", len(split.ran))
         return {
             **{key: value for key, value in result.items() if key != "messages"},

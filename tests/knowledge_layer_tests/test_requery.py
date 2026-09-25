@@ -248,6 +248,29 @@ class TestRetrievalLoop:
         # The chunk both formulations reached outranks the one only the paraphrase found.
         assert out.split("|")[0] == "shared"
 
+    async def test_switched_off_for_the_prefetch_the_prefetch_is_one_shot(self, loop_harness):
+        from aiq_agent.common.turn_status import prefetch_scope
+
+        retriever = _FakeRetriever({"Fluchtweg GK4": [_chunk("a", "a")]})
+        judge = _FakeLLM('{"sufficient": false, "queries": ["Gehweglänge"]}')
+        loop_harness(retriever, judge)
+
+        with prefetch_scope():
+            out = await _search(_config(requery_llm="judge", requery_on_prefetch=False))
+
+        assert [call["query"] for call in retriever.retrieve_calls] == ["Fluchtweg GK4"]
+        assert out == "a"
+
+    async def test_switched_off_for_the_prefetch_the_models_own_search_still_requeries(self, loop_harness):
+        # Round 0 is not the signal: a turn with nothing prefetched numbers the
+        # model's own first search 0 too, and that one keeps its loop.
+        retriever = _FakeRetriever({"Fluchtweg GK4": [_chunk("a", "a")], "Gehweglänge": [_chunk("b", "b")]})
+        loop_harness(retriever, _FakeLLM('{"sufficient": false, "queries": ["Gehweglänge"]}'))
+
+        await _search(_config(requery_llm="judge", requery_on_prefetch=False))
+
+        assert [call["query"] for call in retriever.retrieve_calls] == ["Fluchtweg GK4", "Gehweglänge"]
+
     async def test_a_file_scoped_search_is_never_widened(self, loop_harness):
         # A search pinned to one document is a precision lookup (the repair
         # pass makes them). Paraphrasing it across every shelf is the opposite

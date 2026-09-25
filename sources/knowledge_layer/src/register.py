@@ -246,6 +246,16 @@ class KnowledgeRetrievalConfig(FunctionBaseConfig, name="knowledge_retrieval"):
             "requery_llm is set. Each is one retrieval per in-scope collection."
         ),
     )
+    requery_on_prefetch: bool = Field(
+        default=True,
+        description=(
+            "Whether the retrieval loop may requery the turn decision's PREFETCH (round 0, run "
+            "before the first LLM call). Off, the prefetch returns its first pool and the model, "
+            "which reads that pool, decides whether to search again; the turn's one requery "
+            "slot stays free for the model's own searches. Measured in "
+            "docs/architecture/turn-latency-measured-2026-09.md."
+        ),
+    )
     requery_decider: str = Field(
         default="llm",
         description=(
@@ -1755,6 +1765,16 @@ def _citation_key_for_span(chunk) -> str | None:
         return None
 
 
+def _in_prefetch() -> bool:
+    """Whether this fetch is the turn decision's prefetch. Fail-open to ``False``."""
+    try:
+        from aiq_agent.common.turn_status import in_prefetch
+
+        return in_prefetch()
+    except Exception:
+        return False
+
+
 def _current_span_round() -> int | None:
     """The retrieval round this fetch runs in, or ``None`` when unstamped.
 
@@ -2216,6 +2236,10 @@ async def knowledge_retrieval(config: KnowledgeRetrievalConfig, _builder: Builde
                         # retrievals into a block that already held every part.
                         requery_skipped_reason = "family"
                         logger.info("Retrieval loop judge skipped (family) for %r", query[:60])
+                        return None
+                    if not config.requery_on_prefetch and _in_prefetch():
+                        requery_skipped_reason = "prefetch"
+                        logger.info("Retrieval loop judge skipped (prefetch) for %r", query[:60])
                         return None
                     if requery_already_fired():
                         requery_skipped_reason = "already_fired"
