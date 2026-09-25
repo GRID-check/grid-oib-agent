@@ -421,14 +421,24 @@ the diagram falls back to mermaid's SVG rather than print a tag. A flowchart's
 direction is the parser's (`getDirection()`), not the source's first line,
 which may be frontmatter, an `%%{init}%%` directive or a comment.
 
+A reader also answers `null` for what its view would draw wrong rather than
+leave out (the list is in `answer-visuals.md`): a flowchart link that is not a
+one-way arrow, a note in a sequence or state diagram (mermaid keeps a sequence
+note in `getMessages()` with a `from` and a `to`, so read naively it was a
+hand-over), and a gantt task of hours, which whole-day bars round into a
+milestone or a wrong span. An invisible link is dropped, and a state no
+transition touches is still drawn.
+
 ### Adding a diagram kind
 
 1. **The model.** Add it to the `DiagramModel` union in `model.ts` and a
    reader for its grammar in `modelFromParsed`. `model.ts` is pure: it reads
    mermaid's parsed database and nothing else.
 2. **The view.** Add it to `views/diagram-views.tsx` and route it in
-   `DiagramView`. Give it a narrow form behind a container query, as the
-   others have.
+   `DiagramView`. Give it a narrow form. A light view switches by container
+   query, as the map, hand-over and schedule do; one whose wide form is costly
+   to build measures its own width and mounts only the form shown, as the flow
+   does (`useWidthRem`, `FLOW_GRAPH_MIN_REM`).
 3. **Parsing stays where it is.** `parse-mermaid.ts` calls mermaid inside
    `withMermaid` with `securityLevel: 'strict'`. A reader that returns `null`
    means mermaid's SVG, and then the source.
@@ -532,7 +542,8 @@ and the server already accepts it, so adding a renderer later is one entry in
   The `.docx` carries a label and the mermaid source
   (`lib/answer-export/markdown.ts`); the report PDF prints a placeholder
   (`lib/pdf/markdown-pdf.ts`). Both run on the server, which has no DOM to lay
-  a graph out. The fix is for the browser to send the SVG it already drew
-  (the same bytes filing sends) with the export request; the report PDF can
+  a graph out. The fix is for the browser to render the paper SVG
+  (`renderPaperDiagram`, the same bytes filing sends) and send it with the
+  export request; the report PDF can
   then draw it through `svg-to-pdf.tsx`, and the `.docx` needs an image part.
   Not built yet. Filing from the answer is the path that yields a real drawing.

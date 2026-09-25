@@ -54,7 +54,10 @@ built from the same atoms as every card:
 A grammar the model should not use, or a source the parser refuses, still
 falls back to Mermaid's SVG and then to the source itself: the reader never
 loses the content, only the design. So does anything a view would draw wrong:
-a flowchart with a `subgraph`, a state diagram with a composite state, a label
+a flowchart with a `subgraph` or with any link but a one-way arrow (`---`,
+`-.-`, `<-->`, `--x`, `--o`; an invisible `~~~` only places a node and is
+dropped), a state diagram with a composite state or a note, a sequence with a
+note, a gantt task measured in hours or starting at a time of day, a label
 in any of the five grammars with markup other than `<br>` and inline formatting
 (`plainLabel` in `model.ts`), and a graph of more than 80 nodes (`MAX_GRAPH_NODES`), where
 dagre's layout costs more than a reader waits.

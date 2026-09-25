@@ -631,9 +631,9 @@ export const MarkdownRenderer: FC<MarkdownRendererProps> = memo(
       (): PluggableList => [remarkGfm, remarkMath, ...(remarkPlugins ?? [])],
       [remarkPlugins]
     )
-    // While streaming, run partial content through the stabilizer so half-formed
-    // fences/tables don't thrash the layout token-by-token. Finalized content is
-    // rendered verbatim.
+    // While streaming, run partial content through the stabilizer so a
+    // half-formed table doesn't thrash the layout token-by-token. Finalized
+    // content is rendered verbatim.
     const renderedContent = useMemo(
       () => (isStreaming ? stabilizeStreamingMarkdown(content) : content),
       [isStreaming, content]

@@ -173,6 +173,12 @@ export function flowFromFlowchart(db: Record<string, unknown>): FlowModel | null
   }
   const edges: FlowEdge[] = []
   for (const [index, edge] of entries(call(db, 'getEdges')).map(record).entries()) {
+    // `A ~~~ B` only places B near A; drawn, it would be a relation nobody wrote.
+    if (text(edge.stroke) === 'invisible') continue
+    // Every edge here is drawn as one arrowhead at `to`. A line without one
+    // (`---`, `-.-`), a two-way arrow (`<-->`) or a cross or circle head says
+    // something else, and mermaid draws it as written.
+    if (text(edge.type) !== 'arrow_point') return null
     const label = edge.labelType === 'markdown' ? null : plainLabel(text(edge.text))
     if (label === null) return null
     edges.push({
@@ -197,8 +203,9 @@ export function flowFromState(db: Record<string, unknown>): FlowModel | null {
   if (relations.length === 0) return null
   const states = call(db, 'getStates')
   // A composite state holds a diagram of its own (`doc`); flattening it lost
-  // every state inside, so such a diagram is mermaid's to draw.
-  if (entries(states).some((state) => Array.isArray(record(state).doc))) return null
+  // every state inside, and a note is text beside a state these views have no
+  // place for. Either way the diagram is mermaid's to draw.
+  if (entries(states).some((state) => Array.isArray(record(state).doc) || record(state).note !== undefined)) return null
   const ids = new Set<string>()
   const edges: FlowEdge[] = []
   for (const [index, relation] of relations.entries()) {
@@ -210,6 +217,9 @@ export function flowFromState(db: Record<string, unknown>): FlowModel | null {
     if (label === null) return null
     edges.push({ id: `s${index}`, from, to, ...(label ? { label } : {}) })
   }
+  // A state declared and never entered or left is still one of the states.
+  for (const state of entries(states)) ids.add(text(record(state).id))
+  ids.delete('')
   if (ids.size > MAX_GRAPH_NODES) return null
   const nodes: FlowNode[] = []
   for (const id of ids) {
@@ -255,6 +265,9 @@ export function mapFromMindmap(db: Record<string, unknown>): MapModel | null {
   return count(tree) > MAX_GRAPH_NODES ? null : { kind: 'map', root: tree }
 }
 
+/** Mermaid's LINETYPE for a note: it carries `from` and `to` like a message, and is not one. */
+const NOTE_LINE_TYPE = 2
+
 /**
  * Mermaid's LINETYPE (mermaid 11.17, `sequenceDb.ts`) for a ONE-WAY dotted
  * arrow, which is a reply: 1 `-->>`, 4 `--x`, 6 `-->`, 25 `--)`, and the
@@ -272,8 +285,13 @@ export function handoffFromSequence(db: Record<string, unknown>): HandoffModel |
   }
   const known = new Set(parties.map((party) => party.id))
   const steps: HandoffModel['steps'] = []
-  // Notes and loop markers carry no `from`.
   for (const m of entries(call(db, 'getMessages')).map(record)) {
+    // A note (`Note over A,B: Frist 6 Wochen`) sits in the message list with a
+    // `from` and a `to`; drawn as a step it was a hand-over nobody made. It is
+    // text beside the parties that this view has no place for, so the diagram
+    // is mermaid's to draw rather than lose it.
+    if (Number(m.type) === NOTE_LINE_TYPE) return null
+    // Loop, alt and activation markers carry no `from` or no `to`.
     if (!known.has(text(m.from)) || !known.has(text(m.to))) continue
     const label = plainLabel(text(m.message))
     if (label === null) return null
@@ -282,26 +300,40 @@ export function handoffFromSequence(db: Record<string, unknown>): HandoffModel |
   return parties.length > 1 && steps.length > 0 ? { kind: 'handoff', parties, steps } : null
 }
 
+const asDate = (value: unknown): Date | null => {
+  const date = value instanceof Date ? value : typeof value === 'string' ? new Date(value) : null
+  return date && !Number.isNaN(date.getTime()) ? date : null
+}
+
+const atMidnight = (date: Date): boolean =>
+  date.getHours() === 0 && date.getMinutes() === 0 && date.getSeconds() === 0 && date.getMilliseconds() === 0
+
+/**
+ * Mermaid parses `2026-10-01` as LOCAL midnight. `toISOString` reads that back
+ * in UTC, which east of Greenwich is the evening before: every date a reader in
+ * Vienna saw was a day early. The calendar date is the local one.
+ */
+const calendarDate = (date: Date): string => {
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`
+}
+
 export function scheduleFromGantt(db: Record<string, unknown>): ScheduleModel | null {
-  // Mermaid parses `2026-10-01` as LOCAL midnight. `toISOString` reads that
-  // back in UTC, which east of Greenwich is the evening before: every date a
-  // reader in Vienna saw was a day early. The calendar date is the local one.
-  const iso = (value: unknown): string | null => {
-    const date = value instanceof Date ? value : typeof value === 'string' ? new Date(value) : null
-    if (!date || Number.isNaN(date.getTime())) return null
-    const pad = (n: number) => String(n).padStart(2, '0')
-    return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`
-  }
   const sections = new Map<string, ScheduleTask[]>()
   for (const task of entries(call(db, 'getTasks')).map(record)) {
-    const start = iso(task.startTime)
-    const end = iso(task.endTime) ?? start
+    const start = asDate(task.startTime)
+    const end = asDate(task.endTime) ?? start
     if (!start || !end) continue
+    // This view draws whole days. A task of hours (`4h`, `36h`) or at a time
+    // of day read as days was a milestone or a span one day off; mermaid
+    // draws it to the hour.
+    if (!atMidnight(start) || !atMidnight(end)) return null
     const section = plainLabel(text(task.section))
     const label = plainLabel(text(task.task))
     if (section === null || label === null) return null
     const list = sections.get(section) ?? []
-    list.push({ label, start, end, milestone: task.milestone === true || start === end })
+    const milestone = task.milestone === true || end.getTime() <= start.getTime()
+    list.push({ label, start: calendarDate(start), end: calendarDate(end), milestone })
     sections.set(section, list)
   }
   if (sections.size === 0) return null

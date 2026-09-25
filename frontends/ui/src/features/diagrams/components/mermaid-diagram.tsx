@@ -17,8 +17,13 @@
  *     source, exactly as it rendered before this component existed, plus one
  *     quiet line saying the drawing did not work. Never a red box, never a
  *     thrown error inside somebody's answer.
- *   - **drawn** — the SVG, one line saying it claims no dimensions, and (only
- *     where a surface supplied a filing target) the button that files it.
+ *   - **drawn** — in one of two forms. Where the source parses into a model
+ *     this product has a view for (`../use-diagram-model.ts`), that view, on a
+ *     soft `bg-muted/40` plane, with no dimensions line (it has no geometry to
+ *     claim one with) and the filing button only inside a project. Otherwise
+ *     mermaid's SVG in a hairline frame, one line saying it claims no
+ *     dimensions, and (only where a surface supplied a filing target) the
+ *     button that files it.
  *
  * ## The drawing has no ground of its own
  *
@@ -29,8 +34,9 @@
  * whose design language has no accent colour at all.
  *
  * A drawing is not a page. A flowchart is line and text; the paper under it
- * belongs to whatever it is lying on, which here is the card. So the figure
- * paints no background, the SVG carries none (mermaid's is dropped by
+ * belongs to whatever it is lying on, which here is the card. So mermaid's
+ * figure paints no background (the view form's `bg-muted/40` is a plane in
+ * the card's own tokens, not a sheet of paper), the SVG carries none (mermaid's is dropped by
  * `flattenComputedStyles`, which does not copy `background-color`), and the
  * card surface shows through in both themes. What the drawing is MADE of — its
  * ink — comes from the product's tokens, per theme, via
@@ -48,8 +54,9 @@
  * `securityLevel: 'strict'` alone — it is that the string was put through the
  * SERVER'S validator and re-serialised from its allow-list before it got here
  * (`renderMermaid` in `../render-diagram.ts`). So the markup below contains
- * only elements and attributes `lib/diagrams/svg.ts` writes, and it is
- * byte-for-byte what the filing button will send.
+ * only elements and attributes `lib/diagrams/svg.ts` writes. The copy the
+ * filing button sends is drawn the same way on paper (`fileSvg`, or
+ * `renderPaperDiagram` when a view is shown).
  */
 
 import { HorizontalScroll } from '@/components/ui/horizontal-scroll'

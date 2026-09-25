@@ -1,4 +1,5 @@
 import { render, screen, fireEvent } from '@/test-utils'
+import { elapsedMs, growthRatio, LINEAR_BOUND } from '@/test-utils/growth'
 import { describe, test, expect, vi } from 'vitest'
 import { MarkdownRenderer, stabilizeStreamingMarkdown } from './MarkdownRenderer'
 import { InternalLinkProvider } from './internal-link-context'
@@ -697,19 +698,15 @@ describe('a streamed answer', () => {
     // Every token renders the answer again; a `/\s+$/` over it backtracked from
     // every space in a run that text follows, quadratic in the run.
     const content = (spaces: number) => `a${' '.repeat(spaces)}x`
-    const fastest = (spaces: number) =>
-      Math.min(
-        ...Array.from({ length: 5 }, () => {
-          const started = performance.now()
-          const { unmount } = render(<MarkdownRenderer content={content(spaces)} isStreaming />)
-          const elapsed = performance.now() - started
-          unmount()
-          return elapsed
-        })
-      )
-    fastest(5_000)
+    const renderTime = (spaces: number) => {
+      let unmount = () => {}
+      const elapsed = elapsedMs(() => {
+        unmount = render(<MarkdownRenderer content={content(spaces)} isStreaming />).unmount
+      })
+      unmount()
+      return elapsed
+    }
     // Quadratic, 8 times the run took ~64 times as long; linear, ~8 times.
-    const small = Math.max(fastest(5_000), 1)
-    expect(fastest(40_000) / small).toBeLessThan(30)
+    expect(growthRatio(renderTime, { size: 5_000, floorMs: 1 })).toBeLessThan(LINEAR_BOUND)
   })
 })

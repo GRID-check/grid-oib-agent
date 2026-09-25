@@ -140,6 +140,22 @@ describe('what mermaid writes into a label', () => {
     expect(await parseMermaid('flowchart TD\n  subgraph S [Gruppe]\n    A --> B\n  end\n  B --> C')).toBeNull()
   }, PARSE_BUDGET)
 
+  it('draws no line for an invisible link, which only places a node', async () => {
+    const model = await parseMermaid('flowchart TD\n  A --> B\n  A ~~~ C')
+    if (model?.kind !== 'flow') throw new Error('expected a flow')
+    expect(model.nodes.map((n) => n.id)).toEqual(['A', 'B', 'C'])
+    expect(model.edges.map((e) => [e.from, e.to])).toEqual([['A', 'B']])
+  }, PARSE_BUDGET)
+
+  it.each([
+    ['a line without an arrowhead', 'flowchart TD\n  A --> B\n  C --- D'],
+    ['a dotted line without one', 'flowchart TD\n  A --> B\n  C -.- D'],
+    ['a two-way arrow', 'flowchart TD\n  A --> B\n  A <--> C'],
+    ['a cross head', 'flowchart TD\n  A --> B\n  B --x C'],
+  ])('leaves %s to mermaid rather than draw it as a one-way arrow', async (_, source) => {
+    expect(await parseMermaid(source)).toBeNull()
+  }, PARSE_BUDGET)
+
   it(`leaves a graph of more than ${MAX_GRAPH_NODES} nodes to mermaid`, async () => {
     const chain = (n: number) => Array.from({ length: n - 1 }, (_, i) => `  N${i} --> N${i + 1}`).join('\n')
     expect(await parseMermaid(`flowchart TD\n${chain(MAX_GRAPH_NODES)}`)).not.toBeNull()
@@ -158,6 +174,16 @@ describe('a state diagram', () => {
   it('labels a state by its description', async () => {
     const model = await parseMermaid('stateDiagram-v2\n  state "Lange Bezeichnung" as L\n  [*] --> L\n  L --> [*]')
     expect(model?.kind === 'flow' && model.nodes.find((n) => n.id === 'L')?.label).toBe('Lange Bezeichnung')
+  }, PARSE_BUDGET)
+
+  it('keeps a state that no transition enters or leaves', async () => {
+    const model = await parseMermaid('stateDiagram-v2\n  [*] --> A\n  A --> B\n  C\n  state "Ruhend" as D\n  B --> [*]')
+    if (model?.kind !== 'flow') throw new Error('expected a flow')
+    expect(model.nodes.filter((n) => n.shape === 'step').map((n) => n.label)).toEqual(['A', 'B', 'C', 'Ruhend'])
+  }, PARSE_BUDGET)
+
+  it('leaves a state with a note to mermaid rather than drop the note', async () => {
+    expect(await parseMermaid('stateDiagram-v2\n  [*] --> A\n  A --> B\n  note right of A: wichtig\n  B --> [*]')).toBeNull()
   }, PARSE_BUDGET)
 
   it('leaves a composite state to mermaid rather than lose what is inside it', async () => {
@@ -184,5 +210,50 @@ describe('a sequence', () => {
       ['i', false],
     ])
   }, PARSE_BUDGET)
+
+  it.each([
+    ['over two parties', 'Note over A,B: Frist 6 Wochen'],
+    ['beside one', 'Note right of B: prüft'],
+  ])('leaves a note %s to mermaid rather than draw it as a hand-over', async (_, note) => {
+    const source = `sequenceDiagram\n  participant A as Bauwerber\n  participant B as Behörde\n  A->>B: Antrag\n  ${note}\n  B-->>A: Bescheid`
+    expect(await parseMermaid(source)).toBeNull()
+  }, PARSE_BUDGET)
+
+  it('reads the hand-overs inside a loop and skips its markers', async () => {
+    const model = await parseMermaid('sequenceDiagram\n  A->>B: Antrag\n  loop jede Woche\n  B-->>A: Stand\n  end')
+    expect(model?.kind === 'handoff' && model.steps.map((step) => [step.from, step.to, step.label])).toEqual([
+      ['A', 'B', 'Antrag'],
+      ['B', 'A', 'Stand'],
+    ])
+  }, PARSE_BUDGET)
 })
 
+describe.each(['UTC', 'Europe/Vienna', 'America/Los_Angeles'])('a gantt in %s', (tz) => {
+  const zone = process.env.TZ
+  beforeAll(() => {
+    process.env.TZ = tz
+  })
+  afterAll(() => {
+    if (zone === undefined) delete process.env.TZ
+    else process.env.TZ = zone
+  })
+
+  it.each([
+    ['of hours', 'Aufgabe :a, 2026-10-01, 4h'],
+    ['of a day and a half', 'Aufgabe :a, 2026-10-01, 36h'],
+    ['at a time of day', 'Aufgabe :a, 2026-10-01 09:00, 2d'],
+  ])('leaves a task %s to mermaid rather than round it to days', async (_, task) => {
+    const format = task.includes(':00') ? 'YYYY-MM-DD HH:mm' : 'YYYY-MM-DD'
+    expect(await parseMermaid(`gantt\n  dateFormat ${format}\n  section S\n  ${task}\n  B :b, 2026-10-01, 14d`)).toBeNull()
+  }, PARSE_BUDGET)
+
+  it('draws whole days across a change of clocks, and a milestone as one', async () => {
+    const model = await parseMermaid(
+      'gantt\n  dateFormat YYYY-MM-DD\n  section S\n  Frist :a, 2026-10-20, 14d\n  Bescheid :milestone, after a, 0d'
+    )
+    expect(model?.kind === 'schedule' && model.sections[0].tasks).toEqual([
+      { label: 'Frist', start: '2026-10-20', end: '2026-11-03', milestone: false },
+      { label: 'Bescheid', start: '2026-11-03', end: '2026-11-03', milestone: true },
+    ])
+  }, PARSE_BUDGET)
+})

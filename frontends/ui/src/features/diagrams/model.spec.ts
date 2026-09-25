@@ -16,7 +16,7 @@ const flowchart = (text: string, labelType = 'string') => ({
       ['A', { id: 'A', text, labelType, type: 'square' }],
       ['B', { id: 'B', text: 'B' }],
     ]),
-  getEdges: () => [{ start: 'A', end: 'B', text: '' }],
+  getEdges: () => [{ start: 'A', end: 'B', text: '', type: 'arrow_point' }],
   getSubGraphs: () => [],
 })
 

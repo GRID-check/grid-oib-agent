@@ -76,11 +76,26 @@ export interface DiagramFiling {
   file: () => Promise<void>
 }
 
-/** `--- title: X ---` front matter, which is the only title a SOURCE can carry. */
+/**
+ * `--- title: X ---` front matter, which is the only title a SOURCE can carry.
+ *
+ * A scan line by line, not a regex: the model writes the source, and the two
+ * patterns this replaced (`\n\s*---` after a lazy body, `^\s*title:\s*(.+?)\s*$`)
+ * backtracked quadratically over a long run of blank lines or spaces in it.
+ */
 export function titleFromSource(source: string): string | null {
-  const match = source.match(/^\s*---\s*\n([\s\S]*?)\n\s*---/)
-  const title = match?.[1].match(/^\s*title:\s*(.+?)\s*$/m)?.[1]
-  return title ? title.slice(0, 200) : null
+  const lines = source.split('\n')
+  let i = 0
+  while (i < lines.length && lines[i].trim() === '') i++
+  if (lines[i]?.trim() !== '---') return null
+  let title: string | null = null
+  for (i++; i < lines.length; i++) {
+    const line = lines[i].trim()
+    if (line.startsWith('---')) return title
+    if (title === null && line.startsWith('title:')) title = line.slice('title:'.length).trim().slice(0, 200) || null
+  }
+  // Front matter never closed: not front matter.
+  return null
 }
 
 /** The `documentId` of one half of the route's answer, or null if it has none. */

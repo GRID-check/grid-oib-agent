@@ -3,6 +3,7 @@
  * for every row as a caption, and each cell's column for the phone layout.
  */
 import { render, screen } from '@/test-utils'
+import { elapsedMs, growthRatio, LINEAR_BOUND } from '@/test-utils/growth'
 import { describe, expect, it } from 'vitest'
 
 import type { Element, Root } from 'hast'
@@ -198,11 +199,8 @@ describe('shaping a long table', () => {
         },
       ],
     })
-    shapingTime(() => table(200))
     // Quadratic, 1600 rows took ~64 times as long as 200; linear, ~8 times.
-    // The ratio, not a wall-clock budget, so a loaded runner cannot fail it.
-    const small = Math.max(shapingTime(() => table(200)), 0.5)
-    expect(shapingTime(() => table(1600)) / small).toBeLessThan(30)
+    expect(growthRatio((rows) => shapingTime(table(rows)), { size: 200 })).toBeLessThan(LINEAR_BOUND)
   })
 
   it.each([
@@ -235,26 +233,15 @@ describe('shaping a long table', () => {
         },
       ],
     })
-    shapingTime(() => table(4000))
     // Quadratic, 8 times the text took ~64 times as long; linear, ~8 times.
-    const small = Math.max(shapingTime(() => table(4000)), 0.5)
-    expect(shapingTime(() => table(32_000)) / small).toBeLessThan(30)
+    expect(growthRatio((chars) => shapingTime(table(chars)), { size: 4000 })).toBeLessThan(LINEAR_BOUND)
   })
 })
 
-/**
- * The fastest of five shapings, each of a fresh tree (the pass rewrites it).
- * One sample per size let a single GC pause or scheduler stall decide a ratio.
- */
-function shapingTime(build: () => Root): number {
+/** One shaping of a fresh tree (the pass rewrites it), the tree built outside the clock. */
+function shapingTime(tree: Root): number {
   const shape = rehypeTableShape()
-  const samples = Array.from({ length: 5 }, () => {
-    const tree = build()
-    const started = performance.now()
-    shape(tree)
-    return performance.now() - started
-  })
-  return Math.min(...samples)
+  return elapsedMs(() => shape(tree))
 }
 
 function cell(text: string): Element {
