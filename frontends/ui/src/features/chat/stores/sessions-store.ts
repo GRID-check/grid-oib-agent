@@ -287,16 +287,26 @@ export const createResilientStorage = (): PersistStorage<PersistedChatState> | u
       const raw = await base.getItem(name)
       if (!raw) return null
 
-      const stripConnectionErrors = (conversations: Conversation[]) =>
+      // Nothing streams in a page that is only now loading, so an answer
+      // stored mid-stream was interrupted by the reload. Its text is a
+      // fragment this page cannot finish: the reattached turn opens a bubble
+      // of its own, and the fragment used to stay beside it with a caret
+      // forever. It also hid the turn from the recovery that fetches a
+      // finished answer (`restoreSessionState` looks for an unanswered
+      // question), so the reload is handed to that path, the one a reload
+      // before the first word already takes.
+      const stripUnrestorable = (conversations: Conversation[]) =>
         conversations.map((c) => ({
           ...c,
           messages: c.messages.filter(
-            (m) => !(m.messageType === 'error' && m.errorData?.errorCode?.startsWith('connection.'))
+            (m) =>
+              m.isStreaming !== true &&
+              !(m.messageType === 'error' && m.errorData?.errorCode?.startsWith('connection.'))
           ),
         }))
 
       if (raw.state.conversations) {
-        raw.state.conversations = stripConnectionErrors(raw.state.conversations)
+        raw.state.conversations = stripUnrestorable(raw.state.conversations)
       }
 
       const storedId = raw.state.currentConversation as unknown as string | null

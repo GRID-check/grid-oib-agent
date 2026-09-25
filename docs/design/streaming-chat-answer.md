@@ -178,6 +178,15 @@ persisted write runs once per flush. Two rules keep that to the answer bubble:
   count, a boolean), and the sessions panel's rows keep their identity across a
   flush (`use-session-rows.ts`). A flush does not bump `updatedAt`.
 
+**A reload mid-answer.** Nothing streams in a page that is only now loading,
+so the storage drops a stored answer that still says `isStreaming` when it
+reads the store (`createResilientStorage`). The reattached turn opens a bubble
+of its own and its terminal frame carries the whole answer. The dropped
+fragment used to stay beside that bubble with a caret, and it hid the
+unanswered question from `restoreSessionState`'s recovery, which fetches a
+finished answer the server kept while the page was away. A reload mid-answer
+now takes the same path as a reload before the first word.
+
 `/dev/stream-chat?history=40` measures this: the real store and the real shell
 (`&shell=1`), fed a recorded answer at its recorded pace, with commits, storage
 writes and long tasks in `window.__streamChat`.

@@ -1,0 +1,6 @@
+---
+fixes:
+  - >
+    Wer die Seite neu lädt, während Piloti noch antwortet, sieht die Antwort
+    danach nur noch einmal. Bisher blieb der bis dahin geschriebene Anfang als
+    zweite, nie fertig werdende Antwort über der vollständigen stehen.
