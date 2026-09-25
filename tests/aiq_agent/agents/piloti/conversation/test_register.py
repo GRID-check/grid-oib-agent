@@ -248,3 +248,33 @@ class TestTurnLedgers:
             await harness["turn"]('{"query": "Was gilt?"}')
 
         assert self._root(harness["spans"])["status"] == "error"
+
+
+class TestTheInventoryFactsReachTheAnswer:
+    """``load_inventory`` derives the families and the cap drops inside the setup
+    gather, where a ContextVar dies with its task; ``_prepare_turn`` binds them
+    where the turn runs. Read back from inside the answering agent."""
+
+    async def test_the_families_and_the_cap_drops_are_bound_for_the_agent(self, harness, monkeypatch):
+        from aiq_agent.knowledge.inventory import get_inventory_drops
+        from aiq_agent.knowledge.inventory import get_norm_families
+        from aiq_agent.knowledge.schema import AvailableDocument
+
+        monkeypatch.setenv("GRID_AVAILABLE_DOCUMENTS_MAX", "3")
+        names = ["oib-rl_2_ausgabe_mai_2023.pdf", "oib-rl_2.1_ausgabe_mai_2023.pdf"]
+        names += [f"anhang_{i}.pdf" for i in range(8)]
+
+        async def base_shelf(_collection):
+            return [AvailableDocument(file_name=name) for name in names]
+
+        monkeypatch.setattr(inventory_mod, "get_available_documents_async", base_shelf)
+        seen: dict = {}
+
+        async def shallow(state):
+            seen["families"] = [(f.key, f.members) for f in get_norm_families()]
+            seen["dropped"] = sum(get_inventory_drops().values())
+            return await _shallow(state)
+
+        await harness["turn"]('{"query": "Was gilt?"}', shallow)
+
+        assert seen == {"families": [("2", ("2", "2.1"))], "dropped": 7}

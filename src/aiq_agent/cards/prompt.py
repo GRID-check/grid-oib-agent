@@ -1,5 +1,6 @@
 """Shared prompt builder for post-hoc Grid response card generation."""
 
+from aiq_agent.cards.catalog import CHAT_ONLY_CARD_TYPES
 from aiq_agent.cards.catalog import render_card_catalog
 from aiq_agent.cards.catalog import render_card_doctrine
 
@@ -120,6 +121,6 @@ def build_card_generation_prompt() -> str:
         + "\n\n"
         + _POST_HOC_ORDERING
         + "\n\n"
-        + render_card_catalog(include_model_backed=False)
+        + render_card_catalog(include_model_backed=False, exclude=CHAT_ONLY_CARD_TYPES)
         + "\n\nRespond ONLY with the JSON object — no prose, no code fences."
     )

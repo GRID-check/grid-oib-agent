@@ -29,6 +29,7 @@ import {
   type MessageStages,
 } from '@/lib/conversations/message-stages'
 import type { StageId } from '@/adapters/api/schemas'
+import type { AnswerMeta } from '@/lib/conversations/message-answer-meta'
 
 /**
  * One post-answer stage frame, narrowed to what the store acts on
@@ -190,7 +191,19 @@ export type MessagesSlice = {
     content: string,
     cards?: (GridCard | undefined)[],
     answerConfidence?: 'low' | 'medium' | 'high',
-    citations?: CitationSource[]
+    citations?: CitationSource[],
+    answerMeta?: AnswerMeta
+  ) => void
+  /**
+   * Replace the streaming bubble's text with a settled snapshot (ADR-0066):
+   * the prose so far with its `[N]` markers verified and renumbered, the
+   * sources they now point at, and the masthead re-gated against the prose.
+   * The bubble keeps streaming; the terminal frame still finalizes it.
+   */
+  replaceStreamingAgentResponse: (
+    content: string,
+    citations?: CitationSource[],
+    answerMeta?: AnswerMeta
   ) => void
   finalizeAgentResponse: (
     content: string,
@@ -600,7 +613,26 @@ export const createMessagesSlice: StateCreator<
     cards?: (GridCard | undefined)[]
     answerConfidence?: 'low' | 'medium' | 'high'
     citations?: CitationSource[]
+    answerMeta?: AnswerMeta
   } = {}
+  // Whether the open bubble's cards or masthead came from a LIVE frame
+  // (ADR-0066) rather than the legacy single in_progress frame. Live ones are
+  // provisional: a terminal that carries none (the cards were suppressed, the
+  // masthead gated out) takes them away again.
+  let liveMetaShown = false
+  /**
+   * Is this in_progress frame one of the live frames that carry only what sits
+   * around the prose (the masthead ahead of it, the cards after it)? Those are
+   * written with no text of their own (`live_chunk("", …)` in
+   * `aiq_agent/turn/streaming.py`). A frame that carries text as well is the
+   * legacy shape, whose cards are final and must survive a terminal that omits
+   * them.
+   */
+  const isLiveExtrasFrame = (
+    content: string,
+    cards: (GridCard | undefined)[] | undefined,
+    answerMeta: AnswerMeta | undefined
+  ): boolean => !content && (Boolean(answerMeta) || (cards?.length ?? 0) > 0)
   let deltaRafHandle: number | null = null
 
   const canBatchDeltas = (): boolean =>
@@ -638,6 +670,7 @@ export const createMessagesSlice: StateCreator<
     const hasMeta =
       (meta.cards && meta.cards.length > 0) ||
       !!meta.answerConfidence ||
+      !!meta.answerMeta ||
       (meta.citations && meta.citations.length > 0)
     if (text === '' && !hasMeta) return
 
@@ -665,6 +698,7 @@ export const createMessagesSlice: StateCreator<
               : {}),
             ...(meta.answerConfidence ? { answerConfidence: meta.answerConfidence } : {}),
             ...(meta.citations && meta.citations.length > 0 ? { citations: meta.citations } : {}),
+            ...(meta.answerMeta ? { answerMeta: meta.answerMeta } : {}),
           }
         : msg
     )
@@ -1303,7 +1337,8 @@ export const createMessagesSlice: StateCreator<
       content: string,
       cards?: (GridCard | undefined)[],
       answerConfidence?: 'low' | 'medium' | 'high',
-      citations?: CitationSource[]
+      citations?: CitationSource[],
+      answerMeta?: AnswerMeta
     ) => {
       const state = get()
       const { currentConversation, conversations, streamingAssistantMessageId } = state
@@ -1315,7 +1350,20 @@ export const createMessagesSlice: StateCreator<
       // it survives to the finalize step. Reset the batch buffer so no stale text
       // from a prior turn can bleed into this fresh bubble.
       if (!streamingAssistantMessageId) {
+        // Whitespace is text only BETWEEN words: a paragraph break the relay
+        // batched into a frame of its own keeps two paragraphs apart once the
+        // bubble is open, but as the turn's first frame it would open a bubble
+        // with nothing to draw, which takes the typing placeholder down and
+        // leaves the reader a blank until the first word. Mirrored by the
+        // observer's fold (spectator-frames.ts).
+        const nothingToDraw =
+          !content.trim() &&
+          !(cards && cards.length > 0) &&
+          !(citations && citations.length > 0) &&
+          !answerMeta
+        if (nothingToDraw) return
         resetDeltaBuffer()
+        liveMetaShown = isLiveExtrasFrame(content, cards, answerMeta)
 
         const id = uuidv4()
         const message = buildAgentResponseMessage(state, id, content, {
@@ -1323,6 +1371,8 @@ export const createMessagesSlice: StateCreator<
           answerConfidence,
           citations,
           isStreaming: true,
+          // The masthead can open the bubble: it is written before the prose.
+          transparency: answerMeta ? { answerMeta } : undefined,
         })
 
         const updatedConversation: Conversation = {
@@ -1351,12 +1401,75 @@ export const createMessagesSlice: StateCreator<
       if (cards && cards.length > 0) pendingDeltaMeta.cards = cards
       if (answerConfidence) pendingDeltaMeta.answerConfidence = answerConfidence
       if (citations && citations.length > 0) pendingDeltaMeta.citations = citations
+      if (answerMeta) pendingDeltaMeta.answerMeta = answerMeta
+      if (isLiveExtrasFrame(content, cards, answerMeta)) liveMetaShown = true
 
       if (canBatchDeltas()) {
         scheduleDeltaFlush()
       } else {
         flushDeltaBuffer()
       }
+    },
+
+    // Mirrored by the observer's fold (collaboration/lib/spectator-frames.ts): change both.
+    replaceStreamingAgentResponse: (
+      content: string,
+      citations?: CitationSource[],
+      answerMeta?: AnswerMeta
+    ) => {
+      if (!get().currentConversation) return
+      // An empty snapshot naming no sources is the backend retracting a
+      // streamed round (AnswerStreamSink.retract).
+      const retraction = content === '' && !(citations && citations.length > 0)
+      // No bubble yet (a turn whose first live frame is the snapshot): open it,
+      // unless it is a retraction, which has nothing on screen to take back.
+      if (!get().streamingAssistantMessageId) {
+        if (retraction) return
+        get().appendAgentResponseDelta(content, undefined, undefined, citations, answerMeta)
+        // A snapshot is a live frame whatever text it carries: its masthead is
+        // as provisional as one that came ahead of the prose.
+        if (answerMeta) liveMetaShown = true
+        return
+      }
+      // Buffered delta text is part of what the snapshot replaces: the backend
+      // sends it only after every delta it settles. Buffered meta is not: live
+      // cards or confidence that arrived in the same frame land first.
+      pendingDeltaText = ''
+      flushDeltaBuffer()
+      const { currentConversation, conversations, streamingAssistantMessageId } = get()
+      if (!currentConversation || !streamingAssistantMessageId) return
+      if (answerMeta) liveMetaShown = true
+      // A retraction's cards go with its text, and the decisions keyed by
+      // their positions with them: otherwise the next round's [[card:0]]
+      // draws the dead round's card.
+      const updatedConversation: Conversation = {
+        ...currentConversation,
+        messages: currentConversation.messages.map((msg) =>
+          msg.id === streamingAssistantMessageId
+            ? {
+                ...msg,
+                ...(retraction ? { cards: undefined, cardInteractions: undefined } : {}),
+                content,
+                // A snapshot names the sources its text cites, all of them: an
+                // empty one (a streamed round retracted) cites nothing.
+                citations: citations && citations.length > 0 ? citations : undefined,
+                // The backend re-gates the masthead against the snapshot's
+                // prose, so a snapshot without one has gated it out: the
+                // masthead on screen goes, as the spectator's does.
+                answerMeta,
+              }
+            : msg
+        ),
+        updatedAt: new Date(),
+      }
+      set(
+        {
+          currentConversation: updatedConversation,
+          conversations: updateConversationInList(conversations, updatedConversation),
+        },
+        false,
+        'replaceStreamingAgentResponse'
+      )
     },
 
     finalizeAgentResponse: (
@@ -1384,14 +1497,25 @@ export const createMessagesSlice: StateCreator<
         return
       }
 
+      // A terminal with the full text is authoritative for what the live
+      // frames showed ahead of it, absence included.
+      // Blank is not text: the spectator's fold uses the same test.
+      const authoritative = Boolean(content && content.trim())
+      const retractLive = liveMetaShown && authoritative
+      liveMetaShown = false
       const updatedMessages = currentConversation.messages.map((msg) => {
         if (msg.id !== streamingAssistantMessageId) return msg
         return {
           ...msg,
+          // The decisions are keyed by card position: they go with the cards
+          // (a terminal that re-sends cards reconciles them below instead).
+          ...(retractLive
+            ? { cards: undefined, cardInteractions: undefined, answerMeta: undefined }
+            : {}),
           // Authoritative full text on the terminal frame equals the accumulation
           // (idempotent replace). An EMPTY terminal — the legacy synthetic
           // `complete` frame — must NOT wipe the accumulated bubble.
-          content: content && content.length > 0 ? content : msg.content,
+          content: authoritative ? content : msg.content,
           // Cards/sources/confidence ride the terminal frame when streaming; keep
           // whatever the delta already attached when the terminal omits them (the
           // legacy path attaches cards on the in_progress frame).
@@ -1402,7 +1526,15 @@ export const createMessagesSlice: StateCreator<
               }
             : {}),
           ...(answerConfidence ? { answerConfidence } : {}),
-          ...(citations && citations.length > 0 ? { citations } : {}),
+          // The citations are numbered against the text, so they go with it:
+          // a terminal with text and no sources cites nothing verified, and
+          // the snapshot's chips must not outlive the prose they belonged to.
+          // An empty terminal keeps them with the text it keeps.
+          ...(citations && citations.length > 0
+            ? { citations }
+            : authoritative
+              ? { citations: undefined }
+              : {}),
           // Transparency extras ride the terminal frame; attach only what's present.
           ...(transparency?.routingDecision
             ? { routingDecision: transparency.routingDecision }

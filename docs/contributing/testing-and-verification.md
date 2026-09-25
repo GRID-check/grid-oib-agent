@@ -144,7 +144,7 @@ correctness of its answer: how many retrieval rounds it took, whether the
 locator (`read_passage`) was used instead of a second search, whether the cited
 Punkt is the one the question is about, whether the Herleitung checkpoint came
 from the tool argument or from prose or from nowhere, and whether the research
-budget ran out. Twenty realistic German questions from a Wiener Planungsbüro
+budget ran out. Twenty-nine realistic German questions from a Wiener Planungsbüro
 live in [`tests/fixtures/herleitung/loop_eval_questions.yaml`](../../tests/fixtures/herleitung/loop_eval_questions.yaml)
 — every expected Punkt in it is read off the committed structural index rather
 than remembered — and [`scripts/loop_eval.py`](../../scripts/loop_eval.py) runs
@@ -277,6 +277,95 @@ filename. Neither looked wrong; both were measured. Bringing it back means
 writing it again against `src/app/dev/` rather than against a registry — and it
 should not be part of `verify` when it returns, because a browser pass over ~120
 surfaces is a deliberate run rather than a per-commit tax.
+
+## The answer suite
+
+`task be:eval:answer-suite` is the end-to-end check: the reference questions
+through the real agent, several runs each, timed call by call and checked
+against what the answer must say. The loop eval asks how the turn looked for
+its passage; this asks what the reader waited for and what they got.
+
+- **Questions:** the loop eval's set, the ones tagged `suite: core` by
+  default (`--all` for every question without a project; a question about an
+  office's own files needs a project and is skipped, and the report says so;
+  so is one about a Richtlinie the ingested corpus lacks, since the corpus is
+  the operator's and a missing OIB-RL 5 is not the agent's failure).
+  A question's optional `expect` block names values that must appear, claims
+  that must not, and an acceptable shape (variant tabs, a table, a drawing,
+  in the prose or in a card), each read off the corpus, never remembered.
+- **Per run:** wall seconds, the answering call's seconds, research calls
+  (up to and including the call that wrote the answer; a repair after it is
+  counted apart, in `post_answer_calls`, though its tokens and seconds stay in
+  the totals), tool calls, reasoning tokens and the largest single-call
+  spike (seconds follow reasoning tokens at ~85 tok/s, and the spike is where
+  run-to-run variance comes from), `first_text_s` (seconds until the reader
+  saw the answering call's prose), the pipeline's own signals (a flagged quote, a quote patch, the terminal frame
+  replacing the settled text, a gated summary, a dropped mindmap, prose outside
+  the envelope, a salvaged envelope, an escalation to deep research), and
+  every check. The signals are `_LOG_SIGNALS` in
+  [`scripts/turn_census/suite.py`](../../scripts/turn_census/suite.py).
+- **Output:** `report.md` and `results.json` in `--out`. `--baseline` adds,
+  in brackets after the wall-seconds and reasoning-token medians, the change
+  against an earlier `results.json`'s median for the same question, when it is
+  1 or more; nothing else is compared. `--report` re-renders a `results.json`
+  and re-checks it against the question set as it is now, re-reading each
+  run's recording beside it, without paying for the runs again.
+- **Flags:** `--only <id> …` runs the named questions (an unknown id, or
+  one that needs a project, exits 2 and says which). `--runs N` sets runs per question (default 2), `--workers N` how many run
+  at once (default 3). `--override KEY VALUE` sets a config value for every
+  run, in `nat run` dot notation, and repeats. `--all`, `--baseline`,
+  `--report` and `--ingest` are described above and below.
+
+```bash
+task be:eval:answer-suite -- --out /tmp/suite/before         # on the base branch
+task be:eval:answer-suite -- --out /tmp/suite/after --baseline /tmp/suite/before/results.json
+```
+
+It needs `OPENROUTER_API_KEY` (or `OPENROUTER_KEY`) and the corpus in
+`data/oib` ingested into `AIQ_CHROMA_DIR` (`-- --ingest` runs the sync
+first). Every run costs model calls: the core set at two runs is twelve
+turns, about four minutes three at a time. It cannot run in CI for the same
+reason as the loop eval; its bookkeeping is covered offline by
+[`tests/test_answer_suite.py`](../../tests/test_answer_suite.py). The
+September 2026 measurements it grew out of are in
+[turns-per-answer-audit-2026-09.md](../architecture/turns-per-answer-audit-2026-09.md).
+
+Measure a committed, clean tree, where the document inventory is. Each
+question starts a fresh process from the working tree, so editing code
+mid-run measures two codebases (the report marks the commit `-dirty`). And
+`AIQ_SUMMARY_DB` defaults to a relative `./summaries.db`, so a `git worktree`
+reads an empty inventory and runs every turn ~7 s slower without family
+overviews; the suite refuses to start on an empty one.
+
+Traps that cost a run:
+
+- **Never run two harnesses against one `AIQ_CHROMA_DIR` at once.** Chroma
+  errors, and the runs that hit it measure nothing.
+- **A second or two between single runs is noise.** Compare medians over
+  several runs, never one run against one run.
+- **Which checkout a run measures.** The suite and the census now put this
+  checkout's `src/` and `sources/` packages first on each run's `PYTHONPATH`,
+  and run it with this checkout's venv interpreter; the suite refuses to start
+  when a run would still import another checkout. Before that, a run from a
+  `git worktree` measured the main checkout's code while its report named the
+  worktree's commit.
+
+For the seconds BEFORE the first model call, which the suite reports only as
+a slice, `scripts/turn_census/startup_probe.py` prints each turn's provider
+calls and the retriever's embed, lexical and retrieve phases in milliseconds,
+several questions in one process so all but the first are warm. What both
+measured on 2026-09-24, and the effort A/B:
+[turn-latency-measured-2026-09.md](../architecture/turn-latency-measured-2026-09.md).
+
+## Which tool answers which question
+
+| Question | Tool | Needs | Cost |
+|---|---|---|---|
+| Is the answer right, and did it get slower or more variable? | `task be:eval:answer-suite` | key and ingested corpus | about 4 minutes for the core set at two runs |
+| What did one turn cost, call by call? | `task be:eval:turn-census -- "<question>"` | key and ingested corpus | one turn per run (`--runs`, default 1); writes to `/tmp/turn_census` unless `--out`; `--override KEY VALUE` per census |
+| What happens in the milliseconds before the first model call? | `scripts/turn_census/startup_probe.py` | key, corpus and document inventory | several questions in one process; the first turn is cold |
+| What shape did the turn take (rounds, locator, checkpoint)? | `task be:eval:loop` | a running backend at `GRID_LOOP_EVAL_URL` with the corpus | real model calls per question; `--compare` needs no backend |
+| Does the layout shift while an answer streams? | `/dev/stream-replay?fixture=varianten` (or `oib2`), `&speed=N` | the UI dev server | free: the fixtures are recorded frames in `frontends/ui/src/app/dev/_fixtures/stream-frames.ts`. `window.__replay` holds `shifts`, `anchorTops` and `done` for a headless capture |
 
 ## Before opening a PR
 

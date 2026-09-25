@@ -13,7 +13,16 @@
 
 'use client'
 
-import { type FC, memo, useCallback, useEffect, useId, useMemo, useState } from 'react'
+import {
+  type FC,
+  type ReactNode,
+  memo,
+  useCallback,
+  useEffect,
+  useId,
+  useMemo,
+  useState,
+} from 'react'
 import { Check, ChevronDown, FileText, MessageCircle } from 'lucide-react'
 import { Chip } from '@/components/ui/chip'
 import { SectionLabel } from '@/components/ui/section-label'
@@ -51,6 +60,7 @@ import {
 } from '../lib/citations'
 import { AnswerCitations } from './AnswerCitations'
 import { DiagramFilingProvider } from '@/features/diagrams/diagram-filing-context'
+import { NestedMarkdownPluginsProvider } from '@/shared/components/MarkdownRenderer/nested-plugins-context'
 import { SkillsUsedDisclosure } from '@/features/skills/components/SkillsUsedDisclosure'
 import { AnswerSourcesRow } from './AnswerSourcesRow'
 import { MemoryNotedChip } from './MemoryNotedChip'
@@ -64,6 +74,7 @@ import type { Finding, Findings } from '@/lib/conversations/message-findings'
 import { ConfidenceChip, type AnswerConfidence } from './ConfidenceChip'
 import { AnswerFeedback } from './AnswerFeedback'
 import { AnswerActions } from './AnswerActions'
+import { CardArrival, PendingCardSlot } from './CardSlotArrival'
 
 /**
  * The first paragraph of a long answer, typeset as a lede.
@@ -85,6 +96,23 @@ const LEDE_CLASS =
   '[&>.markdown-content>p:first-child]:leading-[1.65] ' +
   '[&>.markdown-content>p:first-child]:mb-4'
 
+/** The prose wrapper's classes: the caret's inline run while streaming, and the lede. */
+const proseClass = (streaming: boolean, lede: string): string | undefined => {
+  const caret = streaming
+    ? '[&>.markdown-content>*:last-child]:inline [&>.markdown-content]:inline'
+    : ''
+  return [caret, lede].filter(Boolean).join(' ') || undefined
+}
+
+/**
+ * What lands below the prose once the answer is final (the unplaced legal
+ * basis, the takeaways, the unplaced cards) rises into place instead of
+ * appearing: it is below the reading point, so it moves nothing the reader is
+ * on, and the entrance says it is new.
+ */
+const LATE_BLOCK_ENTER =
+  'animate-in fade-in-0 slide-in-from-bottom-1 duration-base ease-entrance motion-reduce:animate-none'
+
 /** Below this, the answer is short enough to read whole — no lede. */
 const LEDE_MIN_CHARS = 600
 
@@ -96,8 +124,19 @@ const LEDE_MIN_CHARS = 600
  */
 const NON_PROSE_OPENER = /^(#{1,6}\s|[-*+]\s|\d+[.)]\s|>|\||```|\[\[card:)/
 
-function opensWithLede(body: string, isStreaming: boolean): boolean {
-  if (isStreaming || body.length < LEDE_MIN_CHARS) return false
+/**
+ * The lede is decided while the answer streams, the moment it has earned one,
+ * not flipped on at the end: decided only once the answer was complete, it
+ * reflowed the top of an answer the reader was already halfway down, in the
+ * same frame as everything else the terminal frame changes (ADR-0066). Not
+ * eased: font size is a layout property, and the motion vocabulary animates
+ * none (`grid/motion-vocabulary`).
+ */
+function opensWithLede(body: string): boolean {
+  // Not withheld while streaming. Deltas only grow the body, but a settled
+  // snapshot (ADR-0066) can shorten it and a retraction empties it, so the
+  // snapshot can take a lede back; it then follows the settled prose.
+  if (body.length < LEDE_MIN_CHARS) return false
   const trimmed = body.trimStart()
   const firstLine = trimmed.split('\n', 1)[0]
   if (!firstLine || NON_PROSE_OPENER.test(firstLine)) return false
@@ -266,6 +305,15 @@ export interface AgentResponseProps {
    * treatment, so existing callers render exactly as before.
    */
   routingDecision?: 'meta' | 'shallow' | 'deep' | 'error'
+  /**
+   * Somebody else's turn, drawn for a colleague reading along
+   * (`SpectatedTurn`, ADR-0039 §5). No card acts — every interactive card
+   * draws without its actions, and none is given the reader's project or the
+   * message to record a decision on — and neither feedback nor copy actions
+   * are offered over an answer that is about to be replaced by the persisted
+   * one, which carries its own. A file the answer names still links.
+   */
+  readOnly?: boolean
 }
 
 /** Role-tab label for the default answer card. Envelope `kind` wins. */
@@ -612,6 +660,9 @@ const AnswerDetails: FC<{
   readSources?: CitationSource[]
   hasAnswerSources: boolean
   timestamp?: Date | string
+  /** Set on the trigger's own line: the footer's copy actions before it, feedback after. */
+  before?: ReactNode
+  after?: ReactNode
 }> = ({
   hasConfidence,
   answerConfidence,
@@ -628,6 +679,8 @@ const AnswerDetails: FC<{
   readSources,
   hasAnswerSources,
   timestamp,
+  before,
+  after,
 }) => {
   const t = useTranslations('chat')
   // Without the locale `formatTime` uses the RUNTIME default, so a German user on
@@ -647,17 +700,29 @@ const AnswerDetails: FC<{
   }, [needsAttention])
   return (
     <Collapsible open={open} onOpenChange={setOpen} className="flex w-full flex-col">
-      <CollapsibleTrigger
-        className="text-muted-foreground hover:text-foreground focus-visible:ring-ring/60 touch-target duration-quick flex items-center gap-1.5 self-start rounded-md text-xs leading-relaxed transition-colors ease-out focus-visible:outline-none focus-visible:ring-2"
-        aria-label={t('answerDetails.triggerAria')}
-        data-testid="answer-details-trigger"
-      >
-        <span>{t('answerDetails.trigger')}</span>
-        <ChevronDown
-          className={`duration-quick size-3 shrink-0 transition-transform ease-out motion-reduce:transition-none${open ? ' rotate-180' : ''}`}
-          aria-hidden="true"
-        />
-      </CollapsibleTrigger>
+      {/* One line: copy, the trigger, and feedback at the far end. The
+          Collapsible is full-width so its content can open below; with the
+          trigger alone inside it, it took a line of its own under the rest. */}
+      <div className="flex min-h-6 flex-wrap items-center gap-2">
+        {before}
+        <CollapsibleTrigger
+          className="text-muted-foreground hover:text-foreground focus-visible:ring-ring/60 touch-target duration-quick flex items-center gap-1.5 self-start rounded-md text-xs leading-relaxed transition-colors ease-out focus-visible:outline-none focus-visible:ring-2"
+          aria-label={t('answerDetails.triggerAria')}
+          data-testid="answer-details-trigger"
+        >
+          <span>{t('answerDetails.trigger')}</span>
+          <ChevronDown
+            className={`duration-quick size-3 shrink-0 transition-transform ease-out motion-reduce:transition-none${open ? ' rotate-180' : ''}`}
+            aria-hidden="true"
+          />
+        </CollapsibleTrigger>
+        {after ? (
+          <>
+            <span className="flex-1" aria-hidden="true" />
+            {after}
+          </>
+        ) : null}
+      </div>
       <CollapsibleContent className="mt-1.5">
         <div className="flex flex-col gap-2">
           {hasConfidence && (
@@ -722,9 +787,16 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
   showAnswerFeedback = true,
   isStreaming = false,
   routingDecision,
+  readOnly = false,
 }) => {
   const t = useTranslations('chat')
-  const projectId = useChatStore((s) => s.projectId)
+  const storeProjectId = useChatStore((s) => s.projectId)
+  // A read-only answer is not the reader's: nothing in it may act on the
+  // project the READER has open (ADR-0039 §5), and no card in it may record a
+  // decision on the message (`useCardDecision` can decide whenever it has a
+  // message id). Reading stays: a named file still links.
+  const projectId = readOnly ? null : storeProjectId
+  const cardMessageId = readOnly ? undefined : messageId
   // An answer that ends in a written "## Quellen" list used to state its sources
   // TWICE — that list AND the "Belegt durch" chips, each holding half the truth
   // (numbers/titles/pages vs. provenance color, authority and click-through).
@@ -733,9 +805,8 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
   // prose become links to its rows. Answers without such a section are untouched.
   const fallbackId = useId()
   const anchorPrefix = answerSourceAnchorPrefix(messageId ?? fallbackId)
-  // The answer is finished before its first delta leaves the agent, so
-  // `isStreaming` is a state the turn passes through in a frame or two. The
-  // client-side typewriter that used to pace the reveal (`use-typed-reveal`)
+  // The prose streams while the model writes it (ADR-0066), so `isStreaming`
+  // is a window of seconds, not a frame or two. The client-side typewriter that used to pace the reveal (`use-typed-reveal`)
   // was removed deliberately: the full text paints as soon as it arrives.
   // "Still arriving" is therefore the real streaming window only — the caret
   // trails the text, the footer stays reserved at its height, and nothing that
@@ -781,29 +852,42 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
         : anatomy?.summary,
     [anatomy, body]
   )
-  const ledeClass =
-    opensWithLede(body, stillArriving) && !effectiveSummary && !anatomy?.topic ? LEDE_CLASS : ''
+  const ledeClass = opensWithLede(body) && !effectiveSummary && !anatomy?.topic ? LEDE_CLASS : ''
   // The files this answer NAMES, as opposed to the ones it cites. A sentence
   // like „Beginnen Sie mit pd8280-2.pdf" is pointing at a document the reader
   // owns, and until the index below resolved that name it was dead text. The
   // hook is inert for an answer with no filename in it, which is most of them.
   const fileReferences = useAnswerFileReferences({
     body,
-    projectId,
+    projectId: storeProjectId,
     // The conversation whose private attachments a named file may live in.
     conversationId: conversationId ?? null,
     isStreaming: stillArriving,
   })
   const markerPlugins = useMemo(
     (): PluggableList => [
-      [remarkCitationMarkers, { numbers: citationNumbers, anchorPrefix }],
-      [remarkCardMarkers, { count: cardCount, callout: Boolean(anatomy?.callout) }],
+      // While it streams, a marker with no source yet is a pending pill, not
+      // a stray "[2]": the settled text names its source within seconds.
+      [remarkCitationMarkers, { numbers: citationNumbers, anchorPrefix, pending: stillArriving }],
+      // While it streams, a card marker holds its card's place until the card,
+      // written after the prose, arrives to fill it.
+      [
+        remarkCardMarkers,
+        { count: cardCount, callout: Boolean(anatomy?.callout), pending: stillArriving },
+      ],
       // AFTER the citation pass, so a filename that happens to sit inside a
       // marker's label is left alone: the pass skips `link` subtrees, and by
       // this point every `[N]` already is one.
       [remarkFileReferences, { fileNames: fileReferences.fileNames }],
     ],
-    [citationNumbers, anchorPrefix, cardCount, anatomy, fileReferences.fileNames]
+    [citationNumbers, anchorPrefix, stillArriving, cardCount, anatomy, fileReferences.fileNames]
+  )
+  // What a run of Markdown INSIDE a card (a tab's `Text`) parses with: the
+  // citations only. Its `[2]` is this answer's source 2; card markers are not
+  // slots there.
+  const nestedPlugins = useMemo(
+    (): PluggableList => [[remarkCitationMarkers, { numbers: citationNumbers, anchorPrefix }]],
+    [citationNumbers, anchorPrefix]
   )
   // The cards the prose did NOT claim. Read off the same body the renderer
   // parses, because the block below has to be built before that parse happens.
@@ -841,11 +925,13 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
   // is provenance (where it stands), not decoration — washes/alarms spend the
   // hue budget elsewhere, never by muting the source signal. Grey chips read
   // as broken, so there is no muted variant and no spend counting here.
-  // Renders nothing when the index has no card yet: the cards ride the
-  // terminal envelope, so within the few frames an answer streams a marker in
-  // the prose can precede the card it names, and a hole is better than a
-  // crash or a raw `[[card:2]]`.
   const cardSet = useMemo(() => [...(cards ?? []), ...(anatomy?.all ?? [])], [cards, anatomy])
+  // What a `[[card:N]]` marker in the prose draws. A card the answer has not
+  // reached yet (N past the end of `cards`) holds a skeleton while the answer
+  // streams, since the cards are written after the prose, and nothing once it
+  // is done. A hole INSIDE `cards` (a card the validator refused, or one an
+  // observer may not see) is never coming, so it draws nothing at any time:
+  // a hole is better than a crash, a raw `[[card:2]]` or a skeleton forever.
   const renderCardSlot = useCallback(
     (index: number) => {
       // The callout's slot: the one anatomy block the prose may anchor.
@@ -860,24 +946,32 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
         )
       }
       const card = cards?.[index]
-      if (!card) return null
+      // Still arriving: the card is written after the prose, so its marker
+      // holds the place it will grow from rather than nothing (ADR-0066).
+      if (!card) return stillArriving && index >= (cards?.length ?? 0) ? <PendingCardSlot /> : null
       // `mb-3` is the paragraph rhythm of the markdown body: the card replaced
       // a paragraph, so it has to leave the same gap behind it. `block!` beats
       // the streaming caret's `*:last-child]:inline` rule, which would collapse
       // a card that ends the answer for as long as the answer is still arriving.
       return (
-        <div className="block! mb-3">
+        <CardArrival live={stillArriving}>
           {/* The whole answer's cards, not just this one: a card placed inline
               by a marker still has to know what ELSE the answer is carrying —
               `summary` and `verdict_header` must not both claim the top of it
               (grid-card-charter.md §A2). See `grid-cards/card-set.tsx`. */}
           <CardSetProvider cards={cardSet}>
-            <GridCardItem card={card} index={index} projectId={projectId} messageId={messageId} />
+            <GridCardItem
+              card={card}
+              index={index}
+              projectId={projectId}
+              messageId={cardMessageId}
+              decisionsMustPersist={readOnly}
+            />
           </CardSetProvider>
-        </div>
+        </CardArrival>
       )
     },
-    [cards, cardSet, projectId, messageId, anatomy?.callout]
+    [cards, cardSet, projectId, cardMessageId, anatomy?.callout, stillArriving, readOnly]
   )
   // ONE derivation for the whole answer: the inline `[N]` markers in the prose
   // and the provenance chips below are the same citations seen twice, and two
@@ -919,12 +1013,17 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
   const hasConfidence =
     showConfidenceChip &&
     (answerConfidence === 'low' || answerConfidence === 'medium' || answerConfidence === 'high')
-  const hasFeedback = showAnswerFeedback && Boolean(messageId)
+  // Rating somebody else's answer is not the reader's to do (readOnly).
+  const hasFeedback = !readOnly && showAnswerFeedback && Boolean(messageId)
   // The copy actions. A still-arriving answer cannot be copied — half a
   // Prüfvermerk is worse than none — and a cards-only turn has no markdown to
   // hand over, so both are excluded rather than given a button that copies ''.
   const hasAnswerActions =
-    !stillArriving && Boolean(content) && content.trim().length > 0 && content !== 'null'
+    !readOnly &&
+    !stillArriving &&
+    Boolean(content) &&
+    content.trim().length > 0 &&
+    content !== 'null'
   const hasMetaRow =
     hasConfidence || hasFeedback || hasAnswerActions || Boolean(timestamp) || memoryItems.length > 0
   // Streaming still has no chips/thumbs, but the row is reserved at chip
@@ -969,7 +1068,11 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
 
   // Guard against null, undefined, empty, or literal "null" string content
   // when no cards are present. Cards can render even with empty text.
-  if ((!content || !content.trim() || content === 'null') && !hasCards) {
+  // A streaming answer whose masthead arrived before its first word is not
+  // empty: the masthead stands while the prose is still being written.
+  const hasLiveMasthead =
+    stillArriving && Boolean(anatomy && (anatomy.verdict || anatomy.summary || anatomy.topic))
+  if ((!content || !content.trim() || content === 'null') && !hasCards && !hasLiveMasthead) {
     return null
   }
 
@@ -977,213 +1080,13 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
   if (variant === 'inline') {
     return (
       <DiagramFilingProvider target={diagramFilingTarget}>
-        <AnswerCitations
-          documents={documents}
-          anchorPrefix={anchorPrefix}
-          resolveFileReference={fileReferences.resolve}
-        >
-          <div className="flex w-full flex-col gap-2 overflow-hidden break-words">
-            {/* The answer's masthead — verdict/topic and/or summary, flat above the prose. */}
-            {anatomy && (anatomy.verdict || effectiveSummary || anatomy.topic) && (
-              <CardSetProvider cards={cardSet}>
-                <AnatomyMasthead
-                  verdict={anatomy.verdict}
-                  summary={effectiveSummary}
-                  topic={anatomy.topic}
-                  context={anatomy.context}
-                  kind={answerMeta?.kind}
-                  confidence={answerConfidence}
-                  confidenceReason={answerConfidenceReason}
-                />
-              </CardSetProvider>
-            )}
-            {findings && (
-              <FindingsMatrix
-                findings={findings}
-                anchorPrefix={anchorPrefix}
-                previous={previousFindings}
-                onCommission={onCommissionFinding}
-              />
-            )}
-            {/* An unplaced legal basis — flat above the prose, never in the fallback grid. */}
-            {!stillArriving && evidenceCard?.type === 'legal_basis' && (
-              <CardSetProvider cards={cardSet}>
-                <EvidenceBlock card={evidenceCard} />
-              </CardSetProvider>
-            )}
-            {/* Response Content rendered as markdown (with streaming caret). While
-            streaming, the markdown block + its last child are forced inline so
-            the caret trails the final glyph instead of dropping to a new line.
-            Cards the answer placed with a marker are spliced into this body. */}
-            <MarkdownSlotProvider render={renderCardSlot}>
-              <div
-                className={
-                  stillArriving
-                    ? '[&>.markdown-content>*:last-child]:inline [&>.markdown-content]:inline'
-                    : ledeClass || undefined
-                }
-              >
-                <MarkdownRenderer
-                  content={body}
-                  isStreaming={stillArriving}
-                  remarkPlugins={markerPlugins}
-                />
-                {stillArriving && <StreamingCaret />}
-              </div>
-            </MarkdownSlotProvider>
-
-            {/* Cards no marker claimed. AFTER the body, never before it: an answer
-            that opens with three diagrams has pushed itself below the fold.
-            Withheld until the reveal finishes, because "unplaced" is read off
-            the body SO FAR: a card whose `[[card:N]]` has not been typed out yet
-            looks unplaced, would render here, and would then jump up the answer
-            the moment its marker arrives.
-            `mt-1` because this column's `gap-2` is 8px and the markdown body's
-            paragraph rhythm is 12px, so without it an UNPLACED card hugged the
-            prose 4px tighter than a placed one — visible the moment an answer
-            carries both. */}
-            {/* The anatomy below the prose: the callout (unless its marker placed
-            it inline), then the takeaways. */}
-            {!stillArriving && anatomyBelow.length > 0 && (
-              <div className="mt-1 flex flex-col gap-3">
-                <CardSetProvider cards={cardSet}>
-                  {anatomyBelow.map((card) => (
-                    <AnatomyBlock key={card.type} card={card} />
-                  ))}
-                </CardSetProvider>
-              </div>
-            )}
-            {!stillArriving && cards && fallbackGridIndices.length > 0 && (
-              <div className="mt-1">
-                <GridCards
-                  cards={cards}
-                  indices={fallbackGridIndices}
-                  projectId={projectId}
-                  messageId={messageId}
-                />
-              </div>
-            )}
-
-            {/* "Belegt durch": provenance chips for sources this answer carries */}
-            <AnswerSourcesRow
-              documents={documents}
-              anchorPrefix={anchorPrefix}
-              routingDecision={routingDecision}
-              isStreaming={stillArriving}
-            />
-
-            {/* No copy actions here, deliberately. This variant is the box-less
-            rendering used INSIDE another container (the thinking process, the
-            dev turn surfaces) — it has no consolidated meta row, so the buttons
-            would land as one more loose element in a stack that already ends in
-            chips, thumbs and a timestamp. And it never renders a delivered
-            answer in the thread: ChatArea always uses the default variant, so
-            every answer a reader would paste has its buttons on its own card.
-            If that changes, <AnswerActions /> drops into the row below. */}
-            {reserveMetaRow && (
-              <div
-                className={
-                  hasMetaRow
-                    ? 'animate-in fade-in-0 duration-quick flex min-h-6 flex-col gap-1.5 ease-out motion-reduce:animate-none'
-                    : 'min-h-6'
-                }
-                aria-hidden={hasMetaRow ? undefined : true}
-              >
-                {hasDetailsContent && (
-                  <AnswerDetails
-                    hasConfidence={hasConfidence}
-                    answerConfidence={answerConfidence}
-                    answerConfidenceCappedReason={answerConfidenceCappedReason}
-                    answerConfidenceReason={answerConfidenceReason}
-                    memoryItems={memoryItems}
-                    skillsActivated={skillsActivated}
-                    skillsHidden={skillsHidden}
-                    showReasoning={showReasoning}
-                    researchTruncated={researchTruncated}
-                    truncationReason={truncationReason}
-                    degradedReasons={degradedReasons}
-                    citationsRemoved={citationsRemoved}
-                    readSources={readSources}
-                    hasAnswerSources={hasAnswerSources}
-                    timestamp={timestamp}
-                  />
-                )}
-                {hasFeedback && messageId && (
-                  <AnswerFeedback messageId={messageId} conversationId={conversationId} />
-                )}
-              </div>
-            )}
-          </div>
-        </AnswerCitations>
-      </DiagramFilingProvider>
-    )
-  }
-
-  // Default variant — the click-dummy "Ergebnis" card: a role tab over a
-  // tinted shell whose white inner block carries the composed answer, then a
-  // "Belegt durch" provenance row and the feedback row, hairline-separated.
-  //
-  // Envelope `kind` names the document. `direct` swaps the ink tab for a quiet
-  // "Hinweis"; observed `meta` does the same when kind is absent and there is
-  // no legacy verdict. `walkthrough` keeps the ink shell but labels the tab
-  // "Antwort". `ruling`, a legacy no-kind verdict, and any other routing
-  // (shallow/deep/error) keep "Ergebnis" (fail-open).
-  const roleTab = answerRoleTab(answerMeta?.kind, routingDecision, Boolean(answerMeta?.verdict))
-  const isNote = roleTab === 'note'
-  const tabLabel =
-    roleTab === 'note'
-      ? t('roles.note')
-      : roleTab === 'answer'
-        ? t('roles.answer')
-        : t('roles.result')
-  return (
-    <DiagramFilingProvider target={diagramFilingTarget}>
-      <AnswerCitations
-        documents={documents}
-        anchorPrefix={anchorPrefix}
-        resolveFileReference={fileReferences.resolve}
-      >
-        {/* Full column width, not a fixed 680px: the answer is the thread's main
-        content and reads as a centered column (the width itself is set by the
-        list's max-w container), rather than a card hugging the left edge with
-        dead space beside it. */}
-        <div className="animate-in fade-in-0 slide-in-from-bottom-1 duration-base ease-entrance flex w-full flex-col motion-reduce:animate-none">
-          {/* Role tab — uppercase 10.5/600. Substantive answer: near-black action
-          fill + check. Meta / direct reply: quiet secondary fill + conversation icon. */}
-          {isNote ? (
-            <SectionLabel
-              as="div"
-              className="bg-secondary text-secondary-foreground ml-[14px] inline-flex w-fit items-center gap-1.5 rounded-t-md px-2.5 py-1"
-            >
-              <MessageCircle className="size-2.5" strokeWidth={2.6} aria-hidden="true" />
-              {tabLabel}
-            </SectionLabel>
-          ) : (
-            <SectionLabel
-              as="div"
-              className="bg-primary text-primary-foreground ml-[14px] inline-flex w-fit items-center gap-1.5 rounded-t-md px-2.5 py-1"
-            >
-              <Check className="size-2.5" strokeWidth={2.6} aria-hidden="true" />
-              {tabLabel}
-            </SectionLabel>
-          )}
-
-          {/* Shell: subtle surface + hairline + soft shadow, corners clipped. A meta
-          reply sits on a quieter muted surface, so the whole card — not just the
-          tab — reads as the calmer, non-result kind. Both kinds use shadow-sm,
-          matching the composer's elevation so the answer never outranks it. */}
-          <div
-            className={
-              isNote
-                ? 'border-input bg-muted overflow-hidden rounded-lg border shadow-sm'
-                : 'border-input bg-input-background overflow-hidden rounded-lg border shadow-sm'
-            }
+        <NestedMarkdownPluginsProvider plugins={nestedPlugins}>
+          <AnswerCitations
+            documents={documents}
+            anchorPrefix={anchorPrefix}
+            resolveFileReference={fileReferences.resolve}
           >
-            {/* Answer body — the hero white surface. It fills the top of the card
-            flush (corners clipped by the shell) and is separated from the
-            provenance footer by a single hairline, so the whole thing reads as
-            one considered object with sections — not a card floating in a tray. */}
-            <div className="bg-card flex flex-col gap-2 break-words border-b px-[22px] pb-[17px] pt-[18px]">
+            <div className="flex w-full flex-col gap-2 overflow-hidden break-words">
               {/* The answer's masthead — verdict/topic and/or summary, flat above the prose. */}
               {anatomy && (anatomy.verdict || effectiveSummary || anatomy.topic) && (
                 <CardSetProvider cards={cardSet}>
@@ -1206,22 +1109,12 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
                   onCommission={onCommissionFinding}
                 />
               )}
-              {/* An unplaced legal basis — flat above the prose, never in the fallback grid. */}
-              {!stillArriving && evidenceCard?.type === 'legal_basis' && (
-                <CardSetProvider cards={cardSet}>
-                  <EvidenceBlock card={evidenceCard} />
-                </CardSetProvider>
-              )}
-              {/* Response Content rendered as markdown (with streaming caret).
-              Cards the answer placed with a marker are spliced into this body. */}
+              {/* Response Content rendered as markdown (with streaming caret). While
+            streaming, the markdown block + its last child are forced inline so
+            the caret trails the final glyph instead of dropping to a new line.
+            Cards the answer placed with a marker are spliced into this body. */}
               <MarkdownSlotProvider render={renderCardSlot}>
-                <div
-                  className={
-                    stillArriving
-                      ? '[&>.markdown-content>*:last-child]:inline [&>.markdown-content]:inline'
-                      : ledeClass || undefined
-                  }
-                >
+                <div className={proseClass(stillArriving, ledeClass)}>
                   <MarkdownRenderer
                     content={body}
                     isStreaming={stillArriving}
@@ -1230,18 +1123,31 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
                   {stillArriving && <StreamingCaret />}
                 </div>
               </MarkdownSlotProvider>
+              {/* An unplaced legal basis — flat, right after the prose it grounds: the
+            answer comes first (the prompt's own first rule), then the Fundstelle
+            it argued from. Never in the fallback grid. */}
+              {!stillArriving && evidenceCard?.type === 'legal_basis' && (
+                <div className={LATE_BLOCK_ENTER}>
+                  <CardSetProvider cards={cardSet}>
+                    <EvidenceBlock card={evidenceCard} />
+                  </CardSetProvider>
+                </div>
+              )}
 
               {/* Cards no marker claimed. AFTER the body, never before it: an answer
-              that opens with three diagrams has pushed itself below the fold.
-              `mt-1` because this column's `gap-2` is 8px and the markdown
-              body's paragraph rhythm is 12px, so without it an UNPLACED card
-              hugged the prose 4px tighter than a placed one — visible the
-              moment an answer carries both, which is what
-              /dev/chat-turn?variant=two-cards shows. */}
+            that opens with three diagrams has pushed itself below the fold.
+            Withheld until the reveal finishes, because "unplaced" is read off
+            the body SO FAR: a card whose `[[card:N]]` has not been typed out yet
+            looks unplaced, would render here, and would then jump up the answer
+            the moment its marker arrives.
+            `mt-1` because this column's `gap-2` is 8px and the markdown body's
+            paragraph rhythm is 12px, so without it an UNPLACED card hugged the
+            prose 4px tighter than a placed one — visible the moment an answer
+            carries both. */}
               {/* The anatomy below the prose: the callout (unless its marker placed
-              it inline), then the takeaways. */}
+            it inline), then the takeaways. */}
               {!stillArriving && anatomyBelow.length > 0 && (
-                <div className="mt-1 flex flex-col gap-3">
+                <div className={`mt-1 flex flex-col gap-3 ${LATE_BLOCK_ENTER}`}>
                   <CardSetProvider cards={cardSet}>
                     {anatomyBelow.map((card) => (
                       <AnatomyBlock key={card.type} card={card} />
@@ -1250,59 +1156,42 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
                 </div>
               )}
               {!stillArriving && cards && fallbackGridIndices.length > 0 && (
-                <div className="mt-1">
+                <div className={`mt-1 ${LATE_BLOCK_ENTER}`}>
                   <GridCards
                     cards={cards}
                     indices={fallbackGridIndices}
                     projectId={projectId}
-                    messageId={messageId}
+                    messageId={cardMessageId}
+                    decisionsMustPersist={readOnly}
                   />
                 </div>
               )}
-            </div>
 
-            {/* Provenance footer — ONE tinted zone under the body's hairline that
-            holds the sources block, the copy actions, and a single disclosure
-            for everything else (confidence, memory note, skills used,
-            verification notes, feedback, timestamp). The sources row must not
-            draw its own divider here (the body hairline already separates), so
-            it takes withDivider={false}. */}
-            <div className="flex flex-col gap-2.5 px-[22px] pb-[14px] pt-3">
+              {/* "Belegt durch": provenance chips for sources this answer carries */}
               <AnswerSourcesRow
                 documents={documents}
                 anchorPrefix={anchorPrefix}
                 routingDecision={routingDecision}
                 isStreaming={stillArriving}
-                withDivider={false}
               />
+
+              {/* No copy actions here, deliberately. This variant is the box-less
+            rendering used INSIDE another container (the thinking process, the
+            dev turn surfaces) — it has no consolidated meta row, so the buttons
+            would land as one more loose element in a stack that already ends in
+            chips, thumbs and a timestamp. And it never renders a delivered
+            answer in the thread: ChatArea always uses the default variant, so
+            every answer a reader would paste has its buttons on its own card.
+            If that changes, <AnswerActions /> drops into the row below. */}
               {reserveMetaRow && (
                 <div
                   className={
                     hasMetaRow
-                      ? 'animate-in fade-in-0 duration-quick flex min-h-6 flex-wrap items-center gap-2 ease-out motion-reduce:animate-none'
+                      ? 'animate-in fade-in-0 duration-quick flex min-h-6 flex-col gap-1.5 ease-out motion-reduce:animate-none'
                       : 'min-h-6'
                   }
                   aria-hidden={hasMetaRow ? undefined : true}
                 >
-                  {/* Copy the answer out — markdown, with or without its sources
-                  written out. Before the disclosure: "take this with you" is
-                  what the reader wants first; the details are the afterthought. */}
-                  {hasAnswerActions && (
-                    <AnswerActions
-                      content={content}
-                      body={body}
-                      documents={documents}
-                      conversationId={conversationId}
-                      messageId={messageId}
-                    />
-                  )}
-                  {hasMetaRow && <span className="flex-1" aria-hidden="true" />}
-                  {/* `compact`: the thumbs stay on this line and their disclosure
-                  takes the next one full-width, rather than one tall box the
-                  row would centre the copy actions against. */}
-                  {hasFeedback && messageId && (
-                    <AnswerFeedback compact messageId={messageId} conversationId={conversationId} />
-                  )}
                   {hasDetailsContent && (
                     <AnswerDetails
                       hasConfidence={hasConfidence}
@@ -1322,12 +1211,236 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
                       timestamp={timestamp}
                     />
                   )}
+                  {hasFeedback && messageId && (
+                    <AnswerFeedback messageId={messageId} conversationId={conversationId} />
+                  )}
                 </div>
               )}
             </div>
+          </AnswerCitations>
+        </NestedMarkdownPluginsProvider>
+      </DiagramFilingProvider>
+    )
+  }
+
+  const answerActions = hasAnswerActions ? (
+    <AnswerActions
+      content={content}
+      body={body}
+      documents={documents}
+      conversationId={conversationId}
+      messageId={messageId}
+    />
+  ) : null
+  const feedback =
+    hasFeedback && messageId ? (
+      <AnswerFeedback compact messageId={messageId} conversationId={conversationId} />
+    ) : null
+
+  // Default variant — the click-dummy "Ergebnis" card: a role tab over a
+  // tinted shell whose white inner block carries the composed answer, then a
+  // "Belegt durch" provenance row and the feedback row, hairline-separated.
+  //
+  // Envelope `kind` names the document. `direct` swaps the ink tab for a quiet
+  // "Hinweis"; observed `meta` does the same when kind is absent and there is
+  // no legacy verdict. `walkthrough` keeps the ink shell but labels the tab
+  // "Antwort". `ruling`, a legacy no-kind verdict, and any other routing
+  // (shallow/deep/error) keep "Ergebnis" (fail-open).
+  const roleTab = answerRoleTab(answerMeta?.kind, routingDecision, Boolean(answerMeta?.verdict))
+  const isNote = roleTab === 'note'
+  const tabLabel =
+    roleTab === 'note'
+      ? t('roles.note')
+      : roleTab === 'answer'
+        ? t('roles.answer')
+        : t('roles.result')
+  return (
+    <DiagramFilingProvider target={diagramFilingTarget}>
+      <NestedMarkdownPluginsProvider plugins={nestedPlugins}>
+        <AnswerCitations
+          documents={documents}
+          anchorPrefix={anchorPrefix}
+          resolveFileReference={fileReferences.resolve}
+        >
+          {/* Full column width, not a fixed 680px: the answer is the thread's main
+        content and reads as a centered column (the width itself is set by the
+        list's max-w container), rather than a card hugging the left edge with
+        dead space beside it. */}
+          <div className="animate-in fade-in-0 slide-in-from-bottom-1 duration-base ease-entrance flex w-full flex-col motion-reduce:animate-none">
+            {/* Role tab — uppercase 10.5/600. Substantive answer: near-black action
+          fill + check. Meta / direct reply: quiet secondary fill + conversation icon. */}
+            {isNote ? (
+              <SectionLabel
+                as="div"
+                className="bg-secondary text-secondary-foreground ml-[14px] inline-flex w-fit items-center gap-1.5 rounded-t-md px-2.5 py-1"
+              >
+                <MessageCircle className="size-2.5" strokeWidth={2.6} aria-hidden="true" />
+                {tabLabel}
+              </SectionLabel>
+            ) : (
+              <SectionLabel
+                as="div"
+                className="bg-primary text-primary-foreground ml-[14px] inline-flex w-fit items-center gap-1.5 rounded-t-md px-2.5 py-1"
+              >
+                <Check className="size-2.5" strokeWidth={2.6} aria-hidden="true" />
+                {tabLabel}
+              </SectionLabel>
+            )}
+
+            {/* Shell: subtle surface + hairline + soft shadow, corners clipped. A meta
+          reply sits on a quieter muted surface, so the whole card — not just the
+          tab — reads as the calmer, non-result kind. Both kinds use shadow-sm,
+          matching the composer's elevation so the answer never outranks it. */}
+            <div
+              className={
+                isNote
+                  ? 'border-input bg-muted overflow-hidden rounded-lg border shadow-sm'
+                  : 'border-input bg-input-background overflow-hidden rounded-lg border shadow-sm'
+              }
+            >
+              {/* Answer body — the hero white surface. It fills the top of the card
+            flush (corners clipped by the shell) and is separated from the
+            provenance footer by a single hairline, so the whole thing reads as
+            one considered object with sections — not a card floating in a tray. */}
+              <div className="bg-card flex flex-col gap-2 break-words border-b px-[22px] pb-[17px] pt-[18px]">
+                {/* The answer's masthead — verdict/topic and/or summary, flat above the prose. */}
+                {anatomy && (anatomy.verdict || effectiveSummary || anatomy.topic) && (
+                  <CardSetProvider cards={cardSet}>
+                    <AnatomyMasthead
+                      verdict={anatomy.verdict}
+                      summary={effectiveSummary}
+                      topic={anatomy.topic}
+                      context={anatomy.context}
+                      kind={answerMeta?.kind}
+                      confidence={answerConfidence}
+                      confidenceReason={answerConfidenceReason}
+                    />
+                  </CardSetProvider>
+                )}
+                {findings && (
+                  <FindingsMatrix
+                    findings={findings}
+                    anchorPrefix={anchorPrefix}
+                    previous={previousFindings}
+                    onCommission={onCommissionFinding}
+                  />
+                )}
+                {/* Response Content rendered as markdown (with streaming caret).
+              Cards the answer placed with a marker are spliced into this body. */}
+                <MarkdownSlotProvider render={renderCardSlot}>
+                  <div className={proseClass(stillArriving, ledeClass)}>
+                    <MarkdownRenderer
+                      content={body}
+                      isStreaming={stillArriving}
+                      remarkPlugins={markerPlugins}
+                    />
+                    {stillArriving && <StreamingCaret />}
+                  </div>
+                </MarkdownSlotProvider>
+                {/* An unplaced legal basis — flat, right after the prose it grounds: the
+              answer comes first (the prompt's own first rule), then the Fundstelle
+              it argued from. Never in the fallback grid. */}
+                {!stillArriving && evidenceCard?.type === 'legal_basis' && (
+                  <div className={LATE_BLOCK_ENTER}>
+                    <CardSetProvider cards={cardSet}>
+                      <EvidenceBlock card={evidenceCard} />
+                    </CardSetProvider>
+                  </div>
+                )}
+
+                {/* Cards no marker claimed. AFTER the body, never before it: an answer
+              that opens with three diagrams has pushed itself below the fold.
+              `mt-1` because this column's `gap-2` is 8px and the markdown
+              body's paragraph rhythm is 12px, so without it an UNPLACED card
+              hugged the prose 4px tighter than a placed one — visible the
+              moment an answer carries both, which is what
+              /dev/chat-turn?variant=two-cards shows. */}
+                {/* The anatomy below the prose: the callout (unless its marker placed
+              it inline), then the takeaways. */}
+                {!stillArriving && anatomyBelow.length > 0 && (
+                  <div className={`mt-1 flex flex-col gap-3 ${LATE_BLOCK_ENTER}`}>
+                    <CardSetProvider cards={cardSet}>
+                      {anatomyBelow.map((card) => (
+                        <AnatomyBlock key={card.type} card={card} />
+                      ))}
+                    </CardSetProvider>
+                  </div>
+                )}
+                {!stillArriving && cards && fallbackGridIndices.length > 0 && (
+                  <div className={`mt-1 ${LATE_BLOCK_ENTER}`}>
+                    <GridCards
+                      cards={cards}
+                      indices={fallbackGridIndices}
+                      projectId={projectId}
+                      messageId={cardMessageId}
+                      decisionsMustPersist={readOnly}
+                    />
+                  </div>
+                )}
+              </div>
+
+              {/* Provenance footer — ONE tinted zone under the body's hairline that
+            holds the sources block, the copy actions, and a single disclosure
+            for everything else (confidence, memory note, skills used,
+            verification notes, feedback, timestamp). The sources row must not
+            draw its own divider here (the body hairline already separates), so
+            it takes withDivider={false}. */}
+              <div className="flex flex-col gap-2.5 px-[22px] pb-[14px] pt-3">
+                <AnswerSourcesRow
+                  documents={documents}
+                  anchorPrefix={anchorPrefix}
+                  routingDecision={routingDecision}
+                  isStreaming={stillArriving}
+                  withDivider={false}
+                />
+                {reserveMetaRow && (
+                  <div
+                    className={
+                      hasMetaRow
+                        ? 'animate-in fade-in-0 duration-quick flex min-h-6 flex-wrap items-center gap-2 ease-out motion-reduce:animate-none'
+                        : 'min-h-6'
+                    }
+                    aria-hidden={hasMetaRow ? undefined : true}
+                  >
+                    {/* Copy the answer out — markdown, with or without its sources
+                  written out. Before the disclosure: "take this with you" is
+                  what the reader wants first; the details are the afterthought.
+                  `compact` feedback: the thumbs stay on this line and their
+                  disclosure takes the next one full-width. */}
+                    {hasDetailsContent ? (
+                      <AnswerDetails
+                        hasConfidence={hasConfidence}
+                        answerConfidence={answerConfidence}
+                        answerConfidenceCappedReason={answerConfidenceCappedReason}
+                        answerConfidenceReason={answerConfidenceReason}
+                        memoryItems={memoryItems}
+                        skillsActivated={skillsActivated}
+                        skillsHidden={skillsHidden}
+                        showReasoning={showReasoning}
+                        researchTruncated={researchTruncated}
+                        truncationReason={truncationReason}
+                        degradedReasons={degradedReasons}
+                        citationsRemoved={citationsRemoved}
+                        readSources={readSources}
+                        hasAnswerSources={hasAnswerSources}
+                        timestamp={timestamp}
+                        before={answerActions}
+                        after={feedback}
+                      />
+                    ) : (
+                      <>
+                        {answerActions}
+                        {hasMetaRow && <span className="flex-1" aria-hidden="true" />}
+                        {feedback}
+                      </>
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
           </div>
-        </div>
-      </AnswerCitations>
+        </AnswerCitations>
+      </NestedMarkdownPluginsProvider>
     </DiagramFilingProvider>
   )
 }

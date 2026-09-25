@@ -1,0 +1,11 @@
+---
+fixes:
+  - >
+    Bei einer Frage zu mehreren Paragraphen (etwa „§§ 3 bis 8“) werden bis zu
+    sechs Paragraphen in einem Schritt gelesen. Bisher kam bei einer Liste nur
+    der erste zurück.
+  - >
+    Eine Fehlermeldung mit Link erscheint nicht mehr als Quelle.
+  - >
+    Die gestellte Frage bleibt oben stehen, und eine kurze Antwort springt am
+    Ende nicht mehr nach unten.

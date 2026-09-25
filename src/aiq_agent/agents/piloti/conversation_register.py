@@ -9,8 +9,10 @@ than in a package of its own.
 """
 
 import asyncio
+import contextlib
 import logging
 from collections.abc import AsyncGenerator
+from dataclasses import dataclass
 from typing import Annotated
 from typing import Any
 
@@ -33,6 +35,8 @@ from aiq_agent.common.profiler import flush_after_answer
 from aiq_agent.common.profiler import track_agent_profile
 from aiq_agent.common.turn_status import emit_documents_loading
 from aiq_agent.conversation_context import register_context_appender
+from aiq_agent.knowledge.inventory import set_inventory_drops
+from aiq_agent.knowledge.inventory import set_norm_families
 from aiq_agent.knowledge.inventory import set_turn_documents
 from aiq_agent.knowledge.scoping import get_scoped_collections_from_context
 from aiq_agent.project_context import GridRequestContext
@@ -43,6 +47,12 @@ from aiq_agent.turn.admission import TurnOutcome
 from aiq_agent.turn.admission import answer_turn
 from aiq_agent.turn.admission import refusal_response
 from aiq_agent.turn.admission import spanned
+from aiq_agent.turn.answer_stream import AnswerStreamSink
+from aiq_agent.turn.answer_stream import Cards
+from aiq_agent.turn.answer_stream import Item
+from aiq_agent.turn.answer_stream import Masthead
+from aiq_agent.turn.answer_stream import Snapshot
+from aiq_agent.turn.answer_stream import bound_answer_stream
 from aiq_agent.turn.api_seam import skip_clarifier_requested
 from aiq_agent.turn.context import TurnContext
 from aiq_agent.turn.context import load_turn_context
@@ -61,7 +71,9 @@ from aiq_agent.turn.registries import load_session_registry
 from aiq_agent.turn.registries import turn_registries
 from aiq_agent.turn.response import build_response
 from aiq_agent.turn.response import post_answer_turn_facts
+from aiq_agent.turn.streaming import chunk_content
 from aiq_agent.turn.streaming import fold_chunks_to_response
+from aiq_agent.turn.streaming import live_chunk
 from aiq_agent.turn.streaming import response_to_chunks
 from aiq_agent.turn.subject_document import load_subject_document
 from nat.builder.builder import Builder
@@ -243,6 +255,35 @@ def _turn_state(
     )
 
 
+def _live_item_chunk(item: Item) -> ChatResponseChunk:
+    """One item of the live answer as the chunk that carries it (ADR-0066)."""
+    if isinstance(item, Snapshot):
+        return live_chunk(item.content, sources=item.sources, answer_meta=item.answer_meta)
+    if isinstance(item, Masthead):
+        return live_chunk("", answer_meta=item.answer_meta)
+    if isinstance(item, Cards):
+        return live_chunk("", cards=item.cards)
+    return live_chunk(item)
+
+
+def note_settled_replaced(settled: str | None, chunks: list[ChatResponseChunk]) -> bool:
+    """Log, and say, whether the terminal text differs from the settled snapshot.
+
+    The reader has read the settled text by then (ADR-0066), so a difference is
+    the answer changing under them: a repair adopted, a quote marked late, a
+    card suppressed. Nothing else measures it; the answer suite counts the line.
+    """
+    terminal = chunk_content(chunks[-1]) if chunks else None
+    if settled is None or terminal is None or terminal.rstrip() == settled.rstrip():
+        return False
+    logger.info(
+        "Piloti: the terminal frame replaced the settled answer (%d -> %d chars)",
+        len(settled),
+        len(terminal),
+    )
+    return True
+
+
 def _answer_chunks(
     outcome: TurnOutcome[ConversationState],
     registries: TurnRegistries,
@@ -251,8 +292,12 @@ def _answer_chunks(
     *,
     workflow_id: str,
     stage_llms: dict,
+    live: bool = False,
 ) -> list[ChatResponseChunk]:
     """The chunks a finished turn delivers, with its post-answer stages scheduled.
+
+    ``live``: the prose already went out as the model wrote it, so the answer
+    is the terminal chunk alone, which replaces it.
 
     ONE call site for every stage, fire-and-forget: which stages exist and
     what gates them is declared in `aiq_agent/stages/`. Every fact a gate may
@@ -272,7 +317,7 @@ def _answer_chunks(
         remembered_this_turn=registries.memory_writes,
     )
     schedule_post_answer_stages(facts, llms=stage_llms)
-    return response_to_chunks(response, stream=True)
+    return response_to_chunks(response, stream=not live)
 
 
 async def _load_setup(
@@ -351,6 +396,127 @@ async def _answer_in_registries(
     return outcome, registries
 
 
+@dataclass(frozen=True)
+class _TurnRuntime:
+    """The turn's identity and its ledgers, fixed before any setup I/O."""
+
+    thread_id: str
+    identity: dict[str, str | None]
+    metadata: dict[str, Any]
+    ledgers: TurnLedgers
+    workflow_id: str
+    stage_llms: dict
+
+
+@dataclass(frozen=True)
+class _Turn:
+    """What one turn's answering task needs, gathered before it starts."""
+
+    agent: ConversationGraph
+    state: ConversationState
+    session_registry: Any
+    context: TurnContext
+    inputs: TurnInputs
+    request: GridRequestContext
+    runtime: _TurnRuntime
+
+
+async def _prepare_turn(
+    agent: ConversationGraph,
+    request: GridRequestContext,
+    inputs: TurnInputs,
+    header_scope,
+    *,
+    conversation_id: str | None,
+    enable_clarifier: bool,
+    resolve_stages: bool,
+    runtime: _TurnRuntime,
+) -> _Turn:
+    """The setup I/O, the per-turn documents bound, and the graph's input state."""
+    context, inventory, session_registry = await _load_setup(
+        request,
+        inputs,
+        header_scope,
+        conversation_id=conversation_id,
+        thread_id=runtime.thread_id,
+        resolve_stages=resolve_stages,
+    )
+    skip_clarifier = not enable_clarifier or skip_clarifier_requested()
+    # The inventory reaches the PROMPT as the rendered block and the TOOLS as
+    # rows. The write-side workspace tools resolve a file name against these
+    # rows, and there is no argument that could carry them: a LangGraph run and
+    # a tool node sit between here and the call. Bound before the graph starts,
+    # so the child contexts copy it; called on every turn, including with None,
+    # which is what stops one turn resolving against the last one's.
+    set_turn_documents(inventory.available_documents)
+    set_norm_families(inventory.norm_families)
+    set_inventory_drops(inventory.inventory_drops)
+    state = _turn_state(inputs, context, inventory, header_scope, skip_clarifier=skip_clarifier)
+    return _Turn(agent, state, session_registry, context, inputs, request, runtime)
+
+
+def _start_answer(turn: _Turn) -> tuple[AnswerStreamSink, asyncio.Task[list[ChatResponseChunk]]]:
+    """Start the answer in its own task, with a sink bound for its live prose (ADR-0066)."""
+    sink = AnswerStreamSink()
+
+    async def answer_and_chunks() -> list[ChatResponseChunk]:
+        # Answer AND chunks in one task: a task runs in a copy of the context,
+        # and what the answer binds there is what building the response reads.
+        runtime = turn.runtime
+        outcome, registries = await _answer_in_registries(
+            turn.agent,
+            turn.state,
+            turn.session_registry,
+            thread_id=runtime.thread_id,
+            organization_id=turn.request.organization_id,
+            identity=runtime.identity,
+            metadata=runtime.metadata,
+            ledgers=runtime.ledgers,
+        )
+        return _answer_chunks(
+            outcome,
+            registries,
+            turn.context,
+            turn.inputs,
+            workflow_id=runtime.workflow_id,
+            stage_llms=runtime.stage_llms,
+            live=sink.streamed,
+        )
+
+    with bound_answer_stream(sink):
+        answering = asyncio.create_task(answer_and_chunks())
+    return sink, answering
+
+
+async def _relay_live(
+    sink: AnswerStreamSink, answering: asyncio.Task[list[ChatResponseChunk]]
+) -> AsyncGenerator[ChatResponseChunk, None]:
+    """The live answer as chunks while ``answering`` runs; its own chunks are its result.
+
+    A consumer that abandons the stream leaves the task running: it is
+    cancelled and awaited here, so the ledgers are not flushed while it is
+    still unwinding.
+    """
+    settled: str | None = None
+    try:
+        async for item in sink.relay(answering):
+            if isinstance(item, Snapshot):
+                # An empty snapshot is a retraction: nothing is settled any more.
+                settled = item.content or None
+            yield _live_item_chunk(item)
+        note_settled_replaced(settled, await answering)
+    finally:
+        await _cancelled(answering)
+
+
+async def _cancelled(task: asyncio.Task[Any]) -> None:
+    if task.done():
+        return
+    task.cancel()
+    with contextlib.suppress(asyncio.CancelledError):
+        await task
+
+
 def _turn_runner(agent: ConversationGraph, config: ChatDeepResearcherConfig, stage_llms: dict, workflow_id: str):
     """The per-turn entry point NAT calls, composed from ``aiq_agent.turn``."""
     any_stage_llm = any(llm is not None for llm in stage_llms.values())
@@ -385,39 +551,29 @@ def _turn_runner(agent: ConversationGraph, config: ChatDeepResearcherConfig, sta
             with track_agent_profile(
                 agent_name=PROFILE_AGENT_NAME, identity=identity, metadata=turn_metadata, inline_flush=False
             ) as profiler:
-                context, inventory, session_registry = await _load_setup(
+                turn = await _prepare_turn(
+                    agent,
                     request,
                     inputs,
                     header_scope,
                     conversation_id=conversation_id,
-                    thread_id=thread_id,
+                    enable_clarifier=config.enable_clarifier,
                     resolve_stages=any_stage_llm,
+                    runtime=_TurnRuntime(thread_id, identity, turn_metadata, ledgers, workflow_id, stage_llms),
                 )
-                skip_clarifier = not config.enable_clarifier or skip_clarifier_requested()
-                # The inventory reaches the PROMPT as the rendered block and the
-                # TOOLS as rows. The write-side workspace tools resolve a file
-                # name against these rows, and there is no argument that could
-                # carry them: a LangGraph run and a tool node sit between here
-                # and the call. Bound before the graph starts, so the child
-                # contexts copy it; called on every turn, including with None,
-                # which is what stops one turn resolving against the last one's.
-                set_turn_documents(inventory.available_documents)
-                state = _turn_state(inputs, context, inventory, header_scope, skip_clarifier=skip_clarifier)
-                outcome, registries = await _answer_in_registries(
-                    agent,
-                    state,
-                    session_registry,
-                    thread_id=thread_id,
-                    organization_id=request.organization_id,
-                    identity=identity,
-                    metadata=turn_metadata,
-                    ledgers=ledgers,
-                )
+                # The answer's prose goes out while the final call writes it
+                # (ADR-0066); the terminal chunk then replaces it verified.
+                sink, answering = _start_answer(turn)
+                # `aclosing`, because `async for` never closes what it iterates:
+                # a consumer that walks away would reach the flush below with
+                # the relay still suspended and the answer still running.
+                async with contextlib.aclosing(_relay_live(sink, answering)) as live:
+                    async for chunk in live:
+                        yield chunk
+                chunks = answering.result()
             # A refused turn still owes the reader its answer, delivered as one
             # terminal chunk; it is yielded here, outside the profiled block.
-            for chunk in _answer_chunks(
-                outcome, registries, context, inputs, workflow_id=workflow_id, stage_llms=stage_llms
-            ):
+            for chunk in chunks:
                 yield chunk
         finally:
             # Two BFF round-trips, posted AFTER the reader has the answer; in the

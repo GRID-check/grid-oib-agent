@@ -8,6 +8,7 @@
  * horizontally inside the card so the chat column never scrolls sideways.
  */
 
+import { HorizontalScroll } from '@/components/ui/horizontal-scroll'
 import { type FC } from 'react'
 import { Columns3, ThumbsUp } from 'lucide-react'
 import { SchematicCard, statusColor } from '../schematics/kit'
@@ -33,6 +34,7 @@ export const ComparisonTableCard: FC<ComparisonTableCardProps> = ({
   note,
 }) => {
   const t = useTranslations('chat')
+  const tCommon = useTranslations('common')
   const success = statusColor('pass')
 
   return (
@@ -43,7 +45,7 @@ export const ComparisonTableCard: FC<ComparisonTableCardProps> = ({
       note={note}
       reference={reference}
     >
-      <div className="w-full overflow-x-auto">
+      <HorizontalScroll className="w-full" aria-label={tCommon('markdown.scrollTable')}>
         {/* ONE SIZE FOR THE WHOLE TABLE, with weight and ink doing the
             hierarchy. Every cell, label and header used to be 12px — the
             charter's CAPTION step, spent on what the charter itself calls
@@ -100,7 +102,7 @@ export const ComparisonTableCard: FC<ComparisonTableCardProps> = ({
             ))}
           </tbody>
         </table>
-      </div>
+      </HorizontalScroll>
 
       {recommendation && (
         <p className="card-body flex items-start gap-1.5 text-foreground">

@@ -175,6 +175,21 @@ describe('LegalBasisCard Fundstelle', () => {
     expect(screen.getByText('3.1.1 · Anwendungsbereiche der ergänzenden Richtlinien')).toBeInTheDocument()
   })
 
+  it('holds 14 characters in the margin and runs 15 inline', () => {
+    // The boundary is MARGIN_IDENTIFIER_MAX_CHARS, on the trimmed value.
+    const fourteen = 'Tabelle 1a-1bc'
+    const fifteen = 'Tabelle 1a-1bcd'
+    expect([fourteen.length, fifteen.length]).toEqual([14, 15])
+
+    const kept = render(<LegalBasisCard {...card({ article: null, section: fourteen })} />)
+    expect(marginOf(kept.container)).toHaveTextContent(`§ ${fourteen}`)
+    kept.unmount()
+
+    const inline = render(<LegalBasisCard {...card({ article: null, section: fifteen })} />)
+    expect(marginOf(inline.container)).toBeNull()
+    expect(screen.getByText(fifteen)).toBeInTheDocument()
+  })
+
   it('collapses the margin for a blank Fundstelle rather than printing a bare prefix', () => {
     const { container } = render(<LegalBasisCard {...card({ article: '   ', section: null })} />)
     expect(marginOf(container)).toBeNull()

@@ -5,23 +5,29 @@
  *
  * Three panels, in the order a reader meets them:
  *
- *  1. **Drawn.** A process flow written as mermaid in the answer, rendered by
- *     the real client renderer (mermaid → flatten the cascade onto the elements
- *     → through the SERVER'S own SVG validator → injected). Under it: the line
- *     that carries the doctrine — „Schematisch — ohne Maßangabe." — and the
- *     „Im Projekt ablegen" action, which appears only because this panel is
- *     wrapped in a filing target the way an answer inside a project is.
+ *  1. **Drawn.** A process flow written as mermaid in the answer. Mermaid's
+ *     parser reads it into a model (`features/diagrams/parse-mermaid.ts`) and
+ *     this product's own `FlowDiagram` draws it, with no „Schematisch — ohne
+ *     Maßangabe." line: that line is a claim about a drawing's geometry, and
+ *     these views have none. Under it only the „Im Projekt ablegen" action,
+ *     which appears because the panel is wrapped in a filing target the way an
+ *     answer inside a project is. Mermaid's SVG is drawn only when the reader
+ *     files it (`renderPaperDiagram`), on paper, and it carries the line in its
+ *     own text.
  *  2. **Not drawable.** The model wrote broken mermaid, which it does. The
  *     reader gets the source they would have seen anyway plus one quiet line.
  *     Never a red box.
- *  3. **Still arriving.** During streaming a mermaid fence is a code block: the
- *     markdown stabiliser auto-closes an odd fence, so a half-written diagram
- *     LOOKS complete on every token and drawing it would flash a parse error.
+ *  3. **Still arriving.** CommonMark runs an unclosed fence to the end of its
+ *     container, so a half-written diagram LOOKS complete on every token, and
+ *     drawing it would flash a parse error. While the fence is open
+ *     (`isOpenFence`) `MermaidDiagram` holds the drawing's place with
+ *     `DrawingSkeleton`, not with the source: a code block turning into a
+ *     picture when its fence closed was the largest jump a streamed answer
+ *     made (ADR-0066).
  *
- * The drawing sits on a light surface in BOTH themes on purpose — it is a
- * preview of a document that is filed, converted to PDF and attached on white,
- * and the Files pane already previews PDFs the same way. The dark screenshot is
- * where that decision is visible; it is a decision, not a missing dark mode.
+ * The drawing paints no ground of its own: the card surface shows through in
+ * both themes (`components/mermaid-diagram.tsx`, „The drawing has no ground of
+ * its own"). Only the filed copy is drawn on paper, whatever the theme.
  *
  * Pinned to German (`I18nProvider initialLocale="de" fixedLocale`): the copy
  * under review is the German copy. 404s outside development.
@@ -72,7 +78,7 @@ export default function DiagramAnswerPreview() {
       >
         <Panel
           title="Gezeichnet, im Projekt ablegbar"
-          note="Der Ablauf als Diagramm, darunter die Zeile, die sagt, dass nichts gemessen ist — und die Aktion, die daraus zwei Dateien im Projekt macht: ein SVG, das in „Dateien“ vorschaubar ist und den Quelltext mitträgt, und ein PDF, das an eine Einreichung geht."
+          note="Der Ablauf, von Piloti selbst gezeichnet, darunter die Aktion, die daraus zwei Dateien im Projekt macht: ein SVG, das in „Dateien“ vorschaubar ist und den Quelltext mitträgt, und ein PDF, das an eine Einreichung geht. Erst die abgelegte Fassung trägt die Zeile „Schematisch — ohne Maßangabe.“"
         >
           <DiagramFilingProvider target={{ projectId: 'proj-preview', answerId: 'msg-preview' }}>
             <MarkdownRenderer content={FLOW} />
@@ -88,7 +94,7 @@ export default function DiagramAnswerPreview() {
 
         <Panel
           title="Noch im Fluss"
-          note="Während die Antwort streamt, ist ein Mermaid-Block ein Codeblock. Der Stabilisator schließt eine offene Zäune automatisch, ein halbes Diagramm sähe also fertig aus — und würde bei jedem Token einen Parse-Fehler zeigen."
+          note="Während die Antwort streamt, hält ein offener Mermaid-Block den Platz der Zeichnung frei, statt seinen Quelltext zu zeigen. Ein halbes Diagramm sähe fertig aus und würde bei jedem Token einen Parse-Fehler zeigen; gezeichnet wird erst, wenn der Block geschlossen ist."
         >
           <MarkdownRenderer content={STREAMING} isStreaming />
         </Panel>

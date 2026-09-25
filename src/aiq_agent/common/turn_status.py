@@ -362,9 +362,10 @@ KEY_ACTION_DRAFT_SUBMITTED = "status.action.draftSubmitted"
 KEY_ACTION_TASK_CREATED = "status.action.taskCreated"
 
 KEY_CITATIONS = "status.citations"
-#: The turn's one bounded repair: a citation or a quote failed verification,
-#: one more retrieval and one rewrite are being tried before the answer ships
-#: with its markers. Value-less; the counts travel as detail.
+#: The turn's one bounded repair (ADR-0067): a quotation no passage holds
+#: verbatim is being corrected to its passage's wording, in place, with no
+#: retrieval and no rewrite. Value-less; the one count, ``quotesFailed``,
+#: travels as detail (``emit_answer_repair``).
 KEY_REPAIR = "status.repair"
 KEY_ESCALATION = "status.escalation"
 #: The model stopped calling tools and is writing the answer. Without this the
@@ -1232,29 +1233,22 @@ def emit_citation_check(*, source_count: int | None = None) -> None:
     emit_status("citations", KEY_CITATIONS, source_count=source_count)
 
 
-def emit_answer_repair(*, citations_removed: int, quotes_failed: int) -> None:
-    """The answer's own verification failed and one repair is being tried.
+def emit_answer_repair(*, quotes: int) -> None:
+    """A quote no passage holds verbatim is being checked against its passage.
 
     Worth a line because it varies — most answers verify clean — and because
     it is the honest account of an answer that arrives a few seconds late:
-    a citation nothing retrieved supports, or a quote no passage contains,
-    is being re-searched and rewritten once rather than shipped marked.
+    a quotation the model misremembered is corrected to the passage's own
+    wording, in place, rather than shipped marked (ADR-0067).
 
-    The two counts ride this SAME step as technical detail rather than a
-    second, technical-channel step of their own: the frontend dedupes status
-    steps by name, so ``status:repair`` twice loses one of the two — on exactly
-    the turns that had a repair. The
-    live line renders from ``key``; ``citationsRemoved`` and ``quotesFailed``
-    are what the opt-in Herleitung detail shows, and they are counts rather
-    than text for the same reason every other record here is: a quote is the
-    model's words about the reader's document, and telemetry keeps neither.
+    The count rides this step as technical detail rather than a second,
+    technical-channel step of its own: the frontend dedupes status steps by
+    name. The live line renders from ``key``; ``quotesFailed`` is what the
+    opt-in Herleitung detail shows, a count rather than text for the same
+    reason every other record here is: a quote is the model's words about the
+    reader's document, and telemetry keeps neither.
     """
-    emit_status(
-        "repair",
-        KEY_REPAIR,
-        citationsRemoved=citations_removed,
-        quotesFailed=quotes_failed,
-    )
+    emit_status("repair", KEY_REPAIR, quotesFailed=quotes)
 
 
 def emit_escalation(reason: str | None = None) -> None:
@@ -1663,7 +1657,7 @@ CARD_INVALID_SLOT = "card:invalid"
 
 #: What became of the refused card. Stable tokens: they are counted, and the
 #: rate of ``repaired`` against ``dropped`` is the number that says whether the
-#: shapes the envelope teaches up front are the right eight.
+#: shapes the envelope teaches up front (``ENVELOPE_SHAPE_TYPES``) are the right ones.
 CARD_INVALID_REPAIRED = "repaired"
 CARD_INVALID_DROPPED = "dropped"
 

@@ -78,9 +78,7 @@ const MAX_RECONNECTS = 4
 
 /** What the SSE route sends. Anything else is ignored. */
 type LiveEvent =
-  | { kind: 'frame'; seq?: number; payload?: unknown }
-  | { kind: 'unsupported' }
-  | { kind: 'revoked' }
+  { kind: 'frame'; seq?: number; payload?: unknown } | { kind: 'unsupported' } | { kind: 'revoked' }
 
 export function useSpectatedTurn(options: UseSpectatedTurnOptions): UseSpectatedTurnResult {
   const { conversationId, enabled, onFrame } = options
@@ -188,8 +186,19 @@ export function useSpectatedTurn(options: UseSpectatedTurnOptions): UseSpectated
         setTurn((previous) => {
           const next = reduceSpectatedFrame(previous ?? EMPTY_SPECTATED_TURN, parsed.payload)
           // "Live" the moment there is something to show, not merely on connect:
-          // an empty bubble replacing the banner reads as a stall.
-          if (next.answer || next.steps.length > 0 || next.waitingOn) setLive(true)
+          // an empty bubble replacing the banner reads as a stall. A masthead or
+          // a drawable card before the first word counts: a direct reply opens
+          // with one. A card withheld from observers is a hole, not a card.
+          const hasCards = next.cards?.some((card) => card !== undefined) === true
+          if (
+            next.answer ||
+            next.answerMeta ||
+            hasCards ||
+            next.steps.length > 0 ||
+            next.waitingOn
+          ) {
+            setLive(true)
+          }
           return next
         })
       }

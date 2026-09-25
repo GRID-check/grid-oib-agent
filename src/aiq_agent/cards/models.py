@@ -32,6 +32,12 @@ from pydantic import TypeAdapter
 from pydantic import field_validator
 from pydantic import model_validator
 
+# The catalog imports this module only inside functions, so this is no cycle.
+from aiq_agent.cards.catalog import CHAT_ONLY_CARD_TYPES
+from aiq_agent.cards.catalog import ENVELOPE_CARD_TYPES
+from aiq_agent.cards.catalog import INTERACTIVE_CARD_TYPES
+from aiq_agent.cards.catalog import SYSTEM_CARD_TYPES
+
 # The three inline constructs that are UNAMBIGUOUSLY markup: a link or image
 # target, a doubled emphasis delimiter, and a code span. Each is meaningless as
 # literal text in an Austrian legal citation, and each is something an LLM writes
@@ -182,7 +188,7 @@ class LegalBasisCard(CardModel):
             "'Art. 5 Abs. 2'. It is set in the card's MARGIN, the way a statute prints its § beside the "
             "text, so it must be an identifier and not a sentence — 'Punkte 8 bis 10 der OIB-Richtlinie 2' "
             "names the Richtlinie a second time and does not fit a margin; write '8 bis 10' here and let "
-            "`summary` say what those Punkte require. Roughly 20 characters is the whole budget. Omit it "
+            "`summary` say what those Punkte require. Roughly 14 characters is the whole budget. Omit it "
             "when the passage carries no number."
         ),
     )
@@ -1895,23 +1901,26 @@ class ChangeImpactCard(CardModel):
 # `lib/diagrams/diagram-sources.ts`.
 
 
-DiagramGrammar = Literal["flowchart", "sequence", "state", "pie"]
-"""The four mermaid grammars verified end to end: drawn, filed AND printed.
+DiagramGrammar = Literal["flowchart", "sequence", "state", "pie", "gantt", "mindmap"]
+"""The mermaid grammars verified end to end: drawn, filed AND printed.
 
-Not "the four we like" — the four that survive the whole pipeline. A diagram in
+Not "the ones we like" — the ones that survive the whole pipeline. A diagram in
 this product is rendered in the browser, re-serialised through the SERVER's SVG
 allow-list before it is even shown, and then converted to PDF for an
 Einreichung; a grammar that fails at any of those three is a card that renders
-as a grey code block in an answer.
+as a grey code block in an answer. Each one here has a real browser capture in
+`frontends/ui/src/lib/diagrams/__fixtures__/` that the PDF test prints
+(`svg-to-pdf.spec.tsx`); `gantt` and `mindmap` joined on 2026-09-24, once the
+converter learned to place `dy`/`em` text offsets.
 
 `journey` is the instructive exclusion. Mermaid emits `<foreignObject>` for it
 whatever `htmlLabels` says, and `<foreignObject>` is arbitrary HTML inside a
 file that gets served back to browsers, so the SVG validator refuses it — in the
 browser, before the drawing is shown, which is why a journey degrades to its own
-source text rather than drawing and then failing to file. `gantt`, `erDiagram`,
-`classDiagram` and `mindmap` are simply unverified: nobody has put one through
-the PDF converter, and a diagram that previews and then prints blank is worse
-than one that never drew.
+source text rather than drawing and then failing to file. `block-beta` and
+`sankey-beta` fail the same way. `timeline`, `erDiagram` and `classDiagram` draw
+and print, and are left out on purpose: a timeline lays out sideways, wider than
+the answer column, and the other two model software, not buildings.
 """
 
 # The declaration keywords mermaid accepts, mapped to the grammar they select.
@@ -1926,6 +1935,8 @@ _DIAGRAM_DECLARATIONS: dict[str, str] = {
     "statediagram": "state",
     "statediagram-v2": "state",
     "pie": "pie",
+    "gantt": "gantt",
+    "mindmap": "mindmap",
 }
 
 #: `--- title: … ---` front matter, the one preamble mermaid allows above the
@@ -1940,17 +1951,15 @@ _MERMAID_DIRECTIVE = re.compile(r"%%\{.*?\}%%", re.DOTALL)
 
 #: Mermaid grammars this pipeline does NOT carry, kept by name so the refusal
 #: can say which one was written instead of "no diagram type". A model that
-#: reaches for `gantt` has understood the request and picked a grammar we cannot
-#: file; telling it that is a different instruction from telling it the source
+#: reaches for `timeline` or `erDiagram` has understood the request and picked a
+#: grammar we cannot file; telling it that is a different instruction from telling it the source
 #: has no header, and the two failures have different fixes.
 _UNSUPPORTED_DECLARATIONS = frozenset(
     {
         "journey",
-        "gantt",
         "erdiagram",
         "classdiagram",
         "classdiagram-v2",
-        "mindmap",
         "timeline",
         "gitgraph",
         "quadrantchart",
@@ -2049,9 +2058,10 @@ class DiagramCard(CardModel):
         description=(
             "Which mermaid grammar `source` is written in: 'flowchart' (a path that forks and "
             "rejoins, or a dependency), 'sequence' (parties exchanging things in order), 'state' (a "
-            "stage that can be returned to), 'pie' (a split the answer has already established). "
-            "These four are verified end to end; every other mermaid type either fails to draw or "
-            "fails to file, so an answer needing one writes prose instead"
+            "stage that can be returned to), 'pie' (a split the answer has already established), "
+            "'gantt' (phases on dates a project document states), 'mindmap' (the parts of one "
+            "Regelwerk around it). These six are verified end to end; every other mermaid type "
+            "either fails to draw or fails to file, so an answer needing one writes prose instead"
         )
     )
     source: str = Field(
@@ -2059,10 +2069,10 @@ class DiagramCard(CardModel):
         max_length=4000,
         description=(
             "The mermaid source, starting with its own declaration line ('flowchart TD', "
-            "'sequenceDiagram', 'stateDiagram-v2', 'pie') — a source that declares nothing draws "
+            "'sequenceDiagram', 'stateDiagram-v2', 'pie', 'gantt', 'mindmap') — a source that declares nothing draws "
             "nothing. Labels in the answer's language and in Sie-Form; no label may carry a claim "
             "the answer has not grounded, because the drawing leaves the page without the paragraph "
-            "that qualified it. Five to nine nodes: past that nobody reads the picture"
+            "that qualified it. Five to twelve nodes: past that nobody reads the picture"
         ),
     )
     caption: str | None = Field(
@@ -2088,7 +2098,7 @@ class DiagramCard(CardModel):
         """A markdown fence around the source is decoration, not information.
 
         Everything this product teaches the model about mermaid — the chat
-        prompt, the diagrams skill, the renderer's own fallback — says "mermaid
+        prompt and the renderer's own fallback — says "mermaid
         lives in a fenced block", so the single most natural way to fill this
         field in is to wrap the source in one. Refusing that wrapper cost three
         field turns in a row: the drawing inside was valid, the refusal named
@@ -2117,8 +2127,8 @@ class DiagramCard(CardModel):
         declaration is the most common way a model-written diagram fails: mermaid
         has no grammar to parse the rest with, so the whole block collapses to a
         grey code box in the middle of an answer, which reads as this product
-        being unable to draw. And a `journey` or a `gantt` smuggled in under a
-        declared 'flowchart' would pass every other check here and then be
+        being unable to draw. And a `journey` smuggled in under a declared
+        'flowchart' would pass every other check here and then be
         refused by the SVG validator in the reader's browser.
 
         Refused rather than repaired: `emit_card` hands the message back to the
@@ -2131,28 +2141,29 @@ class DiagramCard(CardModel):
             raise ValueError(
                 "`source` declares no diagram type: it is nothing but front matter, a directive or "
                 "comments. Its first real line must be the mermaid declaration itself — "
-                "'flowchart TD', 'sequenceDiagram', 'stateDiagram-v2' or 'pie'."
+                "'flowchart TD', 'sequenceDiagram', 'stateDiagram-v2', 'pie', 'gantt' or 'mindmap'."
             )
         keyword = statement.split()[0].lower().rstrip(":")
         if keyword in _UNSUPPORTED_DECLARATIONS:
             raise ValueError(
-                f"`source` is a '{keyword}' diagram, which this product cannot draw or file: only "
-                "flowchart, sequence, state and pie survive rendering, the SVG allow-list and the "
-                "PDF conversion. Rewrite it as one of those four, or write the answer as prose."
+                f"`source` is a '{keyword}' diagram, which this product does not draw or file: only "
+                "flowchart, sequence, state, pie, gantt and mindmap survive rendering, the SVG "
+                "allow-list and the PDF conversion at the answer's width. Rewrite it as one of "
+                "those, or write the answer as prose."
             )
         declared = _DIAGRAM_DECLARATIONS.get(keyword)
         if declared is None:
             raise ValueError(
                 f"`source` declares no diagram type: it opens with {statement[:60]!r}. The first "
                 "real line must be the declaration itself — 'flowchart TD', 'sequenceDiagram', "
-                "'stateDiagram-v2' or 'pie'. Without it mermaid has no grammar to read the rest "
+                "'stateDiagram-v2', 'pie', 'gantt' or 'mindmap'. Without it mermaid has no grammar to read the rest "
                 "with and nothing is drawn."
             )
         if declared != self.diagram_type:
             raise ValueError(
                 f"`diagram_type` is '{self.diagram_type}' but `source` declares '{declared}'. "
-                "Make them agree, and note that only flowchart, sequence, state and pie are "
-                "supported — any other mermaid type is refused before it reaches the reader."
+                "Make them agree, and note that only flowchart, sequence, state, pie, gantt and "
+                "mindmap are supported — any other mermaid type is refused before it reaches the reader."
             )
         return self
 
@@ -2707,6 +2718,267 @@ class IfcModelPickerCard(CardModel):
     note: str | None = Field(default=None, description="Optional one-line clarification under the tiles")
 
 
+# ── A composed surface (A2UI) ────────────────────────────────────────────────
+# ADR-0065. A card is drawn through A2UI; this is the one card whose payload
+# IS an A2UI component list, so an answer can put cards in relation.
+
+#: The layout components a surface may use, named and shaped as in A2UI's
+#: basic catalog (v0.9): Row and Column take `children`, Tabs takes `tabs`.
+SURFACE_LAYOUTS: frozenset[str] = frozenset({"Row", "Column", "Tabs"})
+
+#: Which props of each layout component hold child ids, in `a2ui-core`'s shape:
+#: (single-reference fields, list-reference fields). A tab's `child` is one
+#: level down, so `_tabs_as_references` lifts the tabs' children into
+#: `tabs[].child` for the check.
+_SURFACE_REF_FIELDS: dict[str, tuple[set[str], set[str]]] = {
+    "Row": (set(), {"children"}),
+    "Column": (set(), {"children"}),
+    "Tabs": (set(), {"tabs[].child"}),
+}
+
+#: Card types that may not be a leaf. System cards are pushed by tools, the
+#: envelope's own fields are not cards, and an interactive card's decision is
+#: keyed by its position in the message (`card-decision.ts`), which a card
+#: inside a surface does not have. A surface inside a surface is a Column.
+#: Derived from the catalog's sets, so a new member of any of them is excluded
+#: here without a second edit; the frontend's copy is held to this one by
+#: `tests/aiq_agent/cards/test_surface_excluded_parity.py`.
+SURFACE_EXCLUDED_LEAVES: frozenset[str] = (
+    SYSTEM_CARD_TYPES | ENVELOPE_CARD_TYPES | INTERACTIVE_CARD_TYPES | frozenset({"surface"})
+)
+
+#: The one leaf that is not a card: a run of the answer's own Markdown, named
+#: and shaped as A2UI's basic catalog names its `Text`. It is what lets a tab
+#: hold what the answer writes in prose (a table, a list, a ```mermaid fence),
+#: because the Markdown-first doctrine keeps exactly that content OUT of cards.
+SURFACE_TEXT = "Text"
+SURFACE_TEXT_MAX = 4000
+
+#: A placement marker of the prose (`[[card:N]]`, `[[callout]]`). The prose
+#: resolves them; a `Text` leaf is drawn as Markdown and would show them as typed.
+_PROSE_MARKER = re.compile(r"\[\[\s*[a-z_]+(?:\s*:\s*\d+)?\s*\]\]", re.IGNORECASE)
+
+SURFACE_MAX_LEAVES = 6
+SURFACE_MAX_CHILDREN = 4
+SURFACE_MAX_TABS = 6
+
+
+#: The values the frontend's `RowApi` takes for a Row's or Column's `justify`
+#: and `align` (`frontends/ui/src/features/a2ui/catalog.tsx`). Any other value
+#: fails the renderer's preflight and the whole surface degrades, so it is
+#: refused here, where the repair can still fix it.
+SURFACE_JUSTIFY = frozenset({"start", "center", "end", "spaceBetween", "spaceAround", "spaceEvenly", "stretch"})
+SURFACE_ALIGN = frozenset({"start", "center", "end", "stretch"})
+
+
+def _check_row(component: dict[str, Any]) -> dict[str, Any]:
+    """A `Row` or `Column`: static child ids, 2 to the cap, `justify`/`align` the renderer takes."""
+    name, component_id = component["component"], component["id"]
+    for prop, allowed in (("justify", SURFACE_JUSTIFY), ("align", SURFACE_ALIGN)):
+        if prop in component and (not isinstance(component[prop], str) or component[prop] not in allowed):
+            raise ValueError(f"'{component_id}' ({name}): `{prop}` is one of {sorted(allowed)}.")
+    children = component.get("children")
+    if not isinstance(children, list) or not all(isinstance(child, str) for child in children):
+        raise ValueError(f"'{component_id}' ({name}): `children` must be a list of component ids.")
+    if not 2 <= len(children) <= SURFACE_MAX_CHILDREN:
+        raise ValueError(
+            f"'{component_id}' ({name}): {len(children)} children; a {name} holds 2 to "
+            f"{SURFACE_MAX_CHILDREN}. One child is that child, and more do not fit a column."
+        )
+    extra = set(component) - {"id", "component", "children", "justify", "align"}
+    if extra:
+        raise ValueError(f"'{component_id}' ({name}) does not take {sorted(extra)}.")
+    return component
+
+
+def _checked_tab(component_id: str, tab: Any) -> dict[str, str]:
+    """One `{title, child}` entry, its title flattened BEFORE the emptiness check.
+
+    Flattened first because `[]()` or a code span of spaces is markup around
+    nothing: checked raw it passes, and the reader gets a blank tab.
+    """
+    if not isinstance(tab, dict) or set(tab) != {"title", "child"}:
+        raise ValueError(f"'{component_id}' (Tabs): every tab is exactly {{title, child}}.")
+    title = flatten_card_markup(tab["title"]).strip() if isinstance(tab["title"], str) else ""
+    if not title or not isinstance(tab["child"], str):
+        raise ValueError(f"'{component_id}' (Tabs): a tab's `title` is text and its `child` an id.")
+    return {"title": title, "child": tab["child"]}
+
+
+def _check_tabs(component: dict[str, Any]) -> dict[str, Any]:
+    """A `Tabs`: 2 to the cap, each `{title, child}`, returned with plain-text titles.
+
+    A tab title is on-screen text and gets the plain-text guarantee every other
+    card string gets (`flatten_card_markup`), which the model-level flattening
+    does not reach inside the component dicts.
+    """
+    component_id = component["id"]
+    tabs = component.get("tabs")
+    if not isinstance(tabs, list) or not 2 <= len(tabs) <= SURFACE_MAX_TABS:
+        raise ValueError(f"'{component_id}' (Tabs): `tabs` must list 2 to {SURFACE_MAX_TABS} tabs.")
+    checked = [_checked_tab(component_id, tab) for tab in tabs]
+    extra = set(component) - {"id", "component", "tabs"}
+    if extra:
+        raise ValueError(f"'{component_id}' (Tabs) does not take {sorted(extra)}.")
+    return {**component, "tabs": checked}
+
+
+def _check_layout(component: dict[str, Any]) -> dict[str, Any]:
+    """A layout component's own props, returned normalised (see :func:`_check_tabs`)."""
+    if component["component"] == "Tabs":
+        return _check_tabs(component)
+    return _check_row(component)
+
+
+def _checked_text(component: dict[str, Any]) -> dict[str, Any]:
+    """A `Text` leaf: exactly `{id, component, text}`, the text non-empty Markdown."""
+    component_id = component["id"]
+    extra = set(component) - {"id", "component", "text"}
+    if extra:
+        raise ValueError(f"'{component_id}' (Text) takes only `text`, not {sorted(extra)}.")
+    text = component.get("text")
+    if not isinstance(text, str) or not text.strip():
+        raise ValueError(f"'{component_id}' (Text): `text` is the Markdown to show, and it is empty.")
+    if len(text) > SURFACE_TEXT_MAX:
+        raise ValueError(
+            f"'{component_id}' (Text): {len(text)} characters; a tab holds at most {SURFACE_TEXT_MAX}. "
+            "Say the rest in the answer."
+        )
+    if marker := _PROSE_MARKER.search(text):
+        raise ValueError(
+            f"'{component_id}' (Text): `{marker.group(0)}` is a marker of the answer's prose and is shown "
+            "literally here. Reference cards from the prose, not inside a tab."
+        )
+    return {"id": component_id, "component": SURFACE_TEXT, "text": text.strip()}
+
+
+def _checked_leaf(component: dict[str, Any]) -> dict[str, Any]:
+    """A card component, validated as the card it is; returned normalised, id and name kept."""
+    name, component_id = component["component"], component["id"]
+    if name == SURFACE_TEXT:
+        return _checked_text(component)
+    if name in SURFACE_EXCLUDED_LEAVES:
+        raise ValueError(f"'{component_id}': a '{name}' cannot sit inside a surface.")
+    props = {key: value for key, value in component.items() if key not in ("id", "component")}
+    try:
+        card = grid_card_adapter.validate_python({**props, "type": name})
+    except Exception as exc:  # the adapter's own clauses, prefixed with where they happened
+        from aiq_agent.common.tool_errors import render_error_detail
+
+        raise ValueError(f"'{component_id}' ({name}): {render_error_detail(exc)}") from exc
+    normalised = card.model_dump(exclude_none=True)
+    normalised.pop("type")
+    return {"id": component_id, "component": name, **normalised}
+
+
+def _tabs_as_references(component: dict[str, Any]) -> dict[str, Any]:
+    """Tabs' child ids where `a2ui-core` looks for a list of references (`tabs[].child`)."""
+    if component.get("component") != "Tabs":
+        return component
+    return {**component, "tabs[].child": [tab["child"] for tab in component["tabs"]]}
+
+
+def _references(component: dict[str, Any]) -> list[str]:
+    """The ids a layout component holds, children and tab children alike; [] for a leaf."""
+    if component["component"] not in SURFACE_LAYOUTS:
+        return []
+    return list(component.get("children") or []) + [tab["child"] for tab in component.get("tabs") or []]
+
+
+def _check_single_parent(components: list[dict[str, Any]]) -> None:
+    """Every component is referenced at most once: the surface is a tree.
+
+    `a2ui-core` accepts a child listed twice, or held by two parents (two tabs
+    on one leaf, a leaf in a tab and in a Row), and the renderer would then
+    draw the one component in two places.
+    """
+    seen: set[str] = set()
+    for child in (child for component in components for child in _references(component)):
+        if child in seen:
+            raise ValueError(
+                f"'{child}' is referenced more than once; a surface is a tree, and each component "
+                "sits in one place. Give the second place a component of its own."
+            )
+        seen.add(child)
+
+
+class SurfaceCard(CardModel):
+    """Several cards composed into one A2UI surface: variants as tabs, related cards side by side.
+
+    `components` is an A2UI v0.9 component list (a2ui.org): flat, each entry
+    `{"id", "component", …props}`, children referenced by id, exactly one
+    `"id": "root"`. Containers are `Row` and `Column` (`children`: ids) and
+    `Tabs` (`tabs`: `[{title, child}]`); `Text` (`text`: Markdown) holds what
+    the answer would write in prose, a table or a list; every other component
+    is a card, named by its type, with that card's own fields as props. Validated twice: the
+    structure by `a2ui-core` (unique ids, a root, no dangling reference, no
+    cycle, no orphan), each card by its own model.
+    """
+
+    type: Literal["surface"]
+    title: str | None = Field(
+        default=None,
+        description="Optional heading over the whole surface, e.g. 'Zwei Varianten des zweiten Fluchtwegs'",
+    )
+    components: list[dict[str, Any]] = Field(
+        min_length=3,
+        description=(
+            "The A2UI component list: one container with id 'root' (Row, Column or Tabs) and what "
+            'it holds: cards, each `{"id", "component": <card type>, …that card\'s fields}`, and '
+            '`{"id", "component": "Text", "text": <Markdown>}` for a table, a list or prose.'
+        ),
+    )
+
+    @model_validator(mode="after")
+    def _is_a_valid_a2ui_surface(self) -> "SurfaceCard":
+        from a2ui.core.validating.integrity_checker import validate_component_integrity
+        from a2ui.core.validating.topology_analyzer import analyze_topology
+
+        for index, component in enumerate(self.components):
+            if not isinstance(component.get("id"), str) or not isinstance(component.get("component"), str):
+                raise ValueError(f"components.{index} needs a string `id` and a string `component`.")
+        # Before the root lookup: a second component called "root" would
+        # otherwise stand in for the first, and the refusal would name the
+        # wrong fault.
+        ids = [component["id"] for component in self.components]
+        if duplicates := sorted({component_id for component_id in ids if ids.count(component_id) > 1}):
+            raise ValueError(
+                f"Duplicate component ID: {', '.join(duplicates)}. Ids are unique within a surface; "
+                "give each component its own."
+            )
+        by_id = {component["id"]: component for component in self.components}
+        root = by_id.get("root")
+        if root is None or root["component"] not in SURFACE_LAYOUTS:
+            raise ValueError(
+                "The component with id 'root' must be a Row, Column or Tabs; a surface of one card "
+                "is that card, emitted on its own."
+            )
+
+        checked: list[dict[str, Any]] = []
+        for component in self.components:
+            if component["component"] in SURFACE_LAYOUTS:
+                checked.append(_check_layout(component))
+            else:
+                checked.append(_checked_leaf(component))
+        # `a2ui-core` reads references by field name; a tab's child sits one
+        # level down, so it is lifted into a list field for the check. The
+        # structure is judged first: a cycle is a cycle, whatever the count.
+        structural = [_tabs_as_references(component) for component in checked]
+        try:
+            validate_component_integrity(structural, _SURFACE_REF_FIELDS)
+            analyze_topology(structural, _SURFACE_REF_FIELDS)
+        except Exception as exc:
+            raise ValueError(f"The component list is not a valid A2UI surface: {exc}") from exc
+        _check_single_parent(checked)
+        leaves = sum(1 for component in checked if component["component"] not in SURFACE_LAYOUTS)
+        if not 2 <= leaves <= SURFACE_MAX_LEAVES:
+            raise ValueError(
+                f"A surface holds 2 to {SURFACE_MAX_LEAVES} cards or Text blocks; this one holds {leaves}."
+            )
+        self.components = checked
+        return self
+
+
 GridCard = (
     SummaryCard
     | LegalBasisCard
@@ -2752,6 +3024,7 @@ GridCard = (
     | IfcElementCard
     | IfcDiffCard
     | IfcModelPickerCard
+    | SurfaceCard
 )
 
 # Discriminated-union adapter — the canonical validator for a raw card dict.
@@ -2831,19 +3104,17 @@ def validate_cards(raw: list[dict]) -> list[dict]:
     reason: no surface asks a model for them any more — they are answer_meta
     fields on the chat contract, and nothing at all on this one — so an
     occurrence here is a model reaching for a shape its catalog no longer
-    offers.
+    offers. Chat-only types (``CHAT_ONLY_CARD_TYPES``) likewise: a surface's
+    ``Text`` ``[N]`` are recited on the chat pipeline only.
     """
     import logging
 
-    from aiq_agent.cards.catalog import ENVELOPE_CARD_TYPES
-    from aiq_agent.cards.catalog import SYSTEM_CARD_TYPES
-
     logger = logging.getLogger(__name__)
     validated: list[dict] = []
-    withheld = SYSTEM_CARD_TYPES | ENVELOPE_CARD_TYPES
+    withheld = SYSTEM_CARD_TYPES | ENVELOPE_CARD_TYPES | CHAT_ONLY_CARD_TYPES
     for item in raw:
         if isinstance(item, dict) and item.get("type") in withheld:
-            logger.warning("Dropping model-fabricated system/envelope card (type=%s)", item.get("type"))
+            logger.warning("Dropping model-fabricated system/envelope/chat-only card (type=%s)", item.get("type"))
             continue
         try:
             validated.append(grid_card_adapter.validate_python(item).model_dump(exclude_none=True))

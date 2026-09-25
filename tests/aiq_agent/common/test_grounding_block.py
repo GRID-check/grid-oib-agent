@@ -53,7 +53,6 @@ def _hit(**overrides) -> GroundingHit:
         "provenance": None,
         "stored_image_index": None,
         "status_note": None,
-        "source_url": None,
         "body": "Passage.",
     }
     return GroundingHit(**{**fields, **overrides})
@@ -173,7 +172,6 @@ RIS_HITS = [
         punkt="§ 63 Abs 1",
         score=1.0,
         status_note="Konsolidierte Fassung ohne Gewaehr.",
-        source_url="https://ris.bka.gv.at/eli/lgbl/W/1930/11/P63",
         body="Der Bauwerber hat ...",
     ),
     _hit(
@@ -184,7 +182,6 @@ RIS_HITS = [
         doc_class="gesetz",
         display_title="OIB-Gesetz",
         score=0.9,
-        source_url="https://ris.bka.gv.at/eli/bgbl/2020/1",
         body="Ein Absatz ohne Punkt und ohne Hinweis.",
     ),
 ]

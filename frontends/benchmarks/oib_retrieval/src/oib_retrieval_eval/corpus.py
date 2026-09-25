@@ -21,8 +21,11 @@ CACHING
 -------
 pdfplumber takes ~7 s per Richtlinie and the corpus is 39 files, so extracted pages are
 cached as JSON under ``.cache/pages/`` next to this package (gitignored). The cache key is
-the PDF's path, size and mtime — a re-extraction is one deleted directory away, and a
-changed PDF invalidates itself rather than silently scoring the old text.
+the PDF's path, size and mtime plus ``PAGE_SHAPE_VERSION`` — a re-extraction is one deleted
+directory away, a changed PDF invalidates itself rather than silently scoring the old text,
+and so does a change to what the extractor returns per page. Captioned tables come back as
+``PageTable`` dataclasses; they are stored as dicts and rebuilt on read, and a cache file is
+written to a temporary name and renamed, so a failed write never leaves a truncated entry.
 """
 
 from __future__ import annotations
@@ -30,6 +33,8 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import os
+from dataclasses import asdict
 from dataclasses import dataclass
 from dataclasses import field
 from pathlib import Path
@@ -46,6 +51,11 @@ CHUNK_OVERLAP = 128
 ARM_PAGE = "page"
 ARM_PUNKT = "punkt"
 ARMS = (ARM_PAGE, ARM_PUNKT)
+
+#: What one cached page looks like. Bump it whenever ``_extract_text_from_pdf`` changes
+#: the keys or the text it returns, so every entry written by the old extractor misses.
+#: 2: captioned tables cut out of ``text`` into ``tables`` / ``table_boxes``.
+PAGE_SHAPE_VERSION = 2
 
 
 @dataclass(frozen=True)
@@ -119,28 +129,56 @@ def _cache_key(pdf_path: Path) -> str:
         identity = f"{pdf_path.name}:{stat.st_size}:{int(stat.st_mtime)}"
     except OSError:
         identity = f"{pdf_path.name}:absent"
+    identity = f"v{PAGE_SHAPE_VERSION}:{identity}"
     digest = hashlib.sha256(identity.encode()).hexdigest()[:16]
     return f"{pdf_path.stem}.{digest}.json"
 
 
 def extract_pages(pdf_path: Path, cache_dir: Path | None = None) -> list[dict[str, Any]]:
-    """``[{"page_number": int, "text": str}, …]`` for one PDF, cached on disk.
+    """The production extractor's pages for one PDF, cached on disk.
 
-    Delegates to the production extractor; see the module docstring for why that matters.
+    Each page is ``{"page_number", "text", "tables", "table_boxes"}``, ``tables`` holding
+    ``PageTable`` objects exactly as ``_extract_text_from_pdf`` returns them, whether the
+    pages came from the PDF or from the cache. See the module docstring for why this
+    delegates rather than reimplements.
     """
     cache_dir = default_cache_dir() if cache_dir is None else cache_dir
     cache_path = cache_dir / _cache_key(pdf_path)
     if cache_path.exists():
         with open(cache_path, encoding="utf-8") as handle:
-            return json.load(handle)
+            return _pages_from_json(json.load(handle))
 
     from knowledge_layer.llamaindex.adapter import _extract_text_from_pdf
 
     pages = _extract_text_from_pdf(str(pdf_path))
     cache_dir.mkdir(parents=True, exist_ok=True)
-    with open(cache_path, "w", encoding="utf-8") as handle:
-        json.dump(pages, handle, ensure_ascii=False)
+    partial = cache_path.with_name(f"{cache_path.name}.{os.getpid()}.tmp")
+    try:
+        with open(partial, "w", encoding="utf-8") as handle:
+            json.dump(_pages_to_json(pages), handle, ensure_ascii=False)
+        os.replace(partial, cache_path)
+    finally:
+        partial.unlink(missing_ok=True)
     return pages
+
+
+def _pages_to_json(pages: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Pages with their ``PageTable`` objects turned into plain dicts."""
+    return [{**page, "tables": [asdict(table) for table in page.get("tables") or []]} for page in pages]
+
+
+def _pages_from_json(pages: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Cached pages with their tables rebuilt as ``PageTable``, the type the chunkers read."""
+    from knowledge_layer.llamaindex.captioned_tables import PageTable
+
+    return [
+        {
+            **page,
+            "tables": [PageTable(**table) for table in page.get("tables") or []],
+            "table_boxes": [tuple(box) for box in page.get("table_boxes") or []],
+        }
+        for page in pages
+    ]
 
 
 def _splitter():
@@ -151,12 +189,17 @@ def _splitter():
 
 
 def page_documents(pages: list[dict[str, Any]], file_name: str, file_size: int) -> list[Any]:
-    """The OLD arm's documents: one per extracted page, exactly as ``adapter.py`` built them."""
+    """The OLD arm's documents: one per extracted page, as ``adapter.py`` builds them.
+
+    The page's captioned tables are put back as Markdown, as production's per-page path
+    does (``adapter.text_documents_for_pages``): ``text`` alone no longer holds them.
+    """
+    from knowledge_layer.llamaindex.captioned_tables import page_text_with_tables
     from llama_index.core import Document
 
     return [
         Document(
-            text=page["text"],
+            text=page_text_with_tables(page["text"], page.get("tables") or []),
             metadata={
                 "file_name": file_name,
                 "file_size": file_size,

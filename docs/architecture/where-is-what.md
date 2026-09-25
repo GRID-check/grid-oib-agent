@@ -107,6 +107,7 @@ does not exist, so a moved file is caught; a missing row is not.
 | Inbox wire shapes and presentation | `frontends/ui/src/lib/inbox/types.ts` | [`docs/api/collaboration-routes.md`](../api/collaboration-routes.md) | ADR-0035 |
 | Mentions and handoff | `frontends/ui/src/lib/mentions`, `frontends/ui/src/lib/db/schema/mention-requests.ts` | [`docs/api/collaboration-routes.md`](../api/collaboration-routes.md) | ADR-0034 |
 | Live presence in a shared turn | `frontends/ui/src/lib/conversations/presence.ts` | [`collaboration-lifecycle.md`](collaboration-lifecycle.md) | ADR-0039 (live shared turns) |
+| What an observer sees mid-turn | `frontends/ui/src/features/collaboration/lib/spectator-frames.ts` — `reduceSpectatedFrame` (the fold); `frontends/ui/src/features/collaboration/components/SpectatedTurn.tsx` (the render); the bus is `frontends/ui/src/lib/events/conversation-frames.ts` | [`docs/api/collaboration-routes.md`](../api/collaboration-routes.md) | ADR-0039 (live shared turns), ADR-0066 |
 
 ## Authorization, audit, the internal seam
 
@@ -175,6 +176,10 @@ does not exist, so a moved file is caught; a missing row is not.
 | Card models | `src/aiq_agent/cards/models.py` | [`docs/design/grid-card-charter.md`](../design/grid-card-charter.md) | ADR-0012 |
 | Per-session card registry | `src/aiq_agent/cards/registry.py` — `get_or_create_card_registry` | [`cards.md`](cards.md) | ADR-0012, ADR-0030 |
 | Generated card schemas | `shared/cards/schemas.json` and `frontends/ui/src/shared/cards/generated.ts`, from `scripts/generate_card_schema.py` | [`cards.md`](cards.md) | ADR-0012 |
+| A2UI renderer and catalog | `frontends/ui/src/features/a2ui/A2uiCard.tsx`, `frontends/ui/src/features/a2ui/catalog.tsx`, `frontends/ui/src/features/a2ui/surface-messages.ts`; gallery at `frontends/ui/src/app/dev/a2ui/page.tsx` (`/dev/a2ui`) | [`cards.md`](cards.md) | ADR-0065 |
+| Composed surface and its citations | `src/aiq_agent/cards/models.py` — `SurfaceCard`, `SURFACE_EXCLUDED_LEAVES`; `src/aiq_agent/cards/surface_citations.py` — `recite_text` | [`cards.md`](cards.md) | ADR-0065 |
+| Diagram model and views (an answer's mermaid read as a model, drawn by our own views) | `frontends/ui/src/features/diagrams/model.ts`, `frontends/ui/src/features/diagrams/parse-mermaid.ts`, `frontends/ui/src/features/diagrams/use-diagram-model.ts`, `frontends/ui/src/features/diagrams/views` | [`diagrams.md`](diagrams.md) | — |
+| Markdown table shaping and status marks | `frontends/ui/src/shared/components/MarkdownRenderer/table-shape.ts` — `rehypeTableShape`; `frontends/ui/src/shared/components/MarkdownRenderer/status-marks.ts` — `statusTone` | [`docs/design/answer-visuals.md`](../design/answer-visuals.md) | — |
 | Platform skills, source | `src/aiq_agent/skills/builtin` | [`agent-skills.md`](agent-skills.md) | ADR-0046 |
 | Platform skills, generated | `frontends/ui/src/lib/skills/platform-skills.ts`, from `frontends/ui/scripts/sync-platform-skills.mjs` | [`agent-skills.md`](agent-skills.md) | ADR-0046 |
 | Skill resolution and firing | `src/aiq_agent/skills/resolver.py`; routes under `frontends/ui/src/app/api/internal/skills` | [`agent-skills.md`](agent-skills.md) | ADR-0046 |
@@ -191,17 +196,22 @@ does not exist, so a moved file is caught; a missing row is not.
 | Forced synthesis at the ceiling | `src/aiq_agent/agents/piloti/agent.py` — `_forced_synthesis`, `_SYNTHESIS_ANCHOR` | same | ADR-0052 |
 | Which limit on a turn is a ratchet, a budget or a hobble | `src/aiq_agent/agents/piloti/agent.py`, `configs/config_oib_openrouter.yml` — the register indexes them one by one and says what closed each | [Hobble register (2026-09)](hobble-register-2026-09.md) | ADR-0060 |
 | The office's standing instructions for every turn | `frontends/ui/src/lib/org-instructions/service.ts` — `saveOrgInstructions`; read back in `src/aiq_agent/project_context.py` — `normalize_org_instructions` | [`agent-skills.md`](agent-skills.md) | ADR-0060 |
+| Publishing the platform prompt to Langfuse, and pulling an edit back into review | `scripts/prompts_push.py`, `scripts/prompts_pull.py` (`task prompts:push`, `task prompts:pull`); served by `src/aiq_agent/common/prompt_store.py` | [`docs/adr/0060-three-instruction-layers-and-tools-that-answer.md`](../adr/0060-three-instruction-layers-and-tools-that-answer.md) | ADR-0060 |
 | The envelope-enforced LLM call | `src/aiq_agent/agents/piloti/envelope_call.py` — `ainvoke_with_envelope_json_mode` | same | ADR-0052 |
 | Answer envelope, Python | `src/aiq_agent/common/answer_envelope.py` — `extract_answer_envelope`, `gate_answer_meta` | [`docs/api/websocket-protocol.md`](../api/websocket-protocol.md) | ADR-0037 |
 | Answer envelope, TypeScript sanitizer | `frontends/ui/src/lib/conversations/message-answer-meta.ts` — `sanitizeAnswerMeta` | same | ADR-0037 |
 | Answer envelope, shared wire fixture | `tests/fixtures/answer_meta/wire_payload.json` | same | ADR-0037 |
-| Answer repair after verification | `src/aiq_agent/agents/piloti/repair.py` — `repair_answer` | [`citation-system-audit-2026-07.md`](citation-system-audit-2026-07.md) | ADR-0058 (retrieval correctness) |
+| Answer repair after verification | `src/aiq_agent/agents/piloti/quote_patch.py` — `patch_quotes` | [`repair-pass-alternatives-2026-09.md`](repair-pass-alternatives-2026-09.md) | ADR-0067 |
 | Confidence markers and the overconfidence guard | `src/aiq_agent/agents/piloti/markers.py` | [`quote-verification-calibration-2026-07.md`](quote-verification-calibration-2026-07.md) | ADR-0058 (retrieval correctness) |
 | Turn status steps | `src/aiq_agent/common/turn_status.py` — `emit_status` | [`docs/api/websocket-protocol.md`](../api/websocket-protocol.md) | ADR-0009 |
 | What one round of retrieval calls RAN, repeated or failed | `src/aiq_agent/common/retrieval_rounds.py` — `repeat_fetches`, `ran_signatures`, `assistant_checkpoint`; Piloti's own guards in `src/aiq_agent/agents/piloti/agent.py` — `_split_round` | [`backend-deep-dive.md`](backend-deep-dive.md) | ADR-0052 |
 | The retrieval ledger: announced rounds joined with the hits they returned | `src/aiq_agent/common/retrieval_ledger.py` — `build_retrieval_ledger`; wire fixture `tests/fixtures/herleitung/retrieval_ledger_wire.json` | [`docs/design/streaming-chat-answer.md`](../design/streaming-chat-answer.md) | ADR-0026 |
 | Trace lanes in the UI | `frontends/ui/src/features/chat/lib/trace-lanes.ts` — `deriveTraceLanes` | [`docs/design/streaming-chat-answer.md`](../design/streaming-chat-answer.md) | ADR-0026 |
 | Turn dispatch and streaming | `src/aiq_agent/turn/dispatch.py`, `src/aiq_agent/turn/streaming.py` | [`docs/technical-reference/chat-flow.md`](../technical-reference/chat-flow.md) | ADR-0009 |
+| Live answer streaming: the prose, masthead, cards and settled snapshot while the final call writes | `src/aiq_agent/turn/answer_stream.py` — `streaming_call`, `AnswerStreamSink`; `src/aiq_agent/common/answer_prose_stream.py` — `AnswerProseStream`; `src/aiq_agent/agents/piloti/answer_pipeline.py` — `LiveAnswer`, `settle_streamed_citations`; `src/aiq_agent/agents/piloti/conversation_register.py` — `_live_item_chunk`, `note_settled_replaced` | [`docs/design/streaming-chat-answer.md`](../design/streaming-chat-answer.md) | ADR-0066 |
+| Where the streamed answer lands in the UI | `frontends/ui/src/features/chat/stores/messages-store.ts` — `replaceStreamingAgentResponse`; `frontends/ui/src/features/chat/components/CardSlotArrival.tsx`; replayed in `frontends/ui/src/app/dev/stream-replay/page.tsx` (`/dev/stream-replay`) | same | ADR-0066 |
+| Redundant answer blocks (a mindmap that repeats a table) | `src/aiq_agent/agents/piloti/answer_shape.py` — `drop_restated_mindmaps` | [`docs/design/answer-visuals.md`](../design/answer-visuals.md) | — |
+| The round-0 prefetch (the turn decision's searches, run before the first model call) | `src/aiq_agent/agents/piloti/decisions.py` — `prefetch_calls`; `src/aiq_agent/agents/piloti/agent.py` — `_prefetch_node`. It is judged and requeried like any search: the switch that skipped that (`requery_on_prefetch`, with its `prefetch_scope` marker) measured 3.4 s slower and was removed | [`turn-latency-measured-2026-09.md`](turn-latency-measured-2026-09.md) §3.5 | ADR-0064 |
 | Deep researcher runtime | `src/aiq_agent/agents/deep_researcher/deepagents_runtime.py` — `DeepAgentsRuntime` | [`backend-deep-dive.md`](backend-deep-dive.md) | ADR-0018 |
 | Deep researcher graph assembly | `src/aiq_agent/agents/deep_researcher/factory.py` — `build_deep_research_graph` | same | ADR-0018 |
 | Deep researcher cutoffs | `src/aiq_agent/agents/deep_researcher/cutoff.py` | same | ADR-0018 |
@@ -211,7 +221,9 @@ does not exist, so a moved file is caught; a missing row is not.
 | Concept | Owning code | Doc of record | Decision |
 |---|---|---|---|
 | Knowledge retrieval tool | `sources/knowledge_layer/src/register.py` — `knowledge_retrieval` | [`rag-system-audit-2026-08.md`](rag-system-audit-2026-08.md) | ADR-0039 (retrieval quality) |
+| The question's embedding, warmed beside the turn decision | `src/aiq_agent/agents/piloti/register.py` — `_warm_question`; `src/aiq_agent/knowledge/factory.py` — `warm_search_query`, `set_search_retriever`; the in-flight dedupe in `sources/knowledge_layer/src/llamaindex/adapter.py` — `_embed_query_cached` | [`turn-latency-measured-2026-09.md`](turn-latency-measured-2026-09.md) | ADR-0064 |
 | Ingestion and chunking backends | `sources/knowledge_layer/src/llamaindex/adapter.py` | [`docs/technical-reference/document-ingestion.md`](../technical-reference/document-ingestion.md) | ADR-0056 |
+| Captioned OIB tables indexed as tables (`Tabelle N` chunks) | `sources/knowledge_layer/src/llamaindex/captioned_tables.py` — `extract_page_tables`, `markdown_chunks` | [`turns-per-answer-audit-2026-09.md`](turns-per-answer-audit-2026-09.md) | — |
 | Visual ingestion | `sources/knowledge_layer/src/llamaindex/visual_analysis.py` | [`visual-ingestion.md`](visual-ingestion.md) | — |
 | Data-source registry (the UI toggles) | `src/aiq_agent/common/data_source_registry.py` | [`docs/user-guides/knowledge-search.md`](../user-guides/knowledge-search.md) | ADR-0026 |
 | Source kinds, Python | `src/aiq_agent/common/source_kinds.py` — `SOURCE_KINDS`, `kind_for_lane` | [`rag-system-audit-2026-08.md`](rag-system-audit-2026-08.md) | ADR-0026 |
@@ -246,6 +258,7 @@ does not exist, so a moved file is caught; a missing row is not.
 | Concept | Owning code | Doc of record | Decision |
 |---|---|---|---|
 | Release notes | `releasenotes/notes`, started by `task release:note -- <slug>` | [`docs/contributing/release-notes.md`](../contributing/release-notes.md) | — |
+| Turn census, answer suite and startup probe | `scripts/turn_census/census.py`, `scripts/turn_census/suite.py`, `scripts/turn_census/startup_probe.py` (`task be:eval:turn-census`, `task be:eval:answer-suite`) | [`docs/contributing/testing-and-verification.md`](../contributing/testing-and-verification.md) | — |
 | ADR directory and its index | `scripts/check_adrs.py` | [`docs/adr/README.md`](../adr/README.md) | ADR-0001 |
 | Agent guides and their bridges | `scripts/check_agent_docs.py` | [`docs/contributing/agent-onboarding-files.md`](../contributing/agent-onboarding-files.md) | ADR-0050 |
 | Paths in this file | `scripts/check_doc_paths.py` | this file | — |

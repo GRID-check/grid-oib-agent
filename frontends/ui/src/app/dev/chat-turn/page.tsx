@@ -194,8 +194,10 @@ const commonThinking = {
  */
 function LiveTurn() {
   return (
-    <div className="flex flex-col gap-5 rounded-2xl border bg-background p-5">
-      <div className="font-mono text-xs text-muted-foreground">↓ LIVE — thinking, Herleitung expanded, answer absent</div>
+    <div className="bg-background flex flex-col gap-5 rounded-2xl border p-5">
+      <div className="text-muted-foreground font-mono text-xs">
+        ↓ LIVE — thinking, Herleitung expanded, answer absent
+      </div>
       <UserMessage content={question} timestamp={new Date('2024-01-15T14:30:00')} />
       <div className="w-[680px] max-w-full">
         <ChatThinking
@@ -217,8 +219,10 @@ function LiveTurn() {
  */
 function CompletedTurn() {
   return (
-    <div className="flex flex-col gap-5 rounded-2xl border bg-background p-5">
-      <div className="font-mono text-xs text-muted-foreground">↓ COMPLETED — Herleitung collapsed, answer dominant</div>
+    <div className="bg-background flex flex-col gap-5 rounded-2xl border p-5">
+      <div className="text-muted-foreground font-mono text-xs">
+        ↓ COMPLETED — Herleitung collapsed, answer dominant
+      </div>
       <UserMessage content={question} timestamp={new Date('2024-01-15T14:30:00')} />
       <div className="w-[680px] max-w-full">
         <ChatThinking
@@ -286,10 +290,26 @@ const AnswerTurn: FC<{
    * also turns on the .docx export action, which is the production footer.
    */
   conversationId?: string
+  /** The final call is still writing (ADR-0066): the prose so far, no markers, no cards. */
+  isStreaming?: boolean
   children?: ReactNode
-}> = ({ label, question, answer, cards, citations, confidenceReason, messageId, rail, stages, answerMeta, conversationId, children }) => (
-  <div className="flex flex-col gap-5 rounded-2xl border bg-background p-5">
-    <div className="font-mono text-xs text-muted-foreground">{label}</div>
+}> = ({
+  label,
+  question,
+  answer,
+  cards,
+  citations,
+  confidenceReason,
+  messageId,
+  rail,
+  stages,
+  answerMeta,
+  conversationId,
+  isStreaming,
+  children,
+}) => (
+  <div className="bg-background flex flex-col gap-5 rounded-2xl border p-5">
+    <div className="text-muted-foreground font-mono text-xs">{label}</div>
     {children}
     <UserMessage content={question} timestamp={new Date('2024-01-15T14:30:00')} />
     <div className="w-[680px] max-w-full">
@@ -318,6 +338,7 @@ const AnswerTurn: FC<{
         messageId={messageId}
         stages={stages}
         answerMeta={answerMeta}
+        isStreaming={isStreaming}
       />
       {rail && (
         <div className="w-[680px] max-w-full">
@@ -394,6 +415,53 @@ const FIRE_SOURCES = `## Quellen
 - [1] [KB] OIB-RL_2_Brandschutz.pdf, Tabelle 1b
 - [2] [RIS] Bauordnung für Wien §§ 60 ff. — https://www.ris.bka.gv.at/`
 
+/* --- variant: structured ------------------------------------------------- */
+
+// A Markdown-first answer: the shape the static prompt's STRUCTURE block
+// teaches — the first line answers with the value in bold, ### headings that
+// state, a table per set of cases with a Fundstelle column, a Status column in
+// the fixed vocabulary (rendered as chips), a drawing where the Verfahren forks, and a task list.
+// Everything here used to be a typed_table, requirement_checklist and
+// deadline_timeline card. The values show the form, not the Richtlinie: read
+// Tabelle 1b before quoting any of them.
+const structuredQuestion =
+  'Welche Feuerwiderstandsklasse brauchen tragende Bauteile in Gebäudeklasse 5, und erfüllt unser Konzept das?'
+
+const structuredAnswer = `Tragende Bauteile in Gebäudeklasse 5 brauchen **R 90** oberirdisch und **R 90 aus A2** in den unterirdischen Geschoßen [1].
+
+### Oberirdisch und im Keller gilt nicht dasselbe
+
+| Bauteil | Anforderung | Fundstelle |
+|---|---|---|
+| Tragende Bauteile, oberirdisch | **R 90** | [1] |
+| Tragende Bauteile, unterirdisch | **R 90 und A2** | [1] |
+| Trennwände zwischen Nutzungseinheiten | **REI 90** | [1] |
+| Decken über dem obersten Geschoß | **R 30** | [1] |
+
+### Das Brandschutzkonzept deckt drei von vier Punkten
+
+| Kriterium | Konzept | Status | Fundstelle |
+|---|---|---|---|
+| Stützen und Wände oberirdisch | R 90 | erfüllt | [1] |
+| Kellerdecke | R 90, Baustoff nicht angegeben | teilweise | [1] |
+| Wohnungstrennwände | REI 60 | nicht erfüllt | [1] |
+| Dachdecke | nicht beschrieben | offen | [1] |
+
+### Eine Abweichung entscheidet die Behörde
+
+\`\`\`mermaid
+flowchart TD
+  K["Abweichung im Brandschutzkonzept begründen"] --> E["Mit dem Bauansuchen einreichen"]
+  E --> B{"Gleichwertiges Schutzniveau?"}
+  B -->|ja| J["Bewilligt mit der Baubewilligung"]
+  B -->|nein| N["REI 90 ausführen"]
+\`\`\`
+
+- [x] Brandschutzkonzept, Stand 3
+- [ ] Nachweis der Gleichwertigkeit für die Wohnungstrennwände
+
+${FIRE_SOURCES}`
+
 /* --- variant: lede-card --------------------------------------------------- */
 
 const ledeCardQuestion =
@@ -434,9 +502,135 @@ const ledeCards: GridCard[] = [
         ],
       },
     ],
-    limit: { comparator: 'between', value: 59, upper: 65, label: 'Schrittmaßregel', reference: OIB4 },
+    limit: {
+      comparator: 'between',
+      value: 59,
+      upper: 65,
+      label: 'Schrittmaßregel',
+      reference: OIB4,
+    },
   } as GridCard,
 ]
+
+/* --- variant: streaming --------------------------------------------------- */
+// A live answer (GK 5, 2026-09-24) caught mid-stream, and the same answer once
+// the verified terminal frame replaced it. The stream withholds the `[N]`
+// markers and the sources section; the terminal adds them (ADR-0066).
+
+const streamingQuestion =
+  'Welche Feuerwiderstandsklasse brauchen tragende Wände in GK 5 und wie unterscheidet sich das vom obersten Geschoß?'
+
+const streamingFinal = `Tragende Wände in GK 5 brauchen in sonstigen oberirdischen Geschoßen **R 90**; im obersten Geschoß gilt **R 60** [1].
+
+| Lage | Feuerwiderstand | Fundstelle |
+|---|---|---|
+| Sonstige oberirdische Geschoße, bis zu 6 oberirdische Geschoße | R 90 | [1] |
+| Sonstige oberirdische Geschoße, mehr als 6 oberirdische Geschoße | R 90 und A2 | [1] |
+| Oberstes Geschoß | R 60 | [1] |
+
+Für GK 5 mit höchstens 6 oberirdischen Geschoßen genügt unter der Bedingung der Fußnote (5) R 60 auch in den beiden obersten Geschoßen: Die übrigen oberirdischen Geschoße müssen dann R 90 und A2 erfüllen [1].`
+
+const streamingPartial = `Tragende Wände in GK 5 brauchen in sonstigen oberirdischen Geschoßen **R 90**; im obersten Geschoß gilt **R 60** [1].
+
+| Lage | Feuerwiderstand | Fundstelle |
+|---|---|---|
+| Sonstige oberirdische Geschoße, bis zu 6 oberirdische Geschoße | R 90 | [1] |
+| Sonstige oberirdische Geschoße, mehr als 6`
+
+// The moment the answer's text closed: verified, renumbered, its source list
+// written, and the cards still to come.
+const streamingSettled = `${streamingFinal}
+
+## Quellen
+- [1] [KB] OIB-RL_2_Brandschutz.pdf, p.12`
+
+/* --- variant: variants ---------------------------------------------------- */
+
+// A LIVE answer (September 2026 census, gpt-6-luna against the bundled prompt),
+// copied verbatim: the question weighs two designs, and each design has a list
+// of its own, so the answer carries a `surface` whose `Tabs` hold one `Text`
+// table per variant. The prose above them says what holds for both.
+const variantsQuestion =
+  'Für den zweiten Fluchtweg in GK 4 überlegen wir eine Außentreppe oder ein zweites Treppenhaus. Was müsste ich jeweils nachweisen?'
+
+const variantsAnswer = `In GK 4 verlangt Tabelle 3 für ein zweites Treppenhaus oberirdisch Wände REI 60 und Treppenläufe R 60; eine Außentreppe muss aus A2 bestehen und darf im Brandfall nicht durch Flammeneinwirkung oder gefahrbringende Strahlungswärme beeinträchtigt werden [1].
+
+Der zusätzliche Fluchtweg muss unabhängig sein und zu einem weiteren Treppenhaus oder einer weiteren Außentreppe gemäß Tabelle 3 führen; für diesen Weg ist die Gehweglänge nicht begrenzt [2]. Für beide Varianten ist außerdem nachzuweisen, dass der Ausgang zu einem sicheren Ort im Freien führt und die Treppe hinsichtlich ihrer nutzbaren Breite zur Personenzahl passt [1][3].
+
+[[card:1]]
+
+Die Übersicht geht von OIB-Richtlinie 2, Ausgabe Mai 2023, aus. Ob diese Ausgabe in Ihrem Bundesland verbindlich gilt und ob landesrechtliche Abweichungen bestehen, ist ohne Angabe des Bundeslands offen.
+
+## Quellen
+- [1] [KB] oib-rl_2_ausgabe_mai_2023.pdf, p.23
+- [2] [KB] oib-rl_2_ausgabe_mai_2023.pdf, p.13
+- [3] [KB] oib-rl_4_ausgabe_mai_2023.pdf, p.6`
+
+const variantsCards: GridCard[] = [
+  {
+    type: 'surface',
+    title: 'Nachweis je Variante',
+    components: [
+      {
+        id: 'root',
+        component: 'Tabs',
+        tabs: [
+          { title: 'Außentreppe', child: 'aussen' },
+          { title: 'Zweites Treppenhaus', child: 'innen' },
+        ],
+      },
+      {
+        id: 'aussen',
+        component: 'Text',
+        text: [
+          '| Nachweis | Was darzustellen bzw. zu belegen ist | Fundstelle |',
+          '|---|---|---|',
+          '| Unabhängiger Fluchtweg | Wegführung aus den betroffenen Geschoßen zur Außentreppe; Ausgang zu einem sicheren Ort im Freien | OIB-RL 2, Pkt. 5.1.4 und Tabelle 3 [2][1] |',
+          '| Treppenkonstruktion | Ausführung in A2; keine Beeinträchtigung durch Flammeneinwirkung oder gefahrbringende Strahlungswärme | OIB-RL 2, Tabelle 3 [1] |',
+          '| Nutzbarkeit | Lichte Treppenlaufbreite anhand der maximal gleichzeitig auf die Treppe angewiesenen Personen | OIB-RL 4, Pkt. 2.4 [3] |',
+        ].join('\n'),
+      },
+      {
+        id: 'innen',
+        component: 'Text',
+        text: [
+          '| Nachweis | Was darzustellen bzw. zu belegen ist | Fundstelle |',
+          '|---|---|---|',
+          '| Unabhängiger Fluchtweg | Wegführung aus den betroffenen Geschoßen zum zweiten Treppenhaus; Ausgang zu einem sicheren Ort im Freien | OIB-RL 2, Pkt. 5.1.4 und Pkt. 5.1.1 [2][1] |',
+          '| Wände und Decke | Oberirdisch: Wände REI 60; unterirdisch: REI 90 und A2; Decke über dem Treppenhaus REI 60 | OIB-RL 2, Tabelle 3 [1] |',
+          '| Türen und Treppenläufe | Türen gemäß Tabelle 3 nach angrenzender Nutzung; Treppenläufe R 60 | OIB-RL 2, Tabelle 3 [1] |',
+          '| Nutzbarkeit | Lichte Treppenlaufbreite anhand der maximal gleichzeitig auf die Treppe angewiesenen Personen | OIB-RL 4, Pkt. 2.4 [3] |',
+        ].join('\n'),
+      },
+    ],
+  } as unknown as GridCard,
+  {
+    type: 'legal_basis',
+    law: 'OIB-Richtlinie 2',
+    lane: 'baurecht_oib',
+    edition: 'Ausgabe Mai 2023',
+    article: '5.1.4',
+    section: 'Tabelle 3',
+    summary:
+      'Für den zusätzlichen Fluchtweg ist ein unabhängiger Weg zu einem weiteren Treppenhaus oder einer weiteren Außentreppe gemäß Tabelle 3 vorgesehen.',
+    original_text:
+      'ein unabhängiger Fluchtweg zu einem weiteren Treppenhaus oder einer weiteren Außentreppe jeweils gemäß Tabelle 3 erreichbar sein',
+  } as GridCard,
+]
+
+const variantsCitations: CitationSource[] = [1, 2, 3].map((number) => ({
+  id: `v${number}`,
+  content: '',
+  timestamp: new Date('2026-09-24T11:40:00'),
+  isCited: true,
+  kind: 'baurecht',
+  lane: 'baurecht_oib',
+  laneLabel: 'OIB-Richtlinie',
+  fileName: number === 3 ? 'oib-rl_4_ausgabe_mai_2023.pdf' : 'oib-rl_2_ausgabe_mai_2023.pdf',
+  title: number === 3 ? 'OIB-Richtlinie 4 · Nutzungssicherheit' : 'OIB-Richtlinie 2 · Brandschutz',
+  page: number === 1 ? 23 : number === 2 ? 13 : 6,
+  number,
+}))
 
 /* --- variant: two-cards --------------------------------------------------- */
 
@@ -473,7 +667,11 @@ const twoCards: GridCard[] = [
             'Tragende Bauteile in Gebäuden der Gebäudeklasse 4 sind in REI 60 auszuführen; in Kellergeschossen gilt REI 90.',
         },
       },
-      { condition: 'GK 5', outcome: 'REI 90', reference: { document: 'OIB-Richtlinie 2', section: 'Tabelle 1b' } },
+      {
+        condition: 'GK 5',
+        outcome: 'REI 90',
+        reference: { document: 'OIB-Richtlinie 2', section: 'Tabelle 1b' },
+      },
     ],
     reference: OIB2,
   } as GridCard,
@@ -555,8 +753,14 @@ const followUpsCards: GridCard[] = [
  * wrapping on a phone is worth looking at.
  */
 const followUpsStageItems = [
-  { question: 'Welche Gebäudeklasse ergibt sich für mein Projekt?', hint: 'aus dem Grundriss und dem Schnitt' },
-  { question: 'Was ändert sich beim Sprung von GK 4 auf GK 5?', hint: 'Vergleich der Anforderungen' },
+  {
+    question: 'Welche Gebäudeklasse ergibt sich für mein Projekt?',
+    hint: 'aus dem Grundriss und dem Schnitt',
+  },
+  {
+    question: 'Was ändert sich beim Sprung von GK 4 auf GK 5?',
+    hint: 'Vergleich der Anforderungen',
+  },
   { question: 'Zählt mein Dachgeschoß als Aufenthaltsraum?' },
   { question: 'Wie weise ich das Fluchtniveau im Einreichplan nach?' },
 ]
@@ -585,7 +789,8 @@ const memoryStage: MessageStages = {
       {
         id: 'row-1',
         kind: 'derived_fact',
-        content: 'Das Dachgeschoß enthält ein Büro und zählt damit als Geschoß mit Aufenthaltsräumen.',
+        content:
+          'Das Dachgeschoß enthält ein Büro und zählt damit als Geschoß mit Aufenthaltsräumen.',
       },
       {
         id: 'row-2',
@@ -723,7 +928,10 @@ const anatomyMeta: AnswerMeta = {
  * component on one page in two different states, with nothing stubbed but the
  * network.
  */
-const FEEDBACK_STATES: Record<string, { messageId: string; verdict: string; reason: string | null; comment: string | null }[]> = {
+const FEEDBACK_STATES: Record<
+  string,
+  { messageId: string; verdict: string; reason: string | null; comment: string | null }[]
+> = {
   'conv-feedback-rest': [],
   'conv-feedback-down': [
     { messageId: 'msg-feedback-down', verdict: 'down', reason: 'inaccurate', comment: null },
@@ -745,7 +953,8 @@ if (typeof window !== 'undefined') {
   }
 }
 
-const feedbackQuestion = 'Wie breit muss die Haupttreppe in einem Wohnhaus der Gebäudeklasse 4 sein?'
+const feedbackQuestion =
+  'Wie breit muss die Haupttreppe in einem Wohnhaus der Gebäudeklasse 4 sein?'
 
 const feedbackAnswer = `Die nutzbare **Laufbreite** der Haupttreppe muss mindestens **1,20 m** betragen. Gemessen wird zwischen den begrenzenden Bauteilen, Handläufe dürfen bis 10 cm je Seite einragen [1].
 
@@ -761,6 +970,9 @@ const ANSWER_VARIANTS = [
   'memory-chip',
   'verdict-lede',
   'anatomy',
+  'structured',
+  'variants',
+  'streaming',
 ] as const
 type AnswerVariant = (typeof ANSWER_VARIANTS)[number]
 
@@ -815,6 +1027,19 @@ function AnswerLayer({ variant }: { variant: AnswerVariant }) {
     )
   }
 
+  if (variant === 'structured') {
+    return (
+      <AnswerTurn
+        label="↓ MARKDOWN FIRST — tables with a Fundstelle column, status words as chips, a drawing where the answer forks, a task list; no card"
+        question={structuredQuestion}
+        answer={structuredAnswer}
+        citations={fireCitations}
+        confidenceReason="Anforderungen direkt aus OIB-RL 2 Tabelle 1b belegt"
+        messageId="msg-structured"
+      />
+    )
+  }
+
   if (variant === 'lede-card') {
     return (
       <AnswerTurn
@@ -825,6 +1050,53 @@ function AnswerLayer({ variant }: { variant: AnswerVariant }) {
         citations={stairCitations}
         confidenceReason="Schrittmaßregel direkt aus OIB-RL 4 belegt"
         messageId="msg-lede-card"
+      />
+    )
+  }
+
+  if (variant === 'streaming') {
+    return (
+      <>
+        <AnswerTurn
+          label="↓ STREAMING — the prose as the final call writes it; each [N] a pending pill until its source is settled"
+          question={streamingQuestion}
+          answer={streamingPartial}
+          citations={[]}
+          confidenceReason="—"
+          messageId="msg-streaming-partial"
+          isStreaming
+        />
+        <AnswerTurn
+          label="↓ SETTLED MID-STREAM — the text closed, its citations verified: real pills, still arriving, no cards yet"
+          question={streamingQuestion}
+          answer={streamingSettled}
+          citations={fireCitations.slice(0, 1)}
+          confidenceReason="Anforderungen direkt aus OIB-RL 2 Tabelle 1b belegt"
+          messageId="msg-streaming-settled"
+          isStreaming
+        />
+        <AnswerTurn
+          label="↓ FINAL — the terminal frame: the same numbers, the answer complete"
+          question={streamingQuestion}
+          answer={streamingSettled}
+          citations={fireCitations.slice(0, 1)}
+          confidenceReason="Anforderungen direkt aus OIB-RL 2 Tabelle 1b belegt"
+          messageId="msg-streaming-final"
+        />
+      </>
+    )
+  }
+
+  if (variant === 'variants') {
+    return (
+      <AnswerTurn
+        label="↓ VARIANTS (live answer) — shared prose, then Tabs holding one Text table per variant"
+        question={variantsQuestion}
+        answer={variantsAnswer}
+        cards={variantsCards}
+        citations={variantsCitations}
+        confidenceReason="OIB-Mai-2023-Anforderungen belegt; Bundesland und Nutzung sind nicht angegeben"
+        messageId="msg-variants"
       />
     )
   }
@@ -960,10 +1232,10 @@ function ChatTurnPreview() {
     : '/dev/chat-turn — live (reasoning expanded) → completed (answer-dominant)'
 
   return (
-    <main className="min-h-dvh bg-muted/30 px-4 py-10">
+    <main className="bg-muted/30 min-h-dvh px-4 py-10">
       <div className="mx-auto flex w-full max-w-3xl flex-col gap-10">
         <h1
-          className="font-mono text-xs text-muted-foreground"
+          className="text-muted-foreground font-mono text-xs"
           data-testid={isAnswerVariant(variant) ? 'answer-layer-preview' : 'chat-turn-preview'}
         >
           {heading}

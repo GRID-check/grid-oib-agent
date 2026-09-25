@@ -334,6 +334,42 @@ class TestLoadInventory:
         assert inventory == Inventory(None, ["plan.pdf"])
 
 
+class TestTheFamiliesLeaveTheGather:
+    """The families are set inside two gathers; a ContextVar set there dies with the task."""
+
+    async def test_the_inventory_carries_the_base_families_out(self):
+        from aiq_agent.knowledge.inventory import get_norm_families
+        from aiq_agent.knowledge.inventory import set_norm_families
+
+        scope = [ScopedCollection("oib_knowledge", Shelf.BASE)]
+
+        async def fetch_one(_collection):
+            return [_Doc("oib-rl_2_ausgabe_mai_2023.pdf"), _Doc("oib-rl_2.1_ausgabe_mai_2023.pdf")]
+
+        set_norm_families(())
+        # As the turn runs it: one member of the setup gather.
+        (inventory,) = await asyncio.gather(load_inventory(scope, fetch_one=fetch_one, read_in_flight=lambda _n: {}))
+
+        assert get_norm_families() == ()  # the var the read set did not survive the gather...
+        assert [(f.key, f.members) for f in inventory.norm_families] == [("2", ("2", "2.1"))]  # ...the field did
+
+    async def test_the_inventory_carries_the_cap_drops_out(self, monkeypatch):
+        from aiq_agent.knowledge.inventory import get_inventory_drops
+        from aiq_agent.knowledge.inventory import set_inventory_drops
+
+        monkeypatch.setenv("GRID_AVAILABLE_DOCUMENTS_MAX", "3")
+        scope = [ScopedCollection("s_1", Shelf.SESSION)]
+
+        async def fetch_one(_collection):
+            return [_Doc(f"plan_{i}.pdf") for i in range(10)]
+
+        set_inventory_drops({})
+        (inventory,) = await asyncio.gather(load_inventory(scope, fetch_one=fetch_one, read_in_flight=lambda _n: {}))
+
+        assert get_inventory_drops() == {}  # the var the read set did not survive the gather...
+        assert inventory.inventory_drops == {Shelf.SESSION: 7}  # ...the field did
+
+
 @pytest.fixture(autouse=True)
 def _no_status_frames(monkeypatch):
     """The waiting status line is fail-open transparency; keep it out of the assertions."""

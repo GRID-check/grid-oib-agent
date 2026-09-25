@@ -35,9 +35,10 @@ import type { LegalBasisCardData } from '../types'
 /**
  * How wide a Fundstelle may be before the margin cannot hold it.
  *
- * The margin column is 72px at 11px mono — about ten characters to a line. An
- * identifier fits („3.1.1", „Tabelle 1a", „Abs. 4", „§ 106 Abs. 1"); a sentence
- * does not. A production card set `article` to „Punkte 8 bis 10 der
+ * The margin column is at least 72px at 11px mono, sized to its content and
+ * never wrapped, so it holds one identifier per line of up to 14 characters
+ * („3.1.1", „Tabelle 1a", „Abs. 4", „§ 106 Abs. 1") in any column down to a
+ * phone's. A sentence does not fit. A production card set `article` to „Punkte 8 bis 10 der
  * OIB-Richtlinie 2" and `section` to „Anwendungsbereiche der ergänzenden
  * Richtlinien", and the margin rendered them as a nine-line ragged pillar of
  * mono taller than the card beside it — with „§ " glued to the front of a
@@ -50,7 +51,7 @@ import type { LegalBasisCardData } from '../types'
  * running inline with the law name where German prose can wrap. Nothing is
  * dropped: this card is the citation an architect verifies.
  */
-const MARGIN_IDENTIFIER_MAX_CHARS = 20
+const MARGIN_IDENTIFIER_MAX_CHARS = 14
 
 /** Trimmed, or null — an all-whitespace field is not a Fundstelle. */
 const cleaned = (value: string | null | undefined): string | null => value?.trim() || null
@@ -138,7 +139,8 @@ export const LegalBasisCard: FC<LegalBasisCardData> = ({
       <SectionLabel icon={Scale}>{t('cards.legalBasis')}</SectionLabel>
 
       {/* Header: law/Richtlinie + Ausgabe on the left, article/§ as marginalia
-          in a fixed right column at 11px mono — the way a statute prints its §
+          in a right column sized to its content at 11px mono (at least 72px,
+          never wrapped) — the way a statute prints its §
           in the margin (charter §B1). Every other card puts metadata inline;
           this one puts it in a margin, and that is the difference seen before
           a word is read. The authority tier stays beside the law as plain
@@ -168,7 +170,10 @@ export const LegalBasisCard: FC<LegalBasisCardData> = ({
           )}
         </div>
         {hasReference && fitsMargin && (
-          <div className="card-meta flex w-[72px] shrink-0 flex-col items-end gap-0.5 font-mono text-muted-foreground">
+          // Sized to its content and never wrapped: a fixed 72px margin broke
+          // „§ Tabelle 1a" over two lines and pressed „Art. 3.1.1" into the
+          // card edge. 14 characters plus the prefix is the most it may hold.
+          <div className="card-meta flex min-w-[72px] shrink-0 flex-col items-end gap-0.5 whitespace-nowrap font-mono text-muted-foreground">
             {articleRef && <span>Art. {articleRef}</span>}
             {sectionRef && <span>§ {sectionRef}</span>}
           </div>

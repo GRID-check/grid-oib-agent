@@ -18,11 +18,7 @@ import {
   type SpectatedTurnState,
 } from './spectator-frames'
 
-function response(
-  text: string,
-  status: 'in_progress' | 'complete',
-  parentId = 'turn-1'
-): unknown {
+function response(text: string, status: 'in_progress' | 'complete', parentId = 'turn-1'): unknown {
   return {
     type: 'system_response_message',
     id: `${parentId}-${status}-${text.length}`,
@@ -70,6 +66,272 @@ describe('reduceSpectatedFrame', () => {
     ])
     expect(state.answer).toBe('Die OIB-Richtlinie 2 regelt den Brandschutz.')
     expect(state.done).toBe(true)
+  })
+
+  it('lets a settled snapshot replace what streamed (ADR-0066)', () => {
+    const snapshot = {
+      ...(response('R 90 [1].\n\n## Quellen\n- [1] oib.pdf', 'in_progress') as object),
+      stream_replace: true,
+    }
+    const state = fold([
+      response('R 90 [1', 'in_progress'),
+      response('].', 'in_progress'),
+      snapshot,
+    ])
+    expect(state.answer).toBe('R 90 [1].\n\n## Quellen\n- [1] oib.pdf')
+    expect(state.done).toBe(false)
+  })
+
+  it('carries the masthead, the verified sources and the cards the asker gets (ADR-0066)', () => {
+    const masthead = {
+      ...(response('', 'in_progress') as object),
+      answer_meta: { v: 1, kind: 'ruling', topic: 'Fluchtweg' },
+    }
+    // The snapshot re-states the masthead it kept after re-gating it.
+    const snapshot = {
+      ...(response('R 90 [1].', 'in_progress') as object),
+      stream_replace: true,
+      answer_meta: { v: 1, kind: 'ruling', topic: 'Fluchtweg' },
+      sources: [
+        {
+          number: 1,
+          citation_key: 'oib.pdf, p.3',
+          file_name: 'oib.pdf',
+          page: 3,
+          kind: 'baurecht',
+        },
+      ],
+    }
+    const cards = {
+      ...(response('', 'in_progress') as object),
+      cards: [{ type: 'summary', title: 'Zusammenfassung', content: 'Alles gut.' }],
+    }
+
+    const head = fold([masthead])
+    // Before the first word, the masthead alone is something to show.
+    expect(head.answerMeta?.topic).toBe('Fluchtweg')
+    expect(head.answer).toBe('')
+
+    const state = fold([masthead, response('R 90 [1', 'in_progress'), snapshot, cards])
+    expect(state.answer).toBe('R 90 [1].')
+    expect(state.answerMeta?.kind).toBe('ruling')
+    expect(state.citations?.[0]).toEqual(expect.objectContaining({ fileName: 'oib.pdf', page: 3 }))
+    expect(state.cards?.map((card) => card?.type)).toEqual(['summary'])
+  })
+
+  it('lets a terminal without the live cards or masthead take them back', () => {
+    const masthead = {
+      ...(response('', 'in_progress') as object),
+      answer_meta: { v: 1, kind: 'direct', topic: 'Kurz' },
+    }
+    const cards = {
+      ...(response('', 'in_progress') as object),
+      cards: [{ type: 'summary', title: 'Zusammenfassung', content: 'Alles gut.' }],
+    }
+    const state = fold([
+      masthead,
+      response('Kurz.', 'in_progress'),
+      cards,
+      response('Kurz.', 'complete'),
+    ])
+    expect(state.cards).toBeUndefined()
+    expect(state.answerMeta).toBeUndefined()
+    expect(state.done).toBe(true)
+  })
+
+  it('lets a terminal with text and no sources take the citations back; an empty one keeps them', () => {
+    // Citations are numbered against the text and go with it, as in the
+    // asker's store.
+    const snapshot = {
+      ...(response('R 90 [1].', 'in_progress') as object),
+      stream_replace: true,
+      sources: [
+        {
+          number: 1,
+          citation_key: 'oib.pdf, p.3',
+          file_name: 'oib.pdf',
+          page: 3,
+          kind: 'baurecht',
+        },
+      ],
+    }
+    expect(fold([snapshot, response('R 90.', 'complete')]).citations).toBeUndefined()
+    expect(fold([snapshot, response('', 'complete')]).citations).toHaveLength(1)
+  })
+
+  it('lets a settled snapshot without the masthead take it back', () => {
+    // The backend re-gates the masthead against the snapshot's prose. A
+    // snapshot that omits it gated it out, and the observer must not keep
+    // reading a verdict the asker no longer sees.
+    const masthead = {
+      ...(response('', 'in_progress') as object),
+      answer_meta: { v: 1, kind: 'ruling', topic: 'Fluchtweg' },
+    }
+    const snapshot = {
+      ...(response('Kommt darauf an [1].', 'in_progress') as object),
+      stream_replace: true,
+      sources: [
+        {
+          number: 1,
+          citation_key: 'oib.pdf, p.3',
+          file_name: 'oib.pdf',
+          page: 3,
+          kind: 'baurecht',
+        },
+      ],
+    }
+    const state = fold([masthead, response('Kommt darauf an [1', 'in_progress'), snapshot])
+    expect(state.answer).toBe('Kommt darauf an [1].')
+    expect(state.answerMeta).toBeUndefined()
+  })
+
+  it('treats a masthead a snapshot brings first as provisional, as the store does', () => {
+    // No live masthead frame before it: the snapshot's own masthead is still a
+    // live extra, so a terminal with text and no masthead takes it back.
+    const snapshot = {
+      ...(response('R 90.', 'in_progress') as object),
+      stream_replace: true,
+      answer_meta: { v: 1, kind: 'ruling', topic: 'Fluchtweg' },
+    }
+    const settled = fold([response('R 9', 'in_progress'), snapshot])
+    expect(settled.answerMeta?.topic).toBe('Fluchtweg')
+    const state = fold([response('R 9', 'in_progress'), snapshot, response('R 90.', 'complete')])
+    expect(state.answerMeta).toBeUndefined()
+  })
+
+  it('lets an empty snapshot take back a streamed round, as the asker sees it', () => {
+    // A streamed call that turned out to call tools is retracted with an empty
+    // snapshot (content "", sources []). Folded as "nothing to show" it was
+    // dropped, and the observer kept reading the round's prose as the answer.
+    const snapshot = {
+      ...(response('R 90 [1].', 'in_progress') as object),
+      stream_replace: true,
+      answer_meta: { v: 1, kind: 'ruling', topic: 'Fluchtweg' },
+      sources: [
+        {
+          number: 1,
+          citation_key: 'oib.pdf, p.3',
+          file_name: 'oib.pdf',
+          page: 3,
+          kind: 'baurecht',
+        },
+      ],
+    }
+    const retraction = {
+      ...(response('', 'in_progress') as object),
+      stream_replace: true,
+      sources: [],
+    }
+    const state = fold([response('R 90 [1', 'in_progress'), snapshot, retraction])
+    expect(state.answer).toBe('')
+    expect(state.answerMeta).toBeUndefined()
+    expect(state.citations).toBeUndefined()
+  })
+
+  it('lets an empty snapshot take back the cards a retracted round streamed', () => {
+    // The round that turned out to call tools is dead, its cards with it: the
+    // asker's store drops them, so the observer must not keep reading them.
+    const cards = {
+      ...(response('', 'in_progress') as object),
+      cards: [{ type: 'summary', title: 'Zusammenfassung', content: 'Tote Runde.' }],
+    }
+    const retraction = {
+      ...(response('', 'in_progress') as object),
+      stream_replace: true,
+      sources: [],
+    }
+    const state = fold([response('R 90', 'in_progress'), cards, retraction])
+    expect(state.cards).toBeUndefined()
+  })
+
+  it('keeps the live cards across a snapshot that has prose', () => {
+    const cards = {
+      ...(response('', 'in_progress') as object),
+      cards: [{ type: 'summary', title: 'Zusammenfassung', content: 'Alles gut.' }],
+    }
+    const snapshot = { ...(response('R 90.', 'in_progress') as object), stream_replace: true }
+    const state = fold([response('R 9', 'in_progress'), cards, snapshot])
+    expect(state.cards?.map((card) => card?.type)).toEqual(['summary'])
+  })
+
+  it('keeps a whitespace-only delta, as the asker does', () => {
+    // The relay can batch a frame of just the paragraph break.
+    const state = fold([
+      response('Erster Absatz.', 'in_progress'),
+      response('\n\n', 'in_progress'),
+      response('Zweiter Absatz.', 'in_progress'),
+    ])
+    expect(state.answer).toBe('Erster Absatz.\n\nZweiter Absatz.')
+  })
+
+  it('drops a whitespace-only FIRST delta, as the asker opens no bubble for it', () => {
+    const first = reduceSpectatedFrame(EMPTY_SPECTATED_TURN, response('\n\n', 'in_progress'))
+    expect(first.answer).toBe('')
+    expect(fold([response('\n\n', 'in_progress'), response('Erst.', 'in_progress')]).answer).toBe(
+      'Erst.'
+    )
+  })
+
+  it('keeps cards on a LATER legacy in_progress frame across a terminal with text and no cards', () => {
+    // Legacy shape: the cards ride a frame that also carries text. They are
+    // final, not provisional, as the asker's store keeps them.
+    const legacy = {
+      ...(response('.', 'in_progress') as object),
+      cards: [{ type: 'summary', title: 'Zusammenfassung', content: 'Alles gut.' }],
+    }
+    const state = fold([response('Voll', 'in_progress'), legacy, response('Voll.', 'complete')])
+    expect(state.answer).toBe('Voll.')
+    expect(state.cards?.map((card) => card?.type)).toEqual(['summary'])
+  })
+
+  it('treats a whitespace-only terminal as no text: the answer and live extras stay', () => {
+    const masthead = {
+      ...(response('', 'in_progress') as object),
+      answer_meta: { v: 1, kind: 'direct', topic: 'Kurz' },
+    }
+    const cards = {
+      ...(response('', 'in_progress') as object),
+      cards: [{ type: 'summary', title: 'Zusammenfassung', content: 'Alles gut.' }],
+    }
+    const state = fold([
+      masthead,
+      response('Kurz.', 'in_progress'),
+      cards,
+      response('\n', 'complete'),
+    ])
+    expect(state.answer).toBe('Kurz.')
+    expect(state.cards?.map((card) => card?.type)).toEqual(['summary'])
+    expect(state.answerMeta?.topic).toBe('Kurz')
+  })
+
+  it('never hands an observer a card that acts, and keeps every position (ADR-0039 §5)', () => {
+    // A memory proposal or a file operation proposes a write in the ASKER's
+    // name. Drawn for an observer it was a button that wrote into the
+    // observer's organization and project.
+    const complete = {
+      ...(response('Fertig [[card:3]].', 'complete') as object),
+      cards: [
+        {
+          type: 'memory_proposal',
+          title: 'Merken?',
+          content: 'REI 90 für GK4.',
+          kind: 'preference',
+          confidence: 'high',
+        },
+        {
+          type: 'file_operation_proposal',
+          title: 'Verschieben',
+          operation: 'move',
+          operations: [
+            { document: 'EG.pdf', source: 'projekt', current: '', target_folder: 'Einreichung' },
+          ],
+        },
+        { type: 'summary', title: 'Zusammenfassung', content: 'Alles gut.' },
+      ],
+    }
+    const state = fold([complete])
+    expect(state.cards).toHaveLength(3)
+    expect(state.cards?.map((card) => card?.type)).toEqual([undefined, undefined, 'summary'])
   })
 
   it('keeps the streamed answer when the terminal frame is empty', () => {
@@ -206,8 +468,18 @@ describe('reduceSpectatedFrame', () => {
     // name. It still has to reach the Herleitung, and consecutive strings belong
     // in ONE step rather than one step per line.
     const state = fold([
-      { type: 'system_intermediate_message', id: 'l1', content: 'Suche läuft', status: 'in_progress' },
-      { type: 'system_intermediate_message', id: 'l2', content: 'Treffer geprüft', status: 'in_progress' },
+      {
+        type: 'system_intermediate_message',
+        id: 'l1',
+        content: 'Suche läuft',
+        status: 'in_progress',
+      },
+      {
+        type: 'system_intermediate_message',
+        id: 'l2',
+        content: 'Treffer geprüft',
+        status: 'in_progress',
+      },
     ])
     expect(state.steps).toHaveLength(1)
     expect(state.steps[0].functionName).toBe('unknown')

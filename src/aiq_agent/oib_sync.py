@@ -89,7 +89,12 @@ def _file_hash(path: Path) -> str:
 #    pages of the twelve Punkt-structured Richtlinien list: 903 chunks with 44
 #    missing, 1 spurious and 4 carrying another heading's title, becomes 946 with
 #    none of the three.
-CHUNK_FORMAT_VERSION = 3
+# 4: captioned tables (``captioned_tables``) are read as tables: cut out of the
+#    page text, which read them across their columns, and indexed as Markdown
+#    chunks addressed ``punkt_id = "Tabelle N"``. Removing them also drops the 12
+#    table rows version 3 accepted as Punkte (OIB-RL 2 13-15, OIB-RL 2.1 6.1-6.3,
+#    and their Änderungen twins): 1645 Punkt ids become 1633, plus 104 table chunks.
+CHUNK_FORMAT_VERSION = 4
 _FORMAT_KEY = "__chunk_format_version__"
 
 

@@ -68,8 +68,8 @@ import type { Translator } from '@/i18n/translate'
 // would have filled every dev console with the walker's own guesses.
 import { answerExport as canonicalDictionary } from '@/i18n/dictionaries/en/answer-export'
 import type { GridCard } from '@/shared/cards/schemas'
-import { compact, type DocBlock, type DocRun } from './blocks'
-import { diagramLabel } from './markdown'
+import { compact, type DocBlock, type DocRun, type HeadingLevel } from './blocks'
+import { diagramBlocks, markdownToBlocks, type MarkdownToBlocksOptions } from './markdown'
 
 /** A stored card: validated upstream, but read here as untrusted jsonb. */
 type CardRecord = Record<string, unknown>
@@ -137,14 +137,19 @@ const VOCABULARIES = new Map<string, Set<string>>(
  *   - `diagram` — a drawing this export cannot draw. Mermaid lays a graph out
  *     against a DOM and this runs server-side, which is the same constraint
  *     that put diagram rendering in the browser to begin with. Exported the way
- *     a mermaid FENCE already is (`diagramLabel` in `./markdown.ts`): the
+ *     a mermaid FENCE already is (`diagramBlocks` in `./markdown.ts`): the
  *     labelled source, so the reader holding only the file can tell a drawing
- *     from prose and can regenerate it. Walking it instead would print the
+ *     from prose and can regenerate it, unless the format supplies a
+ *     placeholder to print instead. Walking it instead would print the
  *     mermaid under „Origin“ as if the answer had meant to state it.
  *   - `chrome` — the app addressing the reader, not the answer recording a
  *     finding. Emitted as nothing at all.
+ *   - `composite` — a `surface` (ADR-0065): cards composed side by side or in
+ *     tabs. A document has neither, so its cards are exported in document
+ *     order, each tab's title set above its card — every variant the reader
+ *     could open on screen is on the page.
  */
-type ExportKind = 'content' | 'live' | 'diagram' | 'chrome'
+type ExportKind = 'content' | 'live' | 'diagram' | 'chrome' | 'composite'
 
 /**
  * ⚠️ ADDING A CARD TYPE? YOU MUST CLASSIFY IT HERE. ⚠️
@@ -244,6 +249,7 @@ export const CARD_EXPORT: Record<GridCard['type'], ExportKind> = {
   elevator_requirement: 'content',
   parking_requirement: 'content',
   document_grid: 'content',
+  surface: 'composite',
 }
 
 /**
@@ -734,8 +740,17 @@ const cardHeading = (card: CardRecord, type: string, t: Translator): string => {
   return name.startsWith('answerExport.cardTypes.') ? humanize(type) : name
 }
 
+/** How the cards of one export are printed. */
+export interface CardBlocksOptions extends MarkdownToBlocksOptions {
+  /**
+   * The level of a card's own heading: 3 for a card of the answer, deeper for
+   * a card inside a `surface`, below its title and its tab.
+   */
+  headingLevel?: HeadingLevel
+}
+
 /** Render one stored card. Returns no blocks for something that is not a card. */
-export function cardBlocks(value: unknown, t: Translator): DocBlock[] {
+export function cardBlocks(value: unknown, t: Translator, options: CardBlocksOptions = {}): DocBlock[] {
   if (!isRecord(value)) return []
   const card = value
   const type = card.type
@@ -748,8 +763,9 @@ export function cardBlocks(value: unknown, t: Translator): DocBlock[] {
   // with no questions under it would still put the app's own chrome inside the
   // findings section.
   if (kind === 'chrome') return []
+  if (kind === 'composite') return surfaceBlocks(card, t, options)
 
-  const heading: DocBlock = { kind: 'heading', level: 3, text: cardHeading(card, type, t) }
+  const heading: DocBlock = { kind: 'heading', level: options.headingLevel ?? 3, text: cardHeading(card, type, t) }
 
   if (kind === 'diagram') {
     const source = typeof card.source === 'string' ? card.source.trim() : ''
@@ -757,10 +773,9 @@ export function cardBlocks(value: unknown, t: Translator): DocBlock[] {
     const reference = isReference(card.reference) ? referenceText(card.reference) : ''
     return compact([
       heading,
-      // BEFORE the source, not after: a caption that arrives after the thing it
-      // explains is a caption the reader has already misread.
-      { kind: 'paragraph', runs: [{ text: diagramLabel('mermaid'), italic: true }], style: 'meta' },
-      source ? { kind: 'paragraph', runs: [{ text: source, mono: true }] } : null,
+      // Printed exactly as a fence in the prose is, label first and placeholder
+      // included; the card's own caption follows the drawing it describes.
+      ...diagramBlocks('mermaid', source, options.diagramPlaceholder),
       caption ? { kind: 'paragraph', runs: [{ text: caption }] } : null,
       // The Fundstelle, in the two-paragraph form the walker gives every other
       // card's reference — a procedure differs by Bundesland, so a drawing of
@@ -877,8 +892,59 @@ export function cardBlocks(value: unknown, t: Translator): DocBlock[] {
   return compact([heading, ...body.blocks])
 }
 
+/**
+ * A `surface`'s cards, walked from its root in document order. Row and Column
+ * contribute nothing of their own; a `Text` leaf is the answer's own Markdown
+ * and exports as the prose does, its headings kept below the surface's.
+ *
+ * The levels nest as the surface does: its title at the answer's card level
+ * (3), what stands under it one level lower, and a tab's title one level above
+ * its card. A tab title is a heading, not a bold line: a bold line looked
+ * like the card heading under it, and both formats keep a heading on the page
+ * with what follows it.
+ */
+function surfaceBlocks(card: Record<string, unknown>, t: Translator, options: CardBlocksOptions): DocBlock[] {
+  const components = Array.isArray(card.components) ? card.components.filter(isRecord) : []
+  const byId = new Map(components.map((component) => [String(component.id), component]))
+  const title = typeof card.title === 'string' && card.title.trim() ? card.title.trim() : null
+  const blocks: DocBlock[] = title ? [{ kind: 'heading', level: 3, text: title }] : []
+  const { headingLevel: _headingLevel, ...markdownOptions } = options
+  const seen = new Set<string>()
+  const walk = (id: string, level: HeadingLevel) => {
+    const component = byId.get(id)
+    if (!component || seen.has(id)) return
+    seen.add(id)
+    const name = String(component.component)
+    if (name === 'Row' || name === 'Column') {
+      for (const child of Array.isArray(component.children) ? component.children : []) walk(String(child), level)
+      return
+    }
+    if (name === 'Tabs') {
+      for (const tab of Array.isArray(component.tabs) ? component.tabs.filter(isRecord) : []) {
+        const tabTitle = typeof tab.title === 'string' ? tab.title.trim() : ''
+        if (tabTitle) blocks.push({ kind: 'heading', level, text: tabTitle })
+        walk(String(tab.child), tabTitle ? deeper(level) : level)
+      }
+      return
+    }
+    if (name === 'Text') {
+      if (typeof component.text === 'string') {
+        blocks.push(...markdownToBlocks(component.text, { ...markdownOptions, headingFloor: level }))
+      }
+      return
+    }
+    const { id: _id, component: _component, ...props } = component
+    blocks.push(...cardBlocks({ ...props, type: name }, t, { ...options, headingLevel: level }))
+  }
+  walk('root', title ? 4 : 3)
+  return blocks
+}
+
+/** One heading level down, stopping at the deepest the formats define. */
+const deeper = (level: HeadingLevel): HeadingLevel => Math.min(5, level + 1) as HeadingLevel
+
 /** Render every card on an answer, in the order the answer emitted them. */
-export function cardsBlocks(cards: unknown, t: Translator): DocBlock[] {
+export function cardsBlocks(cards: unknown, t: Translator, options: CardBlocksOptions = {}): DocBlock[] {
   if (!Array.isArray(cards)) return []
-  return cards.flatMap((card) => cardBlocks(card, t))
+  return cards.flatMap((card) => cardBlocks(card, t, options))
 }

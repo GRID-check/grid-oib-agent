@@ -19,8 +19,8 @@ frontend already reads. Nothing on the wire changes.
 Two things stay on the tool channel, on purpose. SYSTEM cards are pushed by
 the tool that did the work (``document_draft`` by ``write_file``,
 ``document_grid`` by ``surface_documents``, …) and were never the model's to
-compose; and ``emit_card`` stays bound for a model on an older prompt, or for a
-card it wants to show before the answer is written.
+compose; and ``emit_card`` stays bound for deep research. Piloti (chat) no
+longer binds it: its cards travel in the envelope's ``cards`` field only.
 
 A shape the model got wrong is not a round any more either: the pipeline hands
 the failed object, the validator's clauses and the type's full shape to a
@@ -39,36 +39,36 @@ from dataclasses import dataclass
 from typing import Any
 
 from aiq_agent.cards.catalog import ENVELOPE_CARD_TYPES
+from aiq_agent.cards.catalog import MARKDOWN_CARD_TYPES
 from aiq_agent.cards.catalog import SYSTEM_CARD_TYPES
 from aiq_agent.cards.catalog import render_card_details
 from aiq_agent.cards.catalog import render_card_doctrine
 from aiq_agent.cards.catalog import render_card_index
 from aiq_agent.cards.catalog import shape_hint_for
+from aiq_agent.cards.models import SURFACE_MAX_CHILDREN
+from aiq_agent.cards.models import SURFACE_MAX_LEAVES
+from aiq_agent.cards.models import SURFACE_MAX_TABS
+from aiq_agent.cards.models import SURFACE_TEXT_MAX
 from aiq_agent.common.tool_errors import render_error_detail
 
 logger = logging.getLogger(__name__)
 
 #: The card types whose FULL shape the envelope contract teaches up front.
 #:
-#: The whole catalog's shapes are ~23 000 tokens (measured with ``o200k_base``
-#: at this tip), far too much for a prefix that is re-sent on every call. The
-#: eight below are the content cards the trigger table names for the answers
-#: the product gives most — a ruling's Fundstelle, a table of cases or parts,
-#: a Verfahren, an Einreichliste — and together they are ~3 500 tokens, cached
-#: as part of the static prefix. Seven of twelve first attempts written from
-#: the one-line index alone failed validation (nested building blocks the
-#: index cannot convey); with the shape in front of the model the first
-#: attempt is the right one. Every other type keeps its index line, and a miss
-#: on one of those is repaired by the small model rather than by a round.
+#: The whole catalog's shapes are ~23 000 tokens (measured with ``o200k_base``),
+#: far too much for a prefix re-sent on every call. These three are the cards
+#: an answer earns most that Markdown cannot show: the Fundstelle as a
+#: quotable excerpt, a decision on one factor, a Verfahren the reader walks.
+#: Until 2026-09-24 the list also carried the five table- and list-shaped
+#: cards; their content is now written in the answer's Markdown
+#: (``catalog.MARKDOWN_CARD_TYPES``), which took ~2 000 tokens of shape out
+#: of every call and the repair round their nested building blocks invited.
+#: Every other type keeps its index line, and a miss on one of those is
+#: repaired by the small model rather than by a round.
 ENVELOPE_SHAPE_TYPES: tuple[str, ...] = (
     "legal_basis",
-    "typed_table",
-    "norm_chain",
     "condition_tree",
-    "requirement_checklist",
-    "comparison_table",
     "process_map",
-    "document_checklist",
 )
 
 #: The redirect for a model that reached for one of the envelope's OWN fields
@@ -77,6 +77,35 @@ ENVELOPE_SHAPE_TYPES: tuple[str, ...] = (
 ENVELOPE_REFUSAL = (
     "card type '{card_type}' is not a card: put its content into the matching field of the "
     "answer envelope (verdict, summary, takeaways, callout)."
+)
+
+#: Composition (ADR-0065). Taught as prose plus one worked shape rather than
+#: through `render_card_details`: the model's `components` field is an A2UI
+#: list of objects, and the rendered field line ("list[object]") says nothing
+#: a model could fill it from.
+_COMPOSE_RULE = (
+    "COMPOSE. Variants the reader picks ONE of to read (two designs, two Bundesländer, Bestand "
+    "against Umbau, Außentreppe against zweites Treppenhaus) travel as ONE `surface` card, an A2UI "
+    "v0.9 component list with a `Tabs` root, one tab per variant. A tab holds a card, or a `Text` "
+    "holding the Markdown you would otherwise write for that variant: its table, its Status column, "
+    "its steps, its [N]. What holds for every variant stays in the prose above the tabs, and the "
+    "prose names the difference that decides between them; the tabs carry the detail. `Row` (side "
+    "by side where the screen is wide) and `Column` (in order) put cards that read together into "
+    'one slot. The container has id "root"; every other component is a card named by its type with '
+    'that card\'s own fields, or `{"id", "component": "Text", "text": "<Markdown>"}`; children are '
+    "referenced by id, each in ONE place (no id listed twice, no leaf in two tabs). Limits: a `Row` or "
+    f"`Column` holds 2 to {SURFACE_MAX_CHILDREN} children, `Tabs` 2 to {SURFACE_MAX_TABS} tabs, the "
+    f"surface 2 to {SURFACE_MAX_LEAVES} leaves; a `Text` is at most {SURFACE_TEXT_MAX} characters and "
+    "carries no card or callout marker (those are placed from the prose). Never an interactive or "
+    "tool card inside, nor an envelope field (verdict, summary, takeaways, callout), and a surface "
+    "counts as one card against the ceiling. Two tabs that say nearly the same are one answer, not "
+    "variants.\n"
+    '{"type": "surface", "title": "Zweiter Fluchtweg — zwei Varianten", "components": ['
+    '{"id": "root", "component": "Tabs", "tabs": [{"title": "Außentreppe", "child": "a"}, '
+    '{"title": "Zweites Treppenhaus", "child": "b"}]}, '
+    '{"id": "a", "component": "Text", '
+    '"text": "| Kriterium | Anforderung | Status | Fundstelle |\\n|---|---|---|---|\\n…"}, '
+    '{"id": "b", "component": "process_map", "title": "…", "steps": […]}]}'
 )
 
 #: The marker rule the envelope's cards carry. Stated once, here, and rendered
@@ -105,16 +134,17 @@ def render_envelope_cards_contract() -> str:
     return "\n\n".join(
         part
         for part in (
-            render_card_doctrine(),
-            render_card_index(),
+            render_card_doctrine(markdown_first=True),
+            render_card_index(exclude=MARKDOWN_CARD_TYPES),
             (
-                "SHAPES. The exact shape of the eight cards answers most often earn follows; fill them "
+                "SHAPES. The exact shape of the cards answers most often earn follows; fill them "
                 "from these, and fill any other type from its index line above — a field you get wrong is "
                 "repaired, never a reason to skip a card the answer called for. Fields marked * are "
                 "required; omit optional ones rather than passing null. Numbers are plain JSON numbers.\n\n" + shapes
             )
             if shapes
             else "",
+            _COMPOSE_RULE,
             _MARKER_RULE,
         )
         if part
@@ -184,7 +214,7 @@ def validate_model_card(payload: object) -> tuple[dict[str, Any] | None, CardRef
     except Exception as exc:
         detail = render_error_detail(exc)
         logger.warning("card rejected: a '%s' card failed validation: %s", card_type, detail)
-        return None, CardRefusal(REFUSED_SHAPE, card_type, detail=detail, hint=shape_hint_for(card_type))
+        return None, CardRefusal(REFUSED_SHAPE, card_type, detail=detail, hint=_repair_hint(payload, card_type))
 
     if validated["type"] in SYSTEM_CARD_TYPES:
         logger.warning("card rejected: '%s' is system-emitted", validated["type"])
@@ -193,6 +223,24 @@ def validate_model_card(payload: object) -> tuple[dict[str, Any] | None, CardRef
         logger.warning("card rejected: '%s' is an envelope field", validated["type"])
         return None, CardRefusal(REFUSED_ENVELOPE_TYPE, validated["type"])
     return validated, None
+
+
+def _repair_hint(payload: dict[str, Any], card_type: str) -> str | None:
+    """The full shape a retry or repair of ``payload`` needs.
+
+    A surface's own hint is the COMPOSE rule, which names no card's fields; a
+    leaf that failed its card model is fixed from that card's shape, so the
+    shapes of the card types the surface holds ride with it.
+    """
+    if card_type != "surface":
+        return shape_hint_for(card_type)
+    components = payload.get("components")
+    leaves = [
+        component["component"]
+        for component in (components if isinstance(components, list) else ())
+        if isinstance(component, dict) and isinstance(component.get("component"), str)
+    ]
+    return render_card_details(["surface", *leaves]) or None
 
 
 def envelope_card_objects(raw: Sequence[Any] | None) -> list[Any]:
@@ -213,3 +261,8 @@ def envelope_card_objects(raw: Sequence[Any] | None) -> list[Any]:
             continue
         objects.append(element)
     return objects
+
+
+def compose_rule() -> str:
+    """How a ``surface`` is composed, with its worked example: the rule its shape hint is."""
+    return _COMPOSE_RULE

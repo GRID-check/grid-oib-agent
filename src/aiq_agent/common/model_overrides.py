@@ -14,11 +14,13 @@ nothing about those two layers: one map arrives, it is applied.
 
 The backend treats the header as advisory *model selection only*: every other
 generation parameter (max_tokens, reasoning_effort, base_url, api_key) still
-comes from the workflow YAML, so an override can never re-point traffic at a
-different provider or credential. Unknown groups and malformed ids are
-dropped; a missing/broken header means "use the YAML models" (fail-open to the
-config's boot fallback, never an error — model selection must not take chat
-down).
+comes from the workflow YAML (the platform owner's per-group reasoning level
+arrives separately, from ``platform_reasoning_efforts`` through
+``reasoning_settings``; the YAML value is its fallback), so an override can
+never re-point traffic at a different provider or credential. Unknown groups
+and malformed ids are dropped; a missing/broken header means "use the YAML
+models" (fail-open to the config's boot fallback, never an error — model
+selection must not take chat down).
 """
 
 import base64

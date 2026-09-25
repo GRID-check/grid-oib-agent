@@ -141,6 +141,47 @@ class CitationVerificationResult:
     valid_citations: list[dict] = field(default_factory=list)
 
 
+#: The reason a duplicate source line is dropped under. Its inline ``[N]`` is
+#: REWRITTEN to the line it duplicates, so the prose still cites the source:
+#: nothing the answer claimed was lost, which makes it a merge, not a defect.
+DUPLICATE_REASON_PREFIX = "duplicate_of_citation_"
+
+
+def lost_citations(removed_citations: Sequence[dict]) -> list[dict]:
+    """The removals that cost the answer a citation: every one except a merged duplicate.
+
+    Two Punkte read from one page are one registry entry, so an answer that
+    lists "file.pdf, p.4" twice gets the second merged into the first. Counted
+    as a failure, that merge bought a full repair rewrite (16 s, measured in
+    the September 2026 census) and a "Belege entfernt" note for a citation the
+    reader still has. Telemetry keeps the full list; the reader's note reads
+    this one (``ledger.citations_removed_summary`` on chat, ``finalize`` in
+    deep research).
+    """
+    return [
+        entry
+        for entry in removed_citations
+        if not (isinstance(entry, dict) and str(entry.get("reason") or "").startswith(DUPLICATE_REASON_PREFIX))
+    ]
+
+
+def merged_citations(removed_citations: Sequence[dict]) -> dict[int, int]:
+    """Each merged duplicate's number and the number it was rewritten to, before renumbering.
+
+    The removals :func:`lost_citations` leaves out: ``verify_citations``
+    rewrote the prose's ``[N]`` of each to the line it duplicates. Anything
+    else that carries the answer's numbers (a surface's ``Text``) takes the
+    same rewrite before sanitize's renumbering, or loses the citation.
+    """
+    merged: dict[int, int] = {}
+    for entry in removed_citations:
+        reason = str(entry.get("reason") or "") if isinstance(entry, dict) else ""
+        canonical = reason.removeprefix(DUPLICATE_REASON_PREFIX)
+        if reason.startswith(DUPLICATE_REASON_PREFIX) and canonical.isdigit() and isinstance(entry.get("number"), int):
+            merged[entry["number"]] = int(canonical)
+    return merged
+
+
 class EmptySourceRegistryError(Exception):
     """Raised when no sources were captured during research."""
 
@@ -820,6 +861,13 @@ def extract_sources_from_tool_result(
         # (collection, filename, page) onto the entry that arrived first.
         return [_entry_from_hit(hit, tool_name) for hit in block.hits]
 
+    # An error or a no-result report is not evidence, whatever it links to.
+    # Checked before the parsers and the URL extractor. Until 2026-09-24 it ran
+    # after them, and "Error: Web search is unavailable ... Get an API key from
+    # https://tavily.com/" registered tavily.com as a citable source (answer suite).
+    if _is_non_citable_status_output(content):
+        return []
+
     name_lower = tool_name.lower()
     for match_fn, parser_fn in _PARSER_REGISTRY:
         if match_fn(name_lower):
@@ -832,9 +880,6 @@ def extract_sources_from_tool_result(
     entries = _parse_generic_urls(content, tool_name)
     if entries:
         return entries
-
-    if _is_non_citable_status_output(content):
-        return []
 
     # Non-URL fallback: register the tool result itself as a source whenever
     # the tool produced non-empty output. The caller has already decided
@@ -924,9 +969,9 @@ def _entry_from_hit(hit: GroundingHit, tool_name: str) -> SourceEntry:
     convention: ``""`` and ``None`` mean the same thing to every reader
     downstream, and the entry states ``None``.
 
-    ``url`` stays unset even for a hit that carries a ``source_url``. A RIS
-    passage is cited by its key, not by its link, and giving it a URL would
-    move it onto the registry's URL identity and out of the document dedup.
+    ``url`` stays unset: a hit states no URL, and a RIS passage is cited by its
+    key, not by its link. Giving it one would move it onto the registry's URL
+    identity and out of the document dedup.
     """
     return SourceEntry(
         citation_key=hit.citation_key.strip(),
@@ -1371,6 +1416,54 @@ _CITATION_LINE_RE = re.compile(r"^\s*[-*]?\s*\[(\d+)\]\s*(.+)$", re.MULTILINE)
 _ORDERED_REFERENCE_LINE_RE = re.compile(r"^(\s*)(\d+)[.)]\s+(.+)$", re.MULTILINE)
 _COLLAPSED_SOURCE_BOUNDARY_RE = re.compile(r"\s+(?=\[(\d+)\]\s+)")
 _INLINE_CITATION_RE = re.compile(r"\[(\d+)\]")
+#: A marker naming several sources at once: ``[2–5]``, ``[2, 3]``, ``[1-3, 7]``.
+#: Not the label of a Markdown link (``[1-3](url)``): expanded, that link would
+#: lose its label to three markers. The same guard as ``surface_citations._CITATION``.
+#: Each part is a source number as the model writes one: no leading zero, so
+#: ``[1,000]`` and ``[0, 1]`` stay as written. A German decimal ``[1,5]`` still
+#: reads as two citations: the model writes ``[1,2]`` for two sources too, and
+#: no character tells them apart. The verifier removes whichever of the two
+#: names no source line.
+_GROUPED_CITATION_RE = re.compile(r"(?<!\[)\[([1-9]\d{0,2}(?:\s*[,–-]\s*[1-9]\d{0,2})+)\](?![\](])")
+#: The widest range read as citations; wider is a bracketed figure (``[1990–2020]``
+#: fails the digit bound anyway) or a slip, and stays as written.
+_MAX_CITATION_RANGE = 20
+
+
+def expand_grouped_citations(text: str, *, unterminated_fence_is_code: bool = False) -> str:
+    """``[2–5]`` → ``[2][3][4][5]`` and ``[2, 3]`` → ``[2][3]``.
+
+    The model is told to write one marker per source and sometimes writes a
+    range. Every reader downstream knows ``[N]`` only: the verifier checked
+    none of a range's sources and removed none of them, and the chat showed
+    ``[2–5]`` as literal text beside its neighbours' pills (answer suite,
+    2026-09-24). Expanded first, each source is verified and linked alone.
+
+    Code is left as written: ``grid[1, 2]`` is an index, not two citations.
+    A reader of a text still being written passes
+    ``unterminated_fence_is_code=True`` (see :func:`_code_spans`).
+    """
+    code = _code_spans(text, unterminated_fence_is_code=unterminated_fence_is_code)
+
+    def expand(match: re.Match) -> str:
+        if _inside(match.start(), code):
+            return match.group(0)
+        numbers: list[int] = []
+        for part in re.split(r"\s*,\s*", match.group(1)):
+            bounds = [int(bound) for bound in re.split(r"\s*[–-]\s*", part)]
+            if len(bounds) == 1:
+                numbers.append(bounds[0])
+                continue
+            low, high = bounds[0], bounds[-1]
+            if len(bounds) != 2 or not 0 < low < high or high - low > _MAX_CITATION_RANGE:
+                return match.group(0)
+            numbers.extend(range(low, high + 1))
+        # ``[1–3, 2]`` names source 2 once.
+        return "".join(f"[{number}]" for number in dict.fromkeys(numbers))
+
+    return _GROUPED_CITATION_RE.sub(expand, text)
+
+
 _FOOTNOTE_REFERENCE_LINE_RE = re.compile(r"^\s*\[\^(\d+)\]:?\s*", re.MULTILINE)
 _FOOTNOTE_INLINE_CITATION_RE = re.compile(r"\[\^(\d+)\]")
 _SOURCE_LOCATION_CITATION_RE = re.compile(r"\[(\d+)\s*†[^\]]+\]")
@@ -1578,9 +1671,11 @@ def cited_document_entries(text: str, registry: SourceRegistry) -> list[SourceEn
 
     The document-key counterpart to :meth:`SourceRegistry.has_url`: it answers
     "which of the documents we retrieved does this answer cite?" without needing
-    a URL. Matching is the same standalone-token test the citation verifier uses,
-    so a registered ``plan.pdf`` is not claimed by a mention of
-    ``bestandsplan.pdf``.
+    a URL. Each source line is resolved by :func:`_resolve_source_line`, the one
+    reading of a source line the verifier keeps or drops it on, so a document
+    is cited here exactly when ``verify_citations`` would keep its line. A
+    filename scan of the section did not: ``Bauordnung.pdf`` is a substring of
+    ``NÖ Bauordnung.pdf``, and the other Land's document counted as cited.
 
     Deep research had no such path — its "cited" signal was URL-only, so a
     knowledge-base source could never be marked cited and was dropped from the
@@ -1589,9 +1684,10 @@ def cited_document_entries(text: str, registry: SourceRegistry) -> list[SourceEn
     A document is `(collection, filename)`, so the shelf a source line names is
     part of what it cites: a line reading `Plan.pdf (Büroarchiv), p.3` marks the
     Archiv document, not the project upload that happens to share the name and
-    to sit earlier in the registry. Unqualified lines keep the old, fail-open
+    to sit earlier in the registry. Unqualified lines keep the fail-open
     reading (the first same-named entry), because a bare filename is proof the
-    document was retrieved but says nothing about which copy.
+    document was retrieved but says nothing about which copy. A line that
+    names the document by its TITLE cites it just as much.
 
     Only the source section is scanned, NEVER the prose. Citing is a claim the
     answer makes in its source list; a filename appearing in body text is not
@@ -1605,46 +1701,24 @@ def cited_document_entries(text: str, registry: SourceRegistry) -> list[SourceEn
     """
     if not text:
         return []
-    section_match = _REFERENCE_SECTION_RE.search(_normalize_citation_syntax(text))
+    normalized = _normalize_citation_syntax(text)
+    section_match = _REFERENCE_SECTION_RE.search(normalized)
     if section_match is None:
         return []
-    lowered = _normalize_citation_syntax(text)[section_match.start() :].lower()
-    seen: set[tuple[str | None, str]] = set()
-    cited: list[SourceEntry] = []
-    for entry in registry._citation_keys:
-        entry_file, _ = _parse_citation_key(entry.citation_key or "")
-        if not entry_file:
+    section = _normalize_source_section_layout(normalized[section_match.start() :])
+    cited: dict[tuple[str | None, str], SourceEntry] = {}
+    for line in _CITATION_LINE_RE.finditer(section):
+        ref_text = line.group(2).strip()
+        token = _ORIGIN_TOKEN_RE.match(ref_text)
+        source = _resolve_source_line(ref_text[token.end() :] if token else ref_text, registry)
+        # A line resolved by its link is the URL path's (``has_url``), not a document.
+        if source.url or not source.citation_key:
             continue
-        for end in _filename_token_ends(lowered, entry_file.lower()):
-            # Resolve through the registry with the shelf this line states, so
-            # the entry marked cited is the document the line names. The
-            # qualifier regex is case-insensitive, hence matching the lowered
-            # section is safe.
-            qualifier_match = _SCOPE_QUALIFIER_TOKEN_RE.match(lowered[end:])
-            label = shelf_qualifier(shelf_for_qualifier(qualifier_match.group(1))) if qualifier_match else None
-            key = f"{entry_file} ({label})" if label else entry_file
-            match = registry.entry_for_citation_key(key) or entry
-            identity = _document_identity(match)
-            if identity in seen:
-                continue
-            seen.add(identity)
-            cited.append(match)
-    # A line that names the document by its TITLE cites it just as much (see
-    # ``_match_registry_title``): the same one-line claim, in the tool's own
-    # ``Source:`` spelling. Resolved per line so an ambiguous head stays uncited.
-    for line in _CITATION_LINE_RE.findall(lowered):
-        key = _match_registry_title(line[1] if isinstance(line, tuple) else str(line), registry)
-        if not key:
-            continue
-        match = registry.entry_for_citation_key(key)
-        if match is None:
-            continue
-        identity = _document_identity(match)
-        if identity in seen:
-            continue
-        seen.add(identity)
-        cited.append(match)
-    return cited
+        entry = registry.entry_for_citation_key(source.citation_key)
+        if entry is not None:
+            cited.setdefault(_document_identity(entry), entry)
+    order = {id(entry): index for index, entry in enumerate(registry._citation_keys)}
+    return sorted(cited.values(), key=lambda entry: order.get(id(entry), len(order)))
 
 
 _TITLE_PREFIX_SEPARATOR_RE = re.compile(r"\s+[-\u2013\u2014]\s+|:\s+")
@@ -1686,6 +1760,46 @@ def _is_digest_shaped_line(ref_text: str) -> bool:
         return False
     lowered = [part.lower() for part in parts[-3:]]
     return lowered[0].startswith("seiten ") and lowered[1].startswith("punkte ") and lowered[2].startswith("turn ")
+
+
+#: What may stand before a source line's leading link: the list bullet, its
+#: ``[N]`` and an origin token. A link there is followed by its separator.
+_LEADING_LINK_PREFIX = r"^(\s*(?:[-*]\s*)?(?:\[\d+\]\s*)?(?:\[(?:KB|RIS|Web)\]\s*)?)"
+
+#: A label that only introduces the link (``Source: <url>``, ``Quelle: url``):
+#: without the link it names nothing, so it goes with it.
+_LINK_LABEL = r"(?:(?:Source|Quelle|Fundstelle|Link)(?:[ \t]+URL)?|URL)[ \t]*:[ \t]*"
+
+#: What stands between a title and its link, on either side.
+_LINK_SEPARATOR = r"[-–—:,|]"
+
+
+def _drop_url(text: str, url: str) -> str:
+    """``text`` without ``url``, and without the separator or label that goes with it.
+
+    ``[Title](url)`` keeps its title, ``<url>``, ``(url)`` and ``[url]`` go whole, a bare
+    ``Title - url`` or ``Title | url`` loses the separator with the link,
+    ``Title – Source: url`` and ``Title (Source: url)`` the label too, a
+    leading ``url - Title`` the separator after it, and ``Title (url, 2024)``
+    the link and its comma, keeping ``(2024)``.
+    """
+    escaped = re.escape(url)
+    text = re.sub(rf"\[([^\]]*)\]\({escaped}\)", r"\1", text)
+    text, leading = re.subn(
+        rf"{_LEADING_LINK_PREFIX}[<(\[]?{escaped}[>)\]]?\s*(?:{_LINK_SEPARATOR}\s*)?", r"\1", text, flags=re.IGNORECASE
+    )
+    if leading:
+        return text.rstrip()
+    # A link sharing its parentheses with something else, ``(url, 2024)`` or
+    # ``(2024, url)``, takes its comma and leaves the parentheses to the rest.
+    labelled = rf"(?:{_LINK_LABEL})?<?{escaped}>?"
+    text, shared = re.subn(rf"\(\s*{labelled}\s*,\s*", "(", text, flags=re.IGNORECASE)
+    if not shared:
+        text, shared = re.subn(rf"\s*,\s*{labelled}\s*\)", ")", text, flags=re.IGNORECASE)
+    if not shared:
+        link = rf"(?:\(\s*{labelled}\s*\)|(?:{_LINK_LABEL})?[<(\[]?{escaped}[>)\]]?)"
+        text = re.sub(rf"\s*(?:{_LINK_SEPARATOR}\s*)?{link}", "", text, flags=re.IGNORECASE)
+    return text.rstrip()
 
 
 def _is_knowledge_citation(ref_text: str, registry: SourceRegistry | None = None) -> tuple[bool, str | None]:
@@ -1739,6 +1853,10 @@ def _is_ris_source(entry: SourceEntry) -> bool:
     """Return true when a source originates from the Austrian RIS."""
     name = (entry.tool_name or "").lower()
     if name.startswith("ris_") or "ris_search" in name or "ris_fetch" in name:
+        return True
+    # The collection ``ris_lookup`` states (``ris/LrKons/Wien``), which a
+    # registry hydrated without the tool name still carries.
+    if (entry.collection or "").lower().startswith("ris/"):
         return True
     return bool(entry.url and _RIS_URL_HOST_RE.match(entry.url))
 
@@ -2054,10 +2172,13 @@ def source_origin_token(entry: SourceEntry) -> str:
     string when the origin is not cleanly identifiable, so callers emit no token
     and the frontend falls open to plain, unlabeled text.
     """
-    if entry.source_type == "knowledge_layer":
-        return "[KB]"
+    # RIS first: a ``ris_lookup`` passage is a grounding-block hit, so it is a
+    # ``knowledge_layer`` entry too, and checked second it went out as ``[KB]``
+    # on every Bauordnung answer the suite read.
     if _is_ris_source(entry):
         return "[RIS]"
+    if entry.source_type == "knowledge_layer":
+        return "[KB]"
     if entry.url:
         return "[Web]"
     return ""
@@ -2832,7 +2953,8 @@ class UnverifiedQuote:
 
     # Inner quoted text, exactly as it appeared in the answer (no quote marks).
     quote: str
-    # The full matched span INCLUDING its quote marks (used for logging/tests).
+    # The full matched span INCLUDING its quote marks. The quote repair
+    # (``quote_patch.accept``) checks its correction against it.
     span: str
     # Character offsets of the span within the scanned answer text, so the
     # annotation can be inserted immediately after the closing quote mark.
@@ -2847,6 +2969,19 @@ class UnverifiedQuote:
     # several fire. The annotation is the same either way; the reason tells the
     # repair which failure it is looking at.
     reason: str = "not_verbatim"
+    # The closest passage (by `closeness`) among the sources the quote's sentence CITES (None
+    # when it cites none the registry holds): for a quote the model
+    # misremembered, the passage it was quoting. What the quote patch corrects
+    # the wording against, with no second search. Not the whole-registry best
+    # (that is ``best_coverage``): a near-identical text from an uncited source
+    # must never supply a cited quote's wording. Looked for only on a quote
+    # the patch could correct (``not_verbatim``), and only when the caller
+    # asked (``with_nearest``): each candidate page costs a closeness pass.
+    nearest: SourceEntry | None = field(default=None, compare=False, repr=False)
+    # ``closeness(quote, nearest.chunk_text)``, the score ``nearest`` was chosen
+    # by, kept so the patch gates on it without a second pass. 0.0 with no
+    # ``nearest``.
+    nearest_closeness: float = field(default=0.0, compare=False)
 
 
 def _normalize_for_quote_match(text: str) -> str:
@@ -2951,6 +3086,32 @@ def _quote_coverage(norm_quote: str, norm_chunk: str) -> float:
     return best
 
 
+def closeness(quote: str, passage: str) -> float:
+    """How closely ``quote`` matches the most similar stretch of ``passage`` (0-1).
+
+    Not the verifier's coverage, which scores the longest CONTIGUOUS run and
+    so drops a quote with two words changed to ~0.4, the same as an invented
+    one. This compares the quote with each quote-sized window of the passage
+    and keeps the best ratio, so scattered small edits cost little and a
+    different sentence costs a lot. What the quote patch gates on
+    (``quote_patch.PATCH_FLOOR``), and what picks the passage it patches from.
+    """
+    return _normalized_closeness(_normalize_for_quote_match(quote), _normalize_for_quote_match(passage))
+
+
+def _normalized_closeness(norm_quote: str, norm_passage: str) -> float:
+    """:func:`closeness` on text already through :func:`_normalize_for_quote_match`."""
+    length = len(norm_quote)
+    if not length or not norm_passage:
+        return 0.0
+    step, width, best = max(1, length // 8), length + length // 5, 0.0
+    for start in range(0, max(1, len(norm_passage) - length + step), step):
+        matcher = difflib.SequenceMatcher(None, norm_quote, norm_passage[start : start + width])
+        if matcher.real_quick_ratio() > best and matcher.quick_ratio() > best:
+            best = max(best, matcher.ratio())
+    return best
+
+
 # ---------------------------------------------------------------------------
 # Mechanical quote gates: form, not wording.
 #
@@ -3012,12 +3173,114 @@ def _quote_sentence_windows(body: str, start: int, end: int) -> tuple[tuple[int,
     return (win_start, win_end), following
 
 
-def _quote_has_citation_in_sentence(body: str, start: int, end: int) -> bool:
-    """Whether an ``[N]`` marker shares the quote's sentence (or the next one)."""
+def _quote_cited_numbers(body: str, start: int, end: int) -> set[int]:
+    """The ``[N]`` numbers in the quote's sentence, or in the next one when its own has none.
+
+    Empty is what makes a quote ``uncited``; the numbers are the sources its
+    nearest passage may come from.
+    """
     (win_start, win_end), following = _quote_sentence_windows(body, start, end)
-    if _INLINE_CITATION_RE.search(body, win_start, win_end):
-        return True
-    return following is not None and _INLINE_CITATION_RE.search(body, following[0], following[1]) is not None
+    numbers = {int(n) for n in _INLINE_CITATION_RE.findall(body, win_start, win_end)}
+    if not numbers and following is not None:
+        numbers = {int(n) for n in _INLINE_CITATION_RE.findall(body, following[0], following[1])}
+    return numbers
+
+
+@dataclass(frozen=True)
+class _CitedSources:
+    """What some of the answer's source lines name: registry documents, and links the registry holds.
+
+    A document is its ``(collection, filename)``, page aside; a link is kept as
+    the registry's own URL, normalised, so a cited ``?id=5&utm_source=x``
+    matches the entry filed as ``?id=5``.
+    """
+
+    documents: frozenset[tuple[str | None, str]] = frozenset()
+    urls: frozenset[str] = frozenset()
+
+    def holds(self, source: SourceEntry) -> bool:
+        if _document_identity(source) in self.documents:
+            return True
+        return bool(source.url) and _normalize_url(source.url or "") in self.urls
+
+
+class _CitedLookup:
+    """The sources a set of ``[N]`` names, read off ``answer_text``'s source lines.
+
+    Read with the same matchers as the source section, one line at a time, so
+    ``[1]`` resolves to what its line says and not to a neighbour's document.
+    The section is parsed once, on the first question, and each number set is
+    resolved once: only flagged quotes ask, and several share a sentence.
+    """
+
+    def __init__(self, answer_text: str, registry: SourceRegistry) -> None:
+        self._answer_text = answer_text
+        self._registry = registry
+        self._lines: dict[int, list[str]] | None = None
+        self._memo: dict[frozenset[int], _CitedSources] = {}
+
+    def _source_lines(self) -> dict[int, list[str]]:
+        if self._lines is None:
+            normalized = _normalize_citation_syntax(self._answer_text)
+            section = _REFERENCE_SECTION_RE.search(normalized)
+            self._lines = {}
+            if section is not None:
+                for number, text in _CITATION_LINE_RE.findall(normalized[section.start() :]):
+                    self._lines.setdefault(int(number), []).append(text)
+        return self._lines
+
+    def __call__(self, numbers: set[int]) -> _CitedSources:
+        key = frozenset(numbers)
+        if key not in self._memo:
+            lines = [line for number in sorted(key) for line in self._source_lines().get(number, ())]
+            self._memo[key] = self._resolve(lines)
+        return self._memo[key]
+
+    def _resolve(self, lines: Sequence[str]) -> _CitedSources:
+        """The sources ``lines`` resolve to, resolved as ``verify_citations`` resolved them.
+
+        Not a filename scan of the line: ``Bauordnung.pdf`` is a substring of
+        ``NÖ Bauordnung.pdf``, and a scan would count the other Bundesland's
+        document as cited (ADR-0067).
+        """
+        documents: set[tuple[str | None, str]] = set()
+        urls: set[str] = set()
+        for line in lines:
+            text = line.strip()
+            token = _ORIGIN_TOKEN_RE.match(text)
+            source = _resolve_source_line(text[token.end() :] if token else text, self._registry)
+            if source.url:
+                urls.add(_normalize_url(source.url))
+            elif (entry := source.entry(self._registry)) is not None:
+                documents.add(_document_identity(entry))
+        return _CitedSources(frozenset(documents), frozenset(urls))
+
+
+def _nearest_cited(
+    norm_quote: str, cited: _CitedSources, normalized_chunks: Sequence[tuple[str, SourceEntry]]
+) -> tuple[SourceEntry | None, float]:
+    """The passage, among the sources the quote's sentence cites, its wording comes closest to.
+
+    Ranked by :func:`closeness`, the measure the quote patch gates on, not by
+    ``_quote_coverage``: coverage scores the longest contiguous run, so a quote
+    with two words changed scores like an invented one, and a neighbouring
+    page that shares one long phrase would outrank the page actually quoted.
+    Every page of a cited document is a candidate; the closest one is it.
+    Returns ``(passage, its closeness)``, ``(None, 0.0)`` when none is cited.
+    """
+    best, nearest = -1.0, None
+    for chunk, source in normalized_chunks:
+        if not cited.holds(source):
+            continue
+        score = _normalized_closeness(norm_quote, chunk)
+        if score > best:
+            best, nearest = score, source
+    return nearest, max(best, 0.0)
+
+
+def _flag_reason(too_long: bool, uncited: bool) -> str:
+    """``too_long`` / ``uncited`` joined with ``+``, or ``not_verbatim`` when neither fired."""
+    return "+".join(name for name, hit in (("too_long", too_long), ("uncited", uncited)) if hit) or "not_verbatim"
 
 
 def _answer_body_before_sources(answer_text: str) -> str:
@@ -3032,12 +3295,32 @@ def _answer_body_before_sources(answer_text: str) -> str:
     return answer_text[: ref_match.start()] if ref_match else answer_text
 
 
+def _quoted_spans(body: str, min_quote_len: int) -> Iterator[tuple[re.Match[str], str, str]]:
+    """Each quotation in ``body`` long enough to check: ``(match, inner text, normalised inner)``.
+
+    Code is not prose and carries nothing to verify (see `_code_spans`). It is
+    skipped by OFFSET rather than stripped out, so every match still indexes
+    the text `annotate_unverified_quotes` will be handed.
+    """
+    code = _code_spans(body)
+    for match in _QUOTED_SPAN_RE.finditer(body):
+        if _inside(match.start(), code):
+            continue
+        inner = next((group for group in match.groups() if group is not None), None)
+        if inner is None:
+            continue
+        norm_quote = _normalize_for_quote_match(inner)
+        if len(norm_quote) >= min_quote_len:
+            yield match, inner, norm_quote
+
+
 def verify_quoted_spans(
     answer_text: str,
     registry: SourceRegistry,
     *,
     threshold: float = QUOTE_MATCH_THRESHOLD,
     min_quote_len: int = MIN_QUOTE_LEN,
+    with_nearest: bool = True,
 ) -> list[UnverifiedQuote]:
     """Return the quoted spans in the answer body not supported by any chunk text.
 
@@ -3054,15 +3337,15 @@ def verify_quoted_spans(
     flagged (``reason="too_long"`` / ``"uncited"``) even when it IS verbatim —
     verbatim is not attributable. Flagged means annotated downstream, never
     stripped: the sentence stays, the marker names the doubt.
+
+    ``with_nearest`` fills ``UnverifiedQuote.nearest`` for the quote patch, on
+    a ``not_verbatim`` quote only: the patch never corrects the others, and
+    each page of each cited document costs a closeness pass. A caller that
+    never patches (deep research) passes ``False``.
     """
     body = _answer_body_before_sources(answer_text)
-    # Code is not prose and carries nothing to verify — see `_code_spans`.
-    # Skipped by OFFSET rather than by stripping the code out, so every
-    # `start`/`end` below still indexes the text `annotate_unverified_quotes`
-    # will be handed.
-    code = _code_spans(body)
     normalized_chunks = [
-        norm
+        (norm, source)
         for source in registry.all_sources()
         if source.chunk_text
         if (norm := _normalize_for_quote_match(source.chunk_text))
@@ -3070,33 +3353,34 @@ def verify_quoted_spans(
     if not normalized_chunks:
         return []
 
+    cited_lookup = _CitedLookup(answer_text, registry)
     unverified: list[UnverifiedQuote] = []
-    for match in _QUOTED_SPAN_RE.finditer(body):
-        if _inside(match.start(), code):
-            continue
-        inner = next((group for group in match.groups() if group is not None), None)
-        if inner is None:
-            continue
-        norm_quote = _normalize_for_quote_match(inner)
-        if len(norm_quote) < min_quote_len:
-            continue
+    for match, inner, norm_quote in _quoted_spans(body, min_quote_len):
         too_long = len(inner.split()) > _QUOTE_MAX_WORDS
-        uncited = not _quote_has_citation_in_sentence(body, match.start(), match.end())
-        best_coverage = max(_quote_coverage(norm_quote, chunk) for chunk in normalized_chunks)
-        if too_long or uncited or best_coverage < threshold:
-            reasons = (
-                "+".join(name for name, hit in (("too_long", too_long), ("uncited", uncited)) if hit) or "not_verbatim"
+        cited_numbers = _quote_cited_numbers(body, match.start(), match.end())
+        uncited = not cited_numbers
+        best_coverage = max(_quote_coverage(norm_quote, chunk) for chunk, _ in normalized_chunks)
+        if not (too_long or uncited or best_coverage < threshold):
+            continue
+        # The passage a correction may come from: the closest one of a source
+        # the quote's own sentence CITES. The closest in the whole registry
+        # could be another Bundesland's near-identical text, and a patch from
+        # it would put that text under this citation (ADR-0067).
+        nearest, score = None, 0.0
+        if with_nearest and not (too_long or uncited):
+            nearest, score = _nearest_cited(norm_quote, cited_lookup(cited_numbers), normalized_chunks)
+        unverified.append(
+            UnverifiedQuote(
+                quote=inner,
+                span=match.group(0),
+                start=match.start(),
+                end=match.end(),
+                best_coverage=best_coverage,
+                reason=_flag_reason(too_long, uncited),
+                nearest=nearest,
+                nearest_closeness=score,
             )
-            unverified.append(
-                UnverifiedQuote(
-                    quote=inner,
-                    span=match.group(0),
-                    start=match.start(),
-                    end=match.end(),
-                    best_coverage=best_coverage,
-                    reason=reasons,
-                )
-            )
+        )
     return unverified
 
 
@@ -3118,6 +3402,62 @@ def annotate_unverified_quotes(answer_text: str, unverified: Sequence[Unverified
             continue
         result = f"{result[:insert_at]} {UNVERIFIED_QUOTE_MARKER}{result[insert_at:]}"
     return result
+
+
+@dataclass(frozen=True)
+class _LineSource:
+    """What one source line resolves to in the registry: a URL, a citation key, or why neither.
+
+    ``line_url`` is the link the line carried: garbled when it differs from
+    ``url``, and dropped when the line resolved by its key instead.
+    """
+
+    url: str | None = None
+    citation_key: str | None = None
+    line_url: str | None = None
+    reason: str | None = None
+
+    def entry(self, registry: SourceRegistry) -> SourceEntry | None:
+        if self.url:
+            return registry.entry_for_url(self.url)
+        return registry.entry_for_citation_key(self.citation_key) if self.citation_key else None
+
+
+def _resolve_source_line(match_text: str, registry: SourceRegistry) -> _LineSource:
+    """Resolve one source line's text (origin token stripped) the way ``verify_citations`` accepts it.
+
+    The one reading of a source line: the verifier keeps or drops the line on
+    it, and the quote check reads which source a ``[N]`` names off it, so the
+    passage a quote is patched from is the one its citation was verified
+    against (ADR-0067).
+    """
+    # A digest line cites the conversation's read-index, not a retrieved
+    # passage (see ``_is_digest_shaped_line``): rejected before either the
+    # URL or the filename scan can accept it on a fragment it contains.
+    if _is_digest_shaped_line(match_text):
+        return _LineSource(reason="digest_line_not_citable")
+    url_match = _URL_IN_LINE_RE.search(match_text)
+    if url_match:
+        url = url_match.group(0).rstrip(_URL_TRIM_CHARS)
+        if canonical := registry.resolve_url(url):
+            return _LineSource(url=canonical, line_url=url)
+        # A source cited by its key can still arrive with a link: the prompt
+        # asks for ``Title - URL``, the model copies a link from a tool's
+        # source line (``ris_search`` prints ``Source: <url>``; ``ris_lookup``
+        # printed ``Source URL:`` beside ``Citation:`` until 2026-09-24), and
+        # the registry deliberately files RIS by key. The key decides; the
+        # link it cannot vouch for is dropped.
+        is_kl, citation_key = _is_knowledge_citation(_drop_url(match_text, url), registry)
+        if is_kl and citation_key and registry.has_citation_key(citation_key):
+            return _LineSource(citation_key=citation_key, line_url=url)
+        return _LineSource(reason="url_not_in_registry")
+    # Knowledge-layer citation key (lenient: the registry allows a fuzzy filename match).
+    is_kl, citation_key = _is_knowledge_citation(match_text, registry)
+    if not (is_kl and citation_key):
+        return _LineSource(reason="unverifiable")
+    if not registry.has_citation_key(citation_key):
+        return _LineSource(reason="citation_key_not_in_registry")
+    return _LineSource(citation_key=citation_key)
 
 
 def verify_citations(
@@ -3220,6 +3560,7 @@ def verify_citations(
     # fallback-synthesized and chat paths already carry. Lines that
     # already start with a token are left as-is (idempotent).
     origin_tokens: dict[int, str] = {}
+    dropped_urls: dict[int, str] = {}  # key-verified line -> the link it carried
 
     for line_match in _CITATION_LINE_RE.finditer(ref_section):
         num = int(line_match.group(1))
@@ -3234,51 +3575,23 @@ def verify_citations(
         already_tokenized = token_match is not None
         match_text = ref_text[token_match.end() :] if token_match else ref_text
 
-        # A digest line cites the conversation's read-index, not a retrieved
-        # passage (see ``_is_digest_shaped_line``): rejected before either the
-        # URL or the filename scan can accept it on a fragment it contains.
-        if _is_digest_shaped_line(match_text):
-            logger.debug("[CitationVerify]   [%d] REMOVE — digest_line_not_citable: %s", num, ref_text[:80])
-            removed_citations.append({"number": num, "line": full_line, "reason": "digest_line_not_citable"})
+        source = _resolve_source_line(match_text, registry)
+        if source.reason is not None:
+            log = logger.info if source.reason == "url_not_in_registry" else logger.debug
+            log("[CitationVerify]   [%d] REMOVE — %s: %s", num, source.reason, ref_text[:80])
+            removed_citations.append({"number": num, "line": full_line, "reason": source.reason})
             continue
-
-        # Try URL match first
-        url_match = _URL_IN_LINE_RE.search(match_text)
-        if url_match:
-            url = url_match.group(0).rstrip(_URL_TRIM_CHARS)
-            canonical = registry.resolve_url(url)
-            if canonical:
-                if canonical != url:
-                    logger.debug("[CitationVerify]   [%d] VALID  — %s (repaired from: %s)", num, canonical, url)
-                    url_replacements[url] = canonical
-                else:
-                    logger.debug("[CitationVerify]   [%d] VALID  — %s", num, url)
-                valid_citations.append({"number": num, "url": canonical, "citation_key": None, "line": full_line})
-                if not already_tokenized and (entry := registry.entry_for_url(canonical)):
-                    if token := source_origin_token(entry):
-                        origin_tokens[num] = token
-            else:
-                logger.info("[CitationVerify]   [%d] REMOVE — url_not_in_registry: %s", num, url)
-                removed_citations.append({"number": num, "line": full_line, "reason": "url_not_in_registry"})
-            continue
-
-        # Try knowledge-layer citation key (lenient — passes registry for fuzzy filename match)
-        is_kl, citation_key = _is_knowledge_citation(match_text, registry)
-        if is_kl and citation_key:
-            if registry.has_citation_key(citation_key):
-                logger.debug("[CitationVerify]   [%d] VALID  — %s", num, citation_key)
-                valid_citations.append({"number": num, "url": None, "citation_key": citation_key, "line": full_line})
-                if not already_tokenized and (entry := registry.entry_for_citation_key(citation_key)):
-                    if token := source_origin_token(entry):
-                        origin_tokens[num] = token
-            else:
-                logger.debug("[CitationVerify]   [%d] REMOVE — citation_key_not_in_registry: %s", num, citation_key)
-                removed_citations.append({"number": num, "line": full_line, "reason": "citation_key_not_in_registry"})
-            continue
-
-        # Neither URL nor recognizable citation key
-        logger.debug("[CitationVerify]   [%d] REMOVE — unverifiable: %s", num, ref_text[:80])
-        removed_citations.append({"number": num, "line": full_line, "reason": "unverifiable"})
+        logger.debug("[CitationVerify]   [%d] VALID  — %s", num, source.url or source.citation_key)
+        valid_citations.append(
+            {"number": num, "url": source.url, "citation_key": source.citation_key, "line": full_line}
+        )
+        if source.url and source.line_url and source.line_url != source.url:
+            url_replacements[source.line_url] = source.url
+        if source.citation_key and source.line_url:
+            dropped_urls[num] = source.line_url
+        if not already_tokenized and (entry := source.entry(registry)):
+            if token := source_origin_token(entry):
+                origin_tokens[num] = token
 
     # Dedup: collapse multiple [N] source lines that resolve to the same
     # registry source. The model often makes the same tool call twice (e.g.
@@ -3307,7 +3620,7 @@ def verify_citations(
             {
                 "number": c["number"],
                 "line": c["line"],
-                "reason": f"duplicate_of_citation_{canonical_num}",
+                "reason": f"{DUPLICATE_REASON_PREFIX}{canonical_num}",
             }
         )
         logger.debug(
@@ -3344,6 +3657,8 @@ def verify_citations(
             num = int(line_match.group(1))
             if num in removed_numbers:
                 continue
+            if (dropped := dropped_urls.get(num)) is not None:
+                line = _drop_url(line, dropped)
             if (token := origin_tokens.get(num)) is not None:
                 line = _inject_origin_token(line, token)
         cleaned_ref_lines.append(line)

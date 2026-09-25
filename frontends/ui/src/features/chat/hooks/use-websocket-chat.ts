@@ -757,6 +757,7 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
   // Actions — stable references, individual selectors won't cause re-renders
   const addUserMessage = useChatStore((s) => s.addUserMessage)
   const appendAgentResponseDelta = useChatStore((s) => s.appendAgentResponseDelta)
+  const replaceStreamingAgentResponse = useChatStore((s) => s.replaceStreamingAgentResponse)
   const finalizeAgentResponse = useChatStore((s) => s.finalizeAgentResponse)
   const setTurnWsParentId = useChatStore((s) => s.setTurnWsParentId)
   const applyStageFrame = useChatStore((s) => s.applyStageFrame)
@@ -1425,8 +1426,25 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
             : (transparency as AnswerTransparency | undefined)
         if (isFinal) {
           finalizeAgentResponse(content, validatedCards, answerConfidence, citations, answerTransparency)
-        } else if ((content && content.trim()) || validatedCards.length > 0) {
-          appendAgentResponseDelta(content, validatedCards, answerConfidence, citations)
+        } else if (transparency?.streamReplace) {
+          // The streamed prose, its citations settled (ADR-0066): the pending
+          // markers on screen become the answer's own, before its cards.
+          replaceStreamingAgentResponse(content, citations, transparency.answerMeta)
+        } else if (content || validatedCards.length > 0 || transparency?.answerMeta) {
+          // A live frame may also carry the masthead, written before the
+          // prose, or the cards written after it: each lands in its place
+          // the moment it exists instead of all at once at the end. A
+          // whitespace-only delta is text too once the bubble is open: the
+          // relay can batch a frame of just "\n\n", and dropping it runs two
+          // paragraphs together until the snapshot. As a turn's FIRST frame
+          // it opens nothing (the store decides; the observer's fold agrees).
+          appendAgentResponseDelta(
+            content,
+            validatedCards,
+            answerConfidence,
+            citations,
+            transparency?.answerMeta
+          )
         }
 
         // status: "complete" with null text signals task completion
@@ -1885,6 +1903,7 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
     }
   }, [
     appendAgentResponseDelta,
+    replaceStreamingAgentResponse,
     finalizeAgentResponse,
     setTurnWsParentId,
     applyStageFrame,

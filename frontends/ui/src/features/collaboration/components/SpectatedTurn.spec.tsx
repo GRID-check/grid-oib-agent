@@ -8,7 +8,8 @@
 
 import { describe, expect, it } from 'vitest'
 import { render, screen } from '@/test-utils'
-import { EMPTY_SPECTATED_TURN, type SpectatedTurnState } from '../lib/spectator-frames'
+import type { GridCard } from '@/shared/cards/schemas'
+import { EMPTY_SPECTATED_TURN, reduceSpectatedFrame, type SpectatedTurnState } from '../lib/spectator-frames'
 import { SpectatedTurn } from './SpectatedTurn'
 
 const LABEL = 'Piloti beantwortet die Frage von Anna Berger…'
@@ -52,5 +53,100 @@ describe('SpectatedTurn', () => {
     // announcement (CC-9) is what reports the answer.
     render(<SpectatedTurn turn={turn({ answer: 'Teilantwort' })} label={LABEL} />)
     expect(screen.getByTestId('spectated-turn')).toHaveAttribute('aria-live', 'off')
+  })
+
+  it('draws a card that acts without anything to press (ADR-0039 §5)', () => {
+    // The second wall: even a memory proposal that reached the view offers the
+    // observer no button — pressing one wrote into the OBSERVER's organization.
+    const proposal = {
+      type: 'memory_proposal',
+      title: 'Merken?',
+      content: 'Das Büro plant GK4 immer mit REI 90.',
+      kind: 'preference',
+      confidence: 'high',
+    } as GridCard
+    render(
+      <SpectatedTurn
+        turn={turn({ answer: 'Fertig.', cards: [proposal], done: true })}
+        label={LABEL}
+      />
+    )
+    expect(screen.getByTestId('spectated-turn')).toHaveTextContent('REI 90')
+    expect(screen.queryAllByRole('button')).toEqual([])
+  })
+
+  it('does not draw a file operation proposal for an observer', () => {
+    const complete = {
+      type: 'system_response_message',
+      id: 'c1',
+      parent_id: 'turn-1',
+      status: 'complete',
+      content: { text: 'Ich schlage eine Verschiebung vor.' },
+      cards: [
+        {
+          type: 'file_operation_proposal',
+          title: 'Pläne einsortieren',
+          operation: 'move',
+          operations: [{ document: 'Grundriss EG.pdf', source: 'projekt', current: '', target_folder: 'Einreichung' }],
+        },
+      ],
+    }
+    render(<SpectatedTurn turn={reduceSpectatedFrame(EMPTY_SPECTATED_TURN, complete)} label={LABEL} />)
+    expect(screen.getByTestId('spectated-turn')).toHaveTextContent('Verschiebung')
+    expect(screen.queryByText('Pläne einsortieren')).toBeNull()
+    expect(screen.queryAllByRole('button')).toEqual([])
+  })
+
+  it('draws nothing, not a skeleton, where a withheld card stood while the turn streams', () => {
+    // The observer's cards keep a hole where a card that acts was dropped. The
+    // marker naming it points INSIDE the array, at a card that is never coming,
+    // so it must not hold a pending skeleton for the rest of the stream; a
+    // marker past the end still does, since that card is only not written yet.
+    const cardsFrame = {
+      type: 'system_response_message',
+      id: 'f1',
+      parent_id: 'turn-1',
+      status: 'in_progress',
+      content: { text: '' },
+      cards: [
+        {
+          type: 'file_operation_proposal',
+          title: 'Pläne einsortieren',
+          operation: 'move',
+          operations: [{ document: 'Grundriss EG.pdf', source: 'projekt', current: '', target_folder: 'Einreichung' }],
+        },
+      ],
+    }
+    const textFrame = {
+      type: 'system_response_message',
+      id: 'f2',
+      parent_id: 'turn-1',
+      status: 'in_progress',
+      content: { text: 'Vorschlag:\n\n[[card:1]]\n\nWeiter.' },
+    }
+    const state = reduceSpectatedFrame(reduceSpectatedFrame(EMPTY_SPECTATED_TURN, cardsFrame), textFrame)
+    expect(state.cards).toEqual([undefined])
+    const { rerender } = render(<SpectatedTurn turn={state} label={LABEL} />)
+    expect(screen.getByTestId('spectated-turn')).toHaveTextContent('Weiter.')
+    expect(screen.queryByTestId('pending-card-slot')).toBeNull()
+
+    rerender(<SpectatedTurn turn={{ ...state, answer: `${state.answer}\n\n[[card:2]]\n\nEnde.` }} label={LABEL} />)
+    expect(screen.getByTestId('pending-card-slot')).toBeInTheDocument()
+  })
+
+  it('draws a turn that carries cards and no prose', () => {
+    const basis = {
+      type: 'legal_basis',
+      law: 'OIB-Richtlinie 2',
+      article: '3.1',
+      summary: 'GK 4: REI 60.',
+    } as GridCard
+    render(<SpectatedTurn turn={turn({ answer: '', cards: [basis] })} label={LABEL} />)
+    expect(screen.getByTestId('spectated-turn')).toHaveTextContent('OIB-Richtlinie 2')
+  })
+
+  it('offers no copy controls once the turn is done', () => {
+    render(<SpectatedTurn turn={turn({ answer: 'Ja, ab drei Geschossen.', done: true })} label={LABEL} />)
+    expect(screen.queryAllByRole('button')).toEqual([])
   })
 })

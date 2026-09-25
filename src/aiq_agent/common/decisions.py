@@ -89,7 +89,7 @@ URL_ENV = "GRID_DECISIONS_URL"
 # @required false
 # A dedicated key for the Decisions endpoint. Falls back to OPENROUTER_API_KEY
 # through the shared credential resolver, BYOK first.
-API_KEY_ENV = "GRID_DECISIONS_API_KEY"  # pragma: allowlist secret
+DEDICATED_ENV = "GRID_DECISIONS_API_KEY"  # pragma: allowlist secret
 
 DEFAULT_MODEL = "typesafe/jev-1.13"
 DEFAULT_PATH = "/api/alpha/decisions"
@@ -119,6 +119,8 @@ SKIPPED_BYOK_HOST = "byok_host"
 SKIPPED_BREAKER = "breaker"
 SKIPPED_TIMEOUT = "timeout"
 SKIPPED_ERROR = "error"
+#: The caller did not ask: a first message of fewer than three words (Piloti).
+SKIPPED_TOO_SHORT = "too_short"
 
 #: Consecutive failures before the breaker opens, and how long it stays open.
 #: Module-level: the failure is the endpoint's, not one caller's.
@@ -293,7 +295,7 @@ def _resolve_endpoint_blocking(organization_id: str | None) -> tuple[_Endpoint |
         from aiq_agent.common.credential_resolution import resolve_llm_credential
 
         resolved = resolve_llm_credential(
-            primary_env=API_KEY_ENV,
+            primary_env=DEDICATED_ENV,
             fallback_envs=(_FALLBACK_KEY_ENV,),
             default_base_url=_DEFAULT_BASE_URL,
             default_model=model,
@@ -302,7 +304,7 @@ def _resolve_endpoint_blocking(organization_id: str | None) -> tuple[_Endpoint |
         api_key, base_url, byok = resolved.api_key, resolved.base_url, resolved.source == "byok"
     except Exception:  # noqa: BLE001 — type only; the message can carry the key
         logger.warning("Decision credential resolution failed; trying the environment directly")
-        api_key = os.environ.get(API_KEY_ENV, "") or os.environ.get(_FALLBACK_KEY_ENV, "")
+        api_key = os.environ.get(DEDICATED_ENV, "") or os.environ.get(_FALLBACK_KEY_ENV, "")
         base_url, byok = _DEFAULT_BASE_URL, False
     if not api_key:
         return None, SKIPPED_NO_KEY
@@ -476,6 +478,17 @@ def _record(slot: str, values: dict[str, Any]) -> None:
         logger.debug("Decision record for %s not emitted", slot, exc_info=True)
 
 
+def record_skipped(slot: str, reason: str, detail: str | None = None) -> None:
+    """Log and record a decision that did not run, and why.
+
+    INFO, not DEBUG: a decision that silently misses its budget looks, in
+    every log, exactly like a turn that never asked for one. A caller that
+    chose not to ask records its own reason here, beside the endpoint's.
+    """
+    logger.info("Decision %s did not run: %s", slot, reason)
+    _record(slot, {"skipped": reason, **({"detail": detail} if detail else {})})
+
+
 async def decide(
     state: Any,
     questions: Mapping[str, Mapping[str, Any]],
@@ -495,11 +508,11 @@ async def decide(
         return None
     endpoint, skipped = await _endpoint(organization_id)
     if endpoint is None:
-        _record(slot, {"skipped": skipped})
+        record_skipped(slot, skipped or SKIPPED_ERROR)
         return None
     outcome = await _post(endpoint, state, questions, timeout=timeout, transport=transport)
     if outcome.decision is None:
-        _record(slot, {"skipped": outcome.skipped, **({"detail": outcome.detail} if outcome.detail else {})})
+        record_skipped(slot, outcome.skipped or SKIPPED_ERROR, outcome.detail)
         return None
     decision = outcome.decision
     _record(

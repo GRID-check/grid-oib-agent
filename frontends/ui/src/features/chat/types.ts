@@ -974,7 +974,20 @@ export interface ChatActions {
     content: string,
     cards?: (GridCard | undefined)[],
     answerConfidence?: 'low' | 'medium' | 'high',
-    citations?: CitationSource[]
+    citations?: CitationSource[],
+    /** The masthead, when a live frame carries it ahead of the prose (ADR-0066). */
+    answerMeta?: AnswerMeta
+  ) => void
+  /**
+   * Replace the streaming bubble's text with a settled snapshot (ADR-0066):
+   * the prose so far with its `[N]` markers verified and renumbered, the
+   * sources they now point at, and the masthead re-gated against the prose.
+   * The bubble keeps streaming; the terminal frame still finalizes it.
+   */
+  replaceStreamingAgentResponse: (
+    content: string,
+    citations?: CitationSource[],
+    answerMeta?: AnswerMeta
   ) => void
   /**
    * Finalize the accumulating answer bubble on the terminal `complete` frame:

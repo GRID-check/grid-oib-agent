@@ -183,6 +183,7 @@ export const answerExport = {
     document_checklist: 'Required documents',
     deadline_timeline: 'Deadlines',
     diagram: 'Diagram',
+    surface: 'Composition',
     change_impact: 'Impact of the change',
     ifc_viewer: 'Model view',
     ifc_compliance: 'Model compliance',

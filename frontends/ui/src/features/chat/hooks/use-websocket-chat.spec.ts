@@ -15,6 +15,7 @@ import type { RunStatus } from '@/lib/runs/run-ledger-types'
 const mockAddUserMessage = vi.fn()
 const mockAddAgentResponse = vi.fn()
 const mockAppendAgentResponseDelta = vi.fn()
+const mockReplaceStreamingAgentResponse = vi.fn()
 const mockFinalizeAgentResponse = vi.fn()
 /** The turn key crossing from the socket onto the answer (post-answer-stages §1.6). */
 const mockSetTurnWsParentId = vi.fn()
@@ -89,6 +90,7 @@ const defaultUseChatStoreImpl = (selector?: StoreSelector<ChatStoreWithHydration
     addUserMessage: mockAddUserMessage,
     addAgentResponse: mockAddAgentResponse,
     appendAgentResponseDelta: mockAppendAgentResponseDelta,
+    replaceStreamingAgentResponse: mockReplaceStreamingAgentResponse,
     finalizeAgentResponse: mockFinalizeAgentResponse,
     setTurnWsParentId: mockSetTurnWsParentId,
     applyStageFrame: mockApplyStageFrame,
@@ -1585,8 +1587,75 @@ describe('useWebSocketChat', () => {
       'Partial content...',
       [],
       undefined,
+      undefined,
       undefined
     )
+    expect(mockFinalizeAgentResponse).not.toHaveBeenCalled()
+  })
+
+  test('a whitespace-only delta is text, not an empty frame', () => {
+    // The relay can batch a frame of just the paragraph break. Dropped, the
+    // two paragraphs either side of it run together until the snapshot.
+    renderWebSocketHook()
+
+    mockStoreState.isStreaming = true
+
+    act(() => {
+      capturedCallbacks.onResponse?.('\n\n', 'in_progress', false)
+    })
+
+    expect(mockAppendAgentResponseDelta).toHaveBeenCalledWith('\n\n', [], undefined, undefined, undefined)
+  })
+
+  test('a masthead frame with no text still lands, ahead of the prose (ADR-0066)', () => {
+    renderWebSocketHook()
+
+    mockStoreState.isStreaming = true
+    const answerMeta = { v: 1, kind: 'ruling' as const, topic: 'Zweiter Fluchtweg' }
+
+    act(() => {
+      capturedCallbacks.onResponse?.(
+        '',
+        'in_progress',
+        false,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        { answerMeta }
+      )
+    })
+
+    expect(mockAppendAgentResponseDelta).toHaveBeenCalledWith('', [], undefined, undefined, answerMeta)
+    expect(mockFinalizeAgentResponse).not.toHaveBeenCalled()
+  })
+
+  test('a settled snapshot replaces the streamed text instead of appending (ADR-0066)', () => {
+    renderWebSocketHook()
+
+    mockStoreState.isStreaming = true
+
+    act(() => {
+      capturedCallbacks.onResponse?.(
+        'R 90 [1].',
+        'in_progress',
+        false,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        [{ number: 1, citation_key: 'oib-rl_2.pdf, p.12', file_name: 'oib-rl_2.pdf', page: 12, kind: 'baurecht' }],
+        { streamReplace: true }
+      )
+    })
+
+    expect(mockReplaceStreamingAgentResponse).toHaveBeenCalledWith(
+      'R 90 [1].',
+      [expect.objectContaining({ fileName: 'oib-rl_2.pdf', page: 12 })],
+      undefined
+    )
+    expect(mockAppendAgentResponseDelta).not.toHaveBeenCalled()
     expect(mockFinalizeAgentResponse).not.toHaveBeenCalled()
   })
 

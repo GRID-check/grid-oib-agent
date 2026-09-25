@@ -46,7 +46,7 @@ const DEFAULTS = {
   },
 }
 
-const WORKFLOW_DEFAULTS = Object.fromEntries(AGENT_GROUPS.map((group) => [group.id, 'openai/gpt-5.6-luna']))
+const WORKFLOW_DEFAULTS = Object.fromEntries(AGENT_GROUPS.map((group) => [group.id, 'openai/gpt-6-luna']))
 
 // The thinking-level half of the same card. Pinned at both ends of the scale
 // (`follow_ups` → none, `deep_research` → xhigh) so the cheapest and most expensive

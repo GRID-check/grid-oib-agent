@@ -11,12 +11,32 @@ not a citations feature. The agent answers in markdown by default and emits a ca
 whenever structure helps the reader. `LegalBasisCard` is one instance; the set is
 meant to grow.
 
+### Cards and A2UI: one thing, two layers
+
+A2UI did not replace cards; it is how cards are drawn. A **card** is WHAT the
+answer states: a typed, validated object (`legal_basis`, `condition_tree`,
+`stair_diagram`), checked by its Pydantic model and stored on the message.
+**A2UI** is HOW it reaches the screen: the protocol and renderer
+([ADR-0065](../adr/0065-a2ui-renders-every-card.md)) that draws a component
+list from a catalog. Our catalog IS the card types, one A2UI component per
+type, plus A2UI's own `Row`, `Column`, `Tabs` and `Text` to arrange them.
+
+So "card" is our word for a component in our A2UI catalog, and a `surface`
+card is an A2UI component list of them. What A2UI added is composition and a
+standard wire format; what the card layer keeps is the part A2UI knows
+nothing about: which content earns which card, validation against the
+sources, and the persisted decisions of interactive cards.
+
 ## Current card types
 
 Defined in `src/aiq_agent/cards/models.py` as a discriminated union (`GridCard`)
-— **43 types in four families**: 34 the answering model may emit through
-`emit_card`, five it may not on any surface (`SYSTEM_CARD_TYPES` — the
-tool-owned cards and the retired `follow_ups`), and four **envelope types**
+— **45 types in four families**: 35 the answering model may emit, 34 of them
+through `emit_card` too; the 35th is `surface` (ADR-0065), a composition whose
+leaves are content cards or `Text`, offered on the chat envelope only
+(`CHAT_ONLY_CARD_TYPES`: `emit_card`, `describe_card` and the post-hoc
+validator refuse it, because only the chat pipeline recites its `[N]`); six it
+may not on any surface (`SYSTEM_CARD_TYPES` —
+five tool-owned cards and the retired `follow_ups`); and four **envelope types**
 (`ENVELOPE_CARD_TYPES`: `summary`, `verdict_header`, `key_takeaways`,
 `callout`) that stopped being cards anywhere new: a research answer is
 generated as one JSON envelope (```answer_json — see
@@ -54,8 +74,8 @@ answer it has just written.
 
 | `type` | Purpose | Key fields |
 |---|---|---|
-| `summary` **(envelope)** | A short overview / key points. Retired as a card: the envelope's `summary` field carries the answer-in-brief on basically every reply, rendered as the masthead's standfirst (≤ 320 chars, gated); the card type survives for stored threads | `title`, `content`, `key_points` |
-| `legal_basis` | An OIB/norm legal-basis citation | `law`, `article`, `section`, `summary`, `original_text` |
+| `summary` **(envelope)** | A short overview / key points. Retired as a card: the envelope's `summary` field carries it only when the answer has a consequence for the reader that its opening does not state (what to do next, what it means for the project; `piloti_static.md`), rendered as the masthead's standfirst (≤ 320 chars, gated); the card type survives for stored threads | `title`, `content`, `key_points` |
+| `legal_basis` | An OIB/norm legal-basis citation. Placed with `[[card:N]]`, it is framed where the marker sits. The first unplaced one renders flat after the prose once the answer is final (`EvidenceBlock`), never in the fallback grid | `law`, `article`, `section`, `summary`, `original_text` |
 | `project_profile_patch` **(interactive)** | A proposed change to the project brief | `title`, `rationale`, `patch[]` — JSON-Patch ops restricted to `/facts`, `/goals`, `/unknowns`, `/assumptions` (the before/after rows are built from the patch and the live profile, never from the model) |
 | `requirement_checklist` | Several pass/fail criteria for one question, each with verdict + own norm reference | `title`, `items[]` (`label`, `status`, `detail`, `reference`), `reference`, `note` |
 | `comparison_table` | Side-by-side comparison of a small number of options (columns) across criteria (rows) | `title`, `options[]`, `rows[]` (`label`, `values[]`, `highlight_index`), `recommendation`, `reference`, `note` |
@@ -71,7 +91,8 @@ answer it has just written.
 | `document_checklist` | „Welche Unterlagen brauche ich" — each entry a STATE (`required` / `conditional` with its condition, and whether the reader already holds it), not a name in a list | `title`, `items[]` (`label`, `requirement`, `condition`, `issuer`, `status`, `note`, `reference`), `reference` |
 | `deadline_timeline` | Several Fristen in sequence, each with the event that starts its clock and what happens when it runs out. Carries the Bestimmung's own wording („binnen vier Wochen"), never a calendar date | `title`, `deadlines[]` (`label`, `period`, `starts_from`, `actor`, `consequence`, `reference`) |
 | `change_impact` | „Was passiert, wenn X sich ändert" — one moving fact, its two values, and what each consequence COSTS, each marked as tightening or relaxing | `title`, `factor`, `from_value`, `to_value`, `consequences[]`, `reference`, `note` |
-| `diagram` | Any ask for a Diagramm, Schaubild, Grafik, chart or mermaid — and a relationship prose cannot hold: a Verfahren that forks and rejoins, Stellen exchanging in order, a Nachweis others depend on — drawn as mermaid. Never anything measured, and the card renders rather than files; see [The `diagram` card](#the-diagram-card-the-one-drawing-whose-renderer-cannot-check-it) | `title`, `diagram_type` (`flowchart` / `sequence` / `state` / `pie`), `source`, `caption`, `reference` |
+| `diagram` | Any ask for a Diagramm, Schaubild, Grafik, chart or mermaid — and a relationship prose cannot hold: a Verfahren that forks and rejoins, Stellen exchanging in order, a Nachweis others depend on — drawn as mermaid. Never anything measured, and the card renders rather than files; see [The `diagram` card](#the-diagram-card-the-one-drawing-whose-renderer-cannot-check-it) | `title`, `diagram_type` (`flowchart` / `sequence` / `state` / `pie` / `gantt` / `mindmap`, `DiagramGrammar`), `source`, `caption`, `reference` |
+| `surface` | Variants the reader picks one of, or cards that read together in one slot (ADR-0065). An A2UI v0.9 component list: a `Row`, `Column` or `Tabs` root whose leaves are content cards or `Text`; see [Every card is drawn through A2UI](#every-card-is-drawn-through-a2ui) | `title`, `components[]` |
 
 **Schematic cards** — fifteen programmatically-drawn technical diagrams (SVG kit
 in `features/grid-cards/schematics/`, Rough.js sketch stroke). The model emits
@@ -135,6 +156,7 @@ catalog omits them entirely).
 | `document_grid` | project/Büroarchiv files the user asked to see — the same raised `FileCard` the Files grid uses | the `surface_documents` tool |
 | `memory_proposal` **(interactive)** | a finding to be written to org- or project-scoped memory, for the user to confirm | the `remember` tool |
 | `document_draft` | a document written into this conversation's working directory — title, path, `v{n}` and size, with the Files feature's „Von Piloti erstellt" byline. Its „Ins Projekt übernehmen" is drawn **inert**: filing is a later slice, and until it is wired the card reports the draft rather than offering to move it | the working directory's `write_file` / `edit_file` |
+| `task_created` | work Piloti has taken on, as a task row somebody can come back to — title, goal, due date and a link to the run's thread. Informational: the task is already queued when it renders, so there is no Accept | the `create_task` tool |
 | `file_operation_proposal` **(interactive)** | a workspace change the agent PROPOSED and did not make — a move, a rename, a new folder, an assignment. One card type for four verbs, discriminated by `operation`, carrying a capped LIST so an „organise the Einreichung" turn is one decision and not four. Accepting runs the operations in order through the routes the Files pane uses, in the reader's own session, and reports each one — a batch where the third fails says three landed and one did not (`partiallyApplied`) | the four write-side tools under `src/aiq_agent/tools/files/` (a Dokumentart proposal waits for a project-scoped doc_class route) |
 
 **(interactive)** marks a card whose answer is a commitment and is therefore
@@ -203,8 +225,8 @@ expression separates those two — the same „22 m" appears in both — which i
 the rule is prose in the catalog rather than a validator.
 
 **What the card does check**, because it is the one invariant available: the
-`diagram_type` field is a closed set of the four grammars verified end to end
-(`flowchart`, `sequence`, `state`, `pie`) and a model validator reads the
+`diagram_type` field is a closed set of the six grammars verified end to end
+(`flowchart`, `sequence`, `state`, `pie`, `gantt`, `mindmap`; `DiagramGrammar`) and a model validator reads the
 source's own declaration line back. That catches the failure that actually
 bites — a source declaring nothing, where mermaid has no grammar to parse the
 rest with and the whole block collapses to a grey code box mid-answer — and it
@@ -300,14 +322,42 @@ or dropped and recorded (`status:card:invalid:N`). The reason is the round:
 `emit_card` is a tool call, a tool call ends a message, and every card-bearing
 answer paid one more full-context call to write the prose after it — and a
 third on a wrong shape. Nothing on the wire changed. The taught envelope
-schema carries the doctrine, the index and the full shapes of the eight common
-content cards (`ENVELOPE_SHAPE_TYPES`, ~3 500 tokens, cached with the prefix;
-the whole catalog's shapes are ~23 000 and stay on demand).
+schema carries the doctrine, the index and the full shapes of the three
+content cards answers earn most (`ENVELOPE_SHAPE_TYPES`: `legal_basis`,
+`condition_tree`, `process_map`; the whole contract is ~3 900 tokens (o200k_base), COMPOSE included, cached
+with the prefix; the whole catalog's shapes are ~23 000 and stay on demand).
 
-Cards can still be emitted by the answering agent via the **`emit_card` tool**
-(`cards/register.py`) — for a card it must show before the answer is written,
-or on an older prompt: mid-turn, with full context, the agent calls the tool
-whenever a structured element communicates better than prose. The card is
+**Since 2026-09-24 the answer's own Markdown comes first.** Tables, criteria
+with a status, comparisons, document lists, Fristen in sequence, a norm
+hierarchy and what-if consequences are written in the answer as Markdown, not
+as a card (`catalog.MARKDOWN_CARD_TYPES`: `typed_table`, `comparison_table`,
+`requirement_checklist`, `document_checklist`, `deadline_timeline`,
+`norm_chain`, `change_impact`, and `diagram`, whose content is a
+```` ```mermaid ```` fence in the answer; see
+[diagrams.md](diagrams.md#since-2026-09-24-the-fence-first)). The envelope contract omits them from the
+trigger table, the index and the taught shapes (6 083 → 3 405 tokens), and the
+turn decision's facts (`register._turn_facts`) no longer offer them. The types stay in the catalog, so a
+tool, `emit_card` or a stored message that carries one still validates and
+renders. A card is for what Markdown cannot carry: a schematic drawn to scale,
+the Fundstelle as a quotable excerpt, a decision on one factor with this
+project's branch marked, a Verfahren with its Fristen and where the project
+stands. The
+renderer meets the prose halfway: in a table's Status column (headed `status`,
+`erfüllt`, `ergebnis`, `bewertung` or `result`), a cell that holds exactly one
+status word (`erfüllt`, `nicht erfüllt`, `teilweise`, `offen`, `erforderlich`,
+`bedingt`, `vorhanden`, `fehlt`, and the English set) renders as a toned mark
+(`MarkdownRenderer/status-marks.ts`), and the column's tally above the rows
+counts each word however it is capitalised (`MarkdownRenderer/table-shape.ts`);
+the same word in any other column stays a word. Tables are zebra-striped with
+tabular figures. The details: `docs/design/answer-visuals.md`. The shape rules for the prose (first line answers, `###`
+headings that state, a Fundstelle column, the fixed status vocabulary) live in
+the `<formatting>` block of `piloti_static.md`.
+
+Deep research can still emit cards via the **`emit_card` tool**
+(`cards/register.py`); Piloti (chat) no longer binds it, and its cards travel
+in the envelope's `cards` field only. Mid-turn, with full context, the
+researcher calls the tool whenever a structured element communicates better
+than prose. The card is
 validated against the shared schema and pushed into the conversation-scoped
 `CardRegistry`. System cards (`document_draft`, `document_grid`,
 `file_operation_proposal`, `task_created`, `memory_proposal`) are pushed by the
@@ -334,7 +384,7 @@ So the catalog is split the way the skills runtime already splits instructions
 | level | what it is | where |
 |---|---|---|
 | **L1 — always on** | one line per model-facing type: the `type` value and the first line of the card model's docstring, plus the interactive-card note. No shapes, no building blocks, no examples. | `render_card_index()`, rendered into the `emit_card` description |
-| **L2 — on demand** | the exact shape for the named types, the shared building blocks (`NormReference`, `DimensionCheck`, …) each defined once with field descriptions, the measurement note where a `DimensionCheck` is in play, and the worked example | `render_card_details(types)` — returned by a **failed `emit_card`** for the type that failed, by the **`describe_card`** tool where it is still bound, and by a skill declaring `grid-cards` |
+| **L2 — on demand** | the exact shape for the named types, the shared building blocks (`NormReference`, `DimensionCheck`, …) each defined once with field descriptions, the measurement note where a `DimensionCheck` is in play, and the worked example | `render_card_details(types)` — returned by a **failed `emit_card`** for the type that failed, by the **`describe_card`** tool (registered, bound to no agent today), and by a skill declaring `grid-cards` |
 
 That took the `emit_card` description from ~5,209 to ~1,205 tokens per turn, and
 the marginal cost of a new card type from ~190 tokens on every turn to ~23. It is
@@ -352,11 +402,14 @@ paying it on every turn, for every card — including the ones it would have
 filled in correctly. But a shape is only ever needed when the first attempt
 would have been wrong, so the RETRY carries it: a failed `emit_card` returns the
 same L2 entry for the type that failed, and `shape_hint_for` is now one line
-delegating to `render_card_details`. A card that was going to be right pays
+delegating to `render_card_details`, whose entry for `surface` is the COMPOSE
+rule. A surface whose leaf fails its card model is repaired from the rule plus
+the shapes of the card types it holds. A card that was going to be right pays
 nothing; one that was not pays the same single round trip, knowing which field
-was wrong. `describe_card` stays registered and stays bound to
-`deep_research_agent`, whose writer composes one long report and pays the lookup
-once where a chat turn paid it per turn.
+was wrong. `describe_card` stays registered but is bound to no
+agent today (see its comment in `configs/config_oib_openrouter.yml`); deep
+research, which composes one long report, would pay the lookup once where a
+chat turn paid it per turn.
 
 `describe_card` **reports the names it did not recognise** rather than quietly
 rendering only what resolved — a silently shorter answer reads as "that card
@@ -529,10 +582,11 @@ question happened to need.
 
 ### Which turns may emit a card
 
-Every turn. `emit_card` is bound on every turn like every
-other tool (ADR-0052: there is no classifier and no narrowed "meta" binding in
+Every turn. On chat the answer envelope's `cards` field is part of every
+answer (ADR-0052: there is no classifier and no narrowed "meta" binding in
 front of the answering agent), so whether a turn ships a card is decided by
-what the answer has to show, never by a label given before the answer.
+what the answer has to show, never by a label given before the answer. Piloti
+no longer binds `emit_card`; only deep research does.
 
 This used to be contradictory rather than decided: when the intent classifier
 still existed, Piloti's prompt's meta output contract said "no tool calls"
@@ -546,11 +600,13 @@ contradiction with it.
 What bounds it now is the prompt: **it says what a direct reply may put on a
 card.** A subject-matter question that merely landed in a short reply earns the
 card its content calls for; small talk, a formatting or memory request, a shelf
-listing and an off-topic decline get none. The always-on doctrine and the L1
-index ride in `emit_card`'s description on every turn, and so does the CRAFT
-that says how each of the generic cards is filled well — enough to name the
-right card AND to build it, with the shape arriving on the retry if a field
-comes out wrong. Skills, too, are bound on
+listing and an off-topic decline get none. On chat the doctrine, the L1 index
+and the shapes of `ENVELOPE_SHAPE_TYPES` ride in the envelope contract
+(`render_envelope_cards_contract`, `cards/envelope.py`) on every turn —
+enough to name the right card AND to build it, with a card the validator
+refuses handed to the small repair model (`cards/repair.py`) rather than back
+to the answering agent. Deep research still reads the doctrine in
+`emit_card`'s description, and gets the shape on the retry. Skills, too, are bound on
 every turn (`use_skill`); there is no gate in front of the skill runtime any
 more, and no way to require a skill either, so a greeting that loads no skill is
 the model's judgment, pinned by the prompt.
@@ -647,6 +703,76 @@ lines of prose.
 
 The frontend validates the wire cards (`validateGridCards`) and renders them
 through the `features/grid-cards/` component set — one renderer per card type.
+
+### Every card is drawn through A2UI
+
+Since ADR-0065 a card reaches the screen through
+[A2UI](https://a2ui.org) v0.9: `GridCardItem` hands it to `A2uiCard`
+(`features/a2ui/`), which turns it into an A2UI surface (a stored card is a
+one-component surface whose root is the card) and draws it with
+`@a2ui/react` on the Piloti catalog. The catalog registers one A2UI component
+per card type, named by the type and validated by that card's generated Zod
+schema, plus `Row`, `Column`, `Tabs` and `Text` in the basic catalog's shapes. Each
+card component calls back into `GridCardView`, the per-type dispatch that used
+to be `GridCardItem`, so the pixels are the same components as before.
+
+- **Composition.** A `surface` card carries an A2UI component list: a
+  container with id `root` and the content cards it holds. `SurfaceCard` in
+  `cards/models.py` checks the structure with `a2ui-core` (unique ids, a root,
+  no dangling reference, no cycle, no orphan) and each card with its own
+  model; tool, interactive and envelope cards may not be leaves. The model is
+  taught the shape in the envelope contract's COMPOSE paragraph. A `Row` sits
+  side by side above 44rem of its own width and stacks below it (a narrow
+  window, a side panel); `Tabs` show one variant at a time.
+- **Limits.** `SurfaceCard` holds 2 to 6 leaves (`SURFACE_MAX_LEAVES`). A
+  `Row` or `Column` has 2 to 4 children (`SURFACE_MAX_CHILDREN`), and its
+  `justify` / `align`, when set, take only the values the frontend's `RowApi`
+  takes (`SURFACE_JUSTIFY`, `SURFACE_ALIGN`). `Tabs` has 2 to 6 tabs
+  (`SURFACE_MAX_TABS`), each exactly `{title, child}`. A `Text` holds at most
+  4000 characters (`SURFACE_TEXT_MAX`). The root must be a layout: a surface of one
+  card is that card. The prompt (`_COMPOSE_RULE` in `cards/envelope.py`)
+  counts a surface as one card against the turn's two-card ceiling.
+- **`Text`: the answer's Markdown inside a surface.** A leaf
+  `{"id", "component": "Text", "text": <Markdown>}` is drawn by the renderer
+  the prose is drawn by. It exists because the Markdown-first doctrine puts
+  tables, checks and steps in the prose and never on a card, so without it a
+  tab could hold none of what a variant actually consists of. Its `[N]` are
+  held to the answer's citations (`cards/surface_citations.py`). A `[N]` whose
+  source verification removed is dropped, never renumbered onto the source
+  that now holds N: sanitize's map lists only survivors. An empty map leaves
+  numbers as they are, and each is kept only if it is cited (applied in
+  `answer_pipeline.py` on the settled frame and after sanitisation). Code is
+  left alone: `S[1]` in a mermaid fence or `x[1]` in inline code is not a
+  citation. A `Text` left blank is dropped with its tab or child; when the
+  surface cannot stand without it, the one card left becomes the card, and
+  failing that the leaf reads `—` (`surface_citations.BLANK_TEXT`). The stored
+  card never keeps its unrecited numbers, and its registry position never
+  moves. The frontend parses them with the answer's
+  citation plugin through `NestedMarkdownPluginsProvider`, and the Word
+  export prints them as prose.
+- **Never the library's placeholder.** `A2uiSurface` cannot render on the
+  server and draws "[Loading root...]" for its first frame, so the card is
+  drawn directly until A2UI's copy, mounted invisibly behind it, reports its
+  first component from a layout effect; the two swap before paint.
+- **Never a card lost to the library.** `preflight` checks every component
+  against the catalog before A2UI sees it (A2UI would draw an unknown one as
+  red text), and refuses a surface that is not one tree under `root`: ids
+  unique, `root` present, every child and tab id resolves, each id referenced
+  once, no cycle, every component reachable (`structuralRefusal`, the same
+  checks `SurfaceCard` runs in `cards/models.py`). A render that throws inside
+  A2UI falls back to the direct component. A refused surface falls back to its
+  cards stacked in order, leaving out any leaf in `SURFACE_EXCLUDED_LEAVES`.
+  That list refuses a leaf only inside a surface: a lone card of such a type
+  (a stored `summary`, a `memory_proposal`) is drawn through the catalog.
+- **An observer reads, never acts.** A spectated turn draws cards read-only
+  (`AgentResponse`'s `readOnly`): an observer cannot answer the asker's
+  decision cards or file their diagrams.
+- **Export** walks a surface from its root and prints its cards in order, a
+  tab's title as a heading one level below the surface's and its card one
+  level lower (levels 3–5); a `Text` leaf's headings never outrank the surface
+  title (`answer-export/cards.ts`, kind `composite`).
+- `/dev/a2ui` draws every fixture and two compositions through this path;
+  each section says whether A2UI drew it.
 
 ### Where a card lands: `[[card:N]]`
 
@@ -842,9 +968,10 @@ without re-plumbing generation or transport.
 
 ## Card catalog
 
-The catalog is the forty-one types tabulated under
-[Current card types](#current-card-types) — eighteen structured, fifteen
-schematic, six model-facing IFC and two system — and that is the only place in this document
+The catalog is the forty-five types tabulated under
+[Current card types](#current-card-types) — nineteen structured (four of them
+envelope types and one the retired `follow_ups`), fifteen schematic, six
+model-facing IFC and five system — and that is the only place in this document
 where they are listed, on purpose: a card type appearing in two tables means one
 of them is already wrong. See
 [ADR-0012](../adr/0012-cards-as-rich-ui-layer.md).
