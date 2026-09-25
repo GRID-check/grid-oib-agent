@@ -168,14 +168,25 @@ export function reduceSpectatedFrame(
           done: true,
         }
       }
-      if (!text && Object.keys(around).length === 0) return next === state ? state : next
       // A settled snapshot (ADR-0066) REPLACES the text streamed so far; a
       // spectator that appended it would read the answer twice.
-      // Its masthead is re-gated against that prose, so a snapshot without one
-      // takes the live masthead back, as the asker's store does.
+      // Its masthead is re-gated against that prose, and its sources are all
+      // the text cites, so a snapshot without them takes the live ones back,
+      // as the asker's store does. An EMPTY snapshot is the retraction of a
+      // streamed round that turned out to call tools: checked before the
+      // "nothing to fold" return below, which would otherwise swallow it.
       if (message.stream_replace === true) {
-        return { ...next, answerMeta: undefined, ...around, parentId, answer: text, waitingOn: null }
+        return {
+          ...next,
+          answerMeta: undefined,
+          citations: undefined,
+          ...around,
+          parentId,
+          answer: text,
+          waitingOn: null,
+        }
       }
+      if (!text && Object.keys(around).length === 0) return next === state ? state : next
       return { ...next, ...around, parentId, answer: next.answer + text, waitingOn: null }
     }
 

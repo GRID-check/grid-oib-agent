@@ -1425,7 +1425,9 @@ export const createMessagesSlice: StateCreator<
             ? {
                 ...msg,
                 content,
-                ...(citations && citations.length > 0 ? { citations } : {}),
+                // A snapshot names the sources its text cites, all of them: an
+                // empty one (a streamed round retracted) cites nothing.
+                citations: citations && citations.length > 0 ? citations : undefined,
                 // The backend re-gates the masthead against the snapshot's
                 // prose, so a snapshot without one has gated it out: the
                 // masthead on screen goes, as the spectator's does.

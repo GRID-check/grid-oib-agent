@@ -135,6 +135,23 @@ describe('reduceSpectatedFrame', () => {
     expect(state.answerMeta).toBeUndefined()
   })
 
+  it('lets an empty snapshot take back a streamed round, as the asker sees it', () => {
+    // A streamed call that turned out to call tools is retracted with an empty
+    // snapshot (content "", sources []). Folded as "nothing to show" it was
+    // dropped, and the observer kept reading the round's prose as the answer.
+    const snapshot = {
+      ...(response('R 90 [1].', 'in_progress') as object),
+      stream_replace: true,
+      answer_meta: { v: 1, kind: 'ruling', topic: 'Fluchtweg' },
+      sources: [{ number: 1, citation_key: 'oib.pdf, p.3', file_name: 'oib.pdf', page: 3, kind: 'baurecht' }],
+    }
+    const retraction = { ...(response('', 'in_progress') as object), stream_replace: true, sources: [] }
+    const state = fold([response('R 90 [1', 'in_progress'), snapshot, retraction])
+    expect(state.answer).toBe('')
+    expect(state.answerMeta).toBeUndefined()
+    expect(state.citations).toBeUndefined()
+  })
+
   it('keeps the streamed answer when the terminal frame is empty', () => {
     // The single most damaging failure mode available here: a backend that
     // finishes with an empty `complete` would otherwise blank a finished answer

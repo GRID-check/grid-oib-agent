@@ -1532,6 +1532,22 @@ describe('useChatStore', () => {
         expect(message?.content).toBe('Kommt darauf an [1].')
       })
 
+      test('an empty snapshot takes back a streamed round: its text, masthead and sources', () => {
+        // The backend retracts a streamed call that turned out to call tools
+        // (AnswerStreamSink.retract): content "", sources [].
+        setupConversation()
+        const head: AnswerMeta = { v: 1, kind: 'ruling', topic: 'Zweiter Fluchtweg' }
+        const citations = [{ id: 's1', content: '', timestamp: new Date(), number: 1 }] as CitationSource[]
+        useChatStore.getState().appendAgentResponseDelta('', [], undefined, undefined, head)
+        useChatStore.getState().replaceStreamingAgentResponse('R 90 [1].', citations, head)
+
+        useChatStore.getState().replaceStreamingAgentResponse('', [])
+        const message = useChatStore.getState().currentConversation?.messages?.[0]
+        expect(message?.content).toBe('')
+        expect(message?.answerMeta).toBeUndefined()
+        expect(message?.citations).toBeUndefined()
+      })
+
       test('cards on the legacy single in_progress frame survive an empty terminal', () => {
         setupConversation()
         const cards = [card('c1')]
