@@ -3400,10 +3400,12 @@ def verify_citations(
                     if token := source_origin_token(entry):
                         origin_tokens[num] = token
                 continue
-            # A source cited by its key can still arrive with a link: the RIS
-            # tool prints ``Source URL:`` beside ``Citation:``, the prompt asks
-            # for ``Title - URL``, and the registry deliberately files RIS by
-            # key. The key decides; the link it cannot vouch for is dropped.
+            # A source cited by its key can still arrive with a link: the prompt
+            # asks for ``Title - URL``, the model copies a link from a tool's
+            # source line (``ris_search`` prints ``Source: <url>``; ``ris_lookup``
+            # printed ``Source URL:`` beside ``Citation:`` until 2026-09-24), and
+            # the registry deliberately files RIS by key. The key decides; the
+            # link it cannot vouch for is dropped.
             is_kl, citation_key = _is_knowledge_citation(_drop_url(match_text, url), registry)
             if is_kl and citation_key and registry.has_citation_key(citation_key):
                 logger.debug("[CitationVerify]   [%d] VALID  — %s (unregistered link dropped)", num, citation_key)

@@ -36,7 +36,7 @@ decided — its `model_name` values are `${GRID_DEFAULT_MODEL:-…}` floors for 
 process with no BFF to ask (local `nat run`, a detached worker, an unreachable
 frontend). What the YAML solely owns everywhere is the plumbing an override may
 never touch: `base_url`, `api_key`, `temperature`, `max_tokens`, timeouts and
-retries. `reasoning_effort` is a floor like `model_name`: the platform owner's
+retries. `reasoning_effort` is a fallback like `model_name`: the platform owner's
 level for the group wins where one is set ([Thinking level](#thinking-level-reasoning-effort)).
 
 > **Not every `llms:` entry has an agent group.** `summary_llm` (document and

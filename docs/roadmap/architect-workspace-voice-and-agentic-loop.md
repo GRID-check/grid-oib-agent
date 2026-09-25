@@ -41,14 +41,14 @@
 > repair as workflows the agent could neither see nor react to. Both now leave
 > an observation the model reads: a widened `knowledge_search` leads its result
 > with one German line naming the alternative formulations and why they were
-> tried (`sources/knowledge_layer/src/requery.py::requery_notice`), and a
-> failed verification reaches the rewrite as a `citation_check` tool result
-> naming the marker and the quote that failed
-> (`agents/piloti/repair.py::verification_observation`), with
-> `status:repair` carrying `{citationsRemoved, quotesFailed}` as the
-> Herleitung's technical detail. The repair half is superseded by ADR-0067:
-> `repair.py` is gone, there is no rewrite left for the observation to feed,
-> and `status:repair` carries `{quotesFailed}`. §5's layer map is now closed on the drawing
+> tried (`sources/knowledge_layer/src/requery.py::requery_notice`). The
+> repair half did not last: a failed verification used to reach the rewrite
+> as a `citation_check` tool result naming the marker and the quote that
+> failed, and that observation went with the rewrite
+> ([ADR-0067](../adr/0067-the-repair-corrects-a-misremembered-quote-in-place.md)).
+> There is no rewrite left for it to feed. `status:repair` now carries only
+> `{quotesFailed}` as the Herleitung's technical detail
+> (`turn_status.emit_answer_repair`). §5's layer map is now closed on the drawing
 > side too (ledger row 19): the sources hang off the checkpoint that fetched
 > them, each checkpoint FOLDS to the count of what that fetch returned, and a
 > spine of three or more rounds arrives with everything but the newest layer
@@ -317,7 +317,7 @@ Two quality loops already exist. Both are **workflows inside a tool or after the
 
 The 2026-09-01 review said there was no repair and no retrieval loop. On this develop tip the code has both. The review’s *product* claim still holds: the reader is not shown a decision, only a status key, and the model is not the one looping.
 
-**[LANDED — the model is now told, ledger row 20.]** Neither loop is silent to the agent any more. A widened search leads its tool result with `Hinweis: die Suche wurde um N Umformulierungen erweitert (…), weil die ersten Treffer die Frage nicht abdeckten.`, naming each alternative formulation (`requery.py::requery_notice`, prefixed in `register.py` onto both the excerpts and the empty-result message); a failed verification reaches the rewrite as a `citation_check` tool call and its result, naming which `[N]` and which quote failed (`agents/piloti/repair.py::verification_observation`; the repair half is superseded by ADR-0067: there is no rewrite left for the observation to feed, and `status:repair` carries `{quotesFailed}`). Neither instructs — what to do about it is the model's next decision, which is the whole point. Still true: the pipeline, not the model, DECIDES to widen and to repair.
+**[HALF LANDED — ledger row 20, half reopened.]** The requery is told to the model; the repair's observation went with the rewrite (ADR-0067). A widened search leads its tool result with `Hinweis: die Suche wurde um N Umformulierungen erweitert (…), weil die ersten Treffer die Frage nicht abdeckten.`, naming each alternative formulation (`requery.py::requery_notice`, prefixed in `register.py` onto both the excerpts and the empty-result message). Until ADR-0067 a failed verification also reached the rewrite as a `citation_check` tool call and its result, naming which `[N]` and which quote failed. That went with the rewrite: the repair now corrects a misremembered quote in place, the model is not told, and `status:repair` carries `{quotesFailed}` only. The notice does not instruct: what to do about it is the model's next decision, which is the whole point. Still true: the pipeline, not the model, DECIDES to widen and to repair.
 
 Deep research is the one place the backend is genuinely multi-agent (orchestrator, source router, planner, up to six researchers, writer). Chat-path shallow is a single agent with a short leash. Escalation is an envelope field, not a continuation of the same loop.
 

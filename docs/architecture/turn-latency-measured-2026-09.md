@@ -45,7 +45,11 @@ What that means for the levers:
 
 All 27 suite questions, one run each, from the main checkout with the document
 inventory in place (§8 says why that matters: without it the median was
-38.5 s, and 42 s in the earlier worktree runs).
+38.5 s, and 42 s in the earlier worktree runs). *Since 2026-09-25:* the 38.5 s
+and 42 s runs started from worktrees before `c9575e0d`, so they ran the main
+checkout's code as it was at run time, not the commit their reports name
+(§8). The 38.5 s was meant as the same code without the inventory; nothing
+recorded whether the main checkout held that code then.
 
 | Slice | Median per turn | Share |
 |---|---|---|
@@ -121,6 +125,11 @@ only requested once the decision had named the search. Now:
   waits for it instead of embedding the same string again. A failed warm-up
   hands over to the waiting caller.
 * A turn that turns out not to search has wasted one embedding call.
+* Both globals hold no turn data. `_SEARCH_RETRIEVER` is a build-time handle:
+  with two knowledge tools the last built wins, which can waste a warm-up but
+  never serves a wrong vector, since the LRU is keyed by model and text.
+  `_WARMING` holds strong references so the event loop does not collect
+  running warm-ups.
 
 Measured with the probe: the warm-up starts at 18-19 ms and the search reuses
 it. The saving is bounded by the decision's duration: 0.1-0.25 s on turns with
@@ -262,7 +271,7 @@ What `low` lost, beyond the four `kind` checks both runs miss:
   is welcome brevity; the checks cannot tell which.
 
 **Decision: `medium` stays.** A blanket `low` trades the envelope contract for
-speed. The YAML's `medium` is a deliberate floor
+speed. The YAML's `medium` is a deliberate fallback
 (`configs/config_oib_openrouter.yml`, the `research_llm` comment), and the
 live level is the platform owner's, per agent group, in Platform → Models
 ([`org-model-configuration.md`](org-model-configuration.md#thinking-level-reasoning-effort)):
@@ -281,6 +290,14 @@ noise), the repair never ran: no answer had a patchable misquote. It does not
 move the median; it bounds the tail, one small-model call of at most 8 s
 instead of a frontier rewrite and two retrievals (16 s and 23 s in the audits'
 recorded cases).
+
+*Correction, 2026-09-25:* the 42.0 → 42.7 s comparison does not measure the
+change. Both runs started from worktrees without their own venv before
+`c9575e0d`, so both imported the main checkout's `aiq_agent` and
+`knowledge_layer` and measured the same code (§8, ADR-0067 Confirmation). The
+bound above is a property of the code (`MAX_PATCHES`, `PATCH_TIMEOUT_S`), not
+of that run. The effort A/B (§5) and the requery A/B (§3.5) ran from the main
+checkout at one commit, so they stand.
 
 ## 7. Open levers, ranked
 
@@ -307,6 +324,15 @@ recorded cases).
   no document list, no family overviews, 7 s more per turn. The ADR-0067
   before/after numbers (42 s) carry that handicap on both sides. The suite now
   refuses to start on an empty inventory.
+* **Measure the code the report names.** Until `c9575e0d` the census set
+  `PYTHONPATH` to `scripts/turn_census` alone. From a worktree without its own
+  venv, every run then imported the main checkout's `aiq_agent` and
+  `knowledge_layer` through the editable install, while the report named the
+  worktree's commit. The ADR-0067 before/after was taken that way and does not
+  show the change. The census now puts the checkout's own `src/` and
+  `sources/` packages first (`census.tree_pythonpath`), and the suite refuses
+  to start when a run would still import code from elsewhere
+  (`suite.foreign_imports`).
 * **The startup probe** (`scripts/turn_census/startup_probe.py`) runs its
   questions in one process, so the first question is a cold process and the
   rest are warm. From a worktree, shim `knowledge_layer` onto `PYTHONPATH`

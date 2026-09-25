@@ -90,8 +90,9 @@ llms:
   # runs without the BFF. What this file remains the sole owner of is the
   # plumbing: base_url, api_key, temperature, max_tokens, timeouts and
   # retries — none of which an override may touch. reasoning_effort is a
-  # floor too: the platform owner's thinking level per agent group wins
-  # (platform_reasoning_efforts, docs/architecture/org-model-configuration.md).
+  # fallback: the platform owner's thinking level per agent group wins where
+  # one is set (platform_reasoning_efforts,
+  # docs/architecture/org-model-configuration.md).
   # ───────────────────────────────────────────────────────────────────────────
   #
   # ───────────────────────────────────────────────────────────────────────────
@@ -569,6 +570,8 @@ functions:
     # Fail-open: any judge error keeps the first pool.
     requery_llm: rerank_llm
     requery_max_queries: 2
+    # requery_on_prefetch: true (default) — measured: skipping it is 3.4 s
+    # slower (docs/architecture/turn-latency-measured-2026-09.md §3.5).
     # Who answers the judge's yes/no (ADR-0064). `jev` asks the decision model
     # one noul per passage of the fused head — ~300 ms in parallel, a fraction
     # of a cent — and runs `requery_llm` only when the head is insufficient,
@@ -859,9 +862,10 @@ functions:
     # Each firing leaves a `status:width:N` record, so a cap that fires on real
     # turns is visible rather than inferred. 0 disables it.
     max_calls_per_round: 12
-    # The turn's one repair (roadmap loop L0): when a citation or a quote fails
-    # verification, one more retrieval aimed at the failing text and one rewrite,
-    # re-verified; the better answer ships. Off = ship the markers as before.
+    # The turn's one repair (ADR-0067): a quotation the model misremembered is
+    # corrected in place to the cited passage's own wording on card_repair_llm.
+    # No retrieval, no rewrite. Off, or without card_repair_llm, the quote
+    # ships marked.
     repair_pass: true
     # A card the answer envelope carried and the validator refused is fixed
     # ONCE on the card model — the failed object, the refusal and the type's
@@ -934,13 +938,13 @@ functions:
     # fails the build.
     #
     # Measured 2026-09-23. A replayed Piloti research call to
-    # openai/gpt-6-luna (19 functions, all defer_loading: true, echoed back
+    # openai/gpt-5.6-luna (19 functions, all defer_loading: true, echoed back
     # on every one) billed 40 154 input tokens with defer_loading true AND
     # false; dropping three large tools from the namespace cut 10 012. The
     # earlier "14 023 -> 437" saving recorded here no longer holds. The probe:
     #
     #                                  canary   + deferred ballast    growth
-    #   openai/gpt-6-luna              187          4 100           +3 913
+    #   openai/gpt-5.6-luna              187          4 100           +3 913
     #   openai/gpt-5.6-sol               187          4 100           +3 913
     #   anthropic/claude-sonnet-5        847          6 034           +5 187
     #   google/gemini-3.7-flash          175          5 072           +4 897

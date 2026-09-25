@@ -391,7 +391,7 @@ the reflection in the 45 s the chat path already uses
 | Citation registry snapshot | `citations:{conversation}` | 24 h | Dragonfly | TTL | no |
 | Collection write-version | `knowledge:collection-version:{c}` | none | Dragonfly, Lua, not fail-open | it is the invalidator | no |
 | Static retrieval results (`oib_knowledge` only) | `(collection, version, query, top_k, filters)` | 1 h | **process** | version bump | INFO log |
-| Query embeddings | `(model, query)` LRU 512 | none | **process** | none | no |
+| Query embeddings | `(model, query)` LRU 512; since 2026-09-24 deduped while in flight, warmed at turn start (`fdb57f4c`) | none | **process** | none | no |
 | Org model overrides + ZDR (backend) | org | 60 s / 30 s | **process** | TTL only | no |
 | BYOK credential (backend) | org | 60 s / 30 s | **process**, by design | TTL only | no |
 | Norm registry, retrieval and reasoning settings, platform lessons | singletons | 30 s to 5 min | **process** | `reset_*_cache()` | no |

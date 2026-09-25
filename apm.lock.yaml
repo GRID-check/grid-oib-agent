@@ -1,5 +1,5 @@
 lockfile_version: '1'
-generated_at: '2026-09-25T05:34:07.677875+00:00'
+generated_at: '2026-09-25T05:40:04.783729+00:00'
 apm_version: 0.28.0
 dependencies:
 - repo_url: _local/aiq-add-data-source
@@ -65,10 +65,10 @@ dependencies:
   - .claude/skills/aiq-customize-prompts-models/references/prompt-templates.md
   deployed_file_hashes:
     .agents/skills/aiq-customize-prompts-models/SKILL.md: sha256:a12ddac52a924c944b10cfe0695258bb91110151a43935f747ee260eb6ae7dd0
-    .agents/skills/aiq-customize-prompts-models/references/model-selection.md: sha256:d1f29abdd4ffd18c39d1d2c76950232bca4ced95b2378ab6b562098a8752336f
+    .agents/skills/aiq-customize-prompts-models/references/model-selection.md: sha256:61d8a44e21033776cf2a0b5234461ccfebae937091a62e304669c288f0bd3351
     .agents/skills/aiq-customize-prompts-models/references/prompt-templates.md: sha256:6651e2ad6afb7b258470d1ac271304efa1c54572756d0785a205c6b25673b2c3
     .claude/skills/aiq-customize-prompts-models/SKILL.md: sha256:a12ddac52a924c944b10cfe0695258bb91110151a43935f747ee260eb6ae7dd0
-    .claude/skills/aiq-customize-prompts-models/references/model-selection.md: sha256:d1f29abdd4ffd18c39d1d2c76950232bca4ced95b2378ab6b562098a8752336f
+    .claude/skills/aiq-customize-prompts-models/references/model-selection.md: sha256:61d8a44e21033776cf2a0b5234461ccfebae937091a62e304669c288f0bd3351
     .claude/skills/aiq-customize-prompts-models/references/prompt-templates.md: sha256:6651e2ad6afb7b258470d1ac271304efa1c54572756d0785a205c6b25673b2c3
   source: local
   local_path: ./skills/aiq-customize-prompts-models
@@ -788,7 +788,7 @@ deployments:
   owners:
   - ./skills/aiq-customize-prompts-models
   active_owner: ./skills/aiq-customize-prompts-models
-  content_hash: sha256:d1f29abdd4ffd18c39d1d2c76950232bca4ced95b2378ab6b562098a8752336f
+  content_hash: sha256:61d8a44e21033776cf2a0b5234461ccfebae937091a62e304669c288f0bd3351
 - kind: project-relative
   target: agent-skills
   value: .agents/skills/aiq-customize-prompts-models/references/prompt-templates.md
@@ -1814,7 +1814,7 @@ deployments:
   owners:
   - ./skills/aiq-customize-prompts-models
   active_owner: ./skills/aiq-customize-prompts-models
-  content_hash: sha256:d1f29abdd4ffd18c39d1d2c76950232bca4ced95b2378ab6b562098a8752336f
+  content_hash: sha256:61d8a44e21033776cf2a0b5234461ccfebae937091a62e304669c288f0bd3351
 - kind: project-relative
   target: claude
   value: .claude/skills/aiq-customize-prompts-models/references/prompt-templates.md

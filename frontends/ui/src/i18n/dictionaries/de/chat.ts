@@ -1027,8 +1027,10 @@ export const chat: typeof en.chat = {
         // wird nicht „irgendetwas an den Belegen“, sondern jede Fundstelle
         // gegen das, was tatsächlich abgerufen wurde.
         citations: 'Belege werden gegen die Quellen geprüft …',
-        // Ein Beleg oder ein Zitat hielt der Prüfung nicht stand; einmal wird
-        // nachrecherchiert und neu formuliert, bevor die Antwort markiert erscheint.
+        // Ein Zitat steht so in keiner Passage; es wird an Ort und Stelle auf
+        // den Wortlaut der zitierten Passage korrigiert (ADR-0067). Keine
+        // Nachrecherche, keine Neuformulierung; was nicht korrigiert werden
+        // kann, bleibt markiert.
         repair: 'Ein Zitat weicht vom Wortlaut der Quelle ab — wird am Original korrigiert …',
         escalation: 'Kurzrecherche reicht nicht — Tiefenrecherche startet',
       },

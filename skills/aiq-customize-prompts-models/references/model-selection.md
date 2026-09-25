@@ -77,7 +77,7 @@ boot floor: the live default is admin-set (ADR-0014).
 
 Reasoning effort works the same way. The live level is admin-owned per agent
 group (Platform → Models, stored in `platform_reasoning_efforts`). The YAML
-`reasoning_effort` on an `llms:` entry is the floor, used only when no level is
+`reasoning_effort` on an `llms:` entry is the fallback, used only when no level is
 set or the BFF cannot be reached (`src/aiq_agent/common/reasoning_settings.py`).
 
 ## Validation

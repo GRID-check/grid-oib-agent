@@ -88,9 +88,20 @@ without `card_repair_llm` the repair is off.
 * Bad, because the model no longer sees its failed check as an observation
   (roadmap ledger row 20). That observation fed the rewrite, and there is no
   rewrite left to feed.
-* Bad, because `PATCH_FLOOR` was read off test fixtures. Each flagged quote's
-  closeness is now logged, and the answer suite counts `unverified_quote` and
-  `quote_patch`, so the floor can be reset from real answers.
+* Bad, because `PATCH_FLOOR` was read off test fixtures. A flagged quote whose
+  sentence cites a source now logs its closeness to the nearest passage of
+  that source, and the answer suite counts `unverified_quote` and
+  `quote_patch`, so the floor can be reset from real answers. A quote with no
+  cited passage logs "no cited passage" and no number (since `f0555a50`).
+* Neutral: a source line that carries both a registry citation key and a link
+  nothing retrieved is valid by its key. The link is dropped from the line,
+  not the citation (`citation_verification._drop_url`). RIS is filed by key,
+  and the model copies a link beside it from a tool's source line or from the
+  prompt's `Title - URL` format. Only a line with no resolvable key is removed
+  as `url_not_in_registry`. An error or no-result tool output is never a
+  source, even when it contains a link: `_is_non_citable_status_output` runs
+  before the URL extractor. So fewer citations fail, and none of them reaches
+  this repair.
 
 ### Confirmation
 
@@ -106,19 +117,28 @@ without `card_repair_llm` the repair is off.
   calls the repair.
 
 * The answer suite, all 27 questions, before (`35454527`, the rewrite) and
-  after (`b327d221`), each from its own worktree (2026-09-24): checks 76/86 and
-  74/86. Neither run reached the repair: the before run adopted or discarded
-  no rewrite, and the after run flagged two quotes, both `uncited` (closeness
-  0.62 and 0.91), which keep their marker by design. Neither run replaced
-  settled text (`settled_replaced` 0). The two-check gap is the model: one
-  question was answered with a question back (which Bundesland), and two
-  `kind` checks flipped. Wall and final-call medians moved by about a second
-  (42.0 to 42.7 s, 18.4 to 19.6 s). What the suite cannot show yet is a
-  misquote: it had none to repair. Both runs ran from worktrees, whose relative
-  `./summaries.db` was empty: no document inventory and no family overviews,
-  equally on both sides, so the comparison holds and the absolute seconds do
-  not (31.3 s per turn with the inventory, 38.5 s without). The suite now
-  refuses to start on an empty inventory.
+  after (`b327d221`), 2026-09-24: checks 76/86 and 74/86, wall medians 42.0
+  and 42.7 s. **This comparison does not show the change. Correction,
+  2026-09-25.** Each run was started from a worktree of its commit, but
+  until `c9575e0d` the census set `PYTHONPATH` to `scripts/turn_census`
+  alone. The worktrees had no venv of their own (`task setup` never ran in
+  them), so both runs used the main checkout's `.venv`, whose editable install
+  imported the main checkout's `aiq_agent` and `knowledge_layer`. Both arms
+  measured the same code, the main checkout as it stood at run time, while
+  each report named its worktree's commit. The census now puts the checkout's
+  own `src/` and `sources/` packages first (`census.tree_pythonpath`), and the
+  suite refuses to start when a run would still import code from elsewhere
+  (`suite.foreign_imports`). The repair's effect on real answers has no valid
+  before/after yet. The unit and agent tests above still pin its behaviour.
+* What those runs still show, since they are true of the code they did run:
+  no settled text was replaced (`settled_replaced` 0), and the suite had no
+  misquote to repair. They ran before the cited-source restriction
+  (`f0555a50`): the two flagged `uncited` quotes logged closeness 0.62 and
+  0.91, which today's code would not log, because only a quote with a cited
+  passage gets a closeness. The worktrees' relative `./summaries.db` was
+  empty: no document inventory and no family overviews, so the absolute
+  seconds do not describe a normal turn (31.3 s per turn with the inventory,
+  38.5 s without). The suite now refuses to start on an empty inventory.
 
 ## More Information
 

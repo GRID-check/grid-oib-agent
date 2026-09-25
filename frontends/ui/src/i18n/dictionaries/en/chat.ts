@@ -1038,8 +1038,9 @@ export const chat = {
         // "the citations" in the abstract but every one of them, against what
         // was actually retrieved.
         citations: 'Checking every citation against the sources …',
-        // A citation or a quote failed verification; one more search and one
-        // rewrite are tried before the answer ships with its markers.
+        // A quotation no passage holds verbatim is corrected in place to the
+        // cited passage's own wording (ADR-0067). No search, no rewrite; a quote
+        // it cannot correct keeps its marker.
         repair: 'A quotation differs from the source’s wording — correcting it against the original …',
         escalation: 'A quick lookup is not enough — starting deep research',
       },

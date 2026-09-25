@@ -5,14 +5,36 @@ are as of that day.
 
 **Landed since**, from the recommendation below: a quote no passage holds is
 marked when the prose settles, not at the terminal frame
-(`settle_streamed_citations`); a card's `[N]` follows its source through an
-adopted rewrite and is dropped when the rewrite no longer cites it
-(`rewrite_numbers`, `recite_surface(strict=True)`); the answer suite counts
-`repair_adopted`, `repair_discarded` and `settled_replaced` (the terminal text
-differing from the settled one) apart. The span-level repair (§5) is built,
-narrower than sketched: ADR-0067 replaces only the quotation's inner text
-with the passage's verbatim wording, never the sentence. **Open**: the
-structural option.
+(`settle_streamed_citations`). A surface card's `[N]` follows the settled
+snapshot's renumbering, and a citation to a removed source is dropped rather
+than renumbered onto another (`recite_surface`). The answer suite counts
+`settled_replaced` (the terminal text differing from the settled one),
+`unverified_quote` and `quote_patch`. The rewrite went (ADR-0067), and with it
+`rewrite_numbers`, `recite_surface(strict=True)` and the suite's
+`repair_adopted` / `repair_discarded` counters, which an earlier version of
+this paragraph listed as landed. The span-level repair (§5) is built,
+narrower than sketched: ADR-0067 replaces only the quotation's inner text with
+the passage's verbatim wording, never the sentence. **Open**: the structural
+option.
+
+**Where the build departed from the §6.2 sketch** (`agents/piloti/quote_patch.py`):
+
+* `nearest` is the closest passage among the sources the quote's own sentence
+  cites, not the closest in the whole registry. The Bundesländer's codes hold
+  near-identical sentences, so the registry-wide nearest can be another
+  Land's (`f0555a50`).
+* The gate is `closeness` ≥ `PATCH_FLOOR` = 0.7, the best ratio over
+  quote-sized windows of the passage, not a `best_coverage` band. Coverage
+  scores the longest contiguous run and drops a quote with two words changed
+  to about the level of an invented one.
+* Acceptance needs the correction verbatim in the passage (normalised as the
+  verifier normalises) and a similarity to the original of at least
+  `MIN_SIMILARITY` = 0.6. There is no `[N]`-set or length check, because only
+  the text between the quotation marks is replaced.
+* The status stayed `status:repair` with `{quotesFailed}`, not a new
+  `status:quote_patch`.
+* It runs on `card_repair_llm`, not a new `quote_patch_llm` key. Without
+  `card_repair_llm` the repair is off.
 
 ## 1. What the reader should be able to rely on
 
@@ -59,7 +81,8 @@ The drop from 5 to 0 came from prevention, not from the repair.
 
 Measurement gaps:
 
-- The suite's `repair` signal (`scripts/turn_census/suite.py:60`) matches the substring
+- *(Superseded: the suite now counts `unverified_quote` and `quote_patch`, and the rewrite and
+  its two log lines are gone, ADR-0067.)* The suite's `repair` signal (`scripts/turn_census/suite.py:60`) matches the substring
   `"repair pass"`. That substring appears in both `repair pass adopted` and `repair pass
   discarded`, so "5 repairs" does not say how many actually changed the text. A repair that
   returns `None` (no lookups, empty retrieval) logs neither line.
@@ -161,6 +184,8 @@ that `settle_streamed_citations(prose, sources).content == finalize_answer(...).
    what the verifier saw. `_adopt_if_better`, `Repair`, `repair_sources`, `_trailer_captures`'
    repair half and `FinalAnswer.repair_sources` all go, because the patch adds no source.
    `emit_answer_repair` becomes a `status:quote_patch` with `{quotesFailed, quotesPatched}`.
+   *(Superseded: the build kept `status:repair` with `{quotesFailed}`; see the top of this
+   document.)*
 4. `agent.py:_repairer` binds the patch function. The `repair_pass` flag stays as the off switch.
 5. Frontend (optional, no contract change): in `finalizeAgentResponse`, if a snapshot was shown,
    run a word diff between the snapshot and terminal text with `diff`. If they differ, mark the
@@ -191,7 +216,9 @@ Tests to pin:
   `Snapshot.content` with the terminal content. Log `answer_stream: terminal differs from
   snapshot (N chars, M spans)`. Add a `terminal_changed` needle to `_LOG_SIGNALS` in `suite.py`.
 - Split the suite's `repair` signal into `repair_adopted` / `repair_discarded`, and log the
-  `best_coverage` of each unverified quote so that `PATCH_FLOOR` rests on data.
+  `best_coverage` of each unverified quote so that `PATCH_FLOOR` rests on data. *(Superseded:
+  the split went with the rewrite; each flagged quote with a cited passage logs its
+  `closeness`, and the suite counts `unverified_quote` and `quote_patch`.)*
 - Record pre-repair failure counts and the outcome in `citation_events` (`record_turn` args).
   That gives production frequency, not just 25-question sweeps.
 - Suite protocol (not run here): `task be:eval:answer-suite` on `--all --runs 3` before and

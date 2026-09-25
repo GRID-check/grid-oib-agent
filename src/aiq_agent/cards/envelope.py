@@ -19,8 +19,8 @@ frontend already reads. Nothing on the wire changes.
 Two things stay on the tool channel, on purpose. SYSTEM cards are pushed by
 the tool that did the work (``document_draft`` by ``write_file``,
 ``document_grid`` by ``surface_documents``, …) and were never the model's to
-compose; and ``emit_card`` stays bound for a model on an older prompt, or for a
-card it wants to show before the answer is written.
+compose; and ``emit_card`` stays bound for deep research. Piloti (chat) no
+longer binds it: its cards travel in the envelope's ``cards`` field only.
 
 A shape the model got wrong is not a round any more either: the pipeline hands
 the failed object, the validator's clauses and the type's full shape to a

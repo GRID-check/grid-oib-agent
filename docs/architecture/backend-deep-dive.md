@@ -1048,8 +1048,9 @@ knows they exist at all. `knowledge_search` recognises the shape
 words, overview nouns and edition words around it), asks
 `read_passage.family_overview` for every member the corpus holds, and renders
 those members' scope passages ahead of its own hits in ONE grounding block,
-with one `## Gliederung` per member as the trailer. One search round, then one
-round of Punkt opens. Membership is derived from what is indexed
+with one `## Gliederung` per member as the trailer. Beside the overview the
+block keeps at most four ranked hits (`_FAMILY_RANKED_HITS`), and the requery
+judge never runs on it. One search round, then one round of Punkt opens. Membership is derived from what is indexed
 (`oib_families`), so a deployment without 2.3 is never told it has one, and a
 query that also names a topic, a Punkt, a page, a table or a file is an
 ordinary search, as is one that passes `file_name=` or `folder=`.
@@ -1169,7 +1170,15 @@ Five retrieval-quality improvements sit in the knowledge layer's `register.py`
    records `requery_queries`; and the tool result the MODEL reads leads with
    one German line naming the alternative formulations and why they were tried
    (`requery.requery_notice`), so the agent that issued the search is not the
-   one party the widening is hidden from. Fail-open at every step.
+   one party the widening is hidden from. Fail-open at every step. The judge
+   is skipped, and the skip recorded as `requery_skipped_reason`, for a family
+   overview (`"family"`: the judge counts a scope note and a Gliederung as not
+   answering, so it would fan out by construction) and for the turn's prefetch
+   when `requery_on_prefetch: false` (`"prefetch"`; the default is on, because
+   skipping it measured 3.4 s slower, `turn-latency-measured-2026-09.md` §3.5).
+   A pinned file (`"file_pinned"`), a requery that already fired this turn
+   (`"already_fired"`) and the cheap pre-checks of `should_skip_judge` skip it
+   too.
 
 4. **Retrieval-precision feedback** — a new `retrieval_precision` event kind in
    the citation-health pipeline (`src/aiq_agent/common/citation_events.py`):
@@ -1731,21 +1740,25 @@ realistic turn fell from 7,724 tokens to 2,962. The amendment section of
 [ADR-0060](../adr/0060-three-instruction-layers-and-tools-that-answer.md)
 records what moved where.
 
-**The direction is Langfuse → repository, and only that way.** A prompt change
-is made in the Langfuse UI: it creates a version, and moving the `production`
-label is what ships it. Running processes pick it up within
-`LANGFUSE_PROMPT_CACHE_TTL_SECONDS` (60s default) — the SDK serves the cached
-text and refreshes in the background, so no turn waits for it.
+**Git is the source of truth** (ADR-0060 (a)).
+`src/aiq_agent/agents/piloti/prompts/piloti_static.md` is the prompt review
+reads, and it is pushed to Langfuse, where labels carry experiments. It is also
+what a process renders when prompt management is off (the default), when the
+Langfuse keys are absent, when Langfuse is unreachable, or when it holds no
+such prompt.
 
-`src/aiq_agent/agents/piloti/prompts/piloti_static.md` in the repository is the
-**bundled fallback**, not the original: what a process renders when prompt
-management is off (the default), when the Langfuse keys are absent, when
-Langfuse is unreachable, or when it holds no such prompt. It is allowed to lag
-the live version and nothing checks the difference — there is no push path and
-no drift gate. `task prompts:pull` (`scripts/prompts_pull.py`) writes the
-current production version into that file so a maintainer can commit a fresher
-fallback now and then. Labels other than `production` are for experiments; a
-deployment joins one by setting `LANGFUSE_PROMPT_LABEL`.
+`task prompts:push` (`scripts/prompts_push.py`) checks a label against the
+committed file and says what publishing would change; it writes nothing. With
+`-- --label <label> --apply` (the label must be named, `production` included)
+it publishes a new version and moves the label to it. The version's commit
+message is `git <sha> <path>`, which is how a later push tells a version
+published from git from one edited in the Langfuse UI. A UI edit is an
+experiment until `task prompts:pull` (`scripts/prompts_pull.py`) brings it into
+the file for review. The push refuses to overwrite it, and refuses a file with
+uncommitted changes. Running processes pick up a moved label within
+`LANGFUSE_PROMPT_CACHE_TTL_SECONDS` (60s default): the SDK serves the cached
+text and refreshes in the background, so no turn waits for it. A deployment
+joins another label by setting `LANGFUSE_PROMPT_LABEL`.
 
 The served text is still a Jinja template when it reaches the agent, with
 exactly one variable, `{{ answer_envelope_schema }}`, which the renderer fills

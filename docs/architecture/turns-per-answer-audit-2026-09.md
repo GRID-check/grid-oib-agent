@@ -268,7 +268,9 @@ WS frame ─▶ gather(context, inventory, registry, subject)      no LLM; one H
         ─▶ render_system_prompt                                  no LLM (Langfuse prompt store, cached);
         │                                                        the short skill bodies ride it (ADR-0063)
         ─▶ TURN DECISION (Jev, ≤1.5 s, beside the skill resolve)  no LLM: needs_evidence, corpus, families, cards, model
+        │                                                        since 2026-09-24: the embedding warm-up runs beside the decision
         ─▶ prefetch node: ROUND 0, the fetches the decision named  through the tools node; charged to no round
+        │                 (or, when the decision did not run, the family search; since 2026-09-23)
         ─▶ agent node ──▶ tools node ──▶ agent node ── … ──▶ answer
              │ 1 call        │ parallel calls   │ 1 call         │ 1 call, the envelope: prose, anatomy, CARDS
              │               │ knowledge_search: embed → chroma → cross-encoder ‖ PASSAGE VERDICTS (Jev, 1 noul per passage)
@@ -277,12 +279,15 @@ WS frame ─▶ gather(context, inventory, registry, subject)      no LLM; one H
              │               │ read_passage:     deterministic; outline with excerpts; member aliases resolve
              │               │ ris_lookup:       planner (1 small call) → fetch → extractor (1 small call, 0 when a § is named)
              │               │ ifc_*, surface_documents, emit_card, remember, write_file …: no LLM
+             │               │   (since the envelope carries cards, emit_card is no longer bound on chat)
              │               │ every grounding block: Trace-Lanes JSON stripped before the model reads it
         ─▶ register the envelope's cards; repair a wrong shape ONCE on card_llm (bounded), or drop and record
         ─▶ verify_citations (filename OR display title + page), verify_quoted_spans   pure
         ─▶ repair (≤ 2 retrievals + 1 rewrite)                   up to 1 frontier call + 2 judges, only on a failure
+        │     since ADR-0067: ≤ 3 misremembered quotes corrected in place on card_repair_llm, ≤ 8 s each, no retrieval
         ─▶ sanitize, gate the envelope                           pure
         ─▶ deltas of the FINISHED text                          nothing streamed before this line
+        │     since ADR-0066: the prose streams while the model writes it, and settles once verified
         ─▶ post-answer stages (follow-ups, reflection)          async, off the reader's path, on the bill
 ```
 
@@ -313,7 +318,8 @@ round and are paid on every search:
   every `knowledge_search` that reaches the retrieval loop and that
   `should_skip_judge` does not exempt (a pinned file, a judge that already
   fired this search; the family overview is a branch that returns before the
-  loop), reads the question and
+  loop — since 2026-09-23 an explicit judge skip inside the loop,
+  `requery_skipped_reason="family"`), reads the question and
   twelve 600-character excerpts, and answers "sufficient, or here are two
   other phrasings". With the cross-encoder a ~300 ms OpenRouter call, the
   judge is the long pole of every search and a frontier call per search.

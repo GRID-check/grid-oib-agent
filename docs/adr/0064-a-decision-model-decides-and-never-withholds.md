@@ -67,6 +67,13 @@ Every decision leaves `status:decision:<slot>` on the technical channel with
 its answers as numbers, its latency and, when it did not run, why; its cost
 is on the ledger under the `decision` role (`common/decisions.py`).
 
+*Amended 2026-09-25:* one exception to "run as today". When the decision did
+not run, a question that `family_query_number` recognises still prefetches
+its own search (`agents/piloti/decisions.py::_undecided_prefetch`). It is the
+evidence question by construction, and the decision missed its 1.5 s budget
+in 10 of 12 live calls (p50 2.7 s, measured 2026-09-23). This adds a fetch
+and withholds nothing. It shipped in `21641318` (2026-09-23).
+
 **Use 1 — the turn-start decision** (`agents/piloti/decisions.py`,
 `register.py::_decide_turn`). One request beside the skill resolution:
 `needs_evidence`, `corpus` (baurecht / projekt / buero / modell / none), one
@@ -187,6 +194,8 @@ numbers above are one run on German questions the product actually gets.
 - `tests/aiq_agent/agents/piloti/test_turn_decisions.py`,
   `test_register_decisions.py`: the question set, the bounded state, the
   mapping to effects, and that a decision that did not run changes nothing.
+  *Amended 2026-09-25:* except the family question's own prefetch above,
+  which adds a fetch and withholds nothing.
 - `tests/aiq_agent/agents/piloti/test_prefetch_round.py`, through the
   compiled graph: round 0 runs before the first call, costs no budget, is
   drawn as `status:retrieval:0`, answers the model's repeat, and never runs

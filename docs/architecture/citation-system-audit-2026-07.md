@@ -49,6 +49,9 @@ RETRIEVAL        sources/knowledge_layer/src/register.py::_format_results
 
 CAPTURE          extract_sources_from_tool_result → SourceEntry
                  parsers: knowledge-layer (per result block) | generic URL | tool-name fallback
+                   since 2026-09-24: an error or no-result output is never a
+                   source, even with a link in it (_is_non_citable_status_output
+                   runs before the URL extractor)
                  gate (shallow): loaded tools ∩ data_sources registry
 
 REGISTRY         SourceRegistry — dedup on normalized URL | (collection, filename, page)
@@ -56,6 +59,10 @@ REGISTRY         SourceRegistry — dedup on normalized URL | (collection, filen
                  document_key(entry) — the same identity MINUS the page
 
 VERIFY           verify_citations       identity only; removes, never repairs
+                   since 2026-09: a line with a registry citation key AND a link
+                   nothing retrieved is VALID by its key; the link is dropped
+                   from the line, not the citation (_drop_url). Only a line with
+                   no resolvable key is removed as url_not_in_registry
                  verify_quoted_spans    fuzzy; annotates inline, never strips
                  sanitize_report        URL + whitespace hygiene, renumber (returns renumber_map)
 
