@@ -29,18 +29,32 @@ ARTIKEL_RE = re.compile(r"\bArt(?:ikel)?\.?\s*(\d+[a-z]?)\b", re.IGNORECASE)
 ABSATZ_RE = re.compile(r"\bAbs(?:atz|\.)?\s*(\d+[a-z]?)\b", re.IGNORECASE)
 
 #: A LIST of §§ or Artikel: "§§ 75 und 81", "§§ 2, 3", "§§ 63 bis 65",
-#: "§ 5 und § 7", "Art. 5 und 7". Every one it names is addressed. Read as one
-#: it dropped all but the first and left "und 81" in the law's name, and the
-#: agent spent a round fetching the § it had already asked for.
-_JOIN = r"\s*(?:,|und|sowie|u\.|bis|–|-)\s*"
-_SECTION_LIST_RE = re.compile(rf"§+\s*\d+[a-z]?(?:{_JOIN}(?:§+\s*)?\d+[a-z]?)+", re.IGNORECASE)
-_ARTIKEL_LIST_RE = re.compile(
-    rf"\bArt(?:ikel)?\.?\s*\d+[a-z]?(?:{_JOIN}(?:Art(?:ikel)?\.?\s*)?\d+[a-z]?)+", re.IGNORECASE
+#: "§ 5 und § 7", "§ 5 Abs 2 und § 7", "Art. 5 und 7". Every one it names is
+#: addressed. Read as one it dropped all but the first and left "und 81" in the
+#: law's name, and the agent spent a round fetching the § it had already asked
+#: for. Read by a cursor from the first § the caller named (:func:`_list_from`),
+#: not by one regex: whether "und 3" continues the §§ or the Absatz before it
+#: depends on what came just before.
+_SIGNED = {
+    "§": re.compile(r"\s*§+\s*(\d+)([a-z]?)\b", re.IGNORECASE),
+    "Art": re.compile(r"\s*\bArt(?:ikel)?\.?\s*(\d+)([a-z]?)\b", re.IGNORECASE),
+}
+#: An item with no sign of its own: at most three digits (a year is not a §).
+_BARE = re.compile(r"\s*(\d{1,3})([a-z]?)\b", re.IGNORECASE)
+#: After a comma, "2. Satz" is an ordinal, not § 2.
+_ORDINAL_AHEAD = re.compile(r"\.\s*\w")
+_JOIN_RE = re.compile(r"\s*(,|\bund\b|\bsowie\b|\bu\.|\bbis\b|–|-)", re.IGNORECASE)
+_RANGE_JOINS = frozenset({"bis", "–", "-"})
+#: What narrows one § ("Abs 2", "Abs. 2 und 3", "Z 4", "lit. b", ", 2. Satz"). Bare numbers
+#: joined after it are more Absätze, never more §§.
+_QUALIFIER_RE = re.compile(
+    r"\s*(?:Abs(?:atz|\.)?\s*\d+[a-z]?|Z(?:iffer|\.)?\s*\d+|lit\.?\s*[a-z]\b|,?\s*\d+\.\s*Satz\b)"
+    r"(?:\s*(?:,|\bund\b|\bbis\b|–|-)\s*\d+[a-z]?\b(?!\.\s*\w))*",
+    re.IGNORECASE,
 )
-_LIST_ITEM_RE = re.compile(r"(bis|–|-)?\s*(?:§+\s*|Art(?:ikel)?\.?\s*)?(\d+)([a-z]?)", re.IGNORECASE)
-#: An Absatz with a list after it ("Abs 2 und 3", "Abs. 1 bis 3"): taken out of
+#: An Absatz with a list after it, where no § stands before it: taken out of
 #: the law's name whole, so no "und 3" is left to be read as the law.
-_ABSATZ_LIST_RE = re.compile(rf"\bAbs(?:atz|\.)?\s*\d+[a-z]?(?:{_JOIN}\d+[a-z]?)*", re.IGNORECASE)
+_ABSATZ_LIST_RE = re.compile(r"\bAbs(?:atz|\.)?\s*\d+[a-z]?(?:\s*(?:,|und|bis|–|-)\s*\d+[a-z]?)*", re.IGNORECASE)
 
 #: How many §§ one list may address: the tool's own passage budget
 #: (``extract.MAX_PASSAGES``). A longer list or range addresses its first six,
@@ -96,40 +110,79 @@ class Address:
 #: A range is expanded in full, so every § past the first six is named as not
 #: read. This bounds only nonsense input ("§§ 1 bis 999999"): past it the range
 #: ends here, which no law reaches.
-_MAX_RANGE_SPAN = 5000
+_MAX_RANGE_SPAN = 1000
 
 
-def sections_listed(text: str, kind: str = "§") -> tuple[str, ...]:
-    """Every § (or Artikel) a list in ``text`` names, in order, ranges expanded; empty without a list.
+def _first_section(text: str) -> tuple[str, str, int]:
+    """``(kind, number, where)`` of the first § (or else Artikel) in ``text``; ``("", "", -1)`` without one."""
+    paragraph = PARAGRAPH_RE.search(text)
+    if paragraph:
+        return "§", paragraph.group(1), paragraph.start()
+    artikel = ARTIKEL_RE.search(text)
+    return ("Art", artikel.group(1), artikel.start()) if artikel else ("", "", -1)
 
-    Not capped: :func:`parse_address` addresses the first
+
+def _list_from(text: str, kind: str, start: int) -> tuple[tuple[str, ...], int]:
+    """Every § (or Artikel) a list starting at ``start`` names, and where the list ends.
+
+    Ranges expanded (:func:`_extend`); an Absatz, Ziffer or litera after an
+    item is part of it; after one, only a SIGNED item continues the list. Not
+    capped: :func:`parse_address` addresses the first
     :data:`MAX_ADDRESSED_SECTIONS` and reports the rest as unread.
     """
-    match = (_ARTIKEL_LIST_RE if kind == "Art" else _SECTION_LIST_RE).search(text or "")
-    if not match:
-        return ()
-    numbers: list[str] = []
-    for item in _LIST_ITEM_RE.finditer(match.group(0)):
-        is_range, digits, suffix = item.groups()
-        start_digits = re.match(r"\d+", numbers[-1]) if numbers else None
-        if is_range and start_digits and not suffix and int(digits) > int(start_digits.group(0)):
-            # "7a bis 9" continues after 7a: 8, 9. The start is already in the list.
-            first = int(start_digits.group(0)) + 1
-            last = min(int(digits), first + _MAX_RANGE_SPAN)
-            numbers.extend(str(value) for value in range(first, last + 1))
-        else:
-            numbers.append(digits + suffix)
-    unique = tuple(dict.fromkeys(number.lower() for number in numbers))
-    return unique if len(unique) > 1 else ()
+    first = _SIGNED[kind].match(text, start)
+    if first is None:
+        return (), start
+    items, end = [first.group(1) + first.group(2).lower()], first.end()
+    while True:
+        qualifier = _QUALIFIER_RE.match(text, end)
+        end = qualifier.end() if qualifier else end
+        join = _JOIN_RE.match(text, end)
+        item = join and _next_item(text, kind, join, qualified=qualifier is not None)
+        if not item:
+            return tuple(dict.fromkeys(items)), end
+        _extend(items, item.group(1), item.group(2).lower(), ranged=join.group(1).lower() in _RANGE_JOINS)
+        end = item.end()
+
+
+def _next_item(text: str, kind: str, join: re.Match[str], *, qualified: bool) -> re.Match[str] | None:
+    """The item after ``join``: signed always; bare only after an unqualified item, and not an ordinal."""
+    signed = _SIGNED[kind].match(text, join.end())
+    if signed or qualified:
+        return signed
+    bare = _BARE.match(text, join.end())
+    if bare and join.group(1) == "," and _ORDINAL_AHEAD.match(text, bare.end()):
+        return None
+    return bare
+
+
+def _extend(items: list[str], digits: str, letter: str, *, ranged: bool) -> None:
+    """Add one item, or the range from the last one to it ("7a bis 9" → 8, 9; "5a-5c" → 5b, 5c).
+
+    A range that does not ascend ("§ 12 bis 3") names nothing anyone meant,
+    and adds nothing.
+    """
+    if not ranged:
+        items.append(digits + letter)
+        return
+    previous = re.match(r"(\d+)([a-z]?)", items[-1])
+    start, start_letter, end = int(previous.group(1)), previous.group(2), int(digits)
+    if end == start and letter and letter > start_letter:
+        first = chr(ord(start_letter) + 1) if start_letter else "a"
+        items.extend(f"{end}{chr(code)}" for code in range(ord(first), ord(letter) + 1))
+        return
+    if end <= start:
+        return
+    last = min(end, start + _MAX_RANGE_SPAN)
+    items.extend(str(value) for value in range(start + 1, last + 1))
+    if letter and last == end:
+        items.append(f"{end}{letter}")
 
 
 def section_in(text: str) -> tuple[str, str]:
     """The first ``(kind, number)`` a text names, or ``("", "")``."""
-    paragraph = PARAGRAPH_RE.search(text)
-    if paragraph:
-        return "§", paragraph.group(1)
-    artikel = ARTIKEL_RE.search(text)
-    return ("Art", artikel.group(1)) if artikel else ("", "")
+    kind, number, _where = _first_section(text)
+    return kind, number
 
 
 def is_ris_url(value: str) -> bool:
@@ -152,13 +205,15 @@ def parse_address(question: str, instrument: str, jurisdiction: str) -> Address:
     instrument = (instrument or "").strip()
     url = instrument if is_ris_url(instrument) else ""
     number = instrument if not url and _DOCUMENT_NUMBER_RE.match(instrument) else ""
-    kind, section = section_in(instrument) if instrument and not url and not number else ("", "")
-    listed = sections_listed(instrument, kind) if kind else ()
+    source = instrument if instrument and not url and not number else ""
+    kind, section, where = _first_section(source)
     if not section:
-        kind, section = section_in(question or "")
-        listed = sections_listed(question or "", kind) if kind else ()
+        source = question or ""
+        kind, section, where = _first_section(source)
+    items = _list_from(source, kind, where)[0] if kind else ()
+    listed = items if len(items) > 1 else ()
     # An Absatz narrows ONE §; with a list it would narrow all of them to the
-    # same number, which is never what "§§ 2 Abs 3 und 4" means.
+    # same number, which is never what "§ 5 Abs 2 und § 7" means.
     absatz = None if listed else (ABSATZ_RE.search(instrument) or ABSATZ_RE.search(question or ""))
     land, land_source = resolve_land(jurisdiction, instrument, question or "")
     return Address(
@@ -179,9 +234,17 @@ def _law_name(instrument: str, url: str, number: str) -> str:
     """The named law inside ``instrument``, with the § and Absatz taken out."""
     if url or number:
         return ""
-    without_lists = _ABSATZ_LIST_RE.sub("", _ARTIKEL_LIST_RE.sub("", _SECTION_LIST_RE.sub("", instrument)))
-    without_single = ARTIKEL_RE.sub("", PARAGRAPH_RE.sub("", without_lists))
-    return re.sub(r"\s{2,}", " ", without_single).strip(" ,.;")
+    rest = instrument
+    # Every § or Artikel list goes, with its Absätze: the first is the
+    # address, any later one a reference the law's name does not contain.
+    for _ in range(8):
+        kind, _number, where = _first_section(rest)
+        if not kind:
+            break
+        _items, end = _list_from(rest, kind, where)
+        rest = f"{rest[:where]} {rest[max(end, where + 1) :]}"
+    rest = _ABSATZ_LIST_RE.sub("", rest)
+    return re.sub(r"\s{2,}", " ", rest).strip(" ,.;-–")
 
 
 def resolve_land(jurisdiction: str, instrument: str, question: str) -> tuple[str, str]:

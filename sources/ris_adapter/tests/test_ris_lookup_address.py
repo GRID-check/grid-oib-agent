@@ -185,3 +185,47 @@ def test_the_unread_line_says_bis_only_for_a_run():
     address = parse_address("x", "§§ 1, 2, 3, 4, 5, 6, 9 und 12 BO Wien", "")
 
     assert "not read: § 9, § 12" in _unread_sentence(address)
+
+
+class TestTheListReaderAgainstPracticeInputs:
+    """Inputs a list parser built from one regex got wrong (code review, 2026-09-25)."""
+
+    def test_the_list_starts_at_the_first_paragraph_named(self):
+        # A later list is a reference, not the address: § 3 was dropped for §§ 75, 81.
+        assert parse_address("Gilt § 3 BO auch für §§ 75 und 81?", "", "").sections == ("3",)
+        address = parse_address("x", "§ 3 BO Wien, siehe §§ 75 und 81", "")
+        assert (address.sections, address.law) == (("3",), "BO Wien, siehe")
+
+    def test_an_absatz_between_two_paragraphs_does_not_end_the_list(self):
+        address = parse_address("x", "§ 5 Abs 2 und § 7 BO Wien", "")
+        assert (address.sections, address.absatz, address.law) == (("5", "7"), "", "BO Wien")
+
+    def test_an_ordinal_or_a_year_after_a_comma_is_not_a_paragraph(self):
+        assert parse_address("x", "§ 8, 2. Satz BO", "").sections == ("8",)
+        assert parse_address("x", "§ 8, 2. Satz BO", "").law == "BO"
+        assert parse_address("x", "§ 5, 1996 K-BO", "").sections == ("5",)
+
+    def test_a_lettered_range_names_the_letters_between(self):
+        assert parse_address("x", "§ 5a-5c BO", "").sections == ("5a", "5b", "5c")
+        assert parse_address("x", "§ 5a bis 5c BO", "").sections == ("5a", "5b", "5c")
+
+    def test_a_range_that_does_not_ascend_adds_nothing(self):
+        assert parse_address("x", "§ 12 bis 3 BO", "").sections == ("12",)
+        assert parse_address("x", "§ 20 bis 18a BO", "").sections == ("20",)
+
+    def test_a_dash_before_the_law_is_not_part_of_its_name(self):
+        assert parse_address("x", "§ 5 - Bautechnikgesetz 2015", "").law == "Bautechnikgesetz 2015"
+
+
+def test_the_address_budget_is_the_passage_budget():
+    from ris_adapter.lookup.address import MAX_ADDRESSED_SECTIONS
+    from ris_adapter.lookup.extract import MAX_PASSAGES
+
+    assert MAX_ADDRESSED_SECTIONS == MAX_PASSAGES
+
+
+def test_one_surviving_paragraph_of_a_list_gets_no_more_than_a_named_one():
+    from ris_adapter.lookup.grammar import SECTION_MAX_CHARS
+    from ris_adapter.lookup.passages import _passage_limit
+
+    assert _passage_limit(parse_address("x", "§§ 63 bis 68 BO Wien", ""), 1) == SECTION_MAX_CHARS

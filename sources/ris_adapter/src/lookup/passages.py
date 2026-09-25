@@ -96,7 +96,8 @@ def _passage_limit(address: Address, picks: int) -> int:
         return PASSAGE_MAX_CHARS
     if len(address.sections) <= 1:
         return SECTION_MAX_CHARS
-    return max(PASSAGE_MAX_CHARS, LIST_MAX_CHARS // max(picks, 1))
+    # Never more than a single named § gets: a list whose other §§ the law lacks is one §.
+    return min(SECTION_MAX_CHARS, max(PASSAGE_MAX_CHARS, LIST_MAX_CHARS // max(picks, 1)))
 
 
 def collection_for(candidate: Candidate) -> str:
