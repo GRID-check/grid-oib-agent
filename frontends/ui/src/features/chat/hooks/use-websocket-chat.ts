@@ -75,9 +75,6 @@ import {
   formatPayload,
 } from '../lib/intermediate-step-parser'
 
-const EMPTY_MESSAGES: ChatMessage[] = []
-const EMPTY_CONVERSATIONS: Conversation[] = []
-
 /** A mention as the composer holds it: the structured target plus its text token. */
 export interface SendMessageMention {
   targetId: string
@@ -463,14 +460,8 @@ interface UseWebSocketChatReturn {
   isStreaming: boolean
   /** Whether we're waiting for the first response */
   isLoading: boolean
-  /** All messages in the current conversation */
-  messages: Conversation['messages'] | undefined
-  /** Current conversation */
-  conversation: Conversation | null
   /** Create a new conversation */
   createConversation: () => void
-  /** Conversations filtered by current user */
-  userConversations: Conversation[]
   /** Select a conversation by ID */
   selectConversation: (conversationId: string) => void
   /** Thinking steps from Details Panel */
@@ -505,6 +496,36 @@ export const mapHumanPromptType = (natType: string): PromptType => {
     default:
       return 'clarification'
   }
+}
+
+/**
+ * Is the newest thing in this thread an unfinished turn that belongs to ME?
+ *
+ * "Mine" is `authorUserId === currentUserId`, or absent — a solo thread renders
+ * no attribution and writes no author, so absent means "there is only me".
+ * An unresponded HITL prompt counts: the thread is paused on an answer only this
+ * browser can give. So does a still-`isStreaming` assistant message. A reload
+ * no longer restores one (the storage drops an interrupted answer, and the
+ * question it answers is then the newest turn), but a socket that drops
+ * mid-answer without a reload leaves exactly that.
+ */
+const ownsUnansweredTurnIn = (
+  messages: ChatMessage[] | undefined,
+  currentUserId: string | null
+): boolean => {
+  if (!messages?.length) return false
+  for (let index = messages.length - 1; index >= 0; index--) {
+    const message = messages[index]
+    if (!MEANINGFUL_MESSAGE_TYPES.has(message.messageType ?? '')) continue
+    if (message.messageType === 'prompt') return !message.isPromptResponded
+    if (message.messageType === 'user') {
+      return !message.authorUserId || message.authorUserId === currentUserId
+    }
+    // An assistant/error message closes the turn — unless it is the partial
+    // bubble a refresh interrupted, which is exactly a turn to reattach to.
+    return message.isStreaming === true
+  }
+  return false
 }
 
 /**
@@ -726,10 +747,12 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
   }, [authRequired, getAccessToken])
 
   // Chat store — reactive state only
+  // The conversation's id and whether its newest turn is mine, not the
+  // conversation itself: the conversation is a new object on every streamed
+  // delta, and this hook's host (the composer) would re-render with each one.
   const {
-    currentConversation,
-    conversations,
-    currentUserId,
+    currentConversationId,
+    ownsUnansweredTurn,
     isStreaming,
     isLoading,
     thinkingSteps,
@@ -737,9 +760,8 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
     pendingInteraction,
   } = useChatStore(
     useShallow((s) => ({
-      currentConversation: s.currentConversation,
-      conversations: s.conversations,
-      currentUserId: s.currentUserId,
+      currentConversationId: s.currentConversation?.id,
+      ownsUnansweredTurn: ownsUnansweredTurnIn(s.currentConversation?.messages, s.currentUserId),
       isStreaming: s.isStreaming,
       isLoading: s.isLoading,
       thinkingSteps: s.thinkingSteps,
@@ -747,7 +769,6 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
       pendingInteraction: s.pendingInteraction,
     }))
   )
-  const currentConversationId = currentConversation?.id
   // Subscribe reactively so the connect effect re-runs when the project store
   // resolves after the socket was first created (fixes the first-load race
   // where the WS connected with projectId: undefined and never carried
@@ -856,32 +877,6 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
     socketGateRef.current.intent = true
     bumpSocketGate((n) => n + 1)
   }, [])
-
-  /**
-   * Is the newest thing in this thread an unfinished turn that belongs to ME?
-   *
-   * "Mine" is `authorUserId === currentUserId`, or absent — a solo thread renders
-   * no attribution and writes no author, so absent means "there is only me".
-   * An unresponded HITL prompt counts: the thread is paused on an answer only this
-   * browser can give. So does a still-`isStreaming` assistant message, which is
-   * what a mid-stream refresh leaves behind locally.
-   */
-  const ownsUnansweredTurn = useMemo(() => {
-    const messages = currentConversation?.messages
-    if (!messages?.length) return false
-    for (let index = messages.length - 1; index >= 0; index--) {
-      const message = messages[index]
-      if (!MEANINGFUL_MESSAGE_TYPES.has(message.messageType ?? '')) continue
-      if (message.messageType === 'prompt') return !message.isPromptResponded
-      if (message.messageType === 'user') {
-        return !message.authorUserId || message.authorUserId === currentUserId
-      }
-      // An assistant/error message closes the turn — unless it is the partial
-      // bubble a refresh interrupted, which is exactly a turn to reattach to.
-      return message.isStreaming === true
-    }
-    return false
-  }, [currentConversation?.messages, currentUserId])
 
   if (
     !canCollaborate ||
@@ -2474,7 +2469,7 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
       }
 
       // Mark the most recent unanswered prompt message as responded.
-      const messages = currentConversation?.messages ?? []
+      const messages = useChatStore.getState().currentConversation?.messages ?? []
       const lastPrompt = [...messages]
         .reverse()
         .find((m) => m.messageType === 'prompt' && !m.isPromptResponded)
@@ -2526,7 +2521,6 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
     },
     [
       pendingInteraction,
-      currentConversation?.messages,
       respondToPrompt,
       addErrorCard,
       setStreaming,
@@ -2545,11 +2539,11 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
   const connect = useCallback(() => {
     if (wsClientRef.current) {
       wsClientRef.current.connect()
-    } else if (currentConversation) {
-      wsClientRef.current = buildWsClient(currentConversation.id)
+    } else if (currentConversationId) {
+      wsClientRef.current = buildWsClient(currentConversationId)
       wsClientRef.current.connect()
     }
-  }, [currentConversation, buildWsClient])
+  }, [currentConversationId, buildWsClient])
 
   // Activate recovery polling when connection error cards are visible
   useConnectionRecovery(connect)
@@ -2655,13 +2649,6 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
     [storeSelectConversation]
   )
 
-  const messages = currentConversation?.messages ?? EMPTY_MESSAGES
-  const userConversations = useMemo(
-    () =>
-      currentUserId ? conversations.filter((c) => c.userId === currentUserId) : EMPTY_CONVERSATIONS,
-    [conversations, currentUserId]
-  )
-
   return {
     sendMessage,
     respondToInteraction,
@@ -2671,10 +2658,7 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
     isConnected,
     isStreaming,
     isLoading,
-    messages,
-    conversation: currentConversation,
     createConversation,
-    userConversations,
     selectConversation,
     thinkingSteps,
     currentStatus,

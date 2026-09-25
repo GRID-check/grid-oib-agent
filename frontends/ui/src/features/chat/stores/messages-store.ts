@@ -703,10 +703,12 @@ export const createMessagesSlice: StateCreator<
         : msg
     )
 
+    // No `updatedAt` bump: the turn's start already set it and its settle sets
+    // it again. Stamping every flush made the conversation's sidebar row a new
+    // row ten times a second, re-sorting and re-rendering the whole list with it.
     const updatedConversation: Conversation = {
       ...currentConversation,
       messages: updatedMessages,
-      updatedAt: new Date(),
     }
 
     set(

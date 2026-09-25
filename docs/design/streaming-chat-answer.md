@@ -162,6 +162,54 @@ Two folds consume these frames: the asker's store (`messages-store.ts`) and
 the observer's (`spectator-frames.ts`, via `GET /api/conversations/{id}/live`).
 Both must apply the same rules.
 
+**What a delta may cost.** Deltas are buffered and applied once per animation
+frame, and each flush replaces the open conversation in the store, so every
+subscriber to `currentConversation` or `conversations` re-renders and every
+persisted write runs once per flush. Two rules keep that to the answer bubble:
+
+- The persisted store writes a streaming answer at most once per
+  `STREAMING_PERSIST_INTERVAL_MS` (`sessions-store.ts`). Only the open
+  answer's growth waits: any other change in that window (a deletion, a
+  rename, a draft, a new session), and the settled answer, is written at
+  once, so a browser that dies inside the window cannot restore a deleted
+  conversation. A deferred write that fails is held for the next flush or
+  `pagehide`. A store update that leaves every persisted field the same
+  object (a loading flag, a thinking step) writes nothing and serializes
+  nothing. Before this, each flush pruned,
+  serialized and wrote the whole history; with forty conversations beside the
+  open one that was 74 writes of 1.3 MB for one answer, and eight of its twelve
+  seconds with the main thread blocked.
+- Nothing outside the chat list subscribes to the conversation objects. The
+  shell, the composer and their hooks select what they show (an id, a title, a
+  count, a boolean), and the sessions panel's rows keep their identity across a
+  flush (`use-session-rows.ts`). A flush does not bump `updatedAt`.
+
+**Why the Markdown is re-parsed whole on every flush.** Rendering the
+streamed prefix costs about 3 ms per flush for the recorded 2.9k-character
+answer, 84% of it parsing (2026-09, `MarkdownRenderer` rendered to a string
+under vitest). Rendering only the blocks that changed would save little
+unless the parse were incremental too, and Markdown is not safely
+incremental: a later line can change earlier blocks (a `---` under a
+paragraph makes it a heading, a delimiter row makes it a table, a blank line
+makes a whole list loose). The cost is linear in length, about 14 ms at 9k
+characters and 30 ms at 17k, so it starts to cost frames on answers past
+roughly 10k characters. Revisit when answers that long are common, and
+check any incremental scheme against rendering the whole text for every
+prefix of the recorded answers.
+
+**A reload mid-answer.** Nothing streams in a page that is only now loading,
+so the storage drops a stored answer that still says `isStreaming` when it
+reads the store (`createResilientStorage`). The reattached turn opens a bubble
+of its own and its terminal frame carries the whole answer. The dropped
+fragment used to stay beside that bubble with a caret, and it hid the
+unanswered question from `restoreSessionState`'s recovery, which fetches a
+finished answer the server kept while the page was away. A reload mid-answer
+now takes the same path as a reload before the first word.
+
+`/dev/stream-chat?history=40` measures this: the real store and the real shell
+(`&shell=1`), fed a recorded answer at its recorded pace, with commits, storage
+writes and long tasks in `window.__streamChat`.
+
 ### Single-consumer fold (`--input` CLI, single-shot HTTP)
 
 `fold_chunks_to_response` (`turn/streaming.py`) collapses the chunk stream to

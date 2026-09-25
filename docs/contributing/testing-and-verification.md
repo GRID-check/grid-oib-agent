@@ -366,6 +366,7 @@ measured on 2026-09-24, and the effort A/B:
 | What happens in the milliseconds before the first model call? | `scripts/turn_census/startup_probe.py` | key, corpus and document inventory | several questions in one process; the first turn is cold |
 | What shape did the turn take (rounds, locator, checkpoint)? | `task be:eval:loop` | a running backend at `GRID_LOOP_EVAL_URL` with the corpus | real model calls per question; `--compare` needs no backend |
 | Does the layout shift while an answer streams? | `/dev/stream-replay?fixture=varianten` (or `oib2`), `&speed=N` | the UI dev server | free: the fixtures are recorded frames in `frontends/ui/src/app/dev/_fixtures/stream-frames.ts`. `window.__replay` holds `shifts`, `anchorTops` and `done` for a headless capture |
+| What does a streaming answer cost the page (re-renders, localStorage writes, long tasks)? | `/dev/stream-chat?history=40`, `&shell=1` for the whole `MainLayout` | the UI dev server with the WorkOS placeholders (see [gotchas](gotchas.md)) | free: the recorded `varianten` frames driven through the real chat store. `window.__streamChat` holds `commits`, `storageWrites`, `longTasks` and `done`; profile it with a CDP CPU profile for the per-component split |
 
 ## Before opening a PR
 

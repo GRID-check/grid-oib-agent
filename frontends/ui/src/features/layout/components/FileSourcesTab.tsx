@@ -68,7 +68,7 @@ const UploadErrorAlert: FC<{ message: string; onClose: () => void; className?: s
 export const FileSourcesTab: FC<FileSourcesTabProps> = ({ onDeleteFile }) => {
   const t = useTranslations('research')
   // Get current conversation and ensureSession for session management
-  const currentConversation = useChatStore((state) => state.currentConversation)
+  const currentConversationId = useChatStore((state) => state.currentConversation?.id)
   const ensureSession = useChatStore((state) => state.ensureSession)
   const projectId = useChatStore((state) => state.projectId)
   const [uploadTarget, setUploadTarget] = useState<'project' | 'session'>(
@@ -112,7 +112,7 @@ export const FileSourcesTab: FC<FileSourcesTabProps> = ({ onDeleteFile }) => {
 
   const isProjectTarget = uploadTarget === 'project' && !!projectId
   const isProjectTargetReady = isProjectTarget && !!projectCollectionName
-  const targetCollectionName = isProjectTarget ? projectCollectionName : currentConversation?.id
+  const targetCollectionName = isProjectTarget ? projectCollectionName : currentConversationId
   const targetProjectId = isProjectTargetReady ? projectId : undefined
 
   // File upload hook - provides target files and handles validation internally
