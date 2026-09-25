@@ -168,6 +168,11 @@ const isStreamingAnswer = (value: PersistedChatStorageValue): boolean => {
   return messages?.[messages.length - 1]?.isStreaming === true
 }
 
+/**
+ * The persisted chat store's localStorage adapter: prunes what it writes,
+ * recovers from a full quota, coalesces a streaming answer's writes, and
+ * restores what a reload can use. `undefined` where there is no localStorage.
+ */
 export const createResilientStorage = (): PersistStorage<PersistedChatState> | undefined => {
   const base = createJSONStorage<PersistedChatState>(() => localStorage)
   if (!base) {
@@ -213,6 +218,7 @@ export const createResilientStorage = (): PersistStorage<PersistedChatState> | u
     }
   }
 
+  /** Prune, serialize and store, unless the stored string is already this one. */
   const writeNow = (name: string, value: PersistedChatStorageValue): void => {
     const prunedValue = prunePersistedChatState(value)
     const serializedValue = JSON.stringify(prunedValue)
@@ -238,18 +244,21 @@ export const createResilientStorage = (): PersistStorage<PersistedChatState> | u
   let pendingTimer: ReturnType<typeof setTimeout> | null = null
   let lastWriteAt = Number.NEGATIVE_INFINITY
 
+  /** Forget the held streaming value and its timer. */
   const dropPending = (): void => {
     if (pendingTimer !== null) clearTimeout(pendingTimer)
     pendingTimer = null
     pending = null
   }
 
+  /** Write now, superseding whatever a streaming answer held. */
   const write = (name: string, value: PersistedChatStorageValue): void => {
     dropPending()
     lastWriteAt = Date.now()
     writeNow(name, value)
   }
 
+  /** Write what a streaming answer holds, if anything; a failure is logged, as nothing awaits it. */
   const flushPending = (): void => {
     if (!pending) return
     const { name, value } = pending

@@ -15,7 +15,9 @@
  * them, and records per-flush work in `window.__streamChat`:
  *
  *   - `commits`: React commits under the chat, with their actual durations;
- *   - `storageWrites`: localStorage writes of the persisted chat store;
+ *   - `storageWrites`: localStorage writes of the persisted chat store, which
+ *     persists under its own key here so the fixture never replaces the
+ *     developer's sessions;
  *   - `longTasks`: main-thread tasks over 50 ms.
  *
  * `history` is the number of persisted conversations seeded beside the open
@@ -59,10 +61,18 @@ declare global {
   }
 }
 
+/**
+ * Where the store persists while this page is mounted. The fixture history
+ * must never reach the real `aiq-chat-store`: that is the developer's own
+ * sessions, and a tab closed mid-replay runs no cleanup.
+ */
+const HARNESS_STORAGE_KEY = 'aiq-chat-store:stream-chat'
+
 const TURN = STREAM_FRAMES.varianten
 const ANSWER = TURN.frames[TURN.frames.length - 1]?.content ?? ''
 const USER = 'dev-user'
 
+/** `turns` question-and-answer pairs, every answer the recorded one. */
 const turnMessages = (prefix: string, turns: number): ChatMessage[] =>
   Array.from({ length: turns }, (_, i): ChatMessage[] => [
     {
@@ -81,6 +91,7 @@ const turnMessages = (prefix: string, turns: number): ChatMessage[] =>
     },
   ]).flat()
 
+/** One seeded conversation of `turns` turns. */
 const conversation = (id: string, turns: number): Conversation => ({
   id,
   userId: USER,
@@ -91,6 +102,7 @@ const conversation = (id: string, turns: number): Conversation => ({
   updatedAt: new Date(2026, 8, 24, 9, turns),
 })
 
+/** Record every commit under a profiled subtree with its actual duration. */
 const onRender =
   (probe: StreamChatProbe): ProfilerOnRenderCallback =>
   (id, _phase, actualDuration) => {
@@ -101,7 +113,7 @@ const onRender =
 const instrumentStorage = (probe: StreamChatProbe): (() => void) => {
   const original = Storage.prototype.setItem
   Storage.prototype.setItem = function (this: Storage, key: string, value: string) {
-    if (key !== 'aiq-chat-store') return original.call(this, key, value)
+    if (key !== HARNESS_STORAGE_KEY) return original.call(this, key, value)
     const started = performance.now()
     original.call(this, key, value)
     probe.storageWrites += 1
@@ -173,6 +185,11 @@ export default function StreamChatPage() {
   const [ready, setReady] = useState(false)
 
   useEffect(() => {
+    // Persist to the harness's own key before seeding, and put back both the
+    // key and what the store held on the way out.
+    const previous = useChatStore.getState()
+    const persistedAs = useChatStore.persist.getOptions().name
+    useChatStore.persist.setOptions({ name: HARNESS_STORAGE_KEY })
     const current = conversation('open', 6)
     useChatStore.setState({
       currentUserId: USER,
@@ -184,6 +201,11 @@ export default function StreamChatPage() {
       hasHydrated: true,
     })
     setReady(true)
+    return () => {
+      useChatStore.setState(previous)
+      useChatStore.persist.setOptions({ name: persistedAs })
+      localStorage.removeItem(HARNESS_STORAGE_KEY)
+    }
   }, [history])
 
   useEffect(() => {
