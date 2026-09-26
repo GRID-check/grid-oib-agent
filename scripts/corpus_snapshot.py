@@ -6,6 +6,7 @@ what it produces depends on two things only: the PDFs and
 OCI artifact in the organisation's registry (private GHCR, like the images):
 
     data/oib/*.pdf           the corpus (read_passage and view_knowledge_image open them)
+    data/oib_uploads/*.pdf   the corpus as uploaded through the platform admin (where staging keeps it)
     data/oib_registry.json   what was ingested: each PDF's hash, and the chunk format
     data/oib_excluded.json   PDFs an operator excluded (when present)
     summaries.db             document summaries, inventory, chunk-text mirror (AIQ_SUMMARY_DB default)
@@ -15,11 +16,17 @@ OCI artifact in the organisation's registry (private GHCR, like the images):
 ingests only a new or changed PDF when one did, and re-ingests everything when
 the chunk format moved, because that is what its registry already decides.
 `push` publishes the result under the format's tag, so the next run anywhere
-starts from it. A pull request never pushes (the workflow says so): a branch that
-changes the chunk format re-ingests for itself and leaves the shared snapshot
-alone until the change is on develop.
+starts from it.
+
+`mirror DIR` makes the uploaded corpus exactly the PDFs in DIR, the way the
+admin UI would: a new or changed PDF is ingested, one DIR no longer has is
+removed from disk, registry and index (`oib_sync.remove_uploaded_document`).
+`.github/workflows/corpus-snapshot.yml` runs pull, mirror and push with DIR
+copied from staging, so what an admin uploads and syncs there becomes the
+snapshot every test run restores. Only that workflow publishes.
 
     python scripts/corpus_snapshot.py pull              # ghcr.io/<owner>/grid-oib-corpus:format-<N>
+    python scripts/corpus_snapshot.py mirror /tmp/staging-uploads
     python scripts/corpus_snapshot.py push
     python scripts/corpus_snapshot.py pull --oci-layout /tmp/store   # a local OCI layout, for tests
 
@@ -46,7 +53,7 @@ ARTIFACT_TYPE = "application/vnd.grid.oib-corpus.v1"
 
 #: Files and directories under the repo root that make up an ingested corpus.
 _FILES = ("data/oib_registry.json", "data/oib_excluded.json", "summaries.db")
-_PDF_DIR = "data/oib"
+_PDF_DIRS = ("data/oib", "data/oib_uploads")
 _CHROMA_MEMBER = "chroma"
 
 
@@ -75,8 +82,9 @@ def pack(archive: Path) -> None:
         for name in _FILES:
             if (ROOT / name).exists():
                 tar.add(ROOT / name, arcname=name)
-        for pdf in sorted((ROOT / _PDF_DIR).glob("*.pdf")):
-            tar.add(pdf, arcname=f"{_PDF_DIR}/{pdf.name}")
+        for pdf_dir in _PDF_DIRS:
+            for pdf in sorted((ROOT / pdf_dir).glob("*.pdf")):
+                tar.add(pdf, arcname=f"{pdf_dir}/{pdf.name}")
         if chroma_dir().is_dir():
             tar.add(chroma_dir(), arcname=_CHROMA_MEMBER)
 
@@ -105,17 +113,19 @@ def unpack(archive: Path) -> None:
                 if (staged / name).exists():
                     (ROOT / name).parent.mkdir(parents=True, exist_ok=True)
                     shutil.copy2(staged / name, ROOT / name)
-            (ROOT / _PDF_DIR).mkdir(parents=True, exist_ok=True)
-            for pdf in (staged / _PDF_DIR).glob("*.pdf"):
-                shutil.copy2(pdf, ROOT / _PDF_DIR / pdf.name)
+            for pdf_dir in _PDF_DIRS:
+                (ROOT / pdf_dir).mkdir(parents=True, exist_ok=True)
+                for pdf in (staged / pdf_dir).glob("*.pdf"):
+                    shutil.copy2(pdf, ROOT / pdf_dir / pdf.name)
 
 
 def _expected(name: str) -> bool:
     """A member a snapshot may carry; anything else is refused before extraction."""
-    if name in _FILES or name in ("data", _PDF_DIR):
+    if name in _FILES or name == "data" or name in _PDF_DIRS:
         return True
-    if name.startswith(f"{_PDF_DIR}/"):
-        return name.endswith(".pdf") and "/" not in name[len(_PDF_DIR) + 1 :]
+    for pdf_dir in _PDF_DIRS:
+        if name.startswith(f"{pdf_dir}/"):
+            return name.endswith(".pdf") and "/" not in name[len(pdf_dir) + 1 :]
     return name == _CHROMA_MEMBER or name.startswith(f"{_CHROMA_MEMBER}/")
 
 
@@ -170,12 +180,47 @@ def push(repository: str, oci_layout: Path | None) -> list[str]:
     return pushed
 
 
+def mirror(source: Path) -> dict[str, list[str]]:
+    """Make the uploaded corpus exactly the PDFs in ``source``, then sync; what changed.
+
+    Refuses an empty ``source``: a copy that failed must not read as "every
+    document was deleted" and empty the index.
+    """
+    wanted = {pdf.name: pdf for pdf in source.glob("*.pdf")}
+    if not wanted:
+        raise SystemExit(f"corpus snapshot: {source} holds no PDFs; refusing to mirror an empty corpus")
+    os.chdir(ROOT)  # oib_sync resolves data/... against the working directory
+    sys.path.insert(0, str(ROOT / "src"))
+    from aiq_agent import oib_sync
+
+    uploads = oib_sync.OIB_UPLOADS_DIR
+    uploads.mkdir(parents=True, exist_ok=True)
+    removed = [p.name for p in sorted(uploads.glob("*.pdf")) if p.name not in wanted]
+    for name in removed:
+        oib_sync.remove_uploaded_document(name)
+    added = []
+    for name, pdf in sorted(wanted.items()):
+        target = uploads / name
+        if not target.exists() or target.read_bytes() != pdf.read_bytes():
+            shutil.copy2(pdf, target)
+            added.append(name)
+    oib_sync.sync()
+    return {"added_or_changed": added, "removed": removed}
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    parser.add_argument("command", choices=["pull", "push"])
+    parser.add_argument("command", choices=["pull", "push", "mirror"])
+    parser.add_argument("source", nargs="?", type=Path, help="mirror: the directory of PDFs to mirror")
     parser.add_argument("--repository", default=os.environ.get("GRID_CORPUS_REPOSITORY", DEFAULT_REPOSITORY))
     parser.add_argument("--oci-layout", type=Path, default=None, help="a local OCI layout dir, not a registry")
     args = parser.parse_args(argv)
+    if args.command == "mirror":
+        if args.source is None:
+            parser.error("mirror needs the directory of PDFs to mirror")
+        changes = mirror(args.source)
+        print(f"corpus snapshot: mirrored {args.source}: {changes}")
+        return 0
     if shutil.which("oras") is None:
         print("corpus snapshot: the oras CLI is not installed (https://oras.land/docs/installation)", file=sys.stderr)
         return 2

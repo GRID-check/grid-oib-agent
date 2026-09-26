@@ -531,11 +531,6 @@ tasks:
       # /tmp/chroma_data. See scripts/corpus_snapshot.py.
       - '{{.PY}} scripts/corpus_snapshot.py pull {{.CLI_ARGS}}'
 
-  be:corpus:push:
-    desc: 'Publish the corpus ingested here as the snapshot every other run restores (NEEDS oras and a token that can write packages)'
-    cmds:
-      - '{{.PY}} scripts/corpus_snapshot.py push {{.CLI_ARGS}}'
-
   be:test:ci:
     desc: Backend core suite with the coverage gate CI enforces
     cmds:

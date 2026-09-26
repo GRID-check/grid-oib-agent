@@ -75,3 +75,55 @@ def test_the_tags_follow_the_chunk_format():
     from aiq_agent.oib_sync import CHUNK_FORMAT_VERSION
 
     assert corpus_snapshot.chunk_format_version() == CHUNK_FORMAT_VERSION
+
+
+def test_a_snapshot_carries_the_admin_uploads_too(workspace, tmp_path):
+    # Staging keeps its corpus under data/oib_uploads, so that is what a
+    # snapshot mirrored from staging holds.
+    (workspace / "data/oib_uploads").mkdir(parents=True)
+    (workspace / "data/oib_uploads/oib-rl_4_ausgabe_mai_2023.pdf").write_bytes(b"%PDF rl4")
+    (workspace / "data/oib_registry.json").write_text("{}")
+    archive = tmp_path / "corpus.tar.gz"
+    corpus_snapshot.pack(archive)
+    (workspace / "data/oib_uploads/oib-rl_4_ausgabe_mai_2023.pdf").unlink()
+
+    corpus_snapshot.unpack(archive)
+
+    assert (workspace / "data/oib_uploads/oib-rl_4_ausgabe_mai_2023.pdf").read_bytes() == b"%PDF rl4"
+
+
+def test_mirroring_an_empty_directory_is_refused(workspace, tmp_path):
+    # A copy from staging that failed must not read as "every document was
+    # deleted" and empty the index.
+    (tmp_path / "empty").mkdir()
+    with pytest.raises(SystemExit, match="refusing to mirror an empty corpus"):
+        corpus_snapshot.mirror(tmp_path / "empty")
+
+
+def test_mirroring_adds_changes_and_removes_like_the_admin_ui(workspace, tmp_path, monkeypatch):
+    from aiq_agent import oib_sync
+
+    uploads = workspace / "data/oib_uploads"
+    uploads.mkdir(parents=True)
+    (uploads / "kept.pdf").write_bytes(b"same")
+    (uploads / "changed.pdf").write_bytes(b"old")
+    (uploads / "gone.pdf").write_bytes(b"deleted in staging")
+    source = tmp_path / "staging"
+    source.mkdir()
+    (source / "kept.pdf").write_bytes(b"same")
+    (source / "changed.pdf").write_bytes(b"new")
+    (source / "new.pdf").write_bytes(b"uploaded in staging")
+
+    removed, synced = [], []
+    monkeypatch.setattr(oib_sync, "OIB_UPLOADS_DIR", uploads)
+    monkeypatch.setattr(oib_sync, "remove_uploaded_document", lambda name: removed.append(name) or True)
+    monkeypatch.setattr(oib_sync, "sync", lambda: synced.append(True) or (2, 3))
+    monkeypatch.chdir(tmp_path)
+
+    changes = corpus_snapshot.mirror(source)
+
+    assert changes == {"added_or_changed": ["changed.pdf", "new.pdf"], "removed": ["gone.pdf"]}
+    assert removed == ["gone.pdf"]
+    assert synced == [True]
+    assert (uploads / "changed.pdf").read_bytes() == b"new"
+    assert (uploads / "new.pdf").read_bytes() == b"uploaded in staging"

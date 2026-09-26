@@ -14,22 +14,14 @@ name: Smoke (live agent)
 # develop before this branch, this smoke fails on an unawaited coroutine per
 # trace event; on the branch it passes.
 #
-# The OIB corpus is operator-provided and not in git (data/oib/README.md), and
-# ingesting it costs embedding and summary calls. So it is ingested once and
-# reused: scripts/corpus_snapshot.py keeps the ingested state (PDFs, vectors,
-# summaries, registry) as a private OCI artifact, ghcr.io/<owner>/grid-oib-corpus,
-# tagged by oib_sync.CHUNK_FORMAT_VERSION. Every run restores it; the sync after
-# that is a no-op unless a PDF or the chunk format changed, and only then costs
-# anything. Runs on develop (and dispatches) publish a snapshot the sync
-# changed; a pull request never does, so a branch that changes the chunk format
-# pays for its own re-ingest without replacing the shared one.
-#
-# The first snapshot needs the PDFs once, either from `task be:corpus:push`
-# on a machine that has them ingested, or from the repository secret
-# OIB_CORPUS_URL (a .tar.gz of the PDFs, named as oib.or.at publishes them) on a
-# develop run. With a corpus the answer itself is checked too: not "nothing
-# found", and about Brandschutz. Without one only the ERROR gate runs, and the
-# log says so.
+# The OIB corpus comes from staging: an admin uploads and syncs it in
+# Platform → Knowledge, and corpus-snapshot.yml mirrors it into the private
+# snapshot ghcr.io/<owner>/grid-oib-corpus (scripts/corpus_snapshot.py). This job
+# only restores that snapshot and never publishes. The sync after the restore is
+# a no-op unless the chunk format changed, so a pull request that changes it
+# pays for its own re-ingest and leaves the shared snapshot alone. With a corpus
+# the answer itself is checked too: not "nothing found", and about Brandschutz.
+# Without one only the ERROR gate runs, and the log says so.
 #
 # Costs one model turn per run. On a pull request it runs only for the paths
 # that change what the agent does. It skips (with a notice) only where GitHub
@@ -62,7 +54,7 @@ on:
 
 permissions:
   contents: read
-  packages: write # the corpus snapshot; pushed only outside pull requests
+  packages: read # the corpus snapshot corpus-snapshot.yml publishes
 
 concurrency:
   group: smoke-live-${{ github.ref }}
@@ -109,32 +101,22 @@ jobs:
         if: ${{ steps.key.outputs.present == 'true' }}
         env:
           GH_TOKEN: ${{ github.token }}
-          OIB_CORPUS_URL: ${{ secrets.OIB_CORPUS_URL }}
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
         run: |
           echo "$GH_TOKEN" | oras login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
           .venv/bin/python scripts/corpus_snapshot.py pull --repository "ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/grid-oib-corpus"
-          before="$(sha256sum data/oib_registry.json 2>/dev/null || true)"
-          if [ -n "$OIB_CORPUS_URL" ]; then
-            curl -fsSL "$OIB_CORPUS_URL" | tar -xz -C data/oib
-          fi
-          if ls data/oib/*.pdf > /dev/null 2>&1; then
-            # A no-op when the snapshot is current; otherwise it ingests only
-            # what is new, or everything when the chunk format moved.
+          if ls data/oib/*.pdf data/oib_uploads/*.pdf > /dev/null 2>&1; then
+            # A no-op when the snapshot matches this branch's chunk format;
+            # a full re-ingest, for this run only, when it does not.
             .venv/bin/python -c "from aiq_agent import oib_sync; print('sync', oib_sync.sync())"
           else
-            echo "::notice::No corpus: no snapshot published and OIB_CORPUS_URL not set. Only the ERROR gate runs."
+            echo "::notice::No corpus snapshot yet: run 'Corpus snapshot from staging' once the corpus is uploaded there. Only the ERROR gate runs."
           fi
-          after="$(sha256sum data/oib_registry.json 2>/dev/null || true)"
-          [ "$before" != "$after" ] && echo "changed=true" >> "$GITHUB_OUTPUT" || true
       - name: Smoke
         if: ${{ steps.key.outputs.present == 'true' }}
         env:
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
         run: task be:smoke -- --out "$RUNNER_TEMP/smoke"
-      - name: Publish the corpus snapshot the sync changed
-        if: ${{ steps.corpus.outputs.changed == 'true' && github.event_name != 'pull_request' }}
-        run: .venv/bin/python scripts/corpus_snapshot.py push --repository "ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/grid-oib-corpus"
       - name: Keep the run's log
         if: ${{ always() && steps.key.outputs.present == 'true' }}
         uses: actions/upload-artifact@v7

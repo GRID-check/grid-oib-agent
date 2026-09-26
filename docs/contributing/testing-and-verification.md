@@ -312,14 +312,21 @@ unless a PDF or the chunk format changed, which the registry already decides.
 Measured on a two-page fixture: 34 s to ingest, 3 s to restore and sync, and
 the real corpus's ingest is minutes and model calls.
 
-The smoke workflow restores it on every run, and on `develop` publishes a
-snapshot its sync changed; a pull request never publishes, so a branch that
-bumps the chunk format re-ingests for itself. The first snapshot needs the PDFs
-once: `task be:corpus:push` from a machine that has them ingested, or the
-repository secret `OIB_CORPUS_URL` (a `.tar.gz` of the PDFs) on a `develop`
-run. Locally, both tasks need the `oras` CLI and `oras login ghcr.io` with a
-token that can read (or, to push, write) packages. The same snapshot makes the
-answer suite, the turn census and the loop eval runnable without ingesting.
+**Where it comes from: staging.** Upload the Richtlinien in staging's
+Platform → Knowledge and let it sync, as for any deployment. The workflow
+*Corpus snapshot from staging* (`.github/workflows/corpus-snapshot.yml`)
+copies those uploads out of the backend pod, runs `corpus_snapshot.py mirror`
+(a new or changed PDF is ingested, a removed one is deleted from the index),
+and publishes the snapshot. It runs nightly, on a `develop` push that changes
+ingestion, and from its *Run workflow* button when a new upload should reach
+the tests now. It is the only job that reaches the cluster, through the dev
+stack's kubeconfig in the `staging` environment; the smoke on a pull request
+only pulls. A branch that bumps the chunk format re-ingests for its own run
+and publishes nothing.
+
+Locally, `task be:corpus:pull` restores the same snapshot (the `oras` CLI and
+`oras login ghcr.io` with a token that can read packages). It makes the answer
+suite, the turn census and the loop eval runnable without ingesting.
 
 It is one question, not a suite: its job is to catch what breaks every turn.
 Whether answers are right and how long they take is the answer suite's job.
