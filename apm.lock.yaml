@@ -1,5 +1,5 @@
 lockfile_version: '1'
-generated_at: '2026-09-25T09:11:47.257406+00:00'
+generated_at: '2026-09-26T17:01:51.289539+00:00'
 apm_version: 0.28.0
 dependencies:
 - repo_url: _local/aiq-add-data-source
@@ -186,6 +186,20 @@ dependencies:
     .claude/skills/aiq-maintain-ci/references/workflows-and-hooks.md: sha256:c6e14524c0cca62dd761e34295f4dea272a5d85cedfcd14a9af757e314bbb772
   source: local
   local_path: ./skills/aiq-maintain-ci
+- repo_url: _local/aiq-piloti-riso
+  name: aiq-piloti-riso
+  version: 0.0.0
+  package_type: claude_skill
+  deployed_files:
+  - .agents/skills/aiq-piloti-riso
+  - .agents/skills/aiq-piloti-riso/SKILL.md
+  - .claude/skills/aiq-piloti-riso
+  - .claude/skills/aiq-piloti-riso/SKILL.md
+  deployed_file_hashes:
+    .agents/skills/aiq-piloti-riso/SKILL.md: sha256:7398c32ed5ddad841f55408a5660f0b66f12979b2f1e2d4281f172e64bcc1cdb
+    .claude/skills/aiq-piloti-riso/SKILL.md: sha256:7398c32ed5ddad841f55408a5660f0b66f12979b2f1e2d4281f172e64bcc1cdb
+  source: local
+  local_path: ./skills/aiq-piloti-riso
 - repo_url: _local/aiq-prepare-pr
   name: aiq-prepare-pr
   version: 0.0.0
@@ -1014,6 +1028,24 @@ deployments:
   - ./skills/aiq-maintain-ci
   active_owner: ./skills/aiq-maintain-ci
   content_hash: sha256:c6e14524c0cca62dd761e34295f4dea272a5d85cedfcd14a9af757e314bbb772
+- kind: project-relative
+  target: agent-skills
+  value: .agents/skills/aiq-piloti-riso
+  runtime: null
+  scope: project
+  owners:
+  - ./skills/aiq-piloti-riso
+  active_owner: ./skills/aiq-piloti-riso
+  content_hash: null
+- kind: project-relative
+  target: agent-skills
+  value: .agents/skills/aiq-piloti-riso/SKILL.md
+  runtime: null
+  scope: project
+  owners:
+  - ./skills/aiq-piloti-riso
+  active_owner: ./skills/aiq-piloti-riso
+  content_hash: sha256:7398c32ed5ddad841f55408a5660f0b66f12979b2f1e2d4281f172e64bcc1cdb
 - kind: project-relative
   target: agent-skills
   value: .agents/skills/aiq-prepare-pr
@@ -2040,6 +2072,24 @@ deployments:
   - ./skills/aiq-maintain-ci
   active_owner: ./skills/aiq-maintain-ci
   content_hash: sha256:c6e14524c0cca62dd761e34295f4dea272a5d85cedfcd14a9af757e314bbb772
+- kind: project-relative
+  target: claude
+  value: .claude/skills/aiq-piloti-riso
+  runtime: null
+  scope: project
+  owners:
+  - ./skills/aiq-piloti-riso
+  active_owner: ./skills/aiq-piloti-riso
+  content_hash: null
+- kind: project-relative
+  target: claude
+  value: .claude/skills/aiq-piloti-riso/SKILL.md
+  runtime: null
+  scope: project
+  owners:
+  - ./skills/aiq-piloti-riso
+  active_owner: ./skills/aiq-piloti-riso
+  content_hash: sha256:7398c32ed5ddad841f55408a5660f0b66f12979b2f1e2d4281f172e64bcc1cdb
 - kind: project-relative
   target: claude
   value: .claude/skills/aiq-prepare-pr

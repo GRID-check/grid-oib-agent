@@ -32,6 +32,7 @@ dependencies:
     - ./skills/aiq-customize-prompts-models
     - ./skills/aiq-definition-of-done
     - ./skills/aiq-deploy
+    - ./skills/aiq-piloti-riso
     - ./skills/aiq-maintain-ci
     - ./skills/aiq-prepare-pr
     - ./skills/aiq-release-qa
