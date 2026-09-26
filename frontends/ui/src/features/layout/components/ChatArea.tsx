@@ -1264,6 +1264,7 @@ const MessageRendererComponent: FC<MessageRendererProps> = ({
         <AgentResponse
           content={message.content}
           timestamp={message.timestamp}
+          answerDurationMs={message.answerDurationMs}
           cards={message.cards}
           citations={message.citations}
           conversationId={conversationId}

@@ -1556,6 +1556,9 @@ export const createSessionsSlice: StateCreator<
       if (assistantMessage.escalationReason) {
         provenance.escalationReason = assistantMessage.escalationReason
       }
+      if (assistantMessage.answerDurationMs) {
+        provenance.answerDurationMs = assistantMessage.answerDurationMs
+      }
       if (assistantMessage.citationsRemoved) {
         provenance.citationsRemoved = assistantMessage.citationsRemoved
       }

@@ -117,6 +117,8 @@ export interface MessageProvenance {
   answerConfidenceReason?: string
   routingDecision?: 'meta' | 'shallow' | 'deep' | 'error'
   escalationReason?: string
+  /** How long the answer took, in whole milliseconds, as the asking browser measured it. */
+  answerDurationMs?: number
   /**
    * The skills the turn activated, and the subset the disclosure de-emphasises.
    * Stored because the disclosure calls itself the RECORD of what shaped the
@@ -168,6 +170,8 @@ const MAX_REASON_CHARS = 600
 /** `citationsRemoved.reasons` is a short list of short codes. */
 const MAX_REMOVED_REASONS = 20
 const MAX_REMOVED_REASON_CHARS = 120
+/** A deep-research turn can run for hours; a week is a broken clock, not an answer. */
+const MAX_ANSWER_DURATION_MS = 7 * 24 * 60 * 60 * 1000
 /** Skill names are short slugs; a turn activates a handful. */
 const MAX_SKILLS = 20
 const MAX_SKILL_CHARS = 80
@@ -309,6 +313,15 @@ export function sanitizeProvenance(input: unknown): MessageProvenance | null {
 
   const escalationReason = cap(input.escalationReason, MAX_REASON_CHARS)
   if (escalationReason) out.escalationReason = escalationReason
+
+  if (
+    typeof input.answerDurationMs === 'number' &&
+    Number.isFinite(input.answerDurationMs) &&
+    input.answerDurationMs > 0 &&
+    input.answerDurationMs <= MAX_ANSWER_DURATION_MS
+  ) {
+    out.answerDurationMs = Math.round(input.answerDurationMs)
+  }
 
   const skillsActivated = stringList(input.skillsActivated, MAX_SKILLS, MAX_SKILL_CHARS)
   if (skillsActivated) out.skillsActivated = skillsActivated
