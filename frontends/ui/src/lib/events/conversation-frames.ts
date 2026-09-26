@@ -238,6 +238,34 @@ export async function readConversationFramesAfter(
   }
 }
 
+/**
+ * The id of the newest frame in one conversation's replay stream, or `null`
+ * when it holds none; `undefined` when there is no stream to read (no
+ * `REDIS_URL`, or the read failed). One entry, however long the stream: the
+ * cheap question "is a turn still producing frames here?", which a heartbeat
+ * every 20 s answers while the turn runs, with or without a socket.
+ */
+export async function peekNewestConversationFrame(
+  conversationId: string,
+): Promise<string | null | undefined> {
+  const url = process.env.REDIS_URL
+  if (!url) return undefined
+  try {
+    replayClient ??= createCommandClient(url)
+    const entries: [string, string[]][] = await replayClient.xrevrange(
+      conversationStream(conversationId),
+      '+',
+      '-',
+      'COUNT',
+      1,
+    )
+    return entries[0]?.[0] ?? null
+  } catch (error) {
+    console.warn('[conversation-frames] replay peek failed:', error)
+    return undefined
+  }
+}
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function createCommandClient(url: string): any {
   // eslint-disable-next-line @typescript-eslint/no-require-imports

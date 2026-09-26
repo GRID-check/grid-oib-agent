@@ -3,7 +3,7 @@
  * the server-persisted history, and keeping the server rows in step with
  * local deletes/renames so history can't resurrect as empty ghosts.
  */
-import { describe, it, expect, beforeEach, vi } from 'vitest'
+import { afterEach, describe, it, expect, beforeEach, vi } from 'vitest'
 
 const mockLayoutState = vi.hoisted(() => ({
   enabledDataSourceIds: ['web_search'],
@@ -32,6 +32,8 @@ const mockConversationsClient = vi.hoisted(() => ({
   listMessages: vi.fn(),
   createMessage: vi.fn(),
   createMessages: vi.fn(),
+  // No frames in the replay stream: a turn nobody is still working on.
+  newestFrameAge: vi.fn().mockResolvedValue(null),
 }))
 vi.mock('@/adapters/api/conversations-client', () => ({
   conversationsClient: mockConversationsClient,
@@ -557,5 +559,58 @@ describe('a turn a reload cut off, resumable from the replay stream', () => {
     expect(useChatStore.getState().resumeTurn(conv.id)).toBeNull()
     expect(useChatStore.getState().resumableTurn).toBeNull()
     expect(useChatStore.getState().isStreaming).toBe(false)
+  })
+})
+
+describe('waiting for the server’s answer to a turn this page lost', () => {
+  const lostTurn = () =>
+    makeConversation({
+      messages: [
+        {
+          id: 'u1',
+          role: 'user',
+          content: 'What is the height limit?',
+          timestamp: new Date('2026-07-01T10:00:00.000Z'),
+          messageType: 'user',
+        } as ChatMessage,
+      ],
+    })
+
+  afterEach(() => {
+    vi.useRealTimers()
+    mockConversationsClient.newestFrameAge.mockResolvedValue(null)
+  })
+
+  it('keeps waiting while the turn still beats, and takes the answer when it lands', async () => {
+    vi.useFakeTimers()
+    const conv = lostTurn()
+    useChatStore.setState({ conversations: [conv], currentConversation: conv })
+    mockConversationsClient.newestFrameAge.mockResolvedValue(5_000)
+    mockConversationsClient.listMessages
+      .mockResolvedValueOnce([serverRow(conv.id, 'u1', 'user', 'q')])
+      .mockResolvedValueOnce([serverRow(conv.id, 'u1', 'user', 'q')])
+      .mockResolvedValue([
+        serverRow(conv.id, 'u1', 'user', 'q'),
+        serverRow(conv.id, 'a1', 'assistant', 'The limit is 12 m.'),
+      ])
+
+    const outcome = useChatStore.getState()._awaitServerAnswer(conv.id, 'u1')
+    expect(useChatStore.getState().isRecoveryPending).toBe(true)
+    await vi.advanceTimersByTimeAsync(20_000)
+
+    expect(await outcome).toBe('recovered')
+    expect(useChatStore.getState().isRecoveryPending).toBe(false)
+    const messages = useChatStore.getState().currentConversation!.messages
+    expect(messages.some((m) => m.id === 'a1')).toBe(true)
+  })
+
+  it('says nothing is coming once the turn has gone quiet', async () => {
+    const conv = lostTurn()
+    useChatStore.setState({ conversations: [conv], currentConversation: conv })
+    mockConversationsClient.newestFrameAge.mockResolvedValue(5 * 60_000)
+    mockConversationsClient.listMessages.mockResolvedValue([serverRow(conv.id, 'u1', 'user', 'q')])
+
+    expect(await useChatStore.getState()._awaitServerAnswer(conv.id, 'u1')).toBe('nothing')
+    expect(useChatStore.getState().isRecoveryPending).toBe(false)
   })
 })

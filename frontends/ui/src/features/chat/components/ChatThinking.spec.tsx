@@ -178,9 +178,9 @@ describe('ChatThinking', () => {
       )
 
       // Header chip + inline notice both show the reconnecting/checking copy …
-      expect(screen.getByText('Reconnecting')).toBeInTheDocument()
+      expect(screen.getByText('Fetching the answer')).toBeInTheDocument()
       expect(
-        screen.getByText('Reconnecting — checking for a finished answer …')
+        screen.getByText('Piloti is still working — the answer appears here as soon as it is ready …')
       ).toBeInTheDocument()
       // … and the "answer lost" copy must NOT appear while we are still checking.
       expect(screen.queryByText('Interrupted')).not.toBeInTheDocument()
@@ -205,7 +205,7 @@ describe('ChatThinking', () => {
       expect(
         screen.getByText('Connection briefly lost — the answer was dropped. Please resend.')
       ).toBeInTheDocument()
-      expect(screen.queryByText('Reconnecting')).not.toBeInTheDocument()
+      expect(screen.queryByText('Fetching the answer')).not.toBeInTheDocument()
     })
 
     test('shows clock icon and waiting text when isWaiting is true', () => {

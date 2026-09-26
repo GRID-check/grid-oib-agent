@@ -321,16 +321,18 @@ in `use-websocket-chat.ts` + the chat store.
   `ReconnectableWebSocketMessageHandler._restore_execution_state` overrides the
   base to (a) tolerate either key and (b) re-register the reconnected socket in
   the registry (NAT's base only swaps the handler's `_socket` attribute). Without
-  the re-register, the dual-write guard below would still read "client gone".
+  the re-register, the running turn's frames would not reach the new socket.
 - **Registry.** `WebSocketSessionRegistry` (module-global `_registry`) maps
   `conversation_id → socket` and holds pending HITL futures + the running
   workflow task. `set_socket` on send/reconnect, `clear_socket` on disconnect.
-  `has_socket` is the **dual-write guard**: it decides whether the client is
-  present (client owns the write) or gone (persist server-side).
-- **Persist-on-drop.** When a terminal `RESPONSE_MESSAGE` cannot be sent (no live
-  socket), `_persist_terminal_message_if_client_gone` → `persist_assistant_message`
-  POSTs the finished answer (text + cards/sources/confidence) to the BFF so it
-  survives a reload. Only the **terminal** frame persists (streamed deltas pass
+- **The server keeps every answer.** Every terminal `RESPONSE_MESSAGE`, sent or
+  not, goes through `_persist_terminal_message` → `persist_assistant_message`,
+  which POSTs the finished answer (text + cards/sources/confidence) to the BFF.
+  Until 2026-09 this ran only when no socket was attached ("the client owns the
+  write", the `has_socket` guard), so an answer delivered to a socket that died
+  before the browser saved it, a phone going to the background mid-frame, was
+  kept by nobody. The browser still writes the same answer under the same
+  deterministic id, and that write is the one that no-ops. Only the **terminal** frame persists (streamed deltas pass
   `persist_on_drop=False`); a transient job-admission "queue full" notice is
   dropped, never persisted. The id is deterministic per turn
   (`deterministic_assistant_message_id`) so a double-write no-ops on the messages

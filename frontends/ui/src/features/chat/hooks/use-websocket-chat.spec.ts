@@ -974,6 +974,7 @@ describe('useWebSocketChat', () => {
       mockStoreState = {
         ...mockStoreState,
         _recoverInterruptedAssistantMessage: recover,
+        _awaitServerAnswer: recover,
         currentConversation: {
           id: 'conv-1',
           userId: 'user-1',
@@ -1262,6 +1263,7 @@ describe('useWebSocketChat', () => {
       mockStoreState = {
         ...mockStoreState,
         _recoverInterruptedAssistantMessage: recover,
+        _awaitServerAnswer: recover,
         currentConversation: {
           id: 'conv-1',
           userId: 'user-1',
@@ -1296,6 +1298,7 @@ describe('useWebSocketChat', () => {
       mockStoreState = {
         ...mockStoreState,
         _recoverInterruptedAssistantMessage: recover,
+        _awaitServerAnswer: recover,
         currentConversation: {
           id: 'conv-1',
           userId: 'user-1',
@@ -1334,6 +1337,7 @@ describe('useWebSocketChat', () => {
       mockStoreState = {
         ...mockStoreState,
         _recoverInterruptedAssistantMessage: recover,
+        _awaitServerAnswer: recover,
         currentConversation: {
           id: 'conv-1',
           userId: 'user-1',
@@ -1494,6 +1498,7 @@ describe('useWebSocketChat', () => {
       mockStoreState = {
         ...mockStoreState,
         _recoverInterruptedAssistantMessage: recover,
+        _awaitServerAnswer: recover,
         currentConversation: {
           id: 'conv-1',
           userId: 'user-1',

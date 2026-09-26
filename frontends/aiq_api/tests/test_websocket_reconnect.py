@@ -312,7 +312,7 @@ class TestPersistOnDropGating:
         )
         validator.convert_data_to_message_content = AsyncMock(return_value=MagicMock())
         validator.create_system_response_token_message = AsyncMock(return_value=MagicMock())
-        handler._persist_terminal_message_if_client_gone = AsyncMock()
+        handler._persist_terminal_message = AsyncMock()
         return handler
 
     @pytest.mark.asyncio
@@ -325,7 +325,22 @@ class TestPersistOnDropGating:
                 status=WebSocketMessageStatus.IN_PROGRESS,
                 persist_on_drop=False,
             )
-        handler._persist_terminal_message_if_client_gone.assert_not_awaited()
+        handler._persist_terminal_message.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_terminal_delivered_to_a_socket_still_persists(self) -> None:
+        """A socket that took the terminal frame may die before the browser saves
+        it; the server keeps the answer regardless (the browser's write of the
+        same deterministic id is a no-op)."""
+        handler = self._handler_with_validator()
+        with patch("aiq_api.websocket_reconnect._registry") as reg:
+            reg.send = AsyncMock(return_value=True)  # client attached
+            await handler.create_websocket_message(
+                data_model=_chunk("full answer", "stop"),
+                message_type=WebSocketMessageType.RESPONSE_MESSAGE,
+                status=WebSocketMessageStatus.COMPLETE,
+            )
+        handler._persist_terminal_message.assert_awaited_once()
 
     @pytest.mark.asyncio
     async def test_terminal_drop_persists(self) -> None:
@@ -337,7 +352,7 @@ class TestPersistOnDropGating:
                 message_type=WebSocketMessageType.RESPONSE_MESSAGE,
                 status=WebSocketMessageStatus.COMPLETE,
             )
-        handler._persist_terminal_message_if_client_gone.assert_awaited_once()
+        handler._persist_terminal_message.assert_awaited_once()
 
 
 class TestTransparencyExtrasLift:
@@ -452,7 +467,7 @@ class TestPersistTerminalMessageIfClientGone:
         )
         with patch("aiq_api.websocket_reconnect.persist_assistant_message") as persist:
             persist.return_value = True
-            await handler._persist_terminal_message_if_client_gone(message, WebSocketMessageType.RESPONSE_MESSAGE)
+            await handler._persist_terminal_message(message, WebSocketMessageType.RESPONSE_MESSAGE)
         persist.assert_not_called()
 
     @pytest.mark.asyncio
@@ -461,7 +476,7 @@ class TestPersistTerminalMessageIfClientGone:
         message = self._message({"content": {"text": "Here is your answer."}})
         with patch("aiq_api.websocket_reconnect.persist_assistant_message") as persist:
             persist.return_value = True
-            await handler._persist_terminal_message_if_client_gone(message, WebSocketMessageType.RESPONSE_MESSAGE)
+            await handler._persist_terminal_message(message, WebSocketMessageType.RESPONSE_MESSAGE)
         persist.assert_awaited_once()
         assert persist.await_args.kwargs["text"] == "Here is your answer."
 
@@ -484,7 +499,7 @@ class TestPersistTerminalMessageIfClientGone:
         )
         with patch("aiq_api.websocket_reconnect.persist_assistant_message") as persist:
             persist.return_value = True
-            await handler._persist_terminal_message_if_client_gone(message, WebSocketMessageType.RESPONSE_MESSAGE)
+            await handler._persist_terminal_message(message, WebSocketMessageType.RESPONSE_MESSAGE)
         assert persist.await_args.kwargs["extras"] == {
             "answer_meta": {"v": 1, "kind": "ruling", "summary": "REI 60, weil GK 4."},
             "routing_decision": "shallow",
@@ -626,9 +641,7 @@ class TestPersistAssistantMessageInternalRoute:
 
         with (
             patch("aiq_api.websocket_reconnect.httpx.AsyncClient", _CapturingClient),
-            patch("aiq_api.websocket_reconnect._registry") as reg,
         ):
-            reg.has_socket = AsyncMock(return_value=False)
             ok = await persist_assistant_message(
                 conversation_id="conv-1",
                 parent_id="user-1",
@@ -655,9 +668,7 @@ class TestPersistAssistantMessageInternalRoute:
 
         with (
             patch("aiq_api.websocket_reconnect.httpx.AsyncClient", _CapturingClient),
-            patch("aiq_api.websocket_reconnect._registry") as reg,
         ):
-            reg.has_socket = AsyncMock(return_value=False)
             ok = await persist_assistant_message(
                 conversation_id="conv-1",
                 parent_id="user-1",
@@ -678,9 +689,7 @@ class TestPersistAssistantMessageInternalRoute:
 
         with (
             patch("aiq_api.websocket_reconnect.httpx.AsyncClient", _CapturingClient),
-            patch("aiq_api.websocket_reconnect._registry") as reg,
         ):
-            reg.has_socket = AsyncMock(return_value=False)
             ok = await persist_assistant_message(
                 conversation_id="conv-1", parent_id="user-1", text="x", organization_id="org-1"
             )
@@ -695,9 +704,7 @@ class TestPersistAssistantMessageInternalRoute:
 
         with (
             patch("aiq_api.websocket_reconnect.httpx.AsyncClient", _CapturingClient),
-            patch("aiq_api.websocket_reconnect._registry") as reg,
         ):
-            reg.has_socket = AsyncMock(return_value=False)
             ok = await persist_assistant_message(
                 conversation_id="conv-1", parent_id="user-1", text="x", organization_id=None
             )
