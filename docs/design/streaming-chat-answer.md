@@ -184,7 +184,8 @@ Three rules keep the rest to the answer bubble:
 
 - The persisted store never writes a live turn's growth: the streaming
   answer, and the reasoning steps of the question it answers
-  (`onlyTheLiveTurnGrew`, `sessions-store.ts`). `getItem` drops an answer still
+  (`onlyTheLiveTurnGrewIn`, `stores/chat-storage.ts`), not even when a
+  rename or a draft is written beside it. `getItem` drops an answer still
   marked streaming, so a stored fragment would read back exactly as the last
   write does: the turn is rebuilt from the replay stream or fetched finished
   ([A dropped socket resumes](#a-dropped-socket-resumes)). No mid-turn action
@@ -195,6 +196,32 @@ Three rules keep the rest to the answer bubble:
   and the settled turn is written when it settles. A store update that leaves
   every persisted field the same object (a loading flag) writes nothing and
   serializes nothing.
+- A write costs one conversation, not the history. Storage is one key per
+  conversation's messages (`aiq-chat-store:messages:<id>`) and a small index
+  (`aiq-chat-store:index`: the list without messages, the open id, the drafts,
+  the open question). A send or a settle writes the index and the conversation
+  that changed; a switch or a draft writes the index alone; a read of an
+  unchanged conversation is skipped by reference, never serialized.
+- A full quota costs the oldest conversations' messages, never the list.
+  Messages are a cache of the server: every message is posted as it is
+  created (`_appendMessage`), the backend persists every finished answer
+  itself ([A dropped socket resumes](#a-dropped-socket-resumes)),
+  the Herleitung, card decisions, prompt answers and stages are mirrored to
+  the row, and a conversation opened without messages is fetched
+  (`hydrateConversationMessages`). So past `CHAT_STORAGE_BUDGET_CHARS` (3 M
+  characters, headroom for the rest of the origin) or on a
+  `QuotaExceededError`, the least recently updated conversation's messages
+  are evicted, never the open one's or one with a run still going. What
+  exists only in the browser (the drafts, the titles, each conversation's
+  data-source choice) lives in the index, which is never evicted. A
+  conversation read back without messages is marked as waiting for the server
+  (`isAwaitingServerMessages`), so the upload-only cleanup does not take its
+  empty list for an abandoned thread and delete it on the server.
+  - The first load after the change moves the old single key `aiq-chat-store`
+    into this shape: the index first, beside the old key; the old key then
+    goes and the messages follow, newest first (`migrate`). A tab still
+    running the old code that writes the old key again is moved on the next
+    load.
   - History: each flush once pruned, serialized and wrote the whole history,
     74 writes of 1.3 MB for one answer beside forty conversations; coalesced
     to one write per two seconds it was still a 100 ms task plus a 55 ms
@@ -202,7 +229,11 @@ Three rules keep the rest to the answer bubble:
     worst frame of a streamed answer from 1.4 s to 250 ms. The steps, the
     opening, the snapshot and the drafts still wrote the whole history until
     2026-09: 5–7 writes of 250–1000 ms per turn and 264 ms a keystroke with 20–40
-    conversations stored (React performance audit, 2026-09).
+    conversations stored (React performance audit, 2026-09). What remained
+    (the send, the settle, a switch) each still pruned, serialized and wrote
+    the whole history, and past the quota `setItem` threw and the recovery
+    wiped every stored session. Measured before and after one key per
+    conversation: see [Storage, measured](#storage-measured).
 - Nothing outside the chat list subscribes to the conversation objects. The
   shell, the composer and their hooks select what they show (an id, a title, a
   count, a boolean), and the sessions panel's rows keep their identity across a
@@ -223,7 +254,7 @@ prefix of the recorded answers.
 
 **A reload mid-answer.** Nothing streams in a page that is only now loading,
 so the storage drops a stored answer that still says `isStreaming` when it
-reads the store (`createResilientStorage`). The reattached turn opens a bubble
+reads the store (`createResilientStorage`, `stores/chat-storage.ts`). The reattached turn opens a bubble
 of its own and its terminal frame carries the whole answer. The dropped
 fragment used to stay beside that bubble with a caret, and it hid the
 unanswered question from `restoreSessionState`'s recovery, which fetches a
@@ -234,10 +265,39 @@ running is rebuilt from the replay stream
 
 `/dev/stream-chat?history=40` measures this: the real store and the real shell
 (`&shell=1`), fed a recorded answer at its recorded pace, with commits, storage
-writes and long tasks in `window.__streamChat`. Until 2026-09 it seeded a user
+writes and long tasks in `window.__streamChat`. `&extras=1` gives every seeded
+answer the sources, cards and masthead the recorded one settled with: bare,
+forty conversations are 1.4 M characters; with them 4.6 M, the weight real
+answers carry. Until 2026-09 it seeded a user
 id the chat resets on mount, so the open thread and the sidebar were empty
 whatever `history` said; the persisted size was real, the rendering was not
 (`docs/contributing/gotchas.md`).
+
+### Storage, measured
+
+Production build, 390×844, Chromium at a 4× CPU throttle,
+`/dev/stream-chat?history=N&shell=1&extras=1`, each store action timed to
+the end of the task after it (React's commit included), median of three
+runs, 2026-09:
+
+| Stored | Action | Before: store action / longest task / written | After |
+|---|---|---|---|
+| 20 conversations (2.3 M chars) | send | 191 ms / 277 ms / 2.3 M chars | 15 ms / 78 ms / 71 k |
+| | settle | 176 / 512 / 2.3 M | 10 / 251 / 74 k |
+| | switch | 150 / 295 / 2.3 M | 4 / 117 / 3 k |
+| | rehydrate | 94 ms | 67 ms |
+| 40 (4.6 M chars) | send | 360 / 453 / 4.6 M | 16 / 97 / 74 k |
+| | settle | 366 / 669 / 4.6 M | 22 / 367 / 77 k |
+| | switch | 304 / 484 / 4.6 M | 3 / 126 / 6 k |
+| | rehydrate | 138 ms | 73 ms |
+| 60 (6.8 M chars) | every write | ~400 ms, `QuotaExceededError`, then **all 61 conversations wiped** (172 characters stored) | 12 ms a send, no error: 61 conversations listed, the newest 26 with their messages (2.9 M chars), the rest read from the server when opened |
+
+"Store action" is the synchronous time of the action, where the storage write
+happens; the longest task adds React's commit, which is what remains of the
+settle (the answer's cards). Forty conversations used to fit the quota and now
+keep 26 with their messages: the 3 M-character budget leaves the rest of the
+origin room, and is the number to raise if refetching an older conversation
+on open turns out to cost more than the headroom saves.
 
 ### Single-consumer fold (`--input` CLI, single-shot HTTP)
 
