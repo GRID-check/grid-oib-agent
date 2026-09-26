@@ -49,8 +49,8 @@ import {
   ARRIVAL_ANCHOR,
   NO_TOURS,
   TOURS,
+  TOUR_HOME,
   TOUR_SEEN_KEYS,
-  TOUR_START_URL,
   isSetupPage,
   placeStops,
   requestedTour,
@@ -63,6 +63,7 @@ import {
   type TourFlags,
   type TourId,
 } from '../lib/product-tour'
+import type { JSX } from 'react'
 
 /** How long arrival waits for the page to render the tour's first anchor. */
 const ARRIVAL_TIMEOUT_MS = 5000
@@ -123,6 +124,11 @@ function ProductTourRunner({
   // goes stale the moment a tour starts; this is what keeps a first-visit
   // tour from starting again on the next page of the same scope.
   const startedRef = React.useRef(new Set<TourId>())
+  // A replay asked for on a page with no tour of its own: carried across the
+  // navigation to the projects home in a ref, because the frame stays mounted.
+  // Not as `?tour=welcome` — that is the creator's hand-over URL, and it would
+  // greet a joiner who replays with "your organization is ready".
+  const pendingReplayRef = React.useRef<TourId | null>(null)
   const here = tourAt(pathname)
 
   // Both state updates land in one render, so NextStep sees the new steps on
@@ -145,8 +151,12 @@ function ProductTourRunner({
   )
 
   const start = React.useCallback(() => {
-    if (here) startHere(here, false)
-    else router.push(TOUR_START_URL)
+    if (here) {
+      startHere(here, false)
+      return
+    }
+    pendingReplayRef.current = 'welcome'
+    router.push(TOUR_HOME)
   }, [here, router, startHere])
 
   // Hand-over via `?tour=`, or a first visit the server marked eligible. Drop
@@ -154,6 +164,11 @@ function ProductTourRunner({
   // to render what the tour points at first.
   const autoStart = here !== null && eligible[here] && !isSetupPage(pathname)
   React.useEffect(() => {
+    const replay = pendingReplayRef.current
+    if (replay && replay === here) {
+      pendingReplayRef.current = null
+      return waitForArrival(replay, () => startHere(replay, false))
+    }
     const requested = requestedTour(window.location.search)
     const handover = requested !== null && requested === here
     if (requested) router.replace(withoutTourRequest(pathname, window.location.search), { scroll: false })

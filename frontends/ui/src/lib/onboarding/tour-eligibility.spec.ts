@@ -32,6 +32,15 @@ describe('resolveTourEligibility', () => {
     expect(await resolveTourEligibility(session)).toEqual({ welcome: false, project: true })
   })
 
+  it('skips the message probe once both tours are seen', async () => {
+    getUserPreferences.mockResolvedValue({
+      tourWelcomeSeenAt: '2026-09-23T10:00:00.000Z',
+      tourProjectSeenAt: '2026-09-23T10:05:00.000Z',
+    })
+    expect(await resolveTourEligibility(session)).toEqual({ welcome: false, project: false })
+    expect(hasWrittenInOrganization).not.toHaveBeenCalled()
+  })
+
   it('fails to no tour, never to a broken frame', async () => {
     hasWrittenInOrganization.mockRejectedValue(new Error('db down'))
     getUserPreferences.mockResolvedValue({})

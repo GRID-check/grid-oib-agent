@@ -30,6 +30,7 @@ import { ProjectsGrid } from '@/components/projects/projects-grid'
 import { EmptyState } from '@/components/ui/empty-state'
 import { ProductTour, useStartProductTour } from '@/features/onboarding/components/product-tour'
 import { NO_TOURS, type TourId } from '@/features/onboarding/lib/product-tour'
+import type { JSX } from 'react'
 
 const USER = { name: 'Anna Berger', email: 'anna.berger@example.at' }
 const ORGANIZATION = 'Musterarchitektur ZT GmbH'

@@ -31,6 +31,7 @@ import { Card } from '@/components/ui/card'
 import { EmptyStateDisc } from '@/components/ui/empty-state'
 import { Spinner } from '@/components/ui/spinner'
 import { useTranslations } from '@/i18n'
+import type { JSX } from 'react'
 
 export interface OrganizationSetupProps {
   /** The signed-in account, shown beside sign-out. */

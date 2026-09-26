@@ -12,6 +12,7 @@
 import { useSearchParams } from 'next/navigation'
 import { Suspense, useState } from 'react'
 import { OrganizationSetup } from '@/features/onboarding/components/organization-setup'
+import type { JSX } from 'react'
 
 function Preview(): JSX.Element {
   const state = useSearchParams().get('state') ?? 'form'

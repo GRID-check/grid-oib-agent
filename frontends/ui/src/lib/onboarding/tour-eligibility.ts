@@ -8,6 +8,10 @@
  * The rule itself is pure and lives beside the tours
  * ({@link tourEligibility}); this is only the two reads.
  *
+ * The preferences are read first, and the message probe is skipped once both
+ * tours are seen: this runs on every hard load of the frame, and for everyone
+ * past their first days the answer is already in the preferences row.
+ *
  * Tolerant like the rest of the shell chrome it feeds: any failure means no
  * tour, never a broken frame.
  */
@@ -20,10 +24,10 @@ import { NO_TOURS, tourEligibility, type TourEligibility } from '@/features/onbo
 
 export async function resolveTourEligibility(session: AuthorizedSession): Promise<TourEligibility> {
   try {
-    const [prefs, hasWritten] = await Promise.all([
-      getUserPreferences(session),
-      hasWrittenInOrganization(session.organizationId, session.userId),
-    ])
+    const prefs = await getUserPreferences(session)
+    const unseen = tourEligibility(prefs, false)
+    if (!unseen.welcome && !unseen.project) return NO_TOURS
+    const hasWritten = await hasWrittenInOrganization(session.organizationId, session.userId)
     return tourEligibility(prefs, hasWritten)
   } catch {
     return NO_TOURS
