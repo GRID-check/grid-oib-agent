@@ -8,9 +8,9 @@
 import type { ArtId, OnPageArtId } from '../../lib/art'
 
 export const PLATES = {
-  /** Drei Stützen / Three columns: kept for the banner and share cards; Team now wears Tragwerk I. */
+  /** Drei Stützen / Three columns: kept for the banner and share cards; Team now wears Tragwerk II. */
   I: 'tafeln/stuetzen/plate',
-  /** Schichten / Layers: the post on how Piloti works (the sources section wears Tragwerk II). */
+  /** Schichten / Layers: the sources section, on the page, and the post on how Piloti works. */
   II: 'tafeln/schichten/plate',
   /** Schleife / Loop: the post on learning from corrections. */
   III: 'tafeln/schleife/plate',
@@ -28,13 +28,13 @@ export const PLATES = {
 
 /**
  * The Tragwerk series (art/riso/tragwerk): the Piloti column, a brand staple,
- * by number. I is the Team's taped print, II the sources section's plate, IV
- * the 404's; III wears only its share card (the Journal's).
+ * by number. II is the Team's taped print (three columns, three founders, one
+ * slab), IV the 404's; I wears the landing share card, III the Journal's.
  */
 export const TRAGWERK = {
-  /** Säule / Column: the Team section, taped beside the founder photos. */
+  /** Säule / Column: the landing page's share card (its og). */
   I: 'tragwerk/saeule/plate',
-  /** Drei Säulen / Three columns: the sources section. */
+  /** Drei Säulen / Three columns: the Team section, taped beside the founder photos. */
   II: 'tragwerk/drei/plate',
   /** Säulenordnung / The orders. */
   III: 'tragwerk/ordnung/plate',

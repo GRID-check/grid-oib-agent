@@ -130,11 +130,11 @@ const de = {
     kontakt: '08 Kontakt',
   },
   // Captions under a taped riso print (see craft/plates.ts). Plates printed
-  // on the page carry none, so only the Team's taped column has one. Here
+  // on the page carry none, so only the Team's taped three columns have one. Here
   // rather than from the art manifest, whose captions are set with an em
   // dash; German wants the spaced en dash.
   plates: {
-    saeule: 'Tragwerk I – Säule',
+    drei: 'Tragwerk II – Drei Säulen',
   },
   nav: {
     ariaLabel: 'Hauptnavigation',
@@ -720,7 +720,7 @@ const en: typeof de = {
     kontakt: '08 Contact',
   },
   plates: {
-    saeule: 'Structure I – Column',
+    drei: 'Structure II – Three columns',
   },
   nav: {
     ariaLabel: 'Main navigation',

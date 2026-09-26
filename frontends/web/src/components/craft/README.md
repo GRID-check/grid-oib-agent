@@ -7,7 +7,7 @@ plain `<img>`: no dependencies, no fonts.
 | Piece | What it is | Used on |
 |---|---|---|
 | `PagePrint.astro` | A riso plate printed straight onto the page: the on-page file (inks as alpha, no paper), `mix-blend-mode: multiply`, no sheet, tape, caption or frame. `tone="dark"` reverses it onto a dark panel. `phone="third"` as TapedPrint's. The default for a plate. | Every landing section's plate but Team's (below), the 404 |
-| `TapedPrint.astro` | A print on a white paper margin, one strip of tape, optional mono caption. Takes a riso print by art id (with `locale`, its declared alt text), or any slot (a photo, a blog cover). A plate hangs straight; only a slot leans (clamped to ±2°). `phone="third"` shows a plate at a third below `sm`. The print keeps its paper: it is an object on the page, so at most one per page. | Team's Tragwerk I, founder photos, an uploaded blog cover |
+| `TapedPrint.astro` | A print on a white paper margin, one strip of tape, optional mono caption. Takes a riso print by art id (with `locale`, its declared alt text), or any slot (a photo, a blog cover). A plate hangs straight; only a slot leans (clamped to ±2°). `phone="third"` shows a plate at a third below `sm`. The print keeps its paper: it is an object on the page, so at most one per page. | Team's Tragwerk II, founder photos, an uploaded blog cover |
 | `plates.ts` | The Tafeln plates by number → their art id, and which blog posts wear one. File names live only in `src/data/art.json`. | wherever a plate is shown |
 | `Tape.astro` | The strip of masking tape: translucent crepe with a torn zigzag at both ends. | inside TapedPrint only |
 | `craft-in.ts` | Marks a `[data-craft-in]` element `craft-in` when it scrolls into view; a mark drawn on the sheet animates off that class. | The Prüfblatt's ticks (Quellen) |
@@ -29,9 +29,9 @@ the sections moved to on page. The landing page:
 | Section | Plate | Mode | Desktop | Phone |
 |---|---|---|---|---|
 | 03 Nutzung | VI Zeichentisch | on page | third, above the tag, still | hidden: the stories are the picture |
-| 04 Quellen und Daten | Tragwerk II Drei Säulen | on page, on the sage panel | half, beside the claim, still | third, above the tag |
+| 04 Quellen und Daten | II Schichten | on page, on the sage panel | half, beside the claim, still | third, above the tag |
 | 05 Wert | VII Waage | on page, `tone="dark"` | third, above the tag | hidden: the calculator comes first |
-| 06 Team | Tragwerk I Säule | taped, beside the taped founder photos | half, beside the intro | third, above the tag |
+| 06 Team | Tragwerk II Drei Säulen (three columns, three founders, one slab) | taped, beside the taped founder photos | half, beside the intro | third, above the tag |
 | 08 Kontakt | VIII Offene Tür | on page | half, beside the invitation | third, above the tag |
 
 The Wert plate sits on the dark olive panel. Multiplied there, the inks

@@ -229,10 +229,10 @@ moiré. It is mild on 3x phones, which get the 1440 file at about 1170 px. No
 
 | Art id | Plate | Used on |
 |---|---|---|
-| `tafeln/stuetzen/plate` | I Drei Stützen | Not placed (Team wears `tragwerk/saeule/plate`) |
+| `tafeln/stuetzen/plate` | I Drei Stützen | Not placed (Team wears `tragwerk/drei/plate`) |
 | `tafeln/stuetzen/og` | I Drei Stützen | Not placed (the landing card is `tragwerk/saeule/og`) |
 | `tafeln/stuetzen/banner` | I Drei Stützen | Bautagebuch / blog header |
-| `tafeln/schichten/plate` | II Schichten | Not placed (the section wears `tragwerk/drei/plate`) |
+| `tafeln/schichten/plate` | II Schichten | Section "Quellen und Daten", on the page |
 | `tafeln/schichten/og`, `…/cover` | II Schichten | "Wie Piloti funktioniert": share card and cover; the Bautagebuch share card |
 | `tafeln/schleife/plate` | III Schleife | Not on a page yet (its cover and share card are) |
 | `tafeln/schleife/og`, `…/cover` | III Schleife | "Ein System, das aus Ihrem Frust lernt": share card and cover |
