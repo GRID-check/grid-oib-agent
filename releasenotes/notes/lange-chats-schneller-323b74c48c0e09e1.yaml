@@ -1,7 +1,8 @@
 ---
 improvements:
   - >
-    Lange Unterhaltungen öffnen sich schneller, vor allem auf dem Handy. Auch
-    eine ältere Herleitung mit vielen Quellen klappt jetzt flüssiger auf. Die
-    Quellen-Chips, die Nummern im Antworttext und die Quellenkarten verhalten
-    sich dabei wie bisher, mit der Maus, am Touchscreen und mit der Tastatur.
+    Die Quellen-Chips, die Nummern im Antworttext und die Quellenkarten der
+    Herleitung bereiten ihre Vorschau erst vor, wenn man sie berührt. Beim
+    Öffnen einer Unterhaltung und einer Herleitung fällt damit ein Teil der
+    Arbeit weg. Mit Maus, Touchscreen und Tastatur verhalten sie sich wie
+    bisher.
