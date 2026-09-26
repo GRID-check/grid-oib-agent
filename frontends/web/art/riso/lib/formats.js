@@ -51,6 +51,11 @@ const FORMATS = {
     compose: 'spot', encode: 'webp', dest: 'site', file: '{base}-spot-{w}', numeral: false,
     sizes: [{ density: 1, w: 96, h: 96, pitch: 3.4 }, { density: 2, w: 192, h: 192, pitch: 6.8 }],
   },
+  release: {
+    use: 'Release stamp beside a changelog entry, 64 CSS px square. Its own composition: solid shapes, heavy lines, one screened field at most',
+    compose: 'stamp', encode: 'webp', dest: 'site', file: '{base}-{w}', numeral: false,
+    sizes: [{ density: 1, w: 64, h: 64, pitch: 2.4 }, { density: 2, w: 128, h: 128, pitch: 4.8 }],
+  },
   empty: {
     use: 'Empty state in the product UI, 320 CSS px square. A quiet vignette, not a full plate',
     compose: 'empty', encode: 'webp', dest: 'site', file: '{base}-empty-{w}', numeral: false,
