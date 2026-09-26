@@ -264,6 +264,10 @@
     "de": "Auch ein Recherchebericht kann jetzt eine Datei aus dem Projekt oder dem Büroarchiv als Karte zeigen. Bisher konnte die tiefe Recherche eine Unterlage zitieren, aber nicht öffnen; die Karte erschien nur im Chat."
   },
   {
+    "en": "Auch wer eingeladen wird oder einem bestehenden Projekt beitritt, bekommt die Touren: beim ersten Besuch der Projektübersicht und beim ersten Besuch eines Projekts, jeweils einmal. Wer in der Organisation schon gearbeitet hat, sieht sie nicht ungefragt.",
+    "de": "Auch wenn Sie eingeladen werden oder einem bestehenden Projekt beitreten, erhalten Sie die Touren – jeweils einmal beim ersten Aufruf der Projektübersicht und eines Projekts. Wenn Sie bereits in der Organisation gearbeitet haben, werden Ihnen diese nicht ungefragt angezeigt."
+  },
+  {
     "en": "Auf dem Telefon lief die Dokumentart im Kopf der Dateivorschau unter die Schaltflächen daneben. Sie wird jetzt gekürzt, statt sich zu überlagern.",
     "de": "Auf dem Smartphone wird die Dokumentart in der Kopfzeile der Dateivorschau jetzt gekürzt, statt die benachbarten Schaltflächen zu überlagern."
   },
@@ -638,6 +642,10 @@
   {
     "en": "Die Schaltflächen an Codeblöcken („Kopieren\", „Alle anzeigen\") erscheinen jetzt auf Deutsch.",
     "de": "Die Schaltflächen an Codeblöcken („Kopieren“, „Alle anzeigen“) erscheinen jetzt auf Deutsch."
+  },
+  {
+    "en": "Die Seite zum Einrichten der Organisation ist neu gestaltet: ein Feld, ein Knopf und drei Zeilen dazu, wie es weitergeht. Das Abmelden bleibt in jedem Zustand oben rechts erreichbar.",
+    "de": "Die Seite zur Einrichtung der Organisation ist neu gestaltet: ein Feld, eine Schaltfläche und drei Zeilen zum weiteren Vorgehen. Das Abmelden ist weiterhin in jedem Zustand oben rechts möglich."
   },
   {
     "en": "Die Skill-Prüfung ist jetzt ein Schritt: Sie führen sie aus, bevor Sie speichern können. Was sie findet, gewichten Sie selbst — Befunde blockieren das Speichern nicht, und wenn die Prüfung nicht erreichbar ist, können Sie trotzdem speichern.",
@@ -1318,6 +1326,10 @@
   {
     "en": "Nach der Antwort auf eine Rückfrage war oft nicht erkennbar, dass Piloti weiterarbeitet: Der Chat wirkte für einen Moment fertig, obwohl im Hintergrund noch etwas lief. Jetzt erscheint unten im Chat ein Hinweis, solange auf die nächste Antwort gewartet wird.",
     "de": "Nach der Antwort auf eine Rückfrage war oft nicht erkennbar, dass Piloti weiterarbeitet: Der Chat wirkte für einen Moment fertig, obwohl im Hintergrund noch etwas lief. Jetzt erscheint unten im Chat ein Hinweis, solange auf die nächste Antwort gewartet wird."
+  },
+  {
+    "en": "Nach der Einrichtung des ersten Projekts folgt eine zweite Tour im Projekt selbst: Frag Piloti, Dateien, das Archiv und worin sich die beiden unterscheiden, wie Antworten ihre Quellen zeigen, und wo Mitglieder eingeladen werden. Beide Touren lassen sich jederzeit überspringen und über das Kontomenü unter „Produkttour“ erneut starten.",
+    "de": "Nach der Einrichtung des ersten Projekts folgt im Projekt selbst eine zweite Tour: Sie behandelt Frag Piloti, Dateien und das Archiv sowie die Unterschiede zwischen den beiden, zeigt, wie Antworten ihre Quellen angeben, und erklärt, wo Sie Mitglieder einladen. Beide Touren können Sie jederzeit überspringen und über das Kontomenü unter „Produkttour“ erneut starten."
   },
   {
     "en": "Nennt eine Antwort eine Datei beim Namen — „Beginnen Sie mit pd8280-2.pdf\" —, ist dieser Name jetzt anklickbar und öffnet das Dokument neben der Antwort. Bisher war er reiner Text: Der Weg dorthin führte über die Dateien, das Suchfeld und den abgetippten Namen.",
@@ -2082,6 +2094,10 @@
   {
     "en": "Wer eine Stelle selbst markiert, bekommt sie auf Wunsch als fertiges Zitat — mit Dokument und Seitenzahl, in derselben Form wie die Zitate aus der Antwort. Damit sieht eine Stelle aus dem Dokument und eine aus dem Chat in der Stellungnahme gleich aus.",
     "de": "Wer eine Stelle selbst markiert, erhält sie auf Wunsch als fertiges Zitat – mit Dokument und Seitenzahl und im selben Format wie die Zitate aus der Antwort. So sehen Stellen aus dem Dokument und aus dem Chat in der Stellungnahme gleich aus."
+  },
+  {
+    "en": "Wer eine neue Organisation anlegt, sieht danach eine kurze Produkttour durch die Projektübersicht: wo Projekte entstehen, Archiv und Postfach, wo Kolleginnen und Kollegen eingeladen werden, und die wichtigsten Tastenkürzel.",
+    "de": "Wenn Sie eine neue Organisation anlegen, führt Sie anschließend eine kurze Produkttour durch die Projektübersicht: Sie zeigt, wo Projekte erstellt werden, wo Sie Archiv und Postfach finden, wie Sie Kolleginnen und Kollegen einladen und welche Tastenkürzel besonders wichtig sind."
   },
   {
     "en": "Wer mit einer chinesischen, japanischen oder koreanischen Eingabemethode schreibt, kann Zeichen mit der Eingabetaste bestätigen, ohne dass die Nachricht vorzeitig abgeschickt wird.",

@@ -46,6 +46,22 @@
               "de": "Plattform-Betreiber können unter Plattform → Abruf einstellen, ob Antworten live Wort für Wort erscheinen oder vollständig, sobald sie fertig sind. Die Herleitung läuft in beiden Fällen live mit. Die Einstellung gilt für alle Organisationen ab der nächsten Frage."
             },
             {
+              "en": "Wer eine neue Organisation anlegt, sieht danach eine kurze Produkttour durch die Projektübersicht: wo Projekte entstehen, Archiv und Postfach, wo Kolleginnen und Kollegen eingeladen werden, und die wichtigsten Tastenkürzel.",
+              "de": "Wenn Sie eine neue Organisation anlegen, führt Sie anschließend eine kurze Produkttour durch die Projektübersicht: Sie zeigt, wo Projekte erstellt werden, wo Sie Archiv und Postfach finden, wie Sie Kolleginnen und Kollegen einladen und welche Tastenkürzel besonders wichtig sind."
+            },
+            {
+              "en": "Nach der Einrichtung des ersten Projekts folgt eine zweite Tour im Projekt selbst: Frag Piloti, Dateien, das Archiv und worin sich die beiden unterscheiden, wie Antworten ihre Quellen zeigen, und wo Mitglieder eingeladen werden. Beide Touren lassen sich jederzeit überspringen und über das Kontomenü unter „Produkttour“ erneut starten.",
+              "de": "Nach der Einrichtung des ersten Projekts folgt im Projekt selbst eine zweite Tour: Sie behandelt Frag Piloti, Dateien und das Archiv sowie die Unterschiede zwischen den beiden, zeigt, wie Antworten ihre Quellen angeben, und erklärt, wo Sie Mitglieder einladen. Beide Touren können Sie jederzeit überspringen und über das Kontomenü unter „Produkttour“ erneut starten."
+            },
+            {
+              "en": "Auch wer eingeladen wird oder einem bestehenden Projekt beitritt, bekommt die Touren: beim ersten Besuch der Projektübersicht und beim ersten Besuch eines Projekts, jeweils einmal. Wer in der Organisation schon gearbeitet hat, sieht sie nicht ungefragt.",
+              "de": "Auch wenn Sie eingeladen werden oder einem bestehenden Projekt beitreten, erhalten Sie die Touren – jeweils einmal beim ersten Aufruf der Projektübersicht und eines Projekts. Wenn Sie bereits in der Organisation gearbeitet haben, werden Ihnen diese nicht ungefragt angezeigt."
+            },
+            {
+              "en": "Die Seite zum Einrichten der Organisation ist neu gestaltet: ein Feld, ein Knopf und drei Zeilen dazu, wie es weitergeht. Das Abmelden bleibt in jedem Zustand oben rechts erreichbar.",
+              "de": "Die Seite zur Einrichtung der Organisation ist neu gestaltet: ein Feld, eine Schaltfläche und drei Zeilen zum weiteren Vorgehen. Das Abmelden ist weiterhin in jedem Zustand oben rechts möglich."
+            },
+            {
               "en": "Hochgeladene Dateien bekommen ihre Schlagwörter (Dokumenttyp und Fachbereich) schneller und treffsicherer. Ein Fachbereich wie Brandschutz wird nur noch vergeben, wenn das Dokument tatsächlich davon handelt, und nicht schon, weil ein Plan eine Brandabschnittsgrenze einzeichnet.",
               "de": "Hochgeladene Dateien bekommen ihre Schlagwörter (Dokumenttyp und Fachbereich) schneller und treffsicherer. Ein Fachbereich wie Brandschutz wird nur noch vergeben, wenn das Dokument tatsächlich davon handelt, und nicht schon, weil ein Plan eine Brandabschnittsgrenze einzeichnet."
             }
