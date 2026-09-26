@@ -1,7 +1,7 @@
 ---
 import SectionTag from '../atoms/SectionTag.astro'
 import Pill from '../atoms/Pill.astro'
-import TapedPrint from '../craft/TapedPrint.astro'
+import PagePrint from '../craft/PagePrint.astro'
 import { PLATES } from '../craft/plates'
 import { mailtoHref } from '../../consts'
 import { ui, type Locale } from '../../i18n/ui'
@@ -86,13 +86,7 @@ const metrics: { key: keyof RoiText; label: string; live?: keyof RoiText; note?:
         <!-- Plate VII, the balance tipping towards the paper: the case the
              calculator weighs. From lg only; a phone has the calculator to get
              through first. -->
-        <TapedPrint
-          name={PLATES.VII}
-          locale={locale}
-          caption={t.plates.VII}
-          size="third"
-          class="mb-10 max-lg:hidden"
-        />
+        <PagePrint name={PLATES.VII} locale={locale} size="third" tone="dark" class="mb-10 max-lg:hidden" />
         <SectionTag no={sheetNo} tone="dark" class="mb-5">{t.roi.tag}</SectionTag>
         <h2 class="m-0 mb-5 font-voice text-v2 text-surface sm:mb-6" style="text-wrap: balance">
           {t.roi.title}

@@ -8,8 +8,13 @@
  *
  * `inks` names the separations on disk beside the print (`<file>-<ink>.webp`
  * plus `<file>-paper.webp`); leave it out and the pass is approximated from
- * the print itself. TapedPrint wraps every plate in this; nothing else needs
- * to.
+ * the print itself. TapedPrint and PagePrint wrap every plate in this;
+ * nothing else needs to.
+ *
+ * `page` marks an on-page print (no paper, inks as alpha, blended into the
+ * page; craft/PagePrint): the pass then lays its inks onto the page itself,
+ * each layer with the print's own filter and blend, instead of onto a
+ * paper-coloured stage.
  *
  * Without script, or under reduced motion, the print is simply there.
  */
@@ -17,16 +22,23 @@ interface Props {
   inks?: string[]
   /** Render the print as it is, with no wrapper and no pass. */
   off?: boolean
+  /** An on-page print (craft/PagePrint): the pass has no paper. */
+  page?: boolean
   class?: string
 }
-const { inks = [], off = false, class: className = '' } = Astro.props
+const { inks = [], off = false, page, class: className = '' } = Astro.props
 ---
 
 {
   off ? (
     <slot />
   ) : (
-    <div class:list={['ink-pass', className]} data-ink-pass data-inks={inks.join(',') || undefined}>
+    <div
+      class:list={['ink-pass', page && 'ink-pass--page', className]}
+      data-ink-pass
+      data-inks={inks.join(',') || undefined}
+      data-ink-page={page ? '' : undefined}
+    >
       <slot />
     </div>
   )
@@ -61,6 +73,11 @@ const { inks = [], off = false, class: className = '' } = Astro.props
        the print is taped to. */
     isolation: isolate;
     pointer-events: none;
+  }
+  /* An on-page print has no paper of its own: its inks blend with the page,
+     as the print at rest does. */
+  .ink-pass--page :global(.ink-pass__stage) {
+    isolation: auto;
   }
   .ink-pass :global(.ink-pass__layer) {
     position: absolute;

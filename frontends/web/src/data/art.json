@@ -51,6 +51,20 @@
           "width": 128,
           "height": 128
         }
+      ],
+      "page": [
+        {
+          "density": 1,
+          "src": "/art/releases-bau-01-64-page.webp?v=581772e5",
+          "width": 64,
+          "height": 64
+        },
+        {
+          "density": 2,
+          "src": "/art/releases-bau-01-128-page.webp?v=b675d76a",
+          "width": 128,
+          "height": 128
+        }
       ]
     },
     "releases/bau-02/release": {
@@ -74,6 +88,20 @@
         {
           "density": 2,
           "src": "/art/releases-bau-02-128.webp?v=3a9d1718",
+          "width": 128,
+          "height": 128
+        }
+      ],
+      "page": [
+        {
+          "density": 1,
+          "src": "/art/releases-bau-02-64-page.webp?v=eec1b0ed",
+          "width": 64,
+          "height": 64
+        },
+        {
+          "density": 2,
+          "src": "/art/releases-bau-02-128-page.webp?v=b42ddd7c",
           "width": 128,
           "height": 128
         }
@@ -103,6 +131,20 @@
           "width": 128,
           "height": 128
         }
+      ],
+      "page": [
+        {
+          "density": 1,
+          "src": "/art/releases-bau-03-64-page.webp?v=8fa39a21",
+          "width": 64,
+          "height": 64
+        },
+        {
+          "density": 2,
+          "src": "/art/releases-bau-03-128-page.webp?v=89e09ef9",
+          "width": 128,
+          "height": 128
+        }
       ]
     },
     "releases/bau-04/release": {
@@ -126,6 +168,20 @@
         {
           "density": 2,
           "src": "/art/releases-bau-04-128.webp?v=90a42bcb",
+          "width": 128,
+          "height": 128
+        }
+      ],
+      "page": [
+        {
+          "density": 1,
+          "src": "/art/releases-bau-04-64-page.webp?v=37fe16ba",
+          "width": 64,
+          "height": 64
+        },
+        {
+          "density": 2,
+          "src": "/art/releases-bau-04-128-page.webp?v=080977c8",
           "width": 128,
           "height": 128
         }
@@ -155,6 +211,20 @@
           "width": 128,
           "height": 128
         }
+      ],
+      "page": [
+        {
+          "density": 1,
+          "src": "/art/releases-bau-05-64-page.webp?v=705847be",
+          "width": 64,
+          "height": 64
+        },
+        {
+          "density": 2,
+          "src": "/art/releases-bau-05-128-page.webp?v=be55de45",
+          "width": 128,
+          "height": 128
+        }
       ]
     },
     "releases/bau-06/release": {
@@ -178,6 +248,20 @@
         {
           "density": 2,
           "src": "/art/releases-bau-06-128.webp?v=bd6e8eaf",
+          "width": 128,
+          "height": 128
+        }
+      ],
+      "page": [
+        {
+          "density": 1,
+          "src": "/art/releases-bau-06-64-page.webp?v=13cd1185",
+          "width": 64,
+          "height": 64
+        },
+        {
+          "density": 2,
+          "src": "/art/releases-bau-06-128-page.webp?v=868bca8f",
           "width": 128,
           "height": 128
         }
@@ -207,6 +291,20 @@
           "width": 128,
           "height": 128
         }
+      ],
+      "page": [
+        {
+          "density": 1,
+          "src": "/art/releases-bau-07-64-page.webp?v=6f09f5b9",
+          "width": 64,
+          "height": 64
+        },
+        {
+          "density": 2,
+          "src": "/art/releases-bau-07-128-page.webp?v=17726912",
+          "width": 128,
+          "height": 128
+        }
       ]
     },
     "releases/bau-08/release": {
@@ -230,6 +328,20 @@
         {
           "density": 2,
           "src": "/art/releases-bau-08-128.webp?v=2e5f168a",
+          "width": 128,
+          "height": 128
+        }
+      ],
+      "page": [
+        {
+          "density": 1,
+          "src": "/art/releases-bau-08-64-page.webp?v=b66cce2a",
+          "width": 64,
+          "height": 64
+        },
+        {
+          "density": 2,
+          "src": "/art/releases-bau-08-128-page.webp?v=b4ca42d9",
           "width": 128,
           "height": 128
         }
@@ -259,6 +371,20 @@
           "width": 128,
           "height": 128
         }
+      ],
+      "page": [
+        {
+          "density": 1,
+          "src": "/art/releases-bau-09-64-page.webp?v=1b15b1fa",
+          "width": 64,
+          "height": 64
+        },
+        {
+          "density": 2,
+          "src": "/art/releases-bau-09-128-page.webp?v=4a8c7f60",
+          "width": 128,
+          "height": 128
+        }
       ]
     },
     "releases/bau-10/release": {
@@ -282,6 +408,20 @@
         {
           "density": 2,
           "src": "/art/releases-bau-10-128.webp?v=55a034ec",
+          "width": 128,
+          "height": 128
+        }
+      ],
+      "page": [
+        {
+          "density": 1,
+          "src": "/art/releases-bau-10-64-page.webp?v=12a13365",
+          "width": 64,
+          "height": 64
+        },
+        {
+          "density": 2,
+          "src": "/art/releases-bau-10-128-page.webp?v=4d0609aa",
           "width": 128,
           "height": 128
         }
@@ -311,6 +451,20 @@
           "width": 128,
           "height": 128
         }
+      ],
+      "page": [
+        {
+          "density": 1,
+          "src": "/art/releases-bau-11-64-page.webp?v=b6e5473e",
+          "width": 64,
+          "height": 64
+        },
+        {
+          "density": 2,
+          "src": "/art/releases-bau-11-128-page.webp?v=9f6f9ed6",
+          "width": 128,
+          "height": 128
+        }
       ]
     },
     "releases/bau-12/release": {
@@ -334,6 +488,20 @@
         {
           "density": 2,
           "src": "/art/releases-bau-12-128.webp?v=f6883299",
+          "width": 128,
+          "height": 128
+        }
+      ],
+      "page": [
+        {
+          "density": 1,
+          "src": "/art/releases-bau-12-64-page.webp?v=0f2bdae5",
+          "width": 64,
+          "height": 64
+        },
+        {
+          "density": 2,
+          "src": "/art/releases-bau-12-128-page.webp?v=28ba433e",
           "width": 128,
           "height": 128
         }
@@ -363,6 +531,20 @@
           "width": 128,
           "height": 128
         }
+      ],
+      "page": [
+        {
+          "density": 1,
+          "src": "/art/releases-bau-13-64-page.webp?v=49644f2f",
+          "width": 64,
+          "height": 64
+        },
+        {
+          "density": 2,
+          "src": "/art/releases-bau-13-128-page.webp?v=a15bba82",
+          "width": 128,
+          "height": 128
+        }
       ]
     },
     "releases/bau-14/release": {
@@ -386,6 +568,20 @@
         {
           "density": 2,
           "src": "/art/releases-bau-14-128.webp?v=15b6b933",
+          "width": 128,
+          "height": 128
+        }
+      ],
+      "page": [
+        {
+          "density": 1,
+          "src": "/art/releases-bau-14-64-page.webp?v=5c738a31",
+          "width": 64,
+          "height": 64
+        },
+        {
+          "density": 2,
+          "src": "/art/releases-bau-14-128-page.webp?v=5406b4b4",
           "width": 128,
           "height": 128
         }
@@ -415,6 +611,20 @@
           "width": 128,
           "height": 128
         }
+      ],
+      "page": [
+        {
+          "density": 1,
+          "src": "/art/releases-bau-15-64-page.webp?v=5d798830",
+          "width": 64,
+          "height": 64
+        },
+        {
+          "density": 2,
+          "src": "/art/releases-bau-15-128-page.webp?v=8ffcaa5f",
+          "width": 128,
+          "height": 128
+        }
       ]
     },
     "releases/bau-16/release": {
@@ -438,6 +648,20 @@
         {
           "density": 2,
           "src": "/art/releases-bau-16-128.webp?v=64809d19",
+          "width": 128,
+          "height": 128
+        }
+      ],
+      "page": [
+        {
+          "density": 1,
+          "src": "/art/releases-bau-16-64-page.webp?v=5e3d77a3",
+          "width": 64,
+          "height": 64
+        },
+        {
+          "density": 2,
+          "src": "/art/releases-bau-16-128-page.webp?v=0857a605",
           "width": 128,
           "height": 128
         }
@@ -467,6 +691,20 @@
           "width": 128,
           "height": 128
         }
+      ],
+      "page": [
+        {
+          "density": 1,
+          "src": "/art/releases-bau-17-64-page.webp?v=1d402c74",
+          "width": 64,
+          "height": 64
+        },
+        {
+          "density": 2,
+          "src": "/art/releases-bau-17-128-page.webp?v=fedf7fc2",
+          "width": 128,
+          "height": 128
+        }
       ]
     },
     "releases/bau-18/release": {
@@ -490,6 +728,20 @@
         {
           "density": 2,
           "src": "/art/releases-bau-18-128.webp?v=393914c5",
+          "width": 128,
+          "height": 128
+        }
+      ],
+      "page": [
+        {
+          "density": 1,
+          "src": "/art/releases-bau-18-64-page.webp?v=b5eabab2",
+          "width": 64,
+          "height": 64
+        },
+        {
+          "density": 2,
+          "src": "/art/releases-bau-18-128-page.webp?v=ead78ff4",
           "width": 128,
           "height": 128
         }
@@ -519,6 +771,20 @@
           "width": 128,
           "height": 128
         }
+      ],
+      "page": [
+        {
+          "density": 1,
+          "src": "/art/releases-bau-19-64-page.webp?v=137abc2a",
+          "width": 64,
+          "height": 64
+        },
+        {
+          "density": 2,
+          "src": "/art/releases-bau-19-128-page.webp?v=8894fd21",
+          "width": 128,
+          "height": 128
+        }
       ]
     },
     "releases/bau-20/release": {
@@ -542,6 +808,20 @@
         {
           "density": 2,
           "src": "/art/releases-bau-20-128.webp?v=6fa36657",
+          "width": 128,
+          "height": 128
+        }
+      ],
+      "page": [
+        {
+          "density": 1,
+          "src": "/art/releases-bau-20-64-page.webp?v=2b63cfd7",
+          "width": 64,
+          "height": 64
+        },
+        {
+          "density": 2,
+          "src": "/art/releases-bau-20-128-page.webp?v=d4b121dd",
           "width": 128,
           "height": 128
         }
@@ -571,6 +851,20 @@
           "width": 128,
           "height": 128
         }
+      ],
+      "page": [
+        {
+          "density": 1,
+          "src": "/art/releases-bau-21-64-page.webp?v=1fea3de2",
+          "width": 64,
+          "height": 64
+        },
+        {
+          "density": 2,
+          "src": "/art/releases-bau-21-128-page.webp?v=ee3ee4da",
+          "width": 128,
+          "height": 128
+        }
       ]
     },
     "releases/bau-22/release": {
@@ -594,6 +888,20 @@
         {
           "density": 2,
           "src": "/art/releases-bau-22-128.webp?v=b0b9f234",
+          "width": 128,
+          "height": 128
+        }
+      ],
+      "page": [
+        {
+          "density": 1,
+          "src": "/art/releases-bau-22-64-page.webp?v=2ae14910",
+          "width": 64,
+          "height": 64
+        },
+        {
+          "density": 2,
+          "src": "/art/releases-bau-22-128-page.webp?v=c25282f5",
           "width": 128,
           "height": 128
         }
@@ -623,6 +931,20 @@
           "width": 128,
           "height": 128
         }
+      ],
+      "page": [
+        {
+          "density": 1,
+          "src": "/art/releases-bau-23-64-page.webp?v=b4a5f746",
+          "width": 64,
+          "height": 64
+        },
+        {
+          "density": 2,
+          "src": "/art/releases-bau-23-128-page.webp?v=5b8ca27e",
+          "width": 128,
+          "height": 128
+        }
       ]
     },
     "releases/bau-24/release": {
@@ -646,6 +968,20 @@
         {
           "density": 2,
           "src": "/art/releases-bau-24-128.webp?v=8b2b2894",
+          "width": 128,
+          "height": 128
+        }
+      ],
+      "page": [
+        {
+          "density": 1,
+          "src": "/art/releases-bau-24-64-page.webp?v=382db110",
+          "width": 64,
+          "height": 64
+        },
+        {
+          "density": 2,
+          "src": "/art/releases-bau-24-128-page.webp?v=450572fa",
           "width": 128,
           "height": 128
         }
@@ -675,6 +1011,20 @@
           "width": 128,
           "height": 128
         }
+      ],
+      "page": [
+        {
+          "density": 1,
+          "src": "/art/releases-bau-25-64-page.webp?v=9c43a5fe",
+          "width": 64,
+          "height": 64
+        },
+        {
+          "density": 2,
+          "src": "/art/releases-bau-25-128-page.webp?v=c3c9f7b0",
+          "width": 128,
+          "height": 128
+        }
       ]
     },
     "releases/bau-26/release": {
@@ -698,6 +1048,20 @@
         {
           "density": 2,
           "src": "/art/releases-bau-26-128.webp?v=8aafff29",
+          "width": 128,
+          "height": 128
+        }
+      ],
+      "page": [
+        {
+          "density": 1,
+          "src": "/art/releases-bau-26-64-page.webp?v=e9590a3a",
+          "width": 64,
+          "height": 64
+        },
+        {
+          "density": 2,
+          "src": "/art/releases-bau-26-128-page.webp?v=1fd83751",
           "width": 128,
           "height": 128
         }
@@ -727,6 +1091,20 @@
           "width": 128,
           "height": 128
         }
+      ],
+      "page": [
+        {
+          "density": 1,
+          "src": "/art/releases-bau-27-64-page.webp?v=c8fcd3ad",
+          "width": 64,
+          "height": 64
+        },
+        {
+          "density": 2,
+          "src": "/art/releases-bau-27-128-page.webp?v=94596c2e",
+          "width": 128,
+          "height": 128
+        }
       ]
     },
     "releases/bau-28/release": {
@@ -750,6 +1128,20 @@
         {
           "density": 2,
           "src": "/art/releases-bau-28-128.webp?v=e7d32811",
+          "width": 128,
+          "height": 128
+        }
+      ],
+      "page": [
+        {
+          "density": 1,
+          "src": "/art/releases-bau-28-64-page.webp?v=9c78176c",
+          "width": 64,
+          "height": 64
+        },
+        {
+          "density": 2,
+          "src": "/art/releases-bau-28-128-page.webp?v=2891178a",
           "width": 128,
           "height": 128
         }
@@ -779,6 +1171,20 @@
           "width": 128,
           "height": 128
         }
+      ],
+      "page": [
+        {
+          "density": 1,
+          "src": "/art/releases-bau-29-64-page.webp?v=0ee17e16",
+          "width": 64,
+          "height": 64
+        },
+        {
+          "density": 2,
+          "src": "/art/releases-bau-29-128-page.webp?v=5fc9f7b5",
+          "width": 128,
+          "height": 128
+        }
       ]
     },
     "releases/bau-30/release": {
@@ -802,6 +1208,20 @@
         {
           "density": 2,
           "src": "/art/releases-bau-30-128.webp?v=ee584a3a",
+          "width": 128,
+          "height": 128
+        }
+      ],
+      "page": [
+        {
+          "density": 1,
+          "src": "/art/releases-bau-30-64-page.webp?v=87937bd7",
+          "width": 64,
+          "height": 64
+        },
+        {
+          "density": 2,
+          "src": "/art/releases-bau-30-128-page.webp?v=2d7f90ae",
           "width": 128,
           "height": 128
         }
@@ -855,6 +1275,20 @@
           "width": 1440,
           "height": 1440
         }
+      ],
+      "page": [
+        {
+          "density": 1,
+          "src": "/art/piloti-iv-bauplatz-720-page.webp?v=8e18e13d",
+          "width": 720,
+          "height": 720
+        },
+        {
+          "density": 2,
+          "src": "/art/piloti-iv-bauplatz-1440-page.webp?v=9f8c1c22",
+          "width": 1440,
+          "height": 1440
+        }
       ]
     },
     "tafeln/pruefstand/og": {
@@ -905,6 +1339,20 @@
           "width": 1440,
           "height": 1440
         }
+      ],
+      "page": [
+        {
+          "density": 1,
+          "src": "/art/piloti-v-pruefstand-720-page.webp?v=d21b6f0f",
+          "width": 720,
+          "height": 720
+        },
+        {
+          "density": 2,
+          "src": "/art/piloti-v-pruefstand-1440-page.webp?v=95f375e3",
+          "width": 1440,
+          "height": 1440
+        }
       ]
     },
     "tafeln/schichten/cover": {
@@ -928,6 +1376,20 @@
         {
           "density": 2,
           "src": "/art/piloti-ii-schichten-cover-1440x810.webp?v=ce2fb481",
+          "width": 1440,
+          "height": 810
+        }
+      ],
+      "page": [
+        {
+          "density": 1,
+          "src": "/art/piloti-ii-schichten-cover-720x405-page.webp?v=2f9c844b",
+          "width": 720,
+          "height": 405
+        },
+        {
+          "density": 2,
+          "src": "/art/piloti-ii-schichten-cover-1440x810-page.webp?v=333a7e97",
           "width": 1440,
           "height": 810
         }
@@ -981,6 +1443,20 @@
           "width": 1440,
           "height": 1440
         }
+      ],
+      "page": [
+        {
+          "density": 1,
+          "src": "/art/piloti-ii-schichten-720-page.webp?v=2982bfb2",
+          "width": 720,
+          "height": 720
+        },
+        {
+          "density": 2,
+          "src": "/art/piloti-ii-schichten-1440-page.webp?v=e98091cb",
+          "width": 1440,
+          "height": 1440
+        }
       ]
     },
     "tafeln/schleife/cover": {
@@ -1004,6 +1480,20 @@
         {
           "density": 2,
           "src": "/art/piloti-iii-schleife-cover-1440x810.webp?v=1f55c5c5",
+          "width": 1440,
+          "height": 810
+        }
+      ],
+      "page": [
+        {
+          "density": 1,
+          "src": "/art/piloti-iii-schleife-cover-720x405-page.webp?v=1e73b450",
+          "width": 720,
+          "height": 405
+        },
+        {
+          "density": 2,
+          "src": "/art/piloti-iii-schleife-cover-1440x810-page.webp?v=db0e44bc",
           "width": 1440,
           "height": 810
         }
@@ -1054,6 +1544,20 @@
         {
           "density": 2,
           "src": "/art/piloti-iii-schleife-1440.webp?v=f2a830cd",
+          "width": 1440,
+          "height": 1440
+        }
+      ],
+      "page": [
+        {
+          "density": 1,
+          "src": "/art/piloti-iii-schleife-720-page.webp?v=4c1a9c50",
+          "width": 720,
+          "height": 720
+        },
+        {
+          "density": 2,
+          "src": "/art/piloti-iii-schleife-1440-page.webp?v=8f072a8b",
           "width": 1440,
           "height": 1440
         }
@@ -1133,6 +1637,20 @@
           "width": 1440,
           "height": 1440
         }
+      ],
+      "page": [
+        {
+          "density": 1,
+          "src": "/art/piloti-i-stuetzen-720-page.webp?v=66a51e60",
+          "width": 720,
+          "height": 720
+        },
+        {
+          "density": 2,
+          "src": "/art/piloti-i-stuetzen-1440-page.webp?v=5a33262a",
+          "width": 1440,
+          "height": 1440
+        }
       ]
     },
     "tafeln/tuer/cover": {
@@ -1156,6 +1674,20 @@
         {
           "density": 2,
           "src": "/art/piloti-viii-tuer-cover-1440x810.webp?v=186a22c9",
+          "width": 1440,
+          "height": 810
+        }
+      ],
+      "page": [
+        {
+          "density": 1,
+          "src": "/art/piloti-viii-tuer-cover-720x405-page.webp?v=90c4865e",
+          "width": 720,
+          "height": 405
+        },
+        {
+          "density": 2,
+          "src": "/art/piloti-viii-tuer-cover-1440x810-page.webp?v=ec67d7d2",
           "width": 1440,
           "height": 810
         }
@@ -1209,6 +1741,20 @@
           "width": 1440,
           "height": 1440
         }
+      ],
+      "page": [
+        {
+          "density": 1,
+          "src": "/art/piloti-viii-tuer-720-page.webp?v=0d9c2cec",
+          "width": 720,
+          "height": 720
+        },
+        {
+          "density": 2,
+          "src": "/art/piloti-viii-tuer-1440-page.webp?v=07955d7f",
+          "width": 1440,
+          "height": 1440
+        }
       ]
     },
     "tafeln/waage/og": {
@@ -1256,6 +1802,20 @@
         {
           "density": 2,
           "src": "/art/piloti-vii-waage-1440.webp?v=f1489235",
+          "width": 1440,
+          "height": 1440
+        }
+      ],
+      "page": [
+        {
+          "density": 1,
+          "src": "/art/piloti-vii-waage-720-page.webp?v=e0b2c45f",
+          "width": 720,
+          "height": 720
+        },
+        {
+          "density": 2,
+          "src": "/art/piloti-vii-waage-1440-page.webp?v=90bb7336",
           "width": 1440,
           "height": 1440
         }
@@ -1309,6 +1869,20 @@
           "width": 1440,
           "height": 1440
         }
+      ],
+      "page": [
+        {
+          "density": 1,
+          "src": "/art/piloti-vi-zeichentisch-720-page.webp?v=22791f61",
+          "width": 720,
+          "height": 720
+        },
+        {
+          "density": 2,
+          "src": "/art/piloti-vi-zeichentisch-1440-page.webp?v=9358d02d",
+          "width": 1440,
+          "height": 1440
+        }
       ]
     },
     "tragwerk/drei/og": {
@@ -1356,6 +1930,20 @@
         {
           "density": 2,
           "src": "/art/tragwerk-ii-drei-1440.webp?v=4b64e429",
+          "width": 1440,
+          "height": 1440
+        }
+      ],
+      "page": [
+        {
+          "density": 1,
+          "src": "/art/tragwerk-ii-drei-720-page.webp?v=05560533",
+          "width": 720,
+          "height": 720
+        },
+        {
+          "density": 2,
+          "src": "/art/tragwerk-ii-drei-1440-page.webp?v=f289560d",
           "width": 1440,
           "height": 1440
         }
@@ -1409,6 +1997,20 @@
           "width": 1440,
           "height": 1440
         }
+      ],
+      "page": [
+        {
+          "density": 1,
+          "src": "/art/tragwerk-iii-ordnung-720-page.webp?v=519a9522",
+          "width": 720,
+          "height": 720
+        },
+        {
+          "density": 2,
+          "src": "/art/tragwerk-iii-ordnung-1440-page.webp?v=0a0ca287",
+          "width": 1440,
+          "height": 1440
+        }
       ]
     },
     "tragwerk/saeule/og": {
@@ -1456,6 +2058,20 @@
         {
           "density": 2,
           "src": "/art/tragwerk-i-saeule-1440.webp?v=c6c3df6d",
+          "width": 1440,
+          "height": 1440
+        }
+      ],
+      "page": [
+        {
+          "density": 1,
+          "src": "/art/tragwerk-i-saeule-720-page.webp?v=d6aa1fa7",
+          "width": 720,
+          "height": 720
+        },
+        {
+          "density": 2,
+          "src": "/art/tragwerk-i-saeule-1440-page.webp?v=71792d77",
           "width": 1440,
           "height": 1440
         }
@@ -1532,6 +2148,20 @@
         {
           "density": 2,
           "src": "/art/tragwerk-iv-ziegel-1440.webp?v=e1ee5477",
+          "width": 1440,
+          "height": 1440
+        }
+      ],
+      "page": [
+        {
+          "density": 1,
+          "src": "/art/tragwerk-iv-ziegel-720-page.webp?v=0398637e",
+          "width": 720,
+          "height": 720
+        },
+        {
+          "density": 2,
+          "src": "/art/tragwerk-iv-ziegel-1440-page.webp?v=89bf68d8",
           "width": 1440,
           "height": 1440
         }

@@ -2,7 +2,7 @@
 import SectionTag from '../atoms/SectionTag.astro'
 import ChatMock from '../molecules/ChatMock.astro'
 import ChainStories from '../molecules/ChainStories.astro'
-import TapedPrint from '../craft/TapedPrint.astro'
+import PagePrint from '../craft/PagePrint.astro'
 import { PLATES } from '../craft/plates'
 import { ui, type Locale } from '../../i18n/ui'
 
@@ -27,14 +27,7 @@ const [sheetNo] = t.sheets.nutzung.split(' ')
         <!-- Plate VI, the drafting table the answers arrive on. From lg only:
              on a phone the stories are the picture, and a print would push
              them a screen down. Still, because the chain is the moment. -->
-        <TapedPrint
-          name={PLATES.VI}
-          locale={locale}
-          caption={t.plates.VI}
-          size="third"
-          still
-          class="mb-10 max-lg:hidden"
-        />
+        <PagePrint name={PLATES.VI} locale={locale} size="third" still class="mb-10 max-lg:hidden" />
         <SectionTag no={sheetNo} class="mb-5">{t.nutzung.tag}</SectionTag>
         <h2 class="m-0 mb-5 font-voice text-v4 sm:mb-6" style="text-wrap: balance">
           {t.nutzung.title}

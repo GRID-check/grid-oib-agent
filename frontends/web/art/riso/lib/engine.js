@@ -20,6 +20,9 @@
      ?only=<ink>   bake a single ink, on paper, in colour (debug)
      ?sep=<ink>    press separation: that ink's screened plate, black on white,
                    no paper, no registration offset (export.mjs uses it)
+     ?paper=0      the inks alone, registered, multiplied onto white instead of
+                   the paper: what the ink stack lets through. export.mjs turns
+                   it into the on-page file (ink alpha, no paper)
      ?debug=lines  construction lines, where a plate implements them
      ?list         bake nothing; publish window.__riso.jobs only
    ───────────────────────────────────────────────────────────────────────── */
@@ -29,6 +32,7 @@ const QS = new URLSearchParams(location.search);
 const ONLY = QS.get('only');
 const SEP = QS.get('sep');
 const DEBUG = QS.get('debug') || '';
+const NOPAPER = QS.get('paper') === '0';
 
 /* Every format is drawn in a 1080-unit wide space. H is the format's height in
    units. OUT/OUTH/K/PITCH are set per job before a bake. */
@@ -429,6 +433,7 @@ const Riso = (() => {
           number: f.numeral === false ? 0 : pl.number,
           density: s.density, w: s.w, h: s.h, pitch: s.pitch,
           file: fill(f.file, { base: pl.base, w: s.w, h: s.h }) + '.' + f.encode,
+          page: f.onPage ? fill(f.file, { base: pl.base, w: s.w, h: s.h }) + '-page.' + f.encode : null,
           encode: f.encode, dest: f.dest, separations: !!f.separations,
           inks: pl.art.inks.slice(), alt: d.alt || null, caption: d.caption || null,
         });
@@ -445,7 +450,8 @@ const Riso = (() => {
   function bake(j, pl) {
     setJob(j);
     const out = cv(OUT, OUTH), o = out.getContext('2d');
-    if (SEP) { o.fillStyle = '#fff'; o.fillRect(0, 0, OUT, OUTH); } else o.drawImage(bakePaper(), 0, 0);
+    // White is multiply's identity: without paper the canvas holds the inks' transmittance.
+    if (SEP || NOPAPER) { o.fillStyle = '#fff'; o.fillRect(0, 0, OUT, OUTH); } else o.drawImage(bakePaper(), 0, 0);
     const tone = cv(OUT, OUTH), g = tone.getContext('2d');
     const lineC = cv(OUT, OUTH), L = lineC.getContext('2d');
     const scratch = cv(OUT, OUTH).getContext('2d');
@@ -510,7 +516,7 @@ const Riso = (() => {
       ctx.globalAlpha = 1;
       ctx.globalCompositeOperation = 'source-over';
       ctx.drawImage(img, 0, 0);
-      document.getElementById('cap').textContent = `${ji}  ${jobs[ji].id}  ${jobs[ji].file}${SEP ? '  sep:' + SEP : ''}`;
+      document.getElementById('cap').textContent = `${ji}  ${jobs[ji].id}  ${jobs[ji].file}${SEP ? '  sep:' + SEP : ''}${NOPAPER ? '  paper:0' : ''}`;
     }
     const DUR = jobs.length;
     function seek(t) { render(clamp(t, 0, DUR)); }

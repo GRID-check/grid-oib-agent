@@ -5,7 +5,7 @@
  * `art/riso/export.mjs` generates (see `src/lib/art.ts`). Pages name a plate
  * here or by its id, never by file path.
  */
-import type { ArtId } from '../../lib/art'
+import type { ArtId, OnPageArtId } from '../../lib/art'
 
 export const PLATES = {
   /** Drei Stützen / Three columns: the Team section. */
@@ -24,11 +24,11 @@ export const PLATES = {
   VII: 'tafeln/waage/plate',
   /** Offene Tür / Open door: contact, become a pilot office. */
   VIII: 'tafeln/tuer/plate',
-} as const satisfies Record<string, ArtId>
+} as const satisfies Record<string, OnPageArtId>
 
 export type PlateName = (typeof PLATES)[keyof typeof PLATES]
 
-type CoverArtId = Extract<ArtId, `${string}/cover`>
+type CoverArtId = Extract<OnPageArtId, `${string}/cover`>
 type OgArtId = Extract<ArtId, `${string}/og`>
 
 /**

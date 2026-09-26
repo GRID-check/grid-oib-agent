@@ -132,13 +132,23 @@ export function evaluateWork(work) {
   const riso = ctx.__riso;
   if (!riso) throw Error(`${work.name}: the page never set window.__riso (does it end with Riso.run?)`);
   if (riso.error || errors.length) throw Error(riso.error || errors.join('\n'));
-  return { jobs: JSON.parse(JSON.stringify(riso.jobs)), formats: JSON.parse(JSON.stringify(vm.runInContext('FORMATS', ctx))), ink: vm.runInContext('({ INK, INK_DRUM })', ctx) };
+  return {
+    jobs: JSON.parse(JSON.stringify(riso.jobs)),
+    formats: JSON.parse(JSON.stringify(vm.runInContext('FORMATS', ctx))),
+    ink: vm.runInContext('({ INK, INK_DRUM })', ctx),
+    paper: vm.runInContext('PAPER', ctx),
+  };
 }
 
-/** Where a job's file is written. */
-export function destOf(job) {
+/**
+ * Where a job's file is written: `paper` is the print as printed, `page` its
+ * on-page twin (formats with `onPage`: the inks as alpha, no paper).
+ */
+export function destOf(job, variant = 'paper') {
+  const file = variant === 'page' ? job.page : job.file;
+  if (!file) throw Error(`${job.id}: format ${job.format} has no ${variant} file`);
   const d = DESTS[job.dest];
-  return d ? path.join(d.art, job.file) : path.join(OUT, job.work, job.file);
+  return d ? path.join(d.art, file) : path.join(OUT, job.work, file);
 }
 
 /** First 8 hex of the file's sha256: the ?v= that makes an art URL change when its bytes do. */
@@ -148,22 +158,29 @@ export function fileVersion(file) {
 
 /**
  * A manifest: one entry per art id of one destination (`site` or `app`),
- * keyed by id, files per density. A pure function of the JOBS tables and the
+ * keyed by id, files per density, and for formats with `onPage` a `page`
+ * list of the on-page twins at the same densities. A pure function of the JOBS tables and the
  * bytes in that destination's public/art/, so check.mjs can rebuild it and
  * compare.
  *
  * Every src carries ?v=<sha256 of the file, 8 hex>. /art/ is served with a
  * week's max-age (runtime/cache-control.mjs) and the file names are stable, so
  * a re-export in place would otherwise reach returning visitors a week late.
- * An id with a file not exported yet is left out and reported in `missing`.
+ * An id with a file (either variant) not exported yet is left out and
+ * reported in `missing`.
  */
-export function manifestFrom(jobsByWork, dest = 'site', version = (j) => fileVersion(destOf(j))) {
+export function manifestFrom(jobsByWork, dest = 'site', version = (j, variant) => fileVersion(destOf(j, variant))) {
   const art = {}, missing = [];
   for (const jobs of jobsByWork) {
     const site = jobs.filter((j) => j.dest === dest);
-    const absent = new Set(site.filter((j) => !version(j)).map((j) => j.id));
+    const gaps = site.flatMap((j) => [
+      ...(version(j, 'paper') ? [] : [{ id: j.id, file: j.file }]),
+      ...(j.page && !version(j, 'page') ? [{ id: j.id, file: j.page }] : []),
+    ]);
+    const absent = new Set(gaps.map((g) => g.id));
+    missing.push(...gaps);
     for (const j of site) {
-      if (absent.has(j.id)) { missing.push({ id: j.id, file: j.file }); continue; }
+      if (absent.has(j.id)) continue;
       const e = art[j.id] || (art[j.id] = {
         work: j.work, plate: j.plate, format: j.format,
         numeral: j.number ? roman(j.number) : null,
@@ -172,7 +189,8 @@ export function manifestFrom(jobsByWork, dest = 'site', version = (j) => fileVer
         ...(j.caption ? { caption: j.caption } : {}),
         files: [],
       });
-      e.files.push({ density: j.density, src: `/art/${j.file}?v=${version(j)}`, width: j.w, height: j.h });
+      e.files.push({ density: j.density, src: `/art/${j.file}?v=${version(j, 'paper')}`, width: j.w, height: j.h });
+      if (j.page) (e.page || (e.page = [])).push({ density: j.density, src: `/art/${j.page}?v=${version(j, 'page')}`, width: j.w, height: j.h });
       if (j.density === 1) { e.width = j.w; e.height = j.h; }
     }
   }

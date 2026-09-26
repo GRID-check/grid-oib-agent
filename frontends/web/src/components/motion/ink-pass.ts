@@ -19,6 +19,14 @@ import { DURATION, TRAVEL, cssEase, reducedMotion, staggerFor } from '../../lib/
  *   plates is a green, so there is no hue to separate them by, but the light
  *   ink really is printed first and the key really is printed last.
  *
+ * An on-page print (`data-ink-page`, craft/PagePrint) has no paper: its file
+ * is the inks as alpha, blended into the page. Its bands are cut from the
+ * print laid on white (what the inks let through, the same thing the paper
+ * print shows), the stage stays transparent and every layer takes the print's
+ * own filter and blend: multiply on a light page, reversed and screened on a
+ * dark panel. The key is not opaque there, so the bands fade out as it lands
+ * and the last frame is exactly the print at rest.
+ *
  * Once per element (never again on scrolling back), only when it is on
  * screen, and never under `prefers-reduced-motion`, where the print is simply
  * there. Opacity and transform only.
@@ -67,11 +75,25 @@ function ensureBandFilters() {
   svg.style.position = 'absolute'
   // alpha = k·((1 − luminance) − t): how far a pixel is darker than the
   // threshold, steeply, so the band reads as a flat ink, halftone dots intact.
-  const band = (id: string, hex: string, t: number, k: number) => {
+  // `onWhite` first lays the print on white: an on-page print is inks as
+  // alpha, and on white it is what the inks let through, like the paper print.
+  const band = (id: string, hex: string, t: number, k: number, onWhite = false) => {
     const [r, g, b] = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255)
     const f = document.createElementNS(SVG_NS, 'filter')
     f.id = id
     f.setAttribute('color-interpolation-filters', 'sRGB')
+    if (onWhite) {
+      const flood = document.createElementNS(SVG_NS, 'feFlood')
+      flood.setAttribute('flood-color', '#fff')
+      flood.setAttribute('result', 'white')
+      const merge = document.createElementNS(SVG_NS, 'feMerge')
+      for (const input of ['white', 'SourceGraphic']) {
+        const node = document.createElementNS(SVG_NS, 'feMergeNode')
+        node.setAttribute('in', input)
+        merge.appendChild(node)
+      }
+      f.append(flood, merge)
+    }
     const m = document.createElementNS(SVG_NS, 'feColorMatrix')
     m.setAttribute('type', 'matrix')
     m.setAttribute(
@@ -90,12 +112,16 @@ function ensureBandFilters() {
   }
   band('ink-pass-band-1', INK.mist, 0.1, 5)
   band('ink-pass-band-2', INK.moss, 0.34, 3)
+  band('ink-pass-band-1-page', INK.mist, 0.1, 5, true)
+  band('ink-pass-band-2-page', INK.moss, 0.34, 3, true)
   document.body.appendChild(svg)
 }
 
 interface Pass {
   el: HTMLElement
   miss: [number, number]
+  /** Layers this one lifts off as it lands (an on-page key over its bands). */
+  replaces?: HTMLElement[]
 }
 
 function layer(img: HTMLImageElement, src: string, css: Partial<CSSStyleDeclaration>) {
@@ -114,6 +140,7 @@ function layer(img: HTMLImageElement, src: string, css: Partial<CSSStyleDeclarat
 /** Build the layers for one print. Resolves once every layer has decoded. */
 async function build(root: HTMLElement, img: HTMLImageElement) {
   const src = img.currentSrc || img.src
+  const page = root.dataset.inkPage !== undefined
   const inks = (root.dataset.inks ?? '')
     .split(',')
     .filter((i): i is Ink => (ORDER as readonly string[]).includes(i))
@@ -129,6 +156,21 @@ async function build(root: HTMLElement, img: HTMLImageElement) {
       const el = layer(img, `${base}-${ink}.webp`, { mixBlendMode: 'multiply' })
       passes.push({ el, miss: MISS[ink] })
     }
+  } else if (page) {
+    ensureBandFilters()
+    // No paper: every layer is treated as the print at rest is. The key takes
+    // the print's styles from the stylesheet; each band is cut first, then
+    // given the print's own filter (a dark panel's reversal) and blend.
+    const rest = getComputedStyle(img)
+    const treat = rest.filter === 'none' ? '' : ` ${rest.filter}`
+    const bands = [1, 2].map((n) =>
+      layer(img, src, { filter: `url(#ink-pass-band-${n}-page)${treat}`, mixBlendMode: rest.mixBlendMode })
+    )
+    passes.push(
+      { el: bands[0], miss: MISS['band-1'] },
+      { el: bands[1], miss: MISS['band-2'] },
+      { el: layer(img, src, {}), miss: MISS.key, replaces: bands }
+    )
   } else {
     ensureBandFilters()
     stage.style.background = PAPER
@@ -155,16 +197,22 @@ async function play(root: HTMLElement, img: HTMLImageElement) {
   root.classList.add('ink-pass--printing')
 
   const gap = staggerFor(passes.length)
-  const runs = passes.map((p, i) => {
+  const runs = passes.flatMap((p, i) => {
     const [mx, my] = p.miss.map((m) => snap(m * TRAVEL.hair))
+    const timing = { duration: DURATION.slow, delay: i * gap, easing: cssEase('settle') }
     // Laid a hair out of register, and drawn into it.
-    return p.el.animate(
+    const lay = p.el.animate(
       [
         { opacity: 0, transform: `translate(${mx}px, ${my}px)` },
         { opacity: 1, transform: 'translate(0, 0)' },
       ],
-      { duration: DURATION.slow, delay: i * gap, easing: cssEase('settle'), fill: 'both' }
+      { ...timing, fill: 'both' }
     ).finished
+    // 'forwards' only: before it starts, the layer's own arrival shows.
+    const lifts = (p.replaces ?? []).map(
+      (el) => el.animate([{ opacity: 1 }, { opacity: 0 }], { ...timing, fill: 'forwards' }).finished
+    )
+    return [lay, ...lifts]
   })
   await Promise.all(runs).catch(() => {})
   root.classList.remove('ink-pass--printing')

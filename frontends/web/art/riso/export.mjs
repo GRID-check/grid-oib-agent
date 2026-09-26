@@ -7,6 +7,7 @@
  *   node art/riso/export.mjs --work tafeln --only 0,3         # jobs by index (the page's ?t=)
  *   node art/riso/export.mjs --only tafeln/stuetzen/og        # jobs by art id (all densities)
  *   node art/riso/export.mjs --dest site                      # only site assets (or: app, out)
+ *   node art/riso/export.mjs --variant page                   # only the on-page files (or: paper)
  *   node art/riso/export.mjs --manifest                       # only rewrite the manifests
  *   node art/riso/export.mjs --engine chromium                # override the engine setup chose
  *
@@ -20,6 +21,9 @@
  * .webp at quality 95 with sharp-YUV, or .png at maximum compression. Nothing
  * is resized. Formats with `separations` also get one grayscale PNG per ink
  * (the page's ?sep=<ink> view) and a JSON sheet naming drums and order.
+ * Formats with `onPage` also get `<file>-page.webp`: the same job baked with
+ * ?paper=0 (the inks multiplied onto white, so the canvas holds the stack's
+ * transmittance T), turned into ink alpha by pageFrom() below.
  *
  * site -> public/art/ (committed; the pre-commit hook refuses files > 1 MB)
  * app  -> ../ui/public/art/ (the product app; committed, same limit)
@@ -95,8 +99,31 @@ async function frame(page, t, duration) {
   return Buffer.from(first.url.split(',')[1], 'base64');
 }
 
-async function encode(png, j, out, { gray = false } = {}) {
-  let img = sharp(png);
+/**
+ * The on-page file from a ?paper=0 frame. Each pixel of that frame is the ink
+ * stack's transmittance T per channel (white where no ink lies). The page
+ * shows the file with mix-blend-mode: multiply, which gives
+ * B · (1 − α·(1 − C)) over a backdrop B. Asking that to equal B · T in every
+ * channel leaves one free choice, the alpha: the least that reaches the
+ * darkest channel, α = 1 − min(T), with C = 1 − (1 − T) / α. Multiplied onto
+ * the paper this is the print exactly, onto the page canvas it is the print
+ * on that canvas, and where no ink lies α = 0. Straight (unpremultiplied)
+ * RGBA, as WebP stores it.
+ */
+async function pageFrom(png) {
+  const { data, info } = await sharp(png).removeAlpha().raw().toBuffer({ resolveWithObject: true });
+  const px = Buffer.alloc(info.width * info.height * 4);
+  for (let i = 0, o = 0; i < data.length; i += 3, o += 4) {
+    const d = 255 - Math.min(data[i], data[i + 1], data[i + 2]);
+    if (!d) continue;
+    for (let c = 0; c < 3; c++) px[o + c] = Math.round(255 - (255 - data[i + c]) * 255 / d);
+    px[o + 3] = d;
+  }
+  return sharp(px, { raw: { width: info.width, height: info.height, channels: 4 } });
+}
+
+async function encode(input, j, out, { gray = false } = {}) {
+  let img = Buffer.isBuffer(input) ? sharp(input) : input;
   const dpi = j.dpi;
   if (gray) img = img.flatten({ background: '#ffffff' }).toColourspace('b-w');
   if (dpi) img = img.withMetadata({ density: dpi });
@@ -114,17 +141,26 @@ try {
     console.log(`${w.name}: ${sel.length} of ${jobs.length} jobs, ${engine}`);
     const { page, duration, errors } = await openFilm(browser, w.html, { query: 'list' });
     const sepPages = new Map();
+    let paperless = null;
+    const variants = a.variant && a.variant !== true ? String(a.variant).split(',') : ['paper', 'page'];
     for (const i of sel) {
       const j = { ...jobs[i], dpi: formats[jobs[i].format].dpi };
-      const png = await frame(page, i, duration);
-      const meta = await sharp(png).metadata();
-      if (meta.width !== j.w || meta.height !== j.h) throw Error(`${j.file}: canvas is ${meta.width}x${meta.height}, the format wants ${j.w}x${j.h}`);
-      const out = destOf(j);
-      const size = await encode(png, j, out);
-      const over = j.dest in DESTS && size > MAX_BYTES;
-      if (over) failures++;
-      console.log(`  ${String(i).padStart(2)}  ${j.id.padEnd(34)} ${String(j.density) + 'x'}  ${`${j.w}x${j.h}`.padEnd(9)} ${kb(size).padStart(7)}  png ${sha(png)}  ${path.relative(process.cwd(), out)}${over ? '  OVER 1 MB: the commit hook will refuse it' : ''}`);
-      if (!j.separations) continue;
+      const bakes = [];
+      if (variants.includes('paper')) bakes.push(['paper', await frame(page, i, duration)]);
+      if (j.page && variants.includes('page')) {
+        paperless ||= await openFilm(browser, w.html, { query: 'list&paper=0' });
+        bakes.push(['page', await frame(paperless.page, i, paperless.duration)]);
+      }
+      for (const [variant, png] of bakes) {
+        const meta = await sharp(png).metadata();
+        if (meta.width !== j.w || meta.height !== j.h) throw Error(`${j.file}: canvas is ${meta.width}x${meta.height}, the format wants ${j.w}x${j.h}`);
+        const out = destOf(j, variant);
+        const size = await encode(variant === 'page' ? await pageFrom(png) : png, j, out);
+        const over = j.dest in DESTS && size > MAX_BYTES;
+        if (over) failures++;
+        console.log(`  ${String(i).padStart(2)}  ${j.id.padEnd(34)} ${String(j.density) + 'x'}  ${`${j.w}x${j.h}`.padEnd(9)} ${kb(size).padStart(7)}  png ${sha(png)}  ${path.relative(process.cwd(), out)}${over ? '  OVER 1 MB: the commit hook will refuse it' : ''}`);
+      }
+      if (!j.separations || !variants.includes('paper')) continue;
       const stem = j.file.replace(/\.\w+$/, '');
       const sheet = { work: j.work, id: j.id, file: j.file, width: j.w, height: j.h, dpi: j.dpi || null, pitch: j.pitch, inks: [] };
       for (const [n, name] of j.inks.entries()) {
@@ -138,7 +174,7 @@ try {
       }
       fs.writeFileSync(path.join(OUT, j.work, `${stem}-separations.json`), JSON.stringify(sheet, null, 2) + '\n');
     }
-    for (const sp of sepPages.values()) { if (sp.errors.length) throw Error(sp.errors.join('\n')); await sp.page.close(); }
+    for (const sp of [...sepPages.values(), ...(paperless ? [paperless] : [])]) { if (sp.errors.length) throw Error(sp.errors.join('\n')); await sp.page.close(); }
     if (errors.length) throw Error(errors.join('\n'));
     await page.close();
   }

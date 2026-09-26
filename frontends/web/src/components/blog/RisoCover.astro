@@ -3,15 +3,20 @@
  * A post's riso cover (the `cover` format, 720 × 405 CSS px) at a native size:
  *
  *   header  the post page. From md up the 720 print is taped onto the page,
- *           as TapedPrint tapes a plate; on a phone it is the 360 print, bare,
- *           centred and allowed a pixel of the gutter on each side.
- *   card    a Journal card: the 360 print on a strip of its own paper colour,
- *           so the sheet edge disappears into the strip.
+ *           as TapedPrint tapes a plate, on its paper; on a phone it is the
+ *           360 print, bare, centred and allowed a pixel of the gutter on
+ *           each side.
+ *   card    a Journal card: the 360 print on a tinted strip of the card.
  *   thumb   a build-log entry: the 240 print (a third), bare.
+ *
+ * Bare means on page: the on-page file (the inks as alpha, no paper,
+ * `art(id, { onPage: true })`) multiplied into what lies below, so no beige
+ * sheet stands on the page. Only the taped header keeps its paper, because
+ * there the print is an object (art/riso/README.md, "Showing a print").
  *
  * Never any other width: a halftone screen resampled by an odd factor turns
  * into moiré (src/lib/art.ts). Where a slot is narrower than the print (a
- * card on a 360 px phone), the strip clips the print's paper margin instead
+ * card on a 360 px phone), the strip clips the print's empty margin instead
  * of scaling it.
  */
 import Tape from '../craft/Tape.astro'
@@ -29,12 +34,14 @@ interface Props {
   class?: string
 }
 const { plate, variant, locale, loading = 'lazy', class: className = '' } = Astro.props
-const a = art(COVER_PLATES[plate].cover)
-const alt = locale ? a.alt[locale] : ''
+const id = COVER_PLATES[plate].cover
+const bare = art(id, { onPage: true })
+const paper = art(id)
+const alt = locale ? bare.alt[locale] : ''
 const SIZES = {
-  header: `(min-width: 768px) ${a.width}px, ${a.width / 2}px`,
-  card: `${a.width / 2}px`,
-  thumb: `${a.width / 3}px`,
+  header: `(min-width: 768px) ${bare.width}px, ${bare.width / 2}px`,
+  card: `${bare.width / 2}px`,
+  thumb: `${bare.width / 3}px`,
 }
 ---
 
@@ -47,16 +54,24 @@ const SIZES = {
     )
   }
   <div class="riso-cover__sheet">
-    <img
-      src={artFile(a).src}
-      srcset={artSrcset(a)}
-      sizes={SIZES[variant]}
-      width={a.width}
-      height={a.height}
-      alt={alt}
-      loading={loading}
-      decoding="async"
-    />
+    <picture>
+      {
+        /* The taped header (md up) is the print on its paper; everything bare is on page. */
+        variant === 'header' && (
+          <source media="(min-width: 768px)" srcset={artSrcset(paper)} sizes={`${bare.width}px`} />
+        )
+      }
+      <img
+        src={artFile(bare).src}
+        srcset={artSrcset(bare)}
+        sizes={SIZES[variant]}
+        width={bare.width}
+        height={bare.height}
+        alt={alt}
+        loading={loading}
+        decoding="async"
+      />
+    </picture>
   </div>
 </figure>
 
@@ -65,10 +80,16 @@ const SIZES = {
   .riso-cover {
     position: relative;
   }
+  .riso-cover picture {
+    display: contents;
+  }
   .riso-cover img {
     display: block;
     max-width: none;
     height: auto;
+    /* On page: the inks multiply into the page, the card strip or (taped) the
+       print's own paper, where multiplying by the opaque file changes nothing. */
+    mix-blend-mode: multiply;
   }
 
   /* header: 360 bare on a phone, 720 taped from md up */
@@ -108,10 +129,9 @@ const SIZES = {
     }
   }
 
-  /* card: the print mounted on a strip, with a hairline and a short contact
-     shadow, so its paper edge reads as a sheet and not as a seam. Where the
-     strip is too narrow for the print and a margin (a card on a phone), the
-     print fills it edge to edge and the strip clips its paper margin. */
+  /* card: the inks printed onto a tinted strip of the card. Where the strip is
+     narrower than the print (a card on a phone), it clips the print's empty
+     margin; nothing scales it. */
   .riso-cover--card {
     container-type: inline-size;
   }
@@ -125,18 +145,10 @@ const SIZES = {
   .riso-cover--card img {
     width: 360px;
     flex: none;
-    box-shadow:
-      0 0 0 1px rgb(30 34 22 / 0.06),
-      0 1px 2px rgb(30 34 22 / 0.08),
-      0 10px 20px -14px rgb(30 34 22 / 0.35);
   }
   @container (max-width: 25rem) {
     .riso-cover--card .riso-cover__sheet {
       padding-block: 0;
-      background: #f4f2e8;
-    }
-    .riso-cover--card img {
-      box-shadow: none;
     }
   }
 
