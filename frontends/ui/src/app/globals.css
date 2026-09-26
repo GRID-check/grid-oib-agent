@@ -291,6 +291,56 @@ body {
   touch-action: auto;
 }
 
+/* The graph's controls take a click and a tap. Its nodes are neither
+   selectable nor draggable, so React Flow sets `pointer-events: none` on every
+   node wrapper, and a click on a fold toggle, a „Quelle ansehen" button or a
+   branch option fell through to the pane: only the keyboard reached them.
+   Unit tests passed because `fireEvent` ignores pointer events (Herleitung
+   audit, 2026-09). */
+.reasoning-flow-scrollable .react-flow__node :is(button, a, [role='button']) {
+  pointer-events: all;
+}
+
+/* The newest row of a live Herleitung: a dot drops into each node where its
+   connector lands. A pseudo-element of the HTML node, moved by transform and
+   opacity only, so the compositor runs it; a looping animation on an SVG
+   connector cannot be composited and repainted the phone 60 times a second
+   (ReasoningFlow.tsx, `renderedNodes`). */
+@keyframes grid-frontier-drop {
+  0% {
+    transform: translate(-50%, -12px);
+    opacity: 0;
+  }
+  30% {
+    opacity: 1;
+  }
+  100% {
+    transform: translate(-50%, 0);
+    opacity: 0;
+  }
+}
+
+.reasoning-flow-scrollable .react-flow__node.reasoning-frontier::before {
+  content: '';
+  position: absolute;
+  top: -6px;
+  left: 50%;
+  width: 6px;
+  height: 6px;
+  border-radius: 9999px;
+  background: var(--muted-foreground);
+  pointer-events: none;
+  will-change: transform, opacity;
+  animation: grid-frontier-drop 1.2s var(--ease-out) infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .reasoning-flow-scrollable .react-flow__node.reasoning-frontier::before {
+    animation: none;
+    opacity: 0;
+  }
+}
+
 /* =============================================================================
    Theme-aware text color utilities
    Using KUI Foundations theme CSS variables for light/dark theme support
@@ -625,7 +675,9 @@ body {
    ============================================================================= */
 
 /* The travelling band of `ShimmerText` (components/ui/shimmer-text.tsx): a
-   full-ink copy of the label, seen through a window 40% of its width. The
+   full-ink copy of the label, seen through a window half its width (half and
+   double survive layout rounding exactly; 40% and 250% left the copy 0.03 px
+   narrower, enough to truncate a label that just fits). The
    window slides across while the copy slides the other way by the same
    distance, so the text stands still and only the bright band moves.
 
@@ -643,13 +695,13 @@ body {
     transform: translateX(-100%);
   }
   to {
-    transform: translateX(250%);
+    transform: translateX(200%);
   }
 }
 
 @keyframes grid-shimmer-copy {
   from {
-    transform: translateX(40%);
+    transform: translateX(50%);
   }
   to {
     transform: translateX(-100%);

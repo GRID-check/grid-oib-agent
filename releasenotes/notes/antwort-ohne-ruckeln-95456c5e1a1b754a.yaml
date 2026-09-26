@@ -10,9 +10,13 @@ fixes:
   - >
     Der Hinweis, woran Piloti gerade arbeitet, flackert beim Schrittwechsel
     nicht mehr; ein heller Streifen läuft wieder über ihn, statt dass er
-    pulsiert. In der Herleitung laufen nur die Verbindungen zum neuesten Schritt,
-    die übrigen sind durchgezogen. Die drei Punkte beim Warten wandern ruhig von
-    links nach rechts.
+    pulsiert. In der Herleitung fällt ein Punkt in den neuesten Schritt, statt
+    dass alle Verbindungen gestrichelt stehen; das kostet das Telefon nichts. Die
+    Knöpfe in der Herleitung (Ebenen falten, Quelle ansehen) reagieren wieder auf
+    Klick und Tippen, der Hinweis ist auf dem Telefon wieder lesbar, und die
+    Seite läuft bei der ersten Frage eines neuen Chats nicht mehr der wachsenden
+    Herleitung hinterher. Die drei Punkte beim Warten wandern ruhig von links
+    nach rechts.
   - >
     Der Chat bleibt auf dem Telefon auch mit langem Verlauf flüssig: Eine
     Antwort, die gerade geschrieben wird, zeichnet frühere Antworten nicht mehr

@@ -21,15 +21,17 @@ export const ShimmerText: FC<{ children: string; active?: boolean; className?: s
   className,
 }) => (
   <span className={cn('relative inline-block max-w-full align-top', className)}>
-    <span className={cn('block truncate', active && 'text-muted-foreground')}>{children}</span>
+    <span className={cn('block truncate', active && 'text-muted-foreground motion-reduce:text-inherit')}>
+      {children}
+    </span>
     {active && (
       <span
         aria-hidden="true"
-        className="animate-shimmer-window pointer-events-none absolute inset-y-0 left-0 w-2/5 overflow-hidden motion-reduce:hidden"
+        className="animate-shimmer-window pointer-events-none absolute inset-y-0 left-0 w-1/2 overflow-hidden motion-reduce:hidden"
       >
         <span
           data-text={children}
-          className="animate-shimmer-copy text-foreground block w-[250%] truncate before:content-[attr(data-text)]"
+          className="animate-shimmer-copy text-foreground block w-[200%] truncate before:content-[attr(data-text)]"
         />
       </span>
     )}

@@ -15,6 +15,7 @@
 
 import { type FC, memo, useMemo, useState, useEffect, useRef } from 'react'
 import { ShimmerText } from '@/components/ui/shimmer-text'
+import { cn } from '@/lib/utils'
 import { ChevronDown, CheckCircle2, AlertTriangle, Clock } from 'lucide-react'
 import { Collapsible, CollapsibleTrigger } from '@/components/ui/collapsible'
 import { motion, AnimatePresence, motionBase, motionQuick } from '@/components/motion'
@@ -326,7 +327,15 @@ const ChatThinkingView: FC<ChatThinkingProps> = ({
                   {formatElapsed(elapsedSeconds)}
                 </span>
               )}
-              <span className="text-xs text-muted-foreground">{summaryLabel}</span>
+              {/* Below `sm` a live turn's summary gives its room to the label:
+                  beside it, at 390 px, the label read only „Such…"
+                  (Herleitung audit, 2026-09). The summary returns once the
+                  turn ends, and the timer stays. */}
+              <span
+                className={cn('text-xs text-muted-foreground', isThinking && 'hidden sm:inline')}
+              >
+                {summaryLabel}
+              </span>
               <ChevronDown className="size-4 text-muted-foreground transition-transform duration-quick ease-out group-data-[state=open]:rotate-180 motion-reduce:transition-none" />
             </span>
 

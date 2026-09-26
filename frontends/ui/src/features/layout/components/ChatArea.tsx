@@ -647,7 +647,19 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
   // On conversation switch, jump straight to the newest message and re-engage
   // auto-follow (no smooth animation across a full thread swap). Also release
   // any stale top-anchor spacer so a swapped-in thread starts flush at bottom.
+  //
+  // Not when the conversation is the one this send just created. The first
+  // question of a new chat brings the conversation id in the same commit that
+  // anchors the question (the layout effect below runs first), and a reset
+  // here undid the anchor: the view chased the bottom of the growing
+  // Herleitung, the question 2,900 px above it on a phone (Herleitung audit,
+  // 2026-09).
+  const shownConversationIdRef = useRef<string | undefined>(undefined)
   useEffect(() => {
+    const id = currentConversation?.id
+    const createdBySend = shownConversationIdRef.current === undefined && anchoredRef.current
+    shownConversationIdRef.current = id
+    if (createdBySend) return
     isAtBottomRef.current = true
     setShowScrollButton(false)
     anchoredRef.current = false

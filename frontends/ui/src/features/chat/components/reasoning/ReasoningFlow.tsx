@@ -1463,21 +1463,23 @@ const FlowInner: FC<{ built: BuiltGraph; layout: FanLayout; live: boolean }> = (
     if (changed.length > 0) updateNodeInternals(changed)
   }, [handleSigs, updateNodeInternals])
 
-  // While the turn streams, only the connectors into the newest row march
-  // (React Flow's `animated`): the work is moving there, and the rest is drawn
-  // solid, as a finished turn draws all of them. Marching every connector
-  // animated `stroke-dashoffset` across the whole graph, which no compositor
-  // can run: the graph repainted every frame, about half of what a live turn
-  // cost a 4× throttled phone at rest (measured on `/dev/chat-turn`). #757
-  // then drew every live connector dashed and still, which read as "planned,
-  // not connected" and snapped solid at the end (stream audit 2026-09,
-  // defect 7). The newest row's connectors are a few short paths: their
-  // repaint is a small rectangle, not the graph.
-  const renderedEdges = useMemo(() => {
-    if (!live) return edges
+  // The connectors are solid. While the turn streams, the newest row carries
+  // the motion instead: a dot drops into each of its nodes
+  // (`.reasoning-frontier`, globals.css), moved by transform and opacity on
+  // an HTML pseudo-element, which the compositor runs without a repaint. No
+  // SVG connector may loop an animation: `stroke-dashoffset` (React Flow's
+  // `animated`) cannot be composited, so even one short marching connector
+  // kept the phone repainting 60 times a second, 245 ms of main thread per
+  // second at rest on a 4× throttled CPU, off screen too (Herleitung audit,
+  // 2026-09). #757's dashed-and-still connectors cost nothing but read as
+  // "planned, not connected".
+  const renderedNodes = useMemo(() => {
+    if (!live) return rfNodes
     const frontier = new Set(rows.at(-1) ?? [])
-    return edges.map((e) => (frontier.has(e.target) ? { ...e, animated: true } : e))
-  }, [edges, live, rows])
+    return rfNodes.map((n) =>
+      frontier.has(n.id) ? { ...n, className: cn(n.className, 'reasoning-frontier') } : n
+    )
+  }, [rfNodes, live, rows])
 
   const rowsKey = useMemo(() => rows.map((r) => r.join('|')).join('/'), [rows])
 
@@ -1532,12 +1534,17 @@ const FlowInner: FC<{ built: BuiltGraph; layout: FanLayout; live: boolean }> = (
       })
       return moved ? next : prev
     })
-    setHeight(Math.max(120, Math.ceil(Math.max(0, y - ROW_GAP)) + PAD))
+    // A live graph only grows. At the second round the fan's nodes are replaced
+    // by the spine's, and until those are measured the rows came out short: the
+    // graph shrank 697 → 408 px and grew to 1009 px, and the page jumped with it
+    // (Herleitung audit, 2026-09). Once the turn ends it takes its real height.
+    const measuredHeight = Math.max(120, Math.ceil(Math.max(0, y - ROW_GAP)) + PAD)
+    setHeight((previous) => (live && previous !== null ? Math.max(previous, measuredHeight) : measuredHeight))
     setLaidOut(true)
     // rows is covered by rowsKey (a stable string). contentW/colW are the widths
     // the nodes are sized against, so both edges of a reflow get a pass.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [initialized, rowsKey, rfNodes, layout.contentW, layout.colW])
+  }, [initialized, rowsKey, rfNodes, layout.contentW, layout.colW, live])
 
   return (
     <div
@@ -1560,8 +1567,8 @@ const FlowInner: FC<{ built: BuiltGraph; layout: FanLayout; live: boolean }> = (
       aria-label={t('thinking.reasoningGraphLabel')}
     >
       <ReactFlow
-        nodes={rfNodes}
-        edges={renderedEdges}
+        nodes={renderedNodes}
+        edges={edges}
         nodeTypes={nodeTypes}
         edgeTypes={edgeTypes}
         onNodesChange={onNodesChange}
