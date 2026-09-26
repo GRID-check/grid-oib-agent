@@ -1,0 +1,6 @@
+---
+features:
+  - >
+    Die Antwortdetails zeigen jetzt, wie lange Piloti für die Antwort gebraucht
+    hat, gemessen vom Absenden der Frage bis zur fertigen Antwort. Die Angabe
+    bleibt nach dem Neuladen des Gesprächs erhalten.

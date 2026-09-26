@@ -293,6 +293,13 @@ const restoreProvenance = (value: unknown): Partial<ChatMessage> => {
   if (typeof provenance.escalationReason === 'string') {
     out.escalationReason = provenance.escalationReason
   }
+  if (
+    typeof provenance.answerDurationMs === 'number' &&
+    Number.isFinite(provenance.answerDurationMs) &&
+    provenance.answerDurationMs > 0
+  ) {
+    out.answerDurationMs = provenance.answerDurationMs
+  }
   if (Array.isArray(provenance.skillsActivated) && provenance.skillsActivated.length > 0) {
     out.skillsActivated = provenance.skillsActivated.filter(
       (s): s is string => typeof s === 'string'

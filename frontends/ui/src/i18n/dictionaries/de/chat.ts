@@ -869,6 +869,8 @@ export const chat: typeof en.chat = {
   answerDetails: {
     trigger: 'Antwortdetails',
     triggerAria: 'Details zu dieser Antwort anzeigen',
+    // How long the turn took, question sent to answer final.
+    duration: 'Antwort nach {duration}',
     // Gelesen, aber nicht zitiert: was die Recherche sonst noch gelesen hat.
     // Nur Dokument-Chips — keine Stellen, keine neuen Aussagen.
     readSources: {
