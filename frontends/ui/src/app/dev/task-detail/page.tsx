@@ -29,6 +29,7 @@
  * own preview does. Pinned to German. 404s outside development.
  */
 
+import type { JSX } from 'react'
 import { useSearchParams } from 'next/navigation'
 import { notFound } from 'next/navigation'
 import { Suspense } from 'react'

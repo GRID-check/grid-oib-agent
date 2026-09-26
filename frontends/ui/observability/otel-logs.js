@@ -21,6 +21,10 @@
  *     the /v1/logs signal path is derived (any /v1/traces suffix is replaced,
  *     so the backend-style full path works too).
  *   OTEL_SERVICE_NAME           - resource service.name (default "grid-ui").
+ *   GRID_GIT_SHA                - resource service.version: the commit the image
+ *     was built from (stamped by the Dockerfile). err2issue shows it as the
+ *     issue's "Version"; without it a regression on a closed issue could not be
+ *     told apart from a pod still running the image from before the fix.
  */
 
 const util = require('node:util')
@@ -94,6 +98,33 @@ const NOT_AN_ERROR = [
     reason: 'expected-404',
     match: /status: 404,\s+code: 'NOT_FOUND'/,
   },
+  {
+    // The browser left while a page or RSC payload was still streaming: it
+    // navigated away, or a prefetch was cancelled. React's server renderer
+    // aborts the render with exactly this reason when the response it writes
+    // to closes (`destination.on("close", …)` in react-server-dom-*), and Next
+    // logs it with ⨯ because its `isAbortError` knows only the names
+    // AbortError and ResponseAborted. It has no stack and no route because
+    // React made the error itself. #578 filed it 28 times. The render stopped
+    // because nobody was reading it, which is not an application error.
+    // Anchored to the whole sentence Next prints, so an application error
+    // would have to reuse React's wording to be caught.
+    reason: 'client-disconnect',
+    match: /^⨯ Error: The destination stream closed early\.(\s|$)/,
+  },
+  {
+    // A page render that failed because the database was unreachable. The
+    // outage itself is an ERROR, filed once by the API wrapper's fixed
+    // `[db] database unavailable (<code>)` line (`lib/api/handler.ts`); this is
+    // the same outage reported again by Next's own logger for every page that
+    // rendered during it, each with its own query text, which is how one
+    // restart became #734 and #737-#739 beside the API's own. Matched on the
+    // driver's cause code as Node's inspect prints it, and only under a
+    // `Failed query` that Next logged, so a bad query stays an ERROR.
+    reason: 'database-unavailable-render',
+    match:
+      /^⨯ Error: Failed query:[\s\S]*\[cause\]:[\s\S]*code: '(08[0-9A-Z]{3}|57P0[123]|ECONNREFUSED|ECONNRESET|EHOSTUNREACH|ENETUNREACH|ETIMEDOUT|ENOTFOUND|EAI_AGAIN|CONNECTION_CLOSED|CONNECTION_ENDED|CONNECTION_DESTROYED|CONNECT_TIMEOUT)'/,
+  },
 ]
 
 /**
@@ -104,6 +135,14 @@ function classifyConsoleRecord(method, body) {
   const known = method === 'error' && NOT_AN_ERROR.find((entry) => entry.match.test(body))
   if (!known) return SEVERITY[method]
   return { ...SEVERITY.warn, attributes: { 'grid.severity.reclassified': known.reason } }
+}
+
+/** Resource attributes for every exported record: which tier, which build. */
+function resourceAttributes(env) {
+  const attributes = { 'service.name': env.OTEL_SERVICE_NAME || 'grid-ui' }
+  const sha = String(env.GRID_GIT_SHA ?? '').trim()
+  if (sha) attributes['service.version'] = sha
+  return attributes
 }
 
 /**
@@ -121,9 +160,7 @@ function initOtelLogs() {
   const { BatchLogRecordProcessor, LoggerProvider } = require('@opentelemetry/sdk-logs')
   const { defaultResource, resourceFromAttributes } = require('@opentelemetry/resources')
 
-  const resource = defaultResource().merge(
-    resourceFromAttributes({ 'service.name': process.env.OTEL_SERVICE_NAME || 'grid-ui' }),
-  )
+  const resource = defaultResource().merge(resourceFromAttributes(resourceAttributes(process.env)))
   const provider = new LoggerProvider({
     resource,
     // SDK 2.x: the exporter goes in an options object — positional
@@ -149,4 +186,4 @@ function initOtelLogs() {
   return true
 }
 
-module.exports = { classifyConsoleRecord, initOtelLogs, logsUrl }
+module.exports = { classifyConsoleRecord, initOtelLogs, logsUrl, resourceAttributes }

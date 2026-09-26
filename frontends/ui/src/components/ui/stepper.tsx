@@ -27,6 +27,7 @@
  * stated underneath instead, where there is a full line for it.
  */
 
+import type { JSX } from 'react'
 import { Check } from 'lucide-react'
 
 import { cn } from '@/lib/utils'

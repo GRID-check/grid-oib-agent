@@ -5,6 +5,7 @@
  * this page only names its section and renders it.
  */
 
+import type { JSX } from 'react'
 import { HardDrive } from 'lucide-react'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { PageHeader } from '@/components/ui/page-header'

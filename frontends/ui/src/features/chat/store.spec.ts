@@ -35,6 +35,8 @@ const mockConversationsClient = vi.hoisted(() => ({
   listMessages: vi.fn().mockResolvedValue([]),
   createMessage: vi.fn().mockResolvedValue(undefined),
   createMessages: vi.fn().mockResolvedValue(undefined),
+  // No frames in the replay stream: no turn still working to wait for.
+  newestFrameAge: vi.fn().mockResolvedValue(null),
 }))
 vi.mock('@/adapters/api/conversations-client', () => ({
   conversationsClient: mockConversationsClient,

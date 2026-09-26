@@ -383,11 +383,19 @@ function placedTspans(
   inheritedSize: number
 ): React.ReactNode[] {
   const positions = tspanPositions(tspans, start, inheritedSize)
-  return tspans.map((tspan, index) => (
-    <Tspan key={index} x={positions[index].x} y={positions[index].y} {...presentationOf(tspan)}>
-      {textOf(tspan)}
-    </Tspan>
-  ))
+  // An empty tspan (mermaid emits them as line spacers) draws nothing, and on
+  // React 19 it crashes react-pdf's layout: React creates no text node for '',
+  // so the tspan lays out to no lines and `lines[0].xAdvance` throws. Its
+  // position still counts, which is why the positions are computed first.
+  return tspans.flatMap((tspan, index) => {
+    const text = textOf(tspan)
+    if (text === '') return []
+    return [
+      <Tspan key={index} x={positions[index].x} y={positions[index].y} {...presentationOf(tspan)}>
+        {text}
+      </Tspan>,
+    ]
+  })
 }
 
 /**

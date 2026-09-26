@@ -47,6 +47,15 @@ def render_error_detail(exc: BaseException) -> str:
     return "; ".join(_clauses(validation)) or "the arguments did not match the tool's schema"
 
 
+def is_argument_rejection(exc: BaseException) -> bool:
+    """True when the tool never ran because the model's arguments failed its schema.
+
+    ``render_tool_error`` hands that back to the model, which fixes the call:
+    a recovered model mistake, not a failure of the tool.
+    """
+    return _validation_error(exc) is not None
+
+
 def _validation_error(exc: BaseException) -> ValidationError | None:
     """The validation failure this exception is about, unwrapped.
 

@@ -154,7 +154,10 @@ llms:
     # below: that feature needs it and fails the workflow build without it,
     # deliberately, rather than sending the tool schemas anyway (ADR-0048).
     # Nothing else in this file needs it; the default (chat_completion) is what
-    # every other role runs on. Turn both off together.
+    # every other role runs on. Deferral is off since 2026-09-25 (see below);
+    # this stays on until the answer suite has measured Chat Completions for
+    # this role, because the transport of every research call is not a change
+    # to make as a side effect.
     api_type: responses
     # ── PROMPT CACHING: nothing to configure here, and that is the point ──
     # This role re-sends ~35 KB of identical prefix (system prompt + tool
@@ -974,16 +977,22 @@ functions:
     # did before this existed.
     #
     # The defaults ship the measured lists (see `deferred_tool_loading.py`), so
-    # `enabled: true` alone is the normal configuration. The `allow` list means
-    # the provider accepted and echoed the shape — NOT that it saves anything;
-    # a measured "billed anyway" overrides it.
+    # `enabled: true` alone turns it on. The `allow` list means the provider
+    # accepted and echoed the shape — NOT that it saves anything.
     #
     # Any model not denied is probed ONCE, off the request path, and the
-    # verdict cached; until it lands an unlisted model gets full schemas (an
-    # allowlisted one defers until the probe says otherwise). So a new model costs
-    # one background request, never a wasted round trip on a live turn.
+    # verdict cached; until a probe has measured the saving, an unlisted or
+    # allowlisted model gets full schemas. So a new model costs one background
+    # request, never a wasted round trip on a live turn.
+    # OFF since 2026-09-25. Every model measured on 2026-09-23 echoed
+    # `defer_loading` and billed the deferred schemas in full, and the boot
+    # model measured +3,913 input tokens with it on; no model has been shown
+    # to save. What it did send was the `tool_search` payload, which NAT's
+    # trace callback cannot parse (one ERROR per call, #635). Turn it back on
+    # when a model's probe measures a saving: from then on only such a model
+    # defers, an allowlisted one included.
     deferred_tool_loading:
-      enabled: true
+      enabled: false
       # Floor on Artificial Analysis intelligence_index. 0 disables it.
       min_intelligence_index: 50
     #   models:

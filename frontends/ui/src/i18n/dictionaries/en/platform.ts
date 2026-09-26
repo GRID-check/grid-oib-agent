@@ -521,7 +521,7 @@ export const platform = {
     },
     retrieval: {
       title: 'Retrieval',
-      subtitle: 'How many hits each search fetches and merges — fleet-wide, effective on the next request.',
+      subtitle: 'How many hits each search fetches and merges, and whether the answer streams live — fleet-wide, effective on the next request.',
     },
     cards: {
       title: 'Cards',

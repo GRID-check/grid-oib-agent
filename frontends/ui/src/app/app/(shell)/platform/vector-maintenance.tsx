@@ -20,6 +20,7 @@
  * unchanged: no body, and a `VectorReconcileResult` back.
  */
 
+import type { JSX } from 'react'
 import { useCallback, useState } from 'react'
 import { toast } from 'sonner'
 import { AlertTriangle, Brush, CheckCircle2, ShieldCheck } from 'lucide-react'

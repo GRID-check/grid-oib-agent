@@ -82,8 +82,15 @@ export type SessionsSlice = {
   restoreSessionState: (conversation: Conversation) => void
   _recoverInterruptedAssistantMessage: (
     conversationId: string,
-    afterUserMessageId: string
+    afterUserMessageId: string,
+    options?: { quiet?: boolean }
   ) => Promise<RecoveryOutcome>
+  /**
+   * Wait for the server's finished answer to a turn this page lost track of,
+   * for as long as the turn is still producing frames (its heartbeat), then
+   * look once more. `nothing` only when the turn has ended without one.
+   */
+  _awaitServerAnswer: (conversationId: string, afterUserMessageId: string) => Promise<RecoveryOutcome>
   isSessionBusy: (conversationId: string) => boolean
   hasAnyBusySession: () => boolean
   _ensureConversationExists: () => Promise<void>
@@ -435,6 +442,32 @@ const restoreConversationDataSources = (conversation: Conversation): void => {
 let conversationsClientModule: Promise<
   typeof import('@/adapters/api/conversations-client')
 > | null = null
+/**
+ * How long a turn may go without a frame before it counts as ended: the
+ * backend beats every 20 s for as long as a turn runs, socket or not
+ * (`TURN_HEARTBEAT_SECONDS`), so three missed beats and a margin.
+ */
+const TURN_SILENCE_MS = 70_000
+/** How often a reader waiting on the server's answer asks again. */
+const AWAIT_ANSWER_POLL_MS = 4_000
+/** With no replay stream to tell a live turn from a dead one, how long to keep asking. */
+const AWAIT_ANSWER_BLIND_MS = 120_000
+/** The longest any wait lasts, whatever the stream says: the run budget of a turn. */
+const AWAIT_ANSWER_CEILING_MS = 40 * 60_000
+
+/**
+ * The server-answer waits in flight, one per conversation. Mount, reconnect
+ * and the silence timer can each start one for the same turn; a second caller
+ * gets `superseded`, so exactly one of them may accuse.
+ */
+const serverAnswerWaits = new Map<string, Promise<RecoveryOutcome>>()
+
+/**
+ * How many recoveries hold `isRecoveryPending`. A flag set and cleared by each
+ * one would let the first to finish clear it under another still waiting.
+ */
+let recoveryHolds = 0
+
 const getConversationsClient = () => {
   conversationsClientModule ??= import('@/adapters/api/conversations-client')
   return conversationsClientModule.then((m) => m.conversationsClient)
@@ -1226,7 +1259,13 @@ export const createSessionsSlice: StateCreator<
             )
             return
           }
-          if (outcome === 'nothing') {
+          if (outcome !== 'nothing') return
+          // No turn id to resume from: wait for the server's own write while
+          // the turn is still working, and say "lost" only when it is not.
+          const settled = await get()._awaitServerAnswer(conversation.id, interruptedUserId)
+          // `addErrorCard` writes into the open conversation: the reader may
+          // have moved to another one during a wait of minutes.
+          if (settled === 'nothing' && get().currentConversation?.id === conversation.id) {
             // No explicit message: ErrorBanner localizes the registry default
             // via `agent.response_interrupted`'s messageKey.
             get().addErrorCard('agent.response_interrupted')
@@ -1236,16 +1275,64 @@ export const createSessionsSlice: StateCreator<
     }
   },
 
+  _awaitServerAnswer: (conversationId: string, afterUserMessageId: string): Promise<RecoveryOutcome> => {
+    if (serverAnswerWaits.has(conversationId)) return Promise.resolve('superseded')
+    const wait = (async (): Promise<RecoveryOutcome> => {
+      // The calm "checking for a finished answer" line for the whole wait, not
+      // per fetch: the reader is told the answer is lost only when it is.
+      recoveryHolds += 1
+      set({ isRecoveryPending: true }, false, 'awaitServerAnswer:start')
+      try {
+        const conversationsClient = await getConversationsClient()
+        const started = Date.now()
+        for (;;) {
+          const outcome = await get()._recoverInterruptedAssistantMessage(
+            conversationId,
+            afterUserMessageId,
+            { quiet: true }
+          )
+          if (outcome !== 'nothing') return outcome
+          const elapsed = Date.now() - started
+          if (elapsed >= AWAIT_ANSWER_CEILING_MS) return 'nothing'
+          // Is the turn still producing frames (a heartbeat every 20 s)? With no
+          // stream to ask, wait a short while for the server's write instead.
+          const age = await conversationsClient.newestFrameAge(conversationId)
+          const alive =
+            age === undefined ? elapsed < AWAIT_ANSWER_BLIND_MS : age !== null && age < TURN_SILENCE_MS
+          if (!alive) {
+            // One last look: the answer may have been written just as the turn
+            // went quiet.
+            return get()._recoverInterruptedAssistantMessage(conversationId, afterUserMessageId, {
+              quiet: true,
+            })
+          }
+          await new Promise((resolve) => setTimeout(resolve, AWAIT_ANSWER_POLL_MS))
+        }
+      } finally {
+        recoveryHolds -= 1
+        if (recoveryHolds === 0) set({ isRecoveryPending: false }, false, 'awaitServerAnswer:end')
+      }
+    })().finally(() => {
+      serverAnswerWaits.delete(conversationId)
+    })
+    serverAnswerWaits.set(conversationId, wait)
+    return wait
+  },
+
   _recoverInterruptedAssistantMessage: async (
     conversationId: string,
-    afterUserMessageId: string
+    afterUserMessageId: string,
+    { quiet = false }: { quiet?: boolean } = {}
   ): Promise<RecoveryOutcome> => {
     // Signal the "checking for a finished answer" UI (FIX 3) for the duration
-    // of the fetch. Both callers (restoreSessionState on mount, and the
-    // reconnect handler in use-websocket-chat) go through here, so the calmer
-    // recovery-pending copy shows on every recovery attempt and the
-    // lost/interrupted UI only appears after this settles to false.
-    set({ isRecoveryPending: true }, false, 'recoveryPending:start')
+    // of the fetch, so the calmer recovery-pending copy shows on every
+    // recovery attempt and the lost/interrupted UI only appears after this
+    // settles to false. `quiet` when a caller holds the flag for longer
+    // (`_awaitServerAnswer`).
+    if (!quiet) {
+      recoveryHolds += 1
+      set({ isRecoveryPending: true }, false, 'recoveryPending:start')
+    }
     try {
       const conversationsClient = await getConversationsClient()
       const serverMessages = await conversationsClient.listMessages(conversationId)
@@ -1293,7 +1380,10 @@ export const createSessionsSlice: StateCreator<
       // a fourth outcome nobody would branch on.
       return 'nothing'
     } finally {
-      set({ isRecoveryPending: false }, false, 'recoveryPending:end')
+      if (!quiet) {
+        recoveryHolds -= 1
+        if (recoveryHolds === 0) set({ isRecoveryPending: false }, false, 'recoveryPending:end')
+      }
     }
   },
 

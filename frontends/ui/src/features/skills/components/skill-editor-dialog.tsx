@@ -30,6 +30,7 @@
  * boundary rules (name shape/lengths) for instant feedback.
  */
 
+import type { JSX } from 'react'
 import { useCallback, useMemo, useState } from 'react'
 import { useStore } from '@tanstack/react-form'
 import { X } from 'lucide-react'

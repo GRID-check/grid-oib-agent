@@ -24,6 +24,7 @@
  * confident paragraph about nine votes.
  */
 
+import type { JSX } from 'react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { RefreshCw, Sparkles, ThumbsDown, ThumbsUp } from 'lucide-react'
 

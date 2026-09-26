@@ -1114,8 +1114,8 @@ export const chat: typeof en.chat = {
     // Wiederherstellungs-Abruf nach einer Wiederverbindung läuft, damit ein
     // Zug, der nur unterbrochen AUSSIEHT, nicht sofort den „verloren“-Hinweis
     // zeigt, bevor bestätigt ist, dass die Antwort wirklich fehlt.
-    recovering: 'Verbindung wird wiederhergestellt',
-    recoveringNotice: 'Verbindung wird wiederhergestellt — prüfe auf fertige Antwort …',
+    recovering: 'Antwort wird geholt',
+    recoveringNotice: 'Piloti arbeitet weiter — die Antwort erscheint hier, sobald sie fertig ist …',
     done: 'Fertig',
     showThinking: 'Denkschritte anzeigen ({count})',
     showThinkingSteps: 'Denkschritte anzeigen ({count})',

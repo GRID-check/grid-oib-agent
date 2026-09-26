@@ -2,11 +2,19 @@
 
 import logging
 import os
+import re
 from typing import Any
 
 from aiq_agent.common.canned_replies import TOOLS_UNAVAILABLE_MESSAGE
 
 logger = logging.getLogger(__name__)
+
+#: How a stub registered in place of a tool marks itself:
+#: ``"Web search tool (unavailable - missing TAVILY_API_KEY)"``. Matched as the
+#: marker, not as a word: a real tool's description saying what it does about
+#: "missing standard property sets" is not a stub (ifc_query was listed as
+#: unavailable on every turn for exactly that sentence).
+_STUB_MARKER = re.compile(r"\(unavailable\b", re.IGNORECASE)
 
 
 def _extract_unavailable_reason(description: str) -> str:
@@ -16,8 +24,6 @@ def _extract_unavailable_reason(description: str) -> str:
         ``"Web search tool (unavailable - missing TAVILY_API_KEY)"``
     This extracts ``"missing TAVILY_API_KEY"`` from the parenthetical.
     """
-    import re
-
     match = re.search(r"\(unavailable\s*[-:]\s*(.+?)\)", description, re.IGNORECASE)
     if match:
         return match.group(1).strip()
@@ -55,9 +61,8 @@ def validate_tool_availability(
     for tool in tools:
         tool_name = getattr(tool, "name", "").lower()
         tool_desc_original = getattr(tool, "description", "") or ""
-        tool_desc = tool_desc_original.lower()
 
-        is_unavailable = "unavailable" in tool_desc or "missing" in tool_desc
+        is_unavailable = bool(_STUB_MARKER.search(tool_desc_original))
 
         if is_unavailable:
             reason = _extract_unavailable_reason(tool_desc_original)

@@ -9,13 +9,15 @@ import {
   RETRIEVAL_SETTINGS,
   RETRIEVAL_SETTING_KEYS,
   getRetrievalSettingDefinition,
+  isSwitchSetting,
   retrievalSettingDefaults,
   validateRetrievalSettingValue,
 } from './catalog'
 
 describe('retrieval settings catalog', () => {
-  it('contains the platform-tunable counts, plus the lessons control group', () => {
+  it('contains the platform-tunable counts, plus the lessons control group and the streaming switch', () => {
     expect(RETRIEVAL_SETTING_KEYS).toEqual([
+      'chat.answer_streaming',
       'lessons.holdout_pct',
       'knowledge.top_k',
       'knowledge.max_chunks_per_document',
@@ -32,6 +34,8 @@ describe('retrieval settings catalog', () => {
 
   it('pins every default to the value the tools ship with', () => {
     expect(retrievalSettingDefaults()).toEqual({
+      // On: the answer streams unless the platform owner switches it off.
+      'chat.answer_streaming': 1,
       'lessons.holdout_pct': 0,
       'knowledge.top_k': 16,
       'knowledge.max_chunks_per_document': 5,
@@ -65,6 +69,10 @@ describe('retrieval settings catalog', () => {
     ).toEqual(catalogFixture)
   })
 
+  it('draws only a 0/1 setting as a switch', () => {
+    expect(RETRIEVAL_SETTINGS.filter(isSwitchSetting).map((s) => s.key)).toEqual(['chat.answer_streaming'])
+  })
+
   it('resolves definitions by key and returns undefined for unknown keys', () => {
     expect(getRetrievalSettingDefinition('knowledge.top_k')?.max).toBe(50)
     expect(getRetrievalSettingDefinition('nope')).toBeUndefined()
@@ -90,6 +98,12 @@ describe('validateRetrievalSettingValue', () => {
   it('enforces the discrete RIS page sizes over the numeric range', () => {
     expect(validateRetrievalSettingValue('ris.page_size', 20)).toBeNull()
     expect(validateRetrievalSettingValue('ris.page_size', 30)).toMatch(/nur 10, 20, 50, 100/)
+  })
+
+  it('takes only on or off for a switch', () => {
+    expect(validateRetrievalSettingValue('chat.answer_streaming', 0)).toBeNull()
+    expect(validateRetrievalSettingValue('chat.answer_streaming', 1)).toBeNull()
+    expect(validateRetrievalSettingValue('chat.answer_streaming', 2)).toMatch(/nur 0, 1/)
   })
 
   it('rejects unknown keys', () => {

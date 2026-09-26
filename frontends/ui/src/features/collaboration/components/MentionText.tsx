@@ -26,6 +26,7 @@
  *    nothing to show, a button that opens an empty panel is worse than a span.
  */
 
+import type { JSX } from 'react'
 import { Fragment } from 'react'
 
 import { Popover, PopoverAnchor, PopoverContent } from '@/components/ui/popover'

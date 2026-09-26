@@ -27,6 +27,7 @@
  * cannot be reviewed at all.
  */
 
+import type { JSX } from 'react'
 import { notFound } from 'next/navigation'
 
 import { I18nProvider } from '@/i18n'

@@ -98,6 +98,18 @@ async def test_once_prose_went_out_no_later_call_streams():
     assert answering is llm and config is None
 
 
+def test_the_answer_streams_unless_the_platform_switch_is_off(monkeypatch):
+    from aiq_agent.common import retrieval_settings
+
+    settings: dict[str, int] = {}
+    monkeypatch.setattr(retrieval_settings, "_resolve", lambda: settings)
+    assert answer_stream.answer_streaming_enabled() is True
+    settings["chat.answer_streaming"] = 0
+    assert answer_stream.answer_streaming_enabled() is False
+    settings["chat.answer_streaming"] = 1
+    assert answer_stream.answer_streaming_enabled() is True
+
+
 def test_without_a_sink_the_call_is_the_buffered_one():
     llm = GenericFakeChatModel(messages=iter([]))
     assert streaming_call(llm) == (llm, None)

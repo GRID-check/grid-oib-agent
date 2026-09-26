@@ -14,6 +14,7 @@
  * at all.
  */
 
+import type { JSX } from 'react'
 import { cn } from '@/lib/utils'
 import { HIGHLIGHT_CSS, type BimHighlightStatus } from '../../lib/model-index'
 import { ViewerSurface } from './viewer-surface'

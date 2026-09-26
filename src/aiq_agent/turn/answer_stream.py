@@ -166,6 +166,20 @@ def _coalesced(items: list[Item]) -> list[Item]:
 _SINK: ContextVar[AnswerStreamSink | None] = ContextVar("answer_stream_sink", default=None)
 
 
+def answer_streaming_enabled() -> bool:
+    """Whether the platform owner lets the answer stream (Platform → Retrieval, ``chat.answer_streaming``).
+
+    On unless switched off: an unset or unreachable setting streams, the
+    default since ADR-0066. Off, no sink is bound, so the answering call is the
+    buffered call and the answer arrives whole with the terminal frame; the
+    reasoning steps still go out live. Blocking I/O on a cache miss: call it
+    through ``asyncio.to_thread``.
+    """
+    from aiq_agent.common.retrieval_settings import get_retrieval_setting
+
+    return get_retrieval_setting("chat.answer_streaming", 1) == 1
+
+
 @contextmanager
 def bound_answer_stream(sink: AnswerStreamSink) -> Iterator[AnswerStreamSink]:
     """Bind ``sink`` for everything started inside, the graph's tasks included."""

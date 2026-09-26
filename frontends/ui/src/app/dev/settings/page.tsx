@@ -7,6 +7,7 @@
  * 404s outside development.
  */
 
+import type { JSX } from 'react'
 import { notFound } from 'next/navigation'
 import { ProjectSettings } from '@/features/projects/components/project-settings'
 import type { ProjectOverviewData } from '@/features/projects/types'

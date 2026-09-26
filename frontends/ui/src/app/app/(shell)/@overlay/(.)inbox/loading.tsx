@@ -4,6 +4,7 @@
  * session round-trip resolves.
  */
 
+import type { JSX } from 'react'
 import { PageSheetSkeleton } from '@/components/shell/page-sheet-skeleton'
 import { getTranslations } from '@/i18n/server'
 

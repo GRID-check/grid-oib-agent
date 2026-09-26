@@ -93,6 +93,17 @@ answer is cut into deltas, while a live answer, whose prose already went out,
 and a refusal get the terminal alone. There is no env/runtime gate; every
 answer turn streams one way or the other.
 
+### The platform switch
+
+Platform → Abruf carries one on/off setting, `chat.answer_streaming` (catalog:
+`frontends/ui/src/lib/retrieval-settings/catalog.ts`, on by default). The
+backend reads it once per turn through the retrieval-settings pull
+(`turn/answer_stream.py::answer_streaming_enabled`, TTL 60 s). Off, the turn
+binds no `AnswerStreamSink`, so `streaming_call` hands back the buffered call:
+no delta, snapshot, masthead or cards frame goes out, the reasoning steps still
+stream live, and the answer arrives whole with the terminal frame. The client
+needs no change for that; it is the turn as it was before ADR-0066.
+
 ### Live frames (ADR-0066)
 
 `turn/streaming.py::live_chunk` builds every live chunk; all are
@@ -271,11 +282,27 @@ turn's frames never come back to life. A prompt of a later turn is dropped as
 stale like any other frame of another turn. The stream no longer holding the turn ends it with the
 banner.
 
-**One answer, not two.** A turn may finish while nobody is attached: the server
-persists the answer, and the phone, back online, replays the terminal frame and
-writes it too. Both use `uuid5(grid:assistant:<conversation>:<turn>)`
+**The server keeps every answer.** The backend persists every finished
+answer, whether or not a socket took the terminal frame
+(`_persist_terminal_message_in_background`). It used to persist only when no socket was
+attached, leaving the write to the browser; a socket that took the frame and
+died before the browser saved it lost the answer for good. Now the reader's
+connection decides only how soon the answer appears, never whether it exists.
+
+**One answer, not two.** The browser still writes the answer it received.
+Both use `uuid5(grid:assistant:<conversation>:<turn>)`
 (`deterministic_assistant_message_id`, `turnAnswerId`), so the second write
 collides on `messages.id` and no-ops, and the recovery dedupes by id.
+
+**Waiting, not accusing.** A page that lost its turn and finds no finished
+answer does not say "lost" at once: the turn may still be running.
+`_awaitServerAnswer` asks for the answer every 4 s for as long as the turn
+still produces frames. It peeks at the newest frame of the replay stream
+(`GET /api/conversations/:id/frames?peek=1`, one entry and the server's
+clock), and the backend's heartbeat every 20 s keeps that fresh while the turn
+runs, socket or not. Only a turn silent for 70 s (two minutes when there is no
+stream to ask, 40 minutes at most) ends with the banner. The reader meanwhile
+sees „prüfe auf fertige Antwort".
 
 **Bounds.** `GRID_CONV_STREAM_MAXLEN` (2000 frames, a few turns) and
 `GRID_CONV_STREAM_TTL_SECONDS` (an hour since the last frame). A reader away

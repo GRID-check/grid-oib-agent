@@ -1118,8 +1118,15 @@ export interface ChatActions {
    */
   _recoverInterruptedAssistantMessage: (
     conversationId: string,
-    afterUserMessageId: string
+    afterUserMessageId: string,
+    options?: { quiet?: boolean }
   ) => Promise<RecoveryOutcome>
+  /**
+   * Wait for the server's finished answer to a turn this page lost track of,
+   * for as long as the turn is still producing frames (its heartbeat), then
+   * look once more. `nothing` only when the turn has ended without one.
+   */
+  _awaitServerAnswer: (conversationId: string, afterUserMessageId: string) => Promise<RecoveryOutcome>
 
   // Session busy checks (for disabling UI controls)
 
