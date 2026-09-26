@@ -9,6 +9,11 @@
  * because neither Docker build can see `shared/` (each builds from its own
  * directory). `npm run check` runs the `--check` form, so an edited copy, or a
  * master edited without re-running this, fails CI instead of shipping two marks.
+ * The same check holds the inline, `currentColor` copies of the path (see
+ * INLINE_COPIES) to the master.
+ *
+ * One master serves every size, 16 px to 512: the mark is built on a 16-unit
+ * grid, so it has no small-size variant to keep in step.
  * The rasters are not compared: sharp's anti-aliasing moves between versions.
  *
  * Output
@@ -28,30 +33,42 @@ const uiRoot = resolve(repoRoot, 'frontends/ui')
 const MASTER = resolve(repoRoot, 'shared/brand/piloti-mark.svg')
 
 const INK = '#2a301f' // --color-accent-900, the tile
-const LIME = '#a4d06a' // --color-accent-400
-const PAPER = '#f7f7f3' // --color-canvas
-const SAGE = '#5c6b42' // --color-accent-600
 
 const SVG_COPIES = [
   resolve(webRoot, 'public/favicon.svg'),
   resolve(uiRoot, 'src/app/icon.svg'),
 ]
+/**
+ * Where the mark is drawn inline in `currentColor` (the site's lockup, the app's
+ * logo and PDF exports). They hold the master's path data as a string, so the
+ * check is that the string is there; this script does not rewrite them.
+ */
+const INLINE_COPIES = [
+  resolve(webRoot, 'src/components/atoms/Logo.astro'),
+  resolve(uiRoot, 'src/lib/brand.ts'),
+]
 
 const master = readFileSync(MASTER, 'utf8')
+
+/** The mark's shapes without the rounded tile, for full-bleed renders. */
+const markGroup = master.match(/<g id="mark">[\s\S]*?<\/g>/)?.[0]
+if (!markGroup) throw new Error(`${MASTER} has no <g id="mark">`)
+const markPath = markGroup.match(/ d="([^"]+)"/)?.[1]
+if (!markPath) throw new Error(`${MASTER}: <g id="mark"> holds no path`)
 
 if (process.argv.includes('--check')) {
   const drifted = SVG_COPIES.filter((path) => readFileSync(path, 'utf8') !== master)
   for (const path of drifted) {
     console.error(`${path} differs from ${MASTER}. Run node scripts/build-brand-assets.mjs.`)
   }
-  if (drifted.length) process.exit(1)
+  const stale = INLINE_COPIES.filter((path) => !readFileSync(path, 'utf8').includes(markPath))
+  for (const path of stale) {
+    console.error(`${path} does not draw the master's path. Copy the d="…" of ${MASTER} into it.`)
+  }
+  if (drifted.length || stale.length) process.exit(1)
   console.log('Brand mark copies match the master.')
   process.exit(0)
 }
-
-/** The mark's shapes without the rounded tile, for full-bleed and share renders. */
-const markGroup = master.match(/<g id="mark">[\s\S]*?<\/g>/)?.[0]
-if (!markGroup) throw new Error(`${MASTER} has no <g id="mark">`)
 
 /** The mark on a square, unrounded ground; `scale` is the mark's share of the side. */
 function fullBleed(scale) {
