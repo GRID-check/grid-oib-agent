@@ -1,0 +1,126 @@
+name: Smoke (live agent)
+
+# One real question — "Was weißt du über die OIB-Richtlinie 2?" — through the
+# shipped workflow with `nat run`: the real config, prompt, model (through
+# OpenRouter) and tools, including the post-answer stages. It fails on any log
+# record at ERROR or CRITICAL, a traceback, an unawaited coroutine, or no
+# answer: the records the collector forwards to err2issue, caught before they
+# ship instead of after. scripts/turn_census/smoke.py; `task be:smoke` locally.
+#
+# Why this exists: every issue err2issue filed in September 2026 lived in a seam
+# the unit suites fake (a tool schema the model's arguments did not fit, a reply
+# shape a parser did not expect, a payload a dependency could not read, a
+# workflow that did not build), and each one logged at ERROR. Run against
+# develop before this branch, this smoke fails on an unawaited coroutine per
+# trace event; on the branch it passes.
+#
+# The OIB corpus comes from staging: an admin uploads and syncs it in
+# Platform → Knowledge, and corpus-snapshot.yml mirrors it into the private
+# snapshot ghcr.io/<owner>/grid-oib-corpus (scripts/corpus_snapshot.py). This job
+# only restores that snapshot and never publishes. The sync after the restore is
+# a no-op unless the chunk format changed, so a pull request that changes it
+# pays for its own re-ingest and leaves the shared snapshot alone. With a corpus
+# the answer itself is checked too: not "nothing found", and about Brandschutz.
+# Without one only the ERROR gate runs, and the log says so.
+#
+# Costs one model turn per run. On a pull request it runs only for the paths
+# that change what the agent does. It skips (with a notice) only where GitHub
+# withholds secrets, a fork or Dependabot; anywhere else a missing key fails
+# the job. The weekly turn-shapes eval failed three weeks running on that same
+# missing secret, which is what a skip-as-success would have hidden here.
+
+on:
+  pull_request:
+    paths:
+      - "src/**"
+      - "sources/**"
+      - "configs/**"
+      - "frontends/aiq_api/**"
+      - "pyproject.toml"
+      - "uv.lock"
+      - "scripts/turn_census/**"
+      - "scripts/corpus_snapshot.py"
+      - ".github/workflows/smoke-live.yml"
+  push:
+    branches: [develop]
+    paths:
+      - "src/**"
+      - "sources/**"
+      - "configs/**"
+      - "frontends/aiq_api/**"
+      - "pyproject.toml"
+      - "uv.lock"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: read # the corpus snapshot corpus-snapshot.yml publishes
+
+concurrency:
+  group: smoke-live-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  smoke:
+    name: OIB-2 question, no ERROR logged
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      AIQ_CHROMA_DIR: ${{ github.workspace }}/.corpus-chroma
+      PYTHONPATH: src
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup-python-env
+        with:
+          python-version: "3.14"
+      - uses: ./.github/actions/setup-task
+      - name: Require the model key
+        id: key
+        env:
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          # GitHub withholds secrets from exactly these two; anywhere else an
+          # empty key means the secret is missing, and a smoke that passes by
+          # not running is the silent failure this job exists to prevent.
+          SECRETS_WITHHELD: ${{ github.event.pull_request.head.repo.fork == true || github.actor == 'dependabot[bot]' }}
+        run: |
+          if [ -n "$OPENROUTER_API_KEY" ]; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          elif [ "$SECRETS_WITHHELD" = "true" ]; then
+            echo "::notice::GitHub withholds secrets from this pull request (a fork or Dependabot); the smoke did not run."
+            echo "present=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "::error::OPENROUTER_API_KEY is not set; the smoke would not run. See the header of this workflow."
+            exit 1
+          fi
+      - uses: oras-project/setup-oras@v1
+        if: ${{ steps.key.outputs.present == 'true' }}
+      - name: Restore the ingested corpus
+        id: corpus
+        if: ${{ steps.key.outputs.present == 'true' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+        run: |
+          echo "$GH_TOKEN" | oras login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+          .venv/bin/python scripts/corpus_snapshot.py pull --repository "ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/grid-oib-corpus"
+          if ls data/oib/*.pdf data/oib_uploads/*.pdf > /dev/null 2>&1; then
+            # A no-op when the snapshot matches this branch's chunk format;
+            # a full re-ingest, for this run only, when it does not.
+            .venv/bin/python -c "from aiq_agent import oib_sync; print('sync', oib_sync.sync())"
+          else
+            echo "::notice::No corpus snapshot yet: run 'Corpus snapshot from staging' once the corpus is uploaded there. Only the ERROR gate runs."
+          fi
+      - name: Smoke
+        if: ${{ steps.key.outputs.present == 'true' }}
+        env:
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+        run: task be:smoke -- --out "$RUNNER_TEMP/smoke"
+      - name: Keep the run's log
+        if: ${{ always() && steps.key.outputs.present == 'true' }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: smoke-log
+          path: ${{ runner.temp }}/smoke
+          if-no-files-found: ignore

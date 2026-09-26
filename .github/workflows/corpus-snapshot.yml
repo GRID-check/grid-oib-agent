@@ -1,0 +1,100 @@
+name: Corpus snapshot from staging
+
+# Turns the OIB corpus as uploaded in staging into the snapshot every test run
+# restores. The button a person presses is the one that already exists: upload
+# the PDFs in staging's Platform → Knowledge and let it sync. This workflow then
+# copies those PDFs out of the backend pod, brings the snapshot to exactly that
+# set (a new or changed PDF is ingested, a removed one is deleted from the
+# index, nothing else is touched) and publishes it as
+# ghcr.io/<owner>/grid-oib-corpus:format-<CHUNK_FORMAT_VERSION>.
+# scripts/corpus_snapshot.py (pull, mirror, push) does the work.
+#
+# Runs nightly, on demand (Actions → "Corpus snapshot from staging" → Run
+# workflow, for a fresh upload you want in tests now), and on a push to develop
+# that changes how the corpus is ingested, since that makes the published
+# snapshot the wrong shape.
+#
+# It is the ONLY workflow that reaches the cluster for this, and it never runs
+# for a pull request: the smoke on a PR only pulls the published snapshot. It
+# reads the staging kubeconfig the way the deploy job does, from the dev stack's
+# ESC environment through PULUMI_ACCESS_TOKEN, in the same `staging`
+# environment. Staging runs one aiq-agent replica (Pulumi.dev.yaml
+# backendReplicas); the uploads live on that pod's data volume.
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 3 * * *" # nightly, off the other scheduled jobs' slots
+  push:
+    branches: [develop]
+    paths:
+      - "src/aiq_agent/oib_sync.py"
+      - "src/aiq_agent/knowledge/**"
+      - "sources/knowledge_layer/**"
+      - "scripts/corpus_snapshot.py"
+      - ".github/workflows/corpus-snapshot.yml"
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: corpus-snapshot
+  cancel-in-progress: false
+
+jobs:
+  snapshot:
+    name: Mirror staging's corpus into the test snapshot
+    runs-on: ubuntu-latest
+    environment: staging
+    timeout-minutes: 60
+    env:
+      AIQ_CHROMA_DIR: ${{ github.workspace }}/.corpus-chroma
+      PYTHONPATH: src
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup-python-env
+        with:
+          python-version: "3.14"
+      - uses: oras-project/setup-oras@v1
+      - uses: azure/setup-kubectl@v4
+      - name: Install Pulumi
+        run: |
+          curl -fsSL https://get.pulumi.com -o "$RUNNER_TEMP/install-pulumi.sh"
+          sh "$RUNNER_TEMP/install-pulumi.sh" --version latest
+      - name: Copy the corpus staging holds
+        working-directory: deploy/pulumi
+        env:
+          PULUMI_ACCESS_TOKEN: ${{ secrets.PULUMI_ACCESS_TOKEN }}
+        run: |
+          export PATH="$HOME/.pulumi/bin:$PATH"
+          umask 077
+          # Written straight to a file, never echoed: it is a cluster credential.
+          pulumi config get grid-oib:kubeconfig --stack matthiasbigl/grid-oib/dev > "$RUNNER_TEMP/kubeconfig"
+          export KUBECONFIG="$RUNNER_TEMP/kubeconfig"
+          mkdir -p "$RUNNER_TEMP/staging-uploads"
+          kubectl -n grid cp aiq-agent-0:/app/data/oib_uploads "$RUNNER_TEMP/staging-uploads"
+          rm -f "$RUNNER_TEMP/kubeconfig"
+          count="$(find "$RUNNER_TEMP/staging-uploads" -maxdepth 1 -name '*.pdf' | wc -l)"
+          echo "staging holds ${count} uploaded PDF(s)"
+          if [ "$count" -eq 0 ]; then
+            echo "::error::No PDFs under /app/data/oib_uploads in staging. Upload the corpus in Platform → Knowledge first."
+            exit 1
+          fi
+      - name: Restore, mirror and publish the snapshot
+        env:
+          GH_TOKEN: ${{ github.token }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+        run: |
+          repository="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/grid-oib-corpus"
+          echo "$GH_TOKEN" | oras login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+          .venv/bin/python scripts/corpus_snapshot.py pull --repository "$repository"
+          .venv/bin/python scripts/corpus_snapshot.py mirror "$RUNNER_TEMP/staging-uploads" | tee "$RUNNER_TEMP/mirror.txt"
+          .venv/bin/python scripts/corpus_snapshot.py push --repository "$repository"
+          {
+            echo "## Corpus snapshot"
+            echo
+            cat "$RUNNER_TEMP/mirror.txt"
+          } >> "$GITHUB_STEP_SUMMARY"
