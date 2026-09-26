@@ -6,7 +6,7 @@ import { GridConfig } from "../config";
 import { commonLabels } from "./namespaces";
 import { ROLLOUT, gracefulShutdown, surgeRollout } from "./rollout";
 import { GATEWAY_NAME } from "./gateway";
-import { platformOidcSecurityPolicySpec } from "./platform-oidc";
+import { AGENT_TOKEN_HEADER, platformOidcSecurityPolicySpec } from "./platform-oidc";
 
 const COMPONENT = "aspire-dashboard";
 const DASHBOARD_PORT = 18888;
@@ -218,7 +218,14 @@ export function installObservabilityDashboard(
   const routeSpec: IHTTPRouteSpec = {
     parentRefs: [{ name: GATEWAY_NAME, sectionName: "https-otel" }],
     hostnames: [obs.otelDomain],
-    rules: [{ backendRefs: [{ name, port: DASHBOARD_PORT }] }],
+    rules: [
+      {
+        backendRefs: [{ name, port: DASHBOARD_PORT }],
+        // The edge has verified an agent's WorkOS token; the dashboard never
+        // needs to see it.
+        filters: [{ type: "RequestHeaderModifier", requestHeaderModifier: { remove: [AGENT_TOKEN_HEADER] } }],
+      },
+    ],
   };
   const route = new k8s.apiextensions.CustomResource(
     "grid-otel-route",
