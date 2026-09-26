@@ -280,29 +280,44 @@ surfaces is a deliberate run rather than a per-commit tax.
 
 ## The smoke
 
-`task be:smoke` asks the real agent one question ("Was weißt du über die
-OIB-Richtlinie 2?") through `nat run` with the shipped config, prompt, model and
-tools, waits through the post-answer stages, and fails on what production would
-have filed as an issue: any log record at ERROR or CRITICAL, a traceback, a
-RuntimeWarning (an unawaited coroutine is one), or no answer. With the OIB corpus
-ingested it also checks the answer is a real one: none of the canned
-non-answers, at least one `[KB]` source in its Quellen, and (for the default
-question) about Brandschutz. Without the corpus only that gate runs, and the
-output says so; in CI that lasts only until a corpus snapshot is published,
-after which a missing corpus fails the job (`--require-corpus`).
+`task be:smoke` serves the backend the way the container does
+(`deploy/start_web.py`: the shipped config, prompt, model and tools) and drives it
+over the chat socket the way the UI does (`scripts/turn_census/served.py`), with
+two things a reader does:
+
+1. ask "Was weißt du über die OIB-Richtlinie 2?" and read the answer to its
+   COMPLETE frame, answering a clarifying question with its first option if the
+   agent asks one;
+2. ask again and, while that answer is still being written, send a follow-up:
+   the first turn is cancelled, and the follow-up must complete.
+
+It waits for the post-answer stages to go quiet and fails on what production
+would have filed from the first question on: any log record at ERROR or
+CRITICAL, a traceback, a RuntimeWarning (an unawaited coroutine is one), no
+answer, or a follow-up that never completed. A backend that never serves fails
+too; what it logs while starting is shown as a note, since it runs without the
+BFF and the internal-API check rightly says so. With the OIB corpus ingested it
+also checks the answer is a real one: none of the canned non-answers, at least
+one `[KB]` source in its Quellen, and (for the default question) about
+Brandschutz. Without the corpus only that gate runs, and the output says so; in
+CI that lasts only until a corpus snapshot is published, after which a missing
+corpus fails the job (`--require-corpus`).
 
 It exists because the unit suites fake the seams where September 2026's issues
 lived: a tool schema the model's arguments did not fit (#656), a reply shape a
 parser did not expect (#653), a payload a dependency's callback could not read
-(#635). Each of those logged at ERROR, and ERROR is the level the collector
-forwards to err2issue, so "no ERROR on a real turn" is the same test production
-runs, taken before merge. Run against `develop` as it stood before it existed,
-it fails on an unawaited coroutine per trace event.
+(#635), the teardown of a turn cancelled mid-answer (#334, #337, #338, #759).
+Each of those logged at ERROR, and ERROR is the level the collector forwards to
+err2issue, so "no ERROR on a real turn" is the same test production runs, taken
+before merge. It goes through the socket rather than `nat run` because the last
+of those lived in `frontends/aiq_api`, which `nat run` never reaches: the smoke
+on `nat run` passed against the socket handler that leaked, and this one fails
+on it with a hundred-odd `Task exception was never retrieved` records.
 
 `.github/workflows/smoke-live.yml` runs it on pull requests that touch the
 agent, on pushes to `develop`, and on demand, with the repository secret
-`OPENROUTER_API_KEY`. Its offline half, the reading of the log, is
-`tests/test_smoke.py`.
+`OPENROUTER_API_KEY`. Its offline half, the reading of the log and of the
+socket frames, is `tests/test_smoke.py`.
 
 ### The corpus snapshot
 

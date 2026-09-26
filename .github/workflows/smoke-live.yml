@@ -1,18 +1,23 @@
 name: Smoke (live agent)
 
-# One real question — "Was weißt du über die OIB-Richtlinie 2?" — through the
-# shipped workflow with `nat run`: the real config, prompt, model (through
-# OpenRouter) and tools, including the post-answer stages. It fails on any log
-# record at ERROR or CRITICAL, a traceback, an unawaited coroutine, or no
-# answer: the records the collector forwards to err2issue, caught before they
-# ship instead of after. scripts/turn_census/smoke.py; `task be:smoke` locally.
+# What a reader does, through what a reader reaches: the backend served the way
+# the container serves it (deploy/start_web.py, the real config, prompt, model
+# through OpenRouter, and tools), driven over the chat socket the way the UI
+# drives it. It asks "Was weißt du über die OIB-Richtlinie 2?" and reads the
+# answer, then asks again and cancels that turn mid-answer with a follow-up. It
+# fails on any log record at ERROR or CRITICAL from the first question on, a
+# traceback, an unawaited coroutine, no answer, or a follow-up that never
+# completed: the records the collector forwards to err2issue, caught before
+# they ship instead of after. scripts/turn_census/smoke.py; `task be:smoke`
+# locally.
 #
 # Why this exists: every issue err2issue filed in September 2026 lived in a seam
 # the unit suites fake (a tool schema the model's arguments did not fit, a reply
 # shape a parser did not expect, a payload a dependency could not read, a
-# workflow that did not build), and each one logged at ERROR. Run against
-# develop before this branch, this smoke fails on an unawaited coroutine per
-# trace event; on the branch it passes.
+# workflow that did not build, the teardown of a cancelled turn), and each one
+# logged at ERROR. Against the socket handler before #769 this smoke fails on a
+# hundred-odd "Task exception was never retrieved" from the cancelled turn,
+# which a smoke on `nat run` never reaches.
 #
 # The OIB corpus comes from staging: an admin uploads and syncs it in
 # Platform → Knowledge, and corpus-snapshot.yml mirrors it into the private
@@ -24,7 +29,7 @@ name: Smoke (live agent)
 # about Brandschutz. Without one only the ERROR gate runs, and the log says so,
 # until a snapshot is published: from then on a missing corpus fails the job.
 #
-# Costs one model turn per run. On a pull request it runs only for the paths
+# Costs about two model turns per run. On a pull request it runs only for the paths
 # that change what the agent does. It skips (with a notice) only where GitHub
 # withholds secrets, a fork or Dependabot; anywhere else a missing key fails
 # the job. The weekly turn-shapes eval failed three weeks running on that same
@@ -37,6 +42,7 @@ on:
       - "sources/**"
       - "configs/**"
       - "frontends/aiq_api/**"
+      - "deploy/start_web.py"
       - "pyproject.toml"
       - "uv.lock"
       - "scripts/turn_census/**"
@@ -50,6 +56,7 @@ on:
       - "sources/**"
       - "configs/**"
       - "frontends/aiq_api/**"
+      - "deploy/start_web.py"
       - "pyproject.toml"
       - "uv.lock"
       - "scripts/turn_census/**"

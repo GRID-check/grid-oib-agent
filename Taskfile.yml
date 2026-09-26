@@ -525,12 +525,13 @@ tasks:
       - '{{.PY}} -X faulthandler -m pytest tests/benchmarks/test_turn_shapes_live.py -q -rs'
 
   be:smoke:
-    desc: 'Smoke — one real question through the real agent, failing on any ERROR it logs (NEEDS OPENROUTER_API_KEY; the answer is checked too when the OIB corpus is ingested)'
+    desc: 'Smoke — the served backend over the chat socket: a question answered, then one cancelled mid-answer, failing on any ERROR it logs (NEEDS OPENROUTER_API_KEY; the answer is checked too when the OIB corpus is ingested)'
     env:
       PYTHONPATH: src
     cmds:
       # What err2issue would have filed, caught before it ships: every record at
-      # ERROR, a traceback, an unawaited coroutine, or no answer at all.
+      # ERROR, a traceback, an unawaited coroutine, no answer, or a follow-up
+      # that never completed after a cancel.
       #   task be:smoke
       #   task be:smoke -- "Welche Fluchtweglänge gilt in GK 4?" --out /tmp/smoke
       # docs/contributing/testing-and-verification.md, "The smoke".
