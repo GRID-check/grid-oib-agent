@@ -303,20 +303,6 @@ llms:
     request_timeout: 15
     reasoning_effort: none
 
-  # Compliance pipeline — Stage 1 requirement derivation + Stage 2 evidence
-  # judging (structured outputs; ~10-16 calls per full 6-Richtlinien check).
-  compliance_llm:
-    _type: openai
-    model_name: ${GRID_DEFAULT_MODEL:-openai/gpt-6-luna}
-    base_url: "https://openrouter.ai/api/v1"
-    api_key: ${OPENROUTER_API_KEY}
-    temperature: 1.0
-    top_p: 0.95
-    max_tokens: 65536
-    max_retries: 2
-    request_timeout: 120
-    reasoning_effort: medium
-
   # Document / project summaries — trivial one-liners.
   summary_llm:
     _type: openai
@@ -680,7 +666,7 @@ functions:
     _type: submit_draft
 
   # Delegation (src/aiq_agent/tools/tasks). Hands work that outlives this turn
-  # to a `tasks` row (ADR-0051) — the compliance checker, the Einreichcheck
+  # to a `tasks` row (ADR-0051) — a norm check, the Einreichcheck
   # skill, a document to write, a draft to revise — through
   # `POST /api/internal/tasks`, echoing the same BFF-signed envelope, so the row
   # is created in the requesting person's pinned session, under their
@@ -714,14 +700,6 @@ functions:
   ifc_measure:
     _type: ifc_measure
     default_limit: 50
-
-  # RETIRED as a chat tool: the purpose-built OIB Soll-Ist-Abgleich
-  # (backlog T4-3, staged requirement-profile -> evidence-judgment pipeline)
-  # is no longer bound to any agent. The `compliance_check` function block and
-  # its `shallow_research_agent` tool-list entry were removed together with the
-  # `aiq_compliance_checker` plugin entry point; the implementation stays in
-  # place (src/aiq_agent/agents/compliance_checker/) for reference. See its
-  # README.
 
   # The FUNCTION NAME here is deliberately still `shallow_research_agent` while
   # the `_type` is `research_agent`. NAT puts the function name — not the type —

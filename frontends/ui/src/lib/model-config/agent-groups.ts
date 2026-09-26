@@ -124,17 +124,22 @@ export const AGENT_GROUPS: AgentGroupDefinition[] = [
     // avoids excluding otherwise-valid vision models.
     requirements: { requiredParameters: [], minContextLength: 0, requiresImageInput: true },
   },
-  {
-    id: 'compliance_check',
-    label: 'OIB compliance check',
-    description:
-      'Staged Soll-Ist against the six OIB Richtlinien for this project. Bounded call count, not an open research loop.',
-    configLlmRefs: ['compliance_llm'],
-    requirements: { requiredParameters: [], minContextLength: 32768 },
-  },
 ]
 
 export const AGENT_GROUP_IDS = AGENT_GROUPS.map((group) => group.id)
+
+/**
+ * Whether `id` is a group in the registry today.
+ *
+ * Stored rows outlive the group that wrote them: retiring a group leaves its
+ * row in `platform_model_defaults`, `platform_reasoning_efforts` and inside old
+ * org versions. Every admin GET filters through this, because the admin pages
+ * send back what they loaded and the PUT schemas reject unknown ids with a 400.
+ * A retired `intent` row did exactly that, and no save could clear it.
+ */
+export function isAgentGroupId(id: string): boolean {
+  return AGENT_GROUP_IDS.includes(id)
+}
 
 export function getAgentGroup(id: string): AgentGroupDefinition | undefined {
   return AGENT_GROUPS.find((group) => group.id === id)

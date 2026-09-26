@@ -1365,17 +1365,12 @@ Austria's). The org-Archiv stratum (ADR-0024) sits beside these unchanged.
    Limits & Grounding** block that instructs agents to treat confirmed wizard
    facts (fluchtniveau, BG Fläche, Anzahl Geschoße, Bauweise, Nutzung,
    Brandschutzanlagen, …) as binding constraints, derive building classes from
-   them, flag contradictions, and surface gaps. The compliance-checker pair
-   (`requirement_profile.j2`, `evidence_batch.j2`) gained a
-   **Projekt-Hartgrenzen** section that maps each wizard fact to its OIB
-   significance.
+   them, flag contradictions, and surface gaps.
 - **Applicability** — `common/applicability.py` is a small hand-written module
   (no DSL): OIB verdicts from project facts (mirrors the UI's
   `applicable-standards.ts`), German trigger hints for the four boolean intake
   facts (Kleingarten, Denkmalschutz, Betriebsanlage, Stellplatz), and the
-  prompt section. The compliance checker scopes Stage 1 with it (verdicts
-  `required`/`likely`/`check` all stay in scope; an explicit user scope is
-  never narrowed).
+  prompt section Piloti renders from the project context.
 - **Display tagging** — `lane_for_hit` / `citation_verification.source_lane`
   map a retrieval or citation hit to a stratum + lane label (Bundesrecht /
   Landesrecht / Verordnung via catalog rank; OIB lanes via filename class;
@@ -1690,10 +1685,6 @@ section covers the remaining open defects found by a source audit against the
 installed `deepagents`/`langchain`/`langgraph` versions, several of which are
 now fixed — summarized in §9 below.
 
-**Compliance pipeline (backlog T4-3, 2026-07-16)**: `src/aiq_agent/agents/compliance_checker/README.md`
-documents a separate, purpose-built alternative to running an OIB
-Soll-Ist-Abgleich through this open-ended deep-research harness — see §8c.
-
 ## 8. Backend agent architecture & DRY debt
 
 Registered agents (via NAT `@register_function` + `FunctionBaseConfig`):
@@ -1884,31 +1875,14 @@ full specs in `org-model-configuration.md` (ADR-0014) and
   consumes these to show live progress instead of staying silent for the
   first minutes of a run.
 
-## 8c. Compliance-check pipeline (backlog T4-3, 2026-07-16)
+## 8c. Compliance-check pipeline (removed)
 
-`src/aiq_agent/agents/compliance_checker/` is a separate, **deterministic**
-3-stage pipeline for the OIB Soll-Ist-Abgleich (requirements-vs-evidence
-compliance check) — the structured alternative to running the same check
-through the open-ended `deep_research_agent` (which the audit that opened
-T4-3 measured at ~300 LLM turns / 20+ minutes for the same job). Stage 1
-derives applicable requirements per Richtlinie (one structured LLM call each,
-grounded by tool-free `knowledge_search` retrieval against the base OIB
-collection); Stage 2 checks project-document evidence per batch of ~8-10
-requirements (one structured LLM call each); Stage 3 assembles the compliance
-matrix, ranks gaps by risk, and renders a German Markdown report — pure
-Python, no LLM calls. A full 6-Richtlinien check is ~10-25 LLM calls total,
-bounded and predictable.
-
-Registered as the `compliance_check` function (`_type: compliance_check_agent`)
-in `configs/config_oib_openrouter.yml`, backed by a dedicated `compliance_llm`
-role and the `aiq_compliance_checker` `nat.plugins` entry point
-(`pyproject.toml`). **Not yet invoked by any chat/workflow entry point** — the
-function is registered and directly callable, but no orchestrator node, slash
-command, or UI action calls it yet, so it needs a live shakedown before
-user-facing use. See `src/aiq_agent/agents/compliance_checker/README.md` for
-the full stage design, budget math, and its own still-open known limitation
-(`AgentGroup` has no dedicated member for this pipeline's model overrides
-yet).
+The staged OIB Soll-Ist pipeline (`agents/compliance_checker/`, backlog T4-3)
+was retired as a chat tool and then deleted, with its `compliance_llm` role
+and its `compliance_check` model group. A norm check is now a task of kind
+`compliance_check`, run by the general agent with its retrieval tools
+(`TASK_ENGINES` in `frontends/ui/src/lib/tasks/delegation.ts`). The code is in
+git history.
 
 ## 8d. Agent skills (ADR-0046)
 
