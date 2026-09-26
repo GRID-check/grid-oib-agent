@@ -37,7 +37,7 @@ const count = (n: number) => (n === 1 ? t.monthCountOne : t.monthCount.replace('
 
     {
       log.length > 1 && (
-        <figure aria-label={t.buildHeading} class="build-log mt-10 border-y border-ink/15 py-6">
+        <figure aria-label={t.buildHeading} class="build-log mt-10 border-t border-ink/15 pt-6">
           <ol class="build-log__track m-0 flex list-none gap-2 overflow-x-auto p-0 pb-2" data-build-log>
             {log.map(({ r, stamp }, i) => (
               <li class="shrink-0">
