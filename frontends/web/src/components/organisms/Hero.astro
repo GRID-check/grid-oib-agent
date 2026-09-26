@@ -1,7 +1,8 @@
 ---
-import { Image } from 'astro:assets'
+import { Image, getImage } from 'astro:assets'
 import Pill from '../atoms/Pill.astro'
 import hero from '../../assets/hero.png'
+import heroPortrait from '../../assets/hero-mobil-ext.jpg'
 import { ui, type Locale } from '../../i18n/ui'
 
 interface Props {
@@ -9,26 +10,41 @@ interface Props {
 }
 const { locale = 'de' } = Astro.props
 const t = ui[locale]
+
+// A phone held upright gets its own photograph, not a crop of the landscape
+// one: the same scene shot from higher, with the figure and her table in the
+// upper half and open floor below for the headline to stand on. Cropping the
+// landscape frame to a portrait slot cut the plan in half and put the type
+// over her arm. The aura script reads the same query off the canvas, so the
+// instrumentation is drawn around whichever photograph is showing.
+const portraitMedia = '(max-width: 1023px) and (orientation: portrait)'
+const portrait = await getImage({ src: heroPortrait, widths: [480, 828, 1170], format: 'webp' })
 ---
 
-<div data-hero-wrap class="relative h-screen">
+<div data-hero-wrap class="relative h-svh lg:h-screen">
   <header
     id="top"
     data-screen-label={t.sheets.hero}
     data-hero
-    class="sticky top-0 box-border flex h-screen flex-col items-center justify-end overflow-hidden bg-hero-bg px-6 pb-28 pt-24 sm:px-12"
+    class="sticky top-0 box-border flex h-svh flex-col items-center justify-end overflow-hidden bg-hero-bg px-4 pb-14 pt-24 sm:px-12 sm:pb-24 lg:h-screen lg:pb-28"
   >
-    <Image
-      src={hero}
-      alt=""
-      aria-hidden="true"
-      loading="eager"
-      fetchpriority="high"
-      sizes="100vw"
-      class="hero-photo pointer-events-none absolute inset-0 h-full w-full object-cover object-center"
-    />
-    <canvas data-aura class="pointer-events-none absolute inset-0 h-full w-full" aria-hidden="true"
-    ></canvas>
+    <picture>
+      <source media={portraitMedia} srcset={portrait.srcSet.attribute} sizes="100vw" type="image/webp" />
+      <Image
+        src={hero}
+        alt=""
+        aria-hidden="true"
+        loading="eager"
+        fetchpriority="high"
+        sizes="100vw"
+        class="hero-photo pointer-events-none absolute inset-0 h-full w-full object-cover object-center"
+      />
+    </picture>
+    <canvas
+      data-aura
+      data-portrait-media={portraitMedia}
+      class="pointer-events-none absolute inset-0 h-full w-full"
+      aria-hidden="true"></canvas>
     <!-- The photograph does not stop, it settles. Four blur layers, each masked
          to start lower than the last, ramp the focus out towards the foot of the
          hero instead of the single hard edge a lone backdrop-blur would leave;
@@ -71,7 +87,18 @@ const t = ui[locale]
          clear on a tall window. Under about 900px of height they overlapped, and
          the headline printed straight through the sentence. Stacking them makes
          the gap a property of the layout instead of an arithmetic coincidence. -->
-    <div class="relative flex flex-col items-center gap-7">
+    <div class="relative flex w-full flex-col items-center gap-5 sm:gap-7">
+      <!-- Where the product stands, said once and quietly: a pilot, not a
+           launch. Above the headline on the open floor of the portrait photo;
+           under the buttons on the landscape one, where above would be on the
+           table. -->
+      <p
+        class="m-0 inline-flex max-w-full items-center gap-2 text-center text-xs leading-snug text-ink-mute lg:order-last"
+        style="text-wrap: balance"
+      >
+        <span class="size-1.5 shrink-0 rounded-full bg-accent-500" aria-hidden="true"></span>
+        {t.hero.stage}
+      </p>
       <h1
         class="m-0 max-w-5xl text-center font-voice text-v-display text-ink"
         style="text-wrap: balance"
@@ -79,21 +106,21 @@ const t = ui[locale]
         {t.hero.title}
       </h1>
 
-      <div data-hero-cta class="flex flex-col items-center gap-6 transition duration-500">
+      <div data-hero-cta class="flex w-full flex-col items-center gap-6 transition duration-500">
         <p
           class="m-0 max-w-md text-center text-base leading-relaxed text-ink-mid"
           style="text-wrap: pretty"
         >
           {t.hero.sub}
         </p>
-        <div class="flex gap-3">
+        <div class="flex flex-wrap justify-center gap-3">
           <Pill href="#kontakt" variant="solid" size="md">{t.hero.ctaDemo}</Pill>
           <Pill href="#problem" variant="outline" size="md">{t.hero.ctaMore}</Pill>
         </div>
       </div>
     </div>
     <div
-      class="absolute bottom-5 left-1/2 h-8 w-px -translate-x-1/2 bg-panel/30"
+      class="absolute bottom-5 left-1/2 hidden h-8 w-px -translate-x-1/2 bg-panel/30 lg:block"
       style="animation: scrollhint 2s ease-in-out infinite"
       aria-hidden="true"
     >

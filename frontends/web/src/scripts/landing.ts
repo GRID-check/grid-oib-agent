@@ -14,30 +14,47 @@ const L = document.documentElement.lang.startsWith('en') ? landingScript.en : la
 
 const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches
 
+/**
+ * The breakpoint at which the landing page becomes a sequence of full screens
+ * with a pinned, scrubbed story. Below it every section has its natural height
+ * and nothing holds the scroll: on a phone a pin is a page that stops
+ * answering the thumb, and a scrubbed runway is a screen of scrolling past a
+ * still image. Mirrors Tailwind's `lg`.
+ */
+const STAGED = '(min-width: 1024px)'
+const MOTION = '(prefers-reduced-motion: no-preference)'
+const REDUCED = '(prefers-reduced-motion: reduce)'
+
 function initHeroCta() {
   const cta = document.querySelector<HTMLElement>('[data-hero-cta]')
   if (!cta) return
   const wrap = document.querySelector<HTMLElement>('[data-hero-wrap]')
-  // Without motion the hero is a single screen and the closing line simply
-  // stays put: the yield below is scrubbed against scroll position, which is
-  // the kind of scroll-linked movement `prefers-reduced-motion` asks us to drop.
-  if (reduced) return
-  if (wrap) wrap.style.height = '200vh'
-  // The closing line and its buttons yield as soon as the page starts moving —
-  // scrubbed, so it tracks the scroll rather than snapping at a threshold.
-  gsap.to(cta, {
-    opacity: 0,
-    y: -10,
-    ease: 'none',
-    scrollTrigger: {
-      trigger: wrap ?? cta,
-      start: 'top top',
-      end: () => `+=${window.innerHeight * 0.12}`,
-      scrub: true,
-      onUpdate: (self) => {
-        cta.style.pointerEvents = self.progress > 0.6 ? 'none' : 'auto'
+  // Without motion, or below lg, the hero is a single screen and the closing
+  // line simply stays put: the yield below is scrubbed against scroll
+  // position, which is the kind of scroll-linked movement
+  // `prefers-reduced-motion` asks us to drop.
+  gsap.matchMedia().add(`${STAGED} and ${MOTION}`, () => {
+    if (wrap) wrap.style.height = '200vh'
+    // The closing line and its buttons yield as soon as the page starts moving —
+    // scrubbed, so it tracks the scroll rather than snapping at a threshold.
+    gsap.to(cta, {
+      opacity: 0,
+      y: -10,
+      ease: 'none',
+      scrollTrigger: {
+        trigger: wrap ?? cta,
+        start: 'top top',
+        end: () => `+=${window.innerHeight * 0.12}`,
+        scrub: true,
+        onUpdate: (self) => {
+          cta.style.pointerEvents = self.progress > 0.6 ? 'none' : 'auto'
+        },
       },
-    },
+    })
+    return () => {
+      if (wrap) wrap.style.height = ''
+      cta.style.pointerEvents = ''
+    }
   })
 }
 
@@ -49,9 +66,43 @@ function initAura() {
   let w = 0
   let h = 0
   const dpr = Math.min(window.devicePixelRatio || 1, 2)
-  const IW = 1376
-  const IH = 768
-  const HEAD: [number, number] = [700, 196]
+  /**
+   * The two photographs the hero can show, in their own pixel coordinates:
+   * where her head is, where the beams land on the plan, and how far out the
+   * orbit runs (`R`, a multiplier on the authored radii). The portrait frame
+   * is shot from higher, so the same figure is smaller in it and the orbit
+   * reaches further out to fill the floor around her.
+   */
+  const PHOTOS = {
+    landscape: {
+      IW: 1376,
+      IH: 768,
+      HEAD: [700, 196] as [number, number],
+      R: 1,
+      BEAMS: [
+        [600, 330],
+        [792, 318],
+        [648, 424],
+        [742, 400],
+        [700, 372],
+      ] as [number, number][],
+    },
+    portrait: {
+      IW: 3840,
+      IH: 6480,
+      HEAD: [1941, 2613] as [number, number],
+      R: 6.5,
+      BEAMS: [
+        [1650, 3050],
+        [2250, 3000],
+        [1800, 3350],
+        [2150, 3300],
+        [1950, 3200],
+      ] as [number, number][],
+    },
+  }
+  const portraitQuery = cv.dataset.portraitMedia ? window.matchMedia(cv.dataset.portraitMedia) : null
+  let photo = PHOTOS.landscape
   /** How far out of the halo a line has to start before it is drawn at all. */
   const BEAM_START = 0.2
   let sc = 1
@@ -62,16 +113,18 @@ function initAura() {
     w = r.width || cv.offsetWidth
     h = r.height || cv.offsetHeight
     if (!w || !h) return false
+    photo = portraitQuery?.matches ? PHOTOS.portrait : PHOTOS.landscape
     cv.width = Math.round(w * dpr)
     cv.height = Math.round(h * dpr)
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
-    sc = Math.max(w / IW, h / IH)
-    ox = (w - IW * sc) / 2
-    oy = (h - IH * sc) / 2
+    sc = Math.max(w / photo.IW, h / photo.IH)
+    ox = (w - photo.IW * sc) / 2
+    oy = (h - photo.IH * sc) / 2
     return true
   }
   resize()
   window.addEventListener('resize', resize)
+  portraitQuery?.addEventListener('change', resize)
   const P = (ix: number, iy: number): [number, number] => [ox + ix * sc, oy + iy * sc]
 
   const NODES = [
@@ -88,13 +141,6 @@ function initAura() {
     { r: 214, a: 3.2, v: 0.024 },
     { r: 166, a: 6.0, v: -0.036 },
   ].map((n, i) => ({ ...n, label: L.aura[i] }))
-  const BEAMS: [number, number][] = [
-    [600, 330],
-    [792, 318],
-    [648, 424],
-    [742, 400],
-    [700, 372],
-  ]
 
   const draw = (t: number) => {
     if (!cv.isConnected) return
@@ -104,7 +150,9 @@ function initAura() {
     if (!w || !h) return
 
     ctx.clearRect(0, 0, w, h)
-    const [hx, hy] = P(HEAD[0], HEAD[1])
+    const [hx, hy] = P(photo.HEAD[0], photo.HEAD[1])
+    // Orbit scale: the authored radii times the photograph's own multiplier.
+    const os = sc * photo.R
     const ts = t / 1000
     const TOP = 74
     ctx.save()
@@ -112,13 +160,13 @@ function initAura() {
     ctx.rect(0, TOP, w, Math.max(0, h - TOP))
     ctx.clip()
 
-    const halo = ctx.createRadialGradient(hx, hy, 0, hx, hy, 250 * sc)
+    const halo = ctx.createRadialGradient(hx, hy, 0, hx, hy, 250 * os)
     const pulse = 0.1 + 0.03 * Math.sin(ts * 0.7)
     halo.addColorStop(0, `rgba(120,140,88,${pulse.toFixed(3)})`)
     halo.addColorStop(1, 'rgba(120,140,88,0)')
     ctx.fillStyle = halo
     ctx.beginPath()
-    ctx.arc(hx, hy, 250 * sc, 0, Math.PI * 2)
+    ctx.arc(hx, hy, 250 * os, 0, Math.PI * 2)
     ctx.fill()
 
     ctx.lineWidth = 1
@@ -133,20 +181,21 @@ function initAura() {
       ctx.translate(hx, hy)
       ctx.rotate(ts * spd + i)
       ctx.strokeStyle = `rgba(94,110,70,${al})`
-      ctx.setLineDash([13 * sc, 11 * sc])
+      ctx.setLineDash([13 * Math.max(sc, 0.6), 11 * Math.max(sc, 0.6)])
       ctx.beginPath()
-      ctx.arc(0, 0, r * sc, 0, Math.PI * 2)
+      ctx.arc(0, 0, r * os, 0, Math.PI * 2)
       ctx.stroke()
       ctx.restore()
     })
     ctx.setLineDash([])
 
-    ctx.font = `${(9.5 * Math.max(1, sc * 0.75)).toFixed(1)}px 'IBM Plex Mono', monospace`
+    // 11px is the floor for any text on the site, the canvas included.
+    ctx.font = `${(11 * Math.max(1, sc * 0.75)).toFixed(1)}px 'IBM Plex Mono', monospace`
     ctx.letterSpacing = '0.08em'
     NODES.forEach((n, i) => {
       const ang = n.a + ts * n.v
-      const nx = hx + Math.cos(ang) * n.r * sc
-      const ny = hy + Math.sin(ang) * n.r * sc * 0.86
+      const nx = hx + Math.cos(ang) * n.r * os
+      const ny = hy + Math.sin(ang) * n.r * os * 0.86
       const glow = 0.5 + 0.5 * Math.sin(ts * 1.1 + i)
       // A leader line is drawn to the nodes that say something, and only
       // suggested for the rest, so the eye follows the labels.
@@ -187,13 +236,19 @@ function initAura() {
       // the canvas and were read as a column of broken words down the edge.
       const EDGE = 12
       if (n.label && nx > EDGE && nx < w - EDGE) {
-        const lines = Array.isArray(n.label) ? n.label : [n.label]
-        const lh = 11.5 * Math.max(1, sc * 0.75)
+        // A phone has no room for the three-line archive cards; the project
+        // name alone says the same thing.
+        const lines = Array.isArray(n.label)
+          ? photo === PHOTOS.portrait
+            ? [n.label[1]]
+            : n.label
+          : [n.label]
+        const lh = 13 * Math.max(1, sc * 0.75)
         const textW = Math.max(...lines.map((ln) => ctx.measureText(ln).width))
-        const right = nx + 7 * sc
-        const flip = right + textW > w - EDGE && nx - 7 * sc - textW > EDGE
+        const right = nx + 7 * Math.max(1, sc)
+        const flip = right + textW > w - EDGE && nx - 7 * Math.max(1, sc) - textW > EDGE
         ctx.textAlign = flip ? 'right' : 'left'
-        const lx = flip ? nx - 7 * sc : Math.min(right, Math.max(EDGE, w - EDGE - textW))
+        const lx = flip ? nx - 7 * Math.max(1, sc) : Math.min(right, Math.max(EDGE, w - EDGE - textW))
         // A halo in the paper's own colour, not a shadow: the labels cross hair,
         // sleeve and drawing in one pass, and this is what keeps 9px mono legible
         // over all three without putting a box behind it.
@@ -202,17 +257,17 @@ function initAura() {
         ctx.shadowBlur = 7 * Math.max(1, sc * 0.7)
         lines.forEach((ln, li) => {
           ctx.fillStyle = `rgba(78,92,56,${((li === 0 ? 0.44 : 0.3) + 0.3 * glow).toFixed(3)})`
-          ctx.fillText(ln, lx, ny - 5 * sc + li * lh)
-          ctx.fillText(ln, lx, ny - 5 * sc + li * lh)
+          ctx.fillText(ln, lx, ny - 5 * Math.max(1, sc) + li * lh)
+          ctx.fillText(ln, lx, ny - 5 * Math.max(1, sc) + li * lh)
         })
         ctx.restore()
         ctx.textAlign = 'left'
       }
     })
 
-    BEAMS.forEach((b, i) => {
+    photo.BEAMS.forEach((b, i) => {
       const [bx, by] = P(b[0], b[1])
-      const cyc = (ts * 0.42 + i / BEAMS.length) % 1
+      const cyc = (ts * 0.42 + i / photo.BEAMS.length) % 1
       const grow = Math.min(1, cyc / 0.55)
       const fade = cyc > 0.78 ? 1 - (cyc - 0.78) / 0.22 : 1
       if (fade <= 0) return
@@ -623,19 +678,27 @@ function initPins() {
     // and the connecting lines, the grid does not, so it needs less scrolling.
     wrap.style.height = runway ? (mode === 'ring' ? '440vh' : '300vh') : ''
   }
+  /** Back to a plain block: what the section is below lg. */
+  const unpin = () => {
+    for (const p of ['position', 'top', 'boxSizing', 'height', 'overflow'] as const) sticky.style[p] = ''
+    wrap.style.height = ''
+  }
 
+  // Below lg none of this runs: the stage is not displayed, and the section is
+  // the static hub grid that initHubGrid wires up.
   const mm = gsap.matchMedia()
 
-  mm.add('(prefers-reduced-motion: reduce)', () => {
+  mm.add(`${STAGED} and ${REDUCED}`, () => {
     sizePins(false)
     fragEls.forEach((f) => gsap.set(f.el, { opacity: 1, x: f.tx, y: f.ty, rotation: 0, scale: 0.84 }))
     if (lineEls) gsap.set(lineEls, { opacity: 0.45, drawSVG: '100%' })
     gsap.set([hProblem].filter(Boolean), { opacity: 0 })
     gsap.set([hSolution].filter(Boolean), { opacity: 1, xPercent: -50, y: 0 })
     gsap.set([solutionCard].filter(Boolean), { opacity: 1, xPercent: -50, yPercent: -50, scale: 1 })
+    return unpin
   })
 
-  mm.add('(prefers-reduced-motion: no-preference)', () => {
+  mm.add(`${STAGED} and ${MOTION}`, () => {
     let ctx: gsap.Context | null = null
 
     const build = () => {
@@ -719,6 +782,7 @@ function initPins() {
       window.removeEventListener('resize', onResize)
       ctx?.revert()
       ctx = null
+      unpin()
       // The transform and the opacity belong to GSAP and come back with the
       // revert; `inert` and `aria-hidden` were set by hand and do not. Turning
       // on reduced motion while the story held the navigation hidden used to
@@ -734,9 +798,79 @@ function initPins() {
   })
 }
 
+/**
+ * The phone and tablet hub: the story's nodes as a grid around one card, wired
+ * to it.
+ *
+ * The wires are laid from the measured cells, like the desktop ring's, so a
+ * cell that wraps to another row takes its wire with it. Each one leaves the
+ * edge of its node that faces the hub and lands on the hub's facing edge,
+ * pulled in towards its centre so the lines converge. Cells are opaque and sit
+ * over the wires, so a wire from an outer row reads as running under the cells
+ * between — a net, not a tangle.
+ *
+ * It plays once, as it comes into view: nodes arrive, the hub settles, then the
+ * wires draw in. Nothing is scrubbed and nothing holds the scroll.
+ */
+function initHubGrid() {
+  const hub = document.querySelector<HTMLElement>('[data-hub]')
+  const core = hub?.querySelector<HTMLElement>('[data-hub-core]')
+  const svg = hub?.querySelector<SVGSVGElement>('[data-hub-links]')
+  if (!hub || !core || !svg) return
+  const nodes = Array.from(hub.querySelectorAll<HTMLElement>('[data-hub-node]'))
+  const NS = 'http://www.w3.org/2000/svg'
+  const paths = nodes.map(() => {
+    const p = document.createElementNS(NS, 'path')
+    p.setAttribute('fill', 'none')
+    p.setAttribute('stroke', '#a4b47a')
+    p.setAttribute('stroke-width', '1.2')
+    p.setAttribute('stroke-opacity', '0.5')
+    svg.appendChild(p)
+    return p
+  })
+
+  const lay = () => {
+    const hb = hub.getBoundingClientRect()
+    if (!hb.width) return
+    const cb = core.getBoundingClientRect()
+    const cx = cb.left + cb.width / 2 - hb.left
+    svg.setAttribute('viewBox', `0 0 ${hb.width} ${hb.height}`)
+    nodes.forEach((n, i) => {
+      const r = n.getBoundingClientRect()
+      const nx = r.left + r.width / 2 - hb.left
+      const above = r.bottom <= cb.top
+      const ny = (above ? r.bottom : r.top) - hb.top
+      const ty = (above ? cb.top : cb.bottom) - hb.top
+      const tx = cx + (nx - cx) * 0.45
+      const my = (ny + ty) / 2
+      paths[i].setAttribute('d', `M${nx},${ny} C${nx},${my} ${tx},${my} ${tx},${ty}`)
+    })
+  }
+  lay()
+  if ('ResizeObserver' in window) new ResizeObserver(lay).observe(hub)
+  document.fonts?.ready.then(lay)
+
+  gsap.matchMedia().add(`(max-width: 1023.98px) and ${MOTION}`, () => {
+    // Already on screen at load: leave it be rather than blank it and replay.
+    if (hub.getBoundingClientRect().top < window.innerHeight * 0.85) return
+    gsap.set(nodes, { autoAlpha: 0, y: 10, scale: 0.96 })
+    gsap.set(core, { autoAlpha: 0, scale: 0.92 })
+    gsap.set(paths, { drawSVG: 0 })
+    gsap
+      .timeline({
+        defaults: { ease: 'power2.out' },
+        scrollTrigger: { trigger: hub, start: 'top 80%', once: true },
+      })
+      .to(nodes, { autoAlpha: 1, y: 0, scale: 1, duration: 0.5, stagger: 0.05 })
+      .to(core, { autoAlpha: 1, scale: 1, duration: 0.5 }, '-=0.35')
+      .to(paths, { drawSVG: '100%', duration: 0.6, stagger: 0.03 }, '-=0.2')
+  })
+}
+
 initHeroCta()
 initAura()
 initPins()
+initHubGrid()
 initReveals()
 initSheetIndex()
 initChain()

@@ -13,22 +13,25 @@ const t = ui[locale]
 <section
   id="nutzung"
   data-screen-label={t.sheets.nutzung}
-  class="mx-auto box-border flex min-h-screen max-w-[85rem] flex-col justify-center px-4 py-24 sm:px-10"
+  class="mx-auto box-border max-w-[85rem] px-2 py-9 sm:px-4 sm:py-12 lg:flex lg:min-h-screen lg:flex-col lg:justify-center lg:px-10 lg:py-24"
 >
-  <div class="box-border rounded-panel bg-surface-dim px-6 py-16 sheet-light sm:px-16 sm:py-20">
-    <div class="grid grid-cols-[minmax(20rem,5fr)_7fr] items-center gap-x-14 gap-y-12 max-lg:grid-cols-1">
-      <div data-reveal>
+  <div
+    class="box-border rounded-[1.5rem] bg-surface-dim px-3 pb-3 pt-12 sheet-light sm:rounded-panel sm:px-10 sm:pb-10 sm:pt-16 lg:px-16 lg:py-20"
+  >
+    <div class="grid grid-cols-1 items-center gap-x-14 gap-y-10 lg:grid-cols-[minmax(20rem,5fr)_7fr]">
+      <div data-reveal class="px-2 sm:px-0">
         <SectionTag no="03" class="mb-5">{t.nutzung.tag}</SectionTag>
-        <h2 class="m-0 mb-6 font-voice text-v4" style="text-wrap: balance">
+        <h2 class="m-0 mb-5 font-voice text-v4 sm:mb-6" style="text-wrap: balance">
           {t.nutzung.title}
         </h2>
         <p class="m-0 mb-8 text-base leading-relaxed text-ink-soft" style="text-wrap: pretty">
           {t.nutzung.body}
         </p>
-        <!-- The one hard claim on the page — given the weight of one. -->
-        <div class="border-t border-ink/15 pt-7">
-          <p class="m-0 font-voice text-v4 text-accent-900">{t.nutzung.big}</p>
-          <p class="m-0 mt-2 max-w-sm text-sm leading-relaxed text-ink-mute">
+        <!-- The one hard claim on the page, given the weight of one — and
+             measured: the median answer takes about thirty seconds. -->
+        <div class="flex items-baseline gap-5 border-t border-ink/15 pt-6 sm:block sm:pt-7">
+          <p class="m-0 shrink-0 font-voice text-v2 whitespace-nowrap text-accent-900">{t.nutzung.big}</p>
+          <p class="m-0 max-w-sm text-sm leading-relaxed text-ink-mute sm:mt-2">
             {t.nutzung.sub}
           </p>
         </div>

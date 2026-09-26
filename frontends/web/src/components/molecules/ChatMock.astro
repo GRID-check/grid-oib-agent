@@ -6,11 +6,126 @@ interface Props {
 }
 const { locale = 'de' } = Astro.props
 const t = ui[locale]
+const options = [
+  { key: 'A', title: t.chat.optATitle, sub: t.chat.optASub, chosen: false },
+  { key: 'B', title: t.chat.optBTitle, sub: t.chat.optBSub, chosen: true },
+  { key: 'C', title: t.chat.optCTitle, sub: t.chat.optCSub, chosen: false },
+]
+const sources = [
+  { chip: 'OIB-RL 2', law: true, title: t.chat.oibTitle, sub: t.chat.oibSub },
+  { chip: 'BO Wien', law: true, title: t.chat.boTitle, sub: t.chat.boSub },
+  { chip: t.chat.projTag, law: false, title: 'Einreichplan_EG.pdf', sub: t.chat.projSub },
+]
 ---
 
+<!-- ── Phone and tablet: the chain as a column ───────────────────────────────
+     The desktop diagram is a camera flying over a 1160px-wide board; on a
+     phone it could only ever show one card at a time, shrunk. Here the same
+     chain is read top to bottom at full size: question, sources, decision,
+     steps, strung on one spine. It is the finished state in the markup;
+     scripts/chain.ts (initChainList) only adds the arrival.
+     It is also the desktop view without motion: the board's still frame is
+     the whole 1160px diagram fitted into the card, which is text at 6px. -->
+<div
+  data-chain-list
+  class="overflow-hidden rounded-[1.5rem] bg-white shadow-mock ring-1 ring-ink/10 lg:hidden lg:motion-reduce:block"
+>
+  <div class="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 border-b border-ink/8 bg-paper-dim px-5 py-3">
+    <div class="flex items-center gap-2.5">
+      <span class="size-1.5 rounded-full bg-ok" aria-hidden="true"></span>
+      <span class="font-mono text-2xs font-medium uppercase tracking-label text-ink-mute">{t.chat.header}</span>
+    </div>
+    <span class="font-mono text-2xs uppercase tracking-widest text-ink-ghost">{t.chat.fictional}</span>
+  </div>
+
+  <ol class="relative m-0 flex list-none flex-col gap-7 px-4 pb-6 pt-6 sm:px-6">
+    <span
+      data-chain-spine
+      class="absolute bottom-10 left-[calc(1rem+11px)] top-9 w-px origin-top bg-ink/15 sm:left-[calc(1.5rem+11px)]"
+      aria-hidden="true"></span>
+
+    <li data-chain-step class="relative pl-9">
+      <span class="absolute left-0 top-0 grid size-[23px] place-items-center rounded-full bg-white font-mono text-2xs text-ink-mute ring-1 ring-ink/15" aria-hidden="true">1</span>
+      <p class="m-0 font-mono text-2xs uppercase leading-[23px] tracking-label text-ink-faint">{t.chat.questionLabel}</p>
+      <p class="m-0 mt-2 rounded-2xl rounded-tl-md bg-bubble px-4 py-3 text-[0.9375rem] leading-snug text-ink">
+        {t.chat.question}
+      </p>
+    </li>
+
+    <li data-chain-step class="relative pl-9">
+      <span class="absolute left-0 top-0 grid size-[23px] place-items-center rounded-full bg-white font-mono text-2xs text-ink-mute ring-1 ring-ink/15" aria-hidden="true">2</span>
+      <p class="m-0 font-mono text-2xs uppercase leading-[23px] tracking-label text-ink-faint">{t.chat.sourcesLabel}</p>
+      <ul class="m-0 mt-2 list-none divide-y divide-hairline overflow-hidden rounded-xl border border-hairline p-0">
+        {
+          sources.map((s) => (
+            <li class="flex items-start gap-3 bg-white px-3.5 py-3">
+              <span
+                class={`mt-px inline-flex h-6 shrink-0 items-center rounded-md px-2 text-2xs font-semibold ${s.law ? 'bg-chip-law text-chip-law-ink' : 'bg-chip-project text-chip-project-ink'}`}
+              >
+                {s.chip}
+              </span>
+              <span class="min-w-0">
+                <span class="block break-words text-sm font-semibold leading-snug text-ink">{s.title}</span>
+                <span class="mt-0.5 block text-xs leading-snug text-ink-mute">{s.sub}</span>
+              </span>
+            </li>
+          ))
+        }
+      </ul>
+    </li>
+
+    <li data-chain-step class="relative pl-9">
+      <span class="absolute left-0 top-0 grid size-[23px] place-items-center rounded-full bg-ink font-mono text-2xs text-on-dark-strong" aria-hidden="true">3</span>
+      <p class="m-0 font-mono text-2xs uppercase leading-[23px] tracking-label text-ink">{t.chat.decision}</p>
+      <div class="mt-2 rounded-xl border border-hairline bg-white p-3 shadow-card">
+        <p class="m-0 px-1 pb-2.5 text-sm leading-snug text-ink-soft">{t.chat.decisionIntro}</p>
+        <ul class="m-0 flex list-none flex-col gap-1.5 p-0">
+          {
+            options.map((o) => (
+              <li
+                class={`flex items-start gap-3 rounded-lg border-l-2 px-3 py-2.5 ${o.chosen ? 'border-ok bg-[#eef6ee]' : 'border-hairline opacity-55'}`}
+              >
+                <span class="text-xs font-bold leading-5 text-ok">{o.key}</span>
+                <span class="min-w-0">
+                  <span class="block text-sm font-semibold leading-5 text-ink">{o.title}</span>
+                  <span class="mt-0.5 block text-xs leading-snug text-ink-mute">{o.sub}</span>
+                </span>
+              </li>
+            ))
+          }
+        </ul>
+      </div>
+    </li>
+
+    <li data-chain-step class="relative pl-9">
+      <span class="absolute left-0 top-0 grid size-[23px] place-items-center rounded-full bg-accent-900 font-mono text-2xs text-surface" aria-hidden="true">4</span>
+      <div class="flex items-center justify-between gap-3">
+        <p class="m-0 font-mono text-2xs uppercase leading-[23px] tracking-label text-accent-900">{t.chat.impl}</p>
+        <span class="rounded-md bg-tint px-2 py-0.5 text-2xs font-semibold text-accent-900">{t.chat.stepsBadge}</span>
+      </div>
+      <ol class="m-0 mt-2 flex list-none flex-col gap-2.5 rounded-xl border border-hairline bg-white p-3.5">
+        {
+          t.chat.steps.map((step, i) => (
+            <li class="flex items-baseline gap-3">
+              <span class="font-mono text-2xs text-accent-500">{`0${i + 1}`}</span>
+              <span class="text-sm leading-snug text-ink">{step}</span>
+            </li>
+          ))
+        }
+      </ol>
+    </li>
+  </ol>
+
+  <div class="flex items-center gap-2.5 border-t border-ink/8 bg-paper px-5 py-3">
+    <span class="size-1.5 rounded-full bg-accent-500" aria-hidden="true"></span>
+    <span class="font-display text-2xs uppercase tracking-widest text-ink-faint">{t.chain.beats[10]}</span>
+  </div>
+</div>
+
+<!-- ── Desktop: the animated board ──────────────────────────────────────── -->
 <div
   data-chat-anchor
-  class="overflow-hidden rounded-[1.75rem] bg-white shadow-mock ring-1 ring-ink/10"
+  class="overflow-hidden rounded-[1.75rem] bg-white shadow-mock ring-1 ring-ink/10 max-lg:hidden motion-reduce:hidden"
   data-reveal
 >
   <div

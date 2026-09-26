@@ -2,7 +2,7 @@
 interface Props {
   href: string
   variant?: 'solid' | 'light' | 'outline' | 'outline-dark'
-  size?: 'sm' | 'md' | 'lg'
+  size?: 'sm' | 'md' | 'lg' | 'nav'
   external?: boolean
   class?: string
 }
@@ -12,9 +12,12 @@ const { href, variant = 'solid', size = 'md', external = false, class: className
 // that reacts and one that responds.
 const base =
   'inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-full font-medium transition-[transform,background-color,border-color,box-shadow,color] duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] hover:-translate-y-px active:translate-y-0'
+// `md` and up clear the 44px tap target on their own. `nav` is the header CTA:
+// a full tap target on a phone, the compact rail pill from lg up.
 const sizes = {
   sm: 'px-4 py-1.5 text-sm',
-  md: 'px-5 py-2.5 text-sm',
+  md: 'min-h-11 px-5 py-2.5 text-sm',
+  nav: 'min-h-11 px-3.5 text-[0.8125rem] sm:px-4 sm:text-sm lg:min-h-0 lg:py-1.5',
   lg: 'px-7 py-3.5 text-base sm:px-8 sm:py-4',
 }
 // Every variant states its own text colour on rest *and* hover: the base
