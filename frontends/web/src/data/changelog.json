@@ -99,6 +99,10 @@
               "de": "Vorschaubilder in der Dateiablage werden auch in einem Tab geladen, der seit Tagen geöffnet ist, statt nach einiger Zeit als „nicht verfügbar“ zu erscheinen."
             },
             {
+              "en": "Die Kopfzeile der Herleitung zählt keine Schritte mehr. Die Zahl dort („19 Schritte“) zählte interne Statusmeldungen mit und las sich, als hätte Piloti für eine Antwort 19 Anläufe gebraucht. Die Zeile nennt jetzt nur noch die Quellen; was gelaufen ist, steht aufgeklappt in der Herleitung.",
+              "de": "Die Kopfzeile der Herleitung zählt keine Schritte mehr. Die dort angezeigte Zahl („19 Schritte“) berücksichtigte interne Statusmeldungen und erweckte den Eindruck, Piloti hätte 19 Anläufe für eine Antwort benötigt. Die Zeile nennt jetzt nur noch die Quellen; die ausgeführten Schritte sehen Sie aufgeklappt in der Herleitung."
+            },
+            {
               "en": "Die Modellauswahl lässt sich wieder speichern. Unter Plattform → Modelle und unter Organisation → Modelle scheiterte jedes Speichern mit einem Fehler, sobald noch eine Einstellung für eine Aufgabe gespeichert war, die es nicht mehr gibt. Solche Einstellungen werden jetzt übergangen und beim nächsten Speichern entfernt.",
               "de": "Die Modellauswahl lässt sich wieder speichern. Unter Plattform → Modelle und Organisation → Modelle schlug das Speichern fehl, wenn noch eine Einstellung für eine nicht mehr vorhandene Aufgabe gespeichert war. Solche Einstellungen werden jetzt ignoriert und beim nächsten Speichern entfernt."
             },

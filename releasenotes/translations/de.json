@@ -612,6 +612,10 @@
     "de": "Die Kennzeichnung erscheint nur dort, wo es etwas zu wissen gibt: bei Dateien mit mehr als einer Fassung und bei allem, was Piloti geschrieben hat. Eine hochgeladene Datei ist ab dem Ablegen veröffentlicht und bleibt unbeschriftet."
   },
   {
+    "en": "Die Kopfzeile der Herleitung zählt keine Schritte mehr. Die Zahl dort („19 Schritte“) zählte interne Statusmeldungen mit und las sich, als hätte Piloti für eine Antwort 19 Anläufe gebraucht. Die Zeile nennt jetzt nur noch die Quellen; was gelaufen ist, steht aufgeklappt in der Herleitung.",
+    "de": "Die Kopfzeile der Herleitung zählt keine Schritte mehr. Die dort angezeigte Zahl („19 Schritte“) berücksichtigte interne Statusmeldungen und erweckte den Eindruck, Piloti hätte 19 Anläufe für eine Antwort benötigt. Die Zeile nennt jetzt nur noch die Quellen; die ausgeführten Schritte sehen Sie aufgeklappt in der Herleitung."
+  },
+  {
     "en": "Die Liste der Fundstellen steht jetzt immer neben dem Dokument, auch wenn eine Quelle nur an einer Stelle gelesen wurde. Sie sagt beim Lesen weiter oben oder unten im Dokument, welche Passage gerade geprüft wird, und zeigt die aktuelle Fundstelle vollständig — der Kasten über dem Dokument entfällt dafür, das Dokument wird entsprechend größer dargestellt.",
     "de": "Die Fundstellenliste bleibt jetzt immer neben dem Dokument sichtbar – auch wenn eine Quelle nur an einer Stelle gelesen wurde. Beim Scrollen zeigt sie, welche Passage gerade geprüft wird, und die aktuelle Fundstelle vollständig an. Der Kasten oberhalb des Dokuments entfällt, sodass das Dokument größer dargestellt wird."
   },
