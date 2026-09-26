@@ -1,54 +1,40 @@
 ---
 import BaseLayout from '../layouts/BaseLayout.astro'
 import Pill from '../components/atoms/Pill.astro'
-import { ui } from '../i18n/ui'
+import { ui, type Locale } from '../i18n/ui'
+import { useTranslatedPath } from '../i18n/utils'
 
-const de = ui.de.notFound
-const en = ui.en.notFound
-const head = ui.de.seo.pages.notFound
+// Rendered per request rather than once at build: there is one 404 for both
+// languages, and only the requested path says which one the visitor reads. A
+// prerendered page could only guess in the browser, so a visitor without
+// script, a crawler or a screen reader met a German page under /en/.
+export const prerender = false
+
+const locale: Locale = /^\/en(\/|$)/.test(Astro.url.pathname) ? 'en' : 'de'
+const t = ui[locale].notFound
+const head = ui[locale].seo.pages.notFound
+const path = useTranslatedPath(locale)
+Astro.response.status = 404
 ---
 
-<BaseLayout locale="de" title={head.title} description={head.description} alternates={false} noindex>
+<BaseLayout locale={locale} title={head.title} description={head.description} alternates={false} noindex>
   <section class="flex min-h-[70vh] flex-col items-center justify-center px-6 pb-24 pt-36 text-center">
     <p class="font-mono text-xs uppercase tracking-label text-accent-600">404</p>
-    <div data-404-de>
-      <h1
-        class="mt-5 max-w-xl font-voice text-v2 text-ink"
-      >
-        {de.heading}
-      </h1>
-      <p class="mt-5 max-w-md text-base leading-relaxed text-ink-soft">
-        {de.body}
-      </p>
-      <div class="mt-9">
-        <Pill href="/" variant="solid" size="lg">{de.home}</Pill>
-      </div>
+    <h1 class="mt-5 max-w-xl font-voice text-v2 text-ink" style="text-wrap: balance">
+      {t.heading}
+    </h1>
+    <p class="mt-5 max-w-md text-base leading-relaxed text-ink-soft" style="text-wrap: pretty">
+      {t.body}
+    </p>
+    <div class="mt-9 flex flex-wrap items-center justify-center gap-3">
+      <Pill href={path('/')} variant="solid" size="lg">{t.home}</Pill>
+      <Pill href={path('/blog/')} variant="outline" size="lg">{t.blog}</Pill>
     </div>
-    <div data-404-en hidden>
-      <h1
-        class="mt-5 max-w-xl font-voice text-v2 text-ink"
-      >
-        {en.heading}
-      </h1>
-      <p class="mt-5 max-w-md text-base leading-relaxed text-ink-soft">
-        {en.body}
-      </p>
-      <div class="mt-9">
-        <Pill href="/en/" variant="solid" size="lg">{en.home}</Pill>
-      </div>
-    </div>
+    <a
+      href={`${path('/')}#kontakt`}
+      class="mt-4 inline-flex min-h-11 items-center text-sm text-accent-600 underline underline-offset-4 hover:text-accent-700"
+    >
+      {t.contact}
+    </a>
   </section>
 </BaseLayout>
-
-<script is:inline>
-  if (window.location.pathname.startsWith('/en')) {
-    document.documentElement.lang = 'en'
-    document.title = 'Page not found — Piloti'
-    const de = document.querySelector('[data-404-de]')
-    const en = document.querySelector('[data-404-en]')
-    if (de instanceof HTMLElement && en instanceof HTMLElement) {
-      de.hidden = true
-      en.hidden = false
-    }
-  }
-</script>
