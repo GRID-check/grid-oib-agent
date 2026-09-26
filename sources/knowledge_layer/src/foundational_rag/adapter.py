@@ -241,7 +241,9 @@ def _generate_file_summary(file_path: str, llm=None, text: str | None = None) ->
     return summarize_document_text(text, Path(file_path).name, llm)
 
 
-def _generate_file_tags(file_path: str, llm=None, text: str | None = None) -> list[str] | None:
+def _generate_file_tags(
+    file_path: str, llm=None, text: str | None = None, organization_id: str | None = None
+) -> list[str] | None:
     """
     Classify a local file into controlled German tags (document type + OIB
     discipline).
@@ -257,14 +259,13 @@ def _generate_file_tags(file_path: str, llm=None, text: str | None = None) -> li
         text: Pre-extracted text. When provided, the caller has already run
             ``_extract_text`` (so summary + tags share a single extraction);
             when ``None`` the text is extracted here (backwards-compatible).
+        organization_id: The uploading organization, for the decision
+            model's BYOK and ZDR policy.
 
     Returns:
-        A validated list of tags, or ``None`` (unsupported format, no LLM,
-        no text, or classification failure).
+        A validated list of tags, or ``None`` (unsupported format, no text,
+        or classification failure).
     """
-    if llm is None:
-        return None
-
     if Path(file_path).suffix.lower() not in SUMMARIZABLE_EXTENSIONS:
         return None
 
@@ -275,7 +276,7 @@ def _generate_file_tags(file_path: str, llm=None, text: str | None = None) -> li
 
     from aiq_agent.knowledge.document_classification import classify_document_tags
 
-    return classify_document_tags(text, Path(file_path).name, llm)
+    return classify_document_tags(text, Path(file_path).name, llm, organization_id=organization_id)
 
 
 def _filter_expr(filters: dict[str, Any] | str) -> str:
@@ -894,7 +895,13 @@ class FoundationalRagIngestor(TTLCleanupMixin, BaseIngestor):
                 extracted_texts[i] = extracted_text
                 future = executor.submit(_generate_file_summary, file_path, self.summary_llm, extracted_text)
                 summary_futures[i] = (file_name, future)
-                tags_futures[i] = executor.submit(_generate_file_tags, file_path, self.summary_llm, extracted_text)
+                tags_futures[i] = executor.submit(
+                    _generate_file_tags,
+                    file_path,
+                    self.summary_llm,
+                    extracted_text,
+                    config.get("organization_id"),
+                )
 
             # Open file handle for batch upload
             try:
@@ -1469,7 +1476,13 @@ class FoundationalRagIngestor(TTLCleanupMixin, BaseIngestor):
             # for a deterministic fallback summary below.
             extracted_text = _extract_text(file_path)
             summary_future = executor.submit(_generate_file_summary, file_path, self.summary_llm, extracted_text)
-            tags_future = executor.submit(_generate_file_tags, file_path, self.summary_llm, extracted_text)
+            tags_future = executor.submit(
+                _generate_file_tags,
+                file_path,
+                self.summary_llm,
+                extracted_text,
+                (metadata or {}).get("organization_id"),
+            )
 
         try:
             # Build the data payload

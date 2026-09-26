@@ -1,11 +1,11 @@
-"""Final-answer streaming: the already-final text as deltas plus one terminal chunk.
+"""Final-answer chunks: deltas plus one authoritative terminal chunk.
 
-The chat turn is generated, citation-verified, and sanitized fully buffered
-(verify_citations/sanitize_report need the complete answer, and a chat
-answer can still escalate to deep research — so raw token streaming would
-leak unverified citations or superseded text). We therefore stream the
-ALREADY-FINAL text as deltas: progressive rendering, not a change to the
-answer. See docs/design/streaming-chat-answer.md.
+The answer's prose streams live while the final call writes it
+(``turn/answer_stream.py``, ADR-0066); the terminal chunk then carries the
+verified, sanitized answer and REPLACES it. When nothing went out live (a
+buffered LLM, a reply that was not an envelope), ``response_to_chunks`` still
+cuts the finished text into deltas, as it did before prose streamed. See
+docs/design/streaming-chat-answer.md.
 """
 
 # No `from __future__ import annotations` here: NAT resolves the converter's
@@ -74,6 +74,32 @@ def iter_answer_deltas(text: str, *, target_size: int = 24) -> list[str]:
     if buf:
         deltas.append(buf)
     return deltas
+
+
+def live_chunk(
+    content: str,
+    *,
+    sources: list | None = None,
+    answer_meta: dict | None = None,
+    cards: list | None = None,
+) -> ChatResponseChunk:
+    """A chunk of the live answer (ADR-0066).
+
+    Plain ``content`` is a delta that appends. Given ``sources`` it is a
+    snapshot that REPLACES the bubble's text with the settled prose and names
+    the sources its markers now point at (``stream_replace``). ``answer_meta``
+    carries the masthead ahead of the prose, ``cards`` the cards written so
+    far: neither changes the text.
+    """
+    chunk = ChatResponseChunk.create_streaming_chunk(content, finish_reason=None)
+    if sources is not None:
+        chunk.sources = sources
+        chunk.stream_replace = True
+    if answer_meta is not None:
+        chunk.answer_meta = answer_meta
+    if cards is not None:
+        chunk.cards = cards
+    return chunk
 
 
 def chunk_content(chunk: ChatResponseChunk) -> str | None:
@@ -146,26 +172,50 @@ def fold_chunks_to_response(chunks: list[ChatResponseChunk]) -> ChatResponse:
     """Collapse a streamed chunk sequence back into one ChatResponse for
     non-streaming consumers (single-shot HTTP, the CLI).
 
-    The terminal chunk's (``finish_reason="stop"``) content is authoritative, so
-    deltas are ignored when a terminal is present and the folded content is never
-    doubled. Grid extras are copied from whichever chunk carries them.
+    The terminal chunk (``finish_reason="stop"``) is authoritative for the text
+    AND the Grid extras: the live chunks before it are provisional (ADR-0066),
+    so a live masthead or card the terminal gated out, or prose a snapshot
+    retracted, never reaches the folded answer, and an empty terminal stays
+    empty. Only without a terminal are the live chunks folded, a snapshot
+    (``stream_replace``) replacing the text before it rather than appending.
     """
-    delta_parts: list[str] = []
-    final_content: str | None = None
-    extras: dict[str, object] = {}
-    model_name: str | None = None
-    response_id: str | None = None
-    for chunk in chunks:
-        model_name = model_name or getattr(chunk, "model", None)
-        response_id = response_id or getattr(chunk, "id", None)
-        content = chunk_content(chunk)
-        if chunk_finish_reason(chunk) == "stop" and content:
-            final_content = content
-        elif chunk_finish_reason(chunk) != "stop" and content:
-            delta_parts.append(content)
-        extras.update(_chunk_extras(chunk))
-    content = final_content if final_content is not None else "".join(delta_parts)
+    terminal = next((c for c in reversed(chunks) if chunk_finish_reason(c) == "stop"), None)
+    if terminal is not None:
+        content, extras = chunk_content(terminal) or "", _chunk_extras(terminal)
+    else:
+        content, extras = _fold_live(chunks)
+    # The terminal names the response: a live chunk before it carries a random
+    # id and a placeholder model (``live_chunk``), never the turn's own.
+    named = [terminal] if terminal is not None else chunks
+    model_name = next((m for c in named if (m := getattr(c, "model", None))), None)
+    response_id = next((i for c in named if (i := getattr(c, "id", None))), None)
     response = _create_chat_response(content, response_id=response_id or "research_response", model=model_name)
     for field, value in extras.items():
         setattr(response, field, value)
     return response
+
+
+def _fold_live(chunks: list[ChatResponseChunk]) -> tuple[str, dict[str, object]]:
+    """The text and extras of a chunk sequence that never reached its terminal.
+
+    Folded as the client folds them (``docs/design/streaming-chat-answer.md``,
+    live frames): a snapshot replaces the text and the masthead, and an empty
+    one, a retraction, takes back the cards as well.
+    """
+    parts: list[str] = []
+    extras: dict[str, object] = {}
+    for chunk in chunks:
+        content = chunk_content(chunk) or ""
+        if getattr(chunk, "stream_replace", None):
+            parts = []
+            extras.pop("answer_meta", None)
+        if _is_retraction(chunk, content):
+            extras.pop("cards", None)
+        parts.append(content)
+        extras.update(_chunk_extras(chunk))
+    return "".join(parts), extras
+
+
+def _is_retraction(chunk: ChatResponseChunk, content: str) -> bool:
+    """An empty snapshot: the prose, masthead and cards streamed so far are taken back."""
+    return bool(getattr(chunk, "stream_replace", None)) and not content and not getattr(chunk, "sources", None)

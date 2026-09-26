@@ -16,7 +16,7 @@
 
 'use client'
 
-import { type FC, useCallback, useMemo } from 'react'
+import { type FC, useCallback } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { useIsMobile } from '@/hooks/use-is-mobile'
 import { ChatToolbar } from './ChatToolbar'
@@ -24,13 +24,12 @@ import { SessionsPanel } from './SessionsPanel'
 import { ChatArea } from './ChatArea'
 import { InputArea } from './InputArea'
 import { useChatStore, NoSourcesBanner } from '@/features/chat'
-import { hasFinishedRun, hasLiveRun } from '@/features/chat/lib/session-activity'
-import { conversationMatchesProject } from '@/features/chat/lib/project-scope'
 import { useSessionUrl } from '@/hooks/use-session-url'
 import { documentDisplayName } from '@/lib/documents/display-name'
 import { useTranslations } from '@/i18n'
 import { useFilePreviewStore } from '@/features/documents/stores/file-preview-store'
 import { useComposerMetrics } from '../hooks/use-composer-metrics'
+import { useSessionRows } from '../hooks/use-session-rows'
 import { motion } from '@/components/motion'
 
 interface MainLayoutProps {
@@ -88,23 +87,32 @@ export const MainLayout: FC<MainLayoutProps> = ({
   projectCollection = null,
   projectName = null,
 }) => {
+  // Only what the layout shows, never the conversation objects themselves:
+  // a streamed answer replaces the open conversation on every delta, and the
+  // whole shell would re-render with each one. How many messages the thread
+  // holds decides two separate things — whether the toolbar calls the chat
+  // started, and whether the composer is lifted off the floor into the empty
+  // canvas — so it is read once, here.
   const {
-    currentConversation,
-    conversations,
+    currentConversationId,
+    currentConversationTitle,
+    messageCount,
     isStreaming,
     pendingInteraction,
     currentUserId,
     projectId,
   } = useChatStore(
     useShallow((s) => ({
-      currentConversation: s.currentConversation,
-      conversations: s.conversations,
+      currentConversationId: s.currentConversation?.id,
+      currentConversationTitle: s.currentConversation?.title,
+      messageCount: s.currentConversation?.messages?.length ?? 0,
       isStreaming: s.isStreaming,
       pendingInteraction: s.pendingInteraction,
       currentUserId: s.currentUserId,
       projectId: s.projectId,
     }))
   )
+  const sessions = useSessionRows()
 
   const selectConversation = useChatStore((s) => s.selectConversation)
   const startNewSessionDraft = useChatStore((s) => s.startNewSessionDraft)
@@ -118,11 +126,6 @@ export const MainLayout: FC<MainLayoutProps> = ({
   const previewMode = useFilePreviewStore((s) => s.mode)
   const expandFile = useFilePreviewStore((s) => s.expand)
   const tFiles = useTranslations('files')
-
-  // How many messages this thread holds decides two separate things — whether
-  // the toolbar calls the chat started, and whether the composer is lifted off
-  // the floor into the empty canvas — so it is read once, here.
-  const messageCount = currentConversation?.messages?.length ?? 0
 
   // Composer geometry (--composer-h, --welcome-offset, and the lift the stack
   // travels on) — see useComposerMetrics.
@@ -152,13 +155,13 @@ export const MainLayout: FC<MainLayoutProps> = ({
   // Wrap deleteConversation to clear URL if deleting current session
   const handleDeleteSession = useCallback(
     (sessionId: string) => {
-      const wasCurrentSession = currentConversation?.id === sessionId
+      const wasCurrentSession = currentConversationId === sessionId
       deleteConversation(sessionId)
       if (wasCurrentSession) {
         clearSessionUrl()
       }
     },
-    [deleteConversation, currentConversation?.id, clearSessionUrl]
+    [deleteConversation, currentConversationId, clearSessionUrl]
   )
 
   // Delete all sessions for the current user in the active project context
@@ -170,35 +173,6 @@ export const MainLayout: FC<MainLayoutProps> = ({
   }, [deleteAllConversations, clearSessionUrl])
 
   const isNavigationBlocked = isStreaming || pendingInteraction !== null
-
-  // Sessions shown in the panel: the current user's sessions in the active
-  // project context. Legacy sessions without a projectId fail open (always
-  // visible) so users never lose sight of pre-scoping history.
-  const userConversations = useMemo(
-    () =>
-      currentUserId
-        ? conversations
-            .filter((c) => c.userId === currentUserId && conversationMatchesProject(c, projectId))
-            // The store keeps creation order; sort newest-first so date groups
-            // and rows in the sessions panel come out most-recently-updated first.
-            .slice()
-            .sort((a, b) => +new Date(b.updatedAt) - +new Date(a.updatedAt))
-        : [],
-    [conversations, currentUserId, projectId]
-  )
-
-  const sessions = useMemo(
-    () =>
-      userConversations.map((conv) => ({
-        id: conv.id,
-        title: conv.title,
-        date: conv.updatedAt,
-        // Read off the stored run ledgers: a run is a message in its thread.
-        hasActiveDeepResearch: hasLiveRun(conv.messages),
-        hasCompletedReport: hasFinishedRun(conv.messages),
-      })),
-    [userConversations]
-  )
 
   const content = (
     // h-full pins the chat surface to the viewport: the composer floats at the
@@ -245,7 +219,7 @@ export const MainLayout: FC<MainLayoutProps> = ({
               (no band). Sits inside the center column so it spans only the
               chat, not the research panel (which has its own header). */}
           <ChatToolbar
-            sessionTitle={currentConversation?.title}
+            sessionTitle={currentConversationTitle}
             projectName={projectName ?? undefined}
             onNewSession={handleNewSession}
             isNewSessionDisabled={isNavigationBlocked}
@@ -254,7 +228,7 @@ export const MainLayout: FC<MainLayoutProps> = ({
             // strip, the access chip and the share dialog. All three are gated on
             // the dark-launch flag AND on there being a conversation to share, so
             // an unshared or brand-new thread shows no extra chrome at all.
-            conversationId={currentConversation?.id ?? null}
+            conversationId={currentConversationId ?? null}
             isCollaborationEnabled={canCollaborate}
             currentUserId={currentUserId}
             projectId={projectId ?? null}
@@ -344,7 +318,7 @@ export const MainLayout: FC<MainLayoutProps> = ({
       {/* Sessions Panel (Left) - Only functional when authenticated */}
       <SessionsPanel
         sessions={sessions}
-        selectedSessionId={currentConversation?.id}
+        selectedSessionId={currentConversationId}
         onSelectSession={handleSelectSession}
         onNewSession={handleNewSession}
         onDeleteSession={handleDeleteSession}

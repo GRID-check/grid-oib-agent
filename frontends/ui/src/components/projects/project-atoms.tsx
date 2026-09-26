@@ -41,6 +41,7 @@
  * See `docs/design/project-surfaces.md` for the inventory and the rule.
  */
 
+import type { JSX } from 'react'
 import Link from 'next/link'
 import { Clock3, FileText, MessageSquare, Settings } from 'lucide-react'
 import { useMemo } from 'react'

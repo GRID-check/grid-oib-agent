@@ -4,7 +4,7 @@
  * Displays prompts from the agent that require user response.
  * This is a display-only component - user responds via the main chat input.
  *
- * A research plan is no longer a prompt (ADR-0065): it is a row of the plan
+ * A research plan is no longer a prompt (ADR-0068): it is a row of the plan
  * primitive, shown on the run block, and the run waits on it there. What is
  * left here for plans is reading the old ones — threads from before the change
  * carry the English preview envelope and a fenced JSON copy of the plan, and

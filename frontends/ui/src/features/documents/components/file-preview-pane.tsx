@@ -1,5 +1,6 @@
 'use client'
 
+import type { JSX } from 'react'
 import { INLINE_PREVIEW_CONTENT_TYPES } from '@/lib/documents/preview-types'
 
 import { useState, useEffect, useCallback, useMemo, useRef, type ReactNode } from 'react'

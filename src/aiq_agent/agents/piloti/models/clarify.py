@@ -165,7 +165,7 @@ class ClarifyResult:
 
     ``research_context`` is the Q&A transcript. When planning is on, ``plan``
     is the drafted plan and ``draft`` the same plan as the BFF's plan
-    primitive takes it (ADR-0065); nothing was asked about it, because the
+    primitive takes it (ADR-0068); nothing was asked about it, because the
     reader changes, holds or starts it on the run block while the run waits.
     Both are None when planning is off.
     """

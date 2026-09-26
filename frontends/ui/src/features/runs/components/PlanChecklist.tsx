@@ -7,7 +7,7 @@
  *
  * Fully controlled — every edit is `onChange` with the whole shape — so the
  * caller decides where an edit goes. On the run block it goes to the plan
- * primitive (ADR-0065); in „Recherche planen" it stays local until the plan
+ * primitive (ADR-0068); in „Recherche planen" it stays local until the plan
  * is created.
  */
 

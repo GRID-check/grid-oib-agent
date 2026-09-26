@@ -187,7 +187,7 @@ class TestClarifyRequest:
 
 
 class TestClarifyResult:
-    """The transcript, and the plan when planning is on — no verdict to route on (ADR-0065)."""
+    """The transcript, and the plan when planning is on — no verdict to route on (ADR-0068)."""
 
     def test_no_plan_was_drafted(self):
         """Planning off: the questions were asked, deep research proceeds."""

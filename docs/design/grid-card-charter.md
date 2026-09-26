@@ -82,7 +82,7 @@ The schema generator flattens **every** `$ref` to `z.any()` — not only arrays 
 
 > **Rule.** Every read of a nested field must have a fallback, and every unknown enum value must render as the neutral/unknown case. `STATUS_ICON[item.status] ?? CircleHelp` (RequirementChecklistCard.tsx:74) and `TONES[kind] ?? TONES.hinweis` (CalloutCard.tsx:87) are the pattern; they are not defensive nicety, they are the only thing between a bad field and a white screen. **This is the single most important implementation constraint in this document.**
 
-**2. Cards arrive whole, or not at all.** `validateGridCards` Zod-parses and leaves an `undefined` hole where a card fails instead of closing the gap, so **a card never renders half-populated** and there is no card-level skeleton or partial-render state — and positions after the hole do not move, which is what keeps `[[card:N]]` markers and persisted card decisions bound to the cards they were written for. What *does* happen mid-stream is that a `[[card:N]]` marker arrives frames before the card it names — handled by `CardMarkerOptions.count` (card-markers.ts:43–51), which renders nothing rather than letting a raw marker flash as literal text. Degradation sections in §B therefore address **missing optional fields and hostile content**, not partial hydration.
+**2. Cards arrive whole, or not at all.** `validateGridCards` Zod-parses and leaves an `undefined` hole where a card fails instead of closing the gap, so **a card never renders half-populated** and there is no partial-render state inside a card — and positions after the hole do not move, which is what keeps `[[card:N]]` markers and persisted card decisions bound to the cards they were written for. What *does* happen mid-stream is that a `[[card:N]]` marker arrives seconds before the card it names. While the answer is still streaming, the marker keeps its slot (`CardMarkerOptions.pending` in `card-markers.ts`) and the surface fills it with `PendingCardSlot` (`CardSlotArrival.tsx`), a placeholder `PENDING_CARD_HEIGHT` tall that the card grows out of when it lands (`CardArrival`, ADR-0066). The marker renders nothing only in two cases: a finished answer whose marker names a card it does not carry (`CardMarkerOptions.count`), and the hole a withheld card leaves. A raw marker never flashes as literal text. Degradation sections in §B therefore address **missing optional fields and hostile content**, not partial hydration.
 
 **3. Layout width — design to 636px.** The chain is message column `max-w-3xl` → answer card `w-[680px]` (AgentResponse.tsx:575) → body `px-[22px]` (AgentResponse.tsx:605, :678). **680 − 44 = 636px on desktop, ~314px on a 390px phone.**
 **`/dev/cards` renders at `max-w-2xl` (`app/dev/cards/page.tsx:75`) — narrower than production.** Do not tune a layout against the gallery; it will mislead you.
@@ -182,7 +182,7 @@ Red is forbidden here: tightening is a cost, not an error, and error red is for 
 - **Two gutter widths only**: 22px for a rail (ConditionTreeCard.tsx:123), 26px for a numbered node (KeyTakeawaysCard.tsx:43, ProcessMapCard.tsx:117). Rails then align when two cards stack.
 - Radius: cards `rounded-lg` (12px), inner panels `rounded-md` (8px), chips `rounded-md`, status pills `rounded-full`.
 - Elevation: `shadow-xs` and nothing else in the transcript. Never two shadows in one card. In dark mode elevation is carried by the token, not by a `dark:` variant — see tokens.css:216–241.
-- **No card inside a card.** The opened panels in `condition_tree` / `process_map` (`rounded-md border` on the same surface) are the legal form.
+- **No card inside a card.** The opened panels in `condition_tree` / `process_map` (`rounded-md border` on the same surface) are the legal form. A surface is not a card-in-card: it has no frame of its own. Tabs and Row are layout on the answer surface, and each leaf keeps its own register.
 - Every table and every drawing scrolls inside its own `overflow-x-auto`. Already correct at ComparisonTableCard.tsx:46 and TypedTableCard.tsx:92.
 - **Design to 636px desktop / ~314px phone** (§0.5.3), not to the gallery's `max-w-2xl`.
 
@@ -194,7 +194,7 @@ This is the mechanism that makes twenty voices one family. **The eyebrow is demo
 |---|---|---|
 | dots on a vertical rail | mutually exclusive alternatives | `condition_tree` |
 | numerals on a vertical rail | a sequence with a position | `process_map` |
-| ordinals in a descending staircase | a ranked list | `key_takeaways` |
+| ordinals on a hairline, the first row a figure | a ranked list | `key_takeaways` |
 | folded-corner glyph column | documents with states | `document_checklist` |
 | rule **above** the content | a trigger / precondition | `deadline_timeline` |
 | rule **under** the content | a total | `calculation` |
@@ -280,10 +280,10 @@ Format: **job** → **grammar** → **unmistakable** → **degradation** → **e
 
 #### `key_takeaways`
 **Job.** The 2–5 points a skimmer leaves with.
-**Grammar.** Kill `divide-y` (KeyTakeawaysCard.tsx:107) — hairlines between rows are what makes it a generic list. Replace with a **descending staircase**: item *n* indents `(n−1) × 6px`, ordinals hanging off one continuous vertical hairline in the 26px gutter. Ordinals at Meta mono in `--muted-foreground/60`. **Item 1 breaks the pattern**: its ordinal is full-weight `--foreground` and its text is **15px/600** — the card's one figure. A reader who reads nothing else reads takeaway one, which is what "most important first" is supposed to buy.
+**Grammar.** Kill `divide-y` (KeyTakeawaysCard.tsx:107) — hairlines between rows are what makes it a generic list. Replace with ordinals hanging off one continuous vertical hairline in the 26px gutter, every takeaway on the same text column. (A descending staircase, item *n* indented `(n−1) × 6px`, shipped first and was withdrawn: at 6px a step reads as misregistration, not as rank.) Ordinals at Meta mono in `--muted-foreground/60`. **Item 1 breaks the pattern**: its ordinal is full-weight `--foreground` and its text is **15px/600** — the card's one figure. A reader who reads nothing else reads takeaway one, which is what "most important first" is supposed to buy.
 Keep verbatim: a row with no `detail` is not a button (line 58).
-**Unmistakable.** Progressive indent plus one heavy first row. Nothing else indents by rank.
-**Degradation.** 2 items → one step, still reads. 5 items → 24px total indent, safe at 314px. Long compounds wrap with `text-pretty` — **never truncate a takeaway**, it is the payload. Missing `text` on an item → skip the row silently (§0.5.1).
+**Unmistakable.** Ordinals on one continuous hairline plus one heavy first row. No other card marks rank by weight alone.
+**Degradation.** Every item sits on the same text column, so 2 items and 5 read alike and the width needs no allowance at 314px. Long compounds wrap with `text-pretty` — **never truncate a takeaway**, it is the payload. Missing `text` on an item → skip the row silently (§0.5.1).
 **Effort: S.**
 
 #### `callout`
@@ -300,11 +300,11 @@ Keep verbatim: a row with no `detail` is not a button (line 58).
 **Grammar.** It should look like a page from a Gesetzblatt, not a chat block:
 - The whole card sits on **`--input-background`** — the recessed surface. A quotation is *cut into* the page, not floated on it. It becomes the only recessed card in the system.
 - The law-signal rule goes to **3px, full height** (from 2px, LegalBasisCard.tsx:70).
-- `article` / `section` stop being inline `Badge`s and become **marginalia**: right-aligned in a fixed 72px right column at 11px mono, the way a statute prints its § in the margin. Every other card puts metadata inline; this one puts it in a margin, and that is the difference you see before you read.
+- `article` / `section` stop being inline `Badge`s and become **marginalia**: right-aligned in a right column at least 72px wide, sized to its content and never wrapped, at 11px mono, the way a statute prints its § in the margin. Every other card puts metadata inline; this one puts it in a margin, and that is the difference you see before you read.
 - `original_text` gets **hanging quotation marks**: a `„` at 24px in `--source-law/30` set outside the measure, with the quote at 13.5px `leading-[1.75]` and the italic dropped (italic at that measure hurts German compounds). **This is the only decorative mark permitted anywhere in the system**, granted because a quotation mark on a quotation is not decoration.
 - `summary` at Body. The AI-transparency line (line 130, EU AI Act Art. 50) stays, and stays last.
 **Unmistakable.** The only recessed card, the only right-margin § column, the only large quote mark.
-**Degradation.** No `original_text` → header + summary; the recessed ground still identifies it. No article/section → margin column collapses to 0 and text runs full width. Below 360px the margin column moves above the law name as a chip row. **An article/section longer than 20 characters is not marginalia** — a shipped card set „Punkte 8 bis 10 der OIB-Richtlinie 2" and „Anwendungsbereiche der ergänzenden Richtlinien" there and got a nine-line ragged pillar of mono beside a two-line header, with „§ " glued to a heading. Both halves then run inline with the law name, unprefixed and wrapping, because they are one Fundstelle and this is the citation an architect verifies: it loses the margin, never its content. The schema asks for identifiers (`LegalBasisCard.article` / `.section`); the renderer is what holds when the model writes prose anyway.
+**Degradation.** No `original_text` → header + summary; the recessed ground still identifies it. No article/section → margin column collapses to 0 and text runs full width. **An article/section longer than 14 characters (`MARGIN_IDENTIFIER_MAX_CHARS`) is not marginalia** — a shipped card set „Punkte 8 bis 10 der OIB-Richtlinie 2" and „Anwendungsbereiche der ergänzenden Richtlinien" there and got a nine-line ragged pillar of mono beside a two-line header, with „§ " glued to a heading. Both halves then run inline with the law name, unprefixed and wrapping, because they are one Fundstelle and this is the citation an architect verifies: it loses the margin, never its content. The schema asks for identifiers (`LegalBasisCard.article` / `.section`); the renderer is what holds when the model writes prose anyway.
 
 > **SCHEMA ADDITIONS — REQUESTED, NOT YET IMPLEMENTED.** Neither field exists today. The card cannot render either treatment until they land in `src/aiq_agent/cards/models.py` and are regenerated through `shared/cards/schemas.json` → `npm run generate:cards`.
 >

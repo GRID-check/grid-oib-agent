@@ -40,6 +40,12 @@ dependencies = [
     "cryptography>=50.0.0,<51",
     "pillow>=12.2.0,<13",
     "pygments>=2.20.0,<3",
+    "a2ui-core==0.1.1",
+    # Arrives through nvidia-nat[langchain]; the floor is ours. Below 1.6.6 a
+    # STREAMED Responses call drops the model's encrypted reasoning items, so
+    # every tool round thinks from scratch and nothing fails
+    # (docs/contributing/gotchas.md, a0ec99d2).
+    "langchain-openai>=1.6.6",
 ]
 
 [project.optional-dependencies]
@@ -91,10 +97,6 @@ aiq_deep_researcher = "aiq_agent.agents.deep_researcher.register"
 aiq_data_source_registry = "aiq_agent.common.data_source_registry"
 aiq_project_memory = "aiq_agent.memory.register"
 aiq_cards = "aiq_agent.cards.register"
-# RETIRED as a chat tool: the `aiq_compliance_checker` entry point
-# ("aiq_agent.agents.compliance_checker.register") was removed so NAT never
-# loads the `compliance_check` function and no agent is offered the tool. The
-# package stays in place and importable for its helpers.
 aiq_bim = "aiq_agent.tools.bim.register"
 # The spatial half of the BIM surface (`ifc_measure`). A second entry point
 # rather than an import from `register`: NAT discovers plugins by loading the

@@ -580,8 +580,8 @@ class TestProviderWithReasoningEfforts:
     """Platform → Models pins a thinking level per group; the provider seam must carry it.
 
     Every user-facing agent resolves its LLMs through ``LLMProvider``, so an
-    effort applied only in ``apply_model_override`` never reached chat, deep
-    research or the compliance check. The seam mirrors ``with_model_overrides``:
+    effort applied only in ``apply_model_override`` never reached chat or deep
+    research. The seam mirrors ``with_model_overrides``:
     identity when nothing applies, a copy per affected group otherwise.
     """
 

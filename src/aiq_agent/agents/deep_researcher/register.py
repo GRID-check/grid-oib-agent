@@ -31,6 +31,7 @@ from aiq_agent.common import get_reasoning_efforts
 from aiq_agent.common import get_zdr_only_from_context
 from aiq_agent.common import is_verbose
 from aiq_agent.common import validate_tool_availability
+from aiq_agent.common.agent_tools import load_agent_tools
 from nat.builder.builder import Builder
 from nat.builder.context import Context
 from nat.builder.framework_enum import LLMFrameworkEnum
@@ -189,11 +190,7 @@ def resolve_deep_research_runtime_config(
 
 
 async def _resolve_tools(builder: Builder, tool_refs: list[str], exclude_tools: list[str]) -> list:
-    resolved = await builder.get_tools(tool_names=tool_refs, wrapper_type=LLMFrameworkEnum.LANGCHAIN)
-    if not exclude_tools:
-        return resolved
-    excluded = set(exclude_tools)
-    return [t for t in resolved if getattr(t, "name", "") not in excluded]
+    return await load_agent_tools(builder, tool_refs, exclude_tools)
 
 
 async def _explicit_tools(builder: Builder, config: DeepResearchAgentConfig) -> list | None:

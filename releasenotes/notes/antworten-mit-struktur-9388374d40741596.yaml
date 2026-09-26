@@ -1,0 +1,18 @@
+---
+features:
+  - >
+    Antworten sind gegliedert statt als Fließtext geschrieben: die erste
+    Zeile beantwortet die Frage mit dem Wert in Fett, Prüfungen und Fälle
+    nach Gebäudeklasse erscheinen als Tabellen mit Fundstelle, ein Status
+    wie „erfüllt“ oder „offen“ als farbige Markierung, Verfahren als
+    nummerierte Schritte und Nachzureichendes als Aufgabenliste.
+  - >
+    Piloti zeichnet von sich aus, wo Text eine Form schlecht trägt: ein
+    Verfahren, das sich verzweigt, wer wem was übergibt, wie die Teile einer
+    Richtlinie zusammenhängen, ein Bauzeitplan aus den Projektunterlagen.
+    Die Zeichnung steht dort, wo sie hingehört, und lässt sich wie bisher im
+    Projekt ablegen.
+fixes:
+  - >
+    Eine Antwort, die eine Zeichnung oder einen Codeblock enthielt, wurde als
+    roher JSON-Text angezeigt statt als Antwort.

@@ -26,6 +26,7 @@
  * something, and here it does.
  */
 
+import type { JSX } from 'react'
 import type { KeyboardEvent, MouseEvent } from 'react'
 import Link from 'next/link'
 import {
@@ -258,7 +259,7 @@ export function TaskCard({ projectId, task, onSelect }: TaskCardProps): JSX.Elem
                 </p>
               )}
 
-              {/* The plan the run waits on or ran on (ADR-0065): what the
+              {/* The plan the run waits on or ran on (ADR-0068): what the
                   report will be, one line, the same words the block uses. */}
               {task.research && (
                 <p className="text-muted-foreground truncate text-xs" data-testid="task-card-plan">

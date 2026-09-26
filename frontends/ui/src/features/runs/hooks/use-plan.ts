@@ -1,7 +1,7 @@
 'use client'
 
 /**
- * The plan a run waits on, as the block holds it (ADR-0065).
+ * The plan a run waits on, as the block holds it (ADR-0068).
  *
  * Read by id from the run's message (`metadata.plan_id`), polled while the
  * plan can still change hands — proposed, held, approved — so the block sees

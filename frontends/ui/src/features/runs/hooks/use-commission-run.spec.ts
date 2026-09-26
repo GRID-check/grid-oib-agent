@@ -1,6 +1,6 @@
 /**
  * The thread's two doors into a run: a plain commission, and a continuation
- * that carries the last plan forward (ADR-0065). Both re-read the thread so
+ * that carries the last plan forward (ADR-0068). Both re-read the thread so
  * the new block appears; both fail open.
  */
 

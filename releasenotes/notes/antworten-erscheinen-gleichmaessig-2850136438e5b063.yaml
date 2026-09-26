@@ -1,0 +1,11 @@
+---
+fixes:
+  - >
+    Antworten erscheinen gleichmäßig, Wort für Wort, statt in Sprüngen von
+    einem Satz zum nächsten, und die Seite bleibt dabei auch auf dem Telefon
+    flüssig. Bisher stockte sie während einer Antwort alle paar Sekunden,
+    umso mehr, je länger der Chatverlauf war.
+  - >
+    Solange Piloti arbeitet, belasten die Hinweise „denkt nach" und die
+    Verbindungslinien der Herleitung das Telefon nicht mehr. Die Linien sind
+    gestrichelt statt bewegt, der Hinweis pulsiert statt zu schimmern.

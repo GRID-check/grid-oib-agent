@@ -134,7 +134,7 @@ class TestBuildDeps:
         assert (deps.max_turns, deps.plan_approval, deps.plan_grace_seconds) == (5, "ask", 20)
 
     def test_a_yaml_predating_the_plan_primitive_still_means_auto(self):
-        """``enable_plan_approval: true`` is how every deployment spelled it before ADR-0065."""
+        """``enable_plan_approval: true`` is how every deployment spelled it before ADR-0068."""
         settings = ClarifierSettings(llm="clarifier_llm", enable_plan_approval=True, max_plan_iterations=3)
         assert settings.plan_approval == "auto"
         assert ClarifierSettings(llm="clarifier_llm", enable_plan_approval=False).plan_approval == "off"
@@ -204,7 +204,7 @@ class TestPrompts:
     def test_plan_generation_prompt_localizes_content(self):
         """Plan-generation prompt localizes title/sections and asks for JSON alone."""
         assert "same language as the user's request" in PLAN_GENERATION_PROMPT.lower()
-        # No approval envelope any more (ADR-0065): the JSON becomes a plan row.
+        # No approval envelope any more (ADR-0068): the JSON becomes a plan row.
         assert "OUTPUT CONTRACT" in PLAN_GENERATION_PROMPT
         assert "PLAN_REPLIES" not in PLAN_GENERATION_PROMPT
 
@@ -449,7 +449,7 @@ class TestTheTraceRow:
 
 
 class TestThePlanIsDraftedNotAsked:
-    """ADR-0065: the plan is drafted and handed back; nobody is asked about it."""
+    """ADR-0068: the plan is drafted and handed back; nobody is asked about it."""
 
     @staticmethod
     def deps(planner, ask=None, **settings) -> ClarifyDeps:

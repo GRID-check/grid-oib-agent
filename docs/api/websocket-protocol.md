@@ -390,6 +390,15 @@ Delivers final or streaming response text.
   retry_after_seconds?: number,
   skills_activated?: string[],
   retrieval_ledger?: RetrievalLedgerEntry[],
+
+  // ── Also on live frames (ADR-0066) ───────────────────────────────────────
+  // The masthead (kind / topic / context / verdict / summary), gated
+  // backend-side and sanitized again by `sanitizeAnswerMeta`. On the terminal
+  // and on the live frames below.
+  answer_meta?: Record<string, unknown>,
+  // Only on an `in_progress` snapshot: its content REPLACES the streaming
+  // bubble's text instead of appending. Never on the terminal.
+  stream_replace?: true,
 }
 
 ```typescript
@@ -439,7 +448,33 @@ The client extracts content in priority order: `output` → `text` → raw strin
 | `job_admission_rejected` | `true` | Marks the answer text as a queue-rejection notice (NOT a research answer). The client renders a warning banner (error code `research.queue_full`) and leaves the composer unlocked. |
 | `retry_after_seconds` | `number` | Only alongside `job_admission_rejected` — retry hint (seconds). |
 | `skills_activated` | `string[]` | Agent Skills whose full instructions were LOADED this turn — the ones the model pulled in with `use_skill`, in call order, deduped. Absent/empty on a turn that activated none. Rendered as a quiet "Skills used" disclosure under the answer; the reconnect path persists it into assistant-message metadata. Availability is the constant, activation is the event — see `docs/architecture/agent-skills.md`. |
-| `retrieval_ledger` | `RetrievalLedgerEntry[]` | The backend's own account of this turn's retrieval rounds: per announced round what it was asked (query, tools), what it returned, and which documents it did work on (`new_docs`); `hits`/`documents` are tallies over `docs`. Absent when no round was announced. One `docs` entry is one PASSAGE — a document (`name`, `title`, `shelf`) at a page or Punkt (`detail`) — carrying `repeat: boolean`: true when an earlier round already returned that exact (document, `detail`) pair, or when an earlier round OPENED that document with a locator tool (`read_passage`). A search that merely ranked a document does not make the later open of it a repeat. `new_docs` is the document-level derivation of the same marks: a document is listed when at least one of its passages here is not a repeat. `repeat` is absent on turns stored before the backend stamped it, and the renderer then falls back to `new_docs`. The Herleitung spine draws each round's fan from it, one card per document: the pages or Punkte that round reached, listed under the card, „bereits abgerufen" on the passages it fetched a second time, and an „Öffnen" step kind for a round that only opened passages. Persisted into message metadata/provenance so reloads read the same account. Known exclusion: the answer-repair pass retrieves outside the tool node and announces no round, so its findings are absent by design. |
+| `retrieval_ledger` | `RetrievalLedgerEntry[]` | The backend's own account of this turn's retrieval rounds: per announced round what it was asked (query, tools), what it returned, and which documents it did work on (`new_docs`); `hits`/`documents` are tallies over `docs`. Absent when no round was announced. One `docs` entry is one PASSAGE — a document (`name`, `title`, `shelf`) at a page or Punkt (`detail`) — carrying `repeat: boolean`: true when an earlier round already returned that exact (document, `detail`) pair, or when an earlier round OPENED that document with a locator tool (`read_passage`). A search that merely ranked a document does not make the later open of it a repeat. `new_docs` is the document-level derivation of the same marks: a document is listed when at least one of its passages here is not a repeat. `repeat` is absent on turns stored before the backend stamped it, and the renderer then falls back to `new_docs`. The Herleitung spine draws each round's fan from it, one card per document: the pages or Punkte that round reached, listed under the card, „bereits abgerufen" on the passages it fetched a second time, and an „Öffnen" step kind for a round that only opened passages. Persisted into message metadata/provenance so reloads read the same account. Nothing retrieves outside it: the answer repair corrects a quote against a passage already in this turn's registry and retrieves nothing (ADR-0067). |
+
+#### Live frames (ADR-0066)
+
+While the final call writes the answer, `in_progress` frames carry the prose
+as it is written. Each is one of four kinds, told apart by what it carries:
+
+| Frame | Fields | Client action |
+|-------|--------|---------------|
+| Delta | `content` | Append to the streaming bubble. A `[N]` with no source yet renders as a pending citation. |
+| Snapshot | `content`, `sources`, `stream_replace: true`, `answer_meta` | Replace the bubble's text with the settled prose: citations verified and renumbered, the pending markers now pointing at `sources`. The citations are replaced too, and an empty `sources` clears them. A snapshot without `answer_meta` removes the masthead: the backend re-gated it against the prose and dropped it. Sent at most once per answering call, when the envelope's `answer` string closes; not at all when the prose has no sources section or the turn retrieved nothing, and the streamed text then stands until `complete`. The exception is an empty snapshot (`content: ""` and no `sources` field, since the backend attaches `sources` only when non-empty): it retracts a streamed call that turned out to be a tool round. It clears the cards that round drew along with its text, citations and masthead. A later call may stream again, and send its own snapshot, but need not. |
+| Masthead | empty `content`, `answer_meta` | Set the masthead above the prose. The text is unchanged. |
+| Cards | empty `content`, `cards` | Fill the `[[card:N]]` placeholders with the cards written so far. The text is unchanged. Sent only while no tool pushed a card this turn. |
+
+None of them is persisted. The `complete` frame that follows replaces the text
+again and is authoritative: what it omits (a card suppressed, a masthead gated
+out) the client drops. Its `sources` go with its text, since the `[N]` markers
+are numbered against them: a `complete` with text and no `sources` clears the
+citations. Only a `complete` with blank text keeps what the live frames
+brought, text and citations both. Live deltas need not concatenate to the final text; on
+a buffered turn (no live prose) the deltas are the finished text cut into
+pieces and do.
+
+Two folds consume these frames: the asker's store (`messages-store.ts`) and the
+observer's (`spectator-frames.ts`, via `GET /api/conversations/{id}/live`).
+Both must apply the same rules. Design:
+[`streaming-chat-answer.md`](../design/streaming-chat-answer.md#live-frames-adr-0066).
 
 #### system_intermediate_message
 

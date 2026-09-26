@@ -77,7 +77,7 @@ class TestClarifierSettings:
 
     def test_the_field_names_are_the_ones_the_yaml_already_used(self):
         """The keys the YAML block takes. ``enable_plan_approval`` became
-        ``plan_approval`` with ADR-0065; the old key is still read (see
+        ``plan_approval`` with ADR-0068; the old key is still read (see
         ``test_a_yaml_predating_the_plan_primitive_still_means_auto``)."""
         assert set(ClarifierSettings.model_fields) == {
             "llm",

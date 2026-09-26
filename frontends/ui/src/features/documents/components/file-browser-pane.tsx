@@ -1,5 +1,6 @@
 'use client'
 
+import type { JSX } from 'react'
 import { Fragment, useCallback, useMemo, useState, type ReactNode } from 'react'
 import type { FileItem, FolderItem } from './project-file-workspace'
 import { Search, SearchX, FilterX, FolderOpen, Sparkles, UploadCloud } from 'lucide-react'

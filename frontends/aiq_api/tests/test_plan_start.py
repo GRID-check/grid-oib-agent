@@ -1,4 +1,4 @@
-"""A run commissioned with a plan waits on it (ADR-0065).
+"""A run commissioned with a plan waits on it (ADR-0068).
 
 What these pin: the worker asks the BFF whether it may start rather than
 reading the plan from its payload; "not yet" puts the ledger in ``wartet``

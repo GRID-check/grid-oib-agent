@@ -1,6 +1,6 @@
 /**
  * The research plan: what a deep research is about, as one record every
- * tier reads (ADR-0065).
+ * tier reads (ADR-0068).
  *
  * Before this the plan was prose in an agent message and a chat reply the
  * reader owed. It is now a row of its own, created by the agent's clarifier

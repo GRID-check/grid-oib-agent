@@ -113,7 +113,7 @@ export const internalTaskRequestSchema = z.discriminatedUnion('op', [
     })
     .strict(),
   /**
-   * A plan the clarifier proposes, and the run that waits on it (ADR-0065).
+   * A plan the clarifier proposes, and the run that waits on it (ADR-0068).
    * One op for both, so a plan without a run and a run without a plan are
    * impossible. `start` is the deployment's policy: `auto` gives the plan a
    * clock of `graceSeconds`, `ask` holds it until a person presses Starten.

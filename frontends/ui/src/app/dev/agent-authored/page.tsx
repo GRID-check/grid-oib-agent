@@ -26,6 +26,7 @@
  * renders, and serves the preview URL. 404s outside development.
  */
 
+import type { JSX } from 'react'
 import { useState } from 'react'
 import { notFound } from 'next/navigation'
 import { I18nProvider } from '@/i18n'

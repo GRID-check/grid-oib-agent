@@ -49,8 +49,8 @@ import { jobRuns, jobs } from './jobs'
  *
  *   - `deep-research` · `chat` — a job fired on its timer; the value is
  *     `jobs.output`.
- *   - `compliance_check` — the compliance checker over the project (the engine
- *     exists: `agents/compliance_checker/`).
+ *   - `compliance_check` — a norm check over the project, run by the general
+ *     agent with its retrieval tools (`TASK_ENGINES` in `lib/tasks/delegation.ts`).
  *   - `einreichcheck` — the builtin Einreichcheck skill, whose "Done" section
  *     is literally the work list.
  *   - `document` — write a document and file it as a draft version.
@@ -101,7 +101,7 @@ export type TaskFilingStatus = (typeof TASK_FILING_STATUSES)[number]
  * itself after the job it came from changed or vanished.
  */
 /**
- * The research plan a run waits on (ADR-0065), as the task card shows it.
+ * The research plan a run waits on (ADR-0068), as the task card shows it.
  * A frozen copy: the worker reads the live plan by `planId` when it starts.
  */
 export interface TaskPlanResearch {

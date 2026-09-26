@@ -7,7 +7,9 @@
  * was claimed, framed, like any other card (`GridCards`). One no marker
  * claimed is not a fallback-grid item: the answer argued from a Fundstelle and
  * the reader deserves to see which one, so it renders here — flat, in the
- * answer's own flow above the prose, as the RECHTSGRUNDLAGE block: the one
+ * answer's own flow right after the prose (the answer first, then the
+ * Fundstelle it argued from), once the answer is final, as the
+ * RECHTSGRUNDLAGE block: the one
  * Fundstelle line, the short quote, and the muted AI-transparency line. Never
  * both registers: `AgentResponse` takes the card out of the fallback indices
  * when it draws this block.

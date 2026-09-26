@@ -80,10 +80,35 @@ async def test_relay_writes_bus_frames_onto_the_local_socket(bus_and_peer):
     sock = _DummySocket()
     await reg.set_socket(CONV, sock)  # starts the relay subscriber
     await asyncio.sleep(0.05)
-    await peer.publish_frame(CONV, {"chunk": "abc"})  # a turn on another replica
+    published = await peer.publish_frame(CONV, {"chunk": "abc"})  # a turn on another replica
     await _wait(lambda: len(sock.sent) == 1)
-    assert sock.sent == [{"chunk": "abc"}]
+    # Tagged with its replay entry: the cursor a client that drops resumes from.
+    assert sock.sent == [{"chunk": "abc", "grid_frame_id": published.entry_id}]
+    assert published.entry_id
     await reg.clear_socket(CONV, sock)  # stops the relay
+
+
+@pytest.mark.asyncio
+async def test_a_frame_sent_with_no_socket_is_still_in_the_replay_stream(bus_and_peer):
+    bus, _peer = bus_and_peer
+    reg = WebSocketSessionRegistry()
+    # The socket dropped mid-turn: the send reports it was not delivered...
+    assert await reg.send(CONV, _Frame(text="missed")) is False
+    # ...and the frame waits in the stream for the client that comes back.
+    replayed = await bus.replay_frames(CONV)
+    assert replayed[-1].payload == {"text": "missed"}
+
+
+@pytest.mark.asyncio
+async def test_a_frame_sent_to_a_live_socket_carries_its_entry_id(bus_and_peer):
+    _bus, _peer = bus_and_peer
+    reg = WebSocketSessionRegistry()
+    sock = _DummySocket()
+    await reg.set_socket(CONV, sock)
+    assert await reg.send(CONV, _Frame(text="live")) is True
+    local = [f for f in sock.sent if f.get("text") == "live"]
+    assert local and local[0]["grid_frame_id"]
+    await reg.clear_socket(CONV, sock)
 
 
 @pytest.mark.asyncio

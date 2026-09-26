@@ -41,6 +41,7 @@
  * 404s outside development.
  */
 
+import type { JSX } from 'react'
 import { use, useEffect, useRef } from 'react'
 import { notFound } from 'next/navigation'
 import { I18nProvider } from '@/i18n'

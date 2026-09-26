@@ -291,6 +291,56 @@ body {
   touch-action: auto;
 }
 
+/* The graph's controls take a click and a tap. Its nodes are neither
+   selectable nor draggable, so React Flow sets `pointer-events: none` on every
+   node wrapper, and a click on a fold toggle, a „Quelle ansehen" button or a
+   branch option fell through to the pane: only the keyboard reached them.
+   Unit tests passed because `fireEvent` ignores pointer events (Herleitung
+   audit, 2026-09). */
+.reasoning-flow-scrollable .react-flow__node :is(button, a, [role='button']) {
+  pointer-events: all;
+}
+
+/* The newest row of a live Herleitung: a dot drops into each node where its
+   connector lands. A pseudo-element of the HTML node, moved by transform and
+   opacity only, so the compositor runs it; a looping animation on an SVG
+   connector cannot be composited and repainted the phone 60 times a second
+   (ReasoningFlow.tsx, `renderedNodes`). */
+@keyframes grid-frontier-drop {
+  0% {
+    transform: translate(-50%, -12px);
+    opacity: 0;
+  }
+  30% {
+    opacity: 1;
+  }
+  100% {
+    transform: translate(-50%, 0);
+    opacity: 0;
+  }
+}
+
+.reasoning-flow-scrollable .react-flow__node.reasoning-frontier::before {
+  content: '';
+  position: absolute;
+  top: -6px;
+  left: 50%;
+  width: 6px;
+  height: 6px;
+  border-radius: 9999px;
+  background: var(--muted-foreground);
+  pointer-events: none;
+  will-change: transform, opacity;
+  animation: grid-frontier-drop 1.2s var(--ease-out) infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .reasoning-flow-scrollable .react-flow__node.reasoning-frontier::before {
+    animation: none;
+    opacity: 0;
+  }
+}
+
 /* =============================================================================
    Theme-aware text color utilities
    Using KUI Foundations theme CSS variables for light/dark theme support
@@ -617,35 +667,79 @@ body {
    Guided "thinking" affordances
 
    While the assistant is working, a long wait should read as *active*, not
-   stalled. Two subtle, monochrome (paper-language) motions carry that: a soft
-   shimmer sweeping the live-activity label, and a slim indeterminate bar
-   sweeping under the status header. Both collapse to a static state under the
-   global prefers-reduced-motion rule above.
+   stalled. Two subtle, monochrome (paper-language) motions carry that: a
+   brighter band travelling across the live-activity label, and a slim
+   indeterminate bar sweeping under the status header. Both are transforms,
+   which the compositor runs without a repaint, and both collapse to a static
+   state under the global prefers-reduced-motion rule above.
    ============================================================================= */
-@keyframes grid-text-shimmer {
-  0% {
-    background-position: 150% 0;
+
+/* The travelling band of `ShimmerText` (components/ui/shimmer-text.tsx): a
+   full-ink copy of the label, seen through a window half its width (half and
+   double survive layout rounding exactly; 40% and 250% left the copy 0.03 px
+   narrower, enough to truncate a label that just fits). The
+   window slides across while the copy slides the other way by the same
+   distance, so the text stands still and only the bright band moves.
+
+   History, so it is not undone twice. The band was first a gradient swept
+   across gradient-clipped text by animating `background-position`, which no
+   compositor can run: the label repainted every frame of a turn, about half of
+   what a live turn cost a 4x throttled phone at rest. #757 made it an opacity
+   pulse, which runs on the compositor, but read as blinking, darkened the
+   label, and fought the label's own framer-motion opacity cross-fade: the
+   label flickered at every step (stream audit 2026-09, defect 2). Two
+   transforms keep the look and the cost, and touch no property anything else
+   animates. */
+@keyframes grid-shimmer-window {
+  from {
+    transform: translateX(-100%);
   }
-  100% {
-    background-position: -150% 0;
+  to {
+    transform: translateX(200%);
   }
 }
 
-/* Gradient-clipped text: a brighter ink band travels across muted-ink copy. */
-@utility animate-text-shimmer {
-  background-image: linear-gradient(
-    100deg,
-    var(--muted-foreground) 0%,
-    var(--muted-foreground) 38%,
-    var(--foreground) 50%,
-    var(--muted-foreground) 62%,
-    var(--muted-foreground) 100%
-  );
-  background-size: 220% 100%;
-  background-clip: text;
-  -webkit-background-clip: text;
-  color: transparent;
-  animation: grid-text-shimmer 2.6s linear infinite;
+@keyframes grid-shimmer-copy {
+  from {
+    transform: translateX(50%);
+  }
+  to {
+    transform: translateX(-100%);
+  }
+}
+
+@utility animate-shimmer-window {
+  animation: grid-shimmer-window var(--motion-ambient-slow) linear infinite;
+  will-change: transform;
+  /* Feathered edges: static in the window's own space, so they move with it. */
+  -webkit-mask-image: linear-gradient(90deg, transparent, #000 35%, #000 65%, transparent);
+  mask-image: linear-gradient(90deg, transparent, #000 35%, #000 65%, transparent);
+}
+
+@utility animate-shimmer-copy {
+  animation: grid-shimmer-copy var(--motion-ambient-slow) linear infinite;
+  will-change: transform;
+}
+
+/* The three dots of a turn waiting for its first step: a slow left-to-right
+   wave. The delays stay under the period, so the dots rise in order; at the
+   180 ms `--motion-quick` period a 240 ms delay wrapped, and the dots jittered
+   in the order 2, 1, 3. */
+@keyframes grid-typing-dot {
+  0%,
+  60%,
+  100% {
+    transform: translateY(0);
+    opacity: 0.45;
+  }
+  30% {
+    transform: translateY(-3px);
+    opacity: 1;
+  }
+}
+
+@utility animate-typing-dot {
+  animation: grid-typing-dot 1.2s ease-in-out infinite;
 }
 
 @keyframes grid-progress-sweep {
@@ -1126,4 +1220,107 @@ body {
   [data-sonner-toast] {
     animation: none !important;
   }
+}
+
+/* =============================================================================
+   ANSWER TABLES ON A PHONE (`MarkdownRenderer/table-shape.ts`).
+   A table of three or more columns (`data-stack`) stacks each row below 30rem
+   of its OWN container, the answer column or a tab, not the viewport: a row
+   becomes a block whose first cell is its title and whose other cells name
+   their column from `data-label`. Scrolling a four-column check sideways hid
+   the Status and the Fundstelle, the two cells a reader came for.
+   Unlayered on purpose: the cells carry Tailwind padding utilities, and only
+   an unlayered rule outranks the utilities layer on a phone without an
+   `!important` on every line.
+   ============================================================================= */
+@container answer-table (max-width: 30rem) {
+  table[data-stack] {
+    display: block;
+  }
+  table[data-stack] > thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+  table[data-stack] > tbody,
+  table[data-stack] > tbody > tr {
+    display: block;
+  }
+  table[data-stack] > tbody > tr {
+    padding: 0.5rem 0.75rem;
+  }
+  table[data-stack] > tbody > tr > td {
+    display: flex;
+    align-items: baseline;
+    gap: 0.75rem;
+    padding: 0.125rem 0;
+    text-align: left;
+  }
+  table[data-stack] > tbody > tr > td::before {
+    content: attr(data-label);
+    flex: 0 0 38%;
+    color: var(--muted-foreground);
+    font-size: 0.75rem;
+  }
+  table[data-stack] > tbody > tr > td:first-child {
+    font-weight: 600;
+    padding-bottom: 0.25rem;
+  }
+  table[data-stack] > tbody > tr > td:first-child::before {
+    display: none;
+  }
+  table[data-stack] > caption {
+    display: block;
+  }
+  table[data-stack][data-labels="above"] > tbody > tr > td {
+    display: block;
+  }
+  table[data-stack][data-labels="above"] > tbody > tr > td:not(:first-child)::before {
+    display: block;
+  }
+}
+
+/* A table whose cells hold sentences stacks at EVERY width (`data-stack="always"`,
+   `table-shape.ts`): each row a block, each cell under its column's name. */
+table[data-stack="always"] {
+  display: block;
+}
+table[data-stack="always"] > thead {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+table[data-stack="always"] > tbody,
+table[data-stack="always"] > tbody > tr {
+  display: block;
+}
+table[data-stack="always"] > tbody > tr {
+  padding: 0.75rem 1rem;
+}
+table[data-stack="always"] > tbody > tr > td {
+  display: block;
+  padding: 0.25rem 0;
+  text-align: left;
+}
+table[data-stack="always"] > tbody > tr > td::before {
+  content: attr(data-label);
+  display: block;
+  color: var(--muted-foreground);
+  font-size: 0.75rem;
+  font-weight: 500;
+}
+table[data-stack="always"] > tbody > tr > td:first-child {
+  font-weight: 600;
+}
+table[data-stack="always"] > tbody > tr > td:first-child::before {
+  display: none;
+}
+table[data-stack="always"] > caption {
+  display: block;
 }

@@ -186,7 +186,7 @@ class TestWhatItRefuses:
 
 
 class TestAPlannedRun:
-    """ADR-0065: the drafted plan and its run go to the BFF in one call."""
+    """ADR-0068: the drafted plan and its run go to the BFF in one call."""
 
     @pytest.fixture
     def posted(self, monkeypatch):

@@ -1460,6 +1460,19 @@ class TestSourceOriginToken:
         entry = SourceEntry(url="https://ris.bka.gv.at/GeltendeFassung.wxe", source_type="generic")
         assert source_origin_token(entry) == "[RIS]"
 
+    def test_a_ris_lookup_passage_is_ris_not_kb(self):
+        # A grounding-block hit, so knowledge_layer; the suite saw every § go out
+        # as "[KB] Bauordnung für Wien, § 63".
+        entry = SourceEntry(
+            citation_key="Bauordnung für Wien, § 63",
+            source_type="knowledge_layer",
+            tool_name="ris_lookup_tool",
+            collection="ris/LrKons/Wien",
+        )
+        assert source_origin_token(entry) == "[RIS]"
+        hydrated = SourceEntry(citation_key="x", source_type="knowledge_layer", collection="ris/kons")
+        assert source_origin_token(hydrated) == "[RIS]"
+
     def test_non_ris_web_source_is_not_labeled_ris(self):
         # A URL that merely contains "ris" elsewhere must not be mislabeled.
         entry = SourceEntry(url="https://paris-example.com/law", source_type="generic", tool_name="web_search_tool")
@@ -3244,6 +3257,16 @@ class TestCitedDocumentsKeepTheirShelf:
             )
         report = "Siehe Plan [1][2].\n\n**Quellen:**\n- [1] Plan.pdf, p.3\n- [2] Plan.pdf, p.9\n"
         assert len(cited_document_entries(report, registry)) == 1
+
+    def test_a_filename_inside_another_lands_name_is_not_cited(self):
+        # `Bauordnung.pdf` is a substring of `NÖ Bauordnung.pdf`: a filename scan
+        # of the section counted the other Land's code as cited. Each line is
+        # resolved as the verifier resolves it, so only the NÖ document is.
+        registry = SourceRegistry()
+        for name in ("Bauordnung.pdf", "NÖ Bauordnung.pdf"):
+            registry.add(SourceEntry(citation_key=f"{name}, p.3", source_type="knowledge_layer", collection="kb"))
+        report = "Abstand [1].\n\n**Quellen:**\n- [1] NÖ Bauordnung.pdf, p.3\n"
+        assert [entry.citation_key for entry in cited_document_entries(report, registry)] == ["NÖ Bauordnung.pdf, p.3"]
 
 
 class TestBindingClassification:

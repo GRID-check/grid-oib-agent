@@ -372,7 +372,7 @@ describe('the research op — an escalated question becomes a run', () => {
   })
 })
 
-describe('the plan op — the clarifier proposes a plan and the run that waits on it (ADR-0065)', () => {
+describe('the plan op — the clarifier proposes a plan and the run that waits on it (ADR-0068)', () => {
   const PLAN = {
     op: 'plan',
     projectId: PROJECT,

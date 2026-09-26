@@ -1,5 +1,6 @@
 'use client'
 
+import type { JSX } from 'react'
 import { useEffect, useState } from 'react'
 import { formatAbsoluteTime, formatRelativeTime } from '@/lib/format'
 

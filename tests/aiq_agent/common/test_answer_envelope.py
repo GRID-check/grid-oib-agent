@@ -16,6 +16,7 @@ from aiq_agent.agents.piloti.markers import detect_and_strip_confidence_marker
 from aiq_agent.common.answer_envelope import ANATOMY_FIELDS
 from aiq_agent.common.answer_envelope import CONTEXT_MAX_CHARS
 from aiq_agent.common.answer_envelope import ENVELOPE_VERSION
+from aiq_agent.common.answer_envelope import MASTHEAD_FIELDS
 from aiq_agent.common.answer_envelope import SUMMARY_MAX_CHARS
 from aiq_agent.common.answer_envelope import TOPIC_MAX_CHARS
 from aiq_agent.common.answer_envelope import AnswerMeta
@@ -106,6 +107,39 @@ class TestExtraction:
     def test_an_envelope_with_only_an_answer_yields_no_anatomy(self):
         prose, meta = extract_answer_envelope(_fenced({"answer": _PROSE}))
         assert prose == _PROSE
+        assert meta is None
+
+    def test_a_fence_inside_the_answer_does_not_end_the_envelope(self):
+        # The answer is Markdown, and Markdown carries fences: a ```mermaid
+        # drawing, a listing. The envelope used to end at the FIRST ``` after
+        # it, which is that inner fence, so the object was cut mid-string and
+        # the reader got raw JSON. It ends where its JSON object ends.
+        answer = 'Der Ablauf [1].\n\n```mermaid\nflowchart TD\n  A["Einreichung"] --> B\n```\n\nDanach [1].'
+        prose, meta = extract_answer_envelope(_fenced({"answer": answer, "verdict": _VERDICT}))
+        assert prose == answer
+        assert meta is not None and meta.verdict is not None
+
+    def test_a_fence_written_with_raw_newlines_does_not_end_it_either(self):
+        # `strict=False` exists because models write raw newlines inside JSON
+        # strings, so the inner fence can sit at the start of a real line.
+        content = (
+            '```answer_json\n{"answer": "Der Ablauf.\n\n```mermaid\nflowchart TD\n  A --> B\n```\n\nEnde.", '
+            '"verdict": {"value": "REI 60", "subject": "Feuerwiderstand"}}\n```'
+        )
+        prose, meta = extract_answer_envelope(content)
+        assert prose == "Der Ablauf.\n\n```mermaid\nflowchart TD\n  A --> B\n```\n\nEnde."
+        assert meta is not None and meta.verdict is not None
+
+    def test_the_trailer_form_keeps_a_fenced_drawing_in_the_outside_prose(self):
+        outside = "Der Ablauf.\n\n```mermaid\nflowchart TD\n  A --> B\n```"
+        prose, meta = extract_answer_envelope(outside + "\n\n" + _fenced({"verdict": _VERDICT}))
+        assert prose == outside
+        assert meta is not None and meta.verdict is not None
+
+    def test_an_empty_fence_does_not_take_a_brace_from_the_prose_after_it(self):
+        content = 'Loose prose\n```answer_json\n\n```\nlater {"a":1}'
+        prose, meta = extract_answer_envelope(content)
+        assert "later" in prose
         assert meta is None
 
     def test_non_string_content_passes_through(self):
@@ -457,9 +491,12 @@ class TestStrictResponseFormat:
 
         walk(render_envelope_response_format()["json_schema"]["schema"])
 
-    def test_answer_leads_and_the_enums_survive(self):
+    def test_the_masthead_leads_then_the_answer_and_the_enums_survive(self):
+        # The masthead is written first so it stands above the prose before
+        # its first word streams (ADR-0066); everything else follows the prose.
         schema = render_envelope_response_format()["json_schema"]["schema"]
-        assert next(iter(schema["properties"])) == "answer"
+        order = list(schema["properties"])
+        assert order[: len(MASTHEAD_FIELDS) + 1] == [*MASTHEAD_FIELDS, "answer"]
         assert schema["properties"]["answer"]["type"] == "string"
         callout = schema["properties"]["callout"]["anyOf"][0]
         assert callout["properties"]["kind"]["enum"] == ["hinweis", "achtung", "frist", "tipp"]
@@ -675,3 +712,45 @@ class TestSkillsApplied:
         assert "skills_applied: [string]" in render_envelope_schema()
         prop = render_envelope_response_format()["json_schema"]["schema"]["properties"]["skills_applied"]
         assert prop["items"] == {"type": "string"}
+
+
+class TestHeadlessSalvage:
+    """An envelope whose opening never arrived is salvaged; one that has its opening is not."""
+
+    def test_a_reply_that_lost_its_opening_is_salvaged(self):
+        content = 'Die Höhe beträgt 2,10 m [1].", "kind": "ruling"}\n```'
+        prose, meta = extract_answer_envelope(content)
+        assert prose == "Die Höhe beträgt 2,10 m [1]."
+        assert meta is not None and meta.kind == "ruling"
+
+    def test_a_headless_tail_is_cut_at_its_own_kind_not_a_nested_cards(self):
+        content = (
+            'Die Antwort.", "kind":"ruling", "cards":[{"type":"callout", "kind":"hinweis", "text":"Achtung"}]}\n```'
+        )
+        prose, meta = extract_answer_envelope(content)
+        assert prose == "Die Antwort."
+        assert meta is not None and meta.kind == "ruling"
+
+    def test_a_headless_tail_whose_only_kind_is_a_nested_cards_is_not_salvaged(self):
+        # The last `", "kind":` is the callout's: cutting there shipped a JSON
+        # fragment as prose under an invented kind.
+        content = 'Mehr Text hier.", "cards":[{"type":"callout", "kind":"hinweis", "text":"Achtung"}]}\n```'
+        prose, meta = extract_answer_envelope(content)
+        assert meta is None
+        assert "callout" in prose
+
+    def test_an_unparseable_object_with_its_opening_is_not_cut_at_a_nested_kind(self):
+        # Not JSON (``\q``), and the callout's own "kind" looks like a headless
+        # tail: salvage would ship a JSON fragment as prose under an invented kind.
+        content = (
+            '{"kind":"direct","answer":"Die Höhe gilt \\q nach Tabelle.", '
+            '"callout":{"title":"T", "kind":"achtung", "text":"x"}}'
+        )
+        assert extract_answer_envelope(content) == (content, None)
+
+    def test_an_unparseable_fenced_object_is_not_salvaged_either(self):
+        content = (
+            '```answer_json\n{"kind":"direct","answer":"Die Höhe gilt \\q nach Tabelle.", '
+            '"callout":{"title":"T", "kind":"achtung", "text":"x"}}\n```'
+        )
+        assert extract_answer_envelope(content) == (content, None)

@@ -262,23 +262,25 @@ class TestCitedIsClaimedOnlyForTheVerifiedReport:
     def test_a_document_verification_stripped_is_absent_from_the_final_cited_set(self):
         """The real verifier decides; the stream only reports its verdict.
 
-        The draft hangs a source URL the run never retrieved off a line that
-        names a REAL retrieved document. ``verify_citations`` reads the URL
-        first and drops the whole line, so the finished report no longer claims
-        that document at all — while the draft's source section still names it,
-        and a cited-set built from the draft would announce it.
+        The draft cites a document the run never retrieved, with a link to it.
+        ``verify_citations`` drops the whole line, so the finished report no
+        longer claims that document at all — while the draft's source section
+        still names it, and a cited-set built from the draft would announce it.
+        (A link off a line that names a RETRIEVED document no longer strips it:
+        the key decides, since a key-cited source verifies by its key.)
         """
+        never_retrieved = "oib-rl_3_ausgabe_mai_2023.pdf, p.4"
         registry = _run_registry()
         draft = (
             "Brandabschnitte sind auf 1.200 m2 zu begrenzen [1]. Fluchtwege duerfen "
             "40 m nicht ueberschreiten [2]. Die Rauchableitung ist nachzuweisen [1].\n\n"
             "## Quellen\n"
             f"- [1] [Web] Zusammenfassung: {REAL_URL}\n"
-            f"- [2] {OIB_KEY} - https://oib.example.org/rl2-nie-abgerufen\n"
+            f"- [2] {never_retrieved} - https://oib.example.org/rl3-nie-abgerufen\n"
         )
         verification = verify_citations(draft, registry)
         assert verification.removed_citations, "fixture no longer exercises a stripped citation"
-        assert OIB_KEY not in verification.verified_report
+        assert never_retrieved not in verification.verified_report
 
         callback = AgentEventCallback(source_registry=registry)
         emitted, patcher = _capture(callback)

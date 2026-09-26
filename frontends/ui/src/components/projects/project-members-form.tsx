@@ -1,5 +1,6 @@
 'use client'
 
+import type { JSX } from 'react'
 import { useCallback, useEffect, useId, useRef, useState } from 'react'
 import { useStore } from '@tanstack/react-form'
 import { toast } from 'sonner'

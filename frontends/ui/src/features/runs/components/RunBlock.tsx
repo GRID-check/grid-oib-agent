@@ -64,6 +64,7 @@
 
 'use client'
 
+import type { JSX } from 'react'
 import { type FC, type ReactNode, useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import { BookOpen, CheckCircle2, ChevronDown, FileText, XCircle } from 'lucide-react'
@@ -184,7 +185,7 @@ export interface RunBlockProps {
    */
   onContinue?: (() => void | Promise<void>) | null
   /**
-   * The plan the run waits on (ADR-0065), rendered first in the body: what
+   * The plan the run waits on (ADR-0068), rendered first in the body: what
    * the run is about before what it did.
    */
   plan?: ReactNode

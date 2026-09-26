@@ -349,7 +349,7 @@ class RunLedgerFold:
         self._schedule_flush()
 
     def replace_grundlage(self, docs: list[Any]) -> None:
-        """The Grundlage as the plan says it at start (ADR-0065).
+        """The Grundlage as the plan says it at start (ADR-0068).
 
         A plan the reader edited while the run waited names other documents
         than the payload did; the plan read at start is the one the run runs.
@@ -363,7 +363,7 @@ class RunLedgerFold:
         self._schedule_flush()
 
     def note_waiting(self) -> None:
-        """The run waits on its plan: ``wartet``, flushed at once (ADR-0065).
+        """The run waits on its plan: ``wartet``, flushed at once (ADR-0068).
 
         The one producer of the status the vocabulary reserved for a run that
         waits on a person. The BFF turns it into the inbox row and the block

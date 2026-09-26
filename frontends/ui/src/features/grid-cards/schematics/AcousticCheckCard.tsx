@@ -54,6 +54,7 @@ export const AcousticCheckCard: FC<AcousticCheckCardProps> = ({
 
   return (
     <SchematicCard
+      eyebrow={t('cards.kit.eyebrowCheck')}
       icon={Volume2}
       title={title}
       verdict={worstStatus(checks.map((c) => c.check.status))}

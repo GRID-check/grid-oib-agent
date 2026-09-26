@@ -1,4 +1,4 @@
-"""Waiting on a run's plan, and turning the plan into what the agent reads (ADR-0065).
+"""Waiting on a run's plan, and turning the plan into what the agent reads (ADR-0068).
 
 The run was commissioned with its plan, and its block shows the plan from the
 first second. The worker takes its slot and then waits here: until the plan's

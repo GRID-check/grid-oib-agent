@@ -32,6 +32,7 @@
  * whose dev server captured it.
  */
 
+import type { JSX } from 'react'
 import { useEffect, useState } from 'react'
 import { notFound } from 'next/navigation'
 

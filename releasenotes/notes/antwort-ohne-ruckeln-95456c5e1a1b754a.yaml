@@ -1,0 +1,24 @@
+---
+fixes:
+  - >
+    Eine Antwort, deren Quellen beim Abschluss neu nummeriert werden, springt
+    nicht mehr zurück und tippt sich neu ab. Die fertige Antwort erscheint im
+    selben Moment, in dem sich die Herleitung zusammenklappt, und die ersten
+    Worte erscheinen sofort.
+  - >
+    Tabellen füllen sich beim Schreiben Zelle für Zelle, statt Zeile für Zeile
+    zu stocken.
+  - >
+    Der Hinweis, woran Piloti gerade arbeitet, flackert nicht mehr und ist auf
+    dem Telefon wieder lesbar; ein heller Streifen läuft über ihn. In der
+    Herleitung fällt ein Punkt in den neuesten Schritt, ohne das Telefon zu
+    belasten.
+  - >
+    Die Knöpfe in der Herleitung (Ebenen falten, Quelle ansehen) reagieren
+    wieder auf Klick und Tippen. Bei der ersten Frage eines neuen Chats läuft
+    die Seite nicht mehr der wachsenden Herleitung hinterher.
+  - >
+    Der Chat bleibt auf dem Telefon auch mit langem Verlauf flüssig: Eine
+    entstehende Antwort zeichnet frühere Antworten nicht mehr bei jedem Wort
+    neu, und Tippen, jeder Schritt der Herleitung und das Öffnen der Antwort
+    speichern nicht mehr den ganzen Verlauf im Browser.

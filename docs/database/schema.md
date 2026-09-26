@@ -35,7 +35,7 @@ All schemas are in `frontends/ui/src/lib/db/schema/` and barrel-exported from `i
 | `jobs.ts` | `skills`, `jobs`, `job_runs` — the last two LEGACY since 0086; they are not written or read after the cutover and migration 0087 drops them |
 | `tasks.ts` | `tasks` — LEGACY since 0086, same |
 | `task-model.ts` | `task_definitions`, `task_runs` — the collapsed model (migration 0086) |
-| `research-plans.ts` | `research_plans` — the plan a deep research waits on (migration 0092, ADR-0065) |
+| `research-plans.ts` | `research_plans` — the plan a deep research waits on (migration 0092, ADR-0068) |
 
 ---
 
@@ -579,7 +579,7 @@ export const userPreferences = pgTable('user_preferences', {
 
 ---
 
-## research_plans (migration 0092, ADR-0065)
+## research_plans (migration 0092, ADR-0068)
 
 The plan a deep research is about, as one row the clarifier, the reader and the
 worker all read. It used to be prose in an agent message and a chat reply the

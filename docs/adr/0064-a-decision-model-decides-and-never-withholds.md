@@ -67,6 +67,28 @@ Every decision leaves `status:decision:<slot>` on the technical channel with
 its answers as numbers, its latency and, when it did not run, why; its cost
 is on the ledger under the `decision` role (`common/decisions.py`).
 
+*Amended 2026-09-25:* one exception to "run as today". When the decision did
+not run, a question that `family_query_number` recognises still prefetches
+its own search (`agents/piloti/decisions.py::_undecided_prefetch`). It is the
+evidence question by construction, and the decision missed its 1.5 s budget
+in 10 of 12 live calls (p50 2.7 s, measured 2026-09-23). The next day's suites
+measured it at a median 0.54 s, p90 0.62 s
+([turn-latency §3.1](../architecture/turn-latency-measured-2026-09.md#31-the-sequence)),
+with the same endpoint (OpenRouter's alpha `/decisions`), timeout and shared
+client; the one change to `common/decisions.py` in between logs a skipped
+decision and does not touch the call. The difference is
+the alpha endpoint's own latency on those days, not a change in the repo, and
+the later figure, taken over two suites rather than twelve calls, is the
+current one. The exception stays for the turns it still misses (a timeout,
+the breaker open, a first message too short to be decided). This adds a
+fetch and withholds nothing. It shipped on 2026-09-23 with the logging of
+every skipped decision and its reason (`common/decisions.py`; a first
+message too short to be decided is logged and recorded as `too_short` by
+`agents/piloti/register.py`). Only on a first
+message: on a follow-up (the turn has a previous message) nothing is
+prefetched without a decision, as the decided path refuses a follow-up that
+cannot be searched on its own.
+
 **Use 1 — the turn-start decision** (`agents/piloti/decisions.py`,
 `register.py::_decide_turn`). One request beside the skill resolution:
 `needs_evidence`, `corpus` (baurecht / projekt / buero / modell / none), one
@@ -110,6 +132,57 @@ noul per candidate, sorted by it. An option beside the cross-encoder, not the
 default: the vendor's own legal-retrieval numbers (top-1 5 % → 18 %, top-10
 38 % → 62 %) are a useful reranker's, not a trained cross-encoder's, and the
 golden set decides.
+
+*Amended 2026-09-26:* three annotations off the reader's path. Each labels
+something a person or the agent reads; none of them withholds anything, and
+each acts only at 0.8.
+
+**Use 4 — ingestion tags** (`knowledge/document_classification.py`,
+`decide_document_tags`). The document type and the 0–3 OIB disciplines stored
+with every upload were a generative call on `summary_llm` returning a JSON
+array that a post-filter held to the vocabulary. They are one choice over the
+twelve types and one noul per discipline, over the text the summary reads;
+below 0.8 on the type, or when no decision ran, the prompt tags as before.
+Tags annotate a file (the inventory line, the Files panel) and nothing filters
+on them. Tuning set (twelve hand-labelled German openings): types 12/12 (the
+prompt on the default model: 11/12), 0.2–0.3 s against 0.8–1.9 s, $0.00005 per
+document; clear disciplines at 0.96–0.98, everything else at or below 0.52, so
+no false tag at 0.8, where the prompt had one. The decider does not tag a plan
+Brandschutz for drawing a compartment line, which is what the prompt's own
+„nur wenn der Fachbereich eindeutig zutrifft" asks. One type only: the old
+second type was a choice's runner-up, which cannot reach 0.8. Ingestion has no
+request context, so the org id travels in the job config and the endpoint
+resolves ZDR by the id it is given (`common/decisions._zdr_only_blocking`).
+
+**Use 8 — a Dokumentart for a person to accept**
+(`knowledge/document_classification.suggest_doc_class`). A base-corpus file
+whose name carries no OIB hint lands in `sonstiges`, the neutral lane, until a
+platform owner reclassifies it. At ingestion the decision model chooses one of
+the nine classes from the text; a pick at 0.8 or above that is not `sonstiges`
+is stored BESIDE the class (`document_metadata.doc_class_suggestion`), never as
+it, and the base-knowledge page offers it under the picker („Aus dem Text
+erkannt: … Übernehmen"). Accepting is the same PATCH the picker sends, and any
+PATCH clears the offer. `doc_class` drives lanes and source kinds, so it stays
+human-set. Tuning set (twelve openings under hint-less file names): 12/12 at
+0.97–1.00, where the filename guess had 3/12.
+
+**Use 9 — why a down-vote was cast** (`common/feedback_causes.py`, the
+feedback digest route). A down-vote carries one of four coarse chips and
+sometimes a comment; the comment names the defect („In GK 4 ist es R 60",
+„Das ist die Wiener Regelung, wir sind in Tirol" are both `inaccurate` to the
+chip). When the digest is built, each sampled down-vote is filed under one of
+ten causes by a choice over its question, chip and comment; the counts go into
+the digest's brief and back to the Quality page as one line. A label below 0.8
+is left unlabelled, not guessed. The comment now leaves the BFF with its
+sample, fenced as data like the question. Tuning set (sixteen down-votes):
+16/16.
+
+**Held out.** The tuning numbers above were measured on the rows the criteria
+were written against. A held-out set per use, written blind to the wording from
+plain label definitions (`tests/fixtures/decisions/holdout/`,
+`task be:eval:decisions:holdout`, never tuned on): tags 24/24 types, 13 of 14
+disciplines, no false one; Dokumentart 13/13 offered right, none wrong;
+feedback causes 20/24 right, 1 wrong, 3 left unlabelled.
 
 **Not a use.** Intent or model routing, the escalation decision, confidence,
 verdict extraction, anything whose wrong answer removes a capability
@@ -187,6 +260,8 @@ numbers above are one run on German questions the product actually gets.
 - `tests/aiq_agent/agents/piloti/test_turn_decisions.py`,
   `test_register_decisions.py`: the question set, the bounded state, the
   mapping to effects, and that a decision that did not run changes nothing.
+  *Amended 2026-09-25:* except the family question's own prefetch above,
+  which adds a fetch and withholds nothing.
 - `tests/aiq_agent/agents/piloti/test_prefetch_round.py`, through the
   compiled graph: round 0 runs before the first call, costs no budget, is
   drawn as `status:retrieval:0`, answers the model's repeat, and never runs
@@ -194,6 +269,15 @@ numbers above are one run on German questions the product actually gets.
 - `tests/knowledge_layer_tests/test_decisions_in_retrieval.py`: a sufficient
   head costs no judge call, an absent decision runs the judge, a flagged
   passage is kept, the reranker's order.
+- `tests/knowledge_layer_tests/test_document_classification.py`: the tag
+  questions are the vocabulary, a decision replaces the generative call, an
+  unsure or failed one falls back to it; the Dokumentart is offered, never set.
+- `tests/aiq_agent/common/test_feedback_causes.py`, `frontends/aiq_api/tests/test_feedback_digest.py`:
+  each down-vote asked with its comment, an unsure label left out, a
+  labelling failure leaves the digest whole.
+- `tests/conftest.py::_no_live_decisions` (and its twin in
+  `frontends/aiq_api/tests/conftest.py`): the suites never reach the live
+  endpoint unless a test turns decisions on and stubs it.
 - `tests/test_decision_eval.py`: the adoption gate's arithmetic;
   `tests/fixtures/herleitung/decision_eval_2026-09-22.csv`: its last result.
 

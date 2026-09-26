@@ -85,7 +85,7 @@ export const POST = internalApiRoute(
     }
 
     if (body.op === 'plan') {
-      // The plan and its run, in one step (ADR-0065). The thread comes from
+      // The plan and its run, in one step (ADR-0068). The thread comes from
       // the signed envelope for the same reason it does for `research`.
       if (!context.conversationId) {
         throw new ConflictError('A planned run needs the thread it was asked in')

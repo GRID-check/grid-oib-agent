@@ -14,8 +14,10 @@ import type {
   CitationSource,
   AnswerTransparency,
   HumanPromptInputType,
+  ResumableTurn,
 } from '../types'
 import type { DraftMention } from '@/features/collaboration/lib/mention-text'
+import { turnAnswerId } from '@/lib/conversations/turn-answer-id'
 import type { GridCard } from '@/shared/cards/schemas'
 import type { CardDecision, CardInteractions } from '@/features/grid-cards/card-decision'
 import { reconcileCardInteractions } from '@/features/grid-cards/card-decision'
@@ -29,6 +31,7 @@ import {
   type MessageStages,
 } from '@/lib/conversations/message-stages'
 import type { StageId } from '@/adapters/api/schemas'
+import type { AnswerMeta } from '@/lib/conversations/message-answer-meta'
 
 /**
  * One post-answer stage frame, narrowed to what the store acts on
@@ -99,6 +102,13 @@ export type MessagesSlice = {
    * ever hold an id the backend has actually used.
    */
   currentTurnWsParentId: string | null
+  /**
+   * When this browser sent the current turn's question (epoch ms), so the
+   * answer can carry how long it took. This browser's clock at both ends:
+   * the user message's own timestamp is replaced by the server's, and the
+   * difference between two clocks is not a duration.
+   */
+  currentTurnStartedAt: number | null
   thinkingSteps: ThinkingStep[]
   activeThinkingStepId: string | null
   streamingAssistantMessageId: string | null
@@ -190,7 +200,19 @@ export type MessagesSlice = {
     content: string,
     cards?: (GridCard | undefined)[],
     answerConfidence?: 'low' | 'medium' | 'high',
-    citations?: CitationSource[]
+    citations?: CitationSource[],
+    answerMeta?: AnswerMeta
+  ) => void
+  /**
+   * Replace the streaming bubble's text with a settled snapshot (ADR-0066):
+   * the prose so far with its `[N]` markers verified and renumbered, the
+   * sources they now point at, and the masthead re-gated against the prose.
+   * The bubble keeps streaming; the terminal frame still finalizes it.
+   */
+  replaceStreamingAgentResponse: (
+    content: string,
+    citations?: CitationSource[],
+    answerMeta?: AnswerMeta
   ) => void
   finalizeAgentResponse: (
     content: string,
@@ -204,6 +226,10 @@ export type MessagesSlice = {
    * turn — every frame of a turn carries the same `parent_id`.
    */
   setTurnWsParentId: (wsParentId: string) => void
+  /** See `ChatActions.markTurnWsParentId`. */
+  markTurnWsParentId: (userMessageId: string, wsParentId: string) => void
+  /** See `ChatActions.resumeTurn`. */
+  resumeTurn: (conversationId: string) => ResumableTurn | null
   /**
    * Apply a post-answer stage frame to the turn it addresses
    * (`docs/architecture/post-answer-stages.md` §4.3, §8).
@@ -478,11 +504,21 @@ const createNewConversation = (userId: string): Conversation => ({
   updatedAt: new Date(),
 })
 
+/**
+ * How often buffered answer deltas reach the store while an answer streams.
+ * Each flush re-renders everything subscribed to the open conversation; once
+ * per animation frame, that was a 50–70 ms task every few frames on a 4×
+ * throttled CPU. What the reader sees is paced separately (`usePacedText`),
+ * so the flush can be this coarse without the text arriving in steps.
+ */
+export const DELTA_FLUSH_MS = 100
+
 export const initialMessagesState = {
   isStreaming: false,
   isLoading: false,
   currentUserMessageId: null as string | null,
   currentTurnWsParentId: null as string | null,
+  currentTurnStartedAt: null as number | null,
   thinkingSteps: [] as ThinkingStep[],
   activeThinkingStepId: null as string | null,
   streamingAssistantMessageId: null as string | null,
@@ -502,6 +538,26 @@ export const initialMessagesState = {
  * to today's single-shot response for the same store state — this is what
  * preserves backward compatibility.
  */
+/**
+ * The id this turn's answer is created under: the one the backend would persist
+ * it under, once the turn's WS id is known (see `turnAnswerId`), so an answer
+ * written by both tiers is one row. A fresh uuid before that.
+ */
+const answerIdFor = (state: ChatStore): string =>
+  state.currentConversation && state.currentTurnWsParentId
+    ? turnAnswerId(state.currentConversation.id, state.currentTurnWsParentId)
+    : uuidv4()
+
+/**
+ * How long the current turn took, from the question being sent to now, or
+ * undefined when this browser did not see the question go out.
+ */
+const turnDurationMs = (state: ChatStore): number | undefined => {
+  if (state.currentTurnStartedAt === null) return undefined
+  const elapsed = Date.now() - state.currentTurnStartedAt
+  return elapsed > 0 ? elapsed : undefined
+}
+
 const buildAgentResponseMessage = (
   state: ChatStore,
   id: string,
@@ -524,6 +580,10 @@ const buildAgentResponseMessage = (
     answerConfidence: opts.answerConfidence,
     citations: opts.citations && opts.citations.length > 0 ? opts.citations : undefined,
     ...(opts.isStreaming ? { isStreaming: true } : {}),
+    // A streamed bubble is stamped when it finalizes; a one-shot one is final now.
+    ...(!opts.isStreaming && turnDurationMs(state) !== undefined
+      ? { answerDurationMs: turnDurationMs(state) }
+      : {}),
     // Which WS turn this answer belongs to, so a stage frame that arrives
     // seconds later can find it. Stamped as the bubble is built rather than
     // patched on afterwards: the turn key is known before the first delta, and
@@ -592,29 +652,49 @@ export const createMessagesSlice: StateCreator<
   // --- Streamed-delta batching ------------------------------------------------
   // Rather than rebuilding the whole conversation object on every token (one
   // set() per delta), subsequent answer deltas accumulate in this buffer and
-  // flush to the store once per animation frame. In the browser this collapses
-  // N per-token writes into ~1 per frame; in non-DOM / test envs we flush
-  // synchronously so `append` then a synchronous read still observes the text.
+  // flush to the store every `DELTA_FLUSH_MS`. Every flush re-renders what
+  // subscribes to the conversation, so it is coarse on purpose: the reader
+  // does not see the flush cadence, because the answer paces its own reveal
+  // (`usePacedText`). In non-DOM / test envs we flush synchronously so
+  // `append` then a synchronous read still observes the text.
   let pendingDeltaText = ''
   let pendingDeltaMeta: {
     cards?: (GridCard | undefined)[]
     answerConfidence?: 'low' | 'medium' | 'high'
     citations?: CitationSource[]
+    answerMeta?: AnswerMeta
   } = {}
-  let deltaRafHandle: number | null = null
+  // Whether the open bubble's cards or masthead came from a LIVE frame
+  // (ADR-0066) rather than the legacy single in_progress frame. Live ones are
+  // provisional: a terminal that carries none (the cards were suppressed, the
+  // masthead gated out) takes them away again.
+  let liveMetaShown = false
+  /**
+   * Is this in_progress frame one of the live frames that carry only what sits
+   * around the prose (the masthead ahead of it, the cards after it)? Those are
+   * written with no text of their own (`live_chunk("", …)` in
+   * `aiq_agent/turn/streaming.py`). A frame that carries text as well is the
+   * legacy shape, whose cards are final and must survive a terminal that omits
+   * them.
+   */
+  const isLiveExtrasFrame = (
+    content: string,
+    cards: (GridCard | undefined)[] | undefined,
+    answerMeta: AnswerMeta | undefined
+  ): boolean => !content && (Boolean(answerMeta) || (cards?.length ?? 0) > 0)
+  let deltaFlushTimer: ReturnType<typeof setTimeout> | null = null
 
   const canBatchDeltas = (): boolean =>
     typeof window !== 'undefined' &&
-    typeof window.requestAnimationFrame === 'function' &&
     // Keep tests deterministic: they append then read synchronously, so never
     // defer under vitest (NODE_ENV is statically 'production'/'development' in
     // the browser bundle, so this branch tree-shakes out there).
     process.env.NODE_ENV !== 'test'
 
   const cancelScheduledFlush = (): void => {
-    if (deltaRafHandle !== null) {
-      window.cancelAnimationFrame(deltaRafHandle)
-      deltaRafHandle = null
+    if (deltaFlushTimer !== null) {
+      clearTimeout(deltaFlushTimer)
+      deltaFlushTimer = null
     }
   }
 
@@ -638,6 +718,7 @@ export const createMessagesSlice: StateCreator<
     const hasMeta =
       (meta.cards && meta.cards.length > 0) ||
       !!meta.answerConfidence ||
+      !!meta.answerMeta ||
       (meta.citations && meta.citations.length > 0)
     if (text === '' && !hasMeta) return
 
@@ -665,14 +746,17 @@ export const createMessagesSlice: StateCreator<
               : {}),
             ...(meta.answerConfidence ? { answerConfidence: meta.answerConfidence } : {}),
             ...(meta.citations && meta.citations.length > 0 ? { citations: meta.citations } : {}),
+            ...(meta.answerMeta ? { answerMeta: meta.answerMeta } : {}),
           }
         : msg
     )
 
+    // No `updatedAt` bump: the turn's start already set it and its settle sets
+    // it again. Stamping every flush made the conversation's sidebar row a new
+    // row ten times a second, re-sorting and re-rendering the whole list with it.
     const updatedConversation: Conversation = {
       ...currentConversation,
       messages: updatedMessages,
-      updatedAt: new Date(),
     }
 
     set(
@@ -686,11 +770,11 @@ export const createMessagesSlice: StateCreator<
   }
 
   const scheduleDeltaFlush = (): void => {
-    if (deltaRafHandle !== null) return
-    deltaRafHandle = window.requestAnimationFrame(() => {
-      deltaRafHandle = null
+    if (deltaFlushTimer !== null) return
+    deltaFlushTimer = setTimeout(() => {
+      deltaFlushTimer = null
       flushDeltaBuffer()
-    })
+    }, DELTA_FLUSH_MS)
   }
 
   return {
@@ -901,7 +985,6 @@ export const createMessagesSlice: StateCreator<
         updatedConversation = {
           ...currentConversation,
           messages: updatedMessages,
-          updatedAt: new Date(),
         }
 
         updatedConversations = updateConversationInList(conversations, updatedConversation)
@@ -955,7 +1038,6 @@ export const createMessagesSlice: StateCreator<
         updatedConversation = {
           ...currentConversation,
           messages: updatedMessages,
-          updatedAt: new Date(),
         }
 
         updatedConversations = updateConversationInList(conversations, updatedConversation)
@@ -999,7 +1081,6 @@ export const createMessagesSlice: StateCreator<
         updatedConversation = {
           ...currentConversation,
           messages: updatedMessages,
-          updatedAt: new Date(),
         }
 
         updatedConversations = updateConversationInList(conversations, updatedConversation)
@@ -1052,7 +1133,6 @@ export const createMessagesSlice: StateCreator<
         updatedConversation = {
           ...currentConversation,
           messages: updatedMessages,
-          updatedAt: new Date(),
         }
 
         updatedConversations = updateConversationInList(conversations, updatedConversation)
@@ -1229,6 +1309,7 @@ export const createMessagesSlice: StateCreator<
           conversations: updatedConversations,
           isLoading: true,
           currentUserMessageId: newMessage.id,
+          currentTurnStartedAt: Date.now(),
           // A new turn is a new WS turn id; the old one must not leak onto the
           // next answer, or a late stage frame from the previous turn would find
           // two messages claiming to be its target.
@@ -1257,7 +1338,7 @@ export const createMessagesSlice: StateCreator<
       const { currentConversation, conversations } = state
       if (!currentConversation) return
 
-      const responseMessage = buildAgentResponseMessage(state, uuidv4(), content, {
+      const responseMessage = buildAgentResponseMessage(state, answerIdFor(state), content, {
         cards,
         answerConfidence,
         citations,
@@ -1303,7 +1384,8 @@ export const createMessagesSlice: StateCreator<
       content: string,
       cards?: (GridCard | undefined)[],
       answerConfidence?: 'low' | 'medium' | 'high',
-      citations?: CitationSource[]
+      citations?: CitationSource[],
+      answerMeta?: AnswerMeta
     ) => {
       const state = get()
       const { currentConversation, conversations, streamingAssistantMessageId } = state
@@ -1315,20 +1397,39 @@ export const createMessagesSlice: StateCreator<
       // it survives to the finalize step. Reset the batch buffer so no stale text
       // from a prior turn can bleed into this fresh bubble.
       if (!streamingAssistantMessageId) {
+        // Whitespace is text only BETWEEN words: a paragraph break the relay
+        // batched into a frame of its own keeps two paragraphs apart once the
+        // bubble is open, but as the turn's first frame it would open a bubble
+        // with nothing to draw, which takes the typing placeholder down and
+        // leaves the reader a blank until the first word. Mirrored by the
+        // observer's fold (spectator-frames.ts).
+        const nothingToDraw =
+          !content.trim() &&
+          !(cards && cards.length > 0) &&
+          !(citations && citations.length > 0) &&
+          !answerMeta
+        if (nothingToDraw) return
         resetDeltaBuffer()
+        liveMetaShown = isLiveExtrasFrame(content, cards, answerMeta)
 
-        const id = uuidv4()
+        const id = answerIdFor(state)
         const message = buildAgentResponseMessage(state, id, content, {
           cards: cards && cards.length > 0 ? cards : undefined,
           answerConfidence,
           citations,
           isStreaming: true,
+          // The masthead can open the bubble: it is written before the prose.
+          transparency: answerMeta ? { answerMeta } : undefined,
         })
 
+        // No `updatedAt` bump: the send set it and the settle sets it again.
+        // A bump here made the opening a full write of the persisted history
+        // (1.97 MB and a 330 ms freeze with 40 conversations on a 4× throttled
+        // phone, the moment the first words appeared); the snapshot, the
+        // steps and the deltas leave it alone for the same reason.
         const updatedConversation: Conversation = {
           ...currentConversation,
           messages: [...currentConversation.messages, message],
-          updatedAt: new Date(),
         }
 
         set(
@@ -1351,12 +1452,74 @@ export const createMessagesSlice: StateCreator<
       if (cards && cards.length > 0) pendingDeltaMeta.cards = cards
       if (answerConfidence) pendingDeltaMeta.answerConfidence = answerConfidence
       if (citations && citations.length > 0) pendingDeltaMeta.citations = citations
+      if (answerMeta) pendingDeltaMeta.answerMeta = answerMeta
+      if (isLiveExtrasFrame(content, cards, answerMeta)) liveMetaShown = true
 
       if (canBatchDeltas()) {
         scheduleDeltaFlush()
       } else {
         flushDeltaBuffer()
       }
+    },
+
+    // Mirrored by the observer's fold (collaboration/lib/spectator-frames.ts): change both.
+    replaceStreamingAgentResponse: (
+      content: string,
+      citations?: CitationSource[],
+      answerMeta?: AnswerMeta
+    ) => {
+      if (!get().currentConversation) return
+      // An empty snapshot naming no sources is the backend retracting a
+      // streamed round (AnswerStreamSink.retract).
+      const retraction = content === '' && !(citations && citations.length > 0)
+      // No bubble yet (a turn whose first live frame is the snapshot): open it,
+      // unless it is a retraction, which has nothing on screen to take back.
+      if (!get().streamingAssistantMessageId) {
+        if (retraction) return
+        get().appendAgentResponseDelta(content, undefined, undefined, citations, answerMeta)
+        // A snapshot is a live frame whatever text it carries: its masthead is
+        // as provisional as one that came ahead of the prose.
+        if (answerMeta) liveMetaShown = true
+        return
+      }
+      // Buffered delta text is part of what the snapshot replaces: the backend
+      // sends it only after every delta it settles. Buffered meta is not: live
+      // cards or confidence that arrived in the same frame land first.
+      pendingDeltaText = ''
+      flushDeltaBuffer()
+      const { currentConversation, conversations, streamingAssistantMessageId } = get()
+      if (!currentConversation || !streamingAssistantMessageId) return
+      if (answerMeta) liveMetaShown = true
+      // A retraction's cards go with its text, and the decisions keyed by
+      // their positions with them: otherwise the next round's [[card:0]]
+      // draws the dead round's card.
+      const updatedConversation: Conversation = {
+        ...currentConversation,
+        messages: currentConversation.messages.map((msg) =>
+          msg.id === streamingAssistantMessageId
+            ? {
+                ...msg,
+                ...(retraction ? { cards: undefined, cardInteractions: undefined } : {}),
+                content,
+                // A snapshot names the sources its text cites, all of them: an
+                // empty one (a streamed round retracted) cites nothing.
+                citations: citations && citations.length > 0 ? citations : undefined,
+                // The backend re-gates the masthead against the snapshot's
+                // prose, so a snapshot without one has gated it out: the
+                // masthead on screen goes, as the spectator's does.
+                answerMeta,
+              }
+            : msg
+        ),
+      }
+      set(
+        {
+          currentConversation: updatedConversation,
+          conversations: updateConversationInList(conversations, updatedConversation),
+        },
+        false,
+        'replaceStreamingAgentResponse'
+      )
     },
 
     finalizeAgentResponse: (
@@ -1372,6 +1535,7 @@ export const createMessagesSlice: StateCreator<
 
       const { currentConversation, conversations, streamingAssistantMessageId } = get()
       if (!currentConversation) return
+      const answerDurationMs = turnDurationMs(get())
 
       // No bubble was ever opened (no delta arrived) — e.g. a complete-only frame
       // that carries the whole answer. Fall back to a one-shot response so there
@@ -1384,14 +1548,25 @@ export const createMessagesSlice: StateCreator<
         return
       }
 
+      // A terminal with the full text is authoritative for what the live
+      // frames showed ahead of it, absence included.
+      // Blank is not text: the spectator's fold uses the same test.
+      const authoritative = Boolean(content && content.trim())
+      const retractLive = liveMetaShown && authoritative
+      liveMetaShown = false
       const updatedMessages = currentConversation.messages.map((msg) => {
         if (msg.id !== streamingAssistantMessageId) return msg
         return {
           ...msg,
+          // The decisions are keyed by card position: they go with the cards
+          // (a terminal that re-sends cards reconciles them below instead).
+          ...(retractLive
+            ? { cards: undefined, cardInteractions: undefined, answerMeta: undefined }
+            : {}),
           // Authoritative full text on the terminal frame equals the accumulation
           // (idempotent replace). An EMPTY terminal — the legacy synthetic
           // `complete` frame — must NOT wipe the accumulated bubble.
-          content: content && content.length > 0 ? content : msg.content,
+          content: authoritative ? content : msg.content,
           // Cards/sources/confidence ride the terminal frame when streaming; keep
           // whatever the delta already attached when the terminal omits them (the
           // legacy path attaches cards on the in_progress frame).
@@ -1402,7 +1577,15 @@ export const createMessagesSlice: StateCreator<
               }
             : {}),
           ...(answerConfidence ? { answerConfidence } : {}),
-          ...(citations && citations.length > 0 ? { citations } : {}),
+          // The citations are numbered against the text, so they go with it:
+          // a terminal with text and no sources cites nothing verified, and
+          // the snapshot's chips must not outlive the prose they belonged to.
+          // An empty terminal keeps them with the text it keeps.
+          ...(citations && citations.length > 0
+            ? { citations }
+            : authoritative
+              ? { citations: undefined }
+              : {}),
           // Transparency extras ride the terminal frame; attach only what's present.
           ...(transparency?.routingDecision
             ? { routingDecision: transparency.routingDecision }
@@ -1436,6 +1619,7 @@ export const createMessagesSlice: StateCreator<
           ...(transparency?.skillsActivated && transparency.skillsActivated.length > 0
             ? { skillsActivated: transparency.skillsActivated }
             : {}),
+          ...(answerDurationMs !== undefined ? { answerDurationMs } : {}),
           isStreaming: false,
         }
       })
@@ -1483,6 +1667,67 @@ export const createMessagesSlice: StateCreator<
       if (!wsParentId) return
       if (get().currentTurnWsParentId === wsParentId) return
       set({ currentTurnWsParentId: wsParentId }, false, 'setTurnWsParentId')
+    },
+
+    markTurnWsParentId: (userMessageId: string, wsParentId: string) => {
+      const { currentConversation, conversations } = get()
+      if (!currentConversation || !wsParentId) return
+      const index = currentConversation.messages.findIndex((m) => m.id === userMessageId)
+      if (index < 0 || currentConversation.messages[index]?.wsParentId === wsParentId) return
+      const messages = [...currentConversation.messages]
+      messages[index] = { ...messages[index]!, wsParentId }
+      // No `updatedAt` bump: a local handle on the turn, not something said.
+      const updatedConversation: Conversation = { ...currentConversation, messages }
+      set(
+        {
+          currentConversation: updatedConversation,
+          conversations: updateConversationInList(conversations, updatedConversation),
+        },
+        false,
+        'markTurnWsParentId'
+      )
+    },
+
+    resumeTurn: (conversationId: string) => {
+      const {
+        resumableTurn: turn,
+        currentConversation,
+        conversations,
+        thinkingSteps,
+        isStreaming,
+      } = get()
+      if (!turn || turn.conversationId !== conversationId) return null
+      // Something newer owns the conversation: a question sent since, or a
+      // turn already streaming. The reload's turn is not the current one.
+      const last = currentConversation?.messages.findLast((m) => m.messageType === 'user')
+      if (isStreaming || !currentConversation || last?.id !== turn.userMessageId) {
+        set({ resumableTurn: null }, false, 'resumeTurn:stale')
+        return null
+      }
+      const messages = currentConversation.messages.map((m) =>
+        m.id === turn.userMessageId && m.thinkingSteps ? { ...m, thinkingSteps: undefined } : m
+      )
+      const updatedConversation: Conversation = { ...currentConversation, messages }
+      set(
+        {
+          resumableTurn: null,
+          currentUserMessageId: turn.userMessageId,
+          currentTurnWsParentId: turn.wsParentId,
+          // The question went out before the reload, from a page that is gone:
+          // no start this browser saw, so no duration rather than a wrong one.
+          currentTurnStartedAt: null,
+          streamingAssistantMessageId: null,
+          thinkingSteps: thinkingSteps.filter((s) => s.userMessageId !== turn.userMessageId),
+          activeThinkingStepId: null,
+          isStreaming: true,
+          isLoading: true,
+          currentConversation: updatedConversation,
+          conversations: updateConversationInList(conversations, updatedConversation),
+        },
+        false,
+        'resumeTurn'
+      )
+      return turn
     },
 
     applyStageFrame: (frame: StageFrame): string | null => {

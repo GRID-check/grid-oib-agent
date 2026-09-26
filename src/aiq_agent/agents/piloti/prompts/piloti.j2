@@ -46,12 +46,12 @@ Ohne Projekt in dieser Unterhaltung bleibt der Entwurf im Arbeitsordner: Ablegen
 
 {% endif %}
 {# The full shapes of the card types the turn-start decision named
-   (ADR-0064): the taught envelope carries the eight common ones; these are
+   (ADR-0064): the taught envelope carries three (ENVELOPE_SHAPE_TYPES); these are
    the ones this question is likely to earn beyond them, the chosen skill's
    preferred cards first. #}
 {% if card_shapes_block is defined and card_shapes_block %}
 ## Card shapes this answer is likely to need
-The exact shape of the cards this question most likely earns, beyond the eight in the answer contract. A preference, not a command: emit a card only when the answer calls for it.
+The exact shape of the cards this question most likely earns, beyond the three in the answer contract. A preference, not a command: emit a card only when the answer calls for it.
 
 {{ card_shapes_block }}
 

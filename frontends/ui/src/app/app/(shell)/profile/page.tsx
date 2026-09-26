@@ -7,6 +7,7 @@
  * ({@link ProfileControls}).
  */
 
+import type { JSX } from 'react'
 import { Building2, UserRound } from 'lucide-react'
 import { withPageSession } from '@/lib/auth/require-auth'
 import { FEATURE_FLAGS, isFeatureEnabled } from '@/lib/authz/feature-flags'

@@ -48,12 +48,38 @@ def _preamble_lines(passages: list[Passage], ingested_name: str | None, address:
     lines = [f"Found {len(passages)} relevant passage(s) in {documents} document(s):"]
     if address.bundesland:
         lines.append(land_sentence(address))
+    if address.unread:
+        lines.append(_unread_sentence(address))
     if ingested_name:
         lines.append(
             f'[The complete document was added to the knowledge base as "{ingested_name}" — '
             "read_passage reopens any other § of it.]"
         )
     return lines
+
+
+def _unread_sentence(address: Address) -> str:
+    """The §§ a list named past the lookup's budget: named, so the caller can ask for them."""
+    sign = "§" if address.kind == "§" else "Art."
+    runs = _runs(address.unread)
+    named = ", ".join(f"{sign} {r[0]}" if len(r) == 1 else f"{sign} {r[0]} bis {sign} {r[-1]}" for r in runs)
+    addressed = len(address.sections)
+    return (
+        f"[Only the first {addressed} of the listed sections were addressed; not read: {named}. "
+        "Ask for them in a second call.]"
+    )
+
+
+def _runs(numbers: tuple[str, ...]) -> list[list[str]]:
+    """``numbers`` grouped into runs of consecutive plain integers; a lettered § is a run of its own."""
+    runs: list[list[str]] = []
+    for number in numbers:
+        last = runs[-1][-1] if runs else None
+        if last is not None and number.isdigit() and last.isdigit() and int(number) == int(last) + 1:
+            runs[-1].append(number)
+        else:
+            runs.append([number])
+    return runs
 
 
 def _hit(passage: Passage) -> GroundingHit:
@@ -64,6 +90,12 @@ def _hit(passage: Passage) -> GroundingHit:
     stated (``base``) rather than left unknown, because RIS is the base corpus
     of law. The doc_class is known here too, which is what puts the hit in the
     Rechtsquelle lane instead of Projektwissen.
+
+    No URL is stated. The one RIS has is the WHOLE law, the same for every §,
+    and printed as ``Source URL:`` beside the citation it was what the answer
+    copied: "Bauordnung für Wien - <link>" names no § the lookup returned, the
+    verifier removed it, and a repair pass paid for it on every Bauordnung
+    question of the answer suite. The citation key is the passage's identity.
     """
     body, truncated = _cut_body(passage.body)
     return GroundingHit(
@@ -85,7 +117,6 @@ def _hit(passage: Passage) -> GroundingHit:
         # The Konsolidierte-Fassung disclaimer rides as its own header line and
         # is never inside a body: a passage body is text the answer may quote.
         status_note=passage.status_note or None,
-        source_url=passage.url,
         body=body,
         body_truncated=truncated,
     )

@@ -1,5 +1,5 @@
 /**
- * The research plan primitive (ADR-0065): propose, read, edit, hold, start,
+ * The research plan primitive (ADR-0068): propose, read, edit, hold, start,
  * and the worker's claim.
  *
  * One rule per transition, stated once here and nowhere else:

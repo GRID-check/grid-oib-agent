@@ -1,5 +1,5 @@
 /**
- * The browser's typed client for the plan primitive (ADR-0055, ADR-0065).
+ * The browser's typed client for the plan primitive (ADR-0055, ADR-0068).
  * Every path helper is exported on its own so a spec can assert on it; the
  * transport is an injectable last parameter defaulting to `fetch`.
  */

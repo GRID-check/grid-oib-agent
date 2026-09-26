@@ -17,7 +17,7 @@ import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { GridCard } from '@/shared/cards/schemas'
 import { INTERACTIVE_CARD_TYPES } from './card-decision'
-import { GridCardItem, GridCards } from './components/GridCards'
+import { GridCardItem, GridCards, GridCardView } from './components/GridCards'
 
 const setCardDecision = vi.fn()
 
@@ -217,4 +217,17 @@ describe('interactive card wiring', () => {
       expect(setCardDecision.mock.calls[0][1]).toBe(`${type}-1`)
     })
   }
+
+  // The second guard behind SURFACE_EXCLUDED_LEAVES: every leaf of a surface
+  // shares the surface's index, so a leaf's key carries its id too.
+  it('keys a leaf of a surface on its id as well as the surface index', async () => {
+    const { card, action } = SETTLE_CASES.memory_proposal!
+    const user = userEvent.setup()
+    render(<GridCardView card={card} index={2} leafId="b" projectId="proj-1" messageId="msg-1" />)
+
+    await user.click(screen.getByRole('button', { name: action }))
+
+    await waitFor(() => expect(setCardDecision).toHaveBeenCalled())
+    expect(setCardDecision.mock.calls[0][1]).toBe('memory_proposal-2.b')
+  })
 })

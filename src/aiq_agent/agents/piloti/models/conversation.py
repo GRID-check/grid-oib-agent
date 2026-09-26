@@ -82,7 +82,7 @@ class ConversationState(BaseModel):
     # full, Ausgeschlossen never to use), resolved against this turn's
     # inventory. Set with the hand-off, carried onto the run beside the text.
     plan_documents: PlanDocuments | None = None
-    #: The plan the clarifier drafted (ADR-0065). Posted as the plan the run
+    #: The plan the clarifier drafted (ADR-0068). Posted as the plan the run
     #: waits on; rendered and run at once on the inline path.
     plan_draft: ResearchPlanDraft | None = None
     plan_start: PlanStart | None = None

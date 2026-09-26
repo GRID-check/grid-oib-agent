@@ -1,0 +1,14 @@
+---
+fixes:
+  - >
+    Eine Antwort geht nicht mehr verloren, wenn die Verbindung kurz abreißt,
+    etwa wenn Sie auf dem iPhone die App wechseln oder das Telefon sperren.
+    Sobald Sie zurück sind, erscheint der Rest der Antwort, auch nach einem
+    Neuladen der Seite. Bisher stand stattdessen „Verbindung kurz
+    unterbrochen — Antwort ging verloren“, obwohl die Antwort fertig war.
+  - >
+    Mindmaps zeigen ihre Äste ohne Anführungszeichen, und auf dem Telefon
+    erscheint nur noch die Gliederung statt zusätzlich eines unlesbar
+    kleinen Baums. Eine im Projekt abgelegte Mindmap ist derselbe
+    übersichtliche Baum wie in der Antwort, mit vollständigen Beschriftungen
+    statt bunter Blasen mit abgeschnittenem Titel.

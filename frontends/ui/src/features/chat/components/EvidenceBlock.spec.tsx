@@ -177,7 +177,7 @@ describe('AgentResponse evidence wiring', () => {
 
   afterEach(() => vi.unstubAllGlobals())
 
-  test('an unplaced legal_basis renders flat above the prose, never in the fallback grid', () => {
+  test('an unplaced legal_basis renders flat after the prose, never in the fallback grid', () => {
     const { container } = renderDe(
       <AgentResponse
         content="Die Antwort steht in der Richtlinie."
@@ -185,9 +185,9 @@ describe('AgentResponse evidence wiring', () => {
       />
     )
     const text = container.textContent ?? ''
-    // The flat block, above the prose …
+    // The flat block, right after the prose: the answer first, then its Fundstelle …
     expect(text).toContain('Rechtsgrundlage')
-    expect(text.indexOf('Rechtsgrundlage')).toBeLessThan(
+    expect(text.indexOf('Rechtsgrundlage')).toBeGreaterThan(
       text.indexOf('Die Antwort steht in der Richtlinie.')
     )
     expect(screen.getByText(EVIDENCE_DE)).toBeInTheDocument()

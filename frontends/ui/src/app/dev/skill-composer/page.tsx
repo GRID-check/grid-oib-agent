@@ -30,6 +30,7 @@
  * every preview route out of production on a server boundary.
  */
 
+import type { JSX } from 'react'
 import { useState } from 'react'
 import { useSearchParams } from 'next/navigation'
 

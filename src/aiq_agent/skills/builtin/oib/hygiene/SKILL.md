@@ -31,7 +31,7 @@ Die Bestimmung liefert den Grenzwert. Eine Zahl ohne Herkunft ist behauptet.
 ## 3. Zeigen
 
 Belichtung mit Prisma und Glasanteil → `daylight_incidence`.
-Mehrere Anforderungen nebeneinander → `requirement_checklist`.
+Mehrere Anforderungen nebeneinander → als Prüftabelle (Status-Spalte).
 Die Klausel → `legal_basis`.
 
 ## Was schiefläuft

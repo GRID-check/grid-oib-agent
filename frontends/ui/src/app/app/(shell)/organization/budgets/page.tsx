@@ -11,6 +11,7 @@
  * (ADR-0015), which is the only place that explains why chat went quiet.
  */
 
+import type { JSX } from 'react'
 import { Gauge } from 'lucide-react'
 import { withPageSession } from '@/lib/auth/require-auth'
 import { canManageBudgets } from '@/lib/authz/organizations'

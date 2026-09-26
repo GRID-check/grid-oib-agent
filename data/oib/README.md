@@ -21,6 +21,19 @@ so re-running it costs nothing for files that have not changed.
 
 The filename convention matters: `oib_doc_class` in
 `src/aiq_agent/common/norm_registry.py` derives a document's class from its
-prefix (`oib-rl_`, `erlaeuterungen_`, `aenderungen_`), and
-`frontends/ui/src/lib/oib/standards-catalog.ts` lists the expected names. Keep
-the published filenames.
+prefix, and `oib_family_member` and `guess_display_title` read the Richtlinie
+number from it. Keep the names exactly as oib.or.at publishes them, which is not
+one spelling:
+
+| Document | Most parts (2023) | OIB-RL 2.2 |
+|---|---|---|
+| Richtlinie | `oib-rl_2.1_ausgabe_mai_2023.pdf` | `oib-richtlinie_2.2_ausgabe_mai_2023.pdf` |
+| Erläuterungen | `erlaeuterungen_oib-rl_2.1_…` | `erlaeuterungen-zu-oib-richtlinie_2.2_…` |
+| Änderungen | `aenderungen_oib-rl_2.1_…` | `aenderungen_oib-richtlinie_2.2_…` |
+
+`canonical_oib_file_name` maps both spellings onto one before parsing. The
+Änderungen diff documents are kept out of retrieval by name
+(`knowledge_search.exclude_file_names` in `configs/config_oib_openrouter.yml`),
+so a new published name there needs a new line in that list;
+`TestPublishedOibFilenames` in `tests/aiq_agent/common/test_norm_registry.py`
+fails until it has one.

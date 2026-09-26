@@ -45,7 +45,7 @@ Every string is bounded on both sides, because the payload is jsonb and a table.
 ## The Rechercheplan, before the run
 
 The plan is a row of its own, `research_plans`, with one HTTP API that the
-clarifier, the reader and the worker all use (ADR-0065). Nobody owes it a
+clarifier, the reader and the worker all use (ADR-0068). Nobody owes it a
 reply. The path of an escalated question:
 
 1. The clarifier asks its clarifying questions, if any, then drafts the plan

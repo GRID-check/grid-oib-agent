@@ -17,6 +17,7 @@
 
 'use client'
 
+import type { JSX } from 'react'
 import type { FC } from 'react'
 import Link from 'next/link'
 import { ArrowRight } from 'lucide-react'

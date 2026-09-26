@@ -1,6 +1,6 @@
 /**
  * The research plan: what a deep research is about, as one row every tier
- * reads (migration 0092, ADR-0065).
+ * reads (migration 0092, ADR-0068).
  *
  * The wire shape and the vocabularies are `lib/plans/plan-types.ts`; this
  * file is the storage of the same thing. The CHECKs are derived from those

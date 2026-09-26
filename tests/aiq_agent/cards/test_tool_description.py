@@ -13,6 +13,7 @@ from aiq_agent.cards.catalog import _CARD_TRIGGER_HEAD
 from aiq_agent.cards.catalog import _CARD_TRIGGERS
 from aiq_agent.cards.catalog import _MODEL_PICKER_NOTE
 from aiq_agent.cards.catalog import _MODEL_PICKER_ROW
+from aiq_agent.cards.catalog import CHAT_ONLY_CARD_TYPES
 from aiq_agent.cards.catalog import ENVELOPE_CARD_TYPES
 from aiq_agent.cards.catalog import INTERACTIVE_CARD_TYPES
 from aiq_agent.cards.catalog import SYSTEM_CARD_TYPES
@@ -121,7 +122,7 @@ class TestToolDescription:
     def test_lists_every_card_type(self):
         desc = _build_tool_description()
         for card_type in _CARD_TYPES:
-            if card_type in SYSTEM_CARD_TYPES | ENVELOPE_CARD_TYPES:
+            if card_type in SYSTEM_CARD_TYPES | ENVELOPE_CARD_TYPES | CHAT_ONLY_CARD_TYPES:
                 continue
             assert f'"{card_type}"' in desc
 
@@ -451,6 +452,8 @@ class TestShapeHint:
         # Byte-identical to the L2 entry, so the retry path cannot drift from
         # the tool that still serves the deep-research writer.
         assert hint == render_card_details([card_type])
+        if card_type in CHAT_ONLY_CARD_TYPES:
+            return  # a surface's entry is the COMPOSE rule (test_surface_card.py)
         # The four parts of an L2 entry a one-line gist did not carry.
         assert "shape:" in hint
         assert "Every text field is PLAIN TEXT" in hint

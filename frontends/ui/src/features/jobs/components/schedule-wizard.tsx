@@ -44,6 +44,7 @@
  * — are local state merged on submit, as before.
  */
 
+import type { JSX } from 'react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   ArrowLeft,

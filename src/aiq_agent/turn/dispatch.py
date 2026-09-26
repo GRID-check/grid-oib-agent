@@ -68,7 +68,7 @@ def build_run_commissioner(config: DispatchSettings) -> RunCommissioner | None:
     logger.info("An escalated question is commissioned as a run (dispatch=%s)", dispatch)
 
     async def _commission(state: ConversationState) -> CommissionedRun:
-        # A drafted plan is posted as the plan the run waits on (ADR-0065);
+        # A drafted plan is posted as the plan the run waits on (ADR-0068);
         # the reader edits, holds or starts it on the block.
         if state.plan_draft is not None:
             return await commission_planned_run(

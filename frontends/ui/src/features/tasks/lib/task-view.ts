@@ -29,7 +29,7 @@ export interface TaskWireRow {
   title: string
   /** What the requester asked for, in their words. Null for a scheduled run. */
   goal: string | null
-  /** The research plan the run waits on, as frozen on the row (ADR-0065). Null for every other run. */
+  /** The research plan the run waits on, as frozen on the row (ADR-0068). Null for every other run. */
   research?: TaskPlanResearch | null
   status: TaskRunStatus
   /** How a person judged the result. Null until somebody did. */

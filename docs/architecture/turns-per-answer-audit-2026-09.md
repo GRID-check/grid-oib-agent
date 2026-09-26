@@ -31,6 +31,184 @@
 
 ---
 
+## Measured, 2026-09-23
+
+The sections below were a reconstruction. This one is a measurement:
+`task be:eval:turn-census` (`scripts/turn_census/`) ran the real agent over
+the published OIB 2023 corpus with `openai/gpt-5.6-luna`, no project, and
+recorded every model call as the provider billed it. Where it contradicts a
+later section, it wins.
+
+| „Was weißt du über die OIB 2?" | before the fixes below (5 runs) | after (4 runs) |
+|---|---|---|
+| research calls | 1, 2, 1, 1, 2 | 1, 1, 1, 1 |
+| input tokens per research call | 34–45 k | 33.4 k, of which 26.1 k cached prefix |
+| requery judge + 2 extra retrievals | fired in 2 of 5 | 0 |
+| parts in the family overview | 2 or 3 (2.2 never) | 2, 2.1, 2.2, 2.3 |
+| wall time | 20–24 s | 15–20 s |
+
+What the census found, each closed at its cause:
+
+- **Tool schemas were 38 % of every call and deferral saved nothing.**
+  Replaying the research call: 40 154 input tokens with `defer_loading`
+  true, 40 154 with it false; the provider echoes the flag and bills the
+  schemas. Probed on luna, sol, sonnet-5 and gemini-3.7-flash: none honours
+  it. The probe now measures the saving (ADR-0048), and a turn without a
+  project is not sent `ifc_query`/`ifc_measure` (~8.2 k tokens), which can
+  only answer "no project" there.
+- **The turn decision mostly misses its budget.** Jev on OpenRouter's alpha
+  endpoint: p50 2.7 s, 10 of 12 calls over the 1.5 s timeout on a warm
+  client; in live turns it landed in about half. A miss was silent and took
+  the prefetch with it, so the model paid a round for the same search. A
+  miss is now logged, and a question that names an OIB family prefetches
+  its own search without a decision. The decision's value on the remaining
+  shapes (a ruling like „Feuerwiderstand tragende Wände GK 5": 3 research
+  calls when it misses) is bounded by that latency, not by its thresholds.
+- **The family search carried sixteen ranked hits and a judge.** Half of
+  the 25.5 k-character block was Leitfaden and Erläuterungen; the judge,
+  whose criterion counts a scope note as not answering, called every
+  overview insufficient. The overview now keeps four ranked hits and is not
+  judged (`knowledge_layer/register.py`).
+- **OIB 2.2 was invisible.** The OIB publishes it as `oib-richtlinie_2.2_…`;
+  nothing recognised that spelling, and the exclusion list named an
+  Änderungen file that does not exist, so the 2.2 diff leaked into
+  retrieval. `norm_registry.canonical_oib_file_name` now feeds every parser.
+
+**The model decides the round count as much as the code does.** Moving the
+defaults to `openai/gpt-6-luna` (2026-09-24, same census, same corpus): the
+OIB 2 overview took 2 research calls in 3 of 3 runs — given the same round-0
+state where 5.6-luna answers, 6-luna opens four or five Punkte with
+`read_passage` first — at 34–39 s wall and roughly half the per-token price;
+the GK 5 ruling took 1–2 with the decision landing (0.65–2.2 s that day,
+`brandschutz` inlined). A round count reported from production is a count
+for that deployment's admin-set model.
+
+Still open, measured but not changed: the static prefix is 17.7 k tokens,
+6.1 k of it the cards contract (cached, so cheap in money, not in the cold
+first call of a turn); `emit_card` is 2.8 k tokens of tool schema whose
+description repeats that contract; the research call at `reasoning_effort:
+medium` is 8–14 s of the turn. And these numbers are one model and no
+project: a project turn adds the inventory and the building-model tools
+back, and the platform's live default model is admin-set.
+
+## Measured, 2026-09-24: seconds follow reasoning tokens, not rounds
+
+Thirteen census runs (`openai/gpt-6-luna`, `effort=medium` unless marked, no
+project; `scripts/turn_census/census.py`, which now takes `--override`),
+timed call by call:
+
+| Run | Wall s | Research calls | Final call s | Reasoning tokens | Largest in one call |
+|---|---|---|---|---|---|
+| Ruling (Geländer, 13 m) | 26.3 | 1 | 19.7 | 1 107 | 1 107 |
+| OIB 2 overview, three runs | 25.5-51.5 | 2-4 | 11.1-15.9 | 726-2 186 | 958 |
+| Two variants (Fluchtweg), old index, two runs | 66.8 / 79.9 | 4 / 5 | 35.6 / 48.4 | 3 041 / 3 299 | 2 785 |
+| Two variants, table index, two runs | **123.7 / 54.0** | 4 / 3 | 22.7 / 29.6 | **7 263 / 1 961** | **4 335** |
+| Table ruling (Treppenhaus GK 4), old / table index | 32.2 / 38.6 | 1 / 2 | 24.4 / 24.4 | 1 426 / 1 836 | 1 501 |
+| Same three questions at `effort=low` | 11.2-16.8 | 1-3 | 3.3-5.4 | 0-207 | 139 |
+
+**The finding.** The model writes at a steady ~85 tokens per second (82-90
+across every call measured), so a call's seconds are its output tokens / 85,
+and most output tokens are hidden reasoning. The same question on the same
+index spent 1 961 reasoning tokens on one run and 7 263 on the next — one
+tool-deciding round alone thought for 4 335 tokens (54 s) before asking for
+two more passages. That spread, not the round count, is the depth variance:
+three extra rounds cost less than one reasoning spike. And nothing streams
+(latency audit §3.1), so every one of those seconds is time to first
+character. *(Since ADR-0066 the prose streams: the reasoning before the final
+call's first token still waits, the writing no longer does.)*
+
+**Defects found on the way, closed at their cause:**
+
+- **A skill round that bought nothing.** Both OIB 2 runs spent a full
+  research call (2.5-2.7 s plus a re-sent 35 k-token context) on
+  `use_skill("diagrams")`, whose every rule already sat in the static prompt;
+  its description said "load the moment a diagram is in play". Retired.
+- **A repair rewrite for a citation nobody lost.** Two Punkte read from one
+  page are one registry entry, so an answer listing „…pdf, p.4" as [1] and
+  [5] had [5] merged into [1] — correctly, inline citations rewritten — and
+  the merge was then counted as a failure, triggering the repair pass (16 s
+  and 23 s in two runs) and a "Belege entfernt" note. Merged duplicates are
+  no longer failures (`citation_verification.lost_citations`), neither for
+  the trigger nor for the count nor for the reader's note.
+- **Tables read across their columns.** OIB-RL 2's Tabelle 3 was indexed as
+  „an der obersten an der obersten an der obersten Stelle …", filed under
+  Punkt 12 on p. 23; the agent searched „Tabelle 3 GK 4 REI 60" for three
+  rounds. Captioned tables are now read as tables (`captioned_tables`,
+  chunk format 4): 104 Markdown chunks addressed `Tabelle N`, and 12 table
+  rows the chunker had accepted as Punkte gone. On the table index the agent
+  opens `read_passage(punkt="Tabelle 3")` directly, the loop fell from three
+  searches to one, and the Fundstelle is the table's own page (p. 30, p. 27)
+  where it had been p. 23, which holds none of the values. Round count is not
+  lower on every question: on the direct table ruling the new index cost one
+  more read (6 s) for a citation a reader can check.
+
+**`effort=low` is not the switch.** It was 3-5× faster and worse on all
+three: the variants answer lost its `answer_json` envelope and every value
+(„Anforderungen der Tabelle 3 … unter anderem Wände"), the OIB 2 overview
+claimed OIB-RL 2.1 is „im verfügbaren Korpus nicht enthalten" (it is), and
+the ruling spent two extra rounds on a skill load and an `emit_card` call
+the envelope makes free.
+
+**What would move the number, ranked:**
+
+1. **Stream the answer** (latency audit §3.1, its own ADR). The final call
+   is 11-48 s, of which the visible answer is ~7-30 s at 85 tok/s; streaming
+   it shows text when reasoning ends instead of when verification ends, and
+   streaming the Responses API's reasoning *summary* (not requested today:
+   `summary: []`) fills the rest with what the model is weighing. The
+   citation constraint the design doc names still holds: markers stay
+   unresolved until the terminal frame.
+2. **Model throughput.** 85 tok/s is this model through OpenRouter; the live
+   default is admin-set, and the census is how to compare candidates on
+   seconds *and* answers.
+
+**First answer-suite baseline** (`task be:eval:answer-suite`, core set, two
+runs each, table index, 2026-09-24): every check held on every run, and the
+spread is one question wide. Median wall 27-44 s for five of six; the
+two-variant Fluchtweg question is the outlier at 91 s (72-109), 3-4 research
+calls with up to eleven tool calls, and reasoning spikes of 2 950-3 710 tokens.
+It answers correctly and in tabs; it is the question to work on next.
+
+**Full sweep, then the Bauordnung rows** (27 questions, 2026-09-24). The two
+RIS questions were the slowest in the set, 87-100 s over 4-5 serial
+`ris_lookup` rounds, each ending in a repair pass. The agent's own
+checkpoints named the cause ("der Auszug bricht bei lit. f ab"): a named §
+arrived as its first 2 500 characters, a third of them RIS's screen-reader
+twins, beside a header stub of the same §. With the whole § (bounded at
+8 000), the twins dropped and the stub folded in, three runs each: 87 → 29 s
+and 88 → 33 s, no repair in six runs. The repair itself was the answer
+copying the block's `Source URL:` (the whole law, the same for every §) as a
+citation; the line is gone, and a key-cited line that carries a link is now
+verified by its key. The same sweep showed a turn whose envelope lost its
+opening `{"answer": "` and leaked its JSON tail as text, now salvaged and
+counted (`envelope_salvaged`).
+
+The other Bauordnung rows had causes of their own. Salzburg escalated to deep
+research because the catalog held only the Bautechnikgesetz and the permit
+rules live in the Baupolizeigesetz (added, `baupolg-sbg`); it then read § 2
+one Absatz per lookup until a named Absatz came with its whole § beside it.
+Tirol returned § 8 twice because its law opens with a table of contents. The
+two rows that still escalate here, Tragwerk and Schallschutz, ask about OIB-RL
+1 and 5, which this environment's corpus lacks; the suite now skips a question
+whose Richtlinie the corpus lacks. And a skill the turn decision picks wrongly costs a round: "Bauklasse I"
+chose `gebaeudeklasse`, and the agent loaded `bebauung` itself.
+
+**The prose streams** (ADR-0066, core set, two runs each): every check held
+but one `kind` split the variants row already had, and the new "First text s"
+column is what the reader waits for now: 19-35 s on the five single-answer
+rows against walls of 24-40 s, the first words 4-9 s before the turn ends,
+with the rest written while they are read. The thinking before the final
+call's first token is the block left in front of them.
+
+Decided against: a reasoning level that changes from round to round (e.g.
+`medium` for the first round, `low` after). A turn runs at ONE level, the one
+its role is configured with; the level is a property of the run, not of a
+round.
+
+Measurement caveat: `nat run` is a fresh process per question, so every
+census pays the deferred-loading probe (2.3-3 s) and cold-start gaps a warm
+replica does not; production's preamble is ~3-4 s, not 6.5 s.
+
 ## 0. The claim, in one table
 
 "Turns" is four different currencies, and the product feels each one
@@ -90,7 +268,9 @@ WS frame ─▶ gather(context, inventory, registry, subject)      no LLM; one H
         ─▶ render_system_prompt                                  no LLM (Langfuse prompt store, cached);
         │                                                        the short skill bodies ride it (ADR-0063)
         ─▶ TURN DECISION (Jev, ≤1.5 s, beside the skill resolve)  no LLM: needs_evidence, corpus, families, cards, model
+        │                                                        since 2026-09-24: the embedding warm-up runs beside the decision
         ─▶ prefetch node: ROUND 0, the fetches the decision named  through the tools node; charged to no round
+        │                 (or, when the decision did not run, the family search; since 2026-09-23)
         ─▶ agent node ──▶ tools node ──▶ agent node ── … ──▶ answer
              │ 1 call        │ parallel calls   │ 1 call         │ 1 call, the envelope: prose, anatomy, CARDS
              │               │ knowledge_search: embed → chroma → cross-encoder ‖ PASSAGE VERDICTS (Jev, 1 noul per passage)
@@ -99,12 +279,15 @@ WS frame ─▶ gather(context, inventory, registry, subject)      no LLM; one H
              │               │ read_passage:     deterministic; outline with excerpts; member aliases resolve
              │               │ ris_lookup:       planner (1 small call) → fetch → extractor (1 small call, 0 when a § is named)
              │               │ ifc_*, surface_documents, emit_card, remember, write_file …: no LLM
+             │               │   (since the envelope carries cards, emit_card is no longer bound on chat)
              │               │ every grounding block: Trace-Lanes JSON stripped before the model reads it
         ─▶ register the envelope's cards; repair a wrong shape ONCE on card_llm (bounded), or drop and record
         ─▶ verify_citations (filename OR display title + page), verify_quoted_spans   pure
         ─▶ repair (≤ 2 retrievals + 1 rewrite)                   up to 1 frontier call + 2 judges, only on a failure
+        │     since ADR-0067: ≤ 3 misremembered quotes corrected in place on card_repair_llm, ≤ 8 s each, no retrieval
         ─▶ sanitize, gate the envelope                           pure
         ─▶ deltas of the FINISHED text                          nothing streamed before this line
+        │     since ADR-0066: the prose streams while the model writes it, and settles once verified
         ─▶ post-answer stages (follow-ups, reflection)          async, off the reader's path, on the bill
 ```
 
@@ -135,7 +318,8 @@ round and are paid on every search:
   every `knowledge_search` that reaches the retrieval loop and that
   `should_skip_judge` does not exempt (a pinned file, a judge that already
   fired this search; the family overview is a branch that returns before the
-  loop), reads the question and
+  loop — since 2026-09-23 an explicit judge skip inside the loop,
+  recorded as `search_input["requery_skipped"] = "family"`), reads the question and
   twelve 600-character excerpts, and answers "sufficient, or here are two
   other phrasings". With the cross-encoder a ~300 ms OpenRouter call, the
   judge is the long pole of every search and a frontier call per search.
@@ -632,7 +816,8 @@ plan below does not pretend to have addressed them:
 - **Nothing streams** (latency audit §3.1, ledger item 16). The largest felt
   wait on a chat turn is the synthesis call, and it is shown all at once. §3.4
   is the format half of that decision; the reader-facing half is the L item
-  it already is.
+  it already is. *(Since ADR-0066 the prose streams while the final call
+  writes it.)*
 - **The live line is per round, not per call.** A round of five parallel
   opens shows one line; the judge inside a search shows nothing. Fine while
   the judge is fast; if J2 is not done, a 10 s judge is a silent 10 s.

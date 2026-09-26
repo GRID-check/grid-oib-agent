@@ -196,6 +196,44 @@ export async function listConversationIdsForProject(
  * One grouped query for the whole page, not one per project. Returns ISO
  * strings keyed by project id; projects with no activity are simply absent.
  */
+/**
+ * "This person wrote it": the attribution rule {@link lastProjectActivityByUser}
+ * documents, as one predicate over `messages` joined to `conversations`, so the
+ * two readers of it cannot drift.
+ */
+function writtenBy(userId: string) {
+  return or(
+    eq(messages.authorUserId, userId),
+    and(isNull(messages.authorUserId), eq(messages.role, 'user'), eq(conversations.createdBy, userId)),
+  )
+}
+
+/**
+ * Whether the user has written anything in this organization, in any project,
+ * ever — including in conversations since deleted, because having used the
+ * product is a fact about the person, not about what they kept.
+ *
+ * The product tours read it as "is this person new here": someone who has
+ * already asked Piloti something does not need to be shown where to ask. One
+ * `LIMIT 1` probe, not a count.
+ */
+export async function hasWrittenInOrganization(organizationId: string, userId: string): Promise<boolean> {
+  const db = getDb()
+  const rows = await db
+    .select({ one: sql<number>`1` })
+    .from(messages)
+    .innerJoin(
+      conversations,
+      and(
+        eq(conversations.id, messages.conversationId),
+        eq(conversations.organizationId, messages.organizationId),
+      ),
+    )
+    .where(and(eq(messages.organizationId, organizationId), writtenBy(userId)))
+    .limit(1)
+  return rows.length > 0
+}
+
 export async function lastProjectActivityByUser(
   organizationId: string,
   userId: string,
@@ -223,14 +261,7 @@ export async function lastProjectActivityByUser(
         eq(conversations.organizationId, organizationId),
         inArray(conversations.projectId, [...projectIds]),
         isNull(conversations.deletedAt),
-        or(
-          eq(messages.authorUserId, userId),
-          and(
-            isNull(messages.authorUserId),
-            eq(messages.role, 'user'),
-            eq(conversations.createdBy, userId),
-          ),
-        ),
+        writtenBy(userId),
       ),
     )
     .groupBy(conversations.projectId)

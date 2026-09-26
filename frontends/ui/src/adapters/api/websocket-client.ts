@@ -13,6 +13,7 @@ import type { AnswerMeta } from '@/lib/conversations/message-answer-meta'
 import { sanitizeAnswerMeta } from '@/lib/conversations/message-answer-meta'
 import type { RetrievalLedger } from '@/lib/conversations/message-retrieval-ledger'
 import { sanitizeRetrievalLedger } from '@/lib/conversations/message-retrieval-ledger'
+import { compareFrameIds } from '@/lib/conversations/frame-id'
 import { getWebSocketUrl } from './config'
 import {
   // NAT protocol types
@@ -90,6 +91,13 @@ export interface ResponseTransparency {
    * shape. The Herleitung spine draws each round's fan from it.
    */
   retrievalLedger?: RetrievalLedger
+  /**
+   * A live (`in_progress`) frame whose text REPLACES the streaming bubble's
+   * instead of appending: the prose so far with its `[N]` markers settled and
+   * `sources` naming them, sent the moment the answer's text is complete and
+   * before its cards (ADR-0066). The terminal frame replaces it once more.
+   */
+  streamReplace?: boolean
 }
 
 /**
@@ -225,6 +233,15 @@ export interface NATWebSocketClientCallbacks {
   onError?: (error: NATErrorContent) => void
   /** Called when connection status changes */
   onConnectionChange?: (status: ConnectionStatus, context?: ConnectionChangeContext) => void
+  /**
+   * Called once a reconnect has tried to catch up on what the dropped socket
+   * missed: `resumed` when the missed frames were read back and applied
+   * (`replayed` of them, 0 if nothing was missed), `unavailable` when there was
+   * nothing to read them from. On `unavailable` the turn in flight cannot be
+   * continued from here and the caller falls back to asking for the finished
+   * answer.
+   */
+  onResume?: (outcome: 'resumed' | 'unavailable', replayed: number) => void
 }
 
 /** Options for NAT WebSocket client */
@@ -297,6 +314,16 @@ export interface NATWebSocketClientOptions {
    * Errors are swallowed -- the connect attempt proceeds regardless.
    */
   onBeforeReconnect?: () => Promise<void>
+  /**
+   * Read back the frames of this conversation after `afterId` — every frame
+   * the stream holds when it is null — as the raw frames the socket would have
+   * carried (`GET /api/conversations/:id/frames`). `null` when there is nothing
+   * to read them from. Without it, a dropped socket loses what it missed.
+   */
+  readMissedFrames?: (
+    conversationId: string,
+    afterId: string | null
+  ) => Promise<Record<string, unknown>[] | null>
 }
 
 /**
@@ -331,6 +358,19 @@ export class NATWebSocketClient {
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null
   /** ID of the last user message sent -- used by callbacks to detect stale responses */
   activeParentId: string | null = null
+  /**
+   * The replay entry id (`grid_frame_id`) of the last frame applied: where a
+   * dropped socket resumes from. A frame at or before it has been applied
+   * already and is dropped, so one that arrives both replayed and live counts
+   * once. Null until the backend tags a frame (no shared cache: no resume).
+   */
+  private lastFrameId: string | null = null
+  /** True between a reconnect's open and the end of its catch-up read. */
+  private resuming = false
+  /** Live frames that arrived while the catch-up read was in flight, in order. */
+  private heldDuringResume: string[] = []
+  /** Whether this client has had a socket open before: the next open is a reconnect. */
+  private hasOpenedOnce = false
 
   constructor(options: NATWebSocketClientOptions) {
     this.options = {
@@ -586,6 +626,7 @@ export class NATWebSocketClient {
    * Update conversation ID (e.g., when switching conversations)
    */
   updateConversationId = (conversationId: string): void => {
+    if (this.options.conversationId !== conversationId) this.lastFrameId = null
     this.options.conversationId = conversationId
   }
 
@@ -627,7 +668,14 @@ export class NATWebSocketClient {
       if (this.ws !== socket) return
       this.reconnectCount = 0
       this.errorBeforeClose = false
+      const reconnected = this.hasOpenedOnce
+      this.hasOpenedOnce = true
+      // Hold live frames from the first moment of a reconnect, before anyone is
+      // told it is up: a frame newer than the missed ones must not be applied
+      // ahead of them.
+      if (reconnected) this.resuming = true
       this.options.callbacks.onConnectionChange?.('connected')
+      if (reconnected) void this.resume()
     }
 
     socket.onerror = () => {
@@ -665,13 +713,103 @@ export class NATWebSocketClient {
 
     socket.onmessage = (event) => {
       if (this.ws !== socket) return
+      if (this.resuming) {
+        this.heldDuringResume.push(event.data)
+        return
+      }
       this.handleMessage(event.data)
+    }
+  }
+
+  /** Can a dropped socket catch up on what it missed? Only with a cursor and somewhere to read from. */
+  canResume = (): boolean => this.lastFrameId !== null && Boolean(this.options.readMissedFrames)
+
+  /**
+   * Is the client still trying to get its socket back? A turn is not given up
+   * while it is: the reconnect may yet resume it.
+   */
+  isReconnecting = (): boolean =>
+    this.reconnectTimer !== null ||
+    this.connectInFlight !== null ||
+    this.ws?.readyState === WebSocket.CONNECTING
+
+  /**
+   * Catch up after a reconnect: read back every frame after the last one
+   * applied, apply them through the same path as live frames, then release
+   * what arrived live meanwhile. The dedupe in `handleMessage` makes a frame
+   * that came both ways count once.
+   */
+  private resume = async (): Promise<void> => {
+    const afterId = this.lastFrameId
+    const applied = afterId === null ? null : await this.catchUp(afterId, null)
+    this.options.callbacks.onResume?.(applied === null ? 'unavailable' : 'resumed', applied ?? 0)
+  }
+
+  /**
+   * Rebuild a turn a reload interrupted: apply the frames the stream still
+   * holds for it, from its first frame tagged with `wsParentId` on. Earlier
+   * frames belong to earlier turns and are never applied: only an answer frame
+   * is guarded against a stale turn, and a replayed prompt or step of an old
+   * turn would come back to life. Resolves to the number applied (0 when the
+   * stream no longer holds the turn), or null when there was nothing to read.
+   */
+  replayTurn = (wsParentId: string): Promise<number | null> => {
+    this.resuming = true
+    // The cursor starts over. Frames that reached this socket before the turn
+    // was reopened were not applied to it (nothing was streaming), but they
+    // did move the cursor, and the replay would drop every frame before them.
+    this.lastFrameId = null
+    return this.catchUp(null, wsParentId)
+  }
+
+  /**
+   * Read the frames after `afterId` (all of them when null), apply them from
+   * the first one of `turn` on (from the start when null), then release the
+   * live frames held meanwhile. Live frames are held until this ends.
+   */
+  private catchUp = async (afterId: string | null, turn: string | null): Promise<number | null> => {
+    const read = this.options.readMissedFrames
+    const conversationId = this.options.conversationId
+    try {
+      if (!read || !conversationId) return null
+      const frames = await read(conversationId, afterId)
+      if (!frames) return null
+      const first = turn === null ? 0 : frames.findIndex((frame) => frame.parent_id === turn)
+      if (first < 0) return 0
+      // Counted as applied only when the cursor takes it: a frame at or before
+      // it has been applied already and `handleMessage` drops it.
+      let applied = 0
+      for (const frame of frames.slice(first)) {
+        const id = typeof frame.grid_frame_id === 'string' ? frame.grid_frame_id : null
+        if (id !== null && this.lastFrameId !== null && compareFrameIds(id, this.lastFrameId) <= 0) continue
+        this.handleMessage(JSON.stringify(frame))
+        applied++
+      }
+      return applied
+    } catch (error) {
+      console.warn('[WS] Reading missed frames failed', error)
+      return null
+    } finally {
+      this.resuming = false
+      const held = this.heldDuringResume
+      this.heldDuringResume = []
+      for (const data of held) this.handleMessage(data)
     }
   }
 
   private handleMessage = (data: string): void => {
     try {
       const parsed = JSON.parse(data)
+      // The replay cursor, before anything else: a frame already applied (it
+      // came both live and replayed) is dropped whole.
+      const frameId =
+        parsed && typeof parsed === 'object' && typeof (parsed as { grid_frame_id?: unknown }).grid_frame_id === 'string'
+          ? (parsed as { grid_frame_id: string }).grid_frame_id
+          : null
+      if (frameId !== null) {
+        if (this.lastFrameId !== null && compareFrameIds(frameId, this.lastFrameId) <= 0) return
+        this.lastFrameId = frameId
+      }
       const validated = NATIncomingMessageSchema.safeParse(parsed)
 
       if (!validated.success) {
@@ -731,6 +869,7 @@ export class NATWebSocketClient {
             retryAfterSeconds: message.retry_after_seconds,
             answerMeta: sanitizeAnswerMeta(message.answer_meta) ?? undefined,
             retrievalLedger: sanitizeRetrievalLedger(message.retrieval_ledger) ?? undefined,
+            streamReplace: message.stream_replace === true ? true : undefined,
           }
           this.options.callbacks.onResponse?.(
             content,

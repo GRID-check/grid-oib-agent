@@ -77,7 +77,7 @@ export const RUN_LEDGER_METADATA_KEY = 'run_ledger'
  */
 export const RUN_TITLE_METADATA_KEY = 'run_title'
 /**
- * Where the run's plan id lives on the message (ADR-0065): the block fetches
+ * Where the run's plan id lives on the message (ADR-0068): the block fetches
  * the plan by it and shows the plan as controls while the run waits. Set once
  * at mint time, like the title.
  */

@@ -2,7 +2,7 @@
 
 /**
  * „Recherche planen": a research plan written by a person, from nothing
- * (ADR-0065). The same steps the run block shows for an agent's plan, over
+ * (ADR-0068). The same steps the run block shows for an agent's plan, over
  * the same inventory, beside a preview of the brief as the block will show
  * it, and one button that creates the plan and the run that waits on it. A
  * plan a person wrote is approved as it is written, so the run starts at

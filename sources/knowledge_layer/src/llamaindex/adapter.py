@@ -19,7 +19,7 @@ Multimodal options:
     extract_tables: Enable table extraction via pdfplumber (default: False)
     extract_charts: Enable chart extraction with VLM data extraction (default: False)
     extract_images: Enable image extraction with VLM captioning (default: False)
-    vlm_model: VLM model for captioning (default: openai/gpt-5.6-luna)
+    vlm_model: VLM model for captioning (default: openai/gpt-6-luna)
     vlm_base_url: VLM model base URL (default: https://openrouter.ai/api/v1)
 
 Chart extraction uses the VLM to:
@@ -115,7 +115,7 @@ def _env_int(name: str, fallback: int, *, minimum: float = _POSITIVE) -> int:
 # already holds a key for, so captioning needs no second credential. It takes
 # image input (verified on OpenRouter); caption quality on OIB tables and
 # drawings is still unevaluated, like its predecessor's was.
-DEFAULT_VLM_MODEL = os.environ.get("AIQ_VLM_MODEL", "openai/gpt-5.6-luna")
+DEFAULT_VLM_MODEL = os.environ.get("AIQ_VLM_MODEL", "openai/gpt-6-luna")
 # Default VLM model base URL
 DEFAULT_VLM_BASE_URL = os.environ.get("AIQ_VLM_BASE_URL", "https://openrouter.ai/api/v1")
 
@@ -371,6 +371,20 @@ EMBED_BATCH_SIZE = max(1, _env_int("AIQ_EMBED_BATCH_SIZE", 64))
 # meets; 60s covers such a batch with room.
 EMBED_TIMEOUT_SECONDS = max(1.0, _env_float("AIQ_EMBED_TIMEOUT_SECONDS", 60.0))
 EMBED_MAX_RETRIES = 2
+
+# @environment_variable AIQ_QUERY_EMBED_TIMEOUT_SECONDS
+# @category Knowledge Layer
+# @type float
+# @default 3
+# @required false
+# Per-request timeout for the QUERY embeddings a chat turn waits on, as opposed
+# to the ingestion batches above. A query is one short text: 0.66 s at the
+# median across 276 live calls (September 2026 census), but 8.5 s at p99 and
+# 11.8 s at worst, and a turn makes 5-15 of them before the model starts, so a
+# single tail request held a whole turn for 11 s. At 3 s the client gives up on
+# that one and retries (EMBED_MAX_RETRIES), which a fresh request answers in
+# well under a second: the worst turn pays ~4 s instead of 11.
+QUERY_EMBED_TIMEOUT_SECONDS = max(0.5, _env_float("AIQ_QUERY_EMBED_TIMEOUT_SECONDS", 3.0))
 
 # pypdfium2 page-object type constants (the C API values are not always exposed
 # as Python attributes across versions).
@@ -1021,16 +1035,22 @@ def _extract_images_from_pdf(
     return images
 
 
-def _extract_tables_from_pdf(pdf_path: str) -> list[dict[str, Any]]:
+def _extract_tables_from_pdf(pdf_path: str, taken: dict[int, list[tuple]] | None = None) -> list[dict[str, Any]]:
     """
     Extract tables from a PDF file using pdfplumber.
 
     Args:
         pdf_path: Path to the PDF file.
+        taken: Per page number, the bboxes of the tables the text pass already
+            indexed as captioned tables (``_extract_text_from_pdf``'s
+            ``table_boxes``). Those are skipped: indexed again here, every OIB
+            table stood in the index twice, as „Tabelle 3" and as
+            „[TABLE from page 30]", under two competing citations.
 
     Returns:
         List of dicts with 'table_text' (markdown), 'page_number', 'table_index'.
     """
+    taken = taken or {}
     try:
         import pdfplumber
     except ImportError:
@@ -1041,9 +1061,11 @@ def _extract_tables_from_pdf(pdf_path: str) -> list[dict[str, Any]]:
     try:
         with pdfplumber.open(pdf_path) as pdf:
             for page_num, page in enumerate(pdf.pages):
-                page_tables = page.extract_tables()
-
-                for table_idx, table in enumerate(page_tables):
+                skip = taken.get(page_num + 1) or []
+                for table_idx, found in enumerate(page.find_tables()):
+                    if tuple(found.bbox) in skip:
+                        continue
+                    table = found.extract()
                     if table and len(table) > 1:  # Has header and at least one row
                         # Convert to markdown format
                         markdown = _table_to_markdown(table)
@@ -1129,13 +1151,34 @@ def _extract_text_from_pdf(pdf_path: str) -> list[dict[str, Any]]:
         logger.warning("pdfplumber not installed. Install with: pip install pdfplumber")
         return []
 
+    from knowledge_layer.llamaindex.captioned_tables import extract_page_tables
+
     pages: list[dict[str, Any]] = []
     try:
         with pdfplumber.open(pdf_path) as pdf:
+            previous = None
             for page_num, page in enumerate(pdf.pages, start=1):
-                text = _strip_watermark_lines(page.extract_text())
-                if text:
-                    pages.append({"page_number": page_num, "text": text})
+                # Captioned tables are read as tables and cut out of the text,
+                # which would otherwise read them across their columns
+                # (``captioned_tables``). Fail-open: a page whose table finder
+                # raises is extracted exactly as before.
+                try:
+                    found = extract_page_tables(page, page_num, previous)
+                except Exception as exc:  # pragma: no cover - pdfplumber edge cases
+                    logger.warning("Table finding failed on page %d of %s: %s", page_num, pdf_path, exc)
+                    found = []
+                source = page
+                # Only the page right after a table can continue it: a page
+                # without one ends the chain, or a caption-less box pages later
+                # was appended to the old table.
+                previous = found[-1][0] if found else None
+                boxes = [tuple(bbox) for _table, bbox in found]
+                if boxes:
+                    source = page.filter(lambda obj, boxes=boxes: not _inside_any(obj, boxes))
+                text = _strip_watermark_lines(source.extract_text())
+                tables = [table for table, _bbox in found]
+                if text or tables:
+                    pages.append({"page_number": page_num, "text": text, "tables": tables, "table_boxes": boxes})
 
         logger.info("Extracted text from %d PDF pages in %s", len(pages), pdf_path)
 
@@ -1145,6 +1188,15 @@ def _extract_text_from_pdf(pdf_path: str) -> list[dict[str, Any]]:
     return pages
 
 
+def _inside_any(obj: dict[str, Any], boxes: list[tuple]) -> bool:
+    """Whether a pdfplumber object's centre lies in any of ``boxes`` (x0, top, x1, bottom)."""
+    if "x0" not in obj or "top" not in obj:
+        return False
+    x = (obj["x0"] + obj.get("x1", obj["x0"])) / 2
+    y = (obj["top"] + obj.get("bottom", obj["top"])) / 2
+    return any(x0 <= x <= x1 and top <= y <= bottom for x0, top, x1, bottom in boxes)
+
+
 def text_documents_for_pages(text_pages: list[dict[str, Any]], file_name: str, file_size: int) -> list[Any]:
     """Build the text Documents for one PDF, structure-aware where the document allows it.
 
@@ -1152,7 +1204,8 @@ def text_documents_for_pages(text_pages: list[dict[str, Any]], file_name: str, f
     roughly fifteen blended into a 1024-token block, and gives every chunk a Punkt to
     cite rather than only a page. ``punkt_documents`` returns ``None`` for anything
     without a usable outline -- a glossary, a list of standards, any tenant upload -- and
-    that is the per-page path below, byte-for-byte what ingestion did before.
+    that is the per-page path below: one Document per page, its captioned tables put back
+    as Markdown after the text they were cut out of (``page_text_with_tables``).
 
     Extracted from ``_run_ingestion`` so the choice between the two strategies is
     testable without a job, a Chroma client or an embedder.
@@ -1163,9 +1216,11 @@ def text_documents_for_pages(text_pages: list[dict[str, Any]], file_name: str, f
     structured = punkt_documents(text_pages, file_name, file_size)
     if structured is not None:
         return structured
+    from knowledge_layer.llamaindex.captioned_tables import page_text_with_tables
+
     return [
         Document(
-            text=page["text"],
+            text=page_text_with_tables(page["text"], page.get("tables") or []),
             metadata={
                 "file_name": file_name,
                 "file_size": file_size,
@@ -1175,6 +1230,19 @@ def text_documents_for_pages(text_pages: list[dict[str, Any]], file_name: str, f
         )
         for page in text_pages
     ]
+
+
+def page_texts_for_visual_heuristic(text_pages: list[dict[str, Any]]) -> dict[int, str]:
+    """Page number to the page's full text, captioned tables included, for the visual-page check.
+
+    ``text`` has its captioned tables cut out. A page that is mostly a table then
+    fell under ``VISUAL_PAGE_MIN_TEXT_CHARS``, was rendered and captioned by the VLM
+    as a drawing, and competed in the index with the table's own chunks (oib-rl_2
+    pages 29, 31, 33, 34). A table is text, so it counts as text here.
+    """
+    from knowledge_layer.llamaindex.captioned_tables import page_text_with_tables
+
+    return {page["page_number"]: page_text_with_tables(page["text"], page.get("tables") or []) for page in text_pages}
 
 
 def _looks_like_pdf(file_path: str) -> bool:
@@ -1887,6 +1955,19 @@ def _summary_from_drawing_fields(pages: list[dict[str, Any]]) -> str | None:
 # =============================================================================
 
 
+def _future_result(future, what: str, file_name: str, timeout: float = 30):
+    """A background ingestion step's result, or ``None`` when it was not started, timed out or failed."""
+    if future is None:
+        return None
+    try:
+        return future.result(timeout=timeout)
+    except TimeoutError:
+        logger.warning("%s timed out for %s", what, file_name)
+    except Exception as e:  # noqa: BLE001 — an annotation is worth less than the ingestion
+        logger.warning("%s failed for %s: %s", what, file_name, e)
+    return None
+
+
 def _generate_document_summary(text_content: str, file_name: str, llm=None) -> str | None:
     """
     Generate one-sentence summary from document text.
@@ -1933,7 +2014,7 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
         extract_tables: Enable table extraction from PDFs (default: False)
         extract_charts: Enable chart extraction with structured data (default: False)
         extract_images: Enable image extraction with VLM captioning (default: False)
-        vlm_model: VLM for captioning (default: openai/gpt-5.6-luna)
+        vlm_model: VLM for captioning (default: openai/gpt-6-luna)
 
     Environment variables:
         AIQ_CHROMA_DIR: Default ChromaDB persistence directory
@@ -3489,12 +3570,14 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                     # summary. Rendered visual/vector pages accumulate here.
                     summary_future = None
                     tags_future = None
+                    doc_class_future = None
                     executor = None
                     drawing_pages: list[dict[str, Any]] = []
 
                     # 2. Extract tables (PDF only)
                     if is_pdf and extract_tables:
-                        tables = _extract_tables_from_pdf(file_path)
+                        taken = {page["page_number"]: page.get("table_boxes") or [] for page in text_pages}
+                        tables = _extract_tables_from_pdf(file_path, taken)
                         for table in tables:
                             table_doc = Document(
                                 text=f"[TABLE from page {table['page_number']}]\n\n{table['table_text']}",
@@ -3535,7 +3618,7 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                                 min_paths=VISUAL_PAGE_MIN_PATHS,
                                 max_pages=MAX_RENDERED_PAGES,
                                 max_dim=PAGE_RENDER_MAX_DIM,
-                                page_texts={p["page_number"]: p["text"] for p in text_pages},
+                                page_texts=page_texts_for_visual_heuristic(text_pages),
                             )
 
                         image_results, drawing_pages = _processing.enrich_vlm_batch(
@@ -3657,11 +3740,28 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                             llm_input = drawing_source or text_source
                         else:
                             llm_input = text_source
-                        executor = ThreadPoolExecutor(max_workers=2)
+                        executor = ThreadPoolExecutor(max_workers=3)
                         summary_future = executor.submit(
                             _generate_document_summary, llm_input, file_name, self.summary_llm
                         )
-                        tags_future = executor.submit(classify_document_tags, llm_input, file_name, self.summary_llm)
+                        tags_future = executor.submit(
+                            classify_document_tags,
+                            llm_input,
+                            file_name,
+                            self.summary_llm,
+                            organization_id=organization_id,
+                        )
+                        # A base-corpus file whose name gives no OIB hint lands in
+                        # `sonstiges`; the decision model proposes a Dokumentart
+                        # for the platform owner to accept (ADR-0064, use 8).
+                        from aiq_agent.knowledge.document_classification import DEFAULT_DOC_CLASS
+
+                        if stored_doc_class is None and base_corpus and doc_class == DEFAULT_DOC_CLASS:
+                            from aiq_agent.knowledge.document_classification import suggest_doc_class
+
+                            doc_class_future = executor.submit(
+                                suggest_doc_class, llm_input, file_name, organization_id=organization_id
+                            )
 
                     # Wait for summary if started
                     summary = None
@@ -3737,9 +3837,14 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                     # Create/update index with all documents
                     if index is None:
                         # First successful file - create new index
+                        # The model passed explicitly, not read off the global
+                        # `Settings`: whatever else sets that global (the retriever
+                        # once set it to the query model, whose timeout is sized for
+                        # one short text) must not decide how a batch is embedded.
                         index = VectorStoreIndex.from_documents(
                             all_documents,
                             storage_context=storage_context,
+                            embed_model=self._embed_model,
                             show_progress=False,
                         )
                     else:
@@ -3836,6 +3941,11 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                         # only stamp the guess when none was stored.
                         if stored_doc_class is None:
                             set_document_doc_class(collection_name, file_name, doc_class)
+                        suggestion = _future_result(doc_class_future, "Dokumentart suggestion", file_name)
+                        if suggestion:
+                            from aiq_agent.knowledge import set_document_doc_class_suggestion
+
+                            set_document_doc_class_suggestion(collection_name, file_name, suggestion)
 
                         # The folder the BFF filed this document in, carried on
                         # the job config from `POST /v1/ingest` (ADR-0049). It is
@@ -4000,6 +4110,31 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
 _EXACT_TERM_DF_CACHE_MAX = 512
 
 
+class _InflightEmbedding:
+    """One query embedding being computed, and what it came to.
+
+    Every caller that finds it waits on ``done`` and then reads the outcome
+    here, never the LRU: a failure is re-raised to all of them at once, so a
+    down embedding API fails every waiter after ONE bounded call instead of
+    handing the key to the next waiter and serialising the failures, and a
+    success reaches them even if the LRU evicted it in between.
+    """
+
+    __slots__ = ("done", "embedding", "error")
+
+    def __init__(self) -> None:
+        self.done = threading.Event()
+        self.embedding: list[float] | None = None
+        self.error: BaseException | None = None
+
+    def result(self) -> list[float]:
+        self.done.wait()
+        if self.error is not None:
+            raise self.error
+        assert self.embedding is not None
+        return self.embedding
+
+
 @register_retriever("llamaindex")
 class LlamaIndexRetriever(BaseRetriever):
     """
@@ -4077,6 +4212,12 @@ class LlamaIndexRetriever(BaseRetriever):
         self._embed_cache: dict[tuple[str, str], list[float]] = {}
         self._embed_cache_order: list[tuple[str, str]] = []
         self._embed_cache_lock = threading.Lock()
+        # An embedding being computed, by key: a second caller for the same
+        # query waits for it instead of paying the round trip again, and
+        # shares its outcome, error included (``_InflightEmbedding``). The
+        # turn-start warm-up (``warm_query``) races the turn's own search for
+        # the same question, and without this the loser embedded twice.
+        self._embed_inflight: dict[tuple[str, str], _InflightEmbedding] = {}
 
         # Document frequency of each exact term, per collection size, so the
         # `$contains` channel's DF ceiling costs one `get` per new term rather
@@ -4138,7 +4279,6 @@ class LlamaIndexRetriever(BaseRetriever):
         ensure_retrieval_dependencies()
 
         try:
-            from llama_index.core import Settings
             from llama_index.embeddings.nvidia import NVIDIAEmbedding
 
             embed_api_key = _resolve_embed_api_key(self.embed_base_url, self.embed_model_name)
@@ -4153,10 +4293,15 @@ class LlamaIndexRetriever(BaseRetriever):
                 model=self.embed_model_name,
                 api_key=embed_api_key,
                 embed_batch_size=EMBED_BATCH_SIZE,
-                timeout=EMBED_TIMEOUT_SECONDS,
+                # The retriever embeds queries a reader is waiting on: bounded
+                # tightly and retried, never the ingestion batch's 60 s.
+                timeout=QUERY_EMBED_TIMEOUT_SECONDS,
                 max_retries=EMBED_MAX_RETRIES,
             )
-            Settings.embed_model = self._embed_model
+            # Not installed as the process-wide `Settings.embed_model`: every
+            # index this retriever builds is handed the model explicitly
+            # (`_get_index`), and the global would put this 3 s query model
+            # under anything else in the process that reads it.
 
             # Shared server when AIQ_CHROMA_URL/HOST is set, else embedded.
             self._chroma_client = _make_chroma_client(self.persist_dir)
@@ -4195,7 +4340,7 @@ class LlamaIndexRetriever(BaseRetriever):
             raise RuntimeError(f"Collection '{collection_name}' {mismatch}")
 
         vector_store = ChromaVectorStore(chroma_collection=chroma_collection)
-        index = VectorStoreIndex.from_vector_store(vector_store)
+        index = VectorStoreIndex.from_vector_store(vector_store, embed_model=self._embed_model)
         with self._index_cache_lock:
             self._index_cache[collection_name] = (now, index)
         return index
@@ -4215,25 +4360,67 @@ class LlamaIndexRetriever(BaseRetriever):
         """
         return await asyncio.to_thread(self._retrieve_sync, query, collection_name, top_k, filters)
 
+    async def warm_query(self, query: str) -> None:
+        """Embed ``query`` ahead of the search that will ask for it; never raises.
+
+        The query embedding is a remote round trip (280-980 ms measured
+        2026-09-24) that the knowledge tool pays before it can rank anything.
+        A caller that knows the query before the search starts runs it here,
+        and the search then finds it in the LRU (or waits for it in flight).
+        It also absorbs the adapter's lazy initialisation on a cold process.
+        """
+        try:
+            await asyncio.to_thread(self._warm_sync, query)
+        except Exception:  # noqa: BLE001 - a warm-up is worth less than the turn
+            logger.debug("Query warm-up failed", exc_info=True)
+
+    def _warm_sync(self, query: str) -> None:
+        self._ensure_initialized()
+        self._embed_query_cached(query)
+
     def _embed_query_cached(self, query: str) -> list[float]:
-        """Embed a query once per (model, text); LRU-bounded."""
+        """Embed a query once per (model, text); LRU-bounded, one computation in flight per key.
+
+        A caller that finds the key in flight shares that computation's
+        outcome: its vector, or its exception re-raised. The owner's call is
+        bounded by the embed model's own timeout and retries, so the wait is.
+        """
         key = (self.embed_model_name, query)
+        # With the LRU off (``EMBED_CACHE_MAX`` 0) the owner's entry is evicted
+        # as it lands, but the in-flight record still carries the vector to
+        # every waiter: parallel searches for one query embed it once.
         with self._embed_cache_lock:
-            if key in self._embed_cache:
+            cached = self._embed_cache.get(key)
+            if cached is not None:
                 self._embed_cache_order.remove(key)
                 self._embed_cache_order.append(key)
-                return self._embed_cache[key]
+                return cached
+            pending = self._embed_inflight.get(key)
+            if pending is None:
+                owned = self._embed_inflight[key] = _InflightEmbedding()
+        if pending is not None:
+            return pending.result()
+        return self._embed_as_owner(key, query, owned)
 
-        embedding = self._embed_model.get_query_embedding(query)
-
-        with self._embed_cache_lock:
-            if key not in self._embed_cache:
+    def _embed_as_owner(self, key: tuple[str, str], query: str, record: _InflightEmbedding) -> list[float]:
+        """Compute the embedding ``record`` stands for, cache it, and release every waiter."""
+        try:
+            embedding = self._embed_model.get_query_embedding(query)
+        except BaseException as exc:
+            record.error = exc
+            raise
+        else:
+            record.embedding = embedding
+            with self._embed_cache_lock:
                 self._embed_cache[key] = embedding
                 self._embed_cache_order.append(key)
                 while len(self._embed_cache_order) > self.EMBED_CACHE_MAX:
-                    evicted = self._embed_cache_order.pop(0)
-                    self._embed_cache.pop(evicted, None)
-        return embedding
+                    self._embed_cache.pop(self._embed_cache_order.pop(0), None)
+            return embedding
+        finally:
+            with self._embed_cache_lock:
+                self._embed_inflight.pop(key, None)
+            record.done.set()
 
     def _cached_static_result(self, key: tuple[str, int, str, int, str]) -> RetrievalResult | None:
         with self._result_cache_lock:
@@ -4597,7 +4784,12 @@ class LlamaIndexRetriever(BaseRetriever):
                 content_type = ContentType.TEXT
 
             # Create display citation based on content type
-            if content_type == ContentType.TABLE:
+            if content_type == ContentType.TABLE and "table_index" not in metadata:
+                # A captioned table (``captioned_tables``) is addressed by its
+                # ``punkt_id`` („Tabelle 3"), not by an index on the page, and
+                # is cited by the page key every other hit renders under.
+                display_citation = f"{file_name}, p.{page_number}" if page_number else file_name
+            elif content_type == ContentType.TABLE:
                 table_idx = metadata.get("table_index", 0)
                 display_citation = f"{file_name}, p.{page_number}, Table {table_idx + 1}"
             elif content_type == ContentType.IMAGE:

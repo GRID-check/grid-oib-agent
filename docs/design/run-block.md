@@ -142,7 +142,7 @@ A row opens the document as a dialog over the thread, never a pane beside it.
 ## The plan on the block
 
 A run commissioned with a research plan shows it first in its body
-(`RunPlan.tsx`, ADR-0065), because what the run is about comes before what it
+(`RunPlan.tsx`, ADR-0068), because what the run is about comes before what it
 did. One row, three readings, and none of them is a question:
 
 - **Proposed** — the brief at a glance: the genre's glyph in a well, the

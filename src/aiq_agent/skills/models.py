@@ -163,7 +163,7 @@ class Skill(BaseModel):
         metadata: Reserved GRID keys + free-form extra keys.
         origin: ``platform`` for builtin files, ``org`` for BFF-served rows.
         collection: Mid-level collection dir name for builtin files
-            (bim|oib|presentation|research|synthesis); ``None`` for org rows.
+            (bim|oib|research|synthesis); ``None`` for org rows.
         license: Optional license string.
         compatibility: Optional compatibility note (<=500 chars).
         allowed_tools: Optional tool allowlist string.

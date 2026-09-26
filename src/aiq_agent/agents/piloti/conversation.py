@@ -92,7 +92,7 @@ normal path.
 #: every ``run()`` so nothing from a previous turn's checkpoint — a stale job
 #: id, a prior self-assessment, last turn's routing — can leak onto this one.
 #: ``deep_research_declined`` is STICKY for the conversation on purpose: a
-#: conversation whose reader declined a plan (before ADR-0065 made the plan a
+#: conversation whose reader declined a plan (before ADR-0068 made the plan a
 #: row the reader stops from the run block) keeps that answer.
 CONVERSATION_SCOPED_FIELDS: frozenset[str] = frozenset({"messages", "deep_research_declined", "already_read_digest"})
 TURN_SCOPED_FIELDS: frozenset[str] = frozenset(ConversationState.model_fields) - CONVERSATION_SCOPED_FIELDS
@@ -297,7 +297,7 @@ def _deep_handoff(
         update["clarifier_result"] = clarifier_result
     if plan_documents is not None:
         update["plan_documents"] = plan_documents
-    # The drafted plan (ADR-0065): the commissioner posts it as the plan the
+    # The drafted plan (ADR-0068): the commissioner posts it as the plan the
     # run waits on; the inline path renders it and runs at once.
     if plan_draft is not None:
         update["plan_draft"] = plan_draft
@@ -390,7 +390,7 @@ class ConversationGraph:
             )
         )
         # No verdict to wait for: the plan, when there is one, is shown on the
-        # run block and the run waits on it there (ADR-0065).
+        # run block and the run waits on it there (ADR-0068).
         return _deep_handoff(
             original_query,
             escalation_reason,

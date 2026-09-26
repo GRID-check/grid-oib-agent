@@ -105,7 +105,14 @@ ENVELOPE_CARD_TYPES = frozenset({"summary", "verdict_header", "key_takeaways", "
 #     fails until you do);
 #   - its renderer must drive its lifecycle from `useCardDecision`, never from
 #     component-local `useState`;
-#   - every terminal outcome it can reach must be a member of `CARD_DECISIONS`.
+#   - every terminal outcome it can reach must be a member of `CARD_DECISIONS`;
+#   - it must also be in SURFACE_EXCLUDED_LEAVES: a leaf inside a surface has
+#     no message position for its decision to be keyed by. `cards/models.py`
+#     derives that set from this one (and from SYSTEM_CARD_TYPES and
+#     ENVELOPE_CARD_TYPES), so Python needs no edit; the frontend's copy in
+#     `frontends/ui/src/features/a2ui/catalog.tsx` is kept by hand, and
+#     `tests/aiq_agent/cards/test_surface_excluded_parity.py` holds it to the
+#     derived set.
 #
 # Emit an interactive card ONLY for an action that is not safely repeatable
 # (a memory write, a profile patch). If the action is idempotent and cheap,
@@ -138,6 +145,15 @@ ENVELOPE_CARD_TYPES = frozenset({"summary", "verdict_header", "key_takeaways", "
 INTERACTIVE_CARD_TYPES = frozenset(
     {"project_profile_patch", "memory_proposal", "file_operation_proposal", "document_draft"}
 )
+
+# Card types offered on the chat envelope only. A `surface` is taught by the
+# envelope's COMPOSE rule (its field line alone says nothing a model could fill
+# it from), and its `Text` leaves carry `[N]` that only the chat pipeline holds
+# to the answer's verified citations (`cards/surface_citations.py`). The
+# `emit_card` index and the post-hoc prompt have neither, so they withhold it,
+# and the `emit_card` tool, `describe_card` and the post-hoc validator
+# (`models.validate_cards`) refuse it.
+CHAT_ONLY_CARD_TYPES = frozenset({"surface"})
 
 # Card types whose fields must be COPIED from a tool result and cannot be
 # derived from prose: every one of them is addressed by IFC GlobalId, rule id
@@ -344,6 +360,21 @@ _CARD_TRIGGERS: tuple[tuple[str, str, str], ...] = (
     ),
 )
 
+#: The craft of a row the chat envelope keeps, reworded where it points at a card that contract
+#: no longer offers (:data:`MARKDOWN_CARD_TYPES`): there, that content is a table in the answer.
+_MARKDOWN_FIRST_CRAFT: dict[str, str] = {
+    "legal_basis": (
+        "One instrument carrying the answer is this card; several, one binding and the rest "
+        "interpreting, are a table in the answer. The decisive passage goes in `original_text` as "
+        "short verbatim — the sentence the answer turns on, never the paragraph around it."
+    ),
+    "condition_tree": (
+        "Mark the active branch only where you know which case holds; not knowing means marking "
+        "none, and three marked branches look like a decision nobody made. Cases that can hold at "
+        "once are a table in the answer, and a tree with one branch is a sentence."
+    ),
+}
+
 #: Withheld from the post-hoc surface, row and craft together (`include_ifc_triggers=False`).
 _MODEL_PICKER_ROW = (
     "the user wants to SEE or OPEN the building and the project may hold several models",
@@ -392,10 +423,85 @@ says in the same words — cut the card, keep the sentence. That second case is 
 facts: three Lagen with their Anforderung and Fundstelle as a table is not a restatement of three
 sentences, it is the same facts in a shape prose cannot hold. Shared facts alone never cut a card."""
 
+#: Content cards whose whole content the answer's own Markdown already holds.
+#: The chat answer writes these IN its prose (``piloti_static.md`` <formatting>):
+#: a table with a Status column renders its status words as marks, so a
+#: checklist, a comparison, a document list or rows of Lage/Anforderung/
+#: Fundstelle need no second channel, no shape in the prompt and no repair.
+#: ``diagram`` joined on 2026-09-24: its payload IS a mermaid source, and a
+#: ```mermaid fence in the answer draws through the same renderer, files
+#: through the same idempotent button, and sits where it belongs in the prose
+#: instead of after it. It could not before: the envelope parser ended the
+#: block at the fence's own backticks and showed the reader raw JSON
+#: (``answer_envelope._envelope_blocks``).
+#: They stay valid card types — old messages render them, deep research's
+#: ``emit_card`` still offers them — but the chat envelope no longer teaches
+#: them (``render_card_doctrine(markdown_first=True)``).
+MARKDOWN_CARD_TYPES: frozenset[str] = frozenset(
+    {
+        "typed_table",
+        "comparison_table",
+        "requirement_checklist",
+        "document_checklist",
+        "deadline_timeline",
+        "norm_chain",
+        "change_impact",
+        "diagram",
+    }
+)
+
+_MARKDOWN_FIRST = """\
+MARKDOWN FIRST. Tables, checks, comparisons, document lists, Fristen in sequence, a norm hierarchy,
+what-if consequences and drawings of relations are written in the answer itself (<formatting> says
+how): a table with a Status column already renders as a checklist, and a ```mermaid fence already
+renders as a drawing the reader can file. A card is for what those cannot carry: a schematic drawn
+to scale from measurements, the Fundstelle as a quotable excerpt, a decision on one factor with
+this project's branch marked, a Verfahren with its Fristen and where this project stands."""
+
+_CARD_RESTRAINT_MARKDOWN_FIRST = """\
+WHEN NOT TO. One card is usually the right number, two the ceiling, none the normal case for a
+walkthrough. A card that shows what a table in the prose already shows is a restatement: keep the
+table, cut the card."""
+
 # One worked example per hard-to-nest card, so the model sees the exact shape
 # instead of discovering it through repeated validation failures. Keys are the
 # card ``type`` values; values are validated in the card model tests.
 CARD_EXAMPLES: dict[str, dict] = {
+    # The one card whose shape is a GRAPH (ADR-0065): a container with id
+    # "root" and the cards it holds, each referenced by id. The example is the
+    # shape the COMPOSE rule in `cards/envelope.py` teaches, filled in.
+    "surface": {
+        "type": "surface",
+        "title": "Zweiter Fluchtweg — zwei Varianten",
+        "components": [
+            {
+                "id": "root",
+                "component": "Tabs",
+                "tabs": [
+                    {"title": "Außentreppe", "child": "aussen"},
+                    {"title": "Zweites Treppenhaus", "child": "innen"},
+                ],
+            },
+            {
+                "id": "aussen",
+                "component": "Text",
+                "text": (
+                    "| Kriterium | Anforderung | Status | Fundstelle |\n|---|---|---|---|\n"
+                    "| Abstand zu Öffnungen | ≥ 2,0 m | offen | [1] |\n"
+                    "| Baustoff | A2 | erfüllt | [1] |"
+                ),
+            },
+            {
+                "id": "innen",
+                "component": "Text",
+                "text": (
+                    "| Kriterium | Anforderung | Status | Fundstelle |\n|---|---|---|---|\n"
+                    "| Wände des Treppenhauses | REI 90 | erfüllt | [1] |\n"
+                    "| Rauchabzug | ≥ 1 m² | nicht erfüllt | [1] |"
+                ),
+            },
+        ],
+    },
     # The one card whose element ids must be REAL: they come from ifc_query in
     # the same turn, and an invented GlobalId highlights nothing. Worth an
     # example so the model sees that `global_ids` is a list of opaque strings it
@@ -1152,11 +1258,13 @@ def shape_hint_for(card_type: str) -> str | None:
     system card, an envelope shape. Teaching one of those a shape would be
     teaching a card the next validator refuses; the caller's refusal message
     names the right channel instead.
+
+    A ``surface``'s entry is the COMPOSE rule (:func:`render_card_details`).
     """
     return render_card_details([card_type]) or None
 
 
-def render_card_catalog(*, include_model_backed: bool = True) -> str:
+def render_card_catalog(*, include_model_backed: bool = True, exclude: frozenset[str] = frozenset()) -> str:
     """The shared catalog body: building blocks, per-card shapes, worked examples.
 
     Framing-free — callers wrap it in tool-call or batch instructions. This is
@@ -1169,13 +1277,15 @@ def render_card_catalog(*, include_model_backed: bool = True) -> str:
             on — its caller has the ``ifc_query`` rows in context. Post-hoc
             generation turns it off, because it has no tool output to copy ids
             from and would have to invent them.
+        exclude: Further types to leave out (:data:`CHAT_ONLY_CARD_TYPES` on
+            a path that is not the chat envelope).
 
     The envelope types are withheld unconditionally, like the system types: no
     surface asks a model for them any more (:data:`ENVELOPE_CARD_TYPES`).
     """
     from aiq_agent.cards.models import GridCard
 
-    withheld = SYSTEM_CARD_TYPES | ENVELOPE_CARD_TYPES
+    withheld = SYSTEM_CARD_TYPES | ENVELOPE_CARD_TYPES | exclude
     if not include_model_backed:
         withheld |= MODEL_BACKED_CARD_TYPES
 
@@ -1283,10 +1393,11 @@ def _measured_note() -> str:
 
 def _legal_basis_note() -> str:
     # The two fields whose renderer has a WIDTH the model cannot see.
-    # `article` and `section` are set in a 72px margin at 11px mono — the way a
-    # statute prints its § beside the text (grid-card-charter §B1) — and a
-    # shipped card put „Punkte 8 bis 10 der OIB-Richtlinie 2" and
-    # „Anwendungsbereiche der ergänzenden Richtlinien" there. That rendered as a
+    # `article` and `section` are set in a margin at least 72px wide, never
+    # wrapped, at 11px mono — the way a statute prints its § beside the text
+    # (grid-card-charter §B1) — and a shipped card put „Punkte 8 bis 10 der
+    # OIB-Richtlinie 2" and „Anwendungsbereiche der ergänzenden Richtlinien"
+    # there. That rendered as a
     # nine-line ragged pillar of mono taller than the card beside it, with „§ "
     # glued to a heading, on the product's proof-of-work card.
     #
@@ -1305,7 +1416,7 @@ def _legal_basis_note() -> str:
         "  Both are set in a narrow MARGIN beside the law's name, the way a statute prints its §, so\n"
         "  each carries an identifier and never a sentence: `article` is the number alone ('3.1.1',\n"
         "  '87', '8 bis 10', 'Art. 5 Abs. 2'), `section` the label alone ('Tabelle 1a', 'Abs. 4',\n"
-        "  'Anhang B'). Roughly 20 characters is the whole budget. 'Punkte 8 bis 10 der\n"
+        "  'Anhang B'). Roughly 14 characters is the whole budget. 'Punkte 8 bis 10 der\n"
         "  OIB-Richtlinie 2' names the Richtlinie a second time, and 'Anwendungsbereiche der\n"
         "  ergänzenden Richtlinien' says what the passage regulates — that is `summary`, not a\n"
         "  Fundstelle. Omit either field where the passage carries no such number or label; an empty\n"
@@ -1339,19 +1450,20 @@ def _diagram_note() -> str:
         "  screenshotted into an Einreichung. Naming a threshold in a branch condition\n"
         "  („Fluchtniveau > 22 m\u201c) is not that artefact: it is a label the answer has already\n"
         "  grounded, and nobody reads a rounded rectangle as a section.\n"
-        "  Four grammars are verified end to end: flowchart, sequence, state, pie. A journey is\n"
-        "  refused before the reader sees it — mermaid emits a foreignObject element for it whatever\n"
-        "  htmlLabels says, the SVG allow-list refuses that element, and the diagram degrades to its\n"
-        "  own source text in the middle of your answer. The rest are untested through the PDF\n"
-        "  converter, and a drawing that previews and then prints blank is worse than none.\n"
+        "  Six grammars are verified end to end: flowchart, sequence, state, pie, gantt, mindmap. A\n"
+        "  journey is refused before the reader sees it — mermaid emits a foreignObject element for it\n"
+        "  whatever htmlLabels says, the SVG allow-list refuses that element, and the diagram degrades\n"
+        "  to its own source text in the middle of your answer. A timeline draws and prints but lays\n"
+        "  out sideways, wider than the answer column; erDiagram and classDiagram draw and print too,\n"
+        "  but they model software, not buildings. The card takes the six and refuses the rest.\n"
         "  At most ONE per answer. A diagram earns its place by showing a fork, an ordering or a\n"
         "  dependency that prose cannot hold; a decorative one in a compliance answer costs the\n"
         "  reader trust in every drawing beside it. Labels in the answer's language and in Sie-Form,\n"
         "  and no label may carry a claim the answer has not grounded — the drawing leaves the page\n"
         "  without the paragraph that qualified it.\n"
-        "  When the user asks for a Diagramm, Schaubild or Grafik BY NAME, a drawing card answers\n"
-        "  it — this one, or the purpose-built card whose shape fits (`process_map` for a line,\n"
-        "  `condition_tree` for a fan). Never prose alone, never ASCII art, never a raw fence."
+        "  When the user asks for a Diagramm, Schaubild or Grafik BY NAME, a drawing answers it —\n"
+        "  this card, a ```mermaid fence in the answer, or the purpose-built card whose shape fits\n"
+        "  (`process_map` for a line, `condition_tree` for a fan). Never prose alone, never ASCII art."
     )
 
 
@@ -1377,9 +1489,11 @@ def _plain_text_note() -> str:
     )
 
 
-def _render_trigger_table(*, include_ifc_triggers: bool, include_craft: bool) -> str:
+def _render_trigger_table(*, include_ifc_triggers: bool, include_craft: bool, markdown_first: bool = False) -> str:
     """The head, then one row per trigger with its craft indented beneath it."""
     rows = (*_CARD_TRIGGERS, _MODEL_PICKER_ROW) if include_ifc_triggers else _CARD_TRIGGERS
+    if markdown_first:
+        rows = tuple(row for row in rows if row[1] not in MARKDOWN_CARD_TYPES)
     lead = (
         "The trigger, the card, and under it what fills that card well:"
         if include_craft
@@ -1388,6 +1502,8 @@ def _render_trigger_table(*, include_ifc_triggers: bool, include_craft: bool) ->
 
     lines = [_CARD_TRIGGER_HEAD, lead]
     for trigger, card, craft in rows:
+        if markdown_first:
+            craft = _MARKDOWN_FIRST_CRAFT.get(card, craft)
         # ljust reproduces the aligned arrow column for the short triggers and
         # gets out of the way for the long ones, which run past it anyway.
         lines.append(f"  {trigger.ljust(40)} -> {card}")
@@ -1397,7 +1513,9 @@ def _render_trigger_table(*, include_ifc_triggers: bool, include_craft: bool) ->
     return "\n".join(lines)
 
 
-def render_card_doctrine(*, include_ifc_triggers: bool = True, include_craft: bool = True) -> str:
+def render_card_doctrine(
+    *, include_ifc_triggers: bool = True, include_craft: bool = True, markdown_first: bool = False
+) -> str:
     """The trigger table, the craft that fills each card, and the negative default.
 
     Framing-free in the same sense as :func:`render_card_catalog`: it says which
@@ -1419,13 +1537,19 @@ def render_card_doctrine(*, include_ifc_triggers: bool = True, include_craft: bo
             generation turns it off and states its own short craft instead
             (``prompt.py``): half of what is written here is an instruction
             about an answer still being written, which that path cannot act on.
+        markdown_first: The chat envelope's surface. The rows of
+            :data:`MARKDOWN_CARD_TYPES` are dropped, because that content is
+            written in the answer's own Markdown, and the doctrine says so first.
     """
-    parts = [_render_trigger_table(include_ifc_triggers=include_ifc_triggers, include_craft=include_craft)]
-    parts.extend((_CARD_HONESTY, _CARD_RESTRAINT))
-    return "\n\n".join(parts)
+    table = _render_trigger_table(
+        include_ifc_triggers=include_ifc_triggers, include_craft=include_craft, markdown_first=markdown_first
+    )
+    if markdown_first:
+        return "\n\n".join((_MARKDOWN_FIRST, table, _CARD_HONESTY, _CARD_RESTRAINT_MARKDOWN_FIRST))
+    return "\n\n".join((table, _CARD_HONESTY, _CARD_RESTRAINT))
 
 
-def render_card_index(*, include_model_backed: bool = True) -> str:
+def render_card_index(*, include_model_backed: bool = True, exclude: frozenset[str] = frozenset()) -> str:
     """L1: one line per card type — name and purpose, no shapes, no examples.
 
     The always-on half of the card vocabulary. Rendering every shape and worked
@@ -1445,7 +1569,7 @@ def render_card_index(*, include_model_backed: bool = True) -> str:
     """
     from aiq_agent.cards.models import GridCard
 
-    withheld = SYSTEM_CARD_TYPES | ENVELOPE_CARD_TYPES
+    withheld = SYSTEM_CARD_TYPES | ENVELOPE_CARD_TYPES | exclude
     if not include_model_backed:
         withheld |= MODEL_BACKED_CARD_TYPES
 
@@ -1460,7 +1584,9 @@ def render_card_index(*, include_model_backed: bool = True) -> str:
     return "Card types:\n" + "\n".join(lines) + _interactive_note()
 
 
-def card_index_entries(*, include_model_backed: bool = False) -> list[tuple[str, str]]:
+def card_index_entries(
+    *, include_model_backed: bool = False, exclude: frozenset[str] = frozenset()
+) -> list[tuple[str, str]]:
     """``(type, first docstring line)`` per content card the answering model may emit.
 
     The same rows :func:`render_card_index` prints, as data: what a decision
@@ -1469,7 +1595,7 @@ def card_index_entries(*, include_model_backed: bool = False) -> list[tuple[str,
     """
     from aiq_agent.cards.models import GridCard
 
-    withheld = SYSTEM_CARD_TYPES | ENVELOPE_CARD_TYPES
+    withheld = SYSTEM_CARD_TYPES | ENVELOPE_CARD_TYPES | exclude
     if not include_model_backed:
         withheld |= MODEL_BACKED_CARD_TYPES
     entries: list[tuple[str, str]] = []
@@ -1496,8 +1622,18 @@ def render_card_details(card_types: Iterable[str]) -> str:
     by_type = {_card_type_of(c): c for c in GridCard.__args__}
     withheld = SYSTEM_CARD_TYPES | ENVELOPE_CARD_TYPES
     wanted = [t for t in dict.fromkeys(card_types) if t in by_type and t not in withheld]
+    # A surface's entry is the rule the answer contract teaches it by, worked
+    # example included: its `components` renders as a list of objects nobody
+    # could fill in, and the generic rules below (plain text, no Markdown)
+    # contradict its `Text` leaves.
+    compose = ""
+    if "surface" in wanted:
+        from aiq_agent.cards.envelope import compose_rule  # envelope imports this module
+
+        wanted.remove("surface")
+        compose = compose_rule()
     if not wanted:
-        return ""
+        return compose
 
     nested: list[type] = []
     card_lines = [f'  - "{t}"\n      shape: {_card_shape(by_type[t], nested)}' for t in wanted]
@@ -1538,4 +1674,6 @@ def render_card_details(card_types: Iterable[str]) -> str:
     out += _plain_text_note()
     if examples:
         out += "\n\nWorked examples (copy the nesting exactly):\n" + examples
+    if compose:
+        out += "\n\nA surface's `Text` leaf is the one exception to plain text: it holds Markdown.\n\n" + compose
     return out

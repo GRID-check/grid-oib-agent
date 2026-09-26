@@ -29,7 +29,7 @@ Consumers (kept current — update when re-pointing):
 - ``corpus_note`` → ``norm_registry.render_prompt_block`` corpus section
 - ``parcel_tags`` → ``norm_registry.parcel_note`` (per-parcel source-of-truth signal)
 - ``legal_source_tools`` → tool-name references in rendered prompt blocks/docs
-- ``applicability`` → ``applicability.render_project_block`` + compliance Stage-1 scoping
+- ``applicability`` → ``applicability.render_project_block``
 - ``corpus_doc_class`` → ``norm_registry.lane_for_hit`` display tagging
 """
 

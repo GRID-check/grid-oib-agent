@@ -1,7 +1,8 @@
 import { describe, test, expect, beforeEach, afterEach, vi } from 'vitest'
 import { useChatStore } from './store'
-import type { Conversation, PendingInteraction, FileCardData } from './types'
+import type { CitationSource, Conversation, PendingInteraction, FileCardData } from './types'
 import type { GridCard } from '@/shared/cards/schemas'
+import type { AnswerMeta } from '@/lib/conversations/message-answer-meta'
 
 const STORAGE_KEY = 'aiq-chat-store'
 const mockLayoutState = vi.hoisted(() => ({
@@ -34,6 +35,8 @@ const mockConversationsClient = vi.hoisted(() => ({
   listMessages: vi.fn().mockResolvedValue([]),
   createMessage: vi.fn().mockResolvedValue(undefined),
   createMessages: vi.fn().mockResolvedValue(undefined),
+  // No frames in the replay stream: no turn still working to wait for.
+  newestFrameAge: vi.fn().mockResolvedValue(null),
 }))
 vi.mock('@/adapters/api/conversations-client', () => ({
   conversationsClient: mockConversationsClient,
@@ -1362,13 +1365,11 @@ describe('useChatStore', () => {
       // unreachable — the answer could say THAT research stopped, never why.
       setupConversation()
 
-      useChatStore
-        .getState()
-        .addAgentResponse('Die Antwort.', undefined, undefined, undefined, {
-          researchTruncated: true,
-          truncationReason: 'wall_clock',
-          degradedReasons: ['no_valid_citations'],
-        })
+      useChatStore.getState().addAgentResponse('Die Antwort.', undefined, undefined, undefined, {
+        researchTruncated: true,
+        truncationReason: 'wall_clock',
+        degradedReasons: ['no_valid_citations'],
+      })
 
       const messages = useChatStore.getState().currentConversation?.messages
       expect(messages?.[0].researchTruncated).toBe(true)
@@ -1382,11 +1383,9 @@ describe('useChatStore', () => {
       // still produced nothing verifiable.
       setupConversation()
 
-      useChatStore
-        .getState()
-        .addAgentResponse('Die Antwort.', undefined, undefined, undefined, {
-          degradedReasons: ['no_report_file'],
-        })
+      useChatStore.getState().addAgentResponse('Die Antwort.', undefined, undefined, undefined, {
+        degradedReasons: ['no_report_file'],
+      })
 
       const messages = useChatStore.getState().currentConversation?.messages
       expect(messages?.[0].degradedReasons).toEqual(['no_report_file'])
@@ -1441,6 +1440,304 @@ describe('useChatStore', () => {
         expect(messages?.[0].isStreaming).toBe(false)
         // Tracking id is released so the next turn opens a fresh bubble.
         expect(useChatStore.getState().streamingAssistantMessageId).toBeNull()
+      })
+
+      test('a settled snapshot replaces the streamed text and names its sources (ADR-0066)', () => {
+        setupConversation()
+
+        useChatStore.getState().appendAgentResponseDelta('R 90 [1], erfunden [2')
+        useChatStore.getState().appendAgentResponseDelta('].')
+        const citations = [
+          { id: 's1', content: '', timestamp: new Date(), number: 1 },
+        ] as CitationSource[]
+        useChatStore.getState().replaceStreamingAgentResponse('R 90 [1], erfunden.', citations)
+
+        const messages = useChatStore.getState().currentConversation?.messages
+        expect(messages).toHaveLength(1)
+        expect(messages?.[0].content).toBe('R 90 [1], erfunden.')
+        expect(messages?.[0].citations).toBe(citations)
+        expect(messages?.[0].isStreaming).toBe(true)
+
+        // The terminal frame still settles it.
+        useChatStore.getState().finalizeAgentResponse('R 90 [1], erfunden.')
+        expect(useChatStore.getState().currentConversation?.messages?.[0].isStreaming).toBe(false)
+      })
+
+      test('a masthead frame opens the bubble before the prose, and the snapshot re-gates it', () => {
+        setupConversation()
+        const head: AnswerMeta = {
+          v: 1,
+          kind: 'ruling',
+          topic: 'Zweiter Fluchtweg',
+          summary: 'Beides geht.',
+        }
+
+        useChatStore.getState().appendAgentResponseDelta('', [], undefined, undefined, head)
+        let message = useChatStore.getState().currentConversation?.messages?.[0]
+        expect(message?.answerMeta).toEqual(head)
+        expect(message?.isStreaming).toBe(true)
+
+        useChatStore.getState().appendAgentResponseDelta('Beides geht [1].')
+        const settled: AnswerMeta = { v: 1, kind: 'ruling', topic: 'Zweiter Fluchtweg' }
+        useChatStore
+          .getState()
+          .replaceStreamingAgentResponse('Beides geht [1].', undefined, settled)
+        message = useChatStore.getState().currentConversation?.messages?.[0]
+        expect(message?.answerMeta).toEqual(settled)
+        expect(message?.content).toBe('Beides geht [1].')
+      })
+
+      test('live cards land on the open bubble, and a terminal without them takes them back', () => {
+        setupConversation()
+        const head: AnswerMeta = { v: 1, kind: 'direct', topic: 'Kurz' }
+
+        useChatStore.getState().appendAgentResponseDelta('', [], undefined, undefined, head)
+        useChatStore.getState().appendAgentResponseDelta('Kurz.')
+        useChatStore.getState().appendAgentResponseDelta('', [card('c1')])
+        expect(useChatStore.getState().currentConversation?.messages?.[0].cards).toHaveLength(1)
+
+        // The pipeline suppressed the cards and gated the masthead out.
+        useChatStore.getState().finalizeAgentResponse('Kurz.')
+        const message = useChatStore.getState().currentConversation?.messages?.[0]
+        expect(message?.cards).toBeUndefined()
+        expect(message?.answerMeta).toBeUndefined()
+        expect(message?.isStreaming).toBe(false)
+      })
+
+      test('a snapshot that brings the first masthead makes it provisional too', () => {
+        setupConversation()
+        const settled: AnswerMeta = { v: 1, kind: 'ruling', topic: 'Zweiter Fluchtweg' }
+
+        useChatStore.getState().appendAgentResponseDelta('Beides geht [1')
+        useChatStore
+          .getState()
+          .replaceStreamingAgentResponse('Beides geht [1].', undefined, settled)
+        expect(useChatStore.getState().currentConversation?.messages?.[0].answerMeta).toEqual(
+          settled
+        )
+
+        // The terminal gated it out: nothing may keep it on screen until reload.
+        useChatStore.getState().finalizeAgentResponse('Beides geht [1].')
+        expect(
+          useChatStore.getState().currentConversation?.messages?.[0].answerMeta
+        ).toBeUndefined()
+      })
+
+      test('a snapshot that opens the bubble with a masthead makes it provisional too', () => {
+        setupConversation()
+        const settled: AnswerMeta = { v: 1, kind: 'ruling', topic: 'Zweiter Fluchtweg' }
+
+        useChatStore
+          .getState()
+          .replaceStreamingAgentResponse('Beides geht [1].', undefined, settled)
+        useChatStore.getState().finalizeAgentResponse('Beides geht [1].')
+        expect(
+          useChatStore.getState().currentConversation?.messages?.[0].answerMeta
+        ).toBeUndefined()
+      })
+
+      test('a snapshot without the masthead takes the live one back', () => {
+        setupConversation()
+        const head: AnswerMeta = { v: 1, kind: 'ruling', topic: 'Zweiter Fluchtweg' }
+
+        useChatStore.getState().appendAgentResponseDelta('', [], undefined, undefined, head)
+        useChatStore.getState().appendAgentResponseDelta('Kommt darauf an [1')
+        // Re-gated against the settled prose, the masthead did not survive.
+        useChatStore.getState().replaceStreamingAgentResponse('Kommt darauf an [1].')
+        const message = useChatStore.getState().currentConversation?.messages?.[0]
+        expect(message?.answerMeta).toBeUndefined()
+        expect(message?.content).toBe('Kommt darauf an [1].')
+      })
+
+      test('an empty snapshot takes back a streamed round: its text, masthead and sources', () => {
+        // The backend retracts a streamed call that turned out to call tools
+        // (AnswerStreamSink.retract): content "", sources [].
+        setupConversation()
+        const head: AnswerMeta = { v: 1, kind: 'ruling', topic: 'Zweiter Fluchtweg' }
+        const citations = [
+          { id: 's1', content: '', timestamp: new Date(), number: 1 },
+        ] as CitationSource[]
+        useChatStore.getState().appendAgentResponseDelta('', [], undefined, undefined, head)
+        useChatStore.getState().replaceStreamingAgentResponse('R 90 [1].', citations, head)
+
+        useChatStore.getState().replaceStreamingAgentResponse('', [])
+        const message = useChatStore.getState().currentConversation?.messages?.[0]
+        expect(message?.content).toBe('')
+        expect(message?.answerMeta).toBeUndefined()
+        expect(message?.citations).toBeUndefined()
+      })
+
+      // A decision recorded against the open bubble's first card, as
+      // setCardDecision would leave it (without its persistence round trip).
+      const decideFirstCard = () => {
+        const state = useChatStore.getState()
+        const conv = state.currentConversation!
+        const updated: Conversation = {
+          ...conv,
+          messages: conv.messages.map((m) =>
+            m.id === state.streamingAssistantMessageId
+              ? {
+                  ...m,
+                  cardInteractions: {
+                    'kpi-0': { decision: 'accepted', decidedAt: '2026-09-25T00:00:00Z' },
+                  },
+                }
+              : m
+          ),
+        }
+        useChatStore.setState({ currentConversation: updated, conversations: [updated] })
+      }
+
+      test('a retraction takes the round cards and their decisions, so the next round marker cannot draw them', () => {
+        setupConversation()
+        useChatStore.getState().appendAgentResponseDelta('Round one [[card:0]]')
+        useChatStore.getState().appendAgentResponseDelta('', [card('old')])
+        decideFirstCard()
+
+        useChatStore.getState().replaceStreamingAgentResponse('', [])
+        let message = useChatStore.getState().currentConversation?.messages?.[0]
+        expect(message?.cards).toBeUndefined()
+        expect(message?.cardInteractions).toBeUndefined()
+
+        useChatStore.getState().appendAgentResponseDelta('Round two [[card:0]]')
+        message = useChatStore.getState().currentConversation?.messages?.[0]
+        expect(message?.content).toBe('Round two [[card:0]]')
+        expect(message?.cards).toBeUndefined()
+      })
+
+      test('a retraction then a stop persists no bubble holding only the dead round card', () => {
+        setupConversation()
+        useChatStore.getState().appendAgentResponseDelta('Round one [[card:0]]')
+        useChatStore.getState().appendAgentResponseDelta('', [card('old')])
+
+        useChatStore.getState().replaceStreamingAgentResponse('', [])
+        useChatStore.getState().stopStreaming()
+        const message = useChatStore.getState().currentConversation?.messages?.[0]
+        expect(message?.isStreaming).toBe(false)
+        expect(message?.cards).toBeUndefined()
+      })
+
+      test('a snapshot with text keeps the live cards', () => {
+        setupConversation()
+        useChatStore.getState().appendAgentResponseDelta('Kurz [[card:0]')
+        useChatStore.getState().appendAgentResponseDelta('', [card('c1')])
+        useChatStore.getState().replaceStreamingAgentResponse('Kurz [[card:0]].')
+        expect(useChatStore.getState().currentConversation?.messages?.[0].cards).toHaveLength(1)
+      })
+
+      test('live cards buffered in the same frame as a snapshot survive it', () => {
+        // Batching runs only outside vitest's NODE_ENV=test.
+        vi.stubEnv('NODE_ENV', 'development')
+        try {
+          setupConversation()
+          const cards = [card('c1')]
+          useChatStore.getState().appendAgentResponseDelta('Kurz [[card:0]')
+          useChatStore.getState().appendAgentResponseDelta(' mehr')
+          useChatStore.getState().appendAgentResponseDelta('', cards, 'high')
+          useChatStore.getState().replaceStreamingAgentResponse('Kurz [[card:0]].')
+
+          const message = useChatStore.getState().currentConversation?.messages?.[0]
+          expect(message?.content).toBe('Kurz [[card:0]].')
+          expect(message?.cards).toBe(cards)
+          expect(message?.answerConfidence).toBe('high')
+        } finally {
+          vi.unstubAllEnvs()
+        }
+      })
+
+      test('a terminal that takes the live cards back takes their decisions too', () => {
+        setupConversation()
+        const head: AnswerMeta = { v: 1, kind: 'direct', topic: 'Kurz' }
+        useChatStore.getState().appendAgentResponseDelta('', [], undefined, undefined, head)
+        useChatStore.getState().appendAgentResponseDelta('Kurz.')
+        useChatStore.getState().appendAgentResponseDelta('', [card('c1')])
+        decideFirstCard()
+
+        useChatStore.getState().finalizeAgentResponse('Kurz.')
+        const message = useChatStore.getState().currentConversation?.messages?.[0]
+        expect(message?.cards).toBeUndefined()
+        expect(message?.cardInteractions).toBeUndefined()
+      })
+
+      test('cards on the legacy single in_progress frame survive an empty terminal', () => {
+        setupConversation()
+        const cards = [card('c1')]
+
+        useChatStore.getState().appendAgentResponseDelta('Voll.', cards)
+        useChatStore.getState().finalizeAgentResponse('Voll.')
+        expect(useChatStore.getState().currentConversation?.messages?.[0].cards).toBe(cards)
+      })
+
+      test('cards on a LATER legacy in_progress frame survive a terminal with text and no cards', () => {
+        // Legacy shape: the cards ride a frame that also carries text. They are
+        // final, not provisional, so a terminal that omits them keeps them.
+        setupConversation()
+        const cards = [card('c1')]
+
+        useChatStore.getState().appendAgentResponseDelta('Voll')
+        useChatStore.getState().appendAgentResponseDelta('.', cards)
+        useChatStore.getState().finalizeAgentResponse('Voll.')
+        expect(useChatStore.getState().currentConversation?.messages?.[0].cards).toBe(cards)
+      })
+
+      test('a retraction with no bubble open opens none', () => {
+        // The retraction of a round whose prose never reached the client:
+        // nothing on screen to take back, so no empty streaming bubble.
+        setupConversation()
+
+        useChatStore.getState().replaceStreamingAgentResponse('', [])
+        expect(useChatStore.getState().currentConversation?.messages).toHaveLength(0)
+        expect(useChatStore.getState().streamingAssistantMessageId).toBeNull()
+      })
+
+      test('a whitespace-only first delta opens no bubble; once one is open it is text', () => {
+        // Opened by a bare "\n\n", the bubble had nothing to draw and still
+        // took the typing placeholder down. One rule with spectator-frames.ts.
+        setupConversation()
+
+        useChatStore.getState().appendAgentResponseDelta('\n\n')
+        expect(useChatStore.getState().currentConversation?.messages).toHaveLength(0)
+        expect(useChatStore.getState().streamingAssistantMessageId).toBeNull()
+
+        useChatStore.getState().appendAgentResponseDelta('Erster Absatz.')
+        useChatStore.getState().appendAgentResponseDelta('\n\n')
+        useChatStore.getState().appendAgentResponseDelta('Zweiter Absatz.')
+        expect(useChatStore.getState().currentConversation?.messages?.[0]?.content).toBe(
+          'Erster Absatz.\n\nZweiter Absatz.'
+        )
+      })
+
+      test('a terminal with text and no sources takes the snapshot citations back; an empty one keeps them', () => {
+        // Citations are numbered against the text and go with it. One rule
+        // with the spectator's fold (spectator-frames.ts).
+        const citations = [{ id: 's1', content: '', timestamp: new Date(), number: 1 }] as CitationSource[]
+        setupConversation()
+        useChatStore.getState().appendAgentResponseDelta('R 90 [1')
+        useChatStore.getState().replaceStreamingAgentResponse('R 90 [1].', citations)
+        useChatStore.getState().finalizeAgentResponse('R 90.')
+        expect(useChatStore.getState().currentConversation?.messages?.[0]?.citations).toBeUndefined()
+
+        setupConversation()
+        useChatStore.getState().appendAgentResponseDelta('R 90 [1')
+        useChatStore.getState().replaceStreamingAgentResponse('R 90 [1].', citations)
+        useChatStore.getState().finalizeAgentResponse('')
+        expect(useChatStore.getState().currentConversation?.messages?.[0]?.citations).toBe(citations)
+      })
+
+      test('a whitespace-only terminal is not text: it keeps the answer and the live extras', () => {
+        // One emptiness test with the spectator's fold (spectator-frames.ts).
+        setupConversation()
+        const head: AnswerMeta = { v: 1, kind: 'direct', topic: 'Kurz' }
+
+        useChatStore.getState().appendAgentResponseDelta('', [], undefined, undefined, head)
+        useChatStore.getState().appendAgentResponseDelta('Kurz.')
+        useChatStore.getState().appendAgentResponseDelta('', [card('c1')])
+        useChatStore.getState().finalizeAgentResponse('\n')
+
+        const message = useChatStore.getState().currentConversation?.messages?.[0]
+        expect(message?.content).toBe('Kurz.')
+        expect(message?.cards).toHaveLength(1)
+        expect(message?.answerMeta).toEqual(head)
       })
 
       test('empty complete frame does NOT wipe the accumulated bubble (just finalizes)', () => {
@@ -1503,7 +1800,9 @@ describe('useChatStore', () => {
       test('finalize with no prior delta falls back to a one-shot response (complete-only frame)', () => {
         setupConversation()
 
-        useChatStore.getState().finalizeAgentResponse('Whole answer in one complete frame', [card('c1')])
+        useChatStore
+          .getState()
+          .finalizeAgentResponse('Whole answer in one complete frame', [card('c1')])
 
         const messages = useChatStore.getState().currentConversation?.messages
         expect(messages).toHaveLength(1)
@@ -1745,8 +2044,14 @@ describe('useChatStore', () => {
           resolveList = resolve
         }) as never
       )
-      const conv = createConversation([{ id: 'msg-0', role: 'user', messageType: 'user', content: 'Q' }])
-      useChatStore.setState({ currentConversation: conv, conversations: [conv], isRecoveryPending: false })
+      const conv = createConversation([
+        { id: 'msg-0', role: 'user', messageType: 'user', content: 'Q' },
+      ])
+      useChatStore.setState({
+        currentConversation: conv,
+        conversations: [conv],
+        isRecoveryPending: false,
+      })
 
       const recovery = useChatStore.getState()._recoverInterruptedAssistantMessage(conv.id, 'msg-0')
       // The checking state is active for the whole round-trip.
@@ -1781,8 +2086,14 @@ describe('useChatStore', () => {
           createdAt: '2026-07-01T10:00:05.000Z',
         },
       ] as never)
-      const conv = createConversation([{ id: 'msg-0', role: 'user', messageType: 'user', content: 'Q' }])
-      useChatStore.setState({ currentConversation: conv, conversations: [conv], isRecoveryPending: false })
+      const conv = createConversation([
+        { id: 'msg-0', role: 'user', messageType: 'user', content: 'Q' },
+      ])
+      useChatStore.setState({
+        currentConversation: conv,
+        conversations: [conv],
+        isRecoveryPending: false,
+      })
 
       const outcome = await useChatStore
         .getState()
@@ -2104,7 +2415,7 @@ describe('useChatStore', () => {
     })
 
     describe('getUserConversations', () => {
-      test('inside a project, lists that project\'s sessions plus unscoped legacy sessions (fail-open)', () => {
+      test("inside a project, lists that project's sessions plus unscoped legacy sessions (fail-open)", () => {
         useChatStore.setState({
           currentUserId: 'user-1',
           projectId: 'proj-a',
@@ -2117,12 +2428,15 @@ describe('useChatStore', () => {
           ],
         })
 
-        const ids = useChatStore.getState().getUserConversations().map((c) => c.id)
+        const ids = useChatStore
+          .getState()
+          .getUserConversations()
+          .map((c) => c.id)
 
         expect(ids).toEqual(['a-1', 'legacy-null', 'legacy-undef'])
       })
 
-      test('without a project context, lists all of the user\'s sessions', () => {
+      test("without a project context, lists all of the user's sessions", () => {
         useChatStore.setState({
           currentUserId: 'user-1',
           projectId: null,
@@ -2161,7 +2475,7 @@ describe('useChatStore', () => {
     })
 
     describe('selectConversation guard', () => {
-      test('refuses to activate another project\'s session under the current project', () => {
+      test("refuses to activate another project's session under the current project", () => {
         const foreign = makeConv('b-1', 'user-1', 'proj-b')
         useChatStore.setState({
           currentUserId: 'user-1',
@@ -2191,7 +2505,7 @@ describe('useChatStore', () => {
     })
 
     describe('deleteAllConversations scoping', () => {
-      test('deletes only the current project\'s sessions and unscoped legacy sessions', () => {
+      test("deletes only the current project's sessions and unscoped legacy sessions", () => {
         useChatStore.setState({
           currentUserId: 'user-1',
           projectId: 'proj-a',
@@ -2232,7 +2546,7 @@ describe('useChatStore', () => {
         expect(state.currentConversation?.id).toBe('b-1')
       })
 
-      test('without a project context, deletes all of the user\'s sessions (org-wide view)', () => {
+      test("without a project context, deletes all of the user's sessions (org-wide view)", () => {
         useChatStore.setState({
           currentUserId: 'user-1',
           projectId: null,
@@ -2249,7 +2563,7 @@ describe('useChatStore', () => {
         expect(useChatStore.getState().conversations.map((c) => c.id)).toEqual(['other-user'])
       })
 
-      test('drops drafts for exactly the removed sessions, keeping other projects\' drafts', () => {
+      test("drops drafts for exactly the removed sessions, keeping other projects' drafts", () => {
         useChatStore.setState({
           currentUserId: 'user-1',
           projectId: 'proj-a',

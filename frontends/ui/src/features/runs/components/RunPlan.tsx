@@ -1,7 +1,7 @@
 'use client'
 
 /**
- * The plan a run waits on, on the run's own block (ADR-0065).
+ * The plan a run waits on, on the run's own block (ADR-0068).
  *
  * Three readings of one row, and the reader owes none of them an answer:
  *

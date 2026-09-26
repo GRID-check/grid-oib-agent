@@ -84,7 +84,7 @@ interface ChatToolbarProps {
   isCollaborationEnabled?: boolean
   /** The signed-in user, so the roster can mark "you" and Leave knows its target. */
   currentUserId?: string | null
-  /** The project this thread sits in; enables „Recherche planen" (ADR-0065). */
+  /** The project this thread sits in; enables „Recherche planen" (ADR-0068). */
   projectId?: string | null
 }
 
@@ -122,7 +122,7 @@ export const ChatToolbar: FC<ChatToolbarProps> = memo(function ChatToolbar({
   const sharing = useSharing('conversation', conversationId ?? null, isSharingReachable)
   const [isShareOpen, setIsShareOpen] = useState(false)
   // Plan a research: a plan the reader writes, and the run that waits on it
-  // (ADR-0065). Offered where a run can be commissioned: in a project thread,
+  // (ADR-0068). Offered where a run can be commissioned: in a project thread,
   // to a signed-in reader.
   const [isPlanOpen, setIsPlanOpen] = useState(false)
   const canPlan = Boolean(isAuthenticated && projectId && conversationId)

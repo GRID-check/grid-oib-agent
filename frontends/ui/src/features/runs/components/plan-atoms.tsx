@@ -1,7 +1,7 @@
 'use client'
 
 /**
- * The research plan's own atom kit (ADR-0065). One decision each, no domain
+ * The research plan's own atom kit (ADR-0068). One decision each, no domain
  * logic: the organisms — `PlanChecklist` and `PlanUnterlagen` on the
  * block and in the „Recherche planen" dialog, `RunPlan` and `PlanDialog`
  * around them — compose these.
@@ -25,7 +25,7 @@
  * other evidentiary mark.
  */
 
-import { forwardRef, useEffect, useRef, type FC, type ReactNode } from 'react'
+import { forwardRef, useEffect, useRef, type FC, type JSX, type ReactNode } from 'react'
 import {
   Ban,
   Check,

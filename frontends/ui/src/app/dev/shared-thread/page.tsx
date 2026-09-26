@@ -47,6 +47,7 @@
  * cannot be reviewed at all.
  */
 
+import type { JSX } from 'react'
 import { useEffect, useState } from 'react'
 import { notFound } from 'next/navigation'
 import { I18nProvider } from '@/i18n'
@@ -231,6 +232,20 @@ const LIVE_FRAMES: unknown[] = [
       payload: 'OIB-Richtlinie 2, Abschnitt 3 wird gelesen',
     },
     status: 'in_progress',
+  },
+  // The masthead, written before the prose and sent ahead of it (ADR-0066).
+  {
+    type: 'system_response_message',
+    id: 'r0',
+    parent_id: 'live-turn',
+    content: { text: '' },
+    status: 'in_progress',
+    answer_meta: {
+      v: 1,
+      kind: 'ruling',
+      topic: 'Innenhof als zweiter Rettungsweg',
+      verdict: { value: 'Nein', subject: 'Innenhof als zweiter Rettungsweg' },
+    },
   },
   {
     type: 'system_response_message',

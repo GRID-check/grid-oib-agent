@@ -112,7 +112,7 @@ export function previousRunFindings(
 }
 
 /**
- * A continuation as a plan (ADR-0065): the last run's plan carried forward —
+ * A continuation as a plan (ADR-0068): the last run's plan carried forward —
  * its sections, genre, depth, Rahmen and exclusions — with the report's cited
  * documents added to its Grundlage and the earlier findings as context. It is
  * proposed with a countdown, so the new block shows it and the reader may

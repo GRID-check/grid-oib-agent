@@ -925,7 +925,7 @@ async def run_agent_job(
     # The Unterlagen the reader named on the plan card (``plan_documents``
     # contract), sanitised here into the agent state and the run ledger.
     documents: dict | None = None,
-    # The research plan this run waits on (ADR-0065). When set, the agent does
+    # The research plan this run waits on (ADR-0068). When set, the agent does
     # not start until the plan does, and runs the plan as it is at that instant.
     plan_id: str | None = None,
 ):

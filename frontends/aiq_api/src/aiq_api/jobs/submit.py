@@ -127,7 +127,7 @@ def _build_run_agent_payload(
         # The Unterlagen the reader named on the plan, as the BFF handed them
         # over; the runner sanitises them into the agent state and the ledger.
         "documents": documents,
-        # The research plan the run waits on (ADR-0065): the worker claims its
+        # The research plan the run waits on (ADR-0068): the worker claims its
         # start by this id and runs the plan as it is then.
         "plan_id": plan_id,
         # No owner at submit time (unclaimed): the DB worker fills in its own
@@ -402,7 +402,7 @@ async def submit_agent_job(
         clarifier_result: Optional clarifier dialog log set on the agent state
             so worker-side prompts render the structured Clarification Context
             section, matching the synchronous chat path.
-        plan_id: The research plan the run waits on (ADR-0065); the worker claims
+        plan_id: The research plan the run waits on (ADR-0068); the worker claims
             its start by this id before the agent runs.
         memory_reflection_enabled: Whether the worker should run the post-answer
             memory-reflection stage over the finished report. Captured from the

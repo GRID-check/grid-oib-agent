@@ -169,7 +169,7 @@ export const mapServerMessageToChatMessage = (message: Message): ChatMessage | n
       const runTitle = sanitizeRunTitle(metadata.run_title)
       return runTitle ? { runTitle } : {}
     })(),
-    // The plan the run waits on (ADR-0065): an id the block fetches the plan
+    // The plan the run waits on (ADR-0068): an id the block fetches the plan
     // by. Bounded like every id this tier reads back.
     ...(() => {
       const planId = metadata.plan_id
@@ -298,6 +298,13 @@ const restoreProvenance = (value: unknown): Partial<ChatMessage> => {
   }
   if (typeof provenance.escalationReason === 'string') {
     out.escalationReason = provenance.escalationReason
+  }
+  if (
+    typeof provenance.answerDurationMs === 'number' &&
+    Number.isFinite(provenance.answerDurationMs) &&
+    provenance.answerDurationMs > 0
+  ) {
+    out.answerDurationMs = provenance.answerDurationMs
   }
   if (Array.isArray(provenance.skillsActivated) && provenance.skillsActivated.length > 0) {
     out.skillsActivated = provenance.skillsActivated.filter(

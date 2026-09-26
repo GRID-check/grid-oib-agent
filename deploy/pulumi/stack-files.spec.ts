@@ -69,3 +69,19 @@ describe("committed stack files", () => {
     }
   });
 });
+
+describe("the prod image pin the deploy verifies", () => {
+  // deploy.yml's "Verify the pinned images exist" reads the tag with
+  // `sed -n 's/^  grid-oib:imageTag: *//p'` before any Pulumi is installed. If
+  // the pin moves or changes shape, that step fails closed; this says why
+  // before a deploy does.
+  it("is one immutable sha tag, on the line the deploy step reads", () => {
+    const text = readFileSync(join(DIR, "Pulumi.prod.yaml"), "utf8");
+    const pins = text
+      .split("\n")
+      .map((line) => /^  grid-oib:imageTag: *(.*)$/.exec(line)?.[1]?.replace(/["']/g, ""))
+      .filter((tag): tag is string => tag !== undefined);
+    expect(pins).toHaveLength(1);
+    expect(pins[0]).toMatch(/^sha-[0-9a-f]{40}$/);
+  });
+});

@@ -88,8 +88,11 @@ llms:
   # the admin UI, not a commit and a redeploy. Change them (or set
   # GRID_DEFAULT_MODEL) only to move the *floor*, e.g. for a deployment that
   # runs without the BFF. What this file remains the sole owner of is the
-  # plumbing: base_url, api_key, temperature, max_tokens, reasoning_effort,
-  # timeouts and retries — none of which an override may touch.
+  # plumbing: base_url, api_key, temperature, max_tokens, timeouts and
+  # retries — none of which an override may touch. reasoning_effort is a
+  # fallback: the platform owner's thinking level per agent group wins where
+  # one is set (platform_reasoning_efforts,
+  # docs/architecture/org-model-configuration.md).
   # ───────────────────────────────────────────────────────────────────────────
   #
   # ───────────────────────────────────────────────────────────────────────────
@@ -120,7 +123,7 @@ llms:
   # Shallow Research — fast retrieval + synthesis (the quick-answer tier).
   research_llm:
     _type: openai
-    model_name: ${GRID_DEFAULT_MODEL:-openai/gpt-5.6-luna}
+    model_name: ${GRID_DEFAULT_MODEL:-openai/gpt-6-luna}
     base_url: "https://openrouter.ai/api/v1"
     api_key: ${OPENROUTER_API_KEY}
     temperature: 1.0
@@ -151,7 +154,10 @@ llms:
     # below: that feature needs it and fails the workflow build without it,
     # deliberately, rather than sending the tool schemas anyway (ADR-0048).
     # Nothing else in this file needs it; the default (chat_completion) is what
-    # every other role runs on. Turn both off together.
+    # every other role runs on. Deferral is off since 2026-09-25 (see below);
+    # this stays on until the answer suite has measured Chat Completions for
+    # this role, because the transport of every research call is not a change
+    # to make as a side effect.
     api_type: responses
     # ── PROMPT CACHING: nothing to configure here, and that is the point ──
     # This role re-sends ~35 KB of identical prefix (system prompt + tool
@@ -180,7 +186,7 @@ llms:
   # HITL Clarification & Planning — clarify ambiguity, generate the research plan.
   clarifier_llm:
     _type: openai
-    model_name: ${GRID_DEFAULT_MODEL:-openai/gpt-5.6-luna}
+    model_name: ${GRID_DEFAULT_MODEL:-openai/gpt-6-luna}
     base_url: "https://openrouter.ai/api/v1"
     api_key: ${OPENROUTER_API_KEY}
     temperature: 1.0
@@ -193,7 +199,7 @@ llms:
   # Deep Researcher — Orchestrator (also the report writer): top-level control.
   deep_orchestrator_llm:
     _type: openai
-    model_name: ${GRID_DEFAULT_MODEL:-openai/gpt-5.6-luna}
+    model_name: ${GRID_DEFAULT_MODEL:-openai/gpt-6-luna}
     base_url: "https://openrouter.ai/api/v1"
     api_key: ${OPENROUTER_API_KEY}
     temperature: 1.0
@@ -210,7 +216,7 @@ llms:
   # Deep Researcher — Planning sub-agents.
   deep_planner_llm:
     _type: openai
-    model_name: ${GRID_DEFAULT_MODEL:-openai/gpt-5.6-luna}
+    model_name: ${GRID_DEFAULT_MODEL:-openai/gpt-6-luna}
     base_url: "https://openrouter.ai/api/v1"
     api_key: ${OPENROUTER_API_KEY}
     temperature: 1.0
@@ -223,7 +229,7 @@ llms:
   # Deep Researcher — Researcher sub-agents (parallel investigations).
   deep_researcher_llm:
     _type: openai
-    model_name: ${GRID_DEFAULT_MODEL:-openai/gpt-5.6-luna}
+    model_name: ${GRID_DEFAULT_MODEL:-openai/gpt-6-luna}
     base_url: "https://openrouter.ai/api/v1"
     api_key: ${OPENROUTER_API_KEY}
     temperature: 1.0
@@ -236,7 +242,7 @@ llms:
   # Deep Researcher — source routing (which source to query). Lighter decision.
   deep_router_llm:
     _type: openai
-    model_name: ${GRID_DEFAULT_MODEL:-openai/gpt-5.6-luna}
+    model_name: ${GRID_DEFAULT_MODEL:-openai/gpt-6-luna}
     base_url: "https://openrouter.ai/api/v1"
     api_key: ${OPENROUTER_API_KEY}
     temperature: 1.0
@@ -252,7 +258,7 @@ llms:
   # which is also the deep-research source_router_llm where medium still matters.
   ris_planner_llm:
     _type: openai
-    model_name: ${GRID_DEFAULT_MODEL:-openai/gpt-5.6-luna}
+    model_name: ${GRID_DEFAULT_MODEL:-openai/gpt-6-luna}
     base_url: "https://openrouter.ai/api/v1"
     api_key: ${OPENROUTER_API_KEY}
     temperature: 1.0
@@ -265,7 +271,7 @@ llms:
   # Card generation — structured rich-UI compliance cards.
   card_llm:
     _type: openai
-    model_name: ${GRID_DEFAULT_MODEL:-openai/gpt-5.6-luna}
+    model_name: ${GRID_DEFAULT_MODEL:-openai/gpt-6-luna}
     base_url: "https://openrouter.ai/api/v1"
     api_key: ${OPENROUTER_API_KEY}
     temperature: 1.0
@@ -287,7 +293,7 @@ llms:
   # already dead when the bound fired.
   follow_ups_llm:
     _type: openai
-    model_name: ${GRID_DEFAULT_MODEL:-openai/gpt-5.6-luna}
+    model_name: ${GRID_DEFAULT_MODEL:-openai/gpt-6-luna}
     base_url: "https://openrouter.ai/api/v1"
     api_key: ${OPENROUTER_API_KEY}
     temperature: 1.0
@@ -297,24 +303,10 @@ llms:
     request_timeout: 15
     reasoning_effort: none
 
-  # Compliance pipeline — Stage 1 requirement derivation + Stage 2 evidence
-  # judging (structured outputs; ~10-16 calls per full 6-Richtlinien check).
-  compliance_llm:
-    _type: openai
-    model_name: ${GRID_DEFAULT_MODEL:-openai/gpt-5.6-luna}
-    base_url: "https://openrouter.ai/api/v1"
-    api_key: ${OPENROUTER_API_KEY}
-    temperature: 1.0
-    top_p: 0.95
-    max_tokens: 65536
-    max_retries: 2
-    request_timeout: 120
-    reasoning_effort: medium
-
   # Document / project summaries — trivial one-liners.
   summary_llm:
     _type: openai
-    model_name: ${GRID_DEFAULT_MODEL:-openai/gpt-5.6-luna}
+    model_name: ${GRID_DEFAULT_MODEL:-openai/gpt-6-luna}
     base_url: "https://openrouter.ai/api/v1"
     api_key: ${OPENROUTER_API_KEY}
     temperature: 1.0
@@ -349,7 +341,7 @@ llms:
   # can be silently inert on a given model; `seed` is set for the same reason.
   rerank_llm:
     _type: openai
-    model_name: ${GRID_DEFAULT_MODEL:-openai/gpt-5.6-luna}
+    model_name: ${GRID_DEFAULT_MODEL:-openai/gpt-6-luna}
     base_url: "https://openrouter.ai/api/v1"
     api_key: ${OPENROUTER_API_KEY}
     temperature: 0
@@ -498,6 +490,7 @@ functions:
       - aenderungen_oib-rl_1_leitfaden_ausgabe_mai_2023.pdf
       - aenderungen_oib-rl_2.1_ausgabe_mai_2023.pdf
       - aenderungen_oib-rl_2.2_ausgabe_mai_2023.pdf
+      - aenderungen_oib-richtlinie_2.2_ausgabe_mai_2023.pdf  # the name oib.or.at publishes 2.2 under
       - aenderungen_oib-rl_2.3_ausgabe_mai_2023.pdf
       - aenderungen_oib-rl_2_ausgabe_mai_2023.pdf
       - aenderungen_oib-rl_2_leitfaden_ausgabe_mai_2023.pdf
@@ -566,6 +559,9 @@ functions:
     # Fail-open: any judge error keeps the first pool.
     requery_llm: rerank_llm
     requery_max_queries: 2
+    # The prefetch requeries like any search. Skipping it was measured 3.4 s
+    # slower on the turns it applied to, and the switch was removed
+    # (docs/architecture/turn-latency-measured-2026-09.md §3.5).
     # Who answers the judge's yes/no (ADR-0064). `jev` asks the decision model
     # one noul per passage of the fused head — ~300 ms in parallel, a fraction
     # of a cent — and runs `requery_llm` only when the head is insufficient,
@@ -592,9 +588,12 @@ functions:
   remember:
     _type: project_memory_remember
 
-  # Rich UI cards: the agent calls emit_card mid-answer when a structured
-  # element (legal basis, dimension/stair diagram, summary) adds value. Cards
-  # are validated and delivered alongside the written answer.
+  # Rich UI cards, deep research only: its writer calls emit_card mid-answer
+  # when a structured element (legal basis, dimension/stair diagram, summary)
+  # adds value. Chat binds no emit_card; its cards travel in the answer
+  # envelope's `cards` field, whose contract carries the doctrine
+  # (cards/envelope.py). Either way cards are validated and delivered
+  # alongside the written answer.
   emit_card:
     _type: emit_card
 
@@ -612,12 +611,12 @@ functions:
   # turn whether or not a card is emitted, and ~190 more for each type we add.
   #
   # Bound to NO agent today, and declared so a config that wants it has the
-  # `_type` to hand. On the chat path a failed `emit_card` returns this same L2
-  # entry for the type that failed, so the shape is learned on the retry that
-  # needed it instead of in a charged round trip the prompt had to talk the
-  # model into paying in advance. Deep research learned the same thing: its
-  # writer emits arrays through `emit_card`, and the lookup it used to pay for
-  # bought a shape the failure path now hands back.
+  # `_type` to hand. Deep research's writer emits through `emit_card`, and a
+  # failed call returns this same L2 entry for the type that failed, so the
+  # shape is learned on the retry that needed it instead of in a charged round
+  # trip paid in advance. Chat has no `emit_card`: the envelope contract carries
+  # the common shapes, and a refused card goes to `card_repair_llm` with its
+  # type's shape.
   describe_card:
     _type: describe_card
 
@@ -667,7 +666,7 @@ functions:
     _type: submit_draft
 
   # Delegation (src/aiq_agent/tools/tasks). Hands work that outlives this turn
-  # to a `tasks` row (ADR-0051) — the compliance checker, the Einreichcheck
+  # to a `tasks` row (ADR-0051) — a norm check, the Einreichcheck
   # skill, a document to write, a draft to revise — through
   # `POST /api/internal/tasks`, echoing the same BFF-signed envelope, so the row
   # is created in the requesting person's pinned session, under their
@@ -702,14 +701,6 @@ functions:
     _type: ifc_measure
     default_limit: 50
 
-  # RETIRED as a chat tool: the purpose-built OIB Soll-Ist-Abgleich
-  # (backlog T4-3, staged requirement-profile -> evidence-judgment pipeline)
-  # is no longer bound to any agent. The `compliance_check` function block and
-  # its `shallow_research_agent` tool-list entry were removed together with the
-  # `aiq_compliance_checker` plugin entry point; the implementation stays in
-  # place (src/aiq_agent/agents/compliance_checker/) for reference. See its
-  # README.
-
   # The FUNCTION NAME here is deliberately still `shallow_research_agent` while
   # the `_type` is `research_agent`. NAT puts the function name — not the type —
   # on the wire as `Function Start: <name>`, and the frontend persists that
@@ -723,8 +714,7 @@ functions:
     _type: research_agent
     llm: research_llm
     # Explicit list (replaces registry inheritance) so the non-data-source
-    # `remember`, `emit_card` and `ask_user` tools are included alongside
-    # search/knowledge.
+    # `remember` and `ask_user` tools are included alongside search/knowledge.
     tools:
       - web_search_tool
       - knowledge_search
@@ -739,7 +729,11 @@ functions:
       # budget shape.
       - ris_lookup_tool
       - remember
-      - emit_card
+      # No `emit_card`: every chat card travels in the answer envelope's
+      # `cards` field (cards/envelope.py), at no extra call. Bound, the tool
+      # was 2 676 tokens of schema on every call, repeating the contract the
+      # envelope schema already teaches, and a model at low effort spent a
+      # whole round on it (September 2026 census). Deep research binds its own.
       - surface_documents
       - move_document
       - rename_document
@@ -786,7 +780,7 @@ functions:
     # parallel calls is one round, so each floor is the number of think-act
     # cycles rather than the number of calls:
     #   „wie hoch ist der Keller"  use_skill, survey                        = 2
-    #     ...plus a storey-name miss repaired by briefing, plus emit_card    = 4
+    #     ...plus a storey-name miss repaired by briefing                    = 3
     #   OIB 3 Lichteinfall         use_skill, knowledge_search (the clause
     #     supplies angle_deg/swivel_deg, which light_incidence refuses to
     #     default), find_elements+relations, overhang, light_incidence       = 5
@@ -794,7 +788,7 @@ functions:
     #     find_elements, egressPath+clearWidth over the door list,
     #     fire/doorGraph                                                    = 5
     #   „was weißt du über die OIB 2"  knowledge_search, then the family
-    #     opened in one parallel batch of read_passage, then emit_card       = 3
+    #     opened in one parallel batch of read_passage                      = 2
     #
     # Truncation is still silent TO THE READER — the synthesis anchor says
     # „exhausted your research budget" to the MODEL and asks for no disclosure,
@@ -853,9 +847,10 @@ functions:
     # Each firing leaves a `status:width:N` record, so a cap that fires on real
     # turns is visible rather than inferred. 0 disables it.
     max_calls_per_round: 12
-    # The turn's one repair (roadmap loop L0): when a citation or a quote fails
-    # verification, one more retrieval aimed at the failing text and one rewrite,
-    # re-verified; the better answer ships. Off = ship the markers as before.
+    # The turn's one repair (ADR-0067): a quotation the model misremembered is
+    # corrected in place to the cited passage's own wording on card_repair_llm.
+    # No retrieval, no rewrite. Off, or without card_repair_llm, the quote
+    # ships marked.
     repair_pass: true
     # A card the answer envelope carried and the validator refused is fixed
     # ONCE on the card model — the failed object, the refusal and the type's
@@ -892,12 +887,12 @@ functions:
     # every call here, so narrowing to four tools saves ~24 % of that payload on
     # average and 81 % on a pure-Normen question. But tokens are not what this
     # agent runs out of — TURNS are, and narrowing does not buy one back. What it
-    # can spend is an answer: measured against these eleven tools, a lexical rank
+    # can spend is an answer: measured against the eleven tools it had then, a lexical rank
     # over the user's turn alone keeps the answering tool for only 71 % of a
     # realistic German question set. The pins below carry that to 100 %, because
     # they cover the two shapes a query-time ranking structurally cannot see —
-    # tools named by INTENT rather than subject (`remember`, `emit_card`,
-    # `use_skill`, `surface_documents`) and tools that are SEQUENCED, whose turn
+    # tools named by INTENT rather than subject (`remember`, `use_skill`,
+    # `surface_documents`) and tools that are SEQUENCED, whose turn
     # comes from what a previous tool returned (`ris_fetch_tool` after
     # `ris_search_tool`). Both are guarded by tests.
     #
@@ -909,34 +904,39 @@ functions:
     #   top_k: 4
     #   always_include:
     #     - remember
-    #     - emit_card
     #     - use_skill
     #     - surface_documents
     #     - ris_fetch_tool
     #
-    # OpenRouter server-side tool search (ADR-0048). ON, with the measured
-    # configuration below. Orthogonal to `tool_search` above: that one decides
+    # OpenRouter server-side tool search (ADR-0048). ON, but as of 2026-09-23
+    # NO model we measured honours it, so today it binds full schemas
+    # everywhere (see below). Orthogonal to `tool_search` above: that one decides
     # WHICH tools are bound, this one decides whether their schemas travel with
     # the request. Requires `api_type: responses` on research_llm — enabling it
     # without that fails the workflow build instead of quietly sending the
-    # schemas; the build-time probe against the live endpoint is what says the
-    # deferral is honoured, so the first deploy after a model change is where
-    # a silent regression would surface, loudly.
+    # schemas. The build-time probe measures whether the deferral is HONOURED,
+    # not whether the flag is echoed: it sends the canary namespace, then the
+    # same plus a ~4 000-token deferred ballast function, and accepts only if
+    # usage.input_tokens grows by < 200. A model that bills the ballast binds
+    # full schemas and the build logs a WARNING naming the growth; it never
+    # fails the build.
     #
-    # Measured live against openai/gpt-5.6-luna with the real ifc_query +
-    # ifc_measure + emit_card schemas (59 805 chars, ≈14 000 input tokens):
+    # Measured 2026-09-23. A replayed Piloti research call to
+    # openai/gpt-5.6-luna (19 functions, all defer_loading: true, echoed back
+    # on every one) billed 40 154 input tokens with defer_loading true AND
+    # false; dropping three large tools from the namespace cut 10 012. The
+    # earlier "14 023 -> 437" saving recorded here no longer holds. The probe:
     #
-    #                                          control   deferred     delta
-    #   turn 1, model loads a tool               14 032     14 650      +618
-    #   turn 1, no tool needed at all            14 023        437   -13 586
-    #   turn 2, answering from a tool result     14 163        591   -13 572
+    #                                  canary   + deferred ballast    growth
+    #   openai/gpt-5.6-luna              187          4 100           +3 913
+    #   openai/gpt-5.6-sol               187          4 100           +3 913
+    #   anthropic/claude-sonnet-5        847          6 034           +5 187
+    #   google/gemini-3.7-flash          175          5 072           +4 897
     #
-    # Deferral does NOT save anything on the turn where the model loads a
-    # schema — it pays the tool-search apparatus (~620 tokens) on top of a
-    # schema that enters the context anyway. What it saves is every OTHER turn,
-    # and on a five-iteration agent that calls one or two tools those are the
-    # majority: the synthesis turn, the meta turns, and every turn answered from
-    # a tool already loaded. Read the trade that way round before enabling it.
+    # Where a provider does honour it, deferral still saves nothing on the turn
+    # that loads a schema (it adds the ~620-token tool-search apparatus); it
+    # saves the other turns. Where it does not, it would cost that apparatus on
+    # every turn, which is why the probe now turns it off.
     #
     # Deferral is gated PER MODEL as well as per endpoint, because the per-org
     # override seam (ADR-0014) can hand a single research turn a model this
@@ -955,16 +955,22 @@ functions:
     # did before this existed.
     #
     # The defaults ship the measured lists (see `deferred_tool_loading.py`), so
-    # `enabled: true` alone is the normal configuration. Verified = the provider
-    # echoed `defer_loading` back on every function, NOT merely HTTP 200 — a
-    # provider that accepts and normalizes the deferral away is the silent
-    # failure this whole feature guards against.
+    # `enabled: true` alone turns it on. The `allow` list means the provider
+    # accepted and echoed the shape — NOT that it saves anything.
     #
-    # An unlisted model is probed ONCE, off the request path, and the verdict
-    # cached; until it lands that model gets full schemas. So a new model costs
-    # one background request, never a wasted round trip on a live turn.
+    # Any model not denied is probed ONCE, off the request path, and the
+    # verdict cached; until a probe has measured the saving, an unlisted or
+    # allowlisted model gets full schemas. So a new model costs one background
+    # request, never a wasted round trip on a live turn.
+    # OFF since 2026-09-25. Every model measured on 2026-09-23 echoed
+    # `defer_loading` and billed the deferred schemas in full, and the boot
+    # model measured +3,913 input tokens with it on; no model has been shown
+    # to save. What it did send was the `tool_search` payload, which NAT's
+    # trace callback cannot parse (one ERROR per call, #635). Turn it back on
+    # when a model's probe measures a saving: from then on only such a model
+    # defers, an allowlisted one included.
     deferred_tool_loading:
-      enabled: true
+      enabled: false
       # Floor on Artificial Analysis intelligence_index. 0 disables it.
       min_intelligence_index: 50
     #   models:
@@ -1066,7 +1072,7 @@ workflow:
     llm: clarifier_llm
     planner_llm: clarifier_llm
     max_turns: 3
-    # ADR-0065: the plan is drafted without asking and shown on the run block;
+    # ADR-0068: the plan is drafted without asking and shown on the run block;
     # `auto` starts the run after plan_grace_seconds unless the reader holds
     # or edits it, `ask` waits for Starten, `off` drafts no plan.
     plan_approval: auto

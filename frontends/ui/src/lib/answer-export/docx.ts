@@ -335,6 +335,8 @@ const STYLES =
   heading(1, 36, 0) +
   heading(2, 28, 240) +
   heading(3, 24, 200) +
+  heading(4, 23, 160) +
+  heading(5, 22, 120) +
   style('Body', 'Body Text', '') +
   style(
     'Meta',

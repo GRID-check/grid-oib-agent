@@ -314,6 +314,7 @@ export const chat = {
     copyLink: 'Copy link',
     copyLinkAria: 'Copy a link to this passage: {label}',
     markerAria: 'Source {number}: {label} — open preview',
+    pendingAria: 'Source {number} — being checked',
     lociLabel: '{count, plural, one {# passage} other {# passages}}',
     lociAria: 'Passages in this document',
     lociPosition: '{index}/{count}',
@@ -373,6 +374,8 @@ export const chat = {
     // appears on every one of them: verdict, missing figure, provenance.
     kit: {
       eyebrow: 'Sketch',
+      // A card whose figure is a scale or a set of bars, not a drawing.
+      eyebrowCheck: 'Check',
       status: {
         pass: 'met',
         fail: 'not met',
@@ -939,6 +942,8 @@ export const chat = {
   answerDetails: {
     trigger: 'Answer details',
     triggerAria: 'Show details for this answer',
+    // How long the turn took, question sent to answer final.
+    duration: 'Answered in {duration}',
     // Retrieved-but-uncited documents: what the turn read beyond what the
     // answer claims. Document chips only — no passages, no new claims.
     readSources: {
@@ -990,8 +995,8 @@ export const chat = {
     // Transient "checking" state (FIX 3): shown while the reconnect recovery
     // fetch is in flight, so a turn that only LOOKS interrupted does not flash
     // the "lost" copy before we have confirmed the answer is really gone.
-    recovering: 'Reconnecting',
-    recoveringNotice: 'Reconnecting — checking for a finished answer …',
+    recovering: 'Fetching the answer',
+    recoveringNotice: 'Piloti is still working — the answer appears here as soon as it is ready …',
     done: 'Done',
     elapsedAria: 'Elapsed: {seconds, plural, one {# second} other {# seconds}}',
     // Live one-liners describing what the assistant is doing right now, chosen
@@ -1105,9 +1110,10 @@ export const chat = {
         // "the citations" in the abstract but every one of them, against what
         // was actually retrieved.
         citations: 'Checking every citation against the sources …',
-        // A citation or a quote failed verification; one more search and one
-        // rewrite are tried before the answer ships with its markers.
-        repair: 'A citation did not hold up — searching again …',
+        // A quotation no passage holds verbatim is corrected in place to the
+        // cited passage's own wording (ADR-0067). No search, no rewrite; a quote
+        // it cannot correct keeps its marker.
+        repair: 'A quotation differs from the source’s wording — correcting it against the original …',
         escalation: 'A quick lookup is not enough — starting deep research',
       },
     },
@@ -1177,16 +1183,12 @@ export const chat = {
     },
     showThinking: 'Show thinking ({count})',
     showThinkingSteps: 'Show thinking steps ({count})',
-    // The trace's header line, built from two clauses. The sources clause is
-    // ABSENT when there are none: "0 sources" is a true number that reads as a
-    // failure, and an answer grounded in a measurement of the model rightly has
-    // no citations. The line counts what is there and says nothing about what
-    // is not.
-    herleitungSummary: 'Trace · {count, plural, one {# step} other {# steps}}',
-    herleitungSummaryWithSources: '{summary} · {count, plural, one {# source} other {# sources}}',
-    // The turn has reported no step yet, so the line says what it is instead of
-    // counting to zero.
-    herleitungSummaryNoSteps: 'Trace',
+    // The trace's header line. No step count: it counted raw NAT event names,
+    // not turns or calls (see ChatThinking). The sources clause is ABSENT when
+    // there are none: "0 sources" is a true number that reads as a failure, and
+    // an answer grounded in a measurement of the model rightly has no citations.
+    herleitungSummary: 'Trace',
+    herleitungSummaryWithSources: 'Trace · {count, plural, one {# source} other {# sources}}',
     // aria-label naming the reasoning graph as one region for screen readers.
     reasoningGraphLabel: 'Reasoning trace',
     stepsLabel: 'Thinking steps',

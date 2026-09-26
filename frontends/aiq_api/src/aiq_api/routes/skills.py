@@ -185,7 +185,7 @@ class SkillSubmitPayload(BaseModel):
         None,
         max_length=64,
         description=(
-            "The research plan this run waits on (ADR-0065). The worker does not start the agent "
+            "The research plan this run waits on (ADR-0068). The worker does not start the agent "
             "until the plan does, and reads the plan from the BFF at that instant."
         ),
     )

@@ -182,7 +182,7 @@ async def commission_planned_run(
     start: PlanStart | None = None,
     context: str | None = None,
 ) -> CommissionedRun:
-    """Propose the drafted plan and commission the run that waits on it (ADR-0065).
+    """Propose the drafted plan and commission the run that waits on it (ADR-0068).
 
     One call for both, so a plan without a run and a run without a plan are
     impossible. The run's block appears at once, with the plan on it; the

@@ -13,6 +13,7 @@
  * Fixture data only, no backend. The `/dev` layout 404s this outside development.
  */
 
+import type { JSX } from 'react'
 import { useSearchParams } from 'next/navigation'
 import { Suspense } from 'react'
 import { ProjectsGrid } from '@/components/projects/projects-grid'

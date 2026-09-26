@@ -18,6 +18,7 @@ from typing import Any
 from aiq_agent.common import citation_events
 from aiq_agent.common.citation_verification import SourceEntry
 from aiq_agent.common.citation_verification import document_key
+from aiq_agent.common.citation_verification import lost_citations
 from aiq_agent.common.citation_verification import read_source_to_wire
 from aiq_agent.common.citation_verification import source_entry_to_wire
 from aiq_agent.common.citation_verification import source_label
@@ -42,6 +43,9 @@ def citations_removed_summary(removed_citations: Sequence[dict[str, Any]]) -> di
     otherwise ``None`` so the ``citations_removed`` field stays absent. This IS
     the wire shape — the conversation graph lifts the field unchanged.
     """
+    # A merged duplicate cost the reader nothing (its [N] now points at the
+    # line it duplicated), so it is not reported as a removal.
+    removed_citations = lost_citations(removed_citations)
     if not removed_citations:
         return None
     reasons: list[str] = []

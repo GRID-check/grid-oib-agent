@@ -1,5 +1,6 @@
 'use client'
 
+import type { JSX } from 'react'
 import type { ReactNode, Ref } from 'react'
 import { Search, X } from 'lucide-react'
 

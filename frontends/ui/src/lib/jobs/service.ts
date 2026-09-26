@@ -542,7 +542,7 @@ export interface AgentRunSpec {
   /** The Unterlagen the reader named on the plan card. */
   documents?: PlanDocuments | null
   /**
-   * The research plan the run waits on (ADR-0065). The worker claims its
+   * The research plan the run waits on (ADR-0068). The worker claims its
    * start by this id and reads the plan then; the run's message carries it
    * so the block can show the plan from the first second.
    */

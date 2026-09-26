@@ -26,6 +26,7 @@
  *      measured floor, so `sm` is 28 and not 24.
  */
 
+import type { JSX } from 'react'
 import * as React from 'react'
 
 import { cn } from '@/lib/utils'

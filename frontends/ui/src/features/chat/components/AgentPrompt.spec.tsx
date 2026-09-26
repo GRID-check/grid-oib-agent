@@ -234,7 +234,7 @@ describe('AgentPrompt', () => {
     // The raw backend envelope sentence is stripped from the rendered content…
     expect(screen.getByTestId('markdown')).not.toHaveTextContent(/reply/i)
     expect(screen.getByTestId('markdown')).toHaveTextContent('Here is the plan.')
-    // …and nothing offers to answer it: a plan is no longer a prompt (ADR-0065),
+    // …and nothing offers to answer it: a plan is no longer a prompt (ADR-0068),
     // it waits on the run block, so an old preview reads as history.
     expect(screen.queryByRole('button')).not.toBeInTheDocument()
   })

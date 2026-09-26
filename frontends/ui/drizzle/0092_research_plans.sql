@@ -1,4 +1,4 @@
--- 0092: the research plan is a row of its own (ADR-0065).
+-- 0092: the research plan is a row of its own (ADR-0068).
 --
 -- The gap this closes. A deep research is about a plan — sections, genre,
 -- depth, the Unterlagen to read in full and the ones never to use, the
@@ -69,7 +69,7 @@ CREATE TABLE IF NOT EXISTS "research_plans" (
 
 --> statement-breakpoint
 COMMENT ON TABLE "research_plans" IS
-  'A deep research''s plan (ADR-0065): sections, genre, depth, Unterlagen and Rahmen, proposed by the clarifier or written by a person, edited on the run block until the worker starts the run. The run waits on this row''s status.';
+  'A deep research''s plan (ADR-0068): sections, genre, depth, Unterlagen and Rahmen, proposed by the clarifier or written by a person, edited on the run block until the worker starts the run. The run waits on this row''s status.';
 
 --> statement-breakpoint
 COMMENT ON COLUMN "research_plans"."run_id" IS

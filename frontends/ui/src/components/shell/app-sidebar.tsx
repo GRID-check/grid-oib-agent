@@ -54,6 +54,7 @@ import { ProjectSwitcher, type ProjectSwitcherProject } from './project-switcher
 import { SidebarUserMenu, type SidebarUser } from './sidebar-user-menu'
 import { ConnectionPresenceIndicator } from './connection-presence-indicator'
 import { PROJECT_SETTINGS_SECTION, railGroups, type ProjectSection } from './project-sections'
+import { sectionAnchor } from '@/features/onboarding/lib/product-tour'
 
 /**
  * THE ACTIVE PILL'S SHARED-LAYOUT IDENTITY.
@@ -370,6 +371,7 @@ function AppSidebarFrame({
                     {group.items.map((item) => (
                       <RailNavItem
                         key={item.key}
+                        tourAnchor={sectionAnchor(item.key)}
                         icon={item.icon}
                         href={item.href}
                         active={item.active}
@@ -401,6 +403,7 @@ function AppSidebarFrame({
                       {orgGroup.items.map((item) => (
                         <RailNavItem
                           key={item.key}
+                          tourAnchor={sectionAnchor(item.key)}
                           icon={item.icon}
                           href={item.href}
                           active={item.active}
@@ -420,6 +423,7 @@ function AppSidebarFrame({
           <div className={cn(orgGroup ? 'mt-2.5' : 'mt-1', 'border-border/50 border-t pt-2.5')}>
             <SidebarMenu className="gap-0.5">
               <RailNavItem
+                tourAnchor={sectionAnchor(PROJECT_SETTINGS_SECTION.key)}
                 icon={PROJECT_SETTINGS_SECTION.icon}
                 href={settingsHref}
                 active={pathname.startsWith(settingsHref)}
@@ -558,6 +562,7 @@ function RailNavItem({
   badgeCount,
   tooltip,
   pillId,
+  tourAnchor,
 }: {
   icon: ProjectSection['icon']
   href: string
@@ -567,6 +572,8 @@ function RailNavItem({
   tooltip: boolean
   /** Shared-layout identity for the active chip — see {@link railActivePillId}. */
   pillId: string
+  /** Marks the item as a product-tour stop (`data-tour`). */
+  tourAnchor: string
 }) {
   return (
     <SidebarMenuItem>
@@ -588,7 +595,7 @@ function RailNavItem({
             : 'text-muted-foreground hover:bg-accent hover:text-muted-foreground'
         )}
       >
-        <Link href={href} aria-current={active ? 'page' : undefined}>
+        <Link href={href} aria-current={active ? 'page' : undefined} data-tour={tourAnchor}>
           {active && (
             <motion.span
               layoutId={pillId}

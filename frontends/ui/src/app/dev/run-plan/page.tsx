@@ -1,7 +1,7 @@
 'use client'
 
 /**
- * Dev preview for the research plan (ADR-0065) — the REAL `RunPlan` in the
+ * Dev preview for the research plan (ADR-0068) — the REAL `RunPlan` in the
  * states a plan passes through, and the REAL „Recherche planen" dialog:
  *
  *   1. proposed: the brief and the countdown; the reader owes nothing, and

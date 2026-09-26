@@ -18,7 +18,7 @@ export interface CommissionRunHandle {
   commission: (question: string, context?: string, documents?: PlanDocuments) => Promise<boolean>
   /**
    * A continuation of a run that had a plan: the plan carried forward and
-   * shown on the new block with a countdown (ADR-0065). Falls back to a
+   * shown on the new block with a countdown (ADR-0068). Falls back to a
    * plain commission when the earlier plan cannot be read.
    */
   continuePlanned: (brief: RunBrief, previousPlanId: string) => Promise<boolean>

@@ -1,7 +1,7 @@
 """The research plan as the BFF stores it, mirrored for the two Python readers.
 
 A deep research is about a plan: sections, genre, depth, the Unterlagen and
-the Rahmen. The plan is a workspace primitive of the BFF (ADR-0065): the
+the Rahmen. The plan is a workspace primitive of the BFF (ADR-0068): the
 clarifier proposes it through the internal tasks route, the reader edits it on
 the run block, and the worker reads it at the instant the run may start. The
 shape is defined ONCE, in ``frontends/ui/src/lib/plans/plan-types.ts``, and
@@ -82,7 +82,7 @@ def render_plan_context(
     components in this order, the genre the answer type, the depth the length,
     and the Unterlagen what must be read and what may not be used. The chat
     path renders it at hand-off; the worker renders it from the plan it was
-    handed at start (ADR-0065).
+    handed at start (ADR-0068).
     """
     sections_text = "\n".join(f"- {s}" for s in sections)
     text = (

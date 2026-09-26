@@ -15,6 +15,7 @@
  * and it is set at a size that says so.
  */
 
+import type { JSX } from 'react'
 import { type ComponentType, type ReactNode } from 'react'
 import { cn } from '@/lib/utils'
 

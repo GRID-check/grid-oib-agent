@@ -215,7 +215,7 @@ general:
 llms:
   deep_orchestrator_llm:
     _type: openai
-    model_name: ${GRID_DEFAULT_MODEL:-openai/gpt-5.6-luna}
+    model_name: ${GRID_DEFAULT_MODEL:-openai/gpt-6-luna}
     base_url: "https://openrouter.ai/api/v1"
     api_key: ${OPENROUTER_API_KEY}
     temperature: 1.0
@@ -464,11 +464,7 @@ A separate, smaller golden eval suite exercises the real
 cases, bounding wall-clock/LLM-calls/completion-tokens and grading
 answer-correctness via a checklist (no LLM judge). It exists specifically to
 make regressions in the 2026-07-16 perf fixes above (latency/cost) and in
-answer correctness measurable instead of vibes — see also the separate,
-deterministic `compliance_checker` package
-(`src/aiq_agent/agents/compliance_checker/README.md`) for the structured
-alternative to running this same class of check through the open-ended deep
-researcher. See
+answer correctness measurable instead of vibes. See
 [frontends/benchmarks/oib_compliance/README.md](../../../../frontends/benchmarks/oib_compliance/README.md)
 — calibration is still pending a live run (`bounds_calibration_pending: true`
 in the fixture).

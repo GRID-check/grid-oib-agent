@@ -1,0 +1,8 @@
+---
+fixes:
+  - >
+    Während eine Antwort erscheint, bleibt die Seite wieder flüssig. Bisher
+    wurde bei jedem neuen Textstück der ganze Chatverlauf im Browser neu
+    gespeichert und die ganze Oberfläche neu gezeichnet; mit längerem Verlauf
+    stockte die Seite, solange die Antwort lief, und Eingaben reagierten
+    verzögert.

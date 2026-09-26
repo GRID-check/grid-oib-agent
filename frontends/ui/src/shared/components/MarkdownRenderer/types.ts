@@ -3,7 +3,7 @@ import type { PluggableList } from 'unified'
 export interface MarkdownRendererProps {
   /** Markdown content to render */
   content: string
-  /** Whether content is still streaming (affects rendering optimization) */
+  /** Whether content is still streaming: stabilise half-arrived Markdown and hold the open fence's place */
   isStreaming?: boolean
   /** Additional CSS classes for the wrapper */
   className?: string
@@ -16,7 +16,10 @@ export interface MarkdownRendererProps {
    * PARSING: a surface that knows something about its content the renderer must
    * not learn — the chat knowing which `[N]` are its citations — supplies a
    * plugin instead of pre-rewriting the markdown it hands over. Memoize the
-   * list; a new array identity re-parses the document.
+   * list; a new array identity re-parses the document. Memoize the renderer a
+   * caller hands `MarkdownSlotProvider` too: a new function re-renders every
+   * slot in the answer. It no longer remounts them, since the overrides read
+   * it from context (`stable-overrides.spec.tsx`).
    */
   remarkPlugins?: PluggableList
 }

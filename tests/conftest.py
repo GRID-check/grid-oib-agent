@@ -150,3 +150,16 @@ def strict_provider_llm():
         return enforce_chat_request_contract(model) if with_contract else model
 
     return _make
+
+
+@pytest.fixture(autouse=True)
+def _no_live_decisions(monkeypatch):
+    """The decision model (ADR-0064) is off unless a test turns it on.
+
+    Ingestion tags, memory reflection, the turn start and every search now ask
+    it, and its key is the OpenRouter key a developer's shell already holds:
+    without this a test that never mentions decisions calls the live endpoint,
+    passes or fails on its latency, and spends money. A test of a decision
+    deletes the variable and stubs the endpoint (``test_decisions.py``).
+    """
+    monkeypatch.setenv("GRID_DECISIONS_ENABLED", "false")

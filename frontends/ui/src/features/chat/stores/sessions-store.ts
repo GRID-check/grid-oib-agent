@@ -10,6 +10,7 @@ import type {
   ChatMessage,
   PendingInteraction,
   RecoveryOutcome,
+  ResumableTurn,
 } from '../types'
 import { useLayoutStore } from '@/features/layout/store'
 import { useDocumentsStore } from '@/features/documents/store'
@@ -51,6 +52,8 @@ export type SessionsSlice = {
    * settles back to false with nothing recovered.
    */
   isRecoveryPending: boolean
+  /** See `ChatState.resumableTurn`. */
+  resumableTurn: ResumableTurn | null
 
   /**
    * Whether the server conversation list has been ASKED for at least once
@@ -80,8 +83,15 @@ export type SessionsSlice = {
   restoreSessionState: (conversation: Conversation) => void
   _recoverInterruptedAssistantMessage: (
     conversationId: string,
-    afterUserMessageId: string
+    afterUserMessageId: string,
+    options?: { quiet?: boolean }
   ) => Promise<RecoveryOutcome>
+  /**
+   * Wait for the server's finished answer to a turn this page lost track of,
+   * for as long as the turn is still producing frames (its heartbeat), then
+   * look once more. `nothing` only when the turn has ended without one.
+   */
+  _awaitServerAnswer: (conversationId: string, afterUserMessageId: string) => Promise<RecoveryOutcome>
   isSessionBusy: (conversationId: string) => boolean
   hasAnyBusySession: () => boolean
   _ensureConversationExists: () => Promise<void>
@@ -153,6 +163,39 @@ const prunePersistedChatState = (value: PersistedChatStorageValue): PersistedCha
   }
 }
 
+/** How long after the last keystroke a composer draft is written. */
+const DRAFT_WRITE_DELAY_MS = 400
+
+/** Are `a` and `b` the same in every field but `except`, field by field? */
+function sameExcept(a: Conversation, b: Conversation, except: 'messages'): boolean
+function sameExcept(a: ChatMessage, b: ChatMessage, except: 'thinkingSteps'): boolean
+function sameExcept(
+  a: Conversation | ChatMessage,
+  b: Conversation | ChatMessage,
+  except: 'messages' | 'thinkingSteps'
+): boolean {
+  const aFields: Record<string, unknown> = { ...a }
+  const bFields: Record<string, unknown> = { ...b }
+  for (const key of new Set([...Object.keys(aFields), ...Object.keys(bFields)])) {
+    if (key !== except && aFields[key] !== bFields[key]) return false
+  }
+  return true
+}
+
+/** Where the newest question is: the last message from a person. */
+const lastUserMessageIndex = (messages: readonly ChatMessage[]): number => {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const message = messages[i]!
+    if (message.messageType === 'user' || message.role === 'user') return i
+  }
+  return -1
+}
+
+/**
+ * The persisted chat store's localStorage adapter: prunes what it writes,
+ * recovers from a full quota, never writes a streaming answer's growth, and
+ * restores what a reload can use. `undefined` where there is no localStorage.
+ */
 export const createResilientStorage = (): PersistStorage<PersistedChatState> | undefined => {
   const base = createJSONStorage<PersistedChatState>(() => localStorage)
   if (!base) {
@@ -160,21 +203,209 @@ export const createResilientStorage = (): PersistStorage<PersistedChatState> | u
     return undefined
   }
 
+  /** Storage is full: clear the sessions rather than lose the write entirely. */
+  const recoverFromQuota = (
+    name: string,
+    value: PersistedChatStorageValue,
+    prunedValue: PersistedChatStorageValue,
+    error: unknown
+  ): void => {
+    const beforeConversations = prunedValue.state.conversations ?? []
+    const beforeCount = beforeConversations.length
+    const beforeSizeKB = Math.round((JSON.stringify(beforeConversations).length * 2) / 1024)
+
+    logQuotaExceededPruning(beforeCount, beforeCount, beforeSizeKB, beforeSizeKB)
+
+    try {
+      const lostSessionIds = beforeConversations.map((c) => c.id)
+
+      base.removeItem(name)
+      base.setItem(name, {
+        ...value,
+        state: {
+          currentUserId: value.state.currentUserId ?? null,
+          conversations: [],
+          currentConversation: null,
+          pendingInteraction: null,
+          // Sessions were just wiped to recover from quota — drop their
+          // drafts too so no orphaned draft outlives its conversation.
+          composerDrafts: {},
+        },
+      })
+
+      logCriticalSessionsClear(value.state.currentUserId ?? null, lostSessionIds, error)
+    } catch (finalError) {
+      console.error('[SessionsStore] ❌ CATASTROPHIC: Failed to clear sessions', {
+        error: finalError instanceof Error ? finalError.message : String(finalError),
+      })
+    }
+  }
+
+  /** Prune, serialize and store, unless the stored string is already this one. */
+  const writeNow = (name: string, value: PersistedChatStorageValue): void => {
+    const prunedValue = prunePersistedChatState(value)
+    const serializedValue = JSON.stringify(prunedValue)
+
+    try {
+      if (localStorage.getItem(name) === serializedValue) return
+
+      localStorage.setItem(name, serializedValue)
+      logStorageWrite(prunedValue.state.conversations ?? [], prunedValue.state.currentUserId ?? null)
+    } catch (error) {
+      if (!isQuotaExceededError(error)) {
+        throw error
+      }
+      recoverFromQuota(name, value, prunedValue, error)
+    }
+  }
+
+  // What storage holds, as of the last write that succeeded.
+  let lastWritten: PersistedChatState | null = null
+
+  /**
+   * Is nothing but the open conversation's live turn, and the composer
+   * drafts, new since the last write? The live turn's growth is skipped and a
+   * draft is written a moment later (`holdDraft`). A deletion, a rename or a
+   * new session is written at once, so a browser that dies mid-answer cannot
+   * bring a deleted conversation back.
+   */
+  const onlyTheOpenTurnOrDraftsChanged = (next: PersistedChatState): boolean => {
+    const written: Record<string, unknown> | null = lastWritten
+    if (written === null) return false
+    const nextFields: Record<string, unknown> = next
+    const keys = new Set([...Object.keys(written), ...Object.keys(nextFields)])
+    for (const key of keys) {
+      if (key === 'conversations' || key === 'currentConversation' || key === 'composerDrafts') continue
+      if (nextFields[key] !== written[key]) return false
+    }
+    const before = lastWritten?.conversations ?? []
+    const after = next.conversations ?? []
+    const beforeOpen = lastWritten?.currentConversation ?? null
+    const afterOpen = next.currentConversation ?? null
+    if (after === before && afterOpen === beforeOpen) return true
+    const openId = afterOpen?.id
+    if (!openId || beforeOpen?.id !== openId) return false
+    return (
+      before.length === after.length &&
+      after.every(
+        (c, i) => c === before[i] || (c.id === openId && onlyTheLiveTurnGrew(before[i], c))
+      ) &&
+      onlyTheLiveTurnGrew(beforeOpen, afterOpen)
+    )
+  }
+
+  // A draft is written this long after the last keystroke, and when the page
+  // is hidden. Written with every key it serialised the whole history inside
+  // the input event: 264 ms a keystroke on a 4× throttled phone with 20
+  // conversations stored, React's share 6 ms (React performance audit, 2026-09).
+  let heldDraft: { name: string; value: PersistedChatStorageValue } | null = null
+  let heldDraftTimer: ReturnType<typeof setTimeout> | undefined
+  const writeHeldDraft = (): void => {
+    clearTimeout(heldDraftTimer)
+    const held = heldDraft
+    heldDraft = null
+    if (held) write(held.name, held.value)
+  }
+  const holdDraft = (name: string, value: PersistedChatStorageValue): void => {
+    heldDraft = { name, value }
+    clearTimeout(heldDraftTimer)
+    heldDraftTimer = setTimeout(writeHeldDraft, DRAFT_WRITE_DELAY_MS)
+  }
+  if (typeof window !== 'undefined') {
+    window.addEventListener('pagehide', writeHeldDraft)
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'hidden') writeHeldDraft()
+    })
+  }
+
+  /**
+   * Is the live turn's growth the only difference between the two copies of
+   * one conversation: the streaming answer at its end, and the reasoning steps
+   * of the question it answers? Its title, its other fields and every other
+   * message must be the very same objects: a rename or a card decision while
+   * a turn works is written at once. The store keeps an untouched message as
+   * the same object on every flush.
+   *
+   * The steps count as growth because each one wrote the whole history: 5–6
+   * writes of 250–1000 ms per turn on a 4× throttled phone with 40
+   * conversations stored (React performance audit, 2026-09). The turn's user
+   * message was written when it was sent, and the settled turn is written
+   * with its steps; a page that dies between gets the turn back from the
+   * replay stream or the server.
+   */
+  const onlyTheLiveTurnGrew = (
+    before: Conversation | null | undefined,
+    after: Conversation | null | undefined
+  ): boolean => {
+    if (!before || !after || before.id !== after.id) return false
+    if (!sameExcept(before, after, 'messages')) return false
+    const was = before.messages
+    const now = after.messages
+    // The answer opened since the last write (one more message), or grew (same count).
+    if (now.length !== was.length && now.length !== was.length + 1) return false
+    const last = now[now.length - 1]
+    if (now.length === was.length + 1 && !last?.isStreaming) return false
+    const question = lastUserMessageIndex(now)
+    for (let i = 0; i < now.length; i++) {
+      const message = now[i]!
+      const previous = was[i]
+      if (message === previous) continue
+      if (i === now.length - 1 && message.isStreaming) continue
+      if (i === question && previous && sameExcept(previous, message, 'thinkingSteps')) continue
+      return false
+    }
+    return true
+  }
+
+  const write = (name: string, value: PersistedChatStorageValue): void => {
+    writeNow(name, value)
+    lastWritten = value.state
+  }
+
+  // What the last call was handed. `persist` calls setItem on EVERY store
+  // update — a loading flag, a status line, a thinking step — and each call
+  // pruned and serialized the whole history only to find nothing had changed.
+  // The store updates immutably, so a persisted field that is the same
+  // reference is the same content: a call whose fields all are is skipped
+  // before any of that work. The last call was written or is held, either way.
+  let lastState: PersistedChatState | null = null
+  let lastVersion: number | undefined
+  // Every key either state carries, so a field `partialize` gains later is
+  // compared too rather than silently never written.
+  const unchangedSinceLastCall = (value: PersistedChatStorageValue): boolean => {
+    const previous: Record<string, unknown> | null = lastState
+    if (previous === null || value.version !== lastVersion) return false
+    const next: Record<string, unknown> = value.state
+    const keys = new Set([...Object.keys(previous), ...Object.keys(next)])
+    for (const key of keys) if (next[key] !== previous[key]) return false
+    return true
+  }
+
   return {
     getItem: async (name: string): Promise<PersistedChatStorageValue | null> => {
       const raw = await base.getItem(name)
       if (!raw) return null
 
-      const stripConnectionErrors = (conversations: Conversation[]) =>
+      // Nothing streams in a page that is only now loading, so an answer
+      // stored mid-stream was interrupted by the reload. Its text is a
+      // fragment this page cannot finish: the reattached turn opens a bubble
+      // of its own, and the fragment used to stay beside it with a caret
+      // forever. It also hid the turn from the recovery that fetches a
+      // finished answer (`restoreSessionState` looks for an unanswered
+      // question), so the reload is handed to that path, the one a reload
+      // before the first word already takes.
+      const stripUnrestorable = (conversations: Conversation[]) =>
         conversations.map((c) => ({
           ...c,
           messages: c.messages.filter(
-            (m) => !(m.messageType === 'error' && m.errorData?.errorCode?.startsWith('connection.'))
+            (m) =>
+              m.isStreaming !== true &&
+              !(m.messageType === 'error' && m.errorData?.errorCode?.startsWith('connection.'))
           ),
         }))
 
       if (raw.state.conversations) {
-        raw.state.conversations = stripConnectionErrors(raw.state.conversations)
+        raw.state.conversations = stripUnrestorable(raw.state.conversations)
       }
 
       const storedId = raw.state.currentConversation as unknown as string | null
@@ -185,54 +416,34 @@ export const createResilientStorage = (): PersistStorage<PersistedChatState> | u
 
       return raw
     },
-    removeItem: base.removeItem,
+    removeItem: (name: string) => {
+      heldDraft = null
+      clearTimeout(heldDraftTimer)
+      lastState = null
+      lastWritten = null
+      return base.removeItem(name)
+    },
     setItem: (name: string, value: PersistedChatStorageValue) => {
-      const prunedValue = prunePersistedChatState(value)
-      const serializedValue = JSON.stringify(prunedValue)
-
-      try {
-        if (localStorage.getItem(name) === serializedValue) return
-
-        localStorage.setItem(name, serializedValue)
-        logStorageWrite(
-          prunedValue.state.conversations ?? [],
-          prunedValue.state.currentUserId ?? null
-        )
-      } catch (error) {
-        if (!isQuotaExceededError(error)) {
-          throw error
-        }
-
-        const beforeConversations = prunedValue.state.conversations ?? []
-        const beforeCount = beforeConversations.length
-        const beforeSizeKB = Math.round((JSON.stringify(beforeConversations).length * 2) / 1024)
-
-        logQuotaExceededPruning(beforeCount, beforeCount, beforeSizeKB, beforeSizeKB)
-
-        try {
-          const lostSessionIds = beforeConversations.map((c) => c.id)
-
-          base.removeItem(name)
-          base.setItem(name, {
-            ...value,
-            state: {
-              currentUserId: value.state.currentUserId ?? null,
-              conversations: [],
-              currentConversation: null,
-              pendingInteraction: null,
-              // Sessions were just wiped to recover from quota — drop their
-              // drafts too so no orphaned draft outlives its conversation.
-              composerDrafts: {},
-            },
-          })
-
-          logCriticalSessionsClear(value.state.currentUserId ?? null, lostSessionIds, error)
-        } catch (finalError) {
-          console.error('[SessionsStore] ❌ CATASTROPHIC: Failed to clear sessions', {
-            error: finalError instanceof Error ? finalError.message : String(finalError),
-          })
-        }
+      if (unchangedSinceLastCall(value)) return
+      lastState = value.state
+      lastVersion = value.version
+      // A streaming answer's growth is never written. `getItem` drops an
+      // answer still marked streaming, so the stored state would read back
+      // exactly as the last write does: the turn is rebuilt from the replay
+      // stream or fetched finished. Writing it cost a prune, a serialize and a
+      // write of the WHOLE history every couple of seconds while the answer
+      // streamed: 100 ms of script and a 55 ms native write per round on a
+      // 4× throttled CPU with 40 conversations, the regular hitch a phone
+      // showed mid-answer. The answer is written once, when it settles. The
+      // turn's reasoning steps likewise (`onlyTheLiveTurnGrew`).
+      if (onlyTheOpenTurnOrDraftsChanged(value.state)) {
+        if (value.state.composerDrafts !== lastWritten?.composerDrafts) holdDraft(name, value)
+        return
       }
+      // Anything else is written at once, and carries the drafts with it.
+      heldDraft = null
+      clearTimeout(heldDraftTimer)
+      write(name, value)
     },
   }
 }
@@ -304,6 +515,32 @@ const restoreConversationDataSources = (conversation: Conversation): void => {
 let conversationsClientModule: Promise<
   typeof import('@/adapters/api/conversations-client')
 > | null = null
+/**
+ * How long a turn may go without a frame before it counts as ended: the
+ * backend beats every 20 s for as long as a turn runs, socket or not
+ * (`TURN_HEARTBEAT_SECONDS`), so three missed beats and a margin.
+ */
+const TURN_SILENCE_MS = 70_000
+/** How often a reader waiting on the server's answer asks again. */
+const AWAIT_ANSWER_POLL_MS = 4_000
+/** With no replay stream to tell a live turn from a dead one, how long to keep asking. */
+const AWAIT_ANSWER_BLIND_MS = 120_000
+/** The longest any wait lasts, whatever the stream says: the run budget of a turn. */
+const AWAIT_ANSWER_CEILING_MS = 40 * 60_000
+
+/**
+ * The server-answer waits in flight, one per conversation. Mount, reconnect
+ * and the silence timer can each start one for the same turn; a second caller
+ * gets `superseded`, so exactly one of them may accuse.
+ */
+const serverAnswerWaits = new Map<string, Promise<RecoveryOutcome>>()
+
+/**
+ * How many recoveries hold `isRecoveryPending`. A flag set and cleared by each
+ * one would let the first to finish clear it under another still waiting.
+ */
+let recoveryHolds = 0
+
 const getConversationsClient = () => {
   conversationsClientModule ??= import('@/adapters/api/conversations-client')
   return conversationsClientModule.then((m) => m.conversationsClient)
@@ -419,6 +656,7 @@ export const initialSessionsState = {
   currentConversation: null as Conversation | null,
   conversations: [] as Conversation[],
   isRecoveryPending: false,
+  resumableTurn: null as ResumableTurn | null,
   serverConversationsLoaded: false,
 }
 
@@ -1017,7 +1255,7 @@ export const createSessionsSlice: StateCreator<
       .flatMap((m) => m.thinkingSteps!)
 
     // An old research-plan preview is never pending: the plan now waits on
-    // the run block (ADR-0065) and no backend listens for its answer, so
+    // the run block (ADR-0068) and no backend listens for its answer, so
     // restoring it would hold the composer in answer mode for a question
     // nobody is asking.
     const unrespondedPrompt = [...conversation.messages]
@@ -1060,7 +1298,12 @@ export const createSessionsSlice: StateCreator<
         .reverse()
         .find((m) => meaningfulTypes.has(m.messageType ?? ''))
 
-      if (lastMeaningful?.messageType === 'user' && lastMeaningful.thinkingSteps?.length) {
+      // A question this browser sent carries the turn id it went out under
+      // (`wsParentId`): even with no thinking step yet, its turn is known.
+      const lastIsOpenQuestion =
+        lastMeaningful?.messageType === 'user' &&
+        Boolean(lastMeaningful.thinkingSteps?.length || lastMeaningful.wsParentId)
+      if (lastMeaningful && lastIsOpenQuestion) {
         // The turn LOOKS interrupted (last meaningful local message is the user
         // turn, with thinking steps but no assistant reply). But the client may
         // simply have been disconnected when the terminal frame was sent — the
@@ -1068,13 +1311,40 @@ export const createSessionsSlice: StateCreator<
         // that case. Refetch server history first: if the finished assistant
         // message is there, render it and skip the banner. Only when the
         // refetch yields nothing do we fall back to today's interrupted banner.
+        //
+        // Nothing finished yet does not mean nothing is coming: a turn still
+        // running on the server has no finished answer, and "answer lost" over
+        // it is wrong. Its frames are in the replay stream, so the socket hook
+        // rebuilds the turn from them (`resumableTurn`), and puts this banner
+        // up itself when the stream no longer holds it.
         const interruptedUserId = lastMeaningful.id
+        const wsParentId = lastMeaningful.wsParentId
         void (async () => {
           const outcome = await get()._recoverInterruptedAssistantMessage(
             conversation.id,
             interruptedUserId
           )
-          if (outcome === 'nothing') {
+          if (outcome === 'nothing' && wsParentId) {
+            set(
+              {
+                resumableTurn: {
+                  conversationId: conversation.id,
+                  userMessageId: interruptedUserId,
+                  wsParentId,
+                },
+              },
+              false,
+              'restoreSessionState:resumable'
+            )
+            return
+          }
+          if (outcome !== 'nothing') return
+          // No turn id to resume from: wait for the server's own write while
+          // the turn is still working, and say "lost" only when it is not.
+          const settled = await get()._awaitServerAnswer(conversation.id, interruptedUserId)
+          // `addErrorCard` writes into the open conversation: the reader may
+          // have moved to another one during a wait of minutes.
+          if (settled === 'nothing' && get().currentConversation?.id === conversation.id) {
             // No explicit message: ErrorBanner localizes the registry default
             // via `agent.response_interrupted`'s messageKey.
             get().addErrorCard('agent.response_interrupted')
@@ -1084,16 +1354,64 @@ export const createSessionsSlice: StateCreator<
     }
   },
 
+  _awaitServerAnswer: (conversationId: string, afterUserMessageId: string): Promise<RecoveryOutcome> => {
+    if (serverAnswerWaits.has(conversationId)) return Promise.resolve('superseded')
+    const wait = (async (): Promise<RecoveryOutcome> => {
+      // The calm "checking for a finished answer" line for the whole wait, not
+      // per fetch: the reader is told the answer is lost only when it is.
+      recoveryHolds += 1
+      set({ isRecoveryPending: true }, false, 'awaitServerAnswer:start')
+      try {
+        const conversationsClient = await getConversationsClient()
+        const started = Date.now()
+        for (;;) {
+          const outcome = await get()._recoverInterruptedAssistantMessage(
+            conversationId,
+            afterUserMessageId,
+            { quiet: true }
+          )
+          if (outcome !== 'nothing') return outcome
+          const elapsed = Date.now() - started
+          if (elapsed >= AWAIT_ANSWER_CEILING_MS) return 'nothing'
+          // Is the turn still producing frames (a heartbeat every 20 s)? With no
+          // stream to ask, wait a short while for the server's write instead.
+          const age = await conversationsClient.newestFrameAge(conversationId)
+          const alive =
+            age === undefined ? elapsed < AWAIT_ANSWER_BLIND_MS : age !== null && age < TURN_SILENCE_MS
+          if (!alive) {
+            // One last look: the answer may have been written just as the turn
+            // went quiet.
+            return get()._recoverInterruptedAssistantMessage(conversationId, afterUserMessageId, {
+              quiet: true,
+            })
+          }
+          await new Promise((resolve) => setTimeout(resolve, AWAIT_ANSWER_POLL_MS))
+        }
+      } finally {
+        recoveryHolds -= 1
+        if (recoveryHolds === 0) set({ isRecoveryPending: false }, false, 'awaitServerAnswer:end')
+      }
+    })().finally(() => {
+      serverAnswerWaits.delete(conversationId)
+    })
+    serverAnswerWaits.set(conversationId, wait)
+    return wait
+  },
+
   _recoverInterruptedAssistantMessage: async (
     conversationId: string,
-    afterUserMessageId: string
+    afterUserMessageId: string,
+    { quiet = false }: { quiet?: boolean } = {}
   ): Promise<RecoveryOutcome> => {
     // Signal the "checking for a finished answer" UI (FIX 3) for the duration
-    // of the fetch. Both callers (restoreSessionState on mount, and the
-    // reconnect handler in use-websocket-chat) go through here, so the calmer
-    // recovery-pending copy shows on every recovery attempt and the
-    // lost/interrupted UI only appears after this settles to false.
-    set({ isRecoveryPending: true }, false, 'recoveryPending:start')
+    // of the fetch, so the calmer recovery-pending copy shows on every
+    // recovery attempt and the lost/interrupted UI only appears after this
+    // settles to false. `quiet` when a caller holds the flag for longer
+    // (`_awaitServerAnswer`).
+    if (!quiet) {
+      recoveryHolds += 1
+      set({ isRecoveryPending: true }, false, 'recoveryPending:start')
+    }
     try {
       const conversationsClient = await getConversationsClient()
       const serverMessages = await conversationsClient.listMessages(conversationId)
@@ -1141,7 +1459,10 @@ export const createSessionsSlice: StateCreator<
       // a fourth outcome nobody would branch on.
       return 'nothing'
     } finally {
-      set({ isRecoveryPending: false }, false, 'recoveryPending:end')
+      if (!quiet) {
+        recoveryHolds -= 1
+        if (recoveryHolds === 0) set({ isRecoveryPending: false }, false, 'recoveryPending:end')
+      }
     }
   },
 
@@ -1313,6 +1634,9 @@ export const createSessionsSlice: StateCreator<
       }
       if (assistantMessage.escalationReason) {
         provenance.escalationReason = assistantMessage.escalationReason
+      }
+      if (assistantMessage.answerDurationMs) {
+        provenance.answerDurationMs = assistantMessage.answerDurationMs
       }
       if (assistantMessage.citationsRemoved) {
         provenance.citationsRemoved = assistantMessage.citationsRemoved

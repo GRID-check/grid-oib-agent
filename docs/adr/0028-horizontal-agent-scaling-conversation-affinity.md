@@ -67,7 +67,10 @@ frames to `conv:<id>:events`; any replica holding the client's WS (the **relay**
 subscribes and writes them to the socket; HITL answers round-trip on
 `conv:<id>:input`, where the owner's subscriber resolves its future. A bounded
 Redis stream (`conv:<id>:stream`) buffers frames for reconnect replay
-(best-effort — the Postgres checkpoint stays source of truth, ADR-0020). This
+(best-effort — the Postgres checkpoint stays source of truth, ADR-0020); a
+client reads it back after a dropped socket through
+`GET /api/conversations/:id/frames` (2026-09,
+[`streaming-chat-answer.md`](../design/streaming-chat-answer.md#a-dropped-socket-resumes)). This
 removes the affinity pin: **any replica serves any conversation**, and a relay's
 death just means the client reconnects elsewhere while the owner keeps
 publishing.

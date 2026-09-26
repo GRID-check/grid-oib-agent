@@ -1,5 +1,5 @@
 /**
- * The plan on the run block (ADR-0065). What is pinned: doing nothing is a
+ * The plan on the run block (ADR-0068). What is pinned: doing nothing is a
  * complete answer (the countdown says the run starts on its own), „Anpassen"
  * holds and opens the controls, every edit sends only what changed, and a
  * started plan is a brief to read, not a form.

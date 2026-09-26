@@ -1,4 +1,4 @@
-import { render, screen } from '@/test-utils'
+import { act, render, screen } from '@/test-utils'
 import userEvent from '@testing-library/user-event'
 import { vi, describe, test, expect, beforeEach } from 'vitest'
 import { ChatArea } from './ChatArea'
@@ -23,7 +23,9 @@ const mockRespondToPrompt = vi.fn()
 const mockDismissErrorCard = vi.fn()
 const mockSetComposerPrefill = vi.fn()
 const mockGetThinkingStepsForMessage = vi.fn((_messageId: string): ThinkingStep[] => [])
-const mockChatThinking = vi.fn((_props: unknown) => <div data-testid="chat-thinking">Thinking...</div>)
+const mockChatThinking = vi.fn((_props: unknown) => (
+  <div data-testid="chat-thinking">Thinking...</div>
+))
 
 // The run block's data half is mocked so the dispatch test asserts WHERE a run
 // message goes without opening a stream; the hook's own behaviour is covered
@@ -171,7 +173,11 @@ const INERT_SHARED_THREAD = {
   typists: [] as Array<{ userId: string; name: string; profilePictureUrl?: string | null }>,
   participants: [] as Array<{ userId: string; name: string }>,
   unreadAfterMessageId: null as string | null,
-  lastArrival: null as { messageId: string; authorUserId: string | null; authorName: string | null } | null,
+  lastArrival: null as {
+    messageId: string
+    authorUserId: string | null
+    authorName: string | null
+  } | null,
   authorOf: (_userId?: string | null) => null as { userId: string; name: string } | null,
   engagement: 'ask' as 'ask' | 'mention',
   engagementSuggestion: null as 'ask' | 'mention' | null,
@@ -229,7 +235,7 @@ let mockAwaitingPending: Array<{
 }> = []
 
 const pendingRequest = (
-  overrides: Partial<(typeof mockAwaitingPending)[number]> = {},
+  overrides: Partial<(typeof mockAwaitingPending)[number]> = {}
 ): (typeof mockAwaitingPending)[number] => ({
   id: 'r-1',
   person: { userId: 'user_anna', name: 'Anna Berger' },
@@ -335,21 +341,23 @@ describe('ChatArea', () => {
   })
 
   test('renders user messages', () => {
-    vi.mocked(useChatStore).mockImplementation((selector?: StoreSelector<ChatStoreWithHydration>) => {
-      const state: ChatStoreFixture = {
-        currentConversation: {
-          messages: [{ id: 'msg-1', role: 'user', content: 'Hello world', messageType: 'user' }],
-        },
-        isLoading: false,
-        hasHydrated: true,
-        isStreaming: false,
-        thinkingSteps: [],
-        respondToPrompt: mockRespondToPrompt,
-        dismissErrorCard: mockDismissErrorCard,
-        getThinkingStepsForMessage: mockGetThinkingStepsForMessage,
+    vi.mocked(useChatStore).mockImplementation(
+      (selector?: StoreSelector<ChatStoreWithHydration>) => {
+        const state: ChatStoreFixture = {
+          currentConversation: {
+            messages: [{ id: 'msg-1', role: 'user', content: 'Hello world', messageType: 'user' }],
+          },
+          isLoading: false,
+          hasHydrated: true,
+          isStreaming: false,
+          thinkingSteps: [],
+          respondToPrompt: mockRespondToPrompt,
+          dismissErrorCard: mockDismissErrorCard,
+          getThinkingStepsForMessage: mockGetThinkingStepsForMessage,
+        }
+        return selector ? selector(asStoreState<ChatStoreWithHydration>(state)) : state
       }
-      return selector ? selector(asStoreState<ChatStoreWithHydration>(state)) : state
-    })
+    )
 
     render(<ChatArea isAuthenticated={true} />)
 
@@ -357,29 +365,31 @@ describe('ChatArea', () => {
   })
 
   test('does not render legacy status messages', () => {
-    vi.mocked(useChatStore).mockImplementation((selector?: StoreSelector<ChatStoreWithHydration>) => {
-      const state: ChatStoreFixture = {
-        currentConversation: {
-          messages: [
-            {
-              id: 'msg-1',
-              role: 'assistant',
-              content: 'Processing...',
-              messageType: 'status',
-              statusType: 'thinking',
-            },
-          ],
-        },
-        isLoading: false,
-        hasHydrated: true,
-        isStreaming: false,
-        thinkingSteps: [],
-        respondToPrompt: mockRespondToPrompt,
-        dismissErrorCard: mockDismissErrorCard,
-        getThinkingStepsForMessage: mockGetThinkingStepsForMessage,
+    vi.mocked(useChatStore).mockImplementation(
+      (selector?: StoreSelector<ChatStoreWithHydration>) => {
+        const state: ChatStoreFixture = {
+          currentConversation: {
+            messages: [
+              {
+                id: 'msg-1',
+                role: 'assistant',
+                content: 'Processing...',
+                messageType: 'status',
+                statusType: 'thinking',
+              },
+            ],
+          },
+          isLoading: false,
+          hasHydrated: true,
+          isStreaming: false,
+          thinkingSteps: [],
+          respondToPrompt: mockRespondToPrompt,
+          dismissErrorCard: mockDismissErrorCard,
+          getThinkingStepsForMessage: mockGetThinkingStepsForMessage,
+        }
+        return selector ? selector(asStoreState<ChatStoreWithHydration>(state)) : state
       }
-      return selector ? selector(asStoreState<ChatStoreWithHydration>(state)) : state
-    })
+    )
 
     render(<ChatArea isAuthenticated={true} />)
 
@@ -388,27 +398,29 @@ describe('ChatArea', () => {
   })
 
   test('renders agent prompts', () => {
-    vi.mocked(useChatStore).mockImplementation((selector?: StoreSelector<ChatStoreWithHydration>) => {
-      const state: ChatStoreFixture = {
-        currentConversation: {
-          messages: [
-            {
-              id: 'msg-1',
-              role: 'assistant',
-              content: 'Please provide more details',
-              messageType: 'prompt',
-              promptType: 'text-input',
-            },
-          ],
-        },
-        isLoading: false,
-        hasHydrated: true,
-        isStreaming: false,
-        respondToPrompt: mockRespondToPrompt,
-        dismissErrorCard: mockDismissErrorCard,
+    vi.mocked(useChatStore).mockImplementation(
+      (selector?: StoreSelector<ChatStoreWithHydration>) => {
+        const state: ChatStoreFixture = {
+          currentConversation: {
+            messages: [
+              {
+                id: 'msg-1',
+                role: 'assistant',
+                content: 'Please provide more details',
+                messageType: 'prompt',
+                promptType: 'text-input',
+              },
+            ],
+          },
+          isLoading: false,
+          hasHydrated: true,
+          isStreaming: false,
+          respondToPrompt: mockRespondToPrompt,
+          dismissErrorCard: mockDismissErrorCard,
+        }
+        return selector ? selector(asStoreState<ChatStoreWithHydration>(state)) : state
       }
-      return selector ? selector(asStoreState<ChatStoreWithHydration>(state)) : state
-    })
+    )
 
     render(<ChatArea isAuthenticated={true} />)
 
@@ -416,26 +428,28 @@ describe('ChatArea', () => {
   })
 
   test('renders agent responses', () => {
-    vi.mocked(useChatStore).mockImplementation((selector?: StoreSelector<ChatStoreWithHydration>) => {
-      const state: ChatStoreFixture = {
-        currentConversation: {
-          messages: [
-            {
-              id: 'msg-1',
-              role: 'assistant',
-              content: 'Here is your answer',
-              messageType: 'agent_response',
-            },
-          ],
-        },
-        isLoading: false,
-        hasHydrated: true,
-        isStreaming: false,
-        respondToPrompt: mockRespondToPrompt,
-        dismissErrorCard: mockDismissErrorCard,
+    vi.mocked(useChatStore).mockImplementation(
+      (selector?: StoreSelector<ChatStoreWithHydration>) => {
+        const state: ChatStoreFixture = {
+          currentConversation: {
+            messages: [
+              {
+                id: 'msg-1',
+                role: 'assistant',
+                content: 'Here is your answer',
+                messageType: 'agent_response',
+              },
+            ],
+          },
+          isLoading: false,
+          hasHydrated: true,
+          isStreaming: false,
+          respondToPrompt: mockRespondToPrompt,
+          dismissErrorCard: mockDismissErrorCard,
+        }
+        return selector ? selector(asStoreState<ChatStoreWithHydration>(state)) : state
       }
-      return selector ? selector(asStoreState<ChatStoreWithHydration>(state)) : state
-    })
+    )
 
     render(<ChatArea isAuthenticated={true} />)
 
@@ -456,29 +470,31 @@ describe('ChatArea', () => {
       startedAt: '2026-09-16T08:00:00.000Z',
       updatedAt: '2026-09-16T08:00:00.000Z',
     }
-    vi.mocked(useChatStore).mockImplementation((selector?: StoreSelector<ChatStoreWithHydration>) => {
-      const state: ChatStoreFixture = {
-        currentConversation: {
-          messages: [
-            {
-              id: 'msg-run',
-              role: 'assistant',
-              content: 'Der Bericht',
-              messageType: 'agent_response',
-              runLedger,
-              runTitle: 'Normprüfung: Fluchtwege',
-            },
-          ],
-        },
-        projectId: mockProjectId,
-        isLoading: false,
-        hasHydrated: true,
-        isStreaming: false,
-        respondToPrompt: mockRespondToPrompt,
-        dismissErrorCard: mockDismissErrorCard,
+    vi.mocked(useChatStore).mockImplementation(
+      (selector?: StoreSelector<ChatStoreWithHydration>) => {
+        const state: ChatStoreFixture = {
+          currentConversation: {
+            messages: [
+              {
+                id: 'msg-run',
+                role: 'assistant',
+                content: 'Der Bericht',
+                messageType: 'agent_response',
+                runLedger,
+                runTitle: 'Normprüfung: Fluchtwege',
+              },
+            ],
+          },
+          projectId: mockProjectId,
+          isLoading: false,
+          hasHydrated: true,
+          isStreaming: false,
+          respondToPrompt: mockRespondToPrompt,
+          dismissErrorCard: mockDismissErrorCard,
+        }
+        return selector ? selector(asStoreState<ChatStoreWithHydration>(state)) : state
       }
-      return selector ? selector(asStoreState<ChatStoreWithHydration>(state)) : state
-    })
+    )
 
     render(<ChatArea isAuthenticated={true} />)
 
@@ -486,40 +502,45 @@ describe('ChatArea', () => {
     expect(block).toHaveAttribute('data-status', 'laeuft')
     expect(block).toHaveTextContent('Normprüfung: Fluchtwege')
     expect(mockUseRunLedger).toHaveBeenCalledWith(
-      expect.objectContaining({ projectId: mockProjectId, message: expect.objectContaining({ id: 'msg-run' }) }),
+      expect.objectContaining({
+        projectId: mockProjectId,
+        message: expect.objectContaining({ id: 'msg-run' }),
+      })
     )
     // Still going: the report is not shown yet, only the block.
     expect(screen.queryByTestId('agent-response')).not.toBeInTheDocument()
   })
 
   test('renders file messages', () => {
-    vi.mocked(useChatStore).mockImplementation((selector?: StoreSelector<ChatStoreWithHydration>) => {
-      const state: ChatStoreFixture = {
-        currentConversation: {
-          messages: [
-            {
-              id: 'msg-1',
-              role: 'assistant',
-              content: '',
-              messageType: 'file',
-              fileData: {
-                fileName: 'document.pdf',
-                fileSize: 1024,
-                fileStatus: 'success',
+    vi.mocked(useChatStore).mockImplementation(
+      (selector?: StoreSelector<ChatStoreWithHydration>) => {
+        const state: ChatStoreFixture = {
+          currentConversation: {
+            messages: [
+              {
+                id: 'msg-1',
+                role: 'assistant',
+                content: '',
+                messageType: 'file',
+                fileData: {
+                  fileName: 'document.pdf',
+                  fileSize: 1024,
+                  fileStatus: 'success',
+                },
               },
-            },
-          ],
-        },
-        isLoading: false,
-        hasHydrated: true,
-        isStreaming: false,
-        thinkingSteps: [],
-        respondToPrompt: mockRespondToPrompt,
-        dismissErrorCard: mockDismissErrorCard,
-        getThinkingStepsForMessage: mockGetThinkingStepsForMessage,
+            ],
+          },
+          isLoading: false,
+          hasHydrated: true,
+          isStreaming: false,
+          thinkingSteps: [],
+          respondToPrompt: mockRespondToPrompt,
+          dismissErrorCard: mockDismissErrorCard,
+          getThinkingStepsForMessage: mockGetThinkingStepsForMessage,
+        }
+        return selector ? selector(asStoreState<ChatStoreWithHydration>(state)) : state
       }
-      return selector ? selector(asStoreState<ChatStoreWithHydration>(state)) : state
-    })
+    )
 
     render(<ChatArea isAuthenticated={true} />)
 
@@ -528,32 +549,34 @@ describe('ChatArea', () => {
   })
 
   test('renders error banners', () => {
-    vi.mocked(useChatStore).mockImplementation((selector?: StoreSelector<ChatStoreWithHydration>) => {
-      const state: ChatStoreFixture = {
-        currentConversation: {
-          messages: [
-            {
-              id: 'msg-1',
-              role: 'assistant',
-              content: '',
-              messageType: 'error',
-              errorData: {
-                errorCode: 'agent.response_failed',
-                errorMessage: 'Something went wrong',
+    vi.mocked(useChatStore).mockImplementation(
+      (selector?: StoreSelector<ChatStoreWithHydration>) => {
+        const state: ChatStoreFixture = {
+          currentConversation: {
+            messages: [
+              {
+                id: 'msg-1',
+                role: 'assistant',
+                content: '',
+                messageType: 'error',
+                errorData: {
+                  errorCode: 'agent.response_failed',
+                  errorMessage: 'Something went wrong',
+                },
               },
-            },
-          ],
-        },
-        isLoading: false,
-        hasHydrated: true,
-        isStreaming: false,
-        thinkingSteps: [],
-        respondToPrompt: mockRespondToPrompt,
-        dismissErrorCard: mockDismissErrorCard,
-        getThinkingStepsForMessage: mockGetThinkingStepsForMessage,
+            ],
+          },
+          isLoading: false,
+          hasHydrated: true,
+          isStreaming: false,
+          thinkingSteps: [],
+          respondToPrompt: mockRespondToPrompt,
+          dismissErrorCard: mockDismissErrorCard,
+          getThinkingStepsForMessage: mockGetThinkingStepsForMessage,
+        }
+        return selector ? selector(asStoreState<ChatStoreWithHydration>(state)) : state
       }
-      return selector ? selector(asStoreState<ChatStoreWithHydration>(state)) : state
-    })
+    )
 
     render(<ChatArea isAuthenticated={true} />)
 
@@ -561,26 +584,28 @@ describe('ChatArea', () => {
   })
 
   test('does not render assistant messages (full reports)', () => {
-    vi.mocked(useChatStore).mockImplementation((selector?: StoreSelector<ChatStoreWithHydration>) => {
-      const state: ChatStoreFixture = {
-        currentConversation: {
-          messages: [
-            {
-              id: 'msg-1',
-              role: 'assistant',
-              content: 'Full report content',
-              messageType: 'assistant',
-            },
-          ],
-        },
-        isLoading: false,
-        hasHydrated: true,
-        isStreaming: false,
-        respondToPrompt: mockRespondToPrompt,
-        dismissErrorCard: mockDismissErrorCard,
+    vi.mocked(useChatStore).mockImplementation(
+      (selector?: StoreSelector<ChatStoreWithHydration>) => {
+        const state: ChatStoreFixture = {
+          currentConversation: {
+            messages: [
+              {
+                id: 'msg-1',
+                role: 'assistant',
+                content: 'Full report content',
+                messageType: 'assistant',
+              },
+            ],
+          },
+          isLoading: false,
+          hasHydrated: true,
+          isStreaming: false,
+          respondToPrompt: mockRespondToPrompt,
+          dismissErrorCard: mockDismissErrorCard,
+        }
+        return selector ? selector(asStoreState<ChatStoreWithHydration>(state)) : state
       }
-      return selector ? selector(asStoreState<ChatStoreWithHydration>(state)) : state
-    })
+    )
 
     render(<ChatArea isAuthenticated={true} />)
 
@@ -596,17 +621,19 @@ describe('ChatArea', () => {
   })
 
   test('handles null currentConversation', () => {
-    vi.mocked(useChatStore).mockImplementation((selector?: StoreSelector<ChatStoreWithHydration>) => {
-      const state: ChatStoreFixture = {
-        currentConversation: null,
-        isLoading: false,
-        hasHydrated: true,
-        isStreaming: false,
-        respondToPrompt: mockRespondToPrompt,
-        dismissErrorCard: mockDismissErrorCard,
+    vi.mocked(useChatStore).mockImplementation(
+      (selector?: StoreSelector<ChatStoreWithHydration>) => {
+        const state: ChatStoreFixture = {
+          currentConversation: null,
+          isLoading: false,
+          hasHydrated: true,
+          isStreaming: false,
+          respondToPrompt: mockRespondToPrompt,
+          dismissErrorCard: mockDismissErrorCard,
+        }
+        return selector ? selector(asStoreState<ChatStoreWithHydration>(state)) : state
       }
-      return selector ? selector(asStoreState<ChatStoreWithHydration>(state)) : state
-    })
+    )
 
     render(<ChatArea isAuthenticated={true} />)
 
@@ -625,25 +652,32 @@ describe('ChatArea', () => {
       return []
     })
 
-    vi.mocked(useChatStore).mockImplementation((selector?: StoreSelector<ChatStoreWithHydration>) => {
-      const state: ChatStoreFixture = {
-        currentConversation: {
-          messages: [
-            { id: 'user-1', role: 'user', content: 'First question', messageType: 'user' },
-            { id: 'user-2', role: 'user', content: 'Second question', messageType: 'user' },
-            { id: 'answer-2', role: 'assistant', content: 'Second answer', messageType: 'agent_response' },
-          ],
-        },
-        isLoading: false,
-        hasHydrated: true,
-        isStreaming: false,
-        thinkingSteps: [],
-        respondToPrompt: mockRespondToPrompt,
-        dismissErrorCard: mockDismissErrorCard,
-        getThinkingStepsForMessage: mockGetThinkingStepsForMessage,
+    vi.mocked(useChatStore).mockImplementation(
+      (selector?: StoreSelector<ChatStoreWithHydration>) => {
+        const state: ChatStoreFixture = {
+          currentConversation: {
+            messages: [
+              { id: 'user-1', role: 'user', content: 'First question', messageType: 'user' },
+              { id: 'user-2', role: 'user', content: 'Second question', messageType: 'user' },
+              {
+                id: 'answer-2',
+                role: 'assistant',
+                content: 'Second answer',
+                messageType: 'agent_response',
+              },
+            ],
+          },
+          isLoading: false,
+          hasHydrated: true,
+          isStreaming: false,
+          thinkingSteps: [],
+          respondToPrompt: mockRespondToPrompt,
+          dismissErrorCard: mockDismissErrorCard,
+          getThinkingStepsForMessage: mockGetThinkingStepsForMessage,
+        }
+        return selector ? selector(asStoreState<ChatStoreWithHydration>(state)) : state
       }
-      return selector ? selector(asStoreState<ChatStoreWithHydration>(state)) : state
-    })
+    )
 
     render(<ChatArea isAuthenticated={true} />)
 
@@ -693,8 +727,9 @@ describe('ChatArea', () => {
     })
 
     // Mount with no active turn: nothing to anchor yet.
-    vi.mocked(useChatStore).mockImplementation((selector?: StoreSelector<ChatStoreWithHydration>) =>
-      selector ? selector(asStoreState<ChatStoreWithHydration>(makeState(null))) : makeState(null)
+    vi.mocked(useChatStore).mockImplementation(
+      (selector?: StoreSelector<ChatStoreWithHydration>) =>
+        selector ? selector(asStoreState<ChatStoreWithHydration>(makeState(null))) : makeState(null)
     )
     // ChatArea is memoized; with the store mocked there's no live subscription,
     // so a distinct prop (a fresh onSignIn) stands in to trigger the re-render
@@ -705,8 +740,11 @@ describe('ChatArea', () => {
     // A new user message becomes the active turn (send): it must be anchored to
     // the TOP (block: 'start'), letting the answer stream downward — NOT chased
     // to the bottom.
-    vi.mocked(useChatStore).mockImplementation((selector?: StoreSelector<ChatStoreWithHydration>) =>
-      selector ? selector(asStoreState<ChatStoreWithHydration>(makeState('user-1'))) : makeState('user-1')
+    vi.mocked(useChatStore).mockImplementation(
+      (selector?: StoreSelector<ChatStoreWithHydration>) =>
+        selector
+          ? selector(asStoreState<ChatStoreWithHydration>(makeState('user-1')))
+          : makeState('user-1')
     )
     rerender(<ChatArea isAuthenticated={true} onSignIn={vi.fn()} />)
 
@@ -714,6 +752,229 @@ describe('ChatArea', () => {
     expect(scrollIntoView).toHaveBeenCalledWith(expect.objectContaining({ block: 'start' }))
 
     Element.prototype.scrollIntoView = originalScrollIntoView
+  })
+
+  test('the anchor spacer holds only the unfilled room, and is not dropped when the answer lands', async () => {
+    // Geometry jsdom does not have: a 900px viewport, the anchored question at
+    // 100px, the end of the list at 400px, so 600px of room is still unfilled.
+    const originalScrollIntoView = Element.prototype.scrollIntoView
+    Element.prototype.scrollIntoView = vi.fn()
+    const clientHeight = vi.spyOn(HTMLElement.prototype, 'clientHeight', 'get').mockReturnValue(900)
+    const rect = vi.spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(function (
+      this: Element
+    ) {
+      const top = this.getAttribute('data-chat-anchor') === 'true' ? 100 : 400
+      return {
+        top,
+        bottom: top,
+        left: 0,
+        right: 0,
+        width: 0,
+        height: 0,
+        x: 0,
+        y: top,
+        toJSON: () => ({}),
+      }
+    })
+
+    try {
+      const makeState = (
+        currentUserMessageId: string | null,
+        isStreaming: boolean
+      ): ChatStoreFixture => ({
+        currentConversation: {
+          id: 'c1',
+          messages: [{ id: 'user-1', role: 'user', content: 'My question', messageType: 'user' }],
+        },
+        isLoading: false,
+        isStreaming,
+        currentUserMessageId,
+        currentStatus: null,
+        hasHydrated: true,
+        isRecoveryPending: false,
+        thinkingSteps: [],
+        respondToPrompt: mockRespondToPrompt,
+        dismissErrorCard: mockDismissErrorCard,
+        getThinkingStepsForMessage: mockGetThinkingStepsForMessage,
+        retryLastUserMessage: vi.fn(),
+      })
+      const use = (state: ChatStoreFixture) =>
+        vi
+          .mocked(useChatStore)
+          .mockImplementation((selector?: StoreSelector<ChatStoreWithHydration>) =>
+            selector ? selector(asStoreState<ChatStoreWithHydration>(state)) : state
+          )
+
+      use(makeState(null, false))
+      const { container, rerender } = render(<ChatArea isAuthenticated={true} onSignIn={vi.fn()} />)
+      use(makeState('user-1', true))
+      rerender(<ChatArea isAuthenticated={true} onSignIn={vi.fn()} />)
+
+      const spacer = container.querySelector<HTMLElement>('[aria-hidden="true"][style*="min-height"]')
+      expect(spacer?.style.minHeight).toBe('600px')
+
+      // The answer lands. Dropping the spacer to 0 here is what used to clamp the
+      // scroll position and move a short finished answer down by its unused room.
+      use(makeState('user-1', false))
+      rerender(<ChatArea isAuthenticated={true} onSignIn={vi.fn()} />)
+      await new Promise((resolve) => requestAnimationFrame(resolve))
+      expect(spacer?.style.minHeight).toBe('600px')
+    } finally {
+      clientHeight.mockRestore()
+      rect.mockRestore()
+      Element.prototype.scrollIntoView = originalScrollIntoView
+    }
+  })
+
+  test('the anchor spacer shrinks as the list grows and refits when the viewport resizes', () => {
+    // Geometry jsdom does not have: the anchored question at 100px, the end of
+    // the list (the spacer's top) at 400px, a 900px viewport: 600px of room.
+    const originalScrollIntoView = Element.prototype.scrollIntoView
+    Element.prototype.scrollIntoView = vi.fn()
+    let viewportHeight = 900
+    let listEnd = 400
+    const clientHeight = vi
+      .spyOn(HTMLElement.prototype, 'clientHeight', 'get')
+      .mockImplementation(() => viewportHeight)
+    const rect = vi.spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(function (
+      this: Element
+    ) {
+      const top = this.getAttribute('data-chat-anchor') === 'true' ? 100 : listEnd
+      return { top, bottom: top, left: 0, right: 0, width: 0, height: 0, x: 0, y: top, toJSON: () => ({}) }
+    })
+    const observed: Element[] = []
+    let notify: ResizeObserverCallback = () => {}
+    const originalResizeObserver = globalThis.ResizeObserver
+    class RecordingResizeObserver {
+      constructor(callback: ResizeObserverCallback) {
+        notify = callback
+      }
+      observe(el: Element) {
+        observed.push(el)
+      }
+      unobserve() {}
+      disconnect() {}
+    }
+    globalThis.ResizeObserver = RecordingResizeObserver as unknown as typeof ResizeObserver
+    const makeState = (currentUserMessageId: string | null): ChatStoreFixture => ({
+      currentConversation: {
+        id: 'c1',
+        messages: [{ id: 'user-1', role: 'user', content: 'My question', messageType: 'user' }],
+      },
+      isLoading: false,
+      isStreaming: true,
+      currentUserMessageId,
+      currentStatus: null,
+      hasHydrated: true,
+      isRecoveryPending: false,
+      thinkingSteps: [],
+      respondToPrompt: mockRespondToPrompt,
+      dismissErrorCard: mockDismissErrorCard,
+      getThinkingStepsForMessage: mockGetThinkingStepsForMessage,
+      retryLastUserMessage: vi.fn(),
+    })
+    const use = (state: ChatStoreFixture) =>
+      vi
+        .mocked(useChatStore)
+        .mockImplementation((selector?: StoreSelector<ChatStoreWithHydration>) =>
+          selector ? selector(asStoreState<ChatStoreWithHydration>(state)) : state
+        )
+    const fire = (target: Element) =>
+      act(() =>
+        notify(
+          [{ target, contentRect: { height: listEnd } } as unknown as ResizeObserverEntry],
+          {} as ResizeObserver
+        )
+      )
+
+    try {
+      use(makeState(null))
+      const { container, rerender } = render(<ChatArea isAuthenticated={true} onSignIn={vi.fn()} />)
+      use(makeState('user-1'))
+      rerender(<ChatArea isAuthenticated={true} onSignIn={vi.fn()} />)
+      const spacer = container.querySelector<HTMLElement>('[aria-hidden="true"][style*="min-height"]')
+      expect(spacer?.style.minHeight).toBe('600px')
+
+      // The answer grows by 300px: the spacer gives up exactly that much.
+      const list = observed.find(
+        (el) =>
+          el.contains(screen.getByText('My question')) && !el.classList.contains('overflow-y-auto')
+      )
+      listEnd = 700
+      fire(list as Element)
+      expect(spacer?.style.minHeight).toBe('300px')
+
+      // The window grows by 300px: the viewport is observed, and the spacer
+      // takes the new room.
+      const viewport = observed.find((el) => el.classList.contains('overflow-y-auto'))
+      expect(viewport).toBeDefined()
+      viewportHeight = 1200
+      fire(viewport as Element)
+      expect(spacer?.style.minHeight).toBe('600px')
+    } finally {
+      globalThis.ResizeObserver = originalResizeObserver
+      clientHeight.mockRestore()
+      rect.mockRestore()
+      Element.prototype.scrollIntoView = originalScrollIntoView
+    }
+  })
+
+  test('the resize observer watches the messages, not the spacer it refits', () => {
+    // happy-dom's ResizeObserver is inert: record what the controller observes.
+    // The observer's callback resizes the anchor spacer; a spacer inside the
+    // observed box resized that box again at the same depth, and the browser
+    // raised "ResizeObserver loop completed with undelivered notifications"
+    // once per frame while a short anchored answer streamed.
+    const observed: Element[] = []
+    const originalResizeObserver = globalThis.ResizeObserver
+    class RecordingResizeObserver {
+      observe(el: Element) {
+        observed.push(el)
+      }
+      unobserve() {}
+      disconnect() {}
+    }
+    globalThis.ResizeObserver = RecordingResizeObserver as unknown as typeof ResizeObserver
+    const state: ChatStoreFixture = {
+      currentConversation: {
+        id: 'c1',
+        messages: [{ id: 'user-1', role: 'user', content: 'My question', messageType: 'user' }],
+      },
+      isLoading: false,
+      isStreaming: true,
+      currentUserMessageId: null,
+      currentStatus: null,
+      hasHydrated: true,
+      isRecoveryPending: false,
+      thinkingSteps: [],
+      respondToPrompt: mockRespondToPrompt,
+      dismissErrorCard: mockDismissErrorCard,
+      getThinkingStepsForMessage: mockGetThinkingStepsForMessage,
+      retryLastUserMessage: vi.fn(),
+    }
+    vi.mocked(useChatStore).mockImplementation(
+      (selector?: StoreSelector<ChatStoreWithHydration>) =>
+        selector ? selector(asStoreState<ChatStoreWithHydration>(state)) : state
+    )
+
+    try {
+      const { container } = render(<ChatArea isAuthenticated={true} onSignIn={vi.fn()} />)
+      const spacer = container.querySelector<HTMLElement>(
+        '[aria-hidden="true"][style*="min-height"]'
+      )
+      expect(spacer).not.toBeNull()
+      // The scroll viewport is observed as well (its height is the spacer's
+      // other input). Its box is the visible height, which the spacer's
+      // min-height does not change, so it cannot loop; only the list's can.
+      const list = observed.filter(
+        (el) =>
+          el.contains(screen.getByText('My question')) && !el.classList.contains('overflow-y-auto')
+      )
+      expect(list.length).toBeGreaterThan(0)
+      for (const el of list) expect(el.contains(spacer)).toBe(false)
+    } finally {
+      globalThis.ResizeObserver = originalResizeObserver
+    }
   })
 
   test('does not re-anchor an already-active user message on unrelated re-renders', () => {
@@ -739,8 +1000,9 @@ describe('ChatArea', () => {
       retryLastUserMessage: vi.fn(),
     }
 
-    vi.mocked(useChatStore).mockImplementation((selector?: StoreSelector<ChatStoreWithHydration>) =>
-      selector ? selector(asStoreState<ChatStoreWithHydration>(state)) : state
+    vi.mocked(useChatStore).mockImplementation(
+      (selector?: StoreSelector<ChatStoreWithHydration>) =>
+        selector ? selector(asStoreState<ChatStoreWithHydration>(state)) : state
     )
     // Mounting with the turn already active (e.g. session restore) must NOT
     // anchor — the bottom-jump effect owns initial positioning there. A fresh
@@ -762,25 +1024,27 @@ describe('ChatArea', () => {
       return []
     })
 
-    vi.mocked(useChatStore).mockImplementation((selector?: StoreSelector<ChatStoreWithHydration>) => {
-      const state: ChatStoreFixture = {
-        currentConversation: {
-          messages: [
-            { id: 'user-1', role: 'user', content: 'First question', messageType: 'user' },
-            { id: 'user-2', role: 'user', content: 'Second question', messageType: 'user' },
-          ],
-        },
-        isLoading: true,
-        isStreaming: true,
-        hasHydrated: true,
-        currentUserMessageId: 'user-2',
-        thinkingSteps: [],
-        respondToPrompt: mockRespondToPrompt,
-        dismissErrorCard: mockDismissErrorCard,
-        getThinkingStepsForMessage: mockGetThinkingStepsForMessage,
+    vi.mocked(useChatStore).mockImplementation(
+      (selector?: StoreSelector<ChatStoreWithHydration>) => {
+        const state: ChatStoreFixture = {
+          currentConversation: {
+            messages: [
+              { id: 'user-1', role: 'user', content: 'First question', messageType: 'user' },
+              { id: 'user-2', role: 'user', content: 'Second question', messageType: 'user' },
+            ],
+          },
+          isLoading: true,
+          isStreaming: true,
+          hasHydrated: true,
+          currentUserMessageId: 'user-2',
+          thinkingSteps: [],
+          respondToPrompt: mockRespondToPrompt,
+          dismissErrorCard: mockDismissErrorCard,
+          getThinkingStepsForMessage: mockGetThinkingStepsForMessage,
+        }
+        return selector ? selector(asStoreState<ChatStoreWithHydration>(state)) : state
       }
-      return selector ? selector(asStoreState<ChatStoreWithHydration>(state)) : state
-    })
+    )
 
     render(<ChatArea isAuthenticated={true} />)
 
@@ -815,13 +1079,13 @@ describe('ChatArea', () => {
  * fact, still working on the next thing.
  */
 describe('ChatArea — a working cue after an answered HITL prompt', () => {
-  const stateWithLastMessage = (message: MessageFixture, isStreaming: boolean): ChatStoreFixture => ({
+  const stateWithLastMessage = (
+    message: MessageFixture,
+    isStreaming: boolean
+  ): ChatStoreFixture => ({
     currentConversation: {
       id: 'c1',
-      messages: [
-        { id: 'user-1', role: 'user', content: 'Frage', messageType: 'user' },
-        message,
-      ],
+      messages: [{ id: 'user-1', role: 'user', content: 'Frage', messageType: 'user' }, message],
     },
     isLoading: isStreaming,
     isStreaming,
@@ -835,8 +1099,9 @@ describe('ChatArea — a working cue after an answered HITL prompt', () => {
   })
 
   const mount = (state: ChatStoreFixture) => {
-    vi.mocked(useChatStore).mockImplementation((selector?: StoreSelector<ChatStoreWithHydration>) =>
-      selector ? selector(asStoreState<ChatStoreWithHydration>(state)) : state
+    vi.mocked(useChatStore).mockImplementation(
+      (selector?: StoreSelector<ChatStoreWithHydration>) =>
+        selector ? selector(asStoreState<ChatStoreWithHydration>(state)) : state
     )
     render(<ChatArea isAuthenticated={true} />)
   }
@@ -989,8 +1254,9 @@ describe('ChatArea — the follow-ups rail sits below the answer', () => {
   })
 
   const renderWith = (state: ChatStoreFixture) => {
-    vi.mocked(useChatStore).mockImplementation((selector?: StoreSelector<ChatStoreWithHydration>) =>
-      selector ? selector(asStoreState<ChatStoreWithHydration>(state)) : state,
+    vi.mocked(useChatStore).mockImplementation(
+      (selector?: StoreSelector<ChatStoreWithHydration>) =>
+        selector ? selector(asStoreState<ChatStoreWithHydration>(state)) : state
     )
     return render(<ChatArea isAuthenticated={true} />)
   }
@@ -1037,27 +1303,25 @@ describe('ChatArea — shared thread', () => {
   const ANNA = 'user_anna'
 
   const setThread = (messages: MessageFixture[]) => {
-    vi.mocked(useChatStore).mockImplementation((selector?: StoreSelector<ChatStoreWithHydration>) => {
-      const state: ChatStoreFixture = {
-        currentConversation: { id: 's_conv_1', messages },
-        isLoading: false,
-        isStreaming: false,
-        hasHydrated: true,
-        thinkingSteps: [],
-        respondToPrompt: mockRespondToPrompt,
-        dismissErrorCard: mockDismissErrorCard,
-        setComposerPrefill: mockSetComposerPrefill,
-        getThinkingStepsForMessage: mockGetThinkingStepsForMessage,
+    vi.mocked(useChatStore).mockImplementation(
+      (selector?: StoreSelector<ChatStoreWithHydration>) => {
+        const state: ChatStoreFixture = {
+          currentConversation: { id: 's_conv_1', messages },
+          isLoading: false,
+          isStreaming: false,
+          hasHydrated: true,
+          thinkingSteps: [],
+          respondToPrompt: mockRespondToPrompt,
+          dismissErrorCard: mockDismissErrorCard,
+          setComposerPrefill: mockSetComposerPrefill,
+          getThinkingStepsForMessage: mockGetThinkingStepsForMessage,
+        }
+        return selector ? selector(asStoreState<ChatStoreWithHydration>(state)) : state
       }
-      return selector ? selector(asStoreState<ChatStoreWithHydration>(state)) : state
-    })
+    )
   }
 
-  const userMessage = (
-    id: string,
-    authorUserId: string | null,
-    content = id,
-  ): MessageFixture => ({
+  const userMessage = (id: string, authorUserId: string | null, content = id): MessageFixture => ({
     id,
     role: 'user',
     messageType: 'user',
@@ -1082,7 +1346,7 @@ describe('ChatArea — shared thread', () => {
     }
   })
 
-  test('attributes each human message, and marks the reader\'s own as theirs', () => {
+  test("attributes each human message, and marks the reader's own as theirs", () => {
     setThread([userMessage('m1', ME, 'my question'), userMessage('m2', ANNA, "Anna's answer")])
 
     render(<ChatArea isAuthenticated canCollaborate />)
@@ -1131,7 +1395,7 @@ describe('ChatArea — shared thread', () => {
     expect(screen.getByRole('separator', { name: /new/i })).toBeInTheDocument()
   })
 
-  test('does not draw the separator when everything after the mark is the reader\'s own', () => {
+  test("does not draw the separator when everything after the mark is the reader's own", () => {
     // "New" above your own message would be telling you that you have not read
     // yourself.
     mockSharedThread = { ...mockSharedThread, unreadAfterMessageId: 'm1' }
@@ -1142,7 +1406,7 @@ describe('ChatArea — shared thread', () => {
     expect(screen.queryByTestId('unread-divider')).not.toBeInTheDocument()
   })
 
-  test("tells an observer whose question the agent is answering (spec CC-13)", () => {
+  test('tells an observer whose question the agent is answering (spec CC-13)', () => {
     mockSharedThread = { ...mockSharedThread, turnInFlight: { actorUserId: ANNA } }
     setThread([userMessage('m1', ANNA, 'question')])
 
@@ -1151,7 +1415,7 @@ describe('ChatArea — shared thread', () => {
     expect(screen.getByTestId('turn-in-flight')).toHaveTextContent(/Anna Berger/)
   })
 
-  test('words the banner differently when the turn is the reader\'s own', () => {
+  test("words the banner differently when the turn is the reader's own", () => {
     mockSharedThread = { ...mockSharedThread, turnInFlight: { actorUserId: ME } }
     setThread([userMessage('m1', ME, 'question')])
 
@@ -1206,20 +1470,22 @@ describe('ChatArea — the awaiting banner is reachable', () => {
   const ANNA = 'user_anna'
 
   const setThread = (messages: MessageFixture[]) => {
-    vi.mocked(useChatStore).mockImplementation((selector?: StoreSelector<ChatStoreWithHydration>) => {
-      const state: ChatStoreFixture = {
-        currentConversation: { id: 's_conv_1', messages },
-        isLoading: false,
-        isStreaming: false,
-        hasHydrated: true,
-        thinkingSteps: [],
-        respondToPrompt: mockRespondToPrompt,
-        dismissErrorCard: mockDismissErrorCard,
-        setComposerPrefill: mockSetComposerPrefill,
-        getThinkingStepsForMessage: mockGetThinkingStepsForMessage,
+    vi.mocked(useChatStore).mockImplementation(
+      (selector?: StoreSelector<ChatStoreWithHydration>) => {
+        const state: ChatStoreFixture = {
+          currentConversation: { id: 's_conv_1', messages },
+          isLoading: false,
+          isStreaming: false,
+          hasHydrated: true,
+          thinkingSteps: [],
+          respondToPrompt: mockRespondToPrompt,
+          dismissErrorCard: mockDismissErrorCard,
+          setComposerPrefill: mockSetComposerPrefill,
+          getThinkingStepsForMessage: mockGetThinkingStepsForMessage,
+        }
+        return selector ? selector(asStoreState<ChatStoreWithHydration>(state)) : state
       }
-      return selector ? selector(asStoreState<ChatStoreWithHydration>(state)) : state
-    })
+    )
   }
 
   /** Max asked Anna and nobody has answered yet — the state the banner is for. */
@@ -1270,9 +1536,7 @@ describe('ChatArea — the awaiting banner is reachable', () => {
     // MN-9.2. Without this on screen a thread is stuck whenever the person who
     // was asked goes on holiday, and ADR-0034's own mitigation for its worst
     // risk does not exist.
-    expect(
-      screen.getByRole('button', { name: 'Continue without Anna Berger' }),
-    ).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Continue without Anna Berger' })).toBeInTheDocument()
   })
 
   test('no banner when nothing is outstanding', () => {
@@ -1326,27 +1590,36 @@ describe('ChatArea — the hand-back offer', () => {
   const TOBIAS = 'user_tobias'
 
   const setThread = (messages: MessageFixture[]) => {
-    vi.mocked(useChatStore).mockImplementation((selector?: StoreSelector<ChatStoreWithHydration>) => {
-      const state: ChatStoreFixture = {
-        currentConversation: { id: 's_conv_1', messages },
-        isLoading: false,
-        isStreaming: false,
-        hasHydrated: true,
-        thinkingSteps: [],
-        respondToPrompt: mockRespondToPrompt,
-        dismissErrorCard: mockDismissErrorCard,
-        setComposerPrefill: mockSetComposerPrefill,
-        getThinkingStepsForMessage: mockGetThinkingStepsForMessage,
+    vi.mocked(useChatStore).mockImplementation(
+      (selector?: StoreSelector<ChatStoreWithHydration>) => {
+        const state: ChatStoreFixture = {
+          currentConversation: { id: 's_conv_1', messages },
+          isLoading: false,
+          isStreaming: false,
+          hasHydrated: true,
+          thinkingSteps: [],
+          respondToPrompt: mockRespondToPrompt,
+          dismissErrorCard: mockDismissErrorCard,
+          setComposerPrefill: mockSetComposerPrefill,
+          getThinkingStepsForMessage: mockGetThinkingStepsForMessage,
+        }
+        return selector ? selector(asStoreState<ChatStoreWithHydration>(state)) : state
       }
-      return selector ? selector(asStoreState<ChatStoreWithHydration>(state)) : state
-    })
+    )
   }
 
   const userMessage = (
     id: string,
     authorUserId: string | null,
-    extra: MessageFixture = {},
-  ): MessageFixture => ({ id, role: 'user', messageType: 'user', content: id, authorUserId, ...extra })
+    extra: MessageFixture = {}
+  ): MessageFixture => ({
+    id,
+    role: 'user',
+    messageType: 'user',
+    content: id,
+    authorUserId,
+    ...extra,
+  })
 
   /** The hand-off itself: the server addressed people and NOT the agent (MN-1). */
   const asks = (users: string[]): MessageFixture => ({ addressees: { agent: false, users } })
@@ -1383,7 +1656,7 @@ describe('ChatArea — the hand-back offer', () => {
     render(<ChatArea isAuthenticated canCollaborate />)
 
     expect(screen.getByTestId('handback-offer')).toHaveTextContent(
-      'Anna Berger replied — let Piloti carry on?',
+      'Anna Berger replied — let Piloti carry on?'
     )
   })
 
@@ -1397,7 +1670,7 @@ describe('ChatArea — the hand-back offer', () => {
     render(<ChatArea isAuthenticated canCollaborate />)
 
     expect(screen.getByTestId('handback-offer')).toHaveTextContent(
-      'Anna Berger, Tobias Kern replied — let Piloti carry on?',
+      'Anna Berger, Tobias Kern replied — let Piloti carry on?'
     )
   })
 
@@ -1508,20 +1781,22 @@ describe('ChatArea — the hand-back offer', () => {
  */
 describe('ChatArea — the engagement notice is reachable', () => {
   const setThread = (messages: MessageFixture[]) => {
-    vi.mocked(useChatStore).mockImplementation((selector?: StoreSelector<ChatStoreWithHydration>) => {
-      const state: ChatStoreFixture = {
-        currentConversation: { id: 's_conv_1', messages },
-        isLoading: false,
-        isStreaming: false,
-        hasHydrated: true,
-        thinkingSteps: [],
-        respondToPrompt: mockRespondToPrompt,
-        dismissErrorCard: mockDismissErrorCard,
-        setComposerPrefill: mockSetComposerPrefill,
-        getThinkingStepsForMessage: mockGetThinkingStepsForMessage,
+    vi.mocked(useChatStore).mockImplementation(
+      (selector?: StoreSelector<ChatStoreWithHydration>) => {
+        const state: ChatStoreFixture = {
+          currentConversation: { id: 's_conv_1', messages },
+          isLoading: false,
+          isStreaming: false,
+          hasHydrated: true,
+          thinkingSteps: [],
+          respondToPrompt: mockRespondToPrompt,
+          dismissErrorCard: mockDismissErrorCard,
+          setComposerPrefill: mockSetComposerPrefill,
+          getThinkingStepsForMessage: mockGetThinkingStepsForMessage,
+        }
+        return selector ? selector(asStoreState<ChatStoreWithHydration>(state)) : state
       }
-      return selector ? selector(asStoreState<ChatStoreWithHydration>(state)) : state
-    })
+    )
   }
 
   const thread = (): MessageFixture[] => [
@@ -1539,7 +1814,7 @@ describe('ChatArea — the engagement notice is reachable', () => {
     render(<ChatArea isAuthenticated canCollaborate />)
 
     expect(screen.getByTestId('engagement-notice')).toHaveTextContent(
-      'Piloti answers when mentioned',
+      'Piloti answers when mentioned'
     )
   })
 
@@ -1567,7 +1842,7 @@ describe('ChatArea — the engagement notice is reachable', () => {
     render(<ChatArea isAuthenticated canCollaborate />)
 
     expect(screen.getByTestId('engagement-notice')).toHaveTextContent(
-      'Should Piloti wait to be mentioned?',
+      'Should Piloti wait to be mentioned?'
     )
   })
 
@@ -1593,7 +1868,7 @@ describe('ChatArea — the engagement notice is reachable', () => {
 
     expect(screen.getByTestId('engagement-notice')).toBeInTheDocument()
     expect(
-      screen.queryByRole('button', { name: 'Let Piloti answer everything' }),
+      screen.queryByRole('button', { name: 'Let Piloti answer everything' })
     ).not.toBeInTheDocument()
   })
 })
@@ -1611,20 +1886,22 @@ describe('ChatArea — the spectated stream feeds the turn banner', () => {
   const ANNA = 'user_anna'
 
   const setThread = (messages: MessageFixture[]) => {
-    vi.mocked(useChatStore).mockImplementation((selector?: StoreSelector<ChatStoreWithHydration>) => {
-      const state: ChatStoreFixture = {
-        currentConversation: { id: 's_conv_1', messages },
-        isLoading: false,
-        isStreaming: false,
-        hasHydrated: true,
-        thinkingSteps: [],
-        respondToPrompt: mockRespondToPrompt,
-        dismissErrorCard: mockDismissErrorCard,
-        setComposerPrefill: mockSetComposerPrefill,
-        getThinkingStepsForMessage: mockGetThinkingStepsForMessage,
+    vi.mocked(useChatStore).mockImplementation(
+      (selector?: StoreSelector<ChatStoreWithHydration>) => {
+        const state: ChatStoreFixture = {
+          currentConversation: { id: 's_conv_1', messages },
+          isLoading: false,
+          isStreaming: false,
+          hasHydrated: true,
+          thinkingSteps: [],
+          respondToPrompt: mockRespondToPrompt,
+          dismissErrorCard: mockDismissErrorCard,
+          setComposerPrefill: mockSetComposerPrefill,
+          getThinkingStepsForMessage: mockGetThinkingStepsForMessage,
+        }
+        return selector ? selector(asStoreState<ChatStoreWithHydration>(state)) : state
       }
-      return selector ? selector(asStoreState<ChatStoreWithHydration>(state)) : state
-    })
+    )
   }
 
   // Anna asked and the agent is answering HER: the reader is an observer, which is

@@ -14,7 +14,7 @@ questions (the model may search first, and may offer pickable options), then —
 when planning is on — draft a research plan and hand it back WITHOUT asking.
 The plan is not a question the reader owes an answer to: it becomes a row of
 the BFF's plan primitive, shown on the run block, where the reader may change,
-hold or start it while the run waits on it (ADR-0065). The dialog is a loop rather than a
+hold or start it while the run waits on it (ADR-0068). The dialog is a loop rather than a
 LangGraph because that is all it ever was: no checkpoint, no persistence, no
 node name that reaches a reader. What the reader DOES see is one trace row, and
 :data:`TRACE_STEP_NAME` still emits it under the name the frontend already maps.
@@ -78,6 +78,7 @@ from aiq_agent.common import is_verbose
 from aiq_agent.common import load_prompt
 from aiq_agent.common import render_prompt_template
 from aiq_agent.common import strict_json_response_format
+from aiq_agent.common.agent_tools import load_agent_tools
 from aiq_agent.common.plan_documents import PlanDocument
 from aiq_agent.common.plan_documents import PlanDocuments
 from aiq_agent.common.plan_documents import documents_from_plan
@@ -91,7 +92,6 @@ from aiq_agent.common.turn_status import push_custom_step
 from aiq_agent.project_context import get_organization_id_from_context
 from nat.builder.builder import Builder
 from nat.builder.context import Context
-from nat.builder.framework_enum import LLMFrameworkEnum
 from nat.data_models.component_ref import FunctionGroupRef
 from nat.data_models.component_ref import FunctionRef
 from nat.data_models.component_ref import LLMRef
@@ -188,7 +188,7 @@ class ClarifierSettings(BaseModel):
     plan_approval: Literal["off", "auto", "ask"] = Field(
         default="off",
         description=(
-            "Whether a research plan is drafted after clarification, and how it starts (ADR-0065): "
+            "Whether a research plan is drafted after clarification, and how it starts (ADR-0068): "
             "off = no plan; auto = shown on the run block and started after plan_grace_seconds unless "
             "the reader holds or edits it; ask = held until the reader presses Starten."
         ),
@@ -203,7 +203,7 @@ class ClarifierSettings(BaseModel):
     @model_validator(mode="before")
     @classmethod
     def _legacy_approval_flag(cls, data: Any) -> Any:
-        """``enable_plan_approval: true`` from a deployment YAML predating ADR-0065 means ``auto``."""
+        """``enable_plan_approval: true`` from a deployment YAML predating ADR-0068 means ``auto``."""
         if isinstance(data, dict) and "enable_plan_approval" in data:
             data = dict(data)
             legacy = data.pop("enable_plan_approval")
@@ -572,14 +572,7 @@ async def ask_through_nat(question: str, options: Sequence[str] = ()) -> str:
 
 async def resolve_tools(settings: ClarifierSettings, builder: Builder) -> list[BaseTool]:
     """The tool set the step boots with: the configured refs, else the whole registry."""
-    tools = await builder.get_tools(
-        tool_names=settings.tools or get_all_tool_refs(),
-        wrapper_type=LLMFrameworkEnum.LANGCHAIN,
-    )
-    if not settings.exclude_tools:
-        return list(tools)
-    excluded = set(settings.exclude_tools)
-    return [t for t in tools if getattr(t, "name", "") not in excluded]
+    return await load_agent_tools(builder, settings.tools or get_all_tool_refs(), settings.exclude_tools)
 
 
 def _clarifier_llm(llm: BaseChatModel, tools: Sequence[BaseTool]) -> Any:

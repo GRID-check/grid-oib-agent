@@ -1,6 +1,6 @@
 """The worker's one question to the plan primitive: may this run start, and with which plan?
 
-A deep research commissioned with a plan waits on it (ADR-0065). The plan is
+A deep research commissioned with a plan waits on it (ADR-0068). The plan is
 a row of the BFF — the single writer of the workspace (ADR-0003) — and the
 reader edits, holds or starts it on the run block while the worker waits. So
 the worker does not read the plan from its job payload: it asks the BFF at

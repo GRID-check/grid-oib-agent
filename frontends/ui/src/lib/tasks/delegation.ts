@@ -105,8 +105,7 @@ interface TaskEngine {
 
 const TASK_ENGINES: Record<DelegatableTaskKind, TaskEngine> = {
   /**
-   * A norm check run by the general agent (the purpose-built
-   * `agents/compliance_checker/` tool is retired and no longer bound).
+   * A norm check run by the general agent.
    * No skill: the run works from the regulation corpus and project files
    * with the retrieval tools it already binds.
    */
@@ -428,7 +427,7 @@ export interface CommissionResearchInput {
   /** The Unterlagen the reader named on the plan card. */
   documents?: PlanDocuments | null
   /**
-   * The research plan this run waits on (ADR-0065), frozen onto the row so
+   * The research plan this run waits on (ADR-0068), frozen onto the row so
    * the task card can say what the run is about. The worker reads the live
    * plan by id when it may start; this copy is for the list.
    */
@@ -596,9 +595,10 @@ interface DispatchTarget {
  * Never throws, for the reason above: the failure has to survive as a row.
  */
 async function submitQueuedRun(run: TaskRun, target: DispatchTarget): Promise<TaskRun> {
+  let submitted: Awaited<ReturnType<typeof submitAgentRun>>
   try {
     const conversation = await target.thread()
-    const { backendJobId, conversationId, runMessageId } = await submitAgentRun({
+    submitted = await submitAgentRun({
       organizationId: run.organizationId,
       projectId: run.projectId,
       userId: run.requesterUserId,
@@ -616,15 +616,6 @@ async function submitQueuedRun(run: TaskRun, target: DispatchTarget): Promise<Ta
       documents: run.plan.documents ?? null,
       planId: run.plan.research?.planId ?? null,
     })
-    return (
-      (await repository.updateRun(run.id, run.organizationId, {
-        status: 'running',
-        backendJobId,
-        conversationId,
-        runMessageId,
-        startedAt: new Date(),
-      })) ?? run
-    )
   } catch (error) {
     const detail =
       error instanceof JobSubmitSkippedError || error instanceof JobSubmitError
@@ -633,13 +624,30 @@ async function submitQueuedRun(run: TaskRun, target: DispatchTarget): Promise<Ta
           ? error.message
           : 'Unexpected error while preparing the run'
     console.error('[runs] could not submit run', run.id, error)
-    return (
-      (await repository.updateRun(run.id, run.organizationId, {
-        status: 'failed',
-        error: detail.slice(0, 2000),
-        finishedAt: new Date(),
-      })) ?? run
-    )
+    return recordRun(run, { status: 'failed', error: detail.slice(0, 2000), finishedAt: new Date() })
+  }
+  // From here the job exists on the backend. A failure to record that is not
+  // a failed run (#723): marking it `failed` told the reader the work had not
+  // happened while it ran on, and during a database outage the `failed` write
+  // threw as well. The worker's run ledger addresses the run by its id, so the
+  // row catches up when the database is back.
+  const { backendJobId, conversationId, runMessageId } = submitted
+  return recordRun(run, { status: 'running', backendJobId, conversationId, runMessageId, startedAt: new Date() })
+}
+
+/**
+ * Store what happened to a run, and return the row as it now is.
+ *
+ * Never throws: when the write fails, the run as this process knows it is
+ * returned with the patch applied, and the failure is logged with the run's
+ * id beside what could not be written.
+ */
+async function recordRun(run: TaskRun, patch: Partial<TaskRun>): Promise<TaskRun> {
+  try {
+    return (await repository.updateRun(run.id, run.organizationId, patch)) ?? run
+  } catch (error) {
+    console.error('[runs] could not record run', run.id, patch.status, patch.backendJobId ?? '', error)
+    return { ...run, ...patch }
   }
 }
 

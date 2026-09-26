@@ -1,7 +1,8 @@
 ---
 name: gebaeudeklasse
 description: >
-  Die Gebäudeklasse, an der jede spätere OIB-Zahl hängt.
+  Die OIB-Gebäudeklasse (GK 1 bis 5), an der jede spätere OIB-Zahl hängt.
+  Nicht die Bauklasse der Bauordnung.
 metadata:
   grid-agents: researcher,deep_researcher
   grid-cards: condition_tree,building_section,legal_basis

@@ -549,6 +549,16 @@ def get_document_doc_class(collection: str, filename: str) -> str | None:
     return _get_document_metadata_store().get_doc_class(collection, filename)
 
 
+def set_document_doc_class_suggestion(collection: str, filename: str, doc_class: str | None) -> bool:
+    """Store or clear the decided Dokumentart suggestion (ADR-0064, use 8). UPDATE-only."""
+    return _get_document_metadata_store().set_doc_class_suggestion(collection, filename, doc_class)
+
+
+def get_document_doc_class_suggestions(collection: str, filenames: list[str]) -> dict[str, str]:
+    """Stored Dokumentart suggestions for many documents in one query."""
+    return _get_document_metadata_store().get_doc_class_suggestions_batch(collection, filenames)
+
+
 def get_document_doc_classes(collection: str, filenames: list[str]) -> dict[str, str]:
     """Return stored ``doc_class`` values for many documents in one query.
 
@@ -815,3 +825,45 @@ def get_knowledge_layer_config() -> dict[str, Any]:
             "available_backends": list(_INGESTOR_REGISTRY.keys()),
         },
     }
+
+
+# The retriever the knowledge search tool was built with. It can differ from
+# the active retriever (another config identity, another instance, another
+# embedding LRU), and a warm-up is only worth anything in the cache the search
+# will read. Set by the knowledge tool at build time; with two knowledge tools
+# of different config the last built wins, which wastes a warm-up on the other
+# one's turns but can serve nothing wrong: the embedding cache is keyed by model.
+# The tool clears it at teardown (``clear_search_retriever``), so a torn-down
+# tool's retriever is neither kept alive nor warmed.
+_SEARCH_RETRIEVER: BaseRetriever | None = None
+
+
+def set_search_retriever(retriever: BaseRetriever | None) -> None:
+    """Record the retriever the knowledge search tool reads through."""
+    global _SEARCH_RETRIEVER
+    _SEARCH_RETRIEVER = retriever
+
+
+def clear_search_retriever(retriever: BaseRetriever) -> None:
+    """Forget ``retriever`` as the search retriever, if it still is; a later tool's stays."""
+    global _SEARCH_RETRIEVER
+    if _SEARCH_RETRIEVER is retriever:
+        _SEARCH_RETRIEVER = None
+
+
+async def warm_search_query(query: str) -> None:
+    """Warm the knowledge search's caches for ``query`` as the tool will send it; never raises.
+
+    The tool searches the query after ``augmented_query`` (the cross-lingual
+    bridge), so that is the string warmed. No search retriever, no warm-up.
+    The glossary-miss line is left to the search, which logs it once.
+    """
+    retriever = _SEARCH_RETRIEVER
+    if retriever is None or not query:
+        return
+    try:
+        from aiq_agent.common.query_expansion import augmented_query
+
+        await retriever.warm_query(augmented_query(query, log_miss=False))
+    except Exception:  # noqa: BLE001 - a warm-up is worth less than the turn
+        logger.debug("Search warm-up failed", exc_info=True)

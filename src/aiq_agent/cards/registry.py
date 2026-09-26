@@ -1,11 +1,13 @@
-"""Session-scoped registry for cards emitted by the ``emit_card`` tool.
+"""Session-scoped registry for the cards a turn produces.
 
-Cards are a first-class agent output: the answering agent calls ``emit_card``
-mid-turn when a structured element adds value, and the tool pushes the
-validated card into the conversation-scoped registry bound here. The chat
-entrypoint reads the registry after the turn and attaches the cards to the
-response — the same ContextVar pattern the citation registry uses
-(:mod:`aiq_agent.common.citation_verification`).
+Cards are a first-class agent output, and every path that makes one lands
+here: on chat, the answer envelope's ``cards`` field
+(``cards/envelope.py``, registered after the answer; Piloti no longer binds
+``emit_card``); in deep research, the ``emit_card`` tool; and a system card
+(``document_draft``, ``document_grid``) is pushed by the tool that did the
+work. The chat entrypoint reads the registry after the turn and attaches the
+cards to the response — the same ContextVar pattern the citation registry
+uses (:mod:`aiq_agent.common.citation_verification`).
 """
 
 from __future__ import annotations
@@ -29,12 +31,17 @@ class CardRegistry:
     def __len__(self) -> int:
         """How many cards this turn has emitted so far.
 
-        This is what makes a card addressable from the prose: ``emit_card``
-        hands the model back ``[[card:N]]`` where N is this count after the
-        add, and the frontend resolves N against the same ordered array. A
-        count read off ``snapshot()`` would copy the whole list to do it.
+        This is what makes a card addressable from the prose: a tool that
+        pushes a card hands the model back ``[[card:N]]`` where N is this
+        count after the add, and the frontend resolves N against the same
+        ordered array. A count read off ``snapshot()`` would copy the whole
+        list to do it.
         """
         return len(self._cards)
+
+    def replace(self, index: int, card: dict[str, Any]) -> None:
+        """Swap the card at ``index`` (0-based) for a rewritten copy; its position, and so its marker, stays."""
+        self._cards[index] = card
 
     def snapshot(self) -> list[dict[str, Any]]:
         """Return a shallow copy of the accumulated cards."""

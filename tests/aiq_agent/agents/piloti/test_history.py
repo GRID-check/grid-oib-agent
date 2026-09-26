@@ -226,15 +226,3 @@ class TestCompactToolResults:
 
         messages = [ToolMessage(content="No relevant documents found for query: 'x'", tool_call_id="c1")]
         assert compact_tool_results(messages, {"k1"})[0].content == messages[0].content
-
-
-def test_prose_history_carries_no_call_without_its_result():
-    """The repair rewrite gets the thread without tool results, so it must not
-    get their calls either: a provider refuses a call with no result."""
-    from aiq_agent.agents.piloti.history import prose_history
-
-    turn = _turn("Q1", "P1", "A1", thought="Ich prüfe.")
-    kept = prose_history([*turn, *_turn("Q2", "P2", "A2")])
-    assert [type(m).__name__ for m in kept] == ["HumanMessage", "AIMessage", "AIMessage", "HumanMessage", "AIMessage"]
-    assert all(not getattr(m, "tool_calls", None) for m in kept)
-    assert kept[1].content == "Ich prüfe."

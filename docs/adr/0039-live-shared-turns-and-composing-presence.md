@@ -109,6 +109,8 @@ existing convergent paths, never as a new source of truth.**
   the presence events ride the channel ADR-0035 already built.
 - The observer's view reuses `ChatThinking` and `MarkdownRenderer`, so the live
   Herleitung cannot drift from the asker's.
+  > *Amended 2026-09-25 (ADR-0066):* the answer now renders through the asker's
+  > `AgentResponse` (`SpectatedTurn.tsx`), not a bare `MarkdownRenderer`.
 
 ### Negative
 
@@ -175,6 +177,11 @@ existing convergent paths, never as a new source of truth.**
   the persisted message brings them a moment later. If a card ever needs to be
   visible mid-turn, it needs its own decision — an interactive card rendered to a
   non-asker is a second person able to press "apply" (ADR-0030).
+  *Resolved (ADR-0066), 2026-09-25:* the observer renders the cards, masthead
+  and verified sources the live frames carry, through the asker's
+  `AgentResponse`, with no `messageId` and no `projectId`. An observer gets no
+  feedback row and no persisted card decision, and cannot press apply: the
+  patch card disables it without a project.
 - **Roster-sized fan-out.** Presence publishes N times for N participants, matching
   ADR-0035's deliberate choice. Fine at present roster sizes; the same revisit
   applies to both.
@@ -186,4 +193,4 @@ existing convergent paths, never as a new source of truth.**
 - `frontends/ui/src/features/collaboration/lib/spectator-frames.ts` — frames → view.
 - `frontends/ui/src/lib/conversations/presence.ts` — composing presence.
 - [`docs/api/collaboration-routes.md`](../api/collaboration-routes.md) — both routes.
-- Visual evidence: capture `/dev/shared-thread-live` (the committed PNG this ADR cited was deleted with the screenshot harness).
+- Visual evidence: capture `/dev/shared-thread?variant=live` (the committed PNG this ADR cited was deleted with the screenshot harness).

@@ -2,7 +2,7 @@
  * @vitest-environment node
  */
 /**
- * The plan primitive's rules, each pinned once (ADR-0065): how a plan is
+ * The plan primitive's rules, each pinned once (ADR-0068): how a plan is
  * born under each start policy, that a touch while the clock runs holds it,
  * that the worker's claim starts exactly the due ones, and that nothing edits
  * a started plan.

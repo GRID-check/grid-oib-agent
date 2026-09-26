@@ -199,6 +199,21 @@ class TestHtmlToText:
         assert "Startseite" not in text
         assert "Impressum" not in text
 
+    def test_drops_the_screen_reader_twin_of_every_marker(self):
+        # RIS's own markup, 2026-09-24: the visible marker is aria-hidden and a
+        # spoken twin sits beside it. Kept, the twins were a third of the
+        # Bauordnung für Wien and cut § 63 off at lit. e.
+        html = (
+            "<div id='content'><span aria-hidden='true'>a)</span><span class='sr-only'>Litera a</span>"
+            "<div>Baupläne (<span aria-hidden='true'>§ 118 Abs. 1 Z 16</span>"
+            "<span class='sr-only'>Paragraph 118, Absatz eins, Ziffer 16,</span>)</div></div>"
+        )
+
+        _, text = html_to_text(html)
+
+        assert "a)" in text and "§ 118 Abs. 1 Z 16" in text
+        assert "Litera" not in text and "Paragraph 118" not in text
+
     def test_keeps_the_whole_document_when_there_is_no_container(self):
         # A ``/Dokumente/…`` page, an XML payload, or a future RIS template may
         # carry no ``#content``. Absence is not an error — the whole document is
@@ -456,3 +471,38 @@ class TestRisClientFetch:
     async def test_json_fixture_is_serializable(self):
         # Guard against fixtures drifting into non-JSON shapes.
         assert json.loads(json.dumps(BR_KONS_RESPONSE))
+
+
+def test_a_hit_on_the_ogd_host_is_read_on_the_public_one():
+    # OGD-RIS began stating ogd.ris.bka.gv.at (2026-09): a 301 to the public
+    # host, on no allow-list, and written into the catalog by its builder.
+    from ris_adapter.client import _parse_hit
+
+    hit = _parse_hit(
+        {
+            "Data": {
+                "Metadaten": {
+                    "Allgemein": {"DokumentUrl": "https://ogd.ris.bka.gv.at/eli/lgbl/SA/1997/40/P0/LSB40029372"},
+                    "Landesrecht": {
+                        "GesamteRechtsvorschriftUrl": "https://ogd.ris.bka.gv.at/GeltendeFassung.wxe?Abfrage=LrSbg&Gesetzesnummer=10001005"
+                    },
+                }
+            }
+        }
+    )
+    assert hit.citation_url == "https://www.ris.bka.gv.at/eli/lgbl/SA/1997/40/P0/LSB40029372"
+    assert hit.full_law_url.startswith("https://www.ris.bka.gv.at/GeltendeFassung.wxe?")
+
+
+async def test_a_url_on_the_ogd_host_is_fetched_from_the_public_one():
+    # Search text cached before the rewrite still carries ogd URLs for days.
+    seen = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(str(request.url))
+        return httpx.Response(200, headers={"content-type": "text/html"}, text="<p>§ 1 Geltungsbereich</p>")
+
+    client = RisClient(transport=_transport(handler))
+    await client.fetch_document_text("https://ogd.ris.bka.gv.at/Dokumente/x/y.html")
+
+    assert seen == ["https://www.ris.bka.gv.at/Dokumente/x/y.html"]

@@ -1,5 +1,5 @@
 /**
- * The research-plan preview as it used to be a prompt (before ADR-0065).
+ * The research-plan preview as it used to be a prompt (before ADR-0068).
  *
  * Threads written before the plan became a row of its own still carry these
  * messages: an English envelope sentence and a fenced JSON copy of the plan.

@@ -46,3 +46,30 @@ class TestContentToText:
 
     def test_non_str_non_list_stringified(self):
         assert content_to_text(123) == "123"
+
+
+class TestResponseText:
+    """#653: the text of a model reply, whether its content is a string or a list of blocks."""
+
+    BLOCKS = [
+        {"type": "reasoning", "summary": []},
+        {"type": "text", "text": '{"items": ['},
+        {"type": "text", "text": '"a"]}'},
+    ]
+
+    def test_a_block_list_yields_the_text_blocks_joined(self):
+        from langchain_core.messages import AIMessage
+
+        from aiq_agent.common.message_utils import response_text
+
+        assert response_text(AIMessage(content=self.BLOCKS)) == '{"items": ["a"]}'
+
+    def test_every_shape_a_caller_meets(self):
+        from langchain_core.messages import AIMessage
+
+        from aiq_agent.common.message_utils import response_text
+
+        assert response_text(AIMessage(content="plain")) == "plain"
+        assert response_text({"content": "from a dict"}) == "from a dict"
+        assert response_text("already text") == "already text"
+        assert response_text(None) == ""
