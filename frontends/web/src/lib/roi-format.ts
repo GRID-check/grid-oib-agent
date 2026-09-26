@@ -52,7 +52,7 @@ export interface RoiText {
   hourly: string
   perSeat: string
   licencePerSeat: string
-  /** `12 × 120 €` — how the licence row is made up. */
+  /** `12 × 150 €` — how the licence row is made up. */
   licenceWorking: string
   netPerSeat: string
   seatsTimes: string

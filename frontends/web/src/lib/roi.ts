@@ -56,7 +56,7 @@ export interface RoiInputs {
 export const ROI_RANGES: Record<keyof RoiInputs, { min: number; max: number; step: number }> = {
   seats: { min: 1, max: 60, step: 1 },
   salary: { min: 40_000, max: 90_000, step: 2_500 },
-  price: { min: 40, max: 250, step: 5 },
+  price: { min: 100, max: 200, step: 10 },
 }
 
 export interface RoiResult {
@@ -93,7 +93,7 @@ export interface RoiResult {
 export const ROI_DEFAULTS: RoiInputs = {
   seats: 10,
   salary: 50_000,
-  price: 120,
+  price: 150,
 }
 
 /**
