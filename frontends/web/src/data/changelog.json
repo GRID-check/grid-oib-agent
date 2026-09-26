@@ -128,6 +128,14 @@
               "de": "Vorschaubilder in der Dateiablage werden auch in einem Tab geladen, der seit Tagen geöffnet ist, statt nach einiger Zeit als „nicht verfügbar“ zu erscheinen."
             },
             {
+              "en": "Wer viele lange Unterhaltungen führt, verliert seinen Chatverlauf im Browser nicht mehr. Wurde der Speicher des Browsers voll, löschte Piloti bisher alle gespeicherten Unterhaltungen auf einmal. Jetzt macht nur der Inhalt der ältesten Unterhaltungen Platz; die Liste, die Titel und angefangene Entwürfe bleiben, und eine solche Unterhaltung lädt ihren Inhalt beim Öffnen vom Server nach.",
+              "de": "Wenn Sie viele lange Unterhaltungen führen, geht Ihr Chatverlauf im Browser nicht mehr verloren. Bisher löscht Piloti alle gespeicherten Unterhaltungen auf einmal, wenn der Browserspeicher voll ist. Jetzt wird nur noch der Inhalt der ältesten Unterhaltungen entfernt. Die Liste, die Titel und angefangenen Entwürfe bleiben erhalten. Beim Öffnen lädt die jeweilige Unterhaltung ihren Inhalt vom Server nach."
+            },
+            {
+              "en": "Senden, das Eintreffen einer Antwort und der Wechsel zwischen Unterhaltungen halten das Telefon nicht mehr spürbar an: Piloti speichert dabei nur noch die eine Unterhaltung, die sich geändert hat, statt jedes Mal den ganzen Verlauf.",
+              "de": "Das Senden von Nachrichten, der Eingang einer Antwort und der Wechsel zwischen Unterhaltungen verlangsamen Ihr Telefon nicht mehr merklich: Piloti speichert nur noch die jeweils geänderte Unterhaltung statt jedes Mal den gesamten Verlauf."
+            },
+            {
               "en": "Die Kopfzeile der Herleitung zählt keine Schritte mehr. Die Zahl dort („19 Schritte“) zählte interne Statusmeldungen mit und las sich, als hätte Piloti für eine Antwort 19 Anläufe gebraucht. Die Zeile nennt jetzt nur noch die Quellen; was gelaufen ist, steht aufgeklappt in der Herleitung.",
               "de": "Die Kopfzeile der Herleitung zählt keine Schritte mehr. Die dort angezeigte Zahl („19 Schritte“) berücksichtigte interne Statusmeldungen und erweckte den Eindruck, Piloti hätte 19 Anläufe für eine Antwort benötigt. Die Zeile nennt jetzt nur noch die Quellen; die ausgeführten Schritte sehen Sie aufgeklappt in der Herleitung."
             },

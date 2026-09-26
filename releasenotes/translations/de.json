@@ -1708,6 +1708,10 @@
     "de": "Bei der Dateisuche bleibt Ihre gewählte Ansicht erhalten. Wenn Sie in der Detailansicht die Eingabetaste drückten, wechselte die Anzeige zurück zur Kartenansicht – ebenso beim Löschen der Suchanfrage. Die Ergebnisse erscheinen nun in der gerade ausgewählten Ansicht, und die Liste behält ihre Rangfolge bei: Relevanz ist eine sortierbare Spalte, und jede Zeile zeigt die passende Textstelle und die Seite."
   },
   {
+    "en": "Senden, das Eintreffen einer Antwort und der Wechsel zwischen Unterhaltungen halten das Telefon nicht mehr spürbar an: Piloti speichert dabei nur noch die eine Unterhaltung, die sich geändert hat, statt jedes Mal den ganzen Verlauf.",
+    "de": "Das Senden von Nachrichten, der Eingang einer Antwort und der Wechsel zwischen Unterhaltungen verlangsamen Ihr Telefon nicht mehr merklich: Piloti speichert nur noch die jeweils geänderte Unterhaltung statt jedes Mal den gesamten Verlauf."
+  },
+  {
     "en": "Sending a document for review now asks for a reviewer and a one-sentence order before it can go out, and approving takes an explicit confirmation that names the version and the date.",
     "de": "Beim Senden eines Dokuments zur Prüfung müssen Sie jetzt vor dem Versand eine prüfende Person und eine kurze Anweisung in einem Satz angeben; für die Freigabe ist eine ausdrückliche Bestätigung erforderlich, die Version und Datum nennt."
   },
@@ -2142,6 +2146,10 @@
   {
     "en": "Wer mit einer chinesischen, japanischen oder koreanischen Eingabemethode schreibt, kann Zeichen mit der Eingabetaste bestätigen, ohne dass die Nachricht vorzeitig abgeschickt wird.",
     "de": "Wenn Sie mit einer chinesischen, japanischen oder koreanischen Eingabemethode schreiben, können Sie Zeichen mit der Eingabetaste bestätigen, ohne die Nachricht vorzeitig abzuschicken."
+  },
+  {
+    "en": "Wer viele lange Unterhaltungen führt, verliert seinen Chatverlauf im Browser nicht mehr. Wurde der Speicher des Browsers voll, löschte Piloti bisher alle gespeicherten Unterhaltungen auf einmal. Jetzt macht nur der Inhalt der ältesten Unterhaltungen Platz; die Liste, die Titel und angefangene Entwürfe bleiben, und eine solche Unterhaltung lädt ihren Inhalt beim Öffnen vom Server nach.",
+    "de": "Wenn Sie viele lange Unterhaltungen führen, geht Ihr Chatverlauf im Browser nicht mehr verloren. Bisher löscht Piloti alle gespeicherten Unterhaltungen auf einmal, wenn der Browserspeicher voll ist. Jetzt wird nur noch der Inhalt der ältesten Unterhaltungen entfernt. Die Liste, die Titel und angefangenen Entwürfe bleiben erhalten. Beim Öffnen lädt die jeweilige Unterhaltung ihren Inhalt vom Server nach."
   },
   {
     "en": "Werden mehrere Rechtsquellen sehr schnell hintereinander geöffnet, sagt das Fenster jetzt, dass kurz gewartet werden muss — statt zu melden, die Quelle lasse sich nicht anzeigen.",
