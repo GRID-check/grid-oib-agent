@@ -36,13 +36,16 @@ import {
 
 const a = args(process.argv.slice(2));
 const works = selectWorks(a.work);
-const listed = new Map(works.map((w) => [w.name, evaluateWork(w)]));
+const listed = new Map();
+for (const w of works) {
+  try { listed.set(w.name, evaluateWork(w)); } catch (e) { console.error(`art/riso/${w.name}/index.html: ${e.message}`); process.exit(1); }
+}
 
 function writeManifest() {
   // The manifest spans every work, not only the ones exported now.
   const all = selectWorks(undefined).map((w) => (listed.get(w.name) || evaluateWork(w)).jobs);
   const { manifest, missing } = manifestFrom(all);
-  if (missing.length) console.warn(`not exported yet, so left out of the manifest: ${missing.join(', ')}`);
+  if (missing.length) console.warn(`not exported yet, so left out of the manifest: ${missing.map((m) => m.file).join(', ')}`);
   const text = manifestText(manifest);
   const before = fs.existsSync(MANIFEST) ? fs.readFileSync(MANIFEST, 'utf8') : '';
   if (text !== before) { fs.mkdirSync(path.dirname(MANIFEST), { recursive: true }); fs.writeFileSync(MANIFEST, text); }

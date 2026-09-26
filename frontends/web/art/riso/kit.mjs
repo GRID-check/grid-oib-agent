@@ -137,7 +137,7 @@ export function manifestFrom(jobsByWork, version = (j) => fileVersion(destOf(j))
     const site = jobs.filter((j) => j.dest === 'site');
     const absent = new Set(site.filter((j) => !version(j)).map((j) => j.id));
     for (const j of site) {
-      if (absent.has(j.id)) { missing.push(j.file); continue; }
+      if (absent.has(j.id)) { missing.push({ id: j.id, file: j.file }); continue; }
       const e = art[j.id] || (art[j.id] = {
         work: j.work, plate: j.plate, format: j.format,
         numeral: j.number ? roman(j.number) : null,

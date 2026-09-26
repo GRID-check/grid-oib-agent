@@ -14,6 +14,7 @@
  *     edit): run node art/riso/export.mjs --manifest, or a full export
  *   - a manifest file is missing, has other pixel dimensions than declared, or
  *     is over 1 MB (the pre-commit hook's limit)
+ *   - alt text or a caption is missing in a locale, or still says TODO
  *   - a file in public/art/ is in no manifest entry (an orphan)
  *   - src/ names an art id that is not in the manifest, or a /art/ file path
  *     at all: pages reach art by id through src/lib/art.ts
@@ -42,7 +43,7 @@ for (const w of works) {
 
 // ── the manifest against the JOBS tables and the bytes on disk ──────────────
 const { manifest: expected, missing } = manifestFrom(jobsByWork);
-for (const f of missing) fail(`public/art/${f} is not exported: node art/riso/export.mjs --only <its id>`);
+for (const m of missing) fail(`public/art/${m.file} is not exported: node art/riso/export.mjs --only ${m.id}`);
 const committed = fs.existsSync(MANIFEST) ? fs.readFileSync(MANIFEST, 'utf8') : '';
 if (committed !== manifestText(expected)) {
   fail(`${rel(MANIFEST)} is stale against the JOBS tables or the files in public/art/: node art/riso/export.mjs --manifest`);
@@ -54,6 +55,7 @@ const listed = new Set();
 for (const [id, e] of Object.entries(manifest.art || {})) {
   for (const l of ['de', 'en']) if (!e.alt || !String(e.alt[l] || '').trim()) fail(`${id}: alt text missing in ${l}`);
   if (e.caption) for (const l of ['de', 'en']) if (!String(e.caption[l] || '').trim()) fail(`${id}: caption missing in ${l}`);
+  if (/TODO/.test(JSON.stringify([e.alt, e.caption]))) fail(`${id}: alt text or caption still says TODO`);
   for (const f of e.files || []) {
     if (!/\?v=[0-9a-f]{8}$/.test(f.src)) fail(`${id}: ${f.src} carries no ?v=<hash>; /art/ is cached for a week, so every URL must change with its bytes`);
     const file = path.join(WEB, 'public', srcPath(f.src));

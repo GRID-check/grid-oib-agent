@@ -213,3 +213,25 @@ function settingOut(c, P, x0, y0, x1, y1, o) {
   line(c, str, 0.8, { hunter: 0.9 });
   for (const [x, y] of back.slice(2)) stake(c, P, x, y, hs, o);
 }
+
+/* ── helpers for new works (tafeln inlines its own copies of these idioms) ── */
+
+/** A line weight in units that never prints thinner than ~1.25 device px, for small formats. */
+const weight = (units) => Math.max(units, 1.25 / K);
+
+/**
+ * Ground shadows as one union, clipped to `clip` (the board), printed as one
+ * screen: overlapping shadows must not add up. `shapes` are sheet paths
+ * (boxShadow, cylShadow ...); `spec` maps ink to tone, the series uses
+ * { hunter: 0.64 }.
+ */
+function groundShadow(c, clip, shapes, spec) {
+  const a = spec[c.ink];
+  if (!a) return;
+  const u = new Path2D();
+  for (const s of shapes) u.addPath(s);
+  const sh = c.scratch;
+  sh.save(); sh.setTransform(K, 0, 0, K, 0, 0); sh.clearRect(0, 0, W, H);
+  sh.fillStyle = '#000'; if (clip) sh.clip(clip); sh.fill(u, 'nonzero'); sh.restore();
+  c.g.save(); c.g.setTransform(1, 0, 0, 1, 0, 0); c.g.globalAlpha = a; c.g.drawImage(sh.canvas, 0, 0); c.g.restore();
+}
