@@ -22,23 +22,22 @@
    Piloti — Collateral (art/riso/collateral). See PRINT.md beside this file.
 
    Brand collateral for the three founders, off the website: the email
-   signature strip, LinkedIn banners, social squares, pitch-deck backgrounds
-   and an A6 thank-you postcard (front and back, with press separations).
+   signature strip, a social square, pitch-deck backgrounds and an A6
+   thank-you postcard (front and back, with press separations).
 
-   Only the pieces that need plate I's house in a new arrangement live here:
-   the strip, the company banner, the build-log square (the house not built
-   yet), the title slide and the postcard. Everything else reuses the Tafeln
-   plates in new compositions (JOBS in ../tafeln/index.html), so the kit is
-   not the same house eight times. A plate here is a SPEC (what stands on the
-   board, how it is framed); sceneDraw() draws any spec. The house and stair
-   are ported from tafeln/index.html (plates I, VIII): the same objects.
+   Plate I's house appears only on the strip and the build-log square
+   (sceneDraw, ported from tafeln/index.html so it is the same object). The
+   deck and the postcard are still lifes on plate VI's tipped drawing table
+   (tableView). The founders' LinkedIn banners and two social squares reuse
+   Tafeln plates (JOBS in ../tafeln/index.html); the company banner and the
+   deck title come from the Tragwerk series.
 
    Canvas 2D only: no libraries, fonts, images, text or network. Top-level code
    defines constants only; lib/ names (W, H, K, INK, line, own, fit ...) are
    shared, so none is redeclared here.
    ───────────────────────────────────────────────────────────────────────── */
 
-/* ── the world: plate I's house and plate VIII's stair, in world metres ───── */
+/* ── the world: plate I's house, in world metres ─────────────────────────── */
 
 const HOUSE_BOX = [0, 0, 4.0, 16, 9, 7.4];                 // x0 y0 z0 x1 y1 z1
 const HOUSE_COLS = [[2.6, 1.7], [2.6, 7.3], [13.0, 4.5]];  // two west, one east

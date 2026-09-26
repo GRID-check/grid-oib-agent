@@ -12,7 +12,7 @@ the machinery works.
 | Path | Holds |
 |---|---|
 | `tafeln/` | Plates I–VIII of the first series. Its `PRINT.md` states the series principle every work follows |
-| `collateral/` | The founders' kit off the site: email strip and signatures (`signatures/*.html`), LinkedIn, social, deck and postcard. Its `PRINT.md` maps every piece to its plate; most reuse Tafeln plates |
+| `collateral/` | The founders' kit off the site: email strip and signatures (`signatures/*.html`), a build-log square, deck slides and the thank-you postcard (still lifes on plate VI's tipped table). Its `PRINT.md` maps every piece, including the Tafeln plates reused for LinkedIn and social |
 | `lib/engine.js` | The print engine: screens, paper, starvation, the bake, the `window.__riso` contract, `Riso.run` |
 | `lib/piloti.js` | The series look: inks, paper, screen angles, registration, camera, sun, projection, props |
 | `lib/formats.js` | Every export slot by name, with pixel sizes, pitch, encoding and destination |
