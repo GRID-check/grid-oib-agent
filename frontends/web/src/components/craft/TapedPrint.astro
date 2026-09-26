@@ -86,7 +86,8 @@ if (print) {
   }
 }
 const alt = Astro.props.alt ?? (print && locale ? print.alt[locale] : '')
-const caption = Astro.props.caption ?? (print && locale ? print.caption?.[locale] : undefined)
+// A caption only where a page asks for one: the site prints no plate titles.
+const caption = Astro.props.caption
 const show = hasSlot || plate !== undefined
 ---
 
