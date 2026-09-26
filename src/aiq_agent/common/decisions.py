@@ -318,11 +318,17 @@ def _resolve_endpoint_blocking(organization_id: str | None) -> tuple[_Endpoint |
     return _Endpoint(url=url, api_key=api_key, model=model, byok=byok), None
 
 
-def _zdr_only_blocking() -> bool:
-    try:
-        from aiq_agent.common.model_overrides import get_zdr_only_from_context
+def _zdr_only_blocking(organization_id: str | None = None) -> bool:
+    """Whether the organization enforces ZDR routing.
 
-        return bool(get_zdr_only_from_context())
+    By the id the caller named, not the request context: ingestion runs in a
+    detached thread with no request, so a context read would say "no org"
+    and send a ZDR org's document text to the endpoint.
+    """
+    try:
+        from aiq_agent.common.model_overrides import resolve_org_zdr_only
+
+        return bool(resolve_org_zdr_only(organization_id))
     except Exception:  # noqa: BLE001 — an unknown policy is not a ZDR policy
         return False
 
@@ -332,10 +338,11 @@ async def _endpoint(organization_id: str | None) -> tuple[_Endpoint | None, str 
         return None, SKIPPED_DISABLED
     if _breaker_open():
         return None, SKIPPED_BREAKER
-    zdr = await asyncio.to_thread(_zdr_only_blocking)
+    organization_id = organization_id or _context_organization_id()
+    zdr = await asyncio.to_thread(_zdr_only_blocking, organization_id)
     if zdr:
         return None, SKIPPED_ZDR
-    return await asyncio.to_thread(_resolve_endpoint_blocking, organization_id or _context_organization_id())
+    return await asyncio.to_thread(_resolve_endpoint_blocking, organization_id)
 
 
 def _context_organization_id() -> str | None:
@@ -520,6 +527,47 @@ async def decide(
         {"answers": decision.summary(), "latencyMs": decision.latency_ms, "inputTokens": decision.input_tokens},
     )
     return decision
+
+
+def decide_blocking(
+    state: Any,
+    questions: Mapping[str, Mapping[str, Any]],
+    *,
+    slot: str,
+    timeout: float = DEFAULT_TIMEOUT_S,
+    organization_id: str | None = None,
+) -> Decision | None:
+    """:func:`decide` for synchronous code: ingestion's worker threads, scripts.
+
+    Runs on a loop of its own with a client of its own, closed after the call:
+    the shared keep-alive client is bound to the loop that opened it, and a
+    loop made per call would orphan one client per document. Ingestion pays
+    the TLS handshake per call for that, which it can afford. Called from a
+    thread that already runs a loop, the call moves to a thread of its own
+    rather than failing, because ``asyncio.run`` refuses to nest.
+    """
+    import httpx
+
+    def _run() -> Decision | None:
+        return asyncio.run(
+            decide(
+                state,
+                questions,
+                slot=slot,
+                timeout=timeout,
+                organization_id=organization_id,
+                transport=httpx.AsyncHTTPTransport(),
+            )
+        )
+
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        return _run()
+    from concurrent.futures import ThreadPoolExecutor
+
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        return pool.submit(_run).result()
 
 
 async def decide_many(

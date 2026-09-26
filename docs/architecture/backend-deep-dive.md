@@ -901,6 +901,16 @@ watermark-scrubbed via `_scrub_watermark_phrases` first, and if scrubbing emptie
 it the summary stays `None` rather than becoming an empty string — so a
 Bebauungsplan JPG is never summarised by its CAD licence stamp.
 
+**Tags are a decision, not a generation** (ADR-0064, use 4). Picking 1–2 of
+twelve document types and 0–3 of six OIB disciplines is asked of the decision
+model (`document_classification.decide_document_tags`: one choice over the
+types, one noul per discipline, the same text the summary reads, bounded at
+5 s) and the generative tag prompt on `summary_llm` runs only when no decision
+did (no key, ZDR, a BYOK key elsewhere, the endpoint down). A decision cannot
+answer outside the vocabulary, so the parse failures the prompt path filters
+are gone on that path. The org id rides the job config into the call, so the
+org's BYOK and ZDR policy hold in the detached ingestion thread.
+
 **Org BYOK + runtime model override for the VLM.** The vision model used across
 all VLM call sites (Phase 2 enrichment) is resolved the SAME way the NAT chat
 models resolve theirs. `/v1/ingest` forwards `x-grid-organization-id` (the BFF's
