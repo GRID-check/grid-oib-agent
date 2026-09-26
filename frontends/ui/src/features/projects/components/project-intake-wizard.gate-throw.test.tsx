@@ -8,6 +8,7 @@
 import { render, screen, waitFor } from '@/test-utils'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { projectTourUrl } from '@/features/onboarding/lib/product-tour'
 
 const pushMock = vi.fn()
 const refreshMock = vi.fn()
@@ -84,7 +85,7 @@ describe('ProjectIntakeWizard — Fix 2 pre-save gate fail-open', () => {
     await user.click(await screen.findByRole('button', { name: /save & see/i }))
 
     // The save completed despite the gate throwing.
-    await waitFor(() => expect(pushMock).toHaveBeenCalledWith(`/app/projects/${PROJECT_ID}`))
+    await waitFor(() => expect(pushMock).toHaveBeenCalledWith(projectTourUrl(PROJECT_ID)))
     const putCalls = calls.filter(
       (c) => c.url.endsWith(`/projects/${PROJECT_ID}/profile`) && c.method === 'PUT'
     )

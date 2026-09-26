@@ -33,6 +33,7 @@ import { SectionLabel } from '@/components/ui/section-label'
 import { splitForResume } from '@/features/projects/lib/resume-selection'
 import type { Project } from '@/lib/db/schema'
 import { useTranslations } from '@/i18n'
+import { TOUR_ANCHORS } from '@/features/onboarding/lib/product-tour'
 import { CreateProjectDialog } from './create-project-dialog'
 import { ProjectCard } from './project-card'
 import { ProjectListRow } from './project-list-row'
@@ -127,7 +128,7 @@ export function ProjectsGrid({
               />
             )}
             {/* Primary near-black action — Button default variant consumes --primary. */}
-            <CreateProjectDialog defaultOpen={autoOpenCreate} />
+            <CreateProjectDialog defaultOpen={autoOpenCreate} tourAnchor={TOUR_ANCHORS.createProject} />
           </div>
         }
       />
