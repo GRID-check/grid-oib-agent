@@ -1604,10 +1604,130 @@ const VI = (() => {
   return { inks: ['mist', 'kelly', 'moss', 'hunter'], draw, key: 'hunter', numeral: { sq: [540, 1058] } };
 })();
 
+/* ═════════════════════════════════════════════════════════════════════════════
+   PLATE VII — Waage
+   For the value calculator. An equal-arm balance on a tabletop: on one pan a
+   tall, hand-stacked pile of sheets, the hours a question used to cost; on
+   the other a small stack of coins. The beam settles toward the hours. Calm
+   arithmetic, drawn; no lime, because nothing here is alive.
+   ═════════════════════════════════════════════════════════════════════════ */
+
+const VII = (() => {
+  const TOP = [-5.5, -3.2, 5.5, 4.4], SLAB = 0.45;       // tabletop extent
+  const POST = 5.6, ARM = 3.4, TH = 0.11;                 // beam pivot height, half span, beam tilt
+  const HANG = 3.9, PANR = 1.25, PW = 0.68, PD = 0.5, PH = 1.9;   // hangers; the pile's half footprint and height
+  const FIT = { sq: { fill: 0.84, fillH: 0.84, cx: 0.5, cy: 0.52 } };
+
+  function draw(c, fmt) {
+    const [tx0, ty0, tx1, ty1] = TOP;
+    const P = fit(VIEW_SERIES, [[tx0, ty0, -SLAB], [tx1, ty0, -SLAB], [tx1, ty1, 0], [tx0, ty1, 0], [0, 0, POST + 0.8]], FIT[fmt]);
+    const E = (a, b) => poly(P, [a, b], false);
+    const piv = [0, 0.4, POST];
+    const endL = [-ARM * Math.cos(TH), 0.4, POST - ARM * Math.sin(TH)], endR = [ARM * Math.cos(TH), 0.4, POST + ARM * Math.sin(TH)];
+    const panL = [endL[0], 0.4, endL[2] - HANG], panR = [endR[0], 0.4, endR[2] - HANG];
+
+    /* — the tabletop — */
+    const top = poly(P, [[tx0, ty0, 0], [tx1, ty0, 0], [tx1, ty1, 0], [tx0, ty1, 0]]);
+    own(c, poly(P, [[tx0, ty0, 0], [tx0, ty1, 0], [tx0, ty1, -SLAB], [tx0, ty0, -SLAB]]), { moss: 0.3 });
+    own(c, poly(P, [[tx0, ty0, 0], [tx1, ty0, 0], [tx1, ty0, -SLAB], [tx0, ty0, -SLAB]]), { moss: 0.58 });
+    own(c, top, { mist: 0.4 });
+    if (c.ink === 'mist') { c.g.save(); c.g.clip(top); hatch(c.g, null, rngFor('waage:grain'), { gap: 5.2, w: 0.9, ang: -0.03, a: 0.25, cut: true }); c.g.restore(); }
+
+    /* shadows: base, post, beam, pans and their loads, strings */
+    const sh = new Path2D();
+    sh.addPath(boxShadow(P, boxCorners(-1.5, -0.4, 0, 1.5, 1.2, 0.35), SUN_SERIES));
+    sh.addPath(cylShadow(P, 0, 0.4, 0.13, POST, SUN_SERIES));
+    sh.addPath(nib([P(onGround(endL, SUN_SERIES)), P(onGround(endR, SUN_SERIES))], () => 0.1 * P.s, { raw: true }));
+    for (const [pc, load] of [[panL, 'sheets'], [panR, 'coins']]) {
+      const q = []; for (let i = 0; i < 24; i++) { const a = i / 24 * TAU; q.push(onGround([pc[0] + Math.cos(a) * PANR, pc[1] + Math.sin(a) * PANR, pc[2]], SUN_SERIES)); }
+      if (load === 'sheets') q.push(...boxCorners(pc[0] - PW, pc[1] - PD, pc[2], pc[0] + PW, pc[1] + PD, pc[2] + PH).map((p) => onGround(p, SUN_SERIES)));
+      else q.push(...boxCorners(pc[0] - 0.4, pc[1] - 0.4, pc[2], pc[0] + 0.4, pc[1] + 0.4, pc[2] + 0.45).map((p) => onGround(p, SUN_SERIES)));
+      sh.addPath(pathOf(hull(q.map(P))));
+    }
+    const sc = c.scratch; sc.save(); sc.setTransform(K, 0, 0, K, 0, 0); sc.clearRect(0, 0, W, H); sc.fillStyle = '#000'; sc.clip(top); sc.fill(sh, 'nonzero'); sc.restore();
+    const st = { hunter: 0.42, moss: 0.2 }[c.ink] || 0;
+    if (st) { c.g.save(); c.g.setTransform(1, 0, 0, 1, 0, 0); c.g.globalAlpha = st; c.g.drawImage(sc.canvas, 0, 0); c.g.restore(); }
+    line(c, top, 1.5, KEY);
+
+    /* — the balance — */
+    const base = boxFaces(P, -1.5, -0.4, 0, 1.5, 1.2, 0.35);
+    own(c, base.top, { mist: 0.3 }); own(c, base.west, { mist: 0.2 }); own(c, base.south, { moss: 0.5, hunter: 0.15 });
+    line(c, base.sil, 1.3, KEY);
+    const post = cylinder(P, 0, 0.4, 0.13, 0.35, POST);
+    own(c, post.sil, {});
+    c.L.save(); c.L.clip(post.sil); lineFill(c, pathOf([[lerp(post.xl, post.xr, 0.62), 0], [post.xr + 2, 0], [post.xr + 2, H], [lerp(post.xl, post.xr, 0.62), H]]), { moss: 0.5 }); c.L.restore();
+    line(c, post.sil, 1.3, KEY);
+
+    pan(c, P, panL, endL, 'sheets');
+    pan(c, P, panR, endR, 'coins');
+
+    // the beam: a thin bar tipped toward the heavier side, a pointer rising from its pivot
+    const d = [Math.cos(TH), 0, Math.sin(TH)], up = [-Math.sin(TH), 0, Math.cos(TH)];
+    const bp = (s, h, y) => v3.add(v3.add(v3.add(piv, v3.mul(d, s)), v3.mul(up, h)), [0, y, 0]);
+    const beamFront = pathOf([bp(-ARM, -0.09, -0.08), bp(ARM, -0.09, -0.08), bp(ARM, 0.09, -0.08), bp(-ARM, 0.09, -0.08)].map(P));
+    const beamTop = pathOf([bp(-ARM, 0.09, -0.08), bp(ARM, 0.09, -0.08), bp(ARM, 0.09, 0.08), bp(-ARM, 0.09, 0.08)].map(P));
+    own(c, beamTop, { mist: 0.3 }); own(c, beamFront, { moss: 0.3 });
+    line(c, beamFront, 1.1, KEY); line(c, beamTop, 1.0, KEY);
+    const ptr = nib([P(bp(0, 0.09, -0.1)), P(bp(0, 1.25, -0.1))], (u) => 0.07 * P.s * (1 - 0.7 * u), { raw: true });
+    clearAll(c, ptr); lineFill(c, ptr, { hunter: 1, moss: 0.6 });
+    // a small scale arc at the post head, so the tilt is read against something
+    const arc = []; for (let i = 0; i <= 20; i++) { const a = -0.35 + i / 20 * 0.7; arc.push(P([Math.sin(a) * 1.15, 0.28, POST + Math.cos(a) * 1.15])); }
+    line(c, pathOf(arc, false), 1.0, KEY);
+    for (let i = 0; i <= 6; i++) { const a = -0.3 + i * 0.1, r0 = 1.15, r1 = i === 3 ? 1.38 : 1.28; line(c, E([Math.sin(a) * r0, 0.28, POST + Math.cos(a) * r0], [Math.sin(a) * r1, 0.28, POST + Math.cos(a) * r1]), 0.9, KEY); }
+    const pv = new Path2D(); const q = P(piv); pv.ellipse(q[0], q[1] - 0.0, 0.16 * P.s, 0.16 * P.s, 0, 0, TAU);
+    own(c, pv, { mist: 0.4 }); line(c, pv, 1.1, KEY);
+  }
+
+  /** A pan hung on three strings from a beam end, and its load. */
+  function pan(c, P, pc, end, load) {
+    const rim = (r, z) => { const q = []; for (let i = 0; i < 48; i++) { const a = i / 48 * TAU; q.push(P([pc[0] + Math.cos(a) * r, pc[1] + Math.sin(a) * r, z])); } return q; };
+    const hooks = [0.5, 2.6, 4.7].map((a) => [pc[0] + Math.cos(a) * PANR * 0.96, pc[1] + Math.sin(a) * PANR * 0.96, pc[2]]);
+    const back = hooks.filter((h) => h[1] > pc[1]), front = hooks.filter((h) => h[1] <= pc[1]);
+    for (const h of back) line(c, poly(P, [end, h], false), 0.8, KEY);
+    const outer = pathOf(rim(PANR, pc[2])), bowl = pathOf(hull(rim(PANR, pc[2]).concat(rim(PANR * 0.72, pc[2] - 0.32))));
+    own(c, bowl, { moss: 0.42, mist: 0.2 });
+    if (c.ink === 'moss') { const b = P([pc[0], pc[1], pc[2] - 0.3]); shade(c.g, bowl, { x0: b[0] - PANR * P.s, y0: 0, x1: b[0] + PANR * P.s, y1: 0, stops: [[0, 0.3], [0.45, 0], [1, 0]], cut: true }); }
+    own(c, outer, { mist: 0.35 });
+    line(c, bowl, 1.1, KEY); line(c, outer, 1.1, KEY);
+    if (load === 'sheets') {
+      // hours: a pile of sheets, not quite square, each edge a line
+      const r = rngFor('waage:pile');
+      const n = 26, hh = PH / n;
+      for (let i = 0; i < n; i++) {
+        const dx = (r() - 0.5) * 0.14, dy = (r() - 0.5) * 0.12, z0 = pc[2] + i * hh;
+        const f = boxFaces(P, pc[0] - PW + dx, pc[1] - PD + dy, z0, pc[0] + PW + dx, pc[1] + PD + dy, z0 + hh);
+        own(c, f.west, { mist: 0.25 }); own(c, f.south, i % 5 === 0 ? { moss: 0.22 } : {});
+        own(c, f.top, {});
+        line(c, poly(P, [[pc[0] - PW + dx, pc[1] - PD + dy, z0 + hh], [pc[0] + PW + dx, pc[1] - PD + dy, z0 + hh]], false), 0.6, { hunter: 0.8 });
+        line(c, poly(P, [[pc[0] - PW + dx, pc[1] - PD + dy, z0 + hh], [pc[0] - PW + dx, pc[1] + PD + dy, z0 + hh]], false), 0.6, { hunter: 0.7 });
+        if (i === n - 1) {
+          line(c, f.sil, 1.1, KEY);
+          const tb = new Path2D();
+          for (let k = 0; k < 4; k++) { const a = P([pc[0] - 0.5 + dx, pc[1] + 0.32 - k * 0.2 + dy, z0 + hh]), b = P([pc[0] + (k === 3 ? 0.05 : 0.5) + dx, pc[1] + 0.32 - k * 0.2 + dy, z0 + hh]); tb.moveTo(a[0], a[1]); tb.lineTo(b[0], b[1]); }
+          line(c, tb, 0.8, { hunter: 0.85 });
+        }
+      }
+    } else {
+      // price: a few coins, a little out of true
+      const r = rngFor('waage:coins');
+      for (let i = 0; i < 5; i++) {
+        const dx = (r() - 0.5) * 0.08, dy = (r() - 0.5) * 0.08, z0 = pc[2] + i * 0.09;
+        const cy = cylinder(P, pc[0] + dx, pc[1] + dy, 0.4, z0, z0 + 0.09);
+        own(c, cy.sil, { moss: 0.55, mist: 0.3 });
+        own(c, cy.top, { mist: 0.55, moss: 0.12 });
+        line(c, cy.sil, 0.9, KEY); line(c, cy.top, 0.8, KEY);
+      }
+    }
+    for (const h of front) line(c, poly(P, [end, h], false), 0.8, KEY);
+  }
+
+  return { inks: ['mist', 'moss', 'hunter'], draw, key: 'hunter', numeral: { sq: [540, 1058] } };
+})();
+
 /* ═════════════════════════════════════════════════════════════════════════ */
 
-const PLATES = [I, II, III, IV, V, VI];
-const PLATE_NAMES = ['stuetzen', 'schichten', 'schleife', 'bauplatz', 'pruefstand', 'zeichentisch'];
+const PLATES = [I, II, III, IV, V, VI, VII];
+const PLATE_NAMES = ['stuetzen', 'schichten', 'schleife', 'bauplatz', 'pruefstand', 'zeichentisch', 'waage'];
 
 /* Export jobs: integer time → one file at its exact display size. */
 /* pitch is in device px: 3.4 for a 1x file, 6.8 for its 2x twin, so both show the
@@ -1629,6 +1749,8 @@ const JOBS = [
   { plate: 4, fmt: 'sq',   w: 1440, h: 1440, pitch: 6.8, file: 'piloti-v-pruefstand-1440.webp' },
   { plate: 5, fmt: 'sq',   w: 720,  h: 720,  pitch: 3.4, file: 'piloti-vi-zeichentisch-720.webp' },
   { plate: 5, fmt: 'sq',   w: 1440, h: 1440, pitch: 6.8, file: 'piloti-vi-zeichentisch-1440.webp' },
+  { plate: 6, fmt: 'sq',   w: 720,  h: 720,  pitch: 3.4, file: 'piloti-vii-waage-720.webp' },
+  { plate: 6, fmt: 'sq',   w: 1440, h: 1440, pitch: 6.8, file: 'piloti-vii-waage-1440.webp' },
 ];
 
 function setJob(j) {

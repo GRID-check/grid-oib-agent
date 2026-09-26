@@ -251,7 +251,26 @@ heading bar, three lines and a lime dot.
 - **Handle.** It is a loop, a key-line stroke with its core cut out. The first version,
   a flat ribbon, read as a stub.
 
+### VII. Waage (balance)
+
+For the value calculator "Wert". An equal-arm balance stands on a tabletop, drawn with
+the series camera and sun (no tipped plane). The beam is 6.8 long on a post 5.6 high,
+and a pointer and a small graduated arc at the pivot make the tilt readable.
+
+- **The pans.** One holds a hand-stacked pile of 26 sheets, the hours a question used
+  to cost. The other holds five coins, slightly out of true. The beam settles 0.11 rad
+  toward the hours.
+- **Pans and shadows.** Each pan hangs on three strings. The ones behind the load are
+  drawn before it and the ones in front after it. Shadows of base, post, beam, pans and
+  loads are one projected union on the table.
+- **Inks.** Three: Mist, Moss, Hunter. Kelly is left out because nothing on this table
+  is alive; the series rule held.
+- **First proof.** A shorter hanger ran the strings through a wider pile. The pile was
+  slimmed and the hangers lengthened.
+
 ## Inspected
+
+Plate VII: the full frame at 720 and 1440.
 
 Plate VI: the full frame at 720 and 1440.
 
@@ -322,3 +341,8 @@ every job.
   - The pencil is thin and its point is lost at 720.
   - The plan is a generic grid: there is less to find in it than in plate V's.
   - Only the 720 and 1440 full frames were inspected; no 1:1 crop was taken.
+- **VII.**
+  - The large empty tabletop in front is calm but plain.
+  - The coins are small at 720.
+  - The pile's page lines are regular, like a ream rather than loose working sheets.
+  - No 1:1 crop was taken.
