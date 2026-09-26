@@ -240,34 +240,10 @@
     scroll-padding-top: 76px;
   }
 
-  /* Snapping only where every section is a screen tall. Below lg the sections
-     take their natural height, and proximity snapping on a column of uneven
-     blocks is a page that keeps tugging the thumb back. */
-  @media (min-width: 1024px) {
-    html {
-      scroll-snap-type: y proximity;
-    }
-    [data-screen-label] {
-      scroll-snap-align: start;
-    }
-    [data-pin] {
-      scroll-snap-align: none;
-    }
-    #nutzung,
-    #daten,
-    #datenschutz,
-    #wert {
-      scroll-snap-align: center;
-    }
-
-    /* The last section must not be a snap target. Snapping it — to centre or
-       to start — parks the viewport on it and pulls back out of the footer,
-       which is shorter than the snap it is fighting, so the footer became
-       unreachable. */
-    #kontakt {
-      scroll-snap-align: none;
-    }
-  }
+  /* No scroll snapping, at any width. Proximity snapping on top of scrubbed,
+     pinned runways swallowed single wheel notches at the top of the page
+     (three 100px notches left scrollY at 0), and the page is long-form: the
+     scroll belongs to the reader. docs/ux/motion.md, "When not to animate". */
 
   /* Decoration may bleed past the page edge (a glow, a rotated fragment) but
      may never widen it. On a phone one such element grows the layout viewport,
@@ -348,17 +324,6 @@
 @keyframes chain-spin {
   to {
     transform: rotate(360deg);
-  }
-}
-@keyframes scrollhint {
-  0%,
-  100% {
-    transform: translateY(0);
-    opacity: 0.7;
-  }
-  50% {
-    transform: translateY(8px);
-    opacity: 0.3;
   }
 }
 

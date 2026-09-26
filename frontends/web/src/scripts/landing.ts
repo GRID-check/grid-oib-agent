@@ -1,7 +1,8 @@
-import { gsap } from 'gsap'
 import { DrawSVGPlugin } from 'gsap/DrawSVGPlugin'
 import { ScrollTrigger } from 'gsap/ScrollTrigger'
 import { landingScript } from '../i18n/ui'
+import { MQ, TRAVEL, sec, staggerFor } from '../lib/motion'
+import { gsap } from './motion-gsap'
 
 gsap.registerPlugin(DrawSVGPlugin, ScrollTrigger)
 import { initReveals } from './reveal'
@@ -12,7 +13,7 @@ import { initSheetIndex } from './sheet-index'
 const L = document.documentElement.lang.startsWith('en') ? landingScript.en : landingScript.de
 
 
-const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+const reduced = window.matchMedia(MQ.reduced).matches
 
 /**
  * The breakpoint at which the landing page becomes a sequence of full screens
@@ -21,38 +22,47 @@ const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches
  * answering the thumb, and a scrubbed runway is a screen of scrolling past a
  * still image. Mirrors Tailwind's `lg`.
  */
-const STAGED = '(min-width: 1024px)'
-const MOTION = '(prefers-reduced-motion: no-preference)'
-const REDUCED = '(prefers-reduced-motion: reduce)'
+const STAGED = MQ.staged
+const MOTION = MQ.motion
+const REDUCED = MQ.reduced
 
+/**
+ * The hero's lockup yields as the page moves on: the closing line, its
+ * buttons and the stage note over the first quarter screen, the headline a
+ * little later. Opacity only, scrubbed to the hero's own scroll-out. Without
+ * it they print through the logo on the way up, while the bar over the hero
+ * is still transparent (nav.ts condenses it at 60% of the hero).
+ *
+ * There is no runway. The hero used to sit in a 200vh wrapper so the closing
+ * line could fade while the photograph held still: a screen of scrolling in
+ * which nothing happened. Below lg, or without motion, the hero is a plain
+ * screen that scrolls away.
+ */
 function initHeroCta() {
   const cta = document.querySelector<HTMLElement>('[data-hero-cta]')
-  if (!cta) return
-  const wrap = document.querySelector<HTMLElement>('[data-hero-wrap]')
-  // Without motion, or below lg, the hero is a single screen and the closing
-  // line simply stays put: the yield below is scrubbed against scroll
-  // position, which is the kind of scroll-linked movement
-  // `prefers-reduced-motion` asks us to drop.
+  const hero = document.querySelector<HTMLElement>('[data-hero]')
+  if (!cta || !hero) return
+  const stage = hero.querySelector<HTMLElement>('[data-hero-stage]')
+  const title = hero.querySelector<HTMLElement>('[data-hero-title]')
   gsap.matchMedia().add(`${STAGED} and ${MOTION}`, () => {
-    if (wrap) wrap.style.height = '200vh'
-    // The closing line and its buttons yield as soon as the page starts moving —
-    // scrubbed, so it tracks the scroll rather than snapping at a threshold.
-    gsap.to(cta, {
-      opacity: 0,
-      y: -10,
-      ease: 'none',
-      scrollTrigger: {
-        trigger: wrap ?? cta,
-        start: 'top top',
-        end: () => `+=${window.innerHeight * 0.12}`,
-        scrub: true,
-        onUpdate: (self) => {
-          cta.style.pointerEvents = self.progress > 0.6 ? 'none' : 'auto'
+    const vh = () => window.innerHeight
+    const fade = (targets: (HTMLElement | null)[], from: number, to: number, onUpdate?: (p: number) => void) =>
+      gsap.to(targets.filter(Boolean), {
+        opacity: 0,
+        ease: 'none',
+        scrollTrigger: {
+          trigger: hero,
+          start: () => `top+=${vh() * from} top`,
+          end: () => `top+=${vh() * to} top`,
+          scrub: true,
+          onUpdate: onUpdate && ((self) => onUpdate(self.progress)),
         },
-      },
+      })
+    fade([cta, stage], 0, 0.25, (p) => {
+      cta.style.pointerEvents = p > 0.6 ? 'none' : ''
     })
+    fade([title], 0.2, 0.5)
     return () => {
-      if (wrap) wrap.style.height = ''
       cta.style.pointerEvents = ''
     }
   })
@@ -651,7 +661,7 @@ function initPins() {
   const setNavHidden = (hide: boolean) => {
     if (!nav || hide === navHidden) return
     navHidden = hide
-    gsap.to(nav, { y: hide ? '-110%' : '0%', opacity: hide ? 0 : 1, duration: 0.5, ease: 'power2.out' })
+    gsap.to(nav, { y: hide ? '-110%' : '0%', opacity: hide ? 0 : 1, duration: sec('base'), ease: 'settle' })
     nav.toggleAttribute('inert', hide)
     if (hide) nav.setAttribute('aria-hidden', 'true')
     else nav.removeAttribute('aria-hidden')
@@ -676,7 +686,10 @@ function initPins() {
     measureStory()
     // The scroll runway is the beat list's length: the ring adds the fan-out
     // and the connecting lines, the grid does not, so it needs less scrolling.
-    wrap.style.height = runway ? (mode === 'ring' ? '440vh' : '300vh') : ''
+    // It was 440vh and 300vh, with a static screen at either end; the beats
+    // below now fill the range, so the story takes about one screen of
+    // scrolling per idea.
+    wrap.style.height = runway ? (mode === 'ring' ? '240vh' : '200vh') : ''
   }
   /** Back to a plain block: what the section is below lg. */
   const unpin = () => {
@@ -707,7 +720,7 @@ function initPins() {
         sizePins()
         const n = fragEls.length || 1
         const tl = gsap.timeline({
-          defaults: { ease: 'power2.out' },
+          defaults: { ease: 'settle' },
           scrollTrigger: {
             trigger: wrap,
             start: 'top top',
@@ -717,47 +730,59 @@ function initPins() {
           },
         })
 
+        // The score, in fractions of the runway. Every stretch of scrolling
+        // moves something: the fragments drift in (0–0.35), the problem gives
+        // way (0.30–0.40) to the answer (0.38–0.50), the net pulls the
+        // fragments in (0.40–0.70) and wires them (0.60–0.85), and the
+        // finished hub holds for the last 0.15 so it can be read.
         fragEls.forEach((f, i) => {
           if (!f.fits) return
-          // Drift in from where it was scattered, lie there a while, then get
-          // pulled onto the net.
           tl.fromTo(
             f.el,
             { opacity: 0, x: f.sx + f.dx * 4, y: f.sy + f.dy * 4, rotation: f.rot, scale: 0.85 },
-            { opacity: 1, x: f.sx, y: f.sy, scale: 1, duration: 0.16 },
-            0.03 + (i / n) * 0.27
+            { opacity: 1, x: f.sx, y: f.sy, scale: 1, duration: 0.15 },
+            (i / n) * 0.2
           ).to(
             f.el,
-            { x: f.tx, y: f.ty, rotation: 0, scale: 0.84, duration: 0.24 },
-            0.5 + (i / n) * 0.16
+            { x: f.tx, y: f.ty, rotation: 0, scale: 0.84, duration: 0.18, ease: 'draft' },
+            0.4 + (i / n) * 0.12
           )
         })
 
-        if (hProblem) tl.to(hProblem, { opacity: 0, y: -26, duration: 0.1 }, 0.42)
+        if (hProblem) tl.to(hProblem, { opacity: 0, y: -TRAVEL.md, duration: 0.1 }, 0.3)
         if (hSolution) {
           tl.fromTo(
             hSolution,
-            { opacity: 0, xPercent: -50, y: 18 },
+            { opacity: 0, xPercent: -50, y: TRAVEL.md },
             { opacity: 1, y: 0, duration: 0.1 },
-            0.52
+            0.38
           )
         }
         if (solutionCard) {
           tl.fromTo(
             solutionCard,
             { opacity: 0, xPercent: -50, yPercent: -50, scale: 0.8 },
-            { opacity: 1, scale: 1, duration: 0.14 },
-            0.56
+            { opacity: 1, scale: 1, duration: 0.1 },
+            0.4
           )
         }
         if (lineEls?.length) {
+          const drawn = lineEls.length
           tl.fromTo(
             lineEls,
             { drawSVG: 0, opacity: 0 },
-            { drawSVG: '100%', opacity: 0.45, duration: 0.26, stagger: 0.045 },
-            0.68
+            {
+              drawSVG: '100%',
+              opacity: 0.45,
+              duration: 0.12,
+              ease: 'draft',
+              stagger: drawn > 1 ? 0.13 / (drawn - 1) : 0,
+            },
+            0.6
           )
         }
+        // The hold: nothing moves, the runway just ends.
+        tl.to({}, { duration: 0.15 }, 0.85)
       }, wrap)
     }
 
@@ -853,17 +878,17 @@ function initHubGrid() {
   gsap.matchMedia().add(`(max-width: 1023.98px) and ${MOTION}`, () => {
     // Already on screen at load: leave it be rather than blank it and replay.
     if (hub.getBoundingClientRect().top < window.innerHeight * 0.85) return
-    gsap.set(nodes, { autoAlpha: 0, y: 10, scale: 0.96 })
-    gsap.set(core, { autoAlpha: 0, scale: 0.92 })
+    gsap.set(nodes, { autoAlpha: 0, y: TRAVEL.sm })
+    gsap.set(core, { autoAlpha: 0 })
     gsap.set(paths, { drawSVG: 0 })
     gsap
       .timeline({
-        defaults: { ease: 'power2.out' },
+        defaults: { ease: 'settle' },
         scrollTrigger: { trigger: hub, start: 'top 80%', once: true },
       })
-      .to(nodes, { autoAlpha: 1, y: 0, scale: 1, duration: 0.5, stagger: 0.05 })
-      .to(core, { autoAlpha: 1, scale: 1, duration: 0.5 }, '-=0.35')
-      .to(paths, { drawSVG: '100%', duration: 0.6, stagger: 0.03 }, '-=0.2')
+      .to(nodes, { autoAlpha: 1, y: 0, duration: sec('slow'), stagger: staggerFor(nodes.length) / 1000 })
+      .to(core, { autoAlpha: 1, duration: sec('slow') }, '-=0.3')
+      .to(paths, { drawSVG: '100%', duration: sec('slow'), ease: 'draft' }, '-=0.2')
   })
 }
 
