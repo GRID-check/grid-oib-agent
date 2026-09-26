@@ -18,7 +18,8 @@
  * which blocks every non-file request), seek the job, read the canvas backing
  * store as PNG, seek elsewhere and back and require identical bytes (the check
  * still.mjs makes), check the pixel size against the format, then encode:
- * .webp at quality 95 with sharp-YUV, or .png at maximum compression. Nothing
+ * .webp at quality 95 with sharp-YUV, or .png: palette-quantised for a committed
+ * file (site, app), lossless for an `out` file and a separation. Nothing
  * is resized. Formats with `separations` also get one grayscale PNG per ink
  * (the page's ?sep=<ink> view) and a JSON sheet naming drums and order.
  * Formats with `onPage` also get `<file>-page.webp`: the same job baked with
@@ -31,6 +32,8 @@
  * Always ends by rewriting the manifests from every work's JOBS table:
  * src/data/art.json for the site, ../ui/src/lib/art/art.json for the app, each
  * src versioned with ?v=<sha256 of the file> so a re-export busts caches.
+ * Then publishes the out and app files into public/downloads/ for the unlisted
+ * image page (downloads.mjs).
  */
 import crypto from 'node:crypto';
 import fs from 'node:fs';
@@ -39,6 +42,7 @@ import sharp from 'sharp';
 import {
   DESTS, MAX_BYTES, OUT, args, destOf, evaluateWork, kitBrowser, manifestFrom, manifestText, requireKit, selectWorks,
 } from './kit.mjs';
+import { publishDownloads } from './downloads.mjs';
 
 const a = args(process.argv.slice(2));
 const works = selectWorks(a.work);
@@ -126,10 +130,16 @@ async function encode(input, j, out, { gray = false } = {}) {
   let img = Buffer.isBuffer(input) ? sharp(input) : input;
   const dpi = j.dpi;
   if (gray) img = img.flatten({ background: '#ffffff' }).toColourspace('b-w');
-  if (dpi) img = img.withMetadata({ density: dpi });
+  // withDensity, not withMetadata: that one keeps the sRGB profile and turns a
+  // grayscale separation back into RGB
+  if (dpi) img = img.withDensity(dpi);
   fs.mkdirSync(path.dirname(out), { recursive: true });
   if (!gray && j.encode === 'webp') await img.webp({ quality: 95, smartSubsample: true, effort: 6 }).toFile(out);
-  else await img.png({ compressionLevel: 9, effort: 10 }).toFile(out);
+  // sharp's `effort` turns on palette quantisation (256 colours, dithered).
+  // Committed files take it to stay under 1 MB; an `out` file and every
+  // separation are written lossless: truecolour, or 8-bit grayscale.
+  else if (!gray && j.dest in DESTS) await img.png({ compressionLevel: 9, effort: 10 }).toFile(out);
+  else await img.png({ compressionLevel: 9, palette: false }).toFile(out);
   return fs.statSync(out).size;
 }
 
@@ -183,4 +193,6 @@ try {
 }
 
 writeManifest();
-if (failures) { console.error(`${failures} site file(s) over 1 MB`); process.exit(1); }
+// out and app files the site shows on no page go to public/downloads/ (downloads.mjs)
+failures += (await publishDownloads()).failures;
+if (failures) { console.error(`${failures} committed file(s) over 1 MB`); process.exit(1); }

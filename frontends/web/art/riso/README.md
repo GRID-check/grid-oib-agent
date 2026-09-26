@@ -18,6 +18,7 @@ the machinery works.
 | `lib/formats.js` | Every export slot by name, with pixel sizes, pitch, encoding and destination |
 | `kit.json` | The pinned riso-windowseat commit. The only place the version is written |
 | `setup.mjs`, `new.mjs`, `export.mjs`, `check.mjs`, `verify.mjs` | The commands below; `kit.mjs` is what they share |
+| `downloads.mjs` | Publishes every `out` and `app` file into `public/downloads/` with its manifest `src/data/downloads.json`, for the unlisted image page. `export.mjs` runs it |
 | `template/` | What `new.mjs` copies |
 | `out/` | Non-site exports. Gitignored |
 | `LICENSE-NOTICE.md` | The kit's MIT notice, which ships with the adapted engine |
@@ -33,6 +34,7 @@ node art/riso/export.mjs                        # task art:export (all works)
 node art/riso/export.mjs --work tafeln --only 0,tafeln/stuetzen/og
 node art/riso/export.mjs --variant page         # only the on-page files (or: paper)
 node art/riso/export.mjs --manifest             # rewrite src/data/art.json only
+node art/riso/downloads.mjs                     # re-publish out/ and app files to public/downloads/
 node art/riso/check.mjs                         # task art:check, also in npm run check
 node art/riso/verify.mjs --work tafeln          # task art:verify (minutes)
 ```
@@ -118,8 +120,10 @@ uses). Per job it seeks, reads the canvas backing store as PNG, seeks
 elsewhere and back and requires identical bytes (the check `still.mjs`
 makes), checks the pixel size, and encodes: WebP at quality 95 with sharp-YUV
 (compared against the PNG at 2x zoom, it keeps the dot screen: mean absolute
-difference 1.6/255), or PNG at maximum compression for formats a scraper or a
-print shop reads.
+difference 1.6/255), or PNG for formats a scraper or a print shop reads. A
+committed PNG (`site`, `app`: the share cards, the email strip) is quantised
+to a 256-colour palette to stay under 1 MB; an `out` PNG and every separation
+are lossless (truecolour, or 8-bit grayscale).
 
 - `site` files go to `public/art/`, are committed, and are refused by the
   pre-commit hook above 1 MB. Only a file a page of this site shows is `site`.
@@ -132,6 +136,14 @@ print shop reads.
   `src/lib/art/` and `components/brand/riso-print.tsx`.
 - `out` files go to `art/riso/out/<work>/`, gitignored and reproducible from
   the pin. Upload them where they are used.
+- **Downloads.** Every export ends with `downloads.mjs`, which copies each
+  `out` and `app` file into `public/downloads/` (committed, so the unlisted
+  image page can hand them out: `frontends/web/AGENTS.md`, "Unlisted pages")
+  and writes `src/data/downloads.json`. A PNG within 1 MB is copied as it is;
+  a larger one (the slides, the postcard composite) becomes JPEG q95 4:4:4,
+  which every slide tool, LinkedIn and print shop reads (mean error 0.6–1.9
+  of 255 against the PNG). Separations are never re-encoded. `check.mjs` fails
+  on a job without its download, an orphan there, or a stale manifest.
 - **Separations** (formats with `separations: true`) add one grayscale PNG per
   ink, `<stem>-sep-<n>-<ink>.png`, from the page's `?sep=<ink>` view: that
   ink's screened plate, black on white, no paper, no registration offset (the

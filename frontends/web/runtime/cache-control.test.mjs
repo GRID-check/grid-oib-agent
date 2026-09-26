@@ -9,6 +9,7 @@ test('hashed build assets are immutable', () => {
 test('unhashed fonts revalidate after a week; versioned art is immutable', () => {
   assert.equal(cacheControlFor('/fonts/inter-var-latin.woff2'), LONG_REVALIDATE)
   assert.equal(cacheControlFor('/art/piloti-ii-schichten-720.webp'), IMMUTABLE)
+  assert.equal(cacheControlFor('/downloads/tragwerk-i-saeule-deck-1920x1080.jpg'), IMMUTABLE)
 })
 
 test('pages and server routes keep the adapter default', () => {

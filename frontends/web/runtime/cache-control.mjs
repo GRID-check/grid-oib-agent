@@ -31,6 +31,9 @@ const RULES = [
   // Every /art/ URL carries ?v=<content hash> from the manifest, so it changes
   // whenever the bytes do, like a hashed filename.
   ['/art/', IMMUTABLE],
+  // The riso downloads (art/riso/downloads.mjs): the unlisted image page links
+  // each with ?v=<content hash> from src/data/downloads.json, as /art/.
+  ['/downloads/', IMMUTABLE],
 ]
 
 /**

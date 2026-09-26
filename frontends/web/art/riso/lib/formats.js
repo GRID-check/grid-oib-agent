@@ -12,7 +12,8 @@
                 px. A 2x twin doubles pixels and pitch, so both show the same
                 screen at the same CSS size. Nothing is ever resized after
                 the bake: resampling a halftone screen makes moiré
-     encode     'webp' (quality 95, sharp-YUV) or 'png' (max compression)
+     encode     'webp' (quality 95, sharp-YUV) or 'png' (256-colour palette when
+                committed, lossless for 'out' and separations)
      dest       'site' -> frontends/web/public/art/, committed, in src/data/art.json
                 'app'  -> frontends/ui/public/art/, committed, in the app's
                           src/lib/art/art.json (the product app, Next.js)

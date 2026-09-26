@@ -1,0 +1,172 @@
+---
+/**
+ * The unlisted image page (src/lib/unlisted.ts): every riso file, grouped by
+ * work, one item per plate with every file it was exported as, and a ZIP per
+ * work and of everything. The list is src/lib/downloads.ts, built from the
+ * manifests; nothing is named here.
+ *
+ * Previews follow the print rules (art/riso/README.md): the on-page file where
+ * one exists, multiplied into the page; a file at its own size or at exactly
+ * half, never scaled otherwise. A preview wider than its column is cropped to
+ * the middle, not shrunk.
+ */
+import { ui, type Locale } from '../../i18n/ui'
+import {
+  ALL_ARCHIVE,
+  archiveHref,
+  archiveName,
+  bytesOf,
+  downloadGroups,
+  formatKey,
+  type DownloadFile,
+  type DownloadItem,
+} from '../../lib/downloads'
+
+interface Props {
+  locale: Locale
+}
+const { locale } = Astro.props
+const t = ui[locale].bildmaterial
+
+const groups = downloadGroups()
+const sizes = new Map(groups.flatMap((g) => g.items.flatMap((i) => i.files.map((f) => [f.path, bytesOf(f.path)] as const))))
+const sum = (files: DownloadFile[]) => files.reduce((n, f) => n + (sizes.get(f.path) ?? 0), 0)
+const itemFiles = (items: DownloadItem[]) => items.flatMap((i) => i.files)
+
+const number = (n: number, digits: number) =>
+  new Intl.NumberFormat(locale === 'de' ? 'de-AT' : 'en-GB', { maximumFractionDigits: digits }).format(n)
+const size = (bytes: number) =>
+  bytes < 1024 * 1024 ? `${number(Math.max(1, Math.round(bytes / 1024)), 0)} KB` : `${number(bytes / 1024 / 1024, 1)} MB`
+
+/** A plate without a caption is named by its slug, set as the file handle it is. */
+const captionOf = (i: DownloadItem) => i.caption?.[locale] ?? i.plate
+const groupName = (work: string) => t.groups[work] ?? work
+
+function label(f: DownloadFile) {
+  if (f.variant === 'sheet') return t.sheet
+  const format = t.formats[formatKey(f.format)] ?? f.format
+  if (f.variant === 'separation') return `${format} · ${t.separation} ${f.ink}`
+  return f.variant === 'page' ? `${format} · ${t.transparent}` : format
+}
+const meta = (f: DownloadFile) =>
+  [f.width ? `${f.width} × ${f.height}` : null, f.type, size(sizes.get(f.path) ?? 0)].filter(Boolean).join(' · ')
+
+/**
+ * A group's column: its widest preview, so plates sit three abreast and a
+ * slide takes the row; at least 300 px, which keeps a file's label and its
+ * size on one line.
+ */
+const columnOf = (items: DownloadItem[]) => Math.max(300, ...items.map((i) => i.preview.width))
+const all = itemFiles(groups.flatMap((g) => g.items))
+---
+
+<section class="px-4 pb-28 pt-32 sm:px-6 md:px-10 md:pt-36">
+  <div class="mx-auto max-w-6xl">
+    <div class="flex flex-wrap items-end justify-between gap-x-8 gap-y-4">
+      <h1 class="font-voice text-v3 text-ink">{t.heading}</h1>
+      <a
+        href={archiveHref(ALL_ARCHIVE)}
+        download={archiveName(ALL_ARCHIVE)}
+        class="dl-zip inline-flex min-h-11 items-center gap-2 rounded-full bg-ink px-5 text-sm font-medium text-white no-underline hover:bg-ink/85"
+      >
+        <span aria-hidden="true">↓</span>
+        {t.all} · {size(sum(all))}
+      </a>
+    </div>
+
+    {
+      groups.map((g) => (
+        <section class="mt-20 first-of-type:mt-14" aria-labelledby={`g-${g.work}`}>
+          <div class="flex flex-wrap items-center justify-between gap-x-6 gap-y-2 border-b border-ink/15 pb-3">
+            <h2
+              id={`g-${g.work}`}
+              class="flex items-center gap-3 font-mono text-2xs font-medium uppercase tracking-label text-accent-600"
+            >
+              <span class="h-px w-6 shrink-0 bg-accent-600/45" aria-hidden="true" />
+              {groupName(g.work)}
+            </h2>
+            <a
+              href={archiveHref(g.work)}
+              download={archiveName(g.work)}
+              class="inline-flex min-h-11 items-center gap-2 text-sm text-accent-600 underline underline-offset-4 hover:text-accent-700"
+            >
+              <span aria-hidden="true">↓</span>
+              <span class="sr-only">{groupName(g.work)}:</span>
+              {t.zip} · {size(sum(itemFiles(g.items)))}
+            </a>
+          </div>
+
+          <ul class="dl-grid m-0 mt-8 list-none p-0" style={`--col: ${columnOf(g.items)}px`}>
+            {g.items.map((item) => (
+              <li class="min-w-0">
+                <figure class="m-0">
+                  <div
+                    class="dl-frame"
+                    style={`width: min(100%, ${item.preview.width}px); aspect-ratio: ${item.preview.width} / ${item.preview.height}`}
+                  >
+                    <img
+                      src={item.preview.src}
+                      srcset={item.preview.srcset}
+                      width={item.preview.width}
+                      height={item.preview.height}
+                      alt={item.alt?.[locale] ?? ''}
+                      loading="lazy"
+                      decoding="async"
+                      class:list={[item.preview.onPage && 'mix-blend-multiply']}
+                    />
+                  </div>
+                  <figcaption class:list={['mt-3 text-sm text-ink', item.caption ? 'font-medium' : 'font-mono']}>
+                    {captionOf(item)}
+                  </figcaption>
+                </figure>
+                <ul class="m-0 mt-2 max-w-md list-none p-0">
+                  {item.files.map((f) => (
+                    <li>
+                      <a
+                        href={f.href}
+                        download={f.name}
+                        class="dl-row flex min-h-11 items-center justify-between gap-x-4 border-t border-ink/10 py-2 text-sm text-ink no-underline"
+                      >
+                        <span class="min-w-0">
+                          <span class="sr-only">{captionOf(item)}: </span>
+                          {label(f)}
+                        </span>
+                        <span class="shrink-0 whitespace-nowrap font-mono text-2xs tabular-nums text-ink-mute">{meta(f)}</span>
+                      </a>
+                    </li>
+                  ))}
+                </ul>
+              </li>
+            ))}
+          </ul>
+        </section>
+      ))
+    }
+  </div>
+</section>
+
+<style>
+  .dl-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(min(100%, var(--col)), 1fr));
+    /* three 360 px plates abreast in the 1152 px column */
+    gap: 3.5rem 2rem;
+  }
+  /* The preview at its own size (or exactly half): wider than the column (a
+     slide on a phone), the frame keeps the file's proportions and shows its
+     middle at that size, rather than resampling the screen into moiré. */
+  .dl-frame {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+  }
+  .dl-frame img {
+    flex: none;
+    max-width: none;
+  }
+  .dl-row:hover,
+  .dl-row:focus-visible {
+    color: var(--color-accent-700);
+  }
+</style>
