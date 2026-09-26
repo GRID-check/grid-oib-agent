@@ -222,6 +222,18 @@ human-set, as it was (`doc_class` beats every guess). Measured on twelve
 openings under hint-less file names (`tests/fixtures/decisions/doc_class.yaml`):
 12/12 at 0.97–1.00, where the filename guess had 3/12.
 
+**Use 9 — why a down-vote was cast** (`common/feedback_causes.py`, the
+feedback digest route). A down-vote carries one of four coarse chips and
+sometimes a comment; the comment names the defect („In GK 4 ist es R 60",
+„Das ist die Wiener Regelung, wir sind in Tirol" are both `inaccurate` to the
+chip). When the digest is built, each sampled down-vote is filed under one of
+ten causes by a choice over its question, chip and comment; the counts go into
+the digest's brief and back to the Quality page as one line. A label below 0.6
+is left unlabelled, not guessed, and nothing a reader sees depends on it. The
+comment now leaves the BFF with its sample, fenced as data like the question.
+Measured on sixteen down-votes (`tests/fixtures/decisions/feedback_causes.yaml`):
+16/16 at 0.79–1.00.
+
 **Not a use.** Intent or model routing, the escalation decision, confidence,
 verdict extraction, anything whose wrong answer removes a capability
 (ADR-0052, unchanged). Card selection and skill suggestion, which the audit

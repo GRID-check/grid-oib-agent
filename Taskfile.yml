@@ -463,7 +463,7 @@ tasks:
       - '{{.PY}} scripts/decision_eval.py {{.CLI_ARGS}}'
 
   be:eval:decisions:offpath:
-    desc: 'Decision-model eval for ingestion tags and the memory-reflection pre-check, on the hand-labelled sets (NEEDS OPENROUTER_API_KEY; no backend)'
+    desc: 'Decision-model eval for the uses off the reader path — tags, reflection pre-check, memory supersede, Dokumentart, feedback causes — on the hand-labelled sets (NEEDS OPENROUTER_API_KEY; no backend)'
     cmds:
       # ADR-0064 uses 4 and 5. Exit 0 = every type right, no false discipline,
       # and no durable exchange below the reflection skip threshold.
