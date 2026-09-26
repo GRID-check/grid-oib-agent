@@ -185,10 +185,10 @@ frame. `TapedPrint` does all of this for a plate (`src/components/craft/`).
 | `tafeln/stuetzen/plate` | I Drei Stützen | Team section |
 | `tafeln/stuetzen/og` | I Drei Stützen | Default share image (`defaultOgImage`) |
 | `tafeln/stuetzen/banner` | I Drei Stützen | Bautagebuch / blog header |
-| `tafeln/schichten/plate` | II Schichten | Cover of "Wie Piloti funktioniert" |
+| `tafeln/schichten/plate` | II Schichten | Section "Quellen und Daten"; cover of "Wie Piloti funktioniert" |
 | `tafeln/schleife/plate` | III Schleife | Cover of "Ein System, das aus Ihrem Frust lernt" |
 | `tafeln/bauplatz/plate` | IV Bauplatz | 404 page |
-| `tafeln/pruefstand/plate` | V Prüfstand | Section "Daten & Transparenz" |
+| `tafeln/pruefstand/plate` | V Prüfstand | Blog (the sources section wears II: one plate per section) |
 | `tafeln/zeichentisch/plate` | VI Zeichentisch | Section "Nutzung" |
 | `tafeln/waage/plate` | VII Waage | Value calculator |
 | `tafeln/tuer/plate` | VIII Offene Tür | Contact / become a pilot office |
