@@ -21,6 +21,10 @@ sections:
   - [deprecations, Deprecations]
   - [upgrade, Upgrade notes]
   - [other, Other]
+  # Never published: notes for the people who run the platform (the Platform
+  # area, model defaults, deployment and migration steps). The changelog is for
+  # architects; `task release:preview` still lists these.
+  - [operators, For platform operators]
 
 # `improvements` is ours, so reno's default semver mapping has to learn about
 # it: a polish note is a patch-level change, the same as a fix.

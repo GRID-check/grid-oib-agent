@@ -58,6 +58,8 @@ import urllib.error
 import urllib.request
 from dataclasses import dataclass
 from dataclasses import field
+from datetime import date
+from datetime import timedelta
 from pathlib import Path
 from typing import Any
 
@@ -69,7 +71,15 @@ NOTES_DIR = RELNOTES_DIR / "notes"
 TRANSLATIONS_FILE = RELNOTES_DIR / "translations" / "de.json"
 CHANGELOG_FILE = REPO_ROOT / "frontends" / "web" / "src" / "data" / "changelog.json"
 
+SUMMARIES_FILE = RELNOTES_DIR / "summaries.yaml"
+
 PRELUDE_SECTION = "prelude"
+
+# Sections reno keeps and the public changelog never shows. The changelog on
+# piloti.at is written for the architect using Piloti; a note that only the people
+# running the platform can act on (model defaults, the Platform area, deployment
+# and migration steps) goes here instead. `task release:preview` still lists it.
+INTERNAL_SECTIONS = frozenset({"operators"})
 
 # German titles for the sections defined in releasenotes/config.yaml. The English
 # side lives in that config (reno owns it); this is the other half. They are
@@ -84,6 +94,7 @@ SECTION_TITLES_DE = {
     "deprecations": "Auslaufende Funktionen",
     "upgrade": "Hinweise zur Umstellung",
     "other": "Sonstiges",
+    "operators": "Für Plattform-Betreiber",
 }
 
 # ── Authoring rules ─────────────────────────────────────────────────────────
@@ -94,6 +105,42 @@ SECTION_TITLES_DE = {
 
 MIN_LENGTH = 20
 MAX_LENGTH = 400
+MAX_SENTENCES = 2
+# A week's summary covers a dozen notes, so it gets a little more room than one.
+SUMMARY_MAX_LENGTH = 500
+SUMMARY_MAX_SENTENCES = 3
+# An `operators` note may carry a migration step, so it gets two more sentences.
+OPERATOR_MAX_SENTENCES = 4
+
+# The source language is English; German is generated from it. A note written
+# in German is published as "English" on /en/changelog and translated from German
+# into German for /changelog, which is how 344 German sentences reached the
+# English page before this check existed. Function words decide it: they occur in
+# every sentence, and the two sets do not overlap. Quoted UI labels are removed
+# first, because an English note may quote „Von Piloti erstellt" verbatim.
+# (A language-identification library was the alternative; the lint runs outside
+# the project environment on every PR, and the question here is only ever
+# "English or German", which this answers without a model download.)
+GERMAN_FUNCTION_WORDS = frozenset(
+    "der die das und ist nicht mit für auf werden wird sind ein eine einen einem einer "
+    "im den dem des zu von sie jetzt auch nach bei wenn oder kann können aus als wie "
+    "noch nur über statt bisher wieder dass sich es zum zur".split()
+)
+ENGLISH_FUNCTION_WORDS = frozenset(
+    "the and is not with for on are a an of to from you now also after when or can in "
+    "it that this by be as has have its your their which what no was were".split()
+)
+QUOTED = re.compile(r"„[^“\"”]*[“\"”]|\"[^\"]*\"|“[^”]*”|»[^«]*«")
+
+# Phrasing that marks a note as written for the people who run the platform. The
+# public changelog is for architects; these belong in the `operators` section.
+OPERATOR_PATTERNS = re.compile(
+    r"\b(platform operators?|operators? of the platform|whoever operates|platform staff"
+    r"|platform support role|Platform\s*(→|->|>)|Platform (settings|area)|Plattform\s*→|Plattform-Betreiber"
+    r"|environment variable|Umgebungsvariable|self-host\w*|(new|existing) (installations?|deployments?)"
+    r"|search index volume|feature flag)",
+    re.IGNORECASE,
+)
 
 # reStructuredText that reno tolerates and the changelog page would render as
 # literal punctuation: directives, comments, roles, literal markup, code fences.
@@ -165,6 +212,7 @@ def load_notes_from_reno(repo_root: Path, relnotes_dir_name: str = "releasenotes
     from reno import loader as reno_loader
 
     conf = reno_config.Config(str(repo_root), relnotes_dir_name)
+    added = note_added_dates(repo_root, f"{relnotes_dir_name}/notes")
     notes: list[Note] = []
     with reno_loader.Loader(conf) as ldr:
         for version in ldr.versions:
@@ -181,7 +229,7 @@ def load_notes_from_reno(repo_root: Path, relnotes_dir_name: str = "releasenotes
                     Note(
                         filename=filename,
                         version=version,
-                        date=_note_date(repo_root, sha),
+                        date=added.get(Path(filename).name) or _note_date(repo_root, sha),
                         sections=sections,
                         prelude=body.get(PRELUDE_SECTION),
                     )
@@ -189,8 +237,47 @@ def load_notes_from_reno(repo_root: Path, relnotes_dir_name: str = "releasenotes
     return notes
 
 
+def note_added_dates(repo_root: Path, notes_path: str) -> dict[str, str]:
+    """The day each note file first entered history, keyed by its file name.
+
+    reno hands back the sha of a note's *latest* revision, so dating a note by
+    that sha moved it to the day somebody last corrected it: fixing a typo in an
+    August note republished it under this week. The first commit that added the
+    file is the day it shipped. Renames carry the original date over, because
+    reno treats a renamed note (same unique id) as the same note.
+    """
+    try:
+        out = subprocess.run(
+            ["git", "log", "--reverse", "-M", "--name-status", "--format=@%cI", "--", notes_path],
+            cwd=repo_root,
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout
+    except (subprocess.CalledProcessError, OSError):
+        return {}
+    return parse_added_dates(out)
+
+
+def parse_added_dates(log: str) -> dict[str, str]:
+    """Fold `git log --reverse --name-status --format=@%cI` output into first-add dates."""
+    added: dict[str, str] = {}
+    day = ""
+    for line in log.splitlines():
+        if line.startswith("@"):
+            day = line[1:11]
+            continue
+        parts = line.split("\t")
+        status = parts[0][:1]
+        if status == "A" and len(parts) == 2:
+            added.setdefault(Path(parts[1]).name, day)
+        elif status == "R" and len(parts) == 3:
+            added.setdefault(Path(parts[2]).name, added.get(Path(parts[1]).name, day))
+    return added
+
+
 def _note_date(repo_root: Path, sha: bytes | str | None) -> str | None:
-    """The day a note's commit landed — the grouping key while nothing is tagged.
+    """The day a commit landed: the fallback when a note's first add is unknown.
 
     `sha` is None for a note that is staged but not yet committed (reno reports
     those under a `*working-copy*` version), which is the normal state during a
@@ -216,50 +303,78 @@ def _note_date(repo_root: Path, sha: bytes | str | None) -> str | None:
 # ── Grouping ────────────────────────────────────────────────────────────────
 
 
-def group_notes(notes: list[Note], section_order: list[str]) -> list[dict[str, Any]]:
+def group_notes(
+    notes: list[Note],
+    section_order: list[str],
+    summaries: dict[str, str] | None = None,
+) -> list[dict[str, Any]]:
     """Group notes into the releases the page renders, newest first.
 
     Two shapes, because the repo has both futures in it:
 
     * a **version** group, once release tagging starts — reno hands us the tag
       and every note that shipped under it;
-    * a **date** group, which is what the repo produces today: nothing is
-      tagged, so reno files everything under one unreleased version and the day
-      a note merged is the only honest heading for it.
+    * a **week** group, which is what the repo produces today: nothing is
+      tagged, so reno files everything under one unreleased version. The repo
+      merges many times a day, and grouping by day gave the reader 29 headings in
+      six weeks, some holding one note and some fifty; an ISO week is the unit a
+      reader can take in.
+
+    Only sections in `section_order` survive, which is how the `operators`
+    section stays off the public page. A group's summary comes from
+    `summaries` (releasenotes/summaries.yaml, keyed by group id) and falls back
+    to a reno prelude.
     """
+    summaries = summaries or {}
     groups: dict[str, dict[str, Any]] = {}
     for note in notes:
-        released = _is_release_version(note.version)
-        if released:
-            group_id = note.version
-            key = ("1", note.version)
-        else:
-            group_id = note.date or "unreleased"
-            key = ("0", note.date or "9999-99-99")
-        group = groups.setdefault(
-            group_id,
-            {
-                "id": group_id,
-                "kind": "version" if released else "date",
-                "version": note.version if released else None,
-                "date": note.date,
-                "summary": None,
-                "sections": {},
-                "_sort": key,
-            },
-        )
+        if not any(section in section_order for section in note.sections) and not note.prelude:
+            continue
+        group = groups.setdefault(*_group_for(note))
         if note.prelude and not group["summary"]:
             group["summary"] = _clean(note.prelude)
         for section, entries in note.sections.items():
-            group["sections"].setdefault(section, []).extend(_clean(entry) for entry in entries)
+            if section in section_order:
+                group["sections"].setdefault(section, []).extend(_clean(entry) for entry in entries)
 
     ordered = sorted(groups.values(), key=lambda g: g["_sort"], reverse=True)
     for group in ordered:
         del group["_sort"]
+        if group["id"] in summaries:
+            group["summary"] = _clean(summaries[group["id"]])
         group["sections"] = [
             {"key": key, "notes": group["sections"][key]} for key in section_order if key in group["sections"]
         ]
-    return ordered
+    return [group for group in ordered if group["sections"] or group["summary"]]
+
+
+def _group_for(note: Note) -> tuple[str, dict[str, Any]]:
+    """The group id a note belongs to, and the empty group to start it with."""
+    if _is_release_version(note.version):
+        group_id, kind, start, end, sort = note.version, "version", note.date, None, ("1", note.version)
+    elif note.date:
+        group_id, start, end = week_of(note.date)
+        kind, sort = "week", ("0", start)
+    else:
+        group_id, kind, start, end, sort = "unreleased", "week", None, None, ("0", "9999-99-99")
+    return group_id, {
+        "id": group_id,
+        "kind": kind,
+        "version": note.version if kind == "version" else None,
+        "date": start,
+        "dateEnd": end,
+        "summary": None,
+        "sections": {},
+        "_sort": sort,
+    }
+
+
+def week_of(day: str) -> tuple[str, str, str]:
+    """`2026-09-26` -> (`2026-W39`, Monday `2026-09-21`, Sunday `2026-09-27`)."""
+    when = date.fromisoformat(day)
+    year, week, weekday = when.isocalendar()
+    monday = when - timedelta(days=weekday - 1)
+    return f"{year}-W{week:02d}", monday.isoformat(), (monday + timedelta(days=6)).isoformat()
 
 
 def _is_release_version(version: str) -> bool:
@@ -467,6 +582,7 @@ def build_changelog(
                 "kind": group["kind"],
                 "version": group["version"],
                 "date": group["date"],
+                "dateEnd": group.get("dateEnd"),
                 "summary": bilingual(group["summary"]) if group["summary"] else None,
                 "sections": [
                     {"key": section["key"], "notes": [bilingual(note) for note in section["notes"]]}
@@ -487,68 +603,159 @@ def dump_json(data: dict[str, Any]) -> str:
 
 
 def lint_note(filename: str, raw: str, valid_sections: set[str]) -> list[str]:
-    """House-rule violations in one note file, as reader-facing messages."""
-    problems: list[str] = []
+    """House-rule violations in one note file, each with the fix spelled out."""
     try:
         content = yaml.safe_load(raw)
     except yaml.YAMLError as exc:
-        return [f"{filename}: not valid YAML — {exc}"]
-
+        return [f"{filename}: not valid YAML ({exc}). Fix: compare it with the template `task release:note` writes."]
     if not isinstance(content, dict):
-        return [f"{filename}: the file must be a YAML mapping of section -> entries."]
+        return [f"{filename}: the file must be a YAML mapping of section -> list of entries."]
     if not content:
-        return [f"{filename}: the file is empty — delete it or write the note."]
+        return [f"{filename}: the file is empty. Fix: write the note, or delete the file."]
 
+    problems: list[str] = []
     for section, body in content.items():
-        if section == PRELUDE_SECTION:
-            entries = [body] if isinstance(body, str) else []
-            if not entries:
-                problems.append(f"{filename}: `{PRELUDE_SECTION}` must be a single block of text.")
-        elif section not in valid_sections:
-            allowed = ", ".join(sorted(valid_sections))
-            problems.append(f"{filename}: unknown section `{section}`. Allowed: {allowed}.")
+        entries, problem = _section_entries(section, body, valid_sections)
+        if problem:
+            problems.append(f"{filename}: {problem}")
             continue
-        elif isinstance(body, list):
-            entries = body
-        else:
-            problems.append(f"{filename}: section `{section}` must be a list of entries.")
-            continue
-
-        if not entries:
-            problems.append(f"{filename}: section `{section}` is empty — delete the section.")
         for entry in entries:
             if not isinstance(entry, str):
-                problems.append(f"{filename}: section `{section}` has a non-text entry.")
+                problems.append(f"{filename}: section `{section}` has an entry that is not text.")
                 continue
-            problems.extend(f"{filename} ({section}): {issue}" for issue in lint_text(entry))
+            public = section not in INTERNAL_SECTIONS
+            limit = MAX_SENTENCES if public else OPERATOR_MAX_SENTENCES
+            issues = lint_text(entry, public=public, max_sentences=limit)
+            problems.extend(f"{filename} ({section}): {issue}" for issue in issues)
     return problems
 
 
-def lint_text(entry: str) -> list[str]:
-    """The published-prose rules, applied to one entry."""
+def _section_entries(section: str, body: Any, valid_sections: set[str]) -> tuple[list[Any], str | None]:
+    """A section's entries, or the structural problem that stops them being read."""
+    if section == PRELUDE_SECTION:
+        if isinstance(body, str):
+            return [body], None
+        return [], f"`{PRELUDE_SECTION}` must be one block of text, not a list."
+    if section not in valid_sections:
+        allowed = ", ".join(sorted(valid_sections))
+        return [], f"unknown section `{section}`. Fix: use one of {allowed}."
+    if not isinstance(body, list):
+        return [], f"section `{section}` must be a list of entries (`- >` before each one)."
+    if not body:
+        return [], f"section `{section}` is empty. Fix: delete the section."
+    return body, None
+
+
+def lint_text(
+    entry: str,
+    *,
+    public: bool = True,
+    max_length: int = MAX_LENGTH,
+    max_sentences: int = MAX_SENTENCES,
+) -> list[str]:
+    """The published-prose rules, applied to one entry. Every message names the fix."""
     text = _clean(entry)
-    issues: list[str] = []
     if not text:
-        issues.append("the entry is blank.")
-        return issues
+        return ["the entry is blank. Fix: write it, or delete the entry."]
     lowered = text.lower()
-    for marker in TEMPLATE_MARKERS:
-        if marker in lowered:
-            issues.append("the entry still contains the `reno new` template text.")
-            return issues
+    if any(marker in lowered for marker in TEMPLATE_MARKERS):
+        return ["the entry still holds the `reno new` template text. Fix: replace it with your note."]
+
+    issues: list[str] = []
+    if looks_german(text):
+        issues.append(
+            "reads as German. Fix: write the note in English; the German page is translated from it. "
+            "German you already wrote is not lost: once the English is final, put the pair into "
+            "releasenotes/translations/de.json as the `de` side of your English sentence."
+        )
+    if public and OPERATOR_PATTERNS.search(text):
+        issues.append(
+            "reads as a note for the people who run the platform. Fix: move it to the `operators` "
+            "section, which stays off the public changelog; or rewrite it for the architect using Piloti."
+        )
     if len(text) < MIN_LENGTH:
-        issues.append(f"too short ({len(text)} chars) to mean anything to a reader — write a sentence.")
-    if len(text) > MAX_LENGTH:
-        issues.append(f"too long ({len(text)} chars, limit {MAX_LENGTH}) — the changelog is not a design doc.")
+        issues.append(f"too short ({len(text)} chars) to mean anything to a reader. Fix: say what changed for them.")
+    if len(text) > max_length:
+        issues.append(
+            f"too long ({len(text)} chars, limit {max_length}). Fix: keep what changed for the reader; "
+            "the mechanism belongs in the PR description."
+        )
+    count = sentence_count(text)
+    if count > max_sentences:
+        issues.append(
+            f"{count} sentences, limit {max_sentences}. Fix: one sentence for what changed, one for why "
+            "it matters; split an unrelated change into its own entry."
+        )
     if text[-1] not in ".!?":
-        issues.append("write full sentences — the entry does not end with punctuation.")
+        issues.append("does not end with punctuation. Fix: write it as a full sentence.")
     for pattern, label in RST_PATTERNS:
         if pattern.search(entry):
-            issues.append(f"contains a {label}; the changelog is published as plain text.")
+            issues.append(f"contains a {label}. Fix: remove the markup; the changelog renders plain text.")
     for pattern, label in INTERNAL_PATTERNS:
         if pattern.search(text):
-            issues.append(f"mentions a {label}; write it for a customer, not for a reviewer.")
+            issues.append(f"mentions a {label}. Fix: describe the effect on the reader, not the change to the code.")
     return issues
+
+
+def _unquoted(text: str) -> str:
+    """The text with quoted labels removed: „Von Piloti erstellt" is a UI string, not prose."""
+    return QUOTED.sub("X", text)
+
+
+def looks_german(text: str) -> bool:
+    """True when the prose outside quotation marks is German rather than English."""
+    words = re.findall(r"[a-zäöüß]+", _unquoted(text).lower())
+    german = sum(word in GERMAN_FUNCTION_WORDS for word in words)
+    english = sum(word in ENGLISH_FUNCTION_WORDS for word in words)
+    return german >= 2 and german > english
+
+
+# A sentence ends at . ! ? or … followed by a space and a capital letter or an
+# opening quote. A digit does not start a sentence, so "Pkt. 3.5.2" and "S. 7"
+# stay one; neither does a lower-case word, so "e.g. a plan" stays one.
+_SENTENCE_END = re.compile(r"[.!?…](?=\s+[„“\"'(]?[A-ZÄÖÜ])")
+
+
+def sentence_count(text: str) -> int:
+    """How many sentences a reader sees in the entry, quoted labels not counted."""
+    return len(_SENTENCE_END.findall(_unquoted(text))) + 1
+
+
+SUMMARY_KEY = re.compile(r"^(\d{4}-W\d{2}|\d+\.\d+\.\d+)$")
+
+
+def lint_summaries(raw: str) -> list[str]:
+    """The rules for releasenotes/summaries.yaml: known group ids, and short English prose."""
+    try:
+        content = yaml.safe_load(raw) or {}
+    except yaml.YAMLError as exc:
+        return [f"summaries.yaml: not valid YAML ({exc})."]
+    if not isinstance(content, dict):
+        return ["summaries.yaml: must be a mapping of week (2026-W39) or version (1.2.0) -> summary."]
+    problems: list[str] = []
+    for key, body in content.items():
+        if not SUMMARY_KEY.match(str(key)):
+            problems.append(f"summaries.yaml: `{key}` is not a week like 2026-W39 or a version like 1.2.0.")
+            continue
+        if not isinstance(body, str):
+            problems.append(f"summaries.yaml ({key}): the summary must be one block of text.")
+            continue
+        issues = lint_text(body, max_length=SUMMARY_MAX_LENGTH, max_sentences=SUMMARY_MAX_SENTENCES)
+        problems.extend(f"summaries.yaml ({key}): {issue}" for issue in issues)
+    return problems
+
+
+def load_summaries(path: Path) -> dict[str, str]:
+    """The editorial summary of each week or version, keyed by its group id."""
+    if not path.exists():
+        return {}
+    content = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    return {str(key): value for key, value in content.items() if isinstance(value, str)}
+
+
+def public_sections(sections: list[tuple[str, str]]) -> list[tuple[str, str]]:
+    """The configured sections the changelog shows: all but the internal ones."""
+    return [(key, title) for key, title in sections if key not in INTERNAL_SECTIONS]
 
 
 def cmd_lint(args: argparse.Namespace) -> int:
@@ -559,14 +766,17 @@ def cmd_lint(args: argparse.Namespace) -> int:
     problems: list[str] = []
     for path in files:
         problems.extend(lint_note(path.name, path.read_text(encoding="utf-8"), valid_sections))
+    summaries = Path(args.summaries)
+    if summaries.exists():
+        problems.extend(lint_summaries(summaries.read_text(encoding="utf-8")))
 
     if problems:
         print(f"\nRelease-note lint failed ({len(problems)}):\n", file=sys.stderr)
         for problem in problems:
             print(f"  ✗ {problem}", file=sys.stderr)
         print(
-            "\nNotes are published to https://piloti.at/changelog. Write plain sentences\n"
-            "for the architect using Piloti — see docs/contributing/release-notes.md.\n",
+            "\nNotes are published to https://piloti.at/changelog, for the architect using\n"
+            "Piloti. Good and bad examples: docs/contributing/release-notes.md.\n",
             file=sys.stderr,
         )
         return 1
@@ -579,9 +789,10 @@ def cmd_lint(args: argparse.Namespace) -> int:
 
 def cmd_publish(args: argparse.Namespace) -> int:
     repo_root = Path(args.repo_root)
-    sections = read_config_sections(repo_root / "releasenotes" / "config.yaml")
+    sections = public_sections(read_config_sections(repo_root / "releasenotes" / "config.yaml"))
     notes = load_notes_from_reno(repo_root)
-    groups = group_notes(notes, [key for key, _ in sections])
+    summaries = load_summaries(Path(args.summaries))
+    groups = group_notes(notes, [key for key, _ in sections], summaries)
 
     strings = collect_strings(groups)
     translations_path = Path(args.translations)
@@ -625,12 +836,14 @@ def main(argv: list[str] | None = None) -> int:
     lint = sub.add_parser("lint", help="check the notes against the house rules")
     lint.add_argument("--notes-dir", default=str(NOTES_DIR))
     lint.add_argument("--config", default=str(RELNOTES_DIR / "config.yaml"))
+    lint.add_argument("--summaries", default=str(SUMMARIES_FILE))
     lint.set_defaults(func=cmd_lint)
 
     publish = sub.add_parser("publish", help="regenerate the changelog artifact for the website")
     publish.add_argument("--repo-root", default=str(REPO_ROOT))
     publish.add_argument("--output", default=str(CHANGELOG_FILE))
     publish.add_argument("--translations", default=str(TRANSLATIONS_FILE))
+    publish.add_argument("--summaries", default=str(SUMMARIES_FILE))
     publish.add_argument(
         "--no-translate",
         action="store_true",
