@@ -83,11 +83,11 @@ class TestPathMatching:
         assert _path_is_enforced("/v1/jobs/async/submit", ENFORCED_HTTP_PATH_PREFIXES)
 
     def test_sub_path_match(self):
-        assert _path_is_enforced("/generate/stream", ENFORCED_HTTP_PATH_PREFIXES)
+        assert _path_is_enforced("/v1/jobs/async/submit/x", ENFORCED_HTTP_PATH_PREFIXES)
 
     def test_unrelated_path_not_prefix_polluted(self):
-        # "/generate-report" must NOT match the "/generate" prefix.
-        assert not _path_is_enforced("/generate-report", ENFORCED_HTTP_PATH_PREFIXES)
+        # "/v1/jobs/async/submitted" must NOT match the "/v1/jobs/async/submit" prefix.
+        assert not _path_is_enforced("/v1/jobs/async/submitted", ENFORCED_HTTP_PATH_PREFIXES)
 
     def test_websocket_prefix(self):
         assert _path_is_enforced("/websocket", ENFORCED_WEBSOCKET_PATH_PREFIXES)

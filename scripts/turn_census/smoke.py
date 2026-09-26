@@ -157,7 +157,7 @@ def _content_failures(answer: str, question: str) -> list[str]:
 
 
 async def _run(server: served.Server, question: str) -> tuple[served.Turn, served.Turn]:
-    answered = await served.ask(server, question)
+    answered = await served.ask(server.socket_url, question)
     after_cancel = await served.ask_and_interrupt(server, question, FOLLOW_UP)
     return answered, after_cancel
 

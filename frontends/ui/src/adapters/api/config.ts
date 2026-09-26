@@ -7,8 +7,6 @@
 
 interface ApiConfig {
   baseUrl: string
-  chatStreamUrl: string
-  generateStreamUrl: string
   websocketUrl: string
   healthUrl: string
   timeout: number
@@ -41,8 +39,6 @@ export const getWebSocketUrl = async (): Promise<string> => {
 
 export const apiConfig: ApiConfig = {
   baseUrl: getBaseUrl(),
-  chatStreamUrl: `${getBaseUrl()}/chat/stream`,
-  generateStreamUrl: `${getBaseUrl()}/generate/stream`,
   websocketUrl: `${getBaseUrl().replace(/^http/, 'ws')}/websocket`,
   healthUrl: `${getBaseUrl()}/health`,
   timeout: 30000,
