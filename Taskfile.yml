@@ -359,6 +359,41 @@ tasks:
       - npm ci
       - npm run build
 
+  # ── riso art (frontends/web/art/riso — procedural prints for the site) ──────
+  # The raw commands are `node art/riso/<script>.mjs` in frontends/web; every
+  # task below is one of them. The workflow and the series rules are the
+  # aiq-piloti-riso skill and frontends/web/art/riso/README.md.
+
+  art:setup:
+    desc: Clone the pinned riso-windowseat kit into the user cache and find a browser (idempotent)
+    dir: '{{.WEB}}'
+    cmds:
+      - node art/riso/setup.mjs {{.CLI_ARGS}}
+
+  art:new:
+    desc: 'Scaffold a riso work from the template: task art:new -- <work> [--title "Title"]'
+    dir: '{{.WEB}}'
+    cmds:
+      - node art/riso/new.mjs {{.CLI_ARGS}}
+
+  art:export:
+    desc: 'Export riso works to public/art/ and art/riso/out/, then rewrite src/data/art.json: task art:export -- [--work w] [--only ids]'
+    dir: '{{.WEB}}'
+    cmds:
+      - node art/riso/export.mjs {{.CLI_ARGS}}
+
+  art:verify:
+    desc: The kit's determinism check on every riso job, in both engines (minutes; not in web:check)
+    dir: '{{.WEB}}'
+    cmds:
+      - node art/riso/verify.mjs {{.CLI_ARGS}}
+
+  art:check:
+    desc: The fast riso gate (manifest, files, sizes, alt text, ids in src/); also part of web:check
+    dir: '{{.WEB}}'
+    cmds:
+      - node art/riso/check.mjs
+
   # ── backend (src/, sources/, frontends/aiq_api) ─────────────────────────────
 
   be:lint:
