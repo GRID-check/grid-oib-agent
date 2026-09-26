@@ -12,6 +12,10 @@
  * Without `after`, it returns every frame the stream still holds: the reload
  * case, where the page lost its place along with its memory.
  *
+ * `?peek=1` answers `{ available, newest, now }` instead: the newest frame's
+ * id and the server's clock, so a client whose socket is gone can tell a turn
+ * still working (a heartbeat every 20 s) from one that has ended.
+ *
  * `{ frames: null }` means there is nothing to resume from (no shared cache, or
  * the read failed). The client then asks for the finished answer instead, as it
  * did before this route existed.
@@ -21,7 +25,10 @@ import { NextResponse } from 'next/server'
 import { apiRoute } from '@/lib/api/handler'
 import { requireConversationSpectator } from '@/lib/conversations/live'
 import { FRAME_ID_PATTERN } from '@/lib/conversations/frame-id'
-import { readConversationFramesAfter } from '@/lib/events/conversation-frames'
+import {
+  peekNewestConversationFrame,
+  readConversationFramesAfter,
+} from '@/lib/events/conversation-frames'
 
 type Params = { id: string }
 
@@ -33,7 +40,20 @@ export const GET = apiRoute<Params>(
     // see: the frames are the thread's answers, and the bar is reading it.
     await requireConversationSpectator(session, params.id)
 
-    const after = new URL(request.url).searchParams.get('after')
+    const search = new URL(request.url).searchParams
+    // `?peek=1`: only the newest frame's id and the server's clock, so a
+    // client can ask whether a turn is still producing frames without reading
+    // them. `newest: undefined` (no stream to read) is sent as `null` with
+    // `available: false`.
+    if (search.get('peek') === '1') {
+      const newest = await peekNewestConversationFrame(params.id)
+      return NextResponse.json(
+        { available: newest !== undefined, newest: newest ?? null, now: Date.now() },
+        { headers: { 'Cache-Control': 'no-store' } }
+      )
+    }
+
+    const after = search.get('after')
     if (after !== null && !FRAME_ID_PATTERN.test(after)) {
       return NextResponse.json({ error: 'after must be a frame id' }, { status: 400 })
     }

@@ -22,6 +22,7 @@
  * recipient's inbox all read the same rows, so they cannot disagree (ADR-0034).
  */
 
+import type { JSX } from 'react'
 import { useState } from 'react'
 import { Clock, CornerUpLeft, Hand } from 'lucide-react'
 

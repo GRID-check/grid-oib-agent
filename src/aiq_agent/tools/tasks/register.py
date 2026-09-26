@@ -37,8 +37,8 @@ SAY it created one, in one sentence, and never to claim the work is done.
 ## Why the kinds are closed
 
 Four members, mirrored from `DELEGATABLE_TASK_KINDS` on the BFF side, because
-each one names an ENGINE that already exists — the compliance checker, the
-Einreichcheck skill, the drafting tools, the revision path. An open `kind` string
+each one names an ENGINE that already exists — a norm check by the general
+agent, the Einreichcheck skill, the drafting tools, the revision path. An open `kind` string
 would let the model delegate „Kostenschätzung" to a queue that has nothing to run
 it with, and the failure would arrive hours later as a task that did nothing.
 """

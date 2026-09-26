@@ -381,6 +381,13 @@ export interface ChatMessage {
   /** Narration shown when the turn escalated shallow→deep this turn. */
   escalationReason?: string
   /**
+   * How long the answer took, from the question being sent to the answer
+   * being final, in milliseconds. Measured by the browser that asked; absent
+   * on turns it did not see start (a reload mid-turn, a colleague's question,
+   * a row the backend wrote).
+   */
+  answerDurationMs?: number
+  /**
    * Citation-verification result: how many citations were removed as
    * unverifiable, with de-duplicated reasons. Renders a muted note under the
    * sources row when present.
@@ -797,6 +804,8 @@ export interface ChatState {
    * only the turn, can find the message it belongs to. Null between turns.
    */
   currentTurnWsParentId: string | null
+  /** When this browser sent the current turn's question (epoch ms); null when it did not. */
+  currentTurnStartedAt: number | null
   /** Thinking steps for the Details Panel - Thinking tab */
   thinkingSteps: ThinkingStep[]
   /** ID of the currently active thinking step (for appending content) */
@@ -1118,8 +1127,15 @@ export interface ChatActions {
    */
   _recoverInterruptedAssistantMessage: (
     conversationId: string,
-    afterUserMessageId: string
+    afterUserMessageId: string,
+    options?: { quiet?: boolean }
   ) => Promise<RecoveryOutcome>
+  /**
+   * Wait for the server's finished answer to a turn this page lost track of,
+   * for as long as the turn is still producing frames (its heartbeat), then
+   * look once more. `nothing` only when the turn has ended without one.
+   */
+  _awaitServerAnswer: (conversationId: string, afterUserMessageId: string) => Promise<RecoveryOutcome>
 
   // Session busy checks (for disabling UI controls)
 

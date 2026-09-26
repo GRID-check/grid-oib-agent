@@ -126,7 +126,7 @@ DeepSeek's `max`, which OpenRouter rejects) into a request. Parity is pinned by
 `tests/fixtures/reasoning_efforts_catalog.json` from both languages.
 
 Applied at the same two seams as the model. Every user-facing agent (chat,
-the clarifier agent, deep research, the compliance check) resolves its LLMs
+the clarifier agent, deep research) resolves its LLMs
 through `LLMProvider`, so the effort has its own provider method,
 `with_reasoning_efforts(get_reasoning_efforts())`, chained right after
 `with_model_overrides` in each `_active_provider`/`_agent_for_request`, and in
@@ -174,7 +174,6 @@ capability requirements) mirrored by `AgentGroup` in
 | `memory_reflection` | `memory_reflection_llm` (= `card_llm` in the reference config) | text input, ≥32k |
 | `follow_ups` | `follow_ups_llm` | text input, ≥32k, reasoning off |
 | `ingest_vlm` | the ingestion VLM (image captioning + rendered-drawing description) | **image input** (`requiresImageInput`) — vision models only |
-| `compliance_check` | `compliance_llm` | text input, ≥32k |
 
 The id `shallow_research` is a PERSISTED KEY and is deliberately not
 renamed. The chat agent it covers is now called Piloti — the

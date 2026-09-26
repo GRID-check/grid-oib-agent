@@ -30,6 +30,7 @@
  * entered directly — so this control always points somewhere.
  */
 
+import type { JSX } from 'react'
 import { useEffect, useState, type MouseEvent } from 'react'
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'

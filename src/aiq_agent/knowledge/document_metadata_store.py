@@ -47,12 +47,20 @@ _LEGACY_INDEX_NAME = "idx_summaries_collection"
 #: Optional (nullable) columns added after the original schema shipped. Kept as a
 #: single list so both the fresh-create path and the in-place backfill add the
 #: exact same set — a new column is introduced by appending one entry here.
-_OPTIONAL_COLUMNS: tuple[str, ...] = ("tags", "doc_class", "display_title", "folder_path", "provenance")
+_OPTIONAL_COLUMNS: tuple[str, ...] = (
+    "tags",
+    "doc_class",
+    "display_title",
+    "folder_path",
+    "provenance",
+    "doc_class_suggestion",
+)
 
 # Every raw-SQL statement in this module interpolates ONLY trusted, code-defined
 # SQL identifiers: the table/index name constants above, and column names drawn
 # from a fixed allowlist (``_OPTIONAL_COLUMNS`` plus the literal
-# ``"tags"``/``"doc_class"``/``"display_title"``/``"folder_path"``/``"provenance"``
+# ``"tags"``/``"doc_class"``/``"display_title"``/``"folder_path"``/``"provenance"``/
+# ``"doc_class_suggestion"``
 # passed by the typed accessors).
 # SQL identifiers cannot be bound parameters, so they must live in the statement
 # text. Every caller-supplied *value* (collection, filename, summary, tags,
@@ -382,6 +390,19 @@ class DocumentMetadataStore:
     def get_doc_classes_batch(self, collection: str, filenames: list[str]) -> dict[str, str]:
         """Return stored explicit ``doc_class`` values for many documents in one query."""
         return self._get_column_batch(collection, filenames, "doc_class")
+
+    def set_doc_class_suggestion(self, collection: str, filename: str, doc_class: str | None) -> bool:
+        """Store (or clear, with ``None``) the decided Dokumentart a human has not confirmed.
+
+        A suggestion, never the class: nothing reads it but the base-knowledge
+        page, which offers it to the platform owner. Same UPDATE-only contract
+        as :meth:`set_doc_class`.
+        """
+        return self._update_column(collection, filename, "doc_class_suggestion", doc_class)
+
+    def get_doc_class_suggestions_batch(self, collection: str, filenames: list[str]) -> dict[str, str]:
+        """Stored Dokumentart suggestions for many documents in one query."""
+        return self._get_column_batch(collection, filenames, "doc_class_suggestion")
 
     def set_display_title(self, collection: str, filename: str, display_title: str | None) -> bool:
         """Replace only the ``display_title`` of an existing metadata row (sync).

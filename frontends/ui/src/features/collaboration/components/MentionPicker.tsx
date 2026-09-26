@@ -25,6 +25,7 @@
  *    colleague reads as a bug; the row says who they are and why it is inert.
  */
 
+import type { JSX } from 'react'
 import {
   forwardRef,
   useCallback,

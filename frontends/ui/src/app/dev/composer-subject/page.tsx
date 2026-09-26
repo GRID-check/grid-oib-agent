@@ -6,6 +6,7 @@
  * (title, filename, shelf), so the status lookup never fires.
  */
 
+import type { JSX } from 'react'
 import { I18nProvider } from '@/i18n'
 import { ComposerSubjectBar } from '@/features/documents/components/composer-subject-bar'
 

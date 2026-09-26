@@ -12,6 +12,7 @@
  * Not linked from anywhere and 404s outside development.
  */
 
+import type { JSX } from 'react'
 import { useEffect } from 'react'
 import { notFound } from 'next/navigation'
 import { PlatformRetrievalSettings } from '@/app/app/(shell)/platform/retrieval/platform-retrieval-settings'

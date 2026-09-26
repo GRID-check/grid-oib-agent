@@ -26,6 +26,7 @@
  * can render it from data it already has instead of opening a request per row.
  */
 
+import type { JSX } from 'react'
 import { Building2, Lock, Share2, Users } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 

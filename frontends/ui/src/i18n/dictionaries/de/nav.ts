@@ -72,5 +72,6 @@ export const nav: typeof en.nav = {
     organization: 'Organisation',
     platform: 'Plattform',
     settings: 'Einstellungen',
+    productTour: 'Produkttour',
   },
 }

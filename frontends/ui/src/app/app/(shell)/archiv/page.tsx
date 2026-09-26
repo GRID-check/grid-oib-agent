@@ -8,6 +8,7 @@
  * closing it lands on the projects home.
  */
 
+import type { JSX } from 'react'
 import { type Metadata } from 'next'
 import { getTranslations } from '@/i18n/server'
 import { ArchivSheet } from './archiv-sheet'

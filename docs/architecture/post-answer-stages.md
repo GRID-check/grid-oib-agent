@@ -247,6 +247,11 @@ The agent tier's only handle on the turn is the third one — NAT stores it as
 > one idempotency key and silence every turn after the first, so the accessor maps
 > it (and the CLI/REST paths, where it is absent) to `None`, and the runner skips
 > the guard when there is no key.
+> **Since 2026-09 this section describes the past.** The browser now uses the
+> backend's id for the answer (`turnAnswerId`, the same `uuid5`), and the backend
+> persists every finished answer, socket or not. The analysis below is kept for
+> the decisions it led to.
+
 When the client is gone, the backend persists the answer under
 `uuid5(NAMESPACE_URL, f"grid:assistant:{conversation_id}:{parent_id}")`
 (`websocket_reconnect.py:459-468`) — **a different id from the one the browser

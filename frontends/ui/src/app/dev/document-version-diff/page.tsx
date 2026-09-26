@@ -26,6 +26,7 @@
  * copy. 404s outside development.
  */
 
+import type { JSX } from 'react'
 import { notFound } from 'next/navigation'
 import { I18nProvider } from '@/i18n'
 import { DocumentVersionDiff } from '@/features/documents/components/document-version-diff'

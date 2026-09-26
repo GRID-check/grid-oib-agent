@@ -54,6 +54,12 @@ TOOLS = [ifc_measure, ris_search]
 ON = DeferredToolLoadingSettings(enabled=True)
 
 
+def measured(*model_ids: str) -> None:
+    """The probe measured a saving for these models, which is what lets a listed model defer."""
+    for model_id in model_ids:
+        record_model_verdict(model_id, True, source="test: probe measured the saving")
+
+
 class FakeOpenRouterLLM:
     """A ChatOpenAI stand-in on OpenRouter's Responses API.
 
@@ -277,6 +283,7 @@ def test_a_chat_completions_llm_falls_back_to_the_full_tool_set():
 
 def test_an_enabled_openrouter_llm_gets_the_deferred_payload():
     llm = FakeOpenRouterLLM()
+    measured(llm.model_name)
     bound = bind_tools_deferred(llm, TOOLS, settings=ON, parallel_tool_calls=True)
     assert isinstance(bound, DeferredToolBinding)
     assert [t["type"] for t in llm.bound["tools"]] == ["tool_search", "namespace"]
@@ -288,6 +295,7 @@ def test_an_enabled_openrouter_llm_gets_the_deferred_payload():
 
 def test_a_payload_that_would_not_defer_falls_back_instead_of_raising(caplog):
     llm = FakeOpenRouterLLM()
+    measured(llm.model_name)
     llm._get_request_payload = lambda *a, **k: {"model": "m", "tools": [{"type": "function", "name": "x"}]}
     with caplog.at_level(logging.ERROR):
         bound = bind_tools_deferred(llm, TOOLS, settings=ON, parallel_tool_calls=True)
@@ -452,9 +460,29 @@ def _bind(llm, settings=None):
     return bind_tools_deferred(llm, TOOLS, settings=settings or ON)
 
 
-def test_an_allowlisted_model_gets_the_deferred_payload():
+def test_an_allowlisted_model_binds_full_schemas_until_its_saving_is_measured():
+    # The allowlist records an echo, not a saving: on 2026-09-23 every model
+    # measured echoed `defer_loading` and billed the schemas in full. Deferring
+    # on the echo alone sent the tool_search payload to production for nothing
+    # (and filed #635 forty times from NAT's trace callback, which cannot parse
+    # it). Until the probe measures a saving, the allowed model binds full
+    # schemas, which is always correct.
     llm = FakeOpenRouterLLM(model_name="openai/gpt-5.6-luna")
+    bound = _bind(llm)
+    assert not isinstance(bound, DeferredToolBinding)
+    assert llm.bound is None
+
+
+def test_an_allowlisted_model_defers_once_the_probe_measured_its_saving():
+    llm = FakeOpenRouterLLM(model_name="openai/gpt-5.6-luna")
+    measured("openai/gpt-5.6-luna")
     assert isinstance(_bind(llm), DeferredToolBinding)
+
+
+def test_with_probing_off_the_allowlist_alone_decides():
+    # The operator's explicit trade: no request-time probes, the echo trusted.
+    trusting = DeferredToolLoadingSettings(enabled=True, models=DeferredToolLoadingModels(probe_unknown=False))
+    assert model_supports_deferred_tool_loading(FakeOpenRouterLLM(model_name="openai/gpt-5.6-luna"), trusting) is True
 
 
 def test_an_unlisted_model_does_not_get_a_deferred_payload():
@@ -481,6 +509,7 @@ def test_the_gate_is_per_model_id_not_per_vendor_prefix():
     # Anthropic ships its own tool search, so Claude carries the shape while an
     # OpenAI model does not. A vendor-prefix allowlist would get BOTH wrong, in
     # opposite directions — this is the assertion that forbids one.
+    measured("anthropic/claude-opus-5", "openai/gpt-5.6-sol")
     assert model_supports_deferred_tool_loading(FakeOpenRouterLLM(model_name="anthropic/claude-opus-5"), ON) is True
     assert model_supports_deferred_tool_loading(FakeOpenRouterLLM(model_name="openai/gpt-4o-mini"), ON) is False
     # ...and from the other side: openai/* is on the allowlist too, so neither
@@ -506,6 +535,7 @@ def test_an_explicit_glob_admits_a_family_when_the_operator_asks_for_one():
     settings = DeferredToolLoadingSettings(
         enabled=True, models=DeferredToolLoadingModels(allow=["openai/gpt-5.6-*"], deny=[])
     )
+    measured("openai/gpt-5.6-terra")
     assert model_supports_deferred_tool_loading(FakeOpenRouterLLM(model_name="openai/gpt-5.6-terra"), settings) is True
 
 
@@ -540,6 +570,7 @@ def test_lowering_the_threshold_admits_exactly_those_models():
             allow=[*KNOWN_DEFERRING_MODELS, "anthropic/claude-sonnet-4.6", "minimax/minimax-m3"]
         ),
     )
+    measured("anthropic/claude-sonnet-4.6", "minimax/minimax-m3")
     for model in ("anthropic/claude-sonnet-4.6", "minimax/minimax-m3"):
         assert model_supports_deferred_tool_loading(FakeOpenRouterLLM(model_name=model), lowered) is True
 
@@ -554,6 +585,7 @@ def test_the_floor_is_per_settings_object_not_global():
         models=DeferredToolLoadingModels(allow=["anthropic/claude-sonnet-4.6"]),
     )
     lenient = strict.model_copy(update={"min_intelligence_index": 45})
+    measured("anthropic/claude-sonnet-4.6")
     llm = FakeOpenRouterLLM(model_name="anthropic/claude-sonnet-4.6")
     assert model_supports_deferred_tool_loading(llm, strict) is False
     assert model_supports_deferred_tool_loading(llm, lenient) is True
@@ -573,6 +605,7 @@ def test_a_zero_floor_disables_the_check_and_gates_on_capability_alone():
     settings = DeferredToolLoadingSettings(
         enabled=True, min_intelligence_index=0, models=DeferredToolLoadingModels(allow=["mystery/unscored-model"])
     )
+    measured("mystery/unscored-model")
     assert (
         model_supports_deferred_tool_loading(FakeOpenRouterLLM(model_name="mystery/unscored-model"), settings) is True
     )
@@ -585,6 +618,7 @@ def test_a_score_the_operator_supplies_overrides_the_pinned_table():
             allow=["anthropic/claude-sonnet-4.6"], intelligence_index={"anthropic/claude-sonnet-4.6": 99.0}
         ),
     )
+    measured("anthropic/claude-sonnet-4.6")
     assert (
         model_supports_deferred_tool_loading(FakeOpenRouterLLM(model_name="anthropic/claude-sonnet-4.6"), settings)
         is True
@@ -623,13 +657,14 @@ def test_a_provisional_model_is_deferred_to_before_anyone_has_verified_it():
     assert isinstance(_bind(llm), DeferredToolBinding)
 
 
-def test_a_provisional_model_yields_to_a_negative_verdict_but_an_allowed_one_does_not():
-    # This is the whole difference between the two tiers. `allow` asserts a
-    # measurement and outranks observation; `provisional` states an intent.
+def test_both_listed_tiers_yield_to_a_negative_verdict():
+    # `allow` records an echo, which is not a measurement of the saving, so it
+    # no longer outranks one. The tiers differ before any verdict: a
+    # `provisional` model is tried live, an `allow` one waits for the probe.
     record_model_verdict("meta/muse-spark-1.1", False, source="test")
     record_model_verdict("openai/gpt-5.6-luna", False, source="test")
     assert model_supports_deferred_tool_loading(FakeOpenRouterLLM(model_name="meta/muse-spark-1.1"), ON) is False
-    assert model_supports_deferred_tool_loading(FakeOpenRouterLLM(model_name="openai/gpt-5.6-luna"), ON) is True
+    assert model_supports_deferred_tool_loading(FakeOpenRouterLLM(model_name="openai/gpt-5.6-luna"), ON) is False
 
 
 # ------------------------------------------------------------ probe and cache

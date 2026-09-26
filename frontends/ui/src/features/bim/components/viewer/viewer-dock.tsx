@@ -22,6 +22,7 @@
  * orbits the building.
  */
 
+import type { JSX } from 'react'
 import { type ReactNode } from 'react'
 import { cn } from '@/lib/utils'
 import { ViewerSurface } from './viewer-surface'

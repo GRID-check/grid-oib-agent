@@ -34,6 +34,7 @@
  * is the token to type and the sentence that says when to type it.
  */
 
+import type { JSX } from 'react'
 import {
   forwardRef,
   useCallback,

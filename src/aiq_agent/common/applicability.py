@@ -4,7 +4,7 @@ Small, hand-written orientation logic (successor of the data-driven applicabilit
 DSL, which was reduced away together with the parity codegen). Two consumers keep
 in step by construction, not by generated parity fixtures:
 
-* this module — compliance scoping + the German prompt block, and
+* this module — the German prompt block, and
 * ``frontends/ui/src/lib/oib/applicable-standards.ts`` — the Overview UI.
 
 Both encode the same hand-written verdicts (OIB 1/2/3 near-universal, 4/5 always

@@ -24,6 +24,7 @@
  * organization's decision, and it is not shown as though it were.
  */
 
+import type { JSX } from 'react'
 import { useState } from 'react'
 import { BookOpen, ChevronDown } from 'lucide-react'
 import { toast } from 'sonner'

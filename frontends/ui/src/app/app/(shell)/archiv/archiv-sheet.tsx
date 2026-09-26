@@ -16,6 +16,7 @@
  * instead and the workspace's header is the sheet's one header.
  */
 
+import type { JSX } from 'react'
 import { notFound } from 'next/navigation'
 import { withPageSession } from '@/lib/auth/require-auth'
 import { canManageArchiv } from '@/lib/authz/organizations'

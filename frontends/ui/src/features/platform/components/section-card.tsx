@@ -13,6 +13,7 @@
  * Nothing here knows anything about a specific domain.
  */
 
+import type { JSX } from 'react'
 import { type ReactNode } from 'react'
 import { AlertTriangle, RefreshCw, type LucideIcon } from 'lucide-react'
 import { Button } from '@/components/ui/button'

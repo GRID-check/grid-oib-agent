@@ -972,6 +972,7 @@ describe('useWebSocketChat', () => {
       mockStoreState = {
         ...mockStoreState,
         _recoverInterruptedAssistantMessage: recover,
+        _awaitServerAnswer: recover,
         currentConversation: {
           id: 'conv-1',
           userId: 'user-1',
@@ -1003,6 +1004,50 @@ describe('useWebSocketChat', () => {
         'agent.response_interrupted',
         'The assistant stopped responding. Please resend your message.'
       )
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  test('a wait that ends after the reader moved to another conversation accuses nobody', async () => {
+    vi.useFakeTimers()
+    try {
+      mockWsClient.isConnected.mockReturnValue(true)
+      let settle: (outcome: 'nothing') => void = () => {}
+      const wait = vi.fn(
+        (_conversationId: string, _afterUserMessageId: string) =>
+          new Promise<'nothing'>((resolve) => (settle = resolve))
+      )
+      mockStoreState = {
+        ...mockStoreState,
+        _recoverInterruptedAssistantMessage: vi.fn().mockResolvedValue('nothing'),
+        _awaitServerAnswer: wait,
+        currentConversation: {
+          id: 'conv-1',
+          userId: 'user-1',
+          messages: [{ id: 'u-1', messageType: 'user', content: 'Frage' }],
+        },
+      }
+      useChatStore.getState = vi.fn(() => mockStoreState) as unknown as typeof useChatStore.getState
+
+      const { result } = renderWebSocketHook()
+      startStreamingTurn(result)
+      act(() => {
+        capturedCallbacks.onTurnHeartbeat?.(HEARTBEAT_EVERY_MS)
+      })
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(HEARTBEAT_EVERY_MS * 2 + HEARTBEAT_DEADLINE_MS)
+      })
+      expect(wait).toHaveBeenCalled()
+
+      // Minutes later the wait finds nothing, but the reader is elsewhere now:
+      // the card would land under someone else's question.
+      mockStoreState = { ...mockStoreState, currentConversation: { id: 'conv-2', userId: 'user-1', messages: [] } }
+      await act(async () => {
+        settle('nothing')
+        await Promise.resolve()
+      })
+      expect(mockAddErrorCard).not.toHaveBeenCalledWith('agent.response_interrupted', expect.anything())
     } finally {
       vi.useRealTimers()
     }
@@ -1260,6 +1305,7 @@ describe('useWebSocketChat', () => {
       mockStoreState = {
         ...mockStoreState,
         _recoverInterruptedAssistantMessage: recover,
+        _awaitServerAnswer: recover,
         currentConversation: {
           id: 'conv-1',
           userId: 'user-1',
@@ -1294,6 +1340,7 @@ describe('useWebSocketChat', () => {
       mockStoreState = {
         ...mockStoreState,
         _recoverInterruptedAssistantMessage: recover,
+        _awaitServerAnswer: recover,
         currentConversation: {
           id: 'conv-1',
           userId: 'user-1',
@@ -1332,6 +1379,7 @@ describe('useWebSocketChat', () => {
       mockStoreState = {
         ...mockStoreState,
         _recoverInterruptedAssistantMessage: recover,
+        _awaitServerAnswer: recover,
         currentConversation: {
           id: 'conv-1',
           userId: 'user-1',
@@ -1492,6 +1540,7 @@ describe('useWebSocketChat', () => {
       mockStoreState = {
         ...mockStoreState,
         _recoverInterruptedAssistantMessage: recover,
+        _awaitServerAnswer: recover,
         currentConversation: {
           id: 'conv-1',
           userId: 'user-1',

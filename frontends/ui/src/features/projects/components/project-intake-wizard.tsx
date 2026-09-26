@@ -16,6 +16,7 @@ import {
   Sparkles,
   Trash2,
 } from 'lucide-react'
+import { projectTourUrl } from '@/features/onboarding/lib/product-tour'
 import { AnimatePresence, motion, springGlide } from '@/components/motion'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
@@ -611,7 +612,9 @@ export function ProjectIntakeWizard({
 
       const capturedCount = Object.keys(built.facts).length + Object.keys(built.goals).length
       toast.success(t('intake.saveSuccess', { count: capturedCount }))
-      router.push(`/app/projects/${projectId}`)
+      // A first setup hands over to the project tour; an edit goes back to
+      // the project without one.
+      router.push(mode === 'create' ? projectTourUrl(projectId) : `/app/projects/${projectId}`)
       router.refresh()
     } catch (e) {
       const isConflict = e instanceof Error && e.message === t('intake.errors.saveConflict')
@@ -625,6 +628,7 @@ export function ProjectIntakeWizard({
     bauwerke,
     initialProfile,
     initialProfileVersion,
+    mode,
     projectId,
     projectName,
     router,

@@ -17,6 +17,7 @@
  * English shot understates every label's width.
  */
 
+import type { JSX } from 'react'
 import { notFound } from 'next/navigation'
 import { FileFilterMenu } from '@/features/documents/components/file-filter-menu'
 import { NO_FILE_FILTERS } from '@/features/documents/lib/file-filters'

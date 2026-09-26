@@ -321,16 +321,20 @@ in `use-websocket-chat.ts` + the chat store.
   `ReconnectableWebSocketMessageHandler._restore_execution_state` overrides the
   base to (a) tolerate either key and (b) re-register the reconnected socket in
   the registry (NAT's base only swaps the handler's `_socket` attribute). Without
-  the re-register, the dual-write guard below would still read "client gone".
+  the re-register, the running turn's frames would not reach the new socket.
 - **Registry.** `WebSocketSessionRegistry` (module-global `_registry`) maps
   `conversation_id → socket` and holds pending HITL futures + the running
   workflow task. `set_socket` on send/reconnect, `clear_socket` on disconnect.
-  `has_socket` is the **dual-write guard**: it decides whether the client is
-  present (client owns the write) or gone (persist server-side).
-- **Persist-on-drop.** When a terminal `RESPONSE_MESSAGE` cannot be sent (no live
-  socket), `_persist_terminal_message_if_client_gone` → `persist_assistant_message`
-  POSTs the finished answer (text + cards/sources/confidence) to the BFF so it
-  survives a reload. Only the **terminal** frame persists (streamed deltas pass
+- **The server keeps every answer.** Every terminal `RESPONSE_MESSAGE`, sent or
+  not, goes through `_persist_terminal_message_in_background` → `persist_assistant_message`,
+  which POSTs the finished answer (text + cards/sources/confidence) to the BFF.
+  The write runs as a background task, its arguments read up front, so the
+  `COMPLETE` frame after it never waits on the BFF.
+  Until 2026-09 this ran only when no socket was attached ("the client owns the
+  write", the `has_socket` guard), so an answer delivered to a socket that died
+  before the browser saved it, a phone going to the background mid-frame, was
+  kept by nobody. The browser still writes the same answer under the same
+  deterministic id, and that write is the one that no-ops. Only the **terminal** frame persists (streamed deltas pass
   `persist_on_drop=False`); a transient job-admission "queue full" notice is
   dropped, never persisted. The id is deterministic per turn
   (`deterministic_assistant_message_id`) so a double-write no-ops on the messages
@@ -897,6 +901,16 @@ watermark-scrubbed via `_scrub_watermark_phrases` first, and if scrubbing emptie
 it the summary stays `None` rather than becoming an empty string — so a
 Bebauungsplan JPG is never summarised by its CAD licence stamp.
 
+**Tags are a decision, not a generation** (ADR-0064, use 4). Picking 1–2 of
+twelve document types and 0–3 of six OIB disciplines is asked of the decision
+model (`document_classification.decide_document_tags`: one choice over the
+types, one noul per discipline, the same text the summary reads, bounded at
+5 s) and the generative tag prompt on `summary_llm` runs only when no decision
+did (no key, ZDR, a BYOK key elsewhere, the endpoint down). A decision cannot
+answer outside the vocabulary, so the parse failures the prompt path filters
+are gone on that path. The org id rides the job config into the call, so the
+org's BYOK and ZDR policy hold in the detached ingestion thread.
+
 **Org BYOK + runtime model override for the VLM.** The vision model used across
 all VLM call sites (Phase 2 enrichment) is resolved the SAME way the NAT chat
 models resolve theirs. `/v1/ingest` forwards `x-grid-organization-id` (the BFF's
@@ -1351,17 +1365,12 @@ Austria's). The org-Archiv stratum (ADR-0024) sits beside these unchanged.
    Limits & Grounding** block that instructs agents to treat confirmed wizard
    facts (fluchtniveau, BG Fläche, Anzahl Geschoße, Bauweise, Nutzung,
    Brandschutzanlagen, …) as binding constraints, derive building classes from
-   them, flag contradictions, and surface gaps. The compliance-checker pair
-   (`requirement_profile.j2`, `evidence_batch.j2`) gained a
-   **Projekt-Hartgrenzen** section that maps each wizard fact to its OIB
-   significance.
+   them, flag contradictions, and surface gaps.
 - **Applicability** — `common/applicability.py` is a small hand-written module
   (no DSL): OIB verdicts from project facts (mirrors the UI's
   `applicable-standards.ts`), German trigger hints for the four boolean intake
   facts (Kleingarten, Denkmalschutz, Betriebsanlage, Stellplatz), and the
-  prompt section. The compliance checker scopes Stage 1 with it (verdicts
-  `required`/`likely`/`check` all stay in scope; an explicit user scope is
-  never narrowed).
+  prompt section Piloti renders from the project context.
 - **Display tagging** — `lane_for_hit` / `citation_verification.source_lane`
   map a retrieval or citation hit to a stratum + lane label (Bundesrecht /
   Landesrecht / Verordnung via catalog rank; OIB lanes via filename class;
@@ -1676,10 +1685,6 @@ section covers the remaining open defects found by a source audit against the
 installed `deepagents`/`langchain`/`langgraph` versions, several of which are
 now fixed — summarized in §9 below.
 
-**Compliance pipeline (backlog T4-3, 2026-07-16)**: `src/aiq_agent/agents/compliance_checker/README.md`
-documents a separate, purpose-built alternative to running an OIB
-Soll-Ist-Abgleich through this open-ended deep-research harness — see §8c.
-
 ## 8. Backend agent architecture & DRY debt
 
 Registered agents (via NAT `@register_function` + `FunctionBaseConfig`):
@@ -1870,31 +1875,14 @@ full specs in `org-model-configuration.md` (ADR-0014) and
   consumes these to show live progress instead of staying silent for the
   first minutes of a run.
 
-## 8c. Compliance-check pipeline (backlog T4-3, 2026-07-16)
+## 8c. Compliance-check pipeline (removed)
 
-`src/aiq_agent/agents/compliance_checker/` is a separate, **deterministic**
-3-stage pipeline for the OIB Soll-Ist-Abgleich (requirements-vs-evidence
-compliance check) — the structured alternative to running the same check
-through the open-ended `deep_research_agent` (which the audit that opened
-T4-3 measured at ~300 LLM turns / 20+ minutes for the same job). Stage 1
-derives applicable requirements per Richtlinie (one structured LLM call each,
-grounded by tool-free `knowledge_search` retrieval against the base OIB
-collection); Stage 2 checks project-document evidence per batch of ~8-10
-requirements (one structured LLM call each); Stage 3 assembles the compliance
-matrix, ranks gaps by risk, and renders a German Markdown report — pure
-Python, no LLM calls. A full 6-Richtlinien check is ~10-25 LLM calls total,
-bounded and predictable.
-
-Registered as the `compliance_check` function (`_type: compliance_check_agent`)
-in `configs/config_oib_openrouter.yml`, backed by a dedicated `compliance_llm`
-role and the `aiq_compliance_checker` `nat.plugins` entry point
-(`pyproject.toml`). **Not yet invoked by any chat/workflow entry point** — the
-function is registered and directly callable, but no orchestrator node, slash
-command, or UI action calls it yet, so it needs a live shakedown before
-user-facing use. See `src/aiq_agent/agents/compliance_checker/README.md` for
-the full stage design, budget math, and its own still-open known limitation
-(`AgentGroup` has no dedicated member for this pipeline's model overrides
-yet).
+The staged OIB Soll-Ist pipeline (`agents/compliance_checker/`, backlog T4-3)
+was retired as a chat tool and then deleted, with its `compliance_llm` role
+and its `compliance_check` model group. A norm check is now a task of kind
+`compliance_check`, run by the general agent with its retrieval tools
+(`TASK_ENGINES` in `frontends/ui/src/lib/tasks/delegation.ts`). The code is in
+git history.
 
 ## 8d. Agent skills (ADR-0046)
 

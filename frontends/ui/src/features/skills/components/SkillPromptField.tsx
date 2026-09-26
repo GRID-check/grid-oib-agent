@@ -35,6 +35,7 @@
  * input, which is the lookalike problem from the other direction.
  */
 
+import type { JSX } from 'react'
 import { useId, useRef, type KeyboardEvent } from 'react'
 import { AnimatePresence, motion, motionEntrance, motionQuick } from '@/components/motion'
 import { Popover, PopoverAnchor, PopoverContent } from '@/components/ui/popover'

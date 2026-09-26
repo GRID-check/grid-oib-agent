@@ -33,6 +33,7 @@ import { MarkdownRenderer } from '@/shared/components/MarkdownRenderer'
 import { remarkCitationMarkers } from '@/features/layout/lib/citation-markers'
 import { remarkFileReferences } from '@/features/layout/lib/file-reference-markers'
 import { formatTime } from '@/shared/utils/format-time'
+import { formatDurationElapsed } from '@/lib/format'
 import { GridCardItem, GridCards } from '@/features/grid-cards/components/GridCards'
 import { CardSetProvider } from '@/features/grid-cards/card-set'
 import {
@@ -150,6 +151,8 @@ export interface AgentResponseProps {
   content: string
   /** Timestamp of the response (Date or ISO string from persisted state) */
   timestamp?: Date | string
+  /** How long the answer took, question sent to answer final, in milliseconds. */
+  answerDurationMs?: number
   /** Display variant - 'default' has box styling, 'inline' has no box (for use inside containers) */
   variant?: 'default' | 'inline'
   /**
@@ -661,6 +664,7 @@ const AnswerDetails = memo(function AnswerDetails({
   readSources,
   hasAnswerSources,
   timestamp,
+  answerDurationMs,
   before,
   after,
 }: {
@@ -679,6 +683,7 @@ const AnswerDetails = memo(function AnswerDetails({
   readSources?: CitationSource[]
   hasAnswerSources: boolean
   timestamp?: Date | string
+  answerDurationMs?: number
   /** Set on the trigger's own line: the footer's copy actions before it, feedback after. */
   before?: ReactNode
   after?: ReactNode
@@ -747,8 +752,16 @@ const AnswerDetails = memo(function AnswerDetails({
           <AnswerDegradedNote degradedReasons={degradedReasons} />
           <CitationsRemovedNote citationsRemoved={citationsRemoved} />
           <ReadSourcesSection readSources={readSources} />
-          {timestamp && (
-            <span className="text-subtle text-xs">{formatTime(timestamp, locale)}</span>
+          {(Boolean(timestamp) || Boolean(answerDurationMs)) && (
+            <span className="text-subtle text-xs" data-testid="answer-time">
+              {timestamp && formatTime(timestamp, locale)}
+              {timestamp && answerDurationMs ? ' · ' : null}
+              {answerDurationMs
+                ? t('answerDetails.duration', {
+                    duration: formatDurationElapsed(answerDurationMs / 1000, locale),
+                  })
+                : null}
+            </span>
           )}
         </div>
       </CollapsibleContent>
@@ -762,6 +775,7 @@ const AnswerDetails = memo(function AnswerDetails({
 const AgentResponseComponent: FC<AgentResponseProps> = ({
   content,
   timestamp,
+  answerDurationMs,
   variant = 'default',
   cards,
   citations,
@@ -1043,6 +1057,7 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
   const hasDetailsContent =
     hasConfidence ||
     Boolean(timestamp) ||
+    Boolean(answerDurationMs) ||
     memoryItems.length > 0 ||
     (skillsActivated?.length ?? 0) > 0 ||
     Boolean(researchTruncated) ||
@@ -1235,6 +1250,7 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
                       readSources={readSources}
                       hasAnswerSources={hasAnswerSources}
                       timestamp={timestamp}
+                      answerDurationMs={answerDurationMs}
                     />
                   )}
                   {hasFeedback && messageId && (
@@ -1436,6 +1452,7 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
                         readSources={readSources}
                         hasAnswerSources={hasAnswerSources}
                         timestamp={timestamp}
+                        answerDurationMs={answerDurationMs}
                         before={answerActions}
                         after={feedback}
                       />

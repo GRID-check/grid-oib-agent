@@ -1,0 +1,7 @@
+---
+fixes:
+  - >
+    Eine Antwort geht nicht mehr verloren, weil die Verbindung Ihres Geräts
+    abreißt. Piloti speichert jede fertige Antwort selbst, und wer
+    zurückkommt, während Piloti noch arbeitet, sieht „Piloti arbeitet weiter"
+    statt „Antwort ging verloren", bis die Antwort da ist.
