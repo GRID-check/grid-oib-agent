@@ -46,6 +46,10 @@
           "key": "features",
           "notes": [
             {
+              "en": "The answer details now show how long Piloti took, from sending the question to the finished answer. The figure stays after the conversation is reloaded.",
+              "de": "Die Antwortdetails zeigen jetzt, wie lange Piloti gebraucht hat, vom Absenden der Frage bis zur fertigen Antwort. Die Angabe bleibt nach dem Neuladen des Gesprächs erhalten."
+            },
+            {
               "en": "Answers with cards (a legal basis, a table, a checklist, a process) arrive in one pass. The assistant now writes its cards together with the answer instead of in a separate step before it, so a card no longer adds a wait of its own, and a card whose details came out wrong is fixed quietly in the background rather than costing another pass.",
               "de": "Antworten mit Karten (einer Rechtsgrundlage, einer Tabelle, einer Checkliste oder einem Ablauf) kommen in einem Durchgang. Der Assistent erstellt die Karten jetzt gemeinsam mit der Antwort statt in einem separaten Schritt davor. Dadurch verursacht eine Karte keine zusätzliche Wartezeit mehr, und Karten mit fehlerhaften Details werden unauffällig im Hintergrund korrigiert, statt einen weiteren Durchgang zu erfordern."
             },
@@ -134,8 +138,8 @@
               "de": "Die Seite zum Einrichten der Organisation ist einfacher: ein Feld, ein Knopf und drei Zeilen dazu, wie es weitergeht, mit dem Abmelden immer oben rechts."
             },
             {
-              "en": "Piloti has its own mark, a slab with a ribbon window on three columns, in the browser tab, on the home screen and in previews of shared links.",
-              "de": "Piloti hat ein eigenes Zeichen, eine Platte mit Fensterband auf drei Stützen, im Browser-Tab, am Home-Bildschirm und in der Vorschau geteilter Links."
+              "en": "Piloti has its own mark, a column whose capital is a rolled drawing, in the browser tab, on the home screen, next to the name and in PDF exports.",
+              "de": "Piloti hat ein eigenes Zeichen: eine Säule, deren Kapitell eine gerollte Zeichnung ist – im Browser-Tab, auf dem Startbildschirm, neben dem Namen und in PDF-Exporten."
             },
             {
               "en": "The website answers the most common questions about Piloti on its home page, and the blog can be followed by RSS in German and English.",
@@ -183,8 +187,16 @@
               "de": "Die Piloti-Website lädt schneller, vor allem am Handy. Seiten werden komprimiert übertragen, und Schriften, Bilder und Stile bleiben zwischen den Besuchen im Browser, statt auf jeder Seite neu geladen zu werden."
             },
             {
+              "en": "Source chips, reference numbers and source cards prepare their preview only when you touch them, so conversations and derivations open with less work. They behave as before with mouse, touch and keyboard.",
+              "de": "Quellen-Chips, Verweisnummern und Quellenkarten bereiten ihre Vorschau erst vor, wenn man sie berührt, dadurch öffnen Unterhaltungen und Herleitungen schneller. Mit Maus, Touchscreen und Tastatur verhalten sie sich wie bisher."
+            },
+            {
               "en": "Follow-up questions are answered sooner, because only the cited passages of the last answer travel with the conversation.",
               "de": "Anschlussfragen sind schneller beantwortet, weil nur noch die belegten Fundstellen der letzten Antwort im Gespräch mitwandern."
+            },
+            {
+              "en": "Three places in the app that have nothing to show yet now show a small print from the Piloti picture series instead of an icon: the project overview before the first project, a project's documents before the first upload, and the page for an address that does not exist.",
+              "de": "Drei Stellen der App, an denen es noch nichts zu sehen gibt, zeigen jetzt einen kleinen Druck aus der Piloti-Bildserie statt eines Symbols: die Projektübersicht vor dem ersten Projekt, die Dokumente eines Projekts vor dem ersten Upload und die Seite für eine Adresse, die es nicht gibt."
             }
           ]
         },
@@ -198,6 +210,26 @@
             {
               "en": "Mind maps show their branches without quotation marks, and on a phone only the outline appears instead of an unreadably small tree.",
               "de": "Mindmaps zeigen ihre Äste ohne Anführungszeichen, und am Telefon erscheint nur die Gliederung statt eines unlesbar kleinen Baums."
+            },
+            {
+              "en": "An answer whose sources are renumbered at the end no longer jumps back and retypes itself. The finished answer appears as the derivation folds away, and the first words appear at once.",
+              "de": "Eine Antwort, deren Quellen am Ende neu nummeriert werden, springt nicht mehr zurück und tippt sich nicht neu ab. Die fertige Antwort erscheint, während sich die Herleitung zusammenklappt, und die ersten Worte sofort."
+            },
+            {
+              "en": "Tables fill in cell by cell while Piloti writes, instead of stalling row by row.",
+              "de": "Tabellen füllen sich beim Schreiben Zelle für Zelle, statt Zeile für Zeile zu stocken."
+            },
+            {
+              "en": "The note on what Piloti is working on no longer flickers and is readable on a phone again.",
+              "de": "Der Hinweis, woran Piloti gerade arbeitet, flackert nicht mehr und ist auf dem Telefon wieder lesbar."
+            },
+            {
+              "en": "The buttons in the derivation, for folding levels and viewing a source, respond to clicks and taps again. On the first question of a new chat the page no longer chases the growing derivation.",
+              "de": "Die Knöpfe in der Herleitung, zum Falten der Ebenen und Ansehen einer Quelle, reagieren wieder auf Klick und Tippen. Bei der ersten Frage eines neuen Chats läuft die Seite der wachsenden Herleitung nicht mehr hinterher."
+            },
+            {
+              "en": "Chat stays smooth on a phone even with a long history: an answer being written no longer redraws earlier answers with every word, and typing no longer saves the whole history in the browser.",
+              "de": "Der Chat bleibt auf dem Telefon auch mit langem Verlauf flüssig: Eine entstehende Antwort zeichnet frühere Antworten nicht mehr bei jedem Wort neu, und Tippen speichert nicht mehr den ganzen Verlauf im Browser."
             },
             {
               "en": "An answer is no longer lost because your device lost its connection: Piloti saves every finished answer itself and shows „Piloti arbeitet weiter“ until it is there.",
@@ -256,8 +288,20 @@
               "de": "Vorschaubilder in den Dateien laden auch in einem Tab, der seit Tagen offen ist."
             },
             {
+              "en": "A full browser storage no longer wipes your chat history: only the content of the oldest conversations makes room, while the list, titles and drafts stay. Such a conversation reloads its content from the server when you open it.",
+              "de": "Ist der Speicher des Browsers voll, geht der Chatverlauf nicht mehr verloren: Nur der Inhalt der ältesten Unterhaltungen macht Platz, Liste, Titel und Entwürfe bleiben. Eine solche Unterhaltung lädt ihren Inhalt beim Öffnen vom Server nach."
+            },
+            {
+              "en": "Sending, receiving an answer and switching conversations no longer stall a phone, because Piloti now saves only the conversation that changed.",
+              "de": "Senden, das Eintreffen einer Antwort und der Wechsel zwischen Unterhaltungen halten das Telefon nicht mehr an, weil Piloti nur noch die Unterhaltung speichert, die sich geändert hat."
+            },
+            {
               "en": "The reasoning view no longer shows empty \"Search\" steps for turns that read the building model or put files on screen. Those steps now list the model or the files they read, and a step that genuinely found nothing says \"No hits\" instead of looking like an unfinished search.",
               "de": "Die Reasoning-Ansicht zeigt bei Turns, die das Gebäudemodell auslesen oder Dateien anzeigen, keine leeren „Search“-Schritte mehr. Diese Schritte führen nun das Modell oder die Dateien auf, die sie ausgelesen haben. Findet ein Schritt tatsächlich nichts, zeigt er „No hits“ statt wie eine unvollständige Suche zu wirken."
+            },
+            {
+              "en": "The derivation's header no longer counts steps; the count included internal status messages and read as if Piloti had needed many attempts. It now names only the sources.",
+              "de": "Die Kopfzeile der Herleitung zählt keine Schritte mehr; die Zahl enthielt interne Statusmeldungen und las sich, als hätte Piloti viele Anläufe gebraucht. Sie nennt jetzt nur noch die Quellen."
             },
             {
               "en": "The few fixed messages Piloti sends without research, such as a processing error or a search without usable sources, now appear in German and in the same register as its answers.",
