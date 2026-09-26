@@ -116,6 +116,15 @@
  * to fight the re-pack but to key the entrance on card IDENTITY: `ReasoningFlow`
  * remembers which cards have already animated and hands the columns an
  * `enterOrder` holding only the ones that have not. See `animatedRef`.
+ *
+ * ## The rest of the graph streams in the same way
+ *
+ * Nodes, connectors and the one loop follow the rule the cards set: motion is
+ * keyed on an ID and plays once, only while the turn is live and only for a
+ * reader who has not asked for less motion. A node enters, a connector draws
+ * itself in, the pane grows to its new height, a node pushed down settles, and
+ * a dot flows along the connectors into the newest row. All of it lives in
+ * `reasoning-motion.tsx`; a finished turn renders in one frame.
  */
 
 'use client'

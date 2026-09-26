@@ -29,7 +29,7 @@
 
 'use client'
 
-import { createContext, useContext, useLayoutEffect, useRef, useState, type RefObject } from 'react'
+import { createContext, useContext, useEffect, useLayoutEffect, useRef, useState, type RefObject } from 'react'
 import { motionBase, motionDeliberate, motionEntrance } from '@/components/motion'
 
 /** The node entrance, from the kit (`--motion-base`). */
@@ -127,11 +127,19 @@ export function useSettleNudge(ref: RefObject<HTMLElement | null>, y: number): v
   }, [y, motion, ref])
 }
 
-/** `--motion-ambient`, read off the tokens so the loop keeps one truth. */
+let ambientCache = 0
+
+/**
+ * `--motion-ambient`, read off the tokens so the loop keeps one truth. Read
+ * once: a computed-style read forces a style pass, and the token does not
+ * change while the page lives.
+ */
 function ambientMs(el: Element): number {
+  if (ambientCache > 0) return ambientCache
   const raw = getComputedStyle(el).getPropertyValue('--motion-ambient').trim()
   const ms = raw.endsWith('ms') ? parseFloat(raw) : raw.endsWith('s') ? parseFloat(raw) * 1000 : NaN
-  return Number.isFinite(ms) && ms > 0 ? ms : 0
+  ambientCache = Number.isFinite(ms) && ms > 0 ? ms : 0
+  return ambientCache
 }
 
 /** Sample spacing along a connector, in px: fine enough that a 12px corner stays round. */
@@ -155,34 +163,45 @@ export function useFlowAlongPath(
   active: boolean,
   delayMs: number
 ): void {
-  useLayoutEffect(() => {
-    const path = pathRef.current
-    const dot = dotRef.current
-    if (!active || !path || !dot || typeof dot.animate !== 'function') return
-    if (typeof path.getTotalLength !== 'function') return
-    const length = path.getTotalLength()
-    const duration = ambientMs(dot)
-    if (!(length > 0) || duration === 0) return
-    const steps = Math.min(MAX_SAMPLES, Math.max(8, Math.ceil(length / SAMPLE_PX)))
-    const keyframes: Keyframe[] = []
-    for (let i = 0; i <= steps; i++) {
-      const offset = i / steps
-      const point = path.getPointAtLength(length * offset)
-      keyframes.push({
-        offset,
-        transform: `translate(${point.x}px, ${point.y}px)`,
-        opacity: Math.min(1, offset / 0.15, (1 - offset) / 0.15),
+  useEffect(() => {
+    if (!active) return
+    let animation: Animation | undefined
+    // Sampled on the NEXT frame, not in the commit that changed the shape: a
+    // path query forces style and layout, and in the round's own commit that is
+    // a second forced layout on the task a phone already feels. A shape that
+    // changes again before then (the place pass follows the first measure)
+    // cancels this one, so only the settled shape is sampled.
+    const frame = requestAnimationFrame(() => {
+      const path = pathRef.current
+      const dot = dotRef.current
+      if (!path || !dot || typeof dot.animate !== 'function' || typeof path.getTotalLength !== 'function') return
+      const length = path.getTotalLength()
+      const duration = ambientMs(dot)
+      if (!(length > 0) || duration === 0) return
+      const steps = Math.min(MAX_SAMPLES, Math.max(8, Math.ceil(length / SAMPLE_PX)))
+      const keyframes: Keyframe[] = []
+      for (let i = 0; i <= steps; i++) {
+        const offset = i / steps
+        const point = path.getPointAtLength(length * offset)
+        keyframes.push({
+          offset,
+          transform: `translate(${point.x}px, ${point.y}px)`,
+          opacity: Math.min(1, offset / 0.15, (1 - offset) / 0.15),
+        })
+      }
+      animation = dot.animate(keyframes, {
+        duration,
+        delay: delayMs,
+        iterations: Infinity,
+        // A loop keeps its pace inside its own keyframes (see the motion
+        // vocabulary): constant speed along the line reads as flow.
+        easing: 'linear',
       })
-    }
-    const animation = dot.animate(keyframes, {
-      duration,
-      delay: delayMs,
-      iterations: Infinity,
-      // A loop keeps its pace inside its own keyframes (see the motion
-      // vocabulary): constant speed along the line reads as flow.
-      easing: 'linear',
     })
-    return () => animation.cancel()
+    return () => {
+      cancelAnimationFrame(frame)
+      animation?.cancel()
+    }
     // `delayMs` only matters for the first lap of a new shape.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [d, active, pathRef, dotRef])
