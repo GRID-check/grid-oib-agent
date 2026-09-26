@@ -1990,5 +1990,9 @@
   {
     "en": "Three places in the app that have nothing to show yet now show a small print from the Piloti picture series instead of an icon: the project overview before the first project, a project's documents before the first upload, and the page for an address that does not exist.",
     "de": "Drei Stellen der App, an denen es noch nichts zu sehen gibt, zeigen jetzt einen kleinen Druck aus der Piloti-Bildserie statt eines Symbols: die Projektübersicht vor dem ersten Projekt, die Dokumente eines Projekts vor dem ersten Upload und die Seite für eine Adresse, die es nicht gibt."
+  },
+  {
+    "en": "Piloti has its own mark, a column whose capital is a rolled drawing, in the browser tab, on the home screen, next to the name and in PDF exports.",
+    "de": "Piloti hat ein eigenes Zeichen: eine Säule, deren Kapitell eine gerollte Zeichnung ist – im Browser-Tab, auf dem Startbildschirm, neben dem Namen und in PDF-Exporten."
   }
 ]
