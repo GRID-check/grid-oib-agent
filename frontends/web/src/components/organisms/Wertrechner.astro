@@ -13,7 +13,7 @@ import {
   WEEK_HOURS,
   type RoiInputs,
 } from '../../lib/roi'
-import { formatShare, formatRoi, type RoiText } from '../../lib/roi-format'
+import { fillTemplate, formatShare, formatRoi, type RoiText } from '../../lib/roi-format'
 
 interface Props {
   locale?: Locale
@@ -36,9 +36,11 @@ const text = formatRoi(ROI_DEFAULTS, computeRoi(ROI_DEFAULTS), locale, t.roi.uni
 // promise to author, and the number they landed on would be worth nothing.
 // The price is a slider precisely because it is not ours to state: there is no
 // price list, so the visitor tests the case against whatever price they like.
+// Seats also get a − / + pair: sixty steps on a phone-wide track are 5px each,
+// and one more or one fewer should be a tap rather than a steady hand.
 const sliders: { key: keyof RoiInputs & keyof RoiText; label: string; note?: string }[] = [
   { key: 'seats', label: t.roi.fields.seats },
-  { key: 'salary', label: t.roi.fields.salary },
+  { key: 'salary', label: t.roi.fields.salary, note: t.roi.salaryNote },
   { key: 'price', label: t.roi.fields.price, note: t.roi.priceNote },
 ]
 
@@ -100,7 +102,7 @@ const metrics: { key: keyof RoiText; label: string; live?: keyof RoiText; note?:
             ))
           }
         </dl>
-        <p class="m-0 border-t border-surface/15 pt-2.5 text-sm text-on-dark-tag sm:text-xs">
+        <p class="m-0 border-t border-surface/15 pt-2.5 text-sm text-on-dark sm:text-xs">
           {t.roi.claimsNote}
         </p>
       </div>
@@ -128,13 +130,27 @@ const metrics: { key: keyof RoiText; label: string; live?: keyof RoiText; note?:
                 <label for={`roi-${s.key}`} class="text-base leading-snug text-on-dark sm:text-sm">
                   {s.label}
                 </label>
-                <output
-                  for={`roi-${s.key}`}
-                  data-roi-out={s.key}
-                  class="font-mono text-base tabular-nums text-surface sm:text-sm"
-                >
-                  {text[s.key]}
-                </output>
+                {s.key === 'seats' ? (
+                  <div class="-my-2 flex items-center gap-1">
+                    <button type="button" data-roi-step="-1" aria-controls="roi-seats" aria-label={t.roi.stepDown} class="roi-step">−</button>
+                    <output
+                      for="roi-seats"
+                      data-roi-out="seats"
+                      class="min-w-[2ch] text-center font-mono text-base tabular-nums text-surface sm:text-sm"
+                    >
+                      {text.seats}
+                    </output>
+                    <button type="button" data-roi-step="1" aria-controls="roi-seats" aria-label={t.roi.stepUp} class="roi-step">+</button>
+                  </div>
+                ) : (
+                  <output
+                    for={`roi-${s.key}`}
+                    data-roi-out={s.key}
+                    class="font-mono text-base tabular-nums text-surface sm:text-sm"
+                  >
+                    {text[s.key]}
+                  </output>
+                )}
                 <input
                   type="range"
                   id={`roi-${s.key}`}
@@ -143,7 +159,7 @@ const metrics: { key: keyof RoiText; label: string; live?: keyof RoiText; note?:
                   max={range.max}
                   step={range.step}
                   value={ROI_DEFAULTS[s.key]}
-                  aria-valuetext={text[s.key]}
+                  aria-valuetext={s.key === 'seats' ? fillTemplate(t.roi.units.seatsSpoken, text.seats) : text[s.key]}
                   aria-describedby={s.note ? `roi-${s.key}-note` : undefined}
                   style={`--fill: ${fill(s.key)}`}
                   class="col-span-2 mt-1"
@@ -151,7 +167,7 @@ const metrics: { key: keyof RoiText; label: string; live?: keyof RoiText; note?:
                 {s.note && (
                   <p
                     id={`roi-${s.key}-note`}
-                    class="col-span-2 m-0 -mt-1 pb-3 text-sm leading-snug text-on-dark-tag sm:text-xs"
+                    class="col-span-2 m-0 -mt-1 pb-3 text-sm leading-snug text-on-dark sm:text-xs"
                   >
                     {s.note}
                   </p>
@@ -181,11 +197,11 @@ const metrics: { key: keyof RoiText; label: string; live?: keyof RoiText; note?:
             {t.roi.resultLabel}
           </p>
           <p
-            data-roi-out="net"
+            data-roi-out="headline"
             class="m-0 mt-2 font-display text-h1 tabular-nums text-surface"
             style="text-wrap: wrap"
           >
-            {text.net}
+            {text.headline}
           </p>
           <p class="m-0 mt-2 text-sm leading-relaxed text-on-dark">{t.roi.resultNote}</p>
 
@@ -313,6 +329,33 @@ const metrics: { key: keyof RoiText; label: string; live?: keyof RoiText; note?:
   input[type='range']:hover::-moz-range-thumb,
   input[type='range']:active::-moz-range-thumb {
     transform: scale(1.15);
+  }
+
+  /* 44px targets, drawn as a quiet ring so the readout stays the figure. */
+  .roi-step {
+    display: inline-flex;
+    width: 2.75rem;
+    height: 2.75rem;
+    align-items: center;
+    justify-content: center;
+    border: 0;
+    border-radius: 999px;
+    background: transparent;
+    color: var(--color-on-dark-strong);
+    font: 500 1.25rem/1 var(--font-mono);
+    cursor: pointer;
+    box-shadow: inset 0 0 0 1px rgb(238 242 228 / 0.25);
+  }
+  .roi-step:hover {
+    box-shadow: inset 0 0 0 1px var(--color-accent-400);
+  }
+  .roi-step:disabled {
+    opacity: 0.35;
+    cursor: default;
+  }
+  .roi-step:focus-visible {
+    outline: 2px solid var(--color-accent-400);
+    outline-offset: 2px;
   }
 
   input[type='range']:focus-visible {
