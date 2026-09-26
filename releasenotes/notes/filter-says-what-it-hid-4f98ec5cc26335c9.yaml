@@ -1,11 +1,8 @@
 ---
 fixes:
   - >
-    Wenn ein Filter in der Dateiablage nichts fand, stand dort „Noch keine
-    Dokumente" — auch in einem Projekt voller Dateien, mit dem Angebot,
-    etwas hochzuladen. Jetzt steht dort, welcher Filter gerade nichts trifft,
-    und daneben der Weg zurück.
+    When a filter in Dateien matches nothing, the list now names the filter and
+    offers the way back, instead of saying the project has no documents.
   - >
-    „Von Piloti" erklärt sich jetzt selbst: Ist der Filter leer, steht dort,
-    welche Dateien das wären — von Piloti abgelegte Rechercheberichte und
-    Diagramme, nicht die von Ihnen hochgeladenen Dokumente.
+    An empty Von Piloti filter explains what it would show: research reports and
+    diagrams Piloti filed, not the documents you uploaded.
