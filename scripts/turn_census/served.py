@@ -31,12 +31,13 @@ import subprocess
 import sys
 import tempfile
 import time
-import urllib.request
 import uuid
 from collections.abc import Iterator
 from dataclasses import dataclass
 from dataclasses import field
 from pathlib import Path
+
+import httpx
 
 REPO = Path(__file__).resolve().parents[2]
 CONFIG = "configs/config_oib_openrouter.yml"
@@ -122,8 +123,8 @@ def _wait_until_serving(process: subprocess.Popen, port: int, log: Path) -> None
     while time.monotonic() < deadline:
         if process.poll() is not None:
             raise RuntimeError(f"the backend exited while starting:\n{_tail(log)}")
-        with contextlib.suppress(OSError):
-            with urllib.request.urlopen(f"http://127.0.0.1:{port}/health", timeout=2):
+        with contextlib.suppress(httpx.HTTPError):
+            if httpx.get(f"http://127.0.0.1:{port}/health", timeout=2).is_success:
                 return
         time.sleep(1)
     raise RuntimeError(f"the backend did not serve within {STARTUP_SECONDS}s:\n{_tail(log)}")
