@@ -1,0 +1,15 @@
+---
+features:
+  - >
+    Die Website ist neu gestaltet und funktioniert jetzt auch auf dem Handy
+    richtig: kein seitliches Verrutschen mehr, ein aufklappbares Menü und
+    Grafiken, die auf kleinen Bildschirmen lesbar bleiben. Neu sind ein
+    Abschnitt über das Gründerteam und die Einladung, Pilotbüro zu werden.
+  - >
+    Der Blog hat zwei Rubriken: das Journal für Büros und das Bautagebuch mit
+    Notizen aus der Entwicklung.
+fixes:
+  - >
+    Impressum und Datenschutzerklärung enthalten keine Platzhalter mehr, und
+    die Website verspricht nichts mehr, was die Plattform nicht einlöst: Die
+    Aussage, Daten und KI liefen ausschließlich in der EU, ist gestrichen.
