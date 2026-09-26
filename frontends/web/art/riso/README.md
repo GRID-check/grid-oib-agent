@@ -37,7 +37,7 @@ Determinism check, after any change to the source:
 
 ```bash
 cd /tmp/claude-0/riso-windowseat/tools
-node verify.mjs <repo>/frontends/web/art/riso/tafeln/index.html --times 0,1,2,3,4
+node verify.mjs <repo>/frontends/web/art/riso/tafeln/index.html --times 0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18
 ```
 
 To look at one job in a browser, open `tafeln/index.html?t=<job>`. Debug views:
@@ -57,6 +57,11 @@ To look at one job in a browser, open `tafeln/index.html?t=<job>`. Debug views:
 | `piloti-vi-zeichentisch-720.webp` / `-1440.webp` | 720² / 1440² | VI Zeichentisch | Section "Nutzung" |
 | `piloti-vii-waage-720.webp` / `-1440.webp` | 720² / 1440² | VII Waage | Value calculator "Wert" |
 | `piloti-viii-tuer-720.webp` / `-1440.webp` | 720² / 1440² | VIII Offene Tür | "Kontakt / Pilotbüro werden" |
+
+Total in `public/art/`: about 5.2 MB for 19 files, but a page loads only the one or two
+it shows. The 1x squares are 75–265 KB and the 2x squares 220–980 KB. The heaviest is
+plate VIII at 2x, because its screened lawn covers most of the frame. Load the 2x files
+only through `srcset`, never as the default `src`.
 
 ## Showing them
 

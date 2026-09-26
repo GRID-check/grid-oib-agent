@@ -316,7 +316,7 @@ Plate I, all five files:
 - 1:1 crops under the house (columns, figure, dimension, shadow edges) at 720 and 1440;
 - a 2x-zoom crop comparing PNG and WebP q95.
 
-`verify.mjs --times 0,1,2,3,4` passes in Chromium and Firefox. The engines are not
+`verify.mjs --times 0,…,18` (all 19 jobs, plates I–VIII) passes in Chromium and Firefox. The engines are not
 pixel-identical to each other, as expected; exports use Firefox. `still.mjs` repeats
 every job.
 
