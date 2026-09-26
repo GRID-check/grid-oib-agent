@@ -1729,16 +1729,26 @@ Langfuse's MCP server is `https://langfuse.<baseDomain>/api/public/mcp`
   `platform:organizations:view`, in `x-workos-token` (or `Authorization: Bearer`).
   A request carrying one skips the browser redirect and meets the same JWKS and
   permission check a browser session does (`passThroughAuthHeader` in
-  `deploy/pulumi/src/platform/platform-oidc.ts`). No token, or a bad one: 401.
+  `deploy/pulumi/src/platform/platform-oidc.ts`). A bad token: 401. No
+  token but a `Basic` credential: 401 (`denyRedirect`). No credential at all:
+  the login redirect. Only tokens minted for the gate's own Connect client or
+  for an application listed in `grid-oib:platformAgentClientIds` count (JWT
+  `audiences`); the edge strips `x-workos-token` before the backend.
 - **Langfuse** wants a project key pair as `Authorization: Basic
   base64(pk-lf-…:sk-lf-…)`. Mint one per agent (Langfuse → Settings → API Keys)
   so each can be revoked alone; do not hand out the seeded `langfusePublicKey`.
 
 The WorkOS token comes from an **M2M application**, one per agent: WorkOS
 dashboard → Applications → Create → M2M, in the platform organization, with
-`platform:organizations:view` assigned under its permissions. Then register the
-server with Claude Code, letting the helper mint a fresh token per connection
-(tokens live minutes):
+`platform:organizations:view` assigned under its permissions. Add its client id
+to the stack and deploy:
+
+```bash
+pulumi config set grid-oib:platformAgentClientIds client_…,client_…   # at most 7
+```
+
+Then register the server with Claude Code, letting the helper mint a fresh
+token per connection (tokens live minutes):
 
 ```bash
 export WORKOS_AUTHKIT_ISSUER=https://<tenant>.authkit.app   # = otelOidcIssuer
@@ -1752,6 +1762,15 @@ The same edge change applies to the Aspire dashboard host, but does not yet make
 it agent-readable: its Telemetry API (`/api/telemetry/*`, what
 `aspire agent mcp --dashboard-url` reads) still demands the random `x-api-key`
 the dashboard mints at every start. ADR-0044 Amendment 3 records why.
+
+**Before the first deploy of this, check both token types' claims.** The
+`audiences` rule assumes WorkOS sets `aud` to the requesting application's client
+id, as its M2M verification example does; if it does not, browser sign-in to
+both hosts breaks too. Decode an M2M token
+(`scripts/observability-agent-token.sh token | cut -d. -f2 | base64 -d`) and
+confirm `aud` is its client id and `scope` holds `platform:organizations:view`.
+For the browser side, decode the `AccessToken-…` cookie Envoy sets on the
+Langfuse host and confirm `aud` is `otelOidcClientId`.
 
 ### Traps worth knowing before the first deploy
 

@@ -977,6 +977,16 @@ export interface GridConfig {
     oidcClientId: string;
     /** Its client secret — the application must be a confidential client. */
     oidcClientSecret: pulumi.Output<string>;
+    /**
+     * Client ids of the WorkOS M2M applications whose tokens a coding agent
+     * may present at the platform edge instead of a browser session
+     * (`platformAgentClientIds`, comma-separated, default none). Together with
+     * `oidcClientId` they are the JWT `audiences` of the platform
+     * SecurityPolicy, so a token minted for any OTHER application in the
+     * WorkOS environment is refused even if it holds the permission scope.
+     * ADR-0044 Amendment 3.
+     */
+    agentClientIds: string[];
   };
 
   /**
@@ -1725,6 +1735,26 @@ export function loadConfig(): GridConfig {
   const otelOidcIssuer = (cfg.get("otelOidcIssuer") ?? "").replace(/\/+$/, "");
   const otelOidcClientId = cfg.get("otelOidcClientId") ?? "";
   const otelOidcClientSecret = cfg.getSecret("otelOidcClientSecret");
+  // M2M applications whose tokens agents may present at the platform edge.
+  // They become JWT `audiences` beside `otelOidcClientId`, and the CRD allows 8
+  // audiences in all: fail here, naming the key, rather than at `pulumi up`.
+  const platformAgentClientIds = (cfg.get("platformAgentClientIds") ?? "")
+    .split(",")
+    .map((id) => id.trim())
+    .filter((id) => id !== "");
+  const malformedAgentClientId = platformAgentClientIds.find((id) => !id.startsWith("client_"));
+  if (malformedAgentClientId !== undefined) {
+    throw new Error(
+      `grid-oib:platformAgentClientIds holds "${malformedAgentClientId}", which is not a WorkOS ` +
+        "client id (client_…). Use the M2M application's client id, not its app_ id.",
+    );
+  }
+  if (platformAgentClientIds.length > 7) {
+    throw new Error(
+      `grid-oib:platformAgentClientIds lists ${platformAgentClientIds.length} applications; at most 7 ` +
+        "fit, because they share the SecurityPolicy's 8 JWT audiences with otelOidcClientId.",
+    );
+  }
   const observabilityFlag = bool(cfg, "observabilityEnabled", true);
   const missingObservabilityDeps = [
     otelPrimaryApiKey === undefined ? "otelPrimaryApiKey" : undefined,
@@ -2395,6 +2425,7 @@ export function loadConfig(): GridConfig {
       oidcIssuer: otelOidcIssuer,
       oidcClientId: otelOidcClientId,
       oidcClientSecret: otelOidcClientSecret ?? pulumi.output(""),
+      agentClientIds: platformAgentClientIds,
     },
 
     langfuse: {

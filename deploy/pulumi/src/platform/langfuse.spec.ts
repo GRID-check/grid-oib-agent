@@ -102,7 +102,11 @@ describe("with the Langfuse tier enabled", () => {
 
   beforeAll(async () => {
     RESOURCES.length = 0;
-    pulumi.runtime.setAllConfig({ ...baseStackConfig(), ...langfuseStackConfig() });
+    pulumi.runtime.setAllConfig({
+      ...baseStackConfig(),
+      ...langfuseStackConfig(),
+      "grid-oib:platformAgentClientIds": "client_agent_a, client_agent_b",
+    });
     await import("../../index");
     // Pulumi resolves resource inputs asynchronously; give the mock registry a
     // turn of the loop to receive them all.
@@ -389,27 +393,68 @@ describe("with the Langfuse tier enabled", () => {
       expect(spec.oidc.redirectURL).toBe("https://langfuse.example.test/oauth2/callback");
     });
 
-    it("lets an agent present a WorkOS token instead of a browser, and only that", async () => {
-      const spec = (await resolve(
-        find("kubernetes:gateway.envoyproxy.io/v1alpha1:SecurityPolicy", "grid-langfuse-security-policy")
-          .inputs.spec,
-      )) as any;
+    // The policy is shared (`platformOidcSecurityPolicySpec`), so both platform
+    // hosts must carry the agent path identically.
+    describe.each([
+      ["grid-langfuse-security-policy", "grid-langfuse-route"],
+      ["grid-otel-security-policy", "grid-otel-route"],
+    ])("agent access through %s", (policyName, routeName) => {
+      const policy = async () =>
+        (await resolve(
+          find("kubernetes:gateway.envoyproxy.io/v1alpha1:SecurityPolicy", policyName).inputs.spec,
+        )) as any;
 
-      // The redirect is skipped only for a request carrying a token the JWT
-      // filter reads, and that filter is NOT optional: the token still meets
-      // the JWKS check and the permission rule above.
-      expect(spec.oidc.passThroughAuthHeader).toBe(true);
-      expect(spec.jwt.providers[0].optional).toBeUndefined();
-      expect(spec.jwt.providers[0].extractFrom.headers).toEqual([
-        // First, and it must stay: where `forwardAccessToken` puts the
-        // browser session's token.
-        { name: "Authorization", valuePrefix: "Bearer " },
-        // Beside `Authorization`, which Langfuse's MCP server needs for its
-        // own Basic credential.
-        { name: "x-workos-token" },
-      ]);
-      // A Langfuse key is never an edge credential: nothing reads `Basic`.
-      expect(JSON.stringify(spec.jwt)).not.toContain("Basic");
+      it("skips the redirect only for a token the JWT filter reads, and still checks it", async () => {
+        const spec = await policy();
+
+        expect(spec.oidc.passThroughAuthHeader).toBe(true);
+        // Not optional: a passed-through request without a valid token is
+        // refused, never admitted.
+        expect(spec.jwt.providers[0].optional).toBeUndefined();
+        expect(spec.authorization.defaultAction).toBe("Deny");
+        expect(spec.jwt.providers[0].extractFrom.headers).toEqual([
+          // First, and it must stay: where `forwardAccessToken` puts the
+          // browser session's token.
+          { name: "Authorization", valuePrefix: "Bearer " },
+          // Beside `Authorization`, which Langfuse's MCP server needs for its
+          // own Basic credential.
+          { name: "x-workos-token" },
+        ]);
+        // Envoy rejects the whole OAuth2 config when the ID-token header is
+        // also a passthrough header, which would break every browser login.
+        expect(spec.oidc.forwardIDToken).toBeUndefined();
+      });
+
+      it("accepts tokens minted for this gate and the named agents, no other application", async () => {
+        const spec = await policy();
+
+        // Without passthrough the only token ever verified was Envoy's own, so
+        // no audience was needed. With it the caller picks the token.
+        expect(spec.jwt.providers[0].audiences).toEqual([
+          "client_otel",
+          "client_agent_a",
+          "client_agent_b",
+        ]);
+      });
+
+      it("answers a Basic-only request with a 401, not a login page", async () => {
+        const spec = await policy();
+
+        expect(spec.oidc.denyRedirect.headers).toEqual([
+          { name: "Authorization", type: "Prefix", value: "Basic " },
+        ]);
+      });
+
+      it("strips the agent token before the backend", async () => {
+        const route = (await resolve(
+          find("kubernetes:gateway.networking.k8s.io/v1:HTTPRoute", routeName).inputs.spec,
+        )) as any;
+
+        expect(route.rules[0].filters).toContainEqual({
+          type: "RequestHeaderModifier",
+          requestHeaderModifier: { remove: ["x-workos-token"] },
+        });
+      });
     });
 
     it("serves the hostname on its own TLS listener", async () => {
@@ -482,6 +527,16 @@ describe("config gating", () => {
 
   it("accepts the fully configured tier", () => {
     expect(loadWith({})).toBeNull();
+  });
+
+  it("refuses an agent application named by its app_ id rather than its client id", () => {
+    const error = loadWith({ "grid-oib:platformAgentClientIds": "app_01ABC" });
+    expect(error?.message).toMatch(/platformAgentClientIds.*not a WorkOS client id/);
+  });
+
+  it("refuses more agent applications than the JWT audiences can hold", () => {
+    const ids = Array.from({ length: 8 }, (_, i) => `client_${i}`).join(",");
+    expect(loadWith({ "grid-oib:platformAgentClientIds": ids })?.message).toMatch(/at most 7/);
   });
 
   it("refuses a base64 encryption key, which is the natural mistake", () => {

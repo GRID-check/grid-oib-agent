@@ -72,10 +72,19 @@ export interface PlatformOidcGate {
  * 3: the same JWKS check and the same permission rule a browser session meets.
  * The token comes from a WorkOS M2M application holding the permission
  * (`scripts/observability-agent-token.sh`). Nothing here trusts a tool's own
- * key: a leaked Langfuse or Aspire key alone still gets a 401 at the edge.
- * Passing through only ever lands on a check that fails closed — `jwt` is not
- * optional, so a request whose header holds no valid token is refused, not
- * admitted. ADR-0044 Amendment 3.
+ * key: a request carrying only Langfuse's `Basic` credential gets a 401
+ * (`denyRedirect`), one carrying nothing gets the login redirect, and neither
+ * reaches the backend. Passing through only ever lands on a check that fails
+ * closed — `jwt` is not optional, so a request whose header holds no valid
+ * token is refused, not admitted.
+ *
+ * **Only tokens minted for known applications.** Without passthrough, the only
+ * token the JWT filter ever saw was the one Envoy obtained itself for
+ * `oidcClientId`, so the provider needed no `audiences`. With it, a caller
+ * chooses the token, and any application in the WorkOS environment holding the
+ * scope would do. `audiences` narrows that to this gate's own Connect client
+ * plus the M2M applications named in `platformAgentClientIds`. ADR-0044
+ * Amendment 3.
  *
  * **One application, several routes.** Both platform routes gate on the same
  * permission and the same issuer, so they share one Connect application and it
@@ -138,10 +147,15 @@ export function platformOidcSecurityPolicySpec(
       // because the short TTL above makes the behaviour load-bearing.
       refreshToken: true,
       // Skip the redirect for a request that carries a token in any header
-      // the JWT provider below reads. The matchers are built FROM that
-      // provider's `extractFrom`, so the two cannot disagree about which
-      // headers count.
+      // the JWT provider below reads. Envoy Gateway builds the matchers from
+      // that provider's `extractFrom`. They are stricter than the provider
+      // (a prefix match where Envoy searches the value), so where the two
+      // differ the request is redirected, never admitted.
       passThroughAuthHeader: true,
+      // A client sending `Authorization: Basic` (Langfuse's own credential)
+      // is a program, not a browser: a 302 to a login page is noise to it.
+      // Without a WorkOS token it gets a 401 instead.
+      denyRedirect: { headers: [{ name: "Authorization", type: "Prefix", value: "Basic " }] },
     },
     jwt: {
       providers: [
@@ -149,6 +163,7 @@ export function platformOidcSecurityPolicySpec(
           name: jwtProviderName,
           issuer,
           remoteJWKS: { uri: `${issuer}/oauth2/jwks` },
+          audiences: [cfg.observability.oidcClientId, ...cfg.observability.agentClientIds],
           extractFrom: { headers: TOKEN_HEADERS },
         },
       ],

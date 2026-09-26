@@ -259,6 +259,7 @@ All keys live under the `grid-oib:` namespace. **Bold** = required (no default).
 | **`otelOidcIssuer`** | — | Issuer of the dashboard's dedicated WorkOS **Connect** application (the environment's AuthKit domain, `https://<tenant>.authkit.app`) |
 | **`otelOidcClientId`** | — | Client id of that Connect application (confidential client) |
 | 🔒 `otelOidcClientSecret` | — | Its client secret. The Gateway SecurityPolicy exchanges the code with `client_secret_basic`, so a public/PKCE-only client cannot be used |
+| `platformAgentClientIds` | — | Comma-separated client ids (at most 7) of WorkOS **M2M** applications whose tokens coding agents may present at the Langfuse and Aspire edge instead of a browser session. With `otelOidcClientId` they are the SecurityPolicy's JWT audiences. Empty: only browser sessions pass. ADR-0044 Amendment 3 |
 | 🔒 `otelPrimaryApiKey` | — | OTLP ingestion key (`x-otlp-api-key`). Held by the **dashboard and collector only** — backend/worker/frontend send unauthenticated OTLP to the collector, so this key must never be copied into app secrets |
 | `dashboardImage` | digest-pinned `mcr.microsoft.com/dotnet/aspire-dashboard@sha256:…` (13.4.2) | Dashboard image; override only for a deliberate upgrade. The trivy `image-scan` job blocks on fixable HIGH/CRITICAL in the pin, so it fails when the pin goes stale |
 | `collectorImage` | digest-pinned `otel/opentelemetry-collector-contrib@sha256:…` (0.161.0) | OTel Collector image (single OTLP ingestion point); override only for a deliberate upgrade |

@@ -25,36 +25,51 @@
 set -euo pipefail
 
 mode="${1:-token}"
-: "${WORKOS_AUTHKIT_ISSUER:?set WORKOS_AUTHKIT_ISSUER, e.g. https://<tenant>.authkit.app}"
-: "${WORKOS_AGENT_CLIENT_ID:?set WORKOS_AGENT_CLIENT_ID (the M2M application)}"
-: "${WORKOS_AGENT_CLIENT_SECRET:?set WORKOS_AGENT_CLIENT_SECRET}"
-
-token="$(
-  curl -fsS "${WORKOS_AUTHKIT_ISSUER%/}/oauth2/token" \
-    --data-urlencode grant_type=client_credentials \
-    --data-urlencode "client_id=${WORKOS_AGENT_CLIENT_ID}" \
-    --data-urlencode "client_secret=${WORKOS_AGENT_CLIENT_SECRET}" \
-    --data-urlencode "scope=platform:organizations:view" |
-    python3 -c 'import json, sys; print(json.load(sys.stdin)["access_token"])'
-)"
-
 case "$mode" in
-  token)
-    printf '%s\n' "$token"
-    ;;
+  token) ;;
   langfuse-headers)
     : "${LANGFUSE_PUBLIC_KEY:?set LANGFUSE_PUBLIC_KEY (pk-lf-…)}"
     : "${LANGFUSE_SECRET_KEY:?set LANGFUSE_SECRET_KEY (sk-lf-…)}"
-    basic="$(printf '%s:%s' "$LANGFUSE_PUBLIC_KEY" "$LANGFUSE_SECRET_KEY" | base64 | tr -d '\n')"
-    TOKEN="$token" BASIC="$basic" python3 -c '
-import json, os
-print(json.dumps({
-    "x-workos-token": os.environ["TOKEN"],
-    "Authorization": "Basic " + os.environ["BASIC"],
-}))'
     ;;
   *)
     echo "usage: $0 [token|langfuse-headers]" >&2
     exit 2
     ;;
 esac
+: "${WORKOS_AUTHKIT_ISSUER:?set WORKOS_AUTHKIT_ISSUER, e.g. https://<tenant>.authkit.app}"
+: "${WORKOS_AGENT_CLIENT_ID:?set WORKOS_AGENT_CLIENT_ID (the M2M application)}"
+: "${WORKOS_AGENT_CLIENT_SECRET:?set WORKOS_AGENT_CLIENT_SECRET}"
+
+# The secret goes in on stdin (`@-`), never as an argument: `headersHelper`
+# runs this on every connection, and argv is readable by anyone who can run
+# `ps` on the machine. On an error WorkOS says why in the body, which
+# `--fail-with-body` keeps; the parser prints it instead of a bare HTTP code.
+token="$(
+  printf '%s' "$WORKOS_AGENT_CLIENT_SECRET" |
+    curl -sS --fail-with-body "${WORKOS_AUTHKIT_ISSUER%/}/oauth2/token" \
+      --data-urlencode grant_type=client_credentials \
+      --data-urlencode "client_id=${WORKOS_AGENT_CLIENT_ID}" \
+      --data-urlencode client_secret@- \
+      --data-urlencode "scope=platform:organizations:view" |
+    python3 -c '
+import json, sys
+body = sys.stdin.read()
+try:
+    print(json.loads(body)["access_token"])
+except (ValueError, KeyError):
+    sys.exit("WorkOS token request failed: " + (body.strip() or "no response body"))
+'
+)"
+
+if [ "$mode" = token ]; then
+  printf '%s\n' "$token"
+  exit 0
+fi
+
+basic="$(printf '%s:%s' "$LANGFUSE_PUBLIC_KEY" "$LANGFUSE_SECRET_KEY" | base64 | tr -d '\n')"
+TOKEN="$token" BASIC="$basic" python3 -c '
+import json, os
+print(json.dumps({
+    "x-workos-token": os.environ["TOKEN"],
+    "Authorization": "Basic " + os.environ["BASIC"],
+}))'

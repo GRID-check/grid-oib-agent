@@ -233,11 +233,20 @@ rule. Agents mint the token from a WorkOS M2M application holding that
 permission (`scripts/observability-agent-token.sh`), and send Langfuse's own
 key pair in `Authorization` as Langfuse expects.
 
+Passthrough changes who picks the token, so the provider now names its
+`audiences`: the gate's own Connect client plus the M2M applications listed in
+`platformAgentClientIds`. Before, the only token ever verified was the one Envoy
+obtained itself, and an audience check had nothing to exclude; after, any
+application in the WorkOS environment holding the scope would have passed. A
+`Basic`-only request gets a 401 (`denyRedirect`) instead of a login page, and
+the routes strip `x-workos-token` before the backend.
+
 **Rejected: routing `/api/public` past the gate on Langfuse's key alone.**
 Simpler, and how Langfuse Cloud serves it, but it makes a project key a
 cross-tenant read credential by itself, with no WorkOS identity behind it and
 nothing at the edge to revoke. Here both gates still stand: a leaked Langfuse key
-is a 401 at the edge, and a WorkOS token alone gets no further than Langfuse.
+alone never passes the edge, and a WorkOS token alone gets no further than
+Langfuse.
 
 **Not closed: the Aspire dashboard.** The policy is shared, so its host accepts
 the token too, but the dashboard's Telemetry API still requires the random
@@ -246,9 +255,12 @@ credential. Making it agent-readable means running that API `Unsecured` behind
 the edge (the UI's arrangement) and reading the WorkOS token from `x-api-key`;
 that is a separate decision.
 
-**Unverified at merge:** that a WorkOS M2M token carries the assigned permission
-in `scope`. If it does not, agents get 403. That is the fail-closed direction,
-and the fix is a claim rule, not a wider one.
+**Verify before the first deploy:** that a WorkOS M2M token carries the assigned
+permission in `scope` (if not, agents get 403: fail closed), and that both M2M
+and browser tokens set `aud` to their application's client id. The second is
+not fail-safe for browsers: if the browser token's `aud` differs, sign-in to
+both platform hosts breaks until the audience list is corrected.
+`docs/deployment/kubernetes.md` §9b lists the checks.
 
 ## Consequences
 
