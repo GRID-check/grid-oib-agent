@@ -30,11 +30,8 @@ const labelOf = (i: number) =>
     .replace('{total}', String(total))
     .replace('{name}', s.frames[i])
 
-/** Keep a class and its number on one line: "GK 4" never breaks before the 4. */
-const nb = (text: string) => text.replace(/\bGK (\d)/g, 'GK\u00a0$1')
-
 const sources = [
-  { chip: 'OIB-RL 2', law: true, title: t.chat.oibTitle, sub: nb(t.chat.oibSub), gist: s.gists[0], r: -2.2 },
+  { chip: 'OIB-RL 2', law: true, title: t.chat.oibTitle, sub: t.chat.oibSub, gist: s.gists[0], r: -2.2 },
   { chip: 'BO Wien', law: true, title: t.chat.boTitle, sub: t.chat.boSub, gist: s.gists[1], r: 1.6 },
   { chip: t.chat.projTag, law: false, title: 'Einreichplan_EG.pdf', sub: t.chat.projSub, gist: s.gists[2], r: -0.8 },
 ]
@@ -107,7 +104,7 @@ const pad = (i: number) => String(i + 1).padStart(2, '0')
     <!-- 3 · Entscheidung: three ways, one marked in lime ink. -->
     <div data-frame class="frame frame--dark" role="group" aria-label={labelOf(2)}>
       <p class="meta" aria-hidden="true"><span>{s.frames[2]}</span><span>3/{total}</span></p>
-      <p class="intro m-0">{nb(t.chat.decisionIntro)}</p>
+      <p class="intro m-0">{t.chat.decisionIntro}</p>
       <ul class="opts m-0 list-none p-0">
         {
           options.map((o, k) => (
@@ -480,8 +477,13 @@ const pad = (i: number) => String(i + 1).padStart(2, '0')
     align-items: flex-start;
     gap: 0.875rem;
   }
+  /* The paths not taken step back, and stay readable: at 0.7 the lighter
+     sub-line still clears 4.5:1 on the panel (the default one would not). */
   .opt:not(.is-chosen) .opt-in {
-    opacity: 0.5;
+    opacity: 0.7;
+  }
+  .opt:not(.is-chosen) .opt-sub {
+    color: var(--color-on-dark-strong);
   }
   .opt[aria-expanded='true'] .opt-in {
     opacity: 1 !important;
@@ -593,7 +595,7 @@ const pad = (i: number) => String(i + 1).padStart(2, '0')
   .step-no {
     font-family: var(--font-mono);
     font-size: 0.875rem;
-    color: var(--color-accent-500);
+    color: var(--color-accent-600);
   }
   .done {
     display: flex;

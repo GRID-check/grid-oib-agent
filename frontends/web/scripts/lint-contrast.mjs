@@ -42,6 +42,8 @@ const PAIRS = [
   ['on-dark', ['panel', 'accent-900']],
   ['on-dark-label', ['panel', 'accent-900']],
   ['on-dark-tag', ['panel', 'accent-900']],
+  ['on-dark-strong', ['panel', 'accent-900']],
+  ['accent-900', ['accent-400', 'surface']],
 ]
 
 let failures = 0
