@@ -1,11 +1,9 @@
 ---
 features:
   - >
-    Eine geöffnete Datei steht jetzt in der Adresszeile: Der Link lässt sich
-    kopieren und weitergeben, und der Zurück-Button schließt die Vorschau,
-    statt die Dateiablage zu verlassen.
+    An open file now has its own address: the link can be shared, and Back
+    closes the preview instead of leaving Dateien.
 fixes:
   - >
-    Ein Klick auf eine Datei öffnet sie — immer. Bisher schloss ein Klick auf
-    die Datei, die gerade offen war, die Vorschau wieder; das tat sonst keine
-    Liste im Produkt. Geschlossen wird über das X, Escape oder den Hintergrund.
+    Clicking a file always opens it; clicking the file that was already open no
+    longer closes it.

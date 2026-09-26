@@ -1,104 +1,56 @@
 /**
  * Storage Logger
  *
- * Centralized logging utilities for localStorage operations in chat store.
- * Helps debug intermittent session clearing issues.
+ * Logging for the persisted chat store's localStorage (`stores/chat-storage.ts`).
+ * What only a developer needs is gated on `NODE_ENV`; an eviction and a
+ * write that could not be stored are always logged, because they explain a
+ * conversation that opens with a fetch instead of at once.
  */
-
-import type { Conversation } from '../types'
 
 const LOG_PREFIX = '[SessionsStore]'
 
-/**
- * Calculate approximate size of data in KB
- */
-const calculateDataSize = (data: unknown): number => {
-  try {
-    const jsonString = JSON.stringify(data)
-    return Math.round((jsonString.length * 2) / 1024) // UTF-16 uses 2 bytes per char
-  } catch {
-    return 0
-  }
-}
+const getTimestamp = (): string => new Date().toISOString()
 
-/**
- * Format timestamp for logs
- */
-const getTimestamp = (): string => {
-  return new Date().toISOString()
-}
-
-/**
- * Log successful localStorage write (dev-only)
- */
-export const logStorageWrite = (conversations: Conversation[], userId: string | null): void => {
+/** One conversation's messages were written (dev-only). */
+export const logStorageWrite = (conversationId: string, chars: number): void => {
   if (process.env.NODE_ENV !== 'development') return
 
-  const sizeKB = calculateDataSize(conversations)
-  const sessionCount = conversations.length
-
-  console.debug(`${LOG_PREFIX} localStorage write: ${sessionCount} sessions, ${sizeKB}KB`, {
-    userId,
-    sessionIds: conversations.map((c) => c.id),
+  console.debug(`${LOG_PREFIX} localStorage write: ${conversationId}, ${Math.round(chars / 1024)}K chars`, {
+    conversationId,
+    chars,
     timestamp: getTimestamp(),
   })
 }
 
 /**
- * Log quota exceeded error with pruning attempt (dev-only)
+ * An old conversation's messages left storage, or were not written, to make
+ * room (ALWAYS logged). Nothing is lost: the server holds them, and opening
+ * the conversation reads them.
  */
-export const logQuotaExceededPruning = (
-  beforeCount: number,
-  afterCount: number,
-  beforeSizeKB: number,
-  afterSizeKB: number
-): void => {
-  if (process.env.NODE_ENV !== 'development') return
-
-  console.warn(
-    `${LOG_PREFIX} ⚠️ QUOTA EXCEEDED - Pruning sessions`,
-    {
-      before: { sessions: beforeCount, sizeKB: beforeSizeKB },
-      after: { sessions: afterCount, sizeKB: afterSizeKB },
-      timestamp: getTimestamp(),
-    }
-  )
+export const logStorageEviction = (conversationId: string, chars: number): void => {
+  console.warn(`${LOG_PREFIX} Evicted the stored messages of ${conversationId} to make room; the server holds them`, {
+    conversationId,
+    chars,
+    timestamp: getTimestamp(),
+  })
 }
 
-/**
- * Log successful pruning (dev-only)
- */
-export const logPruningSuccess = (
-  beforeCount: number,
-  afterCount: number,
-  beforeSizeKB: number,
-  afterSizeKB: number
-): void => {
-  if (process.env.NODE_ENV !== 'development') return
-
-  console.debug(
-    `${LOG_PREFIX} Pruned sessions: ${beforeCount} → ${afterCount}, ${beforeSizeKB}KB → ${afterSizeKB}KB`,
-    {
-      timestamp: getTimestamp(),
-    }
-  )
-}
-
-/**
- * Log critical error: all sessions cleared (ALWAYS logged, even in production)
- */
-export const logCriticalSessionsClear = (
-  userId: string | null,
-  lostSessionIds: string[],
-  error: unknown
-): void => {
-  // ALWAYS log this - it's a critical data loss event
-  console.error(`${LOG_PREFIX} ❌ CRITICAL: All sessions cleared due to quota exceeded`, {
-    userId,
-    lostSessions: lostSessionIds,
-    sessionCount: lostSessionIds.length,
+/** A write did not fit even with nothing left to evict (ALWAYS logged). */
+export const logStorageFailure = (key: string, chars: number, error: unknown): void => {
+  console.error(`${LOG_PREFIX} Could not store ${key}: nothing left to evict`, {
+    key,
+    chars,
     timestamp: getTimestamp(),
     error: error instanceof Error ? error.message : String(error),
+  })
+}
+
+/** The single-key history was split into one key per conversation (dev-only). */
+export const logStorageMigration = (conversationCount: number): void => {
+  if (process.env.NODE_ENV !== 'development') return
+
+  console.debug(`${LOG_PREFIX} Moved ${conversationCount} conversations to one key each`, {
+    timestamp: getTimestamp(),
   })
 }
 
@@ -153,75 +105,4 @@ export const logStorageAvailability = (available: boolean): void => {
       timestamp: getTimestamp(),
     })
   }
-}
-
-/**
- * Log when pruning fails and we have to clear everything (ALWAYS logged)
- */
-export const logPruningFailure = (error: unknown): void => {
-  // ALWAYS log - this leads to data loss
-  console.error(`${LOG_PREFIX} ❌ Pruning failed - will attempt to clear all sessions`, {
-    timestamp: getTimestamp(),
-    error: error instanceof Error ? error.message : String(error),
-  })
-}
-
-/**
- * Log automatic session cleanup (ALWAYS logged - important for debugging)
- */
-export const logStorageCleanup = (
-  deletedSessions: string[],
-  freedMB: number,
-  beforeMB: number,
-  afterMB: number
-): void => {
-  // ALWAYS log - this helps diagnose unexpected session loss
-  console.warn(`${LOG_PREFIX} 🧹 Auto-cleanup: Deleted ${deletedSessions.length} old sessions`, {
-    deletedSessionIds: deletedSessions,
-    freedSpaceMB: freedMB.toFixed(2),
-    beforeStorageMB: beforeMB.toFixed(2),
-    afterStorageMB: afterMB.toFixed(2),
-    timestamp: getTimestamp(),
-  })
-}
-
-/**
- * Log storage capacity check (dev-only)
- */
-export const logStorageCapacity = (
-  currentMB: number,
-  quotaMB: number,
-  percentUsed: number,
-  isHealthy: boolean
-): void => {
-  if (process.env.NODE_ENV !== 'development') return
-
-  const emoji = isHealthy ? '✓' : '⚠️'
-  console.debug(
-    `${LOG_PREFIX} ${emoji} Storage: ${currentMB.toFixed(2)}MB / ${quotaMB}MB (${percentUsed.toFixed(0)}%)`,
-    {
-      timestamp: getTimestamp(),
-    }
-  )
-}
-
-/**
- * Log storage capacity warning (ALWAYS logged when over threshold)
- */
-export const logStorageWarning = (
-  currentMB: number,
-  thresholdMB: number,
-  sessionCount: number
-): void => {
-  // ALWAYS log - helps users understand why cleanup is happening
-  console.warn(
-    `${LOG_PREFIX} ⚠️ Storage approaching limit: ${currentMB.toFixed(2)}MB (threshold: ${thresholdMB}MB)`,
-    {
-      currentStorageMB: currentMB.toFixed(2),
-      thresholdMB,
-      sessionCount,
-      message: 'Oldest sessions will be auto-deleted to free space',
-      timestamp: getTimestamp(),
-    }
-  )
 }

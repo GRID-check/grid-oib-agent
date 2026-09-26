@@ -166,6 +166,7 @@ jobs:
             'ghcr\.io/langfuse/langfuse'
             'ghcr\.io/langfuse/langfuse-worker'
             'clickhouse/clickhouse-server'
+            'ghcr\.io/matthiasbigl/err2issue'
           )
           pattern="$(IFS='|'; echo "(${expected[*]})@sha256:[a-f0-9]{64}")"
           grep -oE "$pattern" deploy/pulumi/src/config.ts | sort -u | tee pinned-images.txt

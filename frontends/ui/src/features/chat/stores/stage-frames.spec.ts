@@ -19,7 +19,6 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { useChatStore } from '../store'
 import type { ChatMessage, Conversation } from '../types'
 
-const STORAGE_KEY = 'aiq-chat-store'
 const PARENT = 'msg_1755600000000_3'
 
 vi.mock('@/features/layout/store', () => ({
@@ -118,7 +117,7 @@ const storedOn = (messageId: string) =>
 
 describe('the turn key crosses from the socket onto the answer', () => {
   beforeEach(() => {
-    localStorage.removeItem(STORAGE_KEY)
+    useChatStore.persist.clearStorage()
     vi.clearAllMocks()
     useChatStore.setState({ currentTurnWsParentId: null })
   })
@@ -144,7 +143,7 @@ describe('the turn key crosses from the socket onto the answer', () => {
 
 describe('a ready frame lands on the turn it addresses', () => {
   beforeEach(() => {
-    localStorage.removeItem(STORAGE_KEY)
+    useChatStore.persist.clearStorage()
     vi.clearAllMocks()
     seed(threadOf(answer()))
   })
@@ -199,7 +198,7 @@ describe('a ready frame lands on the turn it addresses', () => {
 
 describe('a frame with nothing to show changes nothing', () => {
   beforeEach(() => {
-    localStorage.removeItem(STORAGE_KEY)
+    useChatStore.persist.clearStorage()
     vi.clearAllMocks()
     seed(threadOf(answer()))
   })
@@ -218,7 +217,7 @@ describe('a frame with nothing to show changes nothing', () => {
 
 describe('a frame that could move something already read is refused', () => {
   beforeEach(() => {
-    localStorage.removeItem(STORAGE_KEY)
+    useChatStore.persist.clearStorage()
     vi.clearAllMocks()
   })
 
@@ -279,7 +278,7 @@ describe('a frame that could move something already read is refused', () => {
 
 describe('a frame addressed to no message here is dropped silently', () => {
   beforeEach(() => {
-    localStorage.removeItem(STORAGE_KEY)
+    useChatStore.persist.clearStorage()
     vi.clearAllMocks()
   })
 
@@ -315,7 +314,7 @@ describe('a frame addressed to no message here is dropped silently', () => {
 
 describe('a second stage writes beside the first, not over it', () => {
   beforeEach(() => {
-    localStorage.removeItem(STORAGE_KEY)
+    useChatStore.persist.clearStorage()
     vi.clearAllMocks()
     seed(threadOf(answer()))
   })
@@ -378,7 +377,7 @@ describe('a record of a write is not held to the rules a suggestion is', () => {
   // notice a reader gets that something was written to their project's durable
   // memory — and suppress it precisely in the cases that are most likely.
   beforeEach(() => {
-    localStorage.removeItem(STORAGE_KEY)
+    useChatStore.persist.clearStorage()
     vi.clearAllMocks()
   })
 

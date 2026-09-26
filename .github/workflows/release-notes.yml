@@ -41,6 +41,7 @@ on:
     paths:
       - releasenotes/notes/**
       - releasenotes/config.yaml
+      - releasenotes/summaries.yaml
       - scripts/release_notes.py
       - .github/workflows/release-notes.yml
   # Validate the pipeline on demand — regeneration and translation resolution

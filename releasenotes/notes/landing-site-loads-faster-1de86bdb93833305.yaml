@@ -1,0 +1,6 @@
+---
+improvements:
+  - >
+    The Piloti website loads faster, most of all on a phone. Pages travel
+    compressed, and fonts, images and styles stay in the browser between visits
+    instead of being fetched again on every page.

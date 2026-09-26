@@ -23,6 +23,17 @@ Labels are props, never hardcoded, because every post exists in `de` and `en`
 and both locales share one drawing. Write labels in uppercase yourself; SVG
 text does not reliably obey `text-transform`.
 
+## Size and the mobile variant
+
+Drawings are 960 units wide with 11-unit labels, so they are only legible near
+1:1. From 1280px the frame breaks out of the 768px text column to about that
+width. Below 1280px, a figure that fills `FigureFrame`'s `mobile` slot shows
+that instead: the same props re-set as an HTML flow with the `fpm-*` classes
+(`fpm-flow`, `fpm-box` with `--soft`/`--tint`/`--dash`, `fpm-row`, `fpm-arrow`,
+`fpm-label`, `fpm-sub`, `fpm-accent`, `fpm-note`). All four figures here have
+one. A figure without it is scaled down, and its labels shrink to 3px on a
+phone, so give every new figure a mobile slot.
+
 ## Adding a new figure
 
 1. Create `YourFigure.astro` here. Wrap the SVG in `<FigureFrame>` and give it

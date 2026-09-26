@@ -1,7 +1,6 @@
 ---
 fixes:
   - >
-    Asking about a project file from a shared link no longer fails when the
-    link carried the file's name instead of its identity. The chat used to try
-    to load that name as if it were the file, and the page could not show its
-    status. It now only looks the file up when the link actually names one.
+    Opening a shared link that asks about a project file works again when the
+    link carries the file's name. The chat now finds the file and shows its
+    status instead of failing.

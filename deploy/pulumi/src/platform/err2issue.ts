@@ -92,9 +92,18 @@ export function installErr2Issue(
     // Drop errors from services with no route rather than dumping them in the
     // fallback repo — an unattributed issue nobody owns is noise.
     { name: "E2I_DROP_UNROUTED", value: String(e2i.dropUnrouted) },
+    { name: "E2I_REOPEN_NOT_PLANNED", value: String(e2i.reopenNotPlanned) },
   ];
-  if (e2i.routeMap !== "") {
-    env.push({ name: "E2I_ROUTE_MAP", value: e2i.routeMap });
+  // Optional settings are left unset rather than set empty, so err2issue's own
+  // default applies. It validates each at startup and refuses to serve a bad
+  // one, which /readyz turns into a failed rollout.
+  const optional: Record<string, string> = {
+    E2I_ROUTE_MAP: e2i.routeMap,
+    E2I_TRACE_URL_TEMPLATE: e2i.traceUrlTemplate,
+    E2I_ISSUE_ASSIGNEES: e2i.issueAssignees,
+  };
+  for (const [name, value] of Object.entries(optional)) {
+    if (value !== "") env.push({ name, value });
   }
 
   const deployment = new k8s.apps.v1.Deployment(
@@ -125,12 +134,9 @@ export function installErr2Issue(
               {
                 name: COMPONENT,
                 image: e2i.image,
-                // Derived, not hardcoded: the default `:latest` is a MOVING tag
-                // and must re-pull on every pod start (policy pack:
-                // moving-tag-must-repull), but digest-pinning `err2issueImage`
-                // — which prod requires — should flip this to IfNotPresent
-                // without anyone remembering to edit it here. Upstream
-                // publishes no version tags yet, hence the moving default.
+                // Derived, not hardcoded: IfNotPresent for the digest-pinned
+                // default, Always if an override names a moving tag (policy
+                // pack: moving-tag-must-repull).
                 imagePullPolicy: pullPolicyFor(e2i.image),
                 ports: [{ containerPort: ERR2ISSUE_OTLP_HTTP_PORT, name: "otlp-http" }],
                 env,

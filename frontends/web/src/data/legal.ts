@@ -1,29 +1,22 @@
-import { CONTACT_EMAIL } from '../consts'
+import { CONTACT_EMAILS } from '../consts'
+import { founders } from './founders'
 
 /**
- * LAUNCH BLOCKER: real company data required before going live.
- * Every value below is a placeholder and must be replaced with the actual
- * operator identity before the site is published.
+ * Who operates this site, as the Impressum (§ 5 ECG, § 25 MedienG) and the
+ * privacy policy state it.
+ *
+ * Piloti is not incorporated yet: the three founders work together under a
+ * letter of intent, which Austrian law treats as a GesbR, so the operator is
+ * the founders by name. When the company is registered, this becomes its
+ * Firma, Firmenbuchnummer, Firmenbuchgericht and UID, and `legal.impressum.status`
+ * in `i18n/ui.ts` goes.
+ *
+ * LAUNCH BLOCKER: § 5 ECG requires a geographic address (street, number,
+ * postcode). The founders chose to omit it during the proof of concept; add it
+ * here before the site is promoted.
  */
-export interface LegalIdentity {
-  operator: string
-  legalForm: string
-  addressLines: string[]
-  registerCourt: string
-  registerNumber: string
-  uid: string
-  email: string
-}
-
-export const legalIdentity: LegalIdentity = {
-  operator: 'Piloti',
-  legalForm: '[Firmenname und Rechtsform — Platzhalter / placeholder]',
-  addressLines: [
-    '[Straße und Hausnummer — Platzhalter / placeholder]',
-    '[PLZ und Ort — Platzhalter / placeholder], Österreich / Austria',
-  ],
-  registerCourt: '[Firmenbuchgericht — Platzhalter / placeholder]',
-  registerNumber: '[Firmenbuchnummer — Platzhalter / placeholder]',
-  uid: '[UID-Nummer — Platzhalter / placeholder]',
-  email: CONTACT_EMAIL,
-}
+export const legalIdentity = {
+  members: founders.map((f) => f.name),
+  seat: { de: 'Wien, Österreich', en: 'Vienna, Austria' },
+  emails: CONTACT_EMAILS,
+} as const

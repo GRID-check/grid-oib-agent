@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="de">
+<meta charset="utf-8">
+<title>Piloti — __TITLE__</title>
+<style>
+  /* The export tools read the canvas backing store, never this CSS box. */
+  html, body { margin: 0; background: #22271a; color: #d3ddc0;
+               font: 12px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace; }
+  canvas { display: block; width: 720px; height: auto; }
+  #cap { width: 720px; padding: 10px 0 24px; }
+</style>
+<canvas id="c"></canvas>
+<div id="cap"></div>
+<!-- The shared print kit. Load order matters: formats, engine, series look. -->
+<script src="../lib/formats.js"></script>
+<script src="../lib/engine.js"></script>
+<script src="../lib/piloti.js"></script>
+<script>
+'use strict';
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   Piloti — __TITLE__ (art/riso/__WORK__). See PRINT.md beside this file.
+
+   Canvas 2D only: no libraries, fonts, images, text or network. The engine,
+   the series look and the formats come from ../lib/. Everything declared at
+   the top level here shares one scope with them, so do not redeclare their
+   names (W, H, K, INK, PAPER, line, own, fit ...): the page stops with a
+   SyntaxError, and export.mjs and check.mjs report it.
+
+   Rules that keep a work exportable:
+   - draw only inside draw(c, compose); the top level may define constants,
+     never touch the canvas (check.mjs evaluates this file without one)
+   - never Math.random(): c.rng and c.sr are seeded per plate, composition and
+     ink; rngFor('<stable key>') for anything else
+   - geometry in world metres through fit()/poly(); widths in 1080-unit space
+
+   Starter: plate "entwurf" is a white box on a model board under the series
+   sun. Replace the drawing, rename the plate (the name seeds its randomness:
+   freeze it once a proof is approved), and fill in the JOBS table.
+   ───────────────────────────────────────────────────────────────────────── */
+
+const ENTWURF = (() => {
+  const BOX = [0, 0, 0, 7, 4.5, 3.2];          // x0 y0 z0 x1 y1 z1, metres
+  const SITE = [-5, -4, 13, 9];                // the board: x0 y0 x1 y1
+  const SLAB = 0.45;                           // board thickness
+  /* One framing per composition the plate supports (formats.js names them). */
+  const FIT = {
+    sq:       { fill: 0.8,  cx: 0.5,  cy: 0.5 },
+    og:       { fill: 0.86, fillH: 0.78, cx: 0.5, cy: 0.5 },
+    wide:     { fill: 0.9,  fillH: 0.8,  cx: 0.5, cy: 0.5 },
+    cover:    { fill: 0.86, fillH: 0.8,  cx: 0.5, cy: 0.5 },
+    linkedin: { fill: 0.9,  fillH: 0.78, cx: 0.62, cy: 0.5 },
+    strip:    { fill: 0.9,  fillH: 0.78, cx: 0.5, cy: 0.5 },
+    spot:     { fill: 0.92, cx: 0.5,  cy: 0.5 },
+    empty:    { fill: 0.76, cx: 0.5,  cy: 0.5 },
+    a6:       { fill: 0.78, cx: 0.5,  cy: 0.45 },   // a riso press leaves ~5 mm unprinted
+  };
+
+  function draw(c, fmt) {
+    const [sx0, sy0, sx1, sy1] = SITE;
+    const [x0, y0, z0, x1, y1, z1] = BOX;
+    const P = fit(VIEW_SERIES, [[sx0, sy0, -SLAB], [sx1, sy0, -SLAB], [sx1, sy1, 0], [sx0, sy1, 0], [x0, y1, z1], [x1, y1, z1]], FIT[fmt]);
+
+    /* the board, its two near edges showing thickness */
+    const top = poly(P, [[sx0, sy0, 0], [sx1, sy0, 0], [sx1, sy1, 0], [sx0, sy1, 0]]);
+    const edgeS = poly(P, [[sx0, sy0, 0], [sx1, sy0, 0], [sx1, sy0, -SLAB], [sx0, sy0, -SLAB]]);
+    const edgeW = poly(P, [[sx0, sy0, 0], [sx0, sy1, 0], [sx0, sy1, -SLAB], [sx0, sy0, -SLAB]]);
+    own(c, edgeS, { moss: 0.58 });
+    own(c, edgeW, { moss: 0.3 });
+    own(c, top, { kelly: 0.3, mist: 0.35 });
+
+    /* ground shadow: one union, clipped to the board, one Hunter screen */
+    groundShadow(c, top, [boxShadow(P, boxCorners(...BOX), SUN_SERIES)], { hunter: 0.64 });
+    line(c, top, weight(1.5), KEY);
+    line(c, edgeS, weight(1.5), KEY);
+    line(c, edgeW, weight(1.3), KEY);
+
+    /* the volume: west face bare stock, south face glancing, top in Mist */
+    const f = boxFaces(P, x0, y0, z0, x1, y1, z1);
+    own(c, f.top, { mist: 0.3 });
+    own(c, f.west, {});
+    own(c, f.south, { moss: 0.22 });
+    line(c, poly(P, [[x0, y0, z1], [x0, y0, z0]], false), weight(1.2), KEY);
+    line(c, poly(P, [[x0, y0, z1], [x1, y0, z1]], false), weight(1.2), KEY);
+    line(c, f.sil, weight(1.9), KEY);
+  }
+
+  return {
+    inks: ['mist', 'kelly', 'moss', 'hunter'], key: 'hunter', draw,
+    /* where the numeral stands, per composition (units); default: bottom centre */
+    numeral: { sq: [540, 1058] },
+  };
+})();
+
+/* ═════════════════════════════════════════════════════════════════════════
+   JOBS. alt and caption go to src/data/art.json; site formats need alt in de
+   and en, written for someone who cannot see the picture. No TODO survives
+   check.mjs. Formats: ../lib/formats.js.
+   ═════════════════════════════════════════════════════════════════════════ */
+
+Riso.run({
+  work: '__WORK__',
+  plates: [
+    { name: 'entwurf', art: ENTWURF, composes: ['sq', 'og', 'wide', 'cover', 'linkedin', 'strip', 'spot', 'empty', 'a6'] },
+  ],
+  jobs: [
+    { plate: 'entwurf', format: 'plate',
+      alt: { de: 'TODO: Alternativtext', en: 'TODO: alt text' },
+      caption: { de: 'TODO: Tafel I — Titel', en: 'TODO: Plate I — Title' } },
+    // { plate: 'entwurf', format: 'og', alt: { de: '…', en: '…' } },
+    // { plate: 'entwurf', format: 'postcard' },   // out/: no alt needed, separations included
+  ],
+});
+</script>
+</html>

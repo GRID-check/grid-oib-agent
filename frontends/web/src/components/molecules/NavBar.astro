@@ -13,24 +13,40 @@ const { locale = 'de', switchTo } = Astro.props
 const t = ui[locale]
 const translatePath = useTranslatedPath(locale)
 const home = translatePath('/')
+const blog = translatePath('/blog/')
+const changelog = translatePath('/changelog/')
+
+// The language switch appears twice (desktop row, phone menu); one list keeps
+// the two from drifting apart.
+const langs = (['de', 'en'] as const).map((l) => ({
+  code: l,
+  label: l.toUpperCase(),
+  current: l === locale,
+}))
 ---
 
-<header data-nav class="fixed inset-x-0 top-0 z-50 px-3 pt-3 sm:px-4 sm:pt-4">
+<header data-nav class="fixed inset-x-0 top-0 z-50 px-2 pt-2 sm:px-4 sm:pt-4">
+  <!-- Dims the page while the phone menu is open; a tap on it closes the menu. -->
+  <div data-nav-scrim hidden class="fixed inset-0 -z-10 bg-ink/25 lg:hidden" aria-hidden="true"></div>
+
   <nav
     data-nav-bar
-    class="mx-auto flex w-full max-w-[84rem] items-center justify-between gap-3 rounded-card px-3 py-2 transition-[max-width,background-color,box-shadow,border-radius] duration-700 ease-[cubic-bezier(0.16,1,0.3,1)] sm:px-5 md:grid md:grid-cols-[1fr_auto_1fr]"
+    class="relative mx-auto flex w-full max-w-[84rem] items-center justify-between gap-2 rounded-card py-1.5 pl-3.5 pr-1.5 transition-[max-width,background-color,box-shadow,border-radius] duration-700 ease-[cubic-bezier(0.16,1,0.3,1)] sm:pl-5 lg:grid lg:grid-cols-[1fr_auto_1fr] lg:px-5 lg:py-2"
     aria-label={t.nav.ariaLabel}
   >
-    <div class="hidden md:block"></div>
-    <Logo href={`${home}#top`} label={t.nav.logoLabel} class="shrink-0" />
-    <div
-      class="flex shrink-0 items-center justify-end gap-2.5 text-sm font-medium sm:gap-3.5"
-    >
+    <div class="hidden items-center gap-6 text-sm font-medium lg:flex">
+      <a href={blog} class="whitespace-nowrap text-ink hover:text-accent-600">{t.nav.blog}</a>
+      <a href={changelog} class="whitespace-nowrap text-ink hover:text-accent-600">{t.nav.changelog}</a>
+    </div>
+
+    <Logo href={`${home}#top`} label={t.nav.logoLabel} class="inline-flex min-h-11 shrink-0 items-center" />
+
+    <div class="flex shrink-0 items-center justify-end gap-1 text-sm font-medium sm:gap-2 lg:gap-3.5">
       <a
         href={SIGN_IN_HREF}
         data-sign-in
         data-sign-in-pending={t.nav.signInPending}
-        class="inline-flex items-center gap-1.5 whitespace-nowrap text-ink hover:text-accent-600"
+        class="hidden items-center gap-1.5 whitespace-nowrap text-ink hover:text-accent-600 lg:inline-flex"
       >
         <svg
           data-sign-in-spinner
@@ -43,14 +59,122 @@ const home = translatePath('/')
           style="animation: chain-spin 0.9s linear infinite"
           aria-hidden="true"
         >
-          <path d="M12 3a9 9 0 1 0 9 9" />
+          <path d="M12 3a9 9 0 1 0 9 9"></path>
         </svg>
-        {/* Below sm the label has no room (the row already runs to the edge at
-        320px), so the icon carries it there and the label stays for screen
-        readers. Without one of the two, phones have no sign-in affordance. */}
+        <span data-sign-in-label aria-live="polite">{t.nav.signIn}</span>
+      </a>
+
+      <Pill
+        href={`${home}#kontakt`}
+        variant="solid"
+        size="nav"
+      >
+        {t.nav.cta}
+      </Pill>
+
+      {
+        switchTo && (
+          <span
+            class="hidden whitespace-nowrap font-mono text-2xs uppercase tracking-widest text-ink-ghost lg:inline"
+            aria-label={t.nav.langLabel}
+          >
+            {langs.map((l, i) => (
+              <>
+                {i > 0 && <span aria-hidden="true"> / </span>}
+                {l.current ? (
+                  <span class="text-ink" aria-current="true">
+                    {l.label}
+                  </span>
+                ) : (
+                  <a href={switchTo} class="hover:text-accent-600" hreflang={l.code}>
+                    {l.label}
+                  </a>
+                )}
+              </>
+            ))}
+          </span>
+        )
+      }
+
+      <button
+        type="button"
+        data-nav-toggle
+        data-label-open={t.nav.menuOpen}
+        data-label-close={t.nav.menuClose}
+        aria-expanded="false"
+        aria-controls="nav-menu"
+        aria-label={t.nav.menuOpen}
+        class="group inline-flex size-11 shrink-0 cursor-pointer items-center justify-center rounded-full text-ink transition-colors hover:bg-ink/5 lg:hidden"
+      >
+        <span class="relative block h-3 w-[1.125rem]" aria-hidden="true">
+          <span
+            class="absolute inset-x-0 top-0 h-[1.5px] rounded-full bg-current transition-transform duration-300 group-aria-expanded:translate-y-[5.25px] group-aria-expanded:rotate-45"
+          ></span>
+          <span
+            class="absolute inset-x-0 bottom-0 h-[1.5px] rounded-full bg-current transition-transform duration-300 group-aria-expanded:-translate-y-[5.25px] group-aria-expanded:-rotate-45"
+          ></span>
+        </span>
+      </button>
+    </div>
+  </nav>
+
+  <!-- The phone menu: a disclosure sheet under the bar, not a modal. Everything
+       the desktop row carries that a phone header has no room for lives here. -->
+  <div
+    id="nav-menu"
+    data-nav-menu
+    hidden
+    class="mx-auto mt-2 max-h-[calc(100dvh-5.5rem)] max-w-[84rem] overflow-y-auto overscroll-contain rounded-card bg-paper shadow-lift ring-1 ring-ink/8 lg:hidden"
+  >
+    <div class="px-5 pb-2 pt-5">
+      <p class="m-0 font-mono text-2xs uppercase tracking-label text-ink-faint">
+        {t.nav.sectionsLabel}
+      </p>
+      <ul class="m-0 mt-2 list-none p-0">
+        {
+          t.nav.sections.map((s) => (
+            <li class="border-t border-ink/8 first:border-t-0">
+              <a
+                href={`${home}${s.href}`}
+                class="flex min-h-12 items-center justify-between text-[1.0625rem] text-ink"
+              >
+                {s.label}
+                <span class="text-ink-ghost" aria-hidden="true">
+                  →
+                </span>
+              </a>
+            </li>
+          ))
+        }
+      </ul>
+    </div>
+    <div class="grid grid-cols-2 gap-2 border-t border-ink/8 px-5 py-3">
+      <a href={blog} class="flex min-h-11 items-center text-base text-ink">{t.nav.blog}</a>
+      <a href={changelog} class="flex min-h-11 items-center text-base text-ink">{t.nav.changelog}</a>
+    </div>
+    <div class="flex items-center justify-between gap-3 border-t border-ink/8 bg-surface-dim/60 px-5 py-2">
+      <a
+        href={SIGN_IN_HREF}
+        data-sign-in
+        data-sign-in-pending={t.nav.signInPending}
+        class="inline-flex min-h-11 items-center gap-2 text-base font-medium text-ink"
+      >
+        <svg
+          data-sign-in-spinner
+          class="hidden size-4 shrink-0"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2.4"
+          stroke-linecap="round"
+          style="animation: chain-spin 0.9s linear infinite"
+          aria-hidden="true"
+        >
+          <path d="M12 3a9 9 0 1 0 9 9"></path>
+        </svg>
         <svg
           data-sign-in-icon
-          class="size-4 shrink-0 sm:hidden"
+          class="size-4 shrink-0"
           viewBox="0 0 24 24"
           fill="none"
           stroke="currentColor"
@@ -59,37 +183,33 @@ const home = translatePath('/')
           stroke-linejoin="round"
           aria-hidden="true"
         >
-          <path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4" />
-          <path d="m10 17 5-5-5-5" />
-          <path d="M15 12H3" />
+          <path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"></path>
+          <path d="m10 17 5-5-5-5"></path>
+          <path d="M15 12H3"></path>
         </svg>
-        <span data-sign-in-label class="sr-only sm:not-sr-only" aria-live="polite"
-          >{t.nav.signIn}</span
-        >
+        <span data-sign-in-label aria-live="polite">{t.nav.signIn}</span>
       </a>
-      <Pill href={`${home}#kontakt`} variant="outline" size="sm">
-        {t.nav.cta}
-      </Pill>
       {
         switchTo && (
-          <span
-            class="whitespace-nowrap font-mono text-2xs uppercase tracking-widest text-ink-ghost"
-            aria-label={t.nav.langLabel}
-          >
-            {locale === 'de' ? (
-              <span class="text-ink" aria-current="true">DE</span>
-            ) : (
-              <a href={switchTo} class="hover:text-accent-600" hreflang="de">DE</a>
-            )}
-            <span aria-hidden="true"> / </span>
-            {locale === 'en' ? (
-              <span class="text-ink" aria-current="true">EN</span>
-            ) : (
-              <a href={switchTo} class="hover:text-accent-600" hreflang="en">EN</a>
+          <span class="flex items-center font-mono text-xs uppercase tracking-widest" aria-label={t.nav.langLabel}>
+            {langs.map((l) =>
+              l.current ? (
+                <span class="inline-flex size-11 items-center justify-center text-ink" aria-current="true">
+                  {l.label}
+                </span>
+              ) : (
+                <a
+                  href={switchTo}
+                  hreflang={l.code}
+                  class="inline-flex size-11 items-center justify-center text-ink-faint hover:text-accent-600"
+                >
+                  {l.label}
+                </a>
+              )
             )}
           </span>
         )
       }
     </div>
-  </nav>
+  </div>
 </header>

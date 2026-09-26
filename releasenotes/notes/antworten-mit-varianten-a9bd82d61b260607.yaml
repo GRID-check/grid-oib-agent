@@ -1,63 +1,41 @@
 ---
 features:
   - >
-    Antworten erscheinen, während sie geschrieben werden, statt erst am Ende
-    der Recherche. Jede Fundstelle steht sofort an ihrer Stelle, zunächst als
-    „wird geprüft“, und wird zur anklickbaren Quelle, sobald der Text fertig
-    und geprüft ist, noch bevor Karten und Antwort vollständig sind.
+    Answers now appear while they are written: each reference takes its place at
+    once, marked as being checked, and becomes a clickable source as soon as it
+    is verified.
   - >
-    Titel und Kurzfassung stehen über der Antwort, bevor ihr erstes Wort
-    erscheint, und eine Karte hält ihren Platz im Text frei und wächst dort
-    hinein, statt den Text, den Sie gerade lesen, nach unten zu schieben.
-    Wer einen geteilten Verlauf mitliest, sieht dieselbe Antwort mit Titel,
-    Quellen und Karten, nicht mehr nur ihren Text.
+    Title and summary stand above the answer before its first word, and a card
+    keeps its place in the text instead of pushing down what you are reading. A
+    colleague reading along sees the same answer with title, sources and cards.
   - >
-    Diagramme in Antworten sind neu gestaltet: Abläufe als Karten mit
-    beschrifteten Pfeilen und hervorgehobenen Entscheidungen, ein Regelwerk
-    als Baum (auf dem Telefon als Gliederung), Übergaben als Spalten je
-    Beteiligtem, Termine als Balken auf einer Zeitachse. Aufgabenlisten
-    zeigen Markierungen statt Kontrollkästchen.
+    Variants you compare, such as two design options, two provinces or existing
+    and converted, appear as tabs, each with its own table; the Word export
+    lists them one after another.
   - >
-    Varianten, die Sie vergleichen (zwei Entwurfslösungen, zwei
-    Bundesländer, Bestand und Umbau), erscheinen als Reiter, jede mit ihrer
-    eigenen Tabelle. Zusammengehörige Karten stehen auf breiten Bildschirmen
-    nebeneinander. Im Word-Export stehen die Varianten untereinander, jede
-    mit ihrem Reitertitel.
+    Check tables show their result up front, such as „2 erfüllt · 1 offen“, and
+    on a phone wide tables stack row by row instead of scrolling sideways.
   - >
-    Prüftabellen zeigen ihr Ergebnis vorab (etwa „2 erfüllt · 1 offen“),
-    eine Fundstelle, die für alle Zeilen gleich ist, steht einmal unter der
-    Tabelle statt in jeder Zeile, und auf dem Telefon werden breite Tabellen
-    zeilenweise untereinander gezeigt statt seitlich zu scrollen.
+    Diagrams are redesigned: processes as cards with labelled arrows, a body of
+    rules as a tree, hand-overs as columns per party and dates as bars on a
+    timeline.
+improvements:
   - >
-    Antworten wiederholen sich weniger: ein Vorspann, der nur den ersten
-    Absatz wiederholt, entfällt, ebenso eine Mindmap, die nur die Tabelle
-    daneben nachzeichnet, und eine Fundstelle steht je Tabellenzeile nur
-    einmal.
+    Answers repeat themselves less: a lead that only restates the first
+    paragraph is dropped, as is a mind map that only redraws the table beside
+    it.
 fixes:
   - >
-    Fragen zu bewilligungsfreien und anzeigepflichtigen Bauvorhaben in
-    Salzburg werden aus dem Baupolizeigesetz beantwortet statt an die
-    ausführliche Recherche übergeben, und die Tiroler Bauordnung wird nach
-    Paragraphen samt Überschrift gelesen statt nach ihrem Inhaltsverzeichnis.
+    Values from the tables of the OIB-Richtlinien, such as table 3 on
+    stairwells, are now read correctly and cited with the table's page; the
+    search used to mix up the columns for building classes.
   - >
-    Antworten zur Bauordnung behalten ihre Fundstellen im RIS und sind
-    schneller: ein genannter Paragraph kommt ganz statt nur sein Anfang, ohne
-    die doppelte Vorlesefassung des RIS, und ist als RIS statt als
-    Wissensbasis gekennzeichnet. Bisher fragte die Suche drei- bis viermal nach
-    dem Rest, und ein zitierter Paragraph konnte aus der Quellenliste fallen.
+    Answers on the Bauordnung keep their RIS references and are faster, because
+    a cited paragraph now arrives whole instead of in several pieces.
   - >
-    Werte aus den Tabellen der OIB-Richtlinien (etwa Tabelle 3 zu
-    Treppenhäusern) werden richtig gelesen und mit der Seite der Tabelle
-    zitiert; bisher verwechselte die Suche die Spalten der Gebäudeklassen.
+    Questions on permit-free and notifiable building work in Salzburg are
+    answered from the Baupolizeigesetz, and the Tiroler Bauordnung is read by
+    paragraph.
   - >
-    Die Punkte von „Das Wichtigste“ stehen bündig untereinander, und
-    Kopieren, Antwortdetails und Bewertung stehen unter einer Antwort in
-    einer Zeile.
-  - >
-    Skizzen sind auf dem Telefon lesbar: Maße und Beschriftungen erscheinen
-    nicht mehr in 5 bis 7 Pixel Größe. Breite Tabellen, Vergleiche und
-    Diagramme zeigen am Rand an, dass es seitlich weitergeht.
-  - >
-    Diagramme erscheinen im dunklen Modus durchgehend dunkel; bisher
-    wechselten mehrere Diagramme in einer Antwort ab dem dritten in die
-    helle Palette, und Achsen, Titel und Legenden wurden unsichtbar.
+    Sketches are legible on a phone, and diagrams stay dark in dark mode instead
+    of switching to the light palette from the third one on.

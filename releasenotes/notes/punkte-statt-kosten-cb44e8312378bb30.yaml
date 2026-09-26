@@ -1,22 +1,17 @@
 ---
 features:
   - >
-    Verbrauch und Budgets werden jetzt in Punkten angezeigt statt in Euro.
-    Die Seite „Verbrauch & Budgets“, die Limits pro Organisation, Mitglied
-    und Projekt und die Modellauswahl rechnen alle in derselben Einheit, und
-    die Punkte eines Monats sind die Summe der Punkte seiner Anfragen.
+    Usage and budgets are now shown in points instead of euros, on the usage
+    page, in the limits per organization, member and project, and in the model
+    picker.
   - >
-    In der Modellauswahl steht neben jedem Modell, was eine typische Anfrage
-    darauf ungefähr an Punkten kostet. So lässt sich ein günstiges Modell von
-    einem teuren unterscheiden, ohne eine Preistabelle zu lesen.
+    The model picker shows roughly how many points a typical question costs on
+    each model, so a cheap model can be told from an expensive one at a glance.
   - >
-    Organisationen, die Piloti mit einem eigenen Anbieterschlüssel nutzen,
-    sehen keine Punkte mehr: Ihr Verbrauch wird in Tokens auf der eigenen
-    Rechnung gezählt, und Limits für Organisation, Mitglieder und Projekte
-    lassen sich direkt in Tokens festlegen.
+    Organizations that use Piloti with their own provider key see tokens instead
+    of points, and can set their limits in tokens.
 upgrade:
   - >
-    Bestehende Budgetlimits wurden von Euro in Punkte umgerechnet. Prüfen Sie
-    Ihre Organisations-, Mitglieder- und Projektlimits einmal nach und passen
-    Sie sie an, wenn die neuen Werte nicht dem entsprechen, was Sie gemeint
-    haben.
+    Existing budget limits were converted from euros to points. Check your
+    organization, member and project limits once and adjust them if the new
+    values are not what you meant.

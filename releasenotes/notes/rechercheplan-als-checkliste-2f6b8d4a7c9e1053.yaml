@@ -1,11 +1,9 @@
 ---
 features:
   - >
-    Der Rechercheplan vor einer Tiefenrecherche ist jetzt eine Checkliste:
-    Abschnitte lassen sich streichen und ergänzen, die Art des Berichts
-    (Prüfbericht, Aktenvermerk, Vergleich, Checkliste, Bericht) und die Tiefe
-    (Kurzprüfung, Gutachten) sind wählbar.
+    The research plan is now a checklist: you can remove and add sections and
+    choose the kind of report, such as Prüfbericht, Aktenvermerk or Vergleich,
+    and its depth.
   - >
-    Was Sie im Rechercheplan freigeben, bindet die Recherche: die Abschnitte
-    werden in dieser Reihenfolge zu denen des Berichts, und ein Prüfbericht
-    trägt je Prüfpunkt einen Befund mit Wert, Fundstelle und Status.
+    The plan you approve binds the research: its sections become the report's
+    sections in that order.

@@ -1,12 +1,8 @@
 ---
 improvements:
   - >
-    Die Herleitung zeigt pro Schritt zuerst, was Piloti vorhatte, und darunter
-    jedes Dokument einmal, mit den Punkten oder Seiten, die dieser Schritt
-    darin gelesen hat. Fünf geöffnete Punkte einer Richtlinie sind jetzt eine
-    Karte mit fünf Adressen statt fünf gleich aussehender Karten.
+    Each step of the Herleitung now opens with what Piloti set out to do, then
+    lists every document once with the points or pages it read. Five points of
+    one Richtlinie are one card with five references.
   - >
-    „bereits abgerufen" steht dort, wo dieselbe Stelle noch einmal geholt wurde
-    oder wo Piloti in eine schon aufgeschlagene Datei zurückgegangen ist. Dass
-    eine Suche ein Dokument nur gelistet hat, macht das spätere Aufschlagen
-    nicht mehr zur Wiederholung.
+    Bereits abgerufen now marks only a passage that really was fetched again.

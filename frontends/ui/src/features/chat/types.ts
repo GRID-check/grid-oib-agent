@@ -846,8 +846,8 @@ export interface ChatState {
   /**
    * Per-session composer drafts: the user's own in-progress, unsent text keyed
    * by conversation id. Distinct from `composerPrefill` (one-shot, external):
-   * a draft is long-lived, survives session switches and reloads (persisted to
-   * the `aiq-chat-store` localStorage namespace), and is cleared only when its
+   * a draft is long-lived, survives session switches and reloads (persisted in
+   * the chat store's localStorage index, `stores/chat-storage.ts`), and is cleared only when its
    * message is sent successfully or its session is removed. Keyed by
    * conversation id so it is inherently project/user-scoped and never leaks
    * across contexts.

@@ -1,32 +1,19 @@
 ---
 features:
   - >
-    Der Stand einer Datei steht jetzt in Dateien: Entwurf, In Prüfung,
-    Änderungen erbeten, Freigegeben, Veröffentlicht, Ersetzt, Abgelehnt oder
-    Archiviert.
+    Dateien now shows each file's state: draft, in review, changes requested,
+    approved, published, replaced, rejected or archived. The label appears only
+    on files with more than one version and on everything Piloti wrote.
   - >
-    Die Kennzeichnung erscheint nur dort, wo es etwas zu wissen gibt: bei
-    Dateien mit mehr als einer Fassung und bei allem, was Piloti geschrieben
-    hat. Eine hochgeladene Datei ist ab dem Ablegen veröffentlicht und bleibt
-    unbeschriftet.
+    The file view offers only the approval steps your role and the file's state
+    allow, and the inbox entry for a submitted version names the file and links
+    to it.
   - >
-    Die Dateiansicht führt die Freigabe: einreichen, freigeben, Änderungen
-    anfordern, ablehnen, veröffentlichen, archivieren. Angeboten wird jeweils
-    nur, was der aktuelle Stand und die eigenen Rechte zulassen — wer eine
-    Fassung eingereicht hat, sieht „Freigeben" nicht. Ablehnen und Änderungen
-    anfordern verlangen eine Begründung, die auf der Fassung stehen bleibt.
+    The version list shows who submitted, approved and published each version,
+    and any version can be opened, including a replaced one.
   - >
-    Entscheiden zwei Personen gleichzeitig, erfährt die zweite „Der Stand hat
-    sich geändert" und sieht sofort, was tatsächlich passiert ist.
+    A Freigabe ausstehend filter sits beside Unvergeben and Von Piloti and
+    combines with both.
   - >
-    Die Fassungsliste zeigt jede Fassung mit Nummer, Stand, wer sie eingereicht,
-    freigegeben und veröffentlicht hat — und lässt jede einzelne öffnen, auch
-    eine ersetzte. Zwei Fassungen lassen sich nebeneinander lesen; Unterschiede
-    werden noch nicht markiert.
-  - >
-    Der Filter „Freigabe ausstehend" steht neben „Unvergeben" und „Von Piloti"
-    und lässt sich mit beiden kombinieren.
-  - >
-    Der Postfach-Eintrag zu einer eingereichten Fassung nennt jetzt die Datei
-    beim Namen und führt direkt zu ihr; er erledigt sich, sobald entschieden
-    wurde.
+    If two people decide at the same moment, the second is told the state has
+    changed and sees what happened.

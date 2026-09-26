@@ -248,5 +248,9 @@ config:
   # Caps are deliberately conservative for a first deployment (20 new issues
   # per day, 600s coalescing window — see src/config.ts). Raise
   # err2issueMaxNewFingerprintsPerDay once steady-state volume is known.
+  # Trace ids link to the Aspire dashboard (derived from otelDomain). Also
+  # optional: err2issueIssueAssignees (comma-separated logins) and
+  # err2issueReopenNotPlanned (default false: an issue closed as not planned
+  # or duplicate stays closed when its error recurs; completed ones reopen).
   grid-oib:err2issueEnabled: "true"
   grid-oib:err2issueGithubRepo: GRID-check/grid-oib-agent

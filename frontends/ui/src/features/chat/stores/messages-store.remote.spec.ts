@@ -85,7 +85,7 @@ const insertRemoteMessages = (
 
 describe('insertRemoteMessages', () => {
   beforeEach(() => {
-    localStorage.removeItem('aiq-chat-store')
+    useChatStore.persist.clearStorage()
     useChatStore.setState({
       conversations: [],
       currentConversation: null,

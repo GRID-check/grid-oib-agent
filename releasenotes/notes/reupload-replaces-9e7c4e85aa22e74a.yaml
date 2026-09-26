@@ -1,12 +1,9 @@
 ---
 fixes:
   - >
-    Wird eine Datei mit demselben Namen erneut hochgeladen — etwa ein
-    korrigierter Plan —, ersetzt sie jetzt die vorhandene, statt eine zweite
-    Kopie anzulegen. Bisher blieb der erste Eintrag in der Liste stehen, ließ
-    sich herunterladen, war aber für Piloti nicht mehr auffindbar, weil seine
-    Textstellen bereits durch die neuen ersetzt worden waren. Der
-    Speicherplatz wurde dabei doppelt berechnet.
+    Uploading a file with the same name again, such as a corrected plan, now
+    replaces the existing one instead of creating a second copy that Piloti
+    could no longer find. Storage is no longer counted twice.
   - >
-    Das Dokument behält seine Identität: Verweise aus Antworten, der Bezug im
-    Chat und die Ablage im Ordner bleiben erhalten.
+    The replaced document keeps its identity: references from answers, the link
+    in the chat and its folder stay intact.
