@@ -48,6 +48,8 @@ export const SHARE_ART = {
   rechenweg: 'tafeln/waage/og',
   /** Plate V, Prüfstand: the quiet card, a clause under the glass (imprint, privacy, 404). */
   legal: 'tafeln/pruefstand/og',
+  /** Tragwerk II, Drei Säulen: the unlisted image page, all the prints on one slab. */
+  bildmaterial: 'tragwerk/drei/og',
 } as const satisfies Record<string, OgArtId>
 
 

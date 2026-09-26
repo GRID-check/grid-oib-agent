@@ -32,7 +32,8 @@ interface Props {
   ogImage?: OgImage
   article?: Article
   jsonLd?: object[]
-  noindex?: boolean
+  /** true: out of search indexes, links still followed; 'nofollow': an unlisted page, whose links lead nowhere to follow. */
+  noindex?: boolean | 'nofollow'
 }
 const { title, description, locale, paths, selfPath, ogArt, article, jsonLd = [], noindex = false } =
   Astro.props
@@ -48,7 +49,7 @@ const graph = ldJson([...siteGraph(locale, site), ...jsonLd])
 <meta name="description" content={description} />
 {
   noindex ? (
-    <meta name="robots" content="noindex, follow" />
+    <meta name="robots" content={noindex === 'nofollow' ? 'noindex, nofollow' : 'noindex, follow'} />
   ) : (
     <>
       <link rel="canonical" href={canonical} />

@@ -5,6 +5,7 @@ import node from '@astrojs/node'
 import keystatic from '@keystatic/astro'
 import react from '@astrojs/react'
 import tailwindcss from '@tailwindcss/vite'
+import { UNLISTED } from './src/lib/unlisted.ts'
 
 export default defineConfig({
   site: process.env.PUBLIC_SITE_URL || 'https://piloti.at',
@@ -21,10 +22,15 @@ export default defineConfig({
     // (same path under /en). Blog posts whose slugs differ per locale are
     // paired by the hreflang links in their own <head> instead. Server-rendered
     // routes (/keystatic, /api, /sign-in, the /de redirect) are never listed;
-    // the filter keeps out what is prerendered but not for search.
+    // the filter keeps out what is prerendered but not for search, and the
+    // unlisted pages (src/lib/unlisted.ts), which exist only for who has the link.
     sitemap({
       i18n: { defaultLocale: 'de', locales: { de: 'de', en: 'en' } },
-      filter: (page) => !/\/(404|keystatic|api|sign-in)(\/|$)/.test(new URL(page).pathname),
+      filter: (page) => {
+        const path = new URL(page).pathname
+        if (UNLISTED.some((slug) => path.split('/').includes(slug))) return false
+        return !/\/(404|keystatic|api|sign-in)(\/|$)/.test(path)
+      },
     }),
   ],
   adapter: node({ mode: 'standalone' }),

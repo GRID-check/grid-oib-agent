@@ -22,8 +22,8 @@ interface Props {
   article?: Article
   /** Page-specific JSON-LD nodes, added to the site graph every page carries. */
   jsonLd?: object[]
-  /** Keeps the page out of search indexes (404, anything unfinished). */
-  noindex?: boolean
+  /** Keeps the page out of search indexes (404, anything unfinished); 'nofollow' for an unlisted page (src/lib/unlisted.ts). */
+  noindex?: boolean | 'nofollow'
 }
 const {
   title,

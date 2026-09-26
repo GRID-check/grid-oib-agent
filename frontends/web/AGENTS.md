@@ -69,6 +69,23 @@ Icons and the interim share image are rendered from `shared/brand/piloti-mark.sv
 by `node scripts/build-brand-assets.mjs` (both apps); edit the master, re-run it,
 commit the output. `npm run check` fails when a copy drifted from the master.
 
+### Unlisted pages
+
+Public at their URL, found only by someone given the link. The slugs live in
+`src/lib/unlisted.ts` and nowhere else; `astro.config.mjs` filters them out of
+the sitemap, the page passes `noindex="nofollow"`, and nothing links to one:
+no nav or footer entry, no line in `robots.txt` (a `Disallow` would publish
+the path), none in `llms.txt`. A route reads its slug from the constant
+(`src/pages/[unlisted]/` with `getStaticPaths`), so renaming it is one edit,
+and breaks every link handed out.
+
+- **Image downloads**, `/<DOWNLOADS_SLUG>/` and `/en/<DOWNLOADS_SLUG>/`: every
+  riso file, generated from `src/data/art.json` and `src/data/downloads.json`
+  by `src/lib/downloads.ts`, with a ZIP per work and of everything streamed by
+  `src/pages/[unlisted]/[archive].zip.ts`. The off-site files (LinkedIn, deck,
+  social, postcard and separations, the app's vignettes) are copied into
+  `public/downloads/` by `art/riso/downloads.mjs`, which every export runs.
+
 ## Reference
 
 - Riso art (the prints, the pinned kit, formats, the manifest): [`art/riso/README.md`](art/riso/README.md).
