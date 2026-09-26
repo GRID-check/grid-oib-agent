@@ -55,10 +55,11 @@ Generic classical vocabulary in our own proportions, no quotation of a real temp
 
 ### I. Säule (Column)
 
-The column alone on the lawn board of Tafeln plate I, with a 1:100 figure holding a
-rolled drawing for scale (the column is about 10 m, the figure 1.75 m). The series sun
-throws the shadow long across the lawn to the back right, and it ends in the capital's
-silhouette. The board runs out of the frame, so the lawn reads as ground.
+The column alone on the lawn board of Tafeln plate I (it is about 10 m tall). The
+series sun throws the shadow long across the lawn to the back right, and it ends in the
+capital's silhouette. The board runs out of the frame, so the lawn reads as ground.
+Scale comes from a chain dimension in the west margin, as on a drawing: plinth, shaft
+and capital between 45° ticks, the extension lines stopping short of the column.
 
 - **Formats.** `sq` (plate), `og`, `linkedin` (column at 0.66 of the width, the board
   starting right of centre so the bottom-left third stays bare paper for the profile
@@ -67,8 +68,11 @@ silhouette. The board runs out of the frame, so the lawn reads as ground.
   at `weight()` or more, three solid book spines, a solid shade band on the shaft, two
   flute lines, Mist disks with bold spirals, a solid abacus and the red bookmark. No
   screened tone except the Mist disks. It reads at 96 px as a column with a red mark.
-- **Rejected proofs.** The column at 7 m next to the figure made the figure a toy (a
-  quarter of the column's height); scaled to 10 m. The first framing (whole board in
+- **Rejected proofs.** A 1:100 figure with a rolled drawing beside the plinth (round
+  one). At 7 m it made the figure a toy; at 10 m it still read, in the founders'
+  words, as "stupid", and a lone man was wrong for the three founders' section. All
+  figures are gone from this work (round two); the chain dimension carries the scale
+  instead. The first framing (whole board in
   the square) left the column 250 px tall at 720 and the flutes unreadable.
 
 ### II. Drei Säulen (Three columns)
@@ -77,8 +81,10 @@ Three columns of the family carry one white slab with a planted roof (Kelly, ali
 law as a shaft of stacked books (every third with its section sign), the office as a
 bundle of rolled drawings tied with two strings (some on tracing paper, in Mist; each
 roll with its own solid shade band), the project as a brick pier (solid brick, paper
-joints). All three stand on the book plinth and wear the scroll capital. A figure walks
-between them. The bookmark hangs only from the law column.
+joints). All three stand on the book plinth and wear the scroll capital. The
+bookmark hangs only from the law column. Three columns, one slab: it is the Team
+plate, the three founders carrying one project. No figure: the long shadows give the
+scale (round one had a figure walking between the columns).
 
 - **Rejected.** The first brick shaft had tinted faces with carved joints: at 720 it
   printed as speckle. The first rolls had a screened ramp each and read as one white
@@ -153,7 +159,7 @@ the session's scratchpad (`riso-usecases/tragwerk/concept-sketches.png`).
   at 1440 of the capital (found: the spiral's dark disk showed a crescent outside the
   outer turn, fixed by filling only the first turn; the sheaf band closed up the dark
   gaps, fixed by thinning it after the first quarter turn; the canalis carried no sheet
-  lines, added) and of the plinth and figure (found: the carved § vanished into the
+  lines, added) and of the plinth (found: the carved § vanished into the
   screen, fixed by solid cloth). Earlier, 2x-zoom crops of the whole column.
 - **II.** Full frame at 720 and og; a 1:1 crop of all three columns and the slab at 1440
   (found the speckled brick and the single-cylinder rolls, both fixed).
@@ -164,6 +170,9 @@ the session's scratchpad (`riso-usecases/tragwerk/concept-sketches.png`).
   pier top (found the hook drawn upside down above its ring, and the folded-plan brick's
   folds on a hidden face; both fixed).
 
+Round two (figures removed): the full frames of I and II in every format again, and a
+1:1 crop at 1440 of plate I's chain dimension and capital.
+
 `node art/riso/verify.mjs --work tragwerk` passes (all 17 jobs, Chromium and Firefox).
 
 ## Remaining weaknesses
@@ -172,7 +181,7 @@ the session's scratchpad (`riso-usecases/tragwerk/concept-sketches.png`).
   the flutes read as lines, not as grooves. The bolster (the roll seen from the side)
   is a flat Mist shape with a Moss ramp; it does not show the sheets wound round it.
 - **I.** The lawn is a large Kelly field and carries more weight than the column in the
-  lower half. The figure is plate I's figure, which at this size shows how crude it is.
+  lower half. The chain dimension is faint at 720 and in the LinkedIn banner.
   In the LinkedIn banner the section signs on the spines are two pixels wide and read as
   stripes.
 - **II.** The slab is plain and a little heavy; its Mist top screens coarsely. The three

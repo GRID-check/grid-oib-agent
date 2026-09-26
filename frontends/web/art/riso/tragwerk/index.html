@@ -423,19 +423,24 @@ const SAEULE = (() => {
   const FIT = { sq: { fill: 0.84, fillH: 0.78, cx: 0.52, cy: 0.47 }, og: { fill: 0.9, fillH: 0.82, cx: 0.47, cy: 0.49 },
                 linkedin: { fill: 0.9, fillH: 0.84, cx: 0.66, cy: 0.5 }, deck: { fill: 0.9, fillH: 0.78, cx: 0.7, cy: 0.5 } };
   const COLO = { x: 0, y: 0.6, r: 0.58, h: 7.6 };
-  const FIG = [2.5, -1.9];
+  const DX = -2.9;                                   // chain dimension, west of the plinth
   function draw(c, fmt) {
     if (fmt === 'spot') return spotColumn(c);
     const S = SITE[fmt], slab = 0.5;
     const d = colDims(COLO);
-    const P = fit(VIEW_SERIES, [[-2.2, S[1], -slab], [COLO.x - d.A, COLO.y, d.top + 0.2], onGround([COLO.x + d.A + 0.8, COLO.y + d.D, d.top], SUN_SERIES)], FIT[fmt]);
+    const P = fit(VIEW_SERIES, [[-2.2, S[1], -slab], [DX - 0.4, COLO.y, 0], [COLO.x - d.A, COLO.y, d.top + 0.2], onGround([COLO.x + d.A + 0.8, COLO.y + d.D, d.top], SUN_SERIES)], FIT[fmt]);
     const b = board(c, P, S, slab);
-    unionShadow(c, b.top, [columnShadow(P, COLO, SUN_SERIES), cylShadow(P, FIG[0], FIG[1], 0.2, 1.72, SUN_SERIES)], { hunter: 0.64 });
+    unionShadow(c, b.top, [columnShadow(P, COLO, SUN_SERIES)], { hunter: 0.64 });
     b.outline();
+    /* no figure: scale comes from a chain dimension, as on a drawing. Plinth,
+       shaft, capital, each between 45° ticks; extension lines stop short. */
+    const hs = [0, d.zb, d.zb + d.h, d.top];
+    const pts = hs.map((z) => P([DX, COLO.y, z]));
+    line(c, pathOf([[pts[0][0], pts[0][1] + 8], [pts[3][0], pts[3][1] - 8]], false), 1.0, { hunter: 0.95 });
+    for (const q of pts) { const t = new Path2D(); t.moveTo(q[0] - 4.2, q[1] + 4.2); t.lineTo(q[0] + 4.2, q[1] - 4.2); line(c, t, 1.8, KEY); }
+    const from = [-d.base[0][0], -d.base[1][0], -d.r, -d.A];
+    hs.forEach((z, i) => line(c, seg(P, [COLO.x + from[i] - 0.25, COLO.y, z], [DX - 0.35, COLO.y, z]), 0.8, { hunter: 0.85 }));
     column(c, P, Object.assign({ L: SUN_SERIES }, COLO));
-    const f = figure(P([FIG[0], FIG[1], 0]), 1.75 * P.s, { back: 0.05 });
-    own(c, f.body, { hunter: 1, moss: 0.62 });
-    own(c, f.roll, {}); line(c, f.roll, 0.9, KEY);
   }
   return { inks: ['mist', 'kelly', 'moss', 'hunter', 'red'], key: 'hunter', draw,
            numeral: { sq: [540, 1058], og: [540, 548], linkedin: [1046, 256], deck: [1044, 586] } };
@@ -500,7 +505,6 @@ const DREI = (() => {
   const COLS = [{ x: 0, y: 0, shaft: 'books' }, { x: 5.4, y: 0, shaft: 'rolls' }, { x: 10.8, y: 0, shaft: 'brick' }].map((k) => Object.assign({ r: R0, h: HS }, k));
   const SITE = { sq: [-6.5, -4.6, 22, 7.5], og: [-7, -4.2, 30, 7.5] };
   const FIT = { sq: { fill: 0.9, fillH: 0.84, cx: 0.5, cy: 0.56 }, og: { fill: 0.9, fillH: 0.84, cx: 0.5, cy: 0.5 } };
-  const FIG = [7.9, -2.3];
   function draw(c, fmt) {
     const d = colDims(COLS[0]);
     const SL = [-1.9, -1.35, d.top, 12.7, 1.35, d.top + 1.25];          // the slab: x0 y0 z0 x1 y1 z1
@@ -508,16 +512,12 @@ const DREI = (() => {
     const P = fit(VIEW_SERIES, [[S[0] + 2, S[1], -slab], [SL[0], SL[4], SL[5] + 0.6], [SL[3], SL[1], -slab], onGround([SL[3], SL[4], SL[5]], SUN_SERIES)], FIT[fmt]);
     const b = board(c, P, S, slab);
     const shadows = COLS.map((k) => columnShadow(P, k, SUN_SERIES));
-    shadows.push(boxShadow(P, boxCorners(...SL), SUN_SERIES), cylShadow(P, FIG[0], FIG[1], 0.2, 1.72, SUN_SERIES));
+    shadows.push(boxShadow(P, boxCorners(...SL), SUN_SERIES));
     unionShadow(c, b.top, shadows, { hunter: 0.64 });
     b.outline();
-    const f = figure(P([FIG[0], FIG[1], 0]), 1.75 * P.s, { back: 0.06 });
-    const items = COLS.map((k) => ({ d: depth(P, [k.x, k.y, 0]), k })).concat([{ d: depth(P, [FIG[0], FIG[1], 0]), fig: true }]);
+    const items = COLS.map((k) => ({ d: depth(P, [k.x, k.y, 0]), k }));
     items.sort((a, b2) => b2.d - a.d);
-    for (const it of items) {
-      if (it.fig) { own(c, f.body, { hunter: 1, moss: 0.62 }); own(c, f.roll, {}); line(c, f.roll, 0.9, KEY); continue; }
-      column(c, P, Object.assign({ L: SUN_SERIES, ribbon: it.k.shaft === 'books' }, it.k));
-    }
+    for (const it of items) column(c, P, Object.assign({ L: SUN_SERIES, ribbon: it.k.shaft === 'books' }, it.k));
     /* the slab they carry: white, a soffit lip in shade, a planted roof */
     const [x0, y0, z0, x1, y1, z1] = SL;
     const sf = boxFaces(P, x0, y0, z0, x1, y1, z1);
