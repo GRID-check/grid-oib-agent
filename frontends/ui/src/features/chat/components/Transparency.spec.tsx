@@ -36,7 +36,7 @@ describe('ChatThinking escalation narration', () => {
       />
     )
 
-    await user.click(screen.getByText(/Trace ·/))
+    await user.click(screen.getByText(/^Trace( ·|$)/))
     expect(
       screen.getByText('Escalated to deep research: Die erste Antwort war unzureichend.')
     ).toBeInTheDocument()
