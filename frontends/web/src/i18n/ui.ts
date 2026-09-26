@@ -196,11 +196,10 @@ const de = {
     sub: 'gemessene typische Antwortzeit',
   },
   daten: {
-    tag: 'Quellen und Daten',
     title: 'Quellen, die Sie prüfen können.',
-    body: 'Jede Antwort nennt ihre Quellen, bis auf Paragraf, Punkt oder Seite. Die Verantwortung für die Planung bleibt bei Ihnen.',
-    // Heads the list of sources, in the voice of the sheet's own headings.
-    sourcesHeading: 'Worauf Piloti sich stützt',
+    body: 'Die Verantwortung für die Planung bleibt bei Ihnen.',
+    // The list's accessible name; the heading above says the rest.
+    sourcesLabel: 'Worauf Piloti sich stützt',
     // Only sources the product actually has. There is no material or CO₂
     // database, so there is no card for one.
     cards: [
@@ -210,7 +209,6 @@ const de = {
       { title: 'Web-Recherche', body: 'Aktuelle Quellen, jede mit Link belegt' },
     ],
     proof: {
-      tag: 'Prüfblatt',
       answerHeading: 'Zu jeder Antwort',
       answer: [
         { label: 'Begründung', value: 'warum die Antwort so lautet' },
@@ -222,12 +220,11 @@ const de = {
       // No residency promise of any kind: model calls may leave the EU. What
       // is stated here is what Piloti itself controls.
       data: [
-        { label: 'KI-Training', value: 'Wir trainieren keine Modelle mit Ihren Daten' },
-        { label: 'Pläne und Projekte', value: 'Bleiben Eigentum Ihres Büros' },
-        { label: 'KI-Modelle', value: 'Anbieter in der Datenschutzerklärung genannt' },
-        { label: 'Downloads', value: 'Dokumente und Antworten einzeln herunterladbar' },
+        'Wir trainieren keine Modelle mit Ihren Daten.',
+        'Pläne und Projekte bleiben Eigentum Ihres Büros.',
+        'Dokumente und Antworten laden Sie einzeln herunter.',
       ],
-      link: 'In der Datenschutzerklärung nachlesen',
+      link: 'Welche KI-Anbieter beteiligt sind, steht in der Datenschutzerklärung',
     },
   },
   roi: {
@@ -778,11 +775,10 @@ const en: typeof de = {
     sub: 'measured typical response time',
   },
   daten: {
-    tag: 'Sources and data',
     title: 'Sources you can check.',
-    body: 'Every answer names its sources, down to the section, clause or page. Responsibility for the design stays with you.',
-    // Heads the list of sources, in the voice of the sheet's own headings.
-    sourcesHeading: 'What Piloti draws on',
+    body: 'Responsibility for the design stays with you.',
+    // The list's accessible name; the heading above says the rest.
+    sourcesLabel: 'What Piloti draws on',
     cards: [
       { title: 'Regulations', body: 'State building codes, OIB guidelines, a register of standards' },
       { title: 'Your office', body: 'Plans, documents, experience from past projects' },
@@ -790,7 +786,6 @@ const en: typeof de = {
       { title: 'Web research', body: 'Current sources, each backed by a link' },
     ],
     proof: {
-      tag: 'Check sheet',
       answerHeading: 'With every answer',
       answer: [
         { label: 'Reasoning', value: 'why the answer is what it is' },
@@ -800,12 +795,11 @@ const en: typeof de = {
       ],
       dataHeading: 'With your data',
       data: [
-        { label: 'AI training', value: 'We do not train models on your data' },
-        { label: 'Plans and projects', value: 'Remain the property of your office' },
-        { label: 'AI models', value: 'Providers named in the privacy policy' },
-        { label: 'Downloads', value: 'Documents and answers downloadable one by one' },
+        'We do not train models on your data.',
+        'Plans and projects remain the property of your office.',
+        'You download documents and answers one by one.',
       ],
-      link: 'Read it in the privacy policy',
+      link: 'Which AI providers are involved is set out in the privacy policy',
     },
   },
   roi: {
