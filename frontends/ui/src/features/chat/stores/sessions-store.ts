@@ -252,8 +252,38 @@ export const createResilientStorage = (): PersistStorage<PersistedChatState> | u
     const after = next.conversations ?? []
     return (
       before.length === after.length &&
-      after.every((c, i) => c === before[i] || (c.id === openId && before[i]?.id === openId))
+      after.every(
+        (c, i) => c === before[i] || (c.id === openId && onlyItsAnswerGrew(before[i], c))
+      ) &&
+      onlyItsAnswerGrew(lastWritten?.currentConversation ?? undefined, next.currentConversation)
     )
+  }
+
+  /**
+   * Is the streaming answer at its end the only difference between the two
+   * copies of one conversation? Its title, its other fields and every earlier
+   * message must be the very same objects: a rename or a card decision while
+   * an answer streams is written at once, only the answer's growth waits.
+   * The store keeps an untouched message as the same object on every flush.
+   */
+  const onlyItsAnswerGrew = (
+    before: Conversation | null | undefined,
+    after: Conversation | null | undefined
+  ): boolean => {
+    if (!before || !after || before.id !== after.id) return false
+    const beforeFields: Record<string, unknown> = { ...before }
+    const afterFields: Record<string, unknown> = { ...after }
+    for (const key of new Set([...Object.keys(beforeFields), ...Object.keys(afterFields)])) {
+      if (key !== 'messages' && afterFields[key] !== beforeFields[key]) return false
+    }
+    const was = before.messages
+    const now = after.messages
+    const last = now[now.length - 1]
+    if (!last?.isStreaming) return false
+    // The answer opened since the last write (one more message), or grew (same count).
+    if (now.length !== was.length && now.length !== was.length + 1) return false
+    for (let i = 0; i < now.length - 1; i++) if (now[i] !== was[i]) return false
+    return true
   }
 
   const write = (name: string, value: PersistedChatStorageValue): void => {

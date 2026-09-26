@@ -37,19 +37,23 @@ const OTHER: Conversation = {
   updatedAt: new Date(2026, 8, 24),
 }
 
+const OPEN: Conversation = {
+  id: 'c1',
+  userId: 'u1',
+  title: 'T',
+  messages: [],
+  createdAt: new Date(2026, 8, 25),
+  updatedAt: new Date(2026, 8, 25),
+}
+
 const value = (
   content: string,
   isStreaming: boolean,
   { others = [] as Conversation[], drafts = NO_DRAFTS } = {}
 ) => {
-  const conversation: Conversation = {
-    id: 'c1',
-    userId: 'u1',
-    title: 'T',
-    messages: [message(content, isStreaming)],
-    createdAt: new Date(2026, 8, 25),
-    updatedAt: new Date(2026, 8, 25),
-  }
+  // Every field but the messages is the same object from call to call, as
+  // the store keeps what a flush does not touch.
+  const conversation: Conversation = { ...OPEN, messages: [message(content, isStreaming)] }
   const state = {
     currentUserId: 'u1',
     conversations: [conversation, ...others],
@@ -89,6 +93,18 @@ describe('createResilientStorage', () => {
 
     expect(setItem).not.toHaveBeenCalled()
     setItem.mockRestore()
+  })
+
+  test('a rename while the answer streams is written at once', () => {
+    const storage = createResilientStorage()!
+    storage.setItem(KEY, value('a', true))
+    const renamed = value('ab', true)
+    const conversation = { ...renamed.state.currentConversation!, title: 'Neuer Titel' }
+    storage.setItem(KEY, {
+      ...renamed,
+      state: { ...renamed.state, currentConversation: conversation, conversations: [conversation] },
+    })
+    expect(JSON.parse(localStorage.getItem(KEY)!).state.conversations[0].title).toBe('Neuer Titel')
   })
 
   test('the settled answer is written at once', () => {

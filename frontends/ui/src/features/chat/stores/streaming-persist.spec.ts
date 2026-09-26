@@ -77,14 +77,16 @@ describe('persisting a streamed answer', () => {
     localStorage.removeItem(STORAGE_KEY)
   })
 
-  it('writes nothing while the answer streams, and the settled answer at once', () => {
+  it('writes once when the answer opens, nothing while it grows, and the settled answer at once', () => {
     const setItem = vi.spyOn(localStorage, 'setItem')
     const writes = () => setItem.mock.calls.filter(([key]) => key === STORAGE_KEY).length
 
     for (let i = 0; i < 50; i++) useChatStore.getState().appendAgentResponseDelta(`Wort${i} `)
     vi.advanceTimersByTime(30_000)
-    expect(writes()).toBe(0)
-    expect(storedAnswer()).toBeUndefined()
+    // Opening the answer moves the session to the top (`updatedAt`); that is
+    // written. Its growth is not.
+    expect(writes()).toBe(1)
+    expect(storedAnswer()).not.toContain('Wort49')
 
     useChatStore.getState().finalizeAgentResponse('Die ganze Antwort.')
     expect(storedAnswer()).toBe('Die ganze Antwort.')
